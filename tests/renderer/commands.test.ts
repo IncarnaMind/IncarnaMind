@@ -1,4 +1,5 @@
-import { beforeAll, describe, expect, test, vi } from "vitest";
+import { afterEach, beforeAll, describe, expect, test, vi } from "vitest";
+import type { Task } from "../../src/core/api";
 import { keysForm, keysLabel, keysOn, pressed } from "../../src/renderer/src/commands/keys";
 import {
   type Command,
@@ -9,7 +10,7 @@ import {
 } from "../../src/renderer/src/commands/registry";
 import type { ObjectRef } from "../../src/renderer/src/objects";
 import { windowKeyForms } from "../../src/renderer/src/windowKeys";
-import { MENU_COMMANDS, type MenuCommandId } from "../../src/shared/commands";
+import { type CommandId, MENU_COMMANDS, type MenuCommandId } from "../../src/shared/commands";
 import { type MessageKey, type MessageParams, translate } from "../../src/shared/i18n";
 import { defaultHelpKeys, HELP_SHORTCUTS } from "../../src/shared/meetingHelp";
 
@@ -94,9 +95,9 @@ describe("New Folder with these", () => {
     const three = selecting(["document", "a"], ["document", "b"], ["document", "c"]);
     expect(saysIn(NOWHERE, "en")).toBe("New Folder with these");
     expect(saysIn(selecting(["document", "a"]), "en")).toBe("New Folder with this Document");
-    expect(saysIn(selecting(["mind", "m"]), "en")).toBe("New Folder with this Mind");
+    expect(saysIn(selecting(["mind", "m"]), "en")).toBe("New Folder with this note");
     expect(saysIn(three, "en")).toBe("New Folder with 3 Documents");
-    expect(saysIn(selecting(["mind", "m"], ["mind", "n"]), "en")).toBe("New Folder with 2 Minds");
+    expect(saysIn(selecting(["mind", "m"], ["mind", "n"]), "en")).toBe("New Folder with 2 notes");
     expect(saysIn(selecting(["mind", "m"], ["document", "a"]), "en")).toBe(
       "New Folder with 2 items",
     );
@@ -147,6 +148,35 @@ describe("New Folder with these", () => {
   });
 });
 
+describe("Output location", () => {
+  const command = () => {
+    const found = commands.get("settings.outputLocation");
+    if (!found) throw new Error("There is no Output location command.");
+    return found;
+  };
+
+  test("is in ⌘K named for the switches it opens, and says where they are, in both languages", () => {
+    expect(labelOf(command(), NOWHERE, translator("en"))).toBe("New files in Linked folders");
+    expect(command().purpose && translator("en")(command().purpose as MessageKey)).toBe(
+      "Output location",
+    );
+    expect(labelOf(command(), NOWHERE, translator("zh-CN"))).toBe("在关联文件夹中添加文件");
+  });
+
+  test("opens where files are saved, as a Linked folder's not-checked line does", async () => {
+    const { useAppStore } = await import("../../src/renderer/src/store");
+    const openSettings = useAppStore.getState().openSettings;
+    const opened = vi.fn();
+    useAppStore.setState({ openSettings: opened });
+    try {
+      await commands.run("settings.outputLocation", NOWHERE);
+      expect(opened.mock.calls).toEqual([["general", "output-location"]]);
+    } finally {
+      useAppStore.setState({ openSettings });
+    }
+  });
+});
+
 /**
  * In the note, the note's own keymap tries a Block's command first, and the window's acts where
  * it isn't offered: ⌘K edits the link on selected text, and opens ⌘K anywhere else.
@@ -155,6 +185,98 @@ const blockFirst = (window: Command, block: Command) =>
   !window.appliesTo &&
   block.appliesTo?.every((kind) => kind === "block") === true &&
   block.when !== undefined;
+
+describe("Tasks from the keyboard", () => {
+  // The Tasks and the seat one test sets are the store's for every test after it.
+  afterEach(async () => {
+    const { useTasks } = await import("../../src/renderer/src/tasks");
+    const { useComposer } = await import("../../src/renderer/src/composer");
+    useTasks.setState({ tasks: {}, shown: null });
+    useComposer.setState({ seat: null });
+  });
+
+  test("Show Tasks is offered with no Task at all, so Recent is always in reach", () => {
+    const show = commands.get("tasks.show");
+    expect(show).toBeDefined();
+    expect(show !== undefined && offered(show, NOWHERE)).toBe(true);
+  });
+
+  test("Stop Task is ⌘. on macOS and Ctrl+. elsewhere; Pause and Resume are in ⌘K", () => {
+    const stop = commands.get("task.stop");
+    expect(commands.get("task.pause")).toBeDefined();
+    expect(commands.get("task.resume")).toBeDefined();
+    const shortcut = stop?.shortcut;
+    expect(shortcut !== undefined && keysLabel(keysOn(shortcut.keys, true), true)).toBe("⌘.");
+    expect(shortcut !== undefined && keysLabel(keysOn(shortcut.keys, false), false)).toBe("Ctrl+.");
+  });
+
+  test("Stop asks first: stopping a Task can't be taken back", () => {
+    expect(commands.get("task.stop")?.reversible).toEqual({ confirm: "task.stopConfirm" });
+    expect(translator("en")("task.stopConfirm")).toContain("?");
+  });
+
+  test("a done Research Task keeps Plan in ⌘K, and the Task in focus is never swapped for another", async () => {
+    const { useTasks } = await import("../../src/renderer/src/tasks");
+    const { useComposer } = await import("../../src/renderer/src/composer");
+    const { useResearch } = await import("../../src/renderer/src/research");
+    const base = {
+      mindId: "mind",
+      blockId: null,
+      question: "How did tea reach Europe?",
+      review: null,
+      pausedReason: null,
+      resetsAt: null,
+      ask: null,
+      progress: { done: 4, total: 4 },
+      problem: null,
+      cost: null,
+      steps: [],
+      stepCount: 0,
+      queued: [],
+      remaining: [],
+      summary: null,
+      startedAt: "2026-10-12T09:00:00.000Z",
+      finishedAt: null,
+      updatedAt: "2026-10-12T10:05:00.000Z",
+    };
+    const running: Task = {
+      ...base,
+      id: "running",
+      kind: "comparison",
+      status: "running",
+      actions: ["pause", "stop"],
+    };
+    const done: Task = {
+      ...base,
+      id: "done",
+      kind: "research",
+      status: "done",
+      actions: ["plan", "tell", "pause", "stop"],
+      finishedAt: "2026-10-12T08:30:00.000Z",
+    };
+    useComposer.setState({ seat: { mindId: "mind" } as never });
+    useTasks.setState({ tasks: { running, done } });
+    const found = (id: CommandId) => {
+      const command = commands.get(id);
+      if (!command) throw new Error(`There is no ${id}.`);
+      return command;
+    };
+    const on = (task: string) => offered(found("research.plan"), { ...NOWHERE, task });
+    const takes = (id: CommandId, task: string) => offered(found(id), { ...NOWHERE, task });
+
+    expect(on("done")).toBe(true);
+    expect(on("running")).toBe(false);
+    // Done and in focus: Pause and Stop are not offered, though another Task runs.
+    expect(takes("task.pause", "done")).toBe(false);
+    expect(takes("task.stop", "done")).toBe(false);
+    expect(takes("task.pause", "running")).toBe(true);
+
+    await commands.run("research.plan", { ...NOWHERE, task: "done" });
+    expect(useResearch.getState().viewing.mind).toBe("done");
+    await commands.run("research.plan", { ...NOWHERE, task: "done" });
+    expect(useResearch.getState().viewing.mind).toBeUndefined();
+  });
+});
 
 describe("shortcuts", () => {
   test.each(SYSTEMS)("no keys are bound twice where both commands can act, on $name", ({ mac }) => {

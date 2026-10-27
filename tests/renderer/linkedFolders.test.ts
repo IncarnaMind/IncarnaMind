@@ -104,8 +104,8 @@ describe("what a Linked folder's row says", () => {
       full: "Reading 120 of 3,214 files, newest first",
     });
     expect(rowStateLabel({ kind: "indexing", indexed: 120, files: 3214 }, zh, "zh-CN")).toEqual({
-      short: "正在读取 120 / 3,214",
-      compact: "120 / 3,214",
+      short: "正在读取 120/3,214 个文件",
+      compact: "120/3,214",
       full: "正在读取 3,214 个文件，已完成 120 个，最新的优先",
     });
   });

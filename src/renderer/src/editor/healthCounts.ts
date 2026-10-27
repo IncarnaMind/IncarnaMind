@@ -43,21 +43,35 @@ export type HealthPart = (typeof HEALTH_PARTS)[number];
 
 /**
  * Where each part's sentences or Citations are, top to bottom: its count is
- * how many. `toCheck`: every claim no check covers now; `tableCells` and
- * `citable` are the parts of that count a table holds and that a Citation or
- * an Answer's words make (#1194, #1909); `checkable`: every claim a check
- * reads, to check or covered.
+ * how many. `toCheck`: every claim no check covers now, `failed` and
+ * `recheck` the parts of that count whose check failed or no longer holds;
+ * `checking`: the claims a run is checking right now, not done yet;
+ * `kept`: the sentences the User keeps as their own view, which count as
+ * handled; `tableCells` are the parts of `toCheck` a table holds (#1194);
+ * `checkable`: every claim a check reads, to check, checking or covered;
+ * `supported`: the covered claims a check found supported, the ones with no
+ * Citation among them; `checkedAt`: the newest check among the claims one
+ * covers, for "Checked {time}" (D266).
  */
 export interface NoteHealth {
   found: number[];
   notFound: number[];
+  /** The covered claims that need a look: contradicted, unsupported, or one of their Citations not found. */
+  lookClaims: number[];
+  /** The Citations not found on those claims: a reason's count, never a claim's (#1941). */
+  lookNotFound: number[];
   unsupported: number[];
   contradicted: number[];
   toCheck: number[];
+  failed: number[];
+  recheck: number[];
+  checking: number[];
+  kept: number[];
   tableCells: number[];
-  citable: number[];
   noCitation: number[];
   checkable: number;
+  supported: number;
+  checkedAt: string | null;
 }
 
 /** Blocks whose text isn't counted. */
@@ -81,8 +95,6 @@ export interface SentenceInput {
   skipped?: ReadonlySet<string>;
   /** The marks the User keeps as their own view, at their places. */
   kept?: readonly KeptMark[];
-  /** Whether an Answer wrote the block with this id. */
-  writtenByAnswer?: (blockId: unknown) => boolean;
 }
 
 export interface NoteHealthInput extends SentenceInput {
@@ -98,10 +110,8 @@ export interface SentencePlace {
   text: string;
   claim: ShownClaim | null;
   citations: { attributes: CitationAttributes; at: number; pos: number }[];
-  /** Its top-level Block's id: the one an Answer's origin names. */
+  /** Its top-level Block's id: what a write's "Check the rest" scopes itself to (#1909). */
   blockId: unknown;
-  /** An Answer wrote its block. */
-  answered: boolean;
   /** It is in a table cell. */
   inTable: boolean;
   state: CheckedSentence;
@@ -122,13 +132,11 @@ function eachSentence(
 ): void {
   const skipped = input.skipped ?? new Set<string>();
   const kept = input.kept ?? [];
-  const writtenByAnswer = input.writtenByAnswer ?? (() => false);
   doc.descendants((node, pos) => {
     if (UNCOUNTED.has(node.type.name) || proposed(node)) return false;
     if (!node.isTextblock) return true;
     if (node.type.name !== "paragraph") return false;
     const blockId = doc.resolve(pos + 1).node(1).attrs[BLOCK_ID_ATTRIBUTE];
-    const answered = writtenByAnswer(blockId);
     const { text, starts, ends, inline } = paragraphPlaces(node, pos, proposed);
     const citations = inline.flatMap(({ node: child, at, pos: place }) =>
       child.type.name === CITATION_NODE
@@ -154,7 +162,6 @@ function eachSentence(
         claim,
         citations: citations.filter((each) => each.at >= span.from && each.at < span.to),
         blockId,
-        answered,
         inTable: table,
         state,
       });
@@ -167,54 +174,140 @@ export function noteHealth(doc: ProseMirrorNode, input: NoteHealthInput): NoteHe
   const health: NoteHealth = {
     found: [],
     notFound: [],
+    lookClaims: [],
+    lookNotFound: [],
     unsupported: [],
     contradicted: [],
     toCheck: [],
+    failed: [],
+    recheck: [],
+    checking: [],
+    kept: [],
     tableCells: [],
-    citable: [],
     noCitation: [],
     checkable: 0,
+    supported: 0,
+    checkedAt: null,
   };
-  eachSentence(doc, input, ({ from, text, claim, citations, answered, inTable: table, state }) => {
+  eachSentence(doc, input, ({ from, text, claim, citations, inTable: table, state }) => {
+    const missing: number[] = [];
     for (const citation of citations) {
       const check = input.citationCheck(citation.attributes);
       if (check === "found") health.found.push(citation.pos);
-      else if (check === "not-found") health.notFound.push(citation.pos);
+      else if (check === "not-found") {
+        health.notFound.push(citation.pos);
+        missing.push(citation.pos);
+      }
     }
     if (state.kind === "to-check") {
       health.checkable++;
       health.toCheck.push(from);
+      if (state.why === "failed") health.failed.push(from);
+      else if (state.why === "recheck") health.recheck.push(from);
       if (table) health.tableCells.push(from);
-      // A Citation, an Answer's words, or a check that failed or no longer holds shows the badge (#1194).
-      if (citations.length > 0 || answered || state.why !== "none") health.citable.push(from);
+      return;
+    }
+    if (state.kind === "kept") {
+      health.kept.push(from);
+      return;
+    }
+    if (state.kind === "checking") {
+      health.checkable++;
+      health.checking.push(from);
       return;
     }
     if (state.kind !== "covered" || !claim) return;
     health.checkable++;
-    if (claim.shown.state === "unsupported") health.unsupported.push(from);
-    else if (claim.shown.state === "contradicted") health.contradicted.push(from);
-    else if (isClaim(text) && citations.length === 0) health.noCitation.push(from);
+    const checkedAt = claim.check.checkedAt;
+    if (
+      checkedAt !== "" &&
+      !Number.isNaN(Date.parse(checkedAt)) &&
+      (health.checkedAt === null || Date.parse(checkedAt) > Date.parse(health.checkedAt))
+    ) {
+      health.checkedAt = checkedAt;
+    }
+    const unsupported = claim.shown.state === "unsupported";
+    const contradicted = claim.shown.state === "contradicted";
+    if (unsupported) health.unsupported.push(from);
+    else if (contradicted) health.contradicted.push(from);
+    else {
+      health.supported++;
+      if (isClaim(text) && citations.length === 0) health.noCitation.push(from);
+    }
+    if (unsupported || contradicted || missing.length > 0) {
+      health.lookClaims.push(from);
+      health.lookNotFound.push(...missing);
+    }
   });
   return health;
 }
 
-/** Whether the card can say everything is checked: a sentence was checked, none is left, and no unsupported or contradicted sentence shows (#1909). */
-export function everythingChecked(
-  health: NoteHealth,
-  { running, problem }: { running: boolean; problem: boolean },
-): boolean {
-  return (
-    !running &&
-    !problem &&
-    health.checkable > 0 &&
-    health.toCheck.length === 0 &&
-    health.unsupported.length === 0 &&
-    health.contradicted.length === 0
-  );
+/** What a check found and what is left of a Mind, for the card's one summary line (#1941). */
+export interface HealthSummary {
+  /** The covered claims a check found supported. */
+  supported: number;
+  /**
+   * What needs a look: the claims, counted once each however many things are wrong with one
+   * (D276), and the Citations not found on them, which the reason names separately (#1941).
+   */
+  look: { claims: number; contradicted: number; unsupported: number; notFound: number };
+  /** The claims nothing has checked yet. */
+  toCheck: number;
+  /** The supported claims that cite nowhere, so they still need a Citation. */
+  noCitation: number;
 }
 
 /**
- * The whole sentences a check still has to make in this Mind, as ranges to
+ * The card's one summary, counted and decided from the same `NoteHealth` its
+ * rows show, so the two can never disagree (#1941): "everything checked" only
+ * when nothing is left — no claim that needs a look, none not checked, no
+ * supported claim with no Citation, and no file a narrowed check couldn't read
+ * (D266) — otherwise what is left, in D276's words. Null while a check runs or
+ * a problem shows: the card says that in its place.
+ */
+export function healthSummary(
+  health: NoteHealth,
+  { running, problem, unread }: { running: boolean; problem: boolean; unread: number },
+): { kind: "all" } | { kind: "left"; summary: HealthSummary } | null {
+  if (running || problem || health.checkable === 0 || health.checking.length > 0) return null;
+  const summary: HealthSummary = {
+    supported: health.supported,
+    look: {
+      claims: health.lookClaims.length,
+      contradicted: health.contradicted.length,
+      unsupported: health.unsupported.length,
+      notFound: health.lookNotFound.length,
+    },
+    toCheck: health.toCheck.length,
+    noCitation: health.noCitation.length,
+  };
+  const left = summary.look.claims + summary.toCheck + summary.noCitation;
+  if (left > 0) return { kind: "left", summary };
+  return unread > 0 ? null : { kind: "all" };
+}
+
+/**
+ * Every sentence a check reads that no check covers now, where it is and what
+ * it cites (#1909); `within` keeps only those a write's Blocks hold.
+ */
+export function sentencesToCheck(
+  state: EditorState,
+  skipped: ReadonlySet<string> = new Set(),
+  within?: (place: SentencePlace) => boolean,
+): SentencePlace[] {
+  const places: SentencePlace[] = [];
+  eachSentence(
+    state.doc,
+    { claims: shownClaims(state), skipped, kept: keptSpans(state) },
+    (place) => {
+      if (place.state.kind === "to-check" && (!within || within(place))) places.push(place);
+    },
+  );
+  return places;
+}
+
+/**
+ * The whole sentences a check still has to make in this Note, as ranges to
  * check (#1909); `within` keeps only those a write's Blocks hold.
  */
 export function toCheckRanges(
@@ -222,15 +315,5 @@ export function toCheckRanges(
   skipped: ReadonlySet<string> = new Set(),
   within?: (place: SentencePlace) => boolean,
 ): { from: number; to: number }[] {
-  const ranges: { from: number; to: number }[] = [];
-  eachSentence(
-    state.doc,
-    { claims: shownClaims(state), skipped, kept: keptSpans(state) },
-    (place) => {
-      if (place.state.kind === "to-check" && (!within || within(place))) {
-        ranges.push({ from: place.from, to: place.to });
-      }
-    },
-  );
-  return ranges;
+  return sentencesToCheck(state, skipped, within).map(({ from, to }) => ({ from, to }));
 }

@@ -1,9 +1,9 @@
-import { type KeyboardEvent, type ReactNode, useEffect, useState } from "react";
-import { useShallow } from "zustand/react/shallow";
+import { type KeyboardEvent, type ReactNode, useEffect, useMemo, useState } from "react";
 import type {
   Document,
   LibraryGroup,
   LibrarySettings,
+  TaggingClassifier,
   TaggingModelOption,
 } from "../../../../core/api";
 import { organizeModelOf } from "../../../../shared/libraryModels";
@@ -19,6 +19,7 @@ import {
   type LibrarySection as Section,
 } from "../../libraryPage";
 import { formatCount } from "../../linkedFolders";
+import { organizeFailedIds, organizeStateOf } from "../../organizeOutcome";
 import { sayWhenOrganized, useOrganizeAsk } from "../../organizeRun";
 import { useRequests } from "../../requests";
 import { useAppStore } from "../../store";
@@ -28,6 +29,7 @@ import { DetailsLine } from "../DetailsLine";
 import { InlineName } from "../InlineName";
 import { FolderLineIcon } from "../lineIcons";
 import { ObjectMenu, useObjectMenu } from "../ObjectMenu";
+import { NeedsModelCard } from "../providers/NeedsModelCard";
 import { rowActionButtonClass } from "../sidebarRows";
 import { providerOf } from "../TaggingSettings";
 import { FolderForm } from "./FolderForm";
@@ -50,6 +52,7 @@ export function LibrarySection({
   matches,
   suggestedOf,
   notSortedOf,
+  sortFailedOf,
 }: {
   section: Section;
   narrowing: boolean;
@@ -59,6 +62,8 @@ export function LibrarySection({
   suggestedOf(documentId: string): string | null;
   /** Why Organize couldn't sort a Document, by its id, if it couldn't. */
   notSortedOf(documentId: string): string | null;
+  /** Why a Suggested Folder's latest run failed, by a Document's id, if it did. */
+  sortFailedOf(documentId: string): string | null;
 }) {
   const t = useT();
   const language = useLanguage();
@@ -82,7 +87,7 @@ export function LibrarySection({
       ) : (
         <LooseHead documents={documents} open={open} />
       )}
-      {!section.folder && <OrganizeNeedsModel documents={documents} />}
+      {!section.folder && <OrganizeNeedsModel />}
       {open &&
         listed.map((doc) => (
           <LibraryRow
@@ -90,6 +95,7 @@ export function LibrarySection({
             doc={doc}
             suggestedIn={suggestedOf(doc.id)}
             notSorted={notSortedOf(doc.id)}
+            sortFailed={sortFailedOf(doc.id)}
             match={matches?.get(doc.id) ?? null}
             path={matches && section.folder ? section.folder.name : null}
           />
@@ -269,22 +275,16 @@ const organizeHasModel = (settings: LibrarySettings | undefined) =>
  */
 function Organize({ documents }: { documents: readonly Document[] }) {
   const t = useT();
-  const { hasFolders, hasModel, pending, failed } = useAppStore(
-    useShallow((state) => {
-      let pending = 0;
-      let failed = 0;
-      for (const item of state.library?.assignments ?? []) {
-        if (item.status === "pending" || item.status === "classifying") pending++;
-        else if (item.status === "failed") failed++;
-      }
-      return {
-        hasFolders: (state.library?.groups.length ?? 0) > 0,
-        hasModel: organizeHasModel(state.library?.settings),
-        pending,
-        failed,
-      };
-    }),
-  );
+  const all = useAppStore((state) => state.documents);
+  const library = useAppStore((state) => state.library);
+  const hasFolders = (library?.groups.length ?? 0) > 0;
+  const hasModel = organizeHasModel(library?.settings);
+  const states = useMemo(() => {
+    const held = new Map((library?.assignments ?? []).map((item) => [item.documentId, item]));
+    return all.map((doc) => organizeStateOf(doc, held.get(doc.id)));
+  }, [all, library]);
+  const pending = states.filter((state) => state.run === "working").length;
+  const failed = useMemo(() => organizeFailedIds(all, library?.assignments ?? []), [all, library]);
   const run = (ids: readonly string[]) => {
     const app = useAppStore.getState();
     if (!hasModel) {
@@ -313,21 +313,16 @@ function Organize({ documents }: { documents: readonly Document[] }) {
       </span>
     );
   }
-  if (failed > 0) {
-    const retry = () =>
-      run(
-        (useAppStore.getState().library?.assignments ?? [])
-          .filter((item) => item.status === "failed")
-          .map((item) => item.documentId),
-      );
+  if (failed.size > 0) {
+    const retry = () => run([...failed]);
     return (
       <span
         role="alert"
         data-testid="library-organize-failed"
         className="min-w-0 truncate text-[13px] text-ink-meta"
       >
-        {t(failed === 1 ? "library.organize.failed.one" : "library.organize.failed", {
-          count: failed,
+        {t(failed.size === 1 ? "library.organize.failed.one" : "library.organize.failed", {
+          count: failed.size,
         })}
         <span aria-hidden="true"> · </span>
         <button type="button" onClick={retry} className={quietButtonClass}>
@@ -351,20 +346,24 @@ function Organize({ documents }: { documents: readonly Document[] }) {
 }
 
 /**
- * Organize with no model chosen (#763): a row under Not in a Folder's head
- * says so where it was asked, with the way on: the model Automatic tags with,
- * saying what would be sent to its company, or one on this computer. The
- * answer is kept, so Organize asks once.
+ * Organize with no model chosen (#763): a row under Not in a Folder's head says so where it was
+ * asked. With no AI model at all, first run's key field is offered in place (#1922); once one
+ * works, the model Automatic sorts with, saying what would go to its company. The answer is
+ * kept, so Organize asks once.
  */
-function OrganizeNeedsModel({ documents }: { documents: readonly Document[] }) {
+function OrganizeNeedsModel() {
   const t = useT();
   const language = useLanguage();
   const ids = useOrganizeAsk((state) => state.ids);
   const hasModel = useAppStore((state) => organizeHasModel(state.library?.settings));
+  // Only "no provider at all" is what first run's key field answers; every other reason has its own line.
+  const noProvider = useAppStore(
+    (state) => state.chatReadiness?.ready === false && state.chatReadiness.reason === "no-provider",
+  );
   const [automatic, setAutomatic] = useState<TaggingModelOption | null>(null);
   const asked = ids !== null && !hasModel;
   useEffect(() => {
-    if (!asked) return;
+    if (!asked || noProvider) return;
     let current = true;
     const load = () =>
       core.getTaggingModels().then(
@@ -379,31 +378,62 @@ function OrganizeNeedsModel({ documents }: { documents: readonly Document[] }) {
       current = false;
       stop();
     };
-  }, [asked]);
+  }, [asked, noProvider]);
   if (!asked) return null;
-  const company = automatic && (providerOf(automatic, language) ?? t("providers.kind.ollama"));
   const close = () => useOrganizeAsk.getState().close();
-  const use = () => {
+  const use = async (classifier: TaggingClassifier) => {
     const settings = useAppStore.getState().library?.settings;
-    if (!automatic || !settings) return;
+    if (!settings || ids === null) return;
     // Saving the model sets the waiting Documents going, so what Undo goes back to is read first.
-    const before = new Map(
+    const undoing = new Map(
       (useAppStore.getState().library?.assignments ?? [])
         .filter((item) => ids.includes(item.documentId))
         .map((item) => [item.documentId, item]),
     );
-    core
-      .saveLibrarySettings({ ...settings, organizeWith: automatic.classifier })
-      .then(() => useAppStore.getState().refreshLibrary())
-      .then(() => {
-        close();
-        return core
-          .classifyDocuments([...ids])
-          .then(() => useAppStore.getState().refreshLibrary())
-          .then(() => sayWhenOrganized(ids, before));
-      })
-      .catch(useAppStore.getState().reportError);
+    try {
+      await core.saveLibrarySettings({ ...settings, organizeWith: classifier });
+      await useAppStore.getState().refreshLibrary();
+      close();
+      await core.classifyDocuments([...ids]);
+      await useAppStore.getState().refreshLibrary();
+      await sayWhenOrganized(ids, undoing);
+    } catch (error) {
+      useAppStore.getState().reportError(error);
+    }
   };
+  const dismiss = (
+    <button
+      type="button"
+      data-testid="library-organize-dismiss"
+      onClick={close}
+      className={`self-start ${quietButtonClass}`}
+    >
+      {t("library.organize.dismiss")}
+    </button>
+  );
+  if (noProvider) {
+    return (
+      <div
+        role="status"
+        data-testid="library-organize-needs-model"
+        className="flex flex-col gap-1 border-b border-rule py-2 pl-14 text-[13px] leading-5 text-ink-meta"
+      >
+        <NeedsModelCard
+          line="needsModel.organize"
+          testId="library-organize-key"
+          onDone={() => {
+            // The key saved, Organize goes on with the model it now reaches (#1922).
+            void core.getTaggingModels().then(
+              (models) => models.automatic && use(models.automatic.classifier),
+              (error: unknown) => useAppStore.getState().reportError(error),
+            );
+          }}
+        />
+        {dismiss}
+      </div>
+    );
+  }
+  const company = automatic && (providerOf(automatic, language) ?? t("providers.kind.ollama"));
   return (
     <div
       role="status"
@@ -420,11 +450,11 @@ function OrganizeNeedsModel({ documents }: { documents: readonly Document[] }) {
         </DetailsLine>
       )}
       <p className="flex flex-wrap gap-x-4">
-        {company && (
+        {automatic && company && (
           <button
             type="button"
             data-testid="library-organize-use"
-            onClick={use}
+            onClick={() => void use(automatic.classifier)}
             className={quietButtonClass}
           >
             {t("library.organize.use", { company })}
@@ -441,14 +471,7 @@ function OrganizeNeedsModel({ documents }: { documents: readonly Document[] }) {
         >
           {t("library.organize.setUp")}
         </button>
-        <button
-          type="button"
-          data-testid="library-organize-dismiss"
-          onClick={close}
-          className={quietButtonClass}
-        >
-          {t("library.organize.dismiss")}
-        </button>
+        {dismiss}
       </p>
     </div>
   );

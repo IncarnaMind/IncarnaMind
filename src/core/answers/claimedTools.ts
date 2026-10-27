@@ -12,7 +12,8 @@
  */
 import type { AnswerToolCall, ClaimedTool } from "../api";
 import { DOCUMENT_TOOLS, SOURCE_TOOLS, WEB_TOOLS } from "../tools";
-import { sentencesOf, thisAnswersRecord, UNSEEN_REPLY } from "./claimedChanges";
+import { thisAnswersRecord, UNSEEN_REPLY } from "./claimedChanges";
+import { sentencesOf } from "./claimStream";
 import type { ChangeStates, MindNames } from "./toolRecord";
 
 const CALCULATION_TOOL =

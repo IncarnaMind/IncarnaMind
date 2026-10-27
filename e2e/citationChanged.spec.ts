@@ -150,7 +150,7 @@ const storedVersions = (answer: Locator) =>
     return versions;
   });
 
-test("a Citation's card and viewer say its Document changed, and its quote is looked for in the new version", async () => {
+test("a Citation's card and viewer say its Document changed, and its quote is checked at its stored place", async () => {
   const library = join(sources, "Library");
   await mkdir(library, { recursive: true });
   const note = join(library, "Versioned note.md");
@@ -239,20 +239,20 @@ test("a Citation's card and viewer say its Document changed, and its quote is lo
     await setLanguage(window, "en");
     await showCard();
 
-    // The quoted line, unchanged, now under another heading: found, and the card says where.
     const versionC = await writeVersion(window, note, VERSION_C, CHANGED_C, versionB);
     await showCard();
-    await expect(changed).toContainText("The Document changed after this was cited.");
-    await expect(changedQuote).toHaveText("Its quote is now at § Budget.");
+    await expect(changedDate).toHaveText("This Document changed on 22 Oct 2026.");
+    await expect(changedWords.locator("ins")).toHaveText(["B", "65,000"]);
+    await expect(changedQuote).toHaveCount(0);
     await card.getByTestId("citation-open").click();
-    await expect(notice).toContainText("Its quote is now at § Budget.");
+    await expect(notice).toContainText("Its quote is no longer in the new version.");
     const washed = viewer.locator("[data-quote-highlight]");
-    await expect(washed).toHaveText("Version A: the approved refurbishment budget is GBP 80,000.");
+    await expect(washed).toHaveCount(0);
 
     // The card holds at a narrow window.
     await setWindowSize(app, window, 980, 820);
     await showCard();
-    await expect(changedQuote).toHaveText("Its quote is now at § Budget.");
+    await expect(changedWords.locator("ins")).toHaveText(["B", "65,000"]);
     await screenshot(window, "card-narrow-en");
     // A merged window shows the Mind's group: bring the Document's tab to the front.
     await window.getByRole("tab", { name: "Versioned note" }).click();

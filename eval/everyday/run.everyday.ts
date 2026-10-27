@@ -401,6 +401,7 @@ test("everyday requests", async () => {
     return;
   }
   const only = process.env.INCARNAMIND_EVAL_EVERYDAY?.trim();
+  if (only === "claim-probes") return;
   const cases = CASES.filter((each) => {
     if (!only) return true;
     if (only === "hard") return each.hard === true;

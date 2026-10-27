@@ -19,6 +19,7 @@ import { useComposer } from "../../composer";
 import { conversationLabel, useOpenConversation } from "../../conversations";
 import { files } from "../../core";
 import { Composer } from "../../editor/Composer";
+import { dialogOrMenuOpen } from "../../escapeDismiss";
 import { useT } from "../../i18n";
 import { useAssistantWaiting } from "../../mindStatus";
 import { useSettingUp } from "../../modelSetup";
@@ -125,14 +126,16 @@ export function Assistant({
   // Esc with the focus in it and nothing in it open goes back to the Mind, where its cursor was,
   // and leaves the assistant as it is: only its chevron folds it. Heard on the window, after
   // everything in it (the composer is drawn here from its Mind, so React's own bubbling never
-  // reaches here): a picker, a menu or History closes first, by its own Esc. Whether one was
-  // open is seen before anything handles the key, as a native menu closes itself on Esc without
-  // marking the key handled.
+  // reaches here): a picker, a menu or History closes first, by its own Esc, wherever it floats
+  // over the assistant (the Tasks chip's popover grows from the band). Whether one was open is
+  // seen before anything handles the key, as a native menu closes itself on Esc without marking
+  // the key handled.
   useEffect(() => {
     let openInside = false;
     const before = (event: KeyboardEvent) => {
       if (event.key !== "Escape") return;
-      openInside = aside.current?.querySelector(':popover-open, [role="listbox"]') != null;
+      const picker = aside.current?.querySelector('[role="listbox"]') !== null;
+      openInside = dialogOrMenuOpen() || picker;
     };
     const onKey = (event: KeyboardEvent) => {
       if (event.key !== "Escape" || event.defaultPrevented || event.isComposing) return;

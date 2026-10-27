@@ -52,6 +52,16 @@ function settle(meetingId: string, blocked?: HelpState["blocked"][string]): void
   });
 }
 
+// A model set up where help said one was needed: the buttons it blocked come back.
+core.on("chatReadiness.changed", (readiness) => {
+  if (!readiness.ready) return;
+  useMeetingHelp.setState((state) => ({
+    blocked: Object.fromEntries(
+      Object.entries(state.blocked).filter(([, block]) => !("readiness" in block)),
+    ),
+  }));
+});
+
 // A press on a Meeting that has since stopped leaves no outline behind.
 useMeetings.subscribe((state) => {
   const { pending } = useMeetingHelp.getState();
@@ -99,8 +109,9 @@ export async function askHelp(
   }
 }
 
+/** The call being recorded, whose help this is: a voice memo has none (#1568). */
 export const liveMeetingNow = (): Meeting | undefined =>
-  useMeetings.getState().meetings.find((meeting) => isLive(meeting));
+  useMeetings.getState().meetings.find((meeting) => isLive(meeting) && meeting.kind === "meeting");
 
 /**
  * Asks in the assistant, as its buttons and ⌘K do: in the conversation it shows, which opens

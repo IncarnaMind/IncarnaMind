@@ -22,6 +22,8 @@ interface ResizeRodProps {
   onPreview(width: number): void;
   /** Called once with the final width. */
   onCommit(width: number): void;
+  /** A drag ended with nothing to commit (cancelled, or back where it started): its preview isn't wanted. */
+  onRelease?(): void;
   /** A double-click: the pane goes back to its default size. */
   onReset?(): void;
   /** Starts below the 44px band the panes' headers share (`.pane-divider--below-band`). */
@@ -50,6 +52,7 @@ export function ResizeRod({
   axis = "x",
   onPreview,
   onCommit,
+  onRelease,
   onReset,
   belowBand = false,
   gap = false,
@@ -85,11 +88,14 @@ export function ResizeRod({
       onPreview(current.startWidth);
       onCollapse?.();
     } else if (current && current.latest !== current.startWidth) onCommit(current.latest);
+    else if (current) onRelease?.();
   };
   const cancelDrag = () => {
     const current = drag.current;
     drag.current = null;
-    if (current) onPreview(current.startWidth);
+    if (!current) return;
+    onPreview(current.startWidth);
+    onRelease?.();
   };
   const [less, more] = axis === "x" ? ["ArrowLeft", "ArrowRight"] : ["ArrowUp", "ArrowDown"];
   const resizeWithKeys = (event: KeyboardEvent<HTMLHRElement>) => {

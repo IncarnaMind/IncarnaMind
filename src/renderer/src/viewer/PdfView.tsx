@@ -13,7 +13,9 @@ import {
   useState,
 } from "react";
 import type { Document } from "../../../core/api";
+import { readPdfPageText } from "../../../shared/pdfFormText";
 import { findQuoteInPages, lostLigatures, type TextPiece } from "../../../shared/quoteMatch";
+import { DocumentFix } from "../components/DocumentFix";
 import { core } from "../core";
 import { useT } from "../i18n";
 import { useAppStore, type ViewerTarget } from "../store";
@@ -212,12 +214,24 @@ export function PdfView({
         <>
           <ViewerHeader onRetry={retry} />
           {banner}
-          <ViewerMessage
-            tone="error"
-            action={{ label: t("documents.retryAction"), testId: "viewer-retry", onClick: retry }}
-          >
-            <span title={loaded.message}>{t("viewer.pdf.failed")}</span>
-          </ViewerMessage>
+          <DocumentFix
+            document={document}
+            view
+            message={loaded.message}
+            reload={reopen}
+            fallback={
+              <ViewerMessage
+                tone="error"
+                action={{
+                  label: t("documents.retryAction"),
+                  testId: "viewer-retry",
+                  onClick: retry,
+                }}
+              >
+                <span title={loaded.message}>{t("viewer.pdf.failed")}</span>
+              </ViewerMessage>
+            }
+          />
         </>
       );
     case "ready":
@@ -513,13 +527,14 @@ function PdfPages({ document, pdfjs, pdf, firstPage, target, banner }: PdfPagesP
     void (async () => {
       // Each page's text runs, counted as its text layer counts them.
       const pages: TextPiece[][] = [];
+      const signatures = await pdf.getSignatures();
       for (let page = from; page <= to; page++) {
         const read = scanned.get(page);
         if (read) {
           pages.push(read.pieces);
           continue;
         }
-        const content = await (await pdf.getPage(page)).getTextContent();
+        const { content } = await readPdfPageText(await pdf.getPage(page), signatures);
         const pieces: TextPiece[] = [];
         for (const entry of content.items) {
           if (!("str" in entry)) continue;
@@ -1156,7 +1171,7 @@ const PdfPage = memo(function PdfPage(props: PdfPageProps) {
         textDiv.replaceChildren(read.container);
         textRuns.current = read;
       } else {
-        const content = await proxy.getTextContent();
+        const { content } = await readPdfPageText(proxy, await pdf.getSignatures());
         if (cancelled) return;
         const container = document.createElement("div");
         container.className = "textLayer";

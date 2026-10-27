@@ -1,6 +1,11 @@
 import { describe, expect, test } from "vitest";
 import { createAiSdkAnswerEngine } from "../../src/core/answers/engine";
-import { matchUnmarked, parseAsked, settleOrphans } from "../../src/core/answers/unmarkedQuotes";
+import {
+  matchUnmarked,
+  mayDrawOn,
+  parseAsked,
+  settleOrphans,
+} from "../../src/core/answers/unmarkedQuotes";
 import { askAndFinish, citationsIn, setUpWithDocuments } from "../helpers/citations";
 import { type ModelCall, type ScriptedReply, scriptedModel } from "../helpers/models";
 
@@ -314,6 +319,33 @@ describe("Matching sentences to Passages", () => {
     expect(
       settleOrphans(answer, [{ marker: 1, took: true, start, end: start + "A one [^1].".length }]),
     ).toBe("A one [^1]. B two .\n\n[^1]: Tea history, p. 1");
+  });
+
+  // protects=#1415: across languages a reply is worth asking about when it shares a number of 2+ digits or a Latin term of 4+ letters with the Passages, as summaries of English Documents in Chinese do, and not otherwise; fails_when=a Chinese summary naming a figure or a term isn't asked, or a greeting, a "didn't find", a question back or a count of Documents is; no_claim=the replay of real Answers in the pull request.
+  test("across languages, a number or a Latin term shared with the Passages", () => {
+    const passages = [
+      {
+        id: "P1",
+        text: "The Transformer achieves 28.4 BLEU on the WMT 2014 English-to-German translation task.",
+      },
+      { id: "P2", text: "Table 2 lists the 7 models we trained on 12 GPUs." },
+    ];
+    expect(mayDrawOn("该论文提出了 Transformer 架构。", passages)).toBe(true);
+    expect(mayDrawOn("在英德翻译任务上达到了 28.4 的成绩。", passages)).toBe(true);
+    expect(mayDrawOn("训练在 8 块 GPU 上进行了 12 小时。", passages)).toBe(true);
+    for (const reply of [
+      "你好！有什么可以帮你？",
+      "我在你的文档中没有找到关于停车位的内容。",
+      "你是想问哪一处房产的停车位？",
+      "以下内容不是来自你的文档：注意力机制让模型关注输入中最相关的部分。",
+      "我查看了 7 个文档，都没有提到停车位。",
+      "你是指第 2 份报告吗？",
+    ]) {
+      expect(mayDrawOn(reply, passages)).toBe(false);
+    }
+    expect(mayDrawOn("I didn't find anything about parking in your documents.", passages)).toBe(
+      false,
+    );
   });
 
   // protects=the reply to the one request is read leniently and only well-formed items are kept; fails_when=a malformed item throws or is kept; no_claim=none beyond protects.

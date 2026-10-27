@@ -10,6 +10,7 @@ import {
 } from "../checks";
 import { type ShownClaim, shownClaims } from "../editor/claimChecks";
 import { selectionForEdit } from "../editor/editSelection";
+import { useFindSources } from "../findSources";
 import { startMindCheck } from "../mindCheck";
 import {
   applyFigure,
@@ -17,11 +18,13 @@ import {
   cutSentence,
   cutUnsupported,
   figureAt,
+  findSourcesAt,
   fixesFree,
   keepAsView,
   notFoundAt,
   searchAllDocuments,
   searchedLess,
+  sentenceOf,
   uncoveredOf,
   unsupportedAt,
 } from "../unsupportedFixes";
@@ -152,6 +155,25 @@ export const checkCommands: readonly Command[] = [
     run() {
       const at = withNothingBacking();
       if (at) void searchAllDocuments(at.editor, at.mindId, at.doc, at.claim);
+    },
+  },
+  {
+    id: "check.findSources",
+    label: "claim.findSourcesFor",
+    menuLabel: "claim.findSources.menu",
+    group: "main",
+    // It opens Find sources for the sentence's words; it changes no words.
+    reversible: true,
+    when: (ctx) =>
+      ctx.here?.["check.findSources"] !== undefined || withClaim(findSourcesAt) !== null,
+    run(ctx) {
+      const here = ctx.here?.["check.findSources"];
+      if (here) {
+        here();
+        return;
+      }
+      const at = withClaim(findSourcesAt);
+      if (at) useFindSources.getState().show({ query: sentenceOf(at.editor, at.claim) });
     },
   },
   {

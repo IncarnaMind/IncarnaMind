@@ -25,6 +25,8 @@ export type AnalysisInput =
       rows: readonly (readonly AnalysisCell[])[];
       /** The row number of `rows[0]` in its sheet, which reports of cells count from. */
       firstRow: number;
+      /** Each row's own number in its sheet, where they don't all follow on from `firstRow`. */
+      rowNumbers?: readonly number[];
     }
   | { kind: "number"; name: string; value: number };
 
@@ -62,9 +64,6 @@ export const ANALYSIS_LIMITS = {
   cellCharacters: 300,
   errorCharacters: 4000,
 } as const;
-
-/** The limits, as the runtime is sent them with each job, to cut to itself. */
-export type AnalysisLimits = typeof ANALYSIS_LIMITS;
 
 /** A table a run gave, cut to the limits. */
 export interface AnalysisTable {

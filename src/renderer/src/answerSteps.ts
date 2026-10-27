@@ -122,7 +122,8 @@ export type LiveStep =
   | { kind: "thinking"; summary: string }
   | { kind: "writing" }
   | { kind: "checking"; count: number }
-  | { kind: "checking-figures" };
+  | { kind: "checking-figures" }
+  | { kind: "checking-claims" };
 
 const isSearch = (call: AnswerToolCall) => call.source === "documents" && call.tool === SEARCH;
 export const isCalculated = (call: AnswerToolCall) =>
@@ -476,6 +477,7 @@ export function liveStep({
     return { kind: "checking", count: shownCitations(answer).length };
   }
   if (phase === "checking-figures") return { kind: "checking-figures" };
+  if (phase === "checking-claims") return { kind: "checking-claims" };
   const running = answer.toolCalls.filter(
     (call) => call.status === "running" && !isCalculated(call),
   );

@@ -384,7 +384,7 @@ test("the right-click menu and the Library's bar offer the same commands for the
     const menu = window.getByTestId("document-file-actions").filter({ visible: true });
     await expect(menu.getByTestId("document.ask")).toHaveText("Ask about these 3 Documents");
     await expect(menu.getByTestId("document.startMind")).toHaveText(
-      "Start a Mind from these 3 Documents",
+      "Start a note from these 3 Documents",
     );
     await expect(menu.getByTestId("document.tags")).toBeVisible();
     await expect(menu.getByTestId("document.open")).toHaveCount(0);
@@ -429,6 +429,38 @@ test("a Mind and a Document select together in the sidebar", async () => {
     await expect(sidebar.getByTestId("sidebar-selection")).toHaveText("6 selected · Esc clears");
     await window.keyboard.press("Escape");
     await expect(sidebar.getByTestId("sidebar-selection")).toHaveText("");
+  } finally {
+    await app.close();
+  }
+});
+
+test("Esc clears rows selected by their checkboxes, with the checkbox holding the focus", async () => {
+  const { app, window } = await launchApp(dataDir);
+  try {
+    await setWindowSize(app, window, 1280, 800);
+    await dismissChatSetup(window);
+    await addFiveDocuments(window);
+    await window.getByTestId("open-library").click();
+    const library = window.getByTestId("library");
+    const rows = library.getByTestId("library-document");
+    await expect(rows).toHaveCount(5);
+
+    // Two rows are ticked by their checkboxes; the second holds the focus, as the keyboard leaves it.
+    const first = rows.nth(0);
+    const second = rows.nth(1);
+    await pointAndClick(window, first.getByTestId("library-select"));
+    await pointAndClick(window, second.getByTestId("library-select"));
+    await expect(first).toHaveAttribute("aria-selected", "true");
+    await expect(second).toHaveAttribute("aria-selected", "true");
+    const bar = library.getByTestId("library-selection");
+    await expect(bar).toContainText("2 selected");
+    await expect(second.getByTestId("library-select")).toBeFocused();
+
+    // Esc clears the selection: both rows are unselected and the bar goes.
+    await window.keyboard.press("Escape");
+    await expect(first).toHaveAttribute("aria-selected", "false");
+    await expect(second).toHaveAttribute("aria-selected", "false");
+    await expect(bar).toHaveCount(0);
   } finally {
     await app.close();
   }

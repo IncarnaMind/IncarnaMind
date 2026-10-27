@@ -18,12 +18,12 @@ import type {
 } from "../../core/api";
 import { MAX_RESEARCH_STEPS } from "../../shared/research";
 import { searchesTheWeb } from "../../shared/webSearch";
-import { composerScope, useComposer } from "./composer";
+import { composerScope, NO_MIND, useComposer } from "./composer";
 import { core } from "./core";
 import { useT } from "./i18n";
 import { useModelNames } from "./modelNames";
 import { useAppStore } from "./store";
-import { useTasks } from "./tasks";
+import { showTask, useTasks } from "./tasks";
 
 const report = (error: unknown) => useAppStore.getState().reportError(error);
 
@@ -150,7 +150,7 @@ async function plan(
   updatePlan(mindId, { planning: true, problem: null });
   try {
     const result = await core.planResearch({
-      mindId,
+      mindId: mindId === NO_MIND ? null : mindId,
       topic: card.topic,
       sources: card.sources,
       model,
@@ -194,7 +194,8 @@ export function openResearch(
         title: topic,
         steps: [],
         sources: { web, library: true },
-        writeInto: { mindId },
+        // With no Mind in focus there is none to write into: a new one, as its card says.
+        writeInto: mindId === NO_MIND ? { newMind: true } : { mindId },
         problem: null,
       },
     },
@@ -253,7 +254,7 @@ export async function startResearch(
   updatePlan(mindId, { starting: true, problem: null });
   try {
     const result = await core.startResearch({
-      mindId,
+      mindId: mindId === NO_MIND ? null : mindId,
       topic: card.topic,
       plan: { title: card.title.trim() || card.topic, steps },
       sources: card.sources,
@@ -268,6 +269,8 @@ export async function startResearch(
     const { task } = result;
     useTasks.setState((state) => ({ tasks: { ...state.tasks, [task.id]: task } }));
     closePlan(mindId);
+    // Its Mind is new: show it, where its progress is, as a Task started in a Mind does.
+    if (mindId === NO_MIND) showTask(task);
     return true;
   } catch (error) {
     updatePlan(mindId, { starting: false });

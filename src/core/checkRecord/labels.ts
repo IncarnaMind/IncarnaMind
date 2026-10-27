@@ -1,4 +1,4 @@
-import type { SentenceResult } from "../../shared/claimChecks";
+import { SENTENCE_RESULT_LABELS } from "../../shared/claimChecks";
 import { formatFullDateTime } from "../../shared/dates";
 import { type MessageKey, type MessageParams, translate } from "../../shared/i18n";
 import type { CitationCheck } from "../api";
@@ -13,15 +13,6 @@ export const translatorFor =
   (key, params) =>
     translate(language, key, params);
 
-const SENTENCE_RESULTS: Readonly<Record<SentenceResult, MessageKey>> = {
-  supported: "aiStatement.sentences.supported",
-  unsupported: "aiStatement.sentences.unsupported",
-  contradicted: "aiStatement.sentences.contradicted",
-  needsRecheck: "aiStatement.sentences.recheck",
-  notChecked: "aiStatement.sentences.notChecked",
-  changed: "aiStatement.sentences.changed",
-};
-
 const CITATION_RESULTS: Readonly<Record<CitationCheck, MessageKey>> = {
   found: "aiStatement.citations.found",
   "not-found": "aiStatement.citations.notFound",
@@ -33,7 +24,9 @@ const CITATION_RESULTS: Readonly<Record<CitationCheck, MessageKey>> = {
 
 /** A result's words are the AI use statement's, so one result has one name. */
 export function resultKey(item: RecordItem): MessageKey {
-  return item.kind === "sentence" ? SENTENCE_RESULTS[item.result] : CITATION_RESULTS[item.result];
+  return item.kind === "sentence"
+    ? SENTENCE_RESULT_LABELS[item.result]
+    : CITATION_RESULTS[item.result];
 }
 
 export const ORIGIN_LABELS: Readonly<Record<TextOrigin, MessageKey>> = {

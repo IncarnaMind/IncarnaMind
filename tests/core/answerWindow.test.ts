@@ -7,7 +7,11 @@
 import { describe, expect, test } from "vitest";
 import { estimateTokens, fitQuestionContext } from "../../src/core/answers/context";
 import type { AnswerMessage } from "../../src/core/answers/engine";
-import { createWindowBudget, NO_ROOM_FOR_PASSAGES } from "../../src/core/answers/window";
+import {
+  createWindowBudget,
+  ESTIMATE_FACTOR,
+  NO_ROOM_FOR_PASSAGES,
+} from "../../src/core/answers/window";
 
 /** About `tokens` tokens of text, labelled. */
 const block = (label: string, tokens: number) => `${label}: ${"word ".repeat(tokens * 0.8)}`;
@@ -147,6 +151,23 @@ describe("A window's budget", () => {
     expect(ids(budget.loop(100).passages(passages, 3, [2, 0, 1]).text)).toEqual(["P2", "P3"]);
     // Without ranks, their order is their relevance.
     expect(ids(budget.fitPassages(passages, "Answer well.", "Why?"))).toEqual(["P1", "P2"]);
+  });
+
+  test("a search the first request carries counts once, in that request (#1633)", () => {
+    const budget = createWindowBudget(window);
+    const loop = budget.loop(1_000);
+    const carried = loop.carried(passage("P1", 3_000), 1, undefined, (text) => [
+      '{"query":"tides"}',
+      `${text}\n\nSearch again with other words if these don't answer.`,
+    ]);
+    expect(carried.passageCount).toBe(1);
+    const first = loop.firstRequest();
+    expect(first).toBeGreaterThan(4_000);
+
+    // Counted as Ollama counts it: the factor barely moves, and the room left is the real one.
+    loop.stepFinished({ inputTokens: first, outputTokens: 100 });
+    expect(budget.factor).toBeLessThan(ESTIMATE_FACTOR * 1.1);
+    expect(loop.canCallTools()).toBe(true);
   });
 
   test("Ollama's own count of the first request replaces the estimate", () => {

@@ -18,8 +18,9 @@ import {
 /*
  * "Make a bar chart of revenue by quarter" (#1091), in English and Chinese: the
  * Mind gets the cited table and a chart drawn from it, right after it, the
- * facts line says both, and one ⌘Z takes both back. The model is the smoke
- * tests' fake.
+ * facts line says both, and one ⌘Z takes both back. A table with a percent
+ * column beside a column of times is two charts, one per unit, bar or line as
+ * asked (#1392). The model is the smoke tests' fake.
  */
 
 let dataDir: string;
@@ -89,6 +90,56 @@ for (const [language, request, kind, title, fact] of [
     await expect(chart).toHaveCount(0);
     await expect(editor.locator("table")).toHaveCount(0);
     await expect(editor).toContainText("Notes on the year.");
+  });
+}
+
+const MIXED_REPORT = [
+  "# Annual report",
+  "",
+  "Gross margin in Q1 was 41.2%.",
+  "Net debt to EBITDA in Q1 was 2.8 times.",
+  "",
+  "Gross margin in Q2 was 43.5%.",
+  "Net debt to EBITDA in Q2 was 2.5 times.",
+  "",
+  "Gross margin in Q3 was 40.8%.",
+  "Net debt to EBITDA in Q3 was 3.1 times.",
+  "",
+  "Gross margin in Q4 was 44.1%.",
+  "Net debt to EBITDA in Q4 was 2.9 times.",
+].join("\n");
+
+for (const [language, request, kind, times] of [
+  ["en", "Make a bar chart of margin and leverage by quarter", "bar", "times"],
+  ["zh-CN", "画一个各季度毛利率和净负债的柱状图", "bar", "倍"],
+  ["en", "Make a line chart of margin and leverage by quarter", "line", "times"],
+  ["zh-CN", "画一个各季度毛利率和净负债的折线图", "line", "倍"],
+] as const) {
+  test(`“${request}” draws a percent column beside a column of times as two ${kind} charts, each labelled with its unit (${language})`, async () => {
+    const { app, window } = await launchApp(dataDir, { fakeChat: true });
+    await dismissChatSetup(window);
+    await useLocalChatModel(window);
+    await setLanguage(window, language);
+    await setWindowSize(app, window, 1440, 900);
+    await writeFile(join(sources, "Mixed report.md"), MIXED_REPORT);
+    await addDocuments(window, [join(sources, "Mixed report.md")]);
+    await newMind(window);
+    await nameMind(window, "Year notes");
+    await window.keyboard.type("Notes on the year.");
+
+    await askInAssistant(window, request);
+
+    const editor = window.getByTestId("mind-editor");
+    await expect(editor.locator("table")).toHaveCount(1);
+    const chart = editor.getByTestId("chart");
+    await expect(chart).toHaveCount(1);
+    await expect(chart).toHaveAttribute("data-kind", kind);
+    await expect(chart.getByTestId("chart-panel")).toHaveCount(2);
+    await expect(chart.getByTestId("chart-unit")).toHaveText(["%", times]);
+    await expect(chart.getByTestId("chart-panel").nth(0).getByTestId("chart-point")).toHaveCount(4);
+    await expect(chart.getByTestId("chart-panel").nth(1).getByTestId("chart-point")).toHaveCount(4);
+    await expect(chart.getByTestId("chart-source")).toContainText("Mixed report");
+    await app.close();
   });
 }
 

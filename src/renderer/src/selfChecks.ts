@@ -1,8 +1,8 @@
 /**
  * What the checks of an Answer's writes left to do (#1111, #1909), from its
- * calls: the lines under it, and the sentences their Check again and Check
- * the rest check. The written check reads the sentences with Citations; the
- * claims with none are left to the one count and Check the rest. Only data.
+ * calls: the lines under it, and the one Check their action runs. The written
+ * check reads the sentences with Citations; the claims with none are left to
+ * the one count and the one Check. Only data.
  */
 import type { AnswerToolCall, MindChange } from "../../core/api";
 import type { Language } from "../../core/language";
@@ -88,7 +88,7 @@ export function selfCheckLines(
         kind: "failed",
         text: rest === 1 ? t("selfCheck.failed.one") : t("selfCheck.failed", { count: rest }),
         details: [],
-        action: { label: t("claim.checkAgain"), does: "check" },
+        action: { label: t("mindCheck.command"), does: "check" },
       });
     }
   }
@@ -102,7 +102,7 @@ export function selfCheckLines(
           ? t("selfCheck.checkedOnly", { checked: check.checked })
           : t("selfCheck.left", { checked: check.checked, left: remaining }),
       details: [],
-      action: remaining === 0 ? null : { label: t("selfCheck.checkRest"), does: "check" },
+      action: remaining === 0 ? null : { label: t("mindCheck.command"), does: "check" },
     });
   }
   return lines;

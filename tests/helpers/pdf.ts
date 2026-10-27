@@ -2,11 +2,37 @@ import { deflateSync } from "node:zlib";
 
 /**
  * Builds tiny, valid PDFs for tests, so fixtures stay readable and small
- * instead of being committed as binaries.
+ * instead of being committed as binaries. The sample PDFs in `data/` are built
+ * with it too (`scripts/sampleDocuments`), so what the app reads is the same
+ * kind of file the tests do.
  */
 
+/**
+ * A glyph of the standard font that a character in the text stands for, drawn
+ * under a code of its own: a ligature, which pdf.js reads as "f" in some PDFs
+ * (see `lostLigatures`), or a symbol WinAnsi lacks.
+ */
+export interface PdfSymbol {
+  /** The characters in the text it stands for, matched longest first. */
+  as: string;
+  /** The standard font's glyph name to draw. */
+  glyph: string;
+  /** The text a reader extracts for it. */
+  text: string;
+}
+
+/** A rule, or a filled rectangle: a chart's bar or a table's shading. Drawn before text. */
+export type PdfDrawing =
+  | { rule: readonly [number, number, number, number]; width?: number; gray?: number }
+  | { rectangle: readonly [number, number, number, number]; gray?: number };
+
 export interface PdfPage {
-  /** Lines of text drawn top to bottom in Helvetica. Latin-1 characters only. */
+  fields?: readonly {
+    dictionary: string;
+    appearance: string | Readonly<Record<string, string>> | null;
+    parent?: string;
+  }[];
+  /** Lines of text drawn top to bottom in Helvetica: WinAnsi's characters, and the options' symbols. */
   lines?: readonly string[];
   /**
    * Lines of Chinese text drawn with STSong-Light, a CJK font PDF readers
@@ -19,8 +45,10 @@ export interface PdfPage {
    * STSong-Light when a line has characters beyond Latin-1.
    */
   printed?: readonly { text: string; size?: number }[];
-  /** Text drawn where each says, in Helvetica at 10 points: a table's cells. Latin-1 characters only. */
+  /** Text drawn where each says, in Helvetica at 10 points: a table's cells. */
   placed?: readonly { text: string; x: number; y: number }[];
+  /** Rules and filled rectangles, drawn before the text. */
+  drawn?: readonly PdfDrawing[];
   /** Draws a small greyscale image, like a scanned page. */
   image?: boolean;
   /** A valid compressed raster for exercising oversized-image limits. */
@@ -30,6 +58,10 @@ export interface PdfPage {
    * lines, as a scanner makes it.
    */
   scan?: Uint8Array;
+  /** A landscape A4 scan, for a sideways source picture on an unrotated page. */
+  landscape?: boolean;
+  /** The page's /Rotate value in degrees, as a PDF viewer applies it. */
+  rotation?: number;
 }
 
 /** A JPEG's width, height and number of colour components, from its frame header. */
@@ -81,6 +113,7 @@ export interface PdfPageLabelRange {
 }
 
 export interface PdfOptions {
+  xfa?: string;
   outline?: readonly PdfOutlineEntry[];
   pageLabels?: readonly PdfPageLabelRange[];
   /**
@@ -94,6 +127,8 @@ export interface PdfOptions {
   rawInfo?: string;
   /** An XMP metadata stream, as written, for the catalog's /Metadata. Stored as UTF-8. */
   xmp?: string;
+  /** Glyphs the text stands for, each drawn under a code of its own (see `PdfSymbol`). */
+  symbols?: readonly PdfSymbol[];
 }
 
 const LINE_HEIGHT = 14;
@@ -101,8 +136,214 @@ const TOP = 760;
 
 const escapeLatin = (text: string) => text.replace(/[\\()]/g, (char) => `\\${char}`);
 
+/** WinAnsiEncoding's bytes for the characters it adds to Latin-1. */
+const WIN_ANSI: Readonly<Record<string, number>> = {
+  "€": 0x80,
+  "‚": 0x82,
+  ƒ: 0x83,
+  "„": 0x84,
+  "…": 0x85,
+  "†": 0x86,
+  "‡": 0x87,
+  ˆ: 0x88,
+  "‰": 0x89,
+  Š: 0x8a,
+  "‹": 0x8b,
+  Œ: 0x8c,
+  Ž: 0x8e,
+  "‘": 0x91,
+  "’": 0x92,
+  "“": 0x93,
+  "”": 0x94,
+  "•": 0x95,
+  "–": 0x96,
+  "—": 0x97,
+  "˜": 0x98,
+  "™": 0x99,
+  š: 0x9a,
+  "›": 0x9b,
+  œ: 0x9c,
+  ž: 0x9e,
+  Ÿ: 0x9f,
+};
+
+/** The character a WinAnsi byte draws, where Latin-1's own byte isn't it. */
+const WIN_ANSI_CHARS: Readonly<Record<number, string>> = Object.fromEntries(
+  Object.entries(WIN_ANSI).map(([char, code]) => [code, char]),
+);
+
+/** The byte a symbol is drawn under: a control code WinAnsi text never uses. */
+const symbolByte = (index: number) => index + 1;
+
+/**
+ * A line of text as the standard font's bytes: WinAnsi's, and each symbol's
+ * own code. A character neither has is an error, never a silent "?".
+ */
+function encode(text: string, symbols: readonly PdfSymbol[]): string {
+  const ordered = [...symbols].sort((a, b) => b.as.length - a.as.length);
+  let out = "";
+  for (let at = 0; at < text.length; ) {
+    const symbol = ordered.find((each) => text.startsWith(each.as, at));
+    if (symbol) {
+      out += String.fromCharCode(symbolByte(symbols.indexOf(symbol)));
+      at += symbol.as.length;
+      continue;
+    }
+    const char = text[at] as string;
+    const code = char.codePointAt(0) as number;
+    if ((code >= 0x20 && code <= 0x7e) || (code >= 0xa0 && code <= 0xff)) {
+      out += char;
+    } else if (WIN_ANSI[char] !== undefined) {
+      out += String.fromCharCode(WIN_ANSI[char] as number);
+    } else {
+      throw new Error(`Not WinAnsi, and no symbol to draw it: ${JSON.stringify(char)}`);
+    }
+    at += 1;
+  }
+  return out;
+}
+
+/** Helvetica's width per 1000 units of the font size, for the characters the samples use. */
+const HELVETICA: Readonly<Record<string, number>> = {
+  " ": 278,
+  "!": 278,
+  '"': 355,
+  "#": 556,
+  $: 556,
+  "%": 889,
+  "&": 667,
+  "'": 191,
+  "(": 333,
+  ")": 333,
+  "*": 389,
+  "+": 584,
+  ",": 278,
+  "-": 333,
+  ".": 278,
+  "/": 278,
+  "0": 556,
+  "1": 556,
+  "2": 556,
+  "3": 556,
+  "4": 556,
+  "5": 556,
+  "6": 556,
+  "7": 556,
+  "8": 556,
+  "9": 556,
+  ":": 278,
+  ";": 278,
+  "<": 584,
+  "=": 584,
+  ">": 584,
+  "?": 556,
+  "@": 1015,
+  A: 667,
+  B: 667,
+  C: 722,
+  D: 722,
+  E: 667,
+  F: 611,
+  G: 778,
+  H: 722,
+  I: 278,
+  J: 500,
+  K: 667,
+  L: 556,
+  M: 833,
+  N: 722,
+  O: 778,
+  P: 667,
+  Q: 778,
+  R: 722,
+  S: 667,
+  T: 611,
+  U: 722,
+  V: 667,
+  W: 944,
+  X: 667,
+  Y: 667,
+  Z: 611,
+  "[": 278,
+  "\\": 278,
+  "]": 278,
+  "^": 469,
+  _: 556,
+  "`": 333,
+  a: 556,
+  b: 556,
+  c: 500,
+  d: 556,
+  e: 556,
+  f: 278,
+  g: 556,
+  h: 556,
+  i: 222,
+  j: 222,
+  k: 500,
+  l: 222,
+  m: 833,
+  n: 556,
+  o: 556,
+  p: 556,
+  q: 556,
+  r: 333,
+  s: 500,
+  t: 278,
+  u: 556,
+  v: 500,
+  w: 722,
+  x: 500,
+  y: 500,
+  z: 500,
+  "{": 334,
+  "|": 260,
+  "}": 334,
+  "~": 584,
+  "•": 350,
+  "–": 556,
+  "—": 1000,
+  "‘": 333,
+  "’": 333,
+  "“": 333,
+  "”": 333,
+  "£": 556,
+};
+
+/** How wide a text is at a font size, in points, in Helvetica. */
+export function widthOf(text: string, size: number): number {
+  let units = 0;
+  for (const char of text) units += HELVETICA[char] ?? 500;
+  return (units * size) / 1000;
+}
+
+/** A symbol's own width, per 1000 units: the letters it stands for, as Helvetica sets them. */
+const SYMBOL_WIDTH: Readonly<Record<string, number>> = {
+  fi: 500,
+  fl: 500,
+  ff: 556,
+  ffi: 778,
+  ffl: 778,
+  epsilon: 500,
+  carriagereturn: 500,
+};
+
+/** The font's /ToUnicode stream: each symbol's code as the text a reader extracts for it. */
+function toUnicode(symbols: readonly PdfSymbol[]): string {
+  const entries = symbols
+    .map((symbol, index) => {
+      const code = symbolByte(index).toString(16).padStart(2, "0");
+      const text = [...symbol.text]
+        .map((char) => (char.codePointAt(0) as number).toString(16).padStart(4, "0"))
+        .join("");
+      return `<${code}> <${text}>`;
+    })
+    .join("\n");
+  return `beginbfchar\n${entries}\nendbfchar\n`;
+}
+
 /** A text string for /Info: literal for Latin-1, else UTF-16BE hex with its byte order mark. */
-const infoString = (text: string) =>
+export const pdfString = (text: string) =>
   /[^\x20-\xff]/.test(text) ? `<FEFF${toUcs2Hex(text)}>` : `(${escapeLatin(text)})`;
 
 const toUcs2Hex = (text: string) =>
@@ -114,23 +355,41 @@ const toUcs2Hex = (text: string) =>
     })
     .join("");
 
-function contentStream(page: PdfPage): string {
+export function pdfAppearance(text: string): string {
+  const chinese = /[^\x20-\xff]/.test(text);
+  const shown = chinese ? `<${toUcs2Hex(text)}>` : `(${escapeLatin(text)})`;
+  return `BT /${chinese ? "F2" : "F1"} 11 Tf 2 6 Td ${shown} Tj ET`;
+}
+
+function contentStream(page: PdfPage, symbols: readonly PdfSymbol[]): string {
   // A scan's picture first: any lines are written over it, as a stamp is.
-  const parts: string[] = page.scan ? ["q 595 0 0 842 0 0 cm /Scan Do Q"] : [];
+  const parts: string[] = page.scan
+    ? [`q ${page.landscape ? "842 0 0 595" : "595 0 0 842"} 0 0 cm /Scan Do Q`]
+    : [];
+  for (const drawing of page.drawn ?? []) {
+    if ("rule" in drawing) {
+      const [x1, y1, x2, y2] = drawing.rule;
+      parts.push(`${drawing.gray ?? 0} G ${drawing.width ?? 1} w ${x1} ${y1} m ${x2} ${y2} l S`);
+    } else {
+      const [x, y, width, height] = drawing.rectangle;
+      parts.push(`${drawing.gray ?? 0.8} g ${x} ${y} ${width} ${height} re f`);
+    }
+  }
   let y = TOP;
   for (const { text, size = 11 } of page.printed ?? []) {
-    const chinese = /[^\x20-\xff]/.test(text);
-    const shown = chinese ? `<${toUcs2Hex(text)}>` : `(${escapeLatin(text)})`;
+    const chinese = /\p{Script=Han}/u.test(text);
+    const shown = chinese ? `<${toUcs2Hex(text)}>` : `(${escapeLatin(encode(text, symbols))})`;
     parts.push(`BT /${chinese ? "F2" : "F1"} ${size} Tf 72 ${y} Td ${shown} Tj ET`);
     y -= Math.round(size * 1.6);
   }
   for (const line of page.lines ?? []) {
-    if (/[^\x20-\xff]/.test(line)) throw new Error(`Not Latin-1: ${line}`);
-    parts.push(`BT /F1 11 Tf 72 ${y} Td (${escapeLatin(line)}) Tj ET`);
+    parts.push(`BT /F1 11 Tf 72 ${y} Td (${escapeLatin(encode(line, symbols))}) Tj ET`);
     y -= LINE_HEIGHT;
   }
   for (const { text, x, y: at } of page.placed ?? []) {
-    parts.push(`BT /F1 10 Tf ${x} ${at} Td (${escapeLatin(text)}) Tj ET`);
+    const chinese = /\p{Script=Han}/u.test(text);
+    const shown = chinese ? `<${toUcs2Hex(text)}>` : `(${escapeLatin(encode(text, symbols))})`;
+    parts.push(`BT /${chinese ? "F2" : "F1"} 10 Tf ${x} ${at} Td ${shown} Tj ET`);
   }
   for (const line of page.chineseLines ?? []) {
     parts.push(`BT /F2 11 Tf 72 ${y} Td <${toUcs2Hex(line)}> Tj ET`);
@@ -226,7 +485,7 @@ export function buildPdf(pages: readonly PdfPage[], options: PdfOptions = {}): U
     objects[id] =
       options.rawInfo ??
       `<< ${Object.entries(options.info ?? {})
-        .map(([key, value]) => `/${key} ${infoString(value)}`)
+        .map(([key, value]) => `/${key} ${pdfString(value)}`)
         .join(" ")} >>`;
     info = ` /Info ${id} 0 R`;
   }
@@ -247,9 +506,31 @@ export function buildPdf(pages: readonly PdfPage[], options: PdfOptions = {}): U
         )
         .join(" ")}] >>`
     : "";
-  objects[1] = `<< /Type /Catalog /Pages 2 0 R${outline}${metadata}${labels} >>`;
+  const fields: number[] = [];
   objects[2] = `<< /Type /Pages /Kids [${pageIds.map((id) => `${id} 0 R`).join(" ")}] /Count ${pages.length} >>`;
-  objects[3] = "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>";
+  const symbols = options.symbols ?? [];
+  let fontEncoding = "/Encoding /WinAnsiEncoding";
+  if (symbols.length > 0) {
+    const differences = symbols
+      .map((symbol, index) => `${symbolByte(index)} /${symbol.glyph}`)
+      .join(" ");
+    const toUnicodeId = nextId++;
+    const map = toUnicode(symbols);
+    objects[toUnicodeId] = `<< /Length ${map.length} >>\nstream\n${map}\nendstream`;
+    // A base-14 font's widths come from its own metrics, which know no symbol:
+    // without these, pdf.js reads the symbol and the letters after it apart.
+    const widths = Array.from({ length: 256 }, (_, code) => {
+      const symbol = symbols[code - 1];
+      if (symbol) return SYMBOL_WIDTH[symbol.glyph] ?? 500;
+      const latin = (code >= 0x20 && code <= 0x7e) || (code >= 0xa0 && code <= 0xff);
+      const char = WIN_ANSI_CHARS[code] ?? (latin ? String.fromCharCode(code) : undefined);
+      return char === undefined ? 500 : (HELVETICA[char] ?? 500);
+    });
+    fontEncoding =
+      ` /Encoding << /Type /Encoding /BaseEncoding /WinAnsiEncoding /Differences [${differences}] >> ` +
+      `/ToUnicode ${toUnicodeId} 0 R /FirstChar 0 /LastChar 255 /Widths [${widths.join(" ")}]`;
+  }
+  objects[3] = `<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica${fontEncoding} >>`;
   objects[4] =
     "<< /Type /Font /Subtype /Type0 /BaseFont /STSong-Light /Encoding /UniGB-UCS2-H " +
     "/DescendantFonts [<< /Type /Font /Subtype /CIDFontType0 /BaseFont /STSong-Light " +
@@ -259,7 +540,7 @@ export function buildPdf(pages: readonly PdfPage[], options: PdfOptions = {}): U
     "/ItalicAngle 0 /Ascent 880 /Descent -120 /CapHeight 880 /StemV 93 >>";
   pages.forEach((page, index) => {
     const pageId = 6 + index * 2;
-    const content = contentStream(page);
+    const content = contentStream(page, symbols);
     let scan = "";
     if (page.scan) {
       const id = nextId++;
@@ -271,12 +552,55 @@ export function buildPdf(pages: readonly PdfPage[], options: PdfOptions = {}): U
         `/Filter /DCTDecode /Length ${data.length} >>\nstream\n${data}\nendstream`;
       scan = ` /XObject << /Scan ${id} 0 R >>`;
     }
-    const size = page.scan ? "595 842" : "612 792";
+    const size = page.scan ? (page.landscape ? "842 595" : "595 842") : "612 792";
+    const annotations = (page.fields ?? []).map((field) => {
+      const id = nextId++;
+      const appearance = (value: string) => {
+        const appearanceId = nextId++;
+        objects[appearanceId] =
+          `<< /Type /XObject /Subtype /Form /BBox [0 0 300 24] /Resources << /Font << /F1 3 0 R /F2 4 0 R >> >> /Length ${value.length} >>\nstream\n${value}\nendstream`;
+        return `${appearanceId} 0 R`;
+      };
+      const normal =
+        field.appearance === null
+          ? null
+          : typeof field.appearance === "string"
+            ? appearance(field.appearance)
+            : `<< ${Object.entries(field.appearance)
+                .map(([state, value]) => `/${state} ${appearance(value)}`)
+                .join(" ")} >>`;
+      let parent = "";
+      if (field.parent) {
+        const parentId = nextId++;
+        fields.push(parentId);
+        objects[parentId] = `<< ${field.parent} /Kids [${id} 0 R] >>`;
+        parent = ` /Parent ${parentId} 0 R`;
+      } else fields.push(id);
+      objects[id] =
+        `<< /Type /Annot /Subtype /Widget /P ${pageId} 0 R ${field.dictionary}${parent}${normal === null ? "" : ` /AP << /N ${normal} >>`} >>`;
+      return `${id} 0 R`;
+    });
     objects[pageId] =
       `<< /Type /Page /Parent 2 0 R /MediaBox [0 0 ${size}] ` +
-      `/Resources << /Font << /F1 3 0 R /F2 4 0 R >>${scan} >> /Contents ${pageId + 1} 0 R >>`;
+      `${page.rotation === undefined ? "" : `/Rotate ${page.rotation} `}` +
+      `/Resources << /Font << /F1 3 0 R /F2 4 0 R >>${scan} >> /Contents ${pageId + 1} 0 R${annotations.length > 0 ? ` /Annots [${annotations.join(" ")}]` : ""} >>`;
     objects[pageId + 1] = `<< /Length ${content.length} >>\nstream\n${content}\nendstream`;
   });
+  let xfa = "";
+  if (options.xfa !== undefined) {
+    const id = nextId++;
+    const data = Buffer.from(options.xfa, "utf8").toString("latin1");
+    objects[id] = `<< /Length ${data.length} >>\nstream\n${data}\nendstream`;
+    xfa = ` /XFA ${id} 0 R`;
+  }
+  const hasSignatures = pages.some((page) =>
+    (page.fields ?? []).some((field) => field.dictionary.includes("/FT /Sig")),
+  );
+  const form =
+    fields.length > 0 || xfa
+      ? ` /AcroForm << /Fields [${fields.map((id) => `${id} 0 R`).join(" ")}]${xfa}${hasSignatures ? " /SigFlags 1" : ""} /DA (/F1 11 Tf 0 g) /DR << /Font << /F1 3 0 R >> >> >>`
+      : "";
+  objects[1] = `<< /Type /Catalog /Pages 2 0 R${outline}${metadata}${labels}${form} >>`;
 
   // Latin-1 throughout, so string length equals byte length for the xref offsets.
   let pdf = "%PDF-1.4\n%\xe2\xe3\xcf\xd3\n";

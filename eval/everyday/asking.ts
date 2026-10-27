@@ -136,9 +136,12 @@ export const fetchReserves = (cacheDir: string, log: Log) =>
 
 export async function reports(): Promise<EvalDocument[]> {
   const folder = join(ROOT, "data");
-  return (await readdir(folder))
-    .filter((name) => name.endsWith(".pdf"))
-    .map((name) => ({ key: name, path: join(folder, name) }));
+  const realFolder = join(folder, "real");
+  const pdfsIn = async (directory: string) =>
+    (await readdir(directory))
+      .filter((name) => name.endsWith(".pdf"))
+      .map((name) => ({ key: name, path: join(directory, name) }));
+  return [...(await pdfsIn(folder)), ...(await pdfsIn(realFolder))];
 }
 
 export interface CaseResult {
@@ -340,10 +343,13 @@ export async function runCase(
     watch,
     checkModel = null,
     deciding,
+    asking,
     calculates = false,
   }: {
     /** Watches the app's own asks inside the Answer; none watched without it. */
     watch?: ReaskWatch;
+    /** Called just before the request itself is asked, after the turns it follows. */
+    asking?: () => void;
     /** The model the cited sentences are checked on; null: the default chat model. */
     checkModel?: ChatModelChoice | null;
     /** Arm C: decides each request first, and forces the chat model's requests as the decision says. */
@@ -479,6 +485,7 @@ export async function runCase(
   watch?.begin(each.firstReply ?? null);
   await decideFirst(each.request);
   const stoppedAtAsk = { last: false };
+  asking?.();
   const answer = await ask(
     core,
     {
