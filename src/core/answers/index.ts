@@ -277,6 +277,7 @@ import {
   exampleNote,
   LISTED_DOCUMENTS,
   LISTED_MINDS,
+  type LibraryDocuments,
   type ListedDocuments,
   languageInstruction,
   loadedSkillText,
@@ -463,8 +464,8 @@ const EMPTY_SCOPE_NOTE = `The User limited this Question to a Search scope (Fold
 // Told only this, models took a Mind the User named for a Document and wrote nothing (#1790).
 const MINDS_ARE_NOT_DOCUMENTS = "Their Minds aren't Documents: read_mind reads one they name.";
 
-const noDocumentsNote = (examples: boolean) =>
-  `None of the User's own Documents can be searched yet${examples ? " (the examples IncarnaMind made aren't theirs)" : ""}, so there is nothing to search. ${NOTHING_TO_CITE} They can add Documents to the Library.`;
+const noDocumentsNote = (examples: boolean, library: number) =>
+  `None of the User's own Documents can be searched yet${examples ? " (the examples IncarnaMind made aren't theirs)" : ""}, so there is nothing to search.${library > 0 ? ` The User's Library holds ${library} Document${library === 1 ? "" : "s"} in all: never say it holds fewer than ${library}.` : ""} ${NOTHING_TO_CITE} They can add Documents to the Library.`;
 
 const changesAMind = (change: MindChange) =>
   change.created || change.revised === true || change.proposals > 0;
@@ -721,6 +722,8 @@ const messageOf = (error: unknown) => (error instanceof Error ? error.message : 
 export interface DocumentsForAnswers
   extends Pick<AnswerDocuments, "citationSource" | "pageTexts" | "documentDate"> {
   searchableCount(documentIds: readonly string[] | null): number;
+  /** How many live Documents the Library holds: every Document it lists, searchable or not. */
+  libraryCount(): number;
   /** Every live Document's names: what a Citation in the Question context names its Document by. */
   names(): readonly LiveDocument[];
   /**
@@ -998,6 +1001,14 @@ export function createAnswers(options: AnswersOptions) {
     const helpDocuments = help ? HELP_DOCUMENTS[help] : undefined;
     const callDocuments: string[] | null = helpDocuments === null ? [] : null;
     const scoped = callDocuments !== null || (input.scoped ?? input.documentIds !== null);
+    const outside = input.outside === true;
+    // Only an Answer the User reads is told the Library's whole count (#1333): a cell's or an agent's is its scope's alone.
+    const library: LibraryDocuments | undefined = outside
+      ? undefined
+      : {
+          total: options.documents.libraryCount(),
+          examples: input.assistant !== undefined && !scoped && input.documentIds !== null,
+        };
     const asked =
       input.outside === true || callDocuments !== null
         ? { each: false, main: null }
@@ -1010,7 +1021,6 @@ export function createAnswers(options: AnswersOptions) {
         : null;
     const documentIds =
       callDocuments ?? (coverage ? coverage.used.map((each) => each.id) : input.documentIds);
-    const outside = input.outside === true;
     // Worked out now, shown only once the Answer has written into a Mind from new text.
     const writtenFrom =
       !outside && options.minds && input.assistant
@@ -2560,7 +2570,9 @@ export function createAnswers(options: AnswersOptions) {
             base,
             mode === "no-documents"
               ? [
-                  scoped && input.emptyScope ? EMPTY_SCOPE_NOTE : noDocumentsNote(input.emptyScope),
+                  scoped && input.emptyScope
+                    ? EMPTY_SCOPE_NOTE
+                    : noDocumentsNote(input.emptyScope, library?.total ?? 0),
                   ...(withMindTools ? [MINDS_ARE_NOT_DOCUMENTS] : []),
                 ].join(" ")
               : documentInstructions(
@@ -2570,7 +2582,7 @@ export function createAnswers(options: AnswersOptions) {
                   scoped,
                   calculating,
                   withMindTools || ids.size() > 0,
-                  { writeFirst, minds: withMindTools },
+                  { writeFirst, minds: withMindTools, library },
                 ),
             stillReadingNote(options.documents.reading(documentIds)),
             coverageInstructions(

@@ -1478,6 +1478,7 @@ export function createCore(adapters: CoreAdapters): Core {
     },
     documents: {
       searchableCount: (documentIds) => documents.searchableCount(documentIds ?? undefined),
+      libraryCount: () => documents.ids({}).length,
       names: () => documents.names(),
       searchableNames: (documentIds, limit) =>
         documents.searchableNames(documentIds ?? undefined, limit),
