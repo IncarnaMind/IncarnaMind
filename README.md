@@ -133,6 +133,7 @@ Where a provider offers the choice, IncarnaMind asks it not to keep your request
 
 - **Is it free?** Yes, open source under Apache 2.0. The model is billed by its provider, or covered by a plan you already have.
 - **How is it different from NotebookLM (now Gemini Notebook)?** It runs on your computer, reads your files where they are and needs no account. It works with the model you choose, opens each citation at its page, checks your own draft and exports to Word with footnotes. The table above has the rest.
+- **Can a check miss something?** Yes: a check can miss a change of obligation, such as “should” where the Document says “may”.
 - **Which models can I use?** Sign in with ChatGPT Plus or Pro, Claude, or GitHub Copilot (experimental); each stays off until you sign in. Or use your own key from OpenAI, Anthropic, Google, DeepSeek, Qwen, SiliconFlow, OpenRouter, Kimi, GLM, Mistral, xAI or any OpenAI-compatible server.
 - **Does it work offline?** Reading files and search do. Answers and checks need a model: a cloud one, or a local one through Ollama, which is slower.
 - **Can I use it on client documents?** Your files stay on your computer, and only the model you chose and the services you allow receive anything. Read the [client data statement](docs/client-data-statement.md) first.

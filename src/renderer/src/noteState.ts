@@ -61,7 +61,7 @@ export interface NoteState {
 export function noteStateOf(health: NoteHealth, unread = 0, narrowUnread = 0): NoteState | null {
   const unreadMatters = narrowUnread > 0;
   if (health.checkable === 0) return null;
-  const look = health.unsupported.length + health.contradicted.length + health.notFound.length;
+  const look = health.lookClaims.length;
   const base = {
     checkedAt: health.checkedAt,
     unread: 0,
