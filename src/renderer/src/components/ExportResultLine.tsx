@@ -344,7 +344,7 @@ function useExportNoteState(mindId: string | null): NoteState | null {
     mindId === null ? null : (state.minds.find((each) => each.id === mindId) ?? null),
   );
   const states = useMindNoteStates(mind ? [mind] : []);
-  return mind ? (states.get(mind.id) ?? null) : null;
+  return mind ? (states.get(mind.id)?.state ?? null) : null;
 }
 
 /**
