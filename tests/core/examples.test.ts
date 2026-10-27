@@ -16,7 +16,7 @@ import { EXAMPLE_SETS } from "../../src/core/exampleSets";
 import type { Language } from "../../src/core/language";
 import { openDatabase } from "../../src/core/storage";
 import { createTempDataFolder, startCore } from "../helpers/core";
-import { waitForProcessing } from "../helpers/documents";
+import { waitForDocuments, waitForProcessing } from "../helpers/documents";
 import { appendParagraph, connectToMind } from "../helpers/mindClient";
 import { readMind } from "../helpers/minds";
 import { buildPdf } from "../helpers/pdf";
@@ -226,12 +226,14 @@ describe("the example Mind", { timeout: 30_000 }, () => {
     async (language) => {
       const { core } = await startWithExamples(language);
       await core.offerExamples();
-      const documents = await vi.waitFor(async () => {
-        const documents = await core.listDocuments();
+      const listed = await waitForDocuments(core, (documents) => {
         expect(documents).toHaveLength(2);
-        expect(documents.every((document) => document.status === "ready")).toBe(true);
-        return documents;
       });
+      const documents = await waitForProcessing(
+        core,
+        listed.map((document) => document.id),
+      );
+      expect(documents.map((document) => document.status)).toEqual(["ready", "ready"]);
       const quote = EXAMPLE_SETS.credit[language].ready?.quotes[0];
       const document = documents.find((document) => document.name === quote?.document);
       if (!document || !quote) throw new Error("The ready Answer's Document is missing.");

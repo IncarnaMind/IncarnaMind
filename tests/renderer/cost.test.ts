@@ -100,25 +100,19 @@ describe("Cost in words", () => {
     expect(translate("zh-CN", notCheckedKey({ reason: "cost-cap" }))).toBe("未核对：已达花费上限");
   });
 
-  test("the estimate names calls, tokens and price, with the month so far under a cap; a plan or a local model shows none", () => {
+  test("the estimate shows above a dollar or under a cap, with tokens and the month so far, never model calls; a plan or this computer shows none", () => {
     const estimate = {
       billing: "per-token" as const,
       calls: 24,
       tokens: 310_000,
-      cost: { amount: 0.4, currency: "USD" as const },
+      cost: { amount: 1.4, currency: "USD" as const },
       spentTowardCap: { amount: 12.4, currency: "USD" as const },
       setAsideTowardCap: { amount: 0, currency: "USD" as const },
       cap: { amount: 20, currency: "USD" as const },
     };
     const en = estimateLine(estimate, t("en"), "en");
-    expect(en?.parts).toEqual([
-      "About $0.40",
-      "24 model calls",
-      "$12.40 of $20.00 used this month",
-    ]);
-    expect(en?.title).toBe(
-      "About $0.40 · 24 model calls · 310K tokens · $12.40 of $20.00 used this month",
-    );
+    expect(en?.parts).toEqual(["About $1.40", "310K tokens", "$12.40 of $20.00 used this month"]);
+    expect(en?.title).toBe("About $1.40 · 310K tokens · $12.40 of $20.00 used this month");
     expect(
       estimateLine(
         { ...estimate, setAsideTowardCap: { amount: 1.28, currency: "USD" } },
@@ -126,26 +120,53 @@ describe("Cost in words", () => {
         "en",
       )?.parts,
     ).toEqual([
-      "About $0.40",
-      "24 model calls",
+      "About $1.40",
+      "310K tokens",
       "$12.40 of $20.00 used this month",
       "$1.28 set aside for work in progress",
     ]);
+    // Above a dollar, with no cap set: the price and the tokens, nothing of the month.
     expect(
       estimateLine(
         { ...estimate, cap: null, spentTowardCap: null, setAsideTowardCap: null },
         t("en"),
         "en",
       )?.parts,
-    ).toEqual(["About $0.40", "24 model calls"]);
-    expect(estimateLine({ ...estimate, cost: null, cap: null }, t("en"), "en")?.parts).toEqual([
-      "About 24 model calls",
-      "310K tokens",
-    ]);
+    ).toEqual(["About $1.40", "310K tokens"]);
+    // A small run shows no price line unless a cap is set (#1941).
     expect(
-      estimateLine({ ...estimate, cost: null, cap: null }, t("zh-CN"), "zh-CN")?.parts,
-    ).toEqual(["约 24 次模型调用", "31万 token"]);
+      estimateLine(
+        {
+          ...estimate,
+          cost: { amount: 0.4, currency: "USD" },
+          cap: null,
+          spentTowardCap: null,
+          setAsideTowardCap: null,
+        },
+        t("en"),
+        "en",
+      ),
+    ).toBeNull();
+    expect(
+      estimateLine({ ...estimate, cost: { amount: 1, currency: "USD" } }, t("en"), "en"),
+    ).not.toBeNull();
+    expect(estimateLine({ ...estimate, cost: null }, t("en"), "en")?.parts).toEqual([
+      "310K tokens",
+      "$12.40 of $20.00 used this month",
+    ]);
+    // No price known and no cap: nothing tells whether it is above a dollar, so no line.
+    expect(estimateLine({ ...estimate, cost: null, cap: null }, t("en"), "en")).toBeNull();
+    expect(
+      estimateLine({ ...estimate, cost: { amount: 0.4, currency: "USD" } }, t("zh-CN"), "zh-CN")
+        ?.parts,
+    ).toEqual(["约 $0.40", "31万 token", "本月已用 $12.40，上限 $20.00"]);
     expect(estimateLine({ billing: "plan" }, t("en"), "en")).toBeNull();
     expect(estimateLine({ billing: "free" }, t("en"), "en")).toBeNull();
+    // "model calls" never appears in the interface (#1941).
+    for (const line of [en, estimateLine(estimate, t("zh-CN"), "zh-CN")]) {
+      expect([...(line?.parts ?? []), line?.title ?? ""].join(" ")).not.toMatch(
+        /model calls?|模型调用/,
+      );
+    }
   });
 });

@@ -61,7 +61,7 @@ async function launchWithTides() {
   return running;
 }
 
-test("a Mind of plain notes says its state; its card, from ⌘K, has one count per state and one action, checks, and says what it checked until you type", async () => {
+test("a Note of plain notes says its state; its card, from ⌘K, has one count per state and one action, checks, and says what it checked until you type", async () => {
   const { app, window } = await launchWithTides();
   await setWindowSize(app, window, 1440, 900);
   await newMind(window);
@@ -82,12 +82,10 @@ test("a Mind of plain notes says its state; its card, from ⌘K, has one count p
   const card = await checkCard(window);
   await expect(card.getByTestId("health-toCheck")).toContainText("1 claim not checked yet");
   await expect(card.getByTestId("health-noCitation")).toHaveCount(0);
-  // One action, and the one under it; no lines about them, and no Close: Esc closes it.
-  await expect(card.getByTestId("badge-check-mind")).toHaveText("Check this note");
-  await expect(card.getByTestId("badge-check-contradictions")).toHaveText(
-    "Check for contradictions",
-  );
-  await expect(card.locator('[data-testid^="badge-check"]')).toHaveCount(2);
+  // One action, and nothing under it: Check for contradictions is in ⌘K and the page menu.
+  await expect(card.getByTestId("badge-check-mind")).toHaveText("Check");
+  await expect(card.locator('[data-testid^="badge-check"]')).toHaveCount(1);
+  await expect(card).not.toContainText("Check for contradictions");
   await expect(card).not.toContainText("Whether each claim");
   await screenshot(window, "check-badge-card-en");
   await window.keyboard.press("Escape");

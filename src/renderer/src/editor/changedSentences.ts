@@ -1,6 +1,5 @@
 import { useEffect, useState } from "react";
 import type * as Y from "yjs";
-import type { MindCheckPlan } from "../../../core/api";
 import { type Planned, planCheckThisMind } from "../mindCheck";
 import type { Translate } from "../objects";
 import { useAppStore } from "../store";
@@ -8,7 +7,7 @@ import { useAppStore } from "../store";
 const IDLE_MS = 300;
 
 /**
- * What "Check this Mind" would run now, as the Mind, its Documents, the Library and its Folder
+ * What the one Check would run now, as the Note, its Documents, the Library and its Folder
  * change; null until known. Not planned while a check runs.
  */
 export function useCheckThisMindPlan(doc: Y.Doc, mindId: string, paused: boolean): Planned | null {
@@ -49,11 +48,19 @@ export function useCheckThisMindPlan(doc: Y.Doc, mindId: string, paused: boolean
   return planned;
 }
 
-/** What "Check this Mind" would check, for its button's tooltip: the sentences to check, or nothing changed. */
-export function checkTitle(t: Translate, plan: MindCheckPlan): string | undefined {
-  if (plan.kind === "unchanged") return t("mindCheck.changed.none");
-  if (plan.kind !== "ready") return undefined;
-  return t(plan.sentences === 1 ? "mindCheck.changed.one" : "mindCheck.changed", {
-    count: plan.sentences,
-  });
+/**
+ * What the one Check would check, for its button's tooltip: the sentences it
+ * reads — the one count (#1909) — or nothing changed. Null while the plan
+ * can't be made.
+ */
+export function checkTitle(t: Translate, planned: Planned): string | undefined {
+  const { plan } = planned;
+  const sentences = plan.kind === "ready" ? plan.sentences : 0;
+  if (sentences > 0) {
+    return t(sentences === 1 ? "mindCheck.changed.one" : "mindCheck.changed", {
+      count: sentences,
+    });
+  }
+  if (plan.kind === "unchanged" || plan.kind === "nothing") return t("mindCheck.changed.none");
+  return undefined;
 }
