@@ -8,6 +8,7 @@ import {
   askInAssistant,
   assistantAnswers,
   confirmLink,
+  coreOf,
   createDataFolder,
   dismissChatSetup,
   useLocalChatModel as enableLocalModel,
@@ -78,6 +79,14 @@ async function measure(window: Page) {
   const title = await window.getByTestId("mind-editor").locator("h1").boundingBox();
   if (!card || !title) throw new Error("The first screen isn't laid out.");
   return { card: Math.round(card.height), title: Math.round(title.y) };
+}
+
+/** The example follows the interface's language once it is switched (#709): its Mind says so. */
+async function expectExampleIn(window: Page, language: "en" | "zh-CN"): Promise<void> {
+  await expect(window.getByTestId("mind-editor").locator("h1")).toHaveText(
+    language === "en" ? "Draft: credit committee paper" : "授信委员会报告（草稿）",
+    { timeout: 30_000 },
+  );
 }
 
 async function showState(window: Page, { done, steps }: (typeof STATES)[number]): Promise<void> {
@@ -325,13 +334,206 @@ test("hiding the guide takes its red mark's ring and its ⌘K route away (#1944)
   await app.close();
 });
 
+/** A file name longer than the Ask line can show: the Question about it is cut. */
+const LONG_NAME =
+  "Protocol for the joint harbour authority quarterly tide-table review and its winter dredging schedule";
+/** Pages enough that reading the file takes a moment the test can see the card in. */
+const SLOW = buildPdf(
+  Array.from({ length: 800 }, (_none, page) => ({
+    lines: [
+      `Harbour times, page ${page + 1}`,
+      "Harbours publish the times of high water every 12 months.",
+      "The tide tables follow the winter dredging.",
+    ],
+  })),
+);
+
+/** The User's own Documents in the core: one still being read, and one a Question can be made from. */
+async function ownDocuments(window: Page): Promise<{ reading: boolean; ready: boolean }> {
+  const core = await coreOf(window);
+  return core.evaluate(async (each) => {
+    const own = [];
+    for (const document of await each.listDocuments())
+      if (!(await each.isExampleDocument(document.id))) own.push(document);
+    return {
+      reading: own.some(
+        (document) => document.status === "queued" || document.status === "extracting",
+      ),
+      ready: own.some((document) =>
+        ["ready", "embedding", "waiting-for-model"].includes(document.status),
+      ),
+    };
+  });
+}
+
+for (const language of ["en", "zh-CN"] as const) {
+  for (const width of [900, 1600]) {
+    test(`the Ask line holds one height as their file is read, fails, becomes the Question, or a long one (${language}, ${width}px)`, async () => {
+      test.setTimeout(180_000);
+      const sources = await createDataFolder();
+      const slow = join(sources, "Harbour times.pdf");
+      await writeFile(slow, SLOW);
+      const damaged = join(sources, "damaged.pdf");
+      await writeFile(damaged, "%PDF-1.4 this is not a PDF");
+      const long = join(sources, `${LONG_NAME}.md`);
+      await writeFile(long, "# Protocol\n\nThe harbour master publishes the tide tables.\n");
+
+      // Their file being read, then ready, then a Question too long for the line.
+      let ready = 0;
+      const first = await createDataFolder();
+      const a = await launchApp(first, { examples: true, fakeChat: true });
+      try {
+        await setWindowSize(a.app, a.window, width, 900);
+        await setLanguage(a.window, language);
+        await expectReadyDocuments(a.window, 2);
+        const card = a.window.getByTestId("first-open-steps");
+        const height = async () => Math.round((await card.boundingBox())?.height ?? 0);
+
+        // The reading line can be on screen for only a frame or two: record it as the card's text
+        // changes, then wait for the record, rather than read the text once and hope to catch it.
+        const readingLine =
+          language === "en" ? "Reading “Harbour times”…" : "正在读取“Harbour times”…";
+        await a.window.evaluate((expected) => {
+          const seen = { text: false };
+          (globalThis as unknown as { cardReadingLine?: typeof seen }).cardReadingLine = seen;
+          const scan = () => {
+            const card = document.querySelector('[data-testid="first-open-steps"]');
+            if (card?.parentElement?.textContent?.includes(expected)) seen.text = true;
+          };
+          new MutationObserver(scan).observe(document.body, {
+            subtree: true,
+            childList: true,
+            characterData: true,
+          });
+          scan();
+        }, readingLine);
+
+        await interceptOpenDialog(a.app, slow);
+        await pointAndClick(a.window, step(a.window, "files").getByTestId("first-open-add-files"));
+        await expect.poll(async () => (await ownDocuments(a.window)).reading).toBe(true);
+        const reading = await height();
+        // The Ask step's line, in the states laid out unseen, says the file is reading.
+        await expect
+          .poll(() =>
+            a.window.evaluate(
+              () =>
+                (globalThis as unknown as { cardReadingLine?: { text: boolean } }).cardReadingLine
+                  ?.text ?? false,
+            ),
+          )
+          .toBe(true);
+
+        await expect
+          .poll(async () => (await ownDocuments(a.window)).ready, { timeout: 90_000 })
+          .toBe(true);
+        const button = step(a.window, "question").getByTestId("first-open-ready");
+        await expect(button).toBeVisible({ timeout: 90_000 });
+        ready = await height();
+        expect(ready, `${language} ${width}px, reading to ready`).toBe(reading);
+
+        await a.window.getByTestId("add-documents-input").setInputFiles([long]);
+        await expect(button).toHaveAttribute("title", new RegExp(LONG_NAME.slice(0, 24)));
+        const cut = await height();
+        expect(cut, `${language} ${width}px, a long Question`).toBe(reading);
+        // The whole Question stays the line's name and its tooltip, and the line cuts it.
+        expect(await button.getAttribute("aria-label")).toContain(LONG_NAME);
+        const wholeLabel = (await button.getAttribute("title")) ?? "";
+        const shownLabel = await button.innerText();
+        expect(shownLabel.endsWith("…"), `${language} ${width}px, cut`).toBe(true);
+        expect(wholeLabel.startsWith(shownLabel.slice(0, -1))).toBe(true);
+        if (language === "en")
+          // English cuts at a word's end, so what follows the shown text starts a word.
+          expect(
+            wholeLabel.slice(shownLabel.length - 1),
+            `${language} ${width}px, a word's end`,
+          ).toMatch(/^\s/u);
+      } finally {
+        await a.app.close();
+        await removeDataFolder(first);
+      }
+
+      // A file that could not be read: the Ask line shows the unread-files line, at one height.
+      const second = await createDataFolder();
+      const b = await launchApp(second, { examples: true, fakeChat: true });
+      try {
+        await setWindowSize(b.app, b.window, width, 900);
+        await setLanguage(b.window, language);
+        await expectReadyDocuments(b.window, 2);
+        await interceptOpenDialog(b.app, damaged);
+        await pointAndClick(b.window, step(b.window, "files").getByTestId("first-open-add-files"));
+        // Step 2 stays closed with no Document of theirs read; the Ask step's line, laid out
+        // unseen, says what the failure means for the Question.
+        const failedCard = b.window.getByTestId("first-open-steps");
+        await expect
+          .poll(
+            async () =>
+              (
+                await failedCard.evaluate((element) => element.parentElement?.textContent ?? "")
+              ).includes(language === "en" ? "1 file couldn’t be read" : "1 个文件未能读取"),
+            { timeout: 30_000 },
+          )
+          .toBe(true);
+        const failed = Math.round((await failedCard.boundingBox())?.height ?? 0);
+        expect(failed, `${language} ${width}px, failed to ready`).toBe(ready);
+      } finally {
+        await b.app.close();
+        await removeDataFolder(second);
+        await removeDataFolder(sources);
+      }
+    });
+  }
+}
+
+test("a Chinese Question longer than the line cuts at a character, whole in its name (#2084)", async () => {
+  const sources = await createDataFolder();
+  const name = "港口简报与冬季疏浚计划联合评审会议纪要（第二季度）";
+  const file = join(sources, `${name}.md`);
+  await writeFile(file, "# 港口简报\n\n港口每月发布一次潮汐表，并在冬季疏浚之后更新。\n");
+  const { app, window } = await launchApp(dataDir, { examples: true, fakeChat: true });
+  try {
+    await setWindowSize(app, window, 900, 900);
+    await setLanguage(window, "zh-CN");
+    await window.getByTestId("add-documents-input").setInputFiles([file]);
+    const button = step(window, "question").getByTestId("first-open-ready");
+    const whole = `提问：“${name}”讲了什么？`;
+    await expect(button).toHaveAttribute("title", whole, { timeout: 30_000 });
+    const shown = await button.innerText();
+    // A character cut, as Chinese reads: the line ends inside the name, not only at a space.
+    expect(shown.endsWith("…")).toBe(true);
+    expect(whole.startsWith(shown.slice(0, -1))).toBe(true);
+    expect(whole.charAt(shown.length - 1)).not.toBe(" ");
+  } finally {
+    await app.close();
+    await removeDataFolder(sources);
+  }
+});
+
+test("the English example's Question shows whole on one line at 900 px (#2084)", async () => {
+  const { app, window } = await launchApp(dataDir, { examples: true, fakeChat: true });
+  try {
+    await setWindowSize(app, window, 900, 900);
+    await setLanguage(window, "en");
+    await expectReadyDocuments(window, 2);
+    await markSteps(window, { indexed: true });
+    const button = step(window, "question").getByTestId("first-open-ready");
+    const whole = "Ask: “What leverage does the agreement allow?”";
+    await expect(button).toHaveAttribute("aria-label", whole, { timeout: 30_000 });
+    await expect(button).toHaveText(whole);
+  } finally {
+    await app.close();
+  }
+});
+
 test("the Welcome card keeps one height through every step, so the page's text never moves (#1195)", async () => {
   const { app, window } = await launchApp(dataDir, { examples: true, fakeChat: true });
   await expect(window.getByTestId("first-open-steps")).toBeVisible();
+  // The example, and its ready Question, are there before the first height is taken.
+  await expectReadyDocuments(window, 2);
 
   const heights = new Map<string, Awaited<ReturnType<typeof measure>>>();
   for (const language of ["en", "zh-CN"] as const) {
     await setLanguage(window, language);
+    await expectExampleIn(window, language);
     for (const width of [900, 1100, 1440, 1600]) {
       await setWindowSize(app, window, width, 900);
       heights.set(
@@ -344,6 +546,9 @@ test("the Welcome card keeps one height through every step, so the page's text n
   await enableLocalModel(window);
   for (const language of ["en", "zh-CN"] as const) {
     await setLanguage(window, language);
+    // The ready Question is the example's while there is no file of their own, and the card is
+    // measured in the example's language.
+    await expectExampleIn(window, language);
     for (const width of [900, 1100, 1440, 1600]) {
       await setWindowSize(app, window, width, 900);
       await expect(window.getByTestId("first-open-next").first()).toBeVisible();
@@ -363,6 +568,7 @@ test("a file that couldn't be read says so in step 1 without changing the card's
   try {
     const files = window.locator('[data-testid="first-open-step"][data-step="files"]');
     await expect(files).toHaveAttribute("data-state", "open");
+    await expectReadyDocuments(window, 2);
     const add = files.getByTestId("first-open-add-files");
     const places = async () => ({
       ...(await measure(window)),
@@ -374,6 +580,7 @@ test("a file that couldn't be read says so in step 1 without changing the card's
     const before: Record<string, Awaited<ReturnType<typeof places>>> = {};
     for (const { language, width, name } of views) {
       await setLanguage(window, language);
+      await expectExampleIn(window, language);
       await setWindowSize(app, window, width, 900);
       before[name] = await places();
     }
@@ -384,6 +591,7 @@ test("a file that couldn't be read says so in step 1 without changing the card's
     await expect(unread).toBeVisible({ timeout: 30_000 });
     for (const { language, width, name } of views) {
       await setLanguage(window, language);
+      await expectExampleIn(window, language);
       await setWindowSize(app, window, width, 900);
       await expect(unread).toBeVisible();
       expect(await places(), `${name}, the line shown`).toEqual(before[name]);

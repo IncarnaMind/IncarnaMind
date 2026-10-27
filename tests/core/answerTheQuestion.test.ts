@@ -104,7 +104,10 @@ async function setUp(language: Language, script?: (call: ModelCall, walk: Walk) 
   });
   await core.saveChatProvider({ kind: "ollama", modelId: "local-model" });
   const made = await core.offerExamples();
-  const asked = await vi.waitFor(() => core.askReadyQuestion(), { timeout: 20_000, interval: 100 });
+  const asked = await vi.waitFor(() => core.askExampleReadyQuestion(), {
+    timeout: 20_000,
+    interval: 100,
+  });
   return { walk, ready, core, model, made, conversationId: asked.conversationId };
 }
 

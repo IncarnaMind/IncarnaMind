@@ -201,6 +201,17 @@ export function createExamples(options: ExamplesOptions) {
   };
 
   /**
+   * The example's own ready Question (#123), while the credit paper is the one shown; null
+   * otherwise, as for the earlier version's tea example. The one the first open offers is
+   * `readyQuestion`, which names the User's own Document instead as soon as theirs is ready.
+   */
+  const exampleReady = (): string | null => {
+    const examples = stored(DEFAULT_GROUP);
+    if (!examples || !options.mindExists(examples.mindId)) return null;
+    return EXAMPLE_SETS[DEFAULT_GROUP][examples.language].ready?.question ?? null;
+  };
+
+  /**
    * Each part while it exists: the Mind can be deleted, or the folder unlinked,
    * on its own. The default is the earlier version's tea example while there is
    * one and no credit paper.
@@ -221,12 +232,11 @@ export function createExamples(options: ExamplesOptions) {
         ...(group === DEFAULT_GROUP ? [] : [DEFAULT_GROUP]),
         ...order().filter((each) => each !== group),
       ],
-      ready: (!old && mind && EXAMPLE_SETS[group][mind.language].ready?.question) || null,
     };
   };
 
   /**
-   * The ready Question with its Answer and Citations (`askReadyQuestion`),
+   * The ready Question with its Answer and Citations (`askExampleReadyQuestion`),
    * checked against the Documents now; null while the credit paper isn't
    * made or its Documents aren't all read.
    */
@@ -622,6 +632,9 @@ export function createExamples(options: ExamplesOptions) {
     const { folder, linked } = await copyAndLink(source, set);
     const questionId = randomUUID();
     const answerId = randomUUID();
+    // The old Documents go before the example names the new folder, so nothing reads them as the
+    // User's own in between (#2084); nothing waits between the link and "changed" (#914).
+    if (!sameFolder) options.unlinkFolder(examples.linkedFolderId);
     populate(examples.mindId, set, linked.folderId, questionId, answerId);
     options.renameMind(examples.mindId, set.title);
     options.writeValue(valueKey(group), {
@@ -633,8 +646,7 @@ export function createExamples(options: ExamplesOptions) {
       checked: false,
     } satisfies StoredExamples);
     options.changed(status(group));
-    // After "changed", not before: nothing may wait between linking the new folder and saying it
-    // is the example's, or its Documents are reported as the User's own (#914).
+    // Only the copies it made are left to remove: the folder is unlinked already.
     if (!sameFolder) await discardFiles(examples);
     checkWhenRead(group);
   };
@@ -661,6 +673,8 @@ export function createExamples(options: ExamplesOptions) {
     },
 
     create,
+
+    exampleReady,
 
     readyAnswer,
 
