@@ -1,6 +1,11 @@
 import { generateText } from "ai";
 import { beforeEach, describe, expect, test, vi } from "vitest";
-import { judgeRecordCite } from "../../src/core/answers/checks/recordCites";
+import {
+  judgeRecordCite,
+  judgeResolvedRecordCites,
+  recordCiteVersions,
+} from "../../src/core/answers/checks/recordCites";
+import type { RecordCiteResult } from "../../src/core/api";
 import type { PreparedChatModel } from "../../src/core/providers/chat";
 
 vi.mock("ai", async (importOriginal) => {
@@ -87,5 +92,45 @@ describe("support judgement for one exact record-cite passage", () => {
     ).toEqual({
       failed: { kind: "malformed", message: "The check gave no verdict." },
     });
+  });
+
+  test("a resolved not-found keeps a supported nearby suggestion, and choices need no model", async () => {
+    const results: RecordCiteResult[] = [
+      {
+        raw: "Smith Dep. 45:3",
+        outcome: "supported",
+        documentId: "doc-1",
+        documentName: "Smith Deposition",
+        contentHash: "hash-1",
+        location: { kind: "page", from: 45, to: 45, lines: { from: 3, to: 3 } },
+        pageFrom: 45,
+        pageTo: 45,
+        passage: "The named lines",
+        nearby: {
+          location: { kind: "page", from: 47, to: 47, lines: { from: 5, to: 9 } },
+          pageFrom: 47,
+          pageTo: 47,
+          passage: "Nearby support",
+        },
+      },
+      { raw: "Ex. 7 at 3", outcome: "choose", candidates: [{ id: "doc-2", name: "Exhibit 7" }] },
+    ];
+    vi.mocked(generateText)
+      .mockResolvedValueOnce({ text: "neither" } as never)
+      .mockResolvedValueOnce({ text: "No parts" } as never)
+      .mockResolvedValueOnce({ text: "same" } as never);
+    expect(
+      await judgeResolvedRecordCites(
+        results,
+        model,
+        "The claim",
+        new AbortController().signal,
+        "en",
+      ),
+    ).toEqual({
+      recordCites: [{ ...results[0], outcome: "not-found" }, results[1]],
+    });
+    expect(generateText).toHaveBeenCalledTimes(3);
+    expect(recordCiteVersions(results)).toEqual([{ documentId: "doc-1", contentHash: "hash-1" }]);
   });
 });

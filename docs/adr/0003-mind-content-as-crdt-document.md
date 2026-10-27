@@ -136,3 +136,11 @@ A comparison table's column has a short **label**, its heading, beside its Quest
 
 - **Content schema version 30** adds `label` to each column of a table's `questions`, with room for its `width` and whether it is `hidden`. An older version's editor writes the columns back as `{ id, text }` when it changes one, which would lose all three, so it opens these Minds read-only. Older content is version 30 content as it is.
 - **A heading shortens; a file doesn't.** The table's headings and the commands that name a column in the app read `label ?? shortened(text)`, because a heading has room for about 40 characters. The Excel and Word exports read `label ?? text`, so a Question longer than a heading, or one a label hasn't replaced, reaches a file whole. Either way a column has one name, its label when it has one.
+
+## Amendment: each record cite in a sentence's check (2026-10-27, #1709)
+
+A sentence can name several record cites, and each keeps its own result rather than disappearing into the sentence's overall verdict.
+
+- **Content schema version 32** adds an optional `recordCites` array to the `claimCheck` mark: the raw cite and its span, Supported, Partly, Choose or Not found, the resolved Document id/name/version, exact Location and physical Units, the passage read, any partial-support details, candidate Documents and an optional nearby suggestion. An older editor would drop those entries and any printed `lines` on a `page` Location, so it opens these Minds read-only. Older content is version 32 content as it is.
+- **Choices are existing settings, not a new global preference.** The Mind's settings map can hold a `recordCites` value with the previous record item and source choices by normalized alias, each a stable Document id plus exact Location. It is plain JSON, travels with the Mind and needs no SQL migration; a deleted or no-longer-valid choice is ignored and the cite becomes a choice again, never a silent first match.
+- **The overall sentence result is unchanged.** The array carries per-cite misses and suggestions even when the sentence is Supported, without changing overall counts, margin glyphs or recheck reasons. Resolved passages and nearby suggestions participate in evidence retention; unselected candidates do not.

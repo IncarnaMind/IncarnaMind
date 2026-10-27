@@ -1,5 +1,5 @@
 import { generateText } from "ai";
-import type { ProviderError } from "../../api";
+import type { CheckedVersion, ProviderError, RecordCiteResult } from "../../api";
 import type { Language } from "../../language";
 import type { PreparedChatModel } from "../../providers/chat";
 import { classifyProviderError } from "../../providers/providerErrors";
@@ -38,6 +38,62 @@ export async function judgeRecordCite(
   return covered && uncovered
     ? { outcome: "partly", covered, uncovered }
     : { outcome: "not-found" };
+}
+
+export async function judgeResolvedRecordCites(
+  results: readonly RecordCiteResult[],
+  model: PreparedChatModel,
+  claim: string,
+  signal: AbortSignal,
+  language: Language,
+): Promise<{ recordCites: RecordCiteResult[] } | { failed: ProviderError }> {
+  const recordCites: RecordCiteResult[] = [];
+  for (const result of results) {
+    if (result.outcome !== "supported") {
+      recordCites.push(result);
+      continue;
+    }
+    if (!result.passage) {
+      recordCites.push({ ...result, outcome: "not-found" });
+      continue;
+    }
+    const judgement = await judgeRecordCite(
+      model,
+      claim,
+      result.raw,
+      result.passage,
+      signal,
+      language,
+    );
+    if ("failed" in judgement) return judgement;
+    const judged = { ...result, ...judgement };
+    if (judgement.outcome === "not-found" && result.nearby) {
+      const nearby = await judgeRecordCite(
+        model,
+        claim,
+        result.raw,
+        result.nearby.passage,
+        signal,
+        language,
+      );
+      if ("failed" in nearby) return nearby;
+      if (nearby.outcome === "not-found") delete judged.nearby;
+    }
+    recordCites.push(judged);
+  }
+  return { recordCites };
+}
+
+export function recordCiteVersions(results: readonly RecordCiteResult[]): CheckedVersion[] {
+  const versions = new Map<string, CheckedVersion>();
+  for (const result of results) {
+    if (!result.documentId || !result.contentHash) continue;
+    versions.set(result.documentId, {
+      documentId: result.documentId,
+      contentHash: result.contentHash,
+    });
+  }
+  return [...versions.values()];
 }
 
 async function compare(
