@@ -155,11 +155,6 @@ export interface AppState extends LayoutSlice {
   /** Reranking, and the built-in reranking model's download. Set once loaded, then follows the core's event. */
   rerank: RerankSettings | null;
   settingsOpen: boolean;
-  /**
-   * Counts the asks to open Settings: the browser closes the dialog itself on Esc and says so a
-   * task later, so an ask that arrives meanwhile must show it again though this still says open.
-   */
-  settingsOpenCount: number;
   /** The page Settings shows. */
   settingsPage: SettingsPage;
   /** A setting Settings opened at, shown and focused once it is drawn, which then clears this. */
@@ -877,7 +872,6 @@ export const useAppStore = create<AppState>()((set, get) => {
     embedding: null,
     rerank: null,
     settingsOpen: false,
-    settingsOpenCount: 0,
     settingsPage: "general",
     settingsAt: null,
     folders: [],
@@ -1432,12 +1426,7 @@ export const useAppStore = create<AppState>()((set, get) => {
 
     openSettings(page, at) {
       // Also a click handler: anything but a page name opens General.
-      set((state) => ({
-        settingsOpen: true,
-        settingsOpenCount: state.settingsOpenCount + 1,
-        settingsPage: resolveSettingsPage(page),
-        settingsAt: at ?? null,
-      }));
+      set({ settingsOpen: true, settingsPage: resolveSettingsPage(page), settingsAt: at ?? null });
     },
 
     showSettingsPage(page) {
