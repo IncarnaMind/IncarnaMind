@@ -5,7 +5,7 @@
  * call's language: Chinese when its newest line is, or before anyone has spoken, when the button's
  * name is.
  */
-import { passagesIn, recordFor } from "./passages";
+import { passagesIn, recordFor, withSurroundingWords } from "./passages";
 import { lastUserText, type Prompt, type Reply, toolResults } from "./prompt";
 
 const HELP = /pressed a button for help/;
@@ -66,8 +66,10 @@ export function helpReply(prompt: Prompt, tools: readonly string[]): Reply | nul
       : "options";
   const source = shape === "options" ? found[0] : heard.at(-1);
   const taken = source && recordFor(source, heard.at(-1)?.text ?? question, 1);
-  if (taken && tools.includes("cite") && toolResults(prompt, "cite").length === 0) {
-    return { tool: "cite", input: { citations: [taken.record] } };
+  if (source && taken && tools.includes("cite")) {
+    const cited = toolResults(prompt, "cite");
+    const record = cited.length === 0 ? taken.record : withSurroundingWords(cited, source, 1);
+    if (record) return { tool: "cite", input: { citations: [record] } };
   }
   // A transcript line's time and speaker lead its text: "[0:04 Them] …".
   const quote = taken

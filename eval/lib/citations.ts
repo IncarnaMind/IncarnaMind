@@ -450,7 +450,7 @@ export function rejectedLine(records: readonly RejectedRecord[]): string {
   return records
     .map(
       (record) =>
-        `${record.marker === null ? "[^?]" : `[^${record.marker}]`} "${shortQuote(record.passage, 60)}" (${record.reason === "marker" ? "no marker number" : "no such Passage"})`,
+        `${record.marker === null ? "[^?]" : `[^${record.marker}]`} "${shortQuote(record.passage, 60)}" (${record.reason === "marker" ? "no marker number" : record.reason === "quote-context" ? "ambiguous quote" : "no such Passage"})`,
     )
     .join(", ");
 }

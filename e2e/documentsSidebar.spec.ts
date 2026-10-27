@@ -102,8 +102,7 @@ test("dropping folders offers each for linking in turn; what's there already is 
   // The linked folder picked again: the dialog says it's linked already, and only closes.
   await interceptOpenDialog(app, papers);
   await window.getByTestId("plus-menu").click();
-  await window.getByTestId("plus-more").click();
-  await window.getByTestId("plus-link-folder").click();
+  await window.getByTestId("plus-add-documents").click();
   await expect(dialog.getByRole("heading")).toHaveText("Already in IncarnaMind");
   await expect(dialog.getByTestId("link-folder-inside")).toHaveText(
     "“Papers” is already linked, so its files are in IncarnaMind.",
@@ -268,7 +267,12 @@ test("Add Documents opens a sheet on the window in a folder on this computer, th
   const [first] = await asked();
   expect(first?.sheet).toBe(true);
   expect(first?.options.defaultPath).toBe(downloads);
-  expect(first?.options.properties).toEqual(["openFile", "multiSelections"]);
+  // macOS can offer files and a folder in one sheet; Windows and Linux only files there (#1942).
+  expect(first?.options.properties).toEqual(
+    process.platform === "darwin"
+      ? ["openFile", "openDirectory", "multiSelections"]
+      : ["openFile", "multiSelections"],
+  );
 
   // Next time it starts where those came from.
   await window.getByTestId("plus-menu").click();
