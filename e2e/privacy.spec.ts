@@ -55,7 +55,7 @@ test("the Privacy page lists the data flows and the update check, and offers no 
   const service = privacy.getByTestId("data-service");
   await expect(service).toHaveCount(1);
   await expect(service).toContainText("llm.example.com");
-  await expect(service).toHaveAttribute("data-consent", "accepted");
+  await expect(service).toHaveAttribute("data-consent", "partly");
   const top = async (locator: Locator) => (await locator.boundingBox())?.y ?? Number.NaN;
   const order = [
     await top(statement),
@@ -67,9 +67,9 @@ test("the Privacy page lists the data flows and the update check, and offers no 
 
   // The decision is said once for the service, with what each use sends behind Details.
   const decision = service.getByTestId("data-service-decision");
-  await expect(decision).toContainText("Allowed when you chose llm.example.com, ");
+  await expect(decision).toContainText("Some uses aren’t allowed yet");
   await decision.getByTestId("data-service-decision-details").click();
-  await expect(privacy.getByText(/Allowed when you chose/)).toHaveCount(1);
+  await expect(service.locator('[data-flow-id="document-check"]')).toContainText("Not asked yet");
   const chat = service.locator('[data-testid="data-flow"][data-flow-id="chat"]');
   await expect(chat).toContainText("Chat");
   await expect(chat).toContainText(
@@ -92,9 +92,9 @@ test("the Privacy page lists the data flows and the update check, and offers no 
   const undoLine = privacy.getByTestId("consent-settings").getByTestId("undo-line-here");
   await expect(undoLine).toContainText("Stopped allowing llm.example.com");
   await undoLine.getByTestId("undo-action").click();
-  await expect(service).toHaveAttribute("data-consent", "accepted");
+  await expect(service).toHaveAttribute("data-consent", "partly");
   // Back as it was, chosen, not allowed anew (#1463).
-  await expect(decision).toContainText("Allowed when you chose llm.example.com, ");
+  await expect(decision).toContainText("Some uses aren’t allowed yet");
 
   // Allowed again from here, with the date.
   await revoke.click();

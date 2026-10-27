@@ -4,6 +4,7 @@ import { expect, type Page, test } from "@playwright/test";
 import type { CoreBridge } from "../src/core/api";
 import { buildPdf } from "../tests/helpers/pdf";
 import {
+  acceptPlainTextKeys,
   addDocuments,
   useLocalChatModel as chooseScriptedModel,
   createDataFolder,
@@ -218,6 +219,7 @@ test("a partial read says exactly which pages it read, and Stop keeps the old ma
 test("⌘K opens the same picker, and consent is asked before a cloud whole read", async () => {
   test.setTimeout(240_000);
   const { app, window, card } = await launchClaim(OWN, "Seabirds", "en", FILES);
+  await acceptPlainTextKeys(window);
   await film(window, async () => {
     await window.evaluate(() => {
       const core = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
