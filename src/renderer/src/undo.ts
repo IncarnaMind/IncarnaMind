@@ -116,9 +116,11 @@ interface UndoState {
   making: number;
   /** Puts a change just made on the stack and shows its line; nothing more can be redone. */
   push(change: Undoable): void;
+  /** Tracks an existing change without showing a new line or clearing Redo. */
+  offer(change: Undoable): void;
   /** Shows a line that isn't a change, in place of what shows, as after a tab closes. */
   tell(line: ToldLine): void;
-  undo(): Promise<void>;
+  undo(change?: Undoable): Promise<void>;
   redo(): Promise<void>;
   /** Takes a change off the stack, once it can't be taken back here any more. */
   withdraw(change: Undoable): void;
@@ -169,6 +171,9 @@ const inTurn = <T>(step: () => Promise<T>): Promise<T> => {
   );
   return turn;
 };
+
+/** Waits for the app's already-queued Undo and Redo transitions, before an Answer is regenerated. */
+export const undoSettled = (): Promise<void> => queue;
 
 /**
  * Makes a change that goes on the stack once it is done, in turn with Undo and Redo: a ⌘Z
@@ -228,25 +233,31 @@ export const useUndo = create<UndoState>()((set, get) => {
       if (get().done.at(-1) === change) return;
       set((state) => ({ done: [...state.done, change], undone: [], line: lineOf(change) }));
     },
+    offer(change) {
+      if (get().done.includes(change) || get().undone.includes(change)) return;
+      set((state) => ({ done: [...state.done, change] }));
+    },
     tell(line) {
       set({ line: { id: ++lines, told: line } });
     },
-    undo: () =>
+    undo: (wanted) =>
       inTurn(async () => {
-        const change = get().done.at(-1);
-        if (!change) return;
+        const change = wanted ?? get().done.at(-1);
+        if (!change || !get().done.includes(change)) return;
         set((state) => ({
-          done: state.done.slice(0, -1),
+          done: state.done.filter((each) => each !== change),
           line: null,
           running: { step: "undo", change },
         }));
         try {
           await change.undo();
         } catch (error) {
+          if (get().running?.change !== change) return;
           set({ running: null });
           refused("undo", change, error);
           return;
         }
+        if (get().running?.change !== change) return;
         const note = change.undoneNote?.() ?? null;
         set((state) => ({
           undone: change.redo ? [...state.undone, change] : [],
@@ -266,16 +277,19 @@ export const useUndo = create<UndoState>()((set, get) => {
         try {
           await change.redo();
         } catch (error) {
+          if (get().running?.change !== change) return;
           set({ running: null });
           refused("redo", change, error);
           return;
         }
+        if (get().running?.change !== change) return;
         set((state) => ({ done: [...state.done, change], running: null, line: lineOf(change) }));
       }),
     withdraw(change) {
       set((state) => ({
         done: state.done.filter((each) => each !== change),
         undone: state.undone.filter((each) => each !== change),
+        ...(state.running?.change === change && { running: null }),
         ...(state.line?.change === change && { line: null }),
       }));
     },

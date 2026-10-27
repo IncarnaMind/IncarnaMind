@@ -244,16 +244,18 @@ export function createWindowBudget(
      * the room left for Tool results, and whether another step can call Tools.
      */
     loop(firstEstimate: number) {
+      /** What the first request holds, as best known: what `stepFinished` corrects the factor by. */
+      let first = firstEstimate;
       /** Tokens the next request will hold, as best known. */
       let held = firstEstimate;
       /** Tool results added since the last request. */
       let added = 0;
       let steps = 0;
       const room = () => limit - held - STEP_OUTPUT_TOKENS;
-      const take = (text: string) => {
-        const cost = tokens(text) + MESSAGE_TOKENS;
-        held += cost;
-        added += cost;
+      const cost = (text: string) => tokens(text) + MESSAGE_TOKENS;
+      const fitWithin = (text: string, count: number, ranks?: readonly number[]) => {
+        const fitted = fitResult(text, room(), ranks);
+        return { text: fitted.text, passageCount: fitted.passages ?? count };
       };
       return {
         /** A search's Passages, fitted to the room left (by `ranks`), and how many were kept. */
@@ -262,16 +264,37 @@ export function createWindowBudget(
           count: number,
           ranks?: readonly number[],
         ): { text: string; passageCount: number } {
-          const fitted = fitResult(text, room(), ranks);
-          take(fitted.text);
-          return { text: fitted.text, passageCount: fitted.passages ?? count };
+          const fitted = fitWithin(text, count, ranks);
+          held += cost(fitted.text);
+          added += cost(fitted.text);
+          return fitted;
+        },
+        /**
+         * Passages the first request carries, made before it is sent (the search made first,
+         * #1633): fitted to the room left, then counted with the messages that carry them in the
+         * first request itself, not as a later step's result.
+         */
+        carried(
+          text: string,
+          count: number,
+          ranks: readonly number[] | undefined,
+          messages: (fitted: string) => readonly string[],
+        ): { text: string; passageCount: number } {
+          const fitted = fitWithin(text, count, ranks);
+          const size = messages(fitted.text).reduce((sum, each) => sum + cost(each), 0);
+          first += size;
+          held += size;
+          return fitted;
         },
         /** Another Tool's result, cut to the room left. */
         result(text: string): string {
           const fitted = fitResult(text, room()).text;
-          take(fitted);
+          held += cost(fitted);
+          added += cost(fitted);
           return fitted;
         },
+        /** What the first request holds, as best known. */
+        firstRequest: () => first,
         /** Whether the next step may call Tools: there is room for a result worth having. */
         canCallTools: () => room() >= MIN_RESULT_TOKENS + MESSAGE_TOKENS,
         /**
@@ -281,7 +304,7 @@ export function createWindowBudget(
         stepFinished(usage: { inputTokens: number | undefined; outputTokens: number | undefined }) {
           const output = usage.outputTokens ?? STEP_OUTPUT_TOKENS;
           if (usage.inputTokens) {
-            if (steps === 0) learn(usage.inputTokens, firstEstimate);
+            if (steps === 0) learn(usage.inputTokens, first);
             held = usage.inputTokens + output + MESSAGE_TOKENS + added;
           } else {
             held += output + MESSAGE_TOKENS;

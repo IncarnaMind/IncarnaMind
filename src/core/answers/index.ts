@@ -45,7 +45,11 @@ import type * as Y from "yjs";
 import { asGenerated } from "../../shared/aiText";
 import { hasText, markersIn, pageBlocks } from "../../shared/answerBlocks";
 import { runsByDefault } from "../../shared/approvalRules";
-import { askedFor, waitsForUser as heldForUser } from "../../shared/askedChanges";
+import {
+  askedFor,
+  waitsForUser as heldForUser,
+  requestedRequests,
+} from "../../shared/askedChanges";
 import { citationNode, withCitations } from "../../shared/blockJson";
 import { type LiveDocument, shownDocumentName } from "../../shared/citations";
 import { withFigures, withFigureText } from "../../shared/figureMarkers";
@@ -136,6 +140,7 @@ import { plainText } from "../mindText";
 import { docOf } from "../proposals/merge";
 import { proposeBlocks } from "../proposals/write";
 import { givesStructuredOutput, calculates as offersCalculate } from "../providers/capabilities";
+import type { AnswerFlow } from "../providers/catalog/answerPaths";
 import type { PreparedChatModel } from "../providers/chat";
 import { classifyProviderError } from "../providers/providerErrors";
 import type { WebResult } from "../providers/webSearch";
@@ -193,10 +198,10 @@ import {
 import {
   askAgainNote,
   unbackedClaims as claimsNoCallMade,
-  holdBack,
   unmadeFixesNote,
 } from "./claimedChanges";
 import { unmadeFixesIn } from "./claimedFixes";
+import { holdBack } from "./claimStream";
 import {
   askedText,
   conversationContext,
@@ -252,6 +257,7 @@ import { withFigureCitations } from "./markerPlacement";
 import {
   FOUND_TOKEN_LIMIT,
   foundWithin,
+  HELP_DOCUMENTS,
   LIVE_TEXT_BEHIND_NOTE,
   languageSaid,
   meetingHelpInstructions,
@@ -531,6 +537,10 @@ export interface AnswersOptions {
     answers: ChatModelChoice,
     prepared: PreparedChatModel,
   ): Promise<PreparedChatModel["model"]>;
+  /** Whether this model writes the Answer, then cites it, in the Tool loop, in this flow (#489). */
+  writesThenCites?(prepared: PreparedChatModel, flow: AnswerFlow): boolean;
+  /** Whether an Answer on this model, in this flow, searches its Question before the first call (#1633). */
+  retrievesFirst?(prepared: PreparedChatModel, flow: AnswerFlow): boolean;
   /** Searching the User's Documents, and what Citations point to. */
   documents: DocumentsForAnswers;
   /** Runs Analyses (#447, ADR-0023); absent: no Answer is offered `run_analysis`. */
@@ -983,10 +993,12 @@ export function createAnswers(options: AnswersOptions) {
       renames: readonly CommandRename[];
     };
   }): void {
-    const { home, answerId, model, context, forcedSkill } = input;
-    const scoped = input.scoped ?? input.documentIds !== null;
+    const { home, answerId, model, context, forcedSkill, help } = input;
+    const helpDocuments = help ? HELP_DOCUMENTS[help] : undefined;
+    const callDocuments: string[] | null = helpDocuments === null ? [] : null;
+    const scoped = callDocuments !== null || (input.scoped ?? input.documentIds !== null);
     const asked =
-      input.outside === true
+      input.outside === true || callDocuments !== null
         ? { each: false, main: null }
         : documentsAsked(context.question, () =>
             options.documents.searchableBySize(input.documentIds).map((each) => each.name),
@@ -995,7 +1007,8 @@ export function createAnswers(options: AnswersOptions) {
       asked.each || asked.main !== null
         ? coverageOf(asked, options.documents.searchableBySize(input.documentIds))
         : null;
-    const documentIds = coverage ? coverage.used.map((each) => each.id) : input.documentIds;
+    const documentIds =
+      callDocuments ?? (coverage ? coverage.used.map((each) => each.id) : input.documentIds);
     const outside = input.outside === true;
     // Worked out now, shown only once the Answer has written into a Mind from new text.
     const writtenFrom =
@@ -1037,7 +1050,16 @@ export function createAnswers(options: AnswersOptions) {
     let sentDocuments: Set<string> | null = null;
     /** The Documents the live transcript came from: the "listened" step names them. */
     const transcripts = new Set<string>();
-    const { help } = input;
+    // An Answer inside another flow (a comparison's cell, a check's sentence) is that flow's step.
+    const flow: AnswerFlow = help
+      ? "call-help"
+      : input.toolSet === "check"
+        ? "check"
+        : input.task
+          ? "task-answer"
+          : outside
+            ? "outside-agent"
+            : "question";
     let foundAhead = false;
     /** The language the call's newest lines are in, which a help Answer is written in. */
     let callLanguage: string | null = null;
@@ -1829,7 +1851,7 @@ export function createAnswers(options: AnswersOptions) {
       let consenting = input.consentNeeded;
       let activity: Extract<
         AnswerPhase,
-        "searching" | "writing" | "checking-quotes" | "checking-figures"
+        "searching" | "writing" | "checking-quotes" | "checking-figures" | "checking-claims"
       > = "writing";
       let loading = false;
       let responded = false;
@@ -1912,11 +1934,10 @@ export function createAnswers(options: AnswersOptions) {
           messages = withTranscript(messages, session.show(kept));
           listening = true;
           for (const passage of kept) transcripts.add(passage.documentId);
+          callDocuments?.push(...transcripts);
           if (help) callLanguage = languageSaid(kept);
         }
-        // Help gets what the User's Documents say about the newest lines at once, with no search
-        // the model has to call first.
-        if (help && kept.length > 0) {
+        if (help && helpDocuments !== null && kept.length > 0) {
           const transcript = new Set(kept.map((passage) => passage.documentId));
           try {
             const found = await session.find(newestSaid(kept), controller.signal, {
@@ -1957,6 +1978,7 @@ export function createAnswers(options: AnswersOptions) {
             withPassageNotes(show(passages), unread),
           );
         const scope =
+          callDocuments === null &&
           options.documents.searchableCount(documentIds) <= SMALL_SCOPE_DOCUMENTS
             ? options.documents.searchableBySize(documentIds)
             : [];
@@ -2240,6 +2262,11 @@ export function createAnswers(options: AnswersOptions) {
             ? citeRecords(records, citeOptions)
             : session.tools.cite(records, citeOptions),
         hasRecord: (marker) => session.tools.hasRecord?.(marker) ?? false,
+        owed: (text) =>
+          session.tools.owed?.(
+            text,
+            calculating ? (marker) => figures.figure(marker) !== null : undefined,
+          ) ?? { citations: [], figures: [] },
         unfoundQuotes: () => session.tools.unfoundQuotes?.() ?? [],
         correctQuote: (marker, quote) => session.tools.correctQuote?.(marker, quote) ?? false,
         shownPassages: () => session.tools.shownPassages?.() ?? [],
@@ -2358,27 +2385,74 @@ export function createAnswers(options: AnswersOptions) {
           ),
         );
         return (
-          minds?.read(change.mindId, (blocks) =>
-            blocks.doc && askedFor(blocks.doc, change.request) && !heldForUser(blocks.doc, asked)
+          minds?.read(change.mindId, (blocks) => {
+            const doc = blocks.doc;
+            if (!doc) return null;
+            const requested = requestedRequests(doc, asked);
+            return askedFor(doc, change.request) && !heldForUser(doc, requested)
               ? { waiting: 0, accepted: 0, rejected: 0, applied: true }
-              : null,
-          ) ?? null
+              : null;
+          }) ?? null
         );
       };
       const turnChecks: TurnCheck[] = [
-        {
-          name: "claimed-change",
-          check: (text) => {
-            mindsNow = null;
-            const claims = claimsNoCallMade(text, toolCalls, mindsListed(), focusedId);
-            return claims.length > 0
-              ? {
-                  claims,
-                  note: askAgainNote(claims, toolCalls, options.readableMindName, appliedInTurn),
-                }
-              : null;
-          },
-        },
+        ...(mindsTools
+          ? [
+              {
+                name: "claimed-change",
+                check: async (text: string) => {
+                  if (text.trim() === "") return null;
+                  activity = "checking-claims";
+                  showPhase();
+                  try {
+                    let judgeModel = prepared.model;
+                    if (prepareQuick) {
+                      try {
+                        judgeModel = await prepareQuick(model, prepared);
+                      } catch (error) {
+                        console.error(
+                          `The quick-tasks model couldn't be used for the change-claim check: ${messageOf(error)}`,
+                        );
+                      }
+                    }
+                    mindsNow = null;
+                    const checked = await claimsNoCallMade(
+                      text,
+                      toolCalls,
+                      mindsListed(),
+                      focusedId,
+                      {
+                        model: judgeModel,
+                        names: options.readableMindName,
+                        states: appliedInTurn,
+                        signal: controller.signal,
+                      },
+                    );
+                    if (checked.usage) {
+                      usage.inputTokens += checked.usage.inputTokens ?? 0;
+                      usage.outputTokens += checked.usage.outputTokens ?? 0;
+                      usage.cachedInputTokens += checked.usage.cachedInputTokens ?? 0;
+                      usage.cacheWriteTokens += checked.usage.cacheWriteTokens ?? 0;
+                    }
+                    return checked.claims.length > 0
+                      ? {
+                          claims: checked.claims,
+                          note: askAgainNote(
+                            checked.claims,
+                            toolCalls,
+                            options.readableMindName,
+                            appliedInTurn,
+                          ),
+                        }
+                      : null;
+                  } finally {
+                    activity = "writing";
+                    showPhase();
+                  }
+                },
+              },
+            ]
+          : []),
         {
           name: "claimed-fixes",
           check: (text) => {
@@ -2411,6 +2485,21 @@ export function createAnswers(options: AnswersOptions) {
           },
         },
       ];
+      // The search made first takes the User's words as the query before the model has read them,
+      // which is right only for a Question about the Documents. So it is made only on a turn that is
+      // one by construction, offered no Tool that writes a Mind (a Question asked in a Mind, or an
+      // outside agent's), in a flow the list admits the model to. A request in the assistant may be
+      // a write, a follow-up or anything else, and keeps the loop. Call help already searches
+      // first; a check or a Task's Run keeps its loop.
+      const writesMinds = mindsTools?.tools.some((tool) => tool.name !== MIND_TOOLS.read) ?? false;
+      const retrieveFirst =
+        !help &&
+        !input.task &&
+        (input.toolSet ?? "answer") === "answer" &&
+        !writesMinds &&
+        (options.retrievesFirst?.(prepared, flow) ?? false);
+      // Its one call writes the Answer and then cites it (#1633 on #489's contract).
+      const writeFirst = retrieveFirst || (options.writesThenCites?.(prepared, flow) ?? false);
       for await (const event of engine.generate({
         instructions: (
           mode,
@@ -2439,6 +2528,7 @@ export function createAnswers(options: AnswersOptions) {
                   scoped,
                   calculating,
                   withMindTools || ids.size() > 0,
+                  { writeFirst, minds: withMindTools },
                 ),
             stillReadingNote(options.documents.reading(documentIds)),
             coverageInstructions(
@@ -2466,8 +2556,8 @@ export function createAnswers(options: AnswersOptions) {
           ]
             .filter(Boolean)
             .join("\n\n"),
-        // A button's own instructions go with its Question: the instructions above stay the same
-        // for every button, so a call's presses share them in the provider's cache (#1634).
+        // Button instructions stay with the Question so presses with the same Search scope share
+        // the provider's cache (#1634).
         messages: help
           ? withHelp(
               messages,
@@ -2504,6 +2594,8 @@ export function createAnswers(options: AnswersOptions) {
         }),
         thirdParty: contextReasons,
         support: startingSupport(prepared.support, supportByModel.get(learntKey)),
+        writeThenCite: writeFirst,
+        retrieveFirst,
         structuredOutput: givesStructuredOutput(prepared.capabilities),
         takesTemperature: prepared.capabilities.facts.temperature,
         window: prepared.window,
@@ -2656,16 +2748,6 @@ export function createAnswers(options: AnswersOptions) {
       settleMinds();
       finish(outcome);
     };
-    // An Answer inside another flow (a comparison's cell, a check's sentence) is that flow's step.
-    const flow = help
-      ? "call-help"
-      : input.toolSet === "check"
-        ? "check"
-        : input.task
-          ? "task-answer"
-          : outside
-            ? "outside-agent"
-            : "question";
     inFlow(flow, run).catch((error: unknown) => {
       options.reportError(error);
       settleMinds();
@@ -2880,6 +2962,7 @@ export function createAnswers(options: AnswersOptions) {
   ): ConversationAskResult {
     const { conversation, question, answer } = turn;
     const help = mind ? (options.meetingHelp?.(mind.mindId, question.text) ?? null) : null;
+    const callOnly = help !== null && HELP_DOCUMENTS[help] === null;
     // Each press of a help button stands alone: an earlier suggestion would only steer this one.
     const earlier = help ? [] : turn.earlier;
     // A long Mind is cut to what the conversation's Questions are about, the earlier ones too: a
@@ -2888,11 +2971,14 @@ export function createAnswers(options: AnswersOptions) {
       ...earlier.flatMap((message) => (message.kind === "question" ? [message.text] : [])),
       question.text,
     ].join("\n");
-    const section =
-      mind && earlier.length > 0 ? mind.reading.section(MIND_TOKEN_LIMIT, asking) : mind?.section;
+    const section = callOnly
+      ? undefined
+      : mind && earlier.length > 0
+        ? mind.reading.section(MIND_TOKEN_LIMIT, asking)
+        : mind?.section;
     const documents = options.documents.names();
-    const shown = namesOnScreen(onScreen, documentIds);
-    const ids = mind?.ids ?? createContextCitations();
+    const shown = callOnly ? [] : namesOnScreen(onScreen, documentIds);
+    const ids = (callOnly ? null : mind?.ids) ?? createContextCitations();
     const named = help ? [] : namedMinds();
     const { context, origins } = conversationContextOf(earlier, question.text, {
       mind: section,
@@ -2957,7 +3043,7 @@ export function createAnswers(options: AnswersOptions) {
       consentNeeded: ready.consentNeeded,
       ...(mind && { listening: () => options.liveTranscript(mind.mindId) }),
       ...(help && { help }),
-      quoted,
+      quoted: callOnly ? [] : quoted,
       assistant: {
         focused: mind && {
           mindId: mind.mindId,
@@ -3021,14 +3107,13 @@ export function createAnswers(options: AnswersOptions) {
     return { quoted, leftOut };
   }
 
-  // A Mind only an Answer wrote in stays out: read_mind still finds it when the User names it.
   // Peeked, so Minds not open aren't loaded; and only so many, so a big Library doesn't slow a Question.
-  const namedMinds = (): string[] => {
-    const names: string[] = [];
+  const namedMinds = (): { name: string; fromAnswer: boolean }[] => {
+    const names: { name: string; fromAnswer: boolean }[] = [];
     for (const mind of options.minds?.list().slice(0, 2 * LISTED_MINDS) ?? []) {
       if (names.length >= LISTED_MINDS) break;
-      if (names.includes(mind.name) || options.content.peek(mind.id, madeByAnswer)) continue;
-      names.push(mind.name);
+      if (names.some((each) => each.name === mind.name)) continue;
+      names.push({ name: mind.name, fromAnswer: options.content.peek(mind.id, madeByAnswer) });
     }
     return names;
   };
