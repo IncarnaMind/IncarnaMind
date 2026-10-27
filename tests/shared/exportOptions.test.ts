@@ -1,6 +1,12 @@
 import { describe, expect, test } from "vitest";
 import type { CitationPlace, ExportPreferences } from "../../src/core/api";
-import { chosenParts, optionsFor, quitCopyOptions } from "../../src/shared/exportOptions";
+import {
+  chosenParts,
+  optionsFor,
+  quitCopyOptions,
+  withCitationPlace,
+  withMarking,
+} from "../../src/shared/exportOptions";
 import { type MessageKey, type MessageParams, translate } from "../../src/shared/i18n";
 
 const preferences = (
@@ -119,5 +125,29 @@ describe("What the Saved line says the file was written with (#1945)", () => {
 
   test("a note with neither a Citation nor AI marking to say says nothing", () => {
     expect(chosenParts(in_("en"), { places: null, markAiText: null })).toEqual([]);
+  });
+});
+
+describe("A choice changed from the Saved line's Change (#1945)", () => {
+  test("changing the marking leaves every other choice as it is then", () => {
+    const later: ExportPreferences = {
+      ...preferences("mark", "list"),
+      format: "pdf",
+      pdf: { includeQuestions: true },
+    };
+    expect(withMarking(later, "leave")).toMatchObject({
+      format: "pdf",
+      pdf: { includeQuestions: true },
+      citationPlace: "list",
+      docx: { includeQuestions: false, trackChanges: true, markAiText: "leave" },
+    });
+  });
+
+  test("taking the Citations' place back leaves nothing chosen, and keeps the rest", () => {
+    const later: ExportPreferences = { ...preferences("leave", "list"), format: "pdf" };
+    const undone = withCitationPlace(later, undefined);
+    expect(undone).not.toHaveProperty("citationPlace");
+    expect(undone).toMatchObject({ format: "pdf", docx: { markAiText: "leave" } });
+    expect(withCitationPlace(undone, "footnotes")).toMatchObject({ citationPlace: "footnotes" });
   });
 });

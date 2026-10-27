@@ -206,14 +206,16 @@ for (const [language, width] of [
     await window.keyboard.press("Escape");
     await expect(mark).toHaveCount(0);
     await expect(chosen).toHaveText([words.footnotes, words.marked]);
-    expect(await readdir(out)).toEqual(["Tides.docx"]);
+    expect([...(await readdir(out))].sort()).toEqual(["Tides.docx"]);
 
     // Leave it out: a second file, unmarked, and the line says so; Undo puts the choice back.
     await pointAndClick(window, result.getByTestId("export-change"));
     await pointAndClick(window, result.getByTestId("export-mark-ask-leave"));
     await expect(done).toContainText(savedLine("Tides 2.docx", out, language));
     await expect(chosen).toHaveText([words.footnotes, words.unmarked]);
-    await expect.poll(() => readdir(out)).toEqual(["Tides 2.docx", "Tides.docx"]);
+    await expect
+      .poll(async () => [...(await readdir(out))].sort())
+      .toEqual(["Tides 2.docx", "Tides.docx"]);
     expect(await commentsOf("Tides 2.docx")).toBe("");
     expect((await bridge(window).settings()).docx.markAiText).toBe("leave");
     const undo = window.getByTestId("undo-line");
@@ -264,7 +266,7 @@ test("a note is named after its title, in Chinese and with what a file name can'
   await exportFromMenu(window, "docx");
   await expect(done).toContainText("Q3 why Harbourline draft 2025.docx");
   await expect
-    .poll(() => readdir(out))
+    .poll(async () => [...(await readdir(out))].sort())
     .toEqual(["Q3 why Harbourline draft 2025.docx", "港口航运笔记 2025 年收入复核.docx"]);
   await app.close();
 });
@@ -286,7 +288,7 @@ test("the assistant's export asks nothing either, and marks the text IncarnaMind
   await expect(answer.getByTestId("command-changes-title")).toHaveText(
     `Saved “Deal notes.docx” in “${out.split("/").at(-1)}”`,
   );
-  await expect.poll(() => readdir(out)).toEqual(["Deal notes.docx"]);
+  await expect.poll(async () => [...(await readdir(out))].sort()).toEqual(["Deal notes.docx"]);
   expect(await commentsOf("Deal notes.docx")).toContain("Written by IncarnaMind");
   await app.close();
 });
@@ -323,7 +325,7 @@ test("a note with nothing to check says nothing about checks; a sentence it hold
   await app.close();
 });
 
-test("Change is on a PDF's Saved line too, even for a note with no Citations, and writes the file again (D277)", async () => {
+test("Change is on a PDF's Saved line too, even for a note with no Citations, and writes the file again", async () => {
   test.setTimeout(240_000);
   const { app, window } = await launchApp(dataDir, { fakeChat: true });
   await dismissChatSetup(window);
@@ -348,7 +350,9 @@ test("Change is on a PDF's Saved line too, even for a note with no Citations, an
   await expect(result.getByTestId("export-place-count")).toHaveCount(0);
   await pointAndClick(window, result.getByTestId("export-place-ask-list"));
   await expect(done).toContainText(savedLine("Tides 2.pdf", out));
-  await expect.poll(() => readdir(out)).toEqual(["Tides 2.pdf", "Tides.pdf"]);
+  await expect
+    .poll(async () => [...(await readdir(out))].sort())
+    .toEqual(["Tides 2.pdf", "Tides.pdf"]);
   await expect(window.getByTestId("undo-line")).toContainText(
     "Citations now go in a list at the end",
   );

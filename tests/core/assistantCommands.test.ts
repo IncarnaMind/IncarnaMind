@@ -410,9 +410,10 @@ describe("Commands that reach outside IncarnaMind wait for the User (#1110)", {
     expect(commandCalls(answer).map((call) => call.status)).not.toContain("failed");
   });
 
-  // protects=a request that names a marking the saved choice wouldn't give is followed for its own file, asks nothing, and leaves the saved choice where it was; fails_when=a question is asked, the file contradicts the request, or the saved choice moves; no_claim=how a model reads the request.
+  // protects=a marking a request names is that file's alone, even when it is the default and even when it agrees with nothing saved, asks nothing, and leaves the saved choice where it was; fails_when=a question is asked, the file contradicts the request, or the named marking becomes the saved choice; no_claim=how a model reads the request.
   test.each([
     { named: "leave", saved: null, comments: false },
+    { named: "mark", saved: null, comments: true },
     { named: "mark", saved: "leave", comments: true },
   ] as const)(
     "a request for $named against a saved $saved marks its file as asked, and leaves the saved choice alone",

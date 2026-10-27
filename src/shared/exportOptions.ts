@@ -3,6 +3,7 @@ import type {
   ExportFormat,
   ExportMindOptions,
   ExportPreferences,
+  MarkAiTextChoice,
 } from "../core/api";
 import type { Translate } from "./locations";
 
@@ -105,6 +106,24 @@ export const optionsFor = (
         ...(format === "pdf" && placeOf(preferences)),
       }
     : { format, theirChanges };
+};
+
+/**
+ * `preferences` with one choice changed, and the rest left as they are now, so taking a change
+ * back never undoes another one made since (#1945). `place` undefined takes the Citations' place
+ * away again: nothing chosen, footnotes by default.
+ */
+export const withMarking = (
+  preferences: ExportPreferences,
+  choice: MarkAiTextChoice | null,
+): ExportPreferences => ({ ...preferences, docx: { ...preferences.docx, markAiText: choice } });
+
+export const withCitationPlace = (
+  preferences: ExportPreferences,
+  place: CitationPlace | undefined,
+): ExportPreferences => {
+  const { citationPlace: _before, ...rest } = preferences;
+  return place === undefined ? rest : { ...rest, citationPlace: place };
 };
 
 /** The Word copy offered when quitting follows the same choices and defaults as Export. */

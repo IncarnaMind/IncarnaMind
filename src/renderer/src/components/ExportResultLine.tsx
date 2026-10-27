@@ -60,8 +60,9 @@ const isPlainSaved = (result: SavedResult, t: ReturnType<typeof useT>): boolean 
  * Open · Show in Finder", with a second line when quotes weren't found ("1 quote not found,
  * marked unverified · Show"), or the problem and its one fix. A plain "Saved" goes by itself
  * after a while, and not back when the Mind is opened again after that; a problem stays until
- * it is dismissed, or the next export replaces it. Before a Word or PDF export the User hasn't
- * answered for, it holds the question instead, and Esc or ✕ leaves nothing exported.
+ * it is dismissed, or the next export replaces it. The line also says what the file was written
+ * with, and the note's standing, each part after a "·" (#1945); Change there opens the choices
+ * that made it, and Esc or ✕ closes them without writing another file.
  */
 export function ExportResultLine({ mindId }: { mindId: string }) {
   const t = useT();
@@ -376,7 +377,7 @@ function SavedSentence({ result, withFile }: { result: SavedResult; withFile: Sa
     ...withFile,
     ...unchecked.map((text) => ({ testId: "export-unchecked", text })),
   ];
-  // A Word file always has the marking to change; a Numbered PDF the place of its Citations (D277).
+  // A Word file always has the marking to change; a Numbered PDF the place of its Citations.
   const canChange = result.markAiText !== null || result.citationPlace !== null || result.numbered;
   return (
     <p

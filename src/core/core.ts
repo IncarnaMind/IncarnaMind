@@ -1413,9 +1413,12 @@ export function createCore(adapters: CoreAdapters): Core {
         const saved = settings.get().user.exportOptions.docx.markAiText;
         const choice = marking.named ?? saved ?? "mark";
         written = { ...options, markAiText: choice === "mark" };
-        // A request that names another marking settles it for its own file, never for the saved choice.
-        if (choice !== (saved ?? "mark")) oneOff = choice;
-        settled = { choice, how: oneOff ? "this-file" : saved === null ? "default" : "earlier" };
+        // A marking the request names settles its own file only, whatever the saved choice says.
+        oneOff = marking.named;
+        settled = {
+          choice,
+          how: oneOff !== null ? "this-file" : saved === null ? "default" : "earlier",
+        };
       }
       const exported = await mindExports.export(mindId, written);
       // The window shows first what a Word file can't keep (#105); the assistant can't.

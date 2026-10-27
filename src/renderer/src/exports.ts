@@ -12,7 +12,13 @@ import type {
   SentenceChecksExported,
   WordExportReport,
 } from "../../core/api";
-import { type CitedCount, DEFAULT_CITATION_PLACE, optionsFor } from "../../shared/exportOptions";
+import {
+  type CitedCount,
+  DEFAULT_CITATION_PLACE,
+  optionsFor,
+  withCitationPlace,
+  withMarking,
+} from "../../shared/exportOptions";
 import type { MessageKey } from "../../shared/i18n";
 import { core } from "./core";
 import { errorMessage } from "./errors";
@@ -157,18 +163,15 @@ async function keep(update: (preferences: ExportPreferences) => ExportPreference
 /**
  * Says a choice the Saved line's Change made, in the undo line: Word files mark the text
  * IncarnaMind wrote, or leave it unmarked; Citations go in footnotes, or in a list at the end.
- * Undo puts the choice back, and Redo makes it again (#1945).
+ * Undo puts that one choice back and Redo makes it again, each against the choices as they are
+ * then, so neither takes back a format or an option the User changed since (#1945).
  */
 function changed(
   which: "mark" | "leave" | "footnotes" | "list",
-  before: ExportPreferences,
-  after: ExportPreferences,
+  undo: () => Promise<void>,
+  redo: () => Promise<void>,
 ): void {
-  useUndo.getState().push({
-    said: (t) => t(`export.changed.${which}`),
-    undo: () => keep(() => before),
-    redo: () => keep(() => after),
-  });
+  useUndo.getState().push({ said: (t) => t(`export.changed.${which}`), undo, redo });
 }
 
 /**
@@ -180,7 +183,7 @@ export function changeExportChoices(mindId: string): void {
   if (result?.mindId !== mindId || result.state !== "saved") return;
   const { format } = result;
   if (format !== "docx" && format !== "pdf") return;
-  // The line is where the User sees the choice (D277): a Word file always has the marking, and a
+  // The line is where the User sees the choice: a Word file always has the marking, and a
   // Numbered PDF the place of its Citations, whether or not this file placed any.
   const mark = format === "docx";
   const places =
@@ -210,15 +213,16 @@ export async function answerMarkAiText(
 ): Promise<void> {
   const before = exportPreferences();
   if (markingNow(before) === answer) return;
-  const after: ExportPreferences = {
-    ...before,
-    docx: { ...before.docx, markAiText: answer },
-  };
-  await keep(() => after);
+  const was = before.docx.markAiText;
+  await keep((now) => withMarking(now, answer));
   // A refusal is already said in a notice, and the choice stays as it was.
   if (markingNow(exportPreferences()) !== answer) return;
   await exportMind(mindId, format);
-  changed(answer, before, after);
+  changed(
+    answer,
+    () => keep((now) => withMarking(now, was)),
+    () => keep((now) => withMarking(now, answer)),
+  );
 }
 
 /** Picks where Citations go in Change: keeps it, exports this file again with it, and offers Undo (#1945). */
@@ -229,11 +233,15 @@ export async function answerCitationPlace(
 ): Promise<void> {
   const before = exportPreferences();
   if ((before.citationPlace ?? DEFAULT_CITATION_PLACE) === answer) return;
-  const after: ExportPreferences = { ...before, citationPlace: answer };
-  await keep(() => after);
+  const was = before.citationPlace;
+  await keep((now) => withCitationPlace(now, answer));
   if (exportPreferences().citationPlace !== answer) return;
   await exportMind(mindId, format);
-  changed(answer, before, after);
+  changed(
+    answer,
+    () => keep((now) => withCitationPlace(now, was)),
+    () => keep((now) => withCitationPlace(now, answer)),
+  );
 }
 
 const NO_CHECKS: SentenceChecksExported = {
