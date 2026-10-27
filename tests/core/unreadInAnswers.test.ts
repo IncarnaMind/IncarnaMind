@@ -85,6 +85,24 @@ describe("The search Tool's reply says which Documents in scope couldn't be read
     expect(reply).not.toContain("Tariffs 2024.md");
   });
 
+  // protects=the search made before the first call (#1633) carries the same note as the search Tool's reply, read by the same function; fails_when=the model handed that search isn't told a Document in scope couldn't be read; no_claim=what a real model does with it.
+  test("the search made before the first call says so too", async () => {
+    const results: string[] = [];
+    const { core, client, mind } = await setUpWithDocuments(
+      searchingModel(results),
+      [OLD_TARIFF, SCAN],
+      { answerPaths: { retrievesFirst: () => true } },
+    );
+
+    await askAndFinish(core, client, mind.id, QUESTION);
+
+    const [reply = ""] = results;
+    expect(reply).toContain("A 10 metre boat pays 40 euros");
+    expect(reply).toContain(
+      `${NOTE}, so no Passage comes from that text: "Harbour tariff notice.pdf" (a scan with no text).`,
+    );
+  });
+
   test("is still searched when the only Document is a scan with no text", async () => {
     const results: string[] = [];
     const { core, client, mind } = await setUpWithDocuments(searchingModel(results), [SCAN]);

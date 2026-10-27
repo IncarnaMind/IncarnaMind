@@ -85,7 +85,11 @@ export async function checkContradictionsNow(mindId: string, requestId: string):
       setCheckProblem(mindId, result.kind === "nothing" ? { kind: "no-cited" } : result);
     }
   } catch (error) {
-    setCheckProblem(mindId, { kind: "failed", error });
+    setCheckProblem(mindId, {
+      kind: "failed",
+      error,
+      retry: () => void startContradictionCheck(mindId),
+    });
   }
 }
 
@@ -142,20 +146,26 @@ export async function watchSentencesNow(
  */
 export async function startContradictionCheck(mindId: string): Promise<void> {
   const running = useChecks.getState().running[mindId];
-  await useAppStore.getState().openMind(mindId);
-  if (running) return;
-  const plan = await core.planContradictionCheck(mindId);
-  if (plan.kind !== "ready") {
-    dismissContradictions(mindId);
-    setCheckProblem(mindId, problemOf(plan));
-    return;
+  try {
+    await useAppStore.getState().openMind(mindId);
+    if (running) return;
+    const plan = await core.planContradictionCheck(mindId);
+    if (plan.kind !== "ready") {
+      dismissContradictions(mindId);
+      setCheckProblem(mindId, problemOf(plan));
+      return;
+    }
+    const estimate = await core
+      .estimateRun({ items: plan.claims, each: "check", ...(plan.model && { model: plan.model }) })
+      .then((result) => estimateLine(result, translateNow, languageNow()))
+      .catch(() => null);
+    if (estimate === null) return checkContradictions(mindId);
+    setFor("asking", mindId, { claims: plan.claims, estimate });
+  } catch (error) {
+    setCheckProblem(mindId, {
+      kind: "failed",
+      error,
+      retry: () => void startContradictionCheck(mindId),
+    });
   }
-  const estimate = await core
-    .estimateRun({ items: plan.claims, each: "check", ...(plan.model && { model: plan.model }) })
-    .catch(() => null);
-  if (estimate === null || estimate.billing !== "per-token") return checkContradictions(mindId);
-  setFor("asking", mindId, {
-    claims: plan.claims,
-    estimate: estimateLine(estimate, translateNow, languageNow()),
-  });
 }

@@ -154,7 +154,11 @@ async function checkMindNow(
     else if (result.kind !== "cancelled") setCheckProblem(mindId, everywhere(result, mindId, mode));
     return result;
   } catch (error) {
-    setCheckProblem(mindId, { kind: "failed", error });
+    setCheckProblem(mindId, {
+      kind: "failed",
+      error,
+      retry: () => void checkMind(mindId, mode, { allDocuments }),
+    });
     return "error";
   }
 }
@@ -217,7 +221,7 @@ async function start(mindId: string, planned: () => Promise<Planned>): Promise<v
     const { mode, allDocuments, plan, watch } = await planned();
     await askOrCheck(mindId, { mode, allDocuments, watch }, plan);
   } catch (error) {
-    setCheckProblem(mindId, { kind: "failed", error });
+    setCheckProblem(mindId, { kind: "failed", error, retry: () => void start(mindId, planned) });
   }
 }
 

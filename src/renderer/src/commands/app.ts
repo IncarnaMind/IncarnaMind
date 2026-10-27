@@ -38,7 +38,13 @@ import { feedbackCommands } from "./feedback";
 import { fileCommands } from "./fileInfo";
 import { footnoteCommands } from "./footnotes";
 import { formatCommands } from "./format";
-import { citationHandle, findHandle, readMindHandle, sidebarHandle } from "./handles";
+import {
+  citationHandle,
+  findHandle,
+  homeNextHandle,
+  readMindHandle,
+  sidebarHandle,
+} from "./handles";
 import { languageCommands } from "./language";
 import { libraryCommands } from "./library";
 import { linkCommands } from "./links";
@@ -285,6 +291,15 @@ const appCommands: readonly Command[] = [
       const mindId = mindShown(ctx);
       if (mindId) useHistory.getState().open(mindId);
     },
+  },
+  {
+    id: "home.nextStep",
+    label: (_ctx, t) => homeNextHandle.current?.label ?? t("home.next.command"),
+    group: "main",
+    top: 9,
+    reversible: true,
+    when: () => homeNextHandle.current !== null && !homeNextHandle.current.busy,
+    run: () => homeNextHandle.current?.run(),
   },
   {
     id: "mind.check",
