@@ -249,27 +249,34 @@ function locatedAmong(
   return locateQuote(among, quote, matching);
 }
 
-/** The first Unit, or two consecutive Units of one run, among `units` whose text holds the quote. */
+/** The unique place of a quote in one Unit, or two consecutive Units of one run. */
 export function locateQuote(
   units: readonly PageText[],
   quote: string,
   matching: Matching = {},
 ): PageRange | null {
-  if (!quote) return null;
-  for (const unit of units) {
-    if (unit.page !== null && quoteInUnits([unit], quote, matching)) {
-      return { pageFrom: unit.page, pageTo: unit.page };
-    }
-  }
-  for (let index = 0; index + 1 < units.length; index++) {
-    const first = units[index] as PageText;
-    const second = units[index + 1] as PageText;
-    if (first.page === null || second.page !== first.page + 1 || !sameRun(first, second)) continue;
-    if (quoteInUnits([first, second], quote, matching)) {
-      return { pageFrom: first.page, pageTo: second.page };
-    }
-  }
-  return null;
+  const ranges = quoteInUnits(units, quote, { ...matching, unique: true });
+  if (!ranges) return null;
+  const { starts } = joinUnits(units);
+  const covered = units.filter((unit, index) => {
+    const start = starts[index] ?? 0;
+    return ranges.some((range) => range.start < start + unit.text.length && range.end > start);
+  });
+  const [first, second] = covered;
+  if (!first || first.page === null || covered.length > 2) return null;
+  if (second && (second.page !== first.page + 1 || !sameRun(first, second))) return null;
+  return { pageFrom: first.page, pageTo: second?.page ?? first.page };
+}
+
+export function quotePlaceProblem(
+  quote: string,
+  units: readonly PageText[],
+  matching: Matching = {},
+): string | null {
+  return quoteInUnits(units, quote, matching) &&
+    !quoteInUnits(units, quote, { ...matching, unique: true })
+    ? "the quote occurs more than once in its cited Units; quote enough surrounding words to identify one place."
+    : null;
 }
 
 /**
@@ -409,10 +416,13 @@ function versionOf(documents: RecheckDocuments, documentId: string, contentHash:
       contentHash,
       passageId: passageFor(range, quote),
       ...range,
-      location: locationOf(
-        covered,
-        check.check === "found" ? (found ?? quoteInUnits(covered, quote, matching)) : null,
-      ),
+      location:
+        range.pageFrom === null || range.pageTo === null
+          ? null
+          : locationOf(
+              covered,
+              check.check === "found" ? (found ?? quoteInUnits(covered, quote, matching)) : null,
+            ),
     };
   };
   return { units, matching, inRange, result };
@@ -422,9 +432,8 @@ type Rechecked = Pick<RecheckCitationInput, "documentId" | "quote" | "pageFrom" 
 
 /**
  * Checks a Citation again against its Document's current version (see
- * `CoreApi.recheckCitation`): in the cited Units first, then in each Unit,
- * and each two consecutive Units of one run, of the current version, in
- * order. The Passage given is one of the current version that holds the
+ * `CoreApi.recheckCitation`): at its cited Units, without relocating it.
+ * The Passage given is one of the current version that holds the
  * Units, preferably one whose text holds the quote too. Given the version it
  * quotes, once the Document has a newer one: its check in that version too,
  * and its words as they changed when the current one doesn't hold them.
@@ -612,27 +621,17 @@ function recheckInCurrent(documents: RecheckDocuments, input: Rechecked): Citati
   if (units.every((unit) => unit.text.trim() === "")) {
     return result({ check: "cant-check", checkReason: "no-text" }, cited);
   }
-  // A whole TXT or Markdown file stored before Units is checked as one text.
-  if (units.length === 1 && units[0]?.kind === "text") {
-    const whole = { pageFrom: null, pageTo: null };
-    return quote !== "" && quoteInUnits(units, quote, matching)
-      ? result({ check: "found", checkReason: null }, whole)
-      : result({ check: "not-found", checkReason: "quote-not-on-pages" }, whole);
+  const range = inRange(cited);
+  const [first, second] = range;
+  const whole = cited.pageFrom === null || cited.pageTo === null;
+  if (
+    range.length > 0 &&
+    (whole || (range.length <= MAX_CITED_PAGES && (!first || !second || sameRun(first, second)))) &&
+    quote !== "" &&
+    quoteInUnits(range, quote, matching)
+  ) {
+    return result({ check: "found", checkReason: null }, cited);
   }
-  if (cited.pageFrom !== null && cited.pageTo !== null) {
-    const range = inRange(cited);
-    const [first, second] = range;
-    if (
-      range.length > 0 &&
-      range.length <= MAX_CITED_PAGES &&
-      (!first || !second || sameRun(first, second)) &&
-      quoteInUnits(range, quote, matching)
-    ) {
-      return result({ check: "found", checkReason: null }, cited);
-    }
-  }
-  const located = locateQuote(units, quote, matching);
-  if (located) return result({ check: "found", checkReason: null }, located);
   return result({ check: "not-found", checkReason: "quote-not-on-pages" }, cited);
 }
 
@@ -1265,6 +1264,20 @@ export function createCitationSession(
       };
     }
     const taken = takeQuote(input, marker, options);
+    if (taken.ok && !taken.record.kept) {
+      const problem = quotePlaceProblem(
+        taken.record.quote,
+        citedText(taken.record),
+        matchingFor(taken.source),
+      );
+      if (problem) {
+        return {
+          ok: false,
+          rejected: { marker, passage: given, reason: "quote-context" },
+          problem: `[^${marker}]: ${problem}`,
+        };
+      }
+    }
     return taken.ok
       ? taken
       : {
@@ -1662,23 +1675,10 @@ export function createCitationSession(
 
   /** Quotes for calculated figures' inputs (./calculations). */
   const quotes = {
-    /**
-     * The quote of the record taken for a marker; null when none was. A quote
-     * that isn't where the record says is read where it is in its Passage, as
-     * structured output's records are (see `CiteOptions`): the record itself
-     * stays as it was.
-     */
+    /** An input keeps its recorded Location: moving it could substitute another revision (#1979). */
     recorded(marker: number): Quoted | null {
       const record = records.get(marker);
       if (!record) return null;
-      if (check(record).check === "not-found") {
-        const placed = takeQuote(
-          { passage: record.handle, ...record.given, quote: record.quote },
-          0,
-          { structured: true },
-        );
-        if (placed.ok && check(placed.record).check === "found") return quotedOf(placed.record);
-      }
       return quotedOf(record);
     },
 
