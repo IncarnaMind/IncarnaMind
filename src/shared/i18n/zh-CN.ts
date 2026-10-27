@@ -3795,6 +3795,8 @@ export const zhCN = {
   "error.question.notInMind": "这个问题不在此 Mind 中。",
   "error.answer.notInConversation": "这个回答不在此对话中。",
   "error.answer.questionGone": "这个回答对应的问题已删除。",
+  "error.askedChanges.input": "无法读取助手修改的请求。请重试。",
+  "error.askedChanges.answer": "无法确定这些修改属于哪个回答。请重试。",
   "error.linkedFolder.notFound": "这个同步文件夹不存在或已移除。",
   "error.path.noFolder": "这个路径下没有文件夹。",
   "error.path.notFolder": "这个路径不是文件夹。",

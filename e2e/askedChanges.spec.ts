@@ -8,6 +8,7 @@ import {
   dismissChatSetup,
   enterContent,
   focusSettled,
+  forceQuit,
   frontMindName,
   launchApp,
   nameMind,
@@ -405,6 +406,48 @@ async function writeMind(window: Page, title: string, notes: readonly string[]):
   }
 }
 
+async function askClosingTarget(window: Page, question: string, other: string) {
+  const before = await window.getByTestId("assistant-question").count();
+  const pending = askInAssistant(window, question);
+  await expect(window.getByTestId("assistant-question")).toHaveCount(before + 1);
+  await expect(window.getByTestId("assistant-question").last()).toContainText(question);
+  await window.keyboard.press("ControlOrMeta+w");
+  await pointAndClick(window, window.getByTestId("sidebar").getByText(other, { exact: true }));
+  return pending;
+}
+
+interface Presentation {
+  applied: boolean;
+  open: boolean;
+}
+
+async function watchApplication(window: Page, title: string): Promise<void> {
+  await window.evaluate(async (name) => {
+    const root = globalThis as unknown as {
+      incarnamind: CoreBridge;
+      applyPresentation?: Presentation[];
+    };
+    root.applyPresentation = [];
+    const minds = await root.incarnamind.listMinds();
+    const mindId = minds.find((mind) => mind.title === name)?.id;
+    if (!mindId) throw new Error(`No Mind named ${name}`);
+    root.incarnamind.on("mind.update", ({ mindId: changed }) => {
+      if (changed !== mindId) return;
+      root.applyPresentation?.push({
+        applied: document.querySelector('[data-testid="mind-changes-title"]') !== null,
+        open: [...document.querySelectorAll('[data-testid="mind-tab"]')].some((tab) =>
+          tab.textContent?.includes(name),
+        ),
+      });
+    });
+  }, title);
+}
+
+const applicationPresentations = (window: Page): Promise<Presentation[]> =>
+  window.evaluate(
+    () => (globalThis as unknown as { applyPresentation?: Presentation[] }).applyPresentation ?? [],
+  );
+
 test("a section added and a rewrite of the User's text beside it both apply, in one line", async () => {
   const { app, window } = await launchApp(dataDir, { fakeChat: true });
   await dismissChatSetup(window);
@@ -447,6 +490,208 @@ test("asked to write in a Mind not in view, the assistant opens it in a tab besi
     "a note about the meeting",
   ]);
   await expect(editor.getByTestId("applied-count")).toHaveText("Wrote 1 paragraph");
+  await expect(answer.getByTestId("mind-changes-review")).toHaveText("Review changes");
+  await pointAndClick(window, answer.getByTestId("mind-changes-review"));
+  await expect(editor.locator(".applied-new")).toHaveText("a note about the meeting");
+  await pointAndClick(window, editor.getByTestId("applied-done"));
+  await pointAndClick(window, answer.getByTestId("mind-changes-undo"));
+  await expect(editor.locator(":scope > p")).toHaveText(["Hire a designer."]);
+});
+
+// Value: protects=unopened destructive rewrites wait for the User; fails_when=core accepts early or Apply/Discard breaks; why_new=held e2e used an open editor; seam=none; no_claim=real-model rewrite quality (scripted model)
+test("an unopened destructive rewrite waits, then Discard and Apply each keep their one-step behavior", async () => {
+  const { app, window } = await launchApp(dataDir, { fakeChat: true });
+  await dismissChatSetup(window);
+  await useLocalChatModel(window);
+  await setWindowSize(app, window, 1440, 900);
+  await writeMind(window, "Harbour notes", NOTES);
+  await writeMind(window, "Q3 review", ["The quarter was good."]);
+  await pointAndClick(window, window.getByTestId("mind-tab").filter({ hasText: "Harbour notes" }));
+  const editor = window.getByTestId("mind-editor");
+  const paragraphs = editor.locator(":scope > p");
+
+  const answer = await askClosingTarget(
+    window,
+    "Rewrite the intro to be clearer slowly",
+    "Q3 review",
+  );
+  await expect(answer.getByTestId("mind-changes-left")).toHaveText("· 2 changes waiting");
+  const line = editor.getByTestId("applied-line");
+  await expect(line.getByTestId("applied-count")).toHaveText(
+    "Waiting for you: this rewrites most of your text",
+  );
+  await pointAndClick(window, line.getByTestId("applied-apply"));
+  await expect(paragraphs).toHaveText([
+    "Gulls wheel over the quay at dawn.",
+    "Boats rest on the mud at low water.",
+  ]);
+  await editor.focus();
+  await window.keyboard.press("ControlOrMeta+z");
+  await expect(paragraphs).toHaveText(NOTES);
+
+  await pointAndClick(window, window.getByTestId("mind-tab").filter({ hasText: "Harbour notes" }));
+  const discarded = await askClosingTarget(
+    window,
+    "Rewrite the intro to be clearer slowly",
+    "Q3 review",
+  );
+  await expect(discarded.getByTestId("mind-changes-left")).toHaveText("· 2 changes waiting");
+  await pointAndClick(window, line.getByTestId("applied-discard"));
+  await expect(paragraphs).toHaveText(NOTES);
+  await expect(discarded.getByTestId("mind-changes-left")).toHaveText("· none waiting");
+});
+
+// Value: protects=rich Review and safe core Undo after later typing; fails_when=restore misanchors or stale Undo overwrites writing; why_new=core e2e reviewed only appended text; seam=none; no_claim=real-model content (scripted model)
+test("an unopened section and rewrite reviews and restores, and later typing disables core Undo", async () => {
+  const { app, window } = await launchApp(dataDir, { fakeChat: true });
+  await dismissChatSetup(window);
+  await useLocalChatModel(window);
+  await setWindowSize(app, window, 1440, 900);
+  await writeMind(window, "Harbour notes", NOTES);
+  await writeMind(window, "Q3 review", ["The quarter was good."]);
+  await pointAndClick(window, window.getByTestId("mind-tab").filter({ hasText: "Harbour notes" }));
+  await watchApplication(window, "Harbour notes");
+
+  const answer = await askClosingTarget(window, "Add a section on the risks slowly", "Q3 review");
+  await expect(answer.getByTestId("mind-changes-title")).toHaveText(
+    "Changed 3 paragraphs in “Harbour notes”",
+  );
+  await expect
+    .poll(async () => (await applicationPresentations(window)).some((each) => each.applied))
+    .toBe(true);
+  const presentations = await applicationPresentations(window);
+  expect(presentations.length).toBeGreaterThan(0);
+  expect(presentations[0]).toEqual({ applied: false, open: false });
+  expect(presentations.every((each) => !each.open)).toBe(true);
+  const editor = window.getByTestId("mind-editor");
+  const paragraphs = editor.locator(":scope > p");
+  await expect(editor).toContainText("The supplier is late.");
+  const box = await paragraphs.last().boundingBox();
+  await paragraphs.last().click({
+    position: { x: (box?.width ?? 2) - 2, y: (box?.height ?? 8) - 4 },
+  });
+  await focusSettled(window, editor);
+  await window.keyboard.press("Enter");
+  await window.keyboard.type("My later note.");
+  await expect(paragraphs.last()).toHaveText("My later note.");
+  await expect(answer.getByTestId("mind-changes-undo")).toHaveAttribute("aria-disabled", "true");
+
+  await pointAndClick(window, answer.getByTestId("mind-changes-review"));
+  await expect(editor.getByTestId("change-restore").first()).toBeVisible();
+  await pointAndClick(window, editor.getByTestId("change-restore").first());
+  await expect(paragraphs.first()).toHaveText(NOTES[0] ?? "");
+  await expect(paragraphs.last()).toHaveText("My later note.");
+  await expect(answer.getByTestId("mind-changes-undone")).toHaveCount(0);
+  await pointAndClick(window, editor.getByTestId("applied-done"));
+});
+
+// Value: protects=core-applied re-ask replaces exactly once; fails_when=stale Undo races new writing or duplicates text; why_new=regeneration used editor-owned steps; seam=none; no_claim=real-model regeneration (scripted model)
+test("a core-applied Answer can be written again without losing or duplicating text", async () => {
+  const { app, window } = await launchApp(dataDir, { fakeChat: true });
+  await dismissChatSetup(window);
+  await useLocalChatModel(window);
+  await setWindowSize(app, window, 1440, 900);
+  await writeMind(window, "Project plan", ["Hire a designer."]);
+  await writeMind(window, "Q3 review", ["The quarter was good."]);
+  await pointAndClick(window, window.getByTestId("mind-tab").filter({ hasText: "Project plan" }));
+
+  const answer = await askClosingTarget(
+    window,
+    "Add a note about the meeting to Project plan slowly",
+    "Q3 review",
+  );
+  await expect(answer.getByTestId("mind-changes-title")).toHaveText(
+    "Wrote 1 paragraph in “Project plan”",
+  );
+  const firstRequest = await changeRequestOf(window);
+  await openSteps(window, answer);
+  await pointAndClick(window, answer.getByTestId("answer-regenerate"));
+  await expect
+    .poll(
+      async () => {
+        const now = await changeRequestOf(window);
+        return now !== null && now !== firstRequest;
+      },
+      { timeout: 15_000 },
+    )
+    .toBe(true);
+  const editor = window.getByTestId("mind-editor");
+  await expect(editor.locator(":scope > p")).toHaveText([
+    "Hire a designer.",
+    "a note about the meeting",
+  ]);
+  await expect(editor.locator("ins.proposal-insert, del.proposal-delete")).toHaveCount(0);
+  await expect(answer.getByTestId("mind-changes-title")).toHaveText(
+    "Wrote 1 paragraph in “Project plan”",
+  );
+  await pointAndClick(window, answer.getByTestId("mind-changes-undo"));
+  await expect(editor.locator(":scope > p")).toHaveText(["Hire a designer."]);
+  await expect(answer.getByTestId("mind-changes-undone")).toHaveText("Undone");
+  await expect(window.getByTestId("undo-message")).toHaveCount(0);
+  await editor.focus();
+  await window.keyboard.press("ControlOrMeta+Shift+z");
+  await expect(editor.locator(":scope > p")).toHaveText([
+    "Hire a designer.",
+    "a note about the meeting",
+  ]);
+  await expect(answer.getByTestId("mind-changes-undo")).not.toHaveAttribute("aria-disabled");
+  await pointAndClick(window, answer.getByTestId("mind-changes-undo"));
+  await expect(editor.locator(":scope > p")).toHaveText(["Hire a designer."]);
+});
+
+test("a change in a Mind that isn't open applies in the core and survives a restart", async () => {
+  const { app, window } = await launchApp(dataDir, { fakeChat: true });
+  await dismissChatSetup(window);
+  await useLocalChatModel(window);
+  await setWindowSize(app, window, 1440, 900);
+  await writeMind(window, "Project plan", ["Hire a designer."]);
+  await writeMind(window, "Q3 review", ["The quarter was good."]);
+  const answer = await askInAssistant(window, "Add a note about the meeting to Project plan");
+  await expect(answer.getByTestId("mind-changes-title")).toHaveText(
+    "Wrote 1 paragraph in “Project plan”",
+  );
+  await pointAndClick(window, answer.getByTestId("mind-changes-undo"));
+  await expect(window.getByTestId("mind-editor").locator(":scope > p")).toHaveText([
+    "Hire a designer.",
+  ]);
+  await expect(answer.getByTestId("mind-changes-undone")).toHaveText("Undone");
+  await window.keyboard.press("ControlOrMeta+Shift+z");
+  await expect(window.getByTestId("mind-editor").locator(":scope > p")).toHaveText([
+    "Hire a designer.",
+    "a note about the meeting",
+  ]);
+  await expect(answer.getByTestId("mind-changes-undone")).toHaveCount(0);
+  await window.keyboard.press("ControlOrMeta+w");
+  await forceQuit(app);
+
+  const restarted = await launchApp(dataDir, { fakeChat: true });
+  await pointAndClick(
+    restarted.window,
+    restarted.window.getByTestId("sidebar").getByText("Project plan", { exact: true }),
+  );
+  await expect(restarted.window.getByTestId("mind-editor").locator(":scope > p")).toHaveText([
+    "Hire a designer.",
+    "a note about the meeting",
+  ]);
+  await expect(
+    restarted.window.getByTestId("mind-editor").locator("ins.proposal-insert, del.proposal-delete"),
+  ).toHaveCount(0);
+  await restarted.window.keyboard.press("ControlOrMeta+k");
+  const palette = restarted.window.getByTestId("palette");
+  await expect(palette).toBeVisible();
+  await restarted.window.keyboard.type("Add a note about the meeting to Project plan");
+  const found = palette
+    .locator('[data-testid="palette-group"][data-group="conversations"]')
+    .getByTestId("palette-item")
+    .first();
+  await expect(found).toBeVisible();
+  await pointAndClick(restarted.window, found);
+  const restoredAnswer = assistantAnswers(restarted.window).last();
+  await expect(restoredAnswer).toBeVisible();
+  await expect(restoredAnswer.getByTestId("mind-changes-undo")).toHaveCount(0);
+  await expect(restoredAnswer.getByTestId("mind-changes-review")).toHaveCount(0);
+  await expect(restarted.window.getByTestId("applied-review")).toHaveCount(0);
+  await restarted.app.close();
 });
 
 test("a reply that claims a write no call made is asked for once more, then stays with a line under it saying nothing was written, with Try again, in English and Chinese", async () => {
