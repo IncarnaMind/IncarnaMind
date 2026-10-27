@@ -187,6 +187,10 @@ export function pairedSection(
   };
   const found = (run: (row: PairedRow) => ArmRun) =>
     `${rows.reduce((sum, row) => sum + run(row).found, 0)} of ${rows.reduce((sum, row) => sum + run(row).citations, 0)}`;
+  const oneCall = (run: (row: PairedRow) => ArmRun) => {
+    const done = rows.map(run).filter((each) => each.status === "done");
+    return `${done.filter((each) => each.answerCalls === 1).length} of ${done.length}`;
+  };
   const rule = (each: Guard) =>
     `| ${each.name} | ${each.baseline} | ${each.candidate} | ${each.lost} / ${each.gained} | ${each.holds ? "yes" : "**no**"}${each.allowed > 0 ? ` (${each.allowed} fewer allowed)` : ""} |`;
   return [
@@ -198,6 +202,7 @@ export function pairedSection(
     `| Model calls (mean) | ${mean(rows.map((row) => row.baseline.modelCalls))} | ${mean(rows.map((row) => row.candidate.modelCalls))} | |`,
     `| Tokens in / out (median) | ${tokens((row) => row.baseline)} | ${tokens((row) => row.candidate)} | |`,
     `| Citations found | ${found((row) => row.baseline)} | ${found((row) => row.candidate)} | |`,
+    `| Answered in one call | ${oneCall((row) => row.baseline)} | ${oneCall((row) => row.candidate)} | |`,
     "",
     `| Guard, items both finished | ${a} | ${b} | lost / gained | holds |`,
     "|---|---|---|---|---|",

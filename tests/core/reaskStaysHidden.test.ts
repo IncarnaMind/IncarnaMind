@@ -6,6 +6,7 @@ import { createTempDataFolder, startCore } from "../helpers/core";
 import { connectToMind } from "../helpers/mindClient";
 import { heading, note, writeMind } from "../helpers/minds";
 import {
+  claimCheckReply,
   type ModelCall,
   type ScriptedReply,
   scriptedModel,
@@ -75,11 +76,14 @@ describe("The ask for a reply that claims a change", { timeout: 30_000 }, () => 
   test.each(LANGUAGES)("$language: the model is told the first try is never read", async (each) => {
     let told = "";
     const reply = "No section was added. Say if you'd like one.";
-    const model = scriptedModel((call): ScriptedReply => {
-      if (!asked(call).includes("but no Tool did that")) return { text: each.claim };
-      told = asked(call);
-      return { text: reply };
-    });
+    const model = scriptedModel(
+      (call): ScriptedReply => {
+        if (!asked(call).includes("but no Tool did that")) return { text: each.claim };
+        told = asked(call);
+        return { text: reply };
+      },
+      { generate: (call) => claimCheckReply(call, [{ sentence: each.claim, kind: "added" }]) },
+    );
     const { core, mind } = await setUp(model, each.title);
     const shown: string[] = [];
     core.on("answer.delta", (event) => shown.push(event.text));

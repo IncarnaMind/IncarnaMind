@@ -643,10 +643,11 @@ describe("A Question beside a long Mind (#564)", () => {
       const client = await connectToMind(core, mind.id);
       writeMind(client, [note(text)]);
       await client.settled();
+      const before = rows(dataDir).length;
       const asked = await core.askInConversation({ text: "Summarise my notes", mindId: mind.id });
       if (!asked.asked) throw new Error("Not asked.");
       await answerEnded(core, asked.answerId);
-      return rows(dataDir).at(-1)?.reserved ?? 0;
+      return rows(dataDir)[before]?.reserved ?? 0;
     };
 
     const short = await reservedBeside("Spring tides come at new and full moon.");

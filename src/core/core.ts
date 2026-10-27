@@ -219,6 +219,7 @@ import { nativePageSetup } from "./pageSetup";
 import { createPrivacy, type NetworkTrafficRegistry } from "./privacy";
 import { KeyCharacterError, storedApiKey } from "./providers/apiKey";
 import { readsImages } from "./providers/capabilities";
+import { retrievesFirst, writesThenCites } from "./providers/catalog/answerPaths";
 import { CHAT_FLOW_SENDS, createChat, type PreparedChatModel } from "./providers/chat";
 import { CHATGPT_PLAN_ENDPOINTS, createChatGptPlan } from "./providers/chatgpt/plan";
 import { createClaudeAccount } from "./providers/claudeAccount/account";
@@ -1540,6 +1541,10 @@ export function createCore(adapters: CoreAdapters): Core {
     defaultModel: () => settings.get().user.chatModel,
     readiness: async (choice) => chat.readiness(await chat.answeringModel(choice)),
     prepareModel: (choice, thinking) => chat.prepareModel(choice, "chat", thinking),
+    writesThenCites: ({ provider, modelId }, flow) =>
+      writesThenCites({ catalogId: provider.catalogId, modelId }, flow, adapters.answerPaths),
+    retrievesFirst: ({ provider, modelId }, flow) =>
+      retrievesFirst({ catalogId: provider.catalogId, modelId }, flow, adapters.answerPaths),
     async prepareQuickModel(answers, prepared) {
       const quick = chat.quickTasksModel(answers);
       // An Answer on this computer keeps its small calls there too.
