@@ -49,8 +49,9 @@ export type HealthPart = (typeof HEALTH_PARTS)[number];
  * `kept`: the sentences the User keeps as their own view, which count as
  * handled; `tableCells` are the parts of `toCheck` a table holds (#1194);
  * `checkable`: every claim a check reads, to check, checking or covered;
- * `checkedAt`: the newest check among the claims one covers, for
- * "Checked {time}" (D266).
+ * `supported`: the covered claims a check found supported, the ones with no
+ * Citation among them; `checkedAt`: the newest check among the claims one
+ * covers, for "Checked {time}" (D266).
  */
 export interface NoteHealth {
   found: number[];
@@ -65,6 +66,7 @@ export interface NoteHealth {
   tableCells: number[];
   noCitation: number[];
   checkable: number;
+  supported: number;
   checkedAt: string | null;
 }
 
@@ -178,6 +180,7 @@ export function noteHealth(doc: ProseMirrorNode, input: NoteHealthInput): NoteHe
     tableCells: [],
     noCitation: [],
     checkable: 0,
+    supported: 0,
     checkedAt: null,
   };
   eachSentence(doc, input, ({ from, text, claim, citations, inTable: table, state }) => {
@@ -215,30 +218,57 @@ export function noteHealth(doc: ProseMirrorNode, input: NoteHealthInput): NoteHe
     }
     if (claim.shown.state === "unsupported") health.unsupported.push(from);
     else if (claim.shown.state === "contradicted") health.contradicted.push(from);
-    else if (isClaim(text) && citations.length === 0) health.noCitation.push(from);
+    else {
+      health.supported++;
+      if (isClaim(text) && citations.length === 0) health.noCitation.push(from);
+    }
   });
   return health;
 }
 
+/** What a check found and what is left of a Mind, for the card's one summary line (#1941). */
+export interface HealthSummary {
+  /** The covered claims a check found supported. */
+  supported: number;
+  /** The covered claims a check found a problem with, by the reason its card names (D276). */
+  look: { contradicted: number; unsupported: number; notFound: number };
+  /** The claims nothing has checked yet. */
+  toCheck: number;
+  /** The supported claims that cite nowhere, so they still need a Citation. */
+  noCitation: number;
+}
+
 /**
- * Whether the card can say everything is checked: a sentence was checked, none
- * is left or still checking, and no unsupported, contradicted or not-found
- * Citation shows (#1909; D266: the green says the same).
+ * The card's one summary, counted and decided from the same `NoteHealth` its
+ * rows show, so the two can never disagree (#1941): "everything checked" only
+ * when nothing is left — no claim that needs a look, none not checked, no
+ * supported claim with no Citation, and no file a narrowed check couldn't read
+ * (D266) — otherwise what is left, in D276's words. Null while a check runs or
+ * a problem shows: the card says that in its place.
  */
-export function everythingChecked(
+export function healthSummary(
   health: NoteHealth,
-  { running, problem }: { running: boolean; problem: boolean },
-): boolean {
-  return (
-    !running &&
-    !problem &&
-    health.checkable > 0 &&
-    health.toCheck.length === 0 &&
-    health.checking.length === 0 &&
-    health.unsupported.length === 0 &&
-    health.contradicted.length === 0 &&
-    health.notFound.length === 0
-  );
+  { running, problem, unread }: { running: boolean; problem: boolean; unread: number },
+): { kind: "all" } | { kind: "left"; summary: HealthSummary } | null {
+  if (running || problem || health.checkable === 0 || health.checking.length > 0) return null;
+  const summary: HealthSummary = {
+    supported: health.supported,
+    look: {
+      contradicted: health.contradicted.length,
+      unsupported: health.unsupported.length,
+      notFound: health.notFound.length,
+    },
+    toCheck: health.toCheck.length,
+    noCitation: health.noCitation.length,
+  };
+  const left =
+    summary.look.contradicted +
+    summary.look.unsupported +
+    summary.look.notFound +
+    summary.toCheck +
+    summary.noCitation;
+  if (left > 0) return { kind: "left", summary };
+  return unread > 0 ? null : { kind: "all" };
 }
 
 /**

@@ -144,7 +144,7 @@ test("Check for contradictions: the estimate first, then a cited claim another D
   const mark = window.getByTestId("claim-mark");
   await expect(mark).toHaveAttribute("data-check", "contradicted");
   await expect(line.locator(".claim-wash--contradicted").first()).toBeVisible();
-  await expect(checks.getByTestId("health-contradicted")).toContainText("1 contradicted");
+  await expect(checks.getByTestId("health-contradicted")).toContainText("1 claim contradicted");
   await screenshot(window, "contradictions-found-en");
 
   await pointAndClick(window, mark);
@@ -187,7 +187,7 @@ test("the one Check in a Folder checks the cited sentence and its contradiction 
   // The sentence is checked for support and against the Folder's other Document: the contradiction is what shows.
   await expect(window.getByTestId("claim-mark")).toHaveAttribute("data-check", "contradicted");
   const done = await checkCard(window);
-  await expect(done.getByTestId("health-contradicted")).toContainText("1 contradicted");
+  await expect(done.getByTestId("health-contradicted")).toContainText("1 claim contradicted");
   await expect(done.getByTestId("health-toCheck")).toHaveCount(0);
   await expect(window.getByTestId("check-badge")).toHaveAttribute("data-state", "needs-look");
   await screenshot(window, "one-check-folder-en");
@@ -256,7 +256,7 @@ test("A new version of a Document in the Folder has the Mind's cited claims chec
   const checks = await checkCard(window);
   const watched = checks.getByTestId("contradictions-watched");
   await expect(watched).toContainText("After “Office” changed: 1 of 1 cited claims contradicted");
-  await expect(checks.getByTestId("health-contradicted")).toContainText("1 contradicted");
+  await expect(checks.getByTestId("health-contradicted")).toContainText("1 claim contradicted");
   await screenshot(window, "contradictions-watched-en");
 
   await pointAndClick(window, watched.getByTestId("contradictions-watched-close"));

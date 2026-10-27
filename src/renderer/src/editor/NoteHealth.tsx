@@ -14,6 +14,7 @@ import {
   setOpenClaim,
   useChecks,
 } from "../checks";
+import { MetaLine } from "../components/MetaLine";
 import { type ProblemAction, ProblemLine } from "../components/ProblemLine";
 import {
   ReadinessExplanation,
@@ -35,9 +36,10 @@ import { AnswerError } from "./AnswerView";
 import { useCardPlace } from "./checkPlace";
 import { coverageOf, keptSpans, sameCoverage, shownClaims } from "./claimChecks";
 import {
-  everythingChecked,
   type NoteHealth as Health,
   type HealthPart,
+  type HealthSummary,
+  healthSummary,
   noteHealth,
 } from "./healthCounts";
 import { CheckMarkIcon, ClaimMarkIcon } from "./icons";
@@ -59,6 +61,7 @@ const NO_HEALTH: Health = {
   tableCells: [],
   noCitation: [],
   checkable: 0,
+  supported: 0,
   checkedAt: null,
 };
 
@@ -93,6 +96,10 @@ export function partLabel(
       return count === 1 ? t("health.notFound.one") : t("health.notFound", params);
     case "unsupported":
       return count === 1 ? t("health.needLook.one") : t("health.needLook", params);
+    case "contradicted":
+      return count === 1 ? t("health.contradicted.one") : t("health.contradicted", params);
+    case "noCitation":
+      return count === 1 ? t("health.noCitation.one") : t("health.noCitation", params);
     case "toCheck":
       return t(count === 1 ? "health.toCheck.one" : "health.toCheck", params);
     case "notChecked":
@@ -101,6 +108,48 @@ export function partLabel(
     default:
       return t(`health.${part}`, params);
   }
+}
+
+/** The summary's parts: what a check found, and what is left of it, in D276's words. */
+function summaryParts(
+  summary: HealthSummary,
+  t: ReturnType<typeof useT>,
+  format: (value: number) => string,
+): string[] {
+  const shown = (value: number) => format(value);
+  const parts: string[] = [];
+  if (summary.supported > 0) {
+    parts.push(
+      t(summary.supported === 1 ? "health.supported.one" : "health.supported", {
+        count: shown(summary.supported),
+      }),
+    );
+  }
+  const look = summary.look.contradicted + summary.look.unsupported + summary.look.notFound;
+  if (look > 0) {
+    const reasons = (["contradicted", "unsupported", "notFound"] as const)
+      .filter((reason) => summary.look[reason] > 0)
+      .map((reason) => {
+        const count = summary.look[reason];
+        return t(
+          count === 1 ? `health.look.reason.${reason}.one` : `health.look.reason.${reason}`,
+          { count: shown(count) },
+        );
+      });
+    parts.push(
+      t(look === 1 ? "health.look.one" : "health.look", {
+        count: shown(look),
+        reasons: reasons.join(t("health.look.separator")),
+      }),
+    );
+  }
+  if (summary.toCheck > 0) {
+    parts.push(partLabel(t, "toCheck", summary.toCheck, shown(summary.toCheck)));
+  }
+  if (summary.noCitation > 0) {
+    parts.push(partLabel(t, "noCitation", summary.noCitation, shown(summary.noCitation)));
+  }
+  return parts;
 }
 
 /** Each part's small mark, as the margin draws its state; none for sentences with no Citation. */
@@ -246,6 +295,11 @@ export function HealthCard({
   };
 
   const rows = ROWS.filter((part) => health[part].length > 0);
+  const summary = healthSummary(health, {
+    running: running !== undefined,
+    problem: problem !== undefined,
+    unread: state?.unreadMatters === true ? state.unread : 0,
+  });
   const close = {
     label: t("checks.close"),
     testId: "checks-problem-close",
@@ -305,13 +359,17 @@ export function HealthCard({
           {t("health.tableCells", { count: format(health.tableCells.length) })}
         </p>
       )}
-      {everythingChecked(health, {
-        running: running !== undefined,
-        problem: problem !== undefined,
-      }) && (
-        <p data-testid="health-all-checked" className="mind-health-line mind-health-note">
+      {summary?.kind === "all" && (
+        <p data-testid="health-all-checked" className="mind-health-summary">
           {t("health.allChecked")}
         </p>
+      )}
+      {summary?.kind === "left" && (
+        <MetaLine
+          data-testid="health-summary"
+          className="mind-health-summary"
+          parts={summaryParts(summary.summary, t, format)}
+        />
       )}
       {/* One line of note, in one place, from the moment the check starts: the sentence it is
           on, then when it was checked. Rows above it never move as the run ends (#1312). It

@@ -18,6 +18,7 @@ const health = (parts: Partial<NoteHealth> = {}): NoteHealth => ({
   tableCells: [],
   noCitation: [],
   checkable: 0,
+  supported: 0,
   checkedAt: null,
   ...parts,
 });

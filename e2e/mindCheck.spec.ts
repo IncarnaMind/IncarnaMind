@@ -341,7 +341,7 @@ test("In Chinese and a narrow window, from the Mind's tab menu: a model on this 
   await expect(marks(window).and(window.locator('[data-check="contradicted"]'))).toHaveCount(1);
   await expect(widen).toHaveCount(0);
   await expect(marks(window)).toHaveCount(15);
-  await expect(health.getByTestId("health-unsupported")).toContainText("11 处需要留意");
+  await expect(health.getByTestId("health-unsupported")).toContainText("11 条说法需要留意");
   await screenshot(window, "mind-check-done-zh-narrow");
 
   // A sentence written since: "核对" checks it alone, and the rest stay as they were.

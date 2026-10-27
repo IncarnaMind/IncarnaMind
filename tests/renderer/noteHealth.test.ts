@@ -9,9 +9,9 @@ import {
 } from "../../src/core/api";
 import { claimsOf } from "../../src/renderer/src/editor/claimChecks";
 import {
-  everythingChecked,
   HEALTH_PARTS,
   type HealthPart,
+  healthSummary,
   type NoteHealth,
   noteHealth,
 } from "../../src/renderer/src/editor/healthCounts";
@@ -285,7 +285,9 @@ describe("A Mind's health", () => {
     expect(parts(health)).toEqual({ ...NOTHING, contradicted: 1 });
     expect(health.toCheck).toHaveLength(0);
     expect(health.kept).toHaveLength(1);
-    expect(everythingChecked(health, { running: false, problem: false })).toBe(false);
+    expect(healthSummary(health, { running: false, problem: false, unread: 0 })).toMatchObject({
+      kind: "left",
+    });
   });
 
   test("a shown verdict counts before isClaim: a contradicted figure in a table cell and a contradicted short line (#1909)", () => {
@@ -306,26 +308,84 @@ describe("A Mind's health", () => {
     expect(health.failed).toHaveLength(1);
   });
 
-  test("the card says everything is checked only with nothing left and no unsupported, contradicted or not-found Citation (#1909, D266)", () => {
-    const supported = healthOf(
+  test("the card says everything is checked only with nothing left, a claim with no Citation too (#1909, #1941, D266)", () => {
+    const cited = healthOf(
+      docOf(paragraph(checked("Spring tides come at full moon.", "supported"), citation("found"))),
+    );
+    expect(healthSummary(cited, { running: false, problem: false, unread: 0 })).toEqual({
+      kind: "all",
+    });
+    expect(cited.checkedAt).toBe("2026-10-12T09:00:00.000Z");
+    expect(healthSummary(cited, { running: true, problem: false, unread: 0 })).toBeNull();
+    expect(healthSummary(cited, { running: false, problem: true, unread: 0 })).toBeNull();
+    // A narrowed check that couldn't read a file keeps the note's state amber (D266).
+    expect(healthSummary(cited, { running: false, problem: false, unread: 1 })).toBeNull();
+    const uncited = healthOf(
       docOf(paragraph(checked("Spring tides come at full moon.", "supported"))),
     );
-    expect(everythingChecked(supported, { running: false, problem: false })).toBe(true);
-    expect(supported.checkedAt).toBe("2026-10-12T09:00:00.000Z");
-    expect(everythingChecked(supported, { running: true, problem: false })).toBe(false);
-    expect(everythingChecked(supported, { running: false, problem: true })).toBe(false);
-    const contradicted = healthOf(docOf(paragraph(checked("100", "contradicted"))));
-    expect(everythingChecked(contradicted, { running: false, problem: false })).toBe(false);
-    const unsupported = healthOf(docOf(paragraph(checked("38.6%", "unsupported"))));
-    expect(everythingChecked(unsupported, { running: false, problem: false })).toBe(false);
-    const notFound = healthOf(docOf(paragraph(text("Spring tides "), citation("not-found"))));
-    expect(parts(notFound)).toEqual({ ...NOTHING, notFound: 1 });
-    expect(everythingChecked(notFound, { running: false, problem: false })).toBe(false);
-    const empty = healthOf(docOf(paragraph(text("Thanks!"))));
-    expect(everythingChecked(empty, { running: false, problem: false })).toBe(false);
+    expect(healthSummary(uncited, { running: false, problem: false, unread: 0 })).toEqual({
+      kind: "left",
+      summary: {
+        supported: 1,
+        look: { contradicted: 0, unsupported: 0, notFound: 0 },
+        toCheck: 0,
+        noCitation: 1,
+      },
+    });
   });
 
-  test("counts a claim still checking as read but not done, so nothing can say everything is checked (#1915)", () => {
+  // The failing case a note with one Citation and three claims without one showed: "1 Citation
+  // found · 3 with no Citation · Everything checked" (#1941).
+  test("a note with one Citation and three claims without one names the three as still to cite (#1941)", () => {
+    const health = healthOf(
+      docOf(
+        paragraph(checked("Spring tides come at full moon.", "supported"), citation("found")),
+        paragraph(checked("Neap tides come at the quarter moons.", "supported")),
+        paragraph(checked("The tides follow the moon's pull.", "supported")),
+        paragraph(checked("The harbour master watches the tides.", "supported")),
+      ),
+    );
+
+    expect(health.supported).toBe(4);
+    expect(health.noCitation).toHaveLength(3);
+    expect(healthSummary(health, { running: false, problem: false, unread: 0 })).toEqual({
+      kind: "left",
+      summary: {
+        supported: 4,
+        look: { contradicted: 0, unsupported: 0, notFound: 0 },
+        toCheck: 0,
+        noCitation: 3,
+      },
+    });
+  });
+
+  test("the card's summary counts what its rows show: supported, what needs a look by reason, and what is left (#1941)", () => {
+    const health = healthOf(
+      docOf(
+        paragraph(checked("Spring tides come at full moon.", "supported"), citation("found")),
+        paragraph(checked("Online sales grew 12% in the quarter.", "unsupported")),
+        paragraph(
+          checked("The facilities end in 2027, so refinancing is the first risk.", "contradicted"),
+        ),
+        paragraph(text("The quote isn't on the page it cites "), citation("not-found"), text(".")),
+        paragraph(checked("Neap tides come at the quarter moons.", "supported")),
+      ),
+    );
+
+    expect(healthSummary(health, { running: false, problem: false, unread: 0 })).toEqual({
+      kind: "left",
+      summary: {
+        supported: 2,
+        look: { contradicted: 1, unsupported: 1, notFound: 1 },
+        toCheck: 1,
+        noCitation: 1,
+      },
+    });
+  });
+
+  test("says nothing about a check with nothing to read, or one that runs or shows a problem (#1915, #1941)", () => {
+    const empty = healthOf(docOf(paragraph(text("Thanks!"))));
+    expect(healthSummary(empty, { running: false, problem: false, unread: 0 })).toBeNull();
     const checking = healthOf(
       docOf(paragraph(checked("Spring tides come at full moon.", "checking"))),
     );
@@ -333,7 +393,7 @@ describe("A Mind's health", () => {
     expect(checking.checkable).toBe(1);
     expect(checking.checking).toHaveLength(1);
     expect(checking.toCheck).toHaveLength(0);
-    expect(everythingChecked(checking, { running: false, problem: false })).toBe(false);
+    expect(healthSummary(checking, { running: false, problem: false, unread: 0 })).toBeNull();
   });
 
   test("counts a table cell's claim, on its own line (#1909)", () => {
