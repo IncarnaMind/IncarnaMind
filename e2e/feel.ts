@@ -76,6 +76,8 @@ interface StepRecord {
   name: string;
   shifts: Shift[];
   inputMs: number | null;
+  /** What the slowest input was: its event and the element it reached. */
+  inputOn: string | null;
   longTasks: number[];
   focus: string | null;
 }
@@ -83,7 +85,8 @@ interface StepRecord {
 type Problem = { step: string } & (
   | { kind: "shift"; value: number; moved: string[] }
   | { kind: "focus"; at: string; expected: string }
-  | { kind: "input" | "long-task"; ms: number }
+  | { kind: "input"; ms: number; on: string }
+  | { kind: "long-task"; ms: number }
 );
 
 function detailOf(problem: Problem): string {
@@ -93,7 +96,7 @@ function detailOf(problem: Problem): string {
     case "focus":
       return `on ${problem.at}, not the expected ${problem.expected}`;
     case "input":
-      return `${Math.round(problem.ms)} ms to next paint`;
+      return `${Math.round(problem.ms)} ms to next paint (${problem.on})`;
     case "long-task":
       return `${Math.round(problem.ms)} ms`;
   }
@@ -120,13 +123,39 @@ function excuses(known: Known, problem: Problem): boolean {
 
 interface FeelEntries {
   shifts: { at: number; value: number; moved: string[] }[];
-  events: { at: number; duration: number }[];
+  events: { at: number; duration: number; on: string }[];
   longTasks: { at: number; duration: number }[];
   take(): void;
 }
 
+/** The inputs the browser times as interactions, which a flow's slowest is chosen from. */
+const INPUT_EVENTS = [
+  "pointerdown",
+  "pointerup",
+  "pointercancel",
+  "mousedown",
+  "mouseup",
+  "click",
+  "dblclick",
+  "auxclick",
+  "contextmenu",
+  "keydown",
+  "keypress",
+  "keyup",
+  "beforeinput",
+  "input",
+  "compositionstart",
+  "compositionupdate",
+  "compositionend",
+  "dragstart",
+  "dragend",
+  "drop",
+  "touchstart",
+  "touchend",
+];
+
 async function observe(window: Page): Promise<void> {
-  await window.evaluate(() => {
+  await window.evaluate((inputEvents) => {
     const holder = globalThis as unknown as { feel?: FeelEntries };
     if (holder.feel) return;
     const describe = (node: Node | null): string => {
@@ -160,10 +189,46 @@ async function observe(window: Page): Promise<void> {
         feel.longTasks.push({ at: entry.startTime, duration: entry.duration });
       }
     };
+    // What an input reached, written down as it is dispatched: by the time the timing entry
+    // arrives its target may be gone from the page or have changed its attributes.
+    const dispatched = new Map<string, { at: number; on: string }[]>();
+    const nameOf = (target: EventTarget | null): string => {
+      if (!(target instanceof Element)) {
+        return target === document ? "document" : target === globalThis ? "window" : "(no element)";
+      }
+      const own = ["type", "role", "data-testid"].flatMap((attribute) => {
+        const value = target.getAttribute(attribute);
+        return value === null ? [] : [`[${attribute}=${value}]`];
+      });
+      const classes = [...target.classList].slice(0, 2).join(".");
+      const within = target.parentElement?.closest("[data-testid]")?.getAttribute("data-testid");
+      return `${target.tagName.toLowerCase()}${own.join("") || (classes ? `.${classes}` : "")}${within ? ` in ${within}` : ""}`;
+    };
+    for (const type of inputEvents) {
+      globalThis.addEventListener(
+        type,
+        (event) => {
+          const seen = dispatched.get(type) ?? [];
+          seen.push({ at: event.timeStamp, on: nameOf(event.target) });
+          dispatched.set(type, seen.slice(-64));
+        },
+        { capture: true, passive: true },
+      );
+    }
     const onEvents = (entries: PerformanceEntryList) => {
       for (const event of entries) {
         if (!(event instanceof PerformanceEventTiming) || event.interactionId === 0) continue;
-        feel.events.push({ at: event.startTime, duration: event.duration });
+        const same = (dispatched.get(event.name) ?? []).filter(
+          (each) => Math.abs(each.at - event.startTime) < 1,
+        );
+        const nearest = same.sort(
+          (a, b) => Math.abs(a.at - event.startTime) - Math.abs(b.at - event.startTime),
+        )[0];
+        feel.events.push({
+          at: event.startTime,
+          duration: event.duration,
+          on: `${event.name} on ${nearest?.on ?? "(a target from before the check began)"}`,
+        });
       }
     };
     const shifts = new PerformanceObserver((list) => onShifts(list.getEntries()));
@@ -189,7 +254,7 @@ async function observe(window: Page): Promise<void> {
       durationThreshold: 16,
     };
     events.observe(everyInput);
-  });
+  }, INPUT_EVENTS);
 }
 
 // Two frames: what the last step changed has been painted by then.
@@ -260,11 +325,20 @@ export async function feelOf(window: Page, flow: string): Promise<Feel> {
     const shifts = entries.shifts
       .filter((shift) => shift.value > 0)
       .map(({ value, moved }) => ({ value, moved }));
-    const input = entries.events.length
-      ? Math.max(...entries.events.map((event) => event.duration))
-      : null;
+    const slowest = entries.events.reduce<(typeof entries.events)[number] | null>(
+      (most, event) => (most === null || event.duration > most.duration ? event : most),
+      null,
+    );
+    const input = slowest?.duration ?? null;
     const longTasks = entries.longTasks.map((task) => task.duration);
-    steps.push({ name, shifts, inputMs: input, longTasks, focus: null });
+    steps.push({
+      name,
+      shifts,
+      inputMs: input,
+      inputOn: slowest?.on ?? null,
+      longTasks,
+      focus: null,
+    });
     // Summed over the step: two small shifts in one frame move as much as one big one.
     const shifted = shifts.reduce((sum, each) => sum + each.value, 0);
     const bounded = KNOWN.some(
@@ -274,8 +348,8 @@ export async function feelOf(window: Page, flow: string): Promise<Feel> {
       const moved = [...new Set(shifts.flatMap((each) => each.moved))];
       problems.push({ kind: "shift", step: name, value: shifted, moved });
     }
-    if (input !== null && input > INPUT_CEILING_MS) {
-      problems.push({ kind: "input", step: name, ms: input });
+    if (slowest !== null && slowest.duration > INPUT_CEILING_MS) {
+      problems.push({ kind: "input", step: name, ms: slowest.duration, on: slowest.on });
     }
     for (const ms of longTasks.filter((each) => each > LONG_TASK_CEILING_MS)) {
       problems.push({ kind: "long-task", step: name, ms });
@@ -363,7 +437,9 @@ function tableOf(
     return [
       step.name,
       shift === 0 ? "0" : shift.toFixed(4),
-      step.inputMs === null ? "–" : `${Math.round(step.inputMs)} ms`,
+      step.inputMs === null
+        ? "–"
+        : `${Math.round(step.inputMs)} ms${step.inputOn ? ` (${step.inputOn})` : ""}`,
       step.longTasks.length === 0
         ? "–"
         : `${step.longTasks.length}, longest ${Math.round(Math.max(...step.longTasks))} ms`,

@@ -17,8 +17,10 @@ const {
   watch,
   writeFileSync,
 } = require("node:fs");
-const { dirname, join } = require("node:path");
-const { app } = require("electron");
+const { basename, dirname, join } = require("node:path");
+const sqlite = require("node:sqlite");
+const { app, BrowserWindow } = require("electron");
+const { createVisibilitySampler } = require("./lifecycleVisibility.cjs");
 
 const trace = process.env.INCARNAMIND_TEST_INSTANCE_TRACE;
 if (trace) {
@@ -43,7 +45,84 @@ if (trace) {
         ...extra,
       })}\n`,
     );
-  record("preload", { args: process.argv });
+  record("preload", {
+    args: process.argv,
+    versions: {
+      electron: process.versions.electron,
+      node: process.versions.node,
+      sqlite: process.versions.sqlite,
+    },
+  });
+  const sampleVisibility = createVisibilitySampler(BrowserWindow, (event, extra) =>
+    record(event, {
+      ...extra,
+      visibleWindows: BrowserWindow.getAllWindows().filter((window) => window.isVisible()).length,
+    }),
+  );
+  app.whenReady().then(() => {
+    sampleVisibility();
+    setImmediate(sampleVisibility);
+    setInterval(sampleVisibility, 250).unref();
+  });
+  const diagnose = (event, extra) => {
+    try {
+      record(event, extra);
+    } catch (error) {
+      console.error("SQLite startup diagnostics could not be recorded", error);
+    }
+  };
+  const connections = new WeakMap();
+  let connectionId = 0;
+  const DatabaseSync = sqlite.DatabaseSync;
+  sqlite.DatabaseSync = new Proxy(DatabaseSync, {
+    construct(target, args, newTarget) {
+      const file = String(args[0]);
+      let db;
+      try {
+        db = Reflect.construct(target, args, newTarget);
+      } catch (error) {
+        diagnose("sqlite-open-error", {
+          file,
+          code: error?.code,
+          errcode: error?.errcode,
+          errstr: error?.errstr,
+        });
+        throw error;
+      }
+      const connection = {
+        id: ++connectionId,
+        file,
+        observed: !["instance.lock", "instance.owner"].includes(basename(file)),
+      };
+      connections.set(db, connection);
+      if (connection.observed) diagnose("sqlite-open", connection);
+      return db;
+    },
+  });
+  const close = DatabaseSync.prototype.close;
+  DatabaseSync.prototype.close = function () {
+    const result = close.call(this);
+    const connection = connections.get(this);
+    if (connection?.observed) diagnose("sqlite-close", connection);
+    return result;
+  };
+  const exec = DatabaseSync.prototype.exec;
+  DatabaseSync.prototype.exec = function (sql) {
+    try {
+      return exec.call(this, sql);
+    } catch (error) {
+      const connection = connections.get(this);
+      if (connection?.observed !== false || error?.errcode % 256 !== 5)
+        diagnose("sqlite-error", {
+          connection,
+          sql,
+          code: error?.code,
+          errcode: error?.errcode,
+          errstr: error?.errstr,
+        });
+      throw error;
+    }
+  };
   for (const method of ["requestSingleInstanceLock", "releaseSingleInstanceLock"]) {
     const original = app[method].bind(app);
     app[method] = (...args) => {

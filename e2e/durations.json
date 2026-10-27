@@ -2,6 +2,7 @@
   "accessibleNames.spec.ts": 19,
   "addCommands.spec.ts": 25,
   "addDocumentsUndo.spec.ts": 25,
+  "addFilesOrFolder.spec.ts": 45,
   "addNamesMind.spec.ts": 273,
   "addToNote.spec.ts": 54,
   "addedDocuments.spec.ts": 40,
