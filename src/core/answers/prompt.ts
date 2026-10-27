@@ -343,8 +343,8 @@ function notCovered(cite: boolean): string {
 
 function absenceAfterSearch(tools: boolean): string {
   return tools
-    ? '- When a search does not find the answer, say "I didn\'t find X in “Doc” (未在“Doc”中找到 X), not that the Document lacks it. Only after read_document of the pages where the answer would be may you say "The Document doesn\'t state X".'
-    : '- When the Passages do not answer the Question, say "I didn\'t find X in “Doc” (未在“Doc”中找到 X); never say "The Document doesn\'t state X" because you have not read that Document whole.';
+    ? '- When a search does not find the answer, say "I didn\'t find X in “Doc”" ("未在“Doc”中找到 X"), not that the Document lacks it. Only after read_document of the pages where the answer would be may you say "The Document doesn\'t state X".'
+    : '- When the Passages do not answer the Question, say "I didn\'t find X in “Doc”" ("未在“Doc”中找到 X"); never say "The Document doesn\'t state X" because you have not read that Document whole.';
 }
 
 /**

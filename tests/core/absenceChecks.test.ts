@@ -75,6 +75,45 @@ describe("Checking an absence sentence", () => {
     expect(wholeReads).toHaveLength(1);
   });
 
+  test("an invalid whole-read Passage never falls back to the search's Citation", async () => {
+    const wholeReads: number[] = [];
+    const model = scriptedModel(
+      (call) =>
+        checkReply(call, {
+          [CLAIM]: {
+            verdict: "supported",
+            absence: true,
+            quote: "The lease runs for three years.",
+          },
+        }),
+      {
+        generate: (call) => {
+          if (call.system.startsWith("Read the whole Documents")) {
+            wholeReads.push(1);
+            return {
+              text: JSON.stringify({ verdict: "contradicted", passage: "P999", quote: CLAUSE }),
+            };
+          }
+          return checkGenerate({ [CLAIM]: { verdict: "supported", absence: true } })(call);
+        },
+      },
+    );
+    const { core } = await setUpWithDocuments(model, [
+      {
+        name: "Lease.pdf",
+        contents: buildPdf([
+          { lines: ["Term", "The lease runs for three years."] },
+          { lines: ["Break clause", CLAUSE] },
+        ]),
+      },
+    ]);
+
+    const result = await core.checkClaim({ claim: CLAIM });
+
+    expect(result).toMatchObject({ verdict: "not-checked", reason: "no-evidence" });
+    expect(wholeReads).toHaveLength(1);
+  });
+
   test("no Documents leaves an absence Not checked, never Unsupported from an empty search", async () => {
     const wholeReads: number[] = [];
     const { core } = await setUpWithDocuments(absenceModel("supported", wholeReads), []);

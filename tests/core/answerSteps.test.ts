@@ -391,6 +391,37 @@ describe("A Document read", { timeout: 60_000 }, () => {
     core.close();
   });
 
+  test("refuses a page number outside the safe integer range", async () => {
+    const model = scriptedModel((call) =>
+      call.results.length === 0
+        ? {
+            calls: [
+              {
+                tool: "read_document",
+                input: { document: "Filing", pages: "9".repeat(400) },
+              },
+            ],
+          }
+        : { text: "I couldn't read that page." },
+    );
+    const { core } = await setUp(model, "ollama");
+    const sources = await createSourceFolder();
+    await addAndProcess(core, [
+      await writeSourceFile(sources, "Filing.pdf", buildPdf([{ lines: ["Page 1"] }])),
+    ]);
+
+    const { answer } = await ask(core, "Read an invalid page.");
+
+    expect(answer.text).toBe("I couldn't read that page.");
+    expect(answer.toolCalls).toContainEqual(
+      expect.objectContaining({ tool: "read_document", status: "done", resultCount: 0 }),
+    );
+    expect(JSON.stringify(model.doStreamCalls[1]?.prompt)).toContain(
+      "Pages must be one page or a range",
+    );
+    core.close();
+  });
+
   test("tells the model which pages a search covered", async () => {
     const model = scriptedModel((call) =>
       call.results.length === 0

@@ -107,7 +107,9 @@ function readPages(pages: string): { from: number; to: number } | null {
   if (!match) return null;
   const from = Number(match[1]);
   const to = Number(match[2] ?? match[1]);
-  if (from < 1 || to < from) return null;
+  if (!Number.isSafeInteger(from) || !Number.isSafeInteger(to) || from < 1 || to < from) {
+    return null;
+  }
   return { from, to };
 }
 

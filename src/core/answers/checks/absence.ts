@@ -123,7 +123,8 @@ export async function checkAbsence({
   if (verdict !== "contradicted") return notChecked("malformed");
   const passage = "passage" in value && typeof value.passage === "string" ? value.passage : "";
   const quote = "quote" in value && typeof value.quote === "string" ? value.quote : "";
-  session.tools.cite([{ marker: 1, passage, quote }]);
+  const recorded = session.tools.cite([{ marker: 1, passage, quote }]);
+  if (!recorded.startsWith("Recorded [^1]")) return notChecked("no-evidence");
   session.check();
   const evidence = session.finalCitation(1);
   if (evidence?.check !== "found") return notChecked("no-evidence");
