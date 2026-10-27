@@ -12,10 +12,14 @@ import { claimSpans } from "../../src/renderer/src/editor/claimChecks";
 import {
   addFigureCitation,
   changeFiguresToSource,
+  editNote,
+  type FigureEdit,
   keepFigureViews,
+  type NoteState,
   setFigureTotalRole,
 } from "../../src/renderer/src/editor/figureActions";
 import { noteExtensions } from "../../src/renderer/src/editor/noteSchema";
+import { registerMindEditor } from "../../src/renderer/src/editor/openEditors";
 import type { NodeJSON } from "../../src/shared/blockJson";
 import { emptyFigureFinding } from "../../src/shared/figureChecks";
 import { fingerprintOfMind } from "../../src/shared/mindState";
@@ -121,7 +125,9 @@ function setup(
     ],
   });
   editor.view.updateState(editor.state.reconfigure({ plugins: editor.extensionManager.plugins }));
+  const unregister = registerMindEditor("note", editor);
   cleanup.push(() => {
+    unregister();
     editor.destroy();
     doc.destroy();
   });
@@ -135,16 +141,18 @@ function setup(
       folderId: null,
       scope: null,
     });
-  return { doc, blocks, editor, read };
+  /** Makes a schedule's change as the schedule does: in the note's open editor. */
+  const edit = (change: (note: NoteState) => FigureEdit | null) => editNote("note", doc, change);
+  return { doc, blocks, editor, read, edit };
 }
 
 test("selected personal-view choice keeps sibling evidence and adverse prose, with one real Undo", () => {
-  const { blocks, editor, read } = setup();
+  const { blocks, editor, read, edit } = setup();
   const before = markedSentences(blocks)[0]?.check;
   const schedule = read();
   const first = schedule.rows[0];
   if (!first) throw new Error("No figure");
-  keepFigureViews(editor, schedule, [first.id]);
+  edit((note) => keepFigureViews(note, schedule, [first.id]));
   const kept = markedSentences(blocks)[0]?.check;
   expect(kept?.figures?.[0]?.kept).toBe(true);
   expect(kept?.figures?.[1]).toEqual(before?.figures?.[1]);
@@ -154,11 +162,11 @@ test("selected personal-view choice keeps sibling evidence and adverse prose, wi
 });
 
 test("a figure can be kept before any model is configured or any Check ran", () => {
-  const { blocks, editor, read } = setup(undefined, false);
+  const { blocks, editor, read, edit } = setup(undefined, false);
   const schedule = read();
   const first = schedule.rows[0];
   if (!first) throw new Error("No figure");
-  keepFigureViews(editor, schedule, [first.id]);
+  edit((note) => keepFigureViews(note, schedule, [first.id]));
   const check = markedSentences(blocks)[0]?.check;
   expect(check?.figures?.[0]?.kept).toBe(true);
   expect(check?.figures?.[1]).toMatchObject({ state: "not-checked", reason: "unread" });
@@ -168,23 +176,23 @@ test("a figure can be kept before any model is configured or any Check ran", () 
 });
 
 test("a stale schedule cannot change a newer Note", () => {
-  const { doc, editor, read } = setup();
+  const { doc, editor, read, edit } = setup();
   const old = read();
   const first = old.rows[0];
   if (!first) throw new Error("No figure");
   editor.commands.insertContent("Edited ");
   const before = fingerprintOfMind(doc);
-  expect(() => keepFigureViews(editor, old, [first.id])).toThrow("figures changed");
+  expect(() => edit((note) => keepFigureViews(note, old, [first.id]))).toThrow("figures changed");
   expect(fingerprintOfMind(doc)).toBe(before);
 });
 
 test("adding a selected Source Citation is in the Note's real Undo", () => {
-  const { editor, read } = setup();
+  const { editor, read, edit } = setup();
   const schedule = read();
   const row = schedule.rows[0];
   if (!row) throw new Error("No figure");
   const before = editor.getJSON();
-  addFigureCitation(editor, schedule, row, citation);
+  edit((note) => addFigureCitation(note, schedule, row, citation));
   expect(editor.getJSON()).not.toEqual(before);
   let found = false;
   editor.state.doc.descendants((node) => {
@@ -196,7 +204,7 @@ test("adding a selected Source Citation is in the Note's real Undo", () => {
 });
 
 test("the selected contradictory amount changes to its checked Source, cites it, and undoes together", () => {
-  const { blocks, editor, read } = setup();
+  const { blocks, editor, read, edit } = setup();
   const parent = markedSentences(blocks)[0];
   const first = parent?.check.figures?.[0];
   if (!parent || !first) throw new Error("No first figure");
@@ -231,7 +239,7 @@ test("the selected contradictory amount changes to its checked Source, cites it,
   const row = schedule.rows[0];
   if (!row) throw new Error("No row");
   const before = editor.getJSON();
-  changeFiguresToSource(editor, schedule, [row.id]);
+  edit((note) => changeFiguresToSource(note, schedule, [row.id]));
   expect(editor.getText()).toContain("Revenue 8");
   expect(editor.getText()).toContain("profit 2");
   editor.commands.undo();
@@ -244,7 +252,7 @@ const paragraph = (text: string, id: string): NodeJSON => ({
   content: [{ type: "text", text }],
 });
 test("total roles are stored on real table rows and columns, then one Undo removes each choice", () => {
-  const { blocks, editor, read } = setup(
+  const { blocks, editor, read, edit } = setup(
     [
       {
         type: "table",
@@ -280,7 +288,7 @@ test("total roles are stored on real table rows and columns, then one Undo remov
   const row = schedule.rows.at(-1);
   if (!row) throw new Error("No amount");
   expect(row.footing).toEqual([]);
-  setFigureTotalRole(editor, schedule, row, ["row"], true);
+  edit((note) => setFigureTotalRole(note, schedule, row, ["row"], true));
   expect(read().rows.at(-1)?.footing).toMatchObject([{ axis: "row", sum: 10, agrees: true }]);
   editor.commands.undo();
   expect(read().rows.at(-1)?.footing).toEqual([]);
@@ -288,7 +296,7 @@ test("total roles are stored on real table rows and columns, then one Undo remov
   const target = schedule.rows.at(-1);
   if (!target) throw new Error("No row");
   const before = editor.getJSON();
-  setFigureTotalRole(editor, schedule, target, ["column"], false);
+  edit((note) => setFigureTotalRole(note, schedule, target, ["column"], false));
   const table = blocks.get(0);
   if (!(table instanceof Y.XmlElement)) throw new Error("No table");
   for (const row of table.toArray()) {
@@ -300,4 +308,23 @@ test("total roles are stored on real table rows and columns, then one Undo remov
   editor.commands.undo();
   expect(editor.getJSON()).toEqual(before);
   expect(claimSpans(editor.state.doc)).toEqual([]);
+});
+
+test("with the note not open in an editor, the schedule changes its copy, with an Undo of its own", async () => {
+  const { blocks, doc, read } = setup();
+  const before = markedSentences(blocks)[0]?.check;
+  const schedule = read();
+  const first = schedule.rows[0];
+  if (!first) throw new Error("No figure");
+  const undoable = editNote("a note no editor shows", doc, (note) =>
+    keepFigureViews(note, schedule, [first.id]),
+  );
+  expect(undoable).not.toBeNull();
+  const kept = markedSentences(blocks)[0]?.check;
+  expect(kept?.figures?.[0]?.kept).toBe(true);
+  expect(kept?.figures?.[1]).toEqual(before?.figures?.[1]);
+  await undoable?.undo();
+  expect(markedSentences(blocks)[0]?.check).toEqual(before);
+  await undoable?.redo?.();
+  expect(markedSentences(blocks)[0]?.check?.figures?.[0]?.kept).toBe(true);
 });

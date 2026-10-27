@@ -84,11 +84,16 @@ export function checkReply(prompt: Prompt, tools: readonly string[]): Reply {
   if (/\brefuse\b/i.test(sentence)) return { text: "I'm sorry, I can't help with that." };
   const searches = toolResults(prompt, "search_documents");
   const searched = searches.at(-1);
-  if (searched === undefined) return { tool: "search_documents", input: { query: sentence } };
+  const asked = /<figures>\n([\s\S]*?)\n<\/figures>/.exec(first)?.[1];
+  // A table cell's own words are its number: what it is comes from its row's label.
+  const labels = asked
+    ? (JSON.parse(asked) as AskedFigure[]).flatMap((figure) => (figure.label ? [figure.label] : []))
+    : [];
+  if (searched === undefined)
+    return { tool: "search_documents", input: { query: [sentence, ...labels].join(" ") } };
   if (searches.length === 1 && lastUserText(prompt).includes(SEARCH_AGAIN)) {
     return { tool: "search_documents", input: { query: checkWords(sentence).join(" ") } };
   }
-  const asked = /<figures>\n([\s\S]*?)\n<\/figures>/.exec(first)?.[1];
   if (asked) return figuresReply(prompt, asked, sentence, searched);
   const words = checkWords(sentence);
   let best: { record: Record<string, unknown>; line: string; shared: number } | null = null;

@@ -5303,6 +5303,8 @@ export interface FigureScheduleRow extends FigureFinding {
   sourceShown: string | null;
   checkedAt: string | null;
   model: ChatModelChoice | null;
+  /** A Citation already follows the figure in the note, so Add as Citation has nothing to add. */
+  cited: boolean;
   place: {
     heading: string | null;
     paragraph: number;

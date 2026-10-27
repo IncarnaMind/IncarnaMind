@@ -102,6 +102,7 @@ function row(
     sourceShown: "20.0%",
     checkedAt: "2026-10-27T12:00:00.000Z",
     model: null,
+    cited: false,
     place: { heading: "Results", paragraph: 1 },
     ...changes,
   };
@@ -203,8 +204,8 @@ let notices: typeof import("../../src/renderer/src/notices");
 /** As FigureScheduleView takes them; the view itself is imported at run time, as a .tsx file. */
 interface ViewProps {
   schedule: FigureSchedule | null;
-  cited(row: FigureScheduleRow): boolean;
   onFocusFigure(row: FigureScheduleRow | null): void;
+  onShowFigure(row: FigureScheduleRow): void;
   onOpenSource(source: Citation): void;
   onExport(): void;
   onStop?(): void;
@@ -274,8 +275,8 @@ beforeEach(async () => {
   selection.useSelection.getState().clear();
   notices.useNotices.getState().dismissConfirmation();
   actions = {
-    cited: () => false,
     onFocusFigure: vi.fn(),
+    onShowFigure: vi.fn(),
     onOpenSource: vi.fn(),
     onExport: vi.fn(),
     onStop: vi.fn(),
@@ -503,8 +504,7 @@ test("a contradicted figure offers Change to its source value; a supported uncit
   expect(actions.onChangeToSource).toHaveBeenLastCalledWith(["off"]);
   await click(button("Add as Citation", menuOf("cited") ?? container));
   expect(actions.onAddCitation).toHaveBeenLastCalledWith("cited");
-  actions.cited = () => true;
-  await render(schedule([row("cited", 2)]));
+  await render(schedule([row("cited", 2, { cited: true })]));
   expect(button("Add as Citation", menuOf("cited") ?? container)).toBeNull();
 });
 
@@ -532,7 +532,7 @@ test("the keyboard moves, opens, outlines, unfolds a calculated figure's inputs 
   await press(first, "Enter");
   expect(actions.onOpenSource).toHaveBeenLastCalledWith(citation);
   await press(first, " ");
-  expect(actions.onFocusFigure).toHaveBeenLastCalledWith(expect.objectContaining({ id: "a" }));
+  expect(actions.onShowFigure).toHaveBeenLastCalledWith(expect.objectContaining({ id: "a" }));
   await press(first, "ArrowDown");
   const parent = mainOf("calculated");
   expect(document.activeElement).toBe(parent);

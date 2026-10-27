@@ -151,7 +151,7 @@ export function FigureScheduleRowView({
           ),
         looked === "supported" &&
           parent.sourceInput &&
-          !props.cited(parent) &&
+          !parent.cited &&
           action(t("claim.addAsCitation"), () => props.onAddCitation(parent.id)),
         !parent.calculated &&
           action(t("figures.chooseCitation"), () => props.onChooseCitation(parent.id)),
@@ -324,7 +324,7 @@ export function FigureScheduleRowView({
               }}
             >
               {action(t("figures.openSource"), () => onOpen(line), "↵")}
-              {action(t("figures.showInNote"), () => props.onFocusFigure(parent), "Space")}
+              {action(t("figures.showInNote"), () => props.onShowFigure(parent), "Space")}
               {acts.length > 0 && <div className={menuRuleClass} />}
               {acts}
               <div className={menuRuleClass} />

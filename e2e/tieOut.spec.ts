@@ -82,14 +82,20 @@ async function addSegments(window: Page, mindId: string) {
   }, mindId);
 }
 
-/** Runs Tie out figures from ⌘K and, billed per token, answers the one Check's question. */
-async function tieOut(window: Page, schedule: Locator) {
-  await runCommand(window, "mind.tieOut", "Tie out figures");
-  await expect(schedule).toBeVisible();
+/**
+ * Runs Tie out figures from ⌘K. Billed per token, the one Check asks first, in the note's card;
+ * in a window too narrow for groups side by side the schedule then waits in its tab beside the
+ * note, which the User opens once they've answered.
+ */
+async function tieOut(window: Page, schedule: Locator, title: string, label: string) {
+  await runCommand(window, "mind.tieOut", label);
   const ask = window.getByTestId("mind-check-ask");
-  const counts = schedule.getByTestId("figure-counts");
-  await expect(ask.or(counts)).toBeVisible();
-  if (await ask.isVisible()) await pointAndClick(window, ask.getByTestId("mind-check-check"));
+  await expect(ask.or(schedule).first()).toBeVisible({ timeout: 30_000 });
+  if (!(await ask.isVisible())) return;
+  await pointAndClick(window, ask.getByTestId("mind-check-check"));
+  if (await schedule.isVisible()) return;
+  await pointAndClick(window, window.getByRole("tab", { name: new RegExp(`^${title}`) }));
+  await expect(schedule).toBeVisible();
 }
 
 for (const [language, width] of [
@@ -159,16 +165,14 @@ for (const [language, width] of [
       await addSegments(window, mindId);
 
       const schedule = window.getByTestId("figure-schedule");
-      await tieOut(window, schedule);
-      const when = schedule.getByTestId("figure-when");
-      await expect(when).toContainText(t("figures.checked", { time: "" }).trim(), {
+      const checked = t("figures.checked", { time: "" }).trim();
+      await tieOut(window, schedule, t("figures.title"), t("figures.command"));
+      await expect(schedule.getByTestId("figure-when")).toContainText(checked, {
         timeout: 60_000,
       });
-      // Beside the note, named after it: the note stays where it was.
-      await expect(editor).toBeVisible();
-      await expect(schedule.locator(".figure-name")).toHaveText(MEMO.slice(0, 20), {
-        useInnerText: true,
-      });
+      // Beside the note, named after it: in a wide window the note stays in view.
+      if (width >= 1440) await expect(editor).toBeVisible();
+      await expect(schedule.locator(".figure-name")).toHaveText(/^Revenue was £4,980m, up from/);
       await expect(schedule.getByTestId("figure-counts")).toHaveText(
         [
           t("figures.count", { count: 7 }),
@@ -202,16 +206,33 @@ for (const [language, width] of [
       await pointAndClick(window, schedule.locator('[data-filter="all"]'));
       await expect(rows).toHaveCount(7);
 
-      // A row outlines its figure in the note; Esc clears it and keeps the row's focus.
-      await pointAndClick(window, rowOf(2).locator("[data-tree-row]"));
+      // A row outlines its figure in the note; Esc clears the selection and keeps the row's
+      // focus. In a narrow window the note is behind the schedule: Space shows it there.
       const outline = window.locator(".claim-outline");
-      await expect(outline.first()).toBeVisible();
+      await pointAndClick(window, rowOf(2).locator("[data-tree-row]"));
       await expect(rowOf(2)).toHaveAttribute("aria-selected", "true");
-      await shot(window, `tieout-outline-${language}`);
-      await window.keyboard.press("Escape");
-      await expect(rowOf(2)).toHaveAttribute("aria-selected", "false");
-      await expect(outline).toHaveCount(0);
-      await expect(rowOf(2).locator("[data-tree-row]")).toBeFocused();
+      if (width >= 1440) {
+        await expect(outline.first()).toBeVisible();
+        await shot(window, `tieout-outline-${language}`);
+        await window.keyboard.press("Escape");
+        await expect(rowOf(2)).toHaveAttribute("aria-selected", "false");
+        await expect(outline).toHaveCount(0);
+        await expect(rowOf(2).locator("[data-tree-row]")).toBeFocused();
+      } else {
+        await window.keyboard.press(" ");
+        await expect(editor).toBeVisible();
+        await expect(outline.first()).toBeVisible();
+        await shot(window, `tieout-outline-${language}`);
+        await pointAndClick(
+          window,
+          window.getByRole("tab", { name: new RegExp(`^${t("figures.title")}`) }),
+        );
+        await expect(schedule).toBeVisible();
+        await pointAndClick(window, rowOf(2).locator("[data-tree-row]"));
+        await window.keyboard.press("Escape");
+        await expect(rowOf(2)).toHaveAttribute("aria-selected", "false");
+        await expect(rowOf(2).locator("[data-tree-row]")).toBeFocused();
+      }
 
       // Two figures of one sentence: Keep as my view acts on the one chosen, the other keeps
       // its own result, and Undo takes it back.

@@ -8,18 +8,20 @@ import { core } from "../../core";
 import {
   addFigureCitation,
   changeFiguresToSource,
-  figureCited,
+  editNote,
+  type FigureEdit,
   keepFigureViews,
+  type NoteState,
   setFigureTotalRole,
 } from "../../editor/figureActions";
-import { mindEditor } from "../../editor/openEditors";
 import { exportFigureSchedule } from "../../exports";
 import { focusFigure, useFigureSchedule } from "../../figures";
-import { useLanguage, useT } from "../../i18n";
+import { translateNow, useLanguage, useT } from "../../i18n";
 import { checkMind } from "../../mindCheck";
 import { openMindCopy } from "../../mindCopies";
 import { openCited, quoteSaysSo } from "../../openCited";
 import { useAppStore } from "../../store";
+import { type Undoable, useUndo } from "../../undo";
 import { ExportResultLine } from "../ExportResultLine";
 import { type PickerOption, SearchPicker } from "../SearchPicker";
 import { useTabPlace } from "../tabs/tabItems";
@@ -33,7 +35,10 @@ interface Choice {
 }
 
 export function FigureScheduleTab({ mindId }: { mindId: string }) {
-  const [doc, setDoc] = useState<Y.Doc | null>(null);
+  const [copy, setCopy] = useState<{ doc: Y.Doc; editable: boolean } | null>(null);
+  const doc = copy?.doc ?? null;
+  /** Undo for changes made in the copy while the note wasn't shown: they go with the copy. */
+  const madeHere = useRef<Undoable[]>([]);
   const [choice, setChoice] = useState<Choice | null>(null);
   const root = useRef<HTMLDivElement>(null);
   const sequence = useRef(0);
@@ -44,20 +49,28 @@ export function FigureScheduleTab({ mindId }: { mindId: string }) {
   const documents = useAppStore((state) => state.documents);
   const report = useAppStore((state) => state.reportError);
   useEffect(() => {
-    const close = openMindCopy(mindId, (copy) => setDoc(copy.doc), report);
+    const close = openMindCopy(
+      mindId,
+      (opened) =>
+        setCopy(opened.doc ? { doc: opened.doc, editable: opened.access === "edit" } : null),
+      report,
+    );
+    const made = madeHere.current;
     return () => {
       close();
-      setDoc(null);
+      setCopy(null);
+      for (const change of made.splice(0)) useUndo.getState().withdraw(change);
       sequence.current++;
       focusFigure(mindId, null);
     };
   }, [mindId, report]);
 
-  const edit = (change: (editor: NonNullable<ReturnType<typeof mindEditor>>) => void) => {
-    const editor = mindEditor(mindId);
-    if (!editor || !schedule) return;
+  const edit = (change: (note: NoteState) => FigureEdit | null) => {
+    if (!copy || !schedule) return;
     try {
-      change(editor);
+      if (!copy.editable) throw new Error(translateNow("figures.changed"));
+      const undoable = editNote(mindId, copy.doc, change);
+      if (undoable) madeHere.current.push(undoable);
     } catch (error) {
       report(error);
     }
@@ -67,7 +80,7 @@ export function FigureScheduleTab({ mindId }: { mindId: string }) {
     const row = rowOf(id);
     const citation = row?.sourceInput?.citation ?? row?.source;
     if (row && citation && schedule)
-      edit((editor) => addFigureCitation(editor, schedule, row, citation));
+      edit((note) => addFigureCitation(note, schedule, row, citation));
   };
   const chooseCitation = async (id: string) => {
     const row = rowOf(id);
@@ -130,11 +143,12 @@ export function FigureScheduleTab({ mindId }: { mindId: string }) {
     >
       <FigureScheduleView
         schedule={schedule}
-        cited={(row) => {
-          const editor = mindEditor(mindId);
-          return editor ? figureCited(editor.state.doc, row) : true;
-        }}
         onFocusFigure={(row) => focusFigure(mindId, row)}
+        onShowFigure={(row) => {
+          useAppStore.getState().openMind(mindId);
+          // Once the note is the shown tab, so its outline and scroll land where the User looks.
+          requestAnimationFrame(() => focusFigure(mindId, row));
+        }}
         onOpenSource={(citation) =>
           openCited(citation, {
             check: citation.check,
@@ -147,14 +161,14 @@ export function FigureScheduleTab({ mindId }: { mindId: string }) {
         }}
         onStop={() => stopCheck(mindId)}
         onKeep={(ids) => {
-          if (schedule) edit((editor) => keepFigureViews(editor, schedule, ids));
+          if (schedule) edit((note) => keepFigureViews(note, schedule, ids));
         }}
         onCheckAgain={(figureIds) => {
           void checkMind(mindId, "all", { figureIds });
         }}
         onChangeToSource={(ids) => {
           if (!schedule) return;
-          edit((editor) => changeFiguresToSource(editor, schedule, ids));
+          edit((note) => changeFiguresToSource(note, schedule, ids));
           void checkMind(mindId, "changed");
         }}
         onAddCitation={addCitation}
@@ -163,8 +177,7 @@ export function FigureScheduleTab({ mindId }: { mindId: string }) {
         }}
         onTotalRole={(id, axes, total) => {
           const row = rowOf(id);
-          if (schedule && row)
-            edit((editor) => setFigureTotalRole(editor, schedule, row, axes, total));
+          if (schedule && row) edit((note) => setFigureTotalRole(note, schedule, row, axes, total));
         }}
       />
       <SearchPicker
@@ -178,7 +191,7 @@ export function FigureScheduleTab({ mindId }: { mindId: string }) {
         onChoose={(index) => {
           const chosen = choice?.options[index];
           if (choice && chosen && schedule)
-            edit((editor) => addFigureCitation(editor, schedule, choice.row, chosen.citation));
+            edit((note) => addFigureCitation(note, schedule, choice.row, chosen.citation));
           sequence.current++;
           setChoice(null);
         }}

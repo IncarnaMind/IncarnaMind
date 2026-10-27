@@ -29,9 +29,9 @@ import "./figureSchedule.css";
 
 export interface FigureScheduleViewProps {
   schedule: FigureSchedule | null;
-  /** Whether the figure's place in the note already carries a Citation, so Add as Citation has nothing to add. */
-  cited(row: FigureScheduleRow): boolean;
   onFocusFigure(row: FigureScheduleRow | null): void;
+  /** Show in the note: outlines the figure and brings the note into view, when the schedule hides it. */
+  onShowFigure(row: FigureScheduleRow): void;
   onOpenSource(citation: Citation): void;
   onExport(): void;
   onStop?(): void;
@@ -259,7 +259,7 @@ export function FigureScheduleView(props: FigureScheduleViewProps) {
     if (event.key === " ") {
       event.preventDefault();
       useSelection.getState().choose("figures", lineRef(mindId, line));
-      props.onFocusFigure(line.parent);
+      props.onShowFigure(line.parent);
     }
     if (
       event.key === "ArrowRight" &&

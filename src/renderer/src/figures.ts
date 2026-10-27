@@ -4,11 +4,13 @@ import { create } from "zustand";
 import type { FigureScheduleRow } from "../../core/api";
 import { type FigureSchedule, MIND_CONTENT_FIELD } from "../../core/api";
 import { fingerprintOfMind } from "../../shared/mindState";
+import { useChecks } from "./checks";
 import { core } from "./core";
 import { figurePlace } from "./editor/figureActions";
 import { mindEditor } from "./editor/openEditors";
 import { scrollMindTo } from "./editor/reviewPick";
-import { startCheckThisMind } from "./mindCheck";
+import { groupsMerged } from "./layoutSlice";
+import { startCheckThisMind, useMindCheck } from "./mindCheck";
 import { useAppStore } from "./store";
 
 export function useFigureSchedule(mindId: string, doc: Y.Doc | null): FigureSchedule | null {
@@ -86,7 +88,8 @@ export function useFigureSchedule(mindId: string, doc: Y.Doc | null): FigureSche
   return read?.doc === doc ? (read?.schedule ?? null) : null;
 }
 
-export async function openFigureSchedule(mindId: string): Promise<void> {
+/** Opens the note's Figure schedule beside it; `focus` false leaves the tab behind the note. */
+export async function openFigureSchedule(mindId: string, focus = true): Promise<void> {
   const store = useAppStore.getState();
   let origin = store.layout?.groups.find((group) =>
     group.tabs.some(
@@ -110,18 +113,47 @@ export async function openFigureSchedule(mindId: string): Promise<void> {
     type: "open",
     item: { kind: "figures", mindId },
     where: { in: "side", from: origin.id },
+    ...(!focus && { focus }),
   });
 }
 
+/**
+ * Whether the note's one Check, just started, waits for the User's yes (`true`) or
+ * runs or ends without one (`false`).
+ */
+function checkAsks(mindId: string, started: Promise<void>): Promise<boolean> {
+  return new Promise((resolve) => {
+    let settled = false;
+    const done = (asks: boolean) => {
+      if (settled) return;
+      settled = true;
+      stopAsking();
+      stopRunning();
+      resolve(asks);
+    };
+    const stopAsking = useMindCheck.subscribe((state) => {
+      if (state.asking[mindId]) done(true);
+    });
+    const stopRunning = useChecks.subscribe((state) => {
+      if (state.running[mindId]) done(false);
+    });
+    void started.finally(() => done(useMindCheck.getState().asking[mindId] !== undefined));
+  });
+}
+
+/**
+ * Tie out figures: runs the one Check when any figure isn't checked since its last edit, then
+ * shows the schedule beside the note, which fills in as results come. When the Check first asks
+ * (a run billed per token) and the window has no room for groups side by side, the note's
+ * question stays in front and the schedule waits in a tab beside it.
+ */
 export async function tieOutFigures(mindId: string): Promise<void> {
-  await openFigureSchedule(mindId);
   const schedule = await core.getFigureSchedule(mindId);
-  if (
-    schedule.rows.some(
-      (row) => row.shown.state === "not-checked" || row.shown.state === "needs-recheck",
-    )
-  )
-    await startCheckThisMind(mindId);
+  const stale = schedule.rows.some(
+    (row) => row.shown.state === "not-checked" || row.shown.state === "needs-recheck",
+  );
+  const asks = stale ? await checkAsks(mindId, startCheckThisMind(mindId)) : false;
+  await openFigureSchedule(mindId, !(asks && groupsMerged()));
 }
 
 export const useFigureFocus = create<{ mindId: string | null; row: FigureScheduleRow | null }>(

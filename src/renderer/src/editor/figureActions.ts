@@ -1,7 +1,12 @@
-import type { Editor } from "@tiptap/core";
+import { getSchema } from "@tiptap/core";
 import type { Node as ProseMirrorNode } from "@tiptap/pm/model";
-import type { Transaction } from "@tiptap/pm/state";
-import { ySyncPluginKey } from "@tiptap/y-tiptap";
+import { EditorState, type Transaction } from "@tiptap/pm/state";
+import {
+  updateYFragment,
+  ySyncPluginKey,
+  yXmlFragmentToProseMirrorRootNode,
+} from "@tiptap/y-tiptap";
+import * as Y from "yjs";
 import {
   CALCULATED_FIGURE_NODE,
   CHART_NODE,
@@ -12,6 +17,7 @@ import {
   type ClaimCheckAttributes,
   type FigureSchedule,
   type FigureScheduleRow,
+  MIND_CONTENT_FIELD,
 } from "../../../core/api";
 import { chartCheckText, readChart } from "../../../shared/charts";
 import { emptyFigureFinding } from "../../../shared/figureChecks";
@@ -19,10 +25,75 @@ import { FORMULA_VERSION, showResult } from "../../../shared/formula";
 import { mindScopeOf } from "../../../shared/mindScope";
 import { fingerprintOfMind } from "../../../shared/mindState";
 import { languageNow, translateNow } from "../i18n";
+import type { WordsInLine } from "../lineNames";
 import { useAppStore } from "../store";
+import { type Undoable, useUndo } from "../undo";
 import { type ClaimSpan, claimSpans, paragraphPlaces } from "./claimChecks";
 import { asOneStep, offerEditorUndo } from "./editorUndo";
 import { setTableRoles } from "./figureTableRoles";
+import { noteExtensions } from "./noteSchema";
+import { mindEditor } from "./openEditors";
+
+/** A change the Figure schedule makes in its note, and what its Undo line says. */
+export interface FigureEdit {
+  tr: Transaction;
+  said: WordsInLine;
+}
+
+/** What a schedule's change is made from: the note as an editor reads it, and its document. */
+export interface NoteState {
+  state: EditorState;
+  doc: Y.Doc;
+}
+
+const noteSchema = getSchema(noteExtensions());
+
+/**
+ * Makes a schedule's change in its note: in the note's editor when one is open, so the
+ * note's own ⌘Z takes it back with its other edits; else in the schedule's copy of the
+ * note, which the core keeps in step, with an Undo of its own. Returns that Undo, which the
+ * schedule withdraws when it closes, or null when the change was made in the editor or
+ * changed nothing.
+ */
+export function editNote(
+  mindId: string,
+  copy: Y.Doc,
+  change: (note: NoteState) => FigureEdit | null,
+): Undoable | null {
+  const editor = mindEditor(mindId);
+  const shown = editor && ySyncPluginKey.getState(editor.state)?.type.doc;
+  if (editor && shown) {
+    if (!editor.isEditable) throw new Error(translateNow("figures.changed"));
+    const made = change({ state: editor.state, doc: shown });
+    if (!made?.tr.docChanged) return null;
+    asOneStep(editor, () => editor.view.dispatch(made.tr));
+    offerEditorUndo(editor, made.said);
+    return null;
+  }
+  const blocks = copy.getXmlFragment(MIND_CONTENT_FIELD);
+  const state = EditorState.create({
+    schema: noteSchema,
+    doc: yXmlFragmentToProseMirrorRootNode(blocks, noteSchema),
+  });
+  const made = change({ state, doc: copy });
+  if (!made?.tr.docChanged) return null;
+  const origin = { figureSchedule: mindId };
+  const steps = new Y.UndoManager(blocks, { trackedOrigins: new Set([origin]) });
+  copy.transact(() => {
+    updateYFragment(copy, blocks, made.tr.doc, { mapping: new Map(), isOMark: new Map() });
+  }, origin);
+  const undoable: Undoable = {
+    said: made.said,
+    undo: async () => {
+      steps.undo();
+    },
+    redo: async () => {
+      steps.redo();
+    },
+  };
+  useUndo.getState().push(undoable);
+  return undoable;
+}
 
 export interface FigurePlace {
   from: number;
@@ -93,25 +164,23 @@ export function writeSentenceCheck(
   });
 }
 
-function requireCurrent(editor: Editor, schedule: FigureSchedule): void {
-  const doc = ySyncPluginKey.getState(editor.state)?.type.doc;
-  if (!editor.isEditable || !doc || fingerprintOfMind(doc) !== schedule.basis)
-    throw new Error(translateNow("figures.changed"));
+function requireCurrent({ doc }: NoteState, schedule: FigureSchedule): void {
+  if (fingerprintOfMind(doc) !== schedule.basis) throw new Error(translateNow("figures.changed"));
 }
 
 function unreadOwner(
-  editor: Editor,
+  { state, doc }: NoteState,
   schedule: FigureSchedule,
   row: FigureScheduleRow,
   place: FigurePlace,
 ): ClaimSpan | null {
   let sentence: ClaimSpan["sentence"] | null = null;
   if (place.node) {
-    const node = editor.state.doc.nodeAt(place.from);
+    const node = state.doc.nodeAt(place.from);
     if (node) sentence = { ...place, text: chartCheckText(readChart(node.attrs)) };
   } else if (row.sentence) {
     const stretch = row.sentence;
-    editor.state.doc.descendants((node, pos) => {
+    state.doc.descendants((node, pos) => {
       if (!node.isTextblock || node.attrs.id !== stretch.from.blockId) return true;
       const places = paragraphPlaces(node, pos);
       const from = places.starts[stretch.from.offset];
@@ -125,8 +194,7 @@ function unreadOwner(
   const basis: { from: number; to: number; text: string } = sentence;
   const folderId =
     useAppStore.getState().minds.find((mind) => mind.id === schedule.mindId)?.folderId ?? null;
-  const doc = ySyncPluginKey.getState(editor.state)?.type.doc;
-  const chosen = doc ? mindScopeOf(doc) : null;
+  const chosen = mindScopeOf(doc);
   return {
     ...(place.node && { kind: "chart" }),
     ...basis,
@@ -156,21 +224,21 @@ function unreadOwner(
 }
 
 export function keepFigureViews(
-  editor: Editor,
+  note: NoteState,
   schedule: FigureSchedule,
   ids: readonly string[],
-): void {
-  requireCurrent(editor, schedule);
+): FigureEdit | null {
+  requireCurrent(note, schedule);
   const chosen = new Set(ids);
-  const spans = claimSpans(editor.state.doc);
-  const tr = editor.state.tr;
+  const spans = claimSpans(note.state.doc);
+  const tr = note.state.tr;
   const seen = new Set<string>();
   for (const row of schedule.rows.filter((row) => chosen.has(row.id))) {
     const place = figurePlace(tr.doc, row);
     const span =
       place &&
       (spans.find((span) => span.from < place.to && span.to > place.from) ??
-        unreadOwner(editor, schedule, row, place));
+        unreadOwner(note, schedule, row, place));
     if (!span) throw new Error(translateNow("figures.changed"));
     if (seen.has(span.check.id)) continue;
     seen.add(span.check.id);
@@ -205,24 +273,26 @@ export function keepFigureViews(
       next,
     );
   }
-  if (!tr.docChanged) return;
-  asOneStep(editor, () => editor.view.dispatch(tr));
-  offerEditorUndo(editor, (t) => t("figures.kept", { count: ids.length }));
+  return {
+    tr,
+    said: (t) =>
+      ids.length === 1 ? t("claim.keptAsView") : t("figures.kept", { count: ids.length }),
+  };
 }
 
 export function addFigureCitation(
-  editor: Editor,
+  note: NoteState,
   schedule: FigureSchedule,
   row: FigureScheduleRow,
   citation: Citation,
-): void {
-  requireCurrent(editor, schedule);
-  const place = figurePlace(editor.state.doc, row);
+): FigureEdit | null {
+  requireCurrent(note, schedule);
+  const place = figurePlace(note.state.doc, row);
   if (!place) throw new Error(translateNow("figures.changed"));
-  const tr = editor.state.tr;
+  const tr = note.state.tr;
   if (row.locator.kind === "chart") {
     const node = tr.doc.nodeAt(place.from);
-    if (!node) return;
+    if (!node) return null;
     const locator = row.locator;
     const chart = readChart(node.attrs);
     const data = {
@@ -240,14 +310,16 @@ export function addFigureCitation(
     };
     tr.setNodeMarkup(place.from, undefined, { ...node.attrs, data });
   } else {
-    const type = editor.state.schema.nodes[CITATION_NODE];
-    if (!type) return;
+    const type = note.state.schema.nodes[CITATION_NODE];
+    if (!type) return null;
     const next = tr.doc.nodeAt(place.to);
     if (next?.type === type) tr.setNodeMarkup(place.to, undefined, { ...next.attrs, ...citation });
     else tr.insert(place.to, type.create(citation));
   }
-  asOneStep(editor, () => editor.view.dispatch(tr));
-  offerEditorUndo(editor, (t) => t("figures.citationAdded"));
+  return {
+    tr,
+    said: (t) => t("figures.cited", { document: citation.documentName }),
+  };
 }
 
 export function figureSourceText(row: FigureScheduleRow): string | null {
@@ -274,17 +346,17 @@ export function figureSourceText(row: FigureScheduleRow): string | null {
 }
 
 export function changeFiguresToSource(
-  editor: Editor,
+  note: NoteState,
   schedule: FigureSchedule,
   ids: readonly string[],
-): void {
-  requireCurrent(editor, schedule);
+): FigureEdit | null {
+  requireCurrent(note, schedule);
   const chosen = new Set(ids);
   const changes = schedule.rows
     .flatMap((row) => {
       const at =
         chosen.has(row.id) && row.shown.state === "contradicted" && row.sourceInput
-          ? figurePlace(editor.state.doc, row)
+          ? figurePlace(note.state.doc, row)
           : null;
       const shown = at ? figureSourceText(row) : null;
       return at && shown !== null && row.sourceInput
@@ -292,7 +364,7 @@ export function changeFiguresToSource(
         : [];
     })
     .sort((a, b) => b.at.from - a.at.from);
-  const tr = editor.state.tr;
+  const tr = note.state.tr;
   for (const { row, at, shown, citation } of changes) {
     if (row.locator.kind === "chart") {
       const node = tr.doc.nodeAt(at.from);
@@ -321,32 +393,37 @@ export function changeFiguresToSource(
       };
       tr.setNodeMarkup(at.from, undefined, { ...node.attrs, data });
     } else {
-      const type = editor.state.schema.nodes[CITATION_NODE];
+      const type = note.state.schema.nodes[CITATION_NODE];
       if (type)
-        tr.replaceWith(at.from, at.to, [editor.state.schema.text(shown), type.create(citation)]);
+        tr.replaceWith(at.from, at.to, [note.state.schema.text(shown), type.create(citation)]);
     }
   }
-  if (!tr.docChanged) return;
-  asOneStep(editor, () => editor.view.dispatch(tr));
-  offerEditorUndo(editor, (t) => t("figures.changedToSource", { count: changes.length }));
+  const [only] = changes;
+  return {
+    tr,
+    said: (t) =>
+      changes.length === 1 && only
+        ? t("figures.changedToSource", { old: only.row.reading.chars, now: only.shown })
+        : t("figures.changedToSource.many", { count: changes.length }),
+  };
 }
 
 export function setFigureTotalRole(
-  editor: Editor,
+  note: NoteState,
   schedule: FigureSchedule,
   row: FigureScheduleRow,
   axes: readonly ("row" | "column")[],
   total: boolean,
-): void {
-  requireCurrent(editor, schedule);
-  if (!row.place.table) return;
-  const place = figurePlace(editor.state.doc, row);
+): FigureEdit | null {
+  requireCurrent(note, schedule);
+  if (!row.place.table) return null;
+  const place = figurePlace(note.state.doc, row);
   if (!place) throw new Error(translateNow("figures.changed"));
-  const at = editor.state.doc.resolve(place.from);
+  const at = note.state.doc.resolve(place.from);
   let tableDepth = at.depth;
   while (tableDepth > 0 && at.node(tableDepth).type.name !== "table") tableDepth--;
-  if (tableDepth === 0) return;
-  const tr = editor.state.tr;
+  if (tableDepth === 0) return null;
+  const tr = note.state.tr;
   const table = at.node(tableDepth);
   const tableStart = at.start(tableDepth);
   setTableRoles(
@@ -356,16 +433,9 @@ export function setFigureTotalRole(
     axes,
     total,
   );
-  if (!tr.docChanged) return;
-  asOneStep(editor, () => editor.view.dispatch(tr));
-  offerEditorUndo(editor, (t) =>
-    t(total ? "figures.totalDone" : "figures.notTotalDone", { value: row.reading.chars }),
-  );
-}
-
-/** Whether a Citation already follows the figure in the note, so Add as Citation has nothing to add. */
-export function figureCited(doc: ProseMirrorNode, figure: CheckFigure): boolean {
-  const place = figurePlace(doc, figure);
-  if (!place) return true;
-  return doc.nodeAt(place.to)?.type.name === CITATION_NODE;
+  return {
+    tr,
+    said: (t) =>
+      t(total ? "figures.totalDone" : "figures.notTotalDone", { value: row.reading.chars }),
+  };
 }

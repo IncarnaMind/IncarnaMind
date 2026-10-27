@@ -237,8 +237,11 @@ export function figurePlaceText(row: FigureScheduleRow, language: Language): str
   const { table, chart, heading, paragraph } = row.place;
   const place = table
     ? table.columnLabel
-      ? translate(language, "figures.tableCell", { row: table.rowLabel, column: table.columnLabel })
-      : translate(language, "figures.tableRow", { row: table.rowLabel })
+      ? translate(language, "figures.tableCell", {
+          label: table.rowLabel,
+          column: table.columnLabel,
+        })
+      : translate(language, "figures.tableRow", { label: table.rowLabel })
     : chart
       ? translate(language, "figures.chartPoint", {
           row: chart.rowLabel,

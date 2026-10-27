@@ -35,9 +35,10 @@ import type {
   FigureSourceFooting,
   RetainedFigureAnalysis,
 } from "./api";
-import { CALCULATED_FIGURE_NODE } from "./api";
+import { CALCULATED_FIGURE_NODE, CITATION_NODE } from "./api";
 import { type Cell, headerRow } from "./documents/formats/grid";
 import { plainText } from "./mindText";
+import { layout as partsOf } from "./proposals/write";
 
 type Axis = "row" | "column";
 type Owner = ReturnType<typeof checkedSentences>[number];
@@ -212,15 +213,25 @@ function sourceFootingFor(
       return null;
     covered.set(input.cell.ref, [...(covered.get(input.cell.ref) ?? []), id]);
   }
+  // A row with nothing in the total's column is blank there ("All figures in £m" above the
+  // table), as a blank row in the note's table is: it adds nothing rather than going missing.
+  const filled = (row: number, column: number) => {
+    const value = rows.get(row)?.[column];
+    return value !== null && value !== undefined && String(value).trim() !== "";
+  };
   const slots =
     axis.axis === "row"
       ? numbers
           .filter((row) => row <= target.row && row !== header)
-          .map((row) => ({ row, column: target.column, label: String(rows.get(row)?.[0] ?? "") }))
+          .map((row) => ({
+            row,
+            column: target.column,
+            label: filled(row, target.column) ? String(rows.get(row)?.[0] ?? "") : "",
+          }))
       : Array.from({ length: target.column }, (_, offset) => ({
           row: target.row,
           column: offset + 1,
-          label: String(heading?.[offset + 1] ?? ""),
+          label: filled(target.row, offset + 1) ? String(heading?.[offset + 1] ?? "") : "",
         }));
   const targetId = `${columnName(target.column)}${target.row}`;
   const entries: FootingEntry[] = slots.map((slot) => ({
@@ -677,9 +688,21 @@ export function figureSchedule(input: FigureScheduleInput): FigureSchedule {
       occurrence.locator.kind === "chart" && place
         ? readChart(place.element.getAttributes())
         : null;
+    const { locator } = occurrence;
+    const cited =
+      locator.kind === "chart"
+        ? (chart?.data.rows[locator.row]?.values[locator.series]?.citation ?? null) !== null
+        : place !== undefined &&
+          partsOf(place.element).some(
+            ({ node, start }) =>
+              start === locator.to.offset &&
+              node instanceof Y.XmlElement &&
+              node.nodeName === CITATION_NODE,
+          );
     return {
       ...finding,
       number: index + 1,
+      cited,
       sentence: occurrence.sentence,
       shown,
       reason,
