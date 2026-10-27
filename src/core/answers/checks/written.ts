@@ -475,6 +475,7 @@ export function createWrittenCheck(options: WrittenCheckOptions) {
         cited: options.citedNow(sentence.cited),
         scope: scope.scope,
         model: prepared,
+        mindId,
         cacheKey: mindId,
         signal: ended,
       }),

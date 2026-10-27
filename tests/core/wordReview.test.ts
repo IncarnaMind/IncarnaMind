@@ -7,7 +7,7 @@
  */
 import type { JSONContent } from "@tiptap/core";
 import { describe, expect, test } from "vitest";
-import type { Core, Document, ExportMindOptions } from "../../src/core";
+import type { Core, Document, ExportMindOptions, RecordCiteResult } from "../../src/core";
 import { WordIds } from "../../src/core/exports/wordml";
 import { trackBlocks, trackInline } from "../../src/core/exports/wordReview";
 import { recordProposalRequest } from "../../src/shared/proposals";
@@ -46,13 +46,13 @@ const removes = (id: string) => [{ type: "proposalDelete", attrs: { id, request:
 const ai = [{ type: "generated" }];
 
 async function word(core: Core, mindId: string, options: Partial<ExportMindOptions> = {}) {
-  const { data } = await core.exportMind(mindId, { format: "docx", ...options });
-  const files = unzip(data);
+  const result = await core.exportMind(mindId, { format: "docx", ...options });
+  const files = unzip(result.data);
   const part = (name: string) => files.get(name)?.toString("utf8") ?? "";
   for (const [name, content] of files) {
     if (name.endsWith(".xml") || name.endsWith(".rels")) checkWellFormed(content.toString("utf8"));
   }
-  return { files, document: part("word/document.xml"), part };
+  return { files, document: part("word/document.xml"), part, checks: result.sentenceChecks };
 }
 
 async function tides(core: Core): Promise<Document> {
@@ -342,6 +342,85 @@ describe("sentences whose check isn't good", () => {
     },
   });
 
+  const recordCites = (document: Document): RecordCiteResult[] => [
+    {
+      raw: "Smith Dep. 45:3–12",
+      outcome: "supported",
+      documentId: document.id,
+      documentName: "Tides",
+      contentHash: document.contentHash,
+      location: {
+        kind: "page",
+        from: 4,
+        to: 4,
+        printed: { from: "45", to: "45" },
+        lines: { from: 3, to: 12 },
+      },
+      pageFrom: 4,
+      pageTo: 4,
+      passage: "The deposition supports the sentence.",
+    },
+    {
+      raw: "Ex. 7 at 3",
+      outcome: "partly",
+      documentId: document.id,
+      documentName: "Tides",
+      contentHash: document.contentHash,
+      location: { kind: "page", from: 3, to: 3 },
+      pageFrom: 3,
+      pageTo: 3,
+      passage: "The exhibit covers one part.",
+      covered: "the delivery attempt",
+      uncovered: "receipt by the defendant",
+    },
+    {
+      raw: "ECF No. 41 at 5",
+      outcome: "choose",
+      candidates: [
+        { id: document.id, name: "Tides" },
+        { id: "other", name: "Other filing" },
+      ],
+    },
+    {
+      raw: "Dkt. 41 at 6",
+      outcome: "not-found",
+      documentId: document.id,
+      documentName: "Tides",
+      contentHash: document.contentHash,
+      location: { kind: "page", from: 6, to: 6 },
+      pageFrom: 6,
+      pageTo: 6,
+      passage: "The cited page concerns another event.",
+      nearby: {
+        location: { kind: "page", from: 7, to: 7, lines: { from: 5, to: 9 } },
+        pageFrom: 7,
+        pageTo: 7,
+        passage: "The point appears nearby instead.",
+      },
+    },
+  ];
+
+  const RECORD_SENTENCE = "The record supports only part of this claim.";
+
+  async function recordSentence(
+    language: "en" | "zh-CN" = "en",
+    state: "supported" | "unsupported" = "supported",
+  ) {
+    const core = startCore(await createTempDataFolder());
+    await core.updateSettings({ user: { language } });
+    const document = await tides(core);
+    const { id } = await mindWith(core, [
+      paragraph(
+        text(RECORD_SENTENCE, [
+          checkOf(document, "record-cites", state, RECORD_SENTENCE, {
+            recordCites: recordCites(document),
+          }),
+        ]),
+      ),
+    ]);
+    return { core, id };
+  }
+
   async function sentences(language: "en" | "zh-CN" = "en") {
     const core = startCore(await createTempDataFolder());
     await core.updateSettings({ user: { language } });
@@ -458,6 +537,91 @@ describe("sentences whose check isn't good", () => {
       commented: true,
     });
     expect(unzip(exported.data).has("word/comments.xml")).toBe(false);
+  });
+
+  test("a Supported sentence's comment lists every record cite and its passage without changing the counts", async () => {
+    const { core, id } = await recordSentence();
+
+    const exported = await word(core, id, { commentFailedChecks: true });
+
+    const [entry] = commentsOn(exported);
+    expect(entry?.on).toBe(RECORD_SENTENCE);
+    const comment = entry?.comment ?? "";
+    for (const words of [
+      "Smith Dep. 45:3–12: Supported",
+      "Tides, p. 45 · lines 3–12",
+      "Passage: The deposition supports the sentence.",
+      "Ex. 7 at 3: Partly",
+      "Passage: The exhibit covers one part.",
+      "Covers the delivery attempt; does not cover receipt by the defendant.",
+      "ECF No. 41 at 5: Choose a Document",
+      "Documents to choose from: Tides, Other filing",
+      "Dkt. 41 at 6: Not found",
+      "Passage: The cited page concerns another event.",
+      "Nearby suggestion: Tides, p. 7 · lines 5–9",
+      "The point appears nearby instead.",
+    ]) {
+      expect(comment).toContain(words);
+    }
+    const rawOrder = ["Smith Dep. 45:3–12", "Ex. 7 at 3", "ECF No. 41 at 5", "Dkt. 41 at 6"];
+    const positions = rawOrder.map((raw) => comment.indexOf(raw));
+    expect(positions.every((position) => position >= 0)).toBe(true);
+    expect([...positions].sort((a, b) => a - b)).toEqual(positions);
+    expect(exported.checks).toEqual({
+      contradicted: 0,
+      notFound: 0,
+      unsupported: 0,
+      needsRecheck: 0,
+      commented: true,
+    });
+
+    const plain = await word(core, id, { commentFailedChecks: false });
+    expect(plain.files.has("word/comments.xml")).toBe(false);
+    expect(plain.checks).toEqual({ ...exported.checks, commented: false });
+  });
+
+  test("record-cite comments use Chinese outcomes, labels and Locations", async () => {
+    const { core, id } = await recordSentence("zh-CN");
+
+    const exported = await word(core, id, { commentFailedChecks: true });
+
+    const comment = commentsOn(exported)[0]?.comment ?? "";
+    for (const words of [
+      "Smith Dep. 45:3–12：有依据",
+      "Tides，第 45 页 · 第 3–12 行",
+      "段落：The deposition supports the sentence.",
+      "Ex. 7 at 3：部分有依据",
+      "ECF No. 41 at 5：选择文档",
+      "可选文档：Tides，Other filing",
+      "Dkt. 41 at 6：未找到",
+      "附近段落建议：Tides，第 7 页 · 第 5–9 行",
+    ]) {
+      expect(comment).toContain(words);
+    }
+    expect(exported.checks).toEqual({
+      contradicted: 0,
+      notFound: 0,
+      unsupported: 0,
+      needsRecheck: 0,
+      commented: true,
+    });
+  });
+
+  test("record cites append to the sentence's existing result without changing it", async () => {
+    const { core, id } = await recordSentence("en", "unsupported");
+
+    const exported = await word(core, id, { commentFailedChecks: true });
+
+    const comment = commentsOn(exported)[0]?.comment ?? "";
+    expect(comment).toContain("Not found: I didn’t find this in “All Documents”.");
+    expect(comment).toContain("Smith Dep. 45:3–12: Supported");
+    expect(exported.checks).toEqual({
+      contradicted: 0,
+      notFound: 1,
+      unsupported: 0,
+      needsRecheck: 0,
+      commented: true,
+    });
   });
 
   test.each([

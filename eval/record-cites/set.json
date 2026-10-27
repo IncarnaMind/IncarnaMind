@@ -1,0 +1,174 @@
+{
+  "set": "IncarnaMind public record-cite evaluation",
+  "version": 1,
+  "documents": [
+    {
+      "key": "regency-ecf-41",
+      "name": "ECF No. 41",
+      "title": "Regency Apartments Vancouver LLC v. The Sherwin-Williams Company, order continuing trial, ECF No. 41",
+      "publisher": "United States District Court, W.D. Washington",
+      "path": "eval/record-cites/documents/ECF No. 41.pdf",
+      "pages": 3,
+      "source": "https://www.courtlistener.com/docket/16686119/41/regency-apartments-vancouver-llc-v-the-sherwin-williams-company/",
+      "fileSource": "https://storage.courtlistener.com/recap/gov.uscourts.wawd.281674/gov.uscourts.wawd.281674.41.0.pdf",
+      "licence": "US federal public domain, 17 U.S.C. 105",
+      "basis": "The saved Document is a federal court order. Copyright protection under title 17 is not available for any work of the United States Government.",
+      "retrieved": "2026-10-27",
+      "sha256": "379d7ad1b20bd39b8128ba416621c62f757a3a375d79bc745bda767d1b846291"
+    },
+    {
+      "key": "robinson-ecf-41",
+      "name": "ECF No. 41",
+      "title": "Robinson v. City of Bessemer, memorandum opinion and order, ECF No. 41",
+      "publisher": "United States District Court, N.D. Alabama",
+      "path": "eval/record-cites/documents/ECF No. 41 Robinson.pdf",
+      "pages": 20,
+      "source": "https://www.courtlistener.com/docket/60117266/41/robinson-v-city-of-bessemer/",
+      "fileSource": "https://storage.courtlistener.com/recap/gov.uscourts.alnd.176666/gov.uscourts.alnd.176666.41.0.pdf",
+      "licence": "US federal public domain, 17 U.S.C. 105",
+      "basis": "The saved Document is a federal court order. Copyright protection under title 17 is not available for any work of the United States Government.",
+      "retrieved": "2026-10-27",
+      "sha256": "4039b87c6463fa51306f4fac5fd856e60898545d083c9d29fe07bf0ac511602a"
+    }
+  ],
+  "cases": [
+    {
+      "id": "en-page-supported",
+      "language": "en",
+      "claim": "Trial briefs are due by September 2, 2021 (ECF No. 41 at 3).",
+      "cites": [
+        {
+          "raw": "ECF No. 41 at 3",
+          "outcome": "supported",
+          "document": "regency-ecf-41",
+          "location": { "kind": "page", "from": 3, "to": 3, "printed": { "from": "3", "to": "3" } },
+          "passageContains": "Trial briefs are due by September 2, 2021."
+        }
+      ],
+      "checked": "2026-10-27"
+    },
+    {
+      "id": "zh-page-supported",
+      "language": "zh-CN",
+      "claim": "命令将审理简报期限定为 2021 年 9 月 2 日 (ECF No. 41 at 3)。",
+      "cites": [
+        {
+          "raw": "ECF No. 41 at 3",
+          "outcome": "supported",
+          "document": "regency-ecf-41",
+          "location": { "kind": "page", "from": 3, "to": 3, "printed": { "from": "3", "to": "3" } },
+          "passageContains": "Trial briefs are due by September 2, 2021."
+        }
+      ],
+      "checked": "2026-10-27"
+    },
+    {
+      "id": "en-page-partly",
+      "language": "en",
+      "claim": "The June 1, 2021 bench trial is continued until September 6, 2021, and trial briefs are due October 2, 2021 (ECF No. 41 at 3).",
+      "cites": [
+        {
+          "raw": "ECF No. 41 at 3",
+          "outcome": "partly",
+          "document": "regency-ecf-41",
+          "location": { "kind": "page", "from": 3, "to": 3, "printed": { "from": "3", "to": "3" } },
+          "passageContains": "The June 1, 2021 bench trial is CONTINUED until September 6, 2021",
+          "parts": true
+        }
+      ],
+      "checked": "2026-10-27"
+    },
+    {
+      "id": "en-wrong-page-nearby",
+      "language": "en",
+      "claim": "The dispositive motions deadline is continued until June 8, 2021 (Dkt. 41 at 2).",
+      "cites": [
+        {
+          "raw": "Dkt. 41 at 2",
+          "outcome": "not-found",
+          "document": "regency-ecf-41",
+          "location": { "kind": "page", "from": 2, "to": 2, "printed": { "from": "2", "to": "2" } },
+          "passageContains": "dispositive motions deadline",
+          "nearby": {
+            "location": { "kind": "page", "from": 3, "to": 3, "printed": { "from": "3", "to": "3" } },
+            "passageContains": "The dispositive motions deadline is CONTINUED until June 8, 2021."
+          }
+        }
+      ],
+      "checked": "2026-10-27"
+    },
+    {
+      "id": "en-id-wrong-page",
+      "language": "en",
+      "claim": "The dispositive motions deadline is continued until June 8, 2021 (ECF No. 41 at 3; Id. at 2).",
+      "cites": [
+        {
+          "raw": "ECF No. 41 at 3",
+          "outcome": "supported",
+          "document": "regency-ecf-41",
+          "location": { "kind": "page", "from": 3, "to": 3, "printed": { "from": "3", "to": "3" } },
+          "passageContains": "The dispositive motions deadline is CONTINUED until June 8, 2021."
+        },
+        {
+          "raw": "Id. at 2",
+          "outcome": "not-found",
+          "document": "regency-ecf-41",
+          "location": { "kind": "page", "from": 2, "to": 2, "printed": { "from": "2", "to": "2" } },
+          "passageContains": "dispositive motions deadline",
+          "nearby": {
+            "location": { "kind": "page", "from": 3, "to": 3, "printed": { "from": "3", "to": "3" } },
+            "passageContains": "The dispositive motions deadline is CONTINUED until June 8, 2021."
+          }
+        }
+      ],
+      "checked": "2026-10-27"
+    },
+    {
+      "id": "en-supra-supported",
+      "language": "en",
+      "claim": "Trial briefs are due by September 2, 2021 (ECF No. 41 at 3; supra).",
+      "cites": [
+        {
+          "raw": "ECF No. 41 at 3",
+          "outcome": "supported",
+          "document": "regency-ecf-41",
+          "location": { "kind": "page", "from": 3, "to": 3, "printed": { "from": "3", "to": "3" } },
+          "passageContains": "Trial briefs are due by September 2, 2021."
+        },
+        {
+          "raw": "supra",
+          "outcome": "supported",
+          "document": "regency-ecf-41",
+          "location": { "kind": "page", "from": 3, "to": 3, "printed": { "from": "3", "to": "3" } },
+          "passageContains": "Trial briefs are due by September 2, 2021."
+        }
+      ],
+      "checked": "2026-10-27"
+    },
+    {
+      "id": "en-ambiguous-source",
+      "language": "en",
+      "claim": "Trial briefs are due by September 2, 2021 (ECF No. 41 at 3).",
+      "cites": [
+        {
+          "raw": "ECF No. 41 at 3",
+          "outcome": "choose",
+          "candidates": ["regency-ecf-41", "robinson-ecf-41"]
+        }
+      ],
+      "checked": "2026-10-27"
+    },
+    {
+      "id": "en-docket-not-found",
+      "language": "en",
+      "claim": "Trial briefs are due by September 2, 2021 (ECF No. 42 at 3).",
+      "cites": [
+        {
+          "raw": "ECF No. 42 at 3",
+          "outcome": "not-found"
+        }
+      ],
+      "checked": "2026-10-27"
+    }
+  ]
+}

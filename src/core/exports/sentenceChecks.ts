@@ -2,8 +2,8 @@ import type * as Y from "yjs";
 import { checkedScope, claimCheckShown, coveredPart, saysNotFound } from "../../shared/claimChecks";
 import { type ScopeKind, scopeName } from "../../shared/searchScope";
 import { checkedSentences } from "../answers/checks/sentences";
-import type { CitationAttributes, SearchScope } from "../api";
-import type { FailedSentence } from "../mindText";
+import type { CitationAttributes, RecordCiteResult, SearchScope } from "../api";
+import type { FailedSentence, RecordCiteComment } from "../mindText";
 
 /** What the checks of a Mind's sentences are compared with, and how an export names things. */
 export interface SentenceCheckContext {
@@ -14,7 +14,35 @@ export interface SentenceCheckContext {
   /** A Folder's, Tag's or Document's name; null for one that isn't there. */
   scopeItemName(kind: ScopeKind, id: string): string | null;
   /** A Passage's Document and Location, as a footnote says it. */
-  sourceOf(passage: CitationAttributes): string;
+  sourceOf(passage: Partial<CitationAttributes>): string;
+}
+
+function recordCiteComments(
+  cites: readonly RecordCiteResult[],
+  context: SentenceCheckContext,
+): RecordCiteComment[] {
+  return cites.map((cite) => {
+    const sourced =
+      cite.documentId !== undefined ||
+      cite.documentName !== undefined ||
+      cite.location !== undefined ||
+      cite.passage !== undefined;
+    return {
+      raw: cite.raw,
+      outcome: cite.outcome,
+      source: sourced ? context.sourceOf(cite) : null,
+      passage: cite.passage ?? null,
+      covered: cite.covered ?? null,
+      uncovered: cite.uncovered ?? null,
+      candidates: (cite.candidates ?? []).map((candidate) => candidate.name),
+      nearby: cite.nearby
+        ? {
+            source: context.sourceOf({ ...cite, ...cite.nearby }),
+            passage: cite.nearby.passage,
+          }
+        : null,
+    };
+  });
 }
 
 /** The checks of the Mind's sentences that aren't good, by check id: as they show now, not as they were made. */
@@ -82,6 +110,12 @@ export function failedSentences(
       failed.set(id, { id, check: "needs-recheck", why: shown.why });
     } else if (shown.state === "supported" && check.citedCaseUnchecked) {
       failed.set(id, { id, check: "cited-case-unchecked", unsupported: false });
+    }
+    const recordCites = recordCiteComments(check.recordCites ?? [], context);
+    if (recordCites.length > 0) {
+      const existing = failed.get(id);
+      if (existing) failed.set(id, { ...existing, recordCites });
+      else failed.set(id, { id, check: "record-cites", recordCites });
     }
   }
   return failed;

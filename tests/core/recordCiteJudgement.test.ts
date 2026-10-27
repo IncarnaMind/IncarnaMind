@@ -90,7 +90,7 @@ describe("support judgement for one exact record-cite passage", () => {
         "en",
       ),
     ).toEqual({
-      failed: { kind: "malformed", message: "The check gave no verdict." },
+      failed: { kind: "unknown", message: "The check gave no verdict." },
     });
   });
 
@@ -132,5 +132,36 @@ describe("support judgement for one exact record-cite passage", () => {
     });
     expect(generateText).toHaveBeenCalledTimes(3);
     expect(recordCiteVersions(results)).toEqual([{ documentId: "doc-1", contentHash: "hash-1" }]);
+  });
+
+  test("a supported cited passage does not show its nearby candidate", async () => {
+    const result: RecordCiteResult = {
+      raw: "Ex. 7 at 3",
+      outcome: "supported",
+      documentId: "doc-1",
+      location: { kind: "page", from: 3, to: 3 },
+      pageFrom: 3,
+      pageTo: 3,
+      passage: "Exact support",
+      nearby: {
+        location: { kind: "page", from: 4, to: 4 },
+        pageFrom: 4,
+        pageTo: 4,
+        passage: "Unneeded nearby text",
+      },
+    };
+    vi.mocked(generateText).mockResolvedValue({ text: "same" } as never);
+
+    const judged = await judgeResolvedRecordCites(
+      [result],
+      model,
+      "The claim",
+      new AbortController().signal,
+      "en",
+    );
+
+    expect(judged).toMatchObject({ recordCites: [{ outcome: "supported" }] });
+    expect("recordCites" in judged && judged.recordCites[0]?.nearby).toBeUndefined();
+    expect(generateText).toHaveBeenCalledTimes(1);
   });
 });

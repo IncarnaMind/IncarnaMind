@@ -31,7 +31,7 @@ export async function judgeRecordCite(
   const judged = readJudgement(first.reply);
   if (judged === "same") return { outcome: "supported" };
   if (judged === null)
-    return { failed: { kind: "malformed", message: "The check gave no verdict." } };
+    return { failed: { kind: "unknown", message: "The check gave no verdict." } };
   const part = await compare(model, claim, raw, passage, partInstructions(language), signal);
   if ("failed" in part) return part;
   const { covered, uncovered } = readPart(part.reply);
@@ -67,6 +67,7 @@ export async function judgeResolvedRecordCites(
     );
     if ("failed" in judgement) return judgement;
     const judged = { ...result, ...judgement };
+    if (judgement.outcome !== "not-found") delete judged.nearby;
     if (judgement.outcome === "not-found" && result.nearby) {
       const nearby = await judgeRecordCite(
         model,

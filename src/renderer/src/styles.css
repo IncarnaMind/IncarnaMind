@@ -5450,6 +5450,97 @@
     line-height: 18px;
     color: var(--color-ink-meta);
   }
+  .record-cite-results {
+    display: flex;
+    flex-direction: column;
+    box-sizing: border-box;
+    max-height: min(384px, 50vh);
+    padding-top: 10px;
+    overflow-y: auto;
+    border-top: 1px solid var(--color-rule);
+  }
+  .record-cite {
+    display: flex;
+    flex-direction: column;
+    flex-shrink: 0;
+    gap: 4px;
+    min-width: 0;
+    padding: 0 4px 10px 22px;
+
+    &[data-outcome="supported"] {
+      --check-ink: var(--color-success);
+      --check-wash: var(--color-success-wash);
+    }
+    &[data-outcome="partly"],
+    &[data-outcome="choose"],
+    &[data-outcome="not-found"] {
+      --check-ink: var(--color-warning);
+      --check-wash: var(--color-warning-wash);
+    }
+    & + & {
+      padding-top: 10px;
+      border-top: 1px solid var(--color-rule);
+    }
+  }
+  .record-cite-head {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px 8px;
+    align-items: baseline;
+  }
+  .record-cite-raw {
+    min-width: 0;
+    font-family: var(--font-mono);
+    font-size: var(--text-meta);
+    line-height: 18px;
+    color: var(--color-ink);
+    white-space: pre-wrap;
+    overflow-wrap: break-word;
+  }
+  .record-cite-outcome {
+    font-size: var(--text-label);
+    line-height: var(--text-label--line-height);
+    font-weight: 600;
+    color: var(--check-ink);
+  }
+  .record-cite-source {
+    overflow: hidden;
+    font-size: var(--text-meta);
+    line-height: 18px;
+    color: var(--color-ink-meta);
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .record-cite-detail {
+    font-size: var(--text-meta);
+    line-height: 18px;
+    color: var(--color-ink-meta);
+    overflow-wrap: break-word;
+  }
+  .record-cite-quote {
+    padding-left: 0;
+  }
+  .record-cite-nearby {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    margin: 4px 0;
+    padding-left: 8px;
+    border-left: 2px solid var(--color-rule);
+  }
+  .record-cite-problem {
+    font-size: var(--text-meta);
+    line-height: 18px;
+    color: var(--color-warning);
+    overflow-wrap: break-word;
+  }
+  .record-cite-actions {
+    padding-left: 0;
+
+    &:empty {
+      display: none;
+    }
+  }
   .citation-card-actions {
     display: flex;
     flex-wrap: wrap;

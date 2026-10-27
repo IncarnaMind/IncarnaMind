@@ -29,6 +29,11 @@ import { caseCitations } from "../../../shared/caseCitations";
 import { type LiveDocument, withShownName } from "../../../shared/citations";
 import { restsOn } from "../../../shared/claimChecks";
 import { mindScopeIn } from "../../../shared/mindScope";
+import {
+  readRecordCiteChoices,
+  writePreviousRecordCite,
+  writeRecordCiteChoice,
+} from "../../../shared/recordCiteChoices";
 import { folderScope, oneFolderOf } from "../../../shared/searchScope";
 import { judgesUnreliably } from "../../../shared/smallModel";
 import { recordCheckUnread } from "../../../shared/unreadFiles";
@@ -38,6 +43,7 @@ import {
   type CheckContradictionsResult,
   type CheckedDocument,
   type CheckSentencesResult,
+  type ChooseRecordCiteSourceInput,
   type CitationAttributes,
   type CitedQuote,
   type ClaimCheckAction,
@@ -48,6 +54,7 @@ import {
   claimCheckActions,
   type Document,
   type ExternalService,
+  type RecordCiteResult,
   type SearchScope,
   type TextPlace,
   type TextStretch,
@@ -55,6 +62,7 @@ import {
   type UnsupportedReason,
 } from "../../api";
 import type { Consent } from "../../consent";
+import { resolveDeposition as mapDeposition } from "../../documents/deposition";
 import type { Evidence } from "../../documents/evidence";
 import { parseCheckedDocument } from "../../documents/evidence";
 import type { RetainVersion, VersionRetention } from "../../documents/retention";
@@ -70,10 +78,13 @@ import type { Language } from "../../language";
 import type { MindContent } from "../../mindContent";
 import { parseMindId } from "../../minds";
 import type { PreparedChatModel } from "../../providers/chat";
+import { parseRecordCite, scanRecordCites } from "../../recordCites/parser";
+import { resolveChosenRecordCite, resolveRecordCites } from "../../recordCites/resolver";
 import { parseSearchScope } from "../../scope";
 import type { AnswerEngine } from "../engine";
 import { type ClaimCheckDependencies, createClaimCheck, recordJudged } from "./claimCheck";
 import { createMindCheck, type MindCheckOptions } from "./mindCheck";
+import { judgeResolvedRecordCites } from "./recordCites";
 import { markedSentences, markSentence, selectedSentences, updateCheck } from "./sentences";
 import { createVerify, type NoDocuments, type VerifyOptions } from "./verify";
 import { createContradictionWatch, type WatchOptions } from "./watch";
@@ -273,12 +284,58 @@ function withResult(
 const stopped = (check: ClaimCheckAttributes): ClaimCheckAttributes =>
   check.state === "checking" ? { ...check, state: "not-checked", reason: "stopped" } : check;
 
+function chooseInput(value: unknown): ChooseRecordCiteSourceInput {
+  if (!isRecord(value))
+    throw new InvalidInputError("A record-cite source choice expects an object.");
+  const { mindId, checkId, raw, documentId, from, to } = value;
+  if (
+    typeof mindId !== "string" ||
+    !mindId ||
+    typeof checkId !== "string" ||
+    !checkId ||
+    typeof raw !== "string" ||
+    !raw ||
+    typeof documentId !== "string" ||
+    !documentId
+  )
+    throw new InvalidInputError("A record-cite source choice is incomplete.");
+  if (
+    (from !== undefined && (typeof from !== "number" || !Number.isInteger(from) || from < 0)) ||
+    (to !== undefined && (typeof to !== "number" || !Number.isInteger(to) || to < 0))
+  )
+    throw new InvalidInputError("A record-cite span must be non-negative integers.");
+  return {
+    mindId,
+    checkId,
+    raw,
+    documentId,
+    from: from as number | undefined,
+    to: to as number | undefined,
+  };
+}
+
 export function createChecks(options: ChecksOptions) {
   const { content, chat } = options;
   /** The requests running, by id: how to stop each, and its Mind. */
   const running = new Map<string, { controller: AbortController; mindId: string }>();
-  const claimCheck = createClaimCheck(options);
+  const claimCheck = createClaimCheck({
+    ...options,
+    documents: {
+      ...options.documents,
+      recordChoices: (mindId) =>
+        mindId
+          ? content.readSettings(mindId, readRecordCiteChoices)
+          : { previous: null, choices: {} },
+    },
+  });
 
+  const recordDocuments = () =>
+    options.documents.names().map((document) => ({
+      id: document.id,
+      name: document.name ?? document.title ?? "",
+      contentHash: document.contentHash,
+      units: options.documents.pageTexts(document.id, document.contentHash, null, null),
+    }));
   options.consent.registry.register({
     id: "checks",
     sends: CHECKS_FLOW_SENDS,
@@ -489,6 +546,7 @@ export function createChecks(options: ChecksOptions) {
         cited: citedNow(sentence.cited),
         scope: evidenceScope,
         model: ready.prepared,
+        mindId,
         cacheKey: mindId,
         signal,
       });
@@ -682,6 +740,16 @@ export function createChecks(options: ChecksOptions) {
           citedCaseFound: false,
           versions: [],
           excluded: [],
+          recordCites: resolveRecordCites({
+            cites: scanRecordCites(parsed.claim).map((occurrence) => ({
+              ...occurrence.result,
+              raw: occurrence.raw,
+              from: occurrence.from,
+              to: occurrence.to,
+            })),
+            documents: [],
+            choices: { previous: null, choices: {} },
+          }),
         };
       }
       const checksDocument =
@@ -696,6 +764,78 @@ export function createChecks(options: ChecksOptions) {
         ...(checksDocument && { thirdParty: [{ via: "read", source: "checked-document" }] }),
         signal: new AbortController().signal,
       });
+    },
+
+    async chooseRecordCiteSource(value: unknown) {
+      const input = chooseInput(value);
+      const stored = content.read(input.mindId, (blocks) =>
+        markedSentences(blocks).find(({ check }) => check.id === input.checkId),
+      );
+      if (!stored) throw new InvalidInputError("The record cite to resolve was not found.");
+      const existing = (stored.check.recordCites ?? []).filter(
+        (cite) =>
+          cite.raw === input.raw &&
+          (input.from === undefined || cite.from === input.from) &&
+          (input.to === undefined || cite.to === input.to),
+      );
+      if (existing.length !== 1)
+        throw new InvalidInputError("The record cite to resolve was not found.");
+      const cite = existing[0] as RecordCiteResult;
+      const documents = recordDocuments();
+      const candidates = cite.candidates ?? [];
+      if (!candidates.some((candidate) => candidate.id === input.documentId)) {
+        return { cite: { ...cite, outcome: "choose" as const } };
+      }
+      const document = documents.find((each) => each.id === input.documentId);
+      if (!document) return { cite: { ...cite, outcome: "choose" as const } };
+      const parsed = parseRecordCite(cite.raw, { hasPrevious: true });
+      const resolved = resolveChosenRecordCite(
+        { ...parsed, raw: cite.raw, from: cite.from, to: cite.to },
+        document,
+        mapDeposition,
+      );
+      if (resolved.outcome !== "supported") {
+        return { cite: { ...cite, outcome: "choose" as const } };
+      }
+      const ready = await prepare(
+        stored.check.providerId && stored.check.modelId
+          ? { providerId: stored.check.providerId, modelId: stored.check.modelId }
+          : options.defaultModel(),
+      );
+      if (!ready.ok)
+        throw new InvalidInputError("The model needed to check this cite is not ready.");
+      const judged = await judgeResolvedRecordCites(
+        [resolved],
+        ready.prepared,
+        stored.check.text,
+        new AbortController().signal,
+        options.language(),
+      );
+      if ("failed" in judged) throw new Error(judged.failed.message);
+      const final = judged.recordCites[0];
+      if (!final?.location) throw new InvalidInputError("The source could not be resolved.");
+      const alias = parsed.status === "parsed" ? parsed.sourceAlias : null;
+      content.editSettings(input.mindId, (settings) => {
+        if (alias)
+          writeRecordCiteChoice(settings, alias, {
+            documentId: document.id,
+            location: final.location as NonNullable<RecordCiteResult["location"]>,
+          });
+        writePreviousRecordCite(settings, {
+          documentId: document.id,
+          location: final.location as NonNullable<RecordCiteResult["location"]>,
+        });
+      });
+      content.edit(input.mindId, (blocks) =>
+        updateCheck(blocks, input.checkId, (check) => ({
+          ...check,
+          recordCites: (check.recordCites ?? []).map((each) =>
+            each.raw === cite.raw && each.from === cite.from && each.to === cite.to ? final : each,
+          ),
+        })),
+      );
+      retainEvidence(input.mindId);
+      return { cite: final };
     },
 
     /** Stops a request: its sentences not checked yet are marked "stopped". */

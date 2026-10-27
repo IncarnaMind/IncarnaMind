@@ -89,10 +89,16 @@ function inlineLabel(candidate: Omit<Candidate, "inline" | "margin">): number | 
 }
 
 function candidates(rows: readonly TextRow[]): Candidate[] {
-  return rows.flatMap((row) => {
+  return rows.flatMap((row): Candidate[] => {
     const tidy = trimmed(row);
     if (tidy.text === "") return [];
-    const candidate = { row: tidy, start: tidy.start, end: tidy.end };
+    const candidate: Candidate = {
+      row: tidy,
+      start: tidy.start,
+      end: tidy.end,
+      inline: null,
+      margin: null,
+    };
     const inline = inlineLabel(candidate);
     if (inline !== null) return [{ ...candidate, inline, margin: null }];
     const margin = /^\d+$/.test(tidy.text) ? positive(tidy.text) : null;
@@ -260,7 +266,7 @@ function regionsFromAnchors(unit: UnitText): Region[] {
 }
 
 /** Adds source anchors without changing text or any existing anchor. */
-export function addDepositionAnchors(units: readonly UnitText[]): UnitText[] {
+export function addDepositionAnchors<T extends UnitText>(units: readonly T[]): T[] {
   return units.map((unit) => {
     if ((unit.kind ?? "page") !== "page") return unit;
     if (

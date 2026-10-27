@@ -75,6 +75,7 @@ import type { ShownClaim } from "./claimChecks";
 import { ClaimMarkIcon, type ClaimMarkState } from "./icons";
 import { Popover } from "./Popover";
 import { isQuietFocus } from "./quietFocus";
+import { RecordCiteResults } from "./RecordCiteResults";
 import { CitationChip, OpenCitation, UnsupportedCited } from "./UnsupportedCited";
 
 /** How long a pointer rests on a mark before its card shows, and how long it may leave before it goes. */
@@ -144,6 +145,7 @@ export function ClaimMark({
   const askers = useRef(new Set<string>());
   const timer = useRef<number | undefined>(undefined);
   const card = useRef<HTMLDivElement>(null);
+  const sourcePickerOpen = useRef(false);
   /** Whether the card was opened with the keyboard, whose Esc gives the caret back (#1762). */
   const openedByKeyboard = useRef(false);
   const open = pinned || peeking;
@@ -159,6 +161,13 @@ export function ClaimMark({
     const wanted = askers.current.size > 0;
     timer.current = window.setTimeout(() => setPeeking(wanted), wanted ? SHOW_MS : HIDE_MS);
   }, []);
+  const sourcePickerChanged = useCallback(
+    (open: boolean) => {
+      sourcePickerOpen.current = open;
+      hold("source-picker", open);
+    },
+    [hold],
+  );
   const dismiss = useCallback(() => {
     askers.current.clear();
     window.clearTimeout(timer.current);
@@ -273,6 +282,7 @@ export function ClaimMark({
             placement="bottom-end"
             middleware={() => claimCardPlace(button)}
             onDismiss={(how) => {
+              if (sourcePickerOpen.current) return;
               if (how === "escape" && openedByKeyboard.current) returnToNote();
               dismiss();
             }}
@@ -292,7 +302,9 @@ export function ClaimMark({
             <ClaimCard
               rootRef={card}
               claim={claim}
+              mindId={mindId}
               heading={heading}
+              onSourcePickerChange={sourcePickerChanged}
               verified={verificationOf(doc)?.documentId ?? null}
               cited={citationsOf(editor.state, claim)}
               fixes={offersFixes(editor, claim)}
@@ -458,7 +470,9 @@ function Working({ calculation, onOpen }: { calculation: ClaimCalculation; onOpe
 function ClaimCard({
   rootRef,
   claim,
+  mindId,
   heading,
+  onSourcePickerChange,
   verified,
   cited,
   fixes,
@@ -485,7 +499,9 @@ function ClaimCard({
 }: {
   rootRef: RefObject<HTMLDivElement | null>;
   claim: ShownClaim;
+  mindId: string;
   heading: string;
+  onSourcePickerChange(open: boolean): void;
   /** The Document a Verify Mind checks: left out of every check, as itself, never as a copy. */
   verified: string | null;
   cited: readonly NumberedCitation[];
@@ -960,6 +976,13 @@ function ClaimCard({
           </button>
         )}
       </div>
+      <RecordCiteResults
+        mindId={mindId}
+        checkId={check.id}
+        cites={check.recordCites ?? []}
+        onOpen={onOpen}
+        onPickerChange={onSourcePickerChange}
+      />
       {findSourcesOffered && (
         <ObjectMenu
           target={{ kind: "check", id: check.id }}

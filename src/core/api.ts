@@ -5220,6 +5220,9 @@ export interface RecordCiteResult {
   pageFrom?: number;
   pageTo?: number;
   passage?: string;
+  /** For "partly": the parts the cited Location does and does not cover. */
+  covered?: string;
+  uncovered?: string;
   /** Documents the User must choose between; never a silent first match. */
   candidates?: { id: string; name: string }[];
   nearby?: {
@@ -5279,6 +5282,20 @@ export interface CitedQuote {
   quote: string;
   documentId?: string;
   contentHash?: string;
+}
+
+export interface ChooseRecordCiteSourceInput {
+  mindId: string;
+  /** The sentence check whose one record cite is resolved again. */
+  checkId: string;
+  raw: string;
+  from?: number;
+  to?: number;
+  documentId: string;
+}
+
+export interface ChooseRecordCiteSourceResult {
+  cite: RecordCiteResult;
 }
 
 /** What the claim-check function checks (`checkClaim`). */
@@ -9937,6 +9954,7 @@ export interface CoreApi {
    * Sends on the "checks" flow, as `checkSentences` does.
    */
   checkClaim(input: CheckClaimInput): Promise<ClaimCheckResult>;
+  chooseRecordCiteSource(input: ChooseRecordCiteSourceInput): Promise<ChooseRecordCiteSourceResult>;
   /**
    * Verify (#97): adds a document someone else wrote (a PDF) to the Library,
    * or finds it there, waits until its text is read, and makes a Mind of that
@@ -11040,6 +11058,7 @@ const methods: Record<CoreApiMethod, true> = {
   checkSentences: true,
   cancelCheck: true,
   checkClaim: true,
+  chooseRecordCiteSource: true,
   verifyDocument: true,
   findClaims: true,
   verifyClaims: true,

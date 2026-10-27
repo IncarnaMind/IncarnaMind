@@ -1,7 +1,8 @@
 import { describe, expect, test } from "vitest";
+import { resolveDeposition } from "../../src/core/documents/deposition";
 import { parseRecordCite } from "../../src/core/recordCites/parser";
 import type { RecordCiteDocument } from "../../src/core/recordCites/resolver";
-import { resolveRecordCites } from "../../src/core/recordCites/resolver";
+import { resolveChosenRecordCite, resolveRecordCites } from "../../src/core/recordCites/resolver";
 
 const choices = { previous: null, choices: {} };
 
@@ -33,6 +34,17 @@ describe("record-cite source resolution", () => {
         pageFrom: 4,
         pageTo: 4,
         passage: "Exact page",
+        nearby: {
+          location: {
+            kind: "page",
+            from: 5,
+            to: 5,
+            printed: { from: "4", to: "4" },
+          },
+          pageFrom: 5,
+          pageTo: 5,
+          passage: "Repeated text",
+        },
       },
     ]);
   });
@@ -547,8 +559,9 @@ describe("record-cite source resolution", () => {
       },
     });
 
-    expect(calls).toEqual([{ documentId: "smith-deposition", from: 45, to: 46 }]);
-    expect(result).toEqual([
+    expect(calls[0]).toEqual({ documentId: "smith-deposition", from: 45, to: 46 });
+    expect(calls.length).toBeGreaterThan(1);
+    expect(result).toMatchObject([
       {
         raw: "Smith Dep. 45:3–46:2",
         outcome: "supported",
@@ -567,6 +580,41 @@ describe("record-cite source resolution", () => {
         passage: "Exact lines\nacross the page break",
       },
     ]);
+  });
+
+  test("offers the exact next deposition lines as a nearby candidate", () => {
+    const source = {
+      ...document([
+        {
+          page: 4,
+          kind: "page" as const,
+          text: "Page 45\n1 Q. First?\n2 A. Yes.\n3 The nearby fact.",
+        },
+        { page: 5, kind: "page" as const, text: "Page 46\n1 Later text" },
+      ]),
+      id: "smith-deposition",
+      name: "Smith Deposition.pdf",
+    };
+
+    expect(
+      resolveRecordCites({
+        cites: [parseRecordCite("Smith Dep. 45:1–2")],
+        documents: [source],
+        choices,
+        resolveDeposition,
+      })[0]?.nearby,
+    ).toEqual({
+      location: {
+        kind: "page",
+        from: 4,
+        to: 4,
+        printed: { from: "45", to: "45" },
+        lines: { from: 3, to: 3 },
+      },
+      pageFrom: 4,
+      pageTo: 4,
+      passage: "The nearby fact.",
+    });
   });
 
   test("does not invent a parallel deposition map when no mapper is injected", () => {
@@ -693,7 +741,25 @@ describe("record-cite source resolution", () => {
         passage: "Saved exact lines",
       },
     ]);
-    expect(calls).toEqual([8]);
+    expect(calls[0]).toBe(8);
+    expect(calls.length).toBeGreaterThan(1);
+  });
+
+  test("resolves a chosen candidate by stable id even when its name does not match the alias", () => {
+    const renamed = {
+      ...document([{ page: 5, label: { printed: "5" }, text: "Chosen filing" }]),
+      id: "chosen-docket",
+      name: "Duplicate filing.pdf",
+    };
+
+    expect(resolveChosenRecordCite(parseRecordCite("Dkt. 41 at 5"), renamed)).toMatchObject({
+      raw: "Dkt. 41 at 5",
+      outcome: "supported",
+      documentId: "chosen-docket",
+      documentName: "Duplicate filing.pdf",
+      pageFrom: 5,
+      passage: "Chosen filing",
+    });
   });
 
   test("turns parser failures into not-found results", () => {

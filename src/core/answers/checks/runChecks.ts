@@ -81,6 +81,7 @@ export async function runChecks(
         scope: claim.scope ?? run.scope,
         model: prepared,
         ...(run.thirdParty && { thirdParty: run.thirdParty }),
+        mindId,
         cacheKey: mindId,
         signal,
       });

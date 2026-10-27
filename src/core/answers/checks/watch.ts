@@ -274,6 +274,7 @@ export function createContradictionWatch(options: WatchOptions) {
             context: claim.context,
             scope: claim.scope,
             model: prepared,
+            mindId,
             cacheKey: mindId,
             signal,
           });
@@ -407,6 +408,7 @@ export function createContradictionWatch(options: WatchOptions) {
                 context: claim.context,
                 scope: claim.scope,
                 model: prepared,
+                mindId,
                 cacheKey: mindId,
                 signal: ended,
               }),

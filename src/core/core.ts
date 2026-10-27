@@ -4123,6 +4123,8 @@ export function createCore(adapters: CoreAdapters): Core {
     checkSentences: (input) => inFlow(input.action, () => checks.checkSentences(input)),
     cancelCheck: async (requestId) => checks.cancel(requestId),
     checkClaim: (input) => inFlow("check-claim", () => checks.checkClaim(input)),
+    chooseRecordCiteSource: (input) =>
+      inFlow("check-claim", () => checks.chooseRecordCiteSource(input)),
     verifyDocument: (input) => inFlow("verify", () => checks.verifyDocument(input)),
     findClaims: (input) => inFlow("verify", () => checks.findClaims(input)),
     verifyClaims: (input) => inFlow("verify", () => checks.verifyClaims(input)),

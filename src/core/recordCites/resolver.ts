@@ -21,6 +21,7 @@ export interface RecordCiteResolution {
   pageFrom?: number;
   pageTo?: number;
   passage: string;
+  nearby?: RecordCiteResult["nearby"];
 }
 
 export type DepositionMapperResult =
@@ -74,6 +75,7 @@ const normalize = (value: string) =>
     .trim()
     .replace(/\.[a-z0-9]{1,10}$/i, "")
     .replace(/[.’]/g, (mark) => (mark === "’" ? "'" : ""))
+    .replace(/\b(?:ecf|dkt)(?:\s+no)?\b/gi, "dkt")
     .replace(
       /\b(deposition|transcript|exhibit|declaration|complaint|plaintiff|docket)\b/gi,
       (word) => WORD_ALIASES[word.toLocaleLowerCase()] ?? word,
@@ -189,7 +191,8 @@ const resolveSavedPage = (
   if (!units || !first || !last) return null;
   if (
     location.printed &&
-    (first.label?.printed !== location.printed.from || last.label?.printed !== location.printed.to)
+    ((first.label?.printed ?? String(first.page)) !== location.printed.from ||
+      (last.label?.printed ?? String(last.page)) !== location.printed.to)
   ) {
     return null;
   }
@@ -276,6 +279,78 @@ const mapDeposition = (
     pageFrom,
     pageTo,
     passage: wholePages(mapped.units),
+  };
+};
+
+type Nearby = NonNullable<RecordCiteResult["nearby"]>;
+
+const asNearby = (resolution: RecordCiteResolution): Nearby | undefined => {
+  const { location, pageFrom, pageTo, passage } = resolution;
+  return pageFrom !== undefined && pageTo !== undefined
+    ? { location, pageFrom, pageTo, passage }
+    : undefined;
+};
+
+const nearbyDeposition = (
+  document: RecordCiteDocument,
+  location: PageLocation,
+  resolveDeposition: ResolveDeposition | undefined,
+): Nearby | undefined => {
+  const page = Number(location.printed?.to);
+  const lastLine = location.lines?.to;
+  if (!Number.isSafeInteger(page) || page < 1 || lastLine === undefined) return undefined;
+  for (const [candidatePage, firstLine] of [
+    [page, lastLine + 1],
+    [page + 1, 1],
+  ] as const) {
+    for (let count = 10; count >= 1; count--) {
+      const mapped = mapDeposition(
+        document,
+        {
+          kind: "page",
+          from: location.from,
+          to: location.to,
+          printed: { from: String(candidatePage), to: String(candidatePage) },
+          lines: { from: firstLine, to: firstLine + count - 1 },
+        },
+        resolveDeposition,
+      );
+      const nearby = mapped ? asNearby(mapped) : undefined;
+      if (nearby) return nearby;
+    }
+  }
+  return undefined;
+};
+
+const withNearby = (
+  document: RecordCiteDocument,
+  resolution: RecordCiteResolution,
+  resolveDeposition: ResolveDeposition | undefined,
+): RecordCiteResolution => {
+  const nearby =
+    resolution.location.kind === "page" && resolution.location.lines
+      ? nearbyDeposition(document, resolution.location, resolveDeposition)
+      : undefined;
+  if (nearby && !sameExactLocation(nearby.location, resolution.location)) {
+    return { ...resolution, nearby };
+  }
+  if (resolution.pageTo === undefined) return resolution;
+  const [unit] = pageUnits(document, [resolution.pageTo + 1]) ?? [];
+  if (!unit || unit.page === null) return resolution;
+  const printed = unit.label?.printed ?? String(unit.page);
+  return {
+    ...resolution,
+    nearby: {
+      location: {
+        kind: "page",
+        from: unit.page,
+        to: unit.page,
+        printed: { from: printed, to: printed },
+      },
+      pageFrom: unit.page,
+      pageTo: unit.page,
+      passage: wholePages([unit]),
+    },
   };
 };
 
@@ -517,15 +592,21 @@ const resolveSavedLocation = (
   location: CitationLocation,
   resolveDeposition: ResolveDeposition | undefined,
 ): RecordCiteResolution | null => {
+  const finish = (resolution: RecordCiteResolution | null) =>
+    resolution ? withNearby(document, resolution, resolveDeposition) : null;
   if (location.kind === "page") {
-    if (!location.lines) return resolveSavedPage(document, location);
+    if (!location.lines) return finish(resolveSavedPage(document, location));
     const resolution = mapDeposition(document, location, resolveDeposition);
-    return resolution && sameExactLocation(resolution.location, location) ? resolution : null;
+    return resolution && sameExactLocation(resolution.location, location)
+      ? finish(resolution)
+      : null;
   }
-  if (location.kind === "section") return resolveParagraph(document, location);
+  if (location.kind === "section") return finish(resolveParagraph(document, location));
   if (location.kind === "time") {
     const resolution = resolveTime(document, location);
-    return resolution && sameExactLocation(resolution.location, location) ? resolution : null;
+    return resolution && sameExactLocation(resolution.location, location)
+      ? finish(resolution)
+      : null;
   }
   return null;
 };
@@ -535,18 +616,22 @@ const resolveRequested = (
   document: RecordCiteDocument,
   resolveDeposition: ResolveDeposition | undefined,
 ): RecordCiteResolution | null => {
+  const finish = (resolution: RecordCiteResolution | null) =>
+    resolution ? withNearby(document, resolution, resolveDeposition) : null;
   if (cite.kind === "deposition" && cite.location?.kind === "page") {
-    return mapDeposition(document, cite.location, resolveDeposition);
+    return finish(mapDeposition(document, cite.location, resolveDeposition));
   }
   if ((cite.kind === "exhibit" || cite.kind === "docket") && cite.location?.kind === "page") {
-    return resolvePage(document, cite.location);
+    return finish(resolvePage(document, cite.location));
   }
-  if (cite.kind === "bates" && cite.bates) return resolveBates(document, cite.bates);
+  if (cite.kind === "bates" && cite.bates) {
+    return finish(resolveBates(document, cite.bates));
+  }
   if (cite.kind === "paragraph" && cite.location?.kind === "section") {
-    return resolveParagraph(document, cite.location);
+    return finish(resolveParagraph(document, cite.location));
   }
   if (cite.kind === "time" && cite.location?.kind === "time") {
-    return resolveTime(document, cite.location);
+    return finish(resolveTime(document, cite.location));
   }
   return null;
 };
@@ -624,6 +709,17 @@ const restorePrevious = (
   return resolution ? { document, resolution } : null;
 };
 
+/** Resolves a candidate already chosen by stable Document id, without matching its name again. */
+export function resolveChosenRecordCite(
+  cite: RecordCiteInput,
+  document: RecordCiteDocument,
+  resolveDeposition?: ResolveDeposition,
+): RecordCiteResult {
+  if (cite.status === "error" || cite.reference) return notFound(cite);
+  const resolution = resolveRequested(cite, document, resolveDeposition);
+  return resolution ? resolved(cite, document, resolution) : notFound(cite);
+}
+
 /**
  * Resolves record-cite identity and exact text only. A resolved cite is marked "supported";
  * the claim checker remains responsible for supported/partly support decisions.
@@ -646,7 +742,12 @@ export function resolveRecordCites({
       } else if (cite.kind === "id" && cite.location?.kind === "page") {
         const resolution = resolvePage(previous.document, cite.location);
         outcome = resolution
-          ? fromMatches(cite, [{ document: previous.document, resolution }])
+          ? fromMatches(cite, [
+              {
+                document: previous.document,
+                resolution: withNearby(previous.document, resolution, resolveDeposition),
+              },
+            ])
           : { result: notFound(cite), resolved: null };
       } else {
         outcome = fromMatches(cite, [previous]);

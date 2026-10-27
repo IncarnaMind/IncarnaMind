@@ -24,8 +24,10 @@
 
 import { generateText } from "ai";
 import { type CaseCitation, caseCitations, isOpinionOf } from "../../../shared/caseCitations";
+import type { LiveDocument } from "../../../shared/citations";
 import type { FigureContext } from "../../../shared/figures";
 import { type MessageKey, type MessageParams, translate } from "../../../shared/i18n";
+import type { RecordCiteChoices } from "../../../shared/recordCiteChoices";
 import { sentenceSpans } from "../../../shared/sentences";
 import type {
   CheckedVersion,
@@ -41,11 +43,14 @@ import type {
   ThirdPartyReason,
   UnsupportedReason,
 } from "../../api";
+import { resolveDeposition as mapDeposition } from "../../documents/deposition";
 import type { Evidence, EvidenceScope } from "../../documents/evidence";
 import type { Language } from "../../language";
 import { calculates, givesStructuredOutput } from "../../providers/capabilities";
 import type { PreparedChatModel } from "../../providers/chat";
 import { classifyProviderError } from "../../providers/providerErrors";
+import { scanRecordCites } from "../../recordCites/parser";
+import { type RecordCiteDocument, resolveRecordCites } from "../../recordCites/resolver";
 import {
   answerLanguage,
   type CalculationSession,
@@ -82,6 +87,7 @@ import {
   readVerdict,
   STRICT_INSTRUCTIONS,
 } from "./prompt";
+import { judgeResolvedRecordCites, recordCiteVersions } from "./recordCites";
 import { searchAgain } from "./searchAgain";
 import { unitNotStated } from "./units";
 
@@ -91,6 +97,8 @@ export interface ClaimCheckDependencies {
   engine: AnswerEngine;
   evidence: Pick<Evidence, "search">;
   documents: Pick<AnswerDocuments, "citationSource" | "pageTexts" | "documentDate"> & {
+    names?(): readonly LiveDocument[];
+    recordChoices?(mindId?: string): RecordCiteChoices;
     searchableCount(documentIds: readonly string[] | null): number;
     searchableLanguages(documentIds: readonly string[] | null): DocumentLanguage[];
     savedBySearch(documentId: string): boolean;
@@ -105,6 +113,8 @@ export interface ClaimCheckRequest {
   model: PreparedChatModel;
   /** The Run reads the document being checked (#97): it is third-party from its start. */
   thirdParty?: readonly ThirdPartyReason[];
+  /** The Note whose stored record-cite choices apply; absent for a direct check. */
+  mindId?: string;
   /** Names the Mind, for a provider's prompt cache. */
   cacheKey?: string;
   signal: AbortSignal;
@@ -164,8 +174,53 @@ export function recordJudged(
 const SEARCH_FIRST =
   "You gave a verdict without searching the User's Documents. Search them with search_documents first, then give your verdict from what you find.";
 
+function recordDocuments(deps: ClaimCheckDependencies): RecordCiteDocument[] {
+  return (deps.documents.names?.() ?? []).map((document) => ({
+    id: document.id,
+    name: document.name ?? document.title ?? "",
+    contentHash: document.contentHash,
+    units: deps.documents.pageTexts(document.id, document.contentHash, null, null),
+  }));
+}
+
+function recordOccurrences(claim: string) {
+  return scanRecordCites(claim).map((occurrence) => ({
+    ...occurrence.result,
+    raw: occurrence.raw,
+    from: occurrence.from,
+    to: occurrence.to,
+  }));
+}
+
+async function withRecordCites(
+  request: ClaimCheckRequest,
+  result: ClaimCheckResult,
+  deps: ClaimCheckDependencies,
+): Promise<ClaimCheckResult> {
+  if (result.verdict === "not-checked") return result;
+  const resolved = resolveRecordCites({
+    cites: recordOccurrences(request.claim),
+    documents: recordDocuments(deps),
+    choices: deps.documents.recordChoices?.(request.mindId) ?? { previous: null, choices: {} },
+    resolveDeposition: mapDeposition,
+  });
+  const judged = await judgeResolvedRecordCites(
+    resolved,
+    request.model,
+    request.claim,
+    request.signal,
+    deps.language(),
+  );
+  if ("failed" in judged) return { ...result, verdict: "not-checked", ...failureOf(judged.failed) };
+  const versions = new Map(result.versions.map((version) => [version.documentId, version]));
+  for (const version of recordCiteVersions(judged.recordCites)) {
+    if (!versions.has(version.documentId)) versions.set(version.documentId, version);
+  }
+  return { ...result, recordCites: judged.recordCites, versions: [...versions.values()] };
+}
+
 export function createClaimCheck(deps: ClaimCheckDependencies) {
-  return async function checkClaim(request: ClaimCheckRequest): Promise<ClaimCheckResult> {
+  const checkClaim = async (request: ClaimCheckRequest): Promise<ClaimCheckResult> => {
     const { scope, signal } = request;
     let searches = 0;
     const read = new Map<string, string>();
@@ -589,6 +644,12 @@ export function createClaimCheck(deps: ClaimCheckDependencies) {
       ...citedCase(evidence),
       ...facts(),
     };
+  };
+
+  return async function checkClaimWithRecords(
+    request: ClaimCheckRequest,
+  ): Promise<ClaimCheckResult> {
+    return withRecordCites(request, await checkClaim(request), deps);
   };
 }
 
