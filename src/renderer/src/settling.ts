@@ -6,20 +6,28 @@ export const SHOWN_AFTER_MS = 300;
 /** Once shown, a wait stays at least this long, so it doesn't flash on its way out either. */
 export const SHOWN_AT_LEAST_MS = 500;
 
+type Timer = ReturnType<typeof setTimeout>;
+
 /**
  * Tracks which of the things that are there to show: `update` says what is there now, and
  * `onChange` hears when what shows changes. A thing shows once it has been there
  * `SHOWN_AFTER_MS`, unless another already shows, which it then takes the place of at once, so the
- * row is never empty between two waits; and it stays `SHOWN_AT_LEAST_MS` once shown. `drawn` says
- * what `onChange` announced is on screen: a busy page draws it later than it was announced, and
- * the time it stays counts from the drawing.
+ * row is never empty between two waits; and it stays `SHOWN_AT_LEAST_MS` once shown.
+ *
+ * Shown is counted from the announcement, unless `drawnIsTold`: then from the `drawn` call that
+ * follows it, since a busy page draws what `onChange` announced later, and a thing whose work ends
+ * before that goes `SHOWN_AT_LEAST_MS` after the drawing, however late it comes.
  */
-export function createSettling(onChange: (shown: ReadonlySet<string>) => void) {
-  let shown = new Map<string, number>();
-  const undrawn = new Set<string>();
-  const waiting = new Map<string, ReturnType<typeof setTimeout>>();
-  const leaving = new Map<string, ReturnType<typeof setTimeout>>();
-  const tell = (next: Map<string, number>) => {
+export function createSettling(
+  onChange: (shown: ReadonlySet<string>) => void,
+  { drawnIsTold = false }: { drawnIsTold?: boolean } = {},
+) {
+  /** What shows, and when it began to stay: null until `drawn`, for a thing not yet drawn. */
+  let shown = new Map<string, number | null>();
+  let present = new Set<string>();
+  const waiting = new Map<string, Timer>();
+  const leaving = new Map<string, Timer>();
+  const tell = (next: Map<string, number | null>) => {
     const same = next.size === shown.size && [...next.keys()].every((id) => shown.has(id));
     shown = next;
     if (!same) onChange(new Set(next.keys()));
@@ -27,13 +35,15 @@ export function createSettling(onChange: (shown: ReadonlySet<string>) => void) {
   const hide = (id: string) => {
     clearTimeout(leaving.get(id));
     leaving.delete(id);
-    undrawn.delete(id);
     const next = new Map(shown);
     next.delete(id);
     tell(next);
   };
+  /** Its work is over: it goes once it has stayed its minimum. One not yet drawn goes after `drawn`. */
   const leave = (id: string) => {
-    const left = (shown.get(id) ?? 0) + SHOWN_AT_LEAST_MS - Date.now();
+    const since = shown.get(id);
+    if (since === null || since === undefined || leaving.has(id)) return;
+    const left = since + SHOWN_AT_LEAST_MS - Date.now();
     if (left <= 0) hide(id);
     else
       leaving.set(
@@ -46,31 +56,30 @@ export function createSettling(onChange: (shown: ReadonlySet<string>) => void) {
     waiting.delete(id);
     const next = new Map(shown);
     // What was only being kept on screen gives way to what takes its place.
-    for (const gone of leaving.keys()) {
-      next.delete(gone);
-      undrawn.delete(gone);
+    for (const kept of [...next.keys()]) {
+      if (present.has(kept)) continue;
+      next.delete(kept);
+      clearTimeout(leaving.get(kept));
+      leaving.delete(kept);
     }
-    for (const timer of leaving.values()) clearTimeout(timer);
-    leaving.clear();
-    next.set(id, Date.now());
-    undrawn.add(id);
+    next.set(id, drawnIsTold ? null : Date.now());
     tell(next);
   };
   return {
     update(ids: readonly string[]): void {
-      const here = new Set(ids);
+      present = new Set(ids);
       for (const [id, timer] of waiting) {
-        if (here.has(id)) continue;
+        if (present.has(id)) continue;
         clearTimeout(timer);
         waiting.delete(id);
       }
       for (const id of shown.keys()) {
-        if (here.has(id)) {
+        if (present.has(id)) {
           clearTimeout(leaving.get(id));
           leaving.delete(id);
-        } else if (!leaving.has(id)) leave(id);
+        } else leave(id);
       }
-      for (const id of here) {
+      for (const id of present) {
         if (shown.has(id) || waiting.has(id)) continue;
         if (shown.size > 0) show(id);
         else
@@ -80,23 +89,37 @@ export function createSettling(onChange: (shown: ReadonlySet<string>) => void) {
           );
       }
     },
+    /** What `onChange` announced is on screen: what was waiting to be drawn starts to stay now. */
     drawn(): void {
-      for (const id of undrawn) {
-        shown.set(id, Date.now());
-        const timer = leaving.get(id);
-        if (timer === undefined) continue;
-        clearTimeout(timer);
-        leaving.delete(id);
-        leave(id);
+      const now = Date.now();
+      for (const [id, since] of shown) {
+        if (since !== null) continue;
+        shown.set(id, now);
+        if (!present.has(id)) leave(id);
       }
-      undrawn.clear();
     },
     stop(): void {
       for (const timer of [...waiting.values(), ...leaving.values()]) clearTimeout(timer);
       waiting.clear();
       leaving.clear();
-      undrawn.clear();
+      shown = new Map();
+      present = new Set();
     },
+  };
+}
+
+/**
+ * Calls `done` in the second frame from now: the frame before it has drawn what was committed
+ * before this call. Returns what cancels it, in whichever frame it stands.
+ */
+export function afterPaint(done: () => void): () => void {
+  let second = 0;
+  const first = requestAnimationFrame(() => {
+    second = requestAnimationFrame(done);
+  });
+  return () => {
+    cancelAnimationFrame(first);
+    cancelAnimationFrame(second);
   };
 }
 
@@ -104,16 +127,13 @@ export function createSettling(onChange: (shown: ReadonlySet<string>) => void) {
 export function useSettled(ids: readonly string[]): ReadonlySet<string> {
   const [shown, setShown] = useState<ReadonlySet<string>>(new Set());
   const settling = useRef<ReturnType<typeof createSettling> | null>(null);
-  settling.current ??= createSettling(setShown);
+  settling.current ??= createSettling(setShown, { drawnIsTold: true });
   const key = ids.join("\n");
   // biome-ignore lint/correctness/useExhaustiveDependencies: `key` stands for `ids`.
   useEffect(() => settling.current?.update(ids), [key]);
-  // The frame after a change of what shows is the one that draws it.
+  // Two frames after a change of what shows, the change has been drawn.
   // biome-ignore lint/correctness/useExhaustiveDependencies: a change of `shown` is when to ask.
-  useLayoutEffect(() => {
-    const frame = requestAnimationFrame(() => settling.current?.drawn());
-    return () => cancelAnimationFrame(frame);
-  }, [shown]);
+  useLayoutEffect(() => afterPaint(() => settling.current?.drawn()), [shown]);
   useEffect(() => () => settling.current?.stop(), []);
   return shown;
 }
