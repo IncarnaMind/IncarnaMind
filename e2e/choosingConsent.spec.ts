@@ -19,6 +19,7 @@ import {
   createDataFolder,
   dismissChatSetup,
   launchApp,
+  makeTagOnDocument,
   newMind,
   openAdvancedModels,
   openSettings,
@@ -38,7 +39,7 @@ const SENDS_EN = {
   onRequest:
     "Tagging and sorting your Documents send each Document’s name and an excerpt, with your Folder and Tag names, only when you turn them on or ask for them. Page images of scans go only if you allow them in Settings → Privacy.",
   items: [
-    "your Questions, the Mind you’re in or one you name, matching passages with their Document names and pages, the names, Folders and Tags of the Documents a Question or a command finds (up to 50), and a Meeting’s Transcript",
+    "your Questions, the note you’re in or one you name, matching passages with their Document names and pages, the names, Folders and Tags of the Documents a Question or a command finds (up to 50), and a Meeting’s Transcript",
     "each sentence you check",
     "the paragraph you pause on, for writing suggestions",
     "the text you ask the assistant to change",
@@ -49,7 +50,7 @@ const SENDS_ZH = {
   onRequest:
     "给文档打标签和整理，会发送每个文档的名称和摘录，以及你的文件夹和标签名称；只有在你开启或要求时才会发送。扫描件的页面图片只有在你于“设置 → 隐私”中允许后才会发送。",
   items: [
-    "你的问题、你所在或在问题中提到的 Mind、相关段落及其文档名称和页码、问题或命令找到的文档的名称、文件夹和标签（最多 50 个），以及会议的转写稿",
+    "你的问题、你所在或在问题中提到的笔记、相关段落及其文档名称和页码、问题或命令找到的文档的名称、文件夹和标签（最多 50 个），以及会议的转写稿",
     "你核对的每一句话",
     "写作建议时你停下的那一段",
     "你让助手修改的文字",
@@ -180,6 +181,8 @@ test("first run: choosing a provider with a key is the consent for what runs by 
   const second = window.getByTestId("document-list-item").filter({ hasText: "Invoice 42" });
   await expect(second).toHaveAttribute("data-status", "ready");
   await expect(second).toHaveAttribute("data-tagging", "waiting-for-provider");
+  // A Tag of the User's own: only now is Tags named, and its permission asked for (#1942).
+  await makeTagOnDocument(window, "Invoice 42");
   const status = window.getByTestId("tagging-waiting");
   await expect(status).toContainText("Tags need your OK");
   await expect(status).toHaveAttribute(
@@ -213,6 +216,7 @@ test("before a model is chosen, a new Document's tagging waits with its line, an
 
   const item = window.getByTestId("document-list-item").filter({ hasText: "Invoice 43" });
   await expect(item).toHaveAttribute("data-tagging", "waiting-for-provider");
+  await makeTagOnDocument(window, "Invoice 43");
   const status = window.getByTestId("tagging-waiting");
   await expect(status).toContainText("No AI model for Tags");
   await expect(status).toHaveAttribute("title", "Tags come once you choose an AI model.");

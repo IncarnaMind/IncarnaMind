@@ -96,6 +96,7 @@ test("Export opens a short menu: Word and PDF, the last one used first with ⇧�
   await pointAndClick(window, window.getByTestId("export-mind"));
   await expect(items).toHaveText([
     /^Word \(\.docx\)/,
+    "Not checked since your last edit · Check first",
     "PDF",
     "More formats",
     "Citation styleNumbered (Document and Location)",
@@ -120,14 +121,14 @@ test("Export opens a short menu: Word and PDF, the last one used first with ⇧�
   await expect(items).toHaveText([
     new RegExp(`^PDF${shortcut.source}`),
     "Word (.docx)",
+    "Not checked since your last edit · Check first",
     "More formats",
     /^Citation style/,
     "Export options…",
   ]);
 
   const moreItem = menu.getByTestId("export-more");
-  await window.keyboard.press("ArrowDown");
-  await window.keyboard.press("ArrowDown");
+  for (let step = 0; step < 3; step++) await window.keyboard.press("ArrowDown");
   await expect(moreItem).toBeFocused();
   await window.keyboard.press("ArrowRight");
   const more = window.getByTestId("export-more-menu");
@@ -156,7 +157,7 @@ test("Export opens a short menu: Word and PDF, the last one used first with ⇧�
   await expect(more).toBeVisible();
   await window.keyboard.press("ArrowUp");
   await expect(more).toBeHidden();
-  await expect(menu.getByTestId("export-as-docx")).toBeFocused();
+  await expect(menu.getByTestId("export-note-state")).toBeFocused();
   await expect(menu).toBeVisible();
 
   await window.keyboard.press("ArrowDown");
@@ -170,6 +171,7 @@ test("Export opens a short menu: Word and PDF, the last one used first with ⇧�
   await expect(items).toHaveText([
     /^Markdown（\.md）/,
     "Word（.docx）",
+    "上次编辑后未核对 · 先核对",
     "PDF",
     "更多格式",
     /^引用格式/,
@@ -512,7 +514,7 @@ test("saving inside a Linked folder asks once; Settings › General shows where 
   await expect(ask.getByRole("heading")).toHaveText("在“Notes”中添加文件？");
   await screenshot(ask, "file-write-linked-folder-zh");
   await ask.getByTestId("file-write-deny").click();
-  await expect(problem).toHaveText("无法保存：你没有允许在同步文件夹“Notes”中添加文件 · 允许");
+  await expect(problem).toHaveText("无法保存：你没有允许在关联文件夹“Notes”中添加文件 · 允许");
   await screenshot(result, "export-not-allowed-zh");
   await app.close();
 });

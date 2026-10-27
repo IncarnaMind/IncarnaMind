@@ -45,7 +45,7 @@
   --color-accent-wash: #e7edfb;
   /* A selection in a field that has lost the focus, as macOS draws one in a window not in front. */
   --color-selection-inactive: #dde1e7;
-  /* Citation checks only (and the same green on a found quote in the viewer). */
+  /* Citation checks, the same green on a found quote in the viewer, and a note's Checked state (D266). */
   --color-success: #166534;
   --color-success-wash: #dcf3e4;
   --color-warning: #9a4a06;
@@ -1606,6 +1606,17 @@
       outline-offset: 1px;
     }
   }
+  /* A running badge, or one whose card is open, keeps one width, so its words changing move
+     nothing; at rest it takes only its words' width, clear of the page's foot. The button fills
+     the pill, and its words start at one edge, so a change widens it without moving them. */
+  .check-badge[data-stable] {
+    justify-content: flex-start;
+    min-width: 252px;
+  }
+  .check-badge[data-stable] .check-badge-open {
+    flex: 1 1 auto;
+    justify-content: flex-start;
+  }
   .check-badge-stop {
     font-weight: 600;
   }
@@ -1627,6 +1638,55 @@
     font-weight: 400;
     color: var(--color-ink-secondary);
   }
+  /* A note's three resting states (D266), in the check colours the margin uses. */
+  .check-badge[data-tone="success"] .check-badge-words {
+    font-weight: 600;
+    color: var(--color-success);
+  }
+  .check-badge[data-tone="warning"] .check-badge-words {
+    font-weight: 600;
+    color: var(--color-warning);
+  }
+  /* Unread files that could hold the evidence keep the ring amber, as a failed check does. */
+  .check-badge[data-tone="warning"] .mind-health-icon {
+    color: var(--color-warning);
+  }
+  .check-badge[data-tone="error"] .check-badge-words {
+    font-weight: 600;
+    color: var(--color-danger);
+  }
+  .check-badge[data-tone="neutral"] .mind-health-icon {
+    color: var(--color-ink-meta);
+  }
+  .check-badge[data-tone="success"] .mind-health-icon {
+    color: var(--color-success);
+  }
+  .check-badge-more {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .check-badge-unread {
+    font-weight: 400;
+    color: var(--color-ink-meta);
+  }
+  .check-badge-short {
+    display: none;
+    font-variant-numeric: tabular-nums;
+  }
+  .home-recent-state {
+    color: var(--color-ink-meta);
+  }
+  .home-recent-state[data-tone="warning"] {
+    color: var(--color-warning);
+  }
+  /* A note's state when a claim is contradicted (D266): the margin's red, in words. */
+  .home-recent-state[data-tone="error"] {
+    color: var(--color-danger);
+  }
+  .home-recent-state[data-tone="success"] {
+    color: var(--color-success);
+  }
   .check-badge-sep {
     color: var(--color-rule-strong);
   }
@@ -1646,7 +1706,8 @@
    * The undo line with the sidebar out of sight (#1776): the card's bottom left corner, 16px in
    * from the window's edges, since the sidebar's foot is gone. Inside the card it stays above the
    * assistant's composer and right of one docked on the left, and its width leaves the check badge
-   * at the foot's other end alone. Raised over the first open's Ask pill, which sits centred there.
+   * at the foot's other end alone. It sits in the gutter left of the page's text, or in a band
+   * under the shortened page (UndoPill.tsx), so it covers none of that text (#1914).
    */
   .undo-pill-place {
     position: absolute;
@@ -1654,17 +1715,19 @@
     left: 8px;
     z-index: 20;
     max-width: min(360px, calc(100% - 16px));
-
-    &[data-quiet] {
-      bottom: 68px;
-    }
+    pointer-events: none;
   }
+  /* Text under the pill stays pressable: the shell and its words let presses through. */
   .undo-pill {
     box-sizing: border-box;
     padding: 4px 8px 4px 12px;
     border-radius: 16px;
     background: var(--color-sheet);
     box-shadow: var(--shadow-popover);
+    pointer-events: none;
+  }
+  .undo-pill button {
+    pointer-events: auto;
   }
   .mind-health-note {
     margin: 0;
@@ -1756,6 +1819,11 @@
     line-height: 18px;
     color: var(--color-ink-meta);
     font-variant-numeric: tabular-nums;
+
+    /* A run ends a moment before its record reaches the Mind: the line keeps its one line. */
+    &:empty::before {
+      content: "\00a0";
+    }
   }
   .check-card-actions {
     display: flex;
@@ -1826,8 +1894,15 @@
     }
   }
   @container group (width < 400px) {
-    .check-badge-words {
+    .check-badge[data-stable] {
+      min-width: 0;
+    }
+    .check-badge-words,
+    .check-badge-more {
       display: none;
+    }
+    .check-badge-short {
+      display: inline;
     }
   }
   .mind-count-button {
@@ -5139,6 +5214,7 @@
    * state's colour, what that means, and "Open the page".
    */
   .citation-card {
+    position: relative;
     display: flex;
     flex-direction: column;
     gap: 10px;
@@ -5158,6 +5234,12 @@
     display: flex;
     flex-direction: column;
     gap: 2px;
+  }
+  /* The card's ⋯: at its top right, after its actions in the reading order, so the first action keeps the focus. */
+  .citation-card-menu {
+    position: absolute;
+    top: 10px;
+    right: 10px;
   }
   .citation-badge {
     display: flex;
@@ -7451,7 +7533,7 @@
   .assistant-answer:has(> .assistant-answer-tip-room):not(:has(~ .assistant-question)) {
     margin-bottom: 28px;
   }
-  /* A narrow assistant keeps room for the named Add to note: Copy and New Mind drop their words and keep their icons and names. */
+  /* A narrow assistant keeps the words of Write as a note and the named Add to note: Copy drops its words and keeps its icon and name. */
   @container assistant (max-width: 320px) {
     .assistant-answer .assistant-answer-action--collapses {
       justify-content: center;
@@ -9220,6 +9302,24 @@
       overflow: visible;
     }
   }
+  /* One chart of a stack: series of different units are never on one scale (#1392). */
+  .chart-panel {
+    position: relative;
+    margin: 0;
+  }
+  .chart-panel + .chart-panel {
+    margin-top: 16px;
+  }
+  .chart-frame {
+    position: relative;
+  }
+  .chart-unit {
+    margin-bottom: 2px;
+    font-size: 12px;
+    line-height: 18px;
+    font-weight: 600;
+    color: var(--color-ink-meta);
+  }
   /* The values lie over the drawing; only they take the pointer. */
   .chart-marks {
     position: absolute;
@@ -9792,9 +9892,51 @@
     overflow-wrap: anywhere;
     word-break: normal;
   }
-  .comparison-question--new input {
+  .comparison-question {
+    display: flex;
+    align-items: flex-start;
+    gap: 4px;
+  }
+  .comparison-question:focus-visible {
+    outline: 2px solid var(--color-accent);
+    outline-offset: -2px;
+  }
+  .comparison-question-label {
+    flex: 1 1 auto;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .comparison-question-menu {
+    flex: none;
+    margin: -2px -4px -2px 0;
+    padding: 1px;
+    border-radius: 4px;
+    color: var(--color-ink-meta);
+    opacity: 0;
+  }
+  .comparison-question:hover .comparison-question-menu,
+  .comparison-question:focus-within .comparison-question-menu,
+  .comparison-question-menu:focus-visible {
+    opacity: 1;
+  }
+  .comparison-question-menu:hover {
+    background: var(--color-hover);
+    color: var(--color-ink);
+  }
+  .comparison-question-fields,
+  .comparison-question-new {
+    display: flex;
+    flex: 1 1 auto;
+    flex-direction: column;
+    gap: 4px;
+    min-width: 0;
     width: 100%;
-    margin: -3px -6px;
+  }
+  .comparison-question-fields input,
+  .comparison-question-new input {
+    width: 100%;
     padding: 2px 6px;
     border: 1px solid var(--color-accent);
     border-radius: 4px;
@@ -9889,6 +10031,22 @@
     display: flex;
     align-items: flex-start;
     gap: 6px;
+  }
+  /* A reworded column's old Answer, greyed until its new one arrives. */
+  .comparison-cell-stale {
+    display: none;
+    white-space: pre-wrap;
+    color: var(--color-ink-meta);
+  }
+  .comparison-cell[data-stale="true"] > .comparison-cell-stale {
+    display: block;
+  }
+  .comparison-cell[data-stale="true"] > .comparison-cell-content,
+  .comparison-cell[data-stale="true"] > .comparison-cell-running,
+  .comparison-cell[data-stale="true"] > .comparison-cell-reading,
+  .comparison-cell[data-stale="true"] > .comparison-cell-stopped,
+  .comparison-cell[data-stale="true"] > .comparison-cell-problem {
+    display: none;
   }
   .comparison-cell-reading::before {
     content: "";

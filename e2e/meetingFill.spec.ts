@@ -19,7 +19,7 @@ test.afterEach(async () => {
 });
 
 const LINES = {
-  en: { filled: "Notes filled in", undo: "Undo", undone: "Fill-in undone", again: "Fill in again" },
+  en: { filled: "Note filled in", undo: "Undo", undone: "Fill-in undone", again: "Fill in again" },
   "zh-CN": { filled: "已补全笔记", undo: "撤销", undone: "已撤销补全", again: "重新补全" },
 } as const;
 

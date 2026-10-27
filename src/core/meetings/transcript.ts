@@ -4,11 +4,12 @@
  * computer's sound, as two streams (./tracks) to the `Transcriber`, whose
  * lines arrive a few seconds behind. A line from the microphone is "Me" and
  * one from the computer's sound "Them" (#941); in a room with no computer
- * sound, "Speaker ?". The Transcript is a Document from its first line, in the
- * data folder's "Transcripts" while the Meeting records, indexed again as
- * lines come; at Stop it is finished and saved as a WebVTT file in the Output
- * location, and the Document follows it there. Then, while the audio is kept,
- * the speaker pass (./speakerPass, #138) tells voices apart and relabels it.
+ * sound, "Speaker ?"; in a voice memo (#1568), no one is named. The Transcript
+ * is a Document from its first line, kept in the data folder's "Transcripts"
+ * and in the Library, indexed again as lines come; at Stop it is finished
+ * there, with nothing asked about where files go (#763). Then, while the
+ * audio is kept, the speaker pass (./speakerPass, #138) tells voices apart and
+ * relabels it; a voice memo has no such pass.
  *
  * Its audio stays on disk, so nothing is lost when live text can't keep up:
  * - while the model downloads or starts, the audio waits, and what waited
@@ -58,7 +59,6 @@ import type {
   CloudTranscriptionRoute,
   Document,
   MeetingTranscript,
-  SavedFile,
   TranscriptionModelStatus,
   TranscriptProblem,
   TranscriptState,
@@ -73,8 +73,6 @@ import {
   writeVtt,
 } from "../documents/formats/vtt";
 import type { SnapshotFile } from "../documents/web";
-import { FileWriteCancelledError } from "../errors";
-import type { NewFile } from "../outputFiles";
 import type { CloudAudioMeter, CloudTranscription } from "../transcription/cloud/routes";
 import type { TranscriptionModel } from "../transcription/model";
 import type { AudioPart } from "./audioFiles";
@@ -123,8 +121,6 @@ interface Saved {
   /** Stretches to transcribe once the Meeting stops. */
   pending: Range[];
   savedPath: string | null;
-  /** Its save took the default Output location (`SavedFile.defaulted`). */
-  savedDefaulted?: boolean;
   /** Stopped with nothing transcribed. */
   empty?: boolean;
   /** The number each speaker a cloud service told apart has, by stream and its own label. */
@@ -182,7 +178,7 @@ interface Live {
 interface Reading {
   baseMs: number;
   source: AudioSource;
-  speaker(): string;
+  speaker(): string | null;
   /** A cloud stream lost before its last lines came. */
   lost?: boolean;
 }
@@ -191,7 +187,7 @@ interface Heard {
   startMs: number;
   text: string;
   id: number;
-  speaker: string;
+  speaker: string | null;
 }
 
 interface State extends Saved {
@@ -218,6 +214,8 @@ interface State extends Saved {
   indexTimer: ReturnType<typeof setTimeout> | null;
   partialTimer: ReturnType<typeof setTimeout> | null;
   finishing: Promise<void> | null;
+  /** A voice memo (#1568): its lines name no speaker, and no pass tells speakers apart. */
+  memo: boolean;
 }
 
 export interface TranscriptDocuments {
@@ -225,7 +223,8 @@ export interface TranscriptDocuments {
   /** Files the Document in the Mind's Folder. */
   file(documentId: string, folderId: string): void;
   check(path: string): Promise<void>;
-  moveFile(id: string, path: string): Promise<void>;
+  /** Reads the file again, and resolves once the Document's text is this file's. */
+  checkNow(documentId: string | null, path: string): Promise<void>;
   /** The live Document, or null once deleted. */
   find(id: string): Document | null;
 }
@@ -235,7 +234,6 @@ export interface TranscriptsOptions {
   transcriber: Transcriber;
   model: TranscriptionModel;
   documents: TranscriptDocuments;
-  saveFile(file: NewFile): Promise<SavedFile>;
   /** "Transcript · {meeting}", in the language of the interface. */
   name(meetingId: string): string;
   /** The Folder of the Meeting's Mind, if it is in one. */
@@ -250,6 +248,10 @@ export interface TranscriptsOptions {
   health: CaptureHealthRecords;
   /** Tells speakers apart after the call (#138). Absent: lines keep the labels of where they came from. */
   speakers?: SpeakerPass;
+  /** Whether the Meeting is a voice memo (#1568), whose lines name no one. */
+  memo?(meetingId: string): boolean;
+  /** The files of Transcript Documents IncarnaMind kept that were deleted permanently (#763). */
+  purgedPaths?(): readonly string[];
   decoded?(modelId: string, decodeMs: number, audioSeconds: number): void;
   /**
    * The Meeting's Transcript is finished (#142): saved, its Document in its place and its
@@ -269,8 +271,9 @@ const SOURCES: readonly AudioSource[] = ["microphone", "system"];
 const streamName = (prefix: string, source: AudioSource, generation = 0) =>
   generation === 0 ? `${prefix}:${source}` : `${prefix}:${source}:${generation}`;
 
-const speakerOf = (source: AudioSource, callSound: boolean) =>
-  source === "system" ? SPEAKER_THEM : callSound ? SPEAKER_ME : SPEAKER_UNKNOWN;
+/** Who a line is said by, as it comes: in a voice memo, no one is named. */
+const speakerOf = (source: AudioSource, callSound: boolean, memo: boolean): string | null =>
+  memo ? null : source === "system" ? SPEAKER_THEM : callSound ? SPEAKER_ME : SPEAKER_UNKNOWN;
 
 const msOf = (chunks: readonly Int16Array[]) =>
   chunks.reduce((sum, samples) => sum + samples.length / SAMPLE_RATE_MS, 0);
@@ -358,6 +361,7 @@ export function createTranscripts(options: TranscriptsOptions) {
       indexTimer: null,
       partialTimer: null,
       finishing: null,
+      memo: options.memo?.(meetingId) ?? false,
     };
     states.set(meetingId, state);
     return state;
@@ -379,7 +383,6 @@ export function createTranscripts(options: TranscriptsOptions) {
       doneMs: state.doneMs,
       pending: state.pending,
       savedPath: state.savedPath,
-      ...(state.savedDefaulted && { savedDefaulted: true }),
       ...(state.state === "empty" && { empty: true }),
       ...(state.voices && { voices: state.voices }),
       ...(state.speakers && { speakers: state.speakers }),
@@ -457,7 +460,7 @@ export function createTranscripts(options: TranscriptsOptions) {
     baseMs: number;
     live: boolean;
     source: AudioSource;
-    speaker: string;
+    speaker: string | null;
     callSound: boolean;
     reading?: Reading;
   } | null {
@@ -471,7 +474,7 @@ export function createTranscripts(options: TranscriptsOptions) {
             baseMs: own.baseMs,
             live: true,
             source,
-            speaker: speakerOf(source, live.callSound()),
+            speaker: speakerOf(source, live.callSound(), state.memo),
             callSound: live.callSound(),
           };
         }
@@ -559,9 +562,10 @@ export function createTranscripts(options: TranscriptsOptions) {
     const found = owner(segment.stream);
     if (!found) return;
     const { state, baseMs, live } = found;
-    const speaker = segment.speaker
-      ? voiceOf(state, segment.stream, found.source, found.callSound, segment.speaker)
-      : found.speaker;
+    const speaker =
+      segment.speaker && found.speaker !== null
+        ? voiceOf(state, segment.stream, found.source, found.callSound, segment.speaker)
+        : found.speaker;
     const startMs = baseMs + segment.startMs;
     if (!segment.final) {
       if (!live || state.state !== "live") return;
@@ -903,7 +907,7 @@ export function createTranscripts(options: TranscriptsOptions) {
     const reading: Reading = {
       baseMs: own.baseMs,
       source: "microphone",
-      speaker: () => speakerOf("microphone", callSound),
+      speaker: () => speakerOf("microphone", callSound, state.memo),
     };
     state.catchUps.set(own.stream, reading);
     let drop = () => {};
@@ -1101,7 +1105,7 @@ export function createTranscripts(options: TranscriptsOptions) {
             state.catchUps.set(stream, {
               baseMs: audio.atMs,
               source,
-              speaker: () => speakerOf(source, callSound),
+              speaker: () => speakerOf(source, callSound, state.memo),
             });
             opened.push(stream);
           }
@@ -1154,7 +1158,7 @@ export function createTranscripts(options: TranscriptsOptions) {
       state.state = "failed";
       state.problem = {
         kind: error instanceof EngineError ? "engine" : "save",
-        message: error instanceof FileWriteCancelledError ? "" : messageOf(error),
+        message: messageOf(error),
       };
       log.warn("transcript.finishFailed", {
         meetingId: state.meetingId,
@@ -1176,19 +1180,14 @@ export function createTranscripts(options: TranscriptsOptions) {
       options.saved?.(state.meetingId);
       return;
     }
-    const document = state.documentId ? documents.find(state.documentId) : null;
-    const name = document?.name ?? options.name(state.meetingId);
-    const data = new TextEncoder().encode(transcriptOf(state));
-    const saved = await options.saveFile({ name: `${name}.vtt`, data, ownFile: null });
-    if (document) await documents.moveFile(document.id, saved.path);
-    rmSync(vttPath(state.meetingId), { force: true });
-    state.savedPath = saved.path;
-    state.savedDefaulted = saved.defaulted;
+    const file = writeWhole(vttPath(state.meetingId), transcriptOf(state));
+    state.savedPath = file.path;
     state.state = "saved";
     state.problem = null;
     log.info("transcript.saved", { meetingId: state.meetingId, lines: state.cues.length });
-    if (options.speakers) state.speakers = "due";
-    else options.saved?.(state.meetingId);
+    if (options.speakers && !state.memo) state.speakers = "due";
+    await documents.checkNow(state.documentId, file.path);
+    if (state.speakers !== "due") options.saved?.(state.meetingId);
   }
 
   // Voices a cloud service told apart as they spoke stand: the pass leaves that side.
@@ -1259,7 +1258,7 @@ export function createTranscripts(options: TranscriptsOptions) {
     const path = state.savedPath;
     if (!path) return;
     try {
-      // The User's own copy now: it is written over only as it was saved.
+      // Written over only while it still holds the lines that were saved.
       if (readFileSync(path, "utf8") !== saved) {
         log.warn("speakers.fileChanged", { meetingId: state.meetingId });
         return;
@@ -1300,7 +1299,7 @@ export function createTranscripts(options: TranscriptsOptions) {
               reading: {
                 baseMs: own.baseMs,
                 source,
-                speaker: () => speakerOf(source, callSound),
+                speaker: () => speakerOf(source, callSound, state.memo),
               } as Reading,
             },
           ]
@@ -1389,6 +1388,19 @@ export function createTranscripts(options: TranscriptsOptions) {
       return cue ? { text: cue.text, speaker: cue.speaker } : null;
     },
 
+    /** Removes the files of Transcripts deleted permanently: the App's own, never a .vtt the User added. */
+    dropPurged(): void {
+      for (const path of options.purgedPaths?.() ?? []) {
+        try {
+          rmSync(path, { force: true });
+          rmSync(path.replace(/\.vtt$/, ".json"), { force: true });
+        } catch (error) {
+          // Left for the next start: a failed cleanup must not stop the core from opening.
+          log.warn("transcript.purgeFailed", { path, message: messageOf(error) });
+        }
+      }
+    },
+
     /** The Meeting's Transcript, as the window shows it. `audioKept`: its audio is still on this computer. */
     of(meetingId: string, audioKept: boolean): MeetingTranscript {
       const state = load(meetingId);
@@ -1411,7 +1423,6 @@ export function createTranscripts(options: TranscriptsOptions) {
             : null,
         fellBack: state.fellBack,
         savedPath: state.savedPath,
-        savedDefaulted: state.savedDefaulted === true,
         separating: state.speakers === "due",
         problem:
           state.problem ??

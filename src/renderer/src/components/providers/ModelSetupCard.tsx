@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import type { AgentClient, ChatProvider } from "../../../../core/api";
-import { SHOW_AGENT_CONNECTION } from "../../../../shared/agentConnection";
+import { SHOW_CLAUDE_APP_SETUP } from "../../../../shared/agentConnection";
 import { core } from "../../core";
 import { errorMessage } from "../../errors";
 import { useLanguage, useT } from "../../i18n";
@@ -35,7 +35,7 @@ const CLAUDE_DOWNLOAD = "https://claude.ai/download";
 type View = "key" | "local" | null;
 
 /**
- * The first own Question with no model set (#103, D198): the assistant's composer becomes this
+ * The first own Question with no model set (#103): the assistant's composer becomes this
  * card while the Question waits above it. Two ways lead, the same size: the ChatGPT plan and a
  * key (#890); in Chinese the key comes first and opens on DeepSeek. The rest are folded under
  * "Other ways", and Set up later is last. Choosing a service is the consent for it (#718), so no
@@ -132,8 +132,7 @@ function ChooseAnAi() {
                   link: { label: t("setup.getOllama"), href: "https://ollama.com/download" },
                 })}
               />
-              {/* Connecting the Claude app needs the agent connection, which is off (#882). */}
-              {SHOW_AGENT_CONNECTION && !chinese && <ClaudeWay />}
+              {SHOW_CLAUDE_APP_SETUP && !chinese && <ClaudeWay />}
             </div>
           </details>
         </>

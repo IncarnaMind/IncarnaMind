@@ -176,7 +176,7 @@ test("In Chinese and a narrow window: a Mind in no Folder, and a Folder of only 
   await runFromPalette(window, "矛盾", "检查矛盾");
   // A check the User started that can't run opens the card to say why.
   const problem = window.getByTestId("check-card").getByTestId("checks-problem");
-  await expect(problem).toContainText("这个 Mind 不在文件夹中");
+  await expect(problem).toContainText("这篇笔记不在文件夹中");
 
   await bridge(window).folder("潮汐", ["Tides"]);
   await pointAndClick(window, problem.getByTestId("checks-problem-close"));
@@ -213,9 +213,9 @@ test("A new version of a Document in the Folder has the Mind's cited claims chec
   });
   await expect(line.locator(".claim-wash--contradicted").first()).toBeVisible();
   await expect(window.getByTestId("check-card")).toHaveCount(0);
-  await expect(window.getByTestId("check-badge").locator('[data-part="contradicted"]')).toHaveText(
-    "1",
-  );
+  await expect(
+    window.getByTestId("check-badge").locator('[data-part="contradicted"] .check-badge-words'),
+  ).toHaveText("1 needs a look");
   const checks = await checkCard(window);
   const watched = checks.getByTestId("contradictions-watched");
   await expect(watched).toContainText("After “Office” changed: 1 of 1 cited claims contradicted");

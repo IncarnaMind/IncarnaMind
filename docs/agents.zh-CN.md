@@ -1,14 +1,18 @@
 # 把你的 AI 智能体连接到 IncarnaMind
 
-*实验功能，在 alpha 版本中暂时隐藏，之后再决定去留。* [English](agents.md)
+[English](agents.md)
+
+从公开 alpha 版本开始提供；连接默认关闭，需要你开启并批准每个配对。
 
 如果你已经在用 AI 智能体，例如 Claude、ChatGPT、Codex、Cursor 或 Antigravity，可以让它搜索你在 IncarnaMind 中选择的文件夹并引用其中内容。它从 IncarnaMind 得到的每条引文都会与你的文档核对，你也可以在 IncarnaMind 中打开任意一条，查看它在文档中的位置。
+
+智能体指南：[Claude Code](claude-code.md)、[Codex](codex.md)、[Cursor](cursor.md)。每篇都说明连接、共享范围和断开连接。
 
 ## 开始之前
 
 1. 打开 IncarnaMind，进入“设置 → 智能体”，开启“连接 AI 智能体”。
 2. 在列表中找到你的智能体（这台电脑上已有的排在前面），点击“连接”。
-3. 选择它可以读取的文件夹，然后点击“允许并连接”。其他内容它都无法读取。“不在文件夹中”也可以选：它指智能体提问时不在任何文件夹中的文档，所以之后放进文件夹的文档就不再共享；Mind 只随它所在的文件夹共享。还没有文档时，对话框会提供“添加文档…”。
+3. 选择它可以读取的文件夹，然后点击“允许并连接”。其他内容它都无法读取。“不在文件夹中”也可以选：它指智能体提问时不在任何文件夹中的文档，所以之后放进文件夹的文档就不再共享；笔记只随它所在的文件夹共享。还没有文档时，对话框会提供“添加文档…”。
 4. 按下面对应智能体的一步操作完成连接。
 
 使用智能体时请保持 IncarnaMind 打开：智能体需要与它通信。
@@ -86,4 +90,4 @@ Google AI Pro 和 Ultra 订阅用户的接入方式。点击“连接”：Incar
 
 IncarnaMind 是一个通过 stdio 运行的 MCP 服务器。命令是以 Node 方式运行的 IncarnaMind 应用本身，加上一个小脚本，它通过本机套接字把所有请求转给正在运行的应用；环境变量中是套接字的位置和这个智能体的密钥。它同时支持当前的 MCP 版本（2026-07-28）和上一版本。每个已连接智能体的“技术细节”可以再次复制它的设置。
 
-工具包括：`search`、`read_passages`、`cite`、`check_citations`、`show_citation`、`list_minds`、`read_mind` 和 `ask`，都是只读的：智能体无法更改你的文档或 Mind。
+工具包括：`search`、`read_passages`、`cite`、`check_citations`、`show_citation`、`list_minds`、`read_mind` 和 `ask`，都是只读的：智能体无法更改你的文档或笔记。

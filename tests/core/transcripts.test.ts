@@ -1,4 +1,4 @@
-import { existsSync, readFileSync, realpathSync, rmSync } from "node:fs";
+import { chmodSync, existsSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, test, vi } from "vitest";
 import type { Core } from "../../src/core";
@@ -76,24 +76,23 @@ describe("A Meeting's live Transcript", { timeout: 60_000 }, () => {
       check: "found",
     });
 
-    // At Stop it is finished and saved as WebVTT in the Output location, the Document with it.
+    // At Stop it is finished in the Library's own folder: kept there, never written to a folder
+    // the User has to choose (#763).
     await core.stopMeeting(meeting.id);
     const saved = await until(core, meeting.id, (transcript) => transcript.state === "saved");
-    const path = join(
-      realpathSync(dataDir),
-      "Documents",
-      "IncarnaMind",
-      "Transcript · Meeting, 6 October.vtt",
-    );
+    const path = join(dataDir, "Transcripts", `${meeting.id}.vtt`);
     expect(saved.savedPath).toBe(path);
     expect(readFileSync(path, "utf8")).toMatch(/^WEBVTT\n\n00:00:00\.000 --> 00:00:02\.000\n/);
-    expect(existsSync(join(dataDir, "Transcripts", `${meeting.id}.vtt`))).toBe(false);
+    expect(
+      existsSync(join(dataDir, "Documents", "IncarnaMind", "Transcript · Meeting, 6 October.vtt")),
+    ).toBe(false);
     await vi.waitFor(async () => expect((await documentOf(core, documentId)).path).toBe(path));
-    // It stays where it was saved after a restart, not back in the data folder's Transcripts.
+    // Still a Document in the Library after a restart.
     core.close();
     expect(await documentOf(startCore(dataDir), documentId)).toMatchObject({
       path,
       fileStatus: "available",
+      kind: "transcript",
     });
   });
 
@@ -509,5 +508,98 @@ describe("Pausing my microphone, in the Transcript", { timeout: 60_000 }, () => 
       readFileSync(join(dataDir, "Transcripts", `${meeting.id}.vtt`), "utf8"),
     );
     expect(gaps).toEqual([{ fromMs: PAUSED_AT, toMs: RESUMED_AT, reason: "muted" }]);
+  });
+
+  test("a .vtt the User added keeps its file and its path; a Meeting's Transcript is the Library's, and its file goes at permanent delete (#763)", async () => {
+    const dataDir = await createTempDataFolder();
+    const sourcesDir = await createTempDataFolder();
+    const { core, record } = await transcribingCore(dataDir);
+    const meeting = await core.createMeeting();
+    await core.startMeeting({ meetingId: meeting.id });
+    record(9 * SECOND);
+    await until(core, meeting.id, (transcript) => transcript.lines >= 2);
+    await core.stopMeeting(meeting.id);
+    const saved = await until(core, meeting.id, (transcript) => transcript.state === "saved");
+    const own = (await core.listDocuments()).find((each) => each.id === saved.documentId);
+    if (!own) throw new Error("The Transcript's Document isn't in the Library.");
+    expect(own).toMatchObject({ kind: "transcript", keptByApp: true });
+
+    const userFile = join(sourcesDir, "My notes.vtt");
+    writeFileSync(userFile, "WEBVTT\n\n00:00:00.000 --> 00:00:02.000\nA line of my own.\n");
+    await core.addDocuments([userFile]);
+    await vi.waitFor(async () => {
+      const found = (await core.listDocuments()).find((each) => each.name === "My notes");
+      if (found?.status !== "ready") throw new Error("Not ready yet.");
+    });
+    const user = (await core.listDocuments()).find((each) => each.name === "My notes");
+    if (!user) throw new Error("The User's .vtt isn't in the Library.");
+    expect(user).toMatchObject({ kind: "transcript", keptByApp: false });
+
+    const ownFile = join(dataDir, "Transcripts", `${meeting.id}.vtt`);
+    expect(existsSync(ownFile)).toBe(true);
+    await core.deleteDocuments([own.id, user.id]);
+    await core.deletePermanently([
+      { kind: "document", id: own.id },
+      { kind: "document", id: user.id },
+    ]);
+    // IncarnaMind's own Transcript goes; the .vtt the User added stays theirs.
+    expect(existsSync(ownFile)).toBe(false);
+    expect(existsSync(userFile)).toBe(true);
+  });
+
+  test("a Transcript's file that can't be removed is logged, not thrown, and the core keeps working (#763)", async () => {
+    const dataDir = await createTempDataFolder();
+    const { core, record } = await transcribingCore(dataDir);
+    const meeting = await core.createMeeting();
+    await core.startMeeting({ meetingId: meeting.id });
+    record(9 * SECOND);
+    await until(core, meeting.id, (transcript) => transcript.lines >= 2);
+    await core.stopMeeting(meeting.id);
+    const saved = await until(core, meeting.id, (transcript) => transcript.state === "saved");
+    if (!saved.documentId) throw new Error("The Transcript has no Document.");
+    await core.deleteDocuments([saved.documentId]);
+
+    const folder = join(dataDir, "Transcripts");
+    const file = join(folder, `${meeting.id}.vtt`);
+    // A folder that can't be written to: removing the file fails with EACCES, and must not throw.
+    chmodSync(folder, 0o500);
+    try {
+      await expect(
+        core.deletePermanently([{ kind: "document", id: saved.documentId }]),
+      ).resolves.toBeUndefined();
+    } finally {
+      chmodSync(folder, 0o700);
+    }
+    expect(existsSync(file)).toBe(true);
+  });
+
+  test("Stop says the Transcript is saved only once its finished text is read, so the notes are filled from it (#763)", async () => {
+    const dataDir = await createTempDataFolder();
+    const lines = Array.from({ length: 50 }, (_, i) => `Line ${i}: ${"word ".repeat(300)}`);
+    const { core, record } = await transcribingCore(dataDir, { engine: { lines } });
+    const meeting = await core.createMeeting();
+    await core.startMeeting({ meetingId: meeting.id });
+    record(100 * SECOND);
+    const live = await until(core, meeting.id, (transcript) => transcript.lines >= 40);
+    const documentId = live.documentId as string;
+
+    // When the Meeting says "saved", the Document's finished version must already be read: a
+    // ready status comes before saved, never after it.
+    const order: string[] = [];
+    core.on("document.status", (document) => {
+      if (document.id === documentId) order.push(document.status);
+    });
+    core.on("meetings.changed", (meetings) => {
+      const saved = meetings.some(
+        (each) => each.id === meeting.id && each.transcript?.state === "saved",
+      );
+      if (saved && !order.includes("saved")) order.push("saved");
+    });
+
+    await core.stopMeeting(meeting.id);
+    await until(core, meeting.id, (transcript) => transcript.state === "saved");
+    await vi.waitFor(() => expect(order).toContain("saved"));
+    expect(order).toContain("ready");
+    expect(order.indexOf("saved")).toBeGreaterThan(order.lastIndexOf("ready"));
   });
 });

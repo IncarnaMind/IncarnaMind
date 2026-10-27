@@ -95,11 +95,17 @@ const readCsv = (bytes: Uint8Array): Loaded => extractCsv(bytes);
  * the Citation's mark beside them. Only the rows that are in view are drawn.
  */
 export function SheetView({ document, target }: { document: Document; target: ViewerTarget }) {
-  const loaded = useDocumentFile(document.id, document.kind === "csv" ? readCsv : readXlsx);
+  const { loaded, reload } = useDocumentFile(
+    document.id,
+    document.contentHash,
+    document.kind === "csv" ? readCsv : readXlsx,
+  );
   return (
     <FileStates
+      document={document}
       loaded={loaded}
       quote={target.quote}
+      reload={reload}
       ready={(value) => <Sheets loaded={value} name={document.name} target={target} />}
     />
   );
@@ -116,24 +122,22 @@ const rowsTo = (unit: TextUnit) => unit.label?.to ?? rowsFrom(unit);
 function findCells(
   units: readonly TextUnit[],
   quote: string,
-  from: number,
-  to: number,
+  from: number | undefined,
+  to: number | undefined,
 ): { sheet: string; cells: Set<string> } | null {
-  const cited = units.filter((unit) => unit.page >= from && unit.page <= to);
-  const tries = [cited, ...units.filter((unit) => !cited.includes(unit)).map((unit) => [unit])];
-  for (const tried of tries) {
-    if (tried.length === 0) continue;
-    const ranges = quoteInUnits(tried, quote);
-    if (!ranges) continue;
-    const covered = anchorsCovered(tried, ranges);
-    if (covered.length === 0) continue;
-    const sheet = covered[0]?.unit.label?.sheet ?? "";
-    return {
-      sheet,
-      cells: new Set(covered.map(({ unit, target }) => cellKey(unit.label?.sheet ?? "", target))),
-    };
-  }
-  return null;
+  const cited = units.filter(
+    (unit) => from === undefined || (unit.page >= from && unit.page <= (to ?? from)),
+  );
+  if (cited.length === 0) return null;
+  const ranges = quoteInUnits(cited, quote);
+  if (!ranges) return null;
+  const covered = anchorsCovered(cited, ranges);
+  if (covered.length === 0) return null;
+  const sheet = covered[0]?.unit.label?.sheet ?? "";
+  return {
+    sheet,
+    cells: new Set(covered.map(({ unit, target }) => cellKey(unit.label?.sheet ?? "", target))),
+  };
 }
 
 interface ScrollRequest {
@@ -149,8 +153,8 @@ function Sheets({ loaded, name, target }: { loaded: Loaded; name: string; target
   const from = target.pageFrom ?? 1;
   const to = target.pageTo ?? from;
   const found = useMemo(
-    () => (target.quote ? findCells(units, target.quote, from, to) : null),
-    [units, target.quote, from, to],
+    () => (target.quote ? findCells(units, target.quote, target.pageFrom, target.pageTo) : null),
+    [units, target.quote, target.pageFrom, target.pageTo],
   );
   const citedUnit = units.find((unit) => unit.page === from);
   const citedSheet = found?.sheet ?? citedUnit?.label?.sheet ?? null;

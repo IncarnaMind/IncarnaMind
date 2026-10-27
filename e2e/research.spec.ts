@@ -210,7 +210,7 @@ test("Research… plans in the tray: the steps edited in place, the sources, whe
   await pointAndClick(window, card.getByTestId("research-plan-write-into"));
   await pointAndClick(window, window.getByTestId("research-plan-new-mind"));
   await expect(card.getByTestId("research-plan-write-step")).toHaveText(
-    "Write a cited draft into a new Mind",
+    "Write a cited draft into a new note",
   );
   await pointAndClick(window, card.getByTestId("research-plan-write-into"));
   await pointAndClick(window, window.getByTestId("research-plan-mind").first());

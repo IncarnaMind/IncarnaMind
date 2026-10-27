@@ -16,7 +16,7 @@ import {
 
 /**
  * After linking a folder, the sidebar shows where it is (#763): its row in
- * the Linked folders section (同步文件夹), apart from the User's own Folders,
+ * the Linked folders section (关联文件夹), apart from the User's own Folders,
  * in sight and washed for a moment. The two sections never share a name. The
  * row doesn't unfold, and opens the Library.
  */
@@ -33,7 +33,7 @@ test.afterEach(async () => {
 
 const WORDS = {
   en: { sections: ["Folders", "Linked folders"], name: "contracts" },
-  "zh-CN": { sections: ["文件夹", "同步文件夹"], name: "contracts" },
+  "zh-CN": { sections: ["文件夹", "关联文件夹"], name: "contracts" },
 } as const;
 
 for (const language of ["en", "zh-CN"] as const) {

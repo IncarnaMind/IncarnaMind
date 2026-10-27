@@ -117,7 +117,7 @@ export interface ExamplesOptions {
    * Conversation, quotes one of these Documents.
    */
   citationsRelyOn(documentIds: readonly string[], exceptMindId: string): boolean;
-  recheck(input: RecheckCitationInput): CitationRecheck;
+  cite(input: Pick<RecheckCitationInput, "documentId" | "quote">): CitationRecheck;
   /** Pushes "examples.changed". */
   changed(examples: Examples): void;
   random?(): number;
@@ -240,10 +240,8 @@ export function createExamples(options: ExamplesOptions) {
     for (const [index, quote] of ready.quotes.entries()) {
       const document = documents.find((each) => each.name === quote.document);
       if (!document || !hasText(document)) return null;
-      const result = options.recheck({
+      const result = options.cite({
         documentId: document.id,
-        pageFrom: null,
-        pageTo: null,
         quote: quote.quote,
       });
       if (!result.passageId || !result.contentHash) return null;
@@ -373,10 +371,8 @@ export function createExamples(options: ExamplesOptions) {
       const document = named(quote) as Document;
       return {
         document,
-        result: options.recheck({
+        result: options.cite({
           documentId: document.id,
-          pageFrom: null,
-          pageTo: null,
           quote: quote.quote,
         }),
       };

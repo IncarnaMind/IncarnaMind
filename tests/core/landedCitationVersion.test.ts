@@ -20,7 +20,7 @@ import { buildPdf } from "../helpers/pdf";
 
 /**
  * A Citation keeps the version it quotes when its Answer goes into a Mind (ADR-0017's
- * amendment): Add to note, New Mind and the Mind the editor adds into at its cursor check it
+ * amendment): Add to note, New note and the Mind the editor adds into at its cursor check it
  * again in that version, never re-pointing it at a newer one. Its Document changed since, it
  * lands saying so and asking to be checked again, with the words as they changed; unchanged, it
  * lands checked as before. The version it quotes stays for as long as it does.
@@ -112,7 +112,7 @@ async function citationsInMind(core: Core, mindId: string) {
   return found;
 }
 
-/** The three ways an Answer lands in a Mind, as the assistant's Add to note and New Mind do them. */
+/** The three ways an Answer lands in a Mind, as the assistant's Add to note and New note do them. */
 const LANDINGS = {
   /** Add to note into a Mind that isn't open: at its end, through the core. */
   "Add to note": async (core: Core, answer: ConversationAnswer) => {
@@ -125,8 +125,8 @@ const LANDINGS = {
     });
     return citationsInMind(core, mind.id);
   },
-  /** New Mind: a Mind made for the Answer, with it in at once. */
-  "New Mind": async (core: Core, answer: ConversationAnswer) => {
+  /** New note: a Mind made for the Answer, with it in at once. */
+  "New note": async (core: Core, answer: ConversationAnswer) => {
     const mind = await core.createMind({ title: "" });
     await core.addToNote({
       mindId: mind.id,

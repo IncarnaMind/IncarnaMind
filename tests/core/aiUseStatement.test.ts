@@ -70,6 +70,7 @@ function checked(
   state: ClaimCheckAttributes["state"],
   model: { providerId: string; modelId: string },
   asked = sentence,
+  overrides: Partial<ClaimCheckAttributes> = {},
 ): ClaimCheckAttributes {
   return {
     id: randomUUID(),
@@ -90,6 +91,7 @@ function checked(
     versions: [{ documentId: document.id, contentHash: document.contentHash }],
     excluded: [],
     checkedAt: NOW,
+    ...overrides,
   };
 }
 
@@ -176,6 +178,7 @@ const SECOND = "Penguins nest above the harbour.";
 const LONG =
   "Harbours publish the times of high water on their notice boards every year without fail.";
 const FOURTH = "Nobody would say.";
+const FOUND = "Fog rolls in from the sea.";
 const EDITED = "Edited since it was checked.";
 
 const NOTE_EN =
@@ -263,6 +266,18 @@ async function writeThesis(setup: Awaited<ReturnType<typeof setUp>>) {
         text(sentence, { type: "claimCheck", attrs: checked(tides, sentence, state, model) }),
         text(" "),
       ]),
+      text(FOUND, {
+        type: "claimCheck",
+        attrs: checked(tides, FOUND, "unsupported", haikuModel, FOUND, {
+          unsupported: {
+            reason: "Tides says nothing about fog.",
+            covered: null,
+            uncovered: null,
+            found: true,
+          },
+        }),
+      }),
+      text(" "),
       text(EDITED, {
         type: "claimCheck",
         attrs: checked(tides, EDITED, "supported", haikuModel, "As it was checked."),
@@ -339,7 +354,7 @@ describe("The AI use statement", () => {
       "Checks",
     ]);
     expect(paragraphsOf(parts)[0]).toBe(
-      `Drawn from the record IncarnaMind keeps of this document, as of ${formatDate(NOW, "en")}. It covers only what IncarnaMind recorded, so add any use of AI elsewhere, and edit this before you attach it.`,
+      `Drawn from the record IncarnaMind keeps of this note, as of ${formatDate(NOW, "en")}. It covers only what IncarnaMind recorded, so add any use of AI elsewhere, and edit this before you attach it.`,
     );
     const [uses, sections, citations, sentences, checkedList] = tablesOf(parts);
     const haiku = "Claude Haiku 5.5 (Anthropic)";
@@ -347,7 +362,7 @@ describe("The AI use statement", () => {
       ["Use", "Model", "Times"],
       ["Answers written", haiku, "1"],
       ["Answers written", "local-model", "1"],
-      ["Answers added to the document", haiku, "3"],
+      ["Answers added to the note", haiku, "3"],
       ["Changes from Edit with AI accepted", "local-model", "1"],
       ["Writing suggestions accepted", "local-model", "1"],
       ["Searches of the author’s own Documents", haiku, "2"],
@@ -365,7 +380,7 @@ describe("The AI use statement", () => {
       ["Results", "0", "1", "5"],
       ["Total", "3", "2", "31"],
     ]);
-    expect(paragraphsOf(parts)).toContain("Pieces of AI text removed from the document: 1.");
+    expect(paragraphsOf(parts)).toContain("Pieces of AI text removed from the note: 1.");
     expect(citations).toEqual([
       ["Result", "Citations"],
       ["Quote found", "2"],
@@ -378,8 +393,9 @@ describe("The AI use statement", () => {
     expect(sentences).toEqual([
       ["Result", "Sentences"],
       ["Supported", "1"],
-      ["Unsupported", "1"],
       ["Contradicted", "1"],
+      ["Not found", "1"],
+      ["Unsupported", "1"],
       ["Needs re-check", "1"],
       ["Not checked", "1"],
     ]);
@@ -387,7 +403,7 @@ describe("The AI use statement", () => {
     expect(checkedList).toEqual([
       ["Sentence", "Result", "Model", "Checked"],
       [FIRST, "Supported", haiku, on],
-      [SECOND, "Unsupported", haiku, on],
+      [SECOND, "Not found", haiku, on],
       [
         "Harbours publish the times of high water on their notice boards every…",
         "Contradicted",
@@ -395,6 +411,7 @@ describe("The AI use statement", () => {
         on,
       ],
       [FOURTH, "Not checked", "", ""],
+      [FOUND, "Unsupported", haiku, on],
       [EDITED, "Changed since checked", haiku, on],
     ]);
     expect(paragraphsOf(parts).at(-1)).toBe(NOTE_EN);
@@ -448,7 +465,7 @@ describe("The AI use statement", () => {
     expect(tablesOf(parts)).toEqual([]);
     expect(paragraphsOf(parts)).toEqual([
       expect.stringContaining("Drawn from the record IncarnaMind keeps"),
-      "There is nothing to report: IncarnaMind has no record of AI use in this document, and the document has no Citations or checks.",
+      "There is nothing to report: IncarnaMind has no record of AI use in this note, and the note has no Citations or checks.",
       NOTE_EN,
     ]);
   });
@@ -464,9 +481,9 @@ describe("The AI use statement", () => {
     const { parts } = await statementOf(core, mind.id);
 
     expect(paragraphsOf(parts)).toContain(
-      "IncarnaMind has no record of AI writing, suggesting changes, searching or checking sentences for this document.",
+      "IncarnaMind has no record of AI writing, suggesting changes, searching or checking sentences for this note.",
     );
-    expect(paragraphsOf(parts)).toContain("This document has no AI text.");
+    expect(paragraphsOf(parts)).toContain("This note has no AI text.");
     expect(tablesOf(parts)).toEqual([
       [
         ["Result", "Citations"],
@@ -496,7 +513,7 @@ describe("The AI use statement", () => {
 
     expect(tablesOf(parts)[1]).toEqual([
       ["Section", "Pieces kept as written", "Pieces rewritten", "Words of AI text now"],
-      ["Whole document", "1", "0", "6"],
+      ["Whole note", "1", "0", "6"],
     ]);
   });
 
@@ -546,7 +563,7 @@ describe("The AI use statement", () => {
     const [uses, sections] = tablesOf(parts);
     expect(uses).toEqual([
       ["用途", "模型", "次数"],
-      ["将助手的回答加入文档", "Claude Haiku 5.5 (Anthropic)", "1"],
+      ["将助手的回答加入笔记", "Claude Haiku 5.5 (Anthropic)", "1"],
     ]);
     // The section with no AI text isn't listed; Chinese is counted by character.
     expect(sections).toEqual([
@@ -570,6 +587,27 @@ describe("The AI use statement", () => {
         rows.slice(1).map((row) => row.filter((cell) => /^\d+$/.test(cell))),
       );
     expect(counts(chinese.parts)).toEqual(counts(english.parts));
+    // Not found is its own row, before Unsupported, in either language.
+    const sentenceRows = (parts: readonly Part[]) =>
+      tablesOf(parts)
+        .find((rows) => ["Sentences", "说法（条）"].includes(rows[0]?.[1] ?? ""))
+        ?.slice(1);
+    expect(sentenceRows(english.parts)).toEqual([
+      ["Supported", "1"],
+      ["Contradicted", "1"],
+      ["Not found", "1"],
+      ["Unsupported", "1"],
+      ["Needs re-check", "1"],
+      ["Not checked", "1"],
+    ]);
+    expect(sentenceRows(chinese.parts)).toEqual([
+      ["有依据", "1"],
+      ["与文档矛盾", "1"],
+      ["未找到", "1"],
+      ["无依据", "1"],
+      ["需重新核对", "1"],
+      ["未核对", "1"],
+    ]);
     expect(chinese.title).toBe("AI 使用声明：Thesis");
     expect(paragraphsOf(english.parts)).toContain(
       "Sentences the author had checked against the Documents, with Check against Documents, by result:",
@@ -676,15 +714,15 @@ describe("Checks in the statement", () => {
     expect(sentences).toEqual([
       ["Result", "Sentences"],
       ["Supported", "1"],
-      ["Unsupported", "1"],
+      ["Not found", "1"],
     ]);
     expect(listed).toEqual([
       ["Sentence", "Result", "Model", "Checked"],
       [MOON, "Supported", "local-model", on],
-      [PENGUINS, "Unsupported", "local-model", on],
+      [PENGUINS, "Not found", "local-model", on],
     ]);
     expect(paragraphsOf(parts).filter((each) => NO_RECORD.test(each))).toEqual([]);
-    expect(paragraphsOf(parts)).toContain("This document has no AI text.");
+    expect(paragraphsOf(parts)).toContain("This note has no AI text.");
   });
 
   test("checks beside written text are listed with it", async () => {
@@ -701,7 +739,7 @@ describe("Checks in the statement", () => {
 
     expect(tablesOf(parts)[0]).toEqual([
       ["Use", "Model", "Times"],
-      ["Answers added to the document", "Not recorded", "1"],
+      ["Answers added to the note", "Not recorded", "1"],
       ["Sentences checked against the Documents", "local-model", "1"],
     ]);
   });
@@ -714,7 +752,7 @@ describe("Checks in the statement", () => {
     expect(paragraphsOf(parts).filter((each) => NO_RECORD.test(each))).toHaveLength(0);
     expect(tablesOf(parts)).toEqual([]);
     expect(paragraphsOf(parts)).toContain(
-      "There is nothing to report: IncarnaMind has no record of AI use in this document, and the document has no Citations or checks.",
+      "There is nothing to report: IncarnaMind has no record of AI use in this note, and the note has no Citations or checks.",
     );
   });
 

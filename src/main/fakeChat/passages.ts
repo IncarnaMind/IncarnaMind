@@ -106,11 +106,37 @@ export function recordFor(
   return { record, shared: best, quoted };
 }
 
+const TRANSCRIPT_STAMP = /\[\d{1,2}:\d{2}(?::\d{2})?(?: [^\]\n]+)?\]\s*/g;
+
+/**
+ * A transcript repeats what is said, so `cite` may refuse a line as occurring more than once
+ * (#1979). Then the record again, quoting its Passage's words, which occur once; otherwise null.
+ */
+export function withSurroundingWords(
+  cited: readonly string[],
+  passage: ShownPassage,
+  marker: number,
+): Record<string, unknown> | null {
+  if (!cited.at(-1)?.includes("quote enough surrounding words")) return null;
+  return {
+    marker,
+    passage: passage.id,
+    quote: passage.text.replace(TRANSCRIPT_STAMP, ""),
+  };
+}
+
+export const FOUR_CITATIONS = /\bfour citations\b|四条引用/i;
 export const FORTY_CITATIONS = /\bforty citations\b|四十条引用/i;
 export const TWELVE_IN_A_ROW = /\btwelve in a row\b|连续十二条/i;
 
 export const citationsAsked = (question: string) =>
-  FORTY_CITATIONS.test(question) ? 40 : TWELVE_IN_A_ROW.test(question) ? 12 : 0;
+  FORTY_CITATIONS.test(question)
+    ? 40
+    : FOUR_CITATIONS.test(question)
+      ? 4
+      : TWELVE_IN_A_ROW.test(question)
+        ? 12
+        : 0;
 
 /**
  * The records for a search result: for the first Passage, or with "each" in
