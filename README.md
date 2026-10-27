@@ -41,7 +41,7 @@
 | Windows | `.exe` |
 | Linux | `.deb` for Ubuntu and Debian, or `.AppImage` |
 
-Test builds change often and aren't signed yet, so your system warns you the first time. Builds up to 0.1.0-alpha.5 still use the old name for a Note. Windows builds will be signed through the SignPath Foundation ([code signing policy](docs/code-signing-policy.md)).
+Test builds change often and aren't signed yet, so your system warns you the first time. Builds up to 0.1.0-alpha.4 still use the old name for a Note. Windows builds will be signed through the SignPath Foundation ([code signing policy](docs/code-signing-policy.md)).
 
 <details>
 <summary>If your system won't open it</summary>
