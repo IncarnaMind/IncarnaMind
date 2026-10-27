@@ -190,7 +190,7 @@ export function commandTools(options: CommandToolsOptions): {
           type: "string",
           enum: ["mark", "leave"],
           description:
-            'For a Word export: set only when the User\'s request says whether to mark the text IncarnaMind wrote ("without the AI marks"). Never choose for them: with none given, the app asks.',
+            'For a Word export: set only when the User\'s request says whether to mark the text IncarnaMind wrote ("without the AI marks"). Never choose for them.',
         },
         kinds: { type: "array", items: { type: "string" } },
       },
