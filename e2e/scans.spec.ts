@@ -182,7 +182,7 @@ for (const language of ["en", "zh-CN"] as const) {
       const bridge = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
       await bridge.updateSettings({ user: { language: chosenLanguage } });
     }, language);
-    // With a model chosen, no "Tags come once you choose an AI model" takes the status row.
+    // With a model chosen, no asking for a model takes the status row.
     await useLocalChatModel(window);
 
     await window.getByTestId("add-documents-input").setInputFiles([...files, text]);

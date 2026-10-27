@@ -29,8 +29,10 @@ import type { CellStyle, FontStyle } from "../../../core/documents/formats/xlsxS
 import type { PageArea } from "../../../shared/citedPage";
 import { anchorsCovered, quoteInUnits } from "../../../shared/locations";
 import { columnName, parseCellRef, type TextUnit } from "../../../shared/units";
+import { commands } from "../commands/registry";
+import { ProblemLine } from "../components/ProblemLine";
 import { useT } from "../i18n";
-import type { ViewerTarget } from "../store";
+import { useAppStore, type ViewerTarget } from "../store";
 import { useCitedArea } from "./citedArea";
 import { FileStates } from "./FileStates";
 import { CitationMark, quoteMarkOf, quoteTone } from "./quoteMark";
@@ -106,7 +108,7 @@ export function SheetView({ document, target }: { document: Document; target: Vi
       loaded={loaded}
       quote={target.quote}
       reload={reload}
-      ready={(value) => <Sheets loaded={value} name={document.name} target={target} />}
+      ready={(value) => <Sheets loaded={value} document={document} target={target} />}
     />
   );
 }
@@ -146,8 +148,17 @@ interface ScrollRequest {
   request: number;
 }
 
-function Sheets({ loaded, name, target }: { loaded: Loaded; name: string; target: ViewerTarget }) {
+function Sheets({
+  loaded,
+  document,
+  target,
+}: {
+  loaded: Loaded;
+  document: Document;
+  target: ViewerTarget;
+}) {
   const t = useT();
+  const name = document.name;
   const { workbook, units } = loaded;
   const sheets = workbook.sheets;
   const from = target.pageFrom ?? 1;
@@ -245,9 +256,25 @@ function Sheets({ loaded, name, target }: { loaded: Loaded; name: string; target
             scrollTo={sheet.name === (citedSheet ?? "") ? scrollTo : null}
           />
         ) : (
-          <p data-testid="viewer-sheet-empty" className="viewer-sheet-empty">
+          <ProblemLine
+            role="status"
+            testId="viewer-sheet-empty"
+            className="viewer-sheet-empty"
+            action={{
+              label: t("documents.copy.open"),
+              testId: "viewer-sheet-open",
+              onClick: () =>
+                void commands
+                  .run("document.openExternally", {
+                    selection: [{ kind: "document", id: document.id }],
+                    focus: null,
+                    surface: "viewer",
+                  })
+                  .catch(useAppStore.getState().reportError),
+            }}
+          >
             {t("viewer.sheet.empty")}
-          </p>
+          </ProblemLine>
         )}
         {workbook.truncated && (
           <p data-testid="viewer-sheet-truncated" className="viewer-sheet-notice">
