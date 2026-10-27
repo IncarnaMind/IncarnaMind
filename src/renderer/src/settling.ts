@@ -39,9 +39,9 @@ export function createSettling(
     next.delete(id);
     tell(next);
   };
-  /** Its work is over: it goes once it has stayed its minimum. One not yet drawn goes after `drawn`. */
   const leave = (id: string) => {
     const since = shown.get(id);
+    // Not drawn yet: `drawn` starts its minimum.
     if (since === null || since === undefined || leaving.has(id)) return;
     const left = since + SHOWN_AT_LEAST_MS - Date.now();
     if (left <= 0) hide(id);
