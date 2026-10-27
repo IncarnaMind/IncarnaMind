@@ -18,10 +18,12 @@ import {
   claimCheckActions,
   type EvidenceExclusion,
   type LeftOutDocument,
+  type RecordCiteResult,
   type SearchScope,
   type UnsupportedReason,
 } from "../core/api";
 import type { MessageKey } from "./i18n";
+import { parseLocation } from "./locations";
 import { folderScope, hasSearchScope, sameScope, storedSearchScope } from "./searchScope";
 import { comparableSentence, isClaim } from "./sentences";
 
@@ -130,6 +132,70 @@ export function checkedScope(scope: ClaimCheckScope): SearchScope | null {
 export const checkSearchedNarrowerThanAll = (scope: ClaimCheckScope): boolean =>
   !scope.widened && checkedScope(scope) !== null;
 
+function recordCitesOf(value: unknown): RecordCiteResult[] | undefined {
+  if (!Array.isArray(value)) return undefined;
+  return value.flatMap((each) => {
+    if (!isRecord(each)) return [];
+    const raw = text(each.raw);
+    const outcome = ["supported", "partly", "choose", "not-found"].find(
+      (known) => known === each.outcome,
+    );
+    if (!raw || !outcome) return [];
+    const location = each.location === undefined ? undefined : parseLocation(each.location);
+    if (each.location !== undefined && location === null) return [];
+    const nearby = each.nearby;
+    const nearbyLocation = isRecord(nearby) ? parseLocation(nearby.location) : null;
+    return [
+      {
+        raw,
+        outcome: outcome as RecordCiteResult["outcome"],
+        ...(typeof each.from === "number" && Number.isInteger(each.from) && each.from >= 0
+          ? { from: each.from }
+          : {}),
+        ...(typeof each.to === "number" && Number.isInteger(each.to) && each.to >= 0
+          ? { to: each.to }
+          : {}),
+        ...(text(each.documentId) ? { documentId: text(each.documentId) as string } : {}),
+        ...(text(each.documentName) ? { documentName: text(each.documentName) as string } : {}),
+        ...(text(each.contentHash) ? { contentHash: text(each.contentHash) as string } : {}),
+        ...(location ? { location } : {}),
+        ...(typeof each.pageFrom === "number" && Number.isInteger(each.pageFrom)
+          ? { pageFrom: each.pageFrom }
+          : {}),
+        ...(typeof each.pageTo === "number" && Number.isInteger(each.pageTo)
+          ? { pageTo: each.pageTo }
+          : {}),
+        ...(text(each.passage) !== null ? { passage: text(each.passage) as string } : {}),
+        ...(text(each.covered) ? { covered: text(each.covered) as string } : {}),
+        ...(text(each.uncovered) ? { uncovered: text(each.uncovered) as string } : {}),
+        ...(Array.isArray(each.candidates)
+          ? {
+              candidates: each.candidates.flatMap((candidate) =>
+                isRecord(candidate) && text(candidate.id) && text(candidate.name)
+                  ? [{ id: candidate.id as string, name: candidate.name as string }]
+                  : [],
+              ),
+            }
+          : {}),
+        ...(nearbyLocation &&
+        isRecord(nearby) &&
+        typeof nearby.pageFrom === "number" &&
+        typeof nearby.pageTo === "number" &&
+        text(nearby.passage) !== null
+          ? {
+              nearby: {
+                location: nearbyLocation,
+                pageFrom: nearby.pageFrom as number,
+                pageTo: nearby.pageTo as number,
+                passage: nearby.passage as string,
+              },
+            }
+          : {}),
+      },
+    ];
+  });
+}
+
 /** A check's attributes as a mark holds them, or null when they aren't one's. Unknown values read safely. */
 export function readClaimCheck(value: unknown): ClaimCheckAttributes | null {
   if (!isRecord(value)) return null;
@@ -157,6 +223,7 @@ export function readClaimCheck(value: unknown): ClaimCheckAttributes | null {
     scope: scopeOf(value.scope),
     versions: versionsOf(value.versions),
     excluded: excludedOf(value.excluded),
+    recordCites: recordCitesOf(value.recordCites),
     checkedAt: text(value.checkedAt) ?? "",
     ...(value.kept === true && { kept: true }),
   };
@@ -241,6 +308,30 @@ export function saysNotFound(
   );
 }
 
+function recordEvidence(cite: RecordCiteResult): CitationAttributes | null {
+  if (
+    !cite.documentId ||
+    !cite.documentName ||
+    !cite.location ||
+    cite.pageFrom === undefined ||
+    cite.pageTo === undefined ||
+    cite.passage === undefined
+  )
+    return null;
+  return {
+    passageId: null,
+    documentId: cite.documentId,
+    documentName: cite.documentName,
+    contentHash: cite.contentHash ?? null,
+    pageFrom: cite.pageFrom,
+    pageTo: cite.pageTo,
+    location: cite.location,
+    quote: cite.passage,
+    check: "found",
+    checkReason: null,
+  };
+}
+
 /**
  * What a check's result rests on: its evidence, the Passage quoted for the part of an
  * unsupported sentence it covers, and the quotes a worked-out figure read its numbers from.
@@ -251,6 +342,18 @@ export function restsOn(check: ClaimCheckAttributes): (CitationAttributes | Cita
     check.evidence,
     check.unsupported?.quoted ?? null,
     ...inputs.flatMap((input) => [input.citation, input.unitStatement?.citation ?? null]),
+    ...(check.recordCites ?? []).flatMap((cite) => [
+      recordEvidence(cite),
+      cite.nearby
+        ? recordEvidence({
+            ...cite,
+            location: cite.nearby.location,
+            pageFrom: cite.nearby.pageFrom,
+            pageTo: cite.nearby.pageTo,
+            passage: cite.nearby.passage,
+          })
+        : null,
+    ]),
   ].filter((each): each is CitationAttributes | Citation => each !== null);
 }
 
