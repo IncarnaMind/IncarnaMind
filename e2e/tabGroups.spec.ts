@@ -1,6 +1,6 @@
 import { writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { expect, type Locator, type Page, test } from "@playwright/test";
+import { type ElectronApplication, expect, type Locator, type Page, test } from "@playwright/test";
 import type { CoreBridge } from "../src/core/api";
 import { buildPdf } from "../tests/helpers/pdf";
 import {
@@ -389,6 +389,142 @@ test("one divider runs the full height through the strips and the pages; it resi
       Math.abs((await widthOf(groupAt(window, 0))) - (await widthOf(groupAt(window, 1)))),
     )
     .toBeLessThanOrEqual(1);
+});
+
+/** Holds the first resize the core is asked for: `answerHeldResize` lets it through and waits for its answer. */
+async function holdFirstResize(app: ElectronApplication): Promise<void> {
+  await app.evaluate(({ ipcMain }) => {
+    const handlers = (
+      ipcMain as unknown as {
+        _invokeHandlers: Map<string, (event: unknown, ...args: unknown[]) => unknown>;
+      }
+    )._invokeHandlers;
+    const original = handlers.get("core:changeLayout");
+    if (!original) throw new Error("The changeLayout handler is missing.");
+    let release: () => void = () => {};
+    const ready = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let answered: () => void = () => {};
+    const done = new Promise<void>((resolve) => {
+      answered = resolve;
+    });
+    let held = false;
+    Object.assign(globalThis, { heldResize: { release: () => release(), done } });
+    ipcMain.removeHandler("core:changeLayout");
+    ipcMain.handle("core:changeLayout", async (event, ...args) => {
+      const change = args[1] as { type?: string } | undefined;
+      if (held || change?.type !== "resize") return original(event, ...args);
+      held = true;
+      await ready;
+      const answer = await original(event, ...args);
+      answered();
+      return answer;
+    });
+  });
+}
+
+/** The held resize is answered, and the page has taken the answer in: what it sent after cannot come first. */
+async function answerHeldResize(app: ElectronApplication, window: Page): Promise<void> {
+  await app.evaluate(async () => {
+    const held = (globalThis as unknown as { heldResize: { release(): void; done: Promise<void> } })
+      .heldResize;
+    held.release();
+    await held.done;
+  });
+  await window.evaluate(async () => {
+    const bridge = (
+      globalThis as unknown as { incarnamind: { getLayout(window: string): Promise<unknown> } }
+    ).incarnamind;
+    await bridge.getLayout("main");
+    await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+  });
+}
+
+/** Two groups, a key pressed on the divider whose resize is held, and a drag begun and moved past it. */
+async function dragWhileResizeUnanswered(app: ElectronApplication, window: Page) {
+  await dismissChatSetup(window);
+  await newMind(window, "Alpha");
+  await window.keyboard.press("ControlOrMeta+Alt+Backslash");
+  await expect(groupsOf(window)).toHaveCount(2);
+  // The split moves the focus to the new group's tab once it is drawn: a key before it goes there.
+  await expect(groupAt(window, 1).getByRole("tab")).toBeFocused();
+  const divider = window.getByTestId("group-divider");
+  const start = Number(await divider.getAttribute("aria-valuenow"));
+  await holdFirstResize(app);
+  await divider.focus();
+  await window.keyboard.press("Shift+ArrowLeft");
+  await expect(divider).toHaveAttribute("aria-valuenow", String(start - 50));
+  const box = await boxOf(divider);
+  const x = box.x + box.width / 2 - 3;
+  const y = box.y + box.height / 2;
+  await window.mouse.move(x - 30, y);
+  await window.mouse.move(x, y, { steps: 6 });
+  await window.mouse.down();
+  await window.mouse.move(x - 100, y, { steps: 5 });
+  await expect(divider).toHaveAttribute("aria-valuenow", String(start - 150));
+  return { divider, start, at: { x, y } };
+}
+
+test("a drag begun while an earlier resize is unanswered keeps its widths when that answer comes, and lets go with them", async () => {
+  const { app, window } = await launchApp(dataDir);
+  const { divider, start } = await dragWhileResizeUnanswered(app, window);
+  await answerHeldResize(app, window);
+  await expect(divider).toHaveAttribute("aria-valuenow", String(start - 150));
+  await window.mouse.up();
+  await expect(divider).toHaveAttribute("aria-valuenow", String(start - 150));
+  await app.close();
+});
+
+test("a drag cancelled while an earlier resize is unanswered goes back to that resize's widths, and the core's after", async () => {
+  const { app, window } = await launchApp(dataDir);
+  const { divider, start, at } = await dragWhileResizeUnanswered(app, window);
+  await divider.evaluate((rod) =>
+    rod.dispatchEvent(new PointerEvent("pointercancel", { pointerId: 1, bubbles: true })),
+  );
+  await expect(divider).toHaveAttribute("aria-valuenow", String(start - 50));
+  await window.mouse.up();
+  await answerHeldResize(app, window);
+  await expect(divider).toHaveAttribute("aria-valuenow", String(start - 50));
+  // Nothing of the drag is left to hide what the core says next: equal widths again.
+  await window.mouse.move(at.x - 20, at.y + 300);
+  await window.mouse.move(at.x + 3, at.y + 300, { steps: 5 });
+  await window.mouse.dblclick(at.x + 3, at.y + 300);
+  await expect(divider).toHaveAttribute("aria-valuenow", String(start));
+  await app.close();
+});
+
+test("a drag that is cancelled leaves no widths over what the core says next", async () => {
+  const { app, window } = await launchApp(dataDir);
+  await dismissChatSetup(window);
+  await newMind(window, "Alpha");
+  await window.keyboard.press("ControlOrMeta+Alt+Backslash");
+  await expect(groupsOf(window)).toHaveCount(2);
+  // The split moves the focus to the new group's tab once it is drawn: a key before it goes there.
+  await expect(groupAt(window, 1).getByRole("tab")).toBeFocused();
+  const divider = window.getByTestId("group-divider");
+  const start = Number(await divider.getAttribute("aria-valuenow"));
+  await divider.focus();
+  await window.keyboard.press("Shift+ArrowLeft");
+  await expect(divider).toHaveAttribute("aria-valuenow", String(start - 50));
+  const box = await boxOf(divider);
+  const x = box.x + box.width / 2 - 3;
+  const y = box.y + box.height / 2;
+  await window.mouse.move(x - 30, y);
+  await window.mouse.move(x, y, { steps: 6 });
+  await window.mouse.down();
+  await window.mouse.move(x - 100, y, { steps: 5 });
+  await expect(divider).toHaveAttribute("aria-valuenow", String(start - 150));
+  await divider.evaluate((rod) =>
+    rod.dispatchEvent(new PointerEvent("pointercancel", { pointerId: 1, bubbles: true })),
+  );
+  await expect(divider).toHaveAttribute("aria-valuenow", String(start - 50));
+  await window.mouse.up();
+  await window.mouse.move(x - 20, y + 300);
+  await window.mouse.move(x + 3, y + 300, { steps: 5 });
+  await window.mouse.dblclick(x + 3, y + 300);
+  await expect(divider).toHaveAttribute("aria-valuenow", String(start));
+  await app.close();
 });
 
 test("a pinned tab stays at the left of its group; ⌘W and a middle click leave it open, saying why; its pin unpins it", async () => {

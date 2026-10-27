@@ -1,4 +1,4 @@
-import { Fragment, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { Fragment, useEffect, useLayoutEffect, useState } from "react";
 import type { LayoutGroup } from "../../../../core/api";
 import { useExportDialog } from "../../exportDialog";
 import { useT } from "../../i18n";
@@ -31,11 +31,13 @@ export function TabGroups() {
   const drag = useTabDrag(merged);
   const [container, setContainer] = useState<HTMLDivElement | null>(null);
   const width = useWidth(container);
-  /** Widths while a divider is dragged, before the core has them. */
+  /** Widths while a divider is dragged, before it is let go. */
   const [dragging, setDragging] = useState<number[] | null>(null);
-  // The resizes not yet answered. The widths stay as dragged until the last is: an earlier answer
-  // is older than the key pressed after it.
-  const resizing = useRef(0);
+  /**
+   * Widths asked of the core and not yet answered, oldest first. The newest is on screen until the
+   * last is answered: an earlier answer is older than the key or drag that came after it.
+   */
+  const [asked, setAsked] = useState<readonly number[][]>([]);
   /** The Mind whose Export options sheet is open (⋯, ⌘K, or its References block's Export…). */
   const exporting = useExportDialog((state) => state.mindId);
   const exportMind = useAppStore((state) => state.minds.find((mind) => mind.id === exporting));
@@ -54,7 +56,7 @@ export function TabGroups() {
 
   if (!layout) return null;
   const groups = merged ? [focusedGroupOf(layout)] : layout.groups;
-  const shares = dragging ?? groups.map((group) => group.width);
+  const shares = dragging ?? asked.at(-1) ?? groups.map((group) => group.width);
   /** What the groups share: the card, less the 1px dividers. */
   const room = Math.max(0, width - (groups.length - 1));
 
@@ -75,15 +77,14 @@ export function TabGroups() {
                 shares={shares}
                 room={room}
                 onPreview={setDragging}
+                onRelease={() => setDragging(null)}
                 onCommit={(next) => {
-                  resizing.current++;
+                  setDragging(null);
+                  setAsked((all) => [...all, next]);
                   void useAppStore
                     .getState()
                     .changeLayout({ type: "resize", widths: next })
-                    .finally(() => {
-                      resizing.current--;
-                      if (resizing.current === 0) setDragging(null);
-                    });
+                    .finally(() => setAsked((all) => all.filter((each) => each !== next)));
                 }}
               />
             )}
@@ -123,12 +124,14 @@ function GroupDivider({
   shares,
   room,
   onPreview,
+  onRelease,
   onCommit,
 }: {
   index: number;
   shares: number[];
   room: number;
   onPreview(shares: number[]): void;
+  onRelease(): void;
   onCommit(shares: number[]): void;
 }) {
   const t = useT();
@@ -152,6 +155,7 @@ function GroupDivider({
       max={pairPx - min}
       direction={1}
       onPreview={(px) => onPreview(sharesWith(px))}
+      onRelease={onRelease}
       onCommit={(px) => onCommit(sharesWith(px))}
     />
   );
