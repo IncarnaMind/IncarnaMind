@@ -199,8 +199,12 @@ test("while an Answer is written, its line moves from Reading through Thinking o
     .filter((step) => step !== "none")
     .filter((step, index, all) => step !== all[index - 1]);
   expect(names[0]).toBe("reading");
-  expect(names.slice(-2)).toEqual(["writing", "checking"]);
-  const between = names.slice(1, -2);
+  // An assistant turn is offered the Tools that write Notes, so after Checking it checks the
+  // changes its reply says it made (#2037): over quickly, that step shows only once Checking has
+  // had its time.
+  const ended = names.at(-1) === "checking-claims" ? names.slice(0, -1) : names;
+  expect(ended.slice(-2)).toEqual(["writing", "checking"]);
+  const between = ended.slice(1, -2);
   expect(between.length).toBeGreaterThan(0);
   for (const step of between) expect(["thinking", "searching"]).toContain(step);
   const line = answer.getByTestId("answer-steps");
