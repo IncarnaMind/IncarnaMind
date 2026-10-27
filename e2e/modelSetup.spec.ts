@@ -120,9 +120,11 @@ test("a pasted key is named by its form and works at once: the waiting Question 
 
     await expect(card).toHaveCount(0);
     await expect(window.getByTestId("composer-input")).toBeVisible();
-    expect((await bridge(window).settings()).device.transcriptionRoute).toBe("local");
-    const library = await bridge(window).library();
-    expect(library.classifier.kind).toBe("chat");
+    // Each step's choice is saved as it is made: waited for, not read the moment it is clicked.
+    await expect
+      .poll(async () => (await bridge(window).settings()).device.transcriptionRoute)
+      .toBe("local");
+    await expect.poll(async () => (await bridge(window).library()).classifier.kind).toBe("chat");
   } finally {
     await app.close();
   }
@@ -355,7 +357,10 @@ test("with a Soniox key a cloud route is offered in step 2 and named as the cons
       "Audio goes to Soniox while you record",
     );
     await pointAndClick(window, card.getByTestId("setup-transcription-use"));
-    expect((await bridge(window).settings()).device.transcriptionRoute).toBe("soniox");
+    await expect(card.getByTestId("setup-step-transcription")).toHaveAttribute("data-done", "true");
+    await expect
+      .poll(async () => (await bridge(window).settings()).device.transcriptionRoute)
+      .toBe("soniox");
   } finally {
     await app.close();
   }
