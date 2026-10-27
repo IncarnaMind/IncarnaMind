@@ -78,8 +78,9 @@ export interface ChangePlace {
   paragraph?: string;
   /**
    * How many characters it wrote, for a change inside a paragraph: 0 for one
-   * that only took words out. Its start may hold to the words it took out,
-   * which go; its end and this say where its own words begin (#1411).
+   * that only took words out. y-tiptap gives no position at 1 or less, so a
+   * change at the Note's first Block has no start of its own; its end and this
+   * say where its words begin (#1411).
    */
   writtenSize?: number;
 }
@@ -284,7 +285,7 @@ function anchoredPlace(state: EditorState, change: ChangePlace): Place | null {
   if (!ends) return null;
   const { from, to } = ends;
   if (to === null || to > state.doc.content.size) return null;
-  // Its start may hold to the words its own change took out, which are gone; its end and the size it wrote say where its words begin.
+  // y-tiptap gives no position at 1 or less, so only a start at the Note's first Block is missing one; its end and the size it wrote say where its words begin.
   const written = change.block === null ? change.writtenSize : undefined;
   const start = from ?? (written === undefined ? null : to - written);
   if (start === null || start < 0 || to < start) return null;

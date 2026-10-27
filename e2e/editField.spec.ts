@@ -46,6 +46,10 @@ const selectedInMind = (editor: Locator) =>
     return state.doc.textBetween(state.selection.from, state.selection.to);
   });
 
+/** Where the cursor sits in the editor's own state, not in the page's selection. */
+const cursorIn = (editor: Locator) =>
+  editor.evaluate((dom) => (dom as unknown as { editor: Editor }).editor.state.selection.from);
+
 async function mindWith(window: Page, text: string) {
   await newMind(window);
   const editor = window.getByTestId("mind-editor");
@@ -544,7 +548,7 @@ for (const language of ["en", "zh-CN"] as const) {
   }
 }
 
-test("Review changes of Improve writing at a paragraph's start shows its marks and restores them, in a two-paragraph edit (#1411)", async () => {
+test("Review changes of Improve writing at a paragraph's start shows its marks in both paragraphs and restores them, in a two-paragraph edit (#1411)", async () => {
   const { app, window } = await launchApp(dataDir, { fakeChat: true });
   await dismissChatSetup(window);
   await useLocalChatModel(window);
@@ -556,21 +560,40 @@ test("Review changes of Improve writing at a paragraph's start shows its marks a
   await window.keyboard.press("Enter");
   await window.keyboard.type("the wind is calm");
   const note = editor.locator(":scope > p").first();
-  await slideSelect(window, note, TIDES);
+  const second = editor.locator(":scope > p").nth(1);
+  await slideSelect(window, note, TIDES, { line: second, words: "the wind is calm" });
   await pointAndClick(window, window.getByTestId("selection-action-improve"));
   const applied = editor.getByTestId("applied-line");
   await expect(applied).toBeVisible({ timeout: 40_000 });
   await expect(note).toHaveText("The tide turns very slowly in the harbour today.");
+  await expect(second).toHaveText("The wind is calm");
 
   await pointAndClick(window, applied.getByTestId("applied-review"));
-  // The change is the paragraph's first word: its old words struck, its new ones marked.
+  // Each paragraph's first word changed: its old words struck, its new ones marked, in both.
   await expect(note.locator("del.applied-old")).toHaveText(/^t(he)?$/);
   await expect(note.locator(".applied-new")).toHaveText(/^T(he)?$/);
-  const restores = note.getByTestId("change-restore");
-  await expect(restores).toHaveText("Restore original");
-  await pointAndClick(window, restores.first());
+  await expect(second.locator("del.applied-old")).toHaveText(/^t(he)?$/);
+  await expect(second.locator(".applied-new")).toHaveText(/^T(he)?$/);
+
+  // The line is over the first change, above both paragraphs' words, and the cursor is on it: position 1, the Note's first word.
+  const [line, firstOld, secondOld] = await Promise.all([
+    applied.boundingBox(),
+    note.locator("del.applied-old").first().boundingBox(),
+    second.locator("del.applied-old").first().boundingBox(),
+  ]);
+  if (!line || !firstOld || !secondOld) throw new Error("Review's line or a change was not drawn.");
+  expect(line.y).toBeLessThan(firstOld.y);
+  expect(line.y).toBeLessThan(secondOld.y);
+  expect(await cursorIn(editor)).toBe(1);
+
+  await pointAndClick(window, note.getByTestId("change-restore").first());
+  // Paragraph 1 as it was; paragraph 2 still shows its own change, untouched.
   await expect(note).toHaveText(TIDE_LINE);
-  // With its only change restored, Review has nothing left to show.
+  await expect(second.locator("del.applied-old")).toHaveText(/^t(he)?$/);
+  await expect(second.locator(".applied-new")).toHaveText(/^T(he)?$/);
+  await pointAndClick(window, second.getByTestId("change-restore").first());
+  await expect(second).toHaveText("the wind is calm");
+  // With both changes restored, Review has nothing left to show.
   await expect(applied).toHaveCount(0);
   await app.close();
 });
@@ -601,8 +624,10 @@ for (const language of ["en", "zh-CN"] as const) {
           await expect(problem).toBeVisible({ timeout: 40_000 });
           await expect(problem).toContainText(words.failed);
           await expect(problem.getByTestId("menu-edit-action")).toHaveText(words.retry);
-          // In the page where the change would have gone, and not in the composer's row.
+          // In the page where the change would have gone, and not in the composer's row: one line only.
           await expect(window.getByTestId("edit-pending")).toHaveCount(0);
+          await expect(window.getByTestId("edit-status-problem")).toHaveCount(0);
+          await expect(window.getByTestId("edit-problem")).toHaveCount(1);
           expect(await onScreen(problem)).toBe(true);
           await expect(note).toHaveText(TIDE_LINE);
           await pointAndClick(window, problem.getByTestId("menu-edit-close"));

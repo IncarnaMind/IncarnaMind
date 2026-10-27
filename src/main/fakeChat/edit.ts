@@ -79,7 +79,8 @@ const EDIT_REASONS: Readonly<Record<string, readonly [string, string]>> = {
 
 /**
  * The scripted Edit with AI (see the top of this file): the passage's new
- * text and why, or an explanation; `slow` when the instruction says "slowly".
+ * text and why, or an explanation; `slow` when the instruction or the passage
+ * says "slowly".
  */
 export function fakeEdit(prompt: Prompt): { text: string; slow: boolean; holds: boolean } | null {
   const request = prompt
