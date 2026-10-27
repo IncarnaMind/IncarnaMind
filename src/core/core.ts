@@ -1487,8 +1487,8 @@ export function createCore(adapters: CoreAdapters): Core {
     defaultModel: () => settings.get().user.chatModel,
     readiness: async (choice) => chat.readiness(await chat.answeringModel(choice)),
     prepareModel: (choice, thinking) => chat.prepareModel(choice, "chat", thinking),
-    writesThenCites: ({ provider, modelId }) =>
-      writesThenCites({ catalogId: provider.catalogId, modelId }, adapters.answerPaths),
+    writesThenCites: ({ provider, modelId }, flow) =>
+      writesThenCites({ catalogId: provider.catalogId, modelId }, flow, adapters.answerPaths),
     async prepareQuickModel(answers, prepared) {
       const quick = chat.quickTasksModel(answers);
       // An Answer on this computer keeps its small calls there too.

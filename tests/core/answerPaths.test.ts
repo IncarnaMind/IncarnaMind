@@ -30,21 +30,35 @@ async function systemFor(writes: boolean | undefined) {
 }
 
 describe("The Answer paths beside the catalog", { timeout: 30_000 }, () => {
-  test("Claude Haiku 5.5 writes then cites; Sonnet 5.5 and models not in the catalog don't", () => {
-    expect(writesThenCites({ catalogId: "anthropic", modelId: "claude-haiku-5-5" })).toBe(true);
-    expect(writesThenCites({ catalogId: "anthropic", modelId: "claude-haiku-5-5-20261001" })).toBe(
-      true,
+  test("Claude Haiku 5.5 writes then cites in a Question's Answer; Sonnet 5.5 and models not in the catalog don't", () => {
+    const haiku = { catalogId: "anthropic", modelId: "claude-haiku-5-5" };
+    expect(writesThenCites(haiku, "question")).toBe(true);
+    expect(
+      writesThenCites({ catalogId: "anthropic", modelId: "claude-haiku-5-5-20261001" }, "question"),
+    ).toBe(true);
+    expect(
+      writesThenCites({ catalogId: "anthropic", modelId: "claude-sonnet-5-5" }, "question"),
+    ).toBe(false);
+    expect(writesThenCites({ catalogId: null, modelId: "claude-haiku-5-5" }, "question")).toBe(
+      false,
     );
-    expect(writesThenCites({ catalogId: "anthropic", modelId: "claude-sonnet-5-5" })).toBe(false);
-    expect(writesThenCites({ catalogId: null, modelId: "claude-haiku-5-5" })).toBe(false);
   });
+
+  test.each(["outside-agent", "task-answer", "check", "call-help"] as const)(
+    "Claude Haiku 5.5 cites first in the %s flow, which the gate didn't measure",
+    (flow) => {
+      expect(writesThenCites({ catalogId: "anthropic", modelId: "claude-haiku-5-5" }, flow)).toBe(
+        false,
+      );
+    },
+  );
 
   test("an override decides over the list, and one that says nothing leaves it to the list", () => {
     const haiku = { catalogId: "anthropic", modelId: "claude-haiku-5-5" };
     const other = { catalogId: null, modelId: "local-model" };
-    expect(writesThenCites(haiku, { writesThenCites: () => false })).toBe(false);
-    expect(writesThenCites(haiku, { writesThenCites: () => undefined })).toBe(true);
-    expect(writesThenCites(other, { writesThenCites: () => true })).toBe(true);
+    expect(writesThenCites(haiku, "question", { writesThenCites: () => false })).toBe(false);
+    expect(writesThenCites(haiku, "question", { writesThenCites: () => undefined })).toBe(true);
+    expect(writesThenCites(other, "question", { writesThenCites: () => true })).toBe(true);
   });
 
   test("Claude Haiku 5.5, as the list names it, writes the Answer and cites it in one reply", async () => {

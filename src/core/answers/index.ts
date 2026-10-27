@@ -136,6 +136,7 @@ import { plainText } from "../mindText";
 import { docOf } from "../proposals/merge";
 import { proposeBlocks } from "../proposals/write";
 import { givesStructuredOutput, calculates as offersCalculate } from "../providers/capabilities";
+import type { AnswerFlow } from "../providers/catalog/answerPaths";
 import type { PreparedChatModel } from "../providers/chat";
 import { classifyProviderError } from "../providers/providerErrors";
 import type { WebResult } from "../providers/webSearch";
@@ -531,8 +532,8 @@ export interface AnswersOptions {
     answers: ChatModelChoice,
     prepared: PreparedChatModel,
   ): Promise<PreparedChatModel["model"]>;
-  /** Whether this model writes the Answer, then cites it, in the Tool loop (#489). */
-  writesThenCites?(prepared: PreparedChatModel): boolean;
+  /** Whether this model writes the Answer, then cites it, in the Tool loop, in this flow (#489). */
+  writesThenCites?(prepared: PreparedChatModel, flow: AnswerFlow): boolean;
   /** Searching the User's Documents, and what Citations point to. */
   documents: DocumentsForAnswers;
   /** Runs Analyses (#447, ADR-0023); absent: no Answer is offered `run_analysis`. */
@@ -1040,6 +1041,16 @@ export function createAnswers(options: AnswersOptions) {
     /** The Documents the live transcript came from: the "listened" step names them. */
     const transcripts = new Set<string>();
     const { help } = input;
+    // An Answer inside another flow (a comparison's cell, a check's sentence) is that flow's step.
+    const flow: AnswerFlow = help
+      ? "call-help"
+      : input.toolSet === "check"
+        ? "check"
+        : input.task
+          ? "task-answer"
+          : outside
+            ? "outside-agent"
+            : "question";
     let foundAhead = false;
     /** The language the call's newest lines are in, which a help Answer is written in. */
     let callLanguage: string | null = null;
@@ -2415,7 +2426,7 @@ export function createAnswers(options: AnswersOptions) {
           },
         },
       ];
-      const writeFirst = options.writesThenCites?.(prepared) ?? false;
+      const writeFirst = options.writesThenCites?.(prepared, flow) ?? false;
       for await (const event of engine.generate({
         instructions: (
           mode,
@@ -2663,16 +2674,6 @@ export function createAnswers(options: AnswersOptions) {
       settleMinds();
       finish(outcome);
     };
-    // An Answer inside another flow (a comparison's cell, a check's sentence) is that flow's step.
-    const flow = help
-      ? "call-help"
-      : input.toolSet === "check"
-        ? "check"
-        : input.task
-          ? "task-answer"
-          : outside
-            ? "outside-agent"
-            : "question";
     inFlow(flow, run).catch((error: unknown) => {
       options.reportError(error);
       settleMinds();
