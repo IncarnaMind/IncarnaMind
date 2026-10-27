@@ -22,6 +22,7 @@ import {
 } from "../referenceRecords/read";
 import { stripBoilerplate } from "./boilerplate";
 import { creationDate, pdfDate, w3cDate } from "./creationDate";
+import { addDepositionAnchors } from "./deposition";
 import { ExtractionError, extractText, type PageReading, pdfMetadata } from "./extract";
 import { officeProperties } from "./formats/coreProperties";
 import { readWebPage, SAVED_PICTURE } from "./formats/web";
@@ -53,9 +54,10 @@ import { unreadMessage } from "./unreadMessage";
  * print, from its page labels or its headers and footers). 12: #1819 (a
  * scanned page's quarter-turn is normalized before it is read). 13: #740 (a
  * workbook records the hidden sheets and rows past the limit it left out).
- * 14: #1818 (PDF form fields are included in the pages' text).
+ * 14: #1818 (PDF form fields are included in the pages' text). 15: #1709
+ * (explicit deposition layouts keep their printed page and line anchors).
  */
-export const PROCESSING_VERSION = 14;
+export const PROCESSING_VERSION = 15;
 
 /**
  * Per kind, the oldest version whose Passages and Units are still what this
@@ -70,10 +72,12 @@ export const PROCESSING_VERSION = 14;
  * Passages come out as they were; version 12 only PDFs' scanned pages, whose
  * orientation `SCAN_CURRENT_SINCE` reads again; version 13 only workbooks',
  * which record the hidden sheets and rows past the limit they left out, their
- * Units as they were; version 14 only PDFs', whose pages include form fields.
+ * Units as they were; version 14 only PDFs', whose pages include form fields;
+ * version 15 only PDFs', whose explicit deposition layouts gain printed-line
+ * anchors while their text and Passages stay as they were.
  */
 export const CURRENT_SINCE: Readonly<Record<DocumentKind, number>> = {
-  pdf: 14,
+  pdf: 15,
   text: 5,
   markdown: 5,
   docx: 7,
@@ -512,7 +516,8 @@ async function processBytes(
   try {
     const extracted = await extractText(kind, bytes, reading, password, readPicture);
     const firstPages = extracted.units.slice(0, REFERENCE_PAGES).map((unit) => unit.text);
-    const pages = kind === "pdf" ? stripBoilerplate(extracted.units) : extracted.units;
+    const pages =
+      kind === "pdf" ? stripBoilerplate(addDepositionAnchors(extracted.units)) : extracted.units;
     const { pageCount, unread, parts } = extracted;
     const passages = buildPassages(pages).map((passage) => ({
       ...passage,
