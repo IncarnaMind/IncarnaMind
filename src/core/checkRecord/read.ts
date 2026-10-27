@@ -88,7 +88,7 @@ export interface RecordCiteItem {
   evidence: RecordDocument | null;
   covered: string | null;
   uncovered: string | null;
-  candidates: { id: string; name: string }[];
+  candidates: { id: string; name: string; detail?: string }[];
   nearby: { location: string | null; passage: string } | null;
   check: SentenceCheck | null;
 }
@@ -240,6 +240,7 @@ export function readRecord(sources: RecordSources): {
         candidates: (cite.candidates ?? []).map((candidate) => ({
           id: candidate.id,
           name: documents.find((each) => each.id === candidate.id)?.name ?? candidate.name,
+          ...(candidate.detail && { detail: candidate.detail }),
         })),
         nearby: cite.nearby
           ? { location: citedLocation(cite.nearby, sources.t), passage: cite.nearby.passage }

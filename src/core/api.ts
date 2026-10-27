@@ -5224,7 +5224,7 @@ export interface RecordCiteResult {
   covered?: string;
   uncovered?: string;
   /** Documents the User must choose between; never a silent first match. */
-  candidates?: { id: string; name: string }[];
+  candidates?: { id: string; name: string; detail?: string }[];
   nearby?: {
     location: CitationLocation;
     pageFrom: number;

@@ -30,6 +30,7 @@ import { type LiveDocument, withShownName } from "../../../shared/citations";
 import { restsOn } from "../../../shared/claimChecks";
 import { mindScopeIn } from "../../../shared/mindScope";
 import {
+  type RecordCitePlace,
   readRecordCiteChoices,
   writePreviousRecordCite,
   writeRecordCiteChoice,
@@ -38,6 +39,7 @@ import { folderScope, oneFolderOf } from "../../../shared/searchScope";
 import { judgesUnreliably } from "../../../shared/smallModel";
 import { recordCheckUnread } from "../../../shared/unreadFiles";
 import {
+  BLOCK_ID_ATTRIBUTE,
   type ChatModelChoice,
   type ChatReadiness,
   type CheckContradictionsResult,
@@ -89,7 +91,13 @@ import type { AnswerEngine } from "../engine";
 import { type ClaimCheckDependencies, createClaimCheck, recordJudged } from "./claimCheck";
 import { createMindCheck, type MindCheckOptions } from "./mindCheck";
 import { judgeResolvedRecordCites } from "./recordCites";
-import { markedSentences, markSentence, selectedSentences, updateCheck } from "./sentences";
+import {
+  everySentence,
+  markedSentences,
+  markSentence,
+  selectedSentences,
+  updateCheck,
+} from "./sentences";
 import { createVerify, type NoDocuments, type VerifyOptions } from "./verify";
 import { createContradictionWatch, type WatchOptions } from "./watch";
 import { createWrittenCheck, type WrittenCheckOptions } from "./written";
@@ -152,7 +160,7 @@ export interface ChecksOptions
   documents: ClaimCheckDependencies["documents"] &
     MindCheckOptions["documents"] & {
       /** Every live Document's names: what the Citations a sentence already has are named by. */
-      names(): readonly LiveDocument[];
+      names(): readonly (LiveDocument & { path?: string })[];
     };
   engine: AnswerEngine;
   retention: Pick<VersionRetention, "retain">;
@@ -320,16 +328,37 @@ function chooseInput(value: unknown): ChooseRecordCiteSourceInput {
 
 export function createChecks(options: ChecksOptions) {
   const { content, chat } = options;
+  const previousIsImmediate = (
+    mindId: string,
+    previous: RecordCitePlace | undefined,
+    current: RecordCitePlace | undefined,
+  ) => {
+    if (!previous || !current) return false;
+    const sentences = content.read(mindId, everySentence);
+    const before = sentences.findIndex(
+      (sentence) => sentence.blockId === previous.blockId && sentence.from === previous.from,
+    );
+    const now = sentences.findIndex(
+      (sentence) => sentence.blockId === current.blockId && sentence.from === current.from,
+    );
+    if (before < 0 || now < 0 || before >= now) return false;
+    return !sentences
+      .slice(before + 1, now)
+      .some((sentence) => scanRecordCites(sentence.text, { hasPrevious: true }).length > 0);
+  };
   /** The requests running, by id: how to stop each, and its Mind. */
   const running = new Map<string, { controller: AbortController; mindId: string }>();
   const claimCheck = createClaimCheck({
     ...options,
     documents: {
       ...options.documents,
-      recordChoices: (mindId) =>
-        mindId
-          ? content.readSettings(mindId, readRecordCiteChoices)
-          : { previous: null, choices: {} },
+      recordChoices: (mindId, place) => {
+        if (!mindId) return { previous: null, choices: {} };
+        const stored = content.readSettings(mindId, readRecordCiteChoices);
+        return previousIsImmediate(mindId, stored.previous?.place, place)
+          ? stored
+          : { ...stored, previous: null };
+      },
       recordPrevious: (mindId, choice) =>
         content.editSettings(mindId, (settings) => writePreviousRecordCite(settings, choice)),
     },
@@ -347,6 +376,7 @@ export function createChecks(options: ChecksOptions) {
         id: document.id,
         name: document.name ?? document.title ?? "",
         contentHash: document.contentHash,
+        ...(document.path && { detail: document.path }),
         units: options.documents.pageTexts(document.id, document.contentHash, null, null),
       }));
   };
@@ -542,6 +572,7 @@ export function createChecks(options: ChecksOptions) {
           claim: sentence.text,
           context: sentence.context,
           cited: sentence.cited,
+          place: { blockId: sentence.blockId, from: sentence.from },
         };
       });
       if (marked.length > 0) recordUnread(blocks, input.requestId, unread);
@@ -561,6 +592,7 @@ export function createChecks(options: ChecksOptions) {
         scope: evidenceScope,
         model: ready.prepared,
         mindId,
+        place: sentence.place,
         cacheKey: mindId,
         signal,
       });
@@ -836,6 +868,7 @@ export function createChecks(options: ChecksOptions) {
       const final = judged.recordCites[0];
       if (!final?.location) throw new InvalidInputError("The source could not be resolved.");
       const alias = parsed.status === "parsed" ? recordCiteChoiceAlias(parsed) : null;
+      const blockId = stored.element.getAttribute(BLOCK_ID_ATTRIBUTE);
       content.editSettings(input.mindId, (settings) => {
         if (alias)
           writeRecordCiteChoice(settings, alias, {
@@ -845,6 +878,9 @@ export function createChecks(options: ChecksOptions) {
         writePreviousRecordCite(settings, {
           documentId: document.id,
           location: final.location as NonNullable<RecordCiteResult["location"]>,
+          ...(typeof blockId === "string" && {
+            place: { blockId, from: stored.from },
+          }),
         });
       });
       content.edit(input.mindId, (blocks) =>

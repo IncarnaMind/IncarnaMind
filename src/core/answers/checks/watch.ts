@@ -19,6 +19,7 @@
 import { randomUUID } from "node:crypto";
 import { writeContradictionWatch } from "../../../shared/contradictionWatch";
 import { mindModelOf } from "../../../shared/mindModel";
+import type { RecordCitePlace } from "../../../shared/recordCiteChoices";
 import { comparableSentence, isClaim } from "../../../shared/sentences";
 import { judgesUnreliably } from "../../../shared/smallModel";
 import type { Logger } from "../../adapters";
@@ -43,6 +44,7 @@ import type { BackgroundQueue } from "../../backgroundQueue";
 import type { EvidenceScope } from "../../documents/evidence";
 import type { MindContent } from "../../mindContent";
 import type { PreparedChatModel } from "../../providers/chat";
+import { scanRecordCites } from "../../recordCites/parser";
 import { currentTask } from "../../runs/current";
 import { RunItemError, runItems } from "../../runs/stop";
 import { type ClaimCheckRequest, recordJudged, runFailureOf } from "./claimCheck";
@@ -132,6 +134,7 @@ export interface WatchOptions {
 /** A cited sentence to check: where it is, and the Documents it may be checked against. */
 interface Claim {
   blockId: string;
+  place: RecordCitePlace;
   text: string;
   context: string;
   scope: EvidenceScope;
@@ -175,6 +178,7 @@ export function createContradictionWatch(options: WatchOptions) {
       return [
         {
           blockId: sentence.blockId,
+          place: { blockId: sentence.blockId, from: sentence.from },
           text: sentence.text,
           context: sentence.context,
           scope,
@@ -265,6 +269,11 @@ export function createContradictionWatch(options: WatchOptions) {
     const runId = randomUUID();
     let checked = 0;
     let contradicted = 0;
+    const hasPreviousReference = ready.claims.some((claim) =>
+      scanRecordCites(claim.text, { hasPrevious: true }).some(
+        (occurrence) => occurrence.result.status === "parsed" && occurrence.result.reference,
+      ),
+    );
     const { stop } = await runItems(
       ready.claims,
       (claim) =>
@@ -275,6 +284,7 @@ export function createContradictionWatch(options: WatchOptions) {
             scope: claim.scope,
             model: prepared,
             mindId,
+            place: claim.place,
             cacheKey: mindId,
             signal,
           });
@@ -283,7 +293,11 @@ export function createContradictionWatch(options: WatchOptions) {
           return result;
         }),
       {
-        concurrency: prepared.provider.service ? CLOUD_CLAIMS_AT_ONCE : 1,
+        concurrency: hasPreviousReference
+          ? 1
+          : prepared.provider.service
+            ? CLOUD_CLAIMS_AT_ONCE
+            : 1,
         signal,
         onOutcome(claim, outcome) {
           if (outcome.status !== "done" || signal.aborted) return;
@@ -409,6 +423,7 @@ export function createContradictionWatch(options: WatchOptions) {
                 scope: claim.scope,
                 model: prepared,
                 mindId,
+                place: claim.place,
                 cacheKey: mindId,
                 signal: ended,
               }),

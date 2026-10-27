@@ -8,6 +8,8 @@ export interface RecordCiteDocument {
   id: string;
   name: string;
   contentHash: string;
+  /** A local path or other source detail that distinguishes duplicate names. */
+  detail?: string;
   units: readonly UnitText[];
 }
 
@@ -113,7 +115,7 @@ const choose = (
 ): RecordCiteResult => ({
   ...citeFields(cite),
   outcome: "choose",
-  candidates: documents.map(({ id, name }) => ({ id, name })),
+  candidates: documents.map(({ id, name, detail }) => ({ id, name, ...(detail && { detail }) })),
 });
 
 const resolved = (
@@ -747,7 +749,20 @@ export function resolveRecordCites({
       if (!previous) {
         outcome = { result: notFound(cite), resolved: null };
       } else if (cite.kind === "id" && cite.location?.kind === "page") {
-        const resolution = resolvePage(previous.document, cite.location);
+        const resolution =
+          previous.resolution.location.kind === "page" && previous.resolution.location.lines
+            ? mapDeposition(
+                previous.document,
+                {
+                  ...cite.location,
+                  printed: {
+                    from: cite.location.printed?.from ?? String(cite.location.from),
+                    to: cite.location.printed?.to ?? String(cite.location.to),
+                  },
+                },
+                resolveDeposition,
+              )
+            : resolvePage(previous.document, cite.location);
         outcome = resolution
           ? fromMatches(cite, [
               {

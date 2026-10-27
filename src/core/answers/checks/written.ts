@@ -32,6 +32,7 @@
 import { randomUUID } from "node:crypto";
 import * as Y from "yjs";
 import { SENTENCES_CHECKED_AT_MOST } from "../../../shared/claimChecks";
+import type { RecordCitePlace } from "../../../shared/recordCiteChoices";
 import { INLINE_NODE, isClaim, sentenceSpans } from "../../../shared/sentences";
 import { judgesUnreliably } from "../../../shared/smallModel";
 import {
@@ -47,6 +48,7 @@ import {
   type RunStop,
 } from "../../api";
 import type { PreparedChatModel } from "../../providers/chat";
+import { scanRecordCites } from "../../recordCites/parser";
 import { RunItemError, runItems } from "../../runs/stop";
 import { inStep } from "../../timing/flows";
 import { type MarkJSON, type NodeJSON, syncContent, topLevelBlocks } from "../blocks";
@@ -461,6 +463,7 @@ export function createWrittenCheck(options: WrittenCheckOptions) {
     scope: CheckScope,
     prepared: PreparedChatModel,
     signal: AbortSignal,
+    place?: RecordCitePlace,
   ): Promise<ClaimCheckResult> {
     const timedOut = AbortSignal.timeout(options.claimTimeLimitMs);
     const ended = AbortSignal.any([signal, timedOut]);
@@ -476,6 +479,7 @@ export function createWrittenCheck(options: WrittenCheckOptions) {
         scope: scope.scope,
         model: prepared,
         mindId,
+        ...(place && { place }),
         cacheKey: mindId,
         signal: ended,
       }),
@@ -490,6 +494,12 @@ export function createWrittenCheck(options: WrittenCheckOptions) {
       excluded: [],
     };
   }
+
+  const placeOf = (sentence: Sentence, ids: readonly string[]): RecordCitePlace | undefined => {
+    const top = sentence.path[0];
+    const blockId = top === undefined ? undefined : ids[top];
+    return blockId ? { blockId, from: sentence.from } : undefined;
+  };
 
   // Null when there was nothing to check, or it couldn't be checked here.
   return (input: CheckWrittenInput) => inStep("written-check", () => checkWritten(input));
@@ -512,7 +522,14 @@ export function createWrittenCheck(options: WrittenCheckOptions) {
     const { outcomes, stop } = await runItems(
       sending,
       async (sentence) => {
-        const result = await checkWithin(sentence, mindId, scope, prepared, signal);
+        const result = await checkWithin(
+          sentence,
+          mindId,
+          scope,
+          prepared,
+          signal,
+          placeOf(sentence, input.ids),
+        );
         const failure = runFailureOf(result);
         if (failure) throw new RunItemError(failure);
         const uncovered =
@@ -522,7 +539,18 @@ export function createWrittenCheck(options: WrittenCheckOptions) {
         const nodes = uncovered ? await cutOf(blocks, sentence, uncovered, prepared, signal) : null;
         return { result, uncovered, nodes };
       },
-      { concurrency: prepared.provider.service ? CLOUD_SENTENCES_AT_ONCE : 1, signal },
+      {
+        concurrency: sending.some((sentence) =>
+          scanRecordCites(sentence.text, { hasPrevious: true }).some(
+            (occurrence) => occurrence.result.status === "parsed" && occurrence.result.reference,
+          ),
+        )
+          ? 1
+          : prepared.provider.service
+            ? CLOUD_SENTENCES_AT_ONCE
+            : 1,
+        signal,
+      },
     );
     if (signal.aborted) return null;
 

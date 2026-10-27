@@ -172,7 +172,15 @@ function recordCitesOf(value: unknown): RecordCiteResult[] | undefined {
           ? {
               candidates: each.candidates.flatMap((candidate) =>
                 isRecord(candidate) && text(candidate.id) && text(candidate.name)
-                  ? [{ id: candidate.id as string, name: candidate.name as string }]
+                  ? [
+                      {
+                        id: candidate.id as string,
+                        name: candidate.name as string,
+                        ...(text(candidate.detail)
+                          ? { detail: text(candidate.detail) as string }
+                          : {}),
+                      },
+                    ]
                   : [],
               ),
             }

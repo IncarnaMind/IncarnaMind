@@ -305,6 +305,79 @@ describe("record-cite choices through the core", () => {
       location: { kind: "page", from: 2, to: 2 },
       passage: expect.stringContaining("Second next"),
     });
+
+    editMind(setup.client, (blocks) =>
+      blocks.filter((each) => each.attrs?.id !== "record-cite-choice"),
+    );
+    await setup.client.settled();
+    await setup.core.checkSentences({
+      requestId: crypto.randomUUID(),
+      mindId: setup.mind.id,
+      action: "check-against-documents",
+      from: { blockId: block.attrs.id, offset: 0 },
+      to: { blockId: block.attrs.id, offset: next.length },
+    });
+    const rechecked = (await storedChecks(setup.client)).find((check) => check.text === next);
+    expect(rechecked?.recordCites?.[0]).toMatchObject({ raw: "Id. at 2", outcome: "not-found" });
+  });
+
+  test("a later Document never becomes the referent of an earlier Id.", async () => {
+    const first = "Id. at 2 has no earlier source.";
+    const setup = await setUp(CLAIM, {
+      [first]: {
+        verdict: "unsupported",
+        judgement: "same",
+      },
+    });
+    await setup.check();
+    await chooseSecond(setup);
+    const block: JSONContent & { attrs: { id: string } } = {
+      type: "paragraph",
+      attrs: { id: "record-cite-before-referent" },
+      content: [{ type: "text", text: first }],
+    };
+    editMind(setup.client, (blocks) => [block, ...blocks]);
+    await setup.client.settled();
+
+    await setup.core.checkSentences({
+      requestId: crypto.randomUUID(),
+      mindId: setup.mind.id,
+      action: "check-against-documents",
+      from: { blockId: block.attrs.id, offset: 0 },
+      to: { blockId: block.attrs.id, offset: first.length },
+    });
+
+    const checked = (await storedChecks(setup.client)).find((check) => check.text === first);
+    expect(checked?.recordCites?.[0]).toMatchObject({ raw: "Id. at 2", outcome: "not-found" });
+  });
+
+  test("an ambiguous intervening cite clears the previous referent", async () => {
+    const next = "Id. at 2 has no immediate referent.";
+    const setup = await setUp(REPEATED, {
+      [next]: {
+        verdict: "unsupported",
+        judgement: "same",
+      },
+    });
+    await setup.check();
+    const block: JSONContent & { attrs: { id: string } } = {
+      type: "paragraph",
+      attrs: { id: "record-cite-after-ambiguous" },
+      content: [{ type: "text", text: next }],
+    };
+    editMind(setup.client, (blocks) => [...blocks, block]);
+    await setup.client.settled();
+
+    await setup.core.checkSentences({
+      requestId: crypto.randomUUID(),
+      mindId: setup.mind.id,
+      action: "check-against-documents",
+      from: { blockId: block.attrs.id, offset: 0 },
+      to: { blockId: block.attrs.id, offset: next.length },
+    });
+
+    const checked = (await storedChecks(setup.client)).find((check) => check.text === next);
+    expect(checked?.recordCites?.[0]).toMatchObject({ raw: "Id. at 2", outcome: "not-found" });
   });
 
   test("record resolution honors the direct Search scope and checked-Document exclusion", async () => {

@@ -6,11 +6,11 @@ Updated 2026-10-27. This is not yet a claim that every acceptance box is met.
 
 - Parser: 209 tests, including ten fixtures of every accepted shape and reading-order/`Id.`/`supra` cases.
 - Deposition mapping and processing: 17 tests, including digital/OCR layouts and page breaks.
-- Resolver and public source choice: 28 resolver tests plus 9 public-core choice tests. These cover candidates, normalized aliases, stable-id choices after a name no longer matches, only-one-occurrence recheck, deleted/changed choices, direct checks with no Note, cross-sentence `Id.`, Search scope/exclusions, timestamp persistence and deletion-driven Needs re-check.
+- Resolver and public source choice: 30 resolver tests plus 11 public-core choice tests. These cover candidates and duplicate details, normalized aliases, stable-id choices after a name no longer matches, only-one-occurrence recheck, deleted/changed choices, direct checks with no Note, positional cross-sentence `Id.`, Search scope/exclusions, timestamp persistence and deletion-driven Needs re-check.
 - Shared resolving fixtures: 160 exact Document/Location/Passage cases, ten of every accepted shape, all green. Two scanned PDF pages also pass through the actual render → OCR → stored-anchor path before resolving across their break.
 - Fixed-passage judgement: 6 tests, including a retained supported nearby suggestion, rejection of an unhelpful one, and no nearby display for a Supported cited result.
-- All affected suites: 743 tests pass across parser, exact resolving fixtures, deposition, Check record, renderer record-cite retention, claim checks, scope, Mind checks, contradiction watch, written checks, public-core choices, DOCX and public-evaluation key/scoring.
-- Full TypeScript typecheck passes. Biome passes on the changed files.
+- All affected suites: 748 tests pass across parser, exact resolving fixtures, deposition, Check record, renderer record-cite retention, claim checks, scope, Mind checks, contradiction watch, written checks, public-core choices, DOCX and public-evaluation key/scoring.
+- Full TypeScript typecheck and full Biome lint pass; only the repository's existing warnings remain.
 
 ## Public court records
 
@@ -18,7 +18,7 @@ Updated 2026-10-27. This is not yet a claim that every acceptance box is met.
 
 The set covers English and Chinese claims, Supported, Partly, wrong-page Not found with exact nearby evidence, `Id.`, `supra`, a genuine two-Document ECF No. 41 ambiguity and an unmatched docket. `eval/record-cites/recordCites.eval.ts` is the real-model runner. Its report schema records every miss, actual request replies, tokens, request time and core-counted USD spend.
 
-**Real Haiku 5.5 and Sonnet 5.5 runs: pending credentials; no accuracy claim made.** No `INCARNAMIND_EVAL_CHAT_*` credentials are present in the current shell.
+**Real Haiku 5.5 and Sonnet 5.5 runs: pending; no accuracy claim made yet.** The existing credential setup is available and keeps keys outside the repository.
 
 ## DOCX
 
@@ -45,7 +45,7 @@ Screenshots (public test data, in the screenshots repository):
 
 ## Independent-review corrections
 
-The final diff also fixes the review's concrete findings: the model now judges the Passage rather than the raw cite; cross-sentence `Id.`/`supra` use persisted Note history in reading order; resolution honors EvidenceScope and checked-Document exclusions; chosen sources join `check.versions`; timestamp choices persist; invalid choices become actionable Not found/Choose results; Bates matching rejects alphanumeric suffixes. The established provider-failure rule remains overall `not-checked`, with no fabricated per-cite verdict.
+The final diff also fixes the review's concrete findings: the model now judges the Passage rather than the raw cite; cross-sentence `Id.`/`supra` use an immediate, position-validated Note referent, never a later item or the cite itself; all cloud check paths preserve reading order for references; deposition `Id. at N` uses printed page maps; duplicate candidates carry local source details; resolution honors EvidenceScope and checked-Document exclusions; chosen sources join `check.versions`; timestamp choices persist; invalid choices become actionable Not found/Choose results; Bates matching rejects alphanumeric suffixes. The established provider-failure rule remains overall `not-checked`, with no fabricated per-cite verdict.
 
 ## Still open before `Closes #1709`
 

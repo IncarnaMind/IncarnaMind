@@ -3,9 +3,16 @@ import type { CitationLocation } from "../core/api";
 import { MIND_SETTINGS_FIELD } from "../core/api";
 import { parseLocation } from "./locations";
 
+export interface RecordCitePlace {
+  blockId: string;
+  from: number;
+}
+
 export interface RecordCiteChoice {
   documentId: string;
   location: CitationLocation;
+  /** The record item's position in the Note, for `Id.`/`supra` only. */
+  place?: RecordCitePlace;
 }
 
 export interface RecordCiteChoices {
@@ -20,7 +27,22 @@ function choiceOf(value: unknown): RecordCiteChoice | null {
   const { documentId, location } = value as { documentId?: unknown; location?: unknown };
   if (typeof documentId !== "string" || documentId === "") return null;
   const parsed = parseLocation(location);
-  return parsed ? { documentId, location: parsed } : null;
+  if (!parsed) return null;
+  const candidate = value as { place?: { blockId?: unknown; from?: unknown } };
+  const place = candidate.place;
+  const blockId = place?.blockId;
+  const from = place?.from;
+  const validPlace =
+    typeof blockId === "string" &&
+    blockId !== "" &&
+    typeof from === "number" &&
+    Number.isInteger(from) &&
+    from >= 0;
+  return {
+    documentId,
+    location: parsed,
+    ...(validPlace ? { place: { blockId, from } } : {}),
+  };
 }
 
 export function readRecordCiteChoices(settings: Y.Map<unknown>): RecordCiteChoices {
@@ -49,7 +71,10 @@ export function writeRecordCiteChoice(
   settings.set(KEY, { previous: current.previous, choices: current.choices });
 }
 
-export function writePreviousRecordCite(settings: Y.Map<unknown>, choice: RecordCiteChoice): void {
+export function writePreviousRecordCite(
+  settings: Y.Map<unknown>,
+  choice: RecordCiteChoice | null,
+): void {
   const current = readRecordCiteChoices(settings);
   settings.set(KEY, { previous: choice, choices: current.choices });
 }

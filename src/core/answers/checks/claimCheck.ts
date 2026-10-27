@@ -27,7 +27,11 @@ import { type CaseCitation, caseCitations, isOpinionOf } from "../../../shared/c
 import type { LiveDocument } from "../../../shared/citations";
 import type { FigureContext } from "../../../shared/figures";
 import { type MessageKey, type MessageParams, translate } from "../../../shared/i18n";
-import type { RecordCiteChoice, RecordCiteChoices } from "../../../shared/recordCiteChoices";
+import type {
+  RecordCiteChoice,
+  RecordCiteChoices,
+  RecordCitePlace,
+} from "../../../shared/recordCiteChoices";
 import { sentenceSpans } from "../../../shared/sentences";
 import type {
   CheckedVersion,
@@ -97,9 +101,9 @@ export interface ClaimCheckDependencies {
   engine: AnswerEngine;
   evidence: Pick<Evidence, "search">;
   documents: Pick<AnswerDocuments, "citationSource" | "pageTexts" | "documentDate"> & {
-    names?(): readonly LiveDocument[];
-    recordChoices?(mindId?: string): RecordCiteChoices;
-    recordPrevious?(mindId: string, choice: RecordCiteChoice): void;
+    names?(): readonly (LiveDocument & { path?: string })[];
+    recordChoices?(mindId: string | undefined, place?: RecordCitePlace): RecordCiteChoices;
+    recordPrevious?(mindId: string, choice: RecordCiteChoice | null): void;
     searchableCount(documentIds: readonly string[] | null): number;
     searchableLanguages(documentIds: readonly string[] | null): DocumentLanguage[];
     savedBySearch(documentId: string): boolean;
@@ -116,6 +120,8 @@ export interface ClaimCheckRequest {
   thirdParty?: readonly ThirdPartyReason[];
   /** The Note whose stored record-cite choices apply; absent for a direct check. */
   mindId?: string;
+  /** This claim's position in the Note, for `Id.`/`supra`; absent for a direct check. */
+  place?: RecordCitePlace;
   /** Names the Mind, for a provider's prompt cache. */
   cacheKey?: string;
   signal: AbortSignal;
@@ -186,6 +192,7 @@ function recordDocuments(deps: ClaimCheckDependencies, scope: EvidenceScope): Re
       id: document.id,
       name: document.name ?? document.title ?? "",
       contentHash: document.contentHash,
+      ...(document.path && { detail: document.path }),
       units: deps.documents.pageTexts(document.id, document.contentHash, null, null),
     }));
 }
@@ -205,7 +212,7 @@ async function withRecordCites(
   deps: ClaimCheckDependencies,
 ): Promise<ClaimCheckResult> {
   if (result.verdict === "not-checked") return result;
-  const choices = deps.documents.recordChoices?.(request.mindId) ?? {
+  const choices = deps.documents.recordChoices?.(request.mindId, request.place) ?? {
     previous: null,
     choices: {},
   };
@@ -227,12 +234,18 @@ async function withRecordCites(
   for (const version of recordCiteVersions(judged.recordCites)) {
     if (!versions.has(version.documentId)) versions.set(version.documentId, version);
   }
-  const previous = judged.recordCites.findLast((cite) => cite.documentId && cite.location);
-  if (request.mindId && previous?.documentId && previous.location) {
-    deps.documents.recordPrevious?.(request.mindId, {
-      documentId: previous.documentId,
-      location: previous.location,
-    });
+  const previous = judged.recordCites.at(-1);
+  if (request.mindId && judged.recordCites.length > 0) {
+    deps.documents.recordPrevious?.(
+      request.mindId,
+      previous?.documentId && previous.location
+        ? {
+            documentId: previous.documentId,
+            location: previous.location,
+            ...(request.place && { place: request.place }),
+          }
+        : null,
+    );
   }
   return { ...result, recordCites: judged.recordCites, versions: [...versions.values()] };
 }

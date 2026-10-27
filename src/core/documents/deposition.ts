@@ -351,19 +351,20 @@ export function resolveDeposition(
 ): DepositionResolution {
   const notFound = (): DepositionResolution => ({ status: "not-found" });
   const printed = requested.printed;
+  if (!printed) return notFound();
   const lines = requested.lines;
-  if (!printed || !lines) return notFound();
   const fromPage = positive(printed.from);
   const toPage = positive(printed.to);
   if (
     fromPage === null ||
     toPage === null ||
-    !Number.isSafeInteger(lines.from) ||
-    !Number.isSafeInteger(lines.to) ||
-    lines.from < 1 ||
-    lines.to < 1 ||
-    toPage < fromPage ||
-    (fromPage === toPage && lines.to < lines.from)
+    (lines &&
+      (!Number.isSafeInteger(lines.from) ||
+        !Number.isSafeInteger(lines.to) ||
+        lines.from < 1 ||
+        lines.to < 1 ||
+        (fromPage === toPage && lines.to < lines.from))) ||
+    toPage < fromPage
   ) {
     return notFound();
   }
@@ -392,15 +393,16 @@ export function resolveDeposition(
     if (entries.length !== 1) return notFound();
     const entry = entries[0];
     if (!entry) return notFound();
-    const part =
-      pages.length === 1
+    const part = lines
+      ? pages.length === 1
         ? "same"
         : index === 0
           ? "first"
           : index === pages.length - 1
             ? "last"
-            : "whole";
-    const rows = selectedRows(entry.region, part, lines.from, lines.to);
+            : "whole"
+      : "whole";
+    const rows = selectedRows(entry.region, part, lines?.from ?? 1, lines?.to ?? 0);
     if (!rows) return notFound();
     const cut = sliceRows(entry.unit, rows);
     if (!cut) return notFound();
@@ -419,6 +421,15 @@ export function resolveDeposition(
   ) {
     return notFound();
   }
+  const lineOf = (unit: UnitText | undefined) => {
+    const target = unit?.anchors?.find((anchor) => LINE_TARGET.test(anchor.target))?.target;
+    const line = target ? LINE_TARGET.exec(target)?.[2] : undefined;
+    return line ? positive(line) : null;
+  };
+  const resolvedLines = lines ?? {
+    from: lineOf(slices[0]) ?? 1,
+    to: lineOf(slices.at(-1)) ?? 1,
+  };
   return {
     status: "found",
     location: {
@@ -426,7 +437,7 @@ export function resolveDeposition(
       from,
       to,
       printed: { from: printed.from, to: printed.to },
-      lines: { from: lines.from, to: lines.to },
+      lines: resolvedLines,
     },
     units: slices,
   };

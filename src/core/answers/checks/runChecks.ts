@@ -4,6 +4,8 @@
  * time, each result written onto its mark as it comes. The monthly cap or a
  * plan's limit stops the run, and the claims left say why they weren't checked.
  */
+
+import type { RecordCitePlace } from "../../../shared/recordCiteChoices";
 import type {
   ClaimCheckAttributes,
   ClaimCheckResult,
@@ -26,6 +28,8 @@ export interface QueuedClaim {
   claim: string;
   context: string;
   cited?: ClaimCheckRequest["cited"];
+  /** This claim's position in the Note, for `Id.`/`supra`. */
+  place?: RecordCitePlace;
   /** Where it is checked, when not where the run's other claims are. */
   scope?: ClaimCheckRequest["scope"];
 }
@@ -88,6 +92,7 @@ export async function runChecks(
         model: prepared,
         ...(run.thirdParty && { thirdParty: run.thirdParty }),
         mindId,
+        ...(claim.place && { place: claim.place }),
         cacheKey: mindId,
         signal,
       });

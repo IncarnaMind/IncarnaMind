@@ -182,6 +182,21 @@ describe("record cites on a sentence check", () => {
     );
   });
 
+  test("a duplicate-name candidate shows its source detail instead of only a page", () => {
+    const options = ui.recordCiteCandidateOptions(
+      {
+        ...CHOOSE_CITE,
+        candidates: [
+          { id: "duplicate-a", name: "Duplicate filing", detail: "/cases/a/ECF 41.pdf" },
+        ],
+      },
+      [],
+      (key, params) => translate("en", key, params),
+    );
+
+    expect(options[0]?.detail).toBe("/cases/a/ECF 41.pdf");
+  });
+
   test("a current Document name is found by stable id only, never by matching saved content", () => {
     const documents = [
       { id: "doc-supported", name: "Current transcript" },

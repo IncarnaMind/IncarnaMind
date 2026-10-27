@@ -113,6 +113,26 @@ describe("record-cite source resolution", () => {
     ]);
   });
 
+  test("keeps a candidate's source detail beside its stable id", () => {
+    const first = { ...document([{ page: 3, text: "First" }]), detail: "/cases/first/ECF 41.pdf" };
+    const second = {
+      ...document([{ page: 3, text: "Second" }]),
+      id: "second",
+      detail: "/cases/second/ECF 41.pdf",
+    };
+
+    expect(
+      resolveRecordCites({
+        cites: [parseRecordCite("Ex. 7 at 3")],
+        documents: [first, second],
+        choices,
+      })[0]?.candidates,
+    ).toEqual([
+      { id: "exhibit-7", name: "Exhibit 7.pdf", detail: "/cases/first/ECF 41.pdf" },
+      { id: "second", name: "Exhibit 7.pdf", detail: "/cases/second/ECF 41.pdf" },
+    ]);
+  });
+
   test("uses a saved choice by normalized alias and exact physical Location", () => {
     const first = document([{ page: 4, label: { printed: "3" }, text: "First" }]);
     const second = {
@@ -479,6 +499,43 @@ describe("record-cite source resolution", () => {
         passage: "First\nSecond",
       },
     ]);
+  });
+
+  test("Id. at N uses the previous deposition's printed page map", () => {
+    const source = {
+      ...document([
+        { page: 1, kind: "page" as const, text: "Page 45\n3 A. Deposition answer." },
+        { page: 2, kind: "page" as const, text: "Page 46\n1 Q. Next?\n2 A. Whole page." },
+      ]),
+      id: "smith-deposition",
+      name: "Smith Deposition.pdf",
+    };
+
+    const results = resolveRecordCites({
+      cites: [
+        parseRecordCite("Smith Dep. 45:3–3"),
+        parseRecordCite("Id. at 46", { hasPrevious: true }),
+      ],
+      documents: [source],
+      choices,
+      resolveDeposition,
+    });
+
+    expect(results[1]).toMatchObject({
+      raw: "Id. at 46",
+      outcome: "supported",
+      documentId: "smith-deposition",
+      location: {
+        kind: "page",
+        from: 2,
+        to: 2,
+        printed: { from: "46", to: "46" },
+        lines: { from: 1, to: 2 },
+      },
+      pageFrom: 2,
+      pageTo: 2,
+      passage: "Q. Next?\nA. Whole page.",
+    });
   });
 
   test("chains Id., Id. at a new printed page, and supra through the previous item", () => {

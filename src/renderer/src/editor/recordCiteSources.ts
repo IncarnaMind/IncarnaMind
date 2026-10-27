@@ -33,7 +33,7 @@ export function recordCiteCandidateOptions(
   return (cite.candidates ?? []).map((candidate) => ({
     id: candidate.id,
     label: documents.find((document) => document.id === candidate.id)?.name ?? candidate.name,
-    ...(location && { detail: location }),
+    ...(candidate.detail || location ? { detail: candidate.detail ?? location } : {}),
     data: { "data-document-id": candidate.id },
   }));
 }

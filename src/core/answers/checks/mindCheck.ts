@@ -421,6 +421,7 @@ export function createMindCheck(options: MindCheckOptions) {
             claim: sentence.text,
             context: sentence.context,
             cited: options.citedNow(sentence.cited),
+            place: { blockId: sentence.blockId, from: sentence.from },
             scope: within.scope,
           },
         ];
