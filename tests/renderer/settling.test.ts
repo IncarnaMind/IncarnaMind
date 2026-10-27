@@ -36,6 +36,28 @@ describe("What has been there long enough to show, and shows long enough", () =>
     expect(heard).toEqual([["processing"], []]);
   });
 
+  // protects=a wait that a busy page draws late still stays its minimum on screen, counted from the drawing, whether its work ends before or after it is drawn; fails_when=the minimum counts from when the wait was announced, so the User sees it for less; no_claim=how late a page draws.
+  test.each([
+    ["after", false],
+    ["before", true],
+  ])(
+    "one drawn late stays its minimum from when it is drawn, its work ending %s the drawing",
+    (_when, endsFirst) => {
+      const wait = settling();
+      wait.update(["processing"]);
+      vi.advanceTimersByTime(SHOWN_AFTER_MS);
+      expect(heard).toEqual([["processing"]]);
+      if (endsFirst) wait.update([]);
+      vi.advanceTimersByTime(120);
+      wait.drawn();
+      if (!endsFirst) wait.update([]);
+      vi.advanceTimersByTime(SHOWN_AT_LEAST_MS - 1);
+      expect(heard).toEqual([["processing"]]);
+      vi.advanceTimersByTime(1);
+      expect(heard).toEqual([["processing"], []]);
+    },
+  );
+
   test("one that has lasted past its minimum goes at once when its work ends", () => {
     const wait = settling();
     wait.update(["processing"]);
