@@ -1,4 +1,5 @@
 import { type RefObject, useEffect, useRef, useSyncExternalStore } from "react";
+import { useFocusReturn } from "./useFocusReturn";
 
 /** The native modal dialogs that are open, the one opened last on top. */
 const openModals: HTMLDialogElement[] = [];
@@ -58,32 +59,25 @@ export function useModal(
   { focusDialog = false, request = 0 }: { focusDialog?: boolean; request?: number } = {},
 ) {
   const dialog = useRef<HTMLDialogElement>(null);
+  const focus = useFocusReturn();
   // biome-ignore lint/correctness/useExhaustiveDependencies: `request` is when to look again, not what is read: each ask shows the dialog and tracks it again, though `open` did not change.
   useEffect(() => {
     const element = dialog.current;
     if (!element) return;
     if (open && !element.open) {
+      focus.remember();
       element.showModal();
       if (focusDialog) element.focus();
     }
     if (!open && element.open) {
       element.close();
-      // Chromium gives the focus back to the text field the dialog took it from, but leaves the
-      // caret outside it, so what is typed next goes nowhere (e.g. a follow-up after "Allow").
-      const field = document.activeElement;
-      if (
-        (field instanceof HTMLTextAreaElement || field instanceof HTMLInputElement) &&
-        field.selectionStart !== null &&
-        field.selectionEnd !== null
-      ) {
-        field.setSelectionRange(field.selectionStart, field.selectionEnd);
-      }
+      focus.giveBack(element);
     }
     if (!open) return;
     // A close the browser made has already untracked it, so an ask that shows it again must
     // track it again: the list holds what is on top now.
     return trackModal(element);
-  }, [open, focusDialog, request]);
+  }, [open, focusDialog, request, focus]);
   return dialog;
 }
 

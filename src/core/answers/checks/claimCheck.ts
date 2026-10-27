@@ -624,7 +624,8 @@ export function createClaimCheck(deps: ClaimCheckDependencies) {
           ? null
           : (found ??
             decidingCitation(session.finalCitation) ??
-            (await askForEvidence(request, verdict, session, signal, why.covered)));
+            // Only the card's quote rests on it: the verdict stands without.
+            notFailed(await askForEvidence(request, verdict, session, signal, why.covered)));
       if (signal.aborted) return notChecked("stopped");
       const left = facts();
       return {
@@ -657,6 +658,7 @@ export function createClaimCheck(deps: ClaimCheckDependencies) {
     const evidence = cited ?? worked?.evidence ?? null;
     const onlyCalculation = cited === null && worked?.evidence != null;
     if (signal.aborted) return notChecked("stopped");
+    if (isFailed(evidence)) return failedCheck(evidence.failed);
     if (!evidence) return notChecked("no-evidence");
     const unit = unstatedUnit([evidence, ...foundCitations(session.finalCitation, evidence)]);
     if (unit && (verdict.verdict !== "contradicted" || onlyCalculation))
@@ -711,6 +713,7 @@ export function createClaimCheck(deps: ClaimCheckDependencies) {
     if (verdict.verdict === "supported" && (verdict.scope === "wider" || differs)) {
       const part = await parts(evidence);
       if (signal.aborted) return notChecked("stopped");
+      if (isFailed(part)) return failedCheck(part.failed);
       // The Passage the check cited states the term's own value, so no nearest line is asked about.
       const nearest = differs ? undefined : null;
       if (part.covered && part.uncovered)
@@ -735,6 +738,7 @@ export function createClaimCheck(deps: ClaimCheckDependencies) {
         if (verdict.topic === "not found") return unsupported();
         const part = await parts(evidence);
         if (signal.aborted) return notChecked("stopped");
+        if (isFailed(part)) return failedCheck(part.failed);
         if (!part.covered || !part.uncovered) return unsupported(UNBACKED);
         // A judgement has just compared this very quote with the sentence: no nearest line.
         return unsupported({ reason: verdict.says, ...part, found: true }, evidence, null);
@@ -825,7 +829,7 @@ async function askForEvidence(
   session: ReturnType<typeof createCitationSession>,
   signal: AbortSignal,
   covered: string | null = null,
-): Promise<Citation | null> {
+): Promise<Citation | null | Failed> {
   const passages = session.shownPassages();
   if (passages.length === 0) return null;
   const { model } = request;
@@ -843,7 +847,7 @@ async function askForEvidence(
   } catch (error) {
     if (!signal.aborted)
       console.error(`A check's evidence couldn't be asked for again: ${messageOf(error)}`);
-    return null;
+    return { failed: classifyProviderError(error) };
   }
   const record = readEvidence(reply);
   if (!record) return null;
@@ -884,6 +888,15 @@ async function compare(
   }
 }
 
+interface Failed {
+  failed: ProviderError;
+}
+
+const isFailed = (value: unknown): value is Failed =>
+  typeof value === "object" && value !== null && "failed" in value;
+
+const notFailed = <T>(value: T | Failed): T | null => (isFailed(value) ? null : value);
+
 async function confirmContradiction(
   request: ClaimCheckRequest,
   quoted: Citation,
@@ -912,12 +925,12 @@ async function partOf(
   session: ReturnType<typeof createCitationSession>,
   signal: AbortSignal,
   language: Language,
-): Promise<ReturnType<typeof readPart>> {
+): Promise<ReturnType<typeof readPart> | Failed> {
   const asked = await compare(request, quoted, session, signal, partInstructions(language));
   if ("reply" in asked) return readPart(asked.reply);
   if (!signal.aborted)
     console.error(`A sentence's parts couldn't be asked for: ${asked.failed.message}`);
-  return { covered: null, uncovered: null };
+  return { failed: asked.failed };
 }
 
 interface Opinions {
