@@ -99,7 +99,10 @@ function writingModel(
       const record = { marker: 1, passage: passage?.id, quote: MOON };
       return { calls: [{ tool: "cite", input: { citations: [record] } }] };
     }
-    if (!results.some((result) => result.tool === tool)) {
+    const writes = results.filter((result) => result.tool === tool);
+    // Told its text has no Citation (#1415), it writes it again as it was: it says nothing the Documents say.
+    const refused = writes.length === 1 && writes[0]?.text.includes("content has no Citation");
+    if (writes.length === 0 || refused) {
       const input = into ? { content } : { title: "Tide notes", content };
       return { calls: [{ tool, input }] };
     }

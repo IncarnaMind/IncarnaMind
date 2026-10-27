@@ -1150,6 +1150,8 @@ export function createAnswers(options: AnswersOptions) {
             : null,
         ...(read?.partial && { readShare }),
         ...(citedAfterChecking.count > 0 && { citedAfterChecking: citedAfterChecking.count }),
+        ...(citedAfterChecking.asked &&
+          citedAfterChecking.count === 0 && { notCitedAfterAsking: true as const }),
         ...(sentAt !== null &&
           firstWordAt !== Infinity && { firstWordMs: wordAfter(sentAt, firstWordAt) }),
         ...(careful && { careful: true as const }),
@@ -2161,6 +2163,13 @@ export function createAnswers(options: AnswersOptions) {
               ...input.assistant,
               ...(askInTray && { ask: askInTray }),
               language: answerLanguage(context.question),
+              searchedPassages: () =>
+                toolCalls.some(
+                  (call) =>
+                    call.status === "done" &&
+                    ((call.tool === DOCUMENT_TOOLS.search && (call.resultCount ?? 0) > 0) ||
+                      (call.webPage !== undefined && "documentId" in call.webPage)),
+                ),
               figure: (marker) => (calculating ? figures.figure(marker) : null),
               blocksOf: (text) => {
                 let found = 0;

@@ -5589,6 +5589,10 @@ export const en = {
   "answer.notWritten.noCall": "the assistant didn’t run the write",
   "answer.notWritten.retry": "Try again",
   "answer.notAllDone": "The assistant didn’t make every change this reply describes",
+  "answer.uncitedReply":
+    "This reply has no Citations, so none of it was checked against your Documents",
+  "answer.uncitedWrite":
+    "What was written in “{mind}” has no Citations, so none of it was checked against your Documents",
   "answer.added": "Added to “{mind}”",
   "answer.undoKept.one": "Kept the Block you edited",
   "answer.undoKept": "Kept {count} Blocks you edited",

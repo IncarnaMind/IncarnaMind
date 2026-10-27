@@ -1171,6 +1171,8 @@ export interface MindChange {
   replacedOwn?: { paragraphs: number; tables: number; charts: number };
   /** How many Citations the text it wrote there holds. Absent: none, or it rewrote text keeping its own. */
   cited?: number;
+  /** It wrote new text there with no Citation at all, once its Answer had searched and found Passages (#1415). */
+  uncited?: true;
   /** How many of its text's markers had no Citation recorded, and were left out. Absent: none. */
   unrecorded?: number;
   /**
@@ -5689,6 +5691,11 @@ export interface AnswerSteps {
    * it wrote without markers that match the Passages it read (#760).
    */
   citedAfterChecking?: number;
+  /**
+   * The model was asked once for the Citations its reply left out, and none came of it that
+   * could be checked (#1415). Absent: it wasn't asked, or Citations came of it.
+   */
+  notCitedAfterAsking?: true;
   /**
    * How long, in ms, the Question was with the model before the Answer had
    * words: its text, or a Mind its Tool call began to change. Absent while

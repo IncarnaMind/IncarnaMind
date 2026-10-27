@@ -5325,6 +5325,8 @@ export const zhCN = {
   "answer.notWritten.noCall": "助手没有执行写入",
   "answer.notWritten.retry": "重试",
   "answer.notAllDone": "助手没有完成这条回答中说的全部改动",
+  "answer.uncitedReply": "这条回答没有引用，未与文档核对",
+  "answer.uncitedWrite": "“{mind}”中写入的内容没有引用，未与文档核对",
   "answer.added": "已添加到“{mind}”",
   "answer.undoKept.one": "保留了 1 个你编辑过的块",
   "answer.undoKept": "保留了 {count} 个你编辑过的块",
