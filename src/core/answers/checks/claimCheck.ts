@@ -478,11 +478,17 @@ export function createClaimCheck(deps: ClaimCheckDependencies) {
     if (unit && (verdict.verdict !== "contradicted" || onlyCalculation))
       return unsupported(unit, evidence, null);
     // An unsupported reply with no topic or part named can be missing only the derived figure.
-    // A found topic or an explicit part is independent evidence and stays unsupported.
+    // A found topic or an explicit part is independent evidence and stays unsupported. The derived
+    // figure is recognised in the reason or the uncovered part; any other reason stays too.
     if (byCalculation && verdict.verdict === "unsupported") {
       const onTopic = verdict.topic !== "not found";
       const parts = onTopic && verdict.covered !== null && verdict.uncovered !== null;
-      const derivedUncovered =
+      const derivedReason =
+        worked !== null &&
+        verdict.says !== null &&
+        statedFigure(verdict.says, worked.calculation.stated, figureContext(worked.evidence)) !==
+          null;
+      const derivedPart =
         worked !== null &&
         verdict.uncovered !== null &&
         statedFigure(
@@ -490,7 +496,13 @@ export function createClaimCheck(deps: ClaimCheckDependencies) {
           worked.calculation.stated,
           figureContext(worked.evidence),
         ) !== null;
-      if (!derivedUncovered && (verdict.topic === "found" || parts))
+      const independentReason = verdict.says !== null && !derivedReason;
+      const independentPart = parts && !derivedPart;
+      if (
+        independentReason ||
+        independentPart ||
+        (!derivedReason && !derivedPart && verdict.topic === "found")
+      )
         return unsupported(
           {
             reason: verdict.says,

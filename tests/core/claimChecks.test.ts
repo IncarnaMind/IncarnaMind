@@ -1288,15 +1288,15 @@ describe("A limit the figure stays within, and a cost printed in brackets (#1908
     expect(result).toMatchObject({ verdict: "contradicted", calculation: { agrees: true } });
   });
 
-  test("a reasoned unsupported clause with no Citation is not erased by an agreeing calculation", async () => {
-    const claim = INSIDE("3.25x");
+  test("a reasoned unsupported clause with no Citation or Topic is not erased by an agreeing calculation", async () => {
+    const claim = `${INSIDE("3.25x")} and the borrower is based in Scotland.`;
     const calculation = { ...LEVERAGE, stated: "3.25x", relation: "at most" as const };
     const plans = { [claim]: { verdict: "unsupported" as const, calculation } };
     const model = scriptedModel(
       (call) => {
         if (isCheckRun(call) && call.results.some((each) => each.tool === "calculate")) {
           return {
-            text: "Verdict: unsupported\nTopic: found\nThe Documents do not state the monetary unit or scale.",
+            text: "Verdict: unsupported\nThe Documents do not support the borrower's location.",
           };
         }
         return checkReply(call, plans);
@@ -1313,39 +1313,45 @@ describe("A limit the figure stays within, and a cost printed in brackets (#1908
 
     expect(await setup.core.checkClaim({ claim })).toMatchObject({
       verdict: "unsupported",
-      unsupported: { reason: "The Documents do not state the monetary unit or scale." },
+      unsupported: { reason: "The Documents do not support the borrower's location." },
       calculation: { agrees: true },
     });
   });
 
-  test("an uncovered derived figure is settled by its calculation", async () => {
-    const claim = COVERED("4.55x");
-    const calculation = { ...COVER, stated: "4.55x" };
-    const plans = { [claim]: { verdict: "unsupported" as const, calculation } };
-    const model = scriptedModel(
-      (call) => {
-        if (isCheckRun(call) && call.results.some((each) => each.tool === "calculate")) {
-          return {
-            text: "Verdict: unsupported\nCovered: finance costs of (41.2)\nNot covered: the 4.55x coverage multiple itself",
-          };
-        }
-        return checkReply(call, plans);
-      },
-      { generate: checkGenerate(plans) },
-    );
-    const setup = await setUpWithDocuments(model, [RESULTS]);
-    const saved = await setup.core.saveChatProvider({
-      kind: "anthropic",
-      apiKey: "sk-test",
-      modelId: "claude-haiku-5-5",
-    });
-    if (saved.service) await setup.core.allowDataFlow("checks", saved.service.id);
+  test.each(["reason", "parts"])(
+    "an uncovered derived figure is settled by its calculation (%s)",
+    async (kind) => {
+      const claim = COVERED("4.55x");
+      const calculation = { ...COVER, stated: "4.55x" };
+      const plans = { [claim]: { verdict: "unsupported" as const, calculation } };
+      const model = scriptedModel(
+        (call) => {
+          if (isCheckRun(call) && call.results.some((each) => each.tool === "calculate")) {
+            return {
+              text:
+                kind === "reason"
+                  ? "Verdict: unsupported\nThe Documents do not state the 4.55x coverage multiple itself"
+                  : "Verdict: unsupported\nCovered: finance costs of (41.2)\nNot covered: the 4.55x coverage multiple itself",
+            };
+          }
+          return checkReply(call, plans);
+        },
+        { generate: checkGenerate(plans) },
+      );
+      const setup = await setUpWithDocuments(model, [RESULTS]);
+      const saved = await setup.core.saveChatProvider({
+        kind: "anthropic",
+        apiKey: "sk-test",
+        modelId: "claude-haiku-5-5",
+      });
+      if (saved.service) await setup.core.allowDataFlow("checks", saved.service.id);
 
-    expect(await setup.core.checkClaim({ claim })).toMatchObject({
-      verdict: "supported",
-      calculation: { agrees: true },
-    });
-  });
+      expect(await setup.core.checkClaim({ claim })).toMatchObject({
+        verdict: "supported",
+        calculation: { agrees: true },
+      });
+    },
+  );
 
   const LEDGER = {
     name: "Ledger.md",
