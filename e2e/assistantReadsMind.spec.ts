@@ -118,7 +118,7 @@ test("“Summarise my notes” beside a Mind reads it: the consent says so, the 
   const answer = await ask(window, "Summarise my notes");
   const consent = window.getByTestId("consent-dialog");
   await expect(consent).toContainText(
-    "This Mind’s text, Notes and earlier Answers, minus excluded Notes",
+    "This note’s text, your text and earlier Questions and Answers, minus excluded text",
   );
   await expect(consent).toContainText(
     "Nothing is sent unless you allow it. Change it any time in Settings → Privacy.",
@@ -175,7 +175,9 @@ test("in Chinese: the consent, the Answer that read the Mind, and the steps", as
 
   const answer = await ask(window, "总结我的笔记");
   const consent = window.getByTestId("consent-dialog");
-  await expect(consent).toContainText("当前 Mind 的正文、笔记和之前的回答，不含已排除的笔记");
+  await expect(consent).toContainText(
+    "这篇笔记的正文、你写的内容和之前的问题和回答，不含已排除的内容",
+  );
   await expect(consent).toContainText(
     "在你允许之前不会发送任何内容。你可以随时在“设置”的“隐私”中更改。",
   );

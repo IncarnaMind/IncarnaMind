@@ -276,3 +276,24 @@ for (const width of [900, 1600]) {
     }
   });
 }
+
+test("Esc closes an error notice while the focus is in the empty Library search field", async () => {
+  const { app, window } = await launchApp(dataDir);
+  try {
+    await setWindowSize(app, window, 1100, 700);
+    await dismissChatSetup(window);
+    const row = await libraryWithADocument(window);
+    await renameTooLong(window, row);
+    const notice = window.getByTestId("error-notice");
+    await expect(notice).toHaveCount(1);
+
+    // The search is empty, so the field leaves Esc to the notice behind it.
+    const search = window.getByTestId("library-search");
+    await search.focus();
+    await expect(search).toHaveValue("");
+    await window.keyboard.press("Escape");
+    await expect(notice).toHaveCount(0);
+  } finally {
+    await app.close();
+  }
+});

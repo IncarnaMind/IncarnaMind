@@ -10,7 +10,12 @@
 import { randomUUID } from "node:crypto";
 import * as Y from "yjs";
 import { INLINE_CODE_MARK } from "../../shared/aiText";
-import { askedFor } from "../../shared/askedChanges";
+import {
+  askedFor,
+  ownTextLength,
+  requestedRequests,
+  waitsForUser,
+} from "../../shared/askedChanges";
 import { originOf } from "../../shared/blockOrigins";
 import { readChart } from "../../shared/charts";
 import {
@@ -21,12 +26,13 @@ import {
   resolveProposals,
   waitingChanges,
 } from "../../shared/proposals";
-import { createElement, type NodeJSON, topLevelBlocks } from "../answers/blocks";
+import { createElement, type NodeJSON, nodeOf, topLevelBlocks } from "../answers/blocks";
 import {
   BLOCK_ID_ATTRIBUTE,
   CHART_NODE,
   CITATION_NODE,
   GENERATED_MARK,
+  MIND_CONTENT_FIELD,
   PROPOSAL_ATTRIBUTE,
   PROPOSAL_DELETE_MARK,
   PROPOSAL_INSERT_MARK,
@@ -38,6 +44,8 @@ import { citationsIn, proposeOver, setProposal, textBlocks } from "./write";
 export interface OwnWaiting {
   kind: "own";
   blockIds: string[];
+  /** The Proposals to accept in a copy before their text is rewritten. */
+  requests: string[];
   /** What they hold as read, to tell whether they changed since. */
   fingerprint: string;
 }
@@ -46,9 +54,13 @@ export interface OwnWaiting {
  * What waits in a stretch of a Mind: nothing; only the assistant's own
  * waiting Blocks (`OwnWaiting`); some of those beside the User's text
  * ("mixed"); or changes the assistant can't revise ("other"). `count`: the
- * changes waiting in the whole Mind, as the User is told.
+ * changes waiting in the whole Mind, as the User is told. `applies`: the
+ * guarded same-turn requests apply with Undo, not review; false otherwise.
  */
-export type WaitingIn = { kind: "none" } | OwnWaiting | { kind: "mixed" | "other"; count: number };
+export type WaitingIn =
+  | { kind: "none" }
+  | OwnWaiting
+  | { kind: "mixed" | "other"; count: number; applies: boolean };
 
 interface Run {
   insert: unknown;
@@ -78,6 +90,28 @@ function holdsProposal(nodes: readonly (Y.XmlElement | Y.XmlText | Y.XmlHook)[])
     if (!(node instanceof Y.XmlElement)) return false;
     return node.getAttribute(PROPOSAL_ATTRIBUTE) !== undefined || holdsProposal(node.toArray());
   });
+}
+
+function requestsIn(nodes: readonly (Y.XmlElement | Y.XmlText | Y.XmlHook)[]): string[] {
+  const requests = new Set<string>();
+  const visit = (nodes: readonly (Y.XmlElement | Y.XmlText | Y.XmlHook)[]) => {
+    for (const node of nodes) {
+      if (node instanceof Y.XmlText) {
+        for (const run of node.toDelta() as Run[]) {
+          const insert = readProposalRef(run.attributes?.[PROPOSAL_INSERT_MARK]);
+          const removed = readProposalRef(run.attributes?.[PROPOSAL_DELETE_MARK]);
+          if (insert) requests.add(insert.request);
+          if (removed) requests.add(removed.request);
+        }
+      } else if (node instanceof Y.XmlElement) {
+        const proposal = readProposalAttribute(node.getAttribute(PROPOSAL_ATTRIBUTE));
+        if (proposal) requests.add(proposal.request);
+        visit(node.toArray());
+      }
+    }
+  };
+  visit(nodes);
+  return [...requests];
 }
 
 const WRITTEN_ATOMS: ReadonlySet<string> = new Set([
@@ -119,6 +153,63 @@ function isOwn(element: Y.XmlElement): boolean {
     proposalRequestOf(doc, attribute.request)?.source === "answer-added" &&
     !holdsProposal(element.toArray()) &&
     allAiText(element)
+  );
+}
+
+function hasInlineCode(element: Y.XmlElement): boolean {
+  return element.toArray().some((node) => {
+    if (node instanceof Y.XmlElement) return hasInlineCode(node);
+    if (!(node instanceof Y.XmlText)) return false;
+    return (node.toDelta() as Run[]).some(
+      (run) => !!run.attributes && INLINE_CODE_MARK in run.attributes,
+    );
+  });
+}
+
+function unsafeInlineInsertion(element: Y.XmlElement, current: ReadonlySet<string>): boolean {
+  const code = hasInlineCode(element);
+  const visit = (parent: Y.XmlElement): boolean =>
+    parent.toArray().some((node) => {
+      if (node instanceof Y.XmlElement) {
+        const proposal = readProposalAttribute(node.getAttribute(PROPOSAL_ATTRIBUTE));
+        if (proposal?.kind === "insert" && current.has(proposal.request)) return true;
+        return visit(node);
+      }
+      if (!(node instanceof Y.XmlText)) return false;
+      return (node.toDelta() as Run[]).some((run) => {
+        const proposal = readProposalRef(run.attributes?.[PROPOSAL_INSERT_MARK]);
+        return (
+          !!proposal &&
+          current.has(proposal.request) &&
+          (code || !run.attributes || !(GENERATED_MARK in run.attributes))
+        );
+      });
+    });
+  return visit(element);
+}
+
+function unsafeCurrentRevision(
+  elements: readonly Y.XmlElement[],
+  current: ReadonlySet<string>,
+): boolean {
+  const inserted = elements.filter((element) => {
+    const proposal = readProposalAttribute(element.getAttribute(PROPOSAL_ATTRIBUTE));
+    return proposal?.kind === "insert" && current.has(proposal.request);
+  });
+  const original = elements.some((element) => {
+    const proposal = readProposalAttribute(element.getAttribute(PROPOSAL_ATTRIBUTE));
+    return proposal?.kind !== "insert" && ownTextLength(element) > 0;
+  });
+  return (
+    (inserted.length > 0 && original) ||
+    inserted.some(
+      (element) =>
+        !allAiText(element) ||
+        hasInlineCode(element) ||
+        element.nodeName === "codeBlock" ||
+        element.length === 0,
+    ) ||
+    elements.some((element) => unsafeInlineInsertion(element, current))
   );
 }
 
@@ -172,16 +263,48 @@ function rangeOf(blocks: Y.XmlFragment, from: TextPlace, to: TextPlace): Y.XmlEl
 const fingerprintOf = (elements: readonly Y.XmlElement[]) =>
   elements.map((element) => element.toString()).join("\n");
 
-export function waitingIn(blocks: Y.XmlFragment, from: TextPlace, to: TextPlace): WaitingIn {
+export function waitingIn(
+  blocks: Y.XmlFragment,
+  from: TextPlace,
+  to: TextPlace,
+  inTurn: ReadonlySet<string> = new Set(),
+): WaitingIn {
   const range = rangeOf(blocks, from, to);
   if (!holdsProposal(range)) return { kind: "none" };
   const count = waitingChanges(blocks);
+  const requests = requestsIn(range);
+  const doc = blocks.doc;
+  const currentHere = doc ? requestedRequests(doc, inTurn) : new Set<string>();
+  const applies =
+    doc !== null &&
+    requests.length > 0 &&
+    requests.every((request) => inTurn.has(request) && askedFor(doc, request)) &&
+    !waitsForUser(doc, currentHere);
   const own = range.filter(isOwn);
-  if (own.length === range.length) {
-    return { kind: "own", blockIds: range.map(idOf), fingerprint: fingerprintOf(range) };
+  if (unsafeCurrentRevision(range, inTurn)) {
+    return { kind: own.length > 0 ? "mixed" : "other", count, applies };
+  }
+  const body = range.filter((element) => element.nodeName !== "heading");
+  const thisTurn = range.every((element) => {
+    const requests = requestsIn([element]);
+    if (element.nodeName === "heading") {
+      return requests.length === 0
+        ? body.length > 0
+        : requests.every((request) => inTurn.has(request));
+    }
+    const proposal = readProposalAttribute(element.getAttribute(PROPOSAL_ATTRIBUTE));
+    if (proposal?.kind === "insert" && !allAiText(element)) return false;
+    return requests.length > 0 && requests.every((request) => inTurn.has(request));
+  });
+  if (thisTurn || own.length === range.length) {
+    return { kind: "own", blockIds: range.map(idOf), requests, fingerprint: fingerprintOf(range) };
   }
   const others = range.filter((element) => !own.includes(element));
-  return { kind: own.length > 0 && !holdsProposal(others) ? "mixed" : "other", count };
+  return {
+    kind: own.length > 0 && !holdsProposal(others) ? "mixed" : "other",
+    count,
+    applies: false,
+  };
 }
 
 /** The Blocks of `own` in the Mind now, in order; null once they have changed. */
@@ -206,13 +329,9 @@ function blocksOf(
  * Call it in a Yjs transaction.
  */
 export function acceptOwnIn(blocks: Y.XmlFragment, own: OwnWaiting): void {
-  const ids = new Set(
-    (blocksOf(blocks, own) ?? []).flatMap((element) => {
-      const ref = readProposalRef(element.getAttribute(PROPOSAL_ATTRIBUTE));
-      return ref ? [ref.id] : [];
-    }),
-  );
-  resolveProposals(blocks, (proposal) => ids.has(proposal.id), "accept");
+  if (!blocksOf(blocks, own)) return;
+  const requests = new Set(own.requests);
+  resolveProposals(blocks, (proposal) => requests.has(proposal.request), "accept");
 }
 
 /**
@@ -341,15 +460,11 @@ export function citationsDropped(
 
 /** Whether the User asked for all of the text `own` holds (#880): a revision of it is asked for too. */
 export function ownAsked(blocks: Y.XmlFragment, own: OwnWaiting): boolean {
-  const old = blocksOf(blocks, own);
   const doc = blocks.doc;
   return (
-    !!old &&
+    blocksOf(blocks, own) !== null &&
     !!doc &&
-    old.every((element) => {
-      const attribute = readProposalAttribute(element.getAttribute(PROPOSAL_ATTRIBUTE));
-      return !!attribute && askedFor(doc, attribute.request);
-    })
+    own.requests.every((request) => askedFor(doc, request))
   );
 }
 
@@ -365,10 +480,38 @@ export function replaceOwn(
   own: OwnWaiting,
   revised: readonly Y.XmlElement[],
   request: string,
+  current: ReadonlySet<string> = new Set(),
 ): string[] | null {
   const old = blocksOf(blocks, own);
   const first = old?.[0];
   if (!old || !first) return null;
+  const requests = new Set(own.requests.filter((each) => current.has(each)));
+  if (requests.size > 0 && unsafeCurrentRevision(old, current)) return null;
+  const restart =
+    old.some((element) => {
+      const proposal = readProposalAttribute(element.getAttribute(PROPOSAL_ATTRIBUTE));
+      return proposal?.kind !== "insert" && ownTextLength(element) > 0;
+    }) &&
+    old.every((element) => {
+      const proposal = readProposalAttribute(element.getAttribute(PROPOSAL_ATTRIBUTE));
+      return !proposal || current.has(proposal.request);
+    });
+  if (requests.size > 0 && restart) {
+    resolveProposals(blocks, (ref) => requests.has(ref.request), "reject", new Set(own.blockIds));
+    const top = topLevelBlocks(blocks);
+    const previous = own.blockIds.flatMap((id) => {
+      const element = top.find((each) => idOf(each) === id);
+      return element ? [element] : [];
+    });
+    const copy = new Y.Doc();
+    const fragment = copy.getXmlFragment(MIND_CONTENT_FIELD);
+    fragment.insert(0, [...revised]);
+    const content = fragment
+      .toArray()
+      .flatMap((element) => (element instanceof Y.XmlElement ? [nodeOf(element)] : []));
+    copy.destroy();
+    return proposeOver(blocks, previous, content, request, randomUUID);
+  }
   keepRevised(blocks, request, old);
   const at = blocks.toArray().indexOf(first);
   blocks.delete(at, old.length);

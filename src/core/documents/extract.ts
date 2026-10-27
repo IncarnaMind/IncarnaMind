@@ -6,18 +6,23 @@
  */
 import { createRequire } from "node:module";
 import { dirname, join } from "node:path";
+import type { PDFPageProxy, TextItem } from "pdfjs-dist/types/src/display/api";
+import { readPdfPageText } from "../../shared/pdfFormText";
 import { CJK } from "../../shared/text";
-import type { TextUnit } from "../../shared/units";
+import type { Anchor, TextUnit } from "../../shared/units";
 import type { LogFields, PagePicture, PictureRead, RecognizedLine } from "../adapters";
-import type { DocumentKind } from "../api";
+import type { DocumentKind, UnreadParts } from "../api";
 import { isRecord } from "../errors";
 import { ExtractionError, extractUnits } from "./formats";
 import { type FigureReading, readWebPage, webUnits } from "./formats/web";
+import { extractXlsx, unreadPartsOf } from "./formats/xlsx";
 import { passwordProblem } from "./pdfPasswords";
 import { printedPageNames } from "./printedPages";
 import { scannedUnit } from "./scan/layout";
 import { type CanvasFactory, isScanned, pagePicture } from "./scan/pages";
+import { anchorsBack, readWithQuarterTurn } from "./scan/rotation";
 import { findTables, type TableGrid, textItemOf, textLayerRows } from "./tables";
+import { unreadMessage } from "./unreadMessage";
 import { PICTURE_LIMITS, pictureSize, pictureType } from "./web/pictures";
 
 export { ExtractionError };
@@ -49,8 +54,10 @@ export interface ExtractedText {
   /** PDFs only. */
   pageCount: number | null;
   units: TextUnit[];
-  /** Scanned pages that couldn't be read, and why; null when every one was. */
-  unread: { pages: number[]; message: string } | null;
+  /** PDF pages with unread content, and why; null when all could be read. */
+  unread: { pages: number[]; message: string; forms?: true } | null;
+  /** What of the file wasn't read when the rest was (#740): a workbook's hidden sheets and rows; null when all was. */
+  parts: UnreadParts | null;
 }
 
 /**
@@ -67,9 +74,18 @@ export async function extractText(
 ): Promise<ExtractedText> {
   if (kind === "pdf") return extractPdf(bytes, reading, password);
   if (kind === "web" && reading && readPicture) {
-    return { pageCount: null, units: await extractWeb(bytes, reading, readPicture), unread: null };
+    return {
+      pageCount: null,
+      units: await extractWeb(bytes, reading, readPicture),
+      unread: null,
+      parts: null,
+    };
   }
-  return { pageCount: null, units: await extractUnits(kind, bytes), unread: null };
+  if (kind === "xlsx") {
+    const { units, workbook } = await extractXlsx(bytes);
+    return { pageCount: null, units, unread: null, parts: unreadPartsOf(workbook) };
+  }
+  return { pageCount: null, units: await extractUnits(kind, bytes), unread: null, parts: null };
 }
 
 /**
@@ -416,24 +432,49 @@ async function extractPdf(
     const document = await task.promise;
     const pages: TextUnit[] = [];
     const scanned: number[] = [];
+    const scanFields = new Map<number, { text: string; anchors: Anchor[] }>();
+    const unreadForms: number[] = [];
+    const metadata = await document.getMetadata();
+    const xfa = isRecord(metadata.info) && metadata.info.IsXFAPresent === true;
+    const signatures = await document.getSignatures();
     for (let number = 1; number <= document.numPages; number++) {
       const page = await document.getPage(number);
-      const content = await page.getTextContent();
+      const {
+        content,
+        source,
+        fields,
+        unread: formUnread,
+      } = await readPdfPageText(page, signatures);
+      if (formUnread || xfa) unreadForms.push(number);
       const text = pageText(content.items);
       pages.push({ page: number, kind: "page", label: null, text, anchors: null });
-      if (reading && (await isScanned(page, text, OPS))) scanned.push(number);
+      if (reading && (await isScanned(page, pageText(source.items), OPS))) {
+        scanned.push(number);
+        if (fields.length > 0) scanFields.set(number, scannedFormFields(page, fields));
+      }
       page.cleanup();
     }
-    const unread =
+    const unreadScans =
       reading && scanned.length > 0
-        ? await readScannedPages(document, pages, scanned, reading)
+        ? await readScannedPages(document, pages, scanned, reading, scanFields)
         : null;
+    const unread =
+      unreadForms.length > 0
+        ? {
+            pages: [...new Set([...unreadForms, ...(unreadScans?.pages ?? [])])],
+            message: [
+              "Some PDF form fields could not be read. Print to PDF in the app that created it, then add that copy.",
+              ...(unreadScans ? [unreadMessage(unreadScans)] : []),
+            ].join(" "),
+            forms: true as const,
+          }
+        : unreadScans;
     const names = printedPageNames(
       await document.getPageLabels(),
       pages.map((unit) => unit.text),
     );
     const units = pages.map((unit, index) => withPrintedName(unit, names[index] ?? null));
-    return { pageCount: pages.length, units, unread };
+    return { pageCount: pages.length, units, unread, parts: null };
   } catch (error) {
     if (reading?.signal.aborted) throw reading.signal.reason;
     const name = error instanceof Error ? error.name : "";
@@ -465,6 +506,7 @@ async function readScannedPages(
   pages: TextUnit[],
   scanned: readonly number[],
   reading: PageReading,
+  fields: ReadonlyMap<number, { text: string; anchors: Anchor[] }>,
 ): Promise<ExtractedText["unread"]> {
   const factory = document.canvasFactory as CanvasFactory;
   const unread: number[] = [];
@@ -480,9 +522,22 @@ async function readScannedPages(
       const page = await document.getPage(number);
       try {
         const picture = await pagePicture(page, factory);
-        // The core answers no read for a job it has told to stop, so a read asked for now would wait for ever.
-        reading.signal.throwIfAborted();
-        unit = scannedUnit(number, await reading.read(number, picture), picture, reading.reader);
+        const oriented = await readWithQuarterTurn(picture, page.rotate, async (readingPicture) => {
+          // The core answers no read for a job it has told to stop, so a read asked for now would wait for ever.
+          reading.signal.throwIfAborted();
+          return reading.read(number, readingPicture);
+        });
+        const scanned = scannedUnit(
+          number,
+          oriented.lines,
+          oriented.picture,
+          reading.reader,
+          oriented.turn,
+        );
+        unit = {
+          ...scanned,
+          anchors: scanned.anchors ? anchorsBack(scanned.anchors, oriented.turn) : null,
+        };
       } catch (error) {
         reading.signal.throwIfAborted();
         message ??= error instanceof Error ? error.message : String(error);
@@ -491,7 +546,8 @@ async function readScannedPages(
         page.cleanup();
       }
     }
-    if (!unit) {
+    if (unit) unit = withFormFields(unit, fields.get(number));
+    else {
       unread.push(number);
       unit = { ...layer, label: { scan: { reader: reading.reader, unread: true } } };
     }
@@ -499,4 +555,45 @@ async function readScannedPages(
     reading.progress(index + 1, scanned.length, unit);
   }
   return unread.length > 0 ? { pages: unread, message: message ?? "" } : null;
+}
+
+function withFormFields(unit: TextUnit, form: { text: string; anchors: Anchor[] } | undefined) {
+  if (!form || unit.anchors?.some((anchor) => anchor.target.startsWith("form"))) return unit;
+  const offset = unit.text.length + 1;
+  return {
+    ...unit,
+    text: `${unit.text}\n${form.text}`,
+    anchors: [
+      ...(unit.anchors ?? []),
+      ...form.anchors.map((anchor) => ({
+        ...anchor,
+        start: anchor.start + offset,
+        end: anchor.end + offset,
+      })),
+    ],
+  };
+}
+
+function scannedFormFields(page: PDFPageProxy, fields: readonly TextItem[]) {
+  const viewport = page.getViewport({ scale: 1 });
+  let text = "";
+  const anchors: Anchor[] = [];
+  for (const [index, field] of fields.entries()) {
+    if (text) text += "\n";
+    const start = text.length;
+    text += pageText([field]);
+    const left = Number(field.transform[4]);
+    const bottom = Number(field.transform[5]) - field.height * 0.2;
+    const quad = [
+      [left, bottom + field.height],
+      [left + field.width, bottom + field.height],
+      [left + field.width, bottom],
+      [left, bottom],
+    ].flatMap(([x = 0, y = 0]) => {
+      const [px = 0, py = 0] = viewport.convertToViewportPoint(x, y);
+      return [px / viewport.width, py / viewport.height];
+    });
+    anchors.push({ start, end: text.length, target: `form${index + 1}`, quad });
+  }
+  return { text, anchors };
 }

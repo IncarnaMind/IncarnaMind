@@ -22,7 +22,13 @@ import {
   withoutIds,
 } from "../shared/noteBlocks";
 import { pendingProposals, proposalRequestOf, recordProposalRequest } from "../shared/proposals";
-import { createElement, type NodeJSON, textAttribute, topLevelBlocks } from "./answers/blocks";
+import {
+  contentHash,
+  createElement,
+  type NodeJSON,
+  textAttribute,
+  topLevelBlocks,
+} from "./answers/blocks";
 import {
   type AddedToNote,
   BLOCK_ID_ATTRIBUTE,
@@ -119,6 +125,8 @@ export function createNoteAdding(options: NoteAddingOptions) {
   const { content } = options;
   // Undo is offered only while the app runs: what an add brought, by its first Block, stays here.
   const carried = new Map<string, SearchScope>();
+  // What each Block said when it went in, to keep a Block the User has changed since out of Undo.
+  const written = new Map<string, string>();
 
   return {
     async add(input: unknown): Promise<AddedToNote> {
@@ -144,6 +152,10 @@ export function createNoteAdding(options: NoteAddingOptions) {
         const ids = insertBlocks(note, blocks, {
           request: proposed ? request : null,
         });
+        for (const block of topLevelBlocks(note)) {
+          const id = textAttribute(block, BLOCK_ID_ATTRIBUTE);
+          if (id && ids.includes(id)) written.set(id, contentHash(block));
+        }
         const doc = note.doc;
         if (doc && origin) setOrigins(doc, ids, origin);
         const brought = doc && carryAnswerScope(doc, asked, folderId);
@@ -203,28 +215,36 @@ export function createNoteAdding(options: NoteAddingOptions) {
       return content.read(mindId, (note) => proposalsOf(note, request));
     },
 
-    undo(input: unknown): void {
+    undo(input: unknown): { kept: number } {
       if (!isRecord(input)) throw new InvalidInputError("undoAddToNote expects an object.");
       const mindId = options.requireMind(input.mindId);
       const blockIds = new Set(parseBlockIds(input.blockIds));
-      content.edit(mindId, (note) => {
+      return content.edit(mindId, (note) => {
+        let kept = 0;
+        const removed: string[] = [];
         // From the end, so each index stays right.
         for (let index = note.length - 1; index >= 0; index--) {
           const block = note.get(index);
-          if (
-            block instanceof Y.XmlElement &&
-            blockIds.has(textAttribute(block, BLOCK_ID_ATTRIBUTE) ?? "")
-          ) {
-            note.delete(index, 1);
+          if (!(block instanceof Y.XmlElement)) continue;
+          const id = textAttribute(block, BLOCK_ID_ATTRIBUTE) ?? "";
+          if (!blockIds.has(id)) continue;
+          // Its words changed since it went in: the User's edit stays, and Undo says so.
+          if (written.get(id) !== contentHash(block)) {
+            kept++;
+            continue;
           }
+          note.delete(index, 1);
+          removed.push(id);
         }
-        if (note.doc) removeOrigins(note.doc, [...blockIds]);
-        for (const id of blockIds) {
+        if (note.doc) removeOrigins(note.doc, removed);
+        for (const id of removed) {
           const brought = carried.get(id);
           if (!brought) continue;
           carried.delete(id);
           if (note.doc) uncarryAnswerScope(note.doc, brought);
         }
+        for (const id of blockIds) written.delete(id);
+        return { kept };
       });
     },
   };

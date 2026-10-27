@@ -6,13 +6,17 @@
  */
 import { Editor, type JSONContent } from "@tiptap/core";
 import type { Schema } from "@tiptap/pm/model";
+import type { EditorState } from "@tiptap/pm/state";
 import { prosemirrorToYXmlFragment } from "@tiptap/y-tiptap";
 import { describe, expect, onTestFinished, test } from "vitest";
 import * as Y from "yjs";
-import { MIND_CONTENT_FIELD, PROPOSAL_ATTRIBUTE } from "../../src/core";
-import { writeAccepted } from "../../src/renderer/src/editor/arrivedChanges";
+import { GENERATED_MARK, MIND_CONTENT_FIELD, PROPOSAL_ATTRIBUTE } from "../../src/core";
+import { createElement } from "../../src/core/answers/blocks";
+import { replaceOwn, waitingIn } from "../../src/core/proposals/ownWaiting";
+import { planChanges, writeAccepted } from "../../src/renderer/src/editor/arrivedChanges";
 import { noteExtensions } from "../../src/renderer/src/editor/noteSchema";
-import { pendingProposals } from "../../src/shared/proposals";
+import { waitsForUser } from "../../src/shared/askedChanges";
+import { pendingProposals, recordProposalRequest } from "../../src/shared/proposals";
 
 const text = (value: string, marks?: JSONContent["marks"]): JSONContent => ({
   type: "text",
@@ -22,7 +26,12 @@ const text = (value: string, marks?: JSONContent["marks"]): JSONContent => ({
 const ref = (id: string, request: string) => ({ id, request });
 
 /** A Mind's document in Yjs, as the core writes it. */
-function mindWith(content: JSONContent[]): { doc: Y.Doc; blocks: Y.XmlFragment; schema: Schema } {
+function mindWith(content: JSONContent[]): {
+  doc: Y.Doc;
+  blocks: Y.XmlFragment;
+  schema: Schema;
+  state: EditorState;
+} {
   const editor = new Editor({
     element: null,
     extensions: noteExtensions(),
@@ -34,7 +43,7 @@ function mindWith(content: JSONContent[]): { doc: Y.Doc; blocks: Y.XmlFragment; 
     editor.state.doc,
     doc.getXmlFragment(MIND_CONTENT_FIELD),
   );
-  return { doc, blocks, schema: editor.schema };
+  return { doc, blocks, schema: editor.schema, state: editor.state };
 }
 
 const textOf = (blocks: Y.XmlFragment) =>
@@ -143,5 +152,398 @@ describe("Changes the User asked the assistant for", () => {
       "A new paragraph.",
       "Harbours openclose at nine.",
     ]);
+  });
+  test("a revision inside the same turn joins the first edit in one Undo", () => {
+    const { doc, blocks, schema } = mindWith([
+      {
+        type: "paragraph",
+        attrs: { id: "Summary" },
+        content: [
+          text("The quarter was "),
+          text("very ", [{ type: "proposalDelete", attrs: ref("a", "first") }]),
+          text("quite ", [
+            { type: "proposalInsert", attrs: ref("b", "first") },
+            { type: GENERATED_MARK },
+          ]),
+          text("good."),
+        ],
+      },
+    ]);
+    const own = waitingIn(
+      blocks,
+      { blockId: "Summary", offset: 0 },
+      { blockId: "Summary", offset: 1 },
+      new Set(["first"]),
+    );
+    if (own.kind !== "own") throw new Error("The first edit wasn't found.");
+    replaceOwn(
+      blocks,
+      own,
+      [
+        createElement({
+          type: "paragraph",
+          attrs: { id: "Summary" },
+          content: [{ type: "text", text: "The quarter was good." }],
+        }),
+      ],
+      "second",
+      new Set(["first"]),
+    );
+    const undo = new Y.UndoManager(blocks, { trackedOrigins: new Set([Asked]) });
+
+    writeAccepted(doc, new Set(["first", "second"]), new Aside(), new Asked(), schema);
+
+    expect(textOf(blocks)).toEqual(["The quarter was good."]);
+    undo.undo();
+    expect(textOf(blocks)).toEqual(["The quarter was very good."]);
+  });
+
+  // Value: protects=the applies-with-Undo refusal agrees with cumulative destructive holds; fails_when=only the selected stretch is measured; why_new=independent chains elsewhere in the Mind can push the turn over half its original text; seam=waitingIn with three requested revision chains; no_claim=the actual application decision (covered by core application tests)
+  test("the applies flag is cumulative and scoped to the Mind", () => {
+    const paragraph = (id: string, request: string, removed: number) => ({
+      type: "paragraph",
+      attrs: { id },
+      content: [
+        text("x".repeat(removed), [
+          { type: "proposalDelete", attrs: ref(`${id}-delete`, request) },
+        ]),
+        text("x".repeat(100 - removed)),
+      ],
+    });
+    const { doc, blocks } = mindWith([
+      paragraph("a", "a", 80),
+      paragraph("b", "b", 80),
+      paragraph("c", "c", 10),
+      {
+        type: "paragraph",
+        attrs: {
+          id: "added",
+          [PROPOSAL_ATTRIBUTE]: { id: "added-c", request: "c", kind: "insert" },
+        },
+        content: [text("Added", [{ type: GENERATED_MARK }])],
+      },
+    ]);
+    for (const request of ["a", "b", "c"]) {
+      recordProposalRequest(doc, request, {
+        source: "answer-added",
+        requested: "edit",
+        providerId: "local",
+        modelId: "local",
+        createdAt: "2026-01-01T00:00:00.000Z",
+      });
+    }
+
+    const waiting = waitingIn(
+      blocks,
+      { blockId: "c", offset: 0 },
+      { blockId: "added", offset: 1 },
+      new Set(["a", "b", "c"]),
+    );
+
+    expect(waiting.kind).toBe("mixed");
+    if (waiting.kind !== "mixed") throw new Error("The guarded revision wasn't found.");
+    expect(waiting.applies).toBe(false);
+
+    const translated = mindWith([
+      paragraph("a", "a", 80),
+      paragraph("c", "c", 10),
+      {
+        type: "paragraph",
+        attrs: {
+          id: "added",
+          [PROPOSAL_ATTRIBUTE]: { id: "added-c", request: "c", kind: "insert" },
+        },
+        content: [text("Added", [{ type: GENERATED_MARK }])],
+      },
+    ]);
+    for (const request of ["a", "c"]) {
+      recordProposalRequest(translated.doc, request, {
+        source: "answer-added",
+        requested: "edit",
+        action: "translate",
+        providerId: "local",
+        modelId: "local",
+        createdAt: "2026-01-01T00:00:00.000Z",
+      });
+    }
+    recordProposalRequest(translated.doc, "unrequested", {
+      source: "answer-added",
+      instruction: "rewrite",
+      providerId: "local",
+      modelId: "local",
+      createdAt: "2026-01-01T00:00:00.000Z",
+    });
+    const acrossMinds = waitingIn(
+      translated.blocks,
+      { blockId: "c", offset: 0 },
+      { blockId: "added", offset: 1 },
+      new Set(["a", "c", "another-mind", "unrequested"]),
+    );
+    expect(acrossMinds.kind).toBe("mixed");
+    if (acrossMinds.kind !== "mixed") throw new Error("The translation wasn't found.");
+    expect(acrossMinds.applies).toBe(true);
+  });
+
+  // Value: protects=a heading's pending Proposal cannot authorize a different turn; fails_when=headings are removed before ownership checks or a heading-only range vacuously passes; why_new=review reproduced old and mixed heading ownership; seam=waitingIn with real heading attributes; no_claim=an unmarked structural heading or a current heading-only revision (both remain allowed)
+  test("heading Proposals are checked against the current turn", () => {
+    const oldHeading = {
+      type: "heading",
+      attrs: {
+        id: "h",
+        level: 2,
+        [PROPOSAL_ATTRIBUTE]: { id: "old", request: "old", kind: "delete" },
+      },
+      content: [text("Summary")],
+    };
+    const currentBody = {
+      type: "paragraph",
+      attrs: {
+        id: "p",
+        [PROPOSAL_ATTRIBUTE]: { id: "new", request: "first", kind: "delete" },
+      },
+      content: [text("Body")],
+    };
+    const { blocks } = mindWith([oldHeading, currentBody]);
+    const headingOnly = waitingIn(
+      blocks,
+      { blockId: "h", offset: 0 },
+      { blockId: "h", offset: 1 },
+      new Set(["first"]),
+    );
+    const mixed = waitingIn(
+      blocks,
+      { blockId: "h", offset: 0 },
+      { blockId: "p", offset: 1 },
+      new Set(["first"]),
+    );
+    expect(headingOnly.kind).not.toBe("own");
+    expect(mixed.kind).not.toBe("own");
+
+    const structural = mindWith([
+      { type: "heading", attrs: { id: "h", level: 2 }, content: [text("Summary")] },
+      currentBody,
+    ]);
+    expect(
+      waitingIn(
+        structural.blocks,
+        { blockId: "h", offset: 0 },
+        { blockId: "p", offset: 1 },
+        new Set(["first"]),
+      ).kind,
+    ).toBe("own");
+
+    const currentHeading = mindWith([
+      {
+        ...oldHeading,
+        attrs: {
+          ...oldHeading.attrs,
+          [PROPOSAL_ATTRIBUTE]: { id: "new", request: "first", kind: "delete" },
+        },
+      },
+    ]);
+    expect(
+      waitingIn(
+        currentHeading.blocks,
+        { blockId: "h", offset: 0 },
+        { blockId: "h", offset: 1 },
+        new Set(["first"]),
+      ).kind,
+    ).toBe("own");
+  });
+
+  // Value: protects=inline code counts as original User text during same-turn revision; fails_when=the AI heuristic sends it through insert-only replacement; why_new=inline code cannot carry the generated mark; seam=waitingIn and replaceOwn with real inline-code marks; no_claim=full editor formatting UI
+  test("inline code is original text for the destructive hold", () => {
+    const { doc, blocks } = mindWith([
+      {
+        type: "paragraph",
+        attrs: {
+          id: "p",
+          [PROPOSAL_ATTRIBUTE]: { id: "delete", request: "first", kind: "delete" },
+        },
+        content: [text("abcdef", [{ type: "code" }])],
+      },
+    ]);
+    const own = waitingIn(
+      blocks,
+      { blockId: "p", offset: 0 },
+      { blockId: "p", offset: 1 },
+      new Set(["first"]),
+    );
+    if (own.kind !== "own") throw new Error("The inline-code edit was not found.");
+    replaceOwn(
+      blocks,
+      own,
+      [
+        createElement({
+          type: "paragraph",
+          attrs: { id: "p" },
+          content: [{ type: "text", text: "XYZ", marks: [{ type: "code", attrs: {} }] }],
+        }),
+      ],
+      "second",
+      new Set(["first"]),
+    );
+    expect(waitsForUser(doc, new Set(["first", "second"]))).toBe(true);
+  });
+
+  // Value: protects=User edits inside a current-turn inserted Block are refused rather than deleted; fails_when=thisTurn treats them as assistant-owned; why_new=top-level insert ownership differs from original text; seam=waitingIn classification; no_claim=the replaceOwn path (refused before it)
+  test("a User-edited inserted Block is not assistant-owned revision text", () => {
+    const { blocks } = mindWith([
+      {
+        type: "paragraph",
+        attrs: {
+          id: "p",
+          [PROPOSAL_ATTRIBUTE]: { id: "added", request: "first", kind: "insert" },
+        },
+        content: [text("User edit")],
+      },
+    ]);
+    const waiting = waitingIn(
+      blocks,
+      { blockId: "p", offset: 0 },
+      { blockId: "p", offset: 1 },
+      new Set(["first"]),
+    );
+    expect(waiting.kind).not.toBe("own");
+  });
+
+  // Value: protects=an edited inline-code insertion is not rejected away as assistant-only text; fails_when=restart treats inline code as generated; why_new=inline code cannot distinguish later User edits by its marks; seam=waitingIn with an original Block and inline insertion; no_claim=ordinary generated inline insertion (covered by same-turn tests)
+  test("an edited inline-code insertion is not restarted", () => {
+    const { blocks } = mindWith([
+      {
+        type: "paragraph",
+        attrs: { id: "p" },
+        content: [
+          text("original "),
+          text("foobar", [
+            { type: "code" },
+            { type: "proposalInsert", attrs: ref("added", "first") },
+          ]),
+        ],
+      },
+    ]);
+    const waiting = waitingIn(
+      blocks,
+      { blockId: "p", offset: 0 },
+      { blockId: "p", offset: 1 },
+      new Set(["first"]),
+    );
+    expect(waiting.kind).not.toBe("own");
+  });
+
+  // Value: protects=a nested inline element with a current insert Proposal is not rejected away; fails_when=only text runs are guarded; why_new=inlineMath and footnotes carry Proposal attributes on elements; seam=waitingIn with an inlineMath child; no_claim=formula editing UI
+  test("a nested inserted inline element is not restarted", () => {
+    const { blocks } = mindWith([
+      {
+        type: "paragraph",
+        attrs: { id: "p" },
+        content: [
+          text("original "),
+          {
+            type: "inlineMath",
+            attrs: {
+              id: "formula",
+              [PROPOSAL_ATTRIBUTE]: { id: "added", request: "first", kind: "insert" },
+            },
+            content: [text("x=2")],
+          },
+        ],
+      },
+    ]);
+    const waiting = waitingIn(
+      blocks,
+      { blockId: "p", offset: 0 },
+      { blockId: "p", offset: 1 },
+      new Set(["first"]),
+    );
+    expect(waiting.kind).not.toBe("own");
+  });
+
+  // Value: protects=a User-edited codeBlock is not archived as assistant-only text; fails_when=allAiText and inline-code-only checks treat it as generated; why_new=codeBlock has no inline-code runs and allAiText always accepts it; seam=waitingIn with a current inserted codeBlock; no_claim=ordinary text-only create/revise flow
+  test("a current inserted codeBlock is not revised", () => {
+    const { blocks } = mindWith([
+      {
+        type: "heading",
+        attrs: {
+          id: "h",
+          level: 2,
+          [PROPOSAL_ATTRIBUTE]: { id: "h-add", request: "first", kind: "insert" },
+        },
+        content: [text("Code")],
+      },
+      {
+        type: "codeBlock",
+        attrs: {
+          id: "code",
+          [PROPOSAL_ATTRIBUTE]: { id: "c-add", request: "first", kind: "insert" },
+        },
+        content: [text("User edit")],
+      },
+      {
+        type: "paragraph",
+        attrs: { id: "p", [PROPOSAL_ATTRIBUTE]: { id: "p-add", request: "first", kind: "insert" } },
+        content: [text("After")],
+      },
+    ]);
+    const waiting = waitingIn(
+      blocks,
+      { blockId: "h", offset: 0 },
+      { blockId: "p", offset: 1 },
+      new Set(["first"]),
+    );
+    expect(waiting.kind).not.toBe("own");
+  });
+
+  // Value: protects=Review anchors only accepted deletions, leaving stale ones in place; fails_when=Restore inserts before the wrong survivor; why_new=mixed fresh/stale Review was unverified; seam=none; no_claim=full editor restore (anchor planning only)
+  test("a stale deletion stays beside an accepted deletion's Review anchor", () => {
+    const { state } = mindWith([
+      {
+        type: "paragraph",
+        attrs: {
+          id: "A",
+          [PROPOSAL_ATTRIBUTE]: { kind: "delete", id: "A", request: "request" },
+        },
+        content: [text("First")],
+      },
+      {
+        type: "paragraph",
+        attrs: {
+          id: "B",
+          [PROPOSAL_ATTRIBUTE]: { kind: "delete", id: "B", request: "request" },
+        },
+        content: [text("Second")],
+      },
+    ]);
+
+    const changes = planChanges(state, new Set(["request"]), new Set(["A"]));
+    expect(changes).toHaveLength(1);
+    const [change] = changes;
+    expect(change?.kind).toBe("removed");
+    if (change?.kind !== "removed") throw new Error("No accepted deletion was planned.");
+    expect(change.beside).toMatchObject({ side: "before", block: { blockId: "B" } });
+  });
+
+  // Value: protects=stale inline deletions remain in restored offsets; fails_when=accepted and stale marks are both subtracted; why_new=block-only Review coverage missed placeOnAccept; seam=none; no_claim=visual Review rendering (offset planning only)
+  test("a stale inline deletion still counts in the restored offset", () => {
+    const { state } = mindWith([
+      {
+        type: "paragraph",
+        attrs: { id: "p" },
+        content: [
+          text("A"),
+          text("old", [{ type: "proposalDelete", attrs: ref("stale", "request") }]),
+          text("B"),
+          text("new", [{ type: "proposalDelete", attrs: ref("accepted", "request") }]),
+          text("C"),
+        ],
+      },
+    ]);
+
+    const changes = planChanges(state, new Set(["request"]), new Set(["accepted"]));
+    expect(changes).toHaveLength(1);
+    const [change] = changes;
+    if (change?.kind !== "words") throw new Error("No inline change was planned.");
+    expect(change.from).toMatchObject({ blockId: "p", offset: 5 });
+    expect(change.to).toMatchObject({ blockId: "p", offset: 5 });
   });
 });

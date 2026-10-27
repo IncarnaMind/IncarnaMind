@@ -1,6 +1,6 @@
 import { writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { expect, type Locator, type Page, test } from "@playwright/test";
+import { type ElectronApplication, expect, type Locator, type Page, test } from "@playwright/test";
 import type { CoreBridge } from "../src/core/api";
 import { buildPdf } from "../tests/helpers/pdf";
 import {
@@ -10,12 +10,14 @@ import {
   documentIdOf,
   dragBy,
   dragTabTo,
+  editItem,
   enterContent,
   expectFirstTabAtCardStart,
   frontMind,
   launchApp,
   nameMind,
   openDocumentAt,
+  pointAndClick,
   removeDataFolder,
   setWindowSize,
   WINDOW_SIZE,
@@ -100,15 +102,32 @@ async function newMind(window: Page, title: string): Promise<void> {
   await expect(window.getByRole("tab", { selected: true }).last()).toContainText(title);
 }
 
-/** Opens a tab's right-click menu and chooses an item. */
-async function chooseFromTabMenu(window: Page, tab: Locator, item: string): Promise<void> {
+async function openTabMenu(window: Page, tab: Locator): Promise<Locator> {
   const box = await boxOf(tab);
   await window.mouse.move(box.x + box.width / 2, box.y + box.height / 2, { steps: 6 });
   await window.mouse.click(box.x + box.width / 2, box.y + box.height / 2, { button: "right" });
   const menu = tab.getByTestId("tab-actions");
   await expect(menu).toBeVisible();
+  return menu;
+}
+
+async function chooseFromTabMenu(window: Page, tab: Locator, item: string): Promise<void> {
+  const menu = await openTabMenu(window, tab);
   await menu.getByRole("menuitem", { name: item, exact: true }).click();
   await expect(menu).toBeHidden();
+}
+
+const tabIdOrder = (window: Page) =>
+  window.evaluate(async () => {
+    const bridge = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
+    const layout = await bridge.getLayout("main");
+    return layout.groups[0]?.tabs.map((tab) => tab.id) ?? [];
+  });
+
+async function wholeInStrip(window: Page, tab: Locator): Promise<boolean> {
+  const list = await boxOf(window.getByTestId("tab-list"));
+  const box = await boxOf(tab);
+  return box.x >= list.x - 1 && box.x + box.width <= list.x + list.width + 1;
 }
 
 test("a Citation opens its Document as a preview in the group to the right, the focus staying in the Mind; three in a row leave one tab, and reading it keeps it", async () => {
@@ -372,6 +391,126 @@ test("one divider runs the full height through the strips and the pages; it resi
     .toBeLessThanOrEqual(1);
 });
 
+async function holdFirstResize(app: ElectronApplication): Promise<void> {
+  await app.evaluate(({ ipcMain }) => {
+    const handlers = (
+      ipcMain as unknown as {
+        _invokeHandlers: Map<string, (event: unknown, ...args: unknown[]) => unknown>;
+      }
+    )._invokeHandlers;
+    const original = handlers.get("core:changeLayout");
+    if (!original) throw new Error("The changeLayout handler is missing.");
+    let release: () => void = () => {};
+    const ready = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let held = false;
+    Object.assign(globalThis, { heldResize: { release: () => release() } });
+    ipcMain.removeHandler("core:changeLayout");
+    ipcMain.handle("core:changeLayout", async (event, ...args) => {
+      const change = args[1] as { type?: string } | undefined;
+      if (held || change?.type !== "resize") return original(event, ...args);
+      held = true;
+      await ready;
+      return original(event, ...args);
+    });
+  });
+}
+
+async function answerHeldResize(app: ElectronApplication, window: Page): Promise<void> {
+  await app.evaluate(() => {
+    (globalThis as unknown as { heldResize: { release(): void } }).heldResize.release();
+  });
+  // The page marks its groups while a resize it asked for is unanswered: this is its own word that the answer came.
+  await expect(window.getByTestId("tab-groups")).not.toHaveAttribute("data-resizing");
+}
+
+async function dragWhileResizeUnanswered(app: ElectronApplication, window: Page) {
+  await dismissChatSetup(window);
+  await newMind(window, "Alpha");
+  await window.keyboard.press("ControlOrMeta+Alt+Backslash");
+  await expect(groupsOf(window)).toHaveCount(2);
+  // The split moves the focus to the new group's tab once it is drawn: a key before it goes there.
+  await expect(groupAt(window, 1).getByRole("tab")).toBeFocused();
+  const divider = window.getByTestId("group-divider");
+  const start = Number(await divider.getAttribute("aria-valuenow"));
+  await holdFirstResize(app);
+  await divider.focus();
+  await window.keyboard.press("Shift+ArrowLeft");
+  await expect(divider).toHaveAttribute("aria-valuenow", String(start - 50));
+  await expect(window.getByTestId("tab-groups")).toHaveAttribute("data-resizing", "true");
+  const box = await boxOf(divider);
+  const x = box.x + box.width / 2 - 3;
+  const y = box.y + box.height / 2;
+  await window.mouse.move(x - 30, y);
+  await window.mouse.move(x, y, { steps: 6 });
+  await window.mouse.down();
+  await window.mouse.move(x - 100, y, { steps: 5 });
+  await expect(divider).toHaveAttribute("aria-valuenow", String(start - 150));
+  return { divider, start, at: { x, y } };
+}
+
+test("a drag begun while an earlier resize is unanswered keeps its widths when that answer comes, and lets go with them", async () => {
+  const { app, window } = await launchApp(dataDir);
+  const { divider, start } = await dragWhileResizeUnanswered(app, window);
+  await answerHeldResize(app, window);
+  await expect(divider).toHaveAttribute("aria-valuenow", String(start - 150));
+  await window.mouse.up();
+  await expect(divider).toHaveAttribute("aria-valuenow", String(start - 150));
+  await app.close();
+});
+
+test("a drag cancelled while an earlier resize is unanswered goes back to that resize's widths, and the core's after", async () => {
+  const { app, window } = await launchApp(dataDir);
+  const { divider, start, at } = await dragWhileResizeUnanswered(app, window);
+  await divider.evaluate((rod) =>
+    rod.dispatchEvent(new PointerEvent("pointercancel", { pointerId: 1, bubbles: true })),
+  );
+  await expect(divider).toHaveAttribute("aria-valuenow", String(start - 50));
+  await window.mouse.up();
+  await answerHeldResize(app, window);
+  await expect(divider).toHaveAttribute("aria-valuenow", String(start - 50));
+  // Nothing of the drag is left to hide what the core says next: equal widths again.
+  await window.mouse.move(at.x - 20, at.y + 300);
+  await window.mouse.move(at.x + 3, at.y + 300, { steps: 5 });
+  await window.mouse.dblclick(at.x + 3, at.y + 300);
+  await expect(divider).toHaveAttribute("aria-valuenow", String(start));
+  await app.close();
+});
+
+test("a drag that is cancelled leaves no widths over what the core says next", async () => {
+  const { app, window } = await launchApp(dataDir);
+  await dismissChatSetup(window);
+  await newMind(window, "Alpha");
+  await window.keyboard.press("ControlOrMeta+Alt+Backslash");
+  await expect(groupsOf(window)).toHaveCount(2);
+  // The split moves the focus to the new group's tab once it is drawn: a key before it goes there.
+  await expect(groupAt(window, 1).getByRole("tab")).toBeFocused();
+  const divider = window.getByTestId("group-divider");
+  const start = Number(await divider.getAttribute("aria-valuenow"));
+  await divider.focus();
+  await window.keyboard.press("Shift+ArrowLeft");
+  await expect(divider).toHaveAttribute("aria-valuenow", String(start - 50));
+  const box = await boxOf(divider);
+  const x = box.x + box.width / 2 - 3;
+  const y = box.y + box.height / 2;
+  await window.mouse.move(x - 30, y);
+  await window.mouse.move(x, y, { steps: 6 });
+  await window.mouse.down();
+  await window.mouse.move(x - 100, y, { steps: 5 });
+  await expect(divider).toHaveAttribute("aria-valuenow", String(start - 150));
+  await divider.evaluate((rod) =>
+    rod.dispatchEvent(new PointerEvent("pointercancel", { pointerId: 1, bubbles: true })),
+  );
+  await expect(divider).toHaveAttribute("aria-valuenow", String(start - 50));
+  await window.mouse.up();
+  await window.mouse.move(x - 20, y + 300);
+  await window.mouse.move(x + 3, y + 300, { steps: 5 });
+  await window.mouse.dblclick(x + 3, y + 300);
+  await expect(divider).toHaveAttribute("aria-valuenow", String(start));
+  await app.close();
+});
+
 test("a pinned tab stays at the left of its group; ⌘W and a middle click leave it open, saying why; its pin unpins it", async () => {
   const { window } = await launchApp(dataDir);
   await dismissChatSetup(window);
@@ -497,4 +636,242 @@ test("the groups, their buttons and the tab's menu are in Chinese too", async ()
   await window.keyboard.press("Escape");
   await expect(menu).toBeHidden();
   await expect(tab).toBeFocused();
+
+  await newMind(window, "第二篇");
+  const second = groupAt(window, 1).getByRole("tab").last();
+  const moves = await openTabMenu(window, second);
+  await expect(moves.getByTestId("tab.moveEarlier")).toContainText("将标签页左移");
+  await expect(moves.getByTestId("tab.moveEarlier")).toContainText(/⇞|PageUp/);
+  await expect(moves.getByTestId("tab.moveLater")).toHaveCount(0);
+  await moves.getByTestId("tab.moveEarlier").click();
+  await expect(titlesIn(groupAt(window, 1))).toHaveText(["第二篇", "潮汐笔记"]);
+  await expect(window.getByTestId("undo-message")).toHaveText("已将“第二篇”左移");
+  await window.keyboard.press("ControlOrMeta+z");
+  await expect(titlesIn(groupAt(window, 1))).toHaveText(["潮汐笔记", "第二篇"]);
 });
+
+test("a tab moves a place earlier or later in its group from its menu, its keys and ⌘K, among tabs pinned as it is, with Undo, and stays whole in view", async () => {
+  const { app, window } = await launchApp(dataDir);
+  await dismissChatSetup(window);
+  const titles = ["Alpha", "Beta", "Gamma", "Delta", "Epsilon"];
+  for (const title of titles) await newMind(window, title);
+  const first = groupAt(window, 0);
+
+  const beta = await openTabMenu(window, tabNamed(window, "Beta"));
+  const items = await beta
+    .getByRole("menuitem")
+    .evaluateAll((each) => each.map((item) => item.getAttribute("data-testid")));
+  const at = (id: string) => items.indexOf(id);
+  expect(at("tab.pin")).toBeGreaterThan(-1);
+  expect(at("tab.pin")).toBeLessThan(at("tab.moveEarlier"));
+  expect(at("tab.moveEarlier")).toBeLessThan(at("tab.moveLater"));
+  expect(at("tab.moveLater")).toBeLessThan(at("tab.rename"));
+  await expect(beta.getByTestId("tab.moveEarlier")).toContainText(/⇞|PageUp/);
+  await expect(beta.getByTestId("tab.moveLater")).toContainText(/⇟|PageDown/);
+
+  await beta.getByTestId("tab.moveLater").click();
+  await expect(titlesIn(first)).toHaveText(["Alpha", "Gamma", "Beta", "Delta", "Epsilon"]);
+  await expect(window.getByTestId("undo-message")).toHaveText("Moved “Beta” right");
+  await window.keyboard.press("ControlOrMeta+z");
+  await expect(titlesIn(first)).toHaveText(titles);
+  await window.keyboard.press("ControlOrMeta+Shift+z");
+  await expect(titlesIn(first)).toHaveText(["Alpha", "Gamma", "Beta", "Delta", "Epsilon"]);
+  await window.keyboard.press("ControlOrMeta+z");
+  await expect(titlesIn(first)).toHaveText(titles);
+
+  const alpha = await openTabMenu(window, tabNamed(window, "Alpha"));
+  await expect(alpha.getByTestId("tab.moveEarlier")).toHaveCount(0);
+  await expect(alpha.getByTestId("tab.moveLater")).toBeVisible();
+  await window.keyboard.press("Escape");
+  const last = await openTabMenu(window, tabNamed(window, "Epsilon"));
+  await expect(last.getByTestId("tab.moveEarlier")).toBeVisible();
+  await expect(last.getByTestId("tab.moveLater")).toHaveCount(0);
+  await window.keyboard.press("Escape");
+
+  await pointAndClick(window, tabNamed(window, "Beta"));
+  await window.keyboard.press("Control+Shift+PageDown");
+  await expect(titlesIn(first)).toHaveText(["Alpha", "Gamma", "Beta", "Delta", "Epsilon"]);
+  await window.keyboard.press("Control+Shift+PageUp");
+  await expect(titlesIn(first)).toHaveText(titles);
+  await window.keyboard.press("ControlOrMeta+1");
+  await expect(first).toHaveAttribute("data-focused", "true");
+  await window.keyboard.press("Control+Tab");
+  await expect.poll(() => titleNamedShown(window)).toBe("Gamma");
+  await pointAndClick(window, tabNamed(window, "Gamma"));
+
+  await window.keyboard.press("ControlOrMeta+k");
+  await expect(window.getByTestId("palette-search")).toBeFocused();
+  await window.keyboard.type("Move Tab Right");
+  const item = window.getByTestId("palette").locator('[data-key="command:tab.moveLater"]');
+  await expect(item).toContainText(/⇟|PageDown/);
+  await pointAndClick(window, item);
+  await expect(titlesIn(first)).toHaveText(["Alpha", "Beta", "Delta", "Gamma", "Epsilon"]);
+  await window.keyboard.press("ControlOrMeta+z");
+  await expect(titlesIn(first)).toHaveText(titles);
+
+  await setWindowSize(app, window, 1100, 760);
+  for (let index = 0; index < 9; index++) await window.getByTestId("new-tab").click();
+  await expect(window.getByRole("tab")).toHaveCount(14);
+  const list = window.getByTestId("tab-list");
+  expect(await list.evaluate((each) => each.scrollWidth > each.clientWidth)).toBe(true);
+  await pointAndClick(window, window.getByTestId("mind-list-item").filter({ hasText: "Alpha" }));
+  await expect(window.getByRole("tab", { selected: true })).toContainText("Alpha");
+  const alphaId = await tabNamed(window, "Alpha").getAttribute("data-tab-id");
+  const shown = window.getByRole("tab", { selected: true });
+  for (let place = 1; place <= 10; place++) {
+    await window.keyboard.press("Control+Shift+PageDown");
+    await expect
+      .poll(() => tabIdOrder(window).then((ids) => ids.indexOf(alphaId ?? "")))
+      .toBe(place);
+    await expect.poll(() => wholeInStrip(window, shown)).toBe(true);
+  }
+
+  await chooseFromTabMenu(window, tabNamed(window, "Alpha"), "Pin");
+  await chooseFromTabMenu(window, tabNamed(window, "Beta"), "Pin");
+  const pinnedOrder = await tabIdOrder(window);
+  const pinnedBeta = await openTabMenu(window, tabNamed(window, "Beta"));
+  await expect(pinnedBeta.getByTestId("tab.moveEarlier")).toBeVisible();
+  await expect(pinnedBeta.getByTestId("tab.moveLater")).toHaveCount(0);
+  await window.keyboard.press("Escape");
+  const pinnedAlpha = await openTabMenu(window, tabNamed(window, "Alpha"));
+  await expect(pinnedAlpha.getByTestId("tab.moveEarlier")).toHaveCount(0);
+  await expect(pinnedAlpha.getByTestId("tab.moveLater")).toBeVisible();
+  await pinnedAlpha.getByTestId("tab.moveLater").click();
+  await expect
+    .poll(async () => (await tabIdOrder(window)).slice(0, 2))
+    .toEqual([pinnedOrder[1], pinnedOrder[0]]);
+  await expect(tabNamed(window, "Alpha")).toHaveAttribute("data-pinned", "true");
+  await expect(tabNamed(window, "Beta")).toHaveAttribute("data-pinned", "true");
+  await expect(window.getByRole("tab").nth(2)).not.toHaveAttribute("data-pinned");
+  await window.keyboard.press("ControlOrMeta+z");
+  await expect.poll(() => tabIdOrder(window)).toEqual(pinnedOrder);
+  await app.close();
+});
+
+test("Undo puts a moved tab back between the tabs it was between, though an earlier tab has closed", async () => {
+  const { app, window } = await launchApp(dataDir);
+  await dismissChatSetup(window);
+  for (const title of ["Alpha", "Beta", "Gamma", "Delta"]) await newMind(window, title);
+  const first = groupAt(window, 0);
+  const beta = await openTabMenu(window, tabNamed(window, "Beta"));
+  await beta.getByTestId("tab.moveLater").click();
+  await expect(titlesIn(first)).toHaveText(["Alpha", "Gamma", "Beta", "Delta"]);
+  await tabNamed(window, "Alpha").getByTestId("tab-close").click();
+  await expect(titlesIn(first)).toHaveText(["Gamma", "Beta", "Delta"]);
+  await window.keyboard.press("ControlOrMeta+z");
+  await expect(titlesIn(first)).toHaveText(["Beta", "Gamma", "Delta"]);
+  await app.close();
+});
+
+test("Undo says why it can't put back a moved tab that has closed", async () => {
+  const { app, window } = await launchApp(dataDir);
+  await dismissChatSetup(window);
+  for (const title of ["Alpha", "Beta", "Gamma", "Delta"]) await newMind(window, title);
+  const first = groupAt(window, 0);
+  const beta = await openTabMenu(window, tabNamed(window, "Beta"));
+  await beta.getByTestId("tab.moveLater").click();
+  await expect(titlesIn(first)).toHaveText(["Alpha", "Gamma", "Beta", "Delta"]);
+  await tabNamed(window, "Beta").getByTestId("tab-close").click();
+  await expect(titlesIn(first)).toHaveText(["Alpha", "Gamma", "Delta"]);
+  await window.keyboard.press("ControlOrMeta+z");
+  await expect(window.getByTestId("undo-problem")).toBeVisible();
+  await expect(window.getByTestId("undo-problem")).toContainText("the tab has closed");
+  await app.close();
+});
+
+test("Undo keeps a Pin made after the move, saying why it can't put the move back", async () => {
+  const { app, window } = await launchApp(dataDir);
+  await dismissChatSetup(window);
+  for (const title of ["Alpha", "Beta", "Gamma", "Delta"]) await newMind(window, title);
+  const first = groupAt(window, 0);
+  const beta = await openTabMenu(window, tabNamed(window, "Beta"));
+  await beta.getByTestId("tab.moveLater").click();
+  await expect(titlesIn(first)).toHaveText(["Alpha", "Gamma", "Beta", "Delta"]);
+  await chooseFromTabMenu(window, tabNamed(window, "Beta"), "Pin");
+  await expect(tabNamed(window, "Beta")).toHaveAttribute("data-pinned", "true");
+
+  await window.keyboard.press("ControlOrMeta+z");
+  await expect(window.getByTestId("undo-problem")).toContainText(
+    "the pinned tabs have changed since",
+  );
+  await expect(tabNamed(window, "Beta")).toHaveAttribute("data-pinned", "true");
+  await app.close();
+});
+
+test("Undo says why it can't put back a move of a tab that has gone to another group", async () => {
+  const { app, window } = await launchApp(dataDir);
+  await dismissChatSetup(window);
+  for (const title of ["Alpha", "Beta", "Gamma", "Delta"]) await newMind(window, title);
+  const first = groupAt(window, 0);
+  const alpha = await openTabMenu(window, tabNamed(window, "Alpha"));
+  await alpha.getByTestId("tab.moveLater").click();
+  await expect(titlesIn(first)).toHaveText(["Beta", "Alpha", "Gamma", "Delta"]);
+  const moved = await openTabMenu(window, tabNamed(window, "Alpha"));
+  await moved.getByTestId("tab.moveRight").click();
+  await expect(groupsOf(window)).toHaveCount(2);
+
+  await window.keyboard.press("ControlOrMeta+z");
+  await expect(window.getByTestId("undo-problem")).toContainText("the tab is in another group now");
+  await expect(titlesIn(first)).toHaveText(["Beta", "Gamma", "Delta"]);
+  await app.close();
+});
+
+test("a key held down moves the tab once per press, and Undo takes back one press at a time", async () => {
+  const { app, window } = await launchApp(dataDir);
+  await dismissChatSetup(window);
+  for (const title of ["Alpha", "Beta", "Gamma", "Delta", "Epsilon"]) await newMind(window, title);
+  const first = groupAt(window, 0);
+  await pointAndClick(window, tabNamed(window, "Alpha"));
+  await window.keyboard.down("Control");
+  await window.keyboard.down("Shift");
+  for (let press = 0; press < 3; press++) {
+    await window.keyboard.down("PageDown");
+    await window.keyboard.up("PageDown");
+  }
+  await window.keyboard.up("Shift");
+  await window.keyboard.up("Control");
+  await expect(titlesIn(first)).toHaveText(["Beta", "Gamma", "Delta", "Alpha", "Epsilon"]);
+
+  await window.keyboard.press("ControlOrMeta+z");
+  await expect(titlesIn(first)).toHaveText(["Beta", "Gamma", "Alpha", "Delta", "Epsilon"]);
+  await window.keyboard.press("ControlOrMeta+Shift+z");
+  await expect(titlesIn(first)).toHaveText(["Beta", "Gamma", "Delta", "Alpha", "Epsilon"]);
+  await app.close();
+});
+
+test("⌘Z pressed the moment a first move starts takes that move back, and only it", async () => {
+  const { app, window } = await launchApp(dataDir);
+  await dismissChatSetup(window);
+  for (const title of ["Alpha", "Beta", "Gamma", "Delta"]) await newMind(window, title);
+  const first = groupAt(window, 0);
+  await pointAndClick(window, tabNamed(window, "Beta"));
+
+  // All three keys in one go, so the Undo lands while both moves still wait for the core and the
+  // stack is empty: it must wait for them, then take back only the last one.
+  await window.evaluate(() => {
+    const mac = /Mac|iPhone|iPad/.test(navigator.platform);
+    const target = document.activeElement ?? document.body;
+    const press = (init: KeyboardEventInit) =>
+      target.dispatchEvent(
+        new KeyboardEvent("keydown", { bubbles: true, cancelable: true, ...init }),
+      );
+    press({ key: "PageDown", code: "PageDown", ctrlKey: true, shiftKey: true });
+    press({ key: "PageDown", code: "PageDown", ctrlKey: true, shiftKey: true });
+    press({ key: "z", code: "KeyZ", ...(mac ? { metaKey: true } : { ctrlKey: true }) });
+  });
+
+  // Only the move made last is taken back: it is the one Redo offers, and the one that comes back.
+  await expect
+    .poll(() => editItem(app, "edit.redo"))
+    .toEqual({ label: "Redo Move Tab", enabled: true });
+  await expect(titlesIn(first)).toHaveText(["Alpha", "Gamma", "Beta", "Delta"]);
+  await window.keyboard.press("ControlOrMeta+Shift+z");
+  await expect(titlesIn(first)).toHaveText(["Alpha", "Gamma", "Delta", "Beta"]);
+  await expect(window.getByTestId("undo-message")).toHaveText("Moved “Beta” right");
+  await app.close();
+});
+
+async function titleNamedShown(window: Page): Promise<string> {
+  const shown = window.getByRole("tab", { selected: true });
+  return (await shown.getByTestId("tab-title").textContent()) ?? "";
+}

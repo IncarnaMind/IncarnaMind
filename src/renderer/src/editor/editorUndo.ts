@@ -21,6 +21,8 @@ export interface UndoStack {
   lastChange: number;
   stopCapturing(): void;
   addTrackedOrigin(origin: unknown): void;
+  removeTrackedOrigin(origin: unknown): void;
+  addToScope: Y.UndoManager["addToScope"];
   on(event: StackEvent, listener: StackListener): void;
   on(event: "stack-cleared", listener: () => void): void;
   off(event: StackEvent, listener: StackListener): void;
@@ -97,7 +99,11 @@ export interface FollowedSteps {
   /** Done, and nothing done in the note since: Undo takes back these steps alone. */
   onTop(): boolean;
   add(step: UndoStep): void;
-  undo(): void;
+  undo(): undefined | boolean | Promise<boolean | undefined>;
+  redo?(): undefined | boolean | Promise<boolean | undefined>;
+  canRedo?(): boolean;
+  settled?(): Promise<void>;
+  release?(): void | Promise<void>;
   observe(listener: () => void): () => void;
 }
 

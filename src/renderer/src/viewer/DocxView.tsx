@@ -80,16 +80,18 @@ const read = async (bytes: Uint8Array): Promise<Loaded> => ({
  * pages: a Citation points at the section a quote sits under, which the
  * outline lists. Opened at a Citation, it goes to the cited section and
  * highlights the quote in it, else in a comment anchored there, in its note
- * in the margin (#76), else anywhere in the Document, with the Citation's
+ * in the margin (#76), with the Citation's
  * mark in the page's margin beside it. Images come as
  * `data:` URLs, so the app's Content-Security-Policy stays as it is.
  */
 export function DocxView({ document, target }: { document: Document; target: ViewerTarget }) {
-  const loaded = useDocumentFile(document.id, read);
+  const { loaded, reload } = useDocumentFile(document.id, document.contentHash, read);
   return (
     <FileStates
+      document={document}
       loaded={loaded}
       quote={target.quote}
+      reload={reload}
       ready={(value) => <DocxPages loaded={value} target={target} />}
     />
   );
@@ -231,7 +233,9 @@ function DocxPages({ loaded, target }: { loaded: Loaded; target: ViewerTarget })
   const headingElements = useCallback((): HTMLElement[] => {
     const body = host.current;
     if (!body || docx.headingStyles.length === 0) return [];
-    const selector = docx.headingStyles.map((id) => `p.${CSS.escape(styleClass(id))}`).join(",");
+    const selector = docx.headingStyles
+      .map((id) => `section.${CLASS_NAME} > article p.${CSS.escape(styleClass(id))}`)
+      .join(",");
     return [...body.querySelectorAll<HTMLElement>(selector)].filter(
       (element) => (element.textContent ?? "").trim() !== "",
     );
@@ -249,18 +253,24 @@ function DocxPages({ loaded, target }: { loaded: Loaded; target: ViewerTarget })
     return () => observer.disconnect();
   }, [rendered]);
 
-  /**
-   * The cited section, as a range of the drawn document, from its heading to
-   * the next one, with its heading (null for the text before any heading).
-   */
   const citedSection = useCallback((): { range: Range; heading: HTMLElement | null } | null => {
     const body = host.current;
     const unit = target.pageFrom;
     if (!body || unit === undefined) return null;
+    const cited = docx.units.find((each) => each.page === unit);
+    if (!cited) return null;
+    const range = body.ownerDocument.createRange();
+    if (cited.label?.notes) {
+      const notes = [...body.querySelectorAll<HTMLElement>(`section.${CLASS_NAME} > ol`)];
+      const first = notes[0];
+      const last = notes.at(-1);
+      if (!first || !last) return null;
+      range.setStartBefore(first);
+      range.setEndAfter(last);
+      return { range, heading: first };
+    }
     const headings = headingElements();
     if (headings.length !== docx.headings.length) return null; // drawn otherwise than read
-    const cited = docx.units.find((each) => each.page === unit);
-    if (!cited || cited.label?.notes) return null;
     // The heading the cited Unit is under, and the one after the Units cited.
     const last = target.pageTo ?? unit;
     let start = -1;
@@ -269,7 +279,6 @@ function DocxPages({ loaded, target }: { loaded: Loaded; target: ViewerTarget })
       if (heading.unit <= unit) start = index;
       if (end < 0 && heading.unit > last) end = index;
     });
-    const range = body.ownerDocument.createRange();
     const heading = headings[start] ?? null;
     if (heading) range.setStartBefore(heading);
     else range.setStart(body, 0);
@@ -284,8 +293,6 @@ function DocxPages({ loaded, target }: { loaded: Loaded; target: ViewerTarget })
   useCitedArea(rendered === "yes", citedArea);
   useCitedAreaFailure(rendered === "failed" ? failure : null);
 
-  // Each open request highlights its quote: in the cited section first, then in the comments
-  // anchored there, in their notes in the margin (#76), then anywhere.
   // biome-ignore lint/correctness/useExhaustiveDependencies: each open request goes there again
   useEffect(() => {
     const body = host.current;
@@ -294,6 +301,15 @@ function DocxPages({ loaded, target }: { loaded: Loaded; target: ViewerTarget })
     for (const comment of comments.current) unmarkQuote(comment.note);
     const quote = target.quote;
     const section = citedSection();
+    const place = docx.units
+      .filter(
+        (unit) =>
+          target.pageFrom !== undefined &&
+          unit.page >= target.pageFrom &&
+          unit.page <= (target.pageTo ?? target.pageFrom),
+      )
+      .map((unit) => `section.${CLASS_NAME} > ${unit.label?.notes ? "ol" : "article"}`)
+      .join(",");
     let found: HTMLElement[] | null = null;
     if (quote) {
       const inNotes = (list: readonly DocxComment[]) => {
@@ -304,13 +320,20 @@ function DocxPages({ loaded, target }: { loaded: Loaded; target: ViewerTarget })
         return null;
       };
       const anchoredInSection = section
-        ? comments.current.filter((comment) => section.range.intersectsNode(comment.anchor))
+        ? comments.current.filter(
+            (comment) =>
+              comment.anchor.closest(place) && section.range.intersectsNode(comment.anchor),
+          )
         : [];
       const find = () =>
-        (section && markQuote(textNodes(body, section.range), quote)) ??
-        inNotes(anchoredInSection) ??
-        markQuote(textNodes(body), quote) ??
-        inNotes(comments.current);
+        target.pageFrom === undefined
+          ? (markQuote(textNodes(body), quote) ?? inNotes(comments.current))
+          : ((section &&
+              markQuote(
+                textNodes(body, section.range).filter((node) => node.parentElement?.closest(place)),
+                quote,
+              )) ??
+            inNotes(anchoredInSection));
       found = find();
       if (!found) found = withoutFootnoteNumbers(body, find);
     }

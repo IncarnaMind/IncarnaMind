@@ -29,6 +29,7 @@
 import { markersIn, shownRanges } from "../../shared/answerBlocks";
 import { citationNode, type NodeJSON } from "../../shared/blockJson";
 import { parseQuotedWords } from "../../shared/citations";
+import { FIGURE_MARKER } from "../../shared/figureMarkers";
 import {
   englishPlace,
   joinUnits,
@@ -102,6 +103,9 @@ const sameSearch = (query: string) =>
 
 const FIX_THESE = "Fix these with another cite call:";
 
+/** What `cite` tells the model once it has taken every record. */
+export const WRITE_NOW = " Write the Answer now if you haven't yet; don't repeat it.";
+
 /** Whether what `cite` told the model asks it to fix records, which the Tool loop must not end before. */
 export const asksForFixes = (told: string): boolean => told.includes(FIX_THESE);
 
@@ -153,7 +157,7 @@ export function cleanQuote(raw: string): string {
 }
 
 /** How a Document's text is matched: whether it lost its f-ligatures (see `lostLigatures`). */
-type Matching = Pick<MatchOptions, "lostLigatures">;
+export type Matching = Pick<MatchOptions, "lostLigatures">;
 
 /** How quotes are matched in a Document's text, from all of it (its Units, as stored). */
 export const matchingOf = (units: readonly PageText[]): Matching => ({
@@ -245,27 +249,34 @@ function locatedAmong(
   return locateQuote(among, quote, matching);
 }
 
-/** The first Unit, or two consecutive Units of one run, among `units` whose text holds the quote. */
+/** The unique place of a quote in one Unit, or two consecutive Units of one run. */
 export function locateQuote(
   units: readonly PageText[],
   quote: string,
   matching: Matching = {},
 ): PageRange | null {
-  if (!quote) return null;
-  for (const unit of units) {
-    if (unit.page !== null && quoteInUnits([unit], quote, matching)) {
-      return { pageFrom: unit.page, pageTo: unit.page };
-    }
-  }
-  for (let index = 0; index + 1 < units.length; index++) {
-    const first = units[index] as PageText;
-    const second = units[index + 1] as PageText;
-    if (first.page === null || second.page !== first.page + 1 || !sameRun(first, second)) continue;
-    if (quoteInUnits([first, second], quote, matching)) {
-      return { pageFrom: first.page, pageTo: second.page };
-    }
-  }
-  return null;
+  const ranges = quoteInUnits(units, quote, { ...matching, unique: true });
+  if (!ranges) return null;
+  const { starts } = joinUnits(units);
+  const covered = units.filter((unit, index) => {
+    const start = starts[index] ?? 0;
+    return ranges.some((range) => range.start < start + unit.text.length && range.end > start);
+  });
+  const [first, second] = covered;
+  if (!first || first.page === null || covered.length > 2) return null;
+  if (second && (second.page !== first.page + 1 || !sameRun(first, second))) return null;
+  return { pageFrom: first.page, pageTo: second?.page ?? first.page };
+}
+
+export function quotePlaceProblem(
+  quote: string,
+  units: readonly PageText[],
+  matching: Matching = {},
+): string | null {
+  return quoteInUnits(units, quote, matching) &&
+    !quoteInUnits(units, quote, { ...matching, unique: true })
+    ? "the quote occurs more than once in its cited Units; quote enough surrounding words to identify one place."
+    : null;
 }
 
 /**
@@ -405,10 +416,13 @@ function versionOf(documents: RecheckDocuments, documentId: string, contentHash:
       contentHash,
       passageId: passageFor(range, quote),
       ...range,
-      location: locationOf(
-        covered,
-        check.check === "found" ? (found ?? quoteInUnits(covered, quote, matching)) : null,
-      ),
+      location:
+        range.pageFrom === null || range.pageTo === null
+          ? null
+          : locationOf(
+              covered,
+              check.check === "found" ? (found ?? quoteInUnits(covered, quote, matching)) : null,
+            ),
     };
   };
   return { units, matching, inRange, result };
@@ -418,9 +432,8 @@ type Rechecked = Pick<RecheckCitationInput, "documentId" | "quote" | "pageFrom" 
 
 /**
  * Checks a Citation again against its Document's current version (see
- * `CoreApi.recheckCitation`): in the cited Units first, then in each Unit,
- * and each two consecutive Units of one run, of the current version, in
- * order. The Passage given is one of the current version that holds the
+ * `CoreApi.recheckCitation`): at its cited Units, without relocating it.
+ * The Passage given is one of the current version that holds the
  * Units, preferably one whose text holds the quote too. Given the version it
  * quotes, once the Document has a newer one: its check in that version too,
  * and its words as they changed when the current one doesn't hold them.
@@ -608,27 +621,17 @@ function recheckInCurrent(documents: RecheckDocuments, input: Rechecked): Citati
   if (units.every((unit) => unit.text.trim() === "")) {
     return result({ check: "cant-check", checkReason: "no-text" }, cited);
   }
-  // A whole TXT or Markdown file stored before Units is checked as one text.
-  if (units.length === 1 && units[0]?.kind === "text") {
-    const whole = { pageFrom: null, pageTo: null };
-    return quote !== "" && quoteInUnits(units, quote, matching)
-      ? result({ check: "found", checkReason: null }, whole)
-      : result({ check: "not-found", checkReason: "quote-not-on-pages" }, whole);
+  const range = inRange(cited);
+  const [first, second] = range;
+  const whole = cited.pageFrom === null || cited.pageTo === null;
+  if (
+    range.length > 0 &&
+    (whole || (range.length <= MAX_CITED_PAGES && (!first || !second || sameRun(first, second)))) &&
+    quote !== "" &&
+    quoteInUnits(range, quote, matching)
+  ) {
+    return result({ check: "found", checkReason: null }, cited);
   }
-  if (cited.pageFrom !== null && cited.pageTo !== null) {
-    const range = inRange(cited);
-    const [first, second] = range;
-    if (
-      range.length > 0 &&
-      range.length <= MAX_CITED_PAGES &&
-      (!first || !second || sameRun(first, second)) &&
-      quoteInUnits(range, quote, matching)
-    ) {
-      return result({ check: "found", checkReason: null }, cited);
-    }
-  }
-  const located = locateQuote(units, quote, matching);
-  if (located) return result({ check: "found", checkReason: null }, located);
   return result({ check: "not-found", checkReason: "quote-not-on-pages" }, cited);
 }
 
@@ -1073,6 +1076,10 @@ export type QuoteInput = Omit<CitationRecordInput, "marker">;
 export interface Quoted {
   /** The Passage's id, as the model was given it: "P3". */
   passage: string;
+  /** The Passage's own text, as it was built: where a quote of it was taken from. */
+  passageText: string;
+  /** How the check matches the quote in its Units. */
+  matching: Matching;
   /** Its Citation, "checking". */
   citation: Citation;
   /** The stored text of the Units it cites, of the version it quotes. */
@@ -1119,6 +1126,8 @@ export function createCitationSession(
   /** Each Passage's text as the model was given it, by its short id. */
   const shownTexts = new Map<string, string>();
   const records = new Map<number, Accepted>();
+  /** Markers whose last record from a `cite` call was refused or came back with a problem to fix. */
+  const toFix = new Set<number>();
   /** Records naming no Passage the model was given, or no marker: as given, and why. */
   const rejected: RejectedRecord[] = [];
   const searched = new Set<string>();
@@ -1255,6 +1264,20 @@ export function createCitationSession(
       };
     }
     const taken = takeQuote(input, marker, options);
+    if (taken.ok && !taken.record.kept) {
+      const problem = quotePlaceProblem(
+        taken.record.quote,
+        citedText(taken.record),
+        matchingFor(taken.source),
+      );
+      if (problem) {
+        return {
+          ok: false,
+          rejected: { marker, passage: given, reason: "quote-context" },
+          problem: `[^${marker}]: ${problem}`,
+        };
+      }
+    }
     return taken.ok
       ? taken
       : {
@@ -1389,6 +1412,7 @@ export function createCitationSession(
       if (!taken.ok) {
         rejected.push(taken.rejected);
         problems.push(taken.problem);
+        if (!options.structured && taken.rejected.marker !== null) toFix.add(taken.rejected.marker);
         continue;
       }
       const { record, source, passageUnits } = taken;
@@ -1398,14 +1422,15 @@ export function createCitationSession(
       events.onRecord(marker, toCitation(record, null));
       // Tell the model now what the check will find, so it can fix the record.
       const problem = record.kept ? null : recordProblem(record, source, passageUnits);
-      if (problem) problems.push(`[^${marker}]: ${problem}`);
+      if (problem) {
+        problems.push(`[^${marker}]: ${problem}`);
+        if (!options.structured) toFix.add(marker);
+      } else toFix.delete(marker);
     }
     const done = recorded.length
       ? `Recorded ${recorded.map((marker) => `[^${marker}]`).join(", ")}.`
       : "Nothing was recorded.";
-    const fix = problems.length
-      ? ` ${FIX_THESE}\n- ${problems.join("\n- ")}`
-      : " Write the Answer now if you haven't yet; don't repeat it.";
+    const fix = problems.length ? ` ${FIX_THESE}\n- ${problems.join("\n- ")}` : WRITE_NOW;
     return `${done}${fix}`;
   }
 
@@ -1437,6 +1462,8 @@ export function createCitationSession(
   /** A record as a calculated figure's input reads it. */
   const quotedOf = (record: Accepted): Quoted => ({
     passage: record.handle,
+    passageText: record.source.text,
+    matching: matchingFor(record.source),
     citation: toCitation(record, null),
     units: citedText(record),
     check: () => check(record),
@@ -1569,6 +1596,15 @@ export function createCitationSession(
 
     hasRecord: (marker) => records.has(marker),
 
+    owed(text, figured) {
+      const unrecorded = markersIn(text).filter((marker) => !records.has(marker));
+      const figures = [...text.matchAll(FIGURE_MARKER)].map((match) => Number(match[1]));
+      return {
+        citations: [...new Set([...toFix, ...unrecorded])].sort((a, b) => a - b),
+        figures: figured ? [...new Set(figures)].filter((marker) => !figured(marker)) : [],
+      };
+    },
+
     shownPassages: () =>
       [...handleOf.values()].flatMap((id) => {
         const text = shownTexts.get(id);
@@ -1611,6 +1647,7 @@ export function createCitationSession(
       );
       if (!taken.ok || !taken.record.quote || check(taken.record).check !== "found") return false;
       records.set(marker, taken.record);
+      toFix.delete(marker);
       events.onRecord(marker, toCitation(taken.record, null));
       return true;
     },
@@ -1638,23 +1675,10 @@ export function createCitationSession(
 
   /** Quotes for calculated figures' inputs (./calculations). */
   const quotes = {
-    /**
-     * The quote of the record taken for a marker; null when none was. A quote
-     * that isn't where the record says is read where it is in its Passage, as
-     * structured output's records are (see `CiteOptions`): the record itself
-     * stays as it was.
-     */
+    /** An input keeps its recorded Location: moving it could substitute another revision (#1979). */
     recorded(marker: number): Quoted | null {
       const record = records.get(marker);
       if (!record) return null;
-      if (check(record).check === "not-found") {
-        const placed = takeQuote(
-          { passage: record.handle, ...record.given, quote: record.quote },
-          0,
-          { structured: true },
-        );
-        if (placed.ok && check(placed.record).check === "found") return quotedOf(placed.record);
-      }
       return quotedOf(record);
     },
 

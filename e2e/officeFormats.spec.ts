@@ -210,7 +210,11 @@ test("Word, PowerPoint, Excel and CSV files in a linked folder are cited by sect
     "Northern figures exclude the Leeds office, which reported late.",
   );
   await sheet.getByRole("tab", { name: "Empty" }).click();
-  await expect(sheet.getByTestId("viewer-sheet-empty")).toBeVisible();
+  const empty = sheet.getByTestId("viewer-sheet-empty");
+  await expect(empty).toBeVisible();
+  // An empty sheet says so, with the way on: its file's own app (#763, item 26).
+  await expect(empty).toContainText("This sheet is empty.");
+  await expect(empty.getByTestId("viewer-sheet-open")).toHaveText("Open in default app");
 
   // The section: the Word file's pages, the quote washed under 2.1 Sensitivity.
   await open("Coastal Flood Risk Review");
@@ -697,16 +701,18 @@ test("a Word file over 500 MB fails as too large to open, in English and Chinese
 
     // Opened, the viewer says why it can't show it.
     const viewer = window.getByTestId("viewer");
+    // Opened, it says why in the same plain words as its row, with the way on (#763).
     await refused.getByTestId("open-document").click();
-    await expect(viewer.getByRole("alert")).toHaveText("Failed: the file is too large to open", {
-      timeout: 30_000,
-    });
+    const tooLarge = viewer.getByRole("alert");
+    await expect(tooLarge).toContainText("This file is too large to open", { timeout: 30_000 });
+    await expect(viewer.getByTestId("viewer-fix-open")).toHaveText("Open in default app");
     await window.evaluate(() =>
       (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind.updateSettings({
         user: { language: "zh-CN" },
       }),
     );
-    await expect(viewer.getByRole("alert")).toHaveText("失败：文件太大，无法打开");
+    await expect(tooLarge).toContainText("这个文件太大，无法打开");
+    await expect(viewer.getByTestId("viewer-fix-open")).toHaveText("用默认应用打开");
     await window.evaluate(() =>
       (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind.updateSettings({
         user: { language: "en" },

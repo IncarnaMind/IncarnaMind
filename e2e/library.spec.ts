@@ -31,6 +31,7 @@ import {
   setWindowSize,
   sidebarFolder,
   tabTo,
+  turnOnEmbeddings,
 } from "./app";
 
 let dataDir: string;
@@ -378,6 +379,63 @@ test("⌘Z takes Organize's suggestions back and ⇧⌘Z brings them back in one
     await window.keyboard.press("ControlOrMeta+Shift+z");
     await expect(research.getByTestId("library-document")).toHaveCount(3);
     await expect(suggested).toHaveCount(2);
+  } finally {
+    await app.close();
+  }
+});
+
+test("turning embeddings on files nothing: a Document added before the first Folder stays Not organized yet, in English and Chinese (#2023)", async () => {
+  test.setTimeout(120_000);
+  const path = join(sources, "Membrane notes.txt");
+  await writeFile(path, "Research about membrane separation and water filtration.");
+  const { app, window } = await launchApp(dataDir, { fakeChat: true });
+  try {
+    await dismissChatSetup(window);
+    await addDocuments(window, [path]);
+    // The first Folder comes after it: Organize never had it to file.
+    await makeFolders(window, [{ name: "Research", description: "Scientific papers" }]);
+    // A model ready to file whatever Organize is handed.
+    await (await coreOf(window)).evaluate(async (core) => {
+      const provider = await core.saveChatProvider({ kind: "ollama", modelId: "main-chat" });
+      await core.saveLibrarySettings({
+        classifier: { kind: "chat", choice: { providerId: provider.id, modelId: "main-chat" } },
+        automatic: true,
+      });
+    });
+    await window.evaluate(() => {
+      const seen: string[] = [];
+      (globalThis as unknown as { statuses: string[] }).statuses = seen;
+      (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind.on(
+        "document.status",
+        (document) => seen.push(document.status),
+      );
+    });
+    const statuses = () =>
+      window.evaluate(() => (globalThis as unknown as { statuses: string[] }).statuses);
+
+    await turnOnEmbeddings(window);
+    await expect.poll(statuses).toContain("embedding");
+    await expect.poll(async () => (await statuses()).at(-1)).toBe("ready");
+
+    // Its vectors were made again, and nothing was filed: no suggestion in Review or in the Folder.
+    await window.getByTestId("open-library").click();
+    const library = window.getByTestId("library");
+    await expect(library.getByTestId("library-review")).toHaveCount(0);
+    await expect(library.getByTestId("library-suggested")).toHaveCount(0);
+    const info = await infoOf(window, rowOf(library, "Membrane notes"));
+    await expect(info.getByTestId("info-organize")).toContainText("Not organized yet");
+    await expect(info.getByTestId("info-organize")).not.toContainText("Needs attention");
+    await window.keyboard.press("Escape");
+
+    await setLanguage(window, "zh-CN");
+    const chinese = await infoOf(window, rowOf(library, "Membrane notes"));
+    await expect(chinese.getByTestId("info-organize")).toContainText("尚未整理");
+    await expect(chinese.getByTestId("info-organize")).not.toContainText("需要处理");
+    await window.keyboard.press("Escape");
+
+    expect(
+      await (await coreOf(window)).evaluate(async (core) => (await core.getLibrary()).assignments),
+    ).toEqual([]);
   } finally {
     await app.close();
   }
@@ -751,7 +809,7 @@ test("organized folders remain separate from source locations and follow changes
     });
     await expect(rowOf(section(library, "Finance"), "Membrane separation")).toHaveCount(1);
     expect(await readFile(path, "utf8")).toBe(revised);
-    await expect(window.getByTestId("sidebar-status")).not.toContainText("No AI model for Tags");
+    await expect(window.getByTestId("sidebar-status")).not.toContainText("Tags need an AI model");
     await window.setViewportSize({ width: 1000, height: 760 });
     // The viewer opens beside the Library: at 1,000px, with the assistant at the bottom (#253).
     await placeAssistant(window, { dock: "bottom" });
@@ -882,7 +940,11 @@ test("a bulk Organize leaves the Library's sections, filters and sidebar as the 
       await expect(section(library, name)).toHaveAttribute("data-count", String(total));
       if (name === "Not in a Folder")
         await expect(notInAFolder).toHaveAttribute("data-count", String(total));
-      else await expect(folderRow(name).getByTestId("browse-count")).toHaveText(String(total));
+      else
+        await expect(folderRow(name).getByTestId("browse-count")).toHaveText(
+          // Every Document Organize filed here waits for the User: the count says how many.
+          `${total} · ${total} suggested`,
+        );
     }
     // Closed, a Folder lists nothing; Not in a Folder lists its first few, then "Show N more".
     await expect(folders.getByTestId("document-list-item")).toHaveCount(5);

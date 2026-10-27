@@ -328,6 +328,26 @@ describe("Excel", () => {
     expect(small.sheets[0]?.rowCount).toBe(10);
   });
 
+  test("a hidden and a very hidden sheet, and the rows past the limit, are named as unread (#740)", async () => {
+    const bytes = xlsxOf([
+      { name: "Visible", rows: [["Region"]] },
+      { name: "Q3 raw", state: "hidden", rows: [["Secret"], ["1"]] },
+      { name: "Q4 raw", state: "veryHidden", rows: [["Secret"], ["2"]] },
+      {
+        name: "Big",
+        rows: Array.from({ length: MAX_ROWS + 5 }, (_, index) => [`R${index + 1}`, index]),
+      },
+      { name: "After", rows: [["never read"]] },
+    ]);
+
+    const workbook = await readWorkbook(bytes);
+
+    expect(workbook.sheets.map((sheet) => sheet.name)).toEqual(["Visible", "Big", "After"]);
+    expect(workbook.hiddenSheets).toEqual(["Q3 raw", "Q4 raw"]);
+    expect(workbook.rowsCut).toEqual([{ sheet: "Big", from: MAX_ROWS }]);
+    expect(workbook.sheetsNotRead).toEqual(["After"]);
+  });
+
   test("formats numbers as their format says, and shows formats it doesn't know as the plain number", () => {
     expect(formatNumber(350200, '"£"#,##0')).toBe("£350,200");
     expect(formatNumber(-1250, "#,##0 ;(#,##0)")).toBe("(1,250)");
