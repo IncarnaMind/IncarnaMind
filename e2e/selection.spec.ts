@@ -384,7 +384,7 @@ test("the right-click menu and the Library's bar offer the same commands for the
     const menu = window.getByTestId("document-file-actions").filter({ visible: true });
     await expect(menu.getByTestId("document.ask")).toHaveText("Ask about these 3 Documents");
     await expect(menu.getByTestId("document.startMind")).toHaveText(
-      "Start a Mind from these 3 Documents",
+      "Start a note from these 3 Documents",
     );
     await expect(menu.getByTestId("document.tags")).toBeVisible();
     await expect(menu.getByTestId("document.open")).toHaveCount(0);

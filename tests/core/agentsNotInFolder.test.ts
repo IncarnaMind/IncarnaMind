@@ -117,7 +117,7 @@ describe("an agent that may read Not in a Folder", () => {
     };
     for (const documentId of [reef.id, pilot.id, budget.id]) {
       expect(await refused("read_passages", { documentId })).toMatch(
-        /No such Passage, Document, Mind or Citation/,
+        /No such Passage, Document, note or Citation/,
       );
     }
     await refused("read_passages", { passageId: elsewhere.passageId });
