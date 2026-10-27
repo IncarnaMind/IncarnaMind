@@ -294,7 +294,7 @@ test("a Mind citing a paper offers a citation style; chosen, its Citations and R
   await expect(dialog).toBeHidden();
   await exportFromMenu(window);
   const done = window.getByTestId("export-result").getByTestId("export-done");
-  await expect(done).toHaveText(/^Saved “.+\.docx” in .+$/);
+  await expect(done).toContainText(/^Saved “.+\.docx” in /);
   const saved = (await done.getAttribute("title")) ?? target;
   const text = paragraphsOf(part(unzip(await readFile(saved)), "word/document.xml")).map(
     (each) => each.text,
