@@ -430,14 +430,12 @@ test("an example's stored Organize assignment owes no progress on restart (#1942
       const own = join(sources, "Note 1.txt");
       await writeFile(own, "Note 1. The tide tables are read slowly.\n");
       await again.window.getByTestId("add-documents-input").setInputFiles([own]);
-      // The line is a transient: it is up while the run works, which a scripted model finishes in
-      // about a second, so it is waited for as long as this file's other states, never the default.
       await expect(
         again.window
           .getByTestId("sidebar-status")
           .getByTestId("organization-progress")
           .getByTestId("status-label"),
-      ).toHaveText(/^Organizing 1 Document\b/, { timeout: 60_000 });
+      ).toHaveText(/^Organizing 1 Document\b/);
       // It ends when the User's own is filed: the example's waiting assignment owes nothing.
       await expect(again.window.getByTestId("organization-progress")).toHaveCount(0, {
         timeout: 60_000,
