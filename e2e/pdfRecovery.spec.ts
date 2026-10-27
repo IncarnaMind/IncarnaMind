@@ -115,9 +115,16 @@ for (const language of ["en", "zh-CN"] as const) {
           requests: requests.length,
         });
         await pointAndClick(window, item.getByTestId("open-document"));
+        // A damaged PDF says so in the same plain words as its Library row (#763), with the
+        // reader's own message only on hover.
         const problem = viewer.getByTestId("viewer-problem");
         await expect(problem).toContainText(
-          language === "en" ? "This PDF couldn’t be opened." : "无法打开这个 PDF。",
+          language === "en"
+            ? "Damaged file: save a copy from your PDF app, then add it"
+            : "文件已损坏：用 PDF 应用另存一份，再添加副本",
+        );
+        await expect(viewer.getByTestId("viewer-fix-open")).toHaveText(
+          language === "en" ? "Open in default app" : "用默认应用打开",
         );
         await expect(problem.locator("[title]")).toHaveAttribute("title", /Invalid PDF structure/);
         expect(await bridge.evaluate((core, id) => core.readDocumentText(id), original.id)).toEqual(
@@ -138,7 +145,10 @@ for (const language of ["en", "zh-CN"] as const) {
             const before = requests.length;
             if (method === "pointer") await pointAndClick(window, retry);
             else if (method === "keyboard") {
+              // The line's two ways on, in order: open the file in its app, then read it again.
               await viewer.getByTestId("document-file-menu").focus();
+              await window.keyboard.press("Tab");
+              await expect(viewer.getByTestId("viewer-fix-open")).toBeFocused();
               await window.keyboard.press("Tab");
               await expect(retry).toBeFocused();
               await window.keyboard.press("Enter");

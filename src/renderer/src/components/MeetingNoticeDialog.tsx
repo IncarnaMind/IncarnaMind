@@ -1,3 +1,5 @@
+import { useEffect, useState } from "react";
+import { core } from "../core";
 import { useGap, useT } from "../i18n";
 import { useMeetings } from "../meetings";
 import { useAppStore } from "../store";
@@ -36,6 +38,26 @@ export function MeetingNoticeDialog() {
       (state.settings?.device.transcriptionRoute ?? "local") === "local" ||
       state.embedding?.localOnly === true,
   );
+  /** Whether the speech model is already here; null until its state has been read. */
+  const [modelHere, setModelHere] = useState<boolean | null>(null);
+  useEffect(() => {
+    if (waiting === null) return;
+    let live = true;
+    core.getTranscriptionModel().then(
+      (model) => {
+        if (live) setModelHere(model?.state === "ready");
+      },
+      (error: unknown) => {
+        // The sheet still opens: it says Start recording, and the model is got ready with the Meeting.
+        console.error("The speech model's state couldn't be read.", error);
+      },
+    );
+    return () => {
+      live = false;
+    };
+  }, [waiting]);
+  // Only while it isn't here: "Download and start" is wrong once it is (#763).
+  const downloads = transcribedHere && modelHere === false;
 
   return (
     <dialog
@@ -58,6 +80,11 @@ export function MeetingNoticeDialog() {
           </p>
           {!memo && <p className={dialogTextClass}>{t("meetings.notice.tell")}</p>}
           {transcribedHere && <p className={dialogTextClass}>{t("meetings.notice.model")}</p>}
+          {downloads && (
+            <p data-testid="meeting-notice-model-size" className={dialogTextClass}>
+              {t("meetings.notice.modelSize")}
+            </p>
+          )}
         </div>
         {/* Mounted as the sheet opens, so it reads the keys as they are now. */}
         {waiting && <TranscriptionRouteChoice />}
@@ -71,7 +98,7 @@ export function MeetingNoticeDialog() {
             onClick={() => void acceptNotice()}
             className={primaryButtonClass}
           >
-            {t("meetings.start.record")}
+            {t(downloads ? "meetings.start.downloadAndStart" : "meetings.start.record")}
           </button>
         </div>
       </div>

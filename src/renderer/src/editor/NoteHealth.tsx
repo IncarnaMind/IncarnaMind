@@ -1,19 +1,20 @@
 import type { Editor } from "@tiptap/core";
 import { TextSelection } from "@tiptap/pm/state";
 import { useEditorState } from "@tiptap/react";
-import { useEffect, useState } from "react";
+import { useEffect, useId, useState } from "react";
 import type * as Y from "yjs";
 import type { CitationAttributes } from "../../../core/api";
 import { citationState } from "../../../shared/citations";
 import {
   acceptAndCheck,
+  type CheckProblem,
   checkSentences,
   dismissCheckProblem,
   setCheckCardOpen,
   setOpenClaim,
   useChecks,
 } from "../checks";
-import { ProblemLine } from "../components/ProblemLine";
+import { type ProblemAction, ProblemLine } from "../components/ProblemLine";
 import {
   ReadinessExplanation,
   readinessAction,
@@ -459,35 +460,21 @@ export function HealthCard({
           onOpenSettings={openSettings}
         />
       )}
+      {!running && problem?.kind === "failed" && (
+        <FailedCheckProblem mindId={mindId} problem={problem} close={close} />
+      )}
       {!running &&
         problem &&
         problem.kind !== "not-ready" &&
         problem.kind !== "local-mode" &&
         problem.kind !== "no-documents" &&
         problem.kind !== "waiting" &&
-        problem.kind !== "find-failed" && (
-          <ProblemLine
-            testId="checks-problem"
-            className="mind-health-line"
-            action={
-              problem.kind === "failed" && problem.retry
-                ? {
-                    label: t("checks.tryAgain"),
-                    testId: "checks-try-again",
-                    onClick: () => {
-                      dismissCheckProblem(mindId);
-                      problem.retry?.();
-                    },
-                  }
-                : close
-            }
-            also={problem.kind === "failed" && problem.retry ? close : undefined}
-          >
+        problem.kind !== "find-failed" &&
+        problem.kind !== "failed" && (
+          <ProblemLine testId="checks-problem" className="mind-health-line" action={close}>
             {problem.kind === "only-cited"
               ? t("checks.problem.only-cited.folder", { folder: folderName ?? "" })
-              : problem.kind === "failed"
-                ? t("checks.problem.failed", { message: errorMessage(problem.error, t) })
-                : t(`checks.problem.${problem.kind}`)}
+              : t(`checks.problem.${problem.kind}`)}
           </ProblemLine>
         )}
       <UnreadFilesLine
@@ -496,5 +483,70 @@ export function HealthCard({
         className="mind-unread"
       />
     </>
+  );
+}
+
+/** A check that failed: what it said under Details, and Try again where it can run again. */
+function FailedCheckProblem({
+  mindId,
+  problem,
+  close,
+}: {
+  mindId: string;
+  problem: Extract<CheckProblem, { kind: "failed" }>;
+  close: ProblemAction;
+}) {
+  const t = useT();
+  const [open, setOpen] = useState(false);
+  const panel = useId();
+  const cause = errorMessage(problem.error, t);
+  return (
+    <ProblemLine
+      testId="checks-problem"
+      title={cause}
+      className="mind-health-line"
+      action={
+        problem.retry
+          ? {
+              label: t("checks.tryAgain"),
+              testId: "checks-try-again",
+              onClick: () => {
+                dismissCheckProblem(mindId);
+                problem.retry?.();
+              },
+            }
+          : close
+      }
+      also={problem.retry ? close : undefined}
+      disclosure={
+        cause === ""
+          ? undefined
+          : {
+              toggle: (
+                <button
+                  type="button"
+                  data-testid="checks-problem-details"
+                  aria-expanded={open}
+                  aria-controls={panel}
+                  onClick={() => setOpen(!open)}
+                  className="rounded-sm font-semibold text-accent underline-offset-2 hover:underline"
+                >
+                  {t("details.label")}
+                </button>
+              ),
+              panel: open ? (
+                <p
+                  id={panel}
+                  data-testid="checks-problem-details-text"
+                  className="mt-1 break-words"
+                >
+                  {cause}
+                </p>
+              ) : null,
+            }
+      }
+    >
+      {t("checks.problem.failed")}
+    </ProblemLine>
   );
 }
