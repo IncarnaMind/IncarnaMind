@@ -394,11 +394,13 @@ for (const language of ["en", "zh-CN"] as const) {
         await expect.poll(async () => (await ownDocuments(a.window)).reading).toBe(true);
         const reading = await height();
         // The Ask step's line, in the states laid out unseen, says the file is reading.
-        expect(
-          await card.evaluate((element) => element.parentElement?.textContent ?? ""),
-        ).toContain(language === "en" ? "Reading “Harbour times”…" : "正在读取“Harbour times”…");
+        await expect
+          .poll(async () => card.evaluate((element) => element.parentElement?.textContent ?? ""))
+          .toContain(language === "en" ? "Reading “Harbour times”…" : "正在读取“Harbour times”…");
 
-        await expect.poll(async () => (await ownDocuments(a.window)).ready, { timeout: 90_000 });
+        await expect
+          .poll(async () => (await ownDocuments(a.window)).ready, { timeout: 90_000 })
+          .toBe(true);
         const button = step(a.window, "question").getByTestId("first-open-ready");
         await expect(button).toBeVisible({ timeout: 90_000 });
         ready = await height();
@@ -408,23 +410,18 @@ for (const language of ["en", "zh-CN"] as const) {
         await expect(button).toHaveAttribute("title", new RegExp(LONG_NAME.slice(0, 24)));
         const cut = await height();
         expect(cut, `${language} ${width}px, a long Question`).toBe(reading);
-        // The whole Question stays the line's name and its tooltip: at the narrowest width only
-        // what shows is cut, at a word end in English and anywhere in Chinese.
+        // The whole Question stays the line's name and its tooltip, and the line cuts it.
         expect(await button.getAttribute("aria-label")).toContain(LONG_NAME);
         const wholeLabel = (await button.getAttribute("title")) ?? "";
         const shownLabel = await button.innerText();
-        // The whole Question is the line's name and its tooltip; the line shows the longest start
-        // that fits, ended with "…" when it has to be cut.
-        if (shownLabel !== wholeLabel) {
-          expect(shownLabel.endsWith("…"), `${language} ${width}px, cut`).toBe(true);
-          expect(wholeLabel.startsWith(shownLabel.slice(0, -1))).toBe(true);
+        expect(shownLabel.endsWith("…"), `${language} ${width}px, cut`).toBe(true);
+        expect(wholeLabel.startsWith(shownLabel.slice(0, -1))).toBe(true);
+        if (language === "en")
           // English cuts at a word's end, so what follows the shown text starts a word.
-          if (language === "en")
-            expect(
-              wholeLabel.slice(shownLabel.length - 1),
-              `${language} ${width}px, a word's end`,
-            ).toMatch(/^\s/u);
-        }
+          expect(
+            wholeLabel.slice(shownLabel.length - 1),
+            `${language} ${width}px, a word's end`,
+          ).toMatch(/^\s/u);
       } finally {
         await a.app.close();
         await removeDataFolder(first);
@@ -462,6 +459,30 @@ for (const language of ["en", "zh-CN"] as const) {
   }
 }
 
+test("a Chinese Question longer than the line cuts at a character, whole in its name (#2084)", async () => {
+  const sources = await createDataFolder();
+  const name = "港口简报与冬季疏浚计划联合评审会议纪要（第二季度）";
+  const file = join(sources, `${name}.md`);
+  await writeFile(file, "# 港口简报\n\n港口每月发布一次潮汐表，并在冬季疏浚之后更新。\n");
+  const { app, window } = await launchApp(dataDir, { examples: true, fakeChat: true });
+  try {
+    await setWindowSize(app, window, 900, 900);
+    await setLanguage(window, "zh-CN");
+    await window.getByTestId("add-documents-input").setInputFiles([file]);
+    const button = step(window, "question").getByTestId("first-open-ready");
+    const whole = `提问：“${name}”讲了什么？`;
+    await expect(button).toHaveAttribute("title", whole, { timeout: 30_000 });
+    const shown = await button.innerText();
+    // A character cut, as Chinese reads: the line ends inside the name, not only at a space.
+    expect(shown.endsWith("…")).toBe(true);
+    expect(whole.startsWith(shown.slice(0, -1))).toBe(true);
+    expect(whole.charAt(shown.length - 1)).not.toBe(" ");
+  } finally {
+    await app.close();
+    await removeDataFolder(sources);
+  }
+});
+
 test("the Welcome card keeps one height through every step, so the page's text never moves (#1195)", async () => {
   const { app, window } = await launchApp(dataDir, { examples: true, fakeChat: true });
   await expect(window.getByTestId("first-open-steps")).toBeVisible();
@@ -484,8 +505,8 @@ test("the Welcome card keeps one height through every step, so the page's text n
   await enableLocalModel(window);
   for (const language of ["en", "zh-CN"] as const) {
     await setLanguage(window, language);
-    // The ready Question is the example's until a file of theirs is ready, and its words set the
-    // card's height: measured in the language the example has become (#2084).
+    // The ready Question is the example's while there is no file of their own, and the card is
+    // measured in the example's language; the line's words no longer set its height (#2084).
     await expectExampleIn(window, language);
     for (const width of [900, 1100, 1440, 1600]) {
       await setWindowSize(app, window, width, 900);

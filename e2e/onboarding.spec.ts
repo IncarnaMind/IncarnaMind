@@ -490,7 +490,7 @@ test("in Chinese, the ready Question is the Chinese example's, answered with no 
   await markSteps(window, { indexed: true });
 
   const ready = step(window, "question").getByTestId("first-open-ready");
-  await expect(ready).toHaveText("提问：“贷款协议对杠杆率上限是怎么规定的？”");
+  await expect(ready).toHaveText("提问：贷款协议对杠杆率上限是怎么规定的？");
   await expect(step(window, "question")).toContainText("输入你自己的问题");
   const card = await window.getByTestId("first-open-steps").boundingBox();
   const button = await ready.boundingBox();
@@ -520,8 +520,8 @@ const OWN_FILES = [
     language: "zh-CN",
     name: "项目简报.md",
     text: "# 项目简报\n\n项目简报写明了港口计划。\n",
-    asks: "提问：“‘项目简报’讲了什么？”",
-    question: "‘项目简报’讲了什么？",
+    asks: "提问：“项目简报”讲了什么？",
+    question: "“项目简报”讲了什么？",
   },
 ] as const;
 
@@ -565,6 +565,88 @@ for (const { language, name, text, asks, question } of OWN_FILES) {
     await app.close();
   });
 }
+
+test("the first own Question starts a fresh conversation, without the example's turns (#2084)", async () => {
+  const file = join(sources, "Harbour brief.md");
+  await writeFile(
+    file,
+    "# Harbour brief\n\nThe harbour master publishes the tide tables every spring.\n",
+  );
+  const { app, window } = await launchApp(dataDir, { examples: true, fakeChat: true });
+  await setWindowSize(app, window, 1440, 900);
+  await useLocalChatModel(window);
+  await expectReadyDocuments(window, 2);
+  await markSteps(window, { indexed: true });
+  // The example's Answer in an open conversation first.
+  await pointAndClick(window, step(window, "question").getByTestId("first-open-ready"));
+  await expect(assistantAnswers(window).last()).toHaveAttribute("data-status", "done", {
+    timeout: 30_000,
+  });
+  await expect(window.getByTestId("assistant-question")).toHaveCount(1);
+  await markSteps(window, { askedReady: false });
+
+  // Their own file makes the ready Question theirs; asking it leaves the example's turns behind.
+  await window.getByTestId("add-documents-input").setInputFiles([file]);
+  const ready = step(window, "question").getByTestId("first-open-ready");
+  await expect(ready).toHaveAttribute("title", /Harbour brief/, { timeout: 30_000 });
+  await pointAndClick(window, ready);
+  await expect(window.getByTestId("assistant-question")).toHaveCount(1);
+  await expect(window.getByTestId("assistant-question")).toContainText(
+    "What does ‘Harbour brief’ say?",
+  );
+  await expect(window.getByTestId("assistant-answer")).toHaveCount(1);
+  await expect(window.getByTestId("assistant-answer").getByTestId("answer-example")).toHaveCount(0);
+  await app.close();
+});
+
+test("a Question that can't be asked says why in the card's row, where it was clicked (#2084)", async () => {
+  const file = join(sources, "Harbour brief.md");
+  await writeFile(
+    file,
+    "# Harbour brief\n\nThe harbour master publishes the tide tables every spring.\n",
+  );
+  const { app, window } = await launchApp(dataDir, { examples: true, fakeChat: true });
+  await setWindowSize(app, window, 1440, 900);
+  await acceptPlainTextKeys(window);
+  // A model off this computer with local mode on: asking is refused before anything is sent.
+  await window.evaluate(async () => {
+    const bridge = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
+    await bridge.saveChatProvider({ kind: "openai", apiKey: "sk-test", modelId: "gpt-6-luna" });
+    await bridge.setLocalOnly(true);
+  });
+  await window.getByTestId("add-documents-input").setInputFiles([file]);
+  const ready = step(window, "question").getByTestId("first-open-ready");
+  await expect(ready).toHaveAttribute("title", /Harbour brief/, { timeout: 30_000 });
+  await pointAndClick(window, ready);
+  const card = window.getByTestId("first-open-steps");
+  await expect(card.getByTestId("first-open-ready-not-ready")).toBeVisible();
+  // The example Note's composer is the one on screen; it is not where this problem goes.
+  await expect(window.getByTestId("composer-not-ready")).toHaveCount(0);
+  await app.close();
+});
+
+test("while the ready Question's Answer streams, its button waits and asks once (#2084)", async () => {
+  // The scripted model answers a Question that says "slowly" slowly enough to see the button.
+  const file = join(sources, "Harbour times slowly.md");
+  await writeFile(
+    file,
+    "# Harbour times\n\nHarbours publish the times of high water every 12 months.\n",
+  );
+  const { app, window } = await launchApp(dataDir, { examples: true, fakeChat: true });
+  await setWindowSize(app, window, 1440, 900);
+  await useLocalChatModel(window);
+  await window.getByTestId("add-documents-input").setInputFiles([file]);
+  const ready = step(window, "question").getByTestId("first-open-ready");
+  await expect(ready).toHaveAttribute("title", /Harbour times slowly/, { timeout: 30_000 });
+  await pointAndClick(window, ready);
+  const answer = assistantAnswers(window).last();
+  await expect(answer).toHaveAttribute("data-status", "streaming");
+  await expect(ready).toBeDisabled();
+  await expect(answer).toHaveAttribute("data-status", "done", { timeout: 30_000 });
+  await expect(window.getByTestId("assistant-question")).toHaveCount(1);
+  await expect(step(window, "question")).toHaveAttribute("data-state", "done");
+  await app.close();
+});
 
 test("Add files… with only a file it can't take says why in step 1, which stays open (#123)", async () => {
   const picture = join(sources, "Picture.png");

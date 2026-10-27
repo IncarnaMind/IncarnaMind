@@ -11,10 +11,13 @@ import { displayName } from "../../../shared/documentNames";
 import type { MessageKey } from "../../../shared/i18n";
 import { fitName } from "../../../shared/naming";
 import { addFilesLabel } from "../addFilesAction";
+import { type AskBlock, useAnswers } from "../answers";
 import { focusComposer } from "../commands/assistant";
 import { shortcutLabel } from "../commands/keymap";
 import { type CommandContext, commands, offered } from "../commands/registry";
-import { askReadyQuestion } from "../conversations";
+import { composerKey } from "../composer";
+import { askReadyQuestion, useConversations } from "../conversations";
+import { AskProblem } from "../editor/AskProblem";
 import { goToCitation } from "../editor/citationMark";
 import { CheckMarkIcon } from "../editor/icons";
 import { goToMistake } from "../editor/mistakeMark";
@@ -149,6 +152,11 @@ export function FirstOpenSteps({ mindId }: { mindId: string }) {
   const modelReady = useAppStore((state) => state.chatReadiness?.ready === true);
   const skipped = useAppStore((state) => state.skippedFiles);
   const unread = useUnreadFiles(null);
+  // Why the card's own ask didn't go ahead, under the no-Mind key it asks with: the example
+  // Note's composer key is another, so that problem would never be seen there.
+  const problem = useAnswers((state) => state.blocked[composerKey(null)]);
+  const asking = useConversations((state) => state.asking !== null);
+  const writing = useAnswers((state) => state.writing.size > 0);
   // The newest of the User's own Documents still being read: the row says so while it waits.
   const reading = useAppStore((state) => {
     const found = state.documents.find(
@@ -266,10 +274,13 @@ export function FirstOpenSteps({ mindId }: { mindId: string }) {
               reading={reading}
               unread={unread}
               testId={only("first-open-ready")}
+              problem={live ? problem : undefined}
+              busy={asking || writing}
               onAsk={() => {
+                if (!ready) return;
                 focusNext.current = true;
                 revealAssistant();
-                void askReadyQuestion();
+                void askReadyQuestion(ready);
               }}
             />
           </Step>
@@ -355,11 +366,6 @@ export function FirstOpenSteps({ mindId }: { mindId: string }) {
   );
 }
 
-/**
- * The text on one line: the longest start that fits, ended with "…", at a word in English and
- * anywhere in Chinese; the whole text stays the line's name and its tooltip. `room` is the box the
- * line is given, as wide as the page lets it be.
- */
 function useFittedLine(text: string, atWords: boolean, room: RefObject<HTMLElement | null>) {
   const ref = useRef<HTMLSpanElement>(null);
   const [shown, setShown] = useState(text);
@@ -393,18 +399,21 @@ function useFittedLine(text: string, atWords: boolean, room: RefObject<HTMLEleme
   return [ref, shown] as const;
 }
 
-/** The Ask step's one reserved line: the ready Question, or why there is none yet. */
 function ReadyLine({
   question,
   reading,
   unread,
   testId,
+  problem,
+  busy,
   onAsk,
 }: {
   question: string | null;
   reading: string | null;
   unread: ReturnType<typeof useUnreadFiles>;
   testId: string | undefined;
+  problem: AskBlock | undefined;
+  busy: boolean;
   onAsk: () => void;
 }) {
   const t = useT();
@@ -420,6 +429,7 @@ function ReadyLine({
           data-testid={testId}
           aria-label={label}
           title={label}
+          disabled={busy}
           onClick={onAsk}
           // A button keeps its size in a row; this one gives way so its line can cut, not overflow.
           style={{ flexShrink: 1, minWidth: 0 }}
@@ -457,8 +467,18 @@ function ReadyLine({
       </span>
     );
   return (
-    <div ref={room} className="flex min-h-7 min-w-0 items-center gap-x-3">
-      {line}
+    <div ref={room} className="flex min-w-0 flex-col gap-1">
+      <div className="flex min-h-7 min-w-0 items-center gap-x-3">{line}</div>
+      {problem && (
+        <AskProblem
+          problem={problem}
+          testIds={{
+            notReady: "first-open-ready-not-ready",
+            skillUnavailable: "first-open-ready-skill",
+            error: "first-open-ready-error",
+          }}
+        />
+      )}
     </div>
   );
 }

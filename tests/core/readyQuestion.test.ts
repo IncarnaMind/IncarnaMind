@@ -117,7 +117,7 @@ test("an English Document with the Chinese interface: the Question in Chinese, n
     await writeSourceFile(sources, "Project brief.md", BRIEF),
   ]);
   expect(await core.readyQuestion()).toEqual({
-    question: "‘Project brief’讲了什么？",
+    question: "“Project brief”讲了什么？",
     scope: { folderIds: [], tagIds: [], documentIds: [brief?.id] },
   });
 });

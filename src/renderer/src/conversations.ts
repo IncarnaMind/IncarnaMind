@@ -7,6 +7,7 @@ import type {
   ConversationAskResult,
   ConversationMessage,
   ConversationQuestion,
+  ReadyQuestion,
 } from "../../core/api";
 import { conversationName } from "../../shared/naming";
 import { settleAsk, useAnswers } from "./answers";
@@ -148,28 +149,30 @@ export async function openConversation(conversationId: string, answerId?: string
 let readyAsking = false;
 
 /**
- * Asks the first open's ready Question (see `ReadyQuestion`). About the User's own Document it is
- * asked like any Question, from the composer's path, so it waits for a model and says why it
- * couldn't be asked; no Mind is read, or the example the card sits in would colour the first
- * Answer about their file. The example's Answer is written in advance, and the core writes it.
+ * Asks the ready Question the card showed (`ready`), so the click asks exactly what the button
+ * names: no second read that a Document or language change could have moved on. About the User's
+ * own Document it starts a fresh conversation first, so the example's earlier turns are not in the
+ * model's context; no Mind is read either, or the example would colour the first Answer about
+ * their file. The example's Answer is written in advance, and the core writes it. Resolves to
+ * whether it was asked (or waits for a model).
  */
-export async function askReadyQuestion(): Promise<void> {
+export async function askReadyQuestion(ready: ReadyQuestion): Promise<boolean> {
   // A double-click asks it once.
-  if (readyAsking) return;
+  if (readyAsking) return false;
   readyAsking = true;
   try {
-    const ready = await core.readyQuestion();
-    if (!ready) return;
     if (ready.scope) {
+      startNewChat();
       // Asked like any Question: its step ticks when its Answer arrives, not when it is asked.
-      await askInAssistant({ text: ready.question, mindId: null, scope: ready.scope });
-      return;
+      return await askInAssistant({ text: ready.question, mindId: null, scope: ready.scope });
     }
     const { conversationId } = await core.askExampleReadyQuestion();
     useAppStore.getState().updateGettingStarted({ askedReady: true });
     await openConversation(conversationId);
+    return true;
   } catch (error) {
     report(error);
+    return false;
   } finally {
     readyAsking = false;
   }
