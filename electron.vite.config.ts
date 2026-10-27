@@ -17,6 +17,22 @@ const PDFJS_DATA_PATH = "pdfjs";
  */
 const PDFJS_DATA_FOLDERS = ["cmaps", "standard_fonts", "wasm"];
 
+/**
+ * The renderer's development port. Two runs on one machine (another checkout, or a test beside a
+ * dev server) both start at Vite's 5173, and whatever keeps that address reaches whichever run it
+ * finds; a run gives them their own port with INCARNAMIND_DEV_PORT, and a port it cannot have is
+ * an error rather than a silent move to another.
+ */
+const devServerPort = (): number => {
+  const given = process.env.INCARNAMIND_DEV_PORT;
+  if (given === undefined) return 5173;
+  const port = Number(given);
+  if (!Number.isInteger(port) || port < 1 || port > 65_535) {
+    throw new Error(`INCARNAMIND_DEV_PORT must be a port number, not "${given}"`);
+  }
+  return port;
+};
+
 const CONTENT_TYPES: Readonly<Record<string, string>> = {
   ".wasm": "application/wasm",
   ".js": "text/javascript",
@@ -147,6 +163,10 @@ export default defineConfig({
       ),
     },
     plugins: [react(), tailwindcss(), pdfjsData(), fontLicences(), pythonRuntime()],
+    server: {
+      port: devServerPort(),
+      strictPort: process.env.INCARNAMIND_DEV_PORT !== undefined,
+    },
     // electron-vite leaves the renderer unminified; minified, its JavaScript is half the size
     // to load and parse at every launch.
     build: {
