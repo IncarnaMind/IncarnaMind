@@ -107,7 +107,7 @@ describe("The record of an Answer's Tool calls", () => {
     ]);
   });
 
-  // protects=a Word export's line in the record says where the file went (the Output location), how the text IncarnaMind wrote was marked and why, and that the User was asked in the tray and what they answered; fails_when=the line is a bare folder, or loses the marking or the question and answer, so a later reply "corrects" a true one; no_claim=how a model reads it.
+  // protects=a Word export's line in the record says where the file went (the Output location), how the text IncarnaMind wrote was marked, and where that choice came from now that nothing is asked; fails_when=the line is a bare folder, or loses the marking or its source, so a later reply "corrects" a true one; no_claim=how a model reads it.
   test("a Word export says its marking, and where the choice came from (#1535, #1945)", () => {
     const exported = (marking: object) =>
       call({

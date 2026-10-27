@@ -178,11 +178,15 @@ function changed(
  * Change, in the Saved line: the choices that made this file open again, under it (#1945). It
  * opens them from what the file itself says, with no work done until one is picked.
  */
+/** Whether Change has a choice to open for `format`: only Word and PDF place Citations and mark AI text. */
+export const canChangeExport = (format: ExportKind): format is "docx" | "pdf" =>
+  format === "docx" || format === "pdf";
+
 export function changeExportChoices(mindId: string): void {
   const { result } = useExports.getState();
   if (result?.mindId !== mindId || result.state !== "saved") return;
   const { format } = result;
-  if (format !== "docx" && format !== "pdf") return;
+  if (!canChangeExport(format)) return;
   // The line is where the User sees the choice: a Word file always has the marking, and a
   // Numbered PDF the place of its Citations, whether or not this file placed any.
   const mark = format === "docx";

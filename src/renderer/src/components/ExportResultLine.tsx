@@ -9,6 +9,7 @@ import { commentedChecks, trackedChanges, unmarkedChecks } from "../exportChecks
 import { useExportDialog } from "../exportDialog";
 import {
   COMPARISON_EXCEL,
+  canChangeExport,
   cancelChange,
   changeExportChoices,
   type ExportResult,
@@ -377,8 +378,11 @@ function SavedSentence({ result, withFile }: { result: SavedResult; withFile: Sa
     ...withFile,
     ...unchecked.map((text) => ({ testId: "export-unchecked", text })),
   ];
-  // A Word file always has the marking to change; a Numbered PDF the place of its Citations.
-  const canChange = result.markAiText !== null || result.citationPlace !== null || result.numbered;
+  // Only Word and PDF have a choice to change: a Word file always has the marking, a Numbered PDF
+  // the place of its Citations. Markdown, HTML, a share page and a source pack have neither.
+  const canChange =
+    canChangeExport(result.format) &&
+    (result.markAiText !== null || result.citationPlace !== null || result.numbered);
   return (
     <p
       role="status"

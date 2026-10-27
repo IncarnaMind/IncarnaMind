@@ -3691,6 +3691,8 @@ export const en = {
   "export.saved.marked": "AI text marked",
   "export.saved.unmarked": "AI text not marked",
   "export.saved.change": "Change",
+  "export.change.command": "Change what the export was written with",
+  "export.change.command.keywords": "export change footnotes list AI text marked choices",
   "export.changed.mark": "Word files now mark the text IncarnaMind wrote",
   "export.changed.leave": "Word files now leave the text IncarnaMind wrote unmarked",
   "export.changed.footnotes": "Citations now go in footnotes",

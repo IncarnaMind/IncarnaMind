@@ -97,7 +97,7 @@ describe("What the Saved line says the file was written with (#1945)", () => {
 
   test("six Citations as footnotes, with AI text marked, in English and Chinese", () => {
     expect(parts("en", 6, "footnotes", true)).toEqual(["6 footnotes", "AI text marked"]);
-    expect(parts("zh-CN", 6, "footnotes", true)).toEqual(["6 个脚注", "已标出 AI 文字"]);
+    expect(parts("zh-CN", 6, "footnotes", true)).toEqual(["6 个脚注", "已标出 AI 生成的文字"]);
   });
 
   test("one Citation, as a list at the end", () => {
@@ -105,17 +105,17 @@ describe("What the Saved line says the file was written with (#1945)", () => {
       "1 Citation in a list at the end",
       "AI text marked",
     ]);
-    expect(parts("zh-CN", 1, "list", true)).toEqual(["1 个引用列在文末", "已标出 AI 文字"]);
+    expect(parts("zh-CN", 1, "list", true)).toEqual(["1 个引用列在文末", "已标出 AI 生成的文字"]);
     expect(parts("en", 3, "list", false)).toEqual([
       "3 Citations in a list at the end",
       "AI text not marked",
     ]);
-    expect(parts("zh-CN", 3, "list", false)).toEqual(["3 个引用列在文末", "未标出 AI 文字"]);
+    expect(parts("zh-CN", 3, "list", false)).toEqual(["3 个引用列在文末", "未标出 AI 生成的文字"]);
   });
 
   test("a file with no Citations says only how its AI text went", () => {
     expect(parts("en", 0, "footnotes", true)).toEqual(["AI text marked"]);
-    expect(parts("zh-CN", 0, "footnotes", false)).toEqual(["未标出 AI 文字"]);
+    expect(parts("zh-CN", 0, "footnotes", false)).toEqual(["未标出 AI 生成的文字"]);
   });
 
   test("a PDF has no marking to say", () => {

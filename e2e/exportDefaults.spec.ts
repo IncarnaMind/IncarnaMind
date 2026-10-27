@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { readdir, readFile, writeFile } from "node:fs/promises";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 import { expect, type Page, test } from "@playwright/test";
 import * as Y from "yjs";
 import type { CoreBridge, Document } from "../src/core/api";
@@ -17,8 +17,10 @@ import {
   motionSettled,
   nameMind,
   newMind,
+  paletteOffers,
   pointAndClick,
   removeDataFolder,
+  runCommand,
   savedLine,
   setLanguage,
   setWindowSize,
@@ -54,8 +56,8 @@ const WORDS = {
   },
   "zh-CN": {
     footnotes: "2 个脚注",
-    marked: "已标出 AI 文字",
-    unmarked: "未标出 AI 文字",
+    marked: "已标出 AI 生成的文字",
+    unmarked: "未标出 AI 生成的文字",
     notChecked: "未核对",
     change: "更改",
     list: "2 个引用列在文末",
@@ -258,7 +260,7 @@ test("a note is named after its title, in Chinese and with what a file name can'
   await expect(done).toContainText("港口航运笔记 2025 年收入复核.docx");
   await expect(window.getByTestId("export-result").getByTestId("export-chosen")).toHaveText([
     "2 个脚注",
-    "已标出 AI 文字",
+    "已标出 AI 生成的文字",
   ]);
 
   await newMind(window);
@@ -286,7 +288,7 @@ test("the assistant's export asks nothing either, and marks the text IncarnaMind
   await expect(answer).toHaveAttribute("data-status", "done", { timeout: 15_000 });
   await expect(window.getByTestId("task-tray").getByTestId("question-card")).toHaveCount(0);
   await expect(answer.getByTestId("command-changes-title")).toHaveText(
-    `Saved “Deal notes.docx” in “${out.split("/").at(-1)}”`,
+    `Saved “Deal notes.docx” in “${basename(out)}”`,
   );
   await expect.poll(async () => [...(await readdir(out))].sort()).toEqual(["Deal notes.docx"]);
   expect(await commentsOf("Deal notes.docx")).toContain("Written by IncarnaMind");
@@ -356,5 +358,32 @@ test("Change is on a PDF's Saved line too, even for a note with no Citations, an
   await expect(window.getByTestId("undo-line")).toContainText(
     "Citations now go in a list at the end",
   );
+  await app.close();
+});
+
+test("a non-Office export of a Numbered note has no Change, and ⌘K offers none (en)", async () => {
+  test.setTimeout(240_000);
+  const { app, window } = await launchApp(dataDir, { fakeChat: true });
+  await dismissChatSetup(window);
+  await useLocalChatModel(window);
+  await setLanguage(window, "en");
+  await useOutputLocation(window, out);
+  await noteCiting(window, "Tides");
+  const result = window.getByTestId("export-result");
+  const done = result.getByTestId("export-done");
+
+  // Markdown keeps its own notes and has no marking to choose: nothing there is the User's to change.
+  await exportFromMenu(window, "markdown");
+  await expect(done).toContainText("Tides.md");
+  await expect(result.getByTestId("export-change")).toHaveCount(0);
+  expect(await paletteOffers(window, "mind.exportChangeChoices", "change what the export")).toBe(0);
+  await window.keyboard.press("Escape");
+
+  // Word does: the same change opens from ⌘K, and its re-export is the file's again.
+  await exportFromMenu(window, "docx");
+  await expect(result.getByTestId("export-change")).toHaveText("Change");
+  await runCommand(window, "mind.exportChangeChoices", "Change what the export was written with");
+  await expect(result.getByTestId("export-mark-question")).toBeVisible();
+  await expect(result.getByTestId("export-place-question")).toBeVisible();
   await app.close();
 });
