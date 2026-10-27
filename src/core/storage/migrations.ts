@@ -1916,9 +1916,9 @@ export const migrations: readonly Migration[] = [
 
 /**
  * Brings the database up to the latest schema: every migration in the list that
- * isn't recorded as applied runs, in version order, each in its own transaction.
- * A database recording a migration this build doesn't know was written by a
- * newer version of IncarnaMind, and is refused.
+ * isn't recorded as applied runs, in version order, in one transaction. A database
+ * recording a migration this build doesn't know was written by a newer version of
+ * IncarnaMind, and is refused.
  */
 export function migrate(db: Database, list: readonly Migration[] = migrations): void {
   list.forEach((migration, index) => {
@@ -1937,19 +1937,19 @@ export function migrate(db: Database, list: readonly Migration[] = migrations): 
     throw new DataFromNewerVersionError(Math.max(...unknown));
   }
 
-  for (const migration of list) {
-    if (applied.has(migration.version)) continue;
-    db.transaction(() => {
+  db.transaction(() => {
+    for (const migration of list) {
+      if (applied.has(migration.version)) continue;
       db.exec(migration.sql);
       db.run("INSERT INTO schema_migrations (version, applied_at) VALUES (?, ?)", [
         migration.version,
         new Date().toISOString(),
       ]);
-      // Kept for tools that read it: the highest migration applied.
-      const highest = db.get<{ v: number }>("SELECT max(version) AS v FROM schema_migrations")?.v;
-      db.exec(`PRAGMA user_version = ${highest ?? 0}`);
-    });
-  }
+    }
+    // Kept for tools that read it: the highest migration applied.
+    const highest = db.get<{ v: number }>("SELECT max(version) AS v FROM schema_migrations")?.v;
+    db.exec(`PRAGMA user_version = ${highest ?? 0}`);
+  });
 }
 
 /**

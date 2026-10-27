@@ -125,4 +125,57 @@ describe("Migrations", () => {
     expect(userVersion(db)).toBe(2);
     db.close();
   });
+
+  test("a fresh database reaches the latest version", async () => {
+    const db = openDatabase(join(await createTempDataFolder(), "test.db"));
+
+    migrate(db);
+
+    expect(userVersion(db)).toBe(migrations.at(-1)?.version);
+    expect(db.all("SELECT version FROM schema_migrations")).toHaveLength(migrations.length);
+    db.close();
+  });
+
+  test("all pending migrations share one transaction", async () => {
+    const db = openDatabase(join(await createTempDataFolder(), "test.db"));
+    const one = { version: 1, description: "one", sql: "CREATE TABLE one (id TEXT) STRICT;" };
+    const two = { version: 2, description: "two", sql: "CREATE TABLE two (id TEXT) STRICT;" };
+    migrate(db, [one]);
+    let transactions = 0;
+    const storage = {
+      ...db,
+      transaction<T>(fn: () => T): T {
+        transactions++;
+        return db.transaction(fn);
+      },
+    };
+
+    migrate(storage, [one, two]);
+
+    expect(transactions).toBe(1);
+    expect(userVersion(db)).toBe(2);
+    db.close();
+  });
+
+  test("a later migration's failure leaves the earlier version and no partial schema", async () => {
+    const db = openDatabase(join(await createTempDataFolder(), "test.db"));
+    const one = { version: 1, description: "one", sql: "CREATE TABLE one (id TEXT) STRICT;" };
+    const two = { version: 2, description: "two", sql: "CREATE TABLE two (id TEXT) STRICT;" };
+    const broken = {
+      version: 3,
+      description: "broken",
+      sql: "CREATE TABLE three (id TEXT) STRICT; INSERT INTO missing_table VALUES (1);",
+    };
+    migrate(db, [one]);
+
+    expect(() => migrate(db, [one, two, broken])).toThrow();
+
+    expect(userVersion(db)).toBe(1);
+    expect(
+      db.all<{ version: number }>("SELECT version FROM schema_migrations").map((row) => row.version),
+    ).toEqual([1]);
+    expect(db.get("SELECT name FROM sqlite_master WHERE name = 'two'")).toBeUndefined();
+    expect(db.get("SELECT name FROM sqlite_master WHERE name = 'three'")).toBeUndefined();
+    db.close();
+  });
 });
