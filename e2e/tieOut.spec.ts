@@ -96,9 +96,13 @@ async function tieOut(window: Page, schedule: Locator, title: string, label: str
   const tab = window.getByRole("tab", { name: new RegExp(`^${title}`) });
   await expect(schedule.or(tab).first()).toBeVisible({ timeout: 30_000 });
   if (await schedule.isVisible()) return;
-  // The new tab slides into the strip: clicked mid-way, the point lands on the note's.
+  // The User opens it once the Check they answered has run, its card closed.
+  await expect(window.getByTestId("badge-stop")).toHaveCount(0, { timeout: 60_000 });
+  if (await window.getByTestId("check-card").isVisible()) await window.keyboard.press("Escape");
+  await expect(window.getByTestId("check-card")).toHaveCount(0);
   await motionSettled(window);
   await pointAndClick(window, tab);
+  await expect(tab).toHaveAttribute("aria-selected", "true");
   await expect(schedule).toBeVisible({ timeout: 30_000 });
 }
 
