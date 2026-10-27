@@ -152,7 +152,7 @@ import { createWebPages } from "./documents/web";
 import { createEdits, editText } from "./edits";
 import { BUILT_IN_EMBEDDING_MODEL, createEmbeddingModel } from "./embedding";
 import { createActiveEmbedding } from "./embedding/active";
-import { createModelSources, MODEL_COPIES } from "./embedding/modelSources";
+import { createModelSources, MODEL_COPIES, modelCopyUrl } from "./embedding/modelSources";
 import {
   FileWriteCancelledError,
   InvalidInputError,
@@ -1707,7 +1707,7 @@ export function createCore(adapters: CoreAdapters): Core {
     );
   const notifyTask = ({ task, what }: TaskNotice) => {
     const notifications = adapters.notifications;
-    if (!notifications) return;
+    if (!notifications || !settings.get().user.taskNotifications) return;
     const language = settings.get().language;
     const name = taskName(task.kind);
     const title = translate(
@@ -1740,6 +1740,9 @@ export function createCore(adapters: CoreAdapters): Core {
     mindName: (mindId) => (mindExists(mindId) ? mindName(minds.get(mindId)) || null : null),
     folderOfMind: (mindId) => (mindExists(mindId) ? minds.get(mindId).folderId : null),
     createMind: (title, folderId) => makeMind({ title, kind: DEFAULT_MIND_KIND, folderId }).id,
+    moveMind: (mindId, folderId) => {
+      if (minds.move([mindId], folderId).some((item) => item.from !== folderId)) mindsChanged();
+    },
     documents: {
       webPagesSince: (ids, since) =>
         documents
@@ -2873,26 +2876,28 @@ export function createCore(adapters: CoreAdapters): Core {
     },
     listed: () => transcriber !== undefined && transcriptionSource.files.length > 0,
   });
-  // Any built-in model may come from these instead, and the probe asks ModelScope (#1578).
+  // Any built-in model may come from these instead, and the probe asks hf-mirror.com until our
+  // ModelScope copy exists (#1578).
+  const modelScopeCopy = modelCopyUrl(modelCopies.modelscope);
+  const r2Copy = modelCopyUrl(modelCopies.r2);
   const otherSources: { id: NetworkTrafficId; service: ExternalService }[] = [
-    {
-      id: "model-source-modelscope",
-      service: {
-        id: modelCopies.modelscope
-          ? new URL(modelCopies.modelscope.url).origin
-          : "https://www.modelscope.cn",
-        name: "ModelScope",
-      },
-    },
+    ...(modelScopeCopy
+      ? [
+          {
+            id: "model-source-modelscope" as const,
+            service: { id: new URL(modelScopeCopy).origin, name: "ModelScope" },
+          },
+        ]
+      : []),
     {
       id: "model-source-hf-mirror",
       service: { id: "https://hf-mirror.com", name: "hf-mirror.com" },
     },
-    ...(modelCopies.r2
+    ...(r2Copy
       ? [
           {
             id: "model-source-copy" as const,
-            service: { id: new URL(modelCopies.r2.url).origin, name: "IncarnaMind" },
+            service: { id: new URL(r2Copy).origin, name: "IncarnaMind" },
           },
         ]
       : []),
