@@ -242,6 +242,17 @@ test("a Task's row in the chip's popover stops it, by keyboard, and Show Tasks s
   await window.keyboard.press("Escape");
   await expect(empty).toBeHidden();
 
+  // In Chinese: Show Tasks is 显示任务, found by pinyin, and says there is nothing in Chinese.
+  await setLanguage(window, "zh-CN");
+  await window.keyboard.press("ControlOrMeta+k");
+  await window.keyboard.type(">xianshi renwu");
+  await expect(window.locator('[data-key="command:tasks.show"]')).toContainText("显示任务");
+  await window.keyboard.press("Enter");
+  await expect(window.getByTestId("tasks-popover-empty")).toHaveText("现在没有任务。");
+  await window.keyboard.press("Escape");
+  await expect(window.getByTestId("tasks-popover")).toBeHidden();
+  await setLanguage(window, "en");
+
   await startSlowComparison(window, sources);
   const taskId = await runningTaskId(window);
   const chip = window.getByTestId("tasks-chip");
