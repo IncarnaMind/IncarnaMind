@@ -1,4 +1,5 @@
 import { describe, expect, test } from "vitest";
+import { addFilesLabelByPlatform } from "../../src/shared/addFilesAction";
 import { translate } from "../../src/shared/i18n";
 import { en } from "../../src/shared/i18n/en";
 import { zhCN } from "../../src/shared/i18n/zh-CN";
@@ -28,36 +29,47 @@ describe("the sidebar's statuses speak plainly (#763, item 25)", () => {
     );
   });
 
-  test("reading a folder says how far it is, in words", () => {
+  test("reading a folder counts as the tie-out counts, so it fits the one status line", () => {
     expect(said.en("linkedFolders.state.indexing", { indexed: 3, files: 120 })).toBe(
       "Reading 3 of 120",
     );
-    expect(said.zh("linkedFolders.state.indexing", { indexed: 3, files: 120 })).toBe(
-      "正在读取 3/120",
+    expect(said.zh("linkedFolders.state.indexing", { indexed: "3", files: "120" })).toBe(
+      "正在读取 3/120 个文件",
+    );
+    expect(said.zh("linkedFolders.state.indexing", { indexed: "120", files: "3,214" })).toBe(
+      "正在读取 120/3,214 个文件",
     );
   });
 
-  test("Tags say when they come, with Choose… as the way there", () => {
-    expect(said.en("status.taggingWaiting")).toBe("Tags come once you choose an AI model");
-    expect(said.zh("status.taggingWaiting")).toBe("选择 AI 模型后即可添加标签");
+  test("Tags say they need a model, and the whole sentence waits in the tooltip", () => {
+    expect(said.en("status.taggingWaiting")).toBe("Tags need an AI model");
+    expect(said.zh("status.taggingWaiting")).toBe("打标签需要 AI 模型");
+    expect(said.en("jev.waiting.notice")).toBe("Tags come once you choose an AI model.");
+    expect(said.zh("jev.waiting.notice")).toBe("选择 AI 模型后会自动打标签。");
     expect(said.en("status.choose")).toBe("Choose…");
     expect(said.zh("status.choose")).toBe("选择…");
   });
 });
 
 describe("the empty states say what to do next, with the button that does it (#763, item 26)", () => {
-  test("the Library, the sidebar and Home say No Documents yet, with Add files… and Link a folder…", () => {
-    for (const lang of ["en", "zh"] as const) {
-      expect(said[lang]("library.none")).toBe(lang === "en" ? "No Documents yet" : "还没有文档");
-      expect(said[lang]("startGuide.documents.addFiles")).toBe(
-        lang === "en" ? "Add files…" : "添加文件…",
+  test("the Library and the sidebar say No Documents yet, then the next step", () => {
+    expect(said.en("library.none")).toBe("No Documents yet");
+    expect(said.zh("library.none")).toBe("还没有文档");
+    expect(said.en("library.none.hint")).toBe("Add files or a folder.");
+    expect(said.zh("library.none.hint")).toBe("添加文件或文件夹。");
+    expect(said.en("startGuide.documents.linkFolder")).toBe("Link a folder…");
+    expect(said.zh("startGuide.documents.linkFolder")).toBe("添加关联文件夹…");
+  });
+
+  test("the add action is the platform's one way in, never a bare Add files…", () => {
+    for (const language of ["en", "zh-CN"] as const) {
+      expect(translate(language, addFilesLabelByPlatform(true))).toBe(
+        language === "en" ? "Add files or a folder…" : "添加文件或文件夹…",
       );
-      expect(said[lang]("startGuide.documents.linkFolder")).toBe(
-        lang === "en" ? "Link a folder…" : "添加同步文件夹…",
+      expect(translate(language, addFilesLabelByPlatform(false))).toBe(
+        language === "en" ? "Add files…" : "添加文件…",
       );
     }
-    expect(said.en("library.none.hint")).toBe("Add files, or drop them here.");
-    expect(said.zh("library.none.hint")).toBe("添加文件，或把文件拖到这里。");
   });
 
   test("an empty sheet says so and offers its file's own app", () => {
@@ -91,7 +103,19 @@ describe("the quick fixes keep one plain name for each thing (#763, item 27)", (
   });
 });
 
-test("passages are lowercase in every sentence", () => {
-  const offenders = Object.entries(en).filter(([, value]) => /\bPassages?\b/.test(value));
+/**
+ * A Passage is not something the User owns or manages on screen, so it reads
+ * as an ordinary word, while Note, Document, Folder and Tag stay capitalised.
+ * Only a word inside a sentence is tested: a sentence's first word is
+ * capitalised by English, not because it names something the User has.
+ */
+const sentenceMedialPassage = (value: string): boolean =>
+  [...value.matchAll(/\bPassages?\b/g)].some((match) => {
+    const before = value.slice(0, match.index ?? 0).trimEnd();
+    return before !== "" && !/[.!?:]$/.test(before);
+  });
+
+test("passages are lowercase inside sentences", () => {
+  const offenders = Object.entries(en).filter(([, value]) => sentenceMedialPassage(value));
   expect(offenders).toEqual([]);
 });

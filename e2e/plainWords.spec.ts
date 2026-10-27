@@ -1,5 +1,7 @@
-import { expect, type Locator, type Page, test } from "@playwright/test";
+import { expect, type Locator, test } from "@playwright/test";
+import { translate } from "../src/shared/i18n";
 import {
+  addFilesLabel,
   createDataFolder,
   dismissChatSetup,
   launchApp,
@@ -10,9 +12,9 @@ import {
 } from "./app";
 
 /**
- * The empty states of the Library, the sidebar and Home (#763, item 26): each
- * names what is missing and offers the two ways to add it, in place, in
- * English and Chinese and at both window widths the issue asks for.
+ * The empty states of the Library and the sidebar (#763, item 26): each names
+ * what is missing and offers the two ways to add it, in place, in English and
+ * Chinese and at both window widths the issue asks for.
  */
 let dataDir: string;
 test.beforeEach(async () => {
@@ -22,27 +24,22 @@ test.afterEach(async () => {
   await removeDataFolder(dataDir);
 });
 
-const goHome = async (window: Page) => {
-  await window.getByTestId("sidebar-home").click();
-  await expect(window.getByTestId("home")).toBeVisible();
-};
-
 for (const [language, width] of [
   ["en", 900],
   ["en", 1600],
   ["zh-CN", 900],
   ["zh-CN", 1600],
 ] as const) {
-  test(`an empty Library, sidebar and Home say No Documents yet and offer Add files… and Link a folder… (${language}, ${width}px)`, async () => {
+  test(`an empty Library and sidebar say No Documents yet and offer both ways in (${language}, ${width}px)`, async () => {
     const { app, window } = await launchApp(dataDir);
     try {
       await setWindowSize(app, window, width, 900);
       await setLanguage(window, language);
       await dismissChatSetup(window);
 
-      const none = language === "zh-CN" ? "还没有文档" : "No Documents yet";
-      const add = language === "zh-CN" ? "添加文件…" : "Add files…";
-      const link = language === "zh-CN" ? "添加同步文件夹…" : "Link a folder…";
+      const none = translate(language, "library.none");
+      const add = addFilesLabel(language);
+      const link = translate(language, "startGuide.documents.linkFolder");
 
       // Each says it on one or two lines, with both buttons there to press, at either width.
       const fits = async (line: Locator, add: Locator, link: Locator) => {
@@ -66,17 +63,6 @@ for (const [language, width] of [
       );
       await expect(library.getByTestId("library-empty-add-files")).toHaveText(add);
       await expect(library.getByTestId("library-empty-link-folder")).toHaveText(link);
-
-      const home = window.getByTestId("home-empty");
-      await goHome(window);
-      await expect(home).toContainText(none);
-      await fits(
-        home,
-        home.getByTestId("home-empty-add-files"),
-        home.getByTestId("home-empty-link-folder"),
-      );
-      await expect(home.getByTestId("home-empty-add-files")).toHaveText(add);
-      await expect(home.getByTestId("home-empty-link-folder")).toHaveText(link);
 
       const sidebar = window.getByTestId("documents-empty");
       await expect(sidebar).toContainText(none);

@@ -809,9 +809,7 @@ test("organized folders remain separate from source locations and follow changes
     });
     await expect(rowOf(section(library, "Finance"), "Membrane separation")).toHaveCount(1);
     expect(await readFile(path, "utf8")).toBe(revised);
-    await expect(window.getByTestId("sidebar-status")).not.toContainText(
-      "Tags come once you choose an AI model",
-    );
+    await expect(window.getByTestId("sidebar-status")).not.toContainText("Tags need an AI model");
     await window.setViewportSize({ width: 1000, height: 760 });
     // The viewer opens beside the Library: at 1,000px, with the assistant at the bottom (#253).
     await placeAssistant(window, { dock: "bottom" });

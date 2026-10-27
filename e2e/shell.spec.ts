@@ -432,7 +432,7 @@ test("the status footer doesn't move the tree when tagging starts or stops", asy
   });
   await expect(status.getByTestId("tagging-waiting")).toBeVisible();
   await screenshot(window, "sidebar-tagging-waits", window.getByTestId("sidebar"));
-  // The two-line plain words have their room reserved (#763), so the footer keeps its height.
+  // The plain words keep the row one 28px line (#763), so the footer keeps its height.
   expect(await layout()).toEqual(before);
 
   // A chat model: tagging starts, then stops. Nothing above the footer moves.

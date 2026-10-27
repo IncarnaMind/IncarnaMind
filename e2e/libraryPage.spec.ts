@@ -1,5 +1,7 @@
 import { expect, type Locator, test } from "@playwright/test";
+import { translate } from "../src/shared/i18n";
 import {
+  addFilesLabel,
   createDataFolder,
   dismissChatSetup,
   launchApp,
@@ -841,7 +843,7 @@ test("as the window narrows the columns give way, Added first, then Format, then
   }
 });
 
-test("an empty Library says No Documents yet, with Add files… and Link a folder… in place, beside one Add Documents", async () => {
+test("an empty Library says No Documents yet, with its two ways in beside one Add Documents", async () => {
   const { app, window } = await launchApp(dataDir);
   try {
     await dismissChatSetup(window);
@@ -850,8 +852,10 @@ test("an empty Library says No Documents yet, with Add files… and Link a folde
     const empty = library.getByTestId("library-empty");
     await expect(library.getByTestId("library-count")).toHaveText("0");
     await expect(empty).toContainText("No Documents yet");
-    await expect(empty.getByTestId("library-empty-add-files")).toHaveText("Add files…");
-    await expect(empty.getByTestId("library-empty-link-folder")).toHaveText("Link a folder…");
+    await expect(empty.getByTestId("library-empty-add-files")).toHaveText(addFilesLabel("en"));
+    await expect(empty.getByTestId("library-empty-link-folder")).toHaveText(
+      translate("en", "startGuide.documents.linkFolder"),
+    );
     await expect(library.getByTestId("library-bar")).toHaveCount(0);
     await expect(library.getByRole("button", { name: /Add Documents/ })).toHaveCount(1);
     await pointAndClick(window, library.getByTestId("library-add-documents"));
@@ -868,8 +872,10 @@ test("an empty Library says No Documents yet, with Add files… and Link a folde
     await window.keyboard.press("Escape");
     await setLanguage(window, "zh-CN");
     await expect(empty).toContainText("还没有文档");
-    await expect(empty.getByTestId("library-empty-add-files")).toHaveText("添加文件…");
-    await expect(empty.getByTestId("library-empty-link-folder")).toHaveText("添加同步文件夹…");
+    await expect(empty.getByTestId("library-empty-add-files")).toHaveText(addFilesLabel("zh-CN"));
+    await expect(empty.getByTestId("library-empty-link-folder")).toHaveText(
+      translate("zh-CN", "startGuide.documents.linkFolder"),
+    );
   } finally {
     await app.close();
   }

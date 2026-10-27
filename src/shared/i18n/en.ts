@@ -124,7 +124,7 @@ export const en = {
   "library.noMatch": "No Documents match",
   "library.noMatch.clear": "Clear search and filters",
   "library.none": "No Documents yet",
-  "library.none.hint": "Add files, or drop them here.",
+  "library.none.hint": "Add files or a folder.",
   "library.drop.formats": "PDF, Word, PowerPoint, Excel, Markdown, text",
   "library.drop.stay": "Your files stay where they are.",
   "library.review": "Review",
@@ -1561,7 +1561,7 @@ export const en = {
   "status.taggingSends.full.other":
     "Tagging {count} Documents with {service}: each one’s name, outline and short excerpts are sent",
   "status.sendsScans": " (page images for scans)",
-  "status.taggingWaiting": "Tags come once you choose an AI model",
+  "status.taggingWaiting": "Tags need an AI model",
   "status.taggingPermission": "Tags need your OK",
   "status.taggingFailed.one": "1 Document couldn’t be tagged",
   "status.taggingFailed.other": "{count} Documents couldn’t be tagged",
@@ -5559,7 +5559,7 @@ export const en = {
   "consent.flow.agents": "Your AI agents",
   "consent.flow.agents.purpose": "let your AI agent read and cite your Documents",
   "consent.data.scoped-passages":
-    "passages from Documents in the chosen Folders, as the agent reads them",
+    "Passages from Documents in the chosen Folders, as the agent reads them",
   "consent.data.scoped-minds": "Your Minds in those Folders, when the agent reads them",
   "consent.data.answers": "IncarnaMind’s Answers to the agent’s Questions, with their quotes",
   "consent.flow.web-search": "Web search",

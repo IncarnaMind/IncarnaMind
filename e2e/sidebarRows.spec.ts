@@ -10,6 +10,7 @@ import {
   emit,
   lastLineBoxOf,
   launchApp,
+  makeTagOnDocument,
   newMind,
   pointAt,
   removeDataFolder,
@@ -313,8 +314,7 @@ test("at the narrowest sidebar a downloading model's figure is whole beside +1, 
         const row = window.getByTestId(download.testId);
         await expect(row).toBeVisible();
 
-        // The default width keeps the figure whole; a little wider reads the whole label too,
-        // which the plain words need one of (#763).
+        // The default width keeps the figure whole; a little wider reads the whole label too.
         await setSidebarWidth(window, DEFAULT);
         const label = row.getByTestId("status-label");
         await expect(row.getByTestId("status-figure")).toHaveText(download.figure);
@@ -341,8 +341,8 @@ test("at the narrowest sidebar a downloading model's figure is whole beside +1, 
         expect(
           Math.abs(figureBox.y + figureBox.height / 2 - (moreBox.y + moreBox.height / 2)),
         ).toBeLessThanOrEqual(2);
-        // Two lines' room, kept whether the row needs them or not, so the footer never moves (#763).
-        expect(rowBox.height).toBeCloseTo(48, 0);
+        // One 28px line, whatever the label's length: the footer's height never moves (#763).
+        expect(rowBox.height).toBeCloseTo(28, 0);
         // Whole: nothing of it is clipped.
         expect(await figure.evaluate((element) => element.scrollWidth <= element.clientWidth)).toBe(
           true,
@@ -372,6 +372,50 @@ test("at the narrowest sidebar a downloading model's figure is whole beside +1, 
       await window.keyboard.press("Escape");
       await expect(others).toBeHidden();
       await downloads[0]?.stop();
+    }
+  } finally {
+    await app.close();
+  }
+});
+
+test("Tags need an AI model keeps one 28px line at the narrowest sidebar, in English and Chinese, its whole sentence on hover", async () => {
+  const { app, window } = await launchApp(dataDir);
+  try {
+    await dismissChatSetup(window);
+    await setWindowSize(app, window, 1100, 700);
+    const note = join(sources, "Reading notes.txt");
+    await writeFile(note, "Membrane separation figures for the Leeds office.");
+    await addDocuments(window, [note]);
+    // A Tag of the User's own is what names Tags in the footer (#1942).
+    await makeTagOnDocument(window, "Reading notes");
+    const row = window.getByTestId("tagging-waiting");
+    await expect(row).toBeVisible();
+
+    for (const language of ["en", "zh-CN"] as const) {
+      await setLanguage(window, language);
+      for (const width of [DEFAULT, NARROWEST]) {
+        await setSidebarWidth(window, width);
+        const [rowBox, sidebarBox] = await Promise.all([
+          boxOf(row),
+          boxOf(window.getByTestId("sidebar")),
+        ]);
+        // One line: the row keeps its 28px, and nothing of it runs past the sidebar.
+        expect(rowBox.height).toBeCloseTo(28, 0);
+        expect(rowBox.x + rowBox.width).toBeLessThanOrEqual(sidebarBox.x + sidebarBox.width);
+        const label = row.getByTestId("status-label");
+        const clipped = await label.evaluate(
+          (element) => element.scrollWidth > element.clientWidth,
+        );
+        // The default width reads it whole; the narrowest gives way to an ellipsis.
+        expect(clipped).toBe(width === NARROWEST);
+      }
+      // Hover gives the whole sentence, since the line can be cut.
+      await expect(row).toHaveAttribute(
+        "title",
+        language === "en"
+          ? "Tags come once you choose an AI model."
+          : "选择 AI 模型后会自动打标签。",
+      );
     }
   } finally {
     await app.close();

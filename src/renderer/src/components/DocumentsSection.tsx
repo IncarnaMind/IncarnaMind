@@ -2,6 +2,7 @@ import { type ChangeEvent, type KeyboardEvent, memo, type ReactNode, useMemo, us
 import type { Document, DocumentStatus, Tag } from "../../../core/api";
 import { displayName, sourceOf } from "../../../shared/documentNames";
 import type { MessageKey } from "../../../shared/i18n";
+import { addFilesLabel } from "../addFilesAction";
 import { useDocumentPlace } from "../documentPlaces";
 import { documentStatusText, isProcessing } from "../documentStatus";
 import { useDraggedRef, useDragSource } from "../dragDrop";
@@ -243,9 +244,9 @@ export function DocumentsSection() {
             testId="documents-empty"
             className="px-2 pt-2 pb-1"
             action={{
-              label: t("startGuide.documents.addFiles"),
+              label: t(addFilesLabel()),
               testId: "documents-empty-add-files",
-              onClick: () => void useAppStore.getState().pickDocuments(),
+              onClick: () => void useAppStore.getState().pickDocumentsOrFolder(),
             }}
             also={{
               label: t("startGuide.documents.linkFolder"),

@@ -210,9 +210,7 @@ for (const [language, width] of [
       // Nothing to list yet: it says so, with the two ways to add the first Document (#763).
       const empty = sidebar.getByTestId("documents-empty");
       await expect(empty).toContainText(t("library.none"));
-      await expect(empty.getByTestId("documents-empty-add-files")).toHaveText(
-        t("startGuide.documents.addFiles"),
-      );
+      await expect(empty.getByTestId("documents-empty-add-files")).toHaveText(t(addFilesLabelKey));
       await expect(empty.getByTestId("documents-empty-link-folder")).toHaveText(
         t("startGuide.documents.linkFolder"),
       );

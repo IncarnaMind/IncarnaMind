@@ -1,12 +1,13 @@
+import { addFilesLabel } from "../../addFilesAction";
 import { useT } from "../../i18n";
 import { useAppStore } from "../../store";
 import { DropLineIcon } from "../lineIcons";
 import { buttonStyle } from "../ui";
 
 /**
- * The empty Library: what is missing and the two ways to add it, in place.
- * The whole window takes a drop; the line says so too, and the formats that
- * can be added and that files stay where they are.
+ * The empty Library: what is missing and the two ways to add it, in place,
+ * with the formats that can be added and that files stay where they are.
+ * The whole window still takes a drop.
  */
 export function LibraryEmpty() {
   const t = useT();
@@ -22,10 +23,10 @@ export function LibraryEmpty() {
         <button
           type="button"
           data-testid="library-empty-add-files"
-          onClick={() => void useAppStore.getState().pickDocuments()}
+          onClick={() => void useAppStore.getState().pickDocumentsOrFolder()}
           className={buttonStyle("primary", "sm")}
         >
-          {t("startGuide.documents.addFiles")}
+          {t(addFilesLabel())}
         </button>
         <button
           type="button"

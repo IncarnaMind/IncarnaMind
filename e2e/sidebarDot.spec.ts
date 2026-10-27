@@ -142,6 +142,8 @@ test("a hidden sidebar's dot holds at 900 px in Chinese when Tagging waits for a
   await expect(toggle).toHaveAccessibleName("显示侧边栏 · 打标签需要你处理");
   await window.keyboard.press("Enter");
   await expect(toggle).toHaveAttribute("aria-expanded", "true");
-  await expect(window.getByTestId("tagging-waiting")).toContainText("选择 AI 模型后即可添加标签");
+  await expect(window.getByTestId("tagging-waiting").getByTestId("status-label")).toHaveText(
+    "打标签需要 AI 模型",
+  );
   await app.close();
 });
