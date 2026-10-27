@@ -218,6 +218,32 @@ describe("The assistant asks the User a question with options (#1374)", { timeou
     expect(await core.listUserQuestions()).toEqual([]);
   });
 
+  // protects=a question the Answer stops at is still in its record, so what the assistant asked stays with it; fails_when=the question is gone from the Answer's calls; no_claim=the tray.
+  test("a question the Answer stops at stays in its record", async () => {
+    const model = asking(SCOPE);
+    const { core, mind } = await setUpWithDocuments(model, DOCUMENTS);
+    const requested = nextEvent(core, "question.asked");
+    const result = await core.askInConversation({ text: "What is the rent?", mindId: mind.id });
+    if (!result.asked) throw new Error("Not asked.");
+    await requested;
+
+    const ended = answerEnded(core, result.answerId);
+    await core.stopConversationAnswer({
+      conversationId: result.conversation.id,
+      answerId: result.answerId,
+    });
+    expect((await ended).event).toBe("finished");
+
+    const { messages } = await core.getConversation(result.conversation.id);
+    const answer = messages.find((message) => message.id === result.answerId);
+    expect(answer?.kind === "answer" && answer.toolCalls).toEqual([
+      expect.objectContaining({
+        tool: "ask_user",
+        asked: expect.objectContaining({ question: "Search all Documents?" }),
+      }),
+    ]);
+  });
+
   // protects=the question is offered in the assistant only, where the tray is; fails_when=a Question in a Mind can ask; no_claim=Tasks.
   test("is offered in the assistant, and not to a Question in a Mind", async () => {
     const tools: string[][] = [];

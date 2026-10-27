@@ -347,7 +347,7 @@ test("a new Mind's first line has the focus, so typing names it instead of makin
   await dismissChatSetup(window);
   const minds = window.getByTestId("mind-list-item");
 
-  // Clicked, the "+" menu's New Mind keeps no focus: a space typed next is part of the first line.
+  // Clicked, the "+" menu's New note keeps no focus: a space typed next is part of the first line.
   for (const testId of ["plus-menu", "plus-new-mind"]) {
     const button = await boxOf(window.getByTestId(testId));
     await window.mouse.move(button.x + button.width / 2, button.y + button.height / 2, {
@@ -363,7 +363,7 @@ test("a new Mind's first line has the focus, so typing names it instead of makin
   await expect(editor).toHaveText("Hello world");
   await expect(titlesOf(window)).toHaveText(["Hello world"]);
 
-  // The tab strip's "+" does the same as New Mind.
+  // The tab strip's "+" does the same as New note.
   await window.getByTestId("new-tab").click();
   await expect(frontMind(window).getByTestId("mind-editor")).toBeFocused();
   await window.keyboard.type("Second one");
@@ -443,7 +443,7 @@ test("the application menu makes a new Mind, opens Settings, and closes, reopens
   const { app, window } = await launchApp(dataDir);
   await dismissChatSetup(window);
 
-  await chooseMenuItem(app, "New Mind");
+  await chooseMenuItem(app, "New note");
   await expect(window.getByTestId("mind-list-item")).toHaveCount(1);
   await enterContent(window);
   await chooseMenuItem(app, "Settings…");
@@ -470,7 +470,7 @@ test("the application menu makes a new Mind, opens Settings, and closes, reopens
   expect(fileLabels).toContain("关闭窗口");
   expect(fileLabels).toContain("关闭全部");
   expect(fileLabels.filter((label) => !/\p{Script=Han}/u.test(label))).toEqual([]);
-  await chooseMenuItem(app, "新建 Mind");
+  await chooseMenuItem(app, "新建笔记");
   await expect(window.getByTestId("mind-list-item")).toHaveCount(2);
   await chooseMenuItem(app, "向右拆分");
   await expect(window.getByTestId("tab-group")).toHaveCount(2);

@@ -29,10 +29,16 @@ const zh = (key: MessageKey, params?: MessageParams) => translate("zh-CN", key, 
 type Stores = typeof import("../../src/renderer/src/store") &
   typeof import("../../src/renderer/src/meetings");
 let stores: Stores;
+const recordMemo = vi.fn();
 
 beforeAll(async () => {
   // The commands reach the stores, which read the bridge the preload exposes.
-  const bridge = new Proxy({}, { get: () => () => () => undefined });
+  const bridge = new Proxy(
+    {},
+    {
+      get: (_target, key) => (key === "recordMemo" ? recordMemo : () => () => undefined),
+    },
+  );
   (globalThis as unknown as { window: unknown }).window = {
     incarnamind: bridge,
     incarnamindFiles: bridge,
@@ -47,6 +53,7 @@ beforeAll(async () => {
 afterEach(() => {
   stores.useMeetings.setState({ meetings: [] });
   stores.useAppStore.setState({ settings: null, layout: null });
+  recordMemo.mockReset();
 });
 
 const canRecord = (can = true) =>
@@ -419,5 +426,76 @@ describe("Delete audio (#609)", () => {
     showing("mind-1");
     await commands.run("meeting.deleteAudio", IN_MIND);
     expect(asked()).toBeNull();
+  });
+});
+
+describe("Record a voice memo (#1568)", () => {
+  const memo = (status: Meeting["status"]) =>
+    ({ id: "v1", mindId: "mind-1", kind: "memo", status }) as Meeting;
+
+  // protects=the command is named in English and Chinese as the issue words it, is in ⌘K wherever this copy runs, and takes no default key; fails_when=a label is missing or a key is bound; no_claim=the + menu's shorter name, which the e2e checks.
+  test("is named in English and Chinese, offered always, with no key", () => {
+    canRecord(false);
+    const record = command("memo.record");
+    expect(labelOf(record, IN_MIND, en)).toBe("Record a voice memo");
+    expect(labelOf(record, IN_MIND, zh)).toBe("录一段语音备忘");
+    expect(offered(record, IN_MIND)).toBe(true);
+    expect(record.shortcut).toBeUndefined();
+    expect(record.reversible).toBe(true);
+  });
+
+  // protects=the first memo waits for the one-time recording notice, as a first meeting does, and a copy that can't record says so in the sidebar, with nothing made either way; fails_when=it records before the notice, or makes a memo where nothing can record; no_claim=what the notice says, which the e2e reads.
+  test("waits for the recording notice the first time, and says so where this copy can't record", async () => {
+    stores.useAppStore.setState({
+      settings: { device: { meetingNoticeAccepted: false }, meetingAudio: "both" } as Settings,
+    });
+    await commands.run("memo.record", IN_MIND);
+    expect(stores.useMeetings.getState().noticeFor).toEqual({ memo: true });
+    stores.useMeetings.setState({ noticeFor: null });
+
+    canRecord(false);
+    await commands.run("memo.record", IN_MIND);
+    expect(stores.useMeetings.getState().cantRecord).toBe(true);
+    expect(stores.useMeetings.getState().noticeFor).toBeNull();
+    stores.useMeetings.setState({ cantRecord: false });
+  });
+
+  // protects=asking for a memo twice while the first is being made records one; fails_when=two memos start from the double press; no_claim=the window's own flow, which the e2e covers.
+  test("asked for twice quickly, it makes one memo", async () => {
+    stores.useAppStore.setState({
+      settings: { device: { meetingNoticeAccepted: true }, meetingAudio: "both" } as Settings,
+      minds: [],
+    });
+    showing("mind-1");
+    let release: (memo: Meeting) => void = () => {};
+    recordMemo.mockImplementationOnce(
+      () =>
+        new Promise<Meeting>((resolve) => {
+          release = resolve;
+        }),
+    );
+    const first = stores.useMeetings.getState().recordMemo();
+    const second = stores.useMeetings.getState().recordMemo();
+    expect(recordMemo).toHaveBeenCalledTimes(1);
+
+    release({ id: "v1", mindId: "mind-2", kind: "memo", status: "recording" } as Meeting);
+    await Promise.all([first, second]);
+    expect(recordMemo).toHaveBeenCalledTimes(1);
+  });
+
+  // protects=while a voice memo records, the call's help isn't offered as live: there is no call; Pause and Stop still act on it; fails_when=a help button's command runs during a memo, or the memo can't be paused or stopped from ⌘K; no_claim=a meeting's help, which the tests above cover.
+  test("leaves call help with nothing to act on while a memo records", () => {
+    canRecord();
+    showing("mind-1");
+    const help = command("meeting.help.say");
+    stores.useMeetings.setState({ meetings: [memo("recording")] });
+    expect(help.enabled?.(IN_MIND)).toEqual({ reason: "meetings.command.noneLive" });
+    expect(isEnabled(command("meeting.pauseResume"), IN_MIND)).toBe(true);
+    expect(isEnabled(command("meeting.stop"), IN_MIND)).toBe(true);
+
+    stores.useMeetings.setState({
+      meetings: [{ ...memo("recording"), kind: "meeting" }],
+    });
+    expect(isEnabled(help, IN_MIND)).toBe(true);
   });
 });

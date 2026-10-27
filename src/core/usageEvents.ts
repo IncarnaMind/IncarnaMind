@@ -103,6 +103,12 @@ export const SETTINGS_PAGES = [
  * test keeps them the same). A Skill of the User's own is sent as "own".
  */
 export const BUILT_IN_SKILL_NAMES = [
+  "chronology",
+  "cim-red-flags",
+  "covenant-summary",
+  "credit-memo-outline",
+  "deposition-summary",
+  "earnings-review",
   "literature-review",
   "mind-to-report",
   "summarise-document",
@@ -139,6 +145,7 @@ const DOCUMENT_ERRORS = [
   "file-missing",
   "processing-error",
   "pages-unread",
+  "forms-unread",
   "app-stopped",
 ] as const;
 const CONNECTOR_ERRORS = [

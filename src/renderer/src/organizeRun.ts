@@ -98,12 +98,22 @@ export function sayWhenOrganized(
     lastOrganize = step;
     useUndo.getState().push(step);
   };
-  // Organize has queued its Documents by now: with nothing working, there is nothing to wait for.
-  let sawWorking = itemsNow().some(working);
-  if (!sawWorking) return;
+  // A model that answers at once can organize them before this is called, so "nothing working"
+  // alone doesn't mean there is nothing to say: the run is over once every Document is in the
+  // Library, or gone from it, and none is working (#1391).
+  const ended = () => {
+    const items = itemsNow();
+    if (items.some(working)) return false;
+    const here = new Set(items.map((item) => item.documentId));
+    const live = new Set(useAppStore.getState().documents.map((doc) => doc.id));
+    return [...mine].every((id) => here.has(id) || !live.has(id));
+  };
+  if (ended()) {
+    finish();
+    return;
+  }
   unsubscribe = useAppStore.subscribe(() => {
-    if (itemsNow().some(working)) sawWorking = true;
-    else if (sawWorking) finish();
+    if (ended()) finish();
   });
 }
 

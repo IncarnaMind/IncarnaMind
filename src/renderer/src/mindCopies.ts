@@ -14,7 +14,7 @@ import { core } from "./core";
 import { describeError } from "./errors";
 
 /** Marks changes that came from the core, so they aren't sent back to it. */
-const FROM_CORE = Symbol("from the core");
+export const FROM_CORE = Symbol("from the core");
 
 /** The core's changes from an edit asked for here (#880): not sent back, but this window's Undo takes them back. */
 export const EDIT_FROM_CORE = Symbol("an edit asked for here, from the core");

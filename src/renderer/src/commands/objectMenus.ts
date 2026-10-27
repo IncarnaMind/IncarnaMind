@@ -127,11 +127,21 @@ registerMenu("tab", ["mind.delete"], 2);
 
 registerMenu("answer", ["answer.copy", "answer.regenerate", "block.delete"]);
 
+registerMenu("check", ["check.findSources"]);
+
 registerMenu("citation", [
   "citation.open",
   "citation.update",
   "citation.keepOld",
   "citation.remove",
+]);
+
+registerMenu("comparisonColumn", [
+  "comparison.column.edit",
+  "comparison.column.insertLeft",
+  "comparison.column.insertRight",
+  "comparison.column.duplicate",
+  "comparison.column.remove",
 ]);
 
 registerMenu("chart", [

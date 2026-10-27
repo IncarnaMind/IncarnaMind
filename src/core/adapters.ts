@@ -6,7 +6,12 @@
  * imports Electron (ADR-0004, ADR-0006).
  */
 import type { ChildProcess } from "node:child_process";
-import type { AnalysisJob, AnalysisResult, AnalysisVersions } from "../shared/analysis";
+import type {
+  AnalysisEnd,
+  AnalysisJob,
+  AnalysisResult,
+  AnalysisVersions,
+} from "../shared/analysis";
 import type { DrawnPage, PageCaptureRequest } from "../shared/citedPage";
 import type { PrintDocument } from "../shared/printDocument";
 import type { AgentLauncher } from "./agents";
@@ -28,6 +33,7 @@ import type { WatchFolder } from "./documents/watcher";
 import type { FetchLimits, PageFetch } from "./documents/web/fetch";
 import type { PictureLimits } from "./documents/web/pictures";
 import type { ModelCopies } from "./embedding/modelSources";
+import type { AnswerPathsOverride } from "./providers/catalog/answerPaths";
 import type { ChatGptPlanEndpoints } from "./providers/chatgpt/plan";
 import type { AnthropicOAuthConfig } from "./providers/claudeAccount/config";
 import type { CopilotProfile } from "./providers/copilot/config";
@@ -783,6 +789,8 @@ export interface Pictures {
 export interface AnalysisRuntime {
   /** The languages it runs, each with what it runs them with; none when it can't run on this computer. */
   readonly languages: readonly AnalysisVersions[];
+  /** Why no language can run, so its problem keeps the right remedy. */
+  readonly unavailable?: Extract<AnalysisEnd, { kind: "unavailable" }>;
   /**
    * Runs a job in a namespace of its own, with the same seeds and no clock,
    * to its end, its time limit or `signal`, one job at a time. Never rejects:
@@ -1050,6 +1058,11 @@ export interface CoreAdapters {
    * Voyage key (an alternative search layer plugs in here). None by default.
    */
   reranker?: Reranker;
+  /**
+   * Which models take the faster Answer paths, instead of the lists beside the catalog
+   * (../providers/catalog/answerPaths). Only tests and the evaluation pass one.
+   */
+  answerPaths?: AnswerPathsOverride;
   /**
    * Tunes and watches the search Tool for Answers' searches (reranking depth,
    * Passages handed, a callback with each search's timings). Only the

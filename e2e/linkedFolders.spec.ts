@@ -778,9 +778,11 @@ test("an empty Linked folder says so, in its section, which comes with it", asyn
   const { app, window } = await launchApp(dataDir);
   await dismissChatSetup(window);
 
-  // An empty sidebar says nothing: no section waits for its first item.
+  // An empty sidebar: no section waits for its first item, and it says what to do next (#763).
   await expect(window.getByTestId("linked-folders-section")).toHaveCount(0);
-  await expect(window.getByTestId("sidebar-sections")).toHaveText("");
+  await expect(
+    window.getByTestId("documents-empty").getByText("No Documents yet", { exact: true }),
+  ).toBeVisible();
 
   // The + menu's More › Link a folder….
   const dialog = await previewLink(app, window, empty);
@@ -817,8 +819,7 @@ test("linking a folder that overlaps a Linked folder says what happens: they mer
   // A folder inside it is linked already: the dialog says so, and only closes.
   await interceptOpenDialog(app, join(papers, "2026", "Drafts"));
   await window.getByTestId("plus-menu").click();
-  await window.getByTestId("plus-more").click();
-  await window.getByTestId("plus-link-folder").click();
+  await window.getByTestId("plus-add-documents").click();
   const dialog = window.getByTestId("link-folder-dialog");
   await expect(dialog.getByRole("heading")).toHaveText("Already in IncarnaMind");
   await expect(dialog.getByTestId("link-folder-inside")).toContainText(

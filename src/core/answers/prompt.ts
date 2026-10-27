@@ -1,5 +1,6 @@
 /** The instructions every Answer is written with. Kept short: every word is sent with every Question. */
 import { figureContextOf, readFigures } from "../../shared/figures";
+import { PDF_BLANK_FIELD, PDF_UNREAD_FIELD } from "../../shared/pdfFormText";
 import { CJK, nameKey } from "../../shared/text";
 import type { CitationSupport, SkillFile, UnreadFile, UnreadReason } from "../api";
 import { detectLanguage } from "../documents/textLanguage";
@@ -110,6 +111,17 @@ export function webInstructions(offered: boolean): string {
   ].join("\n");
 }
 
+export function analysisInstructions(offered: boolean): string {
+  if (!offered) return "";
+  return [
+    "A search shows only some rows of a sheet or CSV file. For any total, count, average, share, change or join over its rows, call run_analysis: it runs your Python with pandas over every row. Never answer such a question from the rows you were shown, or say you saw only part of the sheet.",
+    '- Read data only from inputs["name"]: a Passage of a sheet reads all of it (one input per sheet; a range only for part), or a number quoted from a Passage. A number a calculation uses must be an input, cited, never written in the code.',
+    "- Call step(label, df) after each change to the rows, and result(name, value, label, unit) for each figure or table the Answer uses: a number or a table, never text. For a percent figure, unit % takes a fraction: 0.081 shows 8.1%. Each run starts clean, with no clock: take a date as an input.",
+    "- In the Answer, put each [=table n] on a line of its own where the table goes, and don't write the table yourself.",
+    "- When it stops with an error, fix the code and run it again.",
+  ].join("\n");
+}
+
 export function commandInstructions(offered: boolean): string {
   if (!offered) return "";
   return [
@@ -138,16 +150,23 @@ export const LISTED_MINDS = 30;
 const MIND_NAME_LENGTH = 80;
 
 /**
- * The line just before the Question naming the User's Minds (#1790); "" for none. Given no
- * names, models took "the Project plan" for a Document and wrote nothing.
+ * The line just before the Question naming the User's Minds (#1790), marking those an earlier
+ * Answer made so a new piece starts somewhere new; "" for none. Given no names, models took
+ * "the Project plan" for a Document and wrote nothing.
  */
-export function mindsLine(names: readonly string[]): string {
-  const listed = [...new Set(names)].slice(0, LISTED_MINDS).map((name) => {
-    const line = name.replace(/\s+/g, " ").trim();
-    return line.length > MIND_NAME_LENGTH ? `${line.slice(0, MIND_NAME_LENGTH - 1)}…` : line;
+export function mindsLine(minds: readonly { name: string; fromAnswer: boolean }[]): string {
+  const unique = [...new Map(minds.map((mind) => [mind.name, mind])).values()];
+  const listed = unique.slice(0, LISTED_MINDS).map((mind) => {
+    const line = mind.name.replace(/\s+/g, " ").trim();
+    return {
+      ...mind,
+      name: line.length > MIND_NAME_LENGTH ? `${line.slice(0, MIND_NAME_LENGTH - 1)}…` : line,
+    };
   });
   if (listed.length === 0) return "";
-  return `${YOUR_MINDS} ${listed.map((name) => `"${name}"`).join(", ")}`;
+  return `${YOUR_MINDS} ${listed
+    .map((mind) => `"${mind.name}"${mind.fromAnswer ? " (from an earlier Answer)" : ""}`)
+    .join(", ")}`;
 }
 
 /**
@@ -258,7 +277,8 @@ export function mindInstructions(
     TURN_RULE,
     "",
     "The write command is create_mind for a new Mind, or add_to_mind for the empty Mind in front and to add a part to the User's text; the edit command is edit_mind. read_mind reads a Mind the User names. A change applies at once, with Undo, unless it would take out most of the User's own text: then it waits for them. Each call's result says which.",
-    `- A line "${YOUR_MINDS} …" before the Question names their Minds, the most recently changed first. A name the User gives that one of their Minds has is that Mind, also when they don't call it a Mind ("the trip plan", "会议记录"): to write from it, read it with read_mind first; give its name in mind to add a part to it with add_to_mind (where it goes in after), or to change its text with edit_mind. Only a name that no Mind has can be a Document's. A name that is neither on the line nor a Document's may still be a Mind's, as read_mind finds any Mind by its name; when none has it, say so in one sentence that names it, and change nothing. A piece of writing the User asks for goes into the empty Mind in front or a new Mind, even when a Mind on the line has the same or a similar title. Change or add to a Mind on the line only when the User names it.`,
+    `- A line "${YOUR_MINDS} …" before the Question names their Minds, the most recently changed first. A name the User gives that one of their Minds has is that Mind, also when they don't call it a Mind ("the trip plan", "会议记录"): to write from it, read it with read_mind first; give its name in mind to add a part to it with add_to_mind (where it goes in after), or to change its text with edit_mind. A Mind marked "from an earlier Answer" can be read and named as a source too; a new piece never goes into it unless the User explicitly names it for a change. Only a name that no Mind has can be a Document's. A name that is neither on the line nor a Document's may still be a Mind's, as read_mind finds any Mind by its name; when none has it, say so in one sentence that names it, and change nothing. A piece of writing the User asks for goes into the empty Mind in front or a new Mind, even when a Mind on the line has the same or a similar title. Change or add to a Mind on the line only when the User names it.`,
+    '- The Library is every Document the User has added (资料库：用户添加的所有文档), not a Document or a Mind named "Library". A request about "this Library" or 这个知识库 is about all of them: never ask which Library they mean (不要追问用户指的是哪个知识库); search all of them and write the requested piece into the empty Mind in front or a new Mind.',
     "- A <tool-record> is IncarnaMind's record of what an earlier Answer's Tools really did, and what the User did with the changes since: trust it over that Answer's words, and never write one. A change the User undid or rejected is gone: don't bring it back or say it is still there. In <mind>, earlier Answers and read_mind, a Citation reads as its source and its id in brackets, like [Tides, p. 3 · C2].",
     "- The Mind to change is the one in <mind>, unless the User names another, or means a page your <tool-record> says you made or changed earlier in this conversation: then give that Mind's name in mind. If they ask to change their text but none is in <mind> and they name none, change nothing: say so, and that they can open one or ask for a new Mind.",
     "- In <mind> and read_mind, [waiting change, adds: …] and [waiting change, removes: …] mark changes still waiting for the User, often your own. To change text that waits (make it longer or shorter, reword it, remove part of it), call edit_mind on it, naming its heading in part: that revises the waiting text itself. Never add a second copy. To add more from the Documents, search and cite first, then give edit_mind the section's whole new text as content.",
@@ -459,6 +479,47 @@ const UNBROKEN_QUOTE =
 const QUOTATION_MARKS =
   "- Use quotation marks only around a Document's exact words, in its own language, the same as the record's quote, never a translation of them: that goes after the closing mark, as “…”（译：…）.";
 
+/** How a model in the Tool loop cites unless it is listed to write first (../providers/catalog/answerPaths). */
+const citeFirst = (keeps: boolean) => [
+  `- Before writing the Answer, call cite once with a record for each quote you will use: a marker number (1, 2, …), ${RECORD}.`,
+  UNBROKEN_QUOTE,
+  QUOTATION_MARKS,
+  "- In the Answer, put the marker as [^1] right after each claim it supports, in a table's cell too. Use only markers you recorded, and add no list of sources.",
+  ...(keeps ? [KEEP_CITATIONS("give cite a record")] : []),
+  "- Write nothing before your Tool calls: only the Answer, after them.",
+];
+
+/**
+ * How a listed model cites (#489): the Answer, then all its records in one `cite` call in the
+ * same reply, so it is done a model call sooner; the Answer ends when `cite` takes every record.
+ * Written before its records, an Answer quoted the Passage tidied ("P E_{pos+k}" for
+ * "P Epos+k", "include[s]"), which the quoted-words check doesn't find, hence its own rule on
+ * quotation marks. Text written into a Mind isn't checked before the reply, so its records
+ * still come first.
+ */
+const writeThenCite = (keeps: boolean, minds: boolean) => [
+  "- Write the Answer once you have what it needs, searching again with other words while the Passages don't hold it. Put a marker such as [^1] right after each claim a Passage supports, in a table's cell too, and add no list of sources.",
+  `- Then, in the same reply, right after the Answer's text, call cite once with a record for each marker: its number (1, 2, …), ${RECORD}. Your thinking isn't shown: the whole Answer goes in the text.`,
+  "- If cite asks you to fix records, give them fixed in another cite call: never write the Answer again.",
+  UNBROKEN_QUOTE,
+  "- Use quotation marks only around a Document's exact words, in its own language: copy them as its Passage reads, even where garbled, with nothing changed or added in brackets, and give the same stretch as the record's quote. A translation goes after the closing mark, as “…”（译：…）; words you would change go without quotation marks.",
+  ...(keeps ? [KEEP_CITATIONS("give cite a record")] : []),
+  ...(minds
+    ? [
+        "- Text you write into a Mind is the exception: call cite for it before the call that writes it.",
+      ]
+    : []),
+  "- Write nothing before a search: only the Answer, once you have what it needs.",
+];
+
+/**
+ * What `cite` tells a listed model that gave its records before any of the Answer showed: Claude
+ * Sonnet 5.5 wrote the Answer in its thinking and, told to write it "if you haven't yet", wrote
+ * only a line pointing back to it.
+ */
+export const NOTHING_SHOWN_YET =
+  " Your reply has shown no text yet, and your thinking isn't shown: write the whole Answer now, with these markers.";
+
 /** The most Document names the instructions list: the most recently added. */
 export const LISTED_DOCUMENTS = 50;
 
@@ -490,11 +551,15 @@ function listedName(name: string): string {
 /** How many Documents `unreadDocumentsNote` names before "and N more". */
 const NAMED_UNREAD = 5;
 
+// "parts" is left out: a workbook read in part keeps its Passages, so it is not a Document the
+// search finds no text in.
+type WholeReason = Exclude<UnreadReason, "parts">;
+
 /** Why a Document couldn't be read, as the note tells the model. */
-const UNREAD_WORDS: Record<UnreadReason, (pages: readonly number[]) => string> = {
+const UNREAD_WORDS: Record<WholeReason, (pages: readonly number[]) => string> = {
   scan: () => "a scan with no text",
   pages: (pages) => {
-    if (pages.length === 0) return "its scanned pages weren't read";
+    if (pages.length === 0) return "some page content couldn't be read";
     const shown = pages.slice(0, 10).join(", ") + (pages.length > 10 ? ", …" : "");
     return pages.length === 1
       ? `scanned page ${shown} wasn't read`
@@ -514,12 +579,19 @@ const UNREAD_WORDS: Record<UnreadReason, (pages: readonly number[]) => string> =
  * why; empty when there are none.
  */
 export function unreadDocumentsNote(unread: readonly UnreadFile[]): string {
-  if (unread.length === 0) return "";
-  const named = unread
+  // The line beside the Answer still names a workbook read in part (#740).
+  const whole = unread.filter(
+    (file): file is UnreadFile & { reason: WholeReason } => file.reason !== "parts",
+  );
+  if (whole.length === 0) return "";
+  const named = whole
     .slice(0, NAMED_UNREAD)
     .map((file) => `"${listedName(file.name)}" (${UNREAD_WORDS[file.reason](file.pages)})`);
-  const more = unread.length - named.length;
-  return `IncarnaMind couldn't read the text of some Documents in the search, so no Passage comes from that text: ${named.join(", ")}${more > 0 ? `, and ${more} more` : ""}. If the Passages don't clearly answer the Question and it may be about one of them, say in one sentence that it couldn't be read, so the answer may be there, rather than taking another Document's figure for it.`;
+  const more = whole.length - named.length;
+  const partial = whole.some((file) => file.forms === true)
+    ? ` A partially read page may still have searchable Passages. Values missing from its Passages are unknown, not evidence that a field is blank or absent. In PDF form text, ${PDF_UNREAD_FIELD} is IncarnaMind's unreadable-field status, not text written in the PDF or a field value. It does not show whether that field is blank or filled. ${PDF_BLANK_FIELD} denotes a readable blank field. Never report a ${PDF_UNREAD_FIELD} field as blank, absent, or a recorded value.`
+    : "";
+  return `IncarnaMind couldn't read the text of some Documents in the search, so no Passage comes from that text: ${named.join(", ")}${more > 0 ? `, and ${more} more` : ""}. If the Passages don't clearly answer the Question and it may be about one of them, say in one sentence that it couldn't be read, so the answer may be there, rather than taking another Document's figure for it.${partial}`;
 }
 
 /**
@@ -584,8 +656,9 @@ function addedLine(listed: number, library: number, scoped: boolean): string {
  * limited the Question to some of their Documents (its Search scope), and
  * `listed` covers only those. `calculate`: the model is offered the
  * `calculate` Tool (or `calculations` in its JSON), and steered to it. `keeps`: the
- * Question context shows Citations with ids, or a Mind read may. `library`: the
- * Library's own count, when it holds more than `listed` (#1333).
+ * Question context shows Citations with ids, or a Mind read may. `writeFirst`: a model in the
+ * Tool loop writes the Answer, then cites it; `minds`: it is offered the Tools that write into Minds.
+ * `library`: the Library's own count, when it holds more than `listed` (#1333).
  */
 export function documentInstructions(
   mode: CitationSupport | "no-documents",
@@ -594,7 +667,11 @@ export function documentInstructions(
   scoped = false,
   calculate = false,
   keeps = false,
-  library: LibraryDocuments = { total: listed.total, examples: false },
+  {
+    writeFirst = false,
+    minds = false,
+    library = { total: listed.total, examples: false },
+  }: { writeFirst?: boolean; minds?: boolean; library?: LibraryDocuments } = {},
 ): string {
   const dated = datedDocumentsNote(passages);
   const notes = [
@@ -618,12 +695,7 @@ export function documentInstructions(
         ...rest,
         "",
         "Cite every claim you draw from a Passage:",
-        `- Before writing the Answer, call cite once with a record for each quote you will use: a marker number (1, 2, …), ${RECORD}.`,
-        UNBROKEN_QUOTE,
-        QUOTATION_MARKS,
-        "- In the Answer, put the marker as [^1] right after each claim it supports, in a table's cell too. Use only markers you recorded, and add no list of sources.",
-        ...(keeps ? [KEEP_CITATIONS("give cite a record")] : []),
-        "- Write nothing before your Tool calls: only the Answer, after them.",
+        ...(writeFirst ? writeThenCite(keeps, minds) : citeFirst(keeps)),
         notCovered(true),
         CITED_SAYS_ONLY_ITS_QUOTE,
         FIGURES_AS_STATED,

@@ -1,0 +1,374 @@
+%PDF-1.4
+%‚„œ”
+1 0 obj
+<< /Type /Catalog /Pages 2 0 R >>
+endobj
+2 0 obj
+<< /Type /Pages /Kids [6 0 R 8 0 R 10 0 R 12 0 R 14 0 R 16 0 R 18 0 R 20 0 R 22 0 R 24 0 R 26 0 R 28 0 R] /Count 12 >>
+endobj
+3 0 obj
+<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding << /Type /Encoding /BaseEncoding /WinAnsiEncoding /Differences [1 /epsilon 2 /carriagereturn] >> /ToUnicode 31 0 R /FirstChar 0 /LastChar 255 /Widths [500 500 500 500 500 500 500 500 500 500 500 500 500 500 500 500 500 500 500 500 500 500 500 500 500 500 500 500 500 500 500 500 278 278 355 556 556 889 667 191 333 333 389 584 278 333 278 278 556 556 556 556 556 556 556 556 556 556 278 278 584 584 584 556 1015 667 667 722 722 667 611 778 722 278 500 667 556 833 722 778 667 778 722 667 611 722 667 944 667 667 611 278 278 278 469 556 333 556 556 500 556 556 278 556 556 222 222 500 222 833 556 556 556 556 333 500 278 556 500 722 500 500 500 334 260 334 584 500 500 500 500 500 500 500 500 500 500 500 500 500 500 500 500 500 500 333 333 333 333 350 556 1000 500 500 500 500 500 500 500 500 500 500 500 556 500 500 500 500 500 500 500 500 500 500 500 500 500 500 500 500 500 500 500 500 500 500 500 500 500 500 500 500 500 500 500 500 500 500 500 500 500 500 500 500 500 500 500 500 500 500 500 500 500 500 500 500 500 500 500 500 500 500 500 500 500 500 500 500 500 500 500 500 500 500 500 500 500 500 500 500 500 500 500 500 500 500 500 500 500 500 500 500 500 500 500 500] >>
+endobj
+4 0 obj
+<< /Type /Font /Subtype /Type0 /BaseFont /STSong-Light /Encoding /UniGB-UCS2-H /DescendantFonts [<< /Type /Font /Subtype /CIDFontType0 /BaseFont /STSong-Light /CIDSystemInfo << /Registry (Adobe) /Ordering (GB1) /Supplement 4 >> /FontDescriptor 5 0 R >>] >>
+endobj
+5 0 obj
+<< /Type /FontDescriptor /FontName /STSong-Light /Flags 6 /FontBBox [-25 -254 1000 880] /ItalicAngle 0 /Ascent 880 /Descent -120 /CapHeight 880 /StemV 93 >>
+endobj
+6 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 3 0 R /F2 4 0 R >> >> /Contents 7 0 R >>
+endobj
+7 0 obj
+<< /Length 1080 >>
+stream
+BT /F1 26 Tf 72 760 Td (Tuning the Tuner) Tj ET
+BT /F1 12 Tf 72 718 Td (Learning an optimiser's hyperparameters by backpropagation) Tj ET
+BT /F1 12 Tf 72 699 Td (A report from the Torvane Laboratory for Optimisation Research) Tj ET
+BT /F1 14 Tf 72 680 Td (Summary) Tj ET
+BT /F1 11 Tf 72 658 Td (Every gradient-based training run carries settings that somebody has to choose, such as a step) Tj ET
+BT /F1 11 Tf 72 644 Td (size. This report shows that those settings can be differentiated through the update itself and) Tj ET
+BT /F1 11 Tf 72 630 Td (learned along with the weights.) Tj ET
+BT /F1 11 Tf 72 616 Td (The same trick applies to the settings of the settings, so stacks of any height can be built and) Tj ET
+BT /F1 11 Tf 72 602 Td (trained together.) Tj ET
+BT /F1 11 Tf 72 588 Td (On dense, convolutional and recurrent workloads the learned optimiser matched a hand-tuned) Tj ET
+BT /F1 11 Tf 72 574 Td (one and needed far fewer sweeps to get there.) Tj ET
+BT /F1 10 Tf 72 518 Td (Prepared for software testing. The text is fictional.) Tj ET
+BT /F1 10 Tf 297 36 Td (1) Tj ET
+endstream
+endobj
+8 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 3 0 R /F2 4 0 R >> >> /Contents 9 0 R >>
+endobj
+9 0 obj
+<< /Length 874 >>
+stream
+BT /F1 14 Tf 72 760 Td (1 Starting point) Tj ET
+BT /F1 11 Tf 72 738 Td (People who train models spend a lot of time on the optimiser's own settings: a step size, a) Tj ET
+BT /F1 11 Tf 72 724 Td (momentum term, decay rates. These are usually picked by hand or by a sweep.) Tj ET
+BT /F1 11 Tf 72 710 Td (The idea here is to differentiate the loss with respect to those settings, so that they can be) Tj ET
+BT /F1 11 Tf 72 696 Td (learned in the same loop as the weights.) Tj ET
+BT /F1 11 Tf 72 682 Td (On all three architectures we tried ó dense, convolutional and recurrent ó the learned) Tj ET
+BT /F1 11 Tf 72 668 Td (optimiser remained stable when its starting hyperparameters were badly chosen, and it became) Tj ET
+BT /F1 11 Tf 72 654 Td (more stable as the stack of optimisers grew.) Tj ET
+BT /F1 10 Tf 72 780 Td (Tuning the Tuner) Tj ET
+BT /F1 10 Tf 297 36 Td (2) Tj ET
+endstream
+endobj
+10 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 3 0 R /F2 4 0 R >> >> /Contents 11 0 R >>
+endobj
+11 0 obj
+<< /Length 1017 >>
+stream
+BT /F1 14 Tf 72 760 Td (2 The method) Tj ET
+BT /F1 11 Tf 72 738 Td (Take an update at step t that depends on a setting such as the step size. If that update is written) Tj ET
+BT /F1 11 Tf 72 724 Td (into the graph, the derivative of a later loss with respect to the setting comes out of the same) Tj ET
+BT /F1 11 Tf 72 710 Td (backward pass that supplies the weights' gradients.) Tj ET
+BT /F1 11 Tf 72 696 Td (Keeping every step's graph would be far too expensive, so after each update the weights are) Tj ET
+BT /F1 11 Tf 72 682 Td (cut loose from the step before. Were the update graph kept whole, backpropagation's linear) Tj ET
+BT /F1 11 Tf 72 668 Td (cost would turn the run quadratic and make it impractical.) Tj ET
+BT /F1 11 Tf 72 654 Td (Nothing in the model's definition needs to change. What is needed is the update's computation) Tj ET
+BT /F1 11 Tf 72 640 Td (graph, kept long enough for derivatives to pass through it.) Tj ET
+BT /F1 10 Tf 72 780 Td (Tuning the Tuner) Tj ET
+BT /F1 10 Tf 297 36 Td (3) Tj ET
+endstream
+endobj
+12 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 3 0 R /F2 4 0 R >> >> /Contents 13 0 R >>
+endobj
+13 0 obj
+<< /Length 1915 >>
+stream
+0.3 G 1 w 72 585 m 540 585 l S
+0.3 G 1 w 72 507 m 540 507 l S
+0.3 G 1 w 72 600 m 540 600 l S
+BT /F1 14 Tf 72 760 Td (2.1 Wrapping an existing optimiser) Tj ET
+BT /F1 11 Tf 72 738 Td (The implementation wraps an existing optimiser and keeps its interface, so switching from a) Tj ET
+BT /F1 11 Tf 72 724 Td (fixed one to a learned one is a one-line change.) Tj ET
+BT /F1 11 Tf 72 710 Td (Memory grows with the height of the stack, because the update graph must be retained; the) Tj ET
+BT /F1 11 Tf 72 696 Td (growth is linear in height and small next to the model's activations.) Tj ET
+BT /F1 11 Tf 72 682 Td (Learned step sizes settle into a recognisable pattern: a quick fall early on, then a plateau, much) Tj ET
+BT /F1 11 Tf 72 668 Td (like a hand-designed decay.) Tj ET
+BT /F1 10 Tf 72 780 Td (Tuning the Tuner) Tj ET
+BT /F1 10 Tf 72 611 Td (Table 1: Optimisers wrapped, and the settings each exposes.) Tj ET
+BT /F1 10 Tf 72 595 Td (Optimiser) Tj ET
+BT /F1 10 Tf 205.71428571428572 595 Td (Learned settings) Tj ET
+BT /F1 10 Tf 406.28571428571433 595 Td (Extra memory) Tj ET
+BT /F1 10 Tf 72 580 Td (Plain descent) Tj ET
+BT /F1 10 Tf 205.71428571428572 580 Td (Step size) Tj ET
+BT /F1 10 Tf 406.28571428571433 580 Td (Small) Tj ET
+BT /F1 10 Tf 72 565 Td (Momentum) Tj ET
+BT /F1 10 Tf 205.71428571428572 565 Td (Step size, momentum) Tj ET
+BT /F1 10 Tf 406.28571428571433 565 Td (Small) Tj ET
+BT /F1 10 Tf 72 550 Td (Adam) Tj ET
+BT /F1 10 Tf 205.71428571428572 550 Td (Step size, decay rates) Tj ET
+BT /F1 10 Tf 406.28571428571433 550 Td (Moderate) Tj ET
+BT /F1 10 Tf 72 535 Td (RMSProp) Tj ET
+BT /F1 10 Tf 205.71428571428572 535 Td (Step size, decay rate) Tj ET
+BT /F1 10 Tf 406.28571428571433 535 Td (Moderate) Tj ET
+BT /F1 10 Tf 72 520 Td (AMSGrad) Tj ET
+BT /F1 10 Tf 205.71428571428572 520 Td (Step size, decay rates) Tj ET
+BT /F1 10 Tf 406.28571428571433 520 Td (Moderate) Tj ET
+BT /F1 10 Tf 297 36 Td (4) Tj ET
+endstream
+endobj
+14 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 3 0 R /F2 4 0 R >> >> /Contents 15 0 R >>
+endobj
+15 0 obj
+<< /Length 1833 >>
+stream
+0.3 G 1 w 72 565 m 540 565 l S
+0.3 G 1 w 72 517 m 540 517 l S
+0.3 G 1 w 72 580 m 540 580 l S
+BT /F1 14 Tf 72 760 Td (3 Workloads) Tj ET
+BT /F1 11 Tf 72 738 Td (The first workload is a one-hidden-layer dense network on digit images, the second a small) Tj ET
+BT /F1 11 Tf 72 724 Td (convolutional network on colour images, and the third a recurrent network on character text.) Tj ET
+BT /F1 11 Tf 72 710 Td (Splits and base optimiser are the same in every run; the only difference is whether the settings) Tj ET
+BT /F1 11 Tf 72 696 Td (are held fixed or learned.) Tj ET
+BT /F1 11 Tf 72 682 Td (The experiments in this section each used one GX-7 card.) Tj ET
+BT /F1 11 Tf 72 668 Td (Every workload compares a fixed step size from a sweep with one learned by the method, at the) Tj ET
+BT /F1 11 Tf 72 654 Td (same number of epochs.) Tj ET
+BT /F1 10 Tf 72 780 Td (Tuning the Tuner) Tj ET
+BT /F1 10 Tf 72 591 Td (Table 2: The three workloads and their base optimiser.) Tj ET
+BT /F1 10 Tf 72 575 Td (Workload) Tj ET
+BT /F1 10 Tf 198.4864864864865 575 Td (Data) Tj ET
+BT /F1 10 Tf 324.972972972973 575 Td (Metric) Tj ET
+BT /F1 10 Tf 426.16216216216225 575 Td (Base optimiser) Tj ET
+BT /F1 10 Tf 72 560 Td (Dense) Tj ET
+BT /F1 10 Tf 198.4864864864865 560 Td (Digit images) Tj ET
+BT /F1 10 Tf 324.972972972973 560 Td (Error rate) Tj ET
+BT /F1 10 Tf 426.16216216216225 560 Td (Adam) Tj ET
+BT /F1 10 Tf 72 545 Td (Convolutional) Tj ET
+BT /F1 10 Tf 198.4864864864865 545 Td (Colour images) Tj ET
+BT /F1 10 Tf 324.972972972973 545 Td (Error rate) Tj ET
+BT /F1 10 Tf 426.16216216216225 545 Td (Adam) Tj ET
+BT /F1 10 Tf 72 530 Td (Recurrent) Tj ET
+BT /F1 10 Tf 198.4864864864865 530 Td (Character text) Tj ET
+BT /F1 10 Tf 324.972972972973 530 Td (Perplexity) Tj ET
+BT /F1 10 Tf 426.16216216216225 530 Td (Adam) Tj ET
+BT /F1 10 Tf 297 36 Td (5) Tj ET
+endstream
+endobj
+16 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 3 0 R /F2 4 0 R >> >> /Contents 17 0 R >>
+endobj
+17 0 obj
+<< /Length 1112 >>
+stream
+0.3 G 1 w 72 531 m 432 531 l S
+0.55 g 90 532 54 88 re f
+0.55 g 180 532 54 89 re f
+0.55 g 270 532 54 94 re f
+0.55 g 360 532 54 91 re f
+BT /F1 14 Tf 72 760 Td (3.1 What the learned rate buys) Tj ET
+BT /F1 11 Tf 72 738 Td (For the recurrent workload the metric is held-out perplexity, and for the other two it is test error.) Tj ET
+BT /F1 11 Tf 72 724 Td (Against a grid search with the same budget, the learned optimiser matched or beat the best) Tj ET
+BT /F1 11 Tf 72 710 Td (fixed setting while using fewer runs.) Tj ET
+BT /F1 10 Tf 72 780 Td (Tuning the Tuner) Tj ET
+BT /F1 10 Tf 88 519 Td (Fixed) Tj ET
+BT /F1 10 Tf 90 623 Td (4.79) Tj ET
+BT /F1 10 Tf 178 519 Td (Learned) Tj ET
+BT /F1 10 Tf 180 624 Td (4.83) Tj ET
+BT /F1 10 Tf 268 519 Td (Too high) Tj ET
+BT /F1 10 Tf 270 629 Td (5.12) Tj ET
+BT /F1 10 Tf 358 519 Td (Recovered) Tj ET
+BT /F1 10 Tf 360 626 Td (4.98) Tj ET
+BT /F1 10 Tf 72 505 Td (Held-out perplexity of the recurrent workload: a swept step size, the learned one, a deliberately bad start, and) Tj ET
+BT /F1 10 Tf 72 493 Td (that bad start with learning.) Tj ET
+BT /F1 10 Tf 297 36 Td (6) Tj ET
+endstream
+endobj
+18 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 3 0 R /F2 4 0 R >> >> /Contents 19 0 R >>
+endobj
+19 0 obj
+<< /Length 1259 >>
+stream
+0.3 G 1 w 72 481 m 432 481 l S
+0.55 g 90 482 54 87 re f
+0.55 g 180 482 54 67 re f
+0.55 g 270 482 54 63 re f
+0.55 g 360 482 54 62 re f
+BT /F1 14 Tf 72 760 Td (3.3 Taller stacks) Tj ET
+BT /F1 11 Tf 72 738 Td (The same idea stacks: one optimiser tunes another, which tunes the model, and so on to any) Tj ET
+BT /F1 11 Tf 72 724 Td (height.) Tj ET
+BT /F1 11 Tf 72 710 Td (A tall stack is awkward to set by hand, since every level carries its own step size, but it is more) Tj ET
+BT /F1 11 Tf 72 696 Td (forgiving once the levels are started sensibly.) Tj ET
+BT /F1 11 Tf 72 682 Td (Each level starts below the level beneath it, so that changes at the top happen more slowly than) Tj ET
+BT /F1 11 Tf 72 668 Td (changes at the bottom.) Tj ET
+BT /F1 10 Tf 72 780 Td (Tuning the Tuner) Tj ET
+BT /F1 10 Tf 88 469 Td (Height 1) Tj ET
+BT /F1 10 Tf 90 572 Td (7.9) Tj ET
+BT /F1 10 Tf 178 469 Td (Height 2) Tj ET
+BT /F1 10 Tf 180 552 Td (6.1) Tj ET
+BT /F1 10 Tf 268 469 Td (Height 3) Tj ET
+BT /F1 10 Tf 270 548 Td (5.7) Tj ET
+BT /F1 10 Tf 358 469 Td (Height 4) Tj ET
+BT /F1 10 Tf 360 547 Td (5.6) Tj ET
+BT /F1 10 Tf 72 455 Td (Held-out perplexity of the recurrent workload as the stack grows, from a deliberately poor starting rate.) Tj ET
+BT /F1 10 Tf 297 36 Td (7) Tj ET
+endstream
+endobj
+20 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 3 0 R /F2 4 0 R >> >> /Contents 21 0 R >>
+endobj
+21 0 obj
+<< /Length 1323 >>
+stream
+BT /F1 14 Tf 72 760 Td (3.4 Stacks on top of stacks) Tj ET
+BT /F1 11 Tf 72 738 Td (Section 2.1 describes how to wrap an optimiser inside another. To check that this scales, every) Tj ET
+BT /F1 11 Tf 72 724 Td (workload was rerun with stacks of rising height and with bottom-level rates spread over several) Tj ET
+BT /F1 11 Tf 72 710 Td (orders of magnitude.) Tj ET
+BT /F1 11 Tf 72 696 Td (When the starting hyper-step sizes are far too large, training blows up on anything bigger than) Tj ET
+BT /F1 11 Tf 72 682 Td (the small dense task. Each level therefore starts below the one beneath it. Our schedule looks) Tj ET
+BT /F1 11 Tf 72 668 Td (like this: the rates for the upper levels step from  = 105 down to 101, taking the values [ ∑ 3, ) Tj ET
+BT /F1 11 Tf 72 654 Td (∑ 1,  ∑ 0.3], and the bottom level is held at  = 102.) Tj ET
+BT /F1 11 Tf 72 640 Td (Starting step sizes spanning several orders of magnitude, in both directions from a hand-picked) Tj ET
+BT /F1 11 Tf 72 626 Td (value, were tried to see how the stack copes.) Tj ET
+BT /F1 11 Tf 72 612 Td (The taller the stack, the flatter the curve of quality against the starting rate, which is the property) Tj ET
+BT /F1 11 Tf 72 598 Td (the method was designed to produce.) Tj ET
+BT /F1 10 Tf 72 780 Td (Tuning the Tuner) Tj ET
+BT /F1 10 Tf 297 36 Td (8) Tj ET
+endstream
+endobj
+22 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 3 0 R /F2 4 0 R >> >> /Contents 23 0 R >>
+endobj
+23 0 obj
+<< /Length 1625 >>
+stream
+0.3 G 1 w 72 585 m 540 585 l S
+0.3 G 1 w 72 522 m 540 522 l S
+0.3 G 1 w 72 600 m 540 600 l S
+BT /F1 14 Tf 72 760 Td (4 Cost) Tj ET
+BT /F1 11 Tf 72 738 Td (A small library accompanies this report, with wrappers for the three workloads above and the) Tj ET
+BT /F1 11 Tf 72 724 Td (scripts behind each figure.) Tj ET
+BT /F1 11 Tf 72 710 Td (Cost rises with stack height and with the size of the update graph, and each extra level adds) Tj ET
+BT /F1 11 Tf 72 696 Td (just 1ñ2% to the runtime over a run with no hyperoptimiser.) Tj ET
+BT /F1 11 Tf 72 682 Td (Another is the assumption that the update is differentiable in its settings, which holds for the) Tj ET
+BT /F1 11 Tf 72 668 Td (optimisers tested here but not for all adaptive methods.) Tj ET
+BT /F1 10 Tf 72 780 Td (Tuning the Tuner) Tj ET
+BT /F1 10 Tf 72 611 Td (Table 3: Runtime of the recurrent workload by stack height.) Tj ET
+BT /F1 10 Tf 72 595 Td (Height) Tj ET
+BT /F1 10 Tf 220.90909090909088 595 Td (Runtime) Tj ET
+BT /F1 10 Tf 369.81818181818176 595 Td (Over the baseline) Tj ET
+BT /F1 10 Tf 72 580 Td (None) Tj ET
+BT /F1 10 Tf 220.90909090909088 580 Td (1.00 h) Tj ET
+BT /F1 10 Tf 369.81818181818176 580 Td (-) Tj ET
+BT /F1 10 Tf 72 565 Td (1) Tj ET
+BT /F1 10 Tf 220.90909090909088 565 Td (1.01 h) Tj ET
+BT /F1 10 Tf 369.81818181818176 565 Td (1%) Tj ET
+BT /F1 10 Tf 72 550 Td (2) Tj ET
+BT /F1 10 Tf 220.90909090909088 550 Td (1.03 h) Tj ET
+BT /F1 10 Tf 369.81818181818176 550 Td (3%) Tj ET
+BT /F1 10 Tf 72 535 Td (3) Tj ET
+BT /F1 10 Tf 220.90909090909088 535 Td (1.05 h) Tj ET
+BT /F1 10 Tf 369.81818181818176 535 Td (5%) Tj ET
+BT /F1 10 Tf 297 36 Td (9) Tj ET
+endstream
+endobj
+24 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 3 0 R /F2 4 0 R >> >> /Contents 25 0 R >>
+endobj
+25 0 obj
+<< /Length 823 >>
+stream
+BT /F1 14 Tf 72 760 Td (5 In practice) Tj ET
+BT /F1 11 Tf 72 738 Td (One drawback is a slower start: for the first few hundred steps the top-level rates are large and) Tj ET
+BT /F1 11 Tf 72 724 Td (the estimates noisy.) Tj ET
+BT /F1 11 Tf 72 710 Td (The wrapper holds the update from the previous step and detaches it, so one step's graph is) Tj ET
+BT /F1 11 Tf 72 696 Td (never joined back into the next.) Tj ET
+BT /F1 11 Tf 72 682 Td (A few ready-made modules simply cannot be wrapped, because they rewrite the computation) Tj ET
+BT /F1 11 Tf 72 668 Td (graph without saying so while keeping state of their own.) Tj ET
+BT /F1 11 Tf 72 654 Td (For those we supply an explicit cell with the same interface and no hidden graph changes.) Tj ET
+BT /F1 10 Tf 72 780 Td (Tuning the Tuner) Tj ET
+BT /F1 10 Tf 297 36 Td (10) Tj ET
+endstream
+endobj
+26 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 3 0 R /F2 4 0 R >> >> /Contents 27 0 R >>
+endobj
+27 0 obj
+<< /Length 720 >>
+stream
+BT /F1 14 Tf 72 760 Td (6 Closing remarks) Tj ET
+BT /F1 11 Tf 72 738 Td (The optimiser's settings can be learned by the very gradient descent that learns the model,) Tj ET
+BT /F1 11 Tf 72 724 Td (provided the update is written into the graph and cut free between steps.) Tj ET
+BT /F1 11 Tf 72 710 Td (The method is cheap, stacks to any height, and makes training less sensitive to a person's first) Tj ET
+BT /F1 11 Tf 72 696 Td (guess.) Tj ET
+BT /F1 11 Tf 72 682 Td (Where a sweep over learning rates is expensive, it should pay for itself; the code is released for) Tj ET
+BT /F1 11 Tf 72 668 Td (others to try on their own models.) Tj ET
+BT /F1 10 Tf 72 780 Td (Tuning the Tuner) Tj ET
+BT /F1 10 Tf 297 36 Td (11) Tj ET
+endstream
+endobj
+28 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 3 0 R /F2 4 0 R >> >> /Contents 29 0 R >>
+endobj
+29 0 obj
+<< /Length 761 >>
+stream
+BT /F1 14 Tf 72 760 Td (References) Tj ET
+BT /F1 11 Tf 72 738 Td ([1] A. Author, B. Author and C. Author. Learning by gradient descent to learn by gradient) Tj ET
+BT /F1 11 Tf 72 724 Td (descent. In Proceedings of the Conference on Neural Information Processing Systems, 2016.) Tj ET
+BT /F1 11 Tf 72 710 Td ([2] A. Author and B. Author. Gradients through the update. A technical report, 2018.) Tj ET
+BT /F1 11 Tf 72 696 Td ([3] A. Author, B. Author, C. Author and D. Author. Adapting the rate online. A technical report,) Tj ET
+BT /F1 11 Tf 72 682 Td (2019.) Tj ET
+BT /F1 11 Tf 72 668 Td ([4] A. Author. A library for differentiable optimisation. A technical report, 2020.) Tj ET
+BT /F1 10 Tf 72 780 Td (Tuning the Tuner) Tj ET
+BT /F1 10 Tf 297 36 Td (12) Tj ET
+endstream
+endobj
+30 0 obj
+<< /Title (Tuning the Tuner) /Author (Torvane Laboratory for Optimisation Research) /Subject (Learning an optimiser's hyperparameters by backpropagation) /Keywords (optimisation, hyperparameters, backpropagation, machine learning) /Creator (IncarnaMind samples generator) /Producer (IncarnaMind) >>
+endobj
+31 0 obj
+<< /Length 46 >>
+stream
+beginbfchar
+<01> <03b5>
+<02> <21b5>
+endbfchar
+
+endstream
+endobj
+xref
+0 32
+0000000000 65535 f 
+0000000015 00000 n 
+0000000064 00000 n 
+0000000198 00000 n 
+0000001456 00000 n 
+0000001728 00000 n 
+0000001900 00000 n 
+0000002036 00000 n 
+0000003168 00000 n 
+0000003304 00000 n 
+0000004229 00000 n 
+0000004367 00000 n 
+0000005437 00000 n 
+0000005575 00000 n 
+0000007543 00000 n 
+0000007681 00000 n 
+0000009567 00000 n 
+0000009705 00000 n 
+0000010870 00000 n 
+0000011008 00000 n 
+0000012320 00000 n 
+0000012458 00000 n 
+0000013834 00000 n 
+0000013972 00000 n 
+0000015650 00000 n 
+0000015788 00000 n 
+0000016663 00000 n 
+0000016801 00000 n 
+0000017573 00000 n 
+0000017711 00000 n 
+0000018524 00000 n 
+0000018839 00000 n 
+trailer
+<< /Size 32 /Root 1 0 R /Info 30 0 R >>
+startxref
+18936
+%%EOF

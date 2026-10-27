@@ -79,7 +79,6 @@ describe("Settings", () => {
       device: {
         sidebarWidth: 248,
         sidebarHidden: false,
-        chatSetupDismissed: false,
         sandboxNoticeDismissed: false,
         openedBefore: false,
         gettingStarted: {
@@ -89,6 +88,7 @@ describe("Settings", () => {
           indexed: false,
           askedOwn: false,
           askedReady: false,
+          exported: false,
           hidden: false,
           seen: false,
         },
@@ -189,7 +189,6 @@ describe("Settings", () => {
     expect(settings.device).toEqual({
       sidebarWidth: 320,
       sidebarHidden: false,
-      chatSetupDismissed: false,
       sandboxNoticeDismissed: false,
       openedBefore: false,
       gettingStarted: {
@@ -199,6 +198,7 @@ describe("Settings", () => {
         indexed: false,
         askedOwn: false,
         askedReady: false,
+        exported: false,
         hidden: false,
         seen: false,
       },
@@ -354,6 +354,7 @@ describe("Settings", () => {
     expect((await after.getSettings()).device.gettingStarted).toEqual({
       ...kept,
       askedReady: false,
+      exported: false,
       seen: false,
     });
   });
@@ -380,6 +381,7 @@ describe("Settings", () => {
       const after = startCore(dataDir);
       expect((await after.getSettings()).device.gettingStarted).toEqual({
         ...older,
+        exported: false,
         citationChecked,
         mistakeSeen,
         seen: false,
@@ -402,6 +404,28 @@ describe("Settings", () => {
     core.close();
   });
 
+  test("old device progress defaults to not exported; a successful export milestone survives restart", async () => {
+    const dataDir = await createTempDataFolder();
+    const before = startCore(dataDir);
+    const { exported: _exported, ...oldProgress } = (await before.getSettings()).device
+      .gettingStarted;
+    await before.updateSettings({ device: { gettingStarted: oldProgress as GettingStarted } });
+    before.close();
+    const after = startCore(dataDir);
+    const progress = (await after.getSettings()).device.gettingStarted;
+    expect(progress.exported).toBe(false);
+    await expect(
+      after.updateSettings({
+        device: { gettingStarted: { ...progress, exported: "yes" } },
+      } as unknown as Parameters<typeof after.updateSettings>[0]),
+    ).rejects.toThrow(InvalidInputError);
+    await after.updateSettings({ device: { gettingStarted: { ...progress, exported: true } } });
+    after.close();
+    const reopened = startCore(dataDir);
+    expect((await reopened.getSettings()).device.gettingStarted.exported).toBe(true);
+    reopened.close();
+  });
+
   test("a width must be a number", async () => {
     const core = startCore(await createTempDataFolder());
 
@@ -416,7 +440,6 @@ describe("Settings", () => {
     const device = {
       sidebarWidth: 300,
       sidebarHidden: true,
-      chatSetupDismissed: true,
       sandboxNoticeDismissed: true,
       openedBefore: true,
       gettingStarted: {
@@ -426,6 +449,7 @@ describe("Settings", () => {
         indexed: false,
         askedOwn: false,
         askedReady: true,
+        exported: true,
         hidden: true,
         seen: false,
       },

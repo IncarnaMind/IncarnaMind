@@ -96,6 +96,7 @@ export interface CitationCounts {
 export interface SentenceCounts {
   supported: number;
   unsupported: number;
+  notFound: number;
   contradicted: number;
   needsRecheck: number;
   notChecked: number;
@@ -315,6 +316,7 @@ export function readFigures(sources: FigureSources): AiUseFigures {
   const sentences: SentenceCounts = {
     supported: 0,
     unsupported: 0,
+    notFound: 0,
     contradicted: 0,
     needsRecheck: 0,
     notChecked: 0,
@@ -322,7 +324,7 @@ export function readFigures(sources: FigureSources): AiUseFigures {
   const versions = new Map(documents.map((document) => [document.id, document.contentHash]));
   const checked: CheckedSentence[] = [];
   const requests: string[] = [];
-  for (const { check, sentence } of checkedSentences(fragment)) {
+  for (const { check, sentence, cited } of checkedSentences(fragment)) {
     requests.push(check.request);
     const shown = claimCheckShown(check, {
       text: sentence,
@@ -330,7 +332,7 @@ export function readFigures(sources: FigureSources): AiUseFigures {
       folderId: sources.folderId,
       scope: fragment.doc ? mindScopeOf(fragment.doc) : null,
     });
-    const result = sentenceResultOf(shown);
+    const result = sentenceResultOf(shown, check, cited.length);
     if (!result) continue;
     sentences[result === "changed" ? "needsRecheck" : result]++;
     const quoted = firstWords(comparableSentence(sentence), SENTENCE_WORDS);

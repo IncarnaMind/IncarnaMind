@@ -221,7 +221,7 @@ describe("The Answer instructions", { timeout: 30_000 }, () => {
     (mode) => {
       const listed = { total: 1, names: ["Harbour lease"] };
       const library = { total: 3, examples: true };
-      const text = documentInstructions(mode, listed, "", false, false, false, library);
+      const text = documentInstructions(mode, listed, "", false, false, false, { library });
       expect(text).toContain(
         "The User's Library holds 3 Documents, and this Answer can use 1 of them",
       );
@@ -234,8 +234,7 @@ describe("The Answer instructions", { timeout: 30_000 }, () => {
       );
 
       const scoped = documentInstructions(mode, listed, "", true, false, false, {
-        total: 3,
-        examples: false,
+        library: { total: 3, examples: false },
       });
       expect(scoped).toContain(
         "The User limited this Question to 1 Document of the 3 in their Library",
@@ -249,7 +248,7 @@ describe("The Answer instructions", { timeout: 30_000 }, () => {
         false,
         false,
         false,
-        { total: 3, examples: false },
+        { library: { total: 3, examples: false } },
       );
       expect(all).toContain("The User has added 3 Documents");
       expect(all).not.toContain("Library holds");
