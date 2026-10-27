@@ -1813,6 +1813,16 @@
     margin: 0;
     padding: 0 8px 6px;
   }
+  /* What a check found and what is left, under the rows (#1941). */
+  .mind-health-summary {
+    margin: 0;
+    padding: 0 8px 6px;
+
+    /* Its line is kept while a run is on, so the card keeps one height as results land (#1312). */
+    &:empty::before {
+      content: "\00a0";
+    }
+  }
   .check-card-note {
     padding: 4px 8px 6px;
     font-size: 12px;
@@ -5141,6 +5151,11 @@
     width: 11px;
     height: 11px;
     flex-shrink: 0;
+  }
+  /* An unchecked sentence has no mark on the page (#1941): its button stays as its card's anchor,
+     keeping its box and place, but draws nothing, takes no pointer or focus, and leaves the tab order. */
+  .margin-check[data-check="not-checked"] {
+    visibility: hidden;
   }
   /* Each check's colours: on its mark, and on its card's state line and quote. */
   .citation-marker[data-check="found"],

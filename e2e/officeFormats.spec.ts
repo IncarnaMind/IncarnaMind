@@ -210,7 +210,11 @@ test("Word, PowerPoint, Excel and CSV files in a linked folder are cited by sect
     "Northern figures exclude the Leeds office, which reported late.",
   );
   await sheet.getByRole("tab", { name: "Empty" }).click();
-  await expect(sheet.getByTestId("viewer-sheet-empty")).toBeVisible();
+  const empty = sheet.getByTestId("viewer-sheet-empty");
+  await expect(empty).toBeVisible();
+  // An empty sheet says so, with the way on: its file's own app (#763, item 26).
+  await expect(empty).toContainText("This sheet is empty.");
+  await expect(empty.getByTestId("viewer-sheet-open")).toHaveText("Open in default app");
 
   // The section: the Word file's pages, the quote washed under 2.1 Sensitivity.
   await open("Coastal Flood Risk Review");

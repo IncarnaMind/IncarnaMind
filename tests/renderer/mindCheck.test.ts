@@ -3,8 +3,11 @@ import type { CoreBridge, MindCheckPlan, RunEstimate } from "../../src/core/api"
 
 const bridge = vi.hoisted(() => ({
   planMindCheck: vi.fn<CoreBridge["planMindCheck"]>(),
+  planContradictionCheck: vi.fn<CoreBridge["planContradictionCheck"]>(),
   estimateRun: vi.fn<CoreBridge["estimateRun"]>(),
   checkMind: vi.fn<CoreBridge["checkMind"]>(),
+  checkContradictions: vi.fn<CoreBridge["checkContradictions"]>(),
+  checkSentences: vi.fn<CoreBridge["checkSentences"]>(),
   findMindClaims: vi.fn<CoreBridge["findMindClaims"]>(),
 }));
 vi.mock("../../src/renderer/src/core", () => ({ core: bridge }));
@@ -27,6 +30,47 @@ vi.mock("../../src/renderer/src/layoutSlice", () => ({
   groupsMerged: () => false,
 }));
 
+// A Note is open, with one sentence to check that cites a Document: the contradiction watch has work.
+const editor = { isDestroyed: false, state: {} };
+vi.mock("../../src/renderer/src/editor/openEditors", () => ({
+  mindEditor: () => editor,
+  whenMindEditor: async () => editor,
+}));
+vi.mock("../../src/renderer/src/editor/proposalReview", () => ({
+  editorDoc: () => ({ getMap: () => new Map() }),
+}));
+vi.mock("../../src/renderer/src/editor/healthCounts", () => ({
+  sentencesToCheck: () => [
+    {
+      from: 1,
+      to: 9,
+      text: "A cited claim.",
+      citations: [{ attributes: {}, at: 3, pos: 9 }],
+      blockId: "block-1",
+      inTable: false,
+      state: { kind: "to-check", fresh: true, why: "none" },
+    },
+  ],
+}));
+vi.mock("../../src/renderer/src/editor/editSelection", () => ({
+  selectionForEdit: () => ({
+    from: { blockId: "block-1", offset: 0 },
+    to: { blockId: "block-1", offset: 8 },
+    text: "A cited claim.",
+    range: { from: 1, to: 9 },
+  }),
+}));
+vi.mock("../../src/renderer/src/modelInUse", () => ({ modelInUseOf: () => null }));
+
+// The Note's last full watch, as the renderer reads it: a clean one unless a test says otherwise.
+const watchRecord = vi.hoisted(() => ({
+  current: null as null | { stop: { reason: string; resetsAt: string | null } | null },
+}));
+vi.mock("../../src/shared/contradictionWatch", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../../src/shared/contradictionWatch")>()),
+  contradictionWatchOf: () => watchRecord.current,
+}));
+
 const plan: MindCheckPlan = {
   kind: "ready",
   sentences: 1,
@@ -38,7 +82,7 @@ const estimate: RunEstimate = {
   billing: "per-token",
   calls: 2,
   tokens: 1000,
-  cost: { amount: 0.001, currency: "USD" },
+  cost: { amount: 1.4, currency: "USD" },
   cap: null,
   spentTowardCap: null,
   setAsideTowardCap: null,
@@ -48,8 +92,11 @@ beforeEach(async () => {
   vi.restoreAllMocks();
   vi.clearAllMocks();
   bridge.planMindCheck.mockResolvedValue(plan);
+  bridge.planContradictionCheck.mockResolvedValue({ kind: "no-folder" });
   bridge.estimateRun.mockResolvedValue(estimate);
   bridge.checkMind.mockResolvedValue({ kind: "cancelled" });
+  bridge.checkContradictions.mockResolvedValue({ kind: "cancelled" });
+  watchRecord.current = { stop: null };
   const { useMindCheck } = await import("../../src/renderer/src/mindCheck");
   useMindCheck.setState({ asking: {}, unchanged: {} });
 });
@@ -103,9 +150,9 @@ describe("Check this note", () => {
   test("a failed plan offers a retry that re-plans the same note", async () => {
     const error = new Error("The check could not be planned.");
     bridge.planMindCheck.mockRejectedValueOnce(error);
-    const { startCheckThisMind } = await import("../../src/renderer/src/mindCheck");
+    const { startCheck } = await import("../../src/renderer/src/mindCheck");
     const { setCheckProblem } = await import("../../src/renderer/src/checks");
-    await startCheckThisMind("mind");
+    await startCheck("mind");
     const problem = vi.mocked(setCheckProblem).mock.calls.at(-1)?.[1];
     if (problem?.kind !== "failed" || !problem.retry)
       throw new Error("A failed check has no retry.");
@@ -136,11 +183,11 @@ describe("Check this note", () => {
 
   test("when nothing changed it asks no model and opens the card on the line that says so", async () => {
     bridge.planMindCheck.mockResolvedValue(unchanged);
-    const { startCheckThisMind, useMindCheck } = await import("../../src/renderer/src/mindCheck");
+    const { startCheck, useMindCheck } = await import("../../src/renderer/src/mindCheck");
     const { setCheckCardOpen, setCheckProblem, setCheckRunning } = await import(
       "../../src/renderer/src/checks"
     );
-    await startCheckThisMind("mind");
+    await startCheck("mind");
     expect(bridge.planMindCheck.mock.calls).toEqual([
       ["mind", "changed", false],
       ["mind", "added", false],
@@ -148,6 +195,7 @@ describe("Check this note", () => {
     expect(bridge.findMindClaims).not.toHaveBeenCalled();
     expect(bridge.estimateRun).not.toHaveBeenCalled();
     expect(bridge.checkMind).not.toHaveBeenCalled();
+    expect(bridge.checkSentences).not.toHaveBeenCalled();
     expect(setCheckRunning).not.toHaveBeenCalled();
     expect(setCheckProblem).not.toHaveBeenCalled();
     expect(useMindCheck.getState().unchanged.mind).toBe(true);
@@ -158,30 +206,148 @@ describe("Check this note", () => {
     bridge.planMindCheck.mockImplementation(async (_mind, mode) =>
       mode === "changed" ? unchanged : plan,
     );
-    const { startCheckThisMind, useMindCheck } = await import("../../src/renderer/src/mindCheck");
-    await startCheckThisMind("mind");
+    const { startCheck, useMindCheck } = await import("../../src/renderer/src/mindCheck");
+    await startCheck("mind");
     expect(useMindCheck.getState().unchanged.mind).toBeUndefined();
     expect(useMindCheck.getState().asking.mind).toMatchObject({ mode: "added", count: 1 });
     expect(bridge.checkMind).not.toHaveBeenCalled();
   });
 
   test("what changed is checked as before, and the line goes", async () => {
-    const { startCheckThisMind, useMindCheck } = await import("../../src/renderer/src/mindCheck");
+    const { startCheck, useMindCheck } = await import("../../src/renderer/src/mindCheck");
     useMindCheck.setState({ unchanged: { mind: true } });
-    await startCheckThisMind("mind");
+    await startCheck("mind");
     expect(bridge.planMindCheck.mock.calls).toEqual([["mind", "changed", false]]);
     expect(bridge.checkMind).toHaveBeenCalledWith(expect.objectContaining({ mode: "changed" }));
     expect(useMindCheck.getState().unchanged.mind).toBeUndefined();
   });
 
-  test("a Mind with no claim says so, not that nothing changed", async () => {
+  test("a Note with no claim says so, not that nothing changed", async () => {
     bridge.planMindCheck.mockResolvedValue({ kind: "nothing" });
-    const { startCheckThisMind, useMindCheck } = await import("../../src/renderer/src/mindCheck");
+    const { startCheck, useMindCheck } = await import("../../src/renderer/src/mindCheck");
     const { setCheckProblem } = await import("../../src/renderer/src/checks");
-    await startCheckThisMind("mind");
+    await startCheck("mind");
     expect(setCheckProblem).toHaveBeenCalledWith("mind", { kind: "no-claims" });
     expect(useMindCheck.getState().unchanged.mind).toBeUndefined();
     expect(bridge.checkMind).not.toHaveBeenCalled();
+  });
+
+  test("in a Folder the ask keeps the one count (#1909) and remembers that the Check watches too", async () => {
+    bridge.planMindCheck.mockResolvedValue({ ...plan, sentences: 1, findsClaims: true });
+    bridge.planContradictionCheck.mockResolvedValue({ kind: "ready", claims: 4, model: null });
+    const { startCheck, useMindCheck } = await import("../../src/renderer/src/mindCheck");
+    await startCheck("mind");
+    // One count: the sentences, not the sentences plus the Folder's cited claims.
+    expect(useMindCheck.getState().asking.mind).toMatchObject({
+      count: 1,
+      watch: { claims: 4 },
+      inFolder: true,
+    });
+    // The estimate prices what the run sends: the sentence, and the cited sentence the watch adds.
+    expect(bridge.estimateRun).toHaveBeenCalledWith({ items: 2, each: "check" });
+  });
+
+  test("when the last full watch was complete, a small run of what changed watches only its own cited sentence", async () => {
+    bridge.planMindCheck.mockResolvedValue({ ...plan, sentences: 1 });
+    bridge.planContradictionCheck.mockResolvedValue({ kind: "ready", claims: 4, model: null });
+    bridge.checkMind.mockResolvedValue({
+      kind: "checked",
+      sentences: 1,
+      checked: 1,
+      smallModel: false,
+      stop: null,
+    });
+    const { startCheck, useMindCheck } = await import("../../src/renderer/src/mindCheck");
+    await startCheck("mind");
+    expect(useMindCheck.getState().asking.mind).toBeUndefined();
+    expect(bridge.checkMind).toHaveBeenCalledOnce();
+    expect(bridge.checkSentences).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: "contradiction-watch",
+        from: { blockId: "block-1", offset: 0 },
+        to: { blockId: "block-1", offset: 8 },
+      }),
+    );
+    expect(bridge.checkContradictions).not.toHaveBeenCalled();
+  });
+
+  test("with no full watch recorded, the Check watches every cited sentence, as a check the User asked for does", async () => {
+    watchRecord.current = null;
+    bridge.planMindCheck.mockResolvedValue({ ...plan, sentences: 1 });
+    bridge.planContradictionCheck.mockResolvedValue({ kind: "ready", claims: 4, model: null });
+    bridge.checkMind.mockResolvedValue({
+      kind: "checked",
+      sentences: 1,
+      checked: 1,
+      smallModel: false,
+      stop: null,
+    });
+    const { startCheck } = await import("../../src/renderer/src/mindCheck");
+    await startCheck("mind");
+    expect(bridge.checkMind).toHaveBeenCalledOnce();
+    // Every cited sentence, through the run that writes the record, and none scoped.
+    expect(bridge.checkContradictions).toHaveBeenCalledOnce();
+    expect(bridge.checkSentences).not.toHaveBeenCalled();
+  });
+
+  test("when the last full watch stopped at the cap, the Check watches every cited sentence again", async () => {
+    watchRecord.current = { stop: { reason: "cost-cap", resetsAt: null } };
+    bridge.planMindCheck.mockResolvedValue({ ...plan, sentences: 1 });
+    bridge.planContradictionCheck.mockResolvedValue({ kind: "ready", claims: 4, model: null });
+    bridge.checkMind.mockResolvedValue({
+      kind: "checked",
+      sentences: 1,
+      checked: 1,
+      smallModel: false,
+      stop: null,
+    });
+    const { startCheck } = await import("../../src/renderer/src/mindCheck");
+    await startCheck("mind");
+    expect(bridge.checkContradictions).toHaveBeenCalledOnce();
+    expect(bridge.checkSentences).not.toHaveBeenCalled();
+  });
+
+  test("a model failure in the sentences stops the contradictions too", async () => {
+    bridge.planMindCheck.mockResolvedValue({ ...plan, findsClaims: true });
+    bridge.planContradictionCheck.mockResolvedValue({ kind: "ready", claims: 2, model: null });
+    bridge.checkMind.mockResolvedValue({
+      kind: "failed",
+      error: { kind: "provider", message: "no" },
+    });
+    const { startCheck, confirmCheck } = await import("../../src/renderer/src/mindCheck");
+    await startCheck("mind");
+    await confirmCheck("mind");
+    expect(bridge.checkMind).toHaveBeenCalledOnce();
+    expect(bridge.checkSentences).not.toHaveBeenCalled();
+  });
+
+  test("a claims check that throws stops the contradictions too", async () => {
+    bridge.planMindCheck.mockResolvedValue({ ...plan, findsClaims: true });
+    bridge.planContradictionCheck.mockResolvedValue({ kind: "ready", claims: 2, model: null });
+    bridge.checkMind.mockRejectedValue(new Error("no"));
+    const { startCheck, confirmCheck } = await import("../../src/renderer/src/mindCheck");
+    await startCheck("mind");
+    await confirmCheck("mind");
+    expect(bridge.checkMind).toHaveBeenCalledOnce();
+    expect(bridge.checkSentences).not.toHaveBeenCalled();
+  });
+
+  test("a run stopped by the spending cap or a plan's limit stops the contradictions too", async () => {
+    bridge.planMindCheck.mockResolvedValue({ ...plan, findsClaims: true });
+    bridge.planContradictionCheck.mockResolvedValue({ kind: "ready", claims: 2, model: null });
+    bridge.checkMind.mockResolvedValue({
+      kind: "checked",
+      sentences: 1,
+      checked: 0,
+      smallModel: false,
+      stop: { reason: "cost-cap" },
+    });
+    const { startCheck, confirmCheck } = await import("../../src/renderer/src/mindCheck");
+    await startCheck("mind");
+    await confirmCheck("mind");
+    expect(bridge.checkMind).toHaveBeenCalledOnce();
+    expect(bridge.checkSentences).not.toHaveBeenCalled();
+    expect(bridge.checkContradictions).not.toHaveBeenCalled();
   });
 });
 
@@ -198,6 +364,7 @@ describe("Check every sentence again", () => {
     expect(useMindCheck.getState().asking.mind).toMatchObject({ mode: "all", count: 1 });
     await checkMind("mind", "all");
     expect(bridge.checkMind).toHaveBeenCalledWith(expect.objectContaining({ mode: "all" }));
+    expect(bridge.checkContradictions).not.toHaveBeenCalled();
   });
 
   test.each(["free", "plan"] as const)("on a known %s model it checks at once", async (billing) => {

@@ -61,7 +61,7 @@ async function launchWithTides() {
   return running;
 }
 
-test("a Mind of plain notes says its state; its card, from ⌘K, has one count per state and one action, checks, and says what it checked until you type", async () => {
+test("a Note of plain notes says its state; its card, from ⌘K, has one count per state and one action, checks, and says what it checked until you type", async () => {
   const { app, window } = await launchWithTides();
   await setWindowSize(app, window, 1440, 900);
   await newMind(window);
@@ -82,12 +82,10 @@ test("a Mind of plain notes says its state; its card, from ⌘K, has one count p
   const card = await checkCard(window);
   await expect(card.getByTestId("health-toCheck")).toContainText("1 claim not checked yet");
   await expect(card.getByTestId("health-noCitation")).toHaveCount(0);
-  // One action, and the one under it; no lines about them, and no Close: Esc closes it.
-  await expect(card.getByTestId("badge-check-mind")).toHaveText("Check this note");
-  await expect(card.getByTestId("badge-check-contradictions")).toHaveText(
-    "Check for contradictions",
-  );
-  await expect(card.locator('[data-testid^="badge-check"]')).toHaveCount(2);
+  // One action, and nothing under it: Check for contradictions is in ⌘K and the page menu.
+  await expect(card.getByTestId("badge-check-mind")).toHaveText("Check");
+  await expect(card.locator('[data-testid^="badge-check"]')).toHaveCount(1);
+  await expect(card).not.toContainText("Check for contradictions");
   await expect(card).not.toContainText("Whether each claim");
   await screenshot(window, "check-badge-card-en");
   await window.keyboard.press("Escape");
@@ -128,10 +126,10 @@ test("a Mind of plain notes says its state; its card, from ⌘K, has one count p
 
   // ⌘K reaches the card from anywhere; Esc from inside it puts the focus back.
   await window.keyboard.press("ControlOrMeta+k");
-  await window.keyboard.type("Sentences and Citations");
+  await window.keyboard.type("Claims and Citations");
   await pointAndClick(
     window,
-    window.getByTestId("palette-item").filter({ hasText: "Sentences and Citations" }).first(),
+    window.getByTestId("palette-item").filter({ hasText: "Claims and Citations" }).first(),
   );
   await expect(card).toBeVisible();
   await expect(card.getByTestId("health-found")).toHaveCount(0);
@@ -152,7 +150,7 @@ test("in Chinese and a narrow pane the badge keeps its state to its mark; Tab re
   await expect(editor.getByTestId("citation")).toHaveCount(1);
   await setLanguage(window, "zh-CN");
   const open = window.getByTestId("check-badge-open");
-  await expect(open).toHaveAccessibleName("句子和引用：未核对");
+  await expect(open).toHaveAccessibleName("说法和引用：未核对");
   const words = window.getByTestId("check-badge").locator(".check-badge-words");
   await expect(words).toHaveText("未核对");
   await expect(words).toBeVisible();
@@ -219,7 +217,7 @@ test("each row's Next goes through its sentences in order and round to the first
   const marks = window.getByTestId("claim-mark");
   await expect(marks.and(window.locator('[data-check="unsupported"]'))).toHaveCount(2);
   const unsupported = async () => (await checkCard(window)).getByTestId("health-unsupported");
-  await expect(await unsupported()).toContainText("2 need a look");
+  await expect(await unsupported()).toContainText("2 claims need a look");
   // Each Next ends as a click on the sentence's mark does: its card open, the badge's card closed.
   const sentenceCard = window.getByTestId("claim-card");
   await pointAndClick(window, await unsupported());
