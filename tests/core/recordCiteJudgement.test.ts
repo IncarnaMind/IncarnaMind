@@ -35,9 +35,9 @@ describe("support judgement for one exact record-cite passage", () => {
     expect(vi.mocked(generateText).mock.calls[0]?.[0]?.prompt).not.toContain("Smith Dep. 45:3");
   });
 
-  test("Partly keeps both parts from the same fixed passage", async () => {
+  test("Partly keeps both complete parts from the same fixed passage", async () => {
     vi.mocked(generateText)
-      .mockResolvedValueOnce({ text: "neither" } as never)
+      .mockResolvedValueOnce({ text: "conflict" } as never)
       .mockResolvedValueOnce({ text: "Covered: speed\nNot covered: robustness" } as never);
     expect(
       await judgeRecordCite(model, "The claim", "Only page 3", new AbortController().signal, "en"),
@@ -57,6 +57,17 @@ describe("support judgement for one exact record-cite passage", () => {
       await judgeRecordCite(model, "The claim", "Only page 5", new AbortController().signal, "en"),
     ).toEqual({ outcome: "not-found" });
     expect(vi.mocked(generateText).mock.calls[1]?.[0]?.prompt).toContain("Only page 5");
+  });
+
+  test("a cited topic without one complete supporting assertion is Not found in one request", async () => {
+    vi.mocked(generateText).mockResolvedValue({ text: "neither" } as never);
+    expect(
+      await judgeRecordCite(model, "The claim", "Only page 2", new AbortController().signal, "en"),
+    ).toEqual({ outcome: "not-found" });
+    expect(generateText).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(generateText).mock.calls[0]?.[0]?.instructions).toContain(
+      "complete independent assertion",
+    );
   });
 
   test("a malformed first reply is a failure, never a supported result", async () => {
@@ -97,7 +108,6 @@ describe("support judgement for one exact record-cite passage", () => {
     ];
     vi.mocked(generateText)
       .mockResolvedValueOnce({ text: "neither" } as never)
-      .mockResolvedValueOnce({ text: "No parts" } as never)
       .mockResolvedValueOnce({ text: "same" } as never);
     expect(
       await judgeResolvedRecordCites(
@@ -110,7 +120,7 @@ describe("support judgement for one exact record-cite passage", () => {
     ).toEqual({
       recordCites: [{ ...results[0], outcome: "not-found" }, results[1]],
     });
-    expect(generateText).toHaveBeenCalledTimes(3);
+    expect(generateText).toHaveBeenCalledTimes(2);
     expect(recordCiteVersions(results)).toEqual([{ documentId: "doc-1", contentHash: "hash-1" }]);
   });
 

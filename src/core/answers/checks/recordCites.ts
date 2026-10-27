@@ -5,9 +5,9 @@ import type { PreparedChatModel } from "../../providers/chat";
 import { classifyProviderError } from "../../providers/providerErrors";
 import { answerTemperature } from "../engine";
 import {
-  CONFIRM_INSTRUCTIONS,
   confirmPrompt,
   partInstructions,
+  RECORD_CITE_INSTRUCTIONS,
   readJudgement,
   readPart,
 } from "./prompt";
@@ -25,10 +25,11 @@ export async function judgeRecordCite(
   signal: AbortSignal,
   language: Language,
 ): Promise<RecordCiteJudgement | { failed: ProviderError }> {
-  const first = await compare(model, claim, passage, CONFIRM_INSTRUCTIONS, signal);
+  const first = await compare(model, claim, passage, RECORD_CITE_INSTRUCTIONS, signal);
   if ("failed" in first) return first;
   const judged = readJudgement(first.reply);
   if (judged === "same") return { outcome: "supported" };
+  if (judged === "neither") return { outcome: "not-found" };
   if (judged === null)
     return { failed: { kind: "unknown", message: "The check gave no verdict." } };
   const part = await compare(model, claim, passage, partInstructions(language), signal);
