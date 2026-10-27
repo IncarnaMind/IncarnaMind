@@ -1,4 +1,5 @@
 import { EXCERPT_END, EXCERPT_START } from "../../core/tags/classify";
+import { checksChangeClaims, fakeChangeClaims } from "./claims";
 import { type GenerateOptions, type Prompt, SLOWLY } from "./prompt";
 import { fakeSuggestion } from "./suggestion";
 
@@ -95,6 +96,8 @@ function offeredTags(options: GenerateOptions): string[] {
 
 /** Test-only classifier: chooses a group whose name appears in the excerpt. */
 export function fakeStructuredOutput(options: GenerateOptions): string {
+  if (checksChangeClaims(options))
+    return fakeChangeClaims(options) ?? JSON.stringify({ claims: [] });
   const format = options.responseFormat;
   const schema = format?.type === "json" ? format.schema : undefined;
   if (schema?.properties?.quote && schema.properties.passage) return fakeSuggestion(options);

@@ -16,6 +16,7 @@ import { type CitedCount, hasCitationPlace, optionsFor } from "../../shared/expo
 import type { MessageKey } from "../../shared/i18n";
 import { core } from "./core";
 import { describeError, errorMessage } from "./errors";
+import { ownMindsOf } from "./home";
 import { translateNow } from "./i18n";
 import { folderName } from "./linkedFolders";
 import { useAppStore } from "./store";
@@ -83,7 +84,7 @@ export type ExportResult = { tableId?: string } & (
       kept: ("header" | "footer")[];
       /** The Documents whose entries are too thin to cite, marked so in the file. */
       needsDetails: string[];
-      /** The first save, which took Documents › IncarnaMind: the line says where (D209). */
+      /** The first save, which took Documents › IncarnaMind: the line says where. */
       defaulted: boolean;
     }
   /** Not saved yet: what a Word file can't keep, for the User to see first (#105). */
@@ -205,6 +206,7 @@ function failedResult(mindId: string, format: ExportKind, failure: unknown): Exp
 
 const NO_CHECKS: SentenceChecksExported = {
   contradicted: 0,
+  notFound: 0,
   unsupported: 0,
   needsRecheck: 0,
   commented: false,
@@ -333,6 +335,10 @@ export async function exportMind(
         ? { mindId, state: "review", format: chosen, word: saved.word }
         : savedResult(mindId, chosen, saved),
     );
+    const store = useAppStore.getState();
+    if (saved.status === "saved" && ownMindsOf(store).some((mind) => mind.id === mindId)) {
+      store.updateGettingStarted({ exported: true });
+    }
   } catch (failure) {
     settle(failedResult(mindId, chosen, failure));
   }

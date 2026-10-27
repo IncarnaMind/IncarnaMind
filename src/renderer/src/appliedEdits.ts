@@ -6,9 +6,15 @@
 import type { Editor } from "@tiptap/core";
 import { Fragment, type Node as ProseMirrorNode } from "@tiptap/pm/model";
 import type { EditorState } from "@tiptap/pm/state";
-import { absolutePositionToRelativePosition, ySyncPluginKey } from "@tiptap/y-tiptap";
+import {
+  absolutePositionToRelativePosition,
+  ySyncPluginKey,
+  yXmlFragmentToProseMirrorRootNode,
+} from "@tiptap/y-tiptap";
 import * as Y from "yjs";
 import {
+  type AskedChangeApplication,
+  type AskedChangeTransition,
   BLOCK_ID_ATTRIBUTE,
   type EditCause,
   type EditWithAiResult,
@@ -17,6 +23,8 @@ import {
   type ProposalRef,
 } from "../../core/api";
 import { waitsForUser } from "../../shared/askedChanges";
+import { originMaps } from "../../shared/blockOrigins";
+import { fingerprintOfMind } from "../../shared/mindState";
 import { mindName } from "../../shared/naming";
 import { aiUseOfAccepted, proposalRequestOf, resolveProposals } from "../../shared/proposals";
 import { type ChangeCounts, changeFact } from "./changeFacts";
@@ -24,6 +32,7 @@ import { core } from "./core";
 import {
   type AppliedAction,
   type AppliedChange,
+  type AppliedLine,
   appliedChanges,
   appliedLineIn,
   appliedLineKey,
@@ -64,9 +73,9 @@ import {
 import { blockAt } from "./editor/writingPlace";
 import { speak } from "./editWithAi";
 import { translateNow as t } from "./i18n";
-import { EDIT_FROM_CORE, takeEditUpdates } from "./mindCopies";
+import { EDIT_FROM_CORE, FROM_CORE, takeEditUpdates } from "./mindCopies";
 import { useAppStore } from "./store";
-import { pageUndoPlace } from "./undo";
+import { pageUndoPlace, type Undoable, UndoRefused, useUndo } from "./undo";
 
 // An origin the editor's Undo tracks, and its copy sends to the core.
 class AcceptingEdit {}
@@ -170,6 +179,8 @@ function beginEdit(editor: Editor, mindId: string, requestId: string): Applying 
   setAppliedLine(editor, null);
   stack.addTrackedOrigin(EDIT_FROM_CORE);
   stack.addTrackedOrigin(AcceptingEdit);
+  // A change written over Blocks gives them its origin, which its Undo takes back.
+  stack.addToScope(originMaps(doc));
   const popped = ({ stackItem }: { stackItem: UndoStep }) => {
     if (edit.steps.includes(stackItem) && latest.get(editor) === edit) setAppliedLine(editor, null);
   };
@@ -383,6 +394,267 @@ type AskedApplied = (mindId: string, requests: ReadonlySet<string>, asked: Appli
 
 const applied = new Set<AskedApplied>();
 
+function followCoreUndo(
+  edit: Applying,
+  application: AskedChangeApplication,
+  current: boolean,
+): FollowedSteps {
+  const undoId = application.undoId;
+  let state: "done" | "undone" = "done";
+  let onTop = current;
+  let redoable = current;
+  let busy = false;
+  let listening = true;
+  let invalidated = !current;
+  let expected: AskedChangeTransition | null = null;
+  let pending: Promise<void> = Promise.resolve();
+  let lineBeforeUndo: AppliedLine | null = null;
+  const listeners = new Set<() => void>();
+  const notify = () => {
+    for (const listener of listeners) listener();
+  };
+  const stop = () => {
+    if (!listening) return;
+    listening = false;
+    edit.doc.off("update", changedSince);
+  };
+  const release = async () => {
+    try {
+      await core.releaseAskedChanges(undoId);
+    } catch (error) {
+      useAppStore.getState().reportError(error);
+    }
+  };
+  const invalidate = () => {
+    invalidated = true;
+    expected = null;
+    onTop = false;
+    redoable = false;
+    stop();
+    notify();
+  };
+  const changedSince = (_update: Uint8Array, origin: unknown) => {
+    if (expected) {
+      if (coveredBy(edit.doc, expected.vector)) {
+        if (
+          sameVector(edit.doc, expected.vector) &&
+          fingerprintOfMind(edit.doc) !== expected.fingerprint
+        ) {
+          invalidate();
+        }
+        return;
+      }
+      invalidate();
+      return;
+    }
+    if (busy && origin === FROM_CORE) return;
+    invalidate();
+  };
+  const expectUpdate = (transition: AskedChangeTransition) => {
+    Y.applyUpdate(edit.doc, transition.update, FROM_CORE);
+    if (
+      sameVector(edit.doc, transition.vector) &&
+      fingerprintOfMind(edit.doc) === transition.fingerprint
+    ) {
+      expected = transition;
+      return;
+    }
+    invalidate();
+  };
+  const closed = () => {
+    stop();
+    edit.editor.off("destroy", closed);
+    void release();
+    notify();
+  };
+  const clearLine = () => {
+    if (!edit.editor.isDestroyed && lastApplied.get(edit.editor) === edit) {
+      setAppliedLine(edit.editor, null);
+    }
+  };
+  const restoreLine = () => {
+    if (!edit.editor.isDestroyed && lineBeforeUndo && lastApplied.get(edit.editor) === edit) {
+      setAppliedLine(edit.editor, lineBeforeUndo);
+    }
+  };
+  edit.doc.on("update", changedSince);
+  edit.editor.on("destroy", closed);
+  return {
+    state: () => (edit.editor.isDestroyed ? "gone" : state),
+    onTop: () => state === "done" && onTop && !edit.editor.isDestroyed,
+    canRedo: () => state === "undone" && redoable && !edit.editor.isDestroyed,
+    add: invalidate,
+    settled: () => pending,
+    release,
+    undo: () => {
+      if (state !== "done" || !onTop || busy) return false;
+      busy = true;
+      expected = null;
+      lineBeforeUndo = edit.editor.isDestroyed ? null : appliedLineIn(edit.editor.state);
+      const operation = (async () => {
+        try {
+          const transition = await core.undoAskedChanges(undoId);
+          if (transition) {
+            expectUpdate(transition);
+            state = "undone";
+            redoable = !invalidated;
+            clearLine();
+            return true;
+          }
+          onTop = false;
+          redoable = false;
+          return false;
+        } catch (error) {
+          onTop = false;
+          redoable = false;
+          useAppStore.getState().reportError(error);
+          return false;
+        } finally {
+          busy = false;
+          notify();
+        }
+      })();
+      pending = operation.then(() => undefined);
+      return operation;
+    },
+    redo: () => {
+      if (state !== "undone" || !redoable || busy) return false;
+      busy = true;
+      expected = null;
+      const operation = (async () => {
+        try {
+          const transition = await core.redoAskedChanges(undoId);
+          if (transition) {
+            expectUpdate(transition);
+            state = "done";
+            onTop = !invalidated;
+            redoable = !invalidated;
+            if (!invalidated) restoreLine();
+            return true;
+          }
+          redoable = false;
+          return false;
+        } catch (error) {
+          redoable = false;
+          useAppStore.getState().reportError(error);
+          return false;
+        } finally {
+          busy = false;
+          notify();
+        }
+      })();
+      pending = operation.then(() => undefined);
+      return operation;
+    },
+    observe: (listener) => {
+      listeners.add(listener);
+      return () => listeners.delete(listener);
+    },
+  };
+}
+
+const coreUndoRegistrations = new WeakMap<
+  FollowedSteps,
+  { change: Undoable; forget: () => void }
+>();
+
+function offerCoreUndo(edit: Applying, followed: FollowedSteps, facts: ChangeCounts): void {
+  const change: Undoable = {
+    said: (t) => changeFact(t, facts, null),
+    shownAt: pageUndoPlace,
+    undo: async () => {
+      const undone = await followed.undo();
+      if (undone === false) throw new UndoRefused((t) => t("edit.review.changedSince"), null);
+    },
+    redo: async () => {
+      const redone = await followed.redo?.();
+      if (redone === false) throw new UndoRefused((t) => t("edit.review.changedSince"), null);
+    },
+  };
+  let stopped = false;
+  const forget = () => {
+    if (stopped) return;
+    stopped = true;
+    stopFollowing();
+    stopGlobal();
+    edit.editor.off("destroy", forget);
+    coreUndoRegistrations.delete(followed);
+    useUndo.getState().withdraw(change);
+    void followed.release?.();
+  };
+  const stopFollowing = followed.observe(() => {
+    const state = followed.state();
+    if (
+      state === "gone" ||
+      (state === "done" && !followed.onTop()) ||
+      (state === "undone" && followed.canRedo && !followed.canRedo())
+    ) {
+      forget();
+    }
+  });
+  const stopGlobal = useUndo.subscribe((state) => {
+    if (
+      !state.done.includes(change) &&
+      !state.undone.includes(change) &&
+      state.running?.change !== change
+    ) {
+      forget();
+    }
+  });
+  edit.editor.on("destroy", forget);
+  coreUndoRegistrations.set(followed, { change, forget });
+  useUndo.getState().push(change);
+}
+
+export function shareCoreUndo(followed: FollowedSteps, change: Undoable): void {
+  coreUndoRegistrations.set(followed, {
+    change,
+    forget: () => {
+      coreUndoRegistrations.delete(followed);
+      void followed.release?.();
+    },
+  });
+}
+
+export async function undoCoreChange(followed: FollowedSteps): Promise<void> {
+  const registered = coreUndoRegistrations.get(followed)?.change;
+  if (registered) await useUndo.getState().undo(registered);
+  else await followed.undo();
+}
+
+export function releaseCoreChange(followed: FollowedSteps): void {
+  const registered = coreUndoRegistrations.get(followed);
+  if (registered) registered.forget();
+  else void followed.release?.();
+}
+
+const sameVector = (doc: Y.Doc, expected: Uint8Array): boolean => {
+  const wanted = Y.decodeStateVector(expected);
+  const now = Y.decodeStateVector(Y.encodeStateVector(doc));
+  return (
+    wanted.size === now.size && [...wanted].every(([client, clock]) => now.get(client) === clock)
+  );
+};
+
+const coveredBy = (doc: Y.Doc, expected: Uint8Array): boolean => {
+  const wanted = Y.decodeStateVector(expected);
+  const now = Y.decodeStateVector(Y.encodeStateVector(doc));
+  return [...now].every(([client, clock]) => (wanted.get(client) ?? 0) >= clock);
+};
+
+/** Whether an editor matches an accepted core change, can still receive it, or has diverged. */
+export function coreApplicationStatus(
+  editor: Editor,
+  application: AskedChangeApplication,
+): "current" | "behind" | "diverged" {
+  const doc = editorDoc(editor);
+  if (!doc) return "diverged";
+  if (sameVector(doc, application.afterVector)) {
+    return fingerprintOfMind(doc) === application.afterFingerprint ? "current" : "diverged";
+  }
+  return coveredBy(doc, application.afterVector) ? "behind" : "diverged";
+}
+
 /** Calls `listener` as the changes the User asked for apply: at once, or later from a held line. */
 export function onAskedApplied(listener: AskedApplied): () => void {
   applied.add(listener);
@@ -391,22 +663,27 @@ export function onAskedApplied(listener: AskedApplied): () => void {
 
 /**
  * Applies the assistant's changes the User asked for (#880), now that
- * they are all in the Mind, as one step of the editor's Undo, with the line
- * over them saying what `facts` counts; or, when they would rewrite most of
- * the User's own text, leaves them waiting with the line that says so.
+ * they are all in the Mind. An open editor takes them as one Undo step;
+ * a core `application` already accepted them and follows the core's Undo
+ * and Redo instead. `facts` counts what the line says. A rewrite that would
+ * take out most of the User's own text stays waiting with its held line.
  */
 export function applyArrived(
   editor: Editor,
   mindId: string,
   requests: ReadonlySet<string>,
   facts: ChangeCounts,
-  { holds = true }: { holds?: boolean } = {},
+  {
+    holds = true,
+    application,
+    retainHeadless = false,
+  }: { holds?: boolean; application?: AskedChangeApplication; retainHeadless?: boolean } = {},
 ): "applied" | "held" | null {
   const first = proposalsIn(editor.state.doc).find((each) => requests.has(each.request));
-  if (!first || editor.isDestroyed) return null;
+  if ((!first && !application) || editor.isDestroyed) return null;
   for (const request of requests) drawApplying(editor, request, false);
   const doc = editorDoc(editor);
-  if (holds && doc && waitsForUser(doc, requests)) {
+  if ((application?.held || (holds && doc && waitsForUser(doc, requests))) && first) {
     setAppliedLine(editor, {
       kind: "held",
       blockId: topBlockAt(editor.state, first.from),
@@ -415,22 +692,60 @@ export function applyArrived(
     });
     return "held";
   }
-  const edit = beginEdit(editor, mindId, `assistant:${first.request}`);
+  if (application?.held) {
+    const [request] = requests;
+    if (!request) return null;
+    setAppliedLine(editor, {
+      kind: "held",
+      blockId: null,
+      request,
+      asked: { mindId, requests: [...requests], facts },
+    });
+    return "held";
+  }
+  const request = first?.request ?? [...requests][0];
+  if (!request) return null;
+  const edit = beginEdit(editor, mindId, `assistant:${request}`);
   if (!edit) return null;
-  const planned = planChanges(editor.state, requests);
-  let resolved: ReturnType<typeof writeAccepted> = [];
-  asEditStep(edit, () => {
-    resolved = writeAccepted(
-      edit.doc,
-      requests,
-      new SettingAside(),
-      new AcceptingEdit(),
-      editor.schema,
-    );
-  });
-  const entries = aiUseOfAccepted(edit.doc, mindId, resolved, new Date().toISOString());
-  if (entries.length > 0) core.recordAiUse(entries).catch(useAppStore.getState().reportError);
-  edit.followed = followSteps(editor, edit.steps);
+  let planned: ReturnType<typeof planChanges>;
+  if (application) {
+    planned = [];
+    const status = coreApplicationStatus(editor, application);
+    if (status === "behind") {
+      edit.forget();
+      return null;
+    }
+    const current = status === "current";
+    if (current) {
+      const reviewDoc = new Y.Doc();
+      Y.applyUpdate(reviewDoc, application.reviewBefore);
+      try {
+        const reviewState = yXmlFragmentToProseMirrorRootNode(
+          reviewDoc.getXmlFragment(MIND_CONTENT_FIELD),
+          editor.schema,
+        );
+        planned = planChanges(reviewState, requests, new Set(application.accepted));
+      } finally {
+        reviewDoc.destroy();
+      }
+    }
+    edit.followed = followCoreUndo(edit, application, current);
+  } else {
+    planned = planChanges(editor.state, requests);
+    let resolved: ReturnType<typeof writeAccepted> = [];
+    asEditStep(edit, () => {
+      resolved = writeAccepted(
+        edit.doc,
+        requests,
+        new SettingAside(),
+        new AcceptingEdit(),
+        editor.schema,
+      );
+    });
+    const entries = aiUseOfAccepted(edit.doc, mindId, resolved, new Date().toISOString());
+    if (entries.length > 0) core.recordAiUse(entries).catch(useAppStore.getState().reportError);
+  }
+  edit.followed ??= followSteps(editor, edit.steps);
   const changes = editor.isDestroyed
     ? []
     : appliedChanges(editor.state, anchorChanges(editor.state, planned));
@@ -451,7 +766,15 @@ export function applyArrived(
     changes,
     kept: null,
   });
-  offerEditorUndo(editor, (t) => changeFact(t, facts, null), pageUndoPlace);
+  if (application) {
+    if (followed?.onTop()) {
+      if (!retainHeadless) offerCoreUndo(edit, followed, facts);
+    } else {
+      void followed?.release?.();
+    }
+  } else {
+    offerEditorUndo(editor, (t) => changeFact(t, facts, null), pageUndoPlace);
+  }
   return "applied";
 }
 
@@ -500,7 +823,7 @@ function undoEdit(editor: Editor): void {
   const edit =
     appliedLineIn(editor.state)?.kind === "review" ? lastApplied.get(editor) : latest.get(editor);
   if (!edit?.followed?.onTop()) return;
-  edit.followed.undo();
+  void undoCoreChange(edit.followed);
   setAppliedLine(editor, null);
 }
 

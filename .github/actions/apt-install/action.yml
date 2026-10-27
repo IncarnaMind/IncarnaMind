@@ -28,7 +28,7 @@ runs:
         echo "key=apt-$PACKAGE-${ImageOS:-linux}-${ImageVersion:-unknown}" >> "$GITHUB_OUTPUT"
         echo "prefix=apt-$PACKAGE-${ImageOS:-linux}-" >> "$GITHUB_OUTPUT"
     - id: restore
-      uses: actions/cache/restore@v4
+      uses: actions/cache/restore@v5
       with:
         path: ~/.cache/ci-apt/${{ inputs.package }}
         key: ${{ steps.key.outputs.key }}
@@ -77,7 +77,7 @@ runs:
         sudo chown -R "$(id -u):$(id -g)" "$dir"
         ls -l "$dir"/*.deb
     - if: inputs.warm == 'true' && steps.restore.outputs.cache-hit != 'true'
-      uses: actions/cache/save@v4
+      uses: actions/cache/save@v5
       with:
         path: ~/.cache/ci-apt/${{ inputs.package }}
         key: ${{ steps.key.outputs.key }}

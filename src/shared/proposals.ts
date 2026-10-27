@@ -27,7 +27,7 @@ import {
   type ProposalRequest,
   type RecordAiUseInput,
 } from "../core/api";
-import { originOf } from "./blockOrigins";
+import { originOf, restoreOrigins } from "./blockOrigins";
 
 const isText = (value: unknown): value is string => typeof value === "string" && value !== "";
 
@@ -196,6 +196,7 @@ export function resolveProposals(
   blocks: Y.XmlFragment,
   picked: (proposal: ProposalRef) => boolean,
   outcome: "accept" | "reject",
+  within?: ReadonlySet<string>,
 ): ResolvedProposal[] {
   const stale = outcome === "accept" ? outOfDateProposals(blocks) : new Set<string>();
   const wanted = (proposal: ProposalRef) => picked(proposal) && !stale.has(proposal.id);
@@ -204,6 +205,13 @@ export function resolveProposals(
   /** Where each request's first top-level Block removed by a reject was: what it revised goes back there. */
   const removedAt = new Map<string, number>();
   const removedFrom = new Map<string, string | null>();
+  const rejectedIn = new Map<string, Set<string>>();
+  const rejected = (request: string, top: string | null) => {
+    if (outcome !== "reject" || !top) return;
+    const tops = rejectedIn.get(request) ?? new Set<string>();
+    tops.add(top);
+    rejectedIn.set(request, tops);
+  };
   const note = (ref: ProposalRef, characters: number, blockId: string | null) => {
     let entry = resolved.get(ref.id);
     if (!entry) {
@@ -216,7 +224,7 @@ export function resolveProposals(
       entry.blockIds.push(blockId);
   };
 
-  const resolveText = (text: Y.XmlText, owner: string | null) => {
+  const resolveText = (text: Y.XmlText, owner: string | null, top: string | null) => {
     const edits: { at: number; length: number; mark: string; keep: boolean }[] = [];
     let at = 0;
     for (const run of text.toDelta() as Run[]) {
@@ -227,6 +235,7 @@ export function resolveProposals(
         const keep = (mark === PROPOSAL_INSERT_MARK) === (outcome === "accept");
         edits.push({ at, length, mark, keep });
         note(ref, keep && mark === PROPOSAL_INSERT_MARK ? length : 0, owner);
+        rejected(ref.request, top);
       }
       at += length;
     }
@@ -237,15 +246,21 @@ export function resolveProposals(
     }
   };
 
-  const visit = (parent: Y.XmlFragment | Y.XmlElement, owner: string | null) => {
+  const visit = (
+    parent: Y.XmlFragment | Y.XmlElement,
+    owner: string | null,
+    above: string | null,
+  ) => {
     const children = parent.toArray();
     for (let index = children.length - 1; index >= 0; index--) {
       const child = children[index];
       if (child instanceof Y.XmlText) {
-        resolveText(child, owner);
+        resolveText(child, owner, above);
         continue;
       }
       if (!(child instanceof Y.XmlElement)) continue;
+      const top = parent === blocks ? idOf(child) : above;
+      if (parent === blocks && within && (!top || !within.has(top))) continue;
       // A footnote has an id but isn't a Block, and one a Proposal moves holds the User's text.
       const footnote = child.nodeName === FOOTNOTE_NODE;
       const own = (footnote ? null : idOf(child)) ?? owner;
@@ -254,6 +269,7 @@ export function resolveProposals(
         const keep = (attribute.kind === "insert") === (outcome === "accept");
         const written = keep && attribute.kind === "insert" && !footnote;
         note(attribute, written ? textLength(child) : 0, own);
+        rejected(attribute.request, top);
         if (!keep) {
           if (parent === blocks) {
             removedAt.set(attribute.request, index);
@@ -264,11 +280,11 @@ export function resolveProposals(
         }
         child.removeAttribute(PROPOSAL_ATTRIBUTE);
       }
-      visit(child, own);
+      visit(child, own, top);
     }
   };
 
-  visit(blocks, null);
+  visit(blocks, null, null);
   const restored = settleRevisions(
     blocks,
     new Set([...resolved.values()].map((each) => each.request)),
@@ -287,8 +303,26 @@ export function resolveProposals(
     }
   }
   if (sameAnswer.size > 0) resolveProposals(blocks, (ref) => sameAnswer.has(ref.id), "reject");
+  if (blocks.doc) {
+    // A change written over Blocks gave them its origin (`setOriginsOf`): taken out, it gives theirs back.
+    for (const [request, tops] of rejectedIn) {
+      const done = [...tops].filter((top) => !waitsIn(blocks, top, request));
+      restoreOrigins(blocks.doc, request, done);
+    }
+  }
   // Walked from the end: the first one met is the last in the Mind.
   return order.reverse().map((id) => resolved.get(id) as ResolvedProposal);
+}
+
+function waitsIn(blocks: Y.XmlFragment, blockId: string, request: string): boolean {
+  const block = blocks
+    .toArray()
+    .find((each): each is Y.XmlElement => each instanceof Y.XmlElement && idOf(each) === blockId);
+  if (!block) return false;
+  const own = readProposalAttribute(block.getAttribute(PROPOSAL_ATTRIBUTE));
+  return (
+    own?.request === request || pendingProposals(block).some((each) => each.request === request)
+  );
 }
 
 function answerOf(element: Y.XmlElement): string | null {
@@ -398,7 +432,7 @@ function settleRevisions(
 }
 
 /** The Proposals waiting in the Mind's Blocks, each once, in the order they start. */
-export function pendingProposals(blocks: Y.XmlFragment): ProposalRef[] {
+export function pendingProposals(blocks: Y.XmlFragment | Y.XmlElement): ProposalRef[] {
   const found = new Map<string, ProposalRef>();
   const add = (ref: ProposalRef | null) => {
     if (ref && !found.has(ref.id)) found.set(ref.id, ref);
@@ -573,7 +607,16 @@ export function proposalRequestOf(doc: Y.Doc, request: string): ProposalRequest 
   }
   const requested =
     record.requested === "edit" || record.requested === "write" ? record.requested : null;
-  if (source === "answer-added") return { ...made, source, ...(requested && { requested }) };
+  if (source === "answer-added") {
+    const action = editActions.find((each) => each === record.action);
+    return {
+      ...made,
+      source,
+      ...(requested && { requested }),
+      ...(action && { action }),
+      ...(typeof record.instruction === "string" && { instruction: record.instruction }),
+    };
+  }
   if (source === "comparison-table") {
     return isText(record.tableId) ? { ...made, source, tableId: record.tableId } : null;
   }

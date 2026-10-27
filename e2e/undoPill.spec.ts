@@ -9,19 +9,23 @@ import {
   useLocalChatModel as connectLocalChatModel,
   createDataFolder,
   dismissChatSetup,
+  documentIdOf,
   frontMindName,
   lastLineBoxOf,
   launchApp,
   motionSettled,
   nameMind,
   newMind,
+  openDocumentAt,
   placeAssistant,
   pointAndClick,
   pointAt,
   removeDataFolder,
+  renameInTab,
   setLanguage,
   setSidebarShown,
   setWindowSize,
+  slideSelect,
 } from "./app";
 
 /*
@@ -29,8 +33,13 @@ import {
  * mouse still has Undo, the same line in the same words, as a small pill at
  * the window's bottom left. It takes the change back, stays clear of the check
  * badge and the assistant's composer, goes back to the sidebar's foot when the
- * sidebar shows, and the pointer resting on it keeps it. Set
- * INCARNAMIND_SCREENSHOTS to a folder to save screenshots of each step.
+ * sidebar shows, and the pointer resting on it keeps it.
+ *
+ * It covers no text (#1914): in a card with room it sits in the gutter left of
+ * the page's text, and otherwise the page's scroll area ends above it, so a
+ * press or a drag on the page never lands on the pill and never takes a change
+ * back. Set INCARNAMIND_SCREENSHOTS to a folder to save screenshots of each
+ * step.
  */
 
 const SCREENSHOTS = process.env.INCARNAMIND_SCREENSHOTS;
@@ -44,8 +53,20 @@ test.afterEach(async () => {
 });
 
 const WORDS = {
-  en: { renamed: "Renamed to “", undo: "Undo" },
-  "zh-CN": { renamed: "已重命名为“", undo: "撤销" },
+  en: {
+    renamed: "Renamed to “",
+    undo: "Undo",
+    page: "The tide turns at night under the moon.",
+    word: "moon",
+    first: "Reef",
+  },
+  "zh-CN": {
+    renamed: "已重命名为“",
+    undo: "撤销",
+    page: "夜里潮水随月亮转向，越过礁石。",
+    word: "月亮",
+    first: "礁石",
+  },
 } as const;
 
 const TIDES = buildPdf([
@@ -63,17 +84,65 @@ const overlaps = (
   b: { x: number; y: number; width: number; height: number },
 ) => a.x < b.x + b.width && b.x < a.x + a.width && a.y < b.y + b.height && b.y < a.y + a.height;
 
-/** Renames the Mind in front where it is shown: a double-click on its tab, the new name, Enter. */
-async function renameInTab(window: Page, name: string): Promise<void> {
-  const tab = window.locator('[role="tab"][aria-selected="true"]');
-  const at = await pointAt(window, tab);
-  await window.mouse.dblclick(at.x, at.y);
-  const field = window.getByTestId("tab-rename");
-  await expect(field).toBeFocused();
-  await field.fill(name);
-  await field.press("Enter");
-  await expect(frontMindName(window)).toHaveText(name);
+const editorOf = (window: Page) => window.getByTestId("mind-editor");
+const scrollerOf = (window: Page) => window.getByTestId("mind-scroller");
+const measureOf = (window: Page) =>
+  window.getByTestId("mind-pane").locator(".mind-measure").first();
+
+/** The Mind's text, long enough that lines run the whole height of the page's view. */
+async function fillPage(window: Page, sentence: string): Promise<void> {
+  const editor = editorOf(window);
+  await editor.evaluate(
+    (dom, content) => {
+      (
+        dom as unknown as {
+          editor: { commands: { insertContentAt: (at: number, content: unknown) => void } };
+        }
+      ).editor.commands.insertContentAt(0, content);
+    },
+    Array.from({ length: 80 }, () => ({
+      type: "paragraph",
+      content: [{ type: "text", text: sentence }],
+    })),
+  );
 }
+
+const scrollTo = (window: Page, top: number) =>
+  scrollerOf(window).evaluate((element, at) => {
+    element.scrollTop = at;
+  }, top);
+
+/** The editor's paragraph that a line at `y` in the window falls in, or the nearest above it. */
+async function lineIn(editor: Locator, y: number): Promise<Locator> {
+  for (const offset of [0, -6, -12, -18, -24]) {
+    const index = await editor.evaluate((dom, at) => {
+      return Array.from(dom.children).findIndex((child) => {
+        const box = child.getBoundingClientRect();
+        return box.height > 0 && at >= box.top + 2 && at <= box.bottom - 2;
+      });
+    }, y + offset);
+    if (index >= 0) return editor.locator(":scope > *").nth(index);
+  }
+  throw new Error(`No line of the Mind is at ${y}.`);
+}
+
+const lineAt = (window: Page, y: number) => lineIn(editorOf(window), y);
+
+/** A press on text at `x`, `y` places the caret in the Mind and leaves the selection empty. */
+async function pressAt(window: Page, x: number, y: number): Promise<void> {
+  await window.mouse.move(x, y, { steps: 6 });
+  await window.mouse.click(x, y);
+  await expect(editorOf(window)).toBeFocused();
+  expect(await window.evaluate(() => globalThis.getSelection()?.toString())).toBe("");
+}
+
+const selectedText = (window: Page) => window.evaluate(() => globalThis.getSelection()?.toString());
+
+/** The whole layout of the page below the toolbar, for "nothing moves, the view gets shorter". */
+const viewOf = async (window: Page) => {
+  const scroller = await boxOf(scrollerOf(window));
+  return { top: scroller.y, bottom: scroller.y + scroller.height, height: scroller.height };
+};
 
 for (const language of ["en", "zh-CN"] as const) {
   test(`${language}: with the sidebar hidden, Undo is a pill at the window's bottom left at 1,600 and 900 px, and takes the change back`, async () => {
@@ -160,7 +229,7 @@ for (const language of ["en", "zh-CN"] as const) {
         await expect(foot.getByTestId("undo-message")).toHaveCount(0);
       }
 
-      // The pointer or the focus on the pill keeps it open, and it goes a few seconds after they leave.
+      // The pointer on Undo, or the focus in it, keeps it open; it goes a few seconds after they leave.
       await setWindowSize(app, window, 1600, 900);
       await newMind(window);
       await nameMind(window, `Tides ${language} held`);
@@ -168,7 +237,7 @@ for (const language of ["en", "zh-CN"] as const) {
       await window.clock.install();
       await renameInTab(window, `Tides ${language} held on`);
       await expect(pill).toBeVisible();
-      await pointAt(window, pill);
+      await pointAt(window, pill.getByTestId("undo-action"));
       await window.clock.fastForward("00:30");
       await expect(pill).toBeVisible();
       await window.mouse.move(4, 4);
@@ -185,6 +254,296 @@ for (const language of ["en", "zh-CN"] as const) {
       await expect(pill).toBeVisible();
       await window.keyboard.press("Escape");
       await expect(pill).toHaveCount(0);
+    } finally {
+      await app.close();
+    }
+  });
+}
+
+for (const language of ["en", "zh-CN"] as const) {
+  test(`${language}: a press or a drag on the text under the pill places the caret or selects, and nothing is undone, in both placements at 1,600 and 900 px, with the viewer open and closed`, async () => {
+    test.setTimeout(300_000);
+    const sources = await createDataFolder();
+    await writeFile(join(sources, "Tides.pdf"), TIDES);
+    const { app, window } = await launchApp(dataDir);
+    try {
+      await dismissChatSetup(window);
+      await setLanguage(window, language);
+      const words = WORDS[language];
+      await setWindowSize(app, window, 1600, 900);
+      await addDocuments(window, [join(sources, "Tides.pdf")]);
+      await window.keyboard.press("Escape");
+      await newMind(window);
+      await nameMind(window, "Tides");
+      await fillPage(window, words.page);
+      await setSidebarShown(window, false);
+      const pill = window.getByTestId("undo-pill");
+      const undo = pill.getByTestId("undo-action");
+      const measure = measureOf(window);
+      const name = words.first;
+
+      for (const viewer of [false, true]) {
+        if (viewer) {
+          await openDocumentAt(window, { documentId: await documentIdOf(window, "Tides") });
+          await expect(window.getByTestId("viewer")).toBeVisible();
+        }
+        for (const [width, height] of [
+          [1600, 900],
+          [900, 700],
+        ] as const) {
+          await setWindowSize(app, window, width, height);
+          await motionSettled(window);
+          // The Mind is the page in front, in its own group or beside the viewer's.
+          await window.getByTestId("mind-tab").first().click();
+          await window.keyboard.press("Escape");
+          await motionSettled(window);
+          await scrollTo(window, 500);
+          const before = await viewOf(window);
+          const anchored = await lineAt(window, before.top + 120);
+          const anchoredBox = await boxOf(anchored);
+
+          await renameInTab(window, name);
+          await expect(pill).toBeVisible();
+          await motionSettled(window);
+          const pillBox = await boxOf(pill);
+          const card = await boxOf(window.getByTestId("card"));
+          const column = await boxOf(measure);
+          const scroller = await boxOf(scrollerOf(window));
+          // 16px from the window's bottom left, as the line was, over the card's foot.
+          expect(Math.round(pillBox.x)).toBe(16);
+          expect(Math.round(pillBox.y + pillBox.height)).toBe(Math.round(card.y + card.height - 8));
+          // The shell and its words let presses through; only Undo takes them.
+          expect(await pill.evaluate((element) => getComputedStyle(element).pointerEvents)).toBe(
+            "none",
+          );
+          expect(await undo.evaluate((element) => getComputedStyle(element).pointerEvents)).toBe(
+            "auto",
+          );
+          // The button adds nothing beyond its own padding: its hit box is its label's box.
+          const beyondPadding = await undo.evaluate((element) => {
+            const range = document.createRange();
+            range.selectNodeContents(element);
+            const style = getComputedStyle(element);
+            return (
+              element.getBoundingClientRect().width -
+              range.getBoundingClientRect().width -
+              Number.parseFloat(style.paddingLeft) -
+              Number.parseFloat(style.paddingRight)
+            );
+          });
+          expect(Math.abs(beyondPadding)).toBeLessThanOrEqual(1);
+
+          const gutter = column.x - card.x;
+          const fits = gutter >= pillBox.width + 8;
+          // In the gutter, no text starts under the pill; otherwise the page ends above it.
+          if (fits) {
+            expect(pillBox.x + pillBox.width).toBeLessThanOrEqual(column.x + 0.5);
+            expect(Math.abs(scroller.height - before.height)).toBeLessThanOrEqual(1);
+          } else {
+            expect(Math.abs(scroller.y + scroller.height - pillBox.y)).toBeLessThanOrEqual(1);
+            expect(Math.abs(scroller.y - before.top)).toBeLessThanOrEqual(1);
+            expect(scroller.height).toBeLessThan(before.height);
+            // Nothing moves with the shorter view: the line that was in the middle is where it was.
+            expect(Math.abs((await boxOf(anchored)).y - anchoredBox.y)).toBeLessThanOrEqual(1);
+          }
+
+          // A press and a drag where a line under the pill would be: the caret, then a selection,
+          // and the change stays. The line is the lowest one the shortened view shows, or the one at
+          // the pill's own height in the gutter.
+          const at = fits ? pillBox.y + pillBox.height / 2 : pillBox.y - 4;
+          const line = await lineAt(window, at);
+          const lineBox = await boxOf(line);
+          await pressAt(window, lineBox.x + 3, at);
+          await expect(frontMindName(window)).toHaveText(name);
+          await expect(pill).toBeVisible();
+          if (SCREENSHOTS) {
+            await window.screenshot({
+              path: join(
+                SCREENSHOTS,
+                `undo-pill-passes-${language}-${width}${viewer ? "-viewer" : ""}.png`,
+              ),
+            });
+          }
+          await slideSelect(window, line, words.word);
+          expect(await selectedText(window)).toBe(words.word);
+          await expect(frontMindName(window)).toHaveText(name);
+          await expect(pill).toBeVisible();
+          // Collapse the selection, so its menu closes and doesn't sit over the next view.
+          await window.keyboard.press("ArrowRight");
+
+          // A press on the pill's own words, not its button, does nothing either.
+          const message = await boxOf(pill.getByTestId("undo-message"));
+          await window.mouse.click(message.x + message.width / 2, message.y + message.height / 2);
+          await expect(frontMindName(window)).toHaveText(name);
+          await expect(pill).toBeVisible();
+
+          await pointAndClick(window, undo);
+          await expect(frontMindName(window)).toHaveText("Tides");
+          await expect(pill).toHaveCount(0);
+          if (!fits)
+            await expect
+              .poll(async () => Math.abs((await viewOf(window)).height - before.height))
+              .toBeLessThanOrEqual(1);
+
+          // And by keyboard: the focus reaches it and Enter takes the change back.
+          await renameInTab(window, name);
+          await expect(pill).toBeVisible();
+          await undo.focus();
+          await window.keyboard.press("Enter");
+          await expect(frontMindName(window)).toHaveText("Tides");
+          await expect(pill).toHaveCount(0);
+          if (!fits)
+            await expect
+              .poll(async () => Math.abs((await viewOf(window)).height - before.height))
+              .toBeLessThanOrEqual(1);
+        }
+      }
+    } finally {
+      await app.close();
+      await removeDataFolder(sources);
+    }
+  });
+}
+
+test("with groups merged, the band follows the page the focus moves to, not the first group's", async () => {
+  test.setTimeout(180_000);
+  const { app, window } = await launchApp(dataDir);
+  try {
+    await dismissChatSetup(window);
+    await setWindowSize(app, window, 1600, 900);
+    await newMind(window);
+    await nameMind(window, "Tides");
+    await fillPage(window, WORDS.en.page);
+    await setSidebarShown(window, false);
+    // A copy of the Mind in a second group, which the split focuses.
+    await window.keyboard.press("ControlOrMeta+Alt+Backslash");
+    await expect(window.getByTestId("tab-group")).toHaveCount(2);
+    // Narrowed, the groups merge: one strip, and only the focused group's page is drawn.
+    await setWindowSize(app, window, 900, 700);
+    await motionSettled(window);
+    await expect(window.getByTestId("tab-group")).toHaveCount(1);
+    await window.keyboard.press("ControlOrMeta+1");
+    const pill = window.getByTestId("undo-pill");
+    await window.clock.install();
+    await renameInTab(window, "Reef");
+    await expect(pill).toBeVisible();
+    const pillBox = await boxOf(pill);
+    const abovePill = async () => {
+      const scroller = await boxOf(scrollerOf(window));
+      return Math.abs(scroller.y + scroller.height - pillBox.y);
+    };
+    await expect.poll(abovePill).toBeLessThanOrEqual(1);
+    // The merged strip lists both groups' tabs: the second moves the focus to a non-first group.
+    const tabs = window.getByTestId("mind-tab");
+    await expect(tabs).toHaveCount(2);
+    await tabs.nth(1).click();
+    await expect.poll(abovePill).toBeLessThanOrEqual(1);
+    // Back to the first group: its page is measured again, never the band left on the other.
+    await window.keyboard.press("ControlOrMeta+1");
+    await expect.poll(abovePill).toBeLessThanOrEqual(1);
+  } finally {
+    await app.close();
+  }
+});
+
+for (const language of ["en", "zh-CN"] as const) {
+  test(`${language}: at 1,600 px of three narrow groups, a long rename's pill keeps every page it reaches clear of its text`, async () => {
+    test.setTimeout(240_000);
+    const { app, window } = await launchApp(dataDir);
+    try {
+      await dismissChatSetup(window);
+      await setLanguage(window, language);
+      const words = WORDS[language];
+      await setWindowSize(app, window, 1600, 900);
+      await newMind(window);
+      await nameMind(window, "Tides");
+      await fillPage(window, words.page);
+      await setSidebarShown(window, false);
+      await placeAssistant(window, { dock: "bottom", folded: true });
+      const groups = window.getByTestId("tab-group");
+      await window.keyboard.press("ControlOrMeta+Alt+Backslash");
+      await expect(groups).toHaveCount(2);
+      await window.keyboard.press("ControlOrMeta+Alt+Backslash");
+      await expect(groups).toHaveCount(3);
+      // The split moves the focus to the new group's tab once it is drawn: a key before it goes there.
+      await expect(groups.nth(2).getByTestId("mind-tab")).toBeFocused();
+      for (const index of [0, 1]) {
+        const divider = window.getByTestId("group-divider").nth(index);
+        await divider.focus();
+        for (let press = 0; press < 30; press++) await window.keyboard.press("Shift+ArrowLeft");
+        await expect.poll(() => divider.getAttribute("aria-valuenow")).toBe("220");
+      }
+
+      const second = groups.nth(1);
+      await second.getByTestId("mind-tab").click();
+      await motionSettled(window);
+      await second.getByTestId("mind-scroller").evaluate((element) => {
+        element.scrollTop = 500;
+      });
+      const renamed =
+        language === "en"
+          ? "A sufficiently long renamed title to span both groups and test the letter"
+          : "一个足够长的重命名笔记标题用来覆盖两栏之间的边缘以及右边文字";
+      await renameInTab(window, renamed);
+      const pill = window.getByTestId("undo-pill");
+      await expect(pill).toBeVisible();
+      await motionSettled(window);
+
+      const pillBox = await boxOf(pill);
+      const firstBox = await boxOf(groups.nth(0));
+      // The pill is wider than the group it starts in, so it reaches into the second page (#1914).
+      expect(pillBox.x + pillBox.width).toBeGreaterThan(firstBox.x + firstBox.width);
+
+      // Each letter clipped to the page that shows it: what a band shortens away is not under the pill.
+      const under = await window.evaluate((box) => {
+        const letters: string[] = [];
+        for (const editor of document.querySelectorAll('[data-testid="mind-editor"]')) {
+          const page = editor.closest(".mind-scroller")?.getBoundingClientRect();
+          if (!page) continue;
+          const walker = document.createTreeWalker(editor, NodeFilter.SHOW_TEXT);
+          for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+            for (let at = 0; at < (node.textContent?.length ?? 0); at++) {
+              const range = document.createRange();
+              range.setStart(node, at);
+              range.setEnd(node, at + 1);
+              const letter = range.getBoundingClientRect();
+              const left = Math.max(letter.left, page.left, box.x);
+              const right = Math.min(letter.right, page.right, box.x + box.width);
+              const top = Math.max(letter.top, page.top, box.y);
+              const bottom = Math.min(letter.bottom, page.bottom, box.y + box.height);
+              if (right - left > 1 && bottom - top > 1) letters.push(range.toString());
+            }
+          }
+        }
+        return letters;
+      }, pillBox);
+      expect(under).toEqual([]);
+      // The page the pill reaches into gives its text up from the foot, as the first one does.
+      const scroller = await boxOf(second.getByTestId("mind-scroller"));
+      expect(scroller.y + scroller.height).toBeLessThanOrEqual(pillBox.y + 1);
+
+      // Its lowest line is still reachable: a press there places the caret, and the rename stays.
+      const at = pillBox.y - 4;
+      const line = await lineIn(second.getByTestId("mind-editor"), at);
+      const lineBox = await boxOf(line);
+      await window.mouse.move(lineBox.x + 3, at, { steps: 6 });
+      await window.mouse.click(lineBox.x + 3, at);
+      await expect(second.getByTestId("mind-editor")).toBeFocused();
+      expect(await selectedText(window)).toBe("");
+      await expect(second.getByTestId("mind-tab")).toContainText(renamed);
+      await expect(pill).toBeVisible();
+
+      await pointAndClick(window, pill.getByTestId("undo-action"));
+      await expect(second.getByTestId("mind-tab")).toHaveText("Tides");
+      await expect(pill).toHaveCount(0);
+      await expect
+        .poll(async () => (await boxOf(second.getByTestId("mind-scroller"))).height)
+        .toBeGreaterThan(scroller.height);
+      if (SCREENSHOTS) {
+        await window.screenshot({
+          path: join(SCREENSHOTS, `undo-pill-three-groups-${language}.png`),
+        });
+      }
     } finally {
       await app.close();
     }
@@ -219,7 +578,7 @@ test("the pill stays clear of the assistant's composer docked on the left", asyn
   }
 });
 
-test("at 900 px with the first open's Ask pill, the pill sits above it", async () => {
+test("at 900 px with the first open's Ask pill, the pill sits beside it, at the same foot", async () => {
   test.setTimeout(180_000);
   const sources = await createDataFolder();
   await writeFile(join(sources, "Tides note.txt"), "Tides and the moon.\n");
@@ -238,8 +597,9 @@ test("at 900 px with the first open's Ask pill, the pill sits above it", async (
     await expect(ask).toBeVisible();
     await motionSettled(window);
     const [pillBox, askBox] = await Promise.all([boxOf(pill), boxOf(ask)]);
+    // Neither covers the other: the pill is at the foot's left end, the Ask pill in the middle.
     expect(overlaps(pillBox, askBox)).toBe(false);
-    expect(pillBox.y + pillBox.height).toBeLessThanOrEqual(askBox.y);
+    expect(pillBox.x + pillBox.width).toBeLessThan(askBox.x);
     if (SCREENSHOTS) {
       await window.screenshot({ path: join(SCREENSHOTS, "undo-pill-en-900-ask.png") });
     }

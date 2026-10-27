@@ -44,7 +44,7 @@ Embeddings can also come from OpenAI, Google, an OpenAI-compatible server or Oll
 
 ## Evaluation
 
-`npm run eval` measures retrieval, and optionally Citation quality, against the project's targets. It adds the sample PDFs in `data/` and the Chinese articles in `eval/retrieval/fixtures/` to a temporary data folder and searches for each Question in `eval/retrieval/questions.json`. Retrieval needs no keys; the first run downloads the embedding and reranking models into `~/.cache/incarnamind-eval/`. It isn't part of `npm test` or CI's default run. See [`eval/README.md`](../eval/README.md) for the Citation part, the variables and the latest results.
+`npm run eval` measures retrieval, and optionally Citation quality, against the project's targets. It adds the sample PDFs in `data/` (made for this repository; [`data/README.md`](../data/README.md)) and the Chinese articles in `eval/retrieval/fixtures/` to a temporary data folder and searches for each Question in `eval/retrieval/questions.json`. Retrieval needs no keys; the first run downloads the embedding and reranking models into `~/.cache/incarnamind-eval/`. It isn't part of `npm test` or CI's default run. See [`eval/README.md`](../eval/README.md) for the Citation part, the variables and the latest results.
 
 ## Model catalog
 
@@ -72,6 +72,6 @@ with rustup on the `PATH` (it installs the pinned toolchain) to try the change. 
 
 [`CONTEXT.md`](../CONTEXT.md) is the glossary, and [`docs/adr/`](adr/) records the decisions behind the design, from the local-first Electron app (ADR-0004, ADR-0006) to SQLite storage (ADR-0008) and retrieval (ADR-0009).
 
-In short: the React UI in the renderer talks over a typed bridge to the core, a TypeScript module in the Electron main process with no Electron imports. The core keeps each Mind as a Yjs document and everything else in SQLite, in the data folder. Documents are indexed in place from Linked folders, never copied (ADR-0010). Answers come from a tool-calling loop (ADR-0007), through the AI SDK.
+In short: the React UI in the renderer talks over a typed bridge to the core, a TypeScript module in the Electron main process with no Electron imports. The core keeps each Note as a Yjs document and everything else in SQLite, in the data folder. Documents are indexed in place from Linked folders, never copied (ADR-0010). Answers come from a tool-calling loop (ADR-0007), through the AI SDK.
 
 Code lives in `src/`: `core` (app logic), `main` (Electron main process), `preload` (the typed bridge to the UI), `renderer` (React UI) and `shared` (i18n dictionaries, bridge names and the text normaliser).

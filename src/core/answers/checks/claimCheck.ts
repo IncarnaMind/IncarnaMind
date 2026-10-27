@@ -26,6 +26,7 @@ import { generateText } from "ai";
 import { type CaseCitation, caseCitations, isOpinionOf } from "../../../shared/caseCitations";
 import type { FigureContext } from "../../../shared/figures";
 import { type MessageKey, type MessageParams, translate } from "../../../shared/i18n";
+import { sentenceSpans } from "../../../shared/sentences";
 import type {
   CheckedVersion,
   Citation,
@@ -33,6 +34,7 @@ import type {
   ClaimCheckFailure,
   ClaimCheckResult,
   LeftOutDocument,
+  LimitRelation,
   PassageSearchResult,
   ProviderError,
   RecordAiUseInput,
@@ -80,6 +82,7 @@ import {
   readVerdict,
   STRICT_INSTRUCTIONS,
 } from "./prompt";
+import { searchAgain } from "./searchAgain";
 import { unitNotStated } from "./units";
 
 export interface ClaimCheckDependencies {
@@ -164,7 +167,7 @@ const SEARCH_FIRST =
 export function createClaimCheck(deps: ClaimCheckDependencies) {
   return async function checkClaim(request: ClaimCheckRequest): Promise<ClaimCheckResult> {
     const { scope, signal } = request;
-    let searched = false;
+    let searches = 0;
     const read = new Map<string, string>();
     const excluded = new Map<string, LeftOutDocument>();
     const decisions = caseCitations(request.claim);
@@ -208,8 +211,8 @@ export function createClaimCheck(deps: ClaimCheckDependencies) {
       quotes: session.quotes,
       language: answerLanguage(request.claim),
     });
-    /** The sentence's number each figure is for, as the model named it, by marker. */
-    const stated = new Map<number, string>();
+    /** The sentence's number each figure is for, as the model named it, and how, by marker. */
+    const stated = new Map<number, StatedNumber>();
     const tools: AnswerTools = {
       get documentCount() {
         return session.tools.documentCount;
@@ -217,7 +220,7 @@ export function createClaimCheck(deps: ClaimCheckDependencies) {
       documentLanguages: deps.documents.searchableLanguages(scope.documentIds),
       // Only the model's searches count: looking up a cited court decision shows it nothing.
       searchDocuments: (query, searchSignal, options) => {
-        searched = true;
+        searches++;
         return session.tools.searchDocuments(query, searchSignal, options);
       },
       cite: (records, options) => session.tools.cite(records, options),
@@ -230,8 +233,19 @@ export function createClaimCheck(deps: ClaimCheckDependencies) {
             const fields =
               typeof each === "object" && each !== null ? (each as Record<string, unknown>) : {};
             const marker = whole(fields.marker);
+            const inputs = Array.isArray(fields.inputs) ? (fields.inputs as unknown[]) : [];
+            const costs = inputs.flatMap((input) => {
+              const { name, bracketedCost } = (input ?? {}) as Record<string, unknown>;
+              return bracketedCost === true && typeof name === "string" ? [name] : [];
+            });
             if (marker !== null && typeof fields.stated === "string" && fields.stated.trim() !== "")
-              stated.set(marker, fields.stated.trim());
+              stated.set(marker, {
+                number: fields.stated.trim(),
+                ...((fields.relation === "at most" || fields.relation === "at least") && {
+                  relation: fields.relation,
+                }),
+                costs: new Set(costs),
+              });
           }
           return figures.calculate(givenList(given), options);
         },
@@ -256,11 +270,20 @@ export function createClaimCheck(deps: ClaimCheckDependencies) {
       const t = (key: MessageKey, params?: MessageParams) =>
         translate(deps.language(), key, params);
       const { amount } = found;
+      if (found.kind === "scale") {
+        return {
+          found: true,
+          reason: t("claim.unsupported.unit", { amount, figure: found.figure }),
+          covered: t("claim.unsupported.currency.covered", { amount }),
+          uncovered: t("claim.unsupported.scale.uncovered", { figure: found.figure }),
+        };
+      }
       if (found.kind === "unit") {
         const reason = t("claim.unsupported.unit", { amount, figure: found.figure });
-        return { reason, covered: null, uncovered: null };
+        return { reason, covered: null, uncovered: null, found: true };
       }
       return {
+        found: true,
         reason: t("claim.unsupported.currency.reason", { amount }),
         covered: t("claim.unsupported.currency.covered", { amount }),
         uncovered: t("claim.unsupported.currency.uncovered", { currency: found.currency }),
@@ -339,8 +362,9 @@ export function createClaimCheck(deps: ClaimCheckDependencies) {
         {
           name: "search-first",
           check: (text) =>
-            !searched && readVerdict(text) ? { claims: [], note: SEARCH_FIRST } : null,
+            searches === 0 && readVerdict(text) ? { claims: [], note: SEARCH_FIRST } : null,
         },
+        searchAgain(() => searches),
       ],
       signal,
     })) {
@@ -352,11 +376,11 @@ export function createClaimCheck(deps: ClaimCheckDependencies) {
     }
     if (signal.aborted) return notChecked("stopped");
     if (failed) return failedCheck(failed);
-    const worked = calculated(request.claim, figures, stated, (citation) =>
+    const figureContext = (citation: Citation) =>
       documentFigureContext(
         scoped.pageTexts(citation.documentId, citation.contentHash, null, null),
-      ),
-    );
+      );
+    const worked = calculated(request.claim, figures, stated, figureContext);
     // A figure that disagrees contradicts the sentence. One that agrees settles only that
     // number: the model's verdict still stands on the rest of the sentence.
     if (worked && !worked.calculation.agrees) {
@@ -379,7 +403,7 @@ export function createClaimCheck(deps: ClaimCheckDependencies) {
       ...citedCase(worked.evidence),
       ...facts(),
     };
-    if (!finished || reply.trim() === "") return byCalculation ?? notChecked("empty");
+    if (!finished || reply.trim() === "") return notChecked("empty");
     // Claude Haiku 5.5 may write the verdict lines in the turn that calls `cite` after its search,
     // with no marker, and only the sentence after it: the Answer sets that turn aside as a
     // preamble (#1673). Only the last such turn with a verdict counts, so another one's preamble
@@ -391,9 +415,8 @@ export function createClaimCheck(deps: ClaimCheckDependencies) {
     const verdict =
       readVerdict(reply) ??
       (withVerdict === undefined ? null : readVerdict(`${withVerdict}\n\n${reply}`));
-    if (!verdict) return byCalculation ?? notChecked(refused ? "refused" : "malformed");
-    if (!searched) return notChecked("unread");
-    if (byCalculation && verdict.verdict !== "contradicted") return byCalculation;
+    if (!verdict) return notChecked(refused ? "refused" : "malformed");
+    if (searches === 0) return notChecked("unread");
     /** Unsupported, with the nearest line when it states another value for the same thing (#770). */
     const unsupported = async (
       why: UnsupportedReason = { reason: null, covered: null, uncovered: null },
@@ -426,32 +449,70 @@ export function createClaimCheck(deps: ClaimCheckDependencies) {
         evidence: nearest,
         says: null,
         unsupported: quoted ? { ...why, quoted } : why,
-        calculation: null,
+        calculation: worked?.calculation ?? null,
         ...citedCase(nearest),
         ...left,
         excluded: nearest ? left.excluded : [...left.excluded, ...workingsSayingIt()],
       };
     };
     session.check();
-    if (verdict.verdict === "unsupported") {
+    if (verdict.verdict === "unsupported" && !byCalculation) {
       // A part covered stands only for a claim whose own topic a Passage is about: the reply's own
       // field says so, so a neighbouring topic's line is never shown as part of the claim.
       const onTopic = verdict.topic !== "not found";
+      const parts = onTopic && verdict.covered !== null && verdict.uncovered !== null;
       return unsupported({
         reason: verdict.says,
         covered: onTopic ? verdict.covered : null,
         uncovered: onTopic ? verdict.uncovered : null,
+        ...((verdict.topic === "found" || parts) && { found: true }),
       });
     }
-    const evidence =
+    const cited =
       decidingCitation(session.finalCitation) ??
       (await askForEvidence(request, verdict, session, signal));
+    const evidence = cited ?? worked?.evidence ?? null;
+    const onlyCalculation = cited === null && worked?.evidence != null;
     if (signal.aborted) return notChecked("stopped");
-    if (!evidence) return byCalculation ?? notChecked("no-evidence");
-    const unit = byCalculation
-      ? null
-      : unstatedUnit([evidence, ...foundCitations(session.finalCitation, evidence)]);
-    if (unit && verdict.verdict !== "contradicted") return unsupported(unit, evidence);
+    if (!evidence) return notChecked("no-evidence");
+    const unit = unstatedUnit([evidence, ...foundCitations(session.finalCitation, evidence)]);
+    if (unit && (verdict.verdict !== "contradicted" || onlyCalculation))
+      return unsupported(unit, evidence, null);
+    // An unsupported reply with no topic or part named can be missing only the derived figure.
+    // Only a reason or part about that figure alone is settled; a found topic or any independent
+    // reason or part stays unsupported.
+    if (byCalculation && verdict.verdict === "unsupported") {
+      const onTopic = verdict.topic !== "not found";
+      const parts = onTopic && verdict.covered !== null && verdict.uncovered !== null;
+      const derivedReason =
+        worked !== null &&
+        verdict.says !== null &&
+        derivedFigureOnly(verdict.says, worked.calculation.stated, figureContext(worked.evidence));
+      const derivedPart =
+        worked !== null &&
+        verdict.uncovered !== null &&
+        derivedFigureOnly(
+          verdict.uncovered,
+          worked.calculation.stated,
+          figureContext(worked.evidence),
+        );
+      const independentReason = verdict.says !== null && !derivedReason;
+      const independentPart = parts && !derivedPart;
+      if (
+        independentReason ||
+        independentPart ||
+        (!derivedReason && !derivedPart && verdict.topic === "found")
+      )
+        return unsupported(
+          {
+            reason: verdict.says,
+            covered: onTopic ? verdict.covered : null,
+            uncovered: onTopic ? verdict.uncovered : null,
+            found: true,
+          },
+          evidence,
+        );
+    }
     // The reply's own parts, else the model is asked for them once: a part too long to be a
     // phrase left Claude Sonnet 5.5's "Employees…" Supported (#1647).
     const parts = async (quoted: Citation) =>
@@ -464,38 +525,47 @@ export function createClaimCheck(deps: ClaimCheckDependencies) {
     // Supported against "may pay", then named the difference (#1668). The reply says each in a
     // field of its own, so the verdict doesn't rest on the model weighing it.
     const differs = verdict.roles === "differs";
-    if (
-      verdict.verdict === "supported" &&
-      (verdict.scope === "wider" || differs) &&
-      !byCalculation
-    ) {
+    if (verdict.verdict === "supported" && (verdict.scope === "wider" || differs)) {
       const part = await parts(evidence);
       if (signal.aborted) return notChecked("stopped");
       // The Passage the check cited states the term's own value, so no nearest line is asked about.
       const nearest = differs ? undefined : null;
       if (part.covered && part.uncovered)
-        return unsupported({ reason: verdict.says, ...part }, evidence, nearest);
-      if (differs) return unsupported();
+        return unsupported({ reason: verdict.says, ...part, found: true }, evidence, nearest);
+      if (differs) return unsupported({ ...UNBACKED, reason: verdict.says });
     }
+    if (
+      byCalculation &&
+      onlyCalculation &&
+      verdict.verdict === "contradicted" &&
+      verdict.says === null &&
+      verdict.covered === null &&
+      verdict.uncovered === null
+    )
+      return byCalculation;
     if (verdict.verdict === "contradicted") {
       // The judgements disagree with the check: the card shows the part the quote states
       // (DESIGN.md › Checks).
       const inDoubt = async (): Promise<ClaimCheckResult> => {
+        if (unit) return unsupported(unit, evidence, null);
         if (byCalculation) return byCalculation;
-        if (unit) return unsupported(unit, evidence);
         if (verdict.topic === "not found") return unsupported();
         const part = await parts(evidence);
         if (signal.aborted) return notChecked("stopped");
-        if (!part.covered || !part.uncovered) return unsupported();
+        if (!part.covered || !part.uncovered) return unsupported(UNBACKED);
         // A judgement has just compared this very quote with the sentence: no nearest line.
-        return unsupported({ reason: verdict.says, ...part }, evidence, null);
+        return unsupported({ reason: verdict.says, ...part, found: true }, evidence, null);
       };
       const first = await compare(request, evidence, session, signal, CONFIRM_INSTRUCTIONS);
       if (signal.aborted) return notChecked("stopped");
       if ("failed" in first) return failedCheck(first.failed);
       const judged = readJudgement(first.reply);
       // The Passage is about something else: what is nearest may still say something different.
-      if (judged === "neither") return byCalculation ?? unsupported();
+      if (judged === "neither") {
+        return unit
+          ? unsupported(unit, evidence, null)
+          : (byCalculation ?? unsupported(verdict.topic === "not found" ? undefined : UNBACKED));
+      }
       // Never Supported: in one word it called the parties the other way round the same (#1668).
       if (judged === "same") return inDoubt();
       // A false contradiction is the worst verdict a check gives, and one judgement upheld near
@@ -509,6 +579,7 @@ export function createClaimCheck(deps: ClaimCheckDependencies) {
       if (strictly === null) return notChecked("malformed");
       if (strictly === "neither") return inDoubt();
     }
+    if (byCalculation && verdict.verdict !== "contradicted") return byCalculation;
     return {
       verdict: verdict.verdict,
       evidence,
@@ -521,31 +592,46 @@ export function createClaimCheck(deps: ClaimCheckDependencies) {
   };
 }
 
+interface StatedNumber {
+  number: string;
+  relation?: LimitRelation;
+  /** The names of the inputs the model marked as a cost or deduction printed in brackets. */
+  costs: ReadonlySet<string>;
+}
+
 /**
  * The figure the model worked out for a number of the sentence, once every
- * input's quote is found, and whether the number agrees with it. Null when
- * there is none to decide by: no figure recorded for a number the sentence
- * has, an input's quote not found, or a result that can't be compared.
+ * input's quote is found, and whether the number agrees with it. Every number
+ * the model named must hold, the sentence's figure and its limit alike: the
+ * first that disagrees decides, whatever their order (#1908). Null when there
+ * is none to decide by: no figure recorded for a number the sentence has, an
+ * input's quote not found, or a result that can't be compared.
  */
 function calculated(
   claim: string,
   figures: CalculationSession,
-  stated: ReadonlyMap<number, string>,
+  stated: ReadonlyMap<number, StatedNumber>,
   contextOf: (citation: Citation) => FigureContext,
 ): { evidence: Citation; calculation: ClaimCalculation } | null {
   figures.check();
-  for (const [marker, named] of stated) {
+  let agreeing: { evidence: Citation; calculation: ClaimCalculation } | null = null;
+  for (const [marker, { number: named, relation, costs }] of stated) {
     const figure = figures.figure(marker);
     const first = figure?.inputs[0]?.citation;
     if (!figure || !first) continue;
     const number = statedFigure(claim, named, contextOf(first));
     if (!number) continue;
     if (figure.inputs.some((input) => input.citation.check !== "found")) continue;
-    const agrees = agreesWith(number, figure);
+    const agrees = agreesWith(number, figure, { relation, costs });
     if (agrees === null) continue;
-    return { evidence: first, calculation: { figure, stated: number.chars, agrees } };
+    const worked = {
+      evidence: first,
+      calculation: { figure, stated: number.chars, agrees, ...(relation && { relation }) },
+    };
+    if (!agrees) return worked;
+    agreeing ??= worked;
   }
-  return null;
+  return agreeing;
 }
 
 /**
@@ -705,6 +791,21 @@ async function nearestDifferent(
 }
 
 const messageOf = (error: unknown) => (error instanceof Error ? error.message : String(error));
+
+// A calculation settles one missing figure, not another coordinated or adjoining clause.
+const ANOTHER_CLAUSE =
+  /(?:[;；,，:：—]|\b(?:and|but|or|yet|however|although|though|while|whereas)\b|和|与|及|以及|并且|但|但是|然而|或|或者|而)/iu;
+
+const derivedFigureOnly = (text: string, stated: string, document: FigureContext) =>
+  sentenceSpans(text).length === 1 &&
+  !ANOTHER_CLAUSE.test(text) &&
+  statedFigure(text, stated, document) !== null;
+
+/**
+ * A Passage the check found and judged that doesn't back the sentence, with nothing to quote from it:
+ * Unsupported, never Not found (#1608).
+ */
+const UNBACKED: UnsupportedReason = { reason: null, covered: null, uncovered: null, found: true };
 
 /** The marker the nearest line is recorded under: apart from the model's and the evidence's. */
 const NEAREST_MARKER = 98;

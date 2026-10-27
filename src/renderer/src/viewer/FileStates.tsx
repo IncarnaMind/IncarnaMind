@@ -1,4 +1,6 @@
 import type { ReactNode } from "react";
+import type { Document } from "../../../core/api";
+import { DocumentFix } from "../components/DocumentFix";
 import { useT } from "../i18n";
 import { useCitedAreaFailure } from "./citedArea";
 import type { LoadedFile } from "./useDocumentFile";
@@ -10,13 +12,18 @@ import { FileGone, ViewerMessage } from "./ViewerMessage";
  * still shown), or failed. `ready` draws it once it is.
  */
 export function FileStates<T>({
+  document,
   loaded,
   quote,
   ready,
+  reload,
 }: {
+  document: Document;
   loaded: LoadedFile<T>;
   quote: string | undefined;
   ready(value: T): ReactNode;
+  /** Reads the file again, for the fix's Retry: the bytes may not have changed. */
+  reload?: () => void;
 }) {
   const t = useT();
   useCitedAreaFailure(
@@ -45,18 +52,36 @@ export function FileStates<T>({
       return (
         <>
           <ViewerHeader />
-          <ViewerMessage tone="error">
-            {t("documents.status.failed", { reason: t("documents.failure.tooLarge") })}
-          </ViewerMessage>
+          <DocumentFix
+            document={document}
+            view
+            message=""
+            reload={reload}
+            fallback={
+              <ViewerMessage tone="error">
+                {t("documents.status.failed", { reason: t("documents.failure.tooLarge") })}
+              </ViewerMessage>
+            }
+          />
         </>
       );
     case "failed":
       return (
         <>
           <ViewerHeader />
-          <ViewerMessage tone="error">
-            {loaded.message ? t("viewer.failed", { message: loaded.message }) : t("viewer.notText")}
-          </ViewerMessage>
+          <DocumentFix
+            document={document}
+            view
+            message={loaded.message}
+            reload={reload}
+            fallback={
+              <ViewerMessage tone="error">
+                {loaded.message
+                  ? t("viewer.failed", { message: loaded.message })
+                  : t("viewer.notText")}
+              </ViewerMessage>
+            }
+          />
         </>
       );
     case "ready":

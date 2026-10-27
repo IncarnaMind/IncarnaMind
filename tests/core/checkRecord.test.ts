@@ -159,6 +159,18 @@ async function writeNotes({ core, mind, client, tides, folderId, localModel, hai
         }),
         text(" "),
       ]),
+      text("Fog rolls in from the sea.", {
+        type: "claimCheck",
+        attrs: checked(tides, "Fog rolls in from the sea.", "unsupported", localModel, {
+          scope: { folderId, widened: false },
+          unsupported: {
+            reason: "Tides says nothing about fog.",
+            covered: null,
+            uncovered: null,
+            found: true,
+          },
+        }),
+      }),
     ),
     paragraph(
       ai,
@@ -281,7 +293,7 @@ describe("The check record as CSV", () => {
       {
         Kind: "Sentence",
         Sentence: "Penguins nest on the harbour cliffs.",
-        Result: "Unsupported",
+        Result: "Not found",
         Text: "Your text",
         ...none,
         ...local,
@@ -296,6 +308,15 @@ describe("The check record as CSV", () => {
         Model: "",
         Service: "",
         Checked: "",
+      },
+      {
+        Kind: "Sentence",
+        Sentence: "Fog rolls in from the sea.",
+        Result: "Unsupported",
+        Text: "Your text",
+        ...none,
+        ...local,
+        Checked: CHECKED,
       },
       {
         Kind: "Sentence",
@@ -349,10 +370,10 @@ describe("The check record as CSV", () => {
     expect(summary.get("Documents searched")).toBe("Harbours; All Documents");
     expect(summary.get("“Keep everything on this computer” when exported")).toBe("Off");
     expect(summary.get("Models")).toBe(
-      "Claude Haiku 5.5 (Anthropic), 1 sentence check; local-model (On this computer), 2 sentence checks",
+      "Claude Haiku 5.5 (Anthropic), 1 sentence check; local-model (On this computer), 3 sentence checks",
     );
     expect(summary.get("Sentences")).toBe(
-      "Supported 1; Unsupported 1; Not checked 1; Contradicted 1",
+      "Supported 1; Not found 1; Not checked 1; Unsupported 1; Contradicted 1",
     );
     expect(summary.get("Citations")).toBe("Quote found 2; Quote not found 1");
 
@@ -452,10 +473,17 @@ describe("The check record as CSV", () => {
     expect(summary.get("导出时间（UTC）")).toBe(NOW);
     expect(summary.get("搜索范围")).toBe("Harbours; 全部文档");
     expect(summary.get("AI 模型")).toBe(
-      "Claude Haiku 5.5（Anthropic），1 次句子核对; local-model（在这台电脑上），2 次句子核对",
+      "Claude Haiku 5.5（Anthropic），1 次句子核对; local-model（在这台电脑上），3 次句子核对",
     );
     expect(summary.get("导出时“所有内容都留在这台电脑上”")).toBe("未开启");
-    const [first, , , , citationRow] = rowsOf(csv);
+    const [first] = rowsOf(csv);
+    const citationRow = rowsOf(csv).find((row) => row.类型 === "引用");
+    // Not found is its own result, apart from Unsupported, in Chinese too.
+    expect(
+      rowsOf(csv)
+        .filter((row) => row.类型 === "句子")
+        .map((row) => row.核对结果),
+    ).toEqual(["有依据", "未找到", "未核对", "无依据", "与文档矛盾"]);
     expect(first).toMatchObject({
       类型: "句子",
       核对结果: "有依据",
@@ -627,9 +655,9 @@ describe("The check record as PDF", () => {
       '<th scope="row">“Keep everything on this computer” when exported</th><td><div>On</div></td>',
     );
     expect(body).toContain(
-      "<div>Claude Haiku 5.5 (Anthropic), 1 sentence check</div><div>local-model (On this computer), 2 sentence checks</div>",
+      "<div>Claude Haiku 5.5 (Anthropic), 1 sentence check</div><div>local-model (On this computer), 3 sentence checks</div>",
     );
-    expect(body).toContain("Sentences checked against the Documents (4)");
+    expect(body).toContain("Sentences checked against the Documents (5)");
     expect(body).toContain("Citations (3)");
     for (const sentence of [
       "Spring tides come at new moon.",
@@ -648,7 +676,7 @@ describe("The check record as PDF", () => {
     expect(body).not.toContain(sha256);
     expect(body).toContain("Contradicted</b> · Sentence · Someone else’s text");
     expect(body).toContain("Quote not found</b> · Citation · AI text");
-    expect(body.match(/class="record-shape"/g)).toHaveLength(7);
+    expect(body.match(/class="record-shape"/g)).toHaveLength(8);
   });
 
   test("shows the Mind's words as text: markup in a sentence or a quote is escaped", async () => {
@@ -688,7 +716,7 @@ describe("The check record as PDF", () => {
         "本记录列出 IncarnaMind 核对了什么、怎样核对。“找到引文”只说明引文的文字在那一页上，不说明它支持这句话。",
     });
     expect(printed[0]?.body).toContain("核对记录：Harbour notes");
-    expect(printed[0]?.body).toContain("对照文档核对的句子（4）");
+    expect(printed[0]?.body).toContain("对照文档核对的句子（5）");
     expect(printed[0]?.body).toContain("核对方式</span> IncarnaMind（在这台电脑上）</p>");
     expect(printed[0]?.body).toContain("2026年10月15日 14:20 UTC");
   });

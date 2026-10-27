@@ -7,8 +7,10 @@ import type { Effect, ThirdPartyReason } from "../core/api";
 
 /**
  * Whether an Effect runs without asking: reading the Documents, a Skill, a
- * Connector's service or a web host; sending to a Connector's service, which
- * the User's consent to it covers (the call asks for that first). Reading a
+ * Connector's service or a web host; running code in the analysis sandbox,
+ * which can neither write a file nor reach the network (ADR-0023); sending to
+ * a Connector's service, which the User's consent to it covers (the call asks
+ * for that first). Reading a
  * web host is fetching an address the Run didn't write, such as a web
  * search's result (#128), so it sends nothing of the User's; a Tool that
  * fetches an address the model chose sends data, and says "network".
@@ -26,6 +28,8 @@ export const runsByDefault = ({ action, scope }: Effect): boolean => {
     case "mind":
     case "library":
       return action === "read" || action === "write";
+    case "sandbox":
+      return action === "execute";
     case "output":
       return action === "write";
     default:
