@@ -347,10 +347,17 @@ function takenOut(passage: string, cut: string): string | null {
     keptAt.add(stop);
     const before = [...keptAt].filter((at) => at < stop).sort((a, b) => b - a)[0];
     // The stop takes the place of a comma or colon the cut kept before it.
-    if (before !== undefined && TRAILING_MARK.test(pieces[before]?.[0] ?? "")) keptAt.delete(before);
+    if (before !== undefined && TRAILING_MARK.test(pieces[before]?.[0] ?? ""))
+      keptAt.delete(before);
   }
   if (keptAt.size === pieces.length) return null;
-  if (!citationsKeepTheirWords(pieces.map(([piece]) => piece), keptAt)) return null;
+  if (
+    !citationsKeepTheirWords(
+      pieces.map(([piece]) => piece),
+      keptAt,
+    )
+  )
+    return null;
   let kept = "";
   let previous = -1;
   for (const at of [...keptAt].sort((a, b) => a - b)) {

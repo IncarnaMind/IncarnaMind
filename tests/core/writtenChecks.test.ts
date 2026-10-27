@@ -91,10 +91,8 @@ const PLANS: Record<string, Plan> = {
   },
   [asChecked("Revenue did not rise in 2023")]: partly("the revenue", "not"),
   [asCheckedZh("公司营收没有在所有地区增长")]: partly("营收增长", "没有"),
-  [`Spring tides come at new and full moon, and they flood the harbour every year.${INLINE_NODE}`]: partly(
-    "when spring tides come",
-    "the yearly floods",
-  ),
+  [`Spring tides come at new and full moon, and they flood the harbour every year.${INLINE_NODE}`]:
+    partly("when spring tides come", "the yearly floods"),
   [`The harbour floods in spring${INLINE_NODE}, in every region.`]: partly(
     "the flood in spring",
     "every region",
@@ -189,7 +187,9 @@ const englishEvidence =
     if (!call.results.some((result) => result.tool === "cite")) {
       const [shown] = shownPassages(searches.at(-1)?.text ?? "");
       return {
-        calls: [{ tool: "cite", input: { citations: [{ marker: 1, passage: shown?.id, quote: MOON }] } }],
+        calls: [
+          { tool: "cite", input: { citations: [{ marker: 1, passage: shown?.id, quote: MOON }] } },
+        ],
       };
     }
     return { text: `Verdict: supported\nThe Document says: ${MOON} [^1]` };
