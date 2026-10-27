@@ -4,16 +4,10 @@ import { mindName } from "../../../../shared/naming";
 import { timeAgo } from "../../dates";
 import { useDraggedRef, useDragSource } from "../../dragDrop";
 import { useExports } from "../../exports";
-import {
-  homeClick,
-  useHomeView,
-  useMindNoteStates,
-  useMindSnippets,
-  useOwnMinds,
-} from "../../home";
+import { homeClick, useHomeView, useMindSnippets, useOwnMinds } from "../../home";
 import { useLanguage, useT } from "../../i18n";
 import { onMiddleClick } from "../../middleClick";
-import { type NoteState, noteStateParts } from "../../noteState";
+import { type NoteReading, type NoteState, noteStateParts } from "../../noteState";
 import { useSelectable } from "../../selection";
 import { moveFromMenu, rowDrag } from "../../sidebarMoves";
 import { useAppStore } from "../../store";
@@ -25,13 +19,18 @@ import { draggedRowClass } from "../sidebarRows";
 
 const FIRST_ROWS = 6;
 
-export function RecentMinds({ now }: { now: Date }) {
+export function RecentMinds({
+  now,
+  states,
+}: {
+  now: Date;
+  states: ReadonlyMap<string, NoteReading>;
+}) {
   const t = useT();
   const minds = useOwnMinds();
   const snippets = useMindSnippets();
   const all = useHomeView((state) => state.all);
   const shown = all ? minds : minds.slice(0, FIRST_ROWS);
-  const states = useMindNoteStates(shown);
   if (minds.length === 0) return null;
   return (
     <section data-testid="home-recent" className="mb-7">
@@ -48,7 +47,7 @@ export function RecentMinds({ now }: { now: Date }) {
             key={mind.id}
             mind={mind}
             snippet={snippets.get(mind.id)}
-            state={states.get(mind.id) ?? null}
+            state={states.get(mind.id)?.state ?? null}
             now={now}
           />
         ))}

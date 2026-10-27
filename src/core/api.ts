@@ -2271,6 +2271,8 @@ export interface GettingStarted {
   askedOwn: boolean;
   /** The User asked the first open's ready Question (`askReadyQuestion`). */
   askedReady: boolean;
+  /** An own note was exported successfully on this device. */
+  exported: boolean;
   /** The User hid the checklist. */
   hidden: boolean;
   /** The first-run card was shown on this device: an empty note keeps no second guide after that (#1940). */
