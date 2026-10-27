@@ -61,7 +61,7 @@ jobs:
           elif [ "$EVENT" = pull_request ]; then
             files="$(git diff --name-only "$BASE...$HEAD")" || files=""
             echo "$files"
-            if [ -n "$files" ] && ! echo "$files" | grep -qE '^(src/main/|src/shared/i18n/|e2e/|tests/main/|tests/helpers/(home|lifecycleProcesses\.test)\.ts$|tests/fixtures/lifecycle-versions\.json$|scripts/check-(lifecycle-packages|startup-control-package)\.mjs$|electron-builder\.yml$|electron\.vite\.config\.ts$|package(-lock)?\.json$|\.github/workflows/ci\.yml$)'; then
+            if [ -n "$files" ] && ! echo "$files" | grep -qE '^(src/main/|src/core/core\.ts$|src/core/storage/|src/shared/i18n/|e2e/|tests/main/|tests/helpers/(home|lifecycleProcesses\.test)\.ts$|tests/fixtures/lifecycle-versions\.json$|scripts/check-(lifecycle-packages|startup-control-package)\.mjs$|electron-builder\.yml$|electron\.vite\.config\.ts$|package(-lock)?\.json$|\.github/workflows/ci\.yml$)'; then
               startup=false
             fi
             # Nothing listed (the diff failed, or is empty) runs everything.
