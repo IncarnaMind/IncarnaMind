@@ -78,7 +78,8 @@ export function ConversationThread({ focusedMindId }: { focusedMindId: string | 
   const shownTask = useTasks((state) => state.shown);
   const thread = useThreadStart(conversation ?? null);
   const tasks = threadTasks(Object.values(allTasks), focusedMindId, thread, shownTask);
-  const plan = useResearch((state) => (focusedMindId ? state.plans[focusedMindId] : undefined));
+  // A plan made with no Mind in focus is the composer's own until Start makes its Mind.
+  const plan = useResearch((state) => state.plans[focusedMindId ?? NO_MIND]);
   const focusedMind = useAppStore((state) => state.minds.find((mind) => mind.id === focusedMindId));
   const examples = useAppStore((state) => state.examples);
   const otherExamples = useAppStore((state) => state.otherExamples);

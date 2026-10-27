@@ -1707,7 +1707,7 @@ export function createCore(adapters: CoreAdapters): Core {
     );
   const notifyTask = ({ task, what }: TaskNotice) => {
     const notifications = adapters.notifications;
-    if (!notifications) return;
+    if (!notifications || !settings.get().user.taskNotifications) return;
     const language = settings.get().language;
     const name = taskName(task.kind);
     const title = translate(
@@ -1740,6 +1740,9 @@ export function createCore(adapters: CoreAdapters): Core {
     mindName: (mindId) => (mindExists(mindId) ? mindName(minds.get(mindId)) || null : null),
     folderOfMind: (mindId) => (mindExists(mindId) ? minds.get(mindId).folderId : null),
     createMind: (title, folderId) => makeMind({ title, kind: DEFAULT_MIND_KIND, folderId }).id,
+    moveMind: (mindId, folderId) => {
+      if (minds.move([mindId], folderId).some((item) => item.from !== folderId)) mindsChanged();
+    },
     documents: {
       webPagesSince: (ids, since) =>
         documents
