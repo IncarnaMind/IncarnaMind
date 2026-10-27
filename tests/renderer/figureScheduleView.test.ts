@@ -34,6 +34,8 @@ vi.mock("../../src/renderer/src/store", () => {
   };
 });
 vi.mock("../../src/renderer/src/layoutSlice", () => ({ currentTabOf: () => null }));
+// The menus' keys reach the Tasks, which listen to the core as they load.
+vi.mock("../../src/renderer/src/core", () => ({ core: { on: () => () => {} } }));
 vi.mock("../../src/renderer/src/modelNames", () => ({
   useModelNames: () => () => ({ name: "Test model", id: "test-model" }),
 }));
