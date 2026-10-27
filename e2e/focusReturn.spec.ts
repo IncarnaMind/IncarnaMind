@@ -3,6 +3,7 @@ import {
   createDataFolder,
   dismissChatSetup,
   enterContent,
+  frontMind,
   launchApp,
   motionSettled,
   newMind,
@@ -46,7 +47,7 @@ test("Esc out of the editor's ⌘K still types: the whole word lands in the Note
     await expect(window.getByTestId("palette")).toBeHidden();
     await enterContent(window);
     await window.keyboard.type(word);
-    await expect(window.getByTestId("mind-editor")).toHaveText(`Alpha${word}`);
+    await expect(frontMind(window).getByTestId("mind-editor")).toHaveText(`Alpha${word}`);
     await app.close();
   }
 });
