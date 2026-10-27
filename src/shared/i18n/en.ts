@@ -3843,9 +3843,25 @@ export const en = {
   "error.system.nameTooLong": "That name is too long for the file system.",
   "error.system.exists": "A file or folder with that name is already there.",
   "error.startup.title": "IncarnaMind couldn’t start",
-  "error.startup.body": "Your data folder couldn’t be opened.\n\n{message}",
+  "error.startup.body":
+    "Your data folder couldn’t be opened. Close this message, then open IncarnaMind again.\n\n{message}",
   "error.startup.busy":
     "IncarnaMind couldn’t open its data folder. Another copy may still be starting. Try again in a moment.",
+  "error.startup.starting":
+    "Another copy hasn’t finished starting. Wait a moment, then open IncarnaMind again.",
+  "error.startup.quitting":
+    "Another copy hasn’t finished closing. Wait for it to quit, then open IncarnaMind again.",
+  "error.startup.installing":
+    "An update is being installed. Wait for it to finish, then open IncarnaMind again.",
+  "error.startup.update.title": "IncarnaMind needs the latest version",
+  "error.startup.update.body":
+    "The update to {new} may not have finished. This copy is {old}, so it won’t open your data folder. Download and install the latest version, then open IncarnaMind again.",
+  "error.startup.update.withCurrent":
+    "The update may not have finished. This copy is {old}, so it won’t open your data folder. Download and install the latest version, then open IncarnaMind again.",
+  "error.startup.update.withTarget":
+    "The update to {new} may not have finished. This copy won’t open your data folder. Download and install the latest version, then open IncarnaMind again.",
+  "error.startup.update.unknown":
+    "The update may not have finished. This copy won’t open your data folder. Download and install the latest version, then open IncarnaMind again.",
   "error.startup.stalled":
     "IncarnaMind couldn’t open its window while another copy was quitting. Your data is unchanged. Open IncarnaMind again.",
   "error.startup.newer.title": "Update IncarnaMind to open your data",
@@ -4357,6 +4373,8 @@ export const en = {
   "update.ready.detail":
     "It installs the next time you quit IncarnaMind. Restart now to install it straight away.",
   "update.ready.confirm": "Restart now",
+  "update.pending.detail": "The update will finish the next time you quit IncarnaMind.",
+  "update.pending.dismiss": "Got it",
   "update.later": "Later",
   "update.failed.title": "The update couldn’t be installed",
   "update.failed.detail":

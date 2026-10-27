@@ -1,4 +1,5 @@
 import { DatabaseSync, type StatementSync } from "node:sqlite";
+import { isRecord } from "../errors";
 import type { Database, SqlValue } from "./database";
 
 /**
@@ -7,7 +8,38 @@ import type { Database, SqlValue } from "./database";
  */
 export function openNodeSqlite(file: string): Database {
   const db = new DatabaseSync(file);
-  db.exec("PRAGMA journal_mode = WAL");
+  try {
+    db.exec("PRAGMA journal_mode = WAL");
+  } catch (error) {
+    if (
+      process.platform !== "win32" ||
+      !isRecord(error) ||
+      error.code !== "ERR_SQLITE_ERROR" ||
+      error.errcode !== 1546
+    )
+      throw error;
+    // SQLite cannot truncate mapped SHM on Windows (#2067, upstream 7c103a0b7d).
+    // Remove this bounded workaround when the released runtime contains that fix.
+    const deadline = performance.now() + 5_000;
+    const pause = new Int32Array(new SharedArrayBuffer(4));
+    let failure = error;
+    for (;;) {
+      const remaining = deadline - performance.now();
+      if (remaining <= 0) throw failure;
+      Atomics.wait(pause, 0, 0, Math.min(250, remaining));
+      if (performance.now() >= deadline) throw failure;
+      try {
+        db.exec("PRAGMA journal_mode = WAL");
+      } catch (next) {
+        if (!isRecord(next) || next.code !== "ERR_SQLITE_ERROR" || next.errcode !== 1546)
+          throw next;
+        failure = next;
+        continue;
+      }
+      if (performance.now() >= deadline) throw failure;
+      break;
+    }
+  }
   // Each commit is on disk before it returns: a Task's journal must survive a force-quit (#126).
   db.exec("PRAGMA synchronous = FULL");
   db.exec("PRAGMA foreign_keys = ON");
