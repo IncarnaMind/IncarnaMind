@@ -1,6 +1,6 @@
 /**
  * What a Mind's checks left on it, read for the check record (#738): each
- * checked sentence and each Citation with its result, the Document version it
+ * checked sentence, Citation and record cite with its result, the Document version it
  * rests on, who checked it and when, and whose text it is. What the Mind's own
  * marks and Citations and the Documents as they are now don't hold is left
  * empty, never guessed.
@@ -30,6 +30,7 @@ import {
   GENERATED_MARK,
   type KeptCitationText,
   QUESTION_BLOCK,
+  type RecordCiteResult,
 } from "../api";
 import type { ModelDescription } from "../chatModelNames";
 import { type Footnote, type Inline, readBlock, reviewReading } from "../mindText";
@@ -76,6 +77,22 @@ export type CitationItem = RecordItemFields & { kind: "citation"; result: Citati
 
 export type RecordItem = SentenceItem | CitationItem;
 
+export interface RecordCiteItem {
+  kind: "record-cite";
+  sentence: string;
+  raw: string;
+  from: number | null;
+  to: number | null;
+  outcome: RecordCiteResult["outcome"];
+  origin: TextOrigin;
+  evidence: RecordDocument | null;
+  covered: string | null;
+  uncovered: string | null;
+  candidates: { id: string; name: string }[];
+  nearby: { location: string | null; passage: string } | null;
+  check: SentenceCheck | null;
+}
+
 export interface RecordSources {
   fragment: Y.XmlFragment;
   documents: readonly Document[];
@@ -108,6 +125,33 @@ function documentOf(
     sha256,
     location: citedLocation(attributes, t),
     quote: readQuote(attributes),
+  };
+}
+
+/** A record cite's resolved source is its stable id, never a same-content replacement. */
+function recordCiteDocumentOf(
+  cite: RecordCiteResult,
+  { documents, t }: Pick<RecordSources, "documents" | "t">,
+): RecordDocument | null {
+  const hasEvidence =
+    cite.documentId !== undefined ||
+    cite.documentName !== undefined ||
+    cite.contentHash !== undefined ||
+    cite.location !== undefined ||
+    cite.pageFrom !== undefined ||
+    cite.passage !== undefined;
+  if (!hasEvidence) return null;
+  const live = documents.find((each) => each.id === cite.documentId);
+  const hasDocument = cite.documentId !== undefined || cite.documentName !== undefined;
+  const sha256 = cite.contentHash ?? null;
+  return {
+    name: live?.name ?? cite.documentName ?? (hasDocument ? t("export.unnamedDocument") : ""),
+    file: live ? (live.web?.address ?? fileNameOf(live.path)) : null,
+    deleted: cite.documentId !== undefined && live === undefined,
+    size: live && sha256 !== null && live.contentHash === sha256 ? live.size : null,
+    sha256,
+    location: citedLocation(cite, t),
+    quote: cite.passage ?? null,
   };
 }
 
@@ -145,6 +189,7 @@ function holdsAiText(element: Y.XmlElement, from: number, to: number): boolean {
 export function readRecord(sources: RecordSources): {
   sentences: SentenceItem[];
   citations: CitationItem[];
+  recordCites: RecordCiteItem[];
   /** The requests the sentences were checked with: what each check's unread files are kept by. */
   requests: string[];
 } {
@@ -153,6 +198,7 @@ export function readRecord(sources: RecordSources): {
   const versions = new Map(documents.map((document) => [document.id, document.contentHash]));
 
   const sentences: SentenceItem[] = [];
+  const recordCites: RecordCiteItem[] = [];
   const requests: string[] = [];
   for (const { element, from, to, check, sentence, cited } of checkedSentences(fragment)) {
     requests.push(check.request);
@@ -162,24 +208,45 @@ export function readRecord(sources: RecordSources): {
       cited.length,
     );
     if (!result) continue;
+    const origin =
+      blockOrigin(fragment, topOf(fragment, element)) ??
+      (holdsAiText(element, from, to) ? "ai" : "user");
+    const checked = {
+      model: model(check.providerId, check.modelId),
+      at: check.checkedAt === "" ? null : check.checkedAt,
+      scope: check.scope,
+    };
     sentences.push({
       kind: "sentence",
       text: comparableSentence(sentence),
       result,
-      origin:
-        blockOrigin(fragment, topOf(fragment, element)) ??
-        (holdsAiText(element, from, to) ? "ai" : "user"),
+      origin,
       says: check.says,
       evidence: check.evidence ? documentOf(check.evidence, sources) : null,
-      check:
-        result === "notChecked"
-          ? null
-          : {
-              model: model(check.providerId, check.modelId),
-              at: check.checkedAt === "" ? null : check.checkedAt,
-              scope: check.scope,
-            },
+      check: result === "notChecked" ? null : checked,
     });
+    for (const cite of check.recordCites ?? []) {
+      recordCites.push({
+        kind: "record-cite",
+        sentence: comparableSentence(sentence),
+        raw: cite.raw,
+        from: cite.from ?? null,
+        to: cite.to ?? null,
+        outcome: cite.outcome,
+        origin,
+        evidence: recordCiteDocumentOf(cite, sources),
+        covered: cite.covered ?? null,
+        uncovered: cite.uncovered ?? null,
+        candidates: (cite.candidates ?? []).map((candidate) => ({
+          id: candidate.id,
+          name: documents.find((each) => each.id === candidate.id)?.name ?? candidate.name,
+        })),
+        nearby: cite.nearby
+          ? { location: citedLocation(cite.nearby, sources.t), passage: cite.nearby.passage }
+          : null,
+        check: checked,
+      });
+    }
   }
 
   const attributesOf = new Map<Footnote, Partial<CitationAttributes>>();
@@ -202,7 +269,7 @@ export function readRecord(sources: RecordSources): {
       citations.push(...citationsIn(group, { attributesOf, origin, sources }));
     }
   }
-  return { sentences, citations, requests };
+  return { sentences, citations, recordCites, requests };
 }
 
 function citationsIn(
