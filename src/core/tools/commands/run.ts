@@ -74,16 +74,16 @@ export interface CommandsHost {
   /**
    * Saves a Mind as a file with the User's export choices for the format: in the Output location
    * (`folder` null), in a folder inside it, or, `approved`, in a folder the User allowed for this
-   * one file. A Word file with no answer yet about marking asks in the tray (`asking`), unless the
-   * request named the choice (`named`), and keeps the answer. Throws, saying why, when nothing was
-   * saved, as when the User closed the question.
+   * one file. A Word file marks the text IncarnaMind wrote, as the saved choice or the default
+   * has it, or as the request named it (`named`) for this file alone (#1945). Throws, saying why,
+   * when nothing was saved.
    */
   exportMind(
     mindId: string,
     format: CommandExportFormat,
     folder: string | null,
     approved: boolean,
-    marking: { named: MarkAiTextChoice | null; asking: CommandAsking },
+    marking: { named: MarkAiTextChoice | null },
   ): Promise<{ file: SavedFile; marking: MarkingSettled | null }>;
 }
 
@@ -183,12 +183,12 @@ const markingSaid = (marking: MarkingSettled | null): string => {
       ? "marks the text IncarnaMind wrote with comments"
       : "leaves the text IncarnaMind wrote unmarked";
   switch (marking.how) {
-    case "kept":
-      return ` This file ${leaves}, as the User answered when asked; that answer is saved for every Word export.`;
     case "this-file":
-      return ` This file ${leaves}, as the User asked for it; their saved answer for Word exports is unchanged.`;
+      return ` This file ${leaves}, as the User asked for it; their saved choice for Word exports is unchanged.`;
     case "earlier":
-      return ` This file ${leaves}, following the answer the User saved for Word exports.`;
+      return ` This file ${leaves}, following the choice saved for Word exports.`;
+    case "default":
+      return ` This file ${leaves}, using the default for Word exports; that choice is now saved.`;
   }
 };
 
@@ -561,10 +561,9 @@ const CHECKERS: Readonly<Record<AssistantCommandId, Checker>> = {
     // Only the Output location itself: a folder in it may be one a sync service shares.
     const elsewhere = given !== null && given !== output;
     const into = elsewhere ? given : null;
-    const run = async (asking: CommandAsking): Promise<Ran> => {
+    const run = async (): Promise<Ran> => {
       const { file, marking } = await host.exportMind(mind.id, input.format, into, elsewhere, {
         named: input.format === "docx" ? input.marks : null,
-        asking,
       });
       return {
         done: {

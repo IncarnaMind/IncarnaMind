@@ -44,6 +44,11 @@ if (displays.length > 0 && Number.isInteger(workerIndex)) {
   process.env.DISPLAY = displays[workerIndex % displays.length];
 }
 
+// Set by the named-specs workflow (docs/agents/testing.md): every test keeps its app's trace,
+// video and window picture, not only a failed one. Playwright's own settings leave an Electron
+// app out, so the launch opts in.
+const KEEP_ARTIFACTS = process.env.INCARNAMIND_KEEP_ARTIFACTS === "1";
+
 /**
  * The apps this test launched that are still open, by the data folder each
  * runs on: `removeDataFolder` closes them, keeping a picture of the window if
@@ -204,17 +209,6 @@ export interface LaunchOptions {
    * of the app as the User runs it.
    */
   realEngines?: boolean;
-  /**
-   * The first Word export asks whether to mark the text IncarnaMind wrote. Without this, a launch
-   * answers it "Mark it" if nobody has, so a test that exports to Word is not stopped by it;
-   * with it, the app is left asking.
-   */
-  askToMarkAiText?: boolean;
-  /**
-   * The first Word or PDF export of a Mind with Citations asks where they go. Without this, a
-   * launch answers it "Footnotes" if nobody has; with it, the app is left asking.
-   */
-  askCitationPlace?: boolean;
 }
 
 /**
@@ -282,8 +276,6 @@ export async function launchApp(
     sandboxed = false,
     sandboxNotice,
     realEngines = false,
-    askToMarkAiText = false,
-    askCitationPlace = false,
   }: LaunchOptions = {},
 ): Promise<RunningApp> {
   const env: Record<string, string> = {};
@@ -376,7 +368,11 @@ export async function launchApp(
     ],
     env,
     chromiumSandbox: sandboxed || sandboxNotice === "environment" || sandboxNotice === "on",
+    ...(KEEP_ARTIFACTS && {
+      recordVideo: { dir: test.info().outputPath("video", basename(dataDir)) },
+    }),
   });
+  if (KEEP_ARTIFACTS) await keepOnClose(app, dataDir);
   openApps.set(app, dataDir);
   app.on("close", () => {
     openApps.delete(app);
@@ -394,7 +390,6 @@ export async function launchApp(
       message: `the window is ${WINDOW_SIZE.width} × ${WINDOW_SIZE.height}: is the screen too short for it?`,
     });
   }
-  await answerExportQuestions(window, !askToMarkAiText, !askCitationPlace);
   return { app, window };
 }
 
@@ -436,32 +431,6 @@ async function waitUntilLive(app: ElectronApplication, window: Page): Promise<vo
   } finally {
     clearTimeout(timer);
   }
-}
-
-async function answerExportQuestions(
-  window: Page,
-  markAiText: boolean,
-  citationPlace: boolean,
-): Promise<void> {
-  await window.evaluate(
-    async ([mark, place]) => {
-      const bridge = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
-      const { exportOptions } = (await bridge.getSettings()).user;
-      const docx =
-        mark && exportOptions.docx.markAiText === null
-          ? { ...exportOptions.docx, markAiText: "mark" as const }
-          : exportOptions.docx;
-      const citations =
-        place && exportOptions.citationPlace === undefined
-          ? { citationPlace: "footnotes" as const }
-          : {};
-      if (docx === exportOptions.docx && Object.keys(citations).length === 0) return;
-      await bridge.updateSettings({
-        user: { exportOptions: { ...exportOptions, docx, ...citations } },
-      });
-    },
-    [markAiText, citationPlace],
-  );
 }
 
 /**
@@ -2897,6 +2866,33 @@ export async function stubClipboard(window: Page) {
 /** A fresh, empty data folder. Remove it with `removeDataFolder`. */
 export const createDataFolder = () => mkdtemp(join(tmpdir(), "incarnamind-smoke-"));
 
+/**
+ * Makes closing the app, by the test or by `removeDataFolder`, first keep its window as it is
+ * and its trace with the test's results; the video is finished by the close itself.
+ */
+async function keepOnClose(app: ElectronApplication, dataDir: string): Promise<void> {
+  await app.context().tracing.start({ screenshots: true, snapshots: true });
+  const close = app.close.bind(app);
+  let kept = false;
+  app.close = async () => {
+    if (!kept) {
+      kept = true;
+      const info = test.info();
+      const window = app.windows()[0];
+      if (window) {
+        const path = info.outputPath(`app-window-${basename(dataDir)}.png`);
+        const shot = await window.screenshot({ path }).catch(() => undefined);
+        if (shot) await info.attach("app-window", { path, contentType: "image/png" });
+      }
+      await app
+        .context()
+        .tracing.stop({ path: info.outputPath(`trace-${basename(dataDir)}.zip`) })
+        .catch((error: unknown) => console.warn(`The app's trace was not kept: ${error}`));
+    }
+    return close();
+  };
+}
+
 /** Closes an app, and kills it if it hasn't quit in 10 s, so one stuck app can't hold up the worker. */
 async function closeOrKill(app: ElectronApplication): Promise<void> {
   const quit = app.close().catch(() => undefined);
@@ -2923,7 +2919,7 @@ export async function removeDataFolder(dataDir: string): Promise<void> {
   for (const [app, folder] of [...openApps]) {
     if (folder !== dataDir) continue;
     const window = app.windows()[0];
-    if (info.status !== info.expectedStatus && window) {
+    if (!KEEP_ARTIFACTS && info.status !== info.expectedStatus && window) {
       const path = info.outputPath("app-window.png");
       const shot = await window.screenshot({ path }).catch(() => undefined);
       if (shot) await info.attach("app-window", { path, contentType: "image/png" });
