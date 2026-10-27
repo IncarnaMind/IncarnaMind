@@ -1,4 +1,5 @@
 import { type RefObject, useEffect, useRef, useSyncExternalStore } from "react";
+import { useFocusReturn } from "./useFocusReturn";
 
 /** The native modal dialogs that are open, the one opened last on top. */
 const openModals: HTMLDialogElement[] = [];
@@ -49,36 +50,34 @@ export function topModalNow(): HTMLDialogElement | null {
  * Keeps a native <dialog> shown as a modal while `open` is true. With
  * `focusDialog`, opening focuses the dialog itself (give it tabIndex={-1})
  * instead of its first control, e.g. so no choice looks picked before the
- * User picks one.
+ * User picks one. `request` is a value that changes with each ask to show the
+ * dialog: the browser closes it on Esc without telling React until a task
+ * later, and an ask arriving meanwhile must show it again.
  */
-export function useModal(open: boolean, { focusDialog = false } = {}) {
+export function useModal(
+  open: boolean,
+  { focusDialog = false, request = 0 }: { focusDialog?: boolean; request?: number } = {},
+) {
   const dialog = useRef<HTMLDialogElement>(null);
+  const focus = useFocusReturn();
+  // biome-ignore lint/correctness/useExhaustiveDependencies: `request` is when to look again, not what is read: each ask shows the dialog and tracks it again, though `open` did not change.
   useEffect(() => {
     const element = dialog.current;
     if (!element) return;
     if (open && !element.open) {
+      focus.remember();
       element.showModal();
       if (focusDialog) element.focus();
     }
     if (!open && element.open) {
       element.close();
-      // Chromium gives the focus back to the text field the dialog took it from, but leaves the
-      // caret outside it, so what is typed next goes nowhere (e.g. a follow-up after "Allow").
-      const field = document.activeElement;
-      if (
-        (field instanceof HTMLTextAreaElement || field instanceof HTMLInputElement) &&
-        field.selectionStart !== null &&
-        field.selectionEnd !== null
-      ) {
-        field.setSelectionRange(field.selectionStart, field.selectionEnd);
-      }
+      focus.giveBack(element);
     }
-  }, [open, focusDialog]);
-  useEffect(() => {
-    const element = dialog.current;
-    if (!open || !element) return;
+    if (!open) return;
+    // A close the browser made has already untracked it, so an ask that shows it again must
+    // track it again: the list holds what is on top now.
     return trackModal(element);
-  }, [open]);
+  }, [open, focusDialog, request, focus]);
   return dialog;
 }
 

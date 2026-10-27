@@ -73,6 +73,7 @@ describe("Settings", () => {
         monthlyCap: null,
         webSearch: false,
         keepWebPageLook: false,
+        taskNotifications: true,
         recentCitationStyles: [],
         newMindStyle: { font: "default", size: "default" },
       },
@@ -183,6 +184,7 @@ describe("Settings", () => {
       monthlyCap: null,
       webSearch: false,
       keepWebPageLook: false,
+      taskNotifications: true,
       recentCitationStyles: [],
       newMindStyle: { font: "default", size: "default" },
     });
@@ -216,6 +218,20 @@ describe("Settings", () => {
       motion: "system",
       lastChatModel: null,
     });
+  });
+
+  test("Task notifications are on until the User turns them off, and each answer is kept", async () => {
+    const dataDir = await createTempDataFolder();
+    const before = startCore(dataDir);
+    expect((await before.getSettings()).user.taskNotifications).toBe(true);
+    expect(
+      (await before.updateSettings({ user: { taskNotifications: false } })).user.taskNotifications,
+    ).toBe(false);
+    before.close();
+
+    const after = startCore(dataDir);
+    expect((await after.getSettings()).user.taskNotifications).toBe(false);
+    after.close();
   });
 
   test("export options saved before the web page to share (#72) read its defaults", async () => {
@@ -498,6 +514,7 @@ describe("Settings", () => {
         monthlyCap: { amount: 20, currency: "USD" },
         webSearch: true,
         keepWebPageLook: true,
+        taskNotifications: true,
         recentCitationStyles: [],
         newMindStyle: { font: { family: "Georgia" }, size: "large" },
       },
@@ -543,6 +560,10 @@ describe("Settings", () => {
       patch: { device: { skillScriptTimeoutSeconds: 1.5 } },
     },
     { name: "an unknown motion choice", patch: { device: { motion: "slow" } } },
+    {
+      name: "Task notifications that aren't on or off",
+      patch: { user: { taskNotifications: "sometimes" } },
+    },
     { name: "a tip shown a negative number of times", patch: { device: { tips: { a: -1 } } } },
     { name: "a tip count that isn't a number", patch: { device: { tips: { a: "twice" } } } },
     {

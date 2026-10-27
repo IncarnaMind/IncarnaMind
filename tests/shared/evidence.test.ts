@@ -26,6 +26,7 @@ const settings = (leaveOutOwnFiles: boolean): Pick<Settings, "user"> => ({
     monthlyCap: null,
     webSearch: false,
     keepWebPageLook: false,
+    taskNotifications: true,
     recentCitationStyles: [],
     newMindStyle: { font: "default", size: "default" },
   },
