@@ -10,7 +10,7 @@ import { isSearchable } from "./documentStatus";
 import { translate } from "./i18n";
 
 /** What the reader needs of a Document: enough to name it, ask about it, and tell whether it can answer. */
-export type AskableDocument = Pick<Document, "id" | "name" | "title" | "status" | "fileStatus">;
+type AskableDocument = Pick<Document, "id" | "name" | "title" | "status" | "fileStatus">;
 
 export function readyQuestionOf({
   own,
