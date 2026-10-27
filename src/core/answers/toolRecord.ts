@@ -85,7 +85,7 @@ function whyNot(problem: MindProblem | undefined): string {
     case "new-mind":
       return "the User asked for a new Mind: make it with create_mind";
     case "uncited":
-      return "its sources were written as text, or as markers with no Citation recorded";
+      return "its sources were written as text, as markers with no Citation recorded, or not cited at all";
     case "local-mode":
       return "“Keep everything on this computer” is on";
     case "not-ready":

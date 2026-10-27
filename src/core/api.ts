@@ -1181,6 +1181,8 @@ export interface MindChange {
   replacedOwn?: { paragraphs: number; tables: number; charts: number };
   /** How many Citations the text it wrote there holds. Absent: none, or it rewrote text keeping its own. */
   cited?: number;
+  /** It wrote new text there with no Citation at all, once its Answer had searched and found Passages (#1415). */
+  uncited?: true;
   /** How many of its text's markers had no Citation recorded, and were left out. Absent: none. */
   unrecorded?: number;
   /**
@@ -2274,6 +2276,12 @@ export interface UserSettings {
    * save says otherwise: off until the User turns it on.
    */
   keepWebPageLook: boolean;
+  /**
+   * The system's notifications when a Task needs the User or finishes, unless
+   * its Mind is on screen (DESIGN.md, Finding Tasks): on until they turn it
+   * off in Settings.
+   */
+  taskNotifications: boolean;
   /**
    * The citation styles last chosen for a Mind, newest first, up to five
    * (`RECENT_CITATION_STYLES`): the picker's Recently used.
@@ -4658,7 +4666,7 @@ export interface TaskMessage {
   text: string;
 }
 
-/** A Research Task's plan as it runs (Plan): each step with how far it is. */
+/** A Research Task's plan (Plan): each step with how far it is, or how it ended. */
 export interface ResearchPlanView {
   title: string;
   steps: { text: string; status: "waiting" | "running" | "done" | "failed" }[];
@@ -4675,8 +4683,8 @@ export interface ResearchSources {
 
 /** What to plan a Research Task for. */
 export interface PlanResearchInput {
-  /** The Mind the assistant reads, where the Task will be. */
-  mindId: string;
+  /** The Mind the assistant reads, where the Task will be; null with no Mind in focus. */
+  mindId: string | null;
   topic: string;
   /** Where it will look, as the plan card's toggles stand. */
   sources: ResearchSources;
@@ -4704,8 +4712,11 @@ export type ResearchTarget = { mindId: string } | { newMind: true };
 
 /** A Research Task to start, from its plan card. */
 export interface StartResearchInput {
-  /** The Mind the assistant reads: the Task shows in its thread. */
-  mindId: string;
+  /**
+   * The Mind the assistant reads: the Task shows in its thread. Null with no
+   * Mind in focus: the Task gets the new Mind its draft goes into.
+   */
+  mindId: string | null;
   topic: string;
   plan: ResearchPlan;
   sources: ResearchSources;
@@ -5815,6 +5826,11 @@ export interface AnswerSteps {
    * it wrote without markers that match the Passages it read (#760).
    */
   citedAfterChecking?: number;
+  /**
+   * The model was asked once for the Citations its reply left out, and none came of it that
+   * could be checked (#1415). Absent: it wasn't asked, or Citations came of it.
+   */
+  notCitedAfterAsking?: true;
   /**
    * How long, in ms, the Question was with the model before the Answer had
    * words: its text, or a Mind its Tool call began to change. Absent while
