@@ -1,12 +1,13 @@
 /**
  * The two paths a paired run compares (README.md › Paired runs), each an arm. Both run in one
  * core, item after item, so an arm changes what the core does only through what a run can switch
- * between two items: the settings it saves, as the User saves them, and each model request as it
- * is sent (a prompt's wording, a provider option).
+ * between two items: the settings it saves, as the User saves them, each model request as it is
+ * sent (a prompt's wording, a provider option), and which Answer paths a model takes instead of
+ * the lists beside the catalog (src/core/providers/catalog/answerPaths).
  */
 import type { LanguageModelV4CallOptions } from "@ai-sdk/provider";
 import { type LanguageModelMiddleware, wrapLanguageModel } from "ai";
-import type { ChatModelFactory, Core } from "../../src/core";
+import type { AnswerPathsOverride, ChatModelFactory, Core } from "../../src/core";
 
 export interface Arm {
   id: string;
@@ -16,9 +17,23 @@ export interface Arm {
   prepare?(core: Core): Promise<void>;
   /** Each model request while the arm runs, as it is sent. */
   request?(params: LanguageModelV4CallOptions): LanguageModelV4CallOptions;
+  /** Answer paths every model takes or doesn't while the arm runs; unset: the lists'. */
+  paths?: { writesThenCites?: boolean };
 }
 
-export const ARMS: readonly Arm[] = [{ id: "today", label: "today's path, as the branch runs it" }];
+export const ARMS: readonly Arm[] = [
+  { id: "today", label: "today's path, as the branch runs it" },
+  {
+    id: "cite-first",
+    label: "the Tool loop's records first, then the Answer",
+    paths: { writesThenCites: false },
+  },
+  {
+    id: "write-then-cite",
+    label: "the Answer, then its records in the same reply (#489)",
+    paths: { writesThenCites: true },
+  },
+];
 
 export function armNamed(id: string): Arm {
   const arm = ARMS.find((each) => each.id === id);
@@ -30,18 +45,22 @@ export function armNamed(id: string): Arm {
   return arm;
 }
 
-/** The chat models of a core that runs both arms: each request goes as the arm in use has it. */
+/** The chat models and Answer paths of a core that runs both arms, as the arm in use has them. */
 export function armSwitch() {
   let current: Arm | null = null;
   const middleware: LanguageModelMiddleware = {
     specificationVersion: "v4",
     transformParams: async ({ params }) => current?.request?.(params) ?? params,
   };
+  const answerPaths: AnswerPathsOverride = {
+    writesThenCites: () => current?.paths?.writesThenCites,
+  };
   return {
     chatModels:
       (inner: ChatModelFactory): ChatModelFactory =>
       (spec) =>
         wrapLanguageModel({ model: inner(spec), middleware }),
+    answerPaths,
     use(arm: Arm): void {
       current = arm;
     },

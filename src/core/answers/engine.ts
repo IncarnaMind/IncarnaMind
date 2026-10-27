@@ -106,11 +106,12 @@ import type {
 import { inStep } from "../timing/flows";
 import { DOCUMENT_TOOLS, offeredTools, type Tool, type ToolProviderInfo } from "../tools";
 import { asksForFigureFixes, type FigureProblem, givenList } from "./calculations";
-import { asksForFixes } from "./citations";
+import { asksForFixes, WRITE_NOW } from "./citations";
 import { earlierContext, type RequestMind, withLineBefore } from "./context";
 import { retryFigures } from "./figureRetry";
 import { missingMarkerEvents, textEdits } from "./markerPlacement";
 import {
+  NOTHING_SHOWN_YET,
   SEARCH_QUERY_INSTRUCTIONS,
   searchQueryPrompt,
   TRANSLATE_QUERY_INSTRUCTIONS,
@@ -233,6 +234,14 @@ export interface AnswerTools {
   cite(records: readonly CitationRecordInput[], options?: CiteOptions): string;
   /** Whether a valid record was taken for this marker: the engine places its marker if the model left it out. */
   hasRecord?(marker: number): boolean;
+  /**
+   * What the Run still owes with `text` written so far: each marker whose last record from a
+   * `cite` call was refused or came back with a problem to fix, written or not, until a record
+   * for it is taken without one; each marker `text` writes with no record; and each figure marker
+   * it writes that `figured` says has no worked-out figure. The one test of whether a written,
+   * then cited Answer is complete. Absent: nothing.
+   */
+  owed?(text: string, figured?: (marker: number) => boolean): Owed;
   /** The Passages the model was given in this Answer, by the id it cites them by, as it read them. */
   shownPassages?(): readonly { id: string; text: string }[];
   /**
@@ -274,6 +283,12 @@ export interface AnswerTools {
    * figure's sentence or table cell has none (#1831); each quote is recorded as a Citation.
    */
   citeFigures?(text: string): string;
+}
+
+/** What a Run still owes, by marker (`AnswerTools.owed`). */
+export interface Owed {
+  citations: readonly number[];
+  figures: readonly number[];
 }
 
 /** A record whose quote the check doesn't find, with the text of the Passage it names (see `AnswerTools.unfoundQuotes`). */
@@ -398,6 +413,8 @@ export interface AnswerRequest {
   thirdParty?: readonly ThirdPartyReason[];
   /** How this model is known to cite, from its capabilities or earlier Answers. Unknown: try Tools first. */
   support?: CitationSupport;
+  /** In the Tool loop, the model writes the Answer, then cites it in the same reply (#489). */
+  writeThenCite?: boolean;
   /** False: the model is known to give no structured output, so it isn't tried. */
   structuredOutput?: boolean;
   /**
@@ -1604,6 +1621,7 @@ async function* toolLoop(
   };
   /** Whether the reply of `cite` or `calculate` to each call asked the model to fix what it gave, by the call's id. */
   const askedForFixes = new Map<string, boolean>();
+  const writesMinds = request.tools.some((each) => each.provider.kind === "minds");
   /**
    * A Tool as the engine calls it: one with untrusted results taints the Run
    * once it returns some; one that counts what it found (Find sources) says
@@ -1622,7 +1640,13 @@ async function* toolLoop(
         ? (results.get(context.toolCallId) ?? 0) > 0
         : result.trim() !== "";
       if (tool.untrustedResult && read) tainted = true;
-      if (tool === cite) askedForFixes.set(context.toolCallId, asksForFixes(result));
+      if (tool === cite) {
+        askedForFixes.set(context.toolCallId, asksForFixes(result));
+        // Records for text a Mind will hold come first; an Answer's come with its text (#489).
+        if (request.writeThenCite && !writesMinds && !MARKER.test(keptText + stepText)) {
+          return result.replace(WRITE_NOW, NOTHING_SHOWN_YET);
+        }
+      }
       if (tool === calculate) askedForFixes.set(context.toolCallId, asksForFigureFixes(result));
       return result;
     },
@@ -1697,6 +1721,12 @@ async function* toolLoop(
   let stepTools: Tool[] = [];
   /** An earlier step wrote the Answer and recorded its Citations: text with markers after that is a second copy. */
   let answered = false;
+  /** As the Run engine ends steps: the text written beside `cite` or `calculate` alone. */
+  let besideRecords = "";
+  const owesNothing = (text: string) => {
+    const left = request.documents.owed?.(text);
+    return left === undefined || left.citations.length + left.figures.length === 0;
+  };
   /**
    * Texts written beside `cite` or `calculate` alone, with no marker in them,
    * and taken back: the last is the Answer if the model never writes another,
@@ -1785,14 +1815,24 @@ async function* toolLoop(
     },
     window,
     // The Answer written beside `cite` or `calculate`, with all they were given taken, is complete:
-    // another call would only write it again.
-    endsAfter: (step) =>
-      cite !== null &&
-      MARKER.test(step.text) &&
-      step.calls.length > 0 &&
-      step.calls.every(
-        (call) => recording(offered.get(call.tool)) && askedForFixes.get(call.id) === false,
-      ),
+    // another call would only write it again. Written then cited (#489), it is complete once the
+    // Run owes nothing (`AnswerTools.owed`), whichever step took the records.
+    endsAfter: (step) => {
+      const recordsOnly =
+        step.calls.length > 0 && step.calls.every((call) => recording(offered.get(call.tool)));
+      if (!request.writeThenCite) {
+        return (
+          cite !== null &&
+          MARKER.test(step.text) &&
+          recordsOnly &&
+          step.calls.every((call) => askedForFixes.get(call.id) === false)
+        );
+      }
+      if (recordsOnly) besideRecords += step.text;
+      return (
+        cite !== null && recordsOnly && MARKER.test(besideRecords) && owesNothing(besideRecords)
+      );
+    },
     temperature,
     signal: AbortSignal.any([signal, rambling.signal]),
   });
@@ -1955,6 +1995,7 @@ async function* toolLoop(
           keptText = "";
           stepText = "";
           answered = false;
+          besideRecords = "";
           setAside = [];
           again = [...event.messages, { role: "user", text: settled.nudge }];
           break;

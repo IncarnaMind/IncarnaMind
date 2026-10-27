@@ -5,7 +5,7 @@
 import { generateText } from "ai";
 import { MockLanguageModelV4 } from "ai/test";
 import { describe, expect, test } from "vitest";
-import { type Arm, armSwitch } from "../../eval/speed/arms";
+import { type Arm, armNamed, armSwitch } from "../../eval/speed/arms";
 import type { ArmRun } from "../../eval/speed/paired";
 import { guards, newFalseSupported, type PairedRow } from "../../eval/speed/pairedReport";
 
@@ -133,5 +133,17 @@ describe("the arm switch", () => {
       await generateText({ model: wrapped, instructions: "Answer.", prompt: "Hi" });
     }
     expect(systems).toEqual(["Answer.", "Be brief.", "Answer."]);
+  });
+});
+
+describe("the arms' Answer paths", () => {
+  test("cite-first and write-then-cite decide for every model; today leaves it to the lists", () => {
+    const switcher = armSwitch();
+    const model = { catalogId: "anthropic", modelId: "claude-sonnet-5-5" };
+    const seen = ["cite-first", "write-then-cite", "today"].map((id) => {
+      switcher.use(armNamed(id));
+      return switcher.answerPaths.writesThenCites?.(model);
+    });
+    expect(seen).toEqual([false, true, undefined]);
   });
 });

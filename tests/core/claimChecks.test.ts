@@ -684,6 +684,39 @@ describe("One claim check", () => {
     ).toMatchObject({ verdict: "unsupported", versions: [] });
   });
 
+  test("a check Run whose quote was refused gives its verdict after the fix, though its model writes Answers before citing (#489)", async () => {
+    const quote = "Spring tides happen at new moon and at full moon";
+    const model = scriptedModel(
+      (call) => {
+        const searched = call.results.find((result) => result.tool === "search_documents");
+        const cites = call.results.filter((result) => result.tool === "cite").length;
+        if (!searched) return checkReply(call, PLANS);
+        const passage = shownPassages(searched.text)[0]?.id;
+        const cite = (quoted: string) => ({
+          tool: "cite",
+          input: { citations: [{ marker: 1, passage, quote: quoted }] },
+        });
+        if (cites === 0) {
+          return {
+            text: "Tides says spring tides happen at new and full moon [^1].",
+            calls: [cite("Spring tides happen every week")],
+          };
+        }
+        return cites === 1 ? { calls: [cite(quote)] } : { text: "Verdict: supported" };
+      },
+      { generate: checkGenerate(PLANS) },
+    );
+    const { core } = await setUpWithDocuments(model, [TIDES], {
+      answerPaths: { writesThenCites: () => true },
+    });
+
+    expect(await core.checkClaim({ claim: SUPPORTED })).toMatchObject({
+      verdict: "supported",
+      evidence: { check: "found" },
+    });
+    expect(model.doStreamCalls).toHaveLength(4);
+  });
+
   test("the quotes a sentence cites name their Document as it is now, and as cited once it is gone", async () => {
     const calls: ModelCall[] = [];
     const { core, client, check, tides } = await mindWith(
