@@ -110,6 +110,18 @@ const checked = (id: string, state: string, text: string, extra: Record<string, 
   ],
 });
 const paragraph = (...content: object[]) => ({ type: "paragraph", content });
+const passageOf = (document: { id?: string; contentHash?: string } | undefined) => ({
+  passageId: "passage-1",
+  documentId: document?.id,
+  documentName: "Tides",
+  contentHash: document?.contentHash,
+  pageFrom: 1,
+  pageTo: 1,
+  location: null,
+  quote: "Harbours publish the times of high water every 12 months.",
+  check: "found",
+  checkReason: null,
+});
 
 for (const language of ["en", "zh-CN"] as const) {
   const words = WORDS[language];
@@ -126,18 +138,7 @@ for (const language of ["en", "zh-CN"] as const) {
     const [tides] = await window.evaluate(() =>
       (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind.listDocuments(),
     );
-    const passage = {
-      passageId: "passage-1",
-      documentId: tides?.id,
-      documentName: "Tides",
-      contentHash: tides?.contentHash,
-      pageFrom: 1,
-      pageTo: 1,
-      location: null,
-      quote: "Harbours publish the times of high water every 12 months.",
-      check: "found",
-      checkReason: null,
-    };
+    const passage = passageOf(tides);
     const citation = (attrs: Record<string, unknown>) => ({
       type: "citation",
       attrs: { ...passage, ...attrs },
@@ -275,3 +276,58 @@ for (const language of ["en", "zh-CN"] as const) {
     await app.close();
   });
 }
+
+test("the card keeps one height while a claim is being checked and as its result lands", async () => {
+  test.setTimeout(120_000);
+  await writeFile(join(sources, "Tides.pdf"), TIDES);
+  const { app, window } = await launchApp(dataDir, { fakeChat: true });
+  await dismissChatSetup(window);
+  await useLocalChatModel(window);
+  await setWindowSize(app, window, 900, 900);
+  await addDocuments(window, [join(sources, "Tides.pdf")]);
+  const [tides] = await window.evaluate(() =>
+    (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind.listDocuments(),
+  );
+  await newMind(window);
+  const editor = window.getByTestId("mind-editor");
+  const write = (state: string, extra: Record<string, unknown> = {}) =>
+    editor.evaluate(
+      (dom, content) => {
+        (dom as unknown as { editor: Editor }).editor.commands.setContent(content);
+      },
+      [
+        paragraph(
+          checked("check-9", state, "Harbours publish the times of high water every 6 months.", {
+            evidence: passageOf(tides),
+            ...extra,
+          }),
+        ),
+      ],
+    );
+
+  // A claim being checked keeps the summary's line, empty until its result lands: the card is
+  // one height through it (#1312, #1941).
+  await write("checking");
+  const card = await checkCard(window);
+  await expect(card.getByTestId("health-checking")).toBeVisible();
+  const space = card.locator(".mind-health-summary");
+  await expect(space).toHaveCount(1);
+  await expect(space).toHaveText("");
+  const running = await card.boundingBox();
+  const spaceLine = await space.boundingBox();
+
+  await write("contradicted", {
+    says: "The agreement says the facilities end on 14 February 2029.",
+  });
+  await expect(card.getByTestId("health-summary")).toBeVisible();
+  const done = await card.boundingBox();
+  expect(running).not.toBeNull();
+  expect(done).not.toBeNull();
+  if (running && done) {
+    expect(done.y).toBe(running.y);
+    expect(done.height).toBe(running.height);
+  }
+  const summaryLine = await card.getByTestId("health-summary").boundingBox();
+  expect(summaryLine?.height).toBe(spaceLine?.height);
+  await app.close();
+});

@@ -300,6 +300,13 @@ export function HealthCard({
     problem: problem !== undefined,
     unread: state?.unreadMatters === true ? state.unread : 0,
   });
+  // The summary's line keeps its place from the moment a run starts here, empty until its
+  // result lands, so the card keeps one height as a check's results arrive (#1312, #1941).
+  const summarySpace =
+    summary === null &&
+    problem === undefined &&
+    health.checkable > 0 &&
+    (running !== undefined || ranHere || health.checking.length > 0);
   const close = {
     label: t("checks.close"),
     testId: "checks-problem-close",
@@ -371,6 +378,7 @@ export function HealthCard({
           parts={summaryParts(summary.summary, t, format)}
         />
       )}
+      {summarySpace && <p aria-hidden="true" className="mind-health-summary" />}
       {/* One line of note, in one place, from the moment the check starts: the sentence it is
           on, then when it was checked. Rows above it never move as the run ends (#1312). It
           stays once a run has started here: a run ends a moment before its record reaches the

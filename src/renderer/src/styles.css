@@ -1817,6 +1817,11 @@
   .mind-health-summary {
     margin: 0;
     padding: 0 8px 6px;
+
+    /* Its line is kept while a run is on, so the card keeps one height as results land (#1312). */
+    &:empty::before {
+      content: "\00a0";
+    }
   }
   .check-card-note {
     padding: 4px 8px 6px;
