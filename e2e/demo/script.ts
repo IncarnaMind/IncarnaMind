@@ -139,7 +139,7 @@ export const SCRIPTS: Record<DemoLanguage, DemoScript> = {
     seedQuestion:
       "In two sentences: what leverage limit does the facilities agreement set, and what was Northwind’s leverage at the end of Q3?",
     question:
-      "Using the documents: what was Northwind’s group gross margin in Q3, and what did the results blame?",
+      "In one sentence, using the Q3 results: what did Northwind’s online gross margin fall to, and from what?",
     chartRequest:
       "Use Python Analysis on Northwind Retail’s monthly sales workbook to check the 2026 sales by region. Then add a bar chart of 2026 sales by region to this Note, with its cited table.",
     compareQuestions: ["Margin", "Tenor", "Leverage covenant"],
@@ -177,7 +177,7 @@ export const SCRIPTS: Record<DemoLanguage, DemoScript> = {
     captions: {
       hook: "The memo says 36.8%. The Q3 results say 38.6%.",
       organize: "Monday. Files everywhere. Link the folders, and it reads and sorts them.",
-      ask: "What was the margin? Don’t take its word. Click.",
+      ask: "What was the online margin? Don’t take its word. Click.",
       click: "Click it. The quote lights up on the page.",
       fixed: "Wrong figure caught. Fixed in one click.",
       working: "Calculations show their working too.",
@@ -208,11 +208,11 @@ export const SCRIPTS: Record<DemoLanguage, DemoScript> = {
       templateCommand: translate("en", "meetings.template.command", {
         name: translate("en", "meetings.template.interview"),
       }),
-      checkCommand: "Check this note",
+      checkCommand: "Check",
       compareCommand: "Compare Documents…",
       recordCommand: "Record a meeting",
       foldCommand: "Assistant: Fold",
-      typed: { check: "Check this", compare: "Compare", record: "Record a" },
+      typed: { check: "Check", compare: "Compare", record: "Record a" },
     },
   },
   "zh-CN": {
@@ -290,7 +290,7 @@ export const SCRIPTS: Record<DemoLanguage, DemoScript> = {
     captions: {
       hook: "报告里写 36.8%，Q3 业绩里是 38.6%。",
       organize: "周一，文件散在各处。关联文件夹，它读进来并分好类。",
-      ask: "毛利率是多少？别信它说的，点开看。",
+      ask: "线上毛利率是多少？别信它说的，点开看。",
       click: "点一下，引文在原页上亮起来。",
       fixed: "错数被拦下，一键改正。",
       working: "算出来的数也摆出算式和出处。",
@@ -321,11 +321,11 @@ export const SCRIPTS: Record<DemoLanguage, DemoScript> = {
       templateCommand: translate("zh-CN", "meetings.template.command", {
         name: translate("zh-CN", "meetings.template.interview"),
       }),
-      checkCommand: "核对此笔记",
+      checkCommand: "核对",
       compareCommand: "对比文档…",
       recordCommand: "录制会议",
       foldCommand: "助手：收起",
-      typed: { check: "核对此", compare: "对比文档", record: "录制会议" },
+      typed: { check: "核对", compare: "对比文档", record: "录制会议" },
     },
   },
 };

@@ -11,15 +11,7 @@ import { say } from "./call";
 import type { Film, Hand } from "./film";
 import { SCENE_TABLE } from "./sceneTable";
 import type { DemoScript } from "./script";
-import {
-  clearAside,
-  command,
-  dismissNotice,
-  markBeside,
-  openAssistant,
-  openMind,
-  snap,
-} from "./steps";
+import { clearAside, command, dismissNotice, openAssistant, openMind, snap } from "./steps";
 import type { Feature } from "./stills";
 import type { Workspace } from "./workspace";
 
@@ -100,7 +92,7 @@ async function organize(take: Take): Promise<void> {
       )
       .toBe(workspace.documentCount);
   }, PARK);
-  await hand.hold(800);
+  await hand.hold(700);
   await hand.click(library.getByTestId("library-organize"));
   await hand.cut(async () => {
     await expect(library.getByTestId("library-organizing")).toHaveCount(0, { timeout: 300_000 });
@@ -108,14 +100,14 @@ async function organize(take: Take): Promise<void> {
       timeout: 60_000,
     });
   });
-  await hand.hold(2400);
+  await hand.hold(2500);
   // One click takes every suggestion: the Documents move into the Folders and take the Tags.
   await hand.click(library.getByTestId("library-review-accept-all"));
   await hand.cut(async () => {
     await expect(library.getByTestId("library-suggested")).toHaveCount(0, { timeout: 60_000 });
     await expect(library.getByTestId("library-organizing")).toHaveCount(0);
   });
-  await hand.hold(1500);
+  await hand.hold(1700);
   // The two new files the story turns on, now in their Folder with their Tags. A row's name is
   // cut with an ellipsis, so the row is found by the Document's own id, not by what it shows.
   const ids = await window.evaluate(async (wanted) => {
@@ -196,6 +188,13 @@ async function compare(take: Take): Promise<void> {
   await command(window, hand, script.words.typed.compare, script.words.compareCommand);
   const sheet = window.getByTestId("compare-sheet");
   await expect(sheet).toBeVisible();
+  // The three term sheets, ticked: the list can arrive a Document at a time.
+  const docBoxes = sheet.getByTestId("compare-sheet-document");
+  await expect.poll(() => docBoxes.count(), { timeout: 60_000 }).toBe(3);
+  for (let index = 0; index < 3; index++) {
+    if (!(await docBoxes.nth(index).isChecked())) await docBoxes.nth(index).check();
+  }
+  await expect(sheet.getByTestId("compare-sheet-counted")).toHaveText(/^3/, { timeout: 30_000 });
   // Each question in its own row: typing through the field loses an Enter on a loaded machine,
   // and the picture only needs the filled table. A row arrives after its click, so wait for it.
   const add = sheet.getByTestId("compare-sheet-add-question");
@@ -275,7 +274,7 @@ async function addToNote(take: Take): Promise<void> {
     if (box) await window.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
     await window.mouse.wheel(0, 6000);
   });
-  await hand.hold(3300);
+  await hand.hold(2900);
   // The Answer's own words where they end, and the line that says they went in, are one moment
   // a crop can hold; a whole line of the Note is wider than one.
   const said = answer.getByTestId("assistant-answer-text");
@@ -312,7 +311,7 @@ async function analyse(take: Take): Promise<void> {
   });
   await hand.hold(300);
   await hand.zoomOn(timeline.getByTestId("answer-analysis-call").first(), 1.5);
-  await hand.hold(1000);
+  await hand.hold(900);
   await hand.zoomOut();
 
   // The Answer wrote the table and the chart into the paper; a bar keeps its source cell.
@@ -322,7 +321,7 @@ async function analyse(take: Take): Promise<void> {
     await chart.scrollIntoViewIfNeeded();
     await snap(window, "chart");
   });
-  await hand.hold(700);
+  await hand.hold(600);
   const point = chart.getByTestId("chart-point").first();
   await hand.click(point);
   const card = window.getByTestId("chart-card");
@@ -629,7 +628,7 @@ async function check(take: Take): Promise<void> {
     window.locator('[data-testid="claim-mark"][data-check="needs-recheck"]'),
   ).toHaveCount(0);
   await expect(window.locator('[data-testid="claim-mark"][data-check="checking"]')).toHaveCount(0);
-  await hand.hold(500);
+  await hand.hold(900);
   film.mark("fixed");
 
   // The check can also flag what the draft wrote itself: a sentence no Document supports, or a
@@ -673,9 +672,37 @@ async function check(take: Take): Promise<void> {
   // The calculated figure: the card shows its formula and the page each input came from.
   hand.caption(script.captions.working);
   const derived = script.paper.blocks[6]?.text.slice(0, 12) ?? "";
-  await hand.cut(() => editor.locator("p", { hasText: derived }).first().scrollIntoViewIfNeeded());
-  const mark = await markBeside(window, derived);
-  await hand.click(mark);
+  // The card itself, found in the sentence's own line: a paragraph's marks can include the line
+  // below, so each candidate is opened off camera until the one with the working shows.
+  await hand.cut(async () => {
+    const paragraph = editor.locator("p", { hasText: derived }).first();
+    await paragraph.scrollIntoViewIfNeeded();
+    const box = await paragraph.boundingBox();
+    if (!box) throw new Error("The calculated figure's sentence isn't showing.");
+    const card = window.getByTestId("claim-card");
+    const marks = window.getByTestId("claim-mark");
+    for (let index = 0; index < (await marks.count()); index++) {
+      const mark = marks.nth(index);
+      const at = await mark.boundingBox();
+      if (
+        !at ||
+        at.y + at.height / 2 < box.y - 4 ||
+        at.y + at.height / 2 > box.y + box.height + 4
+      ) {
+        continue;
+      }
+      await mark.click();
+      if (
+        await card
+          .getByTestId("claim-working")
+          .isVisible()
+          .catch(() => false)
+      )
+        return;
+      await window.keyboard.press("Escape");
+    }
+    throw new Error("The calculated figure's card is not beside its sentence.");
+  });
   const working = window.getByTestId("claim-card");
   await expect(working.getByTestId("claim-working")).toBeVisible();
   await hand.hold(200);
@@ -796,7 +823,7 @@ export async function endCardContent(
 async function endCard({ hand, script }: Take): Promise<void> {
   const card = await endCardContent(script);
   await hand.cut(() => hand.endCard(card));
-  await hand.hold(2000);
+  await hand.hold(2300);
 }
 
 /** What each scene runs: a name in ./sceneTable without a run here is a scene the take cannot film. */
