@@ -1,75 +1,28 @@
 import { randomUUID } from "node:crypto";
-import {
-  mkdirSync,
-  readdirSync,
-  readFileSync,
-  renameSync,
-  unlinkSync,
-  watch,
-  writeFileSync,
-} from "node:fs";
+import { mkdirSync, readdirSync, renameSync, watch } from "node:fs";
 import { join } from "node:path";
 import { isRecord } from "../core/errors";
-import { type InstanceLock, lockInstance } from "./instanceLock";
-
-interface Identity {
-  pid: number;
-  startedAt: string;
-}
+import {
+  type Identity,
+  identity,
+  missing,
+  readJson,
+  remove,
+  same,
+  writeJson,
+} from "./instanceFiles";
+import { heldByAnotherCopy, type InstanceLock, lockInstance } from "./instanceLock";
+import { type InstancePhase, InstanceProgress } from "./instanceProgress";
+import { completeUpdate, updateAccess } from "./instanceUpdate";
 
 export interface SecondStart {
   args: string[];
   cwd: string;
 }
 
-type Phase = "starting" | "ready" | "quitting";
 type Report = (what: string, error: unknown) => void;
 const startedAt = new Date(Date.now() - process.uptime() * 1_000).toISOString();
 const pause = () => Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 5);
-const missing = (error: unknown) => (error as NodeJS.ErrnoException).code === "ENOENT";
-
-function readJson(file: string): unknown {
-  try {
-    return JSON.parse(readFileSync(file, "utf8"));
-  } catch (error) {
-    if (missing(error)) return null;
-    throw error;
-  }
-}
-
-function writeJson(file: string, value: unknown): void {
-  const temporary = `${file}.${randomUUID()}.tmp`;
-  try {
-    writeFileSync(temporary, JSON.stringify(value), { mode: 0o600 });
-    renameSync(temporary, file);
-  } finally {
-    remove(temporary);
-  }
-}
-
-function remove(file: string): void {
-  try {
-    unlinkSync(file);
-  } catch (error) {
-    if (!missing(error)) throw error;
-  }
-}
-
-function identity(value: unknown): value is Identity {
-  return (
-    isRecord(value) &&
-    typeof value.pid === "number" &&
-    Number.isSafeInteger(value.pid) &&
-    value.pid > 0 &&
-    typeof value.startedAt === "string" &&
-    Number.isFinite(Date.parse(value.startedAt))
-  );
-}
-
-function same(one: Identity, other: Identity): boolean {
-  return one.pid === other.pid && one.startedAt === other.startedAt;
-}
-
 function alive(pid: number): boolean {
   try {
     process.kill(pid, 0);
@@ -92,7 +45,9 @@ function secondStart(value: unknown): value is SecondStart {
 
 export class InstanceOwner {
   readonly identity: Identity = { pid: process.pid, startedAt };
-  private phase: Phase = "starting";
+  private phase: InstancePhase = "starting";
+  private progress = 0;
+  private installReopens = false;
   private onStart: ((start: SecondStart) => boolean) | null = null;
   private readonly requests: string;
 
@@ -101,6 +56,7 @@ export class InstanceOwner {
     private readonly lock: InstanceLock,
     private readonly report: Report,
     readonly previousOwner: boolean,
+    private readonly acceptedUpdate?: { record: { id: string }; pendingTarget: string | null },
   ) {
     this.requests = join(folder, "instance-requests");
     mkdirSync(this.requests, { recursive: true, mode: 0o700 });
@@ -112,16 +68,37 @@ export class InstanceOwner {
     watch(this.requests, () => this.receive())
       .on("error", (error) => this.report("app.secondStartFailed", error))
       .unref();
+    // File watches can lose an event; a pending start still needs a reply (#2022).
+    setInterval(() => this.receive(), 1_000).unref();
+  }
+
+  get pendingUpdate(): string | null {
+    return this.acceptedUpdate?.pendingTarget ?? null;
+  }
+
+  starting(): void {
+    if (this.phase !== "starting") return;
+    this.progress += 1;
+    this.publishState();
   }
 
   ready(onStart: (start: SecondStart) => boolean): void {
     this.onStart = onStart;
     this.phase = "ready";
     this.publishState();
+    if (this.acceptedUpdate && !this.acceptedUpdate.pendingTarget) {
+      try {
+        if (!completeUpdate(this.folder, this.acceptedUpdate.record.id))
+          throw new Error("The accepted update handoff changed before startup completed.");
+      } catch (error) {
+        this.report("app.updateHandoffCleanupFailed", error);
+      }
+    }
     this.receive();
   }
 
   quitting(prevented = false): void {
+    if (this.phase === "installing") return;
     const next = prevented ? "ready" : "quitting";
     if (this.phase === next) return;
     this.phase = next;
@@ -129,8 +106,19 @@ export class InstanceOwner {
     if (prevented) this.receive();
   }
 
+  installing(reopens = true): void {
+    this.phase = "installing";
+    this.installReopens = reopens;
+    this.publishState();
+  }
+
   private publish(): void {
-    writeJson(join(this.folder, "instance-info.json"), { ...this.identity, phase: this.phase });
+    writeJson(join(this.folder, "instance-info.json"), {
+      ...this.identity,
+      phase: this.phase,
+      progress: this.progress,
+      ...(this.phase === "installing" && { reopens: this.installReopens }),
+    });
   }
 
   private publishState(): void {
@@ -183,25 +171,99 @@ export class InstanceOwner {
 export type Instance =
   | { kind: "owner"; owner: InstanceOwner }
   | { kind: "forwarded" }
-  | { kind: "busy" };
+  | { kind: "installing" }
+  | { kind: "update"; currentVersion: string; targetVersion?: string }
+  | { kind: "busy"; phase: InstancePhase | null };
 
 /** SQLite owns the folder until process exit; PID/start-time-bound requests never take Electron's lock. */
 export function acquireInstance(
   folder: string,
   input: SecondStart,
   report: Report,
-  { waitMs = 10_000 } = {},
+  {
+    waitMs = 10_000,
+    currentVersion = "0.0.0",
+    recoveryId,
+  }: { waitMs?: number; currentVersion?: string; recoveryId?: string } = {},
 ): Instance {
   const id = randomUUID();
   const requests = join(folder, "instance-requests");
   const requestFile = join(requests, `${id}.request.json`);
   const replyFile = join(requests, `${id}.reply.json`);
-  const deadline = performance.now() + waitMs;
+  const waiting = new InstanceProgress(waitMs, performance.now());
+  let phase: InstancePhase | null = null;
   let sentTo: Identity | null = null;
   let previousOwner = false;
+  let invalidUpdateReported = false;
+  const readUpdate = (): ReturnType<typeof updateAccess> => {
+    try {
+      const update = updateAccess(folder, currentVersion, recoveryId);
+      if (update.kind === "invalid" && !invalidUpdateReported) {
+        invalidUpdateReported = true;
+        report(
+          "app.updateHandoffInvalid",
+          new Error("The pending update metadata could not be read."),
+        );
+      }
+      return update;
+    } catch (error) {
+      if (!invalidUpdateReported) {
+        invalidUpdateReported = true;
+        report("app.updateHandoffReadFailed", error);
+      }
+      return { kind: "invalid" };
+    }
+  };
+  const observe = (info: unknown): info is Identity => {
+    if (!identity(info) || !alive(info.pid)) return false;
+    previousOwner = true;
+    if (isRecord(info)) {
+      phase =
+        info.phase === "starting" ||
+        info.phase === "ready" ||
+        info.phase === "quitting" ||
+        info.phase === "installing"
+          ? info.phase
+          : null;
+      if (phase)
+        waiting.observe(
+          `${info.pid}:${info.startedAt}`,
+          phase,
+          typeof info.progress === "number" &&
+            Number.isSafeInteger(info.progress) &&
+            info.progress >= 0
+            ? info.progress
+            : null,
+          performance.now(),
+        );
+    }
+    return true;
+  };
   try {
-    if (Buffer.byteLength(JSON.stringify(input)) > 32_768) return { kind: "busy" };
+    if (Buffer.byteLength(JSON.stringify(input)) > 32_768) return { kind: "busy", phase };
     for (;;) {
+      const update = readUpdate();
+      const pending =
+        update.kind === "blocked" || (update.kind === "allowed" && update.pendingTarget)
+          ? update.record
+          : null;
+      if (pending?.reopens) {
+        const info = readJson(join(folder, "instance-info.json"));
+        if (
+          identity(info) &&
+          same(info, pending.owner) &&
+          alive(info.pid) &&
+          heldByAnotherCopy(folder, report)
+        )
+          return { kind: "installing" };
+      }
+      if (update.kind === "blocked") {
+        if (update.record.reopens) observe(readJson(join(folder, "instance-info.json")));
+        if (!update.record.reopens || waiting.expired(performance.now()))
+          return { kind: "update", currentVersion, targetVersion: update.record.targetVersion };
+        pause();
+        continue;
+      }
       const reply = readJson(replyFile);
       if (
         sentTo &&
@@ -220,12 +282,33 @@ export function acquireInstance(
         },
         { giveUpAfterMs: 0 },
       );
-      if (failed) return { kind: "busy" };
-      if (lock.held)
-        return { kind: "owner", owner: new InstanceOwner(folder, lock, report, previousOwner) };
+      if (failed) return { kind: "busy", phase };
+      if (lock.held) {
+        // The installer can publish its target after our first read, before its owner exits (#2022).
+        let confirmed: ReturnType<typeof updateAccess>;
+        try {
+          confirmed = readUpdate();
+        } catch (error) {
+          lock.release();
+          throw error;
+        }
+        if (confirmed.kind === "blocked") {
+          lock.release();
+          continue;
+        }
+        return {
+          kind: "owner",
+          owner: new InstanceOwner(
+            folder,
+            lock,
+            report,
+            previousOwner,
+            confirmed.kind === "allowed" ? confirmed : undefined,
+          ),
+        };
+      }
       const info = readJson(join(folder, "instance-info.json"));
-      if (identity(info) && alive(info.pid)) {
-        previousOwner = true;
+      if (observe(info)) {
         if (!sentTo || !same(info, sentTo)) {
           mkdirSync(requests, { recursive: true, mode: 0o700 });
           writeJson(requestFile, {
@@ -236,12 +319,12 @@ export function acquireInstance(
           sentTo = info;
         }
       }
-      if (performance.now() >= deadline) return { kind: "busy" };
+      if (waiting.expired(performance.now())) return { kind: "busy", phase };
       pause();
     }
   } catch (error) {
     report("app.instanceLockFailed", error);
-    return { kind: "busy" };
+    return { kind: "busy", phase };
   } finally {
     for (const file of [requestFile, replyFile]) {
       try {

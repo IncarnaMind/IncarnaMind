@@ -475,7 +475,9 @@ export function createCore(adapters: CoreAdapters): Core {
 
   const db = openDatabase(join(dataDir, DATABASE_FILE));
   try {
+    adapters.log?.info("core.startup.databaseOpened");
     migrate(db);
+    adapters.log?.info("core.startup.storageReady");
   } catch (error) {
     db.close();
     throw error;
