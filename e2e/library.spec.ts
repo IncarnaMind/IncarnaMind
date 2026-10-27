@@ -530,7 +530,7 @@ test("onboarding offers starter folders, and Organize with no model chosen opens
     await pointAndClick(window, organize(window.getByTestId("library")));
     const needs = window.getByTestId("library-organize-needs-model");
     await expect(needs).toContainText(
-      "整理需要一个 AI 模型。它会把文档名称和摘录发送给你设置的模型。",
+      "整理需要一个 AI 模型。它会把文档名称和摘录，以及文件夹和标签的名称与描述，发送给你设置的模型。",
     );
     await expect(needs.getByTestId("library-organize-key")).toBeVisible();
     await needs.getByTestId("library-organize-dismiss").click();

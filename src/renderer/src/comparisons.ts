@@ -61,6 +61,9 @@ const setProblem = (key: string, problem: StartProblem | null) =>
     return { problems: problem ? { ...rest, [key]: problem } : rest };
   });
 
+/** A problem about what the model can do goes, once the User has set one up. */
+export const clearCompareProblem = (mindId: string): void => setProblem(mindId, null);
+
 /** Opens a Mind's start sheet, its Documents those of `source` ticked, or keeps the one open. */
 export function openCompareSheet(
   mindId: string,

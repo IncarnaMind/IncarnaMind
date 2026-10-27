@@ -1,4 +1,4 @@
-import type { ChatProvider } from "../../../../core/api";
+import type { ChatModelChoice, ChatProvider } from "../../../../core/api";
 import type { MessageKey } from "../../../../shared/i18n";
 import { useT } from "../../i18n";
 import { useAppStore } from "../../store";
@@ -18,7 +18,7 @@ export function NeedsModelCard({
 }: {
   line: MessageKey;
   testId: string;
-  onDone(provider: ChatProvider): void;
+  onDone(provider: ChatProvider, model: Pick<ChatModelChoice, "providerId" | "modelId">): void;
   className?: string;
   /** A card that appears by itself, as during a call, leaves the focus where it was. */
   autoFocus?: boolean;

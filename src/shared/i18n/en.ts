@@ -2036,7 +2036,8 @@ export const en = {
   "setup.sorting.uses": "Tags, Folders and meeting hints use this model",
   "setup.sorting.here":
     "Tags, Folders and meeting hints run on this computer \u00b7 free \u00b7 nothing leaves",
-  "setup.sorting.sends": "Documents’ names and excerpts go to {service}",
+  "setup.sorting.sends":
+    "Documents’ names and excerpts, and Folder and Tag names and descriptions, go to {service}",
   "setup.sorting.chat": "Tags and Folders use {model}",
   "setup.sorting.chatHere": "Tags and Folders use {model} on this computer \u00b7 nothing leaves",
   "setup.sorting.chat.hints": "Meeting hints stay off until a decision model is chosen",
@@ -2772,7 +2773,7 @@ export const en = {
   "models.removed.automatic": "Removed {provider}. Its defaults are back to Automatic.",
   "models.providers.title": "Your providers",
   "needsModel.organize":
-    "Organize needs an AI model. It sends Documents’ names and excerpts to the model you set up.",
+    "Organize needs an AI model. It sends Documents’ names and excerpts, and Folder and Tag names and descriptions, to the model you set up.",
   "needsModel.compare":
     "Compare Documents needs an AI model. It sends the Documents you chose to the model you set up.",
   "needsModel.help":

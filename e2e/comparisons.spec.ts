@@ -725,6 +725,45 @@ test("a large run goes on once it is asked about: Enter on the question makes th
   await expect(sheet).toHaveCount(0);
 });
 
+test("a key saved while a large run is being confirmed keeps the question, and Make runs once with that model (#1922)", async () => {
+  test.setTimeout(120_000);
+  const { app, window } = await launchApp(dataDir, { fakeChat: true });
+  await dismissChatSetup(window);
+  await setWindowSize(app, window, 1440, 860);
+  await acceptPlainTextKeys(window);
+  await addLibrary(window, 22);
+
+  const sheet = await openSheetFromPlusMenu(window);
+  await typeQuestions(window, ["Termination notice"]);
+  await pointAndClick(window, sheet.getByTestId("compare-sheet-select-all"));
+  await expect(sheet.getByTestId("compare-sheet-counted")).toHaveText("22 of 22");
+  await pointAndClick(window, sheet.getByTestId("compare-sheet-make"));
+  const ask = sheet.getByTestId("compare-sheet-ask");
+  await expect(ask).toContainText(WORDS.en.ask(22));
+  await pointAndClick(window, sheet.getByTestId("compare-sheet-ask-make"));
+
+  // No model yet: the key field comes in place, with the question still asked.
+  const needs = sheet.getByTestId("compare-sheet-needs-model");
+  await expect(needs).toBeVisible();
+  await expect(ask).toBeVisible();
+  const field = needs.getByTestId("compare-sheet-needs-model-key");
+  await field.fill("sk-ant-api03-a-test-key-for-first-run");
+  await field.press("Enter");
+
+  // The key saved, the question stays and now prices the run with that model; nothing runs by itself.
+  await expect(needs).toHaveCount(0);
+  await expect(ask).toBeVisible();
+  await expect(ask).toContainText("About $");
+  await expect(sheet.getByTestId("comparison-table")).toHaveCount(0);
+  await pointAndClick(window, sheet.getByTestId("compare-sheet-ask-make"));
+  const table = window.getByTestId("comparison-table");
+  await expect(table.getByTestId("comparison-title")).toHaveText(WORDS.en.title(22), {
+    timeout: 60_000,
+  });
+  await expect(table).toHaveCount(1);
+  await expect(sheet).toHaveCount(0);
+});
+
 test("the Documents selected in the Library are offered as the scope, and start the sheet ticked", async () => {
   const { app, window } = await launchApp(dataDir, { fakeChat: true });
   await dismissChatSetup(window);

@@ -1,11 +1,12 @@
 import type { Editor } from "@tiptap/core";
 import { type KeyboardEvent, useEffect, useId, useMemo, useRef, useState } from "react";
 import type * as Y from "yjs";
-import type { RunEstimate } from "../../../core/api";
+import type { ChatModelChoice, RunEstimate } from "../../../core/api";
 import { MAX_COMPARISON_DOCUMENTS, MAX_COMPARISON_QUESTIONS } from "../../../shared/comparisons";
 import { asksFirst } from "../compareScope";
 import {
   chooseCompareSource,
+  clearCompareProblem,
   closeCompareSheet,
   documentIdsIn,
   makeComparisonTable,
@@ -20,7 +21,7 @@ import { RemoveIcon, TableIcon } from "../editor/icons";
 import { AskBlock } from "../editor/MindCheckLine";
 import { ModelChip } from "../editor/ModelChip";
 import { useLanguage, useT } from "../i18n";
-import { useModelInUse } from "../modelInUse";
+import { modelInUseOf, useModelInUse } from "../modelInUse";
 import { useSelectedOn } from "../selection";
 import { useAppStore } from "../store";
 import { ChevronDownLineIcon, PlusLineIcon } from "./lineIcons";
@@ -29,6 +30,10 @@ import { ReadinessLine } from "./providers/ChatReadinessNotice";
 import { NeedsModelCard } from "./providers/NeedsModelCard";
 import { buttonStyle, menuClass, menuItemClass } from "./ui";
 import { usePopoverMenu } from "./usePopoverMenu";
+
+/** One string for a model, so a run's key and its estimate's key compare with the same one. */
+const choiceKeyOf = (choice: Pick<ChatModelChoice, "providerId" | "modelId"> | null): string =>
+  `${choice?.providerId ?? ""}|${choice?.modelId ?? ""}`;
 
 /** Compare Documents (#98; the canvas board Final-37-Compare-Start), docked at the foot of the Mind. */
 export function CompareSheet({
@@ -44,6 +49,7 @@ export function CompareSheet({
   const language = useLanguage();
   const sheet = useComparisons((state) => state.sheets[mindId]);
   const problem = useComparisons((state) => state.problems[mindId]);
+  const readiness = useAppStore((state) => state.chatReadiness);
   const allDocuments = useAppStore((state) => state.documents);
   const library = useAppStore((state) => state.library);
   const settings = useAppStore((state) => state.settings);
@@ -88,9 +94,10 @@ export function CompareSheet({
   const questionsHint = asked.length === 0 ? "comparison.sheet.noQuestions" : null;
   const blocked = documents.length === 0 || documentsHint !== null || questionsHint !== null;
   // The question before a run is about these Documents, Questions and this model, and goes when any change.
-  const modelKey = `${model?.providerId}|${model?.modelId}`;
-  const runKey = `${checked.map((document) => document.id).join()}|${asked.length}|${modelKey}`;
-  const confirming = askedFor === runKey;
+  const modelKey = choiceKeyOf(model);
+  const scopeKey = `${checked.map((document) => document.id).join()}|${asked.length}`;
+  const runKey = `${scopeKey}|${modelKey}`;
+  const confirming = askedFor !== null && askedFor === runKey;
   // The last estimate stays on show while the next loads, so a tick doesn't move the foot.
   const estimated = estimate?.model === modelKey ? estimate : null;
   const exact = estimated?.cells === cells ? estimated : null;
@@ -136,6 +143,10 @@ export function CompareSheet({
   useEffect(() => {
     if (confirming) ask.current?.querySelector("button")?.focus();
   }, [confirming]);
+  // A problem that says no model works goes once one does, however it was set up.
+  useEffect(() => {
+    if (problem?.reason === "not-ready" && readiness?.ready) clearCompareProblem(mindId);
+  }, [problem, readiness?.ready, mindId]);
 
   if (!sheet) return null;
 
@@ -144,22 +155,29 @@ export function CompareSheet({
     closeCompareSheet(mindId);
     editor.commands.focus();
   };
-  const make = async () => {
+  // The model a run goes with: the one just saved, where a key was saved here, else the one in use now.
+  const make = async (withModel: ChatModelChoice | null = modelInUseOf(doc)) => {
     if (blocked) return;
-    setAskedFor(null);
     const made = await makeComparisonTable(
       mindId,
       checked.map((document) => document.id),
-      model,
+      withModel,
     );
-    if (made && !editor.isDestroyed) editor.commands.focus();
+    // The question before a run goes once the run starts; one that couldn't start keeps it.
+    if (!made) return;
+    setAskedFor(null);
+    if (!editor.isDestroyed) editor.commands.focus();
   };
   // The estimate may not be in yet for the Questions just typed: a run is asked about on its own.
-  const requestMake = async () => {
+  const requestMake = async (withModel: ChatModelChoice | null = modelInUseOf(doc)) => {
     if (blocked || sheet.making) return;
-    const run = exact ? exact.run : await estimateCells(cells, model);
-    if (asksFirst(checked.length, run)) setAskedFor(runKey);
-    else await make();
+    const known =
+      estimate && estimate.model === choiceKeyOf(withModel) && estimate.cells === cells
+        ? estimate
+        : null;
+    const run = known ? known.run : await estimateCells(cells, withModel);
+    if (asksFirst(checked.length, run)) setAskedFor(`${scopeKey}|${choiceKeyOf(withModel)}`);
+    else await make(withModel);
   };
   const chooseDocuments = () => {
     setAskedFor(null);
@@ -378,7 +396,10 @@ export function CompareSheet({
               line="needsModel.compare"
               testId="compare-sheet-needs-model"
               className="compare-sheet-problem"
-              onDone={() => void requestMake()}
+              onDone={(_, saved) => {
+                clearCompareProblem(mindId);
+                void requestMake(saved);
+              }}
             />
           ) : (
             <ReadinessLine

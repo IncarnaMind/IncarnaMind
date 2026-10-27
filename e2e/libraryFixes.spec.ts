@@ -164,8 +164,8 @@ for (const language of ["en", "zh-CN"] as const) {
     await expect(needs.getByTestId("library-organize-key")).toBeVisible();
     await expect(needs).toContainText(
       language === "en"
-        ? "It sends Documents’ names and excerpts to the model you set up."
-        : "它会把文档名称和摘录发送给你设置的模型。",
+        ? "It sends Documents’ names and excerpts, and Folder and Tag names and descriptions, to the model you set up."
+        : "它会把文档名称和摘录，以及文件夹和标签的名称与描述，发送给你设置的模型。",
     );
 
     // With an AI model connected, Organize can use its company.

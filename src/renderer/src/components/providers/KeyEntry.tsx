@@ -33,7 +33,8 @@ export function KeyEntry({
   autoFocus = false,
   inputRef,
 }: {
-  onSaved(provider: ChatProvider): void;
+  /** The saved provider, and the model it was saved with, for the work that waited on it. */
+  onSaved(provider: ChatProvider, model: { providerId: string; modelId: string }): void;
   /** The way on for a key whose form names no service we list, with the key as typed. */
   unrecognised: { label: MessageKey; run(key: string): void };
   testId?: string;
@@ -94,7 +95,7 @@ export function KeyEntry({
       const provider = await core.saveChatProvider(request);
       setValue("");
       setProblem(null);
-      onSaved(provider);
+      onSaved(provider, { providerId: provider.id, modelId });
     } catch (failure) {
       reportError(failure);
     } finally {

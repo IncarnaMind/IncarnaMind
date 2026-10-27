@@ -98,6 +98,7 @@ const CONSENT_FACTS = [
   "needsModel.help",
   "setup.sorting.here",
   "setup.sorting.chatHere",
+  "setup.sorting.sends",
 ];
 
 describe("The Settings pages", () => {
