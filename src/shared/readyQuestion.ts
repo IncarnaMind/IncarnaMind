@@ -1,7 +1,7 @@
 /**
  * The first open's ready Question (#2084): about the User's own Document as soon as one of theirs
- * can be answered, and the example's only while they have none. Pure, so the core and the window
- * decide it the one way (`readyQuestion` in the core's API, `useReadyQuestion` in the window).
+ * can be answered, and the example's only while they have none. Pure: one reader, which the core's
+ * `readyQuestion()` returns to every host.
  */
 import type { Document, ReadyQuestion } from "../core/api";
 import type { Language } from "../core/language";
