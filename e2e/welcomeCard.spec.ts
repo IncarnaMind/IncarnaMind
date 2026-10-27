@@ -334,7 +334,7 @@ test("hiding the guide takes its red mark's ring and its ⌘K route away (#1944)
   await app.close();
 });
 
-/** A file name longer than the Ask line can show: the Question about it is cut (D278). */
+/** A file name longer than the Ask line can show: the Question about it is cut. */
 const LONG_NAME =
   "Protocol for the joint harbour authority quarterly tide-table review and its winter dredging schedule";
 /** Pages enough that reading the file takes a moment the test can see the card in. */
@@ -368,7 +368,7 @@ async function ownDocuments(window: Page): Promise<{ reading: boolean; ready: bo
 
 for (const language of ["en", "zh-CN"] as const) {
   for (const width of [900, 1600]) {
-    test(`the Ask line holds one height as their file is read, fails, becomes the Question, or a long one (${language}, ${width}px, D278)`, async () => {
+    test(`the Ask line holds one height as their file is read, fails, becomes the Question, or a long one (${language}, ${width}px)`, async () => {
       test.setTimeout(180_000);
       const sources = await createDataFolder();
       const slow = join(sources, "Harbour times.pdf");
@@ -409,7 +409,7 @@ for (const language of ["en", "zh-CN"] as const) {
         const cut = await height();
         expect(cut, `${language} ${width}px, a long Question`).toBe(reading);
         // The whole Question stays the line's name and its tooltip: at the narrowest width only
-        // what shows is cut, at a word end in English and anywhere in Chinese (D278).
+        // what shows is cut, at a word end in English and anywhere in Chinese.
         expect(await button.getAttribute("aria-label")).toContain(LONG_NAME);
         const wholeLabel = (await button.getAttribute("title")) ?? "";
         const shownLabel = await button.innerText();
@@ -418,6 +418,12 @@ for (const language of ["en", "zh-CN"] as const) {
         if (shownLabel !== wholeLabel) {
           expect(shownLabel.endsWith("…"), `${language} ${width}px, cut`).toBe(true);
           expect(wholeLabel.startsWith(shownLabel.slice(0, -1))).toBe(true);
+          // English cuts at a word's end, so what follows the shown text starts a word.
+          if (language === "en")
+            expect(
+              wholeLabel.slice(shownLabel.length - 1),
+              `${language} ${width}px, a word's end`,
+            ).toMatch(/^\s/u);
         }
       } finally {
         await a.app.close();

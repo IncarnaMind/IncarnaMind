@@ -1,4 +1,11 @@
-import { type ReactNode, useEffect, useLayoutEffect, useRef, useState } from "react";
+import {
+  type ReactNode,
+  type RefObject,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+} from "react";
 import type { CommandId } from "../../../shared/commands";
 import { displayName } from "../../../shared/documentNames";
 import type { MessageKey } from "../../../shared/i18n";
@@ -254,19 +261,17 @@ export function FirstOpenSteps({ mindId }: { mindId: string }) {
             <p className="text-[13px] leading-5 text-ink-secondary">
               {t("firstOpen.step.question.body")}
             </p>
-            <div className="flex min-h-7 min-w-0 items-center gap-x-3">
-              <ReadyLine
-                question={ready?.question ?? null}
-                reading={reading}
-                unread={unread}
-                testId={only("first-open-ready")}
-                onAsk={() => {
-                  focusNext.current = true;
-                  revealAssistant();
-                  void askReadyQuestion();
-                }}
-              />
-            </div>
+            <ReadyLine
+              question={ready?.question ?? null}
+              reading={reading}
+              unread={unread}
+              testId={only("first-open-ready")}
+              onAsk={() => {
+                focusNext.current = true;
+                revealAssistant();
+                void askReadyQuestion();
+              }}
+            />
           </Step>
           <Step
             step="citation"
@@ -351,35 +356,44 @@ export function FirstOpenSteps({ mindId }: { mindId: string }) {
 }
 
 /**
- * The text on one line (D278): the longest start that fits, ended with "…", at a word in English
- * and anywhere in Chinese; the whole text stays the line's name and its tooltip.
+ * The text on one line: the longest start that fits, ended with "…", at a word in English and
+ * anywhere in Chinese; the whole text stays the line's name and its tooltip. `room` is the box the
+ * line is given, as wide as the page lets it be.
  */
-function useFittedLine(text: string, atWords: boolean) {
+function useFittedLine(text: string, atWords: boolean, room: RefObject<HTMLElement | null>) {
   const ref = useRef<HTMLSpanElement>(null);
   const [shown, setShown] = useState(text);
   useLayoutEffect(() => {
     const element = ref.current;
     if (!element) return;
-    const update = () =>
-      setShown(
-        fitName(
-          text,
-          (each) => {
-            element.textContent = each;
-            return element.scrollWidth <= element.clientWidth;
-          },
-          atWords,
-        ),
+    const update = () => {
+      // Measuring writes each text tried into the line itself. A fit that hasn't changed doesn't
+      // render again, and the last text tried would stay, cut where no word ends: put back what is
+      // drawn before setting the fit.
+      const drawn = element.textContent ?? "";
+      const fitted = fitName(
+        text,
+        (each) => {
+          element.textContent = each;
+          return element.scrollWidth <= element.clientWidth;
+        },
+        atWords,
       );
+      element.textContent = drawn;
+      setShown(fitted);
+    };
     update();
+    // The line's width changes only as its text does, so the row it is given says when the room
+    // changed; the line too, as a text that no longer fits must be measured again.
     const observer = new ResizeObserver(update);
+    if (room.current) observer.observe(room.current);
     observer.observe(element);
     return () => observer.disconnect();
-  }, [text, atWords]);
+  }, [text, atWords, room]);
   return [ref, shown] as const;
 }
 
-/** The Ask step's one reserved line (D278): the ready Question, or why there is none yet. */
+/** The Ask step's one reserved line: the ready Question, or why there is none yet. */
 function ReadyLine({
   question,
   reading,
@@ -394,10 +408,12 @@ function ReadyLine({
   onAsk: () => void;
 }) {
   const t = useT();
+  const room = useRef<HTMLDivElement>(null);
   const label = question === null ? "" : t("firstOpen.step.question.ready", { question });
-  const [ref, shown] = useFittedLine(label, useLanguage() !== "zh-CN");
+  const [ref, shown] = useFittedLine(label, useLanguage() !== "zh-CN", room);
+  let line: ReactNode;
   if (question !== null)
-    return (
+    line = (
       <>
         <button
           type="button"
@@ -418,26 +434,32 @@ function ReadyLine({
         </span>
       </>
     );
-  if (reading !== null)
-    return (
+  else if (reading !== null)
+    line = (
       <span title={reading} className="min-w-0 truncate text-[13px] leading-5 text-ink-secondary">
         {t("firstOpen.step.question.reading", { document: reading })}
       </span>
     );
-  if (unread.length > 0) {
-    // The unseen states hold the line's height; the line the User can act on is the live one.
-    if (testId === undefined)
-      return (
+  else if (unread.length > 0)
+    line =
+      testId === undefined ? (
+        // The unseen states hold the line's height; the line the User can act on is the live one.
         <span className="truncate text-[13px] leading-5 text-ink-secondary">
           {t(unread.length === 1 ? "unread.count.one" : "unread.count", { count: unread.length })}
         </span>
+      ) : (
+        <UnreadFilesLine files={unread} testId={`${testId}-unread`} />
       );
-    return <UnreadFilesLine files={unread} testId={`${testId}-unread`} />;
-  }
+  else
+    line = (
+      <span className="text-[13px] leading-5 text-ink-secondary">
+        <OwnQuestion message="firstOpen.step.question.ownOnly" />
+      </span>
+    );
   return (
-    <span className="text-[13px] leading-5 text-ink-secondary">
-      <OwnQuestion message="firstOpen.step.question.ownOnly" />
-    </span>
+    <div ref={room} className="flex min-h-7 min-w-0 items-center gap-x-3">
+      {line}
+    </div>
   );
 }
 
