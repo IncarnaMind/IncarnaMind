@@ -609,6 +609,8 @@ describe("an Analysis table writes its numbers as the Answer's language does (#2
       ["West", "n/a"],
       ["Padded", "12.50"],
       ["Huge", "9007199254740993"],
+      ["Exponent", "1e3"],
+      ["Exact", "1.5e3"],
     ],
   );
   const identifiers = table(
@@ -688,6 +690,8 @@ describe("an Analysis table writes its numbers as the Answer's language does (#2
     expect(read.text).toContain("| West | n/a |");
     expect(read.text).toContain("| Padded | 12.50 |");
     expect(read.text).toContain("| Huge | 9007199254740993 |");
+    expect(read.text).toContain("| Exponent | 1,000 |");
+    expect(read.text).toContain("| Exact | 1,500 |");
     expect(read.text).toContain("| 7509964 | 7509964 | 1284 | 2024 | 7509964 | 0012 | 2026 |");
     expect(read.text).toContain(
       "| 2026 | 2026 | 2026 | 2026 | 2026 | 2026 | 2026 | 2026 | 2026 | 2026 | 2026 | 2026 | 2026 | 2026 | 2026 |",

@@ -428,16 +428,38 @@ export function rawColumn(header: string): boolean {
 /** A string that is a plain number, as a cell may hold the number it means. */
 const PLAIN_NUMBER = /^[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?$/;
 
+/** A plain number's digits with its exponent applied, so "1e3" and "1000" compare alike. */
+function canonicalNumber(text: string): string | null {
+  const match = /^([+-]?)(\d*)(?:\.(\d*))?(?:[eE]([+-]?\d+))?$/.exec(text);
+  if (!match) return null;
+  const [, sign = "", whole = "", fraction = "", exponent = "0"] = match;
+  const shift = Number(exponent);
+  if (!Number.isSafeInteger(shift) || Math.abs(shift) > 400) return null;
+  const written = `${whole}${fraction}`;
+  let point = whole.length + shift;
+  const digits = written.replace(/^0+/, "");
+  point -= written.length - digits.length;
+  if (digits === "") return "0";
+  const body =
+    point <= 0
+      ? `0.${"0".repeat(-point)}${digits}`
+      : point >= digits.length
+        ? `${digits}${"0".repeat(point - digits.length)}`
+        : `${digits.slice(0, point)}.${digits.slice(point)}`;
+  return sign === "-" ? `-${body}` : body;
+}
+
 /**
  * A numeric string as its number, only when JavaScript holds it exactly: a
  * long integer or decimal such as "9007199254740993" would lose digits if it
- * were turned into a number, so it stays as it is.
+ * were turned into a number, so it stays as it is. "1e3" is exact and takes
+ * the formatter; "12.50" keeps the precision it was written with.
  */
 function exactNumber(text: string): number | null {
   if (!PLAIN_NUMBER.test(text)) return null;
   const signed = text.startsWith("+") ? text.slice(1) : text;
   const value = Number(signed);
-  return String(value) === signed ? value : null;
+  return canonicalNumber(signed) === canonicalNumber(String(value)) ? value : null;
 }
 
 /** The precision an Analysis has always rounded a non-integer to, kept so grouping never changes it. */
