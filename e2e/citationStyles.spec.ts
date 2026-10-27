@@ -11,6 +11,8 @@ import {
   addDocuments,
   addToNote,
   askInAssistant,
+  useOutputLocation as chooseOutputLocation,
+  coreOf,
   createDataFolder,
   dismissChatSetup,
   documentIdOf,
@@ -25,7 +27,6 @@ import {
   setWindowSize,
   sidebarFolder,
   useLocalChatModel,
-  useOutputLocation,
 } from "./app";
 
 /** Set INCARNAMIND_SCREENSHOTS to a folder to also save screenshots. */
@@ -161,8 +162,9 @@ test("a Mind citing a paper offers a citation style; chosen, its Citations and R
   const references = window.getByTestId("references");
   await expect(references).toHaveCount(0);
 
-  // It cites a paper (Tides has a record with its authors), so its end offers a style, APA
-  // first in English. Chosen, APA 7 writes the two side by side as one.
+  // It cites a paper (Tides has a record with its authors), so once the User has a second note
+  // its end offers a style, APA first in English. Chosen, APA 7 writes the two side by side as one.
+  await (await coreOf(window)).evaluate((core) => core.createMind({ title: "Second note" }));
   const prompt = window.getByTestId("citation-style-prompt");
   await expect(prompt).toHaveText("Choose a citation style? APA · GB/T 7714 · More…");
   await screenshot(window, "citation-style-prompt-en");
@@ -275,7 +277,7 @@ test("a Mind citing a paper offers a citation style; chosen, its Citations and R
 
   // The export is in the Mind's style: Chicago notes become Word footnotes, with the Bibliography.
   const target = join(sources, "Untitled.docx");
-  await useOutputLocation(window, sources);
+  await chooseOutputLocation(window, sources);
   await window.keyboard.press("Escape");
   await pointAndClick(window, references.getByTestId("references-export"));
   const dialog = window.getByTestId("export-dialog");
@@ -325,6 +327,7 @@ test("in Chinese: the offer puts GB/T 7714 first; chosen, raised numbers and 参
   });
 
   const answer = await ask(window, "开放的复杂巨系统 each");
+  await (await coreOf(window)).evaluate((core) => core.createMind({ title: "第二篇笔记" }));
   const prompt = window.getByTestId("citation-style-prompt");
   await expect(prompt).toHaveText("选择引用格式？GB/T 7714 · APA · 更多…");
   await screenshot(window, "citation-style-prompt-zh");
@@ -442,7 +445,7 @@ test("in Chinese, a thesis Mind: 引用信息 read from the PDFs waits to be che
   await screenshot(window, "references-gbt-default-zh");
 
   // Where the User exports: the Export menu names the style, and opens the picker.
-  await useOutputLocation(window, sources);
+  await chooseOutputLocation(window, sources);
   await pointAndClick(window, window.getByTestId("export-mind"));
   const styleItem = window.getByTestId("export-citation-style-menu");
   await expect(styleItem).toHaveText("引用格式GB/T 7714—2015（顺序编码制）");
@@ -555,58 +558,74 @@ test("in Chinese, a Mind that takes GB/T 7714 by default says so once on the und
   }
 });
 
-test("a Mind citing files with no details isn't offered a style until one is a paper; closed, the offer stays closed there, with Undo; More… opens the picker", async () => {
-  await writeFile(join(sources, "Lease agreement.txt"), "Spring rent is due at the new moon.");
-  const { app, window } = await launchApp(dataDir, { fakeChat: true });
-  await dismissChatSetup(window);
-  await useLocalChatModel(window);
-  await addDocuments(window, [join(sources, "Lease agreement.txt")]);
+for (const release of ["a second own note", "an own export"] as const) {
+  test(`a citation style prompt waits for a paper and ${release}; closing has Undo and More opens the picker`, async () => {
+    await writeFile(join(sources, "Lease agreement.txt"), "Spring rent is due at the new moon.");
+    const { app, window } = await launchApp(dataDir, { fakeChat: true });
+    await dismissChatSetup(window);
+    await useLocalChatModel(window);
+    await addDocuments(window, [join(sources, "Lease agreement.txt")]);
 
-  // A contract: a numbered marker, as before styles, and nothing offered.
-  const answer = await ask(window, "When is spring rent due?");
-  await expect(answer.getByTestId("citation-chip")).toHaveText(["1"]);
-  const prompt = window.getByTestId("citation-style-prompt");
-  await expect(answer.getByTestId("citation-chip")).toHaveAttribute("data-check", "found");
-  await expect(prompt).toHaveCount(0);
-  await expect(window.getByTestId("references")).toHaveCount(0);
+    // A contract: a numbered marker, as before styles, and nothing offered.
+    const answer = await ask(window, "When is spring rent due?");
+    await expect(answer.getByTestId("citation-chip")).toHaveText(["1"]);
+    const prompt = window.getByTestId("citation-style-prompt");
+    await expect(answer.getByTestId("citation-chip")).toHaveAttribute("data-check", "found");
+    await expect(prompt).toHaveCount(0);
+    await expect(window.getByTestId("references")).toHaveCount(0);
 
-  // A report with an author and a date is still neither a paper nor a book: nothing offered (#1910).
-  const lease = await documentIdOf(window, "Lease agreement");
-  await setRecord(window, lease, {
-    type: "report",
-    title: "Rent review 2026",
-    authors: [{ literal: "Facilities" }],
-    issued: "2026",
+    // A report with an author and a date is still neither a paper nor a book: nothing offered (#1910).
+    const lease = await documentIdOf(window, "Lease agreement");
+    await setRecord(window, lease, {
+      type: "report",
+      title: "Rent review 2026",
+      authors: [{ literal: "Facilities" }],
+      issued: "2026",
+    });
+    await expect(prompt).toHaveCount(0);
+    await expect(window.getByTestId("references")).toHaveCount(0);
+
+    await setRecord(window, lease, {
+      type: "article-journal",
+      title: "Rent and the Moon",
+      authors: [{ family: "Oke", given: "T. R." }],
+      issued: "1982",
+    });
+    await expect(prompt).toHaveCount(0);
+    await (await coreOf(window)).evaluate(async (core) => {
+      const { exportOptions } = (await core.getSettings()).user;
+      await core.updateSettings({
+        user: { exportOptions: { ...exportOptions, citationPlace: "footnotes" } },
+      });
+    });
+    await expect(prompt).toHaveCount(0);
+    if (release === "a second own note") {
+      await (await coreOf(window)).evaluate((core) => core.createMind({ title: "Second note" }));
+    } else {
+      await chooseOutputLocation(window, sources);
+      await exportFromMenu(window, "markdown");
+      await expect(window.getByTestId("export-done")).toBeVisible();
+    }
+    await expect(prompt).toBeVisible();
+
+    // Closed, it doesn't come back in this Mind; Undo brings it back.
+    await pointAndClick(window, prompt.getByTestId("citation-style-prompt-dismiss"));
+    await expect(prompt).toHaveCount(0);
+    await expect(window.getByTestId("undo-line")).toContainText(
+      "Won’t ask about a citation style in this note",
+    );
+    await pointAndClick(window, window.getByTestId("undo-action"));
+    await expect(prompt).toBeVisible();
+
+    // More… opens the picker, for any style.
+    await pointAndClick(window, prompt.getByTestId("citation-style-prompt-more"));
+    await chooseStyle(window, "harvard", "Harvard (Cite Them Right)");
+    await expect(prompt).toHaveCount(0);
+    await expect(window.getByTestId("references")).toHaveAttribute("data-style", "harvard");
+    await expect(answer.getByTestId("citation-chip")).toHaveText("(Oke, 1982, l. 1)");
+    await app.close();
   });
-  await expect(prompt).toHaveCount(0);
-  await expect(window.getByTestId("references")).toHaveCount(0);
-
-  // Once its record says it is a paper, the offer shows at the Mind's end.
-  await setRecord(window, lease, {
-    type: "article-journal",
-    title: "Rent and the Moon",
-    authors: [{ family: "Oke", given: "T. R." }],
-    issued: "1982",
-  });
-  await expect(prompt).toBeVisible();
-
-  // Closed, it doesn't come back in this Mind; Undo brings it back.
-  await pointAndClick(window, prompt.getByTestId("citation-style-prompt-dismiss"));
-  await expect(prompt).toHaveCount(0);
-  await expect(window.getByTestId("undo-line")).toContainText(
-    "Won’t ask about a citation style in this note",
-  );
-  await pointAndClick(window, window.getByTestId("undo-action"));
-  await expect(prompt).toBeVisible();
-
-  // More… opens the picker, for any style.
-  await pointAndClick(window, prompt.getByTestId("citation-style-prompt-more"));
-  await chooseStyle(window, "harvard", "Harvard (Cite Them Right)");
-  await expect(prompt).toHaveCount(0);
-  await expect(window.getByTestId("references")).toHaveAttribute("data-style", "harvard");
-  await expect(answer.getByTestId("citation-chip")).toHaveText("(Oke, 1982, l. 1)");
-  await app.close();
-});
+}
 
 test("the style chosen for a Mind in a Folder, from its menu, is the one a new Mind there starts in", async () => {
   const { app, window } = await launchApp(dataDir, { fakeChat: true });

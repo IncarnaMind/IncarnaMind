@@ -16,6 +16,7 @@ import type { MessageKey, MessageParams } from "../../shared/i18n";
 import { core } from "./core";
 import { useT } from "./i18n";
 import { useAppStore } from "./store";
+import { closeTip } from "./tips";
 import { useUndo } from "./undo";
 
 interface PickerState {
@@ -140,6 +141,7 @@ export async function chooseCitationStyle(
     const previous = before ?? (await core.getMindCitationStyle(mindId));
     if (previous.chosen && previous.style === style) return true;
     await core.setMindCitationStyle(mindId, style);
+    closeTip("citation-style");
     useUndo.getState().push({
       said: (t) => t("citationStyle.changed", { style: styleLabel(style, t) }),
       undo: async () => {

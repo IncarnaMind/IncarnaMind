@@ -2,11 +2,13 @@ import { writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { expect, type Page, test } from "@playwright/test";
 import type { CoreBridge } from "../src/core/api";
+import { translate } from "../src/shared/i18n";
 import { buildPdf } from "../tests/helpers/pdf";
 import {
   acceptPlainTextKeys,
   addDocuments,
   checkCard,
+  useLocalChatModel as connectLocalChatModel,
   createDataFolder,
   dismissChatSetup,
   launchApp,
@@ -14,10 +16,10 @@ import {
   motionSettled,
   pointAndClick,
   removeDataFolder,
+  runCommand,
   setLanguage,
   setWindowSize,
   slideSelect,
-  useLocalChatModel,
 } from "./app";
 
 /*
@@ -115,6 +117,66 @@ const mindCheckFinished = (window: Page, claims: number) =>
       card.querySelector('[data-testid="card-progress"]') === null
     );
   }, claims);
+
+for (const language of ["en", "zh-CN"] as const) {
+  test(`a temporarily unavailable check says the problem in one line and Try again does it (${language})`, async () => {
+    await writeFile(join(sources, "Tides.pdf"), TIDES);
+    const { app, window } = await launchApp(dataDir, { fakeChat: true });
+    try {
+      await dismissChatSetup(window);
+      await connectLocalChatModel(window);
+      await setLanguage(window, language);
+      await setWindowSize(app, window, 900, 800);
+      await addDocuments(window, [join(sources, "Tides.pdf")]);
+      await mindWrittenBefore(window, "Tide note", [
+        { note: "Spring tides come at new moon and at full moon." },
+      ]);
+      await window.getByTestId("mind-list-item").filter({ hasText: "Tide note" }).click();
+      await app.evaluate(({ ipcMain }) => {
+        const channel = "core:planMindCheck";
+        const handlers = (
+          ipcMain as unknown as {
+            _invokeHandlers: Map<string, (event: unknown, ...args: unknown[]) => unknown>;
+          }
+        )._invokeHandlers;
+        const original = handlers.get(channel);
+        if (!original) throw new Error("The check handler is unavailable.");
+        let fail = true;
+        ipcMain.removeHandler(channel);
+        ipcMain.handle(channel, (event, ...args) => {
+          if (fail) {
+            fail = false;
+            throw new Error("Checking is temporarily unavailable.");
+          }
+          return original(event, ...args);
+        });
+      });
+      await runCommand(window, "mind.check", translate(language, "mindCheck.command"));
+      const problem = window.getByTestId("checks-problem");
+      await expect(problem).toContainText(translate(language, "checks.problem.failed"));
+      await problem.getByTestId("checks-problem-details").click();
+      await expect(problem.getByTestId("checks-problem-details-text")).toContainText(
+        "Checking is temporarily unavailable",
+      );
+      const retry = problem.getByTestId("checks-try-again");
+      for (const width of [900, 1600]) {
+        await setWindowSize(app, window, width, 800);
+        await expect(retry).toBeVisible();
+        const box = await retry.boundingBox();
+        if (!box) throw new Error("Retry is not drawn.");
+        expect(box.x + box.width).toBeLessThanOrEqual(width);
+        await screenshot(window, `check-failed-${language}-${width}`);
+      }
+      await retry.focus();
+      await window.keyboard.press("Enter");
+      await expect(problem).toHaveCount(0);
+      await window.getByTestId("mind-check-ask").getByTestId("mind-check-check").click();
+      await expect(marks(window)).toHaveAttribute("data-check", "supported");
+    } finally {
+      await app.close();
+    }
+  });
+}
 
 /** A model billed per token, whose requests the cost meter counts, with the checks allowed to use it. */
 async function useCloudChatModel(window: Page) {
@@ -232,7 +294,7 @@ test("In Chinese and a narrow window, from the Mind's tab menu: a model on this 
   );
   const { app, window } = await launchApp(dataDir, { fakeChat: true });
   await dismissChatSetup(window);
-  await useLocalChatModel(window);
+  await connectLocalChatModel(window);
   await addDocuments(window, [join(sources, "Tides.pdf"), join(sources, "Garden.pdf")]);
   await harbourNotes(window);
   // The Mind's Folder holds only the garden notes; the Tides PDF is outside it.
@@ -302,7 +364,7 @@ test("when the provider can't be reached while the claims are named, Try again n
   const { app, window } = await launchApp(dataDir, { fakeChat: true });
   await dismissChatSetup(window);
   // The scripted model can't reach its provider the first time it names the claims.
-  await useLocalChatModel(window, "fake-model-claims-offline");
+  await connectLocalChatModel(window, "fake-model-claims-offline");
   await setWindowSize(app, window, 1440, 900);
   await addDocuments(window, [join(sources, "Tides.pdf")]);
   await harbourNotes(window);
@@ -418,7 +480,7 @@ test("the line that says nothing changed goes when a Document is edited, moved o
   );
   const { app, window } = await launchApp(dataDir, { fakeChat: true });
   await dismissChatSetup(window);
-  await useLocalChatModel(window);
+  await connectLocalChatModel(window);
   await setWindowSize(app, window, 1440, 900);
   await addDocuments(window, [join(sources, "Tides.pdf"), join(sources, "Garden.pdf")]);
   await harbourNotes(window);
