@@ -29,7 +29,7 @@
   <a href="https://github.com/IncarnaMind/IncarnaMind/stargazers"><img alt="GitHub stars" src="https://img.shields.io/github/stars/IncarnaMind/IncarnaMind?color=17191C"></a>
 </p>
 
-<p align="center"><img src="docs/images/demo-tour-2026-10-25-en.gif" width="880" alt="A wrong figure in a credit analyst's draft is marked in the margin. A click opens the page it contradicts, and checking the draft again turns the mark green. Recorded in the app with Claude Sonnet 5.5."></p>
+<p align="center"><img src="docs/images/demo-tour-2026-10-25-en.gif" width="880" alt="A memo says 36.8% where the Q3 results say 38.6%: the figure is marked in the margin, a click opens the page that contradicts it, and one click fixes it. Then the same folders answer a question with a quote that lights up on the page, compare three banks' term sheets in one table, check the whole memo against its files, and send it to Word with its footnotes. Recorded in the app with Claude Sonnet 5.5."></p>
 
 <p align="center"><sub>Everything shown is in the app today. <a href="docs/images/demo-tour-2026-10-25-en.mp4">Watch the full film in HD</a>.<br>Alpha: free test builds, not yet signed. The public alpha opens in early 2027.</sub></p>
 
