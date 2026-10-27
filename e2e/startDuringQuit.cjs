@@ -72,6 +72,10 @@ if (trace) {
     }
   };
   const connections = new WeakMap();
+  const transientWalProbe =
+    process.platform === "win32" && process.env.INCARNAMIND_TEST_TRANSIENT_WAL_PROBE === "1";
+  delete process.env.INCARNAMIND_TEST_TRANSIENT_WAL_PROBE;
+  const measuredWal = new WeakSet();
   let connectionId = 0;
   const DatabaseSync = sqlite.DatabaseSync;
   sqlite.DatabaseSync = new Proxy(DatabaseSync, {
@@ -108,10 +112,28 @@ if (trace) {
   };
   const exec = DatabaseSync.prototype.exec;
   DatabaseSync.prototype.exec = function (sql) {
+    const connection = connections.get(this);
+    const measuring =
+      transientWalProbe &&
+      connection &&
+      basename(connection.file) === "incarnamind.db" &&
+      sql === "PRAGMA journal_mode = WAL" &&
+      !measuredWal.has(this);
+    if (measuring) measuredWal.add(this);
+    const startedAt = measuring ? process.hrtime.bigint() : 0n;
     try {
-      return exec.call(this, sql);
+      const result = exec.call(this, sql);
+      if (measuring)
+        diagnose("sqlite-wal-probe-complete", {
+          connection,
+          outcome: "first-open",
+          attempts: 1,
+          initialDurationMs: Number(process.hrtime.bigint() - startedAt) / 1_000_000,
+          elapsedMs: 0,
+        });
+      return result;
     } catch (error) {
-      const connection = connections.get(this);
+      const failedAt = measuring ? process.hrtime.bigint() : 0n;
       if (connection?.observed !== false || error?.errcode % 256 !== 5)
         diagnose("sqlite-error", {
           connection,
@@ -120,7 +142,83 @@ if (trace) {
           errcode: error?.errcode,
           errstr: error?.errstr,
         });
-      throw error;
+      if (!measuring) throw error;
+      const initialDurationMs = Number(failedAt - startedAt) / 1_000_000;
+      let attempts = 1;
+      let lastError = error;
+      const complete = (outcome, endedAt = process.hrtime.bigint()) =>
+        diagnose("sqlite-wal-probe-complete", {
+          connection,
+          outcome,
+          attempts,
+          initialDurationMs,
+          elapsedMs: Number(endedAt - failedAt) / 1_000_000,
+          ...(outcome === "deadline" || outcome === "other-error"
+            ? { errcode: lastError?.errcode }
+            : {}),
+        });
+      diagnose("sqlite-wal-probe-attempt", {
+        connection,
+        attempt: attempts,
+        outcome: "error",
+        errcode: error?.errcode,
+        durationMs: initialDurationMs,
+        elapsedMs: 0,
+      });
+      if (error?.errcode !== 1546) {
+        complete("other-error", failedAt);
+        throw error;
+      }
+      const deadline = failedAt + 5_000_000_000n;
+      const pause = new Int32Array(new SharedArrayBuffer(4));
+      for (;;) {
+        const remainingMs = Number(deadline - process.hrtime.bigint()) / 1_000_000;
+        if (remainingMs <= 0) {
+          complete("deadline");
+          throw lastError;
+        }
+        Atomics.wait(pause, 0, 0, Math.min(250, remainingMs));
+        const attemptAt = process.hrtime.bigint();
+        if (attemptAt >= deadline) {
+          complete("deadline", attemptAt);
+          throw lastError;
+        }
+        attempts++;
+        let result;
+        try {
+          result = exec.call(this, sql);
+        } catch (retryError) {
+          const endedAt = process.hrtime.bigint();
+          lastError = retryError;
+          diagnose("sqlite-wal-probe-attempt", {
+            connection,
+            attempt: attempts,
+            outcome: "error",
+            errcode: retryError?.errcode,
+            durationMs: Number(endedAt - attemptAt) / 1_000_000,
+            elapsedMs: Number(endedAt - failedAt) / 1_000_000,
+          });
+          if (retryError?.errcode !== 1546) {
+            complete("other-error", endedAt);
+            throw retryError;
+          }
+          continue;
+        }
+        const endedAt = process.hrtime.bigint();
+        diagnose("sqlite-wal-probe-attempt", {
+          connection,
+          attempt: attempts,
+          outcome: "success",
+          durationMs: Number(endedAt - attemptAt) / 1_000_000,
+          elapsedMs: Number(endedAt - failedAt) / 1_000_000,
+        });
+        if (endedAt >= deadline) {
+          complete("deadline", endedAt);
+          throw lastError;
+        }
+        complete("cleared", endedAt);
+        return result;
+      }
     }
   };
   for (const method of ["requestSingleInstanceLock", "releaseSingleInstanceLock"]) {

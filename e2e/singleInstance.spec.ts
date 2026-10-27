@@ -543,7 +543,7 @@ for (const gap of [0, 20, 40, 60, 80]) {
 async function startWhileQuitting(
   how: "quit" | "quit-twice" | "crash" | "after-release",
   starts: number,
-  { stallAgain = false, language = "en-US" } = {},
+  { stallAgain = false, language = "en-US", walProbeTrial = 0 } = {},
 ) {
   const home = await mkdtemp(join(tmpdir(), "incarnamind-home-"));
   const boxes = join(home, "error-boxes.jsonl");
@@ -567,6 +567,7 @@ async function startWhileQuitting(
         INCARNAMIND_TEST_ERROR_BOXES: boxes,
         INCARNAMIND_TEST_ERROR_LANGUAGE: language,
         INCARNAMIND_TEST_INSTANCE_TRACE: instanceTrace,
+        ...(walProbeTrial && { INCARNAMIND_TEST_TRANSIENT_WAL_PROBE: "1" }),
         ...extraEnv,
       },
     );
@@ -576,9 +577,40 @@ async function startWhileQuitting(
     copies: copiesWith(tag).length,
     windows: (await Promise.all(ports.map(windowsOf))).reduce((sum, each) => sum + each, 0),
   });
+  const walResults = async () => {
+    if (!existsSync(instanceTrace)) return [];
+    const text = await readFile(instanceTrace, "utf8");
+    return text
+      .slice(0, text.lastIndexOf("\n") + 1)
+      .split("\n")
+      .filter(Boolean)
+      .map((line): unknown => JSON.parse(line))
+      .filter(
+        (row): row is Record<string, unknown> =>
+          isRecord(row) && row.event === "sqlite-wal-probe-complete",
+      );
+  };
+  const failedWal = async () =>
+    (await walResults()).find((row) => row.outcome === "deadline" || row.outcome === "other-error");
+  const requireWalWithinBudget = async () => {
+    const failed = await failedWal();
+    if (failed) throw new Error(`The native WAL measurement stopped: ${JSON.stringify(failed)}`);
+  };
   try {
     await start({ INCARNAMIND_TEST_QUIT_MARK: mark, INCARNAMIND_TEST_QUIT_ON_START: how });
-    await expect.poll(() => windowsOf(ports[0] as number), { timeout: 60_000 }).toBe(1);
+    if (walProbeTrial) {
+      await expect
+        .poll(
+          async () => (await windowsOf(ports[0] as number)) === 1 || Boolean(await failedWal()),
+          {
+            timeout: 60_000,
+          },
+        )
+        .toBe(true);
+      await requireWalWithinBudget();
+    } else {
+      await expect.poll(() => windowsOf(ports[0] as number), { timeout: 60_000 }).toBe(1);
+    }
     if (late) {
       await inCopyWindow(ports[0], async (window) => {
         await (await coreOf(window)).evaluate((api) =>
@@ -619,9 +651,22 @@ async function startWhileQuitting(
       ]);
       return;
     }
-    await expect
-      .poll(left, { timeout: late ? 20_000 : 90_000, message: "one copy is left, with a window" })
-      .toEqual({ copies: 1, windows: 1 });
+    if (walProbeTrial) {
+      await expect
+        .poll(
+          async () => {
+            const state = await left();
+            return (state.copies === 1 && state.windows === 1) || Boolean(await failedWal());
+          },
+          { timeout: 90_000, message: "one copy is left, with a window, or the WAL probe stops" },
+        )
+        .toBe(true);
+      await requireWalWithinBudget();
+    } else {
+      await expect
+        .poll(left, { timeout: late ? 20_000 : 90_000, message: "one copy is left, with a window" })
+        .toEqual({ copies: 1, windows: 1 });
+    }
 
     if (late) {
       const winner = (await Promise.all(ports.map(windowsOf))).indexOf(1);
@@ -638,9 +683,17 @@ async function startWhileQuitting(
       .toContain("app.secondLaunch");
     await expect.poll(left, { timeout: 30_000 }).toEqual({ copies: 1, windows: 1 });
     expect(existsSync(boxes)).toBe(false);
+    if (walProbeTrial) {
+      const results = await walResults();
+      expect(results.length).toBeGreaterThanOrEqual(2);
+      await requireWalWithinBudget();
+      return results;
+    }
   } finally {
     try {
       const details = JSON.stringify({
+        how,
+        walProbeTrial,
         state: await left(),
         pids: copiesWith(tag),
         dataFolderHeld: heldByAnotherCopy(dataDir, (what, error) => {
@@ -651,7 +704,13 @@ async function startWhileQuitting(
         attempts: existsSync(attempts) ? await readFile(attempts, "utf8") : "",
         instanceTrace: existsSync(instanceTrace) ? await readFile(instanceTrace, "utf8") : "",
       });
-      const detailsFile = test.info().outputPath("instance-events.json");
+      const detailsFile = test
+        .info()
+        .outputPath(
+          walProbeTrial
+            ? `instance-events-probe-${walProbeTrial}-${randomUUID()}.json`
+            : "instance-events.json",
+        );
       await writeFile(detailsFile, details);
       await test.info().attach(`quit-${how}`, {
         path: detailsFile,
@@ -678,6 +737,36 @@ test("starts while the app quits, crashes or quits twice each end with one windo
   test.setTimeout(600_000);
   for (const how of ["quit", "quit", "quit-twice", "crash"] as const) {
     await test.step(how, () => startWhileQuitting(how, 1));
+  }
+});
+
+test("measures whether an ordinary Windows crash releases a first-open WAL failure within five seconds", async () => {
+  test.skip(
+    process.platform !== "win32",
+    "The mapped-SHM runtime defect is Windows-specific (#2067).",
+  );
+  test.setTimeout(600_000);
+  const trials: Record<string, unknown>[] = [];
+  try {
+    for (let trial = 1; trial <= 5; trial++) {
+      const row: Record<string, unknown> = { trial, outcome: "started" };
+      trials.push(row);
+      try {
+        row.results = await test.step(`crash ${trial}`, () =>
+          startWhileQuitting("crash", 1, { walProbeTrial: trial }));
+        row.outcome = "completed";
+      } catch (error) {
+        row.outcome = "failed";
+        row.error = String(error);
+        throw error;
+      }
+    }
+  } finally {
+    const report = test.info().outputPath("transient-wal-trials.json");
+    await writeFile(report, JSON.stringify(trials, null, 2));
+    await test
+      .info()
+      .attach("transient-wal-trials", { path: report, contentType: "application/json" });
   }
 });
 

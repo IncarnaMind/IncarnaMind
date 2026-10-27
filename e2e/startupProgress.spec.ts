@@ -251,6 +251,12 @@ test("a killed copy leaves a slow fresh launch alone and keeps its saved text", 
 });
 
 for (const language of ["en", "zh-CN"]) {
+  test(`a fresh initial launch reaches its native page (${language})`, async () => {
+    start("ready", [], language);
+    await ownerWindow();
+    expect((await events()).filter((event) => event.kind === "problem")).toEqual([]);
+  });
+
   test(`a content database that cannot open gives the next step and releases its folder (${language})`, async () => {
     await mkdir(join(data, "incarnamind.db"));
     const child = start("ready", [], language);
