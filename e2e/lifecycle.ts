@@ -107,7 +107,20 @@ export function startLifecycleCopy(
   return spawn(executable, mainArguments(args, env), { env, stdio: "ignore", detached: true });
 }
 
-export const freePort = (): Promise<number> =>
+// A closed port can come back from the next listen on port 0 (Linux picks one at random), and two
+// copies given one DevTools port are observed as one copy counted twice.
+const handedOut = new Set<number>();
+
+export async function freePort(): Promise<number> {
+  for (;;) {
+    const port = await closedPort();
+    if (handedOut.has(port)) continue;
+    handedOut.add(port);
+    return port;
+  }
+}
+
+const closedPort = (): Promise<number> =>
   new Promise((done, fail) => {
     const server = createServer();
     server.once("error", fail);
