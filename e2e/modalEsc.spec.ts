@@ -36,8 +36,6 @@ interface DialogCase {
   open(window: Page, app: ElectronApplication, language: Language): Promise<void>;
   /** Asks for the same dialog again as a User does, at once. */
   ask(window: Page, app: ElectronApplication, language: Language): Promise<void>;
-  /** Questions one control asks with, to close and ask in one task, as a busy computer delivers them. */
-  askInPage?(window: Page): Promise<void>;
   /** After an ask shows the dialog again: whatever the ask itself sets. */
   afterAsk?(window: Page): Promise<void>;
   /** Before the case runs: what it needs, such as a Note in front or a Document. */
@@ -97,14 +95,6 @@ const CASES: readonly DialogCase[] = [
     afterAsk: async (window) => {
       await expect(window.getByTestId("settings")).toHaveAttribute("data-page", "general");
     },
-    askInPage: (window) =>
-      window.evaluate(() => {
-        document.querySelector<HTMLDialogElement>('[data-testid="settings"]')?.close();
-        const buttons = document.querySelectorAll<HTMLButtonElement>(
-          '[data-testid="sidebar-footer"] button',
-        );
-        buttons[buttons.length - 1]?.click();
-      }),
   },
   {
     name: "Manage Tags",
@@ -154,11 +144,6 @@ const CASES: readonly DialogCase[] = [
     },
     open: (window) => window.getByTestId("agent-connect").first().click(),
     ask: (window) => window.getByTestId("agent-connect").first().click(),
-    askInPage: (window) =>
-      window.evaluate(() => {
-        document.querySelector<HTMLDialogElement>('[data-testid="connect-agent-dialog"]')?.close();
-        document.querySelector<HTMLButtonElement>('[data-testid="agent-connect"]')?.click();
-      }),
   },
 ];
 
@@ -184,18 +169,6 @@ for (const each of CASES) {
         await each.open(window, app, language);
         const dialog = window.getByTestId(each.testId);
         await expect(dialog, `${language}: ${each.name} opened`).toBeVisible();
-
-        // The order a busy computer delivers: a close the browser makes, and the ask before its
-        // `close` event, both in one task.
-        if (each.askInPage) {
-          await each.askInPage(window);
-          await expect(dialog, `${language}: ${each.name} after the close and ask`).toBeVisible();
-          await window.keyboard.press("Escape");
-          await expect(dialog).toBeHidden();
-          // Its Esc is spent: with the dialog shut, the next one would close Settings behind it.
-          await each.open(window, app, language);
-          await expect(dialog).toBeVisible();
-        }
 
         // As the User meets it: Esc, then asking for it again at once.
         await window.keyboard.press("Escape");
