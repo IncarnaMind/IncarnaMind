@@ -270,6 +270,49 @@ describe("the undo stack", () => {
     expect(names(useUndo.getState().done)).toEqual(["A"]);
   });
 
+  test("a chosen change moves between the stacks without disturbing the others", async () => {
+    const log: string[] = [];
+    const [a, b, c] = ["A", "B", "C"].map((name) => change(name, log));
+    if (!a || !b || !c) throw new Error("No changes.");
+    push(a);
+    push(b);
+    push(c);
+    await useUndo.getState().undo(b);
+    expect(names(useUndo.getState().done)).toEqual(["A", "C"]);
+    expect(names(useUndo.getState().undone)).toEqual(["B"]);
+    await useUndo.getState().redo();
+    expect(names(useUndo.getState().done)).toEqual(["A", "C", "B"]);
+    expect(log).toEqual(["undo B", "redo B"]);
+  });
+
+  test("a change withdrawn while its Undo runs never comes back as Redo", async () => {
+    const log: string[] = [];
+    let finish: () => void = () => undefined;
+    const slow: Undoable = {
+      said: () => "Slow",
+      name: () => "Slow",
+      undo: () =>
+        new Promise<void>((resolve) => {
+          finish = resolve;
+        }),
+      redo: async () => {
+        log.push("redo Slow");
+      },
+    };
+    push(slow);
+    const back = undo();
+    for (let index = 0; index < 3; index++) await Promise.resolve();
+    expect(useUndo.getState().running?.change).toBe(slow);
+    useUndo.getState().withdraw(slow);
+    finish();
+    await back;
+    expect(useUndo.getState().running).toBeNull();
+    expect(useUndo.getState().done).toEqual([]);
+    expect(useUndo.getState().undone).toEqual([]);
+    await redo();
+    expect(log).toEqual([]);
+  });
+
   test("a change renewed as more of it lands goes back on top, past the User's own", async () => {
     const log: string[] = [];
     const request = change("Request", log);

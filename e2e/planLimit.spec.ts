@@ -2,7 +2,12 @@ import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { expect, type Locator, type Page, test } from "@playwright/test";
 import type { CoreBridge } from "../src/core/api";
-import { ANSWER, createFakeOpenAI, type FakeOpenAIServer } from "../tests/helpers/fakeOpenAI";
+import {
+  ANSWER,
+  answerResponses,
+  createFakeOpenAI,
+  type FakeOpenAIServer,
+} from "../tests/helpers/fakeOpenAI";
 import {
   addDocuments,
   assistantAnswers,
@@ -161,7 +166,7 @@ test("a used-up plan model offers the next one in one click, which answers in pl
     await expect(assistantAnswers(window)).toHaveCount(1);
     await expect(answer).toHaveAttribute("data-status", "done");
     await expect(answer).toContainText(ANSWER);
-    expect(openai.responses().at(-1)?.body.model).toBe(LUNA);
+    expect(answerResponses(openai).at(-1)?.body.model).toBe(LUNA);
     await expect(chip).toHaveText(`GPT-6 Luna · until ${time}`);
     await expect(chip).toHaveAttribute(
       "title",
@@ -219,7 +224,7 @@ test("a used-up plan model offers the next one in one click, which answers in pl
     await pointAndClick(window, reopenedLine.getByTestId("answer-error-action"));
     await expect(reopened).toHaveAttribute("data-status", "done");
     await expect(reopened).toContainText(ANSWER);
-    expect(openai.responses().at(-1)?.body.model).toBe(SOL);
+    expect(answerResponses(openai).at(-1)?.body.model).toBe(SOL);
     await expect(window.getByTestId("assistant").getByTestId("composer-model")).toHaveText(
       "GPT-6.1 Sol",
     );

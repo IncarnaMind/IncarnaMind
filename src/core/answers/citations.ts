@@ -29,6 +29,7 @@
 import { markersIn, shownRanges } from "../../shared/answerBlocks";
 import { citationNode, type NodeJSON } from "../../shared/blockJson";
 import { parseQuotedWords } from "../../shared/citations";
+import { FIGURE_MARKER } from "../../shared/figureMarkers";
 import {
   englishPlace,
   joinUnits,
@@ -101,6 +102,9 @@ const sameSearch = (query: string) =>
     .trim();
 
 const FIX_THESE = "Fix these with another cite call:";
+
+/** What `cite` tells the model once it has taken every record. */
+export const WRITE_NOW = " Write the Answer now if you haven't yet; don't repeat it.";
 
 /** Whether what `cite` told the model asks it to fix records, which the Tool loop must not end before. */
 export const asksForFixes = (told: string): boolean => told.includes(FIX_THESE);
@@ -1122,6 +1126,8 @@ export function createCitationSession(
   /** Each Passage's text as the model was given it, by its short id. */
   const shownTexts = new Map<string, string>();
   const records = new Map<number, Accepted>();
+  /** Markers whose last record from a `cite` call was refused or came back with a problem to fix. */
+  const toFix = new Set<number>();
   /** Records naming no Passage the model was given, or no marker: as given, and why. */
   const rejected: RejectedRecord[] = [];
   const searched = new Set<string>();
@@ -1406,6 +1412,7 @@ export function createCitationSession(
       if (!taken.ok) {
         rejected.push(taken.rejected);
         problems.push(taken.problem);
+        if (!options.structured && taken.rejected.marker !== null) toFix.add(taken.rejected.marker);
         continue;
       }
       const { record, source, passageUnits } = taken;
@@ -1415,14 +1422,15 @@ export function createCitationSession(
       events.onRecord(marker, toCitation(record, null));
       // Tell the model now what the check will find, so it can fix the record.
       const problem = record.kept ? null : recordProblem(record, source, passageUnits);
-      if (problem) problems.push(`[^${marker}]: ${problem}`);
+      if (problem) {
+        problems.push(`[^${marker}]: ${problem}`);
+        if (!options.structured) toFix.add(marker);
+      } else toFix.delete(marker);
     }
     const done = recorded.length
       ? `Recorded ${recorded.map((marker) => `[^${marker}]`).join(", ")}.`
       : "Nothing was recorded.";
-    const fix = problems.length
-      ? ` ${FIX_THESE}\n- ${problems.join("\n- ")}`
-      : " Write the Answer now if you haven't yet; don't repeat it.";
+    const fix = problems.length ? ` ${FIX_THESE}\n- ${problems.join("\n- ")}` : WRITE_NOW;
     return `${done}${fix}`;
   }
 
@@ -1588,6 +1596,15 @@ export function createCitationSession(
 
     hasRecord: (marker) => records.has(marker),
 
+    owed(text, figured) {
+      const unrecorded = markersIn(text).filter((marker) => !records.has(marker));
+      const figures = [...text.matchAll(FIGURE_MARKER)].map((match) => Number(match[1]));
+      return {
+        citations: [...new Set([...toFix, ...unrecorded])].sort((a, b) => a - b),
+        figures: figured ? [...new Set(figures)].filter((marker) => !figured(marker)) : [],
+      };
+    },
+
     shownPassages: () =>
       [...handleOf.values()].flatMap((id) => {
         const text = shownTexts.get(id);
@@ -1630,6 +1647,7 @@ export function createCitationSession(
       );
       if (!taken.ok || !taken.record.quote || check(taken.record).check !== "found") return false;
       records.set(marker, taken.record);
+      toFix.delete(marker);
       events.onRecord(marker, toCitation(taken.record, null));
       return true;
     },
