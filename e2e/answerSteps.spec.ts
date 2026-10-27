@@ -199,8 +199,16 @@ test("while an Answer is written, its line moves from Reading through Thinking o
     .filter((step) => step !== "none")
     .filter((step, index, all) => step !== all[index - 1]);
   expect(names[0]).toBe("reading");
-  expect(names.slice(-2)).toEqual(["writing", "checking"]);
-  const between = names.slice(1, -2);
+  // An assistant turn is offered the Tools that write Notes, so once its Citations are in it checks
+  // the changes its reply says it made (#2037), then is Checking again until it ends. Each of those
+  // steps is short, so whether the line shows it depends on how long Checking has been up: only
+  // their order holds.
+  expect(names.slice(0, names.indexOf("checking"))).not.toContain("checking-claims");
+  const own = names
+    .filter((step) => step !== "checking-claims")
+    .filter((step, index, all) => step !== all[index - 1]);
+  expect(own.slice(-2)).toEqual(["writing", "checking"]);
+  const between = own.slice(1, -2);
   expect(between.length).toBeGreaterThan(0);
   for (const step of between) expect(["thinking", "searching"]).toContain(step);
   const line = answer.getByTestId("answer-steps");
