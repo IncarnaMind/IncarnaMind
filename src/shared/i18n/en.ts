@@ -2890,6 +2890,7 @@ export const en = {
 
   "run.stopped.cost-cap": "Monthly cap reached",
   "run.stopped.plan-limit": "Plan limit reached",
+  "run.stopped.cancelled": "Stopped",
   "run.stopped.tryAfter": "Try again after {time}",
   "run.notChecked.cost-cap": "not checked: cost cap",
   "run.notChecked.plan-limit": "not checked: plan limit",

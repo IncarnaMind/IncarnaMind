@@ -16,6 +16,7 @@ import {
   MIND_SETTINGS_FIELD,
   type Money,
   type RunStop,
+  type WatchStop,
 } from "../core/api";
 
 const KEY = "contradictionWatch";
@@ -47,6 +48,12 @@ export function stopOf(value: unknown): RunStop | null {
   return null;
 }
 
+/** A watch's stop as a record stored it: a Run's stop, or the User stopping it. */
+function watchStopOf(value: unknown): WatchStop | null {
+  if (isRecord(value) && value.reason === "cancelled") return { reason: "cancelled" };
+  return stopOf(value);
+}
+
 /** The last full watch, or null for none (or one this version can't read). */
 export function readContradictionWatch(settings: Y.Map<unknown>): ContradictionWatchRun | null {
   const value = settings.get(KEY);
@@ -58,7 +65,7 @@ export function readContradictionWatch(settings: Y.Map<unknown>): ContradictionW
     checked: count(value.checked),
     contradicted: count(value.contradicted),
     cost: moneyOf(value.cost),
-    stop: stopOf(value.stop),
+    stop: watchStopOf(value.stop),
     smallModel: value.smallModel === true,
   };
 }

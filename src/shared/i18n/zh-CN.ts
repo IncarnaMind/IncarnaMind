@@ -2765,6 +2765,7 @@ export const zhCN = {
 
   "run.stopped.cost-cap": "已达到每月花费上限",
   "run.stopped.plan-limit": "已达到订阅用量上限",
+  "run.stopped.cancelled": "已停止",
   "run.stopped.tryAfter": "{time} 后可重试",
   "run.notChecked.cost-cap": "未核对：已达花费上限",
   "run.notChecked.plan-limit": "未核对：已达订阅用量上限",

@@ -37,6 +37,7 @@ import type {
   RunStop,
   TextPlace,
   TextStretch,
+  WatchStop,
 } from "../../api";
 import type { BackgroundQueue } from "../../backgroundQueue";
 import type { EvidenceScope } from "../../documents/evidence";
@@ -364,8 +365,7 @@ export function createContradictionWatch(options: WatchOptions) {
     let checked = 0;
     let contradicted = 0;
     let stop: RunStop | null = null;
-    const finish = () => {
-      if (--left > 0) return;
+    const record = (end: WatchStop | null) => {
       try {
         options.requireMind(mindId);
         content.editSettings(mindId, (settings) =>
@@ -376,13 +376,17 @@ export function createContradictionWatch(options: WatchOptions) {
             checked,
             contradicted,
             cost: options.runCost(runId),
-            stop,
+            stop: end,
             smallModel: judgesUnreliably(prepared),
           }),
         );
       } catch (error) {
         options.log.error("contradictions.recordFailed", { error: nameOf(error) });
       }
+    };
+    const finish = () => {
+      if (--left > 0) return;
+      record(stop);
     };
     for (const claim of ready.claims) {
       options.background.add({
@@ -431,7 +435,10 @@ export function createContradictionWatch(options: WatchOptions) {
               write(mindId, request, ready.folderId, claim, result, prepared);
             }
           } finally {
-            if (!call.signal.aborted) finish();
+            // A run that gives way or closes ends without finishing: its record says so, so a
+            // scoped Check never stands on it (#1941).
+            if (call.signal.aborted || closed) record(stop ?? { reason: "cancelled" });
+            else finish();
           }
         },
       });
@@ -461,9 +468,9 @@ export function createContradictionWatch(options: WatchOptions) {
       const tracked = options.track(requestId, mindId);
       try {
         const outcome = await check(mindId, requestId, ready, model.prepared, tracked.signal);
-        if (tracked.signal.aborted) return { kind: "cancelled" };
         // A full watch, so the next Check knows every cited sentence has been watched, and how
-        // this one ended (#1941). No Document started it: the card shows no "changed" line.
+        // this one ended (#1941). No Document started it: the card shows no "changed" line. One
+        // the User stopped says so: it can never stand for a watched Note.
         content.editSettings(mindId, (settings) =>
           writeContradictionWatch(settings, {
             at: options.now().toISOString(),
@@ -472,10 +479,11 @@ export function createContradictionWatch(options: WatchOptions) {
             checked: outcome.checked,
             contradicted: outcome.contradicted,
             cost: outcome.cost,
-            stop: outcome.stop,
+            stop: tracked.signal.aborted ? { reason: "cancelled" } : outcome.stop,
             smallModel: outcome.smallModel,
           }),
         );
+        if (tracked.signal.aborted) return { kind: "cancelled" };
         return { kind: "checked", ...outcome };
       } finally {
         tracked.done();

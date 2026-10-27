@@ -1,5 +1,9 @@
 import type * as Y from "yjs";
-import { type ContradictionCheckOutcome, MIND_SETTINGS_FIELD } from "../../../core/api";
+import {
+  type ContradictionCheckOutcome,
+  type ContradictionWatchRun,
+  MIND_SETTINGS_FIELD,
+} from "../../../core/api";
 import { clearContradictionWatch } from "../../../shared/contradictionWatch";
 import { ProblemLine } from "../components/ProblemLine";
 import {
@@ -22,7 +26,8 @@ export function ContradictionLine({ doc, mindId }: { doc: Y.Doc; mindId: string 
   const t = useT();
   const language = useLanguage();
   const shown = useContradictionLine(doc, mindId);
-  const outcome = (run: ContradictionCheckOutcome) => contradictionOutcomeParts(run, t, language);
+  const outcome = (run: ContradictionCheckOutcome | ContradictionWatchRun) =>
+    contradictionOutcomeParts(run, t, language);
 
   // Only a Document's new version says "After X changed": a run a Folder's other changes or the
   // User started has no Document to name, and its marks are the result (#1941).

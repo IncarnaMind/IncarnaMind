@@ -615,6 +615,54 @@ describe("A Folder's contents changed", { timeout: 30_000 }, () => {
     );
   });
 
+  test("a full watch the User stops records that it ended early, never the complete record before it", async () => {
+    let release = () => {};
+    const held = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let hold = false;
+    let checking = 0;
+    const model = scriptedModel(
+      (call) => {
+        const reply = checkReply(call, PLANS);
+        if (!hold || !isCheckRun(call) || !("calls" in reply)) return reply;
+        checking++;
+        return { ...reply, pause: { after: 0, until: held } };
+      },
+      { generate: checkGenerate(PLANS) },
+    );
+    const core = startCore(await createTempDataFolder(), {
+      createChatModel: scriptedModels(model).createChatModel,
+      contradictionWatch: { delayMs: 0 },
+    });
+    await core.saveChatProvider({ kind: "ollama", modelId: "local-model" });
+    const sources = await createTempDataFolder();
+    const [tides, office] = (await addAndProcess(core, [
+      await writeSourceFile(sources, TIDES.name, TIDES.contents),
+      await writeSourceFile(sources, OFFICE.name, OFFICE.contents),
+    ])) as [Document, Document];
+    const folder = await core.createLibraryGroup({ name: "Harbours", description: "" });
+    await core.moveToFolder({ documentIds: [tides.id, office.id], folderId: folder.id });
+    const { mind, client } = await mindCiting(core, tides, folder.id);
+
+    // A complete full watch leaves a complete record.
+    expect(await core.checkContradictions({ requestId: "r1", mindId: mind.id })).toMatchObject({
+      kind: "checked",
+    });
+    expect(contradictionWatchOf(client.doc)?.stop).toBeNull();
+
+    // A second, stopped while it checks, leaves a record that says it stopped: the next Check
+    // takes the full watch, not a scoped one (#1941).
+    hold = true;
+    const stopped = core.checkContradictions({ requestId: "r2", mindId: mind.id });
+    await vi.waitFor(() => expect(checking).toBeGreaterThan(0));
+    await core.cancelCheck("r2");
+    // The paused reply comes back at once, as a provider's does on a stopped request.
+    release();
+    expect(await stopped).toEqual({ kind: "cancelled" });
+    expect(contradictionWatchOf(client.doc)?.stop).toEqual({ reason: "cancelled" });
+  });
+
   test("a Document leaving the Folder starts no watch, and a mark that rests on it needs a re-check", async () => {
     const { core, tides, office, folder } = await setUp();
     const { mind, client } = await mindCiting(core, tides, folder.id);
