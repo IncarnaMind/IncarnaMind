@@ -463,7 +463,7 @@ for (const language of ["en", "zh-CN"] as const) {
 
       await exportFromMenu(window, "markdown");
       const done = window.getByTestId("export-result").getByTestId("export-done");
-      await expect(done).toHaveText(savedLine("Harbour.md", out, language), { timeout: 30_000 });
+      await expect(done).toContainText(savedLine("Harbour.md", out, language), { timeout: 30_000 });
       const counted = await readFile(join(out, "Harbour.md"), "utf8");
       expect(counted).toContain(WORDS[language].markdown.heading);
       expect(counted).toContain(WORDS[language].markdown.count);

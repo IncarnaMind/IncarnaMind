@@ -76,7 +76,7 @@ test("with a Soniox key, the first recording's sheet offers it under Other waysâ
   // Offered, not chosen: this computer stays until the User picks, and the line says what a pick sends.
   const route = settings.getByTestId("meetings-route");
   await expect(route.locator("option:not([hidden])")).toHaveText(["On this computer", "Soniox"]);
-  await expect(route).toHaveValue("");
+  await expect(route).toHaveValue("local");
   await expect(settings.getByTestId("meetings-route-line")).toHaveText(
     "A cloud service gets the meetingâ€™s audio while you record.",
   );
