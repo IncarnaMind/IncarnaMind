@@ -85,6 +85,7 @@ import {
 import { isPackageKind, packageSizeError } from "./formats/zip";
 import { keywordText } from "./keywords";
 import { createLibrary, type LibraryHooks } from "./library";
+import { onlyCjkLineWrapChange } from "./lineWrap";
 import type { PageText } from "./passages";
 import {
   CURRENT_SINCE,
@@ -882,6 +883,50 @@ export function createDocuments(options: DocumentsOptions) {
     );
   }
 
+  interface WrapUpdate {
+    seq: number;
+    text: string;
+    keywords: string;
+  }
+
+  /** Only a line-wrap change keeps these Passages' ids and vectors; every other change replaces them. */
+  function wrapOnlyUpdates(
+    documentId: string,
+    passages: readonly ProcessedPassage[],
+  ): WrapUpdate[] | null {
+    const live = db.all<{
+      seq: number;
+      position: number;
+      page_from: number | null;
+      page_to: number | null;
+      window_from: number;
+      window_to: number;
+      text: string;
+    }>(
+      `SELECT seq, position, page_from, page_to, window_from, window_to, text FROM passages
+       WHERE document_id = ? AND deleted_at IS NULL ORDER BY position`,
+      [documentId],
+    );
+    if (live.length !== passages.length) return null;
+    const updates: WrapUpdate[] = [];
+    for (const [index, stored] of live.entries()) {
+      const passage = passages[index] as ProcessedPassage;
+      if (
+        stored.position !== passage.position ||
+        stored.page_from !== passage.pageFrom ||
+        stored.page_to !== passage.pageTo ||
+        stored.window_from !== passage.windowFrom ||
+        stored.window_to !== passage.windowTo
+      ) {
+        return null;
+      }
+      if (stored.text === passage.text) continue;
+      if (!onlyCjkLineWrapChange(stored.text, passage.text)) return null;
+      updates.push({ seq: stored.seq, text: passage.text, keywords: passage.keywords });
+    }
+    return updates.length > 0 ? updates : null;
+  }
+
   /**
    * The status of a Document whose new version couldn't be indexed (its file
    * couldn't be read, or what was read couldn't be processed): the version
@@ -958,11 +1003,15 @@ export function createDocuments(options: DocumentsOptions) {
       // The same version processed again into the same Passages (a PDF whose short pages
       // turned out not to be scans, #397) keeps them, their vectors and their keywords,
       // which were built as they would be now since version 6: nothing to embed again.
+      const wrapUpdates =
+        result.outcome === "ready" && result.contentHash === row.content_hash
+          ? wrapOnlyUpdates(row.id, result.passages)
+          : null;
       const unchanged =
         result.outcome === "ready" &&
         result.contentHash === row.content_hash &&
         row.processing_version >= HAN_CURRENT_SINCE &&
-        samePassages(row.id, result.passages);
+        (wrapUpdates !== null || samePassages(row.id, result.passages));
       if (!unchanged) {
         // Its content is new: Organize sees the Document anew (#2023).
         reembedding.delete(job.documentId);
@@ -989,6 +1038,20 @@ export function createDocuments(options: DocumentsOptions) {
       if (result.outcome === "ready") {
         if (!unchanged) {
           insertPassages(job.documentId, result.contentHash, row.name, result.passages);
+        }
+        if (wrapUpdates) {
+          const nameKeywords = keywordText(row.name);
+          for (const update of wrapUpdates) {
+            db.run("UPDATE passages SET text = ?, updated_at = ? WHERE seq = ?", [
+              update.text,
+              at,
+              BigInt(update.seq),
+            ]);
+            db.run("UPDATE passages_fts SET text = ? WHERE rowid = ?", [
+              indexedText(nameKeywords, update.keywords),
+              BigInt(update.seq),
+            ]);
+          }
         }
         insertPages(job.documentId, result.contentHash, result.pages);
         // Searchable now, by its words: while embeddings are off, that is all there is to do.

@@ -8,7 +8,6 @@ import { createRequire } from "node:module";
 import { dirname, join } from "node:path";
 import type { PDFPageProxy, TextItem } from "pdfjs-dist/types/src/display/api";
 import { readPdfPageText } from "../../shared/pdfFormText";
-import { CJK } from "../../shared/text";
 import type { Anchor, TextUnit } from "../../shared/units";
 import type { LogFields, PagePicture, PictureRead, RecognizedLine } from "../adapters";
 import type { DocumentKind, UnreadParts } from "../api";
@@ -16,6 +15,7 @@ import { isRecord } from "../errors";
 import { ExtractionError, extractUnits } from "./formats";
 import { type FigureReading, readWebPage, webUnits } from "./formats/web";
 import { extractXlsx, unreadPartsOf } from "./formats/xlsx";
+import { joinCjkLineWraps } from "./lineWrap";
 import { passwordProblem } from "./pdfPasswords";
 import { printedPageNames } from "./printedPages";
 import { scannedUnit } from "./scan/layout";
@@ -188,9 +188,6 @@ function pdfjsDataUrls() {
 /** A scan's picture larger than this many pixels isn't drawn: reading it would take too much memory. */
 const MAX_PICTURE_PIXELS = 50_000_000;
 
-// Lines inside a paragraph of CJK text: a PDF breaks them anywhere, and the break isn't a space.
-const CJK_LINE_WRAP = new RegExp(`([${CJK}])[^\\S\\n]*\\n[^\\S\\n]*(?=[${CJK}])`, "gu");
-
 function pageText(items: readonly object[]): string {
   let text = "";
   for (const item of items) {
@@ -199,7 +196,7 @@ function pageText(items: readonly object[]): string {
     text += item.str;
     if ("hasEOL" in item && item.hasEOL === true) text += "\n";
   }
-  return text.replaceAll("\u0000", "").replace(/\r\n?/g, "\n").replace(CJK_LINE_WRAP, "$1").trim();
+  return joinCjkLineWraps(text.replaceAll("\u0000", "").replace(/\r\n?/g, "\n")).trim();
 }
 
 /** A line of a page as printed, with its largest font size in points. */

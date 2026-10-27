@@ -53,9 +53,10 @@ import { unreadMessage } from "./unreadMessage";
  * print, from its page labels or its headers and footers). 12: #1819 (a
  * scanned page's quarter-turn is normalized before it is read). 13: #740 (a
  * workbook records the hidden sheets and rows past the limit it left out).
- * 14: #1818 (PDF form fields are included in the pages' text).
+ * 14: #1818 (PDF form fields are included in the pages' text). 15: #2110
+ * (a PDF line break beside CJK text or full-width punctuation is joined).
  */
-export const PROCESSING_VERSION = 14;
+export const PROCESSING_VERSION = 15;
 
 /**
  * Per kind, the oldest version whose Passages and Units are still what this
@@ -70,10 +71,12 @@ export const PROCESSING_VERSION = 14;
  * Passages come out as they were; version 12 only PDFs' scanned pages, whose
  * orientation `SCAN_CURRENT_SINCE` reads again; version 13 only workbooks',
  * which record the hidden sheets and rows past the limit they left out, their
- * Units as they were; version 14 only PDFs', whose pages include form fields.
+ * Units as they were; version 14 only PDFs', whose pages include form fields;
+ * version 15 only PDFs', whose wrapped CJK lines are joined while other text
+ * and embeddings stay as they are.
  */
 export const CURRENT_SINCE: Readonly<Record<DocumentKind, number>> = {
-  pdf: 14,
+  pdf: 15,
   text: 5,
   markdown: 5,
   docx: 7,
