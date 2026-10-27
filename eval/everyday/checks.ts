@@ -55,6 +55,7 @@ import type {
   MarkedFigure,
 } from "../../src/core/api";
 import { markersWithoutCitation } from "../../src/shared/answerBlocks";
+import { declines } from "../lib/declines";
 import { datesNotInText } from "./dates";
 import type { ClaimVerdict } from "./judge";
 
@@ -97,6 +98,8 @@ export interface Expected {
   answerWith?: RegExp;
   /** It may report a search miss, never that the Document lacks the fact this expression names. */
   noDocumentAbsence?: RegExp;
+  /** The information really is absent: the reply reports a search miss and invents nothing. */
+  searchMiss?: true;
   /**
    * The words what it writes into a Mind must use for a thing, and must not: a translation's own
    * term ("spring tides" is 大潮, never 春潮), which Kimi K2.6 lost with thinking off (#1635).
@@ -175,6 +178,7 @@ export type RequestFailure =
   | { kind: "no-figure"; wanted: string; shown: string[] }
   | { kind: "missing-answer-text"; wanted: string }
   | { kind: "document-absence" }
+  | { kind: "no-search-miss" }
   | { kind: "gave-up"; said: string }
   | { kind: "term"; want: string; found: string[] }
   | { kind: "other-documents"; documents: string[] }
@@ -469,8 +473,11 @@ const DOCUMENT_ABSENCE = [
 
 function statesDocumentAbsence(text: string, about: RegExp): boolean {
   return text
-    .split(/[\n。！？!?]+|\.(?!\d)/)
-    .some((sentence) => about.test(sentence) && DOCUMENT_ABSENCE.some((phrase) => phrase.test(sentence)));
+    .split(/[\n。！？!?，；;]+|\.(?!\d)/)
+    .some(
+      (sentence) =>
+        about.test(sentence) && DOCUMENT_ABSENCE.some((phrase) => phrase.test(sentence)),
+    );
 }
 
 /** The ways one request failed its guards; none when it passed. */
@@ -567,7 +574,11 @@ export function requestFailures(outcome: RequestOutcome): RequestFailure[] {
   if (expected.answerWith && !expected.answerWith.test(answer.text)) {
     failures.push({ kind: "missing-answer-text", wanted: expected.answerWith.source });
   }
-  if (expected.noDocumentAbsence && statesDocumentAbsence(answer.text, expected.noDocumentAbsence)) {
+  if (expected.searchMiss && !declines(answer.text)) failures.push({ kind: "no-search-miss" });
+  if (
+    expected.noDocumentAbsence &&
+    statesDocumentAbsence(answer.text, expected.noDocumentAbsence)
+  ) {
     failures.push({ kind: "document-absence" });
   }
   if (expected.figure) {
@@ -700,6 +711,8 @@ export function failureLine(failure: RequestFailure): string {
       return `doesn't state the expected figure or fact /${failure.wanted}/`;
     case "document-absence":
       return "states that the Document itself lacks the answer, rather than reporting only the search miss";
+    case "no-search-miss":
+      return "invents an answer instead of reporting that it wasn't found";
     case "gave-up":
       return `says it couldn't calculate what its Citations give: “${failure.said}”`;
     case "term":

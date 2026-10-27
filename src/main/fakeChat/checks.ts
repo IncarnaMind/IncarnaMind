@@ -10,7 +10,14 @@
 
 import { SEARCH_AGAIN } from "../../core/answers/checks/searchAgain";
 import { passagesIn, recordFor } from "./passages";
-import { lastUserText, type Prompt, type Reply, toolResults, userText } from "./prompt";
+import {
+  type GenerateOptions,
+  lastUserText,
+  type Prompt,
+  type Reply,
+  toolResults,
+  userText,
+} from "./prompt";
 
 /** A check Run's instructions (#96, src/core/answers/checks/prompt.ts). */
 export const CHECK_RUN = /^You check one sentence the User wrote against the User's Documents/m;
@@ -59,6 +66,25 @@ export const PARTLY_UNCITED = [
   },
 ];
 
+export function fakeAbsence(options: GenerateOptions): string | null {
+  const prompt = lastUserText(options.prompt);
+  if (!prompt.includes("<sentence>") || !/(?:has no|never|没有|从未)/i.test(prompt)) {
+    return null;
+  }
+  if (prompt.includes("Break clause")) {
+    return JSON.stringify({
+      verdict: "contradicted",
+      passage: /id="([^"]+)"/.exec(prompt)?.[1],
+      quote: "Either party may end this lease with 30 days' notice.",
+    });
+  }
+  return JSON.stringify({ verdict: "supported" });
+}
+
+const withAbsence = (sentence: string, verdict: string): Reply => ({
+  text: `${verdict}\nAbsence: ${/(?:has no|never|没有|从未)/i.test(sentence)}`,
+});
+
 /**
  * A check of one sentence (#96): it searches for the sentence, then takes the
  * Passage line that shares the most words with it. Three shared words or more
@@ -90,7 +116,7 @@ export function checkReply(prompt: Prompt, tools: readonly string[]): Reply {
     const shared = checkWords(line).filter((word) => words.includes(word)).length;
     if (found && (!best || shared > best.shared)) best = { record: found.record, line, shared };
   }
-  if (/\bno reason\b/i.test(sentence)) return { text: "Verdict: unsupported" };
+  if (/\bno reason\b/i.test(sentence)) return withAbsence(sentence, "Verdict: unsupported");
   const cited = /^The User cites this for it/m.test(asked);
   const partly = cited
     ? PARTLY.find((each) => each.when.test(sentence))
@@ -99,11 +125,12 @@ export function checkReply(prompt: Prompt, tools: readonly string[]): Reply {
     return { tool: "cite", input: { citations: [best.record] } };
   }
   if (partly) {
-    return {
-      text: `Verdict: unsupported\nCovered: ${partly.covered}\nNot covered: ${partly.uncovered}`,
-    };
+    return withAbsence(
+      sentence,
+      `Verdict: unsupported\nCovered: ${partly.covered}\nNot covered: ${partly.uncovered}`,
+    );
   }
-  if (!best || best.shared < 3) return { text: "Verdict: unsupported" };
+  if (!best || best.shared < 3) return withAbsence(sentence, "Verdict: unsupported");
   const lineNumbers = checkWords(best.line).filter((word) => /\d/.test(word));
   const contradicted =
     lineNumbers.length > 0 && words.some((word) => /\d/.test(word) && !lineNumbers.includes(word));
@@ -137,11 +164,12 @@ export function checkReply(prompt: Prompt, tools: readonly string[]): Reply {
   }
   // The figure worked out is the only number the sentence has: the rest of it is supported.
   if (multiple && tools.includes("calculate")) {
-    return { text: "Verdict: supported\nThe Document's figures give it [^1]." };
+    return withAbsence(sentence, "Verdict: supported\nThe Document's figures give it [^1].");
   }
-  return {
-    text: contradicted
+  return withAbsence(
+    sentence,
+    contradicted
       ? `Verdict: contradicted\nThe Document says: ${best.line} [^1]`
       : `Verdict: supported\nThe Document says so [^1].`,
-  };
+  );
 }

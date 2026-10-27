@@ -15,6 +15,8 @@ import {
 /** How the scripted model checks a sentence: what it cites, and how it replies. */
 export interface Plan {
   verdict?: "supported" | "unsupported" | "contradicted";
+  /** The sentence asserts an absence itself, which needs a whole read. */
+  absence?: boolean;
   /** The line it cites, from the Passage that holds it. */
   quote?: string;
   says?: string;
@@ -118,7 +120,7 @@ export function checkReply(call: ModelCall, plans: Record<string, Plan>): Script
     };
   }
   return {
-    text: `Verdict: ${plan.verdict}${plan.says ? `\n${plan.says} [^1]` : ""}`,
+    text: `Verdict: ${plan.verdict}\nAbsence: ${plan.absence === true}${plan.says ? `\n${plan.says} [^1]` : ""}`,
   };
 }
 

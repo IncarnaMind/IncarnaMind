@@ -666,3 +666,85 @@ test("After the User accepts one change by hand and goes to another tab and back
   await expect(marks(window)).toHaveCount(3);
   await expect(waiting).toHaveCount(0);
 });
+
+async function mindWithAbsence(window: Page, pages: Parameters<typeof buildPdf>[0], claim: string) {
+  await writeFile(join(sources, "Lease.pdf"), buildPdf(pages));
+  await addDocuments(window, [join(sources, "Lease.pdf")]);
+  await newMind(window);
+  const editor = window.getByTestId("mind-editor");
+  await editor.click();
+  await window.keyboard.type(claim);
+  const line = editor.locator(":scope > p").first();
+  await expect(line).toHaveText(claim);
+  return line;
+}
+
+test("a true absence is Supported after a whole read, and its card lists every page read", async () => {
+  const { app, window } = await launchWithTides();
+  await useLocalChatModel(window);
+  const line = await mindWithAbsence(
+    window,
+    [
+      { lines: ["Term", "The lease runs for three years."] },
+      { lines: ["Rent", "The tenant pays rent monthly."] },
+    ],
+    "The lease has no break clause.",
+  );
+  await setWindowSize(app, window, 1440, 900);
+
+  await checkAll(window, line, "The lease", "clause.", "check-against-documents");
+
+  await pointAndClick(window, marks(window).and(window.locator('[data-check="supported"]')));
+  const card = window.getByTestId("claim-card");
+  await expect(card.getByTestId("claim-read-documents")).toHaveText(
+    "Read whole: Lease (p. 1, p. 2)",
+  );
+  await screenshot(window, "absence-supported-en-1440");
+  await app.close();
+});
+
+test("a false absence is Contradicted with the clause found by the whole read", async () => {
+  const { app, window } = await launchWithTides();
+  await useLocalChatModel(window);
+  const line = await mindWithAbsence(
+    window,
+    [
+      { lines: ["Term", "The lease runs for three years."] },
+      { lines: ["Break clause", "Either party may end this lease with 30 days' notice."] },
+    ],
+    "The lease has no break clause.",
+  );
+
+  await checkAll(window, line, "The lease", "clause.", "check-against-documents");
+
+  await pointAndClick(window, marks(window).and(window.locator('[data-check="contradicted"]')));
+  const card = window.getByTestId("claim-card");
+  await expect(card).toContainText("Either party may end this lease");
+  await expect(card.getByTestId("claim-read-documents")).toHaveText(
+    "Read whole: Lease (p. 1, p. 2)",
+  );
+  await screenshot(window, "absence-contradicted-en-1440");
+  await app.close();
+});
+
+test("an absence over 40 pages is Not checked, with the plain reason in Chinese", async () => {
+  const { app, window } = await launchWithTides();
+  await useLocalChatModel(window);
+  const line = await mindWithAbsence(
+    window,
+    Array.from({ length: 41 }, (_, index) => ({ lines: [`Page ${index + 1}`, "Rent schedule"] })),
+    "The lease has no break clause.",
+  );
+  await setWindowSize(app, window, 900, 760);
+  await setLanguage(window, "zh-CN");
+
+  await checkAll(window, line, "The lease", "clause.", "check-against-documents");
+
+  await pointAndClick(window, (await checkCard(window)).getByTestId("health-toCheck"));
+  const card = window.getByTestId("claim-card");
+  await expect(card.getByTestId("claim-reason")).toHaveText(
+    "说某样东西不存在的句子，需要通读文档才能核对。",
+  );
+  await screenshot(window, "absence-oversized-zh-900");
+  await app.close();
+});

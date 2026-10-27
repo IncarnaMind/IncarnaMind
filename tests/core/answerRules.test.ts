@@ -23,7 +23,7 @@ import { type ModelCall, scriptedModel } from "../helpers/models";
 /** A phrase of each rule, and of each rule's Chinese example. */
 const RULES = [
   "If the Question takes for granted what the Passages don't say",
-  "文档中没有董事会批准的记录",
+  "未在文档中找到董事会批准的记录",
   "give different figures for the same thing (one updates the other), lead with the newer Document by its date (a Passage's date, else its file-created or file-modified date)",
   "较早的手册（2024 年 1 月）写的是 6 小时",
 ];
@@ -212,6 +212,22 @@ describe("The Answer instructions", { timeout: 30_000 }, () => {
       expect(text.includes("A sentence with a Citation says only what its quote supports.")).toBe(
         cites,
       );
+    },
+  );
+
+  test.each(["tools", "structured-output", "none"] as const)(
+    "when answering with %s, absence is about the search unless the relevant pages were read",
+    (mode) => {
+      const text = documentInstructions(mode, { total: 1, names: ["Memo"] }, "");
+
+      expect(text).toContain("I didn't find");
+      if (mode === "tools") {
+        expect(text).toContain(
+          'Only after read_document of the pages where the answer would be may you say "The Document doesn\'t state X".',
+        );
+      } else {
+        expect(text).toContain('never say "The Document doesn\'t state X"');
+      }
     },
   );
 

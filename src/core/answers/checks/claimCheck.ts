@@ -62,6 +62,7 @@ import {
   type CiteOptions,
   type DocumentLanguage,
 } from "../engine";
+import { checkAbsence, classifyAbsence } from "./absence";
 import { agreesWith, statedFigure } from "./calculated";
 import { figuresMatch, nearestLine } from "./nearest";
 import {
@@ -92,6 +93,12 @@ export interface ClaimCheckDependencies {
   evidence: Pick<Evidence, "search">;
   documents: Pick<AnswerDocuments, "citationSource" | "pageTexts" | "documentDate"> & {
     searchableCount(documentIds: readonly string[] | null): number;
+    searchableBySize(documentIds: readonly string[] | null): import("../coverage").SizedDocument[];
+    passagesBetween(
+      documentId: string,
+      from: number,
+      to: number,
+    ): import("../../documents/search").WindowedPassage[];
     searchableLanguages(documentIds: readonly string[] | null): DocumentLanguage[];
     savedBySearch(documentId: string): boolean;
   };
@@ -202,6 +209,8 @@ export function createClaimCheck(deps: ClaimCheckDependencies) {
       pageTexts: (documentId, contentHash, from, to) =>
         deps.documents.pageTexts(documentId, contentHash, from, to),
       documentDate: (documentId) => deps.documents.documentDate(documentId),
+      passagesBetween: (documentId, from, to) =>
+        deps.documents.passagesBetween(documentId, from, to),
     };
     const session = createCitationSession(scoped, { onRecord: () => undefined });
     const { model } = request;
@@ -336,6 +345,50 @@ export function createClaimCheck(deps: ClaimCheckDependencies) {
         opinions.documentIds.has(evidence.documentId ?? ""),
     });
 
+    if (scoped.searchableCount() === 0 && signal.aborted) {
+      return {
+        verdict: "unsupported",
+        evidence: null,
+        says: null,
+        unsupported: null,
+        calculation: null,
+        citedCaseUnchecked: caseCitations(request.claim).length > 0,
+        citedCaseFound: false,
+        ...facts(),
+      };
+    }
+    if (scoped.searchableCount() === 0) {
+      let absenceClaim: boolean;
+      try {
+        absenceClaim = await classifyAbsence(request);
+      } catch (error) {
+        return failedCheck(classifyProviderError(error));
+      }
+      if (absenceClaim) {
+        const absence = await checkAbsence({
+          request,
+          documents: deps.documents,
+          session,
+          versions: read,
+          facts,
+          citedCase,
+          notChecked,
+          failedCheck,
+        });
+        if (absence) return absence;
+      }
+      return {
+        verdict: "unsupported",
+        evidence: null,
+        says: null,
+        unsupported: null,
+        calculation: null,
+        citedCaseUnchecked: caseCitations(request.claim).length > 0,
+        citedCaseFound: false,
+        ...facts(),
+      };
+    }
+
     let reply = "";
     let setAside: readonly string[] = [];
     let failed: ProviderError | null = null;
@@ -381,6 +434,35 @@ export function createClaimCheck(deps: ClaimCheckDependencies) {
         scoped.pageTexts(citation.documentId, citation.contentHash, null, null),
       );
     const worked = calculated(request.claim, figures, stated, figureContext);
+    if (!finished || reply.trim() === "") return notChecked("empty");
+    // Claude Haiku 5.5 may write the verdict lines in the turn that calls `cite` after its search,
+    // with no marker, and only the sentence after it: the Answer sets that turn aside as a
+    // preamble (#1673). Only the last such turn with a verdict counts, so another one's preamble
+    // never becomes what the Document says, and a refusal after it is the reply's last word.
+    const refused = readsAsRefusal(reply);
+    const withVerdict = refused
+      ? undefined
+      : setAside.findLast((text) => readVerdict(text) !== null);
+    const verdict =
+      readVerdict(reply) ??
+      (withVerdict === undefined ? null : readVerdict(`${withVerdict}\n\n${reply}`));
+    if (!verdict) return notChecked(refused ? "refused" : "malformed");
+    if (searches === 0) return notChecked("unread");
+    const absenceClaim = verdict.absence === true;
+    if (absenceClaim) {
+      if (signal.aborted) return notChecked("stopped");
+      const absence = await checkAbsence({
+        request,
+        documents: deps.documents,
+        session,
+        versions: read,
+        facts,
+        citedCase,
+        notChecked,
+        failedCheck,
+      });
+      if (absence) return absence;
+    }
     // A figure that disagrees contradicts the sentence. One that agrees settles only that
     // number: the model's verdict still stands on the rest of the sentence.
     if (worked && !worked.calculation.agrees) {
@@ -403,20 +485,6 @@ export function createClaimCheck(deps: ClaimCheckDependencies) {
       ...citedCase(worked.evidence),
       ...facts(),
     };
-    if (!finished || reply.trim() === "") return notChecked("empty");
-    // Claude Haiku 5.5 may write the verdict lines in the turn that calls `cite` after its search,
-    // with no marker, and only the sentence after it: the Answer sets that turn aside as a
-    // preamble (#1673). Only the last such turn with a verdict counts, so another one's preamble
-    // never becomes what the Document says, and a refusal after it is the reply's last word.
-    const refused = readsAsRefusal(reply);
-    const withVerdict = refused
-      ? undefined
-      : setAside.findLast((text) => readVerdict(text) !== null);
-    const verdict =
-      readVerdict(reply) ??
-      (withVerdict === undefined ? null : readVerdict(`${withVerdict}\n\n${reply}`));
-    if (!verdict) return notChecked(refused ? "refused" : "malformed");
-    if (searches === 0) return notChecked("unread");
     /** Unsupported, with the nearest line when it states another value for the same thing (#770). */
     const unsupported = async (
       why: UnsupportedReason = { reason: null, covered: null, uncovered: null },

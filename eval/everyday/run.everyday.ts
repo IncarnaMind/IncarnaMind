@@ -21,8 +21,8 @@ import { type CaseResult, fetchPapers, fetchReserves, judgeOf, reports, runCase 
 import { CASES, type EverydayCase, floorOf, type LibraryName } from "./cases";
 import { failureLine, pointsBack, type RequestFailure } from "./checks";
 import { writeDatedDocuments } from "./dated";
-import { writeFilingDocuments } from "./filings";
 import { type DecisionProvider, decide, forcing } from "./decisions";
+import { writeFilingDocuments } from "./filings";
 import { languageRates, type RequestRun, rowRates } from "./rates";
 import { watchReasks } from "./reasks";
 import { SUPPORTED_TARGET, supportedShare, supportRates } from "./support";

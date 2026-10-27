@@ -843,17 +843,17 @@ describe("The filing guards", () => {
     );
 
   test("requires the expected figure and rejects a whole-Document absence claim in English and Chinese", () => {
-    expect(filingOutcome("Operating margin was 38.2% [^1].").map((failure) => failure.kind)).toEqual(
-      [],
-    );
+    expect(
+      filingOutcome("Operating margin was 38.2% [^1].").map((failure) => failure.kind),
+    ).toEqual([]);
     expect(
       filingOutcome("The release doesn't state the operating margin.").map(
         (failure) => failure.kind,
       ),
     ).toEqual(["missing-answer-text", "document-absence"]);
-    expect(
-      filingOutcome("报告未披露 38.2% 的营业利润率。").map((failure) => failure.kind),
-    ).toEqual(["document-absence"]);
+    expect(filingOutcome("报告未披露 38.2% 的营业利润率。").map((failure) => failure.kind)).toEqual(
+      ["document-absence"],
+    );
   });
 
   test("allows a search-miss statement without treating it as a whole-Document absence", () => {
@@ -870,5 +870,33 @@ describe("The filing guards", () => {
         (failure) => failure.kind,
       ),
     ).toEqual([]);
+    expect(
+      filingOutcome(
+        "Operating margin was 38.2% [^1]。这是按同店口径的变化幅度，文件未说明与哪一期比较。",
+      ).map((failure) => failure.kind),
+    ).toEqual([]);
+  });
+
+  test("a true absence accepts a search miss but not an invented figure or a Document-level claim", () => {
+    const missing = (text: string) =>
+      requestFailures(
+        outcome({
+          expected: {
+            write: false,
+            cite: false,
+            coverAll: false,
+            searchMiss: true,
+            noDocumentAbsence: /cash conversion|现金转换周期/,
+          },
+          answer: { text, citations: [], toolCalls: [], steps: null },
+          citedInMinds: [],
+        }),
+      ).map((failure) => failure.kind);
+    expect(missing("I didn't find the cash conversion cycle in the 10-Q.")).toEqual([]);
+    expect(missing("The 10-Q doesn't state the cash conversion cycle.")).toEqual([
+      "no-search-miss",
+      "document-absence",
+    ]);
+    expect(missing("The cash conversion cycle was 42 days.")).toEqual(["no-search-miss"]);
   });
 });

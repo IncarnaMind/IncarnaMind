@@ -16,6 +16,7 @@ import { asksAfterThirdParty } from "../../../shared/approvalRules";
 import { toolCallsOf } from "../../../shared/toolCalls";
 import { AnswerWriting } from "../answerPhase";
 import { isCalculated, RUN_SCRIPT, SEARCH } from "../answerSteps";
+import { documentReadText } from "../answerStepWords";
 import { useAnswers } from "../answers";
 import { useApprovals, waitingFor } from "../approvals";
 import { signInAgain } from "../chatGptSignIn";
@@ -487,6 +488,7 @@ export function CallRows({
           call.source === "sources" ||
           call.source === "web" ||
           call.source === "analysis" ||
+          call.tool === "read_document" ||
           (call.source === "skill" && call.tool === RUN_SCRIPT)),
     )
     .map((call) => <CallRow key={call.id} call={call} />);
@@ -507,10 +509,21 @@ export function CallRow({ call }: { call: AnswerToolCall }) {
   if (call.source === "minds") return <MindCall call={call} />;
   if (call.source === "analysis") return <AnalysisCall call={call} />;
   if (call.source === "commands") return <CommandCall call={call} />;
+  if (call.tool === "read_document") return <DocumentReadCall call={call} />;
   if (call.source === "connector") return <ConnectorCall call={call} />;
   if (call.source === "sources") return <SourcesCall call={call} />;
   if (call.source === "web") return <WebCall call={call} />;
   return <ScriptCall call={call} />;
+}
+
+function DocumentReadCall({ call }: { call: AnswerToolCall }) {
+  const t = useT();
+  return (
+    <div contentEditable={false} data-testid="answer-document-read" className="answer-call">
+      <DocumentLineIcon kind="text" className="answer-call-icon" />
+      <span className="answer-call-text">{documentReadText(t, call)}</span>
+    </div>
+  );
 }
 
 /**

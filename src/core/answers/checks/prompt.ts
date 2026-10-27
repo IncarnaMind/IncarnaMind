@@ -36,6 +36,7 @@ const reply = (language: Language) =>
   [
     "Reply in exactly this form, the verdict word in English:",
     "Verdict: supported, unsupported or contradicted",
+    'Absence: true only when the sentence asserts that a clause, disclosure, figure, approval, event or fact is absent ("The lease has no break clause"); otherwise false.',
     'Scope: the sentence\'s own word for the Passage\'s party or term, then same or wider ("Scope: tenants, wider" for "the Tenant"; "Scope: none, same" when the sentence names none). "wider" when that word is a general one for a wider group than the Passage\'s; "same" otherwise: the Passage\'s own word for its party ("the Tenant" for "the Tenant"), a name for it or another word for the very same party ("Ms Patel" for "the Tenant").',
     'Topic: found or not found. "found" when a Passage is about the sentence\'s own subject and detail, even when it gives another value or only part of it; "not found" when none is, though one may be about a neighbouring topic (rent, for a parking fee).',
     // The words are an anchor for the model, not a list the app matches. Worded without them,
@@ -305,6 +306,8 @@ export function readEvidence(
  */
 export interface ReadVerdict {
   verdict: ClaimVerdict;
+  /** True when the sentence asserts the absence itself; absent on older replies. */
+  absence?: boolean;
   says: string | null;
   covered: string | null;
   uncovered: string | null;
@@ -330,7 +333,8 @@ const NOT_COVERED = /^[\s>*_#`"'“”-]*(?:not covered|uncovered|未涵盖)[\s*
 const SCOPE = /^[\s>*_#`"'“”-]*(?:scope|范围)[\s*_]*[:：](.*)$/i;
 const TOPIC = /^[\s>*_#`"'“”-]*(?:topic|主题)[\s*_]*[:：][\s*_"'“”`]*(found|not found)\b/i;
 const ROLES = /^[\s>*_#`"'“”-]*(?:roles|角色)[\s*_]*[:：](.*)$/i;
-const FIELDS = [COVERED, NOT_COVERED, SCOPE, TOPIC, ROLES];
+const ABSENCE = /^[\s>*_#`"'“”-]*(?:absence|缺失)[\s*_]*[:：][\s*_]*(true|false)\b/i;
+const FIELDS = [COVERED, NOT_COVERED, SCOPE, TOPIC, ROLES, ABSENCE];
 const MAX_PHRASE = 120;
 const MAX_REASON = 300;
 const PHRASE_EDGES = /^[\s"'“”‘’「」『』*_`]+|[\s"'“”‘’「」『』*_`.。;；:：,，]+$/gu;
@@ -345,7 +349,7 @@ function jsonVerdict(reply: string): ReadVerdict | null {
   try {
     const value: unknown = JSON.parse(reply.slice(start, end + 1));
     if (typeof value !== "object" || value === null) return null;
-    const { verdict, says, covered, uncovered, scope, topic, roles } = value as Record<
+    const { verdict, says, covered, uncovered, scope, topic, roles, absence } = value as Record<
       string,
       unknown
     >;
@@ -353,6 +357,7 @@ function jsonVerdict(reply: string): ReadVerdict | null {
     if (!known) return null;
     return {
       verdict: known,
+      ...(absence === true ? { absence: true } : absence === false ? { absence: false } : {}),
       says: typeof says === "string" ? cleanSays(says) : null,
       covered: typeof covered === "string" ? phraseOf(covered) : null,
       uncovered: typeof uncovered === "string" ? phraseOf(uncovered) : null,
@@ -443,6 +448,9 @@ export function readVerdict(reply: string): ReadVerdict | null {
     const next = after.find((each) => !FIELDS.some((field) => field.test(each)));
     return withShortReason({
       verdict,
+      absence: fields.some((each) => ABSENCE.test(each))
+        ? fields.some((each) => ABSENCE.exec(each)?.[1] === "true")
+        : undefined,
       says: cleanSays(rest || (next ?? "")),
       covered: phrase(COVERED),
       uncovered: phrase(NOT_COVERED),

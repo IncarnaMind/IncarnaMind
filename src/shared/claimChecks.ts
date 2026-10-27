@@ -14,6 +14,7 @@ import {
   type ClaimCheckAttributes,
   type ClaimCheckFailure,
   type ClaimCheckScope,
+  type ClaimReadDocument,
   type ClaimVerdict,
   claimCheckActions,
   type EvidenceExclusion,
@@ -51,6 +52,7 @@ const FAILURES: readonly ClaimCheckFailure[] = [
   "too-many",
   "consent-revoked",
   "local-mode",
+  "absence-read-limit",
 ];
 
 const EXCLUSIONS: readonly EvidenceExclusion[] = ["own-file", "own-workings", "checked-document"];
@@ -78,6 +80,26 @@ function excludedOf(value: unknown): LeftOutDocument[] {
     const reason = EXCLUSIONS.find((known) => known === each.reason);
     return documentId && reason
       ? [{ documentId, documentName: text(each.documentName) ?? "", reason }]
+      : [];
+  });
+}
+
+function readDocumentsOf(value: unknown): ClaimReadDocument[] {
+  if (!Array.isArray(value)) return [];
+  return value.flatMap((each) => {
+    if (!isRecord(each) || !Array.isArray(each.locations)) return [];
+    const documentId = text(each.documentId);
+    const documentName = text(each.documentName);
+    const contentHash = text(each.contentHash);
+    return documentId && documentName !== null && contentHash
+      ? [
+          {
+            documentId,
+            documentName,
+            contentHash,
+            locations: each.locations as ClaimReadDocument["locations"],
+          },
+        ]
       : [];
   });
 }
@@ -157,6 +179,7 @@ export function readClaimCheck(value: unknown): ClaimCheckAttributes | null {
     scope: scopeOf(value.scope),
     versions: versionsOf(value.versions),
     excluded: excludedOf(value.excluded),
+    readDocuments: readDocumentsOf(value.readDocuments),
     checkedAt: text(value.checkedAt) ?? "",
     ...(value.kept === true && { kept: true }),
   };
@@ -262,7 +285,10 @@ export function claimCheckShown(check: ClaimCheckAttributes, now: ClaimCheckNow)
   }
   if (check.kept) return { state: "kept" };
   if (now.versions) {
-    const relied = new Set(restsOn(check).map((each) => each.documentId));
+    const relied = new Set([
+      ...restsOn(check).map((each) => each.documentId),
+      ...(check.readDocuments ?? []).map((each) => each.documentId),
+    ]);
     for (const version of check.versions) {
       const current = now.versions.get(version.documentId);
       // A Document only read, gone, takes nothing from the result: an example's, swapped for the interface language, among them (#962).
@@ -298,7 +324,9 @@ export function claimCheckShown(check: ClaimCheckAttributes, now: ClaimCheckNow)
 export const addedCouldChange = (check: ClaimCheckAttributes, shown: ClaimCheckShown): boolean =>
   check.action !== "contradiction-watch" &&
   check.checkedAt !== "" &&
-  (shown.state === "unsupported" || shown.state === "not-checked");
+  (shown.state === "unsupported" ||
+    shown.state === "not-checked" ||
+    (shown.state === "supported" && (check.readDocuments?.length ?? 0) > 0));
 
 /**
  * A sentence as every surface counts it (#1909): a claim no check covers now

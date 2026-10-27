@@ -188,6 +188,16 @@ function lineOf(call: AnswerToolCall, names: MindNames, states?: ChangeStates): 
       if (call.tool === "calculate") {
         return `calculate: ${counted(call.resultCount ?? 0, "figure")} worked out`;
       }
+      if (call.tool === "read_document") {
+        const place = field(call, "pages")
+          ? `pages ${field(call, "pages")}`
+          : field(call, "passage")
+            ? `around ${field(call, "passage")}`
+            : "opening";
+        return done
+          ? `read_document ${quoted(field(call, "document"))} ${place}: ${counted(call.resultCount ?? 0, "Passage")}`
+          : `read_document ${quoted(field(call, "document"))} ${place}: failed`;
+      }
       return done
         ? `${call.tool} ${quoted(field(call, "query"))}: ${counted(call.resultCount ?? 0, "Passage")}`
         : `${call.tool} ${quoted(field(call, "query"))}: failed`;

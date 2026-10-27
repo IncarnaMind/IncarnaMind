@@ -7,9 +7,15 @@ import { addAndProcess } from "../helpers/documents";
 const EXPECTED = new Map([
   ["Northmart Q2 2026 10-Q", { page: 8, text: "like-for-like sales declined 6.2%" }],
   ["北域零售 2026年第二季度季报", { page: 8, text: "同店销售额下降 6.2%" }],
-  ["Harbour Hotels 2026 annual release", { page: 2, text: "Operating profitability reached 38.2%" }],
+  [
+    "Harbour Hotels 2026 annual release",
+    { page: 2, text: "Operating profitability reached 38.2%" },
+  ],
   ["港湾酒店 2026年度业绩公告", { page: 2, text: "经营利润率达到 38.2%" }],
-  ["Delta Manufacturing 8-K 2026", { page: 9, text: "Restated second-quarter sales: $423 million" }],
+  [
+    "Delta Manufacturing 8-K 2026",
+    { page: 9, text: "Restated second-quarter sales: $423 million" },
+  ],
   ["三角洲制造 8-K 2026", { page: 9, text: "重述第二季度销售额：4.23 亿元" }],
 ]);
 
@@ -21,7 +27,10 @@ describe("The filing evaluation", () => {
     expect(files.map((file) => file.key.replace(/\.pdf$/, "")).sort()).toEqual(
       [...EXPECTED.keys()].sort(),
     );
-    const documents = await addAndProcess(core, files.map((file) => file.path));
+    const documents = await addAndProcess(
+      core,
+      files.map((file) => file.path),
+    );
 
     for (const document of documents) {
       const expected = EXPECTED.get(document.name);
@@ -42,11 +51,18 @@ describe("The filing evaluation", () => {
       "filing-margin-zh",
       "filing-recast-en",
       "filing-recast-zh",
+      "filing-absent-en",
+      "filing-absent-zh",
     ]);
-    for (const each of cases) {
+    for (const each of cases.filter((each) => !each.id.startsWith("filing-absent-"))) {
       expect(each.library).toBe("filings");
       expect(each.expected.cite).toBe(true);
       expect(each.expected.answerWith).toBeInstanceOf(RegExp);
+      expect(each.expected.noDocumentAbsence).toBeInstanceOf(RegExp);
+    }
+    for (const each of cases.filter((each) => each.id.startsWith("filing-absent-"))) {
+      expect(each.expected.cite).toBe(false);
+      expect(each.expected.searchMiss).toBe(true);
       expect(each.expected.noDocumentAbsence).toBeInstanceOf(RegExp);
     }
   });

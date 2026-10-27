@@ -122,7 +122,8 @@ export type LiveStep =
   | { kind: "checking-figures" }
   | { kind: "checking-claims" };
 
-const isSearch = (call: AnswerToolCall) => call.source === "documents" && call.tool === SEARCH;
+const isSearch = (call: AnswerToolCall) =>
+  call.source === "documents" && (call.tool === SEARCH || call.tool === "read_document");
 export const isCalculated = (call: AnswerToolCall) =>
   call.source === "documents" && call.tool === CALCULATE;
 

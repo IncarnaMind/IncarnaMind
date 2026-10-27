@@ -1671,7 +1671,11 @@ export const CASES: readonly EverydayCase[] = [
     mind: null,
     request:
       "In Delta Manufacturing's 2026 8-K, what was the recast second-quarter revenue? Answer with the amount and cite it.",
-    expected: { ...ANSWER, answerWith: /\$423 million/, noDocumentAbsence: /recast|重述|revenue|销售额/ },
+    expected: {
+      ...ANSWER,
+      answerWith: /\$423 million/,
+      noDocumentAbsence: /recast|重述|revenue|销售额/,
+    },
   },
   {
     id: "filing-recast-zh",
@@ -1679,7 +1683,27 @@ export const CASES: readonly EverydayCase[] = [
     library: "filings",
     mind: null,
     request: "三角洲制造2026年8-K中重述的第二季度收入是多少？请给出金额并注明出处。",
-    expected: { ...ANSWER, answerWith: /4\.23 亿元/, noDocumentAbsence: /recast|重述|revenue|销售额/ },
+    expected: {
+      ...ANSWER,
+      answerWith: /4\.23 亿元/,
+      noDocumentAbsence: /recast|重述|revenue|销售额/,
+    },
+  },
+  {
+    id: "filing-absent-en",
+    language: "en",
+    library: "filings",
+    mind: null,
+    request: "What was Northmart's cash conversion cycle in Q2 2026?",
+    expected: { ...NOTHING, searchMiss: true, noDocumentAbsence: /cash conversion/ },
+  },
+  {
+    id: "filing-absent-zh",
+    language: "zh-CN",
+    library: "filings",
+    mind: null,
+    request: "北域零售2026年第二季度的现金转换周期是多少？",
+    expected: { ...NOTHING, searchMiss: true, noDocumentAbsence: /现金转换周期/ },
   },
   {
     id: "reserves-change-zh",

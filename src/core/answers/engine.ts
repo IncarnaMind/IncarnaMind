@@ -180,10 +180,13 @@ export interface AnswerSearchOptions {
   document?: string;
 }
 
-/** A page range to read from a Document in the Question's Search scope. */
+/** A page range, a Document opening, or the Passages around one already shown. */
 export interface ReadDocumentRequest {
   document: string;
-  pages: string;
+  pages?: string;
+  passage?: string;
+  before?: number;
+  after?: number;
 }
 
 /** What a search gives the model. */
@@ -199,6 +202,8 @@ export interface SearchResultForModel {
    * relevant (see ./window). Absent: their order is their relevance.
    */
   ranks?: number[];
+  /** App-computed page coverage of the results that survived fitting; null when it isn't partial. */
+  coverage?(fittedText: string): string | null;
   /**
    * The third-party text among the Passages: "web-page" when one is a saved
    * web page's (#78). Reading it makes the Run third-party. Absent: none.
@@ -1464,6 +1469,17 @@ function searchResultText(
   return note ? `${passages}\n\n${note}` : passages;
 }
 
+function fittedResultText(
+  found: SearchResultForModel,
+  fitted: SearchResultForModel,
+  documents: AnswerTools,
+  languageNote: (() => string | null) | undefined,
+): string {
+  const text = searchResultText(fitted.text, documents, languageNote);
+  const coverage = found.coverage?.(fitted.text);
+  return coverage ? `${text}\n\n${coverage}` : text;
+}
+
 /**
  * The Documents as a Tool provider, for one go of the Tool-calling loop:
  * `search_documents`, which reads the Documents; `cite`, whose records become
@@ -1523,7 +1539,7 @@ export function documentTools(
         for (const source of found.thirdParty ?? []) readThirdParty?.(source);
         const result = hooks.fit(found);
         hooks.searched(toolCallId, result.passageCount, found.passageIds);
-        return searchResultText(result.text, documents, hooks.languageNote);
+        return fittedResultText(found, result, documents, hooks.languageNote);
       },
     },
     read:
@@ -1531,7 +1547,7 @@ export function documentTools(
         ? {
             ...own(DOCUMENT_TOOLS.read),
             description:
-              'Read pages of a Document in the Question\'s Search scope when search did not show them. Give the Document name exactly as the instructions list it and pages as "16" or "15-17". Read the pages where the answer would be before saying the Document does not state it.',
+              'Read pages of a Document in the Question\'s Search scope when search did not show them. Give the Document name exactly as the instructions list it. Use pages as "16" or "15-17", or give a Passage id already shown with optional before/after counts (up to 3). Omit both to read the opening. Read where the answer would be before saying the Document does not state it.',
             inputSchema: {
               type: "object",
               properties: {
@@ -1543,25 +1559,47 @@ export function documentTools(
                   type: "string",
                   description: 'One page or a page range, such as "16" or "15-17".',
                 },
+                passage: {
+                  type: "string",
+                  description: "A Passage id already shown, to read around.",
+                },
+                before: {
+                  type: "number",
+                  description: "Passages to include before the given Passage, from 0 to 3.",
+                },
+                after: {
+                  type: "number",
+                  description:
+                    "Passages to include after the given Passage or from the opening, from 0 to 3.",
+                },
               },
-              required: ["document", "pages"],
+              required: ["document"],
             },
-            shownInput: ({ document, pages }) => ({
+            shownInput: ({ document, pages, passage, before, after }) => ({
               document: String(document ?? ""),
-              pages: String(pages ?? ""),
+              ...(typeof pages === "string" && pages !== "" && { pages }),
+              ...(typeof passage === "string" && passage !== "" && { passage }),
+              ...(typeof before === "number" && { before }),
+              ...(typeof after === "number" && { after }),
             }),
             effects: () => [{ action: "read", scope: { kind: "documents" } }],
             untrustedResult: true,
-            async call({ document, pages }, { toolCallId, readThirdParty }) {
+            async call(
+              { document, pages, passage, before, after },
+              { toolCallId, readThirdParty },
+            ) {
               const found = await documents.readDocument?.({
                 document: String(document ?? ""),
-                pages: String(pages ?? ""),
+                ...(typeof pages === "string" && pages !== "" && { pages }),
+                ...(typeof passage === "string" && passage !== "" && { passage }),
+                ...(typeof before === "number" && { before }),
+                ...(typeof after === "number" && { after }),
               });
               if (!found) throw new Error("read_document is unavailable");
               for (const source of found.thirdParty ?? []) readThirdParty?.(source);
               const result = hooks.fit(found);
               hooks.searched(toolCallId, result.passageCount, found.passageIds);
-              return searchResultText(result.text, documents, hooks.languageNote);
+              return fittedResultText(found, result, documents, hooks.languageNote);
             },
           }
         : null,
@@ -1793,7 +1831,9 @@ async function* toolLoop(
   /** The Tools offered, by the name the model calls them; never a Connector's with one of ours. */
   const offered = new Map(
     offeredTools([
-      ...(documents ? [documents.search, documents.read, documents.cite].filter((tool) => tool !== null) : []),
+      ...(documents
+        ? [documents.search, documents.read, documents.cite].filter((tool) => tool !== null)
+        : []),
       ...(calculate ? [calculate] : []),
       ...request.tools,
     ]).map((each) => [each.name, each]),
@@ -1843,7 +1883,10 @@ async function* toolLoop(
     window = {
       // What another provider's Tool returns (or the gate gives instead) is cut to the room left.
       fitResult: (text, tool) =>
-        tool === search?.name || tool === read?.name || tool === cite?.name || tool === calculate?.name
+        tool === search?.name ||
+        tool === read?.name ||
+        tool === cite?.name ||
+        tool === calculate?.name
           ? text
           : account.result(text),
       canCallTools: () => account.canCallTools(),

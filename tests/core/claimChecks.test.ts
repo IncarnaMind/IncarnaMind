@@ -2560,8 +2560,8 @@ describe("Stopping", () => {
         return { calls: [{ tool: "search_documents", input: { query: sentenceOf(call) } }] };
       }
       if (sentenceOf(call) === UNSUPPORTED)
-        return { text: "Verdict: unsupported", pause: { after: 0, until: held } };
-      return { text: "Verdict: unsupported" };
+        return { text: "Verdict: unsupported\nAbsence: false", pause: { after: 0, until: held } };
+      return { text: "Verdict: unsupported\nAbsence: false" };
     });
     const { core, client, mind, block, body } = await mindWith([SUPPORTED, UNSUPPORTED], model);
     const running = core.checkSentences({

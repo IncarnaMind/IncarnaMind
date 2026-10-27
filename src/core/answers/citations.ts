@@ -369,6 +369,8 @@ export interface AnswerDocuments {
   documentDate(documentId: string): DocumentDate | null;
   /** The id of the Document to search named `name`, as the instructions list it; null for none. */
   documentNamed?(name: string): string | null;
+  /** One live Passage by id, when reading around it is offered. */
+  passage?(passageId: string): WindowedPassage | null;
   /** Live Passages at positions `from` to `to`, when Document reads are offered. */
   passagesBetween?(documentId: string, from: number, to: number): WindowedPassage[];
   /** Live Passages covering pages `from` to `to`, when Document reads are offered. */
@@ -1512,6 +1514,7 @@ export function createCitationSession(
       passageCount: found.length,
       passageIds: found.map((passage) => passage.passageId),
       ranks: found.map((passage, index) => passage.rank ?? index),
+      coverage: coverageOf(found),
       // Someone else wrote a saved web page: reading it makes the Run third-party (#78).
       ...(found.some((passage) => passage.documentKind === "web") && {
         thirdParty: ["web-page"] as const,
@@ -1566,6 +1569,48 @@ export function createCitationSession(
     return formatPassages(formatted);
   }
 
+  function coverageOf(found: readonly WindowedPassage[]) {
+    return (fitted: string): string | null => {
+      const documentsCovered = new Map<
+        string,
+        { name: string; contentHash: string; pages: Set<number> }
+      >();
+      for (const passage of found) {
+        if (passage.pageFrom === null || passage.pageTo === null) continue;
+        if (!fitted.includes(`<passage id="${handleFor(passage.passageId)}"`)) continue;
+        const covered = documentsCovered.get(passage.documentId) ?? {
+          name: passage.documentName,
+          contentHash: passage.contentHash,
+          pages: new Set<number>(),
+        };
+        for (let page = passage.pageFrom; page <= passage.pageTo; page++) covered.pages.add(page);
+        documentsCovered.set(passage.documentId, covered);
+      }
+      const notes: string[] = [];
+      for (const [documentId, covered] of documentsCovered) {
+        const total = documents.pageTexts(documentId, covered.contentHash, null, null).length;
+        if (total === 0 || covered.pages.size >= total) continue;
+        const pages = [...covered.pages].sort((a, b) => a - b);
+        const ranges: string[] = [];
+        let start = pages[0] as number;
+        let end = start;
+        for (const page of [...pages.slice(1), Number.POSITIVE_INFINITY]) {
+          if (page === end + 1) {
+            end = page;
+            continue;
+          }
+          ranges.push(start === end ? `${start}` : `${start}–${end}`);
+          start = page;
+          end = page;
+        }
+        notes.push(`pages ${ranges.join(", ")} of ${total} of “${covered.name}”`);
+      }
+      return notes.length > 0
+        ? `These results cover ${notes.join("; ")}. A miss in these results is not evidence that the other pages lack the answer.`
+        : null;
+    };
+  }
+
   const tools: AnswerTools = {
     get documentCount() {
       return documents.searchableCount();
@@ -1607,7 +1652,7 @@ export function createCitationSession(
       };
     },
 
-    ...(documents.documentNamed && documents.passagesCovering
+    ...(documents.documentNamed && documents.passagesCovering && documents.passagesBetween
       ? {
           async readDocument(request: ReadDocumentRequest): Promise<SearchResultForModel> {
             if (reads >= 3) {
@@ -1623,28 +1668,56 @@ export function createCitationSession(
                 passageCount: 0,
               };
             }
-            const pages = readPages(request.pages);
-            if (!pages) {
-              return {
-                text: `Pages must be one page or a range, such as "16" or "15-17".`,
-                passageCount: 0,
-              };
+            const around = (value: number | undefined, fallback: number) =>
+              value === undefined || !Number.isFinite(value)
+                ? fallback
+                : Math.max(0, Math.min(3, Math.floor(value)));
+            const before = around(request.before, 0);
+            const after = around(request.after, 2);
+            let found: WindowedPassage[] = [];
+            let limited = false;
+            if (request.passage !== undefined) {
+              const resolved = resolve(request.passage);
+              const anchor = resolved ? documents.passage?.(resolved.passageId) : null;
+              if (!anchor || anchor.documentId !== documentId) {
+                return {
+                  text: `No Passage already shown in “${request.document}” has the id “${request.passage}”.`,
+                  passageCount: 0,
+                };
+              }
+              found =
+                documents.passagesBetween?.(
+                  documentId,
+                  Math.max(0, anchor.position - before),
+                  anchor.position + after,
+                ) ?? [];
+            } else if (request.pages !== undefined) {
+              const pages = readPages(request.pages);
+              if (!pages) {
+                return {
+                  text: `Pages must be one page or a range, such as "16" or "15-17".`,
+                  passageCount: 0,
+                };
+              }
+              const to = Math.min(pages.to, pages.from + 2);
+              limited = to < pages.to;
+              found = documents.passagesCovering?.(documentId, pages.from, to) ?? [];
+            } else {
+              found = documents.passagesBetween?.(documentId, 0, after) ?? [];
             }
-            const to = Math.min(pages.to, pages.from + 2);
-            const found = documents.passagesCovering?.(documentId, pages.from, to) ?? [];
             reads++;
             if (found.length === 0) {
               return {
-                text: `No Passages were found at pages ${pages.from}–${to} of “${request.document}”.`,
+                text: `No Passages were found for “${request.document}” at the requested place.`,
                 passageCount: 0,
               };
             }
-            const limited = to < pages.to ? "Only the first 3 requested pages are shown.\n" : "";
             return {
-              text: `${limited}${show(found)}`,
+              text: `${limited ? "Only the first 3 requested pages are shown.\n" : ""}${show(found)}`,
               passageCount: found.length,
               passageIds: found.map((passage) => passage.passageId),
               ranks: found.map((_, index) => index),
+              coverage: coverageOf(found),
               ...(found.some((passage) => passage.documentKind === "web") && {
                 thirdParty: ["web-page"] as const,
               }),

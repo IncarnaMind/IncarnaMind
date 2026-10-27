@@ -8,7 +8,12 @@ import {
   type StepsInput,
   stepRows,
 } from "../../src/renderer/src/answerSteps";
-import { checkedWords, checkingWords, foldedWords } from "../../src/renderer/src/answerStepWords";
+import {
+  checkedWords,
+  checkingWords,
+  documentReadText,
+  foldedWords,
+} from "../../src/renderer/src/answerStepWords";
 import { translate } from "../../src/shared/i18n";
 
 /*
@@ -127,6 +132,31 @@ describe("an Answer's steps", () => {
     ]);
     expect(row?.kind === "search" && row.sources.map((source) => source.marker)).toEqual([1, 2, 4]);
     expect(foldedLine(steps)).toEqual({ kind: "searched", sources: 3, extraScopes: 0 });
+  });
+
+  test("a Document read keeps its Passages with the search steps and has English and Chinese lines", () => {
+    const read: AnswerToolCall = {
+      id: "r1",
+      tool: "read_document",
+      source: "documents",
+      input: { document: "Filing", pages: "12–13" },
+      status: "done",
+      resultCount: 2,
+      passages: ["a", "b"],
+    };
+    const steps = input({
+      toolCalls: [read],
+      citations: [citation(1, "a", "d1", 12)],
+    });
+
+    const [, row] = stepRows(steps);
+    expect(row).toMatchObject({ kind: "search", found: 2, used: 1 });
+    expect(row?.kind === "search" && row.calls.map((call) => call.id)).toEqual(["r1"]);
+    expect(row?.kind === "search" && row.sources.map((source) => source.marker)).toEqual([1]);
+    expect(foldedLine(steps)).toEqual({ kind: "searched", sources: 1, extraScopes: 0 });
+    expect(documentReadText(en, read)).toBe("Read pages 12–13 of “Filing”");
+    expect(documentReadText(zh, read)).toBe("读取了“Filing”第 12–13 页");
+    expect(documentReadText(en, read, true)).toBe("Reading pages 12–13 of “Filing”…");
   });
 
   // protects=an Answer that searched only the web folds to that, its calls each a row in order, and a web search beside a Document search counts as one more scope; fails_when=it folds to the Mind it was asked from, groups the web calls with searches, or drops one; no_claim=how the rows are worded.
