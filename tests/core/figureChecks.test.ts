@@ -1,4 +1,5 @@
 import { expect, test } from "vitest";
+import { documentFigureContext } from "../../src/core/answers/calculations";
 import { createClaimCheck } from "../../src/core/answers/checks/claimCheck";
 import { figureReplyText, readFigureReply } from "../../src/core/answers/checks/figureChecks";
 import { createAiSdkAnswerEngine } from "../../src/core/answers/engine";
@@ -70,6 +71,44 @@ test("only trailing citation transport annotations may follow the complete objec
   ).toBe("Keep } and [^2] inside the string.");
 });
 
+test("a source names its number as the quote writes it, and markers written as digits are read", () => {
+  const written = {
+    ...item(),
+    reading: "1",
+    source: { citation: "1", number: "£20", unitQuote: null },
+  };
+  expect(readFigureReply(reply([written]), figures, claim)?.items[0]).toMatchObject({
+    reading: 1,
+    source: { citation: 1, number: "£20", position: null, reading: null },
+  });
+  for (const marker of ["3", { marker: 3 }]) {
+    const calculated = { ...item(), source: null, calculation: marker };
+    expect(readFigureReply(reply([calculated]), figures, claim)?.items[0]?.calculation).toBe(3);
+  }
+  for (const marker of ["0", "one", "1.5", -1])
+    expect(
+      readFigureReply(
+        reply([{ ...item(), source: { ...item().source, citation: marker } }]),
+        figures,
+        claim,
+      ),
+    ).toBeNull();
+});
+
+test("a quote copied from a sheet row with its raw tabs is read", () => {
+  const row = { ...item(), source: { passage: "P2", quote: "Fuel\t510\t450", number: "450" } };
+  const written = reply([row]).replace(/\\t/g, "\t");
+  expect(written).toContain("\t510");
+  expect(readFigureReply(written, figures, claim)?.items[0]?.source?.record?.quote).toBe(
+    "Fuel\t510\t450",
+  );
+});
+
+test("the Figures line is the JSON one, not a line of prose that starts the same way", () => {
+  const prose = `Verdict: supported\nFigures: the revenue figure is £20, as the accounts give it.\n${reply([item()]).replace("Verdict: supported\n", "")}`;
+  expect(readFigureReply(prose, figures, claim)?.items[0]?.id).toBe("f1");
+});
+
 test.each([
   { final: "Verdict: unsupported", aside: [reply([item()])] },
   { final: "The quote states the revenue.", aside: [reply([item()]), "Verdict: unsupported"] },
@@ -118,6 +157,8 @@ async function checkWith(options: {
   judgement?: string;
   failure?: { status: number; message: string };
   besideCite?: string;
+  /** Its reply when asked once more with a note that says `note`. */
+  askedAgain?: { note: string; text: string };
   /** The model's search finds nothing, as when it searched with other words. */
   findsNothing?: boolean;
 }) {
@@ -150,6 +191,8 @@ async function checkWith(options: {
         };
       if (options.calculations && !call.results.some((result) => result.tool === "calculate"))
         return { calls: [{ tool: "calculate", input: { figures: options.calculations } }] };
+      if (options.askedAgain && call.prompt.includes(options.askedAgain.note))
+        return { text: options.askedAgain.text };
       return options.failure ? { error: options.failure } : { text: options.text };
     },
     {
@@ -559,6 +602,107 @@ test("saved formulas recheck exact UTF-16 spans without another calculate call",
     reason: "no-evidence",
   });
   expect(retained.result.figures?.[0]?.sourceInput).toBeNull();
+});
+
+test("a verdict with no Figures line is asked for it once, and the reply that has it binds", async () => {
+  const asked = await checkWith({
+    figures: [target("f1")],
+    text: "Verdict: supported",
+    askedAgain: { note: "no Figures line", text: reply([item()]) },
+  });
+  expect(asked.result.figures?.[0]?.result.verdict).toBe("supported");
+  expect(asked.calls.filter((call) => call.prompt.includes("no Figures line"))).toHaveLength(1);
+
+  const unbound = await checkWith({ figures: [target("f1")], text: "Verdict: supported" });
+  expect(unbound.result.figures?.[0]?.result).toMatchObject({
+    verdict: "not-checked",
+    reason: "malformed",
+  });
+});
+
+const SEGMENTS = "All figures in £m\nSegment\tQ3 2026\tQ3 2025\nClothing\t300\t310";
+const segments = (body = SEGMENTS): UnitText[] => [
+  { page: 1, text: body, kind: "rows", label: { sheet: "Segments", rows: [1, 2, 3], column: 0 } },
+];
+
+/** A cell of the note's table under a heading that states the table's scale. */
+function cell(id: string, shown: string, header: string): CheckFigure {
+  const reading = readFigures(shown, { ...documentFigureContext([{ text: shown }]), header })[0];
+  if (!reading) throw new Error("Missing cell reading");
+  return { ...target(id, shown, "Clothing Q3 2026"), reading };
+}
+
+test.each([
+  { unitQuote: "All figures in £m", verdict: "supported" },
+  { unitQuote: "All figures in £000", verdict: "not-checked" },
+])(
+  "a bare cell under the note's “(£m)” heading is compared in its source's frame when the note offers it: $unitQuote",
+  async ({ unitQuote, verdict }) => {
+    const body = SEGMENTS.replace("All figures in £m", unitQuote);
+    const figure = cell("f1", "300", "Q3 2026 (£m)");
+    expect(figure.reading.ambiguous.map((each) => each.kind)).toEqual(["scale"]);
+    const { result } = await checkWith({
+      figures: [figure],
+      body,
+      units: segments(body),
+      quotes: ["Clothing\t300\t310", unitQuote],
+      text: reply([
+        {
+          ...item(),
+          reading: 1,
+          source: { citation: 1, number: "300", reading: null, unitQuote },
+        },
+      ]),
+    });
+    expect(result.figures?.[0]?.result.verdict).toBe(verdict);
+  },
+);
+
+test("a source may give its quote in place of a marker, as calculate takes one", async () => {
+  const quoted = {
+    ...item(),
+    source: { passage: "P1", location: "p. 1", quote: "Revenue in 2024 was £20", number: "£20" },
+  };
+  const { result } = await checkWith({ figures: [target("f1")], text: reply([quoted]) });
+  expect(result.figures?.[0]).toMatchObject({
+    result: { verdict: "supported" },
+    source: { quote: "Revenue in 2024 was £20", check: "found" },
+  });
+});
+
+test("a number that writes its own scale is read whatever unit line comes with it", async () => {
+  const body = "2026年第三季度营业收入为人民币4,979.6百万元。";
+  const { result } = await checkWith({
+    figures: [target("f1", "49.80亿元", "营业收入")],
+    claim: "营业收入为49.80亿元。",
+    body,
+    text: reply([
+      { ...item(), source: { citation: 1, number: "4,979.6", unitQuote: "单位：人民币百万元" } },
+    ]),
+  });
+  expect(result.figures?.[0]).toMatchObject({
+    result: { verdict: "supported" },
+    roundedFrom: 4_979_600_000,
+  });
+});
+
+test("a source left without its sheet's unit line is asked for with calculate's words, and the fixed reply binds", async () => {
+  const bare = {
+    ...item(),
+    source: { citation: 1, number: "300", reading: null, unitQuote: null },
+  };
+  const fixed = { ...bare, source: { ...bare.source, unitQuote: "All figures in £m" } };
+  const { result, calls } = await checkWith({
+    figures: [target("f1", "£300m", "Clothing Q3 2026")],
+    body: SEGMENTS,
+    units: segments(),
+    quotes: ["Clothing\t300\t310"],
+    text: reply([bare]),
+    askedAgain: { note: "can't be read", text: reply([fixed]) },
+  });
+  const asked = calls.find((call) => call.prompt.includes("can't be read"));
+  expect(asked?.prompt).toContain("give that line as unitQuote");
+  expect(result.figures?.[0]?.result.verdict).toBe("supported");
 });
 
 test.each([

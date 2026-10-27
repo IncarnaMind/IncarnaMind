@@ -1,6 +1,7 @@
 import { aggregateFigureResults } from "../../../shared/figureChecks";
 import { readFigures } from "../../../shared/figures";
 import { evaluateFormula, showResult } from "../../../shared/formula";
+import { escapedInStrings } from "../../../shared/jsonText";
 import type {
   CalculatedFigure,
   CheckFigure,
@@ -13,7 +14,7 @@ import type {
   LimitRelation,
 } from "../../api";
 import { isRecord } from "../../errors";
-import { type CalculationSession, documentFigureContext } from "../calculations";
+import { type CalculationSession, documentFigureContext, whole } from "../calculations";
 import { agreesAtShownPrecision } from "./calculated";
 import { type ReadVerdict, readsAsRefusal, readVerdict } from "./prompt";
 
@@ -22,7 +23,9 @@ export interface FigureReplyItem extends ReadVerdict {
   reading: number | null;
   relation: "equals" | "at most" | "at least";
   source: {
-    citation: number;
+    /** The marker of the quote recorded with cite; null when `record` gives the quote itself. */
+    citation: number | null;
+    record: { passage: string; location: string | null; quote: string } | null;
     /** The number as the quote writes it; `position` counts instead when the quote writes it twice. */
     number: string | null;
     position: number | null;
@@ -44,8 +47,14 @@ export interface FigureReply {
 
 const FIGURES = /^\s*Figures:\s*(.*)$/i;
 const MAX_REPLY_CHARACTERS = 100_000;
-const positive = (value: unknown): value is number =>
-  typeof value === "number" && Number.isSafeInteger(value) && value > 0;
+/** A one-based count or marker, read as `calculate` reads its inputs' ("3", "[^3]", {"marker":3}). */
+const counted = (value: unknown): number | null => {
+  const read = whole(isRecord(value) ? value.marker : value);
+  return read !== null && read > 0 ? read : null;
+};
+/** An optional count: null when absent, undefined when it is there but no count. */
+const optionalCount = (value: unknown): number | null | undefined =>
+  value == null ? null : (counted(value) ?? undefined);
 const optionalText = (value: unknown): value is string | null =>
   value === null || (typeof value === "string" && value.length <= 2_000);
 
@@ -82,14 +91,18 @@ export function readFigureReply(
   claim: string,
 ): FigureReply | null {
   if (reply.length > MAX_REPLY_CHARACTERS) return null;
-  const lines = reply.split(/\r?\n/).flatMap((line) => FIGURES.exec(line)?.[1] ?? []);
-  if (lines.length !== 1) return null;
-  const line = lines[0] ?? "";
+  // The protocol's line is the JSON one: a model also writes "Figures: …" as prose before it.
+  const line = reply
+    .split(/\r?\n/)
+    .flatMap((each) => FIGURES.exec(each)?.[1] ?? [])
+    .findLast((rest) => rest.trimStart().startsWith("{"));
+  if (line === undefined) return null;
   const end = line.lastIndexOf("}") + 1;
   if (end === 0 || !/^(?:\s*\[\^[1-9]\d{0,3}\])*\s*$/.test(line.slice(end))) return null;
   let value: unknown;
   try {
-    value = JSON.parse(line.slice(0, end));
+    // A quote copied from a sheet row keeps its raw tabs, as in a Tool call's input (#1827).
+    value = JSON.parse(escapedInStrings(line.slice(0, end)));
   } catch {
     return null;
   }
@@ -100,12 +113,15 @@ export function readFigureReply(
   const items: FigureReplyItem[] = [];
   for (const raw of value.items) {
     const judgment = judgmentOf(raw);
+    const reading = isRecord(raw) ? optionalCount(raw.reading) : undefined;
+    const calculation = isRecord(raw) ? optionalCount(raw.calculation) : undefined;
     if (
       !isRecord(raw) ||
       !judgment ||
       typeof raw.id !== "string" ||
       !ids.delete(raw.id) ||
-      !(raw.reading == null || positive(raw.reading)) ||
+      reading === undefined ||
+      calculation === undefined ||
       (raw.relation !== "equals" && raw.relation !== "at most" && raw.relation !== "at least")
     )
       return null;
@@ -117,36 +133,33 @@ export function readFigureReply(
         isRecord(input) && typeof input.number === "string" && input.number.trim() !== ""
           ? input.number.trim().slice(0, 80)
           : null;
-      const position = isRecord(input) && positive(input.position) ? input.position : null;
+      const citation = isRecord(input) ? counted(input.citation) : null;
+      // A quote given in place of its marker, as `calculate` takes one.
+      const record =
+        citation === null &&
+        isRecord(input) &&
+        typeof input.passage === "string" &&
+        typeof input.quote === "string"
+          ? {
+              passage: input.passage,
+              location: typeof input.location === "string" ? input.location : null,
+              quote: input.quote,
+            }
+          : null;
+      const position = isRecord(input) ? optionalCount(input.position) : undefined;
+      const sourceReading = isRecord(input) ? optionalCount(input.reading) : undefined;
       if (
-        !isRecord(input) ||
-        !positive(input.citation) ||
+        (citation === null && record === null) ||
+        position === undefined ||
         (written === null && position === null) ||
-        !(input.reading == null || positive(input.reading)) ||
+        sourceReading === undefined ||
         !optionalText(unitQuote)
       )
         return null;
-      source = {
-        citation: input.citation,
-        number: written,
-        position,
-        reading: input.reading ?? null,
-        unitQuote,
-      };
+      source = { citation, record, number: written, position, reading: sourceReading, unitQuote };
     }
-    if (
-      !(raw.calculation === null || positive(raw.calculation)) ||
-      (source && raw.calculation !== null)
-    )
-      return null;
-    items.push({
-      ...judgment,
-      id: raw.id,
-      reading: raw.reading ?? null,
-      relation: raw.relation,
-      source,
-      calculation: raw.calculation,
-    });
+    if (source && calculation !== null) return null;
+    items.push({ ...judgment, id: raw.id, reading, relation: raw.relation, source, calculation });
   }
   if (ids.size > 0) return null;
   const parsed: FigureReply = { items };
@@ -154,16 +167,17 @@ export function readFigureReply(
   else {
     const raw = value.remainder;
     const judgment = judgmentOf(raw);
+    const citation = isRecord(raw) ? optionalCount(raw.citation) : undefined;
     if (
       isRecord(raw) &&
       judgment &&
       typeof raw.text === "string" &&
       raw.text.trim() !== "" &&
       claim.includes(raw.text) &&
-      (raw.citation === null || positive(raw.citation)) &&
+      citation !== undefined &&
       readFigures(raw.text, documentFigureContext([{ text: raw.text }])).length === 0
     )
-      parsed.remainder = { ...judgment, text: raw.text, citation: raw.citation };
+      parsed.remainder = { ...judgment, text: raw.text, citation };
   }
   return parsed;
 }
@@ -277,6 +291,53 @@ function addsToBareNumber(figure: CheckFigure["reading"], source: FigureInput): 
   );
 }
 
+/**
+ * A number the note writes as bare digits under its own statement of a scale ("(£m)") is
+ * compared in its source's frame when the note offers that one: both write the same digits
+ * under the same statement, which is how the model compares them too. A frame the note
+ * doesn't offer leaves the digits as written.
+ */
+function inSourceFrame(
+  original: CheckFigure,
+  target: CheckFigure,
+  source: FigureInput,
+): CheckFigure {
+  const { reading } = target;
+  if (reading.unit.kind !== "plain" || reading.scale !== 1) return target;
+  const framed = original.reading.ambiguous
+    .find((each) => each.kind === "scale")
+    ?.readings.find(
+      (each) =>
+        each.scale !== 1 &&
+        each.scale === source.number.scale &&
+        JSON.stringify(each.unit) === JSON.stringify(source.number.unit),
+    );
+  if (!framed) return target;
+  return {
+    ...target,
+    reading: {
+      ...reading,
+      ...framed,
+      ambiguous: reading.ambiguous.filter((each) => each.kind !== "scale"),
+    },
+  };
+}
+
+/** A Figures line's source, read as `calculate` reads an input: its number, or why it can't be read. */
+export function readFigureSource(
+  calculations: Pick<CalculationSession, "number">,
+  target: CheckFigure,
+  source: NonNullable<FigureReplyItem["source"]>,
+): ReturnType<CalculationSession["number"]> {
+  const { record, ...given } = source;
+  return calculations.number({
+    name: "source",
+    label: target.label ?? target.reading.chars,
+    ...given,
+    ...record,
+  });
+}
+
 export async function checkFigureReply(options: FigureCheckOptions): Promise<ClaimCheckResult> {
   const { requested, calculations } = options;
   const unavailable = (reason: ClaimCheckFailure = "no-evidence"): ClaimJudgment => ({
@@ -297,14 +358,14 @@ export async function checkFigureReply(options: FigureCheckOptions): Promise<Cla
       rows.push({ ...finding(target), result: unavailable("malformed") });
       continue;
     }
-    const source = item.source ? options.citation(item.source.citation) : null;
+    const cited = item.source?.citation ? options.citation(item.source.citation) : null;
     const ambiguities = target.reading.ambiguous.filter((reading) => reading.kind !== "range");
     const selected = ambiguities[0]?.readings[(item.reading ?? 0) - 1];
     if (
       (ambiguities.length > 0 && target.reading.ambiguous.length > 1) ||
       (ambiguities.length === 1 && !selected)
     ) {
-      rows.push({ ...finding(target), source, result: unavailable("unread") });
+      rows.push({ ...finding(target), source: cited, result: unavailable("unread") });
       continue;
     }
     if (selected)
@@ -316,22 +377,18 @@ export async function checkFigureReply(options: FigureCheckOptions): Promise<Cla
           ambiguous: target.reading.ambiguous.filter((reading) => reading.kind === "range"),
         },
       };
-    const base = { ...finding(target), source };
     let sourceInput: FigureInput | null = null;
     let calculation: CalculatedFigure | null = null;
     let costs: ReadonlySet<string> = new Set();
     if (item.source) {
-      const input = calculations.number({
-        name: "source",
-        label: target.label ?? target.reading.chars,
-        ...item.source,
-      });
+      const input = readFigureSource(calculations, target, item.source);
       if (
         "input" in input &&
         input.input.citation.check === "found" &&
         (!input.input.unitStatement || input.input.unitStatement.citation.check === "found")
       )
         sourceInput = input.input;
+      if (sourceInput) target = inSourceFrame(original, target, sourceInput);
     } else if (item.calculation !== null) {
       calculation = calculations.figure(item.calculation);
       costs = options.costs(item.calculation);
@@ -345,6 +402,7 @@ export async function checkFigureReply(options: FigureCheckOptions): Promise<Cla
       )
         calculation = null;
     }
+    const base = { ...finding(target), source: cited ?? sourceInput?.citation ?? null };
     if (target.calculated && !target.calculated.figure.analysis) {
       calculation = replay(target, calculations);
       if (!calculation) {

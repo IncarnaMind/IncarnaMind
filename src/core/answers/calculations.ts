@@ -589,16 +589,19 @@ export function createCalculationSession(options: CalculationSessionOptions) {
     let context = contextOf(quoted.citation);
 
     let unit: Quoted | null = null;
+    let unitProblem: string | null = null;
     if (given.unitQuote) {
       const line = quotes.quote(
         { passage: quoted.passage, quote: given.unitQuote },
         { structured: true },
       );
       if ("problem" in line || line.check().check !== "found")
-        return `the unitQuote isn't word for word in ${quoted.passage}; copy the line that states the unit exactly, from the same Passage.`;
-      const yen = figureContextOf(line.citation.quote, context.language).yen ?? context.yen;
-      context = { ...context, yen };
-      unit = line;
+        unitProblem = `the unitQuote isn't word for word in ${quoted.passage}; copy the line that states the unit exactly, from the same Passage.`;
+      else {
+        const yen = figureContextOf(line.citation.quote, context.language).yen ?? context.yen;
+        context = { ...context, yen };
+        unit = line;
+      }
     }
 
     const page = onPage(quoted);
@@ -678,6 +681,9 @@ export function createCalculationSession(options: CalculationSessionOptions) {
     let candidate: Stated | null = null;
     const ownUnit =
       figure.scaleWord !== null || (base.unit.kind !== "plain" && base.unit.kind !== "currency");
+    // A number that writes its own scale or unit ("4,979.6百万元") needs no unit line, so one
+    // taken from another Passage doesn't stop it being read.
+    if (unitProblem && !ownUnit) return unitProblem;
     // A row's unit cell beside the number ("31000 | 万元") states its unit as a heading does.
     const onLine = (line: string) => (ownUnit ? null : readOnItsLine(line, figure, context));
     if (unit) {

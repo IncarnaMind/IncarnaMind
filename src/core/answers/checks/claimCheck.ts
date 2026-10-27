@@ -70,6 +70,7 @@ import {
   figureJudgment,
   figureReplyText,
   readFigureReply,
+  readFigureSource,
   uncheckedFigureResults,
 } from "./figureChecks";
 import { figuresMatch, nearestLine } from "./nearest";
@@ -174,33 +175,63 @@ export function recordJudged(
 const SEARCH_FIRST =
   "You gave a verdict without searching the User's Documents. Search them with search_documents first, then give your verdict from what you find.";
 
-const CITE_FIGURES =
-  "Your Figures line names citation markers you never recorded. Call cite with each quote it uses, under the marker you gave it, then reply again.";
+const FIGURES_LINE =
+  "Your reply has no Figures line that can be read. Write your whole reply again, ending with the one Figures: line, its JSON object on that line.";
+
+const figureSourcesNote = (problems: readonly string[]) =>
+  [
+    "Some sources in your Figures line can't be read:",
+    ...problems.map((problem) => `- ${problem}`),
+    "Fix each one, recording a quote with cite first where it says so, then write your whole reply again, its Figures line included.",
+  ].join("\n");
 
 /**
- * A reply whose Figures line binds figures to quotes it never recorded is asked for once
- * more: models skip the cite call (Claude Haiku 5.5 did, for about a third of sentences).
+ * A verdict whose requested figures aren't bound is asked for once more, as `calculate` answers
+ * an input it can't read: Claude Haiku 5.5 wrote its verdict and stopped, skipped the cite
+ * call, or left out the heading that states a sheet's unit, for about a third of sentences
+ * with figures.
  */
 function figuresReplied(
   request: ClaimCheckRequest,
+  calculations: Pick<CalculationSession, "number">,
+  searched: () => boolean,
   recorded: (marker: number) => boolean,
-): TurnCheck {
-  return {
-    name: "figures-reply",
-    check(text) {
-      const figures = request.figures ?? [];
-      if (figures.length === 0 || readsAsRefusal(text)) return null;
-      const read = readFigureReply(text, figures, request.claim);
-      if (!read) return null;
-      const markers = [
-        ...read.items.flatMap((item) => (item.source ? [item.source.citation] : [])),
-        ...(read.remainder?.citation ? [read.remainder.citation] : []),
-      ];
-      return markers.some((marker) => !recorded(marker))
-        ? { claims: [], note: CITE_FIGURES }
-        : null;
+): TurnCheck[] {
+  const figures = request.figures ?? [];
+  const asked = (text: string) =>
+    figures.length > 0 && searched() && !readsAsRefusal(text) && readVerdict(text) !== null;
+  return [
+    {
+      name: "figures-line",
+      check: (text) =>
+        asked(text) && !readFigureReply(text, figures, request.claim)
+          ? { claims: [], note: FIGURES_LINE }
+          : null,
     },
-  };
+    {
+      name: "figures-sources",
+      check(text) {
+        const read = asked(text) ? readFigureReply(text, figures, request.claim) : null;
+        if (!read) return null;
+        const problems = read.items.flatMap((item) => {
+          const target = figures.find((figure) => figure.id === item.id);
+          if (!target) return [];
+          if (!item.source)
+            return item.calculation === null && item.verdict !== "unsupported" && !target.calculated
+              ? [
+                  `${target.reading.chars}: a ${item.verdict} figure needs its source (a quote recorded with cite, and the number as it writes it) or its calculation.`,
+                ]
+              : [];
+          const source = readFigureSource(calculations, target, item.source);
+          return "problem" in source ? [`${target.reading.chars}: ${source.problem}`] : [];
+        });
+        const remainder = read.remainder?.citation;
+        if (remainder && !recorded(remainder))
+          problems.push(`remainder: [^${remainder}] isn't recorded; record it with cite first.`);
+        return problems.length > 0 ? { claims: [], note: figureSourcesNote(problems) } : null;
+      },
+    },
+  ];
 }
 
 export function createClaimCheck(deps: ClaimCheckDependencies) {
@@ -406,7 +437,12 @@ export function createClaimCheck(deps: ClaimCheckDependencies) {
             searches === 0 && readVerdict(text) ? { claims: [], note: SEARCH_FIRST } : null,
         },
         searchAgain(() => searches),
-        figuresReplied(request, (marker) => session.tools.hasRecord?.(marker) ?? false),
+        ...figuresReplied(
+          request,
+          figures,
+          () => searches > 0,
+          (marker) => session.tools.hasRecord?.(marker) ?? false,
+        ),
       ],
       signal,
     })) {
