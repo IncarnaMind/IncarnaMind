@@ -892,7 +892,7 @@ describe("A turn that ends after a refused Tool with no reply", { timeout: 30_00
 
     const answer = await askAssistant(core, { text: request, mindId: mind.id });
 
-    expect(nudge).toContain(`there is no Mind called “${name}”`);
+    expect(nudge).toContain(`there is no note called “${name}”`);
     expect(model.doStreamCalls).toHaveLength(3);
     expect(answer.status).toBe("done");
     expect(answer.text).toBe(said);

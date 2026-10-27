@@ -2478,8 +2478,8 @@ export function createAnswers(options: AnswersOptions) {
             if (text.trim() !== "" || !endedAfterRefusal()) return null;
             const named =
               missing.length === 1
-                ? `there is no Mind called “${missing[0]}”`
-                : `there are no Minds called ${missing.map((name) => `“${name}”`).join(", ")}`;
+                ? `there is no note called “${missing[0]}”`
+                : `there are no notes called ${missing.map((name) => `“${name}”`).join(", ")}`;
             return {
               claims: [],
               note: `Your reply is empty. Say in the User's language that ${named}, and that the change wasn't made. Don't say that you changed anything.`,

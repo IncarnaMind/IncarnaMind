@@ -330,8 +330,8 @@ function findMind(minds: readonly ChangeableMind[], name: string): ChangeableMin
   return new Refusal(
     { kind: "not-found", name },
     minds.length === 0
-      ? `The User has no Mind called “${name}”, nor any other. Nothing was changed.`
-      : `The User has no Mind called “${name}”. Their most recent Minds: ${listed(minds)}. If none is meant, say so and change nothing.`,
+      ? `The User has no note called “${name}”, nor any other. Nothing was changed.`
+      : `The User has no note called “${name}”. Their most recent notes: ${listed(minds)}. If none is meant, say so and change nothing.`,
   );
 }
 
