@@ -160,8 +160,8 @@ for (const language of ["en", "zh-CN"] as const) {
     const files: string[] = [];
     for (const [name, pages] of [
       ["Scan A.pdf", FIRST_SCAN_PAGES],
-      ["Scan B.pdf", 2],
-      ["Scan C.pdf", 2],
+      ["Scan B.pdf", 8],
+      ["Scan C.pdf", 8],
     ] as const) {
       const file = join(sources, name);
       await writeFile(file, scanOf(pages));
