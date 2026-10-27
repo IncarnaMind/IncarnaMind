@@ -36,11 +36,11 @@ The set covers English and Chinese claims, Supported, Partly, wrong-page Not fou
 - choosing re-checks only that cite, restores keyboard focus and survives closing/reopening the app and Note;
 - the narrow Chinese card and source picker have no horizontal/window overflow and retain raw English cites.
 
-Screenshots:
+Screenshots (public test data, in the screenshots repository):
 
-- `screenshots/record-cites-en.png`
-- `screenshots/record-cites-picker-narrow-zh.png`
-- `screenshots/record-cites-narrow-zh.png`
+- [English card](https://raw.githubusercontent.com/IncarnaMind/pr-screenshots/main/1709/record-cites-en.png)
+- [Chinese source picker at 900 px](https://raw.githubusercontent.com/IncarnaMind/pr-screenshots/main/1709/record-cites-picker-narrow-zh.png)
+- [Chinese card at 900 px](https://raw.githubusercontent.com/IncarnaMind/pr-screenshots/main/1709/record-cites-narrow-zh.png)
 
 ## Still open before `Closes #1709`
 
