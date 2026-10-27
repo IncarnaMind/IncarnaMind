@@ -18,10 +18,12 @@ import {
   setWindowSize,
   useLocalChatModel,
 } from "./app";
+import { encodeMp4, Film } from "./demo/film";
 
 const RAWS = ["Smith Dep. 45:3–12", "Ex. 7 at 3", "Dkt. 41 at 5", "PL-000123"] as const;
 const TEXT = RAWS.join(" ");
 const SCREENSHOTS = process.env.INCARNAMIND_SCREENSHOTS;
+const RECORDING = process.env.INCARNAMIND_RECORD;
 
 let dataDir: string;
 let sources: string;
@@ -246,6 +248,10 @@ test("every record cite stays visible in raw order, opens its physical passage, 
   await dismissChatSetup(window);
   await useLocalChatModel(window);
   await setWindowSize(app, window, 1440, 900);
+  const film = RECORDING
+    ? await Film.start(window, join(RECORDING, "frames"), new Map())
+    : undefined;
+  film?.keep(true);
   const { mindId, duplicateA, duplicateB } = await setup(window, "en");
   const card = await openCard(window);
   const t = (key: MessageKey, params?: MessageParams) => translate("en", key, params);
@@ -320,6 +326,13 @@ test("every record cite stays visible in raw order, opens its physical passage, 
     .poll(() => chooseEntry.evaluate((entry) => entry.contains(document.activeElement)))
     .toBe(true);
   expect(await citationCount(window)).toBe(0);
+  if (film && RECORDING) {
+    film.mark("end");
+    await film.stop();
+    const master = join(RECORDING, "master.mp4");
+    await film.master(master);
+    await encodeMp4(master, join(RECORDING, "record-cites-flow.mp4"));
+  }
   await app.close();
 
   const again = await launchApp(dataDir, { fakeChat: true });

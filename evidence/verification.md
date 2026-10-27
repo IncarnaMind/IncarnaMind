@@ -41,6 +41,7 @@ Screenshots (public test data, in the screenshots repository):
 - [English card](https://raw.githubusercontent.com/IncarnaMind/pr-screenshots/main/1709/record-cites-en.png)
 - [Chinese source picker at 900 px](https://raw.githubusercontent.com/IncarnaMind/pr-screenshots/main/1709/record-cites-picker-narrow-zh.png)
 - [Chinese card at 900 px](https://raw.githubusercontent.com/IncarnaMind/pr-screenshots/main/1709/record-cites-narrow-zh.png)
+- [Built flow recording (5.6 s)](https://raw.githubusercontent.com/IncarnaMind/pr-screenshots/main/1709/record-cites-flow.mp4)
 
 ## Still open before `Closes #1709`
 
