@@ -1,6 +1,7 @@
+import { existsSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
-import { expect, test } from "@playwright/test";
+import { chromium, expect, test } from "@playwright/test";
 import { captureFeature, contactSheet, writeFeatures } from "./demo/features";
 import { FEATURE_CROP, FEATURE_MAX_BYTES, FEATURE_SIZE, FEATURES } from "./demo/stills";
 
@@ -16,9 +17,18 @@ const sizeOf = (bytes: Buffer): [number, number] => [
   bytes.readUInt32BE(20),
 ];
 
-test("a feature picture is the crop's 1088 × 638 on its card at 1200 × 750, with no pointer", async ({
-  browser,
-}) => {
+/** Playwright's Chromium draws the card; a CI shard that runs only Electron doesn't install it. */
+const chromiumReady = (() => {
+  try {
+    return existsSync(chromium.executablePath());
+  } catch {
+    return false;
+  }
+})();
+
+test("a feature picture is the crop's 1088 × 638 on its card at 1200 × 750, with no pointer", async () => {
+  test.skip(!chromiumReady, "Playwright's Chromium isn't installed here.");
+  const browser = await chromium.launch();
   const output = test.info().outputPath("stills");
   const context = await browser.newContext({
     viewport: { width: 1000, height: 700 },
@@ -77,12 +87,13 @@ test("a feature picture is the crop's 1088 × 638 on its card at 1200 × 750, wi
     expect(sizeOf(await readFile(sheet))).toEqual([16 + 4 * 410 + 3 * 20 + 16, 4 * 306 + 32]);
   } finally {
     await context.close();
+    await browser.close();
   }
 });
 
-test("a moment too big for the crop, or off the screen, is refused rather than shrunk", async ({
-  browser,
-}) => {
+test("a moment too big for the crop, or off the screen, is refused rather than shrunk", async () => {
+  test.skip(!chromiumReady, "Playwright's Chromium isn't installed here.");
+  const browser = await chromium.launch();
   const context = await browser.newContext({
     viewport: { width: 1000, height: 700 },
     deviceScaleFactor: 2,
@@ -107,5 +118,6 @@ test("a moment too big for the crop, or off the screen, is refused rather than s
     ).rejects.toThrow("No sort");
   } finally {
     await context.close();
+    await browser.close();
   }
 });
