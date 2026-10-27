@@ -53,10 +53,9 @@ import { RunItemError, runItems } from "../../runs/stop";
 import { inStep } from "../../timing/flows";
 import { type MarkJSON, type NodeJSON, syncContent, topLevelBlocks } from "../blocks";
 import { type ClaimCheckRequest, recordJudged, runFailureOf } from "./claimCheck";
+import { claimsAtOnce } from "./runChecks";
 import { markSentence } from "./sentences";
 import type { CheckScope } from "./verify";
-
-const CLOUD_SENTENCES_AT_ONCE = 3;
 
 const UNCHECKED: ReadonlySet<string> = new Set(["question", "codeBlock", "blockMath", "heading"]);
 
@@ -546,9 +545,7 @@ export function createWrittenCheck(options: WrittenCheckOptions) {
           ),
         )
           ? 1
-          : prepared.provider.service
-            ? CLOUD_SENTENCES_AT_ONCE
-            : 1,
+          : claimsAtOnce(prepared),
         signal,
       },
     );
