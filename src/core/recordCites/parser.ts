@@ -42,6 +42,16 @@ export interface RecordCiteParseOptions {
   hasPrevious?: boolean;
 }
 
+export interface RecordCiteOccurrence {
+  raw: string;
+  /** UTF-16 offsets in the scanned text; `from` is inclusive and `to` exclusive. */
+  from: number;
+  to: number;
+  result: RecordCiteParseResult;
+  /** Zero-based index of the nearest preceding resolvable occurrence, for `Id.` and `supra`. */
+  referent: number | null;
+}
+
 type Draft = Omit<ParsedRecordCite, "status" | "raw">;
 type ReadShape = (
   match: RegExpExecArray,
@@ -51,6 +61,7 @@ type ReadShape = (
 interface RecordCiteShape {
   pattern: RegExp;
   read: ReadShape;
+  scanName?: (match: RegExpExecArray) => string;
 }
 
 const group = (match: RegExpExecArray, index: number) => match[index] ?? "";
@@ -171,6 +182,7 @@ const SHAPES: readonly RecordCiteShape[] = [
   {
     pattern: /^(?:(.+?) )?(dep\.?(?: tr\.?)?) (\d+) *: *(\d+)(?: *[-–—] *(?:(\d+) *: *)?(\d+))?$/i,
     read: readDeposition,
+    scanName: (match) => group(match, 1),
   },
   {
     pattern: /^(?:(pl\.['’]s) )?ex\.? (\d+),? (?:at|p\.?) (\d+)$/i,
@@ -191,6 +203,7 @@ const SHAPES: readonly RecordCiteShape[] = [
   {
     pattern: /^(compl\.?|.+? decl\.?) ¶(¶?) (\d+)(?: *[-–—] *(\d+))?$/i,
     read: readParagraph,
+    scanName: (match) => group(match, 1).replace(/ decl\.?$/i, ""),
   },
   {
     pattern: /^(?:at )?(\d{1,2}(?::\d{2}){1,2})(?: *[-–—] *(\d{1,2}(?::\d{2}){1,2}))?$/i,
@@ -227,4 +240,66 @@ export function parseRecordCite(
     return { status: "parsed", raw, ...result };
   }
   return { status: "error", raw, reason: "malformed" };
+}
+
+interface Candidate {
+  from: number;
+  to: number;
+  shape: number;
+}
+
+const nameSuffix = (name: string) => {
+  const capitalized = /\p{Lu}[\p{L}\p{M}'’-]*\.?(?: +\p{Lu}[\p{L}\p{M}'’-]*\.?)*$/u.exec(name)?.[0];
+  if (!capitalized) return /[\p{L}\p{M}][\p{L}\p{M}'’-]*\.?$/u.exec(name)?.[0] ?? name;
+  const words = capitalized.split(" ");
+  let first = 0;
+  while (
+    first < words.length &&
+    /^(?:see|also|cf|accord|compare|quoting|citing|and|or|but|then|e\.g)\.?$/i.test(
+      words[first] ?? "",
+    )
+  ) {
+    first++;
+  }
+  return words.slice(first).join(" ");
+};
+
+const insideWord = (text: string, from: number, to: number) =>
+  /[\p{L}\p{N}_]$/u.test(text.slice(0, from)) || /^[\p{L}\p{N}_]/u.test(text.slice(to));
+
+/** Finds citations in reading order, retaining duplicates and their exact UTF-16 ranges. */
+export function scanRecordCites(text: string): RecordCiteOccurrence[] {
+  const candidates: Candidate[] = [];
+  for (const [shapeIndex, shape] of SHAPES.entries()) {
+    const source = shape.pattern.source.replace(/^\^/, "").replace(/\$$/, "");
+    const flags = shape.pattern.flags.includes("g")
+      ? shape.pattern.flags
+      : `${shape.pattern.flags}g`;
+    const pattern = new RegExp(source, flags);
+    for (let match = pattern.exec(text); match !== null; match = pattern.exec(text)) {
+      const name = shape.scanName?.(match) ?? "";
+      const leading = name.length - nameSuffix(name).length;
+      const start = match.index + leading;
+      const space = /^ +/.exec(text.slice(start, match.index + match[0].length))?.[0].length ?? 0;
+      const from = start + space;
+      const to = match.index + match[0].length;
+      if (!insideWord(text, from, to)) candidates.push({ from, to, shape: shapeIndex });
+    }
+  }
+  candidates.sort((a, b) => a.from - b.from || b.to - a.to || a.shape - b.shape);
+
+  const occurrences: RecordCiteOccurrence[] = [];
+  let occupiedTo = -1;
+  let lastResolvable: number | null = null;
+  for (const candidate of candidates) {
+    if (candidate.from < occupiedTo) continue;
+    const raw = text.slice(candidate.from, candidate.to);
+    const result = parseRecordCite(raw, { hasPrevious: lastResolvable !== null });
+    const referent =
+      result.status === "parsed" && result.reference === "previous" ? lastResolvable : null;
+    occurrences.push({ raw, from: candidate.from, to: candidate.to, result, referent });
+    occupiedTo = candidate.to;
+    if (result.status === "parsed") lastResolvable = occurrences.length - 1;
+  }
+  return occurrences;
 }

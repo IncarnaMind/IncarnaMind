@@ -5,6 +5,7 @@ import {
   parseRecordCite,
   type RecordCiteKind,
   type RecordCiteParseOptions,
+  scanRecordCites,
 } from "../../src/core/recordCites/parser";
 
 interface AcceptedFixture {
@@ -385,6 +386,117 @@ describe("invalid record cites", () => {
       status: "error",
       raw: "Id. at 0",
       reason: "out-of-range",
+    });
+  });
+});
+
+describe("record-cite scanning", () => {
+  test("keeps repeated raw cites as separate occurrences with their own ranges", () => {
+    const raw = "Smith Dep. 45:3–12";
+    const text = `${raw}, then ${raw}.`;
+    const occurrences = scanRecordCites(text);
+
+    expect(occurrences).toHaveLength(2);
+    expect(occurrences.map((occurrence) => occurrence.raw)).toEqual([raw, raw]);
+    expect(occurrences[0]).not.toBe(occurrences[1]);
+    expect(occurrences[0]).toMatchObject({ from: 0, to: raw.length, referent: null });
+    const secondFrom = text.indexOf(raw, raw.length);
+    expect(occurrences[1]).toMatchObject({
+      from: secondFrom,
+      to: secondFrom + raw.length,
+      referent: null,
+    });
+    for (const occurrence of occurrences) {
+      expect(text.slice(occurrence.from, occurrence.to)).toBe(occurrence.raw);
+      expect(occurrence.result.raw).toBe(occurrence.raw);
+    }
+  });
+
+  test("finds several shapes in one sentence in reading order", () => {
+    const raws = [
+      "Smith Dep. 45:3–12",
+      "Ex. 7 at 3",
+      "ECF No. 41 at 5",
+      "Compl. ¶ 14",
+      "DEF 0045–0049",
+      "14:26",
+    ];
+    const occurrences = scanRecordCites(`${raws.join(", ")}.`);
+
+    expect(occurrences.map((occurrence) => occurrence.raw)).toEqual(raws);
+    expect(occurrences.map((occurrence) => occurrence.result)).toEqual(
+      raws.map((raw) => parseRecordCite(raw)),
+    );
+    for (const occurrence of occurrences) {
+      expect(occurrence.to - occurrence.from).toBe(occurrence.raw.length);
+    }
+  });
+
+  test("uses UTF-16 offsets after Unicode and Chinese text", () => {
+    const prefix = "证据 😀：";
+    const deposition = "Smith Dep. 45:3–12";
+    const exhibit = "Pl.'s Ex. 7, p. 3";
+    const text = `${prefix}${deposition}，然后 ${exhibit}`;
+    const occurrences = scanRecordCites(text);
+
+    expect(prefix).toHaveLength(6);
+    expect(occurrences.map((occurrence) => occurrence.raw)).toEqual([deposition, exhibit]);
+    expect(occurrences[0]).toMatchObject({ from: 6, to: 6 + deposition.length });
+    const exhibitFrom = text.indexOf(exhibit);
+    expect(occurrences[1]).toMatchObject({
+      from: exhibitFrom,
+      to: exhibitFrom + exhibit.length,
+    });
+  });
+
+  test("links Id. and supra only to the nearest preceding resolvable occurrence", () => {
+    const repeated = "Smith Dep. 45:3–12";
+    const text = `Id.; supra; ${repeated}; Ex. 7 at 3; ${repeated}; Id.; supra`;
+    const occurrences = scanRecordCites(text);
+
+    expect(occurrences.map((occurrence) => occurrence.referent)).toEqual([
+      null,
+      null,
+      null,
+      null,
+      null,
+      4,
+      5,
+    ]);
+    expect(occurrences[0]?.result).toEqual({
+      status: "error",
+      raw: "Id.",
+      reason: "no-earlier-referent",
+    });
+    expect(occurrences[1]?.result).toEqual({
+      status: "error",
+      raw: "supra",
+      reason: "no-earlier-referent",
+    });
+    expect(occurrences[5]?.result).toMatchObject({ status: "parsed", reference: "previous" });
+    expect(occurrences[6]?.result).toMatchObject({ status: "parsed", reference: "previous" });
+  });
+
+  test("does not mistake deposition page lines for a nested recording time", () => {
+    const raw = "Smith Dep. 14:26–15:02";
+    const occurrences = scanRecordCites(`See ${raw} and 14:26–15:02.`);
+
+    expect(occurrences.map((occurrence) => occurrence.raw)).toEqual([raw, "14:26–15:02"]);
+    expect(occurrences.map((occurrence) => occurrence.result)).toMatchObject([
+      { status: "parsed", kind: "deposition" },
+      { status: "parsed", kind: "time" },
+    ]);
+  });
+
+  test("excludes a citation signal from a generic deposition transcript", () => {
+    const raw = "Dep. Tr. 45:3-12";
+    const occurrences = scanRecordCites(`See ${raw}.`);
+
+    expect(occurrences).toHaveLength(1);
+    expect(occurrences[0]).toMatchObject({ raw, from: 4, to: 4 + raw.length });
+    expect(occurrences[0]?.result).toMatchObject({
+      status: "parsed",
+      sourceAlias: "dep tr",
     });
   });
 });
