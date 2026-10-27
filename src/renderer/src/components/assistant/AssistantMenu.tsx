@@ -85,8 +85,8 @@ export function AssistantMenu({ withFold = false }: { withFold?: boolean }) {
             )}
             <div className={menuRuleClass} />
             <ConversationItem
-              id="assistant.lastToNewMind"
-              testId="assistant-menu-last-to-new-mind"
+              id="assistant.writeNote"
+              testId="assistant-menu-write-note"
               onRun={run}
             />
             <ConversationItem id="assistant.clear" testId="assistant-menu-clear" onRun={run} />
@@ -132,9 +132,9 @@ function ConversationItem({
   testId,
   onRun,
 }: {
-  id: "assistant.lastToNewMind" | "assistant.clear";
+  id: "assistant.writeNote" | "assistant.clear";
   testId: string;
-  onRun(id: "assistant.lastToNewMind" | "assistant.clear"): void;
+  onRun(id: "assistant.writeNote" | "assistant.clear"): void;
 }) {
   const t = useT();
   // The conversation's messages decide whether it can be used.

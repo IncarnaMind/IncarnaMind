@@ -181,7 +181,12 @@ describe("Adding a remote Connector", { timeout: 30_000 }, () => {
       {
         name: "Wiki",
         transport: "http",
-        config: JSON.stringify({ url: fake.url, clientId: null }),
+        config: JSON.stringify({
+          url: fake.url,
+          clientId: null,
+          connection: "http",
+          headers: [],
+        }),
         enabled: 1,
       },
     ]);
@@ -221,7 +226,16 @@ describe("Adding a remote Connector", { timeout: 30_000 }, () => {
     const json = JSON.stringify({ mcpServers: { Wiki: { type: "http", url: fake.url } } });
 
     expect(await core.previewConnectorImport(json)).toEqual([
-      { name: "Wiki", command: null, args: [], env: [], url: fake.url, action: "add" },
+      {
+        name: "Wiki",
+        command: null,
+        args: [],
+        env: [],
+        url: fake.url,
+        action: "add",
+        connection: "http",
+        headers: [],
+      },
     ]);
     const { added } = await core.importConnectors(json);
 
@@ -672,9 +686,17 @@ describe("Tokens", { timeout: 30_000 }, () => {
 
 describe("Consent and removal", { timeout: 30_000 }, () => {
   test("declining the server's consent means nothing is sent to it", async () => {
-    const { core, fake } = await signedIn();
-    // As a Connector connected before ADR-0022 left it: the first call asks.
-    await core.revokeConsent("connectors", fake.mcpOrigin);
+    let revoke = () => {};
+    const model = scriptedModel((call) => {
+      const result = call.results.find((each) => each.tool === SEARCH);
+      if (result) return { text: result.text };
+      revoke();
+      return { calls: [{ tool: SEARCH, input: { query: "tides" } }] };
+    });
+    const { core, fake } = await signedIn({}, model);
+    revoke = () => {
+      void core.revokeConsent("connectors", fake.mcpOrigin);
+    };
     answerConsentAlways(core, false);
 
     expect(await ask(core)).toContain("didn't allow sending data");

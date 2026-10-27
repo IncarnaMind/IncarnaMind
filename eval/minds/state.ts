@@ -20,7 +20,7 @@ import { plainText } from "../../src/core/mindText";
 import { messageReference } from "../../src/core/references";
 import type { ChangedMind } from "../../src/renderer/src/changedMinds";
 import { askedFor, waitsForUser } from "../../src/shared/askedChanges";
-import { setOrigins } from "../../src/shared/blockOrigins";
+import { originMaps, setOrigins } from "../../src/shared/blockOrigins";
 import { holdsOnlyItsTitle } from "../../src/shared/madeMind";
 import { decideProposals, pendingProposals } from "../../src/shared/proposals";
 import { connectToMind } from "../../tests/helpers/mindClient";
@@ -165,7 +165,7 @@ export async function decideAll(
     if (!pendingProposals(client.blocks).some(picked)) continue;
     const origin = { decided: row.mindId };
     const manager = new Y.UndoManager(
-      [client.blocks, client.doc.getMap(MIND_PROPOSAL_REQUESTS_FIELD)],
+      [client.blocks, client.doc.getMap(MIND_PROPOSAL_REQUESTS_FIELD), ...originMaps(client.doc)],
       { trackedOrigins: new Set([origin]) },
     );
     client.doc.transact(() => {

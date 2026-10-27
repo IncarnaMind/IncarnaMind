@@ -1,13 +1,14 @@
 import type { Document } from "../../core/api";
 import type { MessageKey } from "../../shared/i18n";
+import { userFile } from "./fileInfo";
 
 /** What a Document that needs attention says, in plain words, and what can be done about it. */
 export interface DocumentFix {
   reason: MessageKey;
   /** Open its file in the system's app for it: it can be repaired, or unlocked, there. */
   open: boolean;
-  /** Read it again from its file, in the words of the button. */
-  retry: "retry" | "readAgain" | null;
+  /** Read it again, or open it in the app that can print a flattened copy. */
+  retry: "retry" | "readAgain" | "print" | null;
 }
 
 /**
@@ -37,6 +38,8 @@ export function documentFix(doc: Document): DocumentFix | null {
       return { reason: "library.fix.tooLarge", open: here, retry: null };
     case "pages-unread":
       return { reason: "library.fix.pages", open: here, retry: here ? "readAgain" : null };
+    case "forms-unread":
+      return { reason: "library.fix.forms", open: here, retry: here ? "print" : null };
     case "processing-error":
       return { reason: "library.fix.processing", open: false, retry: here ? "retry" : null };
     case "app-stopped":
@@ -45,3 +48,10 @@ export function documentFix(doc: Document): DocumentFix | null {
       return null;
   }
 }
+
+/**
+ * Whether the fix's Open in default app applies: the file is the User's to
+ * open. A web page's snapshot and a Transcript have no such file (#763).
+ */
+export const canOpenFix = (doc: Document): boolean =>
+  documentFix(doc)?.open === true && userFile(doc);

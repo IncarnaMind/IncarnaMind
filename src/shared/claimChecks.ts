@@ -21,6 +21,7 @@ import {
   type SearchScope,
   type UnsupportedReason,
 } from "../core/api";
+import type { MessageKey } from "./i18n";
 import { folderScope, hasSearchScope, sameScope, storedSearchScope } from "./searchScope";
 import { comparableSentence, isClaim } from "./sentences";
 
@@ -92,6 +93,9 @@ function calculationOf(value: unknown): ClaimCalculation | null {
     figure: figure as unknown as CalculatedFigure,
     stated,
     agrees: value.agrees === true,
+    ...((value.relation === "at most" || value.relation === "at least") && {
+      relation: value.relation,
+    }),
   };
 }
 
@@ -101,6 +105,7 @@ function unsupportedOf(value: unknown): UnsupportedReason | null {
     reason: text(value.reason),
     covered: text(value.covered),
     uncovered: text(value.uncovered),
+    ...(value.found === true && { found: true }),
     ...(isRecord(value.quoted) && { quoted: value.quoted as unknown as CitationAttributes }),
   };
 }
@@ -120,6 +125,10 @@ export function checkedScope(scope: ClaimCheckScope): SearchScope | null {
   if (scope.chosen) return scope.chosen;
   return !scope.widened && scope.folderId !== null ? folderScope(scope.folderId) : null;
 }
+
+/** Whether a check looked in a scope narrower than all Documents: a Folder, a Tag, or Documents the User picked. */
+export const checkSearchedNarrowerThanAll = (scope: ClaimCheckScope): boolean =>
+  !scope.widened && checkedScope(scope) !== null;
 
 /** A check's attributes as a mark holds them, or null when they aren't one's. Unknown values read safely. */
 export function readClaimCheck(value: unknown): ClaimCheckAttributes | null {
@@ -207,6 +216,29 @@ export function coveredPart(
         quote: why.quoted.quote,
       }
     : null;
+}
+
+/**
+ * Whether nothing in its scope was about an unsupported sentence (#1608): its card is headed Not
+ * found and says where it looked, and its Word comment says the same. A Passage the check found
+ * makes it Unsupported: one quoted as saying something different or as stating part of it, or one
+ * it read and judged (`UnsupportedReason.found`). A sentence with Citations, one citing a court
+ * decision no Document holds, and one only the User's own workings state have cards of their own.
+ */
+export function saysNotFound(
+  shown: ClaimCheckShown,
+  check: ClaimCheckAttributes,
+  citations: number,
+): boolean {
+  return (
+    shown.state === "unsupported" &&
+    citations === 0 &&
+    check.evidence === null &&
+    !check.citedCaseUnchecked &&
+    !check.excluded.some((left) => left.reason === "own-workings") &&
+    !check.unsupported?.found &&
+    coveredPart(check.unsupported) === null
+  );
 }
 
 /**
@@ -351,12 +383,33 @@ export function toCheckCount(sentences: Iterable<CheckedSentence>): number {
 export type SentenceResult =
   | "supported"
   | "unsupported"
+  | "notFound"
   | "contradicted"
   | "needsRecheck"
   | "notChecked"
   | "changed";
 
-export function sentenceResultOf(shown: ClaimCheckShown): SentenceResult | null {
+/** Each result's words: the check record and the AI use statement say one result's name the same way. */
+export const SENTENCE_RESULT_LABELS: Readonly<Record<SentenceResult, MessageKey>> = {
+  supported: "aiStatement.sentences.supported",
+  contradicted: "aiStatement.sentences.contradicted",
+  notFound: "aiStatement.sentences.notFound",
+  unsupported: "aiStatement.sentences.unsupported",
+  needsRecheck: "aiStatement.sentences.recheck",
+  notChecked: "aiStatement.sentences.notChecked",
+  changed: "aiStatement.sentences.changed",
+};
+
+/**
+ * A sentence's result, as the record and the AI use statement count it: Not found apart from
+ * Unsupported by the card's own rule (`saysNotFound`), so an unsupported sentence the check
+ * found no Passage for is never counted as one it did.
+ */
+export function sentenceResultOf(
+  shown: ClaimCheckShown,
+  check: ClaimCheckAttributes,
+  citations: number,
+): SentenceResult | null {
   switch (shown.state) {
     case "checking":
     case "kept":
@@ -365,6 +418,8 @@ export function sentenceResultOf(shown: ClaimCheckShown): SentenceResult | null 
       return shown.why === "edited" ? "changed" : "needsRecheck";
     case "not-checked":
       return "notChecked";
+    case "unsupported":
+      return saysNotFound(shown, check, citations) ? "notFound" : "unsupported";
     default:
       return shown.state;
   }

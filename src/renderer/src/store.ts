@@ -46,6 +46,7 @@ import {
   renamed,
   retagged,
 } from "./changes";
+import { useComposer } from "./composer";
 import { core, files } from "./core";
 import { LIBRARY_DELETED } from "./deletedItems";
 import { isSearchable } from "./documentStatus";
@@ -152,6 +153,11 @@ export interface AppState extends LayoutSlice {
   /** Reranking, and the built-in reranking model's download. Set once loaded, then follows the core's event. */
   rerank: RerankSettings | null;
   settingsOpen: boolean;
+  /**
+   * Counts the asks to open Settings: the browser closes the dialog itself on Esc and says so a
+   * task later, so an ask that arrives meanwhile must show it again though this still says open.
+   */
+  settingsOpenCount: number;
   /** The page Settings shows. */
   settingsPage: SettingsPage;
   /** A setting Settings opened at, shown and focused once it is drawn, which then clears this. */
@@ -219,7 +225,8 @@ export interface AppState extends LayoutSlice {
    * Creates a Mind, in `folderId` if given, else where `filingFolder` says (#1362), and opens it
    * in a new tab after the shown one, in the focused group or `groupId`, with its title focused,
    * or with a Question started in it (with a Search scope, if given). It says nothing and leaves
-   * nothing to undo: ⌘Z stays the editor's own, and Delete takes the Mind back.
+   * nothing to undo: ⌘Z stays the editor's own, and Delete takes the Mind back. Resolves to its
+   * id once it is shown, or null if it wasn't made or the core refused its tab.
    */
   createMind(options?: {
     startQuestion?: boolean;
@@ -233,7 +240,7 @@ export interface AppState extends LayoutSlice {
     groupId?: string;
     /** Runs once it is made and shown, with its id. */
     made?(mindId: string): void;
-  }): Promise<void>;
+  }): Promise<string | null>;
   /**
    * Moves Minds and Documents into a Folder, or out of every Folder (null):
    * shown at once, then as the core has it, with "Moved … · Undo" (and ⌘Z).
@@ -259,8 +266,8 @@ export interface AppState extends LayoutSlice {
   deleteFolder(folderId: string): Promise<void>;
   /** Deletes the Minds, Documents and Folders given, together, with one Undo. */
   deleteSelection(items: readonly ObjectRef[]): Promise<void>;
-  /** Lists a Mind just made and opens it in a new tab after the shown one, in the focused group or `groupId`. */
-  showNewMind(mind: Mind, groupId?: string): Promise<void>;
+  /** Lists a Mind just made and opens it in a new tab after the shown one, in the focused group or `groupId`; false if the core refused it. */
+  showNewMind(mind: Mind, groupId?: string): Promise<boolean>;
   /** Called once the new Mind's text has the focus. */
   bodyFocused(): void;
   /** Starts a Question at the end of the open Mind, or of a new Mind if none is open. */
@@ -278,7 +285,7 @@ export interface AppState extends LayoutSlice {
    * "Start a Mind from this Folder": a new Mind titled as the Library's
    * sheet, whose first Block is a Question with the bridge's Search scope.
    */
-  startMindFrom(bridge: LibraryBridge): Promise<void>;
+  startMindFrom(bridge: LibraryBridge): Promise<string | null>;
   /** Opens the first-run example Mind, making the examples again if they were removed. */
   openExamples(): Promise<void>;
   /** Makes the first-run example again and opens it, with Undo. */
@@ -342,6 +349,11 @@ export interface AppState extends LayoutSlice {
   addPaths(paths: readonly string[]): Promise<void>;
   /** "Add Documents": the system's open dialog (see `FilesBridge.pickDocuments`), then the files picked are added. */
   pickDocuments(): Promise<void>;
+  /**
+   * "Add files or a folder…" (#1942): the system's open dialog, then the files
+   * picked are added and a folder picked is offered to be read where it is.
+   */
+  pickDocumentsOrFolder(): Promise<void>;
   /** While that dialog is open: the buttons that open it wait, so it isn't opened twice. */
   pickingDocuments: boolean;
   /**
@@ -857,6 +869,7 @@ export const useAppStore = create<AppState>()((set, get) => {
     embedding: null,
     rerank: null,
     settingsOpen: false,
+    settingsOpenCount: 0,
     settingsPage: "general",
     settingsAt: null,
     folders: [],
@@ -1007,6 +1020,7 @@ export const useAppStore = create<AppState>()((set, get) => {
     },
 
     createMind: async (options) => {
+      let made: string | null = null;
       await attempt(async () => {
         const { layout, minds } = get();
         const inFront = minds.find((each) => each.id === currentMindIdOf(layout));
@@ -1024,19 +1038,27 @@ export const useAppStore = create<AppState>()((set, get) => {
             ? { questionToStart: { mindId: mind.id, scope: options.scope ?? null } }
             : { bodyToFocus: mind.id },
         );
-        await get().showNewMind(mind, options?.groupId);
+        if (!(await get().showNewMind(mind, options?.groupId))) {
+          // The core refused the tab: no editor comes to take the focus it was given.
+          if (get().bodyToFocus === mind.id) get().bodyFocused();
+          return;
+        }
+        made = mind.id;
         options?.made?.(mind.id);
       });
+      return made;
     },
 
     showNewMind: async (mind, groupId) => {
       // The "minds.changed" event may have listed it already.
       set((state) => ({ minds: [mind, ...state.minds.filter((each) => each.id !== mind.id)] }));
-      await get().changeLayout({
-        type: "open",
-        item: { kind: "mind", mindId: mind.id },
-        where: { in: "group", ...(groupId && { groupId }) },
-      });
+      return (
+        (await get().changeLayout({
+          type: "open",
+          item: { kind: "mind", mindId: mind.id },
+          where: { in: "group", ...(groupId && { groupId }) },
+        })) !== null
+      );
     },
 
     bodyFocused: () => set({ bodyToFocus: null }),
@@ -1057,7 +1079,10 @@ export const useAppStore = create<AppState>()((set, get) => {
         openMindId: currentMindIdOf(layout),
         exampleMindIds: exampleMindIds(get()),
       });
-      if (!mindId) return get().createMind({ startQuestion: true, scope });
+      if (!mindId) {
+        await get().createMind({ startQuestion: true, scope });
+        return;
+      }
       get().openMind(mindId);
       set({ questionToStart: { mindId, scope } });
     },
@@ -1268,7 +1293,7 @@ export const useAppStore = create<AppState>()((set, get) => {
     updateGettingStarted(patch) {
       const { settings } = get();
       const current = settings?.device.gettingStarted;
-      if (!settings || !current?.started) return;
+      if (!settings || !current) return;
       const next = { ...current, ...patch };
       if (
         Object.entries(next).every(([key, value]) => current[key as keyof GettingStarted] === value)
@@ -1277,7 +1302,7 @@ export const useAppStore = create<AppState>()((set, get) => {
       }
       // At once, so ticks made together don't undo each other; the core's event confirms it.
       set({ settings: { ...settings, device: { ...settings.device, gettingStarted: next } } });
-      core.updateSettings({ device: { gettingStarted: next } }).catch(() => undefined);
+      core.updateSettings({ device: { gettingStarted: next } }).catch(get().reportError);
     },
 
     openMind(id, options) {
@@ -1362,6 +1387,8 @@ export const useAppStore = create<AppState>()((set, get) => {
     },
 
     openDocument(location, how = { as: "list" }) {
+      // Direct navigation ends Citation-source scope; openCited records its source after this call.
+      useComposer.setState({ citedSource: null });
       const { documentId, ...place } = location;
       const item = { kind: "document", documentId } as const;
       const at = Object.keys(place).length > 0 ? { place } : {};
@@ -1393,7 +1420,12 @@ export const useAppStore = create<AppState>()((set, get) => {
 
     openSettings(page, at) {
       // Also a click handler: anything but a page name opens General.
-      set({ settingsOpen: true, settingsPage: resolveSettingsPage(page), settingsAt: at ?? null });
+      set((state) => ({
+        settingsOpen: true,
+        settingsOpenCount: state.settingsOpenCount + 1,
+        settingsPage: resolveSettingsPage(page),
+        settingsAt: at ?? null,
+      }));
     },
 
     showSettingsPage(page) {
@@ -1437,6 +1469,18 @@ export const useAppStore = create<AppState>()((set, get) => {
         try {
           const paths = await files.pickDocuments();
           if (paths.length > 0) await addByPath(paths, [], []);
+        } finally {
+          set({ pickingDocuments: false });
+        }
+      }),
+
+    pickDocumentsOrFolder: () =>
+      attempt(async () => {
+        if (get().pickingDocuments) return;
+        set({ pickingDocuments: true });
+        try {
+          const { files: paths, folders } = await files.pickDocumentsOrFolder();
+          if (paths.length > 0 || folders.length > 0) await addByPath(paths, folders, []);
         } finally {
           set({ pickingDocuments: false });
         }

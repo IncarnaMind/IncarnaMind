@@ -657,6 +657,16 @@ export function createTasks(options: TasksOptions) {
     /** A Task as its journal keeps it, finished or not; null for none. */
     record: (taskId: string): TaskRecord | null => journal.get(taskId),
 
+    /**
+     * Changes what an unfinished Task works on, so the run going and any
+     * resume after a quit reconstruct from the new input.
+     */
+    updateInput(taskId: string, input: unknown): void {
+      const record = requireTask(taskId);
+      if (record.finishedAt !== null) return;
+      journal.update(record.id, { input });
+    },
+
     /** Unfinished Tasks, oldest first, as records (for a kind to find its own). */
     unfinished: (): TaskRecord[] => journal.unfinished(),
 
