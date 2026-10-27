@@ -28,10 +28,12 @@ import type { FigureContext } from "../../../shared/figures";
 import { type MessageKey, type MessageParams, translate } from "../../../shared/i18n";
 import type {
   CheckedVersion,
+  CheckFigure,
   Citation,
   ClaimCalculation,
   ClaimCheckFailure,
   ClaimCheckResult,
+  ClaimJudgment,
   LeftOutDocument,
   LimitRelation,
   PassageSearchResult,
@@ -62,6 +64,12 @@ import {
   type DocumentLanguage,
 } from "../engine";
 import { agreesWith, statedFigure } from "./calculated";
+import {
+  checkFigureReply,
+  figureJudgment,
+  figureReplyText,
+  uncheckedFigureResults,
+} from "./figureChecks";
 import { figuresMatch, nearestLine } from "./nearest";
 import {
   CONFIRM_INSTRUCTIONS,
@@ -98,6 +106,7 @@ export interface ClaimCheckDependencies {
 
 export interface ClaimCheckRequest {
   claim: string;
+  figures?: readonly CheckFigure[];
   context?: string;
   cited?: readonly { documentName: string; quote: string }[];
   scope: EvidenceScope;
@@ -298,15 +307,19 @@ export function createClaimCheck(deps: ClaimCheckDependencies) {
         );
         return left && speaks ? [left] : [];
       });
-    const notChecked = (
-      reason: ClaimCheckFailure,
-      detail: string | null = null,
-    ): ClaimCheckResult => ({
+    const unchecked = (reason: ClaimCheckFailure, detail: string | null = null): ClaimJudgment => ({
       verdict: "not-checked",
       reason,
       detail,
       ...facts(),
     });
+    const notChecked = (
+      reason: ClaimCheckFailure,
+      detail: string | null = null,
+    ): ClaimCheckResult => {
+      const result = unchecked(reason, detail);
+      return request.figures?.length ? uncheckedFigureResults(request.figures, result) : result;
+    };
     const failedCheck = (error: ProviderError): ClaimCheckResult => {
       const { reason, detail } = failureOf(error);
       return notChecked(reason, detail);
@@ -333,7 +346,13 @@ export function createClaimCheck(deps: ClaimCheckDependencies) {
     let finished = false;
     for await (const event of deps.engine.generate({
       instructions: (mode, options) =>
-        checkInstructions(mode, deps.language(), options?.passages, calculating),
+        checkInstructions(
+          mode,
+          deps.language(),
+          options?.passages,
+          calculating,
+          (request.figures?.length ?? 0) > 0,
+        ),
       messages: [{ role: "user", content: claimPrompt({ ...request, language: deps.language() }) }],
       question: request.claim,
       model: model.model,
@@ -367,6 +386,49 @@ export function createClaimCheck(deps: ClaimCheckDependencies) {
     }
     if (signal.aborted) return notChecked("stopped");
     if (failed) return failedCheck(failed);
+    if (request.figures?.length) {
+      if (!finished || reply.trim() === "") return notChecked("empty");
+      if (readsAsRefusal(reply)) return notChecked("refused");
+      if (searches === 0) return notChecked("unread");
+      session.check();
+      return checkFigureReply({
+        requested: request.figures,
+        claim: request.claim,
+        reply: figureReplyText(reply, setAside),
+        calculations: figures,
+        citation: (marker) => session.finalCitation(marker),
+        facts,
+        caseFlags: citedCase,
+        costs: (marker) => stated.get(marker)?.costs ?? new Set(),
+        signal,
+        async remainder(remainder) {
+          const evidence =
+            remainder.citation === null ? null : session.finalCitation(remainder.citation);
+          const result = figureJudgment(remainder, evidence, facts(), citedCase(evidence));
+          if (result.verdict !== "contradicted" || !evidence) return result;
+          const confirmation = await confirmContradiction(
+            { ...request, claim: remainder.text, figures: undefined },
+            evidence,
+            session,
+            signal,
+          );
+          if ("failed" in confirmation) {
+            const failure = failureOf(confirmation.failed);
+            return unchecked(failure.reason, failure.detail);
+          }
+          if (confirmation.kind === "stopped") return unchecked("stopped");
+          if (confirmation.kind === "malformed") return unchecked("malformed");
+          if (confirmation.kind !== "confirmed")
+            return figureJudgment(
+              { ...remainder, verdict: "unsupported" },
+              evidence,
+              facts(),
+              citedCase(evidence),
+            );
+          return result;
+        },
+      });
+    }
     const worked = calculated(request.claim, figures, stated, (citation) =>
       documentFigureContext(
         scoped.pageTexts(citation.documentId, citation.contentHash, null, null),
@@ -507,26 +569,20 @@ export function createClaimCheck(deps: ClaimCheckDependencies) {
         // A judgement has just compared this very quote with the sentence: no nearest line.
         return unsupported({ reason: verdict.says, ...part, found: true }, evidence, null);
       };
-      const first = await compare(request, evidence, session, signal, CONFIRM_INSTRUCTIONS);
-      if (signal.aborted) return notChecked("stopped");
-      if ("failed" in first) return failedCheck(first.failed);
-      const judged = readJudgement(first.reply);
+      const confirmation = await confirmContradiction(request, evidence, session, signal);
+      if ("failed" in confirmation) return failedCheck(confirmation.failed);
+      if (confirmation.kind === "stopped") return notChecked("stopped");
       // The Passage is about something else: what is nearest may still say something different.
-      if (judged === "neither") {
+      if (confirmation.kind === "unrelated") {
         return byCalculation ?? unsupported(verdict.topic === "not found" ? undefined : UNBACKED);
       }
       // Never Supported: in one word it called the parties the other way round the same (#1668).
-      if (judged === "same") return inDoubt();
+      if (confirmation.kind === "doubt") return inDoubt();
       // A false contradiction is the worst verdict a check gives, and one judgement upheld near
       // misses (#1647): the strict one finds the quote doesn't state the sentence's detail, and
       // then the card shows the part the quote states (DESIGN.md › Checks). Its "same" doesn't
       // count: writing a Chinese sentence in English, it read a reversed reporting line backwards.
-      const strict = await compare(request, evidence, session, signal, STRICT_INSTRUCTIONS);
-      if (signal.aborted) return notChecked("stopped");
-      if ("failed" in strict) return failedCheck(strict.failed);
-      const strictly = readJudgement(strict.reply);
-      if (strictly === null) return notChecked("malformed");
-      if (strictly === "neither") return inDoubt();
+      if (confirmation.kind === "malformed") return notChecked("malformed");
     }
     return {
       verdict: verdict.verdict,
@@ -653,6 +709,28 @@ async function compare(
   } catch (error) {
     return { failed: classifyProviderError(error) };
   }
+}
+
+async function confirmContradiction(
+  request: ClaimCheckRequest,
+  quoted: Citation,
+  session: ReturnType<typeof createCitationSession>,
+  signal: AbortSignal,
+): Promise<
+  | { kind: "unrelated" | "doubt" | "confirmed" | "malformed" | "stopped" }
+  | { failed: ProviderError }
+> {
+  const first = await compare(request, quoted, session, signal, CONFIRM_INSTRUCTIONS);
+  if (signal.aborted) return { kind: "stopped" };
+  if ("failed" in first) return first;
+  const judged = readJudgement(first.reply);
+  if (judged === "neither") return { kind: "unrelated" };
+  if (judged === "same") return { kind: "doubt" };
+  const strict = await compare(request, quoted, session, signal, STRICT_INSTRUCTIONS);
+  if (signal.aborted) return { kind: "stopped" };
+  if ("failed" in strict) return strict;
+  const strictly = readJudgement(strict.reply);
+  return { kind: strictly === null ? "malformed" : strictly === "neither" ? "doubt" : "confirmed" };
 }
 
 async function partOf(

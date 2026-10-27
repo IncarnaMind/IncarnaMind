@@ -48,6 +48,7 @@ import type {
   AnalysisVersions,
 } from "../shared/analysis";
 import type { CitationForm, CitationStyleId, StyleCatalogue } from "../shared/citationStyles";
+import type { ClaimCheckShown } from "../shared/claimChecks";
 import type { AppCommandId, AssistantCommandId } from "../shared/commands";
 import type { FigureFooting } from "../shared/figureFooting";
 import type { Figure } from "../shared/figures";
@@ -5261,13 +5262,71 @@ export interface CheckFigure {
   locator: FigureLocator;
   reading: Figure;
   calculated: CalculatedFigureAttributes | null;
+  context?: string;
+  label?: string;
 }
 
 export interface FigureFinding extends CheckFigure {
   sourceInput: FigureInput | null;
+  source?: Citation | null;
   roundedFrom: number | null;
+  /** Note minus Source, in base units. */
   difference: number | null;
-  footing: FigureFooting | null;
+  footing: (FigureFooting & { axis: "row" | "column" })[];
+  sourceFooting?: FigureSourceFooting[];
+}
+
+export interface FigureSourceFooting {
+  axis: "row" | "column";
+  componentIds: string[];
+  /** Source rows the Note leaves out; only their used, checked inputs are retained. */
+  inputs: FigureInput[];
+  sum: number | null;
+  agrees: boolean | null;
+}
+
+export type FigureScheduleReason =
+  | "contradicted"
+  | "unsupported"
+  | "not-found"
+  | "quote-not-found"
+  | "needs-recheck"
+  | "doesnt-add-up";
+
+export interface FigureScheduleRow extends FigureFinding {
+  number: number;
+  sentence: TextStretch | null;
+  shown: ClaimCheckShown;
+  reason: FigureScheduleReason | null;
+  sourceValue: number | null;
+  sourceShown: string | null;
+  checkedAt: string | null;
+  model: ChatModelChoice | null;
+  place: {
+    heading: string | null;
+    paragraph: number;
+    table?: { row: number; column: number; rowLabel: string; columnLabel: string };
+    chart?: { rowLabel: string; seriesLabel: string };
+  };
+}
+
+export interface FigureSchedule {
+  mindId: string;
+  name: string;
+  /** Fingerprint of the exact Note state used for this projection, including deletions. */
+  basis: string;
+  rows: FigureScheduleRow[];
+  counts: {
+    total: number;
+    supported: number;
+    needsLook: number;
+    notChecked: number;
+    checking: number;
+    kept: number;
+  };
+  checkedAt: string | null;
+  model: ChatModelChoice | null;
+  progress: { done: number; total: number } | null;
 }
 
 export type FigureCheckResult = FigureFinding & { result: ClaimJudgment };
@@ -10005,6 +10064,8 @@ export interface CoreApi {
    * the run in the Mind (`MindCheckRun`). `cancelCheck` stops it.
    */
   checkMind(input: CheckMindInput): Promise<CheckMindResult>;
+  /** The current Note’s figures, projected from its one Check and saved evidence. */
+  getFigureSchedule(mindId: string): Promise<FigureSchedule>;
   /** The Mind's checks that Documents added since could change, with those Documents (#993). Sends nothing. */
   documentsAddedSinceChecks(mindId: string): Promise<DocumentsAddedSince[]>;
 
@@ -11049,6 +11110,7 @@ const methods: Record<CoreApiMethod, true> = {
   planMindCheck: true,
   findMindClaims: true,
   checkMind: true,
+  getFigureSchedule: true,
   documentsAddedSinceChecks: true,
   getSecretStorage: true,
   acceptPlainTextSecretStorage: true,

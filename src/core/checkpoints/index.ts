@@ -281,7 +281,7 @@ export function createCheckpoints(options: CheckpointsOptions) {
         }
         const before = save(mindId, "restore");
         content.edit(mindId, (blocks) => {
-          if (!blocks.doc) throw new InvalidInputError("The Mind has no content document.");
+          if (!blocks.doc) throw new Error("The Mind has no content document.");
           installFigureRuns(blocks.doc, runs);
           restoreBlocks(blocks);
         });

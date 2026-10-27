@@ -10,14 +10,17 @@
  */
 import * as Y from "yjs";
 import { readChartData } from "../../shared/charts";
+import { readClaimCheck, restsOn } from "../../shared/claimChecks";
 import { calculatedFiguresIn, figureRunsFor } from "../../shared/figureRuns";
 import {
   CHART_NODE,
   CITATION_NODE,
+  CLAIM_CHECK_MARK,
   CONTENT_SCHEMA_VERSION,
   CONTENT_SCHEMA_VERSION_KEY,
   MIND_SETTINGS_FIELD,
 } from "../api";
+import { isRecord } from "../errors";
 import { readContentVersion } from "../mindAccess";
 import { nodeOf, topLevelBlocks } from "./blocks";
 
@@ -67,6 +70,30 @@ function chartCitations(chart: Y.XmlElement): CitationFields[] {
   );
 }
 
+function figureCheckCitations(fragment: Y.XmlFragment | Y.XmlElement): CitationFields[] {
+  const cited: CitationFields[] = [];
+  const seen = new Set<string>();
+  const add = (raw: unknown) => {
+    if (!isRecord(raw) || raw.figures == null) return;
+    const check = readClaimCheck(raw);
+    if (!check) throw new Error("The figure Check's record is invalid.");
+    if (seen.has(check.id)) return;
+    seen.add(check.id);
+    cited.push(...restsOn(check).map((citation) => ({ ...citation })));
+  };
+  const visit = (parent: Y.XmlFragment | Y.XmlElement) => {
+    if (parent instanceof Y.XmlElement) add(parent.getAttribute(CLAIM_CHECK_MARK));
+    for (const child of parent.toArray()) {
+      if (child instanceof Y.XmlElement) visit(child);
+      else if (child instanceof Y.XmlText)
+        for (const run of child.toDelta() as { attributes?: Record<string, unknown> }[])
+          add(run.attributes?.[CLAIM_CHECK_MARK]);
+    }
+  };
+  visit(fragment);
+  return cited;
+}
+
 export function figureCitations(fragment: Y.XmlFragment | Y.XmlElement): CitationFields[] {
   if (
     fragment.doc &&
@@ -91,7 +118,7 @@ export function figureCitations(fragment: Y.XmlFragment | Y.XmlElement): Citatio
     cited.push({ ...input.citation });
     if (input.unitStatement) cited.push({ ...input.unitStatement.citation });
   }
-  return cited;
+  return [...cited, ...figureCheckCitations(fragment)];
 }
 
 /** Adds the Units that the Citations under `fragment` point to in these Documents to `cited`. */

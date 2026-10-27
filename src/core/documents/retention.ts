@@ -40,6 +40,10 @@ export const RETENTION_KINDS = [
 ] as const;
 export type RetentionKind = (typeof RETENTION_KINDS)[number];
 
+export const NOTE_FIGURE_CHECKPOINT_PREFIX = "note-figure:";
+export const noteFigureCheckpointOwner = (mindId: string): string =>
+  `${NOTE_FIGURE_CHECKPOINT_PREFIX}${mindId}`;
+
 /** A version of a Document that an owner retains, and where in it. */
 export interface RetainedVersion {
   documentId: string;

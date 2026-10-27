@@ -19,6 +19,7 @@ import { mindScopeOf } from "../../shared/mindScope";
 import { comparableSentence, INLINE_NODE, sentenceSpans } from "../../shared/sentences";
 import { textOriginOf } from "../../shared/textOrigins";
 import { groupsOf, isProposed } from "../aiUseStatement/figures";
+import { figuresInMind } from "../answers/checks/figureOccurrences";
 import { checkedSentences } from "../answers/checks/sentences";
 import {
   ANSWER_BLOCK,
@@ -151,13 +152,16 @@ export function readRecord(sources: RecordSources): {
   const { fragment, documents, folderId, model } = sources;
   const scope = fragment.doc ? mindScopeOf(fragment.doc) : null;
   const versions = new Map(documents.map((document) => [document.id, document.contentHash]));
+  const figureContexts = new Map(
+    figuresInMind(fragment).map((figure) => [figure.id, figure.context]),
+  );
 
   const sentences: SentenceItem[] = [];
   const requests: string[] = [];
   for (const { element, from, to, check, sentence, cited } of checkedSentences(fragment)) {
     requests.push(check.request);
     const result = sentenceResultOf(
-      claimCheckShown(check, { text: sentence, versions, folderId, scope }),
+      claimCheckShown(check, { text: sentence, versions, folderId, scope, figureContexts }),
       check,
       cited.length,
     );

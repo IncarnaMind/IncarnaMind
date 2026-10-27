@@ -24,6 +24,8 @@ import {
   setCitationStyle,
 } from "../shared/mindCitationStyle";
 import { mindModelOf } from "../shared/mindModel";
+import { mindScopeIn } from "../shared/mindScope";
+import { fingerprintOfMind } from "../shared/mindState";
 import {
   DEFAULT_MIND_STYLE,
   exportedFamily,
@@ -91,6 +93,7 @@ import {
   type ExternalService,
   type Meeting,
   type MeetingHelpKind,
+  MIND_CONTENT_FIELD,
   type Mind,
   type MindCitationStyle,
   type MindContentSnapshot,
@@ -135,7 +138,12 @@ import { readPageSetup } from "./documents/formats/docxPages";
 import { createOwnFiles } from "./documents/ownFiles";
 import { createPdfPasswords } from "./documents/pdfPasswords";
 import { READING_SPEED } from "./documents/readingSpeed";
-import { createVersionRetention, type VersionRetention } from "./documents/retention";
+import {
+  createVersionRetention,
+  NOTE_FIGURE_CHECKPOINT_PREFIX,
+  noteFigureCheckpointOwner,
+  type VersionRetention,
+} from "./documents/retention";
 import {
   BUILT_IN_TEXT_RECOGNITION_MODEL,
   createTextRecognitionModel,
@@ -173,6 +181,7 @@ import { exportLabels } from "./exports/labels";
 import { markAiTextQuestion } from "./exports/markAiTextQuestion";
 import { renderMarkdown } from "./exports/markdown";
 import { setTextOnlyDocuments, textOnlyDocuments } from "./exports/sharedPictures";
+import { figureSchedule } from "./figureSchedule";
 import { createFileLock } from "./fileLock";
 import { safeFileName, writeNewFile } from "./fileNames";
 import { createFolders } from "./folders";
@@ -548,7 +557,6 @@ export function createCore(adapters: CoreAdapters): Core {
     now,
     (mindId, update, cause) => {
       events.emit("mind.update", { mindId, update, ...(cause && { cause }) });
-      rebuildFigureRetention(mindId);
       // Only notes the change; what became of AI text is worked out once the Mind is quiet.
       aiUse.contentStored(mindId);
       checkpoints.edited(mindId);
@@ -558,7 +566,10 @@ export function createCore(adapters: CoreAdapters): Core {
       const renamed = minds.setAutoTitle(mindId, content.peek(mindId, firstLineOf));
       if (minds.markEdited(mindId) || renamed) mindsChanged();
     },
-    { unsaved: unsaved.mindUnsaved },
+    {
+      unsaved: unsaved.mindUnsaved,
+      persisted: (mindId) => rebuildFigureRetention(mindId),
+    },
   );
   const noteConversations = createNoteConversations({
     content,
@@ -750,34 +761,42 @@ export function createCore(adapters: CoreAdapters): Core {
   const platform = process.platform;
   const retention = createVersionRetention(db, now);
   const rebuildFigureRetention = (mindId: string) => {
-    try {
-      content.peek(mindId, (blocks) => {
-        if (
-          !blocks.doc ||
-          contentVersionOf(blocks.doc) > CONTENT_SCHEMA_VERSION ||
-          hasPendingMindChanges(blocks.doc)
-        )
-          return;
-        const citations = figureCitations(blocks);
-        const documents = new Set(
-          citations.flatMap(({ documentId }) =>
-            typeof documentId === "string" ? [documentId] : [],
-          ),
-        );
-        const units: CitedUnits[] = [];
-        for (const citation of citations) addCitedUnit(citation, documents, units);
-        retention.retain(
-          "note-figure",
-          mindId,
-          units.flatMap(({ documentId, contentHash, pageFrom, pageTo }) =>
-            contentHash ? [{ documentId, contentHash, pageFrom, pageTo }] : [],
-          ),
-        );
+    if (
+      content.isLoaded(mindId) &&
+      content.read(mindId, (blocks) => blocks.doc !== null && hasPendingMindChanges(blocks.doc))
+    )
+      return;
+    content.readPersisted(mindId, (doc) => {
+      if (contentVersionOf(doc) > CONTENT_SCHEMA_VERSION || hasPendingMindChanges(doc)) return;
+      let citations: ReturnType<typeof figureCitations>;
+      try {
+        citations = figureCitations(doc.getXmlFragment(MIND_CONTENT_FIELD));
+      } catch (error) {
+        console.error(`Mind ${mindId}: retaining calculated figure sources failed`, error);
+        return;
+      }
+      const documents = new Set(
+        citations.flatMap(({ documentId }) => (typeof documentId === "string" ? [documentId] : [])),
+      );
+      const units: CitedUnits[] = [];
+      for (const citation of citations) addCitedUnit(citation, documents, units);
+      const versions = units.flatMap(({ documentId, contentHash, pageFrom, pageTo }) =>
+        contentHash ? [{ documentId, contentHash, pageFrom, pageTo }] : [],
+      );
+      db.transaction(() => {
+        retention.retain("note-figure", mindId, versions);
+        retention.retain("checkpoint", noteFigureCheckpointOwner(mindId), versions);
       });
-    } catch (error) {
-      console.error(`Mind ${mindId}: retaining calculated figure sources failed`, error);
-    }
+    });
   };
+  for (const { id } of db.all<{ id: string }>(
+    `SELECT m.id FROM minds m WHERE m.purged_at IS NOT NULL AND EXISTS (
+       SELECT 1 FROM retained_versions r WHERE r.deleted_at IS NULL AND
+         ((r.kind = 'note-figure' AND r.owner_id = m.id)
+          OR (r.kind = 'checkpoint' AND r.owner_id = ? || m.id)))`,
+    [NOTE_FIGURE_CHECKPOINT_PREFIX],
+  ))
+    rebuildFigureRetention(id);
   const checkpoints = createCheckpoints({
     db,
     now,
@@ -4163,6 +4182,24 @@ export function createCore(adapters: CoreAdapters): Core {
     planMindCheck: (mindId, mode, allDocuments) => checks.planMindCheck(mindId, mode, allDocuments),
     findMindClaims: (input) => inFlow("check-mind", () => checks.findMindClaims(input)),
     checkMind: (input) => inFlow("check-mind", () => checks.checkMind(input)),
+    getFigureSchedule: async (mindId) => {
+      const mind = minds.get(mindId);
+      const scope = content.readSettings(mind.id, mindScopeIn);
+      return content.read(mind.id, (blocks) => {
+        if (!blocks.doc) throw new Error("The Note is detached from its document.");
+        return figureSchedule({
+          mindId: mind.id,
+          name: mind.title,
+          basis: fingerprintOfMind(blocks.doc),
+          blocks,
+          versions: new Map(
+            documents.list().map((document) => [document.id, document.contentHash]),
+          ),
+          folderId: mind.folderId,
+          scope,
+        });
+      });
+    },
     documentsAddedSinceChecks: async (mindId) => checks.documentsAddedSinceChecks(mindId),
 
     getSecretStorage: async () => secrets.status(),

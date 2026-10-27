@@ -20,6 +20,7 @@ import {
 } from "./api";
 import type { Conversations } from "./conversations";
 import type { createDocuments } from "./documents";
+import { NOTE_FIGURE_CHECKPOINT_PREFIX } from "./documents/retention";
 import { InvalidInputError, isRecord, NotFoundError } from "./errors";
 import type { createLibrary } from "./library";
 import type { createMindContent } from "./mindContent";
@@ -89,8 +90,11 @@ function purge(
     // Its checks' evidence and figure inputs are retained under the Mind (ADR-0021).
     db.run(
       `UPDATE retained_versions SET deleted_at = ?, updated_at = ?
-       WHERE kind IN ('check-result', 'note-figure') AND owner_id ${IN} AND deleted_at IS NULL`,
-      [at, at, list],
+       WHERE deleted_at IS NULL AND
+         ((kind IN ('check-result', 'note-figure') AND owner_id ${IN})
+          OR (kind = 'checkpoint' AND owner_id IN
+            (SELECT ? || value FROM json_each(?))))`,
+      [at, at, list, NOTE_FIGURE_CHECKPOINT_PREFIX, list],
     );
   }
   if (kind === "conversation") {

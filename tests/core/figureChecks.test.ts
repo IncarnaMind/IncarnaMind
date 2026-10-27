@@ -1,0 +1,693 @@
+import { expect, test } from "vitest";
+import { createClaimCheck } from "../../src/core/answers/checks/claimCheck";
+import { figureReplyText, readFigureReply } from "../../src/core/answers/checks/figureChecks";
+import { createAiSdkAnswerEngine } from "../../src/core/answers/engine";
+import type { CheckFigure } from "../../src/core/api";
+import type { CitationSource } from "../../src/core/documents";
+import { resolveCapabilities } from "../../src/core/providers/capabilities";
+import type { PreparedChatModel } from "../../src/core/providers/chat";
+import { readFigures } from "../../src/shared/figures";
+import type { UnitText } from "../../src/shared/units";
+import { type ModelCall, scriptedModel } from "../helpers/models";
+
+const claim = "Revenue was £20 and the licence is valid.";
+const reading = readFigures("£20", { language: "en" })[0];
+if (!reading) throw new Error("Missing fixture reading");
+const figures: CheckFigure[] = [
+  {
+    id: "f1",
+    locator: { kind: "text", from: { blockId: "p", offset: 12 }, to: { blockId: "p", offset: 15 } },
+    reading,
+    calculated: null,
+  },
+];
+const item = (id = "f1") => ({
+  id,
+  verdict: "supported",
+  scope: "same",
+  topic: "found",
+  roles: "same",
+  says: null,
+  relation: "equals",
+  source: { citation: 1, position: 1, reading: null, unitQuote: null },
+  calculation: null,
+});
+const reply = (items: unknown[], remainder: unknown = null) =>
+  `Verdict: supported\nFigures: ${JSON.stringify({ items, remainder })}`;
+
+test("a complete same-run reply binds only the exact requested occurrence ids", () => {
+  expect(readFigureReply(reply([item()]), figures, claim)).toMatchObject({
+    items: [{ id: "f1", source: { citation: 1, position: 1 } }],
+    remainder: null,
+  });
+});
+
+test.each([
+  { name: "missing", items: [] },
+  { name: "unknown", items: [item("unknown")] },
+  { name: "duplicate", items: [item(), item()] },
+  { name: "malformed", items: [{ ...item(), relation: "maybe" }] },
+])("$name item set is rejected", ({ items }) =>
+  expect(readFigureReply(reply(items), figures, claim)).toBeNull(),
+);
+
+test("missing remainder remains missing rather than explicitly empty", () => {
+  expect(
+    readFigureReply(`Figures: ${JSON.stringify({ items: [item()] })}`, figures, claim)?.remainder,
+  ).toBeUndefined();
+});
+
+test("only trailing citation transport annotations may follow the complete object", () => {
+  expect(readFigureReply(`${reply([item()])}[^1][^2]`, figures, claim)?.items[0]?.id).toBe("f1");
+  for (const suffix of ["garbage", " {}", "[^1] garbage", "[^0]", "[^10000]"])
+    expect(readFigureReply(`${reply([item()])}${suffix}`, figures, claim)).toBeNull();
+  expect(
+    readFigureReply(
+      `${reply([{ ...item(), source: { ...item().source, unitQuote: "Keep } and [^2] inside the string." } }])}[^1]`,
+      figures,
+      claim,
+    )?.items[0]?.source?.unitQuote,
+  ).toBe("Keep } and [^2] inside the string.");
+});
+
+test.each([
+  { final: "Verdict: unsupported", aside: [reply([item()])] },
+  { final: "The quote states the revenue.", aside: [reply([item()]), "Verdict: unsupported"] },
+  { final: "I'm sorry, I can't help with that.", aside: [reply([item()])] },
+  {
+    final: "The quote states the revenue.",
+    aside: [reply([item()]).replace("Verdict: supported\n", "")],
+  },
+])("a stale or refused preamble cannot replace $final", ({ final, aside }) => {
+  expect(figureReplyText(final, aside)).toBe(final);
+});
+
+test("only the last verdict-bearing preamble can supply its own Figures envelope", () => {
+  const final = "The quote states the revenue.";
+  const latest = reply([item()]);
+  expect(figureReplyText(final, ["Verdict: unsupported", latest])).toBe(`${latest}\n${final}`);
+  const superseding = reply([item("unknown")]);
+  expect(figureReplyText(superseding, [latest])).toBe(superseding);
+});
+
+function target(id: string, shown = "£20", context = "Revenue in 2024"): CheckFigure {
+  const reading = readFigures(shown, { language: "en" })[0];
+  if (!reading) throw new Error("Missing target reading");
+  return {
+    id,
+    locator: {
+      kind: "text",
+      from: { blockId: id, offset: 0 },
+      to: { blockId: id, offset: shown.length },
+    },
+    reading,
+    calculated: null,
+    context,
+    label: context,
+  };
+}
+
+async function checkWith(options: {
+  text: string;
+  figures?: readonly CheckFigure[];
+  claim?: string;
+  body?: string;
+  quotes?: readonly string[];
+  units?: UnitText[];
+  calculations?: readonly unknown[];
+  judgement?: string;
+  failure?: { status: number; message: string };
+  besideCite?: string;
+}) {
+  const body =
+    options.body ?? "Revenue in 2024 was £20; revenue in 2025 was £21. The licence has expired.";
+  const calls: ModelCall[] = [];
+  const confirmations: string[] = [];
+  let emitted = "";
+  const model = scriptedModel(
+    (call) => {
+      calls.push(call);
+      if (!call.results.some((result) => result.tool === "search_documents"))
+        return { calls: [{ tool: "search_documents", input: { query: "revenue" } }] };
+      if (!call.results.some((result) => result.tool === "cite"))
+        return {
+          text: options.besideCite,
+          calls: [
+            {
+              tool: "cite",
+              input: {
+                citations: (options.quotes ?? [body]).map((quote, index) => ({
+                  marker: index + 1,
+                  passage: "P1",
+                  location: "p. 1",
+                  quote,
+                })),
+              },
+            },
+          ],
+        };
+      if (options.calculations && !call.results.some((result) => result.tool === "calculate"))
+        return { calls: [{ tool: "calculate", input: { figures: options.calculations } }] };
+      return options.failure ? { error: options.failure } : { text: options.text };
+    },
+    {
+      generate(call) {
+        confirmations.push(call.prompt);
+        return { text: options.judgement ?? "conflict" };
+      },
+    },
+  );
+  const prepared: PreparedChatModel = {
+    model,
+    provider: {
+      id: "test",
+      kind: "anthropic",
+      catalogId: null,
+      endpoint: null,
+      baseUrl: null,
+      service: null,
+      hasApiKey: false,
+    },
+    modelId: "scripted-check",
+    support: "tools",
+    summarizesReasoning: false,
+    capabilities: resolveCapabilities({
+      catalog: { tools: true, calculates: true, temperature: true },
+    }),
+  };
+  const source: CitationSource = {
+    passageId: "passage-1",
+    documentId: "document-1",
+    documentName: "Accounts",
+    documentKind: options.units?.some((unit) => unit.kind === "rows") ? "xlsx" : "pdf",
+    contentHash: "hash-1",
+    text: body,
+    pageFrom: 1,
+    pageTo: 1,
+    documentDeleted: false,
+    notCited: false,
+  };
+  const engine = createAiSdkAnswerEngine();
+  const check = createClaimCheck({
+    language: () => "en",
+    engine: {
+      async *generate(request) {
+        for await (const event of engine.generate(request)) {
+          if (event.type === "text-delta") emitted += event.text;
+          if (event.type === "text-retracted") emitted = emitted.slice(0, -event.length);
+          yield event;
+        }
+      },
+    },
+    evidence: {
+      async search() {
+        return {
+          passages: [{ ...source, seq: 1, position: 0, windowFrom: 0, windowTo: 0 }],
+          excluded: [],
+        };
+      },
+    },
+    documents: {
+      searchableCount: () => 1,
+      searchableLanguages: () => [],
+      savedBySearch: () => false,
+      citationSource: (id) => (id === source.passageId ? source : null),
+      pageTexts: () => options.units ?? [{ page: 1, text: body, kind: "page", label: null }],
+      documentDate: () => null,
+    },
+  });
+  const result = await check({
+    claim: options.claim ?? "Revenue in 2024 was £20 and revenue in 2025 was £20.",
+    figures: options.figures,
+    scope: { documentIds: null, excluded: new Map() },
+    model: prepared,
+    signal: new AbortController().signal,
+  });
+  return { result, calls, confirmations, emitted };
+}
+
+test("equal shown values bind distinct checked source positions in one model run", async () => {
+  const { result, calls, confirmations, emitted } = await checkWith({
+    figures: [target("2024"), target("2025", "£20", "Revenue in 2025")],
+    text: reply([item("2024"), { ...item("2025"), source: { ...item().source, position: 2 } }]),
+  });
+  expect(
+    result.figures?.map((figure) => [
+      figure.id,
+      figure.result.verdict,
+      figure.sourceInput?.number.value,
+    ]),
+    JSON.stringify({ result, emitted }),
+  ).toEqual([
+    ["2024", "supported", 20],
+    ["2025", "contradicted", 21],
+  ]);
+  expect(result.verdict).toBe("contradicted");
+  expect(calls).toHaveLength(3);
+  expect(confirmations).toEqual([]);
+  expect(calls[0]?.prompt).toContain("Revenue in 2024");
+  expect(calls[0]?.prompt).toContain("Revenue in 2025");
+});
+
+test.each([
+  { final: "The quote states the revenue.", verdict: "supported" },
+  { final: "Verdict: unsupported", verdict: "not-checked" },
+  { final: "I'm sorry, I can't help with that.", verdict: "not-checked" },
+])(
+  "cite-turn Figures recover only without a superseding final judgment: $final",
+  async ({ final, verdict }) => {
+    const { result } = await checkWith({
+      figures: [target("f1")],
+      besideCite: reply([item()]),
+      text: final,
+    });
+    expect(result.figures?.[0]?.result.verdict).toBe(verdict);
+    if (final.startsWith("I'm sorry"))
+      expect(result.figures?.[0]?.result).toMatchObject({ reason: "refused" });
+  },
+);
+
+test("all calculation markers are checked before their parent is aggregated", async () => {
+  const { result, confirmations, calls, emitted } = await checkWith({
+    figures: [target("2024"), target("2025")],
+    calculations: [1, 2].map((marker) => ({
+      marker,
+      label: "Revenue",
+      formula: "source",
+      stated: "£20",
+      relation: "equals",
+      inputs: [{ name: "source", label: "Revenue", citation: 1, position: marker }],
+    })),
+    text: reply(
+      [1, 2].map((marker) => ({
+        ...item(marker === 1 ? "2024" : "2025"),
+        source: null,
+        calculation: marker,
+      })),
+    ),
+  });
+  expect(
+    result.figures?.map((figure) => [
+      figure.result.verdict,
+      "calculation" in figure.result && figure.result.calculation?.agrees,
+    ]),
+    JSON.stringify({ result, emitted, calls: calls.map((call) => call.results) }),
+  ).toEqual([
+    ["supported", true],
+    ["contradicted", false],
+  ]);
+  expect(result.verdict).toBe("contradicted");
+  expect(confirmations).toEqual([]);
+});
+
+test("qualitative remainder retains the existing contradiction confirmations", async () => {
+  const { result, confirmations } = await checkWith({
+    claim,
+    figures: [target("f1")],
+    quotes: ["Revenue in 2024 was £20", "The licence has expired."],
+    text: reply([item()], {
+      verdict: "contradicted",
+      scope: "same",
+      topic: "found",
+      roles: "same",
+      says: "The licence has expired.",
+      text: "the licence is valid",
+      citation: 2,
+    }),
+  });
+  expect(result.figures?.[0]?.result.verdict).toBe("supported");
+  expect(result.remainder?.verdict).toBe("contradicted");
+  expect(result.verdict).toBe("contradicted");
+  expect(confirmations).toHaveLength(2);
+  for (const prompt of confirmations) {
+    expect(prompt).toContain("the licence is valid");
+    expect(prompt).not.toContain(claim);
+  }
+});
+
+test("a missing remainder cannot make the parent all supported", async () => {
+  const { result } = await checkWith({
+    figures: [target("f1")],
+    text: `Figures: ${JSON.stringify({ items: [item()] })}`,
+  });
+  expect(result.figures?.[0]?.result.verdict).toBe("supported");
+  expect(result.remainder).toBeUndefined();
+  expect(result.verdict).toBe("not-checked");
+});
+
+test("bad evidence affects its child only after a valid occurrence envelope", async () => {
+  const { result } = await checkWith({
+    figures: [target("a"), target("b")],
+    text: reply([item("a"), { ...item("b"), source: { ...item().source, position: 9 } }]),
+  });
+  expect(result.figures?.map((figure) => figure.result.verdict)).toEqual([
+    "supported",
+    "not-checked",
+  ]);
+  expect(result.verdict).toBe("not-checked");
+});
+
+test("an unknown occurrence id cannot be rescued by an agreeing calculation", async () => {
+  const { result } = await checkWith({
+    figures: [target("f1")],
+    calculations: [
+      {
+        marker: 1,
+        label: "Revenue",
+        formula: "source",
+        stated: "£20",
+        relation: "equals",
+        inputs: [{ name: "source", label: "Revenue", citation: 1, position: 1 }],
+      },
+    ],
+    text: reply([{ ...item("unknown"), source: null, calculation: 1 }]),
+  });
+  expect(result.figures?.[0]?.result).toMatchObject({
+    verdict: "not-checked",
+    reason: "malformed",
+  });
+});
+
+test("equal numbers cannot override a different semantic subject", async () => {
+  const { result } = await checkWith({
+    figures: [target("f1")],
+    text: reply([{ ...item(), topic: "not found" }]),
+  });
+  expect(result.figures?.[0]?.result.verdict).toBe("unsupported");
+});
+
+test("a found equal value cannot override the model's unsupported semantic finding", async () => {
+  const { result } = await checkWith({
+    figures: [target("f1")],
+    text: reply([
+      { ...item(), verdict: "unsupported", says: "The forecast is not an actual result." },
+    ]),
+  });
+  expect(result.figures?.[0]?.result.verdict).toBe("unsupported");
+});
+
+test.each([
+  { value: "2.5%", verdict: "supported" },
+  { value: "3.001%", verdict: "contradicted" },
+])("an own range keeps both endpoints against $value", async ({ value, verdict }) => {
+  const { result } = await checkWith({
+    figures: [target("f1", "2–3%")],
+    body: `Margin ${value}`,
+    text: reply([{ ...item(), reading: 2, source: { ...item().source, reading: 1 } }]),
+  });
+  expect(result.figures?.[0]?.result.verdict).toBe(verdict);
+  expect(result.figures?.[0]?.reading.rangeTo).toBe(0.03);
+  expect(result.figures?.[0]?.roundedFrom).toBeNull();
+});
+
+test("a satisfied covenant limit is not described as rounding", async () => {
+  const { result } = await checkWith({
+    figures: [target("f1", "3.25x")],
+    body: "Leverage 2.8x",
+    text: reply([{ ...item(), relation: "at most" }]),
+  });
+  expect(result.figures?.[0]?.result.verdict).toBe("supported");
+  expect(result.figures?.[0]?.roundedFrom).toBeNull();
+});
+
+test("a raw workbook value is compared at the Note's own shown precision", async () => {
+  const body = "Revenue\t20.0%";
+  const { result } = await checkWith({
+    figures: [target("f1", "20.5%")],
+    body,
+    units: [
+      {
+        page: 1,
+        text: body,
+        kind: "rows",
+        label: { sheet: "Accounts", rows: [1], column: 0, values: { B1: 0.2045 } },
+      },
+    ],
+    text: reply([{ ...item(), source: { ...item().source, reading: 1 } }]),
+  });
+  const figure = result.figures?.[0];
+  expect(figure?.sourceInput?.number.value).toBe(0.2045);
+  expect(figure?.sourceInput?.cell?.stored).toBe(0.2045);
+  expect(figure?.roundedFrom).toBe(0.2045);
+  expect(figure?.result.verdict).toBe("supported");
+});
+
+test.each([
+  { shown: "£1.01", source: "£1.005", verdict: "supported", rounded: 1.005 },
+  {
+    shown: "£1,000,000,000,000",
+    source: "£1,000,000,000,001",
+    verdict: "contradicted",
+    rounded: null,
+  },
+  { shown: "2.5亿元", source: "250,000,000元", verdict: "supported", rounded: null },
+])("$shown uses its own precision against $source", async ({ shown, source, verdict, rounded }) => {
+  const { result } = await checkWith({
+    figures: [target("f1", shown)],
+    body: `Revenue ${source}`,
+    text: reply([{ ...item(), source: { ...item().source, reading: 1 } }]),
+  });
+  expect(result.figures?.[0]?.result.verdict).toBe(verdict);
+  expect(result.figures?.[0]?.roundedFrom).toBe(rounded);
+});
+
+test("one failed quote cannot erase another figure's checked evidence", async () => {
+  const { result } = await checkWith({
+    figures: [target("a"), target("b")],
+    quotes: ["Revenue in 2024 was £20", "Revenue was £999"],
+    text: reply([item("a"), { ...item("b"), source: { ...item().source, citation: 2 } }]),
+  });
+  expect(result.figures?.map((figure) => figure.result.verdict)).toEqual([
+    "supported",
+    "not-checked",
+  ]);
+  expect(result.figures?.[1]?.sourceInput).toBeNull();
+  expect(result.figures?.[1]?.source).toMatchObject({
+    passageId: "passage-1",
+    quote: "Revenue was £999",
+    check: "not-found",
+    checkReason: "quote-not-on-pages",
+  });
+});
+
+test("saved formulas recheck exact UTF-16 spans without another calculate call", async () => {
+  const body = "📊 Revenue was £20.";
+  const first = await checkWith({
+    figures: [target("f1")],
+    body,
+    calculations: [
+      {
+        marker: 1,
+        label: "Revenue",
+        formula: "source",
+        stated: "£20",
+        relation: "equals",
+        inputs: [{ name: "source", label: "Revenue", citation: 1, position: 1 }],
+      },
+    ],
+    text: reply([{ ...item(), source: null, calculation: 1 }]),
+  });
+  const judgment = first.result.figures?.[0]?.result;
+  const figure = judgment && "calculation" in judgment ? judgment.calculation?.figure : null;
+  if (!figure) throw new Error("No real calculated fixture receipt");
+  expect(figure.inputs[0]?.number.at).toBe(15);
+  const saved = { ...target("f1"), calculated: { id: "f1", figure, analysisId: null } };
+  const again = await checkWith({
+    figures: [saved],
+    body,
+    text: reply([{ ...item(), source: null }]),
+  });
+  expect(again.result.figures?.[0]?.result.verdict).toBe("supported");
+  expect(
+    again.calls.flatMap((call) => call.results).some((result) => result.tool === "calculate"),
+  ).toBe(false);
+  const changed = {
+    ...saved,
+    calculated: {
+      ...saved.calculated,
+      figure: {
+        ...figure,
+        inputs: figure.inputs.map((input) => ({
+          ...input,
+          number: { ...input.number, at: input.number.at + 1 },
+        })),
+      },
+    },
+  };
+  const invalid = await checkWith({
+    figures: [changed],
+    body,
+    text: reply([{ ...item(), source: null }]),
+  });
+  expect(invalid.result.figures?.[0]?.result).toMatchObject({
+    verdict: "not-checked",
+    reason: "no-evidence",
+  });
+  const analysis = {
+    ...saved,
+    calculated: {
+      id: "f1",
+      analysisId: "retained-run",
+      figure: { ...figure, formula: "", inputs: [], analysis: { analysis: 1, result: "revenue" } },
+    },
+  };
+  const retained = await checkWith({
+    figures: [analysis],
+    body,
+    text: reply([{ ...item(), source: null }]),
+  });
+  expect(retained.result.figures?.[0]?.result).toMatchObject({
+    verdict: "not-checked",
+    reason: "no-evidence",
+  });
+  expect(retained.result.figures?.[0]?.sourceInput).toBeNull();
+});
+
+test.each([
+  { text: "I'm sorry, I can't help with that.", reason: "refused" },
+  { text: "", reason: "empty" },
+  { text: "Figures: {", reason: "malformed" },
+  { text: "", reason: "rate-limit", failure: { status: 429, message: "Rate limit reached." } },
+])(
+  "a $reason final reply cannot be rescued by an earlier agreeing calculation",
+  async ({ text, reason, failure }) => {
+    const { result } = await checkWith({
+      figures: [target("f1")],
+      text,
+      failure,
+      calculations: [
+        {
+          marker: 1,
+          label: "Revenue",
+          formula: "source",
+          stated: "£20",
+          relation: "equals",
+          inputs: [{ name: "source", citation: 1, position: 1 }],
+        },
+      ],
+    });
+    expect(result.figures?.[0]?.result).toMatchObject({ verdict: "not-checked", reason });
+  },
+);
+
+test.each(["same", "neither", "malformed"])(
+  "a qualitative contradiction confirmation of %s never becomes supported",
+  async (judgement) => {
+    const { result } = await checkWith({
+      claim,
+      figures: [target("f1")],
+      judgement,
+      quotes: ["Revenue in 2024 was £20", "The licence has expired."],
+      text: reply([item()], {
+        verdict: "contradicted",
+        scope: "same",
+        topic: "found",
+        roles: "same",
+        says: null,
+        text: "the licence is valid",
+        citation: 2,
+      }),
+    });
+    expect(result.figures?.[0]?.result.verdict).toBe("supported");
+    expect(result.remainder?.verdict).toBe(
+      judgement === "malformed" ? "not-checked" : "unsupported",
+    );
+  },
+);
+
+test("a numeric whole-claim remainder is never reused as qualitative evidence", async () => {
+  const { result } = await checkWith({
+    claim,
+    figures: [target("f1")],
+    text: reply([item()], {
+      verdict: "supported",
+      scope: "same",
+      topic: "found",
+      roles: "same",
+      says: null,
+      text: claim,
+      citation: 1,
+    }),
+  });
+  expect(result.remainder).toBeUndefined();
+  expect(result.verdict).toBe("not-checked");
+});
+
+function noteChoice(shown: string, header: string | null = null): CheckFigure {
+  const reading = readFigures(shown, { language: "en", header, midLine: true })[0];
+  if (!reading) throw new Error("Missing ambiguous Note fixture");
+  return {
+    ...target("f1"),
+    reading,
+    locator: {
+      kind: "text",
+      from: { blockId: "f1", offset: 0 },
+      to: { blockId: "f1", offset: shown.length },
+    },
+  };
+}
+
+test.each([
+  { shown: "4980", header: "£m", value: 4_980_000_000, source: "£4980000000" },
+  { shown: "(250)", header: null, value: 250, source: "250" },
+])(
+  "an explicit offered own reading settles $shown under $header",
+  async ({ shown, header, value, source }) => {
+    const requested = noteChoice(shown, header);
+    const ambiguity = requested.reading.ambiguous[0];
+    expect(requested.reading.ambiguous).toHaveLength(1);
+    const reading = (ambiguity?.readings.findIndex((reading) => reading.value === value) ?? -1) + 1;
+    expect(reading).toBeGreaterThan(0);
+    const { result, calls } = await checkWith({
+      figures: [requested],
+      body: `Revenue ${source}`,
+      text: reply([{ ...item(), reading }]),
+    });
+    expect(result.figures?.[0]?.result.verdict).toBe("supported");
+    expect(result.figures?.[0]?.reading).toMatchObject({
+      value,
+      chars: shown,
+      start: requested.reading.start,
+      end: requested.reading.end,
+      ambiguous: [],
+    });
+    expect(calls[0]?.prompt).toContain('"readings"');
+  },
+);
+
+test.each([undefined, 99])(
+  "missing or out-of-range own reading %j stays unread",
+  async (reading) => {
+    const { result } = await checkWith({
+      figures: [noteChoice("4980", "£m")],
+      body: "Revenue £4980000000",
+      text: reply([{ ...item(), reading }]),
+    });
+    expect(result.figures?.[0]?.result).toMatchObject({ verdict: "not-checked", reason: "unread" });
+    expect(result.figures?.[0]?.reading.ambiguous.length).toBeGreaterThan(0);
+  },
+);
+
+test("multiple own ambiguity axes are never combined by guessing", async () => {
+  const requested = noteChoice("(4980)", "£m");
+  expect(requested.reading.ambiguous.length).toBeGreaterThan(1);
+  const { result } = await checkWith({
+    figures: [requested],
+    body: "Revenue £4980000000",
+    text: reply([{ ...item(), reading: 1 }]),
+  });
+  expect(result.figures?.[0]?.result).toMatchObject({ verdict: "not-checked", reason: "unread" });
+});
+
+test.each([undefined, []])(
+  "no requested figures keeps the legacy reply contract (%j)",
+  async (figures) => {
+    const { result } = await checkWith({
+      figures,
+      text: "Verdict: supported\nScope: same\nTopic: found\nRoles: same\nSays: Revenue in 2024 was £20.",
+    });
+    expect(result.verdict).toBe("supported");
+    expect(result).not.toHaveProperty("figures");
+    expect(result).not.toHaveProperty("remainder");
+  },
+);

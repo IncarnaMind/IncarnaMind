@@ -8,7 +8,12 @@ import { Extension, Mark } from "@tiptap/core";
 import type { Node as ProseMirrorNode } from "@tiptap/pm/model";
 import { type EditorState, Plugin, PluginKey } from "@tiptap/pm/state";
 import { Decoration, DecorationSet, type EditorView } from "@tiptap/pm/view";
-import { CLAIM_CHECK_MARK, type ClaimCheckAttributes, type SearchScope } from "../../../core/api";
+import {
+  CALCULATED_FIGURE_NODE,
+  CLAIM_CHECK_MARK,
+  type ClaimCheckAttributes,
+  type SearchScope,
+} from "../../../core/api";
 import {
   type ClaimCheckShown,
   claimCheckShown,
@@ -40,6 +45,8 @@ const ATTRIBUTES: readonly (keyof ClaimCheckAttributes)[] = [
   "excluded",
   "checkedAt",
   "kept",
+  "figures",
+  "remainder",
 ];
 
 /**
@@ -53,7 +60,11 @@ export const ClaimCheck = Mark.create({
     Object.fromEntries(
       ATTRIBUTES.map((name) => [
         name,
-        { default: null, parseHTML: () => null, renderHTML: () => ({}) },
+        {
+          default: name === "remainder" ? undefined : null,
+          parseHTML: () => null,
+          renderHTML: () => ({}),
+        },
       ]),
     ),
   parseHTML: () => [],
@@ -118,7 +129,11 @@ export function claimSpans(doc: ProseMirrorNode): ClaimSpan[] {
     block.forEach((child) => {
       const length = child.isText ? (child.text ?? "").length : 1;
       const mark = child.marks.find((each) => each.type.name === CLAIM_CHECK_MARK);
-      const check = mark ? readClaimCheck(mark.attrs) : null;
+      const check = mark
+        ? readClaimCheck(mark.attrs)
+        : child.type.name === CALCULATED_FIGURE_NODE
+          ? readClaimCheck(child.attrs[CLAIM_CHECK_MARK])
+          : null;
       if (check) {
         const known = found.get(check.id);
         if (known) known.to = at + length;
@@ -127,8 +142,11 @@ export function claimSpans(doc: ProseMirrorNode): ClaimSpan[] {
       at += length;
     });
     if (found.size === 0) return false;
-    const { text, starts, ends } = paragraphPlaces(block, pos);
-    const sentences = sentenceSpans(text);
+    const { text, starts, ends, inline } = paragraphPlaces(block, pos);
+    const sentences = sentenceSpans(
+      text,
+      inline.filter(({ node }) => node.type.name === CALCULATED_FIGURE_NODE).map(({ at }) => at),
+    );
     const startOf = (index: number) => starts[index] ?? pos + 1;
     const endOf = (index: number) => ends[index - 1] ?? startOf(index);
     for (const { check, from, to } of found.values()) {
@@ -149,6 +167,7 @@ export function claimSpans(doc: ProseMirrorNode): ClaimSpan[] {
 
 /** What a check is compared with besides its sentence: the Documents' versions and the Mind's Folder. */
 export interface ClaimContext {
+  figureContexts?: ReadonlyMap<string, string> | null;
   /** Each live Document's current version, by id; null while they aren't known. */
   versions: ReadonlyMap<string, string> | null;
   folderId: string | null;

@@ -69,6 +69,8 @@ interface Unsaved {
 
 /** What the core hears of changes that couldn't be stored. */
 export interface MindContentOptions {
+  /** Runs inside the content write's transaction; an error rolls the write back. */
+  persisted?(mindId: string): void;
   /** Some of the Mind's changes couldn't be stored, or (null) all of them are now. */
   unsaved?(
     mindId: string,
@@ -222,6 +224,7 @@ export function createMindContent(
       const at = now();
       db.transaction(() => {
         for (const row of rows) insert(mindId, row, at, mind.deletedAt);
+        options.persisted?.(mindId);
       });
     } catch (failure) {
       if (waiting?.timer) clearTimeout(waiting.timer);
@@ -309,6 +312,16 @@ export function createMindContent(
       const { doc } = fromStorage(mindId);
       try {
         return Y.encodeStateAsUpdate(doc);
+      } finally {
+        doc.destroy();
+      }
+    },
+
+    /** Reads only committed content (or the current storage transaction), excluding unsaved edits. */
+    readPersisted<T>(mindId: string, look: (doc: Y.Doc) => T): T {
+      const { doc } = fromStorage(mindId, loaded.get(mindId)?.deletedAt != null);
+      try {
+        return look(doc);
       } finally {
         doc.destroy();
       }

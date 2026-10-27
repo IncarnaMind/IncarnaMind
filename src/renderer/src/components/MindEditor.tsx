@@ -9,6 +9,7 @@ import type * as Y from "yjs";
 import { ANSWER_BLOCK, MIND_CONTENT_FIELD } from "../../../core/api";
 import { writingTime } from "../../../shared/blockTimes";
 import type { CitationForm } from "../../../shared/citationStyles";
+import { figureRunsFor } from "../../../shared/figureRuns";
 import { translate } from "../../../shared/i18n";
 import { setMindScope } from "../../../shared/mindScope";
 import { chosenScope } from "../../../shared/searchScope";
@@ -378,7 +379,9 @@ function MindEditorView({
         CitationNumbers.configure({ form: () => formRef.current }),
         CitationClusters,
         ClaimChecks,
-        CopyCitations,
+        CopyCitations.configure({
+          figureRuns: (selected) => (doc ? figureRunsFor(doc, selected) : []),
+        }),
         FootnoteKeys,
         DocumentChipKeys,
         ListKeys,

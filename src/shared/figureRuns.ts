@@ -13,7 +13,7 @@ import { isRecord } from "../core/errors";
 import { ANALYSIS_LIMITS, type AnalysisVersions } from "./analysis";
 import type { NodeJSON } from "./blockJson";
 import {
-  readCalculatedFigureAttributes,
+  readCalculatedFigureEvidence,
   readFigureCitation,
   readFigureInput,
 } from "./calculatedFigures";
@@ -31,10 +31,12 @@ export const figureRunId = (answerId: string, analysis: AnswerAnalysis): string 
     analysis.inputs.map((input) => [input.name, input.sha256]),
   ]);
 
-export function calculatedFiguresIn(blocks: readonly NodeJSON[]): CalculatedFigureAttributes[] {
+export function calculatedFiguresIn(
+  blocks: readonly NodeJSON[],
+): Omit<CalculatedFigureAttributes, "id">[] {
   return blocks.flatMap((node) => {
     const figure =
-      node.type === CALCULATED_FIGURE_NODE ? readCalculatedFigureAttributes(node.attrs) : null;
+      node.type === CALCULATED_FIGURE_NODE ? readCalculatedFigureEvidence(node.attrs) : null;
     if (node.type === CALCULATED_FIGURE_NODE && !figure)
       throw new Error("The calculated figure's record is invalid.");
     return [...(figure ? [figure] : []), ...calculatedFiguresIn(node.content ?? [])];
@@ -174,7 +176,7 @@ export function readFigureRun(value: unknown): RetainedFigureAnalysis | null {
 export function retainFigureAnalysis(
   analysis: AnswerAnalysis,
   id: string,
-  figures: readonly CalculatedFigureAttributes[],
+  figures: readonly Omit<CalculatedFigureAttributes, "id">[],
 ): RetainedFigureAnalysis | null {
   if (analysis.end.kind !== "done") return null;
   const uses = figures.filter(
@@ -213,7 +215,7 @@ export function retainFigureAnalysis(
 type FigureUses = Map<string, Map<string, Set<number | boolean>>>;
 
 function collectUse(attrs: Record<string, unknown>, needed: FigureUses): boolean {
-  const node = readCalculatedFigureAttributes(attrs);
+  const node = readCalculatedFigureEvidence(attrs);
   if (!node) return false;
   const { figure, analysisId } = node;
   if (!figure.analysis) return true;

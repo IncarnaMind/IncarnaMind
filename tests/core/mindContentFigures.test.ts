@@ -473,10 +473,14 @@ describe("core ownership of calculated figures", () => {
     await client.settled();
     const before = core.retention.retainedBy("note-figure", mind.id);
     const restore = refuseWrites(dataDir);
+    expect(before).toHaveLength(2);
     try {
       client.blocks.delete(0, client.blocks.length);
       await client.settled();
       expect(await core.unsavedChanges()).toMatchObject({ mindIds: [mind.id] });
+      expect(core.retention.retainedBy("note-figure", mind.id)).toEqual(before);
+      await core.openMind(mind.id);
+      await core.saveCheckpoint(mind.id, "accept");
       expect(core.retention.retainedBy("note-figure", mind.id)).toEqual(before);
     } finally {
       restore();
@@ -485,7 +489,7 @@ describe("core ownership of calculated figures", () => {
     expect(core.retention.retainedBy("note-figure", mind.id)).toEqual([]);
   });
 
-  test("a refused projection keeps the Note update queued until both can be stored", async () => {
+  test("figure compatibility retention never appears in a real checkpoint's versions or History", async () => {
     const dataDir = await createTempDataFolder();
     const core = startCore(dataDir);
     const mind = await core.createMind();
@@ -499,33 +503,85 @@ describe("core ownership of calculated figures", () => {
       installFigureRuns(client.doc, [analysis]);
     });
     await client.settled();
-    const before = core.retention.retainedBy("note-figure", mind.id);
-    const db = openDatabase(join(dataDir, DATABASE_FILE));
-    db.exec(
-      "CREATE TRIGGER refuse_figure_projection BEFORE UPDATE ON retained_versions WHEN OLD.kind = 'note-figure' BEGIN SELECT RAISE(ABORT, 'database or disk is full'); END",
-    );
-    vi.spyOn(console, "error").mockImplementation(() => {});
-    try {
-      client.blocks.delete(0, client.blocks.length);
-      await client.settled();
-      expect(await core.unsavedChanges()).toMatchObject({ mindIds: [mind.id] });
-      expect(core.retention.retainedBy("note-figure", mind.id)).toEqual(before);
-      const stored = new Y.Doc();
-      for (const row of queryDatabase<{ data: Uint8Array }>(
-        dataDir,
-        "SELECT data FROM mind_updates WHERE mind_id = ? AND deleted_at IS NULL ORDER BY rowid",
-        [mind.id],
-      ))
-        Y.applyUpdate(stored, row.data);
-      expect(stored.getXmlFragment(MIND_CONTENT_FIELD).length).toBe(1);
-      stored.destroy();
-    } finally {
-      db.exec("DROP TRIGGER refuse_figure_projection");
-      db.close();
-    }
-    expect(await core.saveChangesAgain()).toBeNull();
-    expect(core.retention.retainedBy("note-figure", mind.id)).toEqual([]);
+    const alias = `note-figure:${mind.id}`;
+    expect(core.retention.retainedBy("checkpoint", alias)).toHaveLength(2);
+    expect((await core.listCheckpoints(mind.id)).checkpoints).toEqual([]);
+    const checkpoint = await core.saveCheckpoint(mind.id, "accept");
+    const own = core.retention.retainedBy("checkpoint", checkpoint.id);
+    expect(own).toHaveLength(2);
+    core.retention.retain("checkpoint", "note-figure:another-note", [
+      { documentId: "unrelated", contentHash: "unrelated-version" },
+    ]);
+    expect(core.retention.retainedBy("checkpoint", checkpoint.id)).toEqual(own);
+    expect((await core.listCheckpoints(mind.id)).checkpoints.map(({ id }) => id)).toEqual([
+      checkpoint.id,
+    ]);
+    await expect(core.restoreCheckpoint(mind.id, alias)).rejects.toThrow();
+    await expect(
+      core.compareCheckpoints({ mindId: mind.id, from: alias, to: null }),
+    ).rejects.toThrow();
+    client.blocks.delete(0, client.blocks.length);
+    await client.settled();
+    expect(core.retention.retainedBy("checkpoint", alias)).toEqual([]);
+    expect(core.retention.retainedBy("checkpoint", checkpoint.id)).toEqual(own);
+    await core.restoreCheckpoint(mind.id, checkpoint.id);
+    expect(core.retention.retainedBy("checkpoint", alias)).toHaveLength(2);
+    await core.deleteMind(mind.id);
+    await core.deletePermanently([{ kind: "mind", id: mind.id }]);
+    expect(core.retention.retainedBy("checkpoint", alias)).toEqual([]);
+    core.retention.retain("note-figure", mind.id, own);
+    core.retention.retain("checkpoint", alias, own);
+    core.close();
+    const afterOlderPurge = startCore(dataDir);
+    expect(afterOlderPurge.retention.retainedBy("note-figure", mind.id)).toEqual([]);
+    expect(afterOlderPurge.retention.retainedBy("checkpoint", alias)).toEqual([]);
   });
+
+  test.each(["note-figure", "checkpoint"] as const)(
+    "a refused %s projection keeps the Note update queued until both can be stored",
+    async (kind) => {
+      const dataDir = await createTempDataFolder();
+      const core = startCore(dataDir);
+      const mind = await core.createMind();
+      const client = await connectToMind(core, mind.id);
+      const analysis = run(["a"]);
+      analysis.inputs = [
+        { kind: "figure", name: "analysis", input: input("analysis"), sha256: "b".repeat(64) },
+      ];
+      client.doc.transact(() => {
+        append(client.doc, "a");
+        installFigureRuns(client.doc, [analysis]);
+      });
+      await client.settled();
+      const before = core.retention.retainedBy("note-figure", mind.id);
+      const db = openDatabase(join(dataDir, DATABASE_FILE));
+      expect(before).toHaveLength(2);
+      db.exec(
+        `CREATE TRIGGER refuse_figure_projection BEFORE UPDATE ON retained_versions WHEN OLD.kind = '${kind}' BEGIN SELECT RAISE(ABORT, 'database or disk is full'); END`,
+      );
+      vi.spyOn(console, "error").mockImplementation(() => {});
+      try {
+        client.blocks.delete(0, client.blocks.length);
+        await client.settled();
+        expect(await core.unsavedChanges()).toMatchObject({ mindIds: [mind.id] });
+        expect(core.retention.retainedBy("note-figure", mind.id)).toEqual(before);
+        const stored = new Y.Doc();
+        for (const row of queryDatabase<{ data: Uint8Array }>(
+          dataDir,
+          "SELECT data FROM mind_updates WHERE mind_id = ? AND deleted_at IS NULL ORDER BY rowid",
+          [mind.id],
+        ))
+          Y.applyUpdate(stored, row.data);
+        expect(stored.getXmlFragment(MIND_CONTENT_FIELD).length).toBe(1);
+        stored.destroy();
+      } finally {
+        db.exec("DROP TRIGGER refuse_figure_projection");
+        db.close();
+      }
+      expect(await core.saveChangesAgain()).toBeNull();
+      expect(core.retention.retainedBy("note-figure", mind.id)).toEqual([]);
+    },
+  );
 
   test("malformed figure attributes preserve the prior run and source retention", async () => {
     const core = startCore(await createTempDataFolder());

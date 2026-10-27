@@ -84,7 +84,7 @@ test("the shared Note schema retains a calculated figure as one inline atom", ()
   expect(node.isInline).toBe(true);
   expect(node.isAtom).toBe(true);
   expect(node.type.spec.selectable).toBe(true);
-  expect(node.toJSON()).toEqual(json);
+  expect(node.toJSON()).toEqual({ ...json, attrs: { ...json.attrs, claimCheck: null } });
 });
 
 function serialized(value: CalculatedFigure, analysisId: string | null = null) {
@@ -190,7 +190,12 @@ test("clipboard drops extra claimed verdict fields", () => {
   dom.setAttribute("data-figure", JSON.stringify({ ...value, verified: true }));
   dom.setAttribute("data-checked", "true");
   const copy = pasted(document).firstChild?.firstChild;
-  expect(copy?.attrs).toEqual({ id: "figure-1", figure: value, analysisId: null });
+  expect(copy?.attrs).toEqual({
+    id: "figure-1",
+    figure: value,
+    analysisId: null,
+    claimCheck: null,
+  });
 });
 
 test("a malformed direct JSON node cannot emit an HTML receipt", () => {

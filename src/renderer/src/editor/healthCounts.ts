@@ -13,6 +13,7 @@
 import type { Node as ProseMirrorNode } from "@tiptap/pm/model";
 import type { EditorState } from "@tiptap/pm/state";
 import {
+  CALCULATED_FIGURE_NODE,
   CITATION_NODE,
   type CitationAttributes,
   type CitationCheck,
@@ -25,6 +26,7 @@ import {
   type KeptMark,
   keptOn,
 } from "../../../shared/claimChecks";
+import { readFigures } from "../../../shared/figures";
 import { sentenceKey } from "../../../shared/mindCheck";
 import { readProposalAttribute } from "../../../shared/proposals";
 import { isClaim, sentenceSpans } from "../../../shared/sentences";
@@ -138,13 +140,20 @@ function eachSentence(
         : [],
     );
     const table = inTable(doc, pos);
-    for (const span of sentenceSpans(text)) {
+    const figures = inline.filter(({ node }) => node.type.name === CALCULATED_FIGURE_NODE);
+    for (const span of sentenceSpans(
+      text,
+      figures.map(({ at }) => at),
+    )) {
       const from = starts[span.from] ?? pos;
       const to = ends[span.to - 1] ?? from;
       const claim = input.claims.find((each) => each.from < to && each.to > from) ?? null;
       const words = text.slice(span.from, span.to);
       const state = checkedSentence({
         text: words,
+        hasFigures:
+          figures.some(({ at }) => at >= span.from && at < span.to) ||
+          readFigures(words).length > 0,
         check: claim?.shown ?? null,
         skipped: skipped.has(sentenceKey(words)),
         kept: keptOn(kept, { from, to, text: words }),

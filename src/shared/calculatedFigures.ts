@@ -113,7 +113,7 @@ export function readFigureCitation(value: unknown): Citation | null {
   };
 }
 
-function unitOf(value: unknown): ResultUnit | null {
+export function readCalculationUnit(value: unknown): ResultUnit | null {
   if (!isRecord(value)) return null;
   switch (value.kind) {
     case "plain":
@@ -168,7 +168,7 @@ export function readFigureInput(value: unknown): FigureInput | null {
   if (!isRecord(value) || !isRecord(value.number)) return null;
   const number = value.number;
   const citation = readFigureCitation(value.citation);
-  const unit = unitOf(number.unit);
+  const unit = readCalculationUnit(number.unit);
   const scaleWord = optionalText(number.scaleWord);
   const reading = optionalCount(number.reading);
   const cell = cellOf(value.cell);
@@ -240,7 +240,7 @@ function analysisOf(value: unknown): FigureFromAnalysis | null | undefined {
 
 export function readCalculatedFigure(value: unknown): CalculatedFigure | null {
   if (!isRecord(value)) return null;
-  const unit = unitOf(value.unit);
+  const unit = readCalculationUnit(value.unit);
   const show = showOf(value.show);
   const analysis = analysisOf(value.analysis);
   const written = optionalText(value.written);
@@ -301,13 +301,21 @@ export function readCalculatedFigure(value: unknown): CalculatedFigure | null {
   };
 }
 
-export function readCalculatedFigureAttributes(value: unknown): CalculatedFigureAttributes | null {
-  if (!isRecord(value) || !named(value.id)) return null;
+export function readCalculatedFigureEvidence(
+  value: unknown,
+): Omit<CalculatedFigureAttributes, "id"> | null {
+  if (!isRecord(value)) return null;
   const figure = readCalculatedFigure(value.figure);
   const analysisId = value.analysisId == null ? null : value.analysisId;
   if (!figure || (analysisId !== null && !named(analysisId))) return null;
   if (Boolean(figure.analysis) !== (analysisId !== null)) return null;
-  return { id: value.id, figure, analysisId };
+  return { figure, analysisId };
+}
+
+export function readCalculatedFigureAttributes(value: unknown): CalculatedFigureAttributes | null {
+  if (!isRecord(value) || !named(value.id)) return null;
+  const evidence = readCalculatedFigureEvidence(value);
+  return evidence ? { id: value.id, ...evidence } : null;
 }
 
 export function calculatedFigureNode(

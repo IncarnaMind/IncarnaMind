@@ -23,6 +23,7 @@ export const CalculatedFigure = Node.create<CalculatedFigureOptions>({
       id: { default: null, rendered: false, parseHTML: () => null },
       figure: { default: null, rendered: false, parseHTML: () => null },
       analysisId: { default: null, rendered: false, parseHTML: () => null },
+      claimCheck: { default: null, rendered: false, parseHTML: () => null },
     };
   },
 

@@ -28,6 +28,7 @@ import type * as Y from "yjs";
 import { caseCitations } from "../../../shared/caseCitations";
 import { type LiveDocument, withShownName } from "../../../shared/citations";
 import { restsOn } from "../../../shared/claimChecks";
+import { readFigureFinding } from "../../../shared/figureChecks";
 import { mindScopeIn } from "../../../shared/mindScope";
 import { folderScope, oneFolderOf } from "../../../shared/searchScope";
 import { judgesUnreliably } from "../../../shared/smallModel";
@@ -42,8 +43,10 @@ import {
   type CitedQuote,
   type ClaimCheckAction,
   type ClaimCheckAttributes,
+  type ClaimCheckBasis,
   type ClaimCheckResult,
   type ClaimCheckScope,
+  type ClaimJudgment,
   type ContradictionCheckPlan,
   claimCheckActions,
   type Document,
@@ -74,7 +77,13 @@ import { parseSearchScope } from "../../scope";
 import type { AnswerEngine } from "../engine";
 import { type ClaimCheckDependencies, createClaimCheck, recordJudged } from "./claimCheck";
 import { createMindCheck, type MindCheckOptions } from "./mindCheck";
-import { markedSentences, markSentence, selectedSentences, updateCheck } from "./sentences";
+import {
+  checkText,
+  markedSentences,
+  markSentence,
+  selectedSentences,
+  updateCheck,
+} from "./sentences";
 import { createVerify, type NoDocuments, type VerifyOptions } from "./verify";
 import { createContradictionWatch, type WatchOptions } from "./watch";
 import { createWrittenCheck, type WrittenCheckOptions } from "./written";
@@ -242,11 +251,7 @@ const withQuoted = ({ quoted, ...why }: UnsupportedReason): UnsupportedReason =>
 };
 
 /** A result written onto its mark. */
-function withResult(
-  check: ClaimCheckAttributes,
-  result: ClaimCheckResult,
-  at: string,
-): ClaimCheckAttributes {
+function withJudgment(check: ClaimCheckBasis, result: ClaimJudgment, at: string): ClaimCheckBasis {
   const common = { versions: result.versions, excluded: result.excluded, checkedAt: at };
   return result.verdict === "not-checked"
     ? { ...check, ...common, state: "not-checked", reason: result.reason, detail: result.detail }
@@ -263,6 +268,34 @@ function withResult(
         citedCaseUnchecked: result.citedCaseUnchecked,
         citedCaseFound: result.citedCaseFound,
       };
+}
+
+function withResult(
+  check: ClaimCheckAttributes,
+  result: ClaimCheckResult,
+  at: string,
+): ClaimCheckAttributes {
+  const { figures: _figures, remainder: _remainder, ...basis } = check;
+  const next = withJudgment(basis, result, at);
+  if (!result.figures) return next;
+  const figures = result.figures.flatMap((figure) => {
+    const finding = readFigureFinding(figure);
+    return finding
+      ? [{ ...withJudgment({ ...basis, id: finding.id }, figure.result, at), ...finding }]
+      : [];
+  });
+  if (figures.length !== result.figures.length)
+    return { ...next, state: "not-checked", reason: "malformed", detail: null };
+  return {
+    ...next,
+    figures,
+    ...(result.remainder !== undefined && {
+      remainder:
+        result.remainder === null
+          ? null
+          : withJudgment({ ...basis, id: `${basis.id}:remainder` }, result.remainder, at),
+    }),
+  };
 }
 
 const stopped = (check: ClaimCheckAttributes): ClaimCheckAttributes =>
@@ -463,8 +496,7 @@ export function createChecks(options: ChecksOptions) {
         markSentence(sentence.element, sentence.from, sentence.to, check);
         return {
           id: check.id,
-          claim: sentence.text,
-          context: sentence.context,
+          ...checkText(sentence),
           cited: sentence.cited,
         };
       });
@@ -481,6 +513,7 @@ export function createChecks(options: ChecksOptions) {
       const result = await claimCheck({
         claim: sentence.claim,
         context: sentence.context,
+        ...(sentence.figures && { figures: sentence.figures }),
         cited: citedNow(sentence.cited),
         scope: evidenceScope,
         model: ready.prepared,

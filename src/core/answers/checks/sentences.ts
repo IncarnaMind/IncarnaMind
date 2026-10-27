@@ -5,11 +5,14 @@
  * inline node counts as one character.
  */
 import * as Y from "yjs";
+import { readCalculatedFigureEvidence } from "../../../shared/calculatedFigures";
 import { keptOn, readClaimCheck } from "../../../shared/claimChecks";
 import { readProposalAttribute, readProposalRef } from "../../../shared/proposals";
 import { INLINE_NODE, sentenceSpans } from "../../../shared/sentences";
 import {
   BLOCK_ID_ATTRIBUTE,
+  CALCULATED_FIGURE_NODE,
+  type CheckFigure,
   CITATION_NODE,
   type CitedQuote,
   CLAIM_CHECK_MARK,
@@ -21,8 +24,17 @@ import {
   type WaitingSentences,
 } from "../../api";
 import { layout, textBlocks } from "../../proposals/write";
+import { figuresInMind } from "./figureOccurrences";
 
 const BREAK = "hardBreak";
+
+function writeCheck(
+  element: Y.XmlElement<Record<string, string | ClaimCheckAttributes>>,
+  check: ClaimCheckAttributes | null,
+): void {
+  if (check) element.setAttribute(CLAIM_CHECK_MARK, { ...check });
+  else element.removeAttribute(CLAIM_CHECK_MARK);
+}
 
 type Attributes = Record<string, unknown>;
 
@@ -43,6 +55,7 @@ export interface SelectedSentence {
   context: string;
   /** What its Citations quote. */
   cited: CitedQuote[];
+  figures?: CheckFigure[];
 }
 
 export type SelectedSentences =
@@ -63,6 +76,60 @@ export function textOf(element: Y.XmlElement): string {
     )
     .join("");
 }
+
+export function sentenceSpansIn(element: Y.XmlElement) {
+  return sentenceSpans(
+    textOf(element),
+    layout(element).flatMap(({ node, start }) =>
+      node instanceof Y.XmlElement && node.nodeName === CALCULATED_FIGURE_NODE ? [start] : [],
+    ),
+  );
+}
+
+export function wordsOf(element: Y.XmlElement, from = 0, to = textOf(element).length): string {
+  let words = textOf(element).slice(from, to);
+  for (const { node, start } of layout(element).reverse()) {
+    if (
+      !(node instanceof Y.XmlElement) ||
+      node.nodeName !== CALCULATED_FIGURE_NODE ||
+      start < from ||
+      start >= to
+    )
+      continue;
+    const figure = readCalculatedFigureEvidence(node.getAttributes());
+    if (figure)
+      words = words.slice(0, start - from) + figure.figure.shown + words.slice(start - from + 1);
+  }
+  return words;
+}
+
+export function checkText(sentence: SelectedSentence) {
+  return {
+    claim: wordsOf(sentence.element, sentence.from, sentence.to),
+    context: sentence.figures?.[0]?.context ?? wordsOf(sentence.element),
+    ...(sentence.figures?.length && { figures: sentence.figures }),
+  };
+}
+
+function indexFigures(blocks: Y.XmlFragment): ReadonlyMap<string, CheckFigure[]> {
+  const index = new Map<string, CheckFigure[]>();
+  for (const figure of figuresInMind(blocks)) {
+    if (figure.locator.kind !== "text") continue;
+    const id = figure.locator.from.blockId;
+    const values = index.get(id) ?? [];
+    values.push(figure);
+    index.set(id, values);
+  }
+  return index;
+}
+
+const inSpan = (figures: readonly CheckFigure[], from: number, to: number) =>
+  figures.filter(
+    (figure) =>
+      figure.locator.kind === "text" &&
+      figure.locator.from.offset >= from &&
+      figure.locator.to.offset <= to,
+  );
 
 function changesIn(element: Y.XmlElement, from: number, to: number): string[] {
   const found = new Set<string>();
@@ -119,6 +186,7 @@ export function selectedSentences(
   stretches: readonly TextStretch[],
 ): SelectedSentences {
   const all = textBlocks(blocks);
+  const figures = indexFigures(blocks);
   const idOf = (element: Y.XmlElement) => element.getAttribute(BLOCK_ID_ATTRIBUTE);
   const sentences: SelectedSentence[] = [];
   const waiting: WaitingSentences = { sentences: [], changeIds: [] };
@@ -134,7 +202,7 @@ export function selectedSentences(
       const text = textOf(element);
       const start = index === 0 ? from.offset : 0;
       const end = index === last - first ? to.offset : text.length;
-      for (const span of sentenceSpans(text)) {
+      for (const span of sentenceSpansIn(element)) {
         const touched =
           start === end
             ? span.from <= start && start <= span.to
@@ -159,6 +227,7 @@ export function selectedSentences(
           text: text.slice(span.from, span.to),
           context: text,
           cited: citedIn(element, span.from, span.to),
+          figures: inSpan(figures.get(blockId) ?? [], span.from, span.to),
         });
       }
     }
@@ -170,11 +239,12 @@ export function selectedSentences(
 
 /** Every sentence of the Mind's paragraphs, in order, but those holding a change still waiting. */
 export function everySentence(blocks: Y.XmlFragment): SelectedSentence[] {
+  const figures = indexFigures(blocks);
   return textBlocks(blocks).flatMap(({ element, busy }) => {
     const blockId = element.getAttribute(BLOCK_ID_ATTRIBUTE);
     if (busy || element.nodeName !== "paragraph" || typeof blockId !== "string") return [];
     const text = textOf(element);
-    return sentenceSpans(text).flatMap((span) =>
+    return sentenceSpansIn(element).flatMap((span) =>
       changesIn(element, span.from, span.to).length > 0
         ? []
         : [
@@ -186,6 +256,7 @@ export function everySentence(blocks: Y.XmlFragment): SelectedSentence[] {
               text: text.slice(span.from, span.to),
               context: text,
               cited: citedIn(element, span.from, span.to),
+              figures: inSpan(figures.get(blockId) ?? [], span.from, span.to),
             },
           ],
     );
@@ -199,6 +270,14 @@ export function markSentence(
   to: number,
   check: ClaimCheckAttributes,
 ): void {
+  const parts = layout(element).filter(({ start, size }) => start < to && start + size > from);
+  const hasText = parts.some(({ node }) => node instanceof Y.XmlText);
+  let owned = false;
+  for (const { node } of parts) {
+    if (!(node instanceof Y.XmlElement) || node.nodeName !== CALCULATED_FIGURE_NODE) continue;
+    writeCheck(node, !hasText && !owned ? check : null);
+    owned = true;
+  }
   for (const { node, start, size } of layout(element)) {
     if (!(node instanceof Y.XmlText)) continue;
     const begin = Math.max(from, start);
@@ -217,6 +296,13 @@ export function unmarkSentence(
 ): boolean {
   let removed = false;
   for (const { node, start } of layout(element)) {
+    if (node instanceof Y.XmlElement && node.nodeName === CALCULATED_FIGURE_NODE) {
+      const check = readClaimCheck(node.getAttribute(CLAIM_CHECK_MARK));
+      if (check?.action === action && start < to && start + 1 > from) {
+        writeCheck(node, null);
+        removed = true;
+      }
+    }
     if (!(node instanceof Y.XmlText)) continue;
     let offset = start;
     for (const run of node.toDelta() as Run[]) {
@@ -248,6 +334,11 @@ export function markedSentences(blocks: Y.XmlFragment): MarkedSentence[] {
   const found = new Map<string, MarkedSentence>();
   for (const { element } of textBlocks(blocks)) {
     for (const { node, start } of layout(element)) {
+      if (node instanceof Y.XmlElement && node.nodeName === CALCULATED_FIGURE_NODE) {
+        const check = readClaimCheck(node.getAttribute(CLAIM_CHECK_MARK));
+        if (check && !found.has(check.id))
+          found.set(check.id, { element, from: start, to: start + 1, check });
+      }
       if (!(node instanceof Y.XmlText)) continue;
       let offset = start;
       for (const run of node.toDelta() as Run[]) {
@@ -289,7 +380,7 @@ export function checkedSentences(
   return markedSentences(blocks).map((marked) => {
     const { element, from, to } = marked;
     const text = textOf(element);
-    const touched = sentenceSpans(text).filter((span) => span.from < to && span.to > from);
+    const touched = sentenceSpansIn(element).filter((span) => span.from < to && span.to > from);
     const start = Math.min(from, touched[0]?.from ?? from);
     const end = Math.max(to, touched.at(-1)?.to ?? to);
     return { ...marked, sentence: text.slice(start, end), cited: citedIn(element, start, end) };
@@ -316,6 +407,10 @@ export function updateCheck(
   const marked = markedSentences(blocks).find((each) => each.check.id === id);
   if (!marked) return false;
   for (const { node } of layout(marked.element)) {
+    if (node instanceof Y.XmlElement && node.nodeName === CALCULATED_FIGURE_NODE) {
+      const check = readClaimCheck(node.getAttribute(CLAIM_CHECK_MARK));
+      if (check?.id === id) writeCheck(node, change(check));
+    }
     if (!(node instanceof Y.XmlText)) continue;
     let offset = 0;
     for (const run of node.toDelta() as Run[]) {

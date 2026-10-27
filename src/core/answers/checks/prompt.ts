@@ -4,7 +4,7 @@
  * `cite`, as marker 1, then replies with its verdict on the first line and
  * one sentence on what the Document says, carrying the marker.
  */
-import type { CitationSupport, ClaimVerdict } from "../../api";
+import type { CheckFigure, CitationSupport, ClaimVerdict } from "../../api";
 import { LANGUAGE_NAMES, type Language } from "../../language";
 
 const VERDICTS: readonly ClaimVerdict[] = ["supported", "unsupported", "contradicted"];
@@ -58,12 +58,27 @@ const RECORD = `the Passage's id, where the quote is as the Passage names it (it
  * What a model offered `calculate` is told of a figure the sentence states
  * that no Passage does (#707): IncarnaMind works it out and compares.
  */
-const CALCULATE = [
-  "A figure the sentence states that no Passage states, but that numbers in the Passages give (a ratio, a growth rate or other change, a share, a sum or a difference), isn't judged in your head:",
-  "- find the numbers it comes from, for the same thing, period and units as the sentence;",
-  '- call calculate with one figure, marker 1: its inputs, a formula that gives the figure as the sentence states it (for "fell 5%", the fall: (a - b) / a), and stated, the number as the sentence writes it ("1.1x");',
-  '- an input keeps its sign as the Passage writes it: an amount in brackets, "(12,500)", is negative, so take a deduction written in brackets off a total by adding it (price + fee), never by subtracting it;',
-  "- IncarnaMind works it out and compares it with the sentence's number, to its rounding. Then reply as below.",
+const calculationInstructions = (figures: boolean) =>
+  [
+    "A figure the sentence states that no Passage states, but that numbers in the Passages give (a ratio, a growth rate or other change, a share, a sum or a difference), isn't judged in your head:",
+    "- find the numbers it comes from, for the same thing, period and units as the sentence;",
+    figures
+      ? "- call calculate with a distinct marker for each requested figure you work out: its cited inputs, its formula and stated, the requested figure as written; bind that calculate marker to its exact requested id in Figures. Never infer the id from a matching value;"
+      : '- call calculate with one figure, marker 1: its inputs, a formula that gives the figure as the sentence states it (for "fell 5%", the fall: (a - b) / a), and stated, the number as the sentence writes it ("1.1x");',
+    '- an input keeps its sign as the Passage writes it: an amount in brackets, "(12,500)", is negative, so take a deduction written in brackets off a total by adding it (price + fee), never by subtracting it;',
+    "- IncarnaMind works it out and compares it with the sentence's number, to its rounding. Then reply as below.",
+  ].join("\n");
+
+const FIGURE_INSTRUCTIONS = [
+  "For the requested figures, append exactly one final line beginning Figures: followed by one JSON object. Do not add more Verdict lines and do not omit a requested id.",
+  'Its shape is {"items":[{"id":"the exact requested id","verdict":"supported","scope":"same","topic":"found","roles":"same","says":null,"reading":null,"relation":"equals","source":{"citation":1,"position":1,"reading":null,"unitQuote":null},"calculation":null}],"remainder":null}.',
+  "Give every requested id exactly once, and no other id. Each verdict is supported, unsupported or contradicted; scope same or wider; topic found or not found; roles same or differs; says is a plain sentence or null. Covered and uncovered may name short parts, or be null.",
+  "Match the exact subject, period, column, unit and obligation of each occurrence from its own context. Equal values alone never support a match. Use topic not found, scope wider or roles differs when appropriate, not a numeric match from another subject or period.",
+  "If an occurrence offers one ambiguity with readings, give reading as its one-based offered own reading, choosing only from that list using its context. This is separate from source.reading. Never supply a value yourself. Leave multiple unresolved ambiguities unchecked; never combine choices. A range remains a range, never an endpoint choice. An unambiguous occurrence needs no reading.",
+  "For a value stated directly in a quote recorded by cite, source names its citation marker and the number's one-based position in that quote. reading is the one-based reader choice only when needed; unitQuote is the exact heading or row-unit quote when needed. Never type a numerical value as a source.",
+  "For a calculation made in this run, set calculation to its calculate marker and source to null. A saved formula can instead be checked from its saved inputs when both are null. Retained Analysis code or a receipt is not a newly executed calculation: do not invent a formula or claim it was recalculated.",
+  "Use exactly one of source and calculation, or both null for an unsupported/unavailable binding. relation is equals, at most or at least, according to the User's words; never loosen a limit to its rounding.",
+  'remainder is null ONLY when the sentence has no assertion beyond those requested numeric facts. Otherwise give its independent {"text":"an exact nonnumeric assertion copied from the sentence","verdict":"supported","scope":"same","topic":"found","roles":"same","says":null,"citation":1}. Do not repeat the whole numerical verdict as the remainder. Preserve an adverse qualitative assertion even when all figures agree.',
 ].join("\n");
 
 /**
@@ -76,16 +91,19 @@ export function checkInstructions(
   language: Language,
   passages = "",
   calculate = false,
+  figures = false,
 ): string {
-  const REPLY = reply(language);
+  const REPLY = reply(language) + (figures ? `\n\n${FIGURE_INSTRUCTIONS}` : "");
   switch (mode) {
     case "tools":
       return [
         ...RULES,
         "",
         "Search the Documents with search_documents for what the sentence claims, in the Documents' language. Search again with other words if the Passages don't decide it; three searches at most.",
-        `For supported or contradicted, before you reply call cite once with one record, marker 1: ${RECORD}.`,
-        ...(calculate ? ["", CALCULATE] : []),
+        figures
+          ? `Before replying, use cite to record every quote used by a requested figure or remainder, each under its own marker: ${RECORD}.`
+          : `For supported or contradicted, before you reply call cite once with one record, marker 1: ${RECORD}.`,
+        ...(calculate ? ["", calculationInstructions(figures)] : []),
         "",
         REPLY,
       ].join("\n");
@@ -97,7 +115,9 @@ export function checkInstructions(
         passages,
         "",
         'Reply with one JSON object: {"answer": "…", "citations": [{"marker": 1, "passage": "P1", "location": "…", "quote": "…"}]}.',
-        `- answer: your reply, in the form below. citations: for supported or contradicted, one record, marker 1: ${RECORD}. None for unsupported.`,
+        figures
+          ? `- answer: your reply, in the form below. citations: every quote used for a requested figure or remainder, under distinct markers: ${RECORD}.`
+          : `- answer: your reply, in the form below. citations: for supported or contradicted, one record, marker 1: ${RECORD}. None for unsupported.`,
         "",
         REPLY,
       ].join("\n");
@@ -121,6 +141,7 @@ export function claimPrompt(input: {
   context?: string;
   cited?: readonly { documentName: string; quote: string }[];
   language: Language;
+  figures?: readonly CheckFigure[];
 }): string {
   const context = input.context?.trim();
   const cited = input.cited ?? [];
@@ -141,6 +162,24 @@ export function claimPrompt(input: {
       : []),
     "The sentence to check:",
     `<sentence>\n${input.claim.trim()}\n</sentence>`,
+    ...((input.figures?.length ?? 0) > 0
+      ? [
+          "",
+          "Exact requested occurrences; their ids and locations distinguish repeated equal values:",
+          `<figures>\n${JSON.stringify(
+            input.figures?.map(({ id, locator, reading, calculated, context, label }) => ({
+              id,
+              locator,
+              shown: reading.chars,
+              unit: reading.unit,
+              ...(reading.ambiguous.length > 0 && { ambiguities: reading.ambiguous }),
+              ...(context && { context }),
+              ...(label && { label }),
+              ...(calculated && { saved: calculated.figure }),
+            })),
+          )}\n</figures>`,
+        ]
+      : []),
     "",
     `Write your sentence in ${LANGUAGE_NAMES[input.language]}.`,
   ].join("\n");
