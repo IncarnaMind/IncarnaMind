@@ -721,6 +721,7 @@ export const zhCN = {
   "claim.unsupported.notFound.more": "未在“{scope}”等 {total} 项中找到。",
   "claim.checkedIn": "已对照“{scope}”核对",
   "claim.checkedIn.more": "已对照“{scope}”等 {total} 项核对",
+  "claim.limit": "可能漏掉义务的变化，比如把“可以”写成“应当”",
   "claim.unsupported.differs": "你的文档里是另一种说法：",
   "claim.unsupported.covers.one": "引用支持{covered}，但不支持{uncovered}的部分。",
   "claim.unsupported.covers.other": "引用支持{covered}，但不支持{uncovered}的部分。",

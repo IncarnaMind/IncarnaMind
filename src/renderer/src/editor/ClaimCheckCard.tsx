@@ -778,6 +778,11 @@ function ClaimCard({
             : t("claim.checkedIn", { scope: lookedIn })}
         </p>
       )}
+      {state === "supported" && (
+        <p data-testid="claim-limit" className="citation-card-note">
+          {t("claim.limit")}
+        </p>
+      )}
       {check.excluded.map((left) => {
         const document = documents.find((each) => each.id === left.documentId);
         const name = left.documentName || document?.name || "";
