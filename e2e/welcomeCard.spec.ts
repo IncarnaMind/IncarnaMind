@@ -339,7 +339,7 @@ const LONG_NAME =
   "Protocol for the joint harbour authority quarterly tide-table review and its winter dredging schedule";
 /** Pages enough that reading the file takes a moment the test can see the card in. */
 const SLOW = buildPdf(
-  Array.from({ length: 250 }, (_none, page) => ({
+  Array.from({ length: 800 }, (_none, page) => ({
     lines: [
       `Harbour times, page ${page + 1}`,
       "Harbours publish the times of high water every 12 months.",
@@ -389,14 +389,39 @@ for (const language of ["en", "zh-CN"] as const) {
         const card = a.window.getByTestId("first-open-steps");
         const height = async () => Math.round((await card.boundingBox())?.height ?? 0);
 
+        // The reading line can be on screen for only a frame or two: record it as the card's text
+        // changes, then wait for the record, rather than read the text once and hope to catch it.
+        const readingLine =
+          language === "en" ? "Reading “Harbour times”…" : "正在读取“Harbour times”…";
+        await a.window.evaluate((expected) => {
+          const seen = { text: false };
+          (globalThis as unknown as { cardReadingLine?: typeof seen }).cardReadingLine = seen;
+          const scan = () => {
+            const card = document.querySelector('[data-testid="first-open-steps"]');
+            if (card?.parentElement?.textContent?.includes(expected)) seen.text = true;
+          };
+          new MutationObserver(scan).observe(document.body, {
+            subtree: true,
+            childList: true,
+            characterData: true,
+          });
+          scan();
+        }, readingLine);
+
         await interceptOpenDialog(a.app, slow);
         await pointAndClick(a.window, step(a.window, "files").getByTestId("first-open-add-files"));
         await expect.poll(async () => (await ownDocuments(a.window)).reading).toBe(true);
         const reading = await height();
         // The Ask step's line, in the states laid out unseen, says the file is reading.
         await expect
-          .poll(async () => card.evaluate((element) => element.parentElement?.textContent ?? ""))
-          .toContain(language === "en" ? "Reading “Harbour times”…" : "正在读取“Harbour times”…");
+          .poll(() =>
+            a.window.evaluate(
+              () =>
+                (globalThis as unknown as { cardReadingLine?: { text: boolean } }).cardReadingLine
+                  ?.text ?? false,
+            ),
+          )
+          .toBe(true);
 
         await expect
           .poll(async () => (await ownDocuments(a.window)).ready, { timeout: 90_000 })
