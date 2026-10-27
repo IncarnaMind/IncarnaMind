@@ -1992,7 +1992,7 @@ export const en = {
   "settings.notifications": "Notifications",
   "settings.taskNotifications": "Task notifications",
   "settings.taskNotifications.tip":
-    "When a Task needs you or finishes, unless its Note is on screen.",
+    "When a Task needs you or finishes, unless its note is on screen.",
   "settings.close": "Close Settings",
   "settings.about.title": "About",
   "settings.about.body": "IncarnaMind is open source, under the Apache 2.0 license.",
