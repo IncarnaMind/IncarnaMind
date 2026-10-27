@@ -1,4 +1,4 @@
-import { access, readdir, readFile } from "node:fs/promises";
+import { access, readdir, readFile, writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import type { Node as ProseMirrorNode } from "@tiptap/pm/model";
 import { describe, expect, test, vi } from "vitest";
@@ -16,8 +16,10 @@ import { EXAMPLE_SETS } from "../../src/core/exampleSets";
 import type { Language } from "../../src/core/language";
 import { openDatabase } from "../../src/core/storage";
 import { createTempDataFolder, startCore } from "../helpers/core";
+import { waitForProcessing } from "../helpers/documents";
 import { appendParagraph, connectToMind } from "../helpers/mindClient";
 import { readMind } from "../helpers/minds";
+import { buildPdf } from "../helpers/pdf";
 
 /** The example Documents the app ships. */
 const EXAMPLES = resolve(__dirname, "../../resources/examples");
@@ -218,6 +220,39 @@ describe("the example Mind", { timeout: 30_000 }, () => {
     ]);
     expect(answerEvents).not.toHaveBeenCalled();
   });
+
+  test.each(["en", "zh-CN"] as const)(
+    "%s: the ready Answer does not place a repeated source quote at its first occurrence",
+    async (language) => {
+      const { core } = await startWithExamples(language);
+      await core.offerExamples();
+      const documents = await vi.waitFor(async () => {
+        const documents = await core.listDocuments();
+        expect(documents).toHaveLength(2);
+        expect(documents.every((document) => document.status === "ready")).toBe(true);
+        return documents;
+      });
+      const quote = EXAMPLE_SETS.credit[language].ready?.quotes[0];
+      const document = documents.find((document) => document.name === quote?.document);
+      if (!document || !quote) throw new Error("The ready Answer's Document is missing.");
+      await writeFile(
+        document.path,
+        buildPdf([{ printed: [{ text: quote.quote }, { text: quote.quote }] }]),
+      );
+      await core.reconcileDocuments();
+      await waitForProcessing(core, [document.id]);
+
+      const asked = await core.askReadyQuestion();
+      const { messages } = await core.getConversation(asked.conversationId);
+      const answer = messages.find((message) => message.id === asked.answerId);
+      expect(answer?.kind === "answer" && answer.citations[0]).toMatchObject({
+        check: "not-found",
+        pageFrom: null,
+        pageTo: null,
+      });
+      core.close();
+    },
+  );
 
   test("there is no ready Question without the credit paper", async () => {
     const core = startCore(await createTempDataFolder());

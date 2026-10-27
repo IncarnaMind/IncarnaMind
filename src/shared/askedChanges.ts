@@ -43,8 +43,15 @@ const marked = (run: Run, mark: string) => {
   return value !== undefined && value !== null;
 };
 
-/** How much of the User's own text in the Mind, not AI text, the requests' changes take out: a share from 0 to 1. */
-export function ownTextRemoved(blocks: Y.XmlFragment, requests: ReadonlySet<string>): number {
+interface OwnTextMeasurement {
+  own: number;
+  removed: number;
+}
+
+function measureOwnText(
+  blocks: Y.XmlFragment | Y.XmlElement,
+  requests: ReadonlySet<string>,
+): OwnTextMeasurement {
   let own = 0;
   let removed = 0;
   const visit = (parent: Y.XmlFragment | Y.XmlElement, goes: boolean) => {
@@ -64,6 +71,20 @@ export function ownTextRemoved(blocks: Y.XmlFragment, requests: ReadonlySet<stri
     }
   };
   visit(blocks, false);
+  return { own, removed };
+}
+
+/** How much original User text a Block or Mind holds, excluding AI and inserted text. */
+export function ownTextLength(blocks: Y.XmlFragment | Y.XmlElement): number {
+  return measureOwnText(blocks, new Set()).own;
+}
+
+/** How much of the User's own text in the Mind, not AI text, the requests' changes take out: a share from 0 to 1. */
+export function ownTextRemoved(
+  blocks: Y.XmlFragment | Y.XmlElement,
+  requests: ReadonlySet<string>,
+): number {
+  const { own, removed } = measureOwnText(blocks, requests);
   return own === 0 ? 0 : removed / own;
 }
 
@@ -72,12 +93,18 @@ export function askedFor(doc: Y.Doc, request: string): boolean {
   return made !== null && "requested" in made && made.requested !== undefined;
 }
 
-function translates(doc: Y.Doc, requests: ReadonlySet<string>): boolean {
+/** The requests in this Mind that the window applies, excluding other Minds and unrequested revisions. */
+export function requestedRequests(doc: Y.Doc, requests: ReadonlySet<string>): Set<string> {
+  return new Set([...requests].filter((request) => askedFor(doc, request)));
+}
+
+export function translationRequested(doc: Y.Doc, requests: ReadonlySet<string>): boolean {
   return [...requests].every((request) => {
     const made = proposalRequestOf(doc, request);
+    if (made?.source !== "edit-with-ai" && made?.source !== "answer-added") return false;
     return (
-      made?.source === "edit-with-ai" &&
-      (made.action === "translate" || TRANSLATION.test(made.instruction ?? ""))
+      ("action" in made && made.action === "translate") ||
+      ("instruction" in made && TRANSLATION.test(made.instruction ?? ""))
     );
   });
 }
@@ -85,7 +112,7 @@ function translates(doc: Y.Doc, requests: ReadonlySet<string>): boolean {
 export function waitsForUser(doc: Y.Doc, requests: ReadonlySet<string>): boolean {
   return (
     requests.size > 0 &&
-    !translates(doc, requests) &&
+    !translationRequested(doc, requests) &&
     ownTextRemoved(doc.getXmlFragment(MIND_CONTENT_FIELD), requests) > MOST_OF_YOUR_TEXT
   );
 }

@@ -4,6 +4,7 @@ import { type ElectronApplication, expect, type Locator, type Page, test } from 
 import type { CoreBridge } from "../src/core/api";
 import { buildPdf } from "../tests/helpers/pdf";
 import {
+  addFilesLabel,
   askInAssistant,
   assistantAnswers,
   confirmLink,
@@ -19,7 +20,6 @@ import {
   openPageMenu,
   paletteFound,
   pointAndClick,
-  previewLink,
   removeDataFolder,
   setLanguage,
   setSidebarWidth,
@@ -608,7 +608,7 @@ test("Ask a question and Add your files do their step on a click, Enter or Space
 });
 
 for (const language of ["en", "zh-CN"] as const) {
-  test(`Add files… and Link a folder… are under step 1 from the start, and what is added ticks step 1 alone, in ${language} (#1574)`, async () => {
+  test(`Add files or a folder… is under step 1 from the start, and what is added ticks step 1 alone, in ${language} (#1574)`, async () => {
     const sources = await createDataFolder();
     const notes = join(sources, "Harbour notes.md");
     await writeFile(notes, "# Harbour notes\n\nThe harbour master publishes the tide tables.\n");
@@ -622,30 +622,23 @@ for (const language of ["en", "zh-CN"] as const) {
       await expect(step(window, "question")).toHaveAttribute("data-state", "later");
 
       const add = files.getByTestId("first-open-add-files");
-      const link = files.getByTestId("first-open-link-folder");
-      await expect(add).toHaveText(language === "en" ? "Add files…" : "添加文件…");
-      await expect(link).toHaveText(language === "en" ? "Link a folder…" : "添加同步文件夹…");
+      await expect(add).toHaveText(addFilesLabel(language));
       await expect(files).toContainText(
         language === "en"
           ? "Your files stay where they are. IncarnaMind reads them on this computer."
           : "你的文件留在原处，IncarnaMind 在这台电脑上读取它们。",
       );
-      const [cardBox, title, addBox, linkBox] = await Promise.all([
+      const [cardBox, title, addBox] = await Promise.all([
         card.boundingBox(),
         files.getByTestId("first-open-step-do").boundingBox(),
         add.boundingBox(),
-        link.boundingBox(),
       ]);
-      if (!cardBox || !title || !addBox || !linkBox) throw new Error("Step 1 isn't laid out.");
-      expect(addBox.y, "the buttons sit under the title").toBeGreaterThan(title.y + title.height);
-      expect(linkBox.x + linkBox.width, "and inside the card").toBeLessThanOrEqual(
+      if (!cardBox || !title || !addBox) throw new Error("Step 1 isn't laid out.");
+      expect(addBox.y, "the button sits under the title").toBeGreaterThan(title.y + title.height);
+      expect(addBox.x + addBox.width, "and inside the card").toBeLessThanOrEqual(
         cardBox.x + cardBox.width,
       );
-      expect(linkBox.y + linkBox.height).toBeLessThanOrEqual(cardBox.y + cardBox.height);
-
-      const dialog = await previewLink(app, window, sources, link);
-      await window.keyboard.press("Escape");
-      await expect(dialog).toBeHidden();
+      expect(addBox.y + addBox.height).toBeLessThanOrEqual(cardBox.y + cardBox.height);
       expect(await gettingStarted(window)).toMatchObject({ indexed: false });
 
       await interceptOpenDialog(app, notes);
@@ -677,9 +670,9 @@ test("a folder linked on the first step ticks step 1 alone (#1574)", async () =>
     await setWindowSize(app, window, 1440, 900);
     const files = step(window, "files");
     await expect(files).toHaveAttribute("data-state", "open");
-    await confirmLink(
-      await previewLink(app, window, sources, files.getByTestId("first-open-link-folder")),
-    );
+    await interceptOpenDialog(app, sources);
+    await pointAndClick(window, files.getByTestId("first-open-add-files"));
+    await confirmLink(window.getByTestId("link-folder-dialog"));
     await expect(files).toHaveAttribute("data-state", "done", { timeout: 20_000 });
     await expect(step(window, "question")).toHaveAttribute("data-state", "open");
     await expect(step(window, "citation")).toHaveAttribute("data-state", "later");

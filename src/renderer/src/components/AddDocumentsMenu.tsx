@@ -17,7 +17,7 @@ import { usePopoverMenu } from "./usePopoverMenu";
 
 /**
  * The Library's one primary button, "Add Documents ▾": files from this
- * computer, a folder that stays in sync, a web page, Find sources (#296), an
+ * computer, a folder read where it is, a web page, Find sources (#296), an
  * app to connect, and references from a reference manager (#287). A menu
  * button, its items reached with the arrow keys, as the sidebar's "+" is.
  */

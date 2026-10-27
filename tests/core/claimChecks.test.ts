@@ -684,6 +684,39 @@ describe("One claim check", () => {
     ).toMatchObject({ verdict: "unsupported", versions: [] });
   });
 
+  test("a check Run whose quote was refused gives its verdict after the fix, though its model writes Answers before citing (#489)", async () => {
+    const quote = "Spring tides happen at new moon and at full moon";
+    const model = scriptedModel(
+      (call) => {
+        const searched = call.results.find((result) => result.tool === "search_documents");
+        const cites = call.results.filter((result) => result.tool === "cite").length;
+        if (!searched) return checkReply(call, PLANS);
+        const passage = shownPassages(searched.text)[0]?.id;
+        const cite = (quoted: string) => ({
+          tool: "cite",
+          input: { citations: [{ marker: 1, passage, quote: quoted }] },
+        });
+        if (cites === 0) {
+          return {
+            text: "Tides says spring tides happen at new and full moon [^1].",
+            calls: [cite("Spring tides happen every week")],
+          };
+        }
+        return cites === 1 ? { calls: [cite(quote)] } : { text: "Verdict: supported" };
+      },
+      { generate: checkGenerate(PLANS) },
+    );
+    const { core } = await setUpWithDocuments(model, [TIDES], {
+      answerPaths: { writesThenCites: () => true },
+    });
+
+    expect(await core.checkClaim({ claim: SUPPORTED })).toMatchObject({
+      verdict: "supported",
+      evidence: { check: "found" },
+    });
+    expect(model.doStreamCalls).toHaveLength(4);
+  });
+
   test("the quotes a sentence cites name their Document as it is now, and as cited once it is gone", async () => {
     const calls: ModelCall[] = [];
     const { core, client, check, tides } = await mindWith(
@@ -2484,11 +2517,15 @@ describe("A quote whose page mentions it before its Passage (#1981)", () => {
   ).join("\n\n");
   const REPORT = ["# 雪松业绩", "", `详见 ${HEADING}。`, "", FILLER, "", HEADING, "收入为400.0"];
 
-  const check = async (contents: string) => {
+  const check = async (
+    contents: string,
+    quote = HEADING,
+    problem = /the quote occurs more than once/,
+  ) => {
     const calculation = {
       inputs: [
         { name: "base", label: "2026年收入", quote: "收入为400.0", number: "400.0" },
-        { name: "section", label: "章节号", quote: HEADING, number: "3.1" },
+        { name: "section", label: "章节号", quote, number: "3.1" },
       ],
       formula: "base * section",
       as: "number",
@@ -2543,9 +2580,13 @@ describe("A quote whose page mentions it before its Passage (#1981)", () => {
     const replies = calls
       .flatMap((call) => call.results)
       .filter((each) => each.tool === "calculate");
-    expect(replies.at(-1)?.text).toMatch(/the quote has no number "3\.1"/);
+    expect(replies.at(-1)?.text).toMatch(problem);
     expect(result).toMatchObject({ verdict: "unsupported" });
   };
+
+  test("a unique quote of the heading still refuses its section number", async () => {
+    await check(REPORT.join("\n"), `${HEADING}\n收入为400.0`, /the quote has no number "3\.1"/);
+  });
 
   // protects=a quote of the real heading is read where its own Passage has it, so 3.1 stays a heading's number and calculate refuses it; fails_when=the earlier mention on the page places the quote after "详见 ", 3.1 reads as a figure, and the check is Supported on 3.1 × 400.0; no_claim=none beyond protects.
   test("reads the heading as a heading, not as a figure from the earlier mention", async () => {

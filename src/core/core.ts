@@ -49,10 +49,13 @@ import { createAgentSetup, skillInstalled } from "./agents/setup";
 import { createAiUse } from "./aiUse";
 import { createAiUseStatement } from "./aiUseStatement";
 import { createAiSdkAnswerEngine, createAnswers } from "./answers";
+import { createAskedChanges } from "./answers/applyAsked";
 import { createChecks } from "./answers/checks";
 import { AFTER_NEW_VERSION_MS, CLAIM_TIME_LIMIT_MS } from "./answers/checks/watch";
 import {
   citeSelection,
+  locateQuote,
+  matchingOf,
   recheckCitation,
   recheckKept,
   recheckWhereSelected,
@@ -215,6 +218,7 @@ import { nativePageSetup } from "./pageSetup";
 import { createPrivacy, type NetworkTrafficRegistry } from "./privacy";
 import { KeyCharacterError, storedApiKey } from "./providers/apiKey";
 import { readsImages } from "./providers/capabilities";
+import { retrievesFirst, writesThenCites } from "./providers/catalog/answerPaths";
 import { CHAT_FLOW_SENDS, createChat, type PreparedChatModel } from "./providers/chat";
 import { CHATGPT_PLAN_ENDPOINTS, createChatGptPlan } from "./providers/chatgpt/plan";
 import { createClaudeAccount } from "./providers/claudeAccount/account";
@@ -1467,6 +1471,13 @@ export function createCore(adapters: CoreAdapters): Core {
     },
   };
 
+  const askedChanges = createAskedChanges(content, {
+    now,
+    requireMind: (mindId) => writableMind(mindId).id,
+    recordAiUse: (inputs) => void aiUse.record(inputs),
+    reportError: (mindId, error) =>
+      console.error(`AI use recording failed for Mind ${mindId}:`, error),
+  });
   const answers = createAnswers({
     content,
     events,
@@ -1486,6 +1497,10 @@ export function createCore(adapters: CoreAdapters): Core {
     defaultModel: () => settings.get().user.chatModel,
     readiness: async (choice) => chat.readiness(await chat.answeringModel(choice)),
     prepareModel: (choice, thinking) => chat.prepareModel(choice, "chat", thinking),
+    writesThenCites: ({ provider, modelId }, flow) =>
+      writesThenCites({ catalogId: provider.catalogId, modelId }, flow, adapters.answerPaths),
+    retrievesFirst: ({ provider, modelId }, flow) =>
+      retrievesFirst({ catalogId: provider.catalogId, modelId }, flow, adapters.answerPaths),
     async prepareQuickModel(answers, prepared) {
       const quick = chat.quickTasksModel(answers);
       // An Answer on this computer keeps its small calls there too.
@@ -3048,7 +3063,19 @@ export function createCore(adapters: CoreAdapters): Core {
       conversations.addCitedUnits(wanted, cited);
       return cited.length > 0;
     },
-    recheck: (input) => recheckCitation(documents, input),
+    cite: (input) => {
+      const hash = documents.currentVersion(input.documentId);
+      const units = hash ? documents.pageTexts(input.documentId, hash, null, null) : [];
+      const at = locateQuote(units, input.quote, matchingOf(units));
+      const checked = recheckCitation(documents, {
+        ...input,
+        pageFrom: at?.pageFrom ?? null,
+        pageTo: at?.pageTo ?? null,
+      });
+      return at || checked.check !== "found"
+        ? checked
+        : { ...checked, check: "not-found", checkReason: "quote-not-on-pages" };
+    },
     changed: (value) => events.emit("examples.changed", value),
   });
   events.on("document.status", () => examples.documentChanged());
@@ -3732,6 +3759,10 @@ export function createCore(adapters: CoreAdapters): Core {
         ? { status: "available", reference, name: found.name }
         : { status: "deleted", reference, name: found.name, deletedAt: found.deletedAt };
     },
+    applyAskedChanges: async (input) => askedChanges.apply(input),
+    undoAskedChanges: async (undoId) => askedChanges.undo(undoId),
+    redoAskedChanges: async (undoId) => askedChanges.redo(undoId),
+    releaseAskedChanges: async (undoId) => askedChanges.release(undoId),
     addToNote: (input) => noteAdding.add(input),
     undoAddToNote: async (input) => noteAdding.undo(input),
     listNoteConversations: async () => noteConversations.list(),

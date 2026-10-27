@@ -462,7 +462,12 @@ export type ProposalRequest =
       reason?: string;
     })
   | (ProposalMaker & { source: "answer"; answerId: string })
-  | (ProposalMaker & { source: "answer-added"; requested?: RequestedChange })
+  | (ProposalMaker & {
+      source: "answer-added";
+      requested?: RequestedChange;
+      action?: EditAction;
+      instruction?: string;
+    })
   | (ProposalMaker & { source: "comparison-table"; tableId: string })
   | (ProposalMaker & { source: "research"; taskId: string })
   | WordChangeRequest;
@@ -1761,8 +1766,8 @@ export interface RecheckCitationInput {
 /**
  * A Citation checked again against its Document's current version: the
  * attributes to store on its node in place of the old ones. The quote is
- * looked for in the cited Units first, then in any Unit (or two consecutive
- * ones) of the current version, so `pageFrom`, `pageTo` and `location` may change.
+ * checked in its cited Units in the current version. A quote elsewhere never
+ * changes the Citation's Unit bounds; a whole-Document Citation stays whole.
  */
 export interface CitationRecheck {
   check: Exclude<CitationCheck, "checking">;
@@ -5607,7 +5612,8 @@ export interface AnswerDelta extends AnswerPlace {
  * that answered with structured output is asked once more for the quotes of
  * its Citations that the check didn't find (ADR-0007); "checking-figures", it
  * is asked once more for the calculated figures it gave that couldn't be
- * worked out (ADR-0021).
+ * worked out (ADR-0021); "checking-claims", the quick model is checking the
+ * reply's claims of changes against what the Tools did.
  */
 export type AnswerPhase =
   | "waiting-for-consent"
@@ -5615,7 +5621,8 @@ export type AnswerPhase =
   | "searching"
   | "writing"
   | "checking-quotes"
-  | "checking-figures";
+  | "checking-figures"
+  | "checking-claims";
 
 /** An Answer being written moved to another phase. */
 export interface AnswerPhaseEvent extends AnswerPlace {
@@ -5729,6 +5736,36 @@ export interface AnswerToolCallEvent extends AnswerPlace {
   call: AnswerToolCall;
 }
 
+export interface ApplyAskedChangesInput {
+  answerId: string;
+  mindId: string;
+  requests: readonly string[];
+}
+
+export interface AskedChangeTransition {
+  /** The clocks after Undo or Redo, for matching updates still arriving. */
+  vector: Uint8Array;
+  /** The content after Undo or Redo, which also changes when a deletion advances no clock. */
+  fingerprint: string;
+  /** The complete Undo or Redo as one Yjs update, for the renderer to apply before judging staleness. */
+  update: Uint8Array;
+}
+
+export interface AskedChangeApplication {
+  /** Identifies this application's in-session Undo in the core. */
+  undoId: string;
+  /** The original text with the turn's Proposals still marked, for Review. */
+  reviewBefore: Uint8Array;
+  /** The version after acceptance; Review is offered only while the editor is still at it. */
+  afterVector: Uint8Array;
+  /** The content after acceptance, including deletions that advance no clock. */
+  afterFingerprint: string;
+  /** The Proposal ids actually accepted; stale ones were left waiting. */
+  accepted: readonly string[];
+  requests: readonly string[];
+  held: boolean;
+}
+
 /**
  * The model gave the record for a Citation marker in the Answer: the marker
  * becomes this Citation, "checking" until the Answer finishes.
@@ -5745,8 +5782,8 @@ export interface RejectedRecord {
   /** Null when it wasn't a number. */
   marker: number | null;
   passage: string;
-  /** "marker": no marker number of 1 or more. "passage": it named no Passage the model was given. */
-  reason: "marker" | "passage";
+  /** "marker": invalid marker. "passage": unknown Passage. "quote-context": more than one place in its cited Units. */
+  reason: "marker" | "passage" | "quote-context";
 }
 
 /** An Answer is complete ("done") or the User stopped it ("stopped"), keeping what was written. */
@@ -5757,7 +5794,7 @@ export interface AnswerFinished extends AnswerPlace {
   citations: Citation[];
   /** Markers the model wrote with no valid record: removed, leaving their sentences uncited. */
   droppedMarkers: number;
-  /** Records the model gave for no marker in the text, or naming no Passage it was given: dropped. */
+  /** Records with an invalid marker, unknown Passage or ambiguous quote: dropped. */
   droppedRecords: number;
   /**
    * The records among those that the core couldn't take, as the model gave
@@ -9163,6 +9200,14 @@ export interface CoreApi {
    * Block's origin. Restoring what it points into makes it lead there again.
    */
   resolveReference(reference: ArtifactReference): Promise<ReferenceTarget>;
+  /** Applies a turn's asked changes without its editor, or null when none remain. */
+  applyAskedChanges(input: ApplyAskedChangesInput): Promise<AskedChangeApplication | null>;
+  /** Takes back a core-applied change if nothing in its Mind followed it; returns the resulting state, or null when refused. */
+  undoAskedChanges(undoId: string): Promise<AskedChangeTransition | null>;
+  /** Does a core-applied change again after its Undo, with the same result contract. */
+  redoAskedChanges(undoId: string): Promise<AskedChangeTransition | null>;
+  /** Lets go of a core-applied change's in-session Review and Undo records. */
+  releaseAskedChanges(undoId: string): Promise<void>;
   /**
    * "Add to note" (#201) into a Mind that isn't open in the editor: Blocks at the
    * end of its note (in place of its empty last line), each Citation in them
@@ -10822,6 +10867,10 @@ const methods: Record<CoreApiMethod, true> = {
   deleteConversation: true,
   resolveReference: true,
   addToNote: true,
+  applyAskedChanges: true,
+  undoAskedChanges: true,
+  redoAskedChanges: true,
+  releaseAskedChanges: true,
   undoAddToNote: true,
   listNoteConversations: true,
   getSettings: true,

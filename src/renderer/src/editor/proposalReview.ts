@@ -377,9 +377,15 @@ export interface BlockPlace {
   offset: number;
 }
 
-const goesOnAccept = (node: ProseMirrorNode) =>
-  readProposalAttribute(node.attrs[PROPOSAL_ATTRIBUTE])?.kind === "delete" ||
-  node.marks.some((mark) => mark.type.name === PROPOSAL_DELETE_MARK);
+const goesOnAccept = (node: ProseMirrorNode, accepted?: ReadonlySet<string>) => {
+  const attribute = readProposalAttribute(node.attrs[PROPOSAL_ATTRIBUTE]);
+  if (attribute?.kind === "delete" && (!accepted || accepted.has(attribute.id))) return true;
+  return node.marks.some((mark) => {
+    if (mark.type.name !== PROPOSAL_DELETE_MARK) return false;
+    const ref = readProposalRef(mark.attrs);
+    return !!ref && (!accepted || accepted.has(ref.id));
+  });
+};
 
 /**
  * Where a place in a paragraph or heading will be once the changes there are
@@ -387,7 +393,11 @@ const goesOnAccept = (node: ProseMirrorNode) =>
  * Block. Unlike a position in the editor, it holds through the accept, which
  * comes back from Yjs as a new document.
  */
-export function placeOnAccept(doc: ProseMirrorNode, place: TextPlace): BlockPlace | null {
+export function placeOnAccept(
+  doc: ProseMirrorNode,
+  place: TextPlace,
+  accepted?: ReadonlySet<string>,
+): BlockPlace | null {
   let found: BlockPlace | null = null;
   doc.descendants((node, pos) => {
     if (found) return false;
@@ -395,15 +405,14 @@ export function placeOnAccept(doc: ProseMirrorNode, place: TextPlace): BlockPlac
     if (node.attrs.id !== place.blockId) return false;
     const $pos = doc.resolve(pos + 1);
     for (let depth = $pos.depth; depth > 0; depth--) {
-      if (readProposalAttribute($pos.node(depth).attrs[PROPOSAL_ATTRIBUTE])?.kind === "delete") {
-        return false;
-      }
+      const attribute = readProposalAttribute($pos.node(depth).attrs[PROPOSAL_ATTRIBUTE]);
+      if (attribute?.kind === "delete" && (!accepted || accepted.has(attribute.id))) return false;
     }
     let left = place.offset;
     let offset = 0;
     node.forEach((child) => {
       const part = Math.min(child.isText ? child.nodeSize : 1, Math.max(left, 0));
-      if (!goesOnAccept(child)) offset += part;
+      if (!goesOnAccept(child, accepted)) offset += part;
       left -= part;
     });
     found = { blockId: place.blockId, offset };

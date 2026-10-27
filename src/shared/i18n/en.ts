@@ -1314,8 +1314,9 @@ export const en = {
 
   "documents.add": "Add Documents",
   "documents.add.files": "Files…",
+  "documents.add.filesOrFolder": "Add files or a folder…",
   "documents.add.findSources": "Find sources…",
-  "documents.add.linkFolder": "A folder that stays in sync…",
+  "documents.add.linkFolder": "A folder on this computer…",
   "documents.add.webPage": "A web page…",
   "documents.add.connect": "Connect an app…",
   "command.rename.keywords": "name title change",
@@ -1368,7 +1369,9 @@ export const en = {
   "documents.more": "More actions for {name}",
   "documents.renameAction": "Rename",
   "documents.pick.title": "Add Documents",
+  "documents.pick.titleOrFolder": "Add files or a folder",
   "documents.pick.filter": "Documents",
+  "documents.pick.titleFiles": "Add files",
   "documents.retryAction": "Retry",
   "documents.printToPdfAction": "Open to print to PDF…",
   "documents.unlockAction": "Unlock…",
@@ -1471,6 +1474,12 @@ export const en = {
   "linkedFolders.preview.time": "Reading takes {time}, newest first.",
   "linkedFolders.preview.onlineOnly.one": "1 online-only file is skipped for now.",
   "linkedFolders.preview.onlineOnly.other": "{count} online-only files are skipped for now.",
+  "linkedFolders.readOnly": "read-only",
+  "linkedFolders.readOnly.full":
+    "IncarnaMind reads this folder where it is and never changes, moves or deletes anything in it.",
+  "linkedFolders.readOnly.unchecked": "not checked",
+  "linkedFolders.readOnly.unchecked.title":
+    "IncarnaMind couldn’t read which folders it may add files to. Open the Output location to answer it there.",
   "linkedFolders.preview.readOnly":
     "IncarnaMind only reads this folder. It never changes, moves or deletes anything.",
   "linkedFolders.preview.merge.one":
@@ -2839,6 +2848,7 @@ export const en = {
   "answer.phase.writing": "Writing…",
   "answer.phase.checking-quotes": "Checking quotes…",
   "answer.phase.checking-figures": "Checking figures…",
+  "answer.phase.checking-claims": "Checking the reply against what changed…",
   "answer.figures.calculated": "Calculated {count} figures",
   "answer.figures.calculated.one": "Calculated 1 figure",
   "answer.figures.uncalculated": "{count} figures couldn’t be calculated",
@@ -3941,6 +3951,10 @@ export const en = {
   "error.question.notInMind": "That Question isn’t in this Mind.",
   "error.answer.notInConversation": "That Answer isn’t in this conversation.",
   "error.answer.questionGone": "The Question of this Answer has been deleted.",
+  "error.askedChanges.input":
+    "IncarnaMind couldn’t read the assistant’s change request. Try again.",
+  "error.askedChanges.answer":
+    "IncarnaMind can’t tell which Answer these changes belong to. Try again.",
   "error.linkedFolder.notFound": "That Linked folder doesn’t exist or has been removed.",
   "error.path.noFolder": "There is no folder at that path.",
   "error.path.notFolder": "That path isn’t a folder.",

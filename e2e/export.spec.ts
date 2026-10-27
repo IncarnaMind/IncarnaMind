@@ -514,7 +514,7 @@ test("saving inside a Linked folder asks once; Settings › General shows where 
   await expect(ask.getByRole("heading")).toHaveText("在“Notes”中添加文件？");
   await screenshot(ask, "file-write-linked-folder-zh");
   await ask.getByTestId("file-write-deny").click();
-  await expect(problem).toHaveText("无法保存：你没有允许在同步文件夹“Notes”中添加文件 · 允许");
+  await expect(problem).toHaveText("无法保存：你没有允许在关联文件夹“Notes”中添加文件 · 允许");
   await screenshot(result, "export-not-allowed-zh");
   await app.close();
 });
