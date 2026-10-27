@@ -4,6 +4,7 @@ import { useShallow } from "zustand/react/shallow";
 import type { ApprovalRequest, Task, TaskEffect } from "../../../core/api";
 import { useApprovals } from "../approvals";
 import { keysLabel } from "../commands/keys";
+import { NO_MIND } from "../composer";
 import { useConversations } from "../conversations";
 import { ApprovalCard } from "../editor/AnswerView";
 import { withShortcut } from "../editor/withShortcut";
@@ -192,12 +193,11 @@ export function TaskTray({ mindId }: { mindId: string | null }) {
   const question = useQuestions((state) =>
     Object.values(state.waiting).find((each) => each.conversationId === openId),
   );
-  const planning = useResearch((state) => mindId !== null && state.plans[mindId] !== undefined);
-  const viewingId = useResearch((state) => (mindId === null ? undefined : state.viewing[mindId]));
-  const viewing = useTasks((state) => {
-    const task = viewingId ? state.tasks[viewingId] : undefined;
-    return task && task.finishedAt === null ? task : undefined;
-  });
+  // A plan made with no Mind in focus is the composer's own until Start makes its Mind.
+  const planKey = mindId ?? NO_MIND;
+  const planning = useResearch((state) => state.plans[planKey] !== undefined);
+  const viewingId = useResearch((state) => state.viewing[planKey]);
+  const viewing = useTasks((state) => (viewingId ? state.tasks[viewingId] : undefined));
   const queued = useTasks(
     useShallow((state) =>
       Object.values(state.tasks).filter(
@@ -257,7 +257,7 @@ export function TaskTray({ mindId }: { mindId: string | null }) {
       className="task-tray"
       style={{ maxHeight }}
     >
-      {planning && mindId !== null && <ResearchPlanCard mindId={mindId} />}
+      {planning && <ResearchPlanCard mindId={mindId} />}
       {!planning && viewing && <ResearchPlanView task={viewing} />}
       {asking ? (
         <TaskAskView task={asking} />

@@ -1,4 +1,4 @@
-import { describe, expect, test } from "vitest";
+import { describe, expect, test, vi } from "vitest";
 import { type EscCloseDialog, watchEscClose } from "../../src/renderer/src/components/useModal";
 
 /*
@@ -70,7 +70,8 @@ describe("the Esc rule on a native dialog", () => {
     dialog.addEventListener("close", () => {
       storeOpen = false;
     });
-    const stop = watchEscClose(dialog);
+    const giveFocusBack = vi.fn();
+    const stop = watchEscClose(dialog, giveFocusBack);
 
     // The browser closed it itself, as it does on an Esc without history-action activation.
     dialog.open = false;
@@ -78,6 +79,9 @@ describe("the Esc rule on a native dialog", () => {
 
     expect(storeOpen).toBe(false);
     expect(dialog.shown).toBe(0);
+    // No effect runs when the store closes a dialog the browser already closed: the focus goes
+    // back here, with the caret the field had.
+    expect(giveFocusBack).toHaveBeenCalledTimes(1);
     stop();
   });
 
@@ -87,11 +91,15 @@ describe("the Esc rule on a native dialog", () => {
     dialog.addEventListener("close", () => {
       if (dialog.open) closed.whileOpen += 1;
     });
-    const stop = watchEscClose(dialog);
+    const giveFocusBack = vi.fn();
+    const stop = watchEscClose(dialog, giveFocusBack);
 
     dialog.dispatchEvent(new Event("cancel", { cancelable: true }));
 
     expect(closed.whileOpen).toBe(1);
+    // The close the hook reports finds the dialog open, so the effect that closes it gives the
+    // focus back; this must not do it twice.
+    expect(giveFocusBack).not.toHaveBeenCalled();
     stop();
   });
 
@@ -101,7 +109,8 @@ describe("the Esc rule on a native dialog", () => {
     dialog.addEventListener("close", () => {
       closes += 1;
     });
-    const stop = watchEscClose(dialog);
+    const giveFocusBack = vi.fn();
+    const stop = watchEscClose(dialog, giveFocusBack);
 
     dialog.dispatchEvent(new Event("cancel", { cancelable: true }));
     expect(closes).toBe(1);
@@ -110,6 +119,7 @@ describe("the Esc rule on a native dialog", () => {
     dialog.showModal();
     dialog.dispatchEvent(new Event("close"));
     expect(closes).toBe(1);
+    expect(giveFocusBack).not.toHaveBeenCalled();
     stop();
   });
 
@@ -120,12 +130,14 @@ describe("the Esc rule on a native dialog", () => {
     dialog.addEventListener("close", () => {
       closes += 1;
     });
-    const stop = watchEscClose(dialog);
+    const giveFocusBack = vi.fn();
+    const stop = watchEscClose(dialog, giveFocusBack);
 
     dialog.dispatchEvent(new Event("cancel", { cancelable: true }));
 
     expect(closes).toBe(0);
     expect(dialog.open).toBe(true);
+    expect(giveFocusBack).not.toHaveBeenCalled();
     stop();
   });
 });

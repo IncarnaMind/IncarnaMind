@@ -6,6 +6,8 @@ import {
   addDocuments,
   createDataFolder,
   dismissChatSetup,
+  enterContent,
+  frontMind,
   launchApp,
   newMind,
   newMindAndType,
@@ -219,6 +221,33 @@ test("a dialog that prevents Esc stays open, and the store still agrees", async 
     // The store agrees: the answer the dialog holds is still the one it answers.
     await consent.getByTestId("consent-allow").click();
     await expect(consent).toBeHidden();
+  } finally {
+    await app.close();
+  }
+});
+
+test("Esc out of a dialog leaves the Note able to type the whole word, in English and Chinese", async () => {
+  const { app, window } = await launchApp(dataDir);
+  try {
+    await dismissChatSetup(window);
+    for (const [language, word] of [
+      ["en", "harvest"],
+      ["zh-CN", "调查"],
+    ] as const) {
+      await setLanguage(window, language);
+      await newMind(window);
+      await enterContent(window);
+      await window.keyboard.type("Alpha");
+      await openFeedback(app, language);
+      const dialog = window.getByTestId("feedback-dialog");
+      await expect(dialog).toBeVisible();
+
+      await window.keyboard.press("Escape");
+      await expect(dialog).toBeHidden();
+      // Straight away, as a person types: the whole word lands where the caret was.
+      await window.keyboard.type(word);
+      await expect(frontMind(window).getByTestId("mind-editor")).toHaveText(`Alpha${word}`);
+    }
   } finally {
     await app.close();
   }
