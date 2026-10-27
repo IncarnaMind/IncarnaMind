@@ -1,11 +1,11 @@
 /**
  * A Word export the assistant starts asks nothing (#1945), against a real model: told to export,
- * the model runs the export without choosing whether to mark the text IncarnaMind wrote, the file
- * marks it, and the Saved line says what the file was written with. It runs only with
- * INCARNAMIND_LIVE_ANTHROPIC_KEY (model: INCARNAMIND_LIVE_ANTHROPIC_MODEL, else the catalogue's
- * quick model), and is skipped otherwise.
+ * the model runs the export without choosing whether to mark the text IncarnaMind wrote, and the
+ * file marks it. It runs only with INCARNAMIND_LIVE_ANTHROPIC_KEY (model:
+ * INCARNAMIND_LIVE_ANTHROPIC_MODEL, else the catalogue's quick model), and is skipped otherwise.
  *
- * Set INCARNAMIND_LIVE_REPORT to a file to keep the call the model made, the reply and the Saved line.
+ * Set INCARNAMIND_LIVE_REPORT to a file to keep the call the model made, the reply, and the one
+ * line the card under it shows.
  */
 import { appendFileSync } from "node:fs";
 import { readdir, readFile } from "node:fs/promises";
@@ -14,8 +14,6 @@ import { describe, expect, onTestFinished, test } from "vitest";
 import type { AnswerToolCall, CommandDone, ConversationAnswer, Core } from "../../src/core";
 import { catalogProvider } from "../../src/core/providers/catalog/providers";
 import { createAiSdkChatModel } from "../../src/core/providers/models";
-import { chosenParts, optionsFor } from "../../src/shared/exportOptions";
-import { translate } from "../../src/shared/i18n";
 import { createTempDataFolder, startCore } from "../helpers/core";
 import { part, unzip } from "../helpers/docx";
 
@@ -126,20 +124,8 @@ describe("A Word export the assistant starts, live: Anthropic", () => {
       const comments = files.has("word/comments.xml") ? part(files, "word/comments.xml") : "";
       expect(comments).toContain("Written by IncarnaMind");
 
-      // The Saved line the window draws for that file, from the same parts and the same options.
-      const preferences = (await core.getSettings()).user.exportOptions;
-      const written = optionsFor("docx", preferences);
-      const preview = await core.previewMindExport(mind.id, written);
-      const parts = chosenParts((key, params) => translate("en", key, params), {
-        places:
-          preview.citationPlace === null
-            ? null
-            : { citations: preview.citations, place: preview.citationPlace },
-        markAiText: preview.markAiText,
-      });
-      record(
-        `Saved line: Saved “${done?.file?.name}” in ${done?.file?.folder} · ${parts.join(" · ")} · Change`,
-      );
+      // What the window shows under the reply is the card's one line, from the command's own file.
+      record(`Saved line under the reply: Saved “${done?.file?.name}” in ${done?.file?.folder}`);
     },
   );
 });
