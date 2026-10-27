@@ -389,9 +389,12 @@ export async function checkFigureReply(options: FigureCheckOptions): Promise<Cla
     const cited = item.source?.citation ? options.citation(item.source.citation) : null;
     const ambiguities = target.reading.ambiguous.filter((reading) => reading.kind !== "range");
     const selected = ambiguities[0]?.readings[(item.reading ?? 0) - 1];
+    // Bare digits under the note's own "(£m)" need no reading named: their source's frame
+    // settles which one they are (`inSourceFrame`), as it does for the model.
+    const framedLater = ambiguities.length === 1 && ambiguities[0]?.kind === "scale";
     if (
       (ambiguities.length > 0 && target.reading.ambiguous.length > 1) ||
-      (ambiguities.length === 1 && !selected)
+      (ambiguities.length === 1 && !selected && !framedLater)
     ) {
       rows.push({ ...finding(target), source: cited, result: unavailable("unread") });
       continue;
@@ -429,7 +432,7 @@ export async function checkFigureReply(options: FigureCheckOptions): Promise<Cla
       )
         calculation = null;
     }
-    target = inSourceFrame(
+    const framed = inSourceFrame(
       original,
       target,
       sourceInput
@@ -438,6 +441,11 @@ export async function checkFigureReply(options: FigureCheckOptions): Promise<Cla
           ? frameOf(calculation.inputs, calculation.unit)
           : null,
     );
+    if (framedLater && !selected && framed === target) {
+      rows.push({ ...finding(target), source: cited, result: unavailable("unread") });
+      continue;
+    }
+    target = framed;
     const base = { ...finding(target), source: cited ?? sourceInput?.citation ?? null };
     if (target.calculated && !target.calculated.figure.analysis) {
       calculation = replay(target, calculations);

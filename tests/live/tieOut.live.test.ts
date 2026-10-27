@@ -198,7 +198,7 @@ const PACKS: Record<string, Pack> = {
         ],
       },
       {
-        text: "Clothing brought in £300m and other income £130m in the quarter.",
+        text: "Clothing brought in £300m and the other segments £130m in the quarter.",
         figures: [
           ["£300m", "supported"],
           ["£130m", "supported"],
@@ -357,7 +357,7 @@ const PACKS: Record<string, Pack> = {
         ],
       },
       {
-        text: "本季度服装收入3.00亿元，其他收入1.30亿元。",
+        text: "本季度服装分部收入3.00亿元，其他分部收入1.30亿元。",
         figures: [
           ["3.00亿元", "supported"],
           ["1.30亿元", "supported"],

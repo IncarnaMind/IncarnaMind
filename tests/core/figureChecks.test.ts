@@ -657,6 +657,18 @@ test("saved formulas recheck exact UTF-16 spans without another calculate call",
   expect(retained.result.figures?.[0]?.sourceInput).toBeNull();
 });
 
+test("narration with a marker beside cite isn't taken for the reply: the model goes on to write it", async () => {
+  const { result, calls } = await checkWith({
+    figures: [target("f1", "£20", "Revenue in 2024")],
+    besideCite: "Calling cite now to record the quote for marker [^1].",
+    text: reply([
+      { ...item(), source: { citation: 1, number: "£20", reading: null, unitQuote: null } },
+    ]),
+  });
+  expect(result.figures?.[0]?.result.verdict).toBe("supported");
+  expect(calls.length).toBeGreaterThan(2);
+});
+
 test("a verdict with no Figures line is asked for it once, and the reply that has it binds", async () => {
   const asked = await checkWith({
     figures: [target("f1")],
@@ -689,6 +701,32 @@ function cell(id: string, shown: string, header: string): CheckFigure {
   if (!reading) throw new Error("Missing cell reading");
   return { ...target(id, shown, "Clothing Q3 2026"), reading };
 }
+
+test.each([
+  { shown: "300", reading: null, verdict: "supported" },
+  { shown: "330", reading: null, verdict: "contradicted" },
+  { shown: "330", reading: 2, verdict: "contradicted" },
+])(
+  "a bare cell under the note's “(£m)” heading needs no reading named when its source states the frame: $shown, reading $reading",
+  async ({ shown, reading, verdict }) => {
+    const unitQuote = "All figures in £m";
+    const { result } = await checkWith({
+      figures: [cell("f1", shown, "Q3 2026 (£m)")],
+      body: SEGMENTS,
+      units: segments(SEGMENTS),
+      quotes: ["Clothing\t300\t310", unitQuote],
+      text: reply([
+        {
+          ...item(),
+          verdict,
+          reading,
+          source: { citation: 1, number: "300", reading: null, unitQuote },
+        },
+      ]),
+    });
+    expect(result.figures?.[0]?.result.verdict).toBe(verdict);
+  },
+);
 
 test.each([
   { unitQuote: "All figures in £m", verdict: "supported" },

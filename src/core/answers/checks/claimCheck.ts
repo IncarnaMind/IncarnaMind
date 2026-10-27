@@ -458,6 +458,7 @@ export function createClaimCheck(deps: ClaimCheckDependencies) {
       window: model.window,
       retryQuotes: model.retryQuotes,
       cacheKey: request.cacheKey,
+      isReply: (text) => readVerdict(text) !== null,
       // A model may give its verdict before it has looked: Claude Haiku 5.5 did, about one check
       // in six of a whole Mind.
       turnChecks: [
