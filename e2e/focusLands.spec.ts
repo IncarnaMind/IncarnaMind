@@ -48,7 +48,6 @@ for (const language of LANGUAGES) {
     await setLanguage(window, language);
 
     await pointAndClick(window, window.getByTestId("plus-menu"));
-    await pointAndClick(window, window.getByTestId("plus-more"));
     await pointAndClick(window, window.getByTestId("plus-record-meeting"));
     const start = window.getByTestId("meeting-start");
     await expect(start).toBeVisible();
@@ -68,8 +67,6 @@ test("after Record a meeting by keyboard, Enter starts the recording, through th
   await setWindowSize(app, window, 1100, 720);
 
   await window.getByTestId("plus-menu").focus();
-  await window.keyboard.press("Enter");
-  await window.getByTestId("plus-more").focus();
   await window.keyboard.press("Enter");
   await window.getByTestId("plus-record-meeting").focus();
   await window.keyboard.press("Enter");

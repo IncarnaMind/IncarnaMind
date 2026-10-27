@@ -55,7 +55,7 @@ test("a Skill imported from a folder in Settings is forced from the slash menu i
   const section = window.getByTestId("skills-settings");
   // Only the built-in Skills so far (e2e/builtInSkills.spec.ts covers them).
   const item = section.locator('[data-testid="skill-item"][data-skill-name="tide-tables"]');
-  await expect(section.getByTestId("skill-item")).toHaveCount(3);
+  await expect(section.getByTestId("skill-item")).toHaveCount(9);
   await expect(item).toHaveCount(0);
   await interceptSkillPicker(window, folder);
   await section.getByTestId("skill-import").click();
@@ -73,7 +73,7 @@ test("a Skill imported from a folder in Settings is forced from the slash menu i
   await expect(files.nth(2)).toContainText("script: runs only with your approval");
   await preview.getByTestId("skill-import-confirm").click();
 
-  await expect(section.getByTestId("skill-item")).toHaveCount(4);
+  await expect(section.getByTestId("skill-item")).toHaveCount(10);
   await expect(item).toHaveAttribute("data-built-in", "false");
   await expect(section.getByTestId("skills-yours").getByTestId("skill-item")).toHaveCount(1);
   await expect(item.getByTestId("skill-enabled")).toBeChecked();

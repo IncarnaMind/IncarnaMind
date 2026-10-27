@@ -91,6 +91,7 @@ describe("Documents", { timeout: 30_000 }, () => {
         contentHash: sha256(ENGLISH_NOTES),
         path,
         fileStatus: "available",
+        keptByApp: false,
         linkedFolderId: null,
         size: Buffer.byteLength(ENGLISH_NOTES),
         pageCount: null,

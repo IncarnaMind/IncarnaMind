@@ -46,6 +46,7 @@ import {
   renamed,
   retagged,
 } from "./changes";
+import { useComposer } from "./composer";
 import { core, files } from "./core";
 import { LIBRARY_DELETED } from "./deletedItems";
 import { isSearchable } from "./documentStatus";
@@ -1281,7 +1282,7 @@ export const useAppStore = create<AppState>()((set, get) => {
     updateGettingStarted(patch) {
       const { settings } = get();
       const current = settings?.device.gettingStarted;
-      if (!settings || !current?.started) return;
+      if (!settings || !current) return;
       const next = { ...current, ...patch };
       if (
         Object.entries(next).every(([key, value]) => current[key as keyof GettingStarted] === value)
@@ -1290,7 +1291,7 @@ export const useAppStore = create<AppState>()((set, get) => {
       }
       // At once, so ticks made together don't undo each other; the core's event confirms it.
       set({ settings: { ...settings, device: { ...settings.device, gettingStarted: next } } });
-      core.updateSettings({ device: { gettingStarted: next } }).catch(() => undefined);
+      core.updateSettings({ device: { gettingStarted: next } }).catch(get().reportError);
     },
 
     openMind(id, options) {
@@ -1375,6 +1376,8 @@ export const useAppStore = create<AppState>()((set, get) => {
     },
 
     openDocument(location, how = { as: "list" }) {
+      // Direct navigation ends Citation-source scope; openCited records its source after this call.
+      useComposer.setState({ citedSource: null });
       const { documentId, ...place } = location;
       const item = { kind: "document", documentId } as const;
       const at = Object.keys(place).length > 0 ? { place } : {};

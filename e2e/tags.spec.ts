@@ -7,6 +7,7 @@ import {
   createDataFolder,
   dismissChatSetup,
   launchApp,
+  makeTagOnDocument,
   motionSettled,
   openDocumentTags,
   removeDataFolder,
@@ -116,16 +117,21 @@ test("without a model, Documents are ready to search, and one notice, not one pe
     await expect(items.nth(index).getByTestId("document-status")).toHaveText("Ready");
     await expect(items.nth(index)).toHaveAttribute("data-tagging", "waiting-for-provider");
   }
-  // One notice, in the sidebar's footer; no tagging line under any Document, and no Tags.
+  // No Tag anywhere yet: nothing names Tags, and the footer says nothing.
   const notice = window.getByTestId("tagging-waiting");
-  await expect(notice).toHaveCount(1);
-  await expect(window.getByTestId("sidebar-footer").getByTestId("tagging-waiting")).toBeVisible();
-  await expect(notice).toContainText("Tags come once you choose an AI model.");
+  await expect(notice).toHaveCount(0);
   await expect(window.getByTestId("document-tagging")).toHaveCount(0);
   for (let index = 0; index < 3; index++) {
     await expect(await openDocumentTags(items.nth(index))).toHaveCount(0);
     await window.keyboard.press("Escape");
   }
+
+  // One Tag of the User's own: one notice, in the sidebar's footer, and no tagging line under
+  // any Document.
+  await makeTagOnDocument(window, "Ideas");
+  await expect(notice).toHaveCount(1);
+  await expect(window.getByTestId("sidebar-footer").getByTestId("tagging-waiting")).toBeVisible();
+  await expect(notice).toContainText("Tags come once you choose an AI model.");
 
   // Its button opens Settings on its Models page, at Tagging under Advanced, where a chat model or
   // a Jev key can be set up.

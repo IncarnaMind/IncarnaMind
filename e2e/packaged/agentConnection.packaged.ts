@@ -83,14 +83,16 @@ for (const [protocol, documents] of [
         { file, folder: folder.id },
       );
       await expect
-        .poll(() =>
-          core.evaluate(
-            async (bridge, id) =>
-              (await bridge.listDocuments())
-                .filter((document) => id.includes(document.id))
-                .map((document) => document.status),
-            added.added,
-          ),
+        .poll(
+          () =>
+            core.evaluate(
+              async (bridge, id) =>
+                (await bridge.listDocuments())
+                  .filter((document) => id.includes(document.id))
+                  .map((document) => document.status),
+              added.added,
+            ),
+          { timeout: 0 },
         )
         .toEqual(["ready"]);
       const hiddenFolder = await core.evaluate((bridge) =>
@@ -103,14 +105,16 @@ for (const [protocol, documents] of [
         { file: hiddenFile, folder: hiddenFolder.id },
       );
       await expect
-        .poll(() =>
-          core.evaluate(
-            async (bridge, id) =>
-              (await bridge.listDocuments())
-                .filter((document) => id.includes(document.id))
-                .map((document) => document.status),
-            hiddenAdded.added,
-          ),
+        .poll(
+          () =>
+            core.evaluate(
+              async (bridge, id) =>
+                (await bridge.listDocuments())
+                  .filter((document) => id.includes(document.id))
+                  .map((document) => document.status),
+              hiddenAdded.added,
+            ),
+          { timeout: 0 },
         )
         .toEqual(["ready"]);
       await core.evaluate((bridge) => bridge.setAgentsEnabled(true));

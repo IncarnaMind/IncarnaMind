@@ -839,7 +839,7 @@ function MindEditorView({
             <CitationStylePrompt mindId={mindId} editor={editor} doc={doc} />
           )}
       </div>
-      {guide && <StartGuide />}
+      {guide && <StartGuide mindId={mindId} />}
       {sheetSlot &&
         comparing &&
         !readOnly &&

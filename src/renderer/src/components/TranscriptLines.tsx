@@ -3,7 +3,6 @@ import type { MessageKey } from "../../../shared/i18n";
 import { useT } from "../i18n";
 import { formatBytes } from "../linkedFolders";
 import { useMeetings } from "../meetings";
-import { defaultFolderLabel, showOutputLocationSetting } from "../outputFiles";
 import { showTranscript } from "../transcripts";
 import { failedEverySource, useDownloadSources } from "./DownloadSources";
 import { type ProblemAction, ProblemLine } from "./ProblemLine";
@@ -118,21 +117,7 @@ export function TranscriptLines({
       role: "status",
     };
   } else if (state === "saved" && open) {
-    line = {
-      // The first save says where it went.
-      text: transcript.savedDefaulted
-        ? t("meetings.transcript.savedIn", { folder: defaultFolderLabel(t) })
-        : t("meetings.transcript.saved"),
-      action: open,
-      ...(transcript.savedDefaulted && {
-        also: {
-          label: t("export.changeFolder"),
-          testId: "meeting-transcript-change-folder",
-          onClick: showOutputLocationSetting,
-        },
-      }),
-      role: "status",
-    };
+    line = { text: t("meetings.transcript.saved"), action: open, role: "status" };
   } else if (state === "empty") {
     line = { text: t("meetings.transcript.empty"), role: "status" };
   }

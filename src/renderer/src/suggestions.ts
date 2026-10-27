@@ -14,6 +14,8 @@ import { citationLocation, formatLocation } from "../../shared/locations";
 import { composerScope, useComposer } from "./composer";
 import { core } from "./core";
 import { sentencesIn } from "./editor/suggestionPlace";
+import { laterPromptsAllowedNow } from "./laterPrompts";
+import { chooseNudge } from "./nudges";
 import { useAppStore } from "./store";
 
 /** How many times the offer shows on a device, at most. */
@@ -74,6 +76,8 @@ export async function askForSuggestion(
   if (offer?.line === "on") useSuggestionOffer.setState({ shown: null });
   const mayOffer =
     !on &&
+    laterPromptsAllowedNow() &&
+    chooseNudge(useAppStore.getState()) === null &&
     offer === null &&
     settings.device.suggestionOffers < MAX_OFFERS &&
     sentencesIn(request.paragraph) >= 2 &&
@@ -84,7 +88,11 @@ export async function askForSuggestion(
   const outcome = await core.suggestNext({ ...request, mindId, scope });
   // As they are now, after the reply: another Mind may have offered, or this one said Not now.
   const stillMayOffer =
-    mayOffer && useSuggestionOffer.getState().shown === null && !offerDeclined(doc);
+    mayOffer &&
+    laterPromptsAllowedNow() &&
+    chooseNudge(useAppStore.getState()) === null &&
+    useSuggestionOffer.getState().shown === null &&
+    !offerDeclined(doc);
   if (outcome.kind === "off" && outcome.scopeHasDocuments && stillMayOffer) {
     useSuggestionOffer.setState({ shown: { mindId, line: "offer" } });
     const offers = useAppStore.getState().settings?.device.suggestionOffers ?? 0;
