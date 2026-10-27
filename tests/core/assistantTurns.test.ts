@@ -1,8 +1,15 @@
 import type { MockLanguageModelV4 } from "ai/test";
 import { describe, expect, test } from "vitest";
 import type { Core } from "../../src/core";
+import { createElement } from "../../src/core/answers/blocks";
+import { GENERATED_MARK, PROPOSAL_ATTRIBUTE } from "../../src/core/api";
 import { EDIT_INSTRUCTIONS } from "../../src/core/edits/prompt";
-import { pendingProposals, proposalRequestOf, resolveProposals } from "../../src/shared/proposals";
+import {
+  pendingProposals,
+  proposalRequestOf,
+  recordProposalRequest,
+  resolveProposals,
+} from "../../src/shared/proposals";
 import { askAssistant, changesIn, lastResult } from "../helpers/assistant";
 import { createTempDataFolder, startCore } from "../helpers/core";
 import { connectToMind } from "../helpers/mindClient";
@@ -254,6 +261,78 @@ describe("A claim needs its command (#1559)", { timeout: 30_000 }, () => {
     expect(notes.at(-1)).not.toContain("waiting for the User");
     expect(answer.text).toBe("Fixed “visted” in “Trip notes”.");
     expect(answer.steps?.unbackedClaims).toBeUndefined();
+  });
+
+  // Value: protects=the claim record agrees with requested-only application; fails_when=an unrequested non-translation revision disables a translation's applied state; why_new=final review found the same boundary in appliedInTurn; seam=one public Answer with an unrequested revision and a destructive translation; no_claim=unrequested text itself applying (it is not part of the requested set)
+  test("an unrequested revision does not make an applied translation read as waiting", async () => {
+    const model = scriptedModel((call): ScriptedReply => {
+      const passage = editPassage(call);
+      if (passage !== null) return { text: "## Summary\n\nGood." };
+      const edits = call.results.filter((each) => each.tool === "edit_mind").length;
+      if (edits === 0) {
+        return {
+          calls: [
+            {
+              tool: "edit_mind",
+              input: { part: "Added", content: "## Added\n\nRewritten text" },
+            },
+          ],
+        };
+      }
+      if (edits === 1) {
+        return {
+          calls: [
+            {
+              tool: "edit_mind",
+              input: { part: "Summary", instruction: "Translate into English" },
+            },
+          ],
+        };
+      }
+      return { text: "Translated the summary." };
+    });
+    const { core, mind } = await setUp(model);
+    const client = await connectToMind(core, mind.id);
+    const proposal = (id: string) => ({ id, request: "old", kind: "insert" });
+    client.blocks.insert(client.blocks.length, [
+      createElement({
+        type: "heading",
+        attrs: { id: "old-heading", level: 2, [PROPOSAL_ATTRIBUTE]: proposal("old-heading") },
+        content: [{ type: "text", text: "Added", marks: [{ type: GENERATED_MARK }] }],
+      }),
+      createElement({
+        type: "paragraph",
+        attrs: { id: "old-text", [PROPOSAL_ATTRIBUTE]: proposal("old-text") },
+        content: [{ type: "text", text: "Unrequested text", marks: [{ type: GENERATED_MARK }] }],
+      }),
+    ]);
+    recordProposalRequest(client.doc, "old", {
+      source: "answer-added",
+      instruction: "write",
+      providerId: "local",
+      modelId: "local",
+      createdAt: "2026-01-01T00:00:00.000Z",
+    });
+    await client.settled();
+
+    const answer = await askAssistant(core, {
+      text: "rewrite the added text and translate the summary",
+      mindId: mind.id,
+    });
+
+    await client.settled();
+    const changes = answer.toolCalls.flatMap((call) => (call.mindChange ? [call.mindChange] : []));
+    const direct = changes[0];
+    const translation = changes[1];
+    if (!direct || !translation) throw new Error("The two revisions weren't recorded.");
+    const requestedOf = (request: string) => {
+      const made = proposalRequestOf(client.doc, request);
+      return made && "requested" in made ? made.requested : undefined;
+    };
+    expect(requestedOf(direct.request)).toBeUndefined();
+    expect(requestedOf(translation.request)).toBe("edit");
+    const prompt = JSON.stringify(model.doGenerateCalls.map((call) => call.prompt));
+    expect(prompt).toContain('\\"applied\\": true');
   });
 
   // protects=a request a Tool refused (no Mind open) isn't asked for again: the refusal is the answer; fails_when=the model is asked to write after it was told it can't; no_claim=none beyond protects.

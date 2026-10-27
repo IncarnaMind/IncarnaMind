@@ -45,7 +45,11 @@ import type * as Y from "yjs";
 import { asGenerated } from "../../shared/aiText";
 import { hasText, markersIn, pageBlocks } from "../../shared/answerBlocks";
 import { runsByDefault } from "../../shared/approvalRules";
-import { askedFor, waitsForUser as heldForUser } from "../../shared/askedChanges";
+import {
+  askedFor,
+  waitsForUser as heldForUser,
+  requestedRequests,
+} from "../../shared/askedChanges";
 import { citationNode, withCitations } from "../../shared/blockJson";
 import { type LiveDocument, shownDocumentName } from "../../shared/citations";
 import { withFigures, withFigureText } from "../../shared/figureMarkers";
@@ -2358,11 +2362,14 @@ export function createAnswers(options: AnswersOptions) {
           ),
         );
         return (
-          minds?.read(change.mindId, (blocks) =>
-            blocks.doc && askedFor(blocks.doc, change.request) && !heldForUser(blocks.doc, asked)
+          minds?.read(change.mindId, (blocks) => {
+            const doc = blocks.doc;
+            if (!doc) return null;
+            const requested = requestedRequests(doc, asked);
+            return askedFor(doc, change.request) && !heldForUser(doc, requested)
               ? { waiting: 0, accepted: 0, rejected: 0, applied: true }
-              : null,
-          ) ?? null
+              : null;
+          }) ?? null
         );
       };
       const turnChecks: TurnCheck[] = [

@@ -93,6 +93,11 @@ export function askedFor(doc: Y.Doc, request: string): boolean {
   return made !== null && "requested" in made && made.requested !== undefined;
 }
 
+/** The requests in this Mind that the window applies, excluding other Minds and unrequested revisions. */
+export function requestedRequests(doc: Y.Doc, requests: ReadonlySet<string>): Set<string> {
+  return new Set([...requests].filter((request) => askedFor(doc, request)));
+}
+
 export function translationRequested(doc: Y.Doc, requests: ReadonlySet<string>): boolean {
   return [...requests].every((request) => {
     const made = proposalRequestOf(doc, request);

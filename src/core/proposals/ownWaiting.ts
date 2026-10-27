@@ -10,7 +10,12 @@
 import { randomUUID } from "node:crypto";
 import * as Y from "yjs";
 import { INLINE_CODE_MARK } from "../../shared/aiText";
-import { askedFor, ownTextLength, waitsForUser } from "../../shared/askedChanges";
+import {
+  askedFor,
+  ownTextLength,
+  requestedRequests,
+  waitsForUser,
+} from "../../shared/askedChanges";
 import { originOf } from "../../shared/blockOrigins";
 import { readChart } from "../../shared/charts";
 import {
@@ -269,9 +274,7 @@ export function waitingIn(
   const count = waitingChanges(blocks);
   const requests = requestsIn(range);
   const doc = blocks.doc;
-  const currentHere = doc
-    ? new Set([...inTurn].filter((request) => askedFor(doc, request)))
-    : new Set<string>();
+  const currentHere = doc ? requestedRequests(doc, inTurn) : new Set<string>();
   const applies =
     doc !== null &&
     requests.length > 0 &&
