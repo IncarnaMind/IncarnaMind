@@ -2291,7 +2291,7 @@ describe("A fix asked for in one step is still owed in the next (#489)", {
     ["writes then cites", true],
     ["cites first", false],
   ])(
-    "%s: a record whose marker isn't written, refused and never fixed: its marker isn't placed",
+    "%s: a record whose marker isn't written, refused and never fixed: its marker is placed, not found",
     async (_, writes) => {
       const model = steppingModel([writesOneMarker({ quote: "Gross margin 99.9%" })]);
       const { core } = await setUpCalculating(model, [ACME], undefined, {
@@ -2301,10 +2301,37 @@ describe("A fix asked for in one step is still owed in the next (#489)", {
       const { answer } = await askAndRead(core, "How did Acme do in 2025?");
 
       expect(model.doStreamCalls).toHaveLength(3);
-      expect(answer.text).toBe(
-        "Revenue was $1,482.6 million in 2025[^1]. Gross margin was 41.2% in 2025.",
-      );
-      expect(answer.citations.map((citation) => citation.check)).toEqual(["found"]);
+      expect(answer.text).toContain("[^2]");
+      expect(answer.citations.map((citation) => citation.check)).toEqual(["found", "not-found"]);
+    },
+  );
+
+  test.each([
+    ["writes then cites", true],
+    ["cites first", false],
+  ])(
+    "%s: a fix still owed when the Run stops at its step limit: the record's marker is placed, not found",
+    async (_, writes) => {
+      const refused = writesOneMarker({ quote: "Gross margin 99.9%" });
+      const model = scriptedModel((call) => {
+        const searched = call.results.find((result) => result.tool === "search_documents");
+        if (!searched) {
+          return { calls: [{ tool: "search_documents", input: { query: "Acme revenue margin" } }] };
+        }
+        const passage = passageOf(shownPassages(searched.text), "Acme");
+        return call.results.some((result) => result.tool === "cite")
+          ? { calls: [citeOne(passage, 2, "p. 2", "Gross margin 99.9%")] }
+          : refused(passage);
+      });
+      const { core } = await setUpCalculating(model, [ACME], undefined, {
+        answerPaths: { writesThenCites: () => writes },
+      });
+
+      const { answer } = await askAndRead(core, "How did Acme do in 2025?");
+
+      expect(model.doStreamCalls.length).toBeGreaterThan(3);
+      expect(answer.text).toContain("[^2]");
+      expect(answer.citations.map((citation) => citation.check)).toEqual(["found", "not-found"]);
     },
   );
 
