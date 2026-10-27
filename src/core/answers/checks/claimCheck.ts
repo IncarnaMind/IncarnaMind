@@ -42,6 +42,7 @@ import type {
   UnsupportedReason,
 } from "../../api";
 import type { Evidence, EvidenceScope } from "../../documents/evidence";
+import type { WindowedPassage } from "../../documents/search";
 import type { Language } from "../../language";
 import { calculates, givesStructuredOutput } from "../../providers/capabilities";
 import type { PreparedChatModel } from "../../providers/chat";
@@ -107,6 +108,8 @@ export interface ClaimCheckRequest {
   thirdParty?: readonly ThirdPartyReason[];
   /** Names the Mind, for a provider's prompt cache. */
   cacheKey?: string;
+  /** An explicit whole-read window (./wholeRead): every search in this Run stays within it. */
+  window?: readonly WindowedPassage[];
   signal: AbortSignal;
 }
 
@@ -175,14 +178,15 @@ export function createClaimCheck(deps: ClaimCheckDependencies) {
     const scoped: AnswerDocuments = {
       searchableCount: () => deps.documents.searchableCount(scope.documentIds),
       async search(query, searchSignal) {
-        const found = await deps.evidence.search(query, scope, searchSignal);
+        const found = request.window
+          ? null
+          : await deps.evidence.search(query, scope, searchSignal);
         // A web search's result never settles a citation of a court decision.
-        const passages =
-          decisions.length === 0
-            ? found.passages
-            : found.passages.filter((passage) => !deps.documents.savedBySearch(passage.documentId));
+        const passages = (request.window ?? found?.passages ?? []).filter(
+          (passage) => decisions.length === 0 || !deps.documents.savedBySearch(passage.documentId),
+        );
         for (const passage of passages) read.set(passage.documentId, passage.contentHash);
-        for (const each of found.excluded) {
+        for (const each of found?.excluded ?? []) {
           if (each.reason === "own-workings") {
             workings.set(each.documentId, [
               ...(workings.get(each.documentId) ?? []),

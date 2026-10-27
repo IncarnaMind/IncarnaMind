@@ -72,6 +72,7 @@ import type { NumberedCitation } from "./citationNumbers";
 import { useReadableQuote } from "./citationScan";
 import { claimCardPlace } from "./claimCardPlace";
 import type { ShownClaim } from "./claimChecks";
+import { DocumentCheckAction } from "./DocumentCheckAction";
 import { ClaimMarkIcon, type ClaimMarkState } from "./icons";
 import { Popover } from "./Popover";
 import { isQuietFocus } from "./quietFocus";
@@ -293,6 +294,8 @@ export function ClaimMark({
               rootRef={card}
               claim={claim}
               heading={heading}
+              mindId={mindId}
+              doc={doc}
               verified={verificationOf(doc)?.documentId ?? null}
               cited={citationsOf(editor.state, claim)}
               fixes={offersFixes(editor, claim)}
@@ -459,6 +462,8 @@ function ClaimCard({
   rootRef,
   claim,
   heading,
+  mindId,
+  doc,
   verified,
   cited,
   fixes,
@@ -486,6 +491,8 @@ function ClaimCard({
   rootRef: RefObject<HTMLDivElement | null>;
   claim: ShownClaim;
   heading: string;
+  mindId: string;
+  doc: Y.Doc;
   /** The Document a Verify Mind checks: left out of every check, as itself, never as a copy. */
   verified: string | null;
   cited: readonly NumberedCitation[];
@@ -558,6 +565,7 @@ function ClaimCard({
       savedPage.fetchedAt,
   };
   const nothingFound = saysNotFound(shown, check, cited.length);
+  const wholeRead = check.action === "check-against-document" ? check.read : null;
   const findSourcesOffered = offersFindSources(editor, claim);
   const objectMenu = useObjectMenu({ kind: "check", id: check.id });
   const checkedIn = decided || state === "unsupported";
@@ -695,13 +703,24 @@ function ClaimCard({
           )}
           {nothingFound && (
             <p data-testid="claim-nothing" className="citation-card-note">
-              {looked && looked.more > 0
-                ? t("claim.unsupported.notFound.more", {
-                    scope: lookedIn,
-                    count: looked.more,
-                    total: looked.more + 1,
-                  })
-                : t("claim.unsupported.notFound", { scope: lookedIn })}
+              {wholeRead
+                ? t(
+                    wholeRead.pages === wholeRead.of
+                      ? "claim.readAll.notFound"
+                      : "claim.readSome.notFound",
+                    {
+                      scope: lookedIn,
+                      pages: wholeRead.pages,
+                      of: wholeRead.of,
+                    },
+                  )
+                : looked && looked.more > 0
+                  ? t("claim.unsupported.notFound.more", {
+                      scope: lookedIn,
+                      count: looked.more,
+                      total: looked.more + 1,
+                    })
+                  : t("claim.unsupported.notFound", { scope: lookedIn })}
             </p>
           )}
           {!fixes && !covers && !ownWorkings && !nothingFound && check.unsupported?.reason && (
@@ -890,6 +909,9 @@ function ClaimCard({
           >
             {t("claim.searchAll")}
           </button>
+        )}
+        {notFound && verified === null && (
+          <DocumentCheckAction editor={editor} mindId={mindId} doc={doc} claim={claim} />
         )}
         {notFound && verified === null && (
           <button

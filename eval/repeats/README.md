@@ -45,6 +45,19 @@ npm run eval:repeats
 - `INCARNAMIND_EVAL_REPEATS_SETS`: only these sets, by id (`en,zh`).
 - `INCARNAMIND_EVAL_REPEATS_BUDGET`: stops after the check that takes the spend past this many dollars, at the app's own count (5).
 
+## Check against a Document, read whole
+
+`npm run eval:whole-read` checks sentences against invented residential leases of about 40,000 or 120,000 tokens, read whole in ordered windows rather than ranked by search (#1554). English and Chinese clauses sit early, in the middle and late, with paraphrase, near-miss, wrong-figure and absent sentences. The report records every actual verdict, the Citation quote, pages read, requests' seconds and spend, and whether a search would have handed the clause to the model.
+
+Use the same chat variables as above, plus:
+
+- `INCARNAMIND_EVAL_WHOLE_READ_CASES`: only `en-40`, `en-120`, `zh-40` or `zh-120`.
+- `INCARNAMIND_EVAL_WHOLE_READ_SENTENCES`: only these sentence keys, such as `pet,rent,deposit`.
+- `INCARNAMIND_EVAL_WHOLE_READ_SEARCHED=1`: also run the ordinary ranked-search check for comparison.
+- `INCARNAMIND_EVAL_WHOLE_READ_BUDGET`: stop after the check that takes total spend past this many dollars (1).
+
+Setting the variables is consent to send the sentences and the whole lease to the model. The generated PDFs and all other run data stay in temporary folders; the report goes into `eval/results/<start time>-whole-read/`.
+
 **Cost and time:** ten checks of the first four Minds take about 5 minutes and $0.10 on Claude Haiku 5.5, and about 9 minutes and $2.20 on Claude Sonnet 5.5. The two conflict Minds add about 9 minutes and $0.25 on Haiku 5.5, and roughly $4 on Sonnet 5.5 (from the other sets' ratio, not measured), so run them there with fewer checks.
 
 **The conflicts:** a change to a verdict's instructions or to a judgement is measured against the conflicts it loses, not only the near misses it fixes. The report gives "Genuine conflicts Contradicted: n of m", and counts a conflict Supported as a false Supported. A sentence the check misses today is marked with its issue (`knownMiss` in `cases.ts`), stays in its set, and is listed with its counts under a heading of its own, "Known misses (#…)", outside every other count; take the mark off once the issue is fixed. Marked today: the Chinese negation the claims leave out (#1682), near misses about another person or role that the check's first verdict calls contradicted (#1718), the figures for a year the Documents don't cover, which should say "I didn’t find this" (#1765), and the Chinese wrong 2026 price, shown as "says something different" about half the time (#1708).

@@ -20,6 +20,7 @@ import {
   type LeftOutDocument,
   type SearchScope,
   type UnsupportedReason,
+  type WholeRead,
 } from "../core/api";
 import type { MessageKey } from "./i18n";
 import { folderScope, hasSearchScope, sameScope, storedSearchScope } from "./searchScope";
@@ -110,6 +111,14 @@ function unsupportedOf(value: unknown): UnsupportedReason | null {
   };
 }
 
+function readOf(value: unknown): WholeRead | null {
+  if (!isRecord(value)) return null;
+  const { pages, of } = value;
+  return typeof pages === "number" && typeof of === "number" && pages >= 0 && of >= pages
+    ? { pages, of }
+    : null;
+}
+
 function scopeOf(value: unknown): ClaimCheckScope {
   if (!isRecord(value)) return { folderId: null, widened: false };
   const chosen = storedSearchScope(value.chosen);
@@ -138,6 +147,7 @@ export function readClaimCheck(value: unknown): ClaimCheckAttributes | null {
   if (!id || !state) return null;
   const action: ClaimCheckAction =
     claimCheckActions.find((each) => each === value.action) ?? "find-support";
+  const read = readOf(value.read);
   return {
     id,
     request: text(value.request) ?? "",
@@ -159,6 +169,7 @@ export function readClaimCheck(value: unknown): ClaimCheckAttributes | null {
     excluded: excludedOf(value.excluded),
     checkedAt: text(value.checkedAt) ?? "",
     ...(value.kept === true && { kept: true }),
+    ...(read && { read }),
   };
 }
 
@@ -277,10 +288,11 @@ export function claimCheckShown(check: ClaimCheckAttributes, now: ClaimCheckNow)
   if (!check.scope.widened && !check.scope.chosen && check.scope.folderId !== now.folderId) {
     return { state: "needs-recheck", why: "scope" };
   }
-  // Contradiction watch looks in the Mind's Folder whatever the Mind's own scope is.
+  // Contradiction watch looks in the Mind's Folder, and a whole read in the User's pick.
   if (
     !check.scope.widened &&
     check.action !== "contradiction-watch" &&
+    check.action !== "check-against-document" &&
     scopeChanged(check.scope, now)
   ) {
     return { state: "needs-recheck", why: "search-scope" };
@@ -293,10 +305,12 @@ export function claimCheckShown(check: ClaimCheckAttributes, now: ClaimCheckNow)
 /**
  * Whether Documents added to its scope since could change a check (#993): one
  * found unsupported or not checked. A supported or contradicted one already
- * has its evidence, and contradiction watch makes its own checks again.
+ * has its evidence, contradiction watch makes its own checks again, and a
+ * whole read covered only the User's pick.
  */
 export const addedCouldChange = (check: ClaimCheckAttributes, shown: ClaimCheckShown): boolean =>
   check.action !== "contradiction-watch" &&
+  check.action !== "check-against-document" &&
   check.checkedAt !== "" &&
   (shown.state === "unsupported" || shown.state === "not-checked");
 

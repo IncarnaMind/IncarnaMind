@@ -168,6 +168,9 @@ const writesCache = (model: MeteredModel) => model.kind === "anthropic";
  * the provider reads the pages it found as input before the model goes on.
  */
 const SEARCH_INPUT_TOKENS = 30_000;
+const READ_CALLS = 3;
+const READ_OVERHEAD_TOKENS = 6_000;
+const READ_OUTPUT_TOKENS = 600;
 
 /** A request's own web searches (#128), by the name the request gives each, with what one costs. */
 function searchesOffered(tools: CallOptions["tools"]): Map<string, Money> {
@@ -748,6 +751,38 @@ export function createMeter(options: {
               amount:
                 calls * costOf(call, model.price, at, { cacheWrites: writesCache(model) }) +
                 searchCost(model.price),
+            }
+          : null,
+        ...towardCap(cap, monthStart(at)),
+        cap,
+      };
+    },
+
+    /** The estimate of an explicit whole read in windows of these many tokens (#1554). */
+    estimateRead(model: MeteredModel, windows: readonly number[]): RunEstimate {
+      if (model.billing !== "per-token") return { billing: model.billing };
+      const at = now();
+      const cap = options.cap();
+      const { price } = model;
+      const cached = price?.cacheRead !== undefined;
+      const calls = windows.length * READ_CALLS;
+      const usage = windows.map((tokens) => ({
+        inputTokens: 2 * tokens + READ_OVERHEAD_TOKENS,
+        cachedInputTokens: cached ? tokens : 0,
+        cacheWriteTokens: tokens,
+        outputTokens: READ_OUTPUT_TOKENS,
+      }));
+      return {
+        billing: "per-token",
+        calls,
+        tokens: usage.reduce((sum, each) => sum + each.inputTokens + each.outputTokens, 0),
+        cost: price
+          ? {
+              currency: price.currency,
+              amount: usage.reduce(
+                (sum, each) => sum + costOf(each, price, at, { cacheWrites: writesCache(model) }),
+                0,
+              ),
             }
           : null,
         ...towardCap(cap, monthStart(at)),

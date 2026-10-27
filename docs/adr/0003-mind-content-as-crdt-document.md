@@ -136,3 +136,10 @@ A comparison table's column has a short **label**, its heading, beside its Quest
 
 - **Content schema version 30** adds `label` to each column of a table's `questions`, with room for its `width` and whether it is `hidden`. An older version's editor writes the columns back as `{ id, text }` when it changes one, which would lose all three, so it opens these Minds read-only. Older content is version 30 content as it is.
 - **A heading shortens; a file doesn't.** The table's headings and the commands that name a column in the app read `label ?? shortened(text)`, because a heading has room for about 40 characters. The Excel and Word exports read `label ?? text`, so a Question longer than a heading, or one a label hasn't replaced, reaches a file whole. Either way a column has one name, its label when it has one.
+
+## Amendment: a check reads a chosen Document or Folder whole (2026-10-27, #1554)
+
+A not-found sentence can be checked against the whole text of one Document or Folder the User picks, rather than only the Passages ranked search supplies. The mark records the exact coverage so a partial read never claims that nothing exists in the unread part.
+
+- **Content schema version 31** adds the `check-against-document` action and `read: { pages, of }` to the `claimCheck` mark. `pages` counts only completely read pages, and `of` is the picked scope's total. An older version's editor would treat the mark as an ordinary check and drop its coverage, so it opens these Minds read-only. Older content is version 31 content as it is.
+- **No table, no migration.** Nothing outside the Mind's Yjs document changes.

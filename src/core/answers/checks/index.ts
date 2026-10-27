@@ -47,7 +47,10 @@ import {
   type ContradictionCheckPlan,
   claimCheckActions,
   type Document,
+  type DocumentCheckPlan,
+  type DocumentCheckProgress,
   type ExternalService,
+  type RunEstimate,
   type SearchScope,
   type TextPlace,
   type TextStretch,
@@ -58,6 +61,7 @@ import type { Consent } from "../../consent";
 import type { Evidence } from "../../documents/evidence";
 import { parseCheckedDocument } from "../../documents/evidence";
 import type { RetainVersion, VersionRetention } from "../../documents/retention";
+import type { WindowedPassage } from "../../documents/search";
 import { parseModel, parsePlace } from "../../edits";
 import {
   ChatNotReadyError,
@@ -77,6 +81,7 @@ import { createMindCheck, type MindCheckOptions } from "./mindCheck";
 import { markedSentences, markSentence, selectedSentences, updateCheck } from "./sentences";
 import { createVerify, type NoDocuments, type VerifyOptions } from "./verify";
 import { createContradictionWatch, type WatchOptions } from "./watch";
+import { createWholeRead, DOCUMENT_CHECK_FLOW_SENDS } from "./wholeRead";
 import { createWrittenCheck, type WrittenCheckOptions } from "./written";
 
 /**
@@ -88,6 +93,8 @@ export const CHECKS_FLOW_SENDS = ["selection", "passages", "verified-document", 
 
 /** The longest claim one check takes, in characters: a sentence, not a page. */
 const MAX_CLAIM_CHARACTERS = 2_000;
+
+type CheckFlow = "checks" | "document-check";
 
 export interface ChecksOptions
   extends Pick<
@@ -124,8 +131,8 @@ export interface ChecksOptions
   /** The model a Mind whose own pick is `own` is checked with: see `modelInUse`. */
   modelInUse(own: ChatModelChoice | null): ChatModelChoice | null;
   chat: {
-    readiness(choice: ChatModelChoice | undefined, flow: "checks"): Promise<ChatReadiness>;
-    prepareModel(choice: ChatModelChoice | undefined, flow: "checks"): Promise<PreparedChatModel>;
+    readiness(choice: ChatModelChoice | undefined, flow: CheckFlow): Promise<ChatReadiness>;
+    prepareModel(choice: ChatModelChoice | undefined, flow: CheckFlow): Promise<PreparedChatModel>;
     /** The service the default chat model sends to; null with none, or one on this computer. */
     defaultService(): ExternalService | null;
   };
@@ -138,7 +145,15 @@ export interface ChecksOptions
     MindCheckOptions["documents"] & {
       /** Every live Document's names: what the Citations a sentence already has are named by. */
       names(): readonly LiveDocument[];
+      /** The live Documents of these, in the order given. */
+      live(documentIds: readonly string[]): Document[];
+      /** A live Document's Passages, in reading order. */
+      passages(documentId: string): WindowedPassage[];
     };
+  /** The estimate of a whole read in windows of these many tokens each. */
+  estimateRead(model: ChatModelChoice | null, windows: readonly number[]): RunEstimate | null;
+  /** How far a whole read is, as it goes (#1554). */
+  documentCheckProgress(event: DocumentCheckProgress): void;
   engine: AnswerEngine;
   retention: Pick<VersionRetention, "retain">;
   /** Edit with AI's new text for a passage not in a Mind, for what the assistant writes (#1111). */
@@ -154,6 +169,8 @@ interface ParsedCheck {
   more: TextStretch[];
   action: ClaimCheckAction;
   allDocuments: boolean;
+  /** "check-against-document": what to read whole. */
+  within: SearchScope | null;
   model: ChatModelChoice | null;
 }
 
@@ -176,6 +193,7 @@ function parseCheck(input: unknown): ParsedCheck {
   }
   const known = claimCheckActions.find((each) => each === action);
   if (!known) throw new InvalidInputError(`Unknown check "${String(action)}".`);
+  const within = known === "check-against-document" ? parseWithin(input.within) : null;
   return {
     requestId,
     mindId: parseMindId(input.mindId),
@@ -184,8 +202,15 @@ function parseCheck(input: unknown): ParsedCheck {
     more: parseStretches(input.more),
     action: known,
     allDocuments: input.allDocuments === true,
+    within,
     model: parseModel(input.model),
   };
+}
+
+function parseWithin(value: unknown): SearchScope {
+  const within = parseSearchScope(value);
+  if (!within) throw new InvalidInputError({ key: "error.check.noDocumentPicked" });
+  return within;
 }
 
 function parseClaim(input: unknown) {
@@ -274,37 +299,42 @@ export function createChecks(options: ChecksOptions) {
   const running = new Map<string, { controller: AbortController; mindId: string }>();
   const claimCheck = createClaimCheck(options);
 
+  const services = async () => {
+    const service = chat.defaultService();
+    return service ? [service] : [];
+  };
+  options.consent.registry.register({ id: "checks", sends: CHECKS_FLOW_SENDS, services });
   options.consent.registry.register({
-    id: "checks",
-    sends: CHECKS_FLOW_SENDS,
-    async services() {
-      const service = chat.defaultService();
-      return service ? [service] : [];
-    },
+    id: "document-check",
+    sends: DOCUMENT_CHECK_FLOW_SENDS,
+    services,
   });
 
   /** The model to check with, or why there is none; the consent dialog shows before anything is sent. */
-  async function prepare(choice: ChatModelChoice | null): Promise<
+  async function prepare(
+    choice: ChatModelChoice | null,
+    flow: CheckFlow = "checks",
+  ): Promise<
     | { ok: true; prepared: PreparedChatModel }
     | {
         ok: false;
         result: Extract<CheckSentencesResult, { kind: "not-ready" | "local-mode" | "cancelled" }>;
       }
   > {
-    const readiness = await chat.readiness(choice ?? undefined, "checks");
+    const readiness = await chat.readiness(choice ?? undefined, flow);
     if (!readiness.ready) return { ok: false, result: { kind: "not-ready", readiness } };
     if (readiness.provider.service && options.localOnly()) {
       return { ok: false, result: { kind: "local-mode" } };
     }
     try {
-      return { ok: true, prepared: await chat.prepareModel(choice ?? undefined, "checks") };
+      return { ok: true, prepared: await chat.prepareModel(choice ?? undefined, flow) };
     } catch (error) {
       if (error instanceof ChatNotReadyError) {
         return { ok: false, result: { kind: "not-ready", readiness: error.readiness } };
       }
       if (error instanceof LocalModeError) return { ok: false, result: { kind: "local-mode" } };
       if (error instanceof ConsentDeclinedError) {
-        const now = await chat.readiness(choice ?? undefined, "checks");
+        const now = await chat.readiness(choice ?? undefined, flow);
         return {
           ok: false,
           result: now.ready ? { kind: "cancelled" } : { kind: "not-ready", readiness: now },
@@ -590,6 +620,23 @@ export function createChecks(options: ChecksOptions) {
     claimTimeLimitMs: options.watch.claimTimeLimitMs,
   });
 
+  const wholeRead = createWholeRead({
+    ...options,
+    documents: {
+      live: options.documents.live,
+      passages: options.documents.passages,
+      readText: options.readText,
+    },
+    evidenceScope: (mindId, documentIds) => options.evidence.scope(documentIds, leftOutOf(mindId)),
+    prepare: (choice) => prepare(choice, "document-check"),
+    estimate: options.estimateRead,
+    claimCheck,
+    withResult,
+    retainEvidence,
+    progress: options.documentCheckProgress,
+    newId: randomUUID,
+  });
+
   return {
     ...verify,
 
@@ -604,12 +651,31 @@ export function createChecks(options: ChecksOptions) {
       }
       const tracked = track(parsed.requestId, parsed.mindId);
       try {
+        if (parsed.within) {
+          return await wholeRead.checkSentences(
+            {
+              requestId: parsed.requestId,
+              mindId: parsed.mindId,
+              stretches: [{ from: parsed.from, to: parsed.to }, ...parsed.more],
+              within: parsed.within,
+              model: parsed.model,
+            },
+            tracked.signal,
+          );
+        }
         return parsed.action === "contradiction-watch"
           ? await watch.checkSentences(parsed, tracked.signal)
           : await checkSentences(parsed, tracked.signal);
       } finally {
         tracked.done();
       }
+    },
+
+    async planDocumentCheck(input: unknown): Promise<DocumentCheckPlan> {
+      if (!isRecord(input)) throw new InvalidInputError("planDocumentCheck expects an object.");
+      const mindId = parseMindId(input.mindId);
+      options.requireMind(mindId);
+      return wholeRead.plan(mindId, parseWithin(input.within), parseModel(input.model));
     },
 
     async planContradictionCheck(mindId: unknown): Promise<ContradictionCheckPlan> {

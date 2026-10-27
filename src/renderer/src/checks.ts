@@ -16,7 +16,9 @@ import {
   type CitationAttributes,
   CLAIM_CHECK_MARK,
   type ClaimCheckAction,
+  type DocumentCheckProgress,
   type ProviderError,
+  type SearchScope,
 } from "../../core/api";
 import { quotedWordsFoundIn } from "../../shared/citations";
 import { core } from "./core";
@@ -62,6 +64,7 @@ export interface LeftOut {
   count: number;
   action: ClaimCheckAction;
   allDocuments: boolean;
+  within?: SearchScope;
 }
 
 interface ChecksState {
@@ -77,6 +80,10 @@ interface ChecksState {
   openClaim: Readonly<Record<string, string>>;
   /** By tab, else by Mind: the card the keyboard opened, whose first action takes the focus (#1762). */
   focusClaim: Readonly<Record<string, string>>;
+  /** By claim: Check against a Document's picker was requested from ⌘K. */
+  pickDocument: Readonly<Record<string, true>>;
+  /** By whole-read request: its latest page count. */
+  documentProgress: Readonly<Record<string, DocumentCheckProgress>>;
 }
 
 export const useChecks = create<ChecksState>()(() => ({
@@ -86,6 +93,8 @@ export const useChecks = create<ChecksState>()(() => ({
   cardOpen: {},
   openClaim: {},
   focusClaim: {},
+  pickDocument: {},
+  documentProgress: {},
 }));
 
 function setFor<K extends keyof ChecksState>(
@@ -119,6 +128,13 @@ export const setOpenClaim = (place: string, id: string | null) => setFor("openCl
 
 export const setClaimFocus = (place: string, id: string | null) => setFor("focusClaim", place, id);
 
+export const requestDocumentPicker = (id: string) => setFor("pickDocument", id, true);
+
+export const dismissDocumentPicker = (id: string) => setFor("pickDocument", id, null);
+
+export const setDocumentProgress = (progress: DocumentCheckProgress) =>
+  setFor("documentProgress", progress.requestId, progress);
+
 /** Only if `id` is still the open one: a card that closes late must not close its successor. */
 export function closeOpenClaim(place: string, id: string): void {
   if (useChecks.getState().openClaim[place] === id) setOpenClaim(place, null);
@@ -146,7 +162,12 @@ export async function checkSentences(
   {
     ranges,
     allDocuments = false,
-  }: { ranges?: readonly { from: number; to: number }[]; allDocuments?: boolean } = {},
+    within,
+  }: {
+    ranges?: readonly { from: number; to: number }[];
+    allDocuments?: boolean;
+    within?: SearchScope;
+  } = {},
 ): Promise<void> {
   // An older version's mark says "find-support": it is Check against Documents now.
   const action = asked === "find-support" ? "check-against-documents" : asked;
@@ -177,6 +198,7 @@ export async function checkSentences(
       ...(more.length > 0 && { more: more.map(({ from, to }) => ({ from, to })) }),
       action,
       allDocuments,
+      ...(within && { within }),
       model: modelInUseOf(doc),
     });
   } catch (error) {
@@ -187,6 +209,7 @@ export async function checkSentences(
         void checkSentences(editor, mindId, doc, action, {
           ranges: stretches.map((each) => each.range),
           allDocuments,
+          within,
         }),
     };
   } finally {
@@ -207,6 +230,7 @@ export async function checkSentences(
       count: waiting.sentences.length,
       action,
       allDocuments,
+      within,
     });
   } else if (
     result.kind !== "checked" &&
@@ -219,7 +243,7 @@ export async function checkSentences(
       withCheckAll(
         result,
         () =>
-          void checkSentences(editor, mindId, doc, action, {
+          void checkSentences(editor, mindId, doc, "check-against-documents", {
             ranges: stretches.map((each) => each.range),
             allDocuments: true,
           }),
@@ -254,6 +278,7 @@ export function acceptAndCheck(
   return checkSentences(editor, mindId, doc, leftOut.action, {
     ranges,
     allDocuments: leftOut.allDocuments,
+    within: leftOut.within,
   });
 }
 
@@ -271,10 +296,18 @@ export function checkAgain(
   claim: ShownClaim,
   allDocuments = claim.check.scope.widened,
 ): Promise<void> {
-  return checkSentences(editor, mindId, doc, claim.check.action, {
-    ranges: [{ from: claim.from, to: claim.to }],
-    allDocuments,
-  });
+  const wholeRead = claim.check.action === "check-against-document" && !allDocuments;
+  return checkSentences(
+    editor,
+    mindId,
+    doc,
+    wholeRead ? "check-against-document" : "check-against-documents",
+    {
+      ranges: [{ from: claim.from, to: claim.to }],
+      allDocuments,
+      within: wholeRead ? claim.check.scope.chosen : undefined,
+    },
+  );
 }
 
 /** Takes a sentence's check mark off, leaving the sentence: one step for ⌘Z. */

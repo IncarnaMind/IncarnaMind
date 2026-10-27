@@ -2061,6 +2061,8 @@ export function createCore(adapters: CoreAdapters): Core {
       joinedAfter: (documentIds, since, folderId) =>
         documents.searchableJoinedAfter(documentIds ?? undefined, since, folderId),
       names: () => documents.names(),
+      live: (documentIds) => documents.getMany(documentIds),
+      passages: (documentId) => documents.passagesBetween(documentId, 0, Number.MAX_SAFE_INTEGER),
       searchableLanguages: (documentIds) => documents.searchableLanguages(documentIds ?? undefined),
       savedBySearch: (documentId) => documents.getMany([documentId])[0]?.web?.origin === "search",
       citationSource: (passageId) => documents.citationSource(passageId),
@@ -2071,6 +2073,11 @@ export function createCore(adapters: CoreAdapters): Core {
     engine: answerEngine,
     retention,
     editText,
+    estimateRead(model, windows) {
+      const metered = chat.metered(model ?? undefined);
+      return metered && meter.estimateRead(metered, windows);
+    },
+    documentCheckProgress: (event) => events.emit("documentCheck.progress", event),
     now: () => adapters.now?.() ?? new Date(),
   });
 
@@ -4121,6 +4128,7 @@ export function createCore(adapters: CoreAdapters): Core {
     regenerateProposal: (input) => edits.regenerateProposal(input),
     cancelEdit: async (requestId) => edits.cancel(requestId),
     checkSentences: (input) => inFlow(input.action, () => checks.checkSentences(input)),
+    planDocumentCheck: async (input) => checks.planDocumentCheck(input),
     cancelCheck: async (requestId) => checks.cancel(requestId),
     checkClaim: (input) => inFlow("check-claim", () => checks.checkClaim(input)),
     verifyDocument: (input) => inFlow("verify", () => checks.verifyDocument(input)),

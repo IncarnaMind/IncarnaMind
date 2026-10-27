@@ -40,6 +40,7 @@ const ATTRIBUTES: readonly (keyof ClaimCheckAttributes)[] = [
   "excluded",
   "checkedAt",
   "kept",
+  "read",
 ];
 
 /**

@@ -210,8 +210,12 @@ export interface CreateMindInput {
  *   `hidden`. An older version's editor writes the columns back without
  *   these when it changes one, so it opens these Minds read-only. Older
  *   content is version 30 content as it is.
+ * - 31: a check against a Document the User picked, read whole (#1554):
+ *   "check-against-document" and `read` on its mark, recording how much was
+ *   read. An older version would treat it as a search and check it again.
+ *   Older content is version 31 content as it is.
  */
-export const CONTENT_SCHEMA_VERSION = 30;
+export const CONTENT_SCHEMA_VERSION = 31;
 
 /**
  * The key, in the Mind's settings map (`MIND_SETTINGS_FIELD`), of the content
@@ -5078,6 +5082,7 @@ export const claimCheckActions = [
   "find-support",
   "check-against-documents",
   "contradiction-watch",
+  "check-against-document",
 ] as const;
 export type ClaimCheckAction = (typeof claimCheckActions)[number];
 
@@ -5307,6 +5312,14 @@ export interface ClaimCheckAttributes {
    * stay as they were checked, it isn't shown, counted or checked again.
    */
   kept?: true;
+  /** "check-against-document": how much of the picked Document or Folder was read. */
+  read?: WholeRead;
+}
+
+/** Pages read of a whole-read pick's total pages; a page without text cannot be read. */
+export interface WholeRead {
+  pages: number;
+  of: number;
 }
 
 export interface CheckSentencesInput {
@@ -5321,8 +5334,45 @@ export interface CheckSentencesInput {
   action: ClaimCheckAction;
   /** Search every Document, not the Mind's Folder ("Search all Documents"). */
   allDocuments?: boolean;
+  /** "check-against-document": the Document or Folder to read whole (`planDocumentCheck`). */
+  within?: SearchScope;
   /** The model to use: the Mind's own; none, or null, the default chat model. */
   model?: ChatModelChoice | null;
+}
+
+export interface PlanDocumentCheckInput {
+  mindId: string;
+  within: SearchScope;
+  model?: ChatModelChoice | null;
+}
+
+export interface DocumentToRead {
+  documentId: string;
+  name: string;
+  pages: number;
+  readable: number;
+}
+
+/** What an explicit whole read takes; planning never sends text to a model. */
+export type DocumentCheckPlan =
+  | {
+      kind: "ready";
+      documents: DocumentToRead[];
+      pages: number;
+      readable: number;
+      tokens: number;
+      estimate: RunEstimate | null;
+    }
+  | { kind: "too-large"; tokens: number; most: number }
+  | { kind: "too-many"; documents: number; most: number }
+  | { kind: "nothing-to-read" };
+
+/** Progress through an explicit whole read, sent as it goes and never persisted. */
+export interface DocumentCheckProgress {
+  requestId: string;
+  mindId: string;
+  pages: number;
+  of: number;
 }
 
 /** What `checkSentences` did. */
@@ -5364,7 +5414,9 @@ export type CheckSentencesResult =
   /** Contradiction watch, nothing sent: the Mind is in no Folder, so there is none to check against. */
   | { kind: "no-folder" }
   /** Contradiction watch, nothing sent: the Folder holds no Documents but those its claims cite. */
-  | { kind: "only-cited"; folderId: string };
+  | { kind: "only-cited"; folderId: string }
+  /** "check-against-document": the pick cannot be read whole, and the plan says why. */
+  | { kind: "cannot-read"; plan: Exclude<DocumentCheckPlan, { kind: "ready" }> };
 
 /** Contradiction watch (#112) on a whole Mind, on demand. */
 export interface CheckContradictionsInput {
@@ -6717,6 +6769,7 @@ export const dataKinds = [
   "answers",
   "web-searches",
   "verified-document",
+  "whole-document",
   "references",
   "connector-search",
   "meeting-audio",
@@ -6784,6 +6837,10 @@ export type DataKind = (typeof dataKinds)[number];
  *   else the image model's). Not allowed by choosing the provider (#1613):
  *   the User allows it here, in Settings › Privacy, and without it the scan
  *   stays unsorted. A model on this computer needs no consent.
+ * - "document-check": when the User asks Check against a Document… (#1554),
+ *   the sentence with its paragraph and the whole text of the Document or
+ *   Folder they pick, to the chat model's provider. Asked where it is used;
+ *   none in local mode.
  */
 export const dataFlowIds = [
   "chat",
@@ -6803,6 +6860,7 @@ export const dataFlowIds = [
   "connector-registry",
   "transcription",
   "scan-images",
+  "document-check",
 ] as const;
 
 export type DataFlowId = (typeof dataFlowIds)[number];
@@ -9864,8 +9922,14 @@ export interface CoreApi {
    * "checking", then its result, pushed as a "mind.update" like any edit.
    * Sends on the "checks" flow once the User allows it for the model's
    * service; in local mode only a model on this computer is used.
+   *
+   * `check-against-document` instead reads the picked `within` scope in ordered
+   * windows on the separate "document-check" flow. It keeps the previous mark
+   * unchanged until the read settles, so stopping leaves no partial result.
    */
   checkSentences(input: CheckSentencesInput): Promise<CheckSentencesResult>;
+  /** Sizes Check against a Document… before anything is sent; the read is `checkSentences` with `within`. */
+  planDocumentCheck(input: PlanDocumentCheckInput): Promise<DocumentCheckPlan>;
   /** Stops a `checkSentences` request: it gives "cancelled". Stopping one that ended does nothing. */
   cancelCheck(requestId: string): Promise<void>;
   /**
@@ -10733,6 +10797,8 @@ export interface CoreEvents {
    * "document.status". Carries each Document whole.
    */
   "references.changed": Document[];
+  /** How far a whole read of Check against a Document… is (#1554). */
+  "documentCheck.progress": DocumentCheckProgress;
   /** How far a Mind's `checkReferences` is: `done` of `total` entries looked up. */
   "referenceCheck.progress": { mindId: string; done: number; total: number };
   /** `importReferences` has matched `done` of `total` references. */
@@ -10977,6 +11043,7 @@ const methods: Record<CoreApiMethod, true> = {
   regenerateProposal: true,
   cancelEdit: true,
   checkSentences: true,
+  planDocumentCheck: true,
   cancelCheck: true,
   checkClaim: true,
   verifyDocument: true,

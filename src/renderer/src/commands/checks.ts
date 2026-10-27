@@ -3,6 +3,7 @@ import { verificationOf } from "../../../shared/verification";
 import { documentsAdded, useAddedDocuments } from "../addedDocuments";
 import {
   checkSentences,
+  requestDocumentPicker,
   setCheckCardOpen,
   setClaimFocus,
   setOpenClaim,
@@ -116,6 +117,20 @@ export const checkCommands: readonly Command[] = [
     },
   },
   checkAgainstDocuments,
+  {
+    id: "check.againstDocument",
+    label: "claim.checkAgainstDocument",
+    keywords: ["claim.checkAgainstDocument.keywords"],
+    group: "main",
+    reversible: true,
+    when: () => withNotFound() !== null,
+    run() {
+      const at = withNotFound();
+      if (!at) return;
+      showClaimCard(at);
+      requestDocumentPicker(at.claim.check.id);
+    },
+  },
   {
     id: "check.addedDocuments",
     label: "checks.added.command",
