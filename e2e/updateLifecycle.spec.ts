@@ -736,8 +736,16 @@ for (const scenario of ["base-error", "squirrel-error"] as const) {
           ).toBe(true);
         }
         if (holder) {
-          expect(recorded.filter((entry) => entry.kind === "owner-rename-refused")).toHaveLength(1);
-          expect(recorded.some((entry) => entry.kind === "owner-rename")).toBe(true);
+          const lastRefusal = recorded.findLastIndex(
+            (entry) => entry.kind === "owner-rename-refused",
+          );
+          expect(lastRefusal).toBeGreaterThanOrEqual(0);
+          expect(
+            recorded.some(
+              (entry, index) =>
+                index > lastRefusal && entry.kind === "owner-rename" && entry.pid === owner?.pid,
+            ),
+          ).toBe(true);
           const evidence = (await readFile(join(home, "owner-file-holder.jsonl"), "utf8"))
             .trim()
             .split("\n")

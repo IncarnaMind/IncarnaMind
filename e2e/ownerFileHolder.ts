@@ -52,21 +52,39 @@ try {
   child.stderr.on("data", (text: string) => errors.push(text));
   child.stdin.on("error", (error) => errors.push(String(error)));
   const closed = once(child, "close");
-  const holding = waitForHolder(child, errors);
+  const pid = await bounded(waitForHolder(child, errors), closed, child, errors, "startup");
+  let released: Promise<void> | undefined;
+  const release = async () => {
+    child.stdin.end("release\n");
+    const [code, signal] = await bounded(closed, closed, child, errors, "release");
+    if (code !== 0 || signal !== null)
+      throw new Error(`The owner-file holder failed: ${code}/${signal}. ${errors.join("")}`);
+  };
+  return { pid, release: () => (released ??= release()) };
+}
+
+async function bounded<T>(
+  promise: Promise<T>,
+  closed: Promise<unknown>,
+  child: ChildProcessWithoutNullStreams,
+  errors: string[],
+  action: string,
+): Promise<T> {
+  let timer: NodeJS.Timeout | undefined;
+  const timeout = new Promise<never>((_, reject) => {
+    timer = setTimeout(
+      () => reject(new Error(`The owner-file holder ${action} timed out. ${errors.join("")}`)),
+      30_000,
+    );
+  });
   try {
-    const pid = await holding;
-    let released: Promise<void> | undefined;
-    const release = async () => {
-      child.stdin.end("release\n");
-      const [code, signal] = await closed;
-      if (code !== 0 || signal !== null)
-        throw new Error(`The owner-file holder failed: ${code}/${signal}. ${errors.join("")}`);
-    };
-    return { pid, release: () => (released ??= release()) };
+    return await Promise.race([promise, timeout]);
   } catch (error) {
-    child.kill("SIGKILL");
+    if (child.exitCode === null && child.signalCode === null) child.kill("SIGKILL");
     await closed;
     throw error;
+  } finally {
+    if (timer) clearTimeout(timer);
   }
 }
 

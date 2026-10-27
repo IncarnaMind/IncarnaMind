@@ -6,13 +6,16 @@ import { writeJson } from "../../src/main/instanceFiles";
 
 const fsControl = vi.hoisted(() => ({
   actual: undefined as unknown as typeof import("node:fs").renameSync,
+  actualUnlink: undefined as unknown as typeof import("node:fs").unlinkSync,
   rename: vi.fn<typeof import("node:fs").renameSync>(),
+  unlink: vi.fn<typeof import("node:fs").unlinkSync>(),
 }));
 
 vi.mock("node:fs", async (importOriginal) => {
   const actual = await importOriginal<typeof import("node:fs")>();
   fsControl.actual = actual.renameSync;
-  return { ...actual, renameSync: fsControl.rename };
+  fsControl.actualUnlink = actual.unlinkSync;
+  return { ...actual, renameSync: fsControl.rename, unlinkSync: fsControl.unlink };
 });
 
 const platform = Object.getOwnPropertyDescriptor(process, "platform");
@@ -31,6 +34,7 @@ function refusal(code: string) {
 beforeEach(async () => {
   vi.clearAllMocks();
   fsControl.rename.mockImplementation((from, to) => fsControl.actual(from, to));
+  fsControl.unlink.mockImplementation((path) => fsControl.actualUnlink(path));
   setPlatform("win32");
   now = 1_000;
   vi.spyOn(performance, "now").mockImplementation(() => now);
@@ -81,6 +85,24 @@ test("a persistent Windows EPERM stops at five seconds without a call at the dea
   expect(attempts.at(-1)).toBe(5_750);
   expect(JSON.parse(await readFile(file, "utf8"))).toEqual({ pid: "old" });
   expect((await readdir(folder)).filter((name) => name.endsWith(".tmp"))).toEqual([]);
+});
+
+test("a held temporary source cannot replace the rename failure with a cleanup failure", async () => {
+  const renameError = refusal("EPERM");
+  const cleanupError = refusal("EPERM");
+  fsControl.rename.mockImplementation(() => {
+    throw renameError;
+  });
+  fsControl.unlink.mockImplementation(() => {
+    throw cleanupError;
+  });
+
+  expect(() => writeJson(file, { pid: 1836 })).toThrow(renameError);
+
+  expect(fsControl.rename).toHaveBeenCalledTimes(20);
+  expect(fsControl.unlink).toHaveBeenCalledTimes(1);
+  expect(JSON.parse(await readFile(file, "utf8"))).toEqual({ pid: "old" });
+  expect((await readdir(folder)).filter((name) => name.endsWith(".tmp"))).toHaveLength(1);
 });
 
 test("a non-EPERM rename error is not retried", async () => {
