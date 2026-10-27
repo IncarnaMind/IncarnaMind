@@ -72,6 +72,9 @@ export interface NoteHealth {
   checkedAt: string | null;
 }
 
+/** A digit or a Chinese numeral: a sentence with neither holds no figure, and isn't read for one. */
+const MAY_HOLD_FIGURE = /[\d〇零一二三四五六七八九十百千万亿两]/;
+
 /** Blocks whose text isn't counted. */
 const UNCOUNTED: ReadonlySet<string> = new Set(["question", "heading", "codeBlock", "blockMath"]);
 
@@ -177,7 +180,7 @@ function eachSentence(
         text: words,
         hasFigures:
           figures.some(({ at }) => at >= span.from && at < span.to) ||
-          readFigures(words).length > 0,
+          (MAY_HOLD_FIGURE.test(words) && readFigures(words).length > 0),
         check: claim?.shown ?? null,
         skipped: skipped.has(sentenceKey(words)),
         kept: keptOn(kept, { from, to, text: words }),
