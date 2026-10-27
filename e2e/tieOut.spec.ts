@@ -96,6 +96,8 @@ async function tieOut(window: Page, schedule: Locator, title: string, label: str
   const tab = window.getByRole("tab", { name: new RegExp(`^${title}`) });
   await expect(schedule.or(tab).first()).toBeVisible({ timeout: 30_000 });
   if (await schedule.isVisible()) return;
+  // The new tab slides into the strip: clicked mid-way, the point lands on the note's.
+  await motionSettled(window);
   await pointAndClick(window, tab);
   await expect(schedule).toBeVisible({ timeout: 30_000 });
 }
