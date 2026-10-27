@@ -167,6 +167,13 @@ async function checkWith(options: {
   const calls: ModelCall[] = [];
   const confirmations: string[] = [];
   let emitted = "";
+  // Where the quotes are, as a model names it: a sheet's rows, or the page.
+  const sheet = options.units?.find((unit) => unit.kind === "rows")?.label;
+  const [first, ...rest] = sheet?.rows ?? [];
+  const location =
+    sheet?.sheet && first !== undefined
+      ? `${sheet.sheet}, ${rest.length > 0 ? `rows ${first}–${rest.at(-1)}` : `row ${first}`}`
+      : "p. 1";
   const model = scriptedModel(
     (call) => {
       calls.push(call);
@@ -182,7 +189,7 @@ async function checkWith(options: {
                 citations: (options.quotes ?? [body]).map((quote, index) => ({
                   marker: index + 1,
                   passage: "P1",
-                  location: "p. 1",
+                  location,
                   quote,
                 })),
               },
@@ -467,7 +474,7 @@ test("a raw workbook value is compared at the Note's own shown precision", async
         page: 1,
         text: body,
         kind: "rows",
-        label: { sheet: "Accounts", rows: [1], column: 0, values: { B1: 0.2045 } },
+        label: { sheet: "Accounts", from: 1, to: 1, rows: [1], column: 0, values: { B1: 0.2045 } },
       },
     ],
     text: reply([{ ...item(), source: { ...item().source, reading: 1 } }]),
@@ -622,7 +629,12 @@ test("a verdict with no Figures line is asked for it once, and the reply that ha
 
 const SEGMENTS = "All figures in £m\nSegment\tQ3 2026\tQ3 2025\nClothing\t300\t310";
 const segments = (body = SEGMENTS): UnitText[] => [
-  { page: 1, text: body, kind: "rows", label: { sheet: "Segments", rows: [1, 2, 3], column: 0 } },
+  {
+    page: 1,
+    text: body,
+    kind: "rows",
+    label: { sheet: "Segments", from: 1, to: 3, rows: [1, 2, 3], column: 0 },
+  },
 ];
 
 /** A cell of the note's table under a heading that states the table's scale. */

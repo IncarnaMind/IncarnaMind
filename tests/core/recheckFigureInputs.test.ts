@@ -158,7 +158,7 @@ function workbook(header: string, stored = 1.2345): Unit[] {
       kind: "rows",
       page: 1,
       text: `${header}\nRevenue\t1.2`,
-      label: { sheet: "Accounts", rows: [1, 2], column: 0, values: { B2: stored } },
+      label: { sheet: "Accounts", from: 1, to: 2, rows: [1, 2], column: 0, values: { B2: stored } },
     },
   ];
 }
