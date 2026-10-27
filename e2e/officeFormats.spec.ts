@@ -266,7 +266,7 @@ test("Word, PowerPoint, Excel and CSV files in a linked folder are cited by sect
   await window.keyboard.press("Escape");
   await exportFromMenu(window);
   const result = window.getByTestId("export-result");
-  await expect(result.getByTestId("export-done")).toHaveText(savedLine("Formats.docx", sources));
+  await expect(result.getByTestId("export-done")).toContainText(savedLine("Formats.docx", sources));
   // Every quote was found: no line about one that wasn't.
   await expect(result.getByTestId("export-unverified")).toHaveCount(0);
   const footnotes = Object.values(

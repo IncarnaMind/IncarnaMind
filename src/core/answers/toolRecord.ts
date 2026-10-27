@@ -259,29 +259,26 @@ function commandLine(call: AnswerToolCall): string {
   const into = done.into ? ` into the ${done.into.kind} ${quoted(done.into.name)}` : "";
   const where = done.inOutputLocation === false ? "" : "the Output location, ";
   const file = done.file
-    ? `, saved as ${quoted(done.file.name)} in ${where}${done.file.folder}${markingOf(call, done)}`
+    ? `, saved as ${quoted(done.file.name)} in ${where}${done.file.folder}${markingOf(done)}`
     : "";
   return `run_command ${done.command}: ${counted(done.items.length, "item")}${items ? ` (${items})` : ""}${into}${file}`;
 }
 
 /** What a Word export did about marking the text IncarnaMind wrote, and why, as its result said. */
-function markingOf(call: AnswerToolCall, done: CommandDone): string {
+function markingOf(done: CommandDone): string {
   const { marking } = done;
   if (!marking) return "";
   const leaves =
     marking.choice === "mark"
       ? "the text IncarnaMind wrote is marked with comments"
       : "the text IncarnaMind wrote is left unmarked";
-  const chose = call.asked?.answer?.skipped === false ? call.asked.answer.chosen.map(quoted) : [];
   switch (marking.how) {
-    case "kept":
-      return chose.length > 0
-        ? `; ${leaves}: the User was asked in the tray and answered ${chose.join(" and ")}, a choice now saved for every Word export`
-        : `; ${leaves}: the User's request named it, a choice now saved for every Word export`;
     case "this-file":
       return `; ${leaves}, as the User's request named it for this file, their saved choice unchanged`;
     case "earlier":
-      return `; ${leaves}, following the choice the User saved earlier for Word exports`;
+      return `; ${leaves}, following the choice saved for Word exports`;
+    case "default":
+      return `; ${leaves}, using the default for Word exports; that choice is now saved`;
   }
 }
 
