@@ -1887,7 +1887,14 @@ export const MAX_CITED_PAGES = 2;
  *   `speaker`: who said the cue it starts in, where the Transcript says (#941).
  */
 export type CitationLocation =
-  | { kind: "page"; from: number; to: number; printed?: { from: string; to: string } }
+  | {
+      kind: "page";
+      from: number;
+      to: number;
+      printed?: { from: string; to: string };
+      /** The printed line on the first printed page and on the last (#1709). */
+      lines?: { from: number; to: number };
+    }
   | { kind: "slide"; from: number; to: number }
   | { kind: "rows"; sheet: string | null; from: number; to: number }
   | { kind: "lines"; from: number; to: number }

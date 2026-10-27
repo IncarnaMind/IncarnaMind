@@ -250,4 +250,28 @@ describe("A page's Location in words", () => {
       expect(parseLocation({ ...location, printed })).toEqual({ kind: "page", from: 69, to: 69 });
     }
   });
+
+  test("printed deposition lines survive normalization and stay in the label", () => {
+    const deposition = {
+      kind: "page",
+      from: 45,
+      to: 46,
+      printed: { from: "45", to: "46" },
+      lines: { from: 3, to: 2 },
+    } as const;
+    expect(parseLocation(JSON.stringify(deposition))).toEqual(deposition);
+    expect(englishLocation(deposition)).toBe("p. 45–46 · lines 3–2");
+    expect(englishPrintedLocation(deposition)).toBe("p. 45–46 · lines 3–2");
+    expect(
+      citationSource({ documentName: "Smith Deposition", location: deposition }, zh).text,
+    ).toBe("Smith Deposition，第 45–46 页 · 第 3–2 行");
+    for (const lines of [{ from: 0, to: 2 }, { from: 3, to: 0 }, "3-2"]) {
+      expect(parseLocation({ ...deposition, lines })).toEqual({
+        kind: "page",
+        from: 45,
+        to: 46,
+        printed: { from: "45", to: "46" },
+      });
+    }
+  });
 });
