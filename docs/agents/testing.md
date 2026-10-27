@@ -27,7 +27,7 @@ The packages CI installs (the Noto CJK fonts, ffmpeg, LibreOffice) come from a c
 
 1. Merge `main` into your branch to resolve a conflict or to pick up something you need.
 2. Run the light checks on your computer: `npm run typecheck`, `npm run lint`, and the unit test files that cover what you changed (`npx vitest run <files>`). The whole unit suite and the smoke suite run on CI, on GitHub's machines, so they don't load yours.
-3. Find the smoke specs that touch what you changed (search `e2e/` for the test ids, labels and strings you changed or removed) and update them. Run one locally only when you need to see the UI or record it; otherwise CI runs them.
+3. Find the smoke specs that touch what you changed (search `e2e/` for the test ids, labels and strings you changed or removed) and update them. Run them on a clean machine (below) rather than on yours; run one locally only when you need to see the UI or record it.
 4. When you change or remove UI, update or remove the tests that used it in the same pull request. A test still looking for something your change removed is broken by your change.
 5. Try the edge cases below that apply to your change, by test or by hand, and say in the pull request which you tried and which don't apply.
 
@@ -36,6 +36,20 @@ The packages CI installs (the Noto CJK fonts, ffmpeg, LibreOffice) come from a c
 - Watch the checks until they finish: `gh pr checks <number> --watch`. Don't report the work as done, or ask for a merge, while a check is red or still running.
 - When a check fails, read why: `gh run view <run id> --log-failed`, and for the smoke test, the failing shard's log and the Playwright traces uploaded as its `smoke-test-results-linux-N` artifact (`smoke-test-results-macos-N` from the nightly run). Fix it in this pull request, whether or not your change caused it, and say which in the pull request.
 - "Flaky" is a claim that needs evidence: it failed, then passed on a rerun with nothing changed, and you can say what timing it depends on. Then fix the test. Don't hide it with more retries, longer timeouts or a skip.
+
+## Run the specs you changed on a clean machine
+
+Playwright on your own computer loads it, and several runs at once overload the owner's. Some failures also show only on macOS or Windows (the traffic lights, full screen, a shortcut). `.github/workflows/specs.yml` runs the specs you name on a clean GitHub-hosted machine, Linux, macOS or Windows, set up as the smoke test is. It is apart from `ci.yml`, so it never runs or blocks a required check.
+
+```sh
+git push
+node scripts/run-specs.mjs --os macos --repeat 3 e2e/undoPill.spec.ts e2e/scans.spec.ts:144
+```
+
+- **When.** By default for UI specs, instead of running them yourself. Always, on that system, for a behaviour only macOS or only Windows has (a spec that skips elsewhere with `test.skip(process.platform ...)`). Run locally only to look at the UI by hand or to record a flow.
+- **Inputs.** `specs`: the paths of specs under `e2e/`, each `path` or `path:line`. `os`: `linux` (the default), `macos` or `windows`. `repeat`: 1 to 10, passed as `--repeat-each`; use it to tell a flaky spec from a broken one. `grep`: passed as `--grep`. The helper takes them as flags; by hand they are Actions › Run named specs › Run workflow. Anything else, such as a path outside `e2e/`, is refused with a message, by the helper before it dispatches and by the workflow before it installs anything, and no input reaches a shell as code.
+- **What you get.** The helper runs the pushed commit of your branch (it stops if the branch isn't pushed), asks GitHub once a minute at most, and prints pass, fail or skip for each spec. A spec that skips on that system (a macOS-only one on Linux) shows as skip, not pass. On a failure it downloads the results to `test-results/specs-<os>-<run>/`; a later Playwright run on your computer clears `test-results/`, so read them first. Every test's trace, video and window picture is kept, passed or not (`INCARNAMIND_KEEP_ARTIFACTS`, read in `e2e/app.ts`), in the `specs-<os>-<run id>` artifact for 7 days: `npx playwright show-trace <trace-….zip>`. The recording slows the app a little, so a feel check's time that fails only here is worth one run in CI before you chase it.
+- **Limits.** One run for each branch and system at a time: a new dispatch cancels the one still going. macOS runners are few and the Nightly shares them, so ask for macOS only for what needs it. A run stops after 45 minutes. A green run here doesn't replace the pull request's checks.
 
 ## Tests that pass on any machine
 

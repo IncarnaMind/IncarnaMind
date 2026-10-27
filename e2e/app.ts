@@ -43,6 +43,11 @@ if (displays.length > 0 && Number.isInteger(workerIndex)) {
   process.env.DISPLAY = displays[workerIndex % displays.length];
 }
 
+// Set by the named-specs workflow (docs/agents/testing.md): every test keeps its app's trace,
+// video and window picture, not only a failed one. Playwright's own settings leave an Electron
+// app out, so the launch opts in.
+const KEEP_ARTIFACTS = process.env.INCARNAMIND_KEEP_ARTIFACTS === "1";
+
 /**
  * The apps this test launched that are still open, by the data folder each
  * runs on: `removeDataFolder` closes them, keeping a picture of the window if
@@ -371,7 +376,11 @@ export async function launchApp(
     ],
     env,
     chromiumSandbox: sandboxed || sandboxNotice === "environment" || sandboxNotice === "on",
+    ...(KEEP_ARTIFACTS && {
+      recordVideo: { dir: test.info().outputPath("video", basename(dataDir)) },
+    }),
   });
+  if (KEEP_ARTIFACTS) await keepOnClose(app, dataDir);
   openApps.set(app, dataDir);
   app.on("close", () => {
     openApps.delete(app);
@@ -2858,6 +2867,33 @@ export async function stubClipboard(window: Page) {
 /** A fresh, empty data folder. Remove it with `removeDataFolder`. */
 export const createDataFolder = () => mkdtemp(join(tmpdir(), "incarnamind-smoke-"));
 
+/**
+ * Makes closing the app, by the test or by `removeDataFolder`, first keep its window as it is
+ * and its trace with the test's results; the video is finished by the close itself.
+ */
+async function keepOnClose(app: ElectronApplication, dataDir: string): Promise<void> {
+  await app.context().tracing.start({ screenshots: true, snapshots: true });
+  const close = app.close.bind(app);
+  let kept = false;
+  app.close = async () => {
+    if (!kept) {
+      kept = true;
+      const info = test.info();
+      const window = app.windows()[0];
+      if (window) {
+        const path = info.outputPath(`app-window-${basename(dataDir)}.png`);
+        const shot = await window.screenshot({ path }).catch(() => undefined);
+        if (shot) await info.attach("app-window", { path, contentType: "image/png" });
+      }
+      await app
+        .context()
+        .tracing.stop({ path: info.outputPath(`trace-${basename(dataDir)}.zip`) })
+        .catch((error: unknown) => console.warn(`The app's trace was not kept: ${error}`));
+    }
+    return close();
+  };
+}
+
 /** Closes an app, and kills it if it hasn't quit in 10 s, so one stuck app can't hold up the worker. */
 async function closeOrKill(app: ElectronApplication): Promise<void> {
   const quit = app.close().catch(() => undefined);
@@ -2882,7 +2918,7 @@ export async function removeDataFolder(dataDir: string): Promise<void> {
     if (folder !== dataDir) continue;
     openApps.delete(app);
     const window = app.windows()[0];
-    if (info.status !== info.expectedStatus && window) {
+    if (!KEEP_ARTIFACTS && info.status !== info.expectedStatus && window) {
       const path = info.outputPath("app-window.png");
       const shot = await window.screenshot({ path }).catch(() => undefined);
       if (shot) await info.attach("app-window", { path, contentType: "image/png" });
