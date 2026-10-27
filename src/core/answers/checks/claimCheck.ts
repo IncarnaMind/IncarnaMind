@@ -478,19 +478,21 @@ export function createClaimCheck(deps: ClaimCheckDependencies) {
     if (unit && (verdict.verdict !== "contradicted" || onlyCalculation))
       return unsupported(unit, evidence, null);
     // An unsupported reply with no topic or part named can be missing only the derived figure.
-    // A found topic or an explicit part is independent evidence and stays unsupported. The derived
-    // figure is recognised in the reason or the uncovered part; any other reason stays too.
+    // Only a reason or part about that figure alone is settled; a found topic or any independent
+    // reason or part stays unsupported.
     if (byCalculation && verdict.verdict === "unsupported") {
       const onTopic = verdict.topic !== "not found";
       const parts = onTopic && verdict.covered !== null && verdict.uncovered !== null;
       const derivedReason =
         worked !== null &&
         verdict.says !== null &&
+        !ANOTHER_CLAUSE.test(verdict.says) &&
         statedFigure(verdict.says, worked.calculation.stated, figureContext(worked.evidence)) !==
           null;
       const derivedPart =
         worked !== null &&
         verdict.uncovered !== null &&
+        !ANOTHER_CLAUSE.test(verdict.uncovered) &&
         statedFigure(
           verdict.uncovered,
           worked.calculation.stated,
@@ -791,6 +793,10 @@ async function nearestDifferent(
 }
 
 const messageOf = (error: unknown) => (error instanceof Error ? error.message : String(error));
+
+// A calculation settles one missing figure, not another coordinated or adjoining clause.
+const ANOTHER_CLAUSE =
+  /(?:[;；,，]|\b(?:and|but|or|yet|however|although|though|while|whereas)\b|和|与|及|以及|并且|但|但是|然而|或|或者|而)/iu;
 
 /**
  * A Passage the check found and judged that doesn't back the sentence, with nothing to quote from it:

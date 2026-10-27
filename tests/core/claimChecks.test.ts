@@ -1319,6 +1319,48 @@ describe("A limit the figure stays within, and a cost printed in brackets (#1908
   });
 
   test.each(["reason", "parts"])(
+    "a derived figure beside an independent unsupported clause stays unsupported (%s)",
+    async (kind) => {
+      const claim = `${INSIDE("3.25x")} and the borrower is based in Scotland.`;
+      const calculation = { ...LEVERAGE, stated: "3.25x", relation: "at most" as const };
+      const plans = { [claim]: { verdict: "unsupported" as const, calculation } };
+      const model = scriptedModel(
+        (call) => {
+          if (isCheckRun(call) && call.results.some((each) => each.tool === "calculate")) {
+            return {
+              text:
+                kind === "reason"
+                  ? "Verdict: unsupported\nThe calculated 3.25x ratio agrees, but the Documents do not support the borrower's location."
+                  : "Verdict: unsupported\nCovered: the amount 528.9\nNot covered: the 3.25x ratio and the borrower's location",
+            };
+          }
+          return checkReply(call, plans);
+        },
+        { generate: checkGenerate(plans) },
+      );
+      const setup = await setUpWithDocuments(model, [RESULTS]);
+      const saved = await setup.core.saveChatProvider({
+        kind: "anthropic",
+        apiKey: "sk-test",
+        modelId: "claude-haiku-5-5",
+      });
+      if (saved.service) await setup.core.allowDataFlow("checks", saved.service.id);
+
+      expect(await setup.core.checkClaim({ claim })).toMatchObject({
+        verdict: "unsupported",
+        unsupported:
+          kind === "reason"
+            ? {
+                reason:
+                  "The calculated 3.25x ratio agrees, but the Documents do not support the borrower's location.",
+              }
+            : { uncovered: "the 3.25x ratio and the borrower's location" },
+        calculation: { agrees: true },
+      });
+    },
+  );
+
+  test.each(["reason", "parts"])(
     "an uncovered derived figure is settled by its calculation (%s)",
     async (kind) => {
       const claim = COVERED("4.55x");
