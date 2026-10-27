@@ -6,7 +6,7 @@
 import { constants, existsSync } from "node:fs";
 import { cp, mkdir, readdir } from "node:fs/promises";
 import { homedir } from "node:os";
-import { join, resolve } from "node:path";
+import { basename, join, resolve } from "node:path";
 import { expect, type Page } from "@playwright/test";
 import * as Y from "yjs";
 import type { CoreBridge } from "../../src/core/api";
@@ -191,21 +191,41 @@ export async function buildWorkspace(
 
   // The workbook and the interview guide are filed in the review's Folder before the first
   // frame: the paper's scope is that Folder, so the Analysis reads the workbook and the call
-  // help reads the guide. The deck and the term sheets are still Organize's to sort on camera.
-  const filed = await window.evaluate(async (names) => {
-    const bridge = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
-    const documents = await bridge.listDocuments();
-    return [names.workbook, names.guide].map(
-      (name) => documents.find((each) => each.name === name)?.id ?? "",
-    );
-  }, research.names);
-  if (filed.some((id) => id === "")) throw new Error("A research Document was not read.");
-  await window.evaluate(
-    async ({ ids, groupId }) => {
+  // help reads the guide. The term sheets are filed in Contracts for the same reason: the
+  // comparison reads that Folder, and Organize's own suggestions must not decide its Documents.
+  // The deck is still Organize's to sort on camera.
+  const filed = await window.evaluate(
+    async ({ review, contracts }) => {
       const bridge = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
-      for (const id of ids) await bridge.assignDocumentGroup(id, groupId);
+      const documents = await bridge.listDocuments();
+      const ids = (names: readonly string[]) =>
+        names.map((name) => documents.find((each) => each.name === name)?.id ?? "");
+      return {
+        review: ids([review.workbook, review.guide]),
+        contracts: ids(contracts),
+      };
     },
-    { ids: filed, groupId: creditFolderId },
+    {
+      review: research.names,
+      contracts: sheets.map((path) => basename(path).replace(/\.[^.]+$/, "")),
+    },
+  );
+  if (filed.review.some((id) => id === "") || filed.contracts.length !== sheets.length) {
+    throw new Error("A research Document or a term sheet was not read.");
+  }
+  if (filed.contracts.some((id) => id === "")) throw new Error("A term sheet was not read.");
+  await window.evaluate(
+    async ({ review, contracts, reviewFolder, contractsFolder }) => {
+      const bridge = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
+      for (const id of review) await bridge.assignDocumentGroup(id, reviewFolder);
+      for (const id of contracts) await bridge.assignDocumentGroup(id, contractsFolder);
+    },
+    {
+      review: filed.review,
+      contracts: filed.contracts,
+      reviewFolder: creditFolderId,
+      contractsFolder: contractsFolderId,
+    },
   );
 
   const doc = new Y.Doc();

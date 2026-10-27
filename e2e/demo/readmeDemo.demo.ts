@@ -28,8 +28,18 @@ import {
   setWindowSize,
 } from "../app";
 import { connectCall, speech } from "./call";
+import { assertCaptionsAtScenes } from "./captionGuard";
 import { captureFeature, contactSheet, writeFeatures } from "./features";
-import { encodeGif, encodeMp4, FILMED, Film, Hand, installOverlay, renderPills } from "./film";
+import {
+  encodeGif,
+  encodeMp4,
+  FILMED,
+  Film,
+  Hand,
+  installOverlay,
+  probeDuration,
+  renderPills,
+} from "./film";
 import { SCENES, type Scene, type Take } from "./scenes";
 import { SCENE_TABLE } from "./sceneTable";
 import { type DemoScript, SCRIPTS } from "./script";
@@ -51,7 +61,13 @@ const OUT = process.env.DEMO_OUT ?? join(repository, "docs", "images");
 const STILLS = process.env.DEMO_STILLS ?? join(repository, "docs", "images");
 /** The contact sheet of both takes, for the review: a build artifact, never committed. */
 const CONTACT = process.env.DEMO_CONTACT ?? join(tmpdir(), "readme-features-contact.png");
-const GIF = { fps: 12, width: 1100, colors: 128 };
+/** The GIF is the README's fallback and must stay under 10 MB: try the sharpest, then lighter. */
+const GIF_QUALITIES = [
+  { fps: 12, width: 1100, colors: 128 },
+  { fps: 10, width: 1000, colors: 96 },
+  { fps: 8, width: 960, colors: 64 },
+  { fps: 8, width: 900, colors: 48 },
+];
 /** Where the pointer waits at the start of a scene: over nothing, so no card opens under it. */
 const PARK = { x: 640, y: 600 };
 const LANGUAGES = process.env.DEMO_LANGUAGE
@@ -190,15 +206,46 @@ async function record(script: DemoScript): Promise<void> {
       );
     }
 
+    const marks = film.markTimes();
+    // A caption belongs to the scene it was set in: a range that runs into another scene, or a
+    // scene whose own caption is not at its mark, stops the take rather than shipping.
+    if (!ONLY) {
+      const expected = SCENES.flatMap((scene) => {
+        if (!scene.film || !scene.caption) return [];
+        return [
+          {
+            scene: scene.name,
+            at: marks[scene.name] ?? 0,
+            text: script.captions[scene.caption],
+          },
+        ];
+      });
+      assertCaptionsAtScenes(film.captionTimes(), marks, SCENES, expected, film.kept);
+    }
     const master = process.env.DEMO_MASTER ?? join(files, "master.mp4");
     await film.master(master);
-    const marks = film.markTimes();
     await writeFile(`${master}.marks.json`, JSON.stringify(marks, null, 2));
     const stem = join(OUT, `${NAME}-${script.language}`);
     const mp4 = await encodeMp4(master, `${stem}.mp4`);
-    const gif = await encodeGif(master, `${stem}.gif`, cutOf(marks), GIF);
+    let gif = 0;
+    let quality = { fps: 12, width: 1100, colors: 128 };
+    for (const each of GIF_QUALITIES) {
+      quality = each;
+      gif = await encodeGif(master, `${stem}.gif`, cutOf(marks), each);
+      if (gif <= 10_000_000) break;
+    }
+    if (gif > 10_000_000) {
+      throw new Error(`The GIF is ${(gif / 1e6).toFixed(1)} MB, over the README's 10 MB fallback.`);
+    }
+    // The file is what someone watches: its own length must be the film the scenes made.
+    const length = await probeDuration(`${stem}.mp4`);
+    if (Math.abs(length - film.kept) > 1) {
+      throw new Error(
+        `The film file is ${length.toFixed(1)} s, not the ${film.kept.toFixed(1)} s its scenes made.`,
+      );
+    }
     console.log(
-      `${script.language}: ${stem}.gif ${(gif / 1e6).toFixed(2)} MB, ${stem}.mp4 ${(mp4 / 1e6).toFixed(2)} MB, ${film.kept.toFixed(1)} s, spent $${(await spent(window)).toFixed(3)}`,
+      `${script.language}: ${stem}.gif ${(gif / 1e6).toFixed(2)} MB (${quality.fps} fps, ${quality.width} px, ${quality.colors} colours), ${stem}.mp4 ${(mp4 / 1e6).toFixed(2)} MB, ${length.toFixed(1)} s on disk (scenes ${film.kept.toFixed(1)} s), spent $${(await spent(window)).toFixed(3)}`,
     );
     finished = true;
   } finally {
@@ -240,9 +287,10 @@ if (REENCODE) {
     await mkdir(OUT, { recursive: true });
     const crf = Number(process.env.DEMO_CRF ?? 20);
     const mp4 = await encodeMp4(REENCODE, `${stem}.mp4`, crf);
+    const best = GIF_QUALITIES[0] ?? { fps: 12, width: 1100, colors: 128 };
     const gif = await encodeGif(REENCODE, `${stem}.gif`, cutOf(marks), {
-      ...GIF,
-      colors: Number(process.env.DEMO_COLORS ?? GIF.colors),
+      ...best,
+      colors: Number(process.env.DEMO_COLORS ?? best.colors),
     });
     console.log(
       `${stem}.gif ${(gif / 1e6).toFixed(2)} MB, ${stem}.mp4 ${(mp4 / 1e6).toFixed(2)} MB`,

@@ -31,7 +31,11 @@ export interface Take {
   /** The samples of each of the call's lines, in the order the script gives them. */
   call: { samples: number[][]; voices: { them: string; me: string } };
   /** Keeps the crop of this feature picture, for the take to write once it ends. */
-  still(name: Feature, targets: Locator | readonly Locator[], anchor?: "bottom"): Promise<void>;
+  still(
+    name: Feature,
+    targets: Locator | readonly Locator[],
+    frame?: "bottom" | "top" | { anchor: "top"; topAt: Locator },
+  ): Promise<void>;
 }
 
 export interface Scene {
@@ -69,13 +73,17 @@ async function hook({ window, hand, script }: Take): Promise<void> {
     .locator("p", { hasText: script.wrong.draft })
     .first();
   await hand.zoomOn([sentence, card], 1.5);
-  await hand.hold(1300);
+  await hand.hold(1350);
   await hand.zoomOut();
 }
 
 /** Scene 1: both linked folders read; Organize sorts the new Documents, and one click files them. */
 async function organize(take: Take): Promise<void> {
   const { window, hand, workspace } = take;
+  // The Chinese run's check more often flags a sentence of the draft, and the film settles it
+  // on camera; the Chinese holds are shorter so the film stays at sixty seconds with or
+  // without that beat.
+  const hold = take.script.language === "zh-CN" ? 3400 : 3700;
   const library = window.getByTestId("library");
   await hand.cut(async () => {
     await window.keyboard.press("Escape");
@@ -92,7 +100,7 @@ async function organize(take: Take): Promise<void> {
       )
       .toBe(workspace.documentCount);
   }, PARK);
-  await hand.hold(700);
+  await hand.hold(800);
   await hand.click(library.getByTestId("library-organize"));
   await hand.cut(async () => {
     await expect(library.getByTestId("library-organizing")).toHaveCount(0, { timeout: 300_000 });
@@ -100,14 +108,14 @@ async function organize(take: Take): Promise<void> {
       timeout: 60_000,
     });
   });
-  await hand.hold(2500);
+  await hand.hold(hold);
   // One click takes every suggestion: the Documents move into the Folders and take the Tags.
   await hand.click(library.getByTestId("library-review-accept-all"));
   await hand.cut(async () => {
     await expect(library.getByTestId("library-suggested")).toHaveCount(0, { timeout: 60_000 });
     await expect(library.getByTestId("library-organizing")).toHaveCount(0);
   });
-  await hand.hold(1700);
+  await hand.hold(1800);
   // The two new files the story turns on, now in their Folder with their Tags. A row's name is
   // cut with an ellipsis, so the row is found by the Document's own id, not by what it shows.
   const ids = await window.evaluate(async (wanted) => {
@@ -163,18 +171,29 @@ async function ask(take: Take): Promise<void> {
   expect(said).not.toContain("**");
   expect(said).not.toMatch(script.words.failed);
   film.mark("answer");
-  const citation = answer.getByTestId("citation").first();
-  await expect(citation).toHaveAttribute("data-check", "found");
-  await hand.hold(600);
   hand.caption(script.captions.click);
   film.mark("click");
-  await hand.click(citation.getByTestId("citation-chip"));
-  await expect(highlighted(window)).toBeVisible();
+  // Both languages' pictures must show one Citation: the online margin's 32.1%, whichever
+  // Citation the model put first. It is clicked as a person would and the card is kept open.
+  const citations = answer.getByTestId("citation");
+  await expect(citations.first()).toHaveAttribute("data-check", "found");
   await hand.hold(300);
-  await hand.zoomOn([highlighted(window), window.getByTestId("citation-card")], 1.6);
-  await hand.hold(1400);
-  await take.still("ask", window.getByTestId("citation-card"));
-  await hand.zoomOut();
+  const cards = window.getByTestId("citation-card");
+  let picked = -1;
+  for (let index = 0; index < (await citations.count()); index++) {
+    await citations.nth(index).getByTestId("citation-chip").click();
+    const card = cards.last();
+    await expect(card).toBeVisible();
+    if ((await card.innerText()).includes("32.1")) {
+      picked = index;
+      break;
+    }
+    await window.keyboard.press("Escape");
+  }
+  if (picked < 0) throw new Error("The Answer has no Citation to the online margin.");
+  await expect(highlighted(window)).toBeVisible({ timeout: 60_000 });
+  await hand.hold(300);
+  await take.still("ask", cards.last());
 }
 
 /** Compare Documents over the term sheets, and a cell's page. Its picture only. */
@@ -188,7 +207,10 @@ async function compare(take: Take): Promise<void> {
   await command(window, hand, script.words.typed.compare, script.words.compareCommand);
   const sheet = window.getByTestId("compare-sheet");
   await expect(sheet).toBeVisible();
-  // The three term sheets, ticked: the list can arrive a Document at a time.
+  // The three term sheets: the Contracts Folder is chosen, not whatever the sheet opened on,
+  // and its list can arrive a Document at a time.
+  await sheet.getByTestId("compare-sheet-source").click();
+  await window.getByRole("menuitem", { name: script.folders.contracts.name, exact: true }).click();
   const docBoxes = sheet.getByTestId("compare-sheet-document");
   await expect.poll(() => docBoxes.count(), { timeout: 60_000 }).toBe(3);
   for (let index = 0; index < 3; index++) {
@@ -243,8 +265,45 @@ async function compare(take: Take): Promise<void> {
   );
   await expect(highlighted(window)).toBeVisible();
   await hand.hold(800);
-  // The first cell is the one on screen; a later column sits off the table's visible width.
-  await take.still("compare", table.getByTestId("comparison-cell").first());
+  // The picture is the table's cells with their Citations: the card the click opened is put
+  // away before it, and the pointer with it, so no half-faded card lies over the table.
+  await window.keyboard.press("Escape");
+  await expect(window.getByTestId("citation-card")).toHaveCount(0);
+  await hand.place(PARK.x, PARK.y);
+  await hand.hold(300);
+  // The picture starts at the comparison's menu row: the row itself is the top of the frame,
+  // and nothing above it — the Mind's own heading — is in the picture. Both languages' headings
+  // wrap to different heights, so the row, not a fixed offset, is the anchor.
+  const menuRow = table.getByTestId("comparison-title").first();
+  const heading = window.getByTestId("mind-editor").locator("h1").first();
+  // The pane scrolls so the menu row sits at its top: the heading leaves the view, and the
+  // picture can start at the row with nothing above it.
+  await menuRow.evaluate((element) => element.scrollIntoView({ block: "start" }));
+  await expect
+    .poll(() =>
+      menuRow.evaluate((element) => {
+        const scroller = element.closest(".mind-scroller");
+        if (!scroller) return 999;
+        return Math.abs(element.getBoundingClientRect().top - scroller.getBoundingClientRect().top);
+      }),
+    )
+    .toBeLessThan(40);
+  await hand.hold(200);
+  const [rowBox, headingBox] = await Promise.all([menuRow.boundingBox(), heading.boundingBox()]);
+  if (rowBox && headingBox && headingBox.y + headingBox.height > rowBox.y + 0.5) {
+    throw new Error(
+      "The heading reaches into the comparison's menu row; the picture would slice it.",
+    );
+  }
+  await take.still(
+    "compare",
+    [
+      menuRow,
+      table.getByTestId("comparison-add-question").first(),
+      table.getByTestId("comparison-cell").first(),
+    ],
+    { anchor: "top", topAt: menuRow },
+  );
   // Its own tab goes, so the export's picture does not carry a strip naming another task.
   await hand.cut(async () => {
     const tab = window.getByTestId("mind-tab").filter({ hasText: script.options.title }).first();
@@ -258,6 +317,7 @@ async function compare(take: Take): Promise<void> {
 /** The Answer goes into the paper as grey text with its Undo line. */
 async function addToNote(take: Take): Promise<void> {
   const { window, hand, script } = take;
+  const hold = script.language === "zh-CN" ? 3500 : 3600;
   const answer = assistantAnswers(window).last();
   const editor = window.getByTestId("mind-editor");
   await hand.cut(async () => {
@@ -274,7 +334,7 @@ async function addToNote(take: Take): Promise<void> {
     if (box) await window.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
     await window.mouse.wheel(0, 6000);
   });
-  await hand.hold(2900);
+  await hand.hold(hold);
   // The Answer's own words where they end, and the line that says they went in, are one moment
   // a crop can hold; a whole line of the Note is wider than one.
   const said = answer.getByTestId("assistant-answer-text");
@@ -325,7 +385,7 @@ async function analyse(take: Take): Promise<void> {
   const point = chart.getByTestId("chart-point").first();
   await hand.click(point);
   const card = window.getByTestId("chart-card");
-  await expect(card).toBeVisible();
+  await expect(card).toBeVisible({ timeout: 30_000 });
   await hand.hold(350);
   await take.still("analyse", card);
   await hand.hold(350);
@@ -472,7 +532,7 @@ async function call(take: Take): Promise<void> {
   await expect(notCovered.getByTestId("citation").first()).toBeVisible();
   await hand.hold(200);
   await hand.zoomOn(notCovered, 1.5);
-  await hand.hold(700);
+  await hand.hold(500);
   // The first of the guide's topics the call missed: a whole Answer can be taller than a crop.
   const said = notCovered.getByTestId("assistant-answer-text");
   const firstMissing = said.locator("li").first();
@@ -495,18 +555,27 @@ async function call(take: Take): Promise<void> {
 
   // Stop: the notes fill in from the transcript.
   await hand.click(bar.getByTestId("meeting-stop"));
-  await hand.cut(() =>
-    expect(window.getByTestId("meeting-fill-line")).toContainText(script.words.filled, {
-      timeout: 300_000,
-    }),
-  );
+  await hand.cut(async () => {
+    const fill = window.getByTestId("meeting-fill-line");
+    try {
+      await expect(fill).toContainText(script.words.filled, { timeout: 300_000 });
+    } catch (error) {
+      // A model that didn't answer once can answer on the line's own Try again; the take
+      // keeps a note that cites the call, never one that says it wasn't written.
+      const again = window.getByTestId("meeting-fill-again");
+      if ((await again.count()) === 0) throw error;
+      await again.click();
+      await expect(fill).toContainText(script.words.filled, { timeout: 300_000 });
+    }
+  });
   hand.caption(script.captions.callNotes);
-  await hand.hold(700);
+  await hand.hold(650);
 }
 
 /** After Stop: the notes the call filled in, and one citation opening its transcript line. */
 async function notes(take: Take): Promise<void> {
   const { window, hand, script } = take;
+  const hold = script.language === "zh-CN" ? 800 : 900;
   const editor = window.getByTestId("mind-editor");
   await hand.cut(async () => {
     await expect(window.getByTestId("meeting-fill-line")).toContainText(script.words.filled, {
@@ -528,7 +597,7 @@ async function notes(take: Take): Promise<void> {
     (await quoted.count()) > 0 ? quoted.first() : window.getByTestId("transcript-line").first();
   await hand.hold(300);
   await hand.zoomOn(line, 1.5);
-  await hand.hold(800);
+  await hand.hold(hold);
   await hand.zoomOut();
 }
 
@@ -736,6 +805,7 @@ async function figureAt(window: Page, text: string): Promise<{ x: number; y: num
 /** Scene 7: Export to Word, the Saved line, and the file as the app shows it. */
 async function exportToWord(take: Take): Promise<void> {
   const { window, hand, script } = take;
+  const hold = script.language === "zh-CN" ? 1650 : 1750;
   await hand.cut(async () => {
     await clearAside(window);
     await openMind(window, script.paper.title);
@@ -801,16 +871,17 @@ async function exportToWord(take: Take): Promise<void> {
     }
   });
   // The footnote itself, in view under the file's last line.
-  await hand.hold(1400);
+  await hand.hold(hold);
 }
 
 /** The end card's words, from the README's own, and the app's icon. */
 export async function endCardContent(
   script: DemoScript,
 ): Promise<{ icon: string; lines: string[] }> {
-  // The card's first line is the README's own, as the owner wrote it there.
+  // The card's first line is the README's own tagline, as the owner wrote it there: the one
+  // <b> line that stands alone, not the language switch at the top, which is a link's neighbour.
   const readme = await readFile(join(repository, script.readme), "utf8");
-  const headline = readme.match(/<p align="center">[\s\S]*?<b>([^<]+)<\/b>/)?.[1];
+  const headline = readme.match(/<p align="center"><b>([^<]+)<\/b><\/p>/)?.[1];
   if (!headline) throw new Error("The README has no first line for the end card.");
   const icon = await readFile(join(repository, "build/icon/svg/mac-light.svg"));
   return {
@@ -823,7 +894,7 @@ export async function endCardContent(
 async function endCard({ hand, script }: Take): Promise<void> {
   const card = await endCardContent(script);
   await hand.cut(() => hand.endCard(card));
-  await hand.hold(2300);
+  await hand.hold(2350);
 }
 
 /** What each scene runs: a name in ./sceneTable without a run here is a scene the take cannot film. */

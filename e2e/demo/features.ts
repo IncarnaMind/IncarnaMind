@@ -6,7 +6,7 @@
  */
 import { copyFile, mkdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { chromium, type Locator, type Page } from "@playwright/test";
+import { chromium, expect, type Locator, type Page } from "@playwright/test";
 import type { DemoLanguage } from "./documents";
 import {
   FEATURE_CROP,
@@ -30,7 +30,7 @@ import {
 export async function captureFeature(
   page: Page,
   targets: Locator | readonly Locator[],
-  { anchor = "center" }: { anchor?: "center" | "bottom" } = {},
+  { anchor = "center", topAt }: { anchor?: "center" | "bottom" | "top"; topAt?: Locator } = {},
 ): Promise<Buffer> {
   const list = Array.isArray(targets) ? targets : [targets as Locator];
   const boxes = await Promise.all(list.map((target) => target.boundingBox()));
@@ -62,16 +62,68 @@ export async function captureFeature(
       "Recrop the feature picture around one readable moment; its target is too large.",
     );
   }
+  // A card caught mid-fade is not a moment: wait for the app's own animations to finish, then
+  // for each target and its ancestors to compute to full opacity. A transition that starts on
+  // the frame after a target appears is not among getAnimations() yet, which is how a
+  // half-faded card was once captured.
+  await page.evaluate(async () => {
+    const finished = document
+      .getAnimations()
+      .map((animation) => animation.finished.catch(() => undefined));
+    await Promise.race([Promise.all(finished), new Promise((done) => setTimeout(done, 2000))]);
+  });
+  await expect
+    .poll(
+      () =>
+        Promise.all(
+          list.map((target) =>
+            target.evaluate((element: Element) => {
+              let node: Element | null = element;
+              let opacity = 1;
+              while (node) {
+                const value = Number(getComputedStyle(node).opacity);
+                if (Number.isFinite(value)) opacity *= value;
+                node = node.parentElement;
+              }
+              return opacity;
+            }),
+          ),
+        ).then((values) => values.every((value) => value >= 0.999)),
+      { timeout: 10_000 },
+    )
+    .toBe(true);
   const middle = (top + bottom - crop.height) / 2;
   const under = bottom + 8 - crop.height;
-  return page.screenshot({
-    clip: {
-      x: Math.min(Math.max((left + right - crop.width) / 2, 0), width - crop.width),
-      y: Math.min(Math.max(anchor === "bottom" ? under : middle, 0), height - crop.height),
-      ...crop,
-    },
-    style: OVERLAY,
-  });
+  const above = top - 8;
+  // A crop can start at the top of the row that is its first line: nothing above it, so no
+  // heading is sliced and the row's own glyphs are whole.
+  const firstRow = topAt ? await topAt.boundingBox() : null;
+  if (topAt && !firstRow) throw new Error("The first row of a feature picture isn't visible.");
+  const cleanTop = firstRow ? firstRow.y : above;
+  const clip = {
+    x: Math.min(Math.max((left + right - crop.width) / 2, 0), width - crop.width),
+    y: Math.min(
+      Math.max(
+        anchor === "bottom" ? under : anchor === "top" ? (topAt ? cleanTop : above) : middle,
+        0,
+      ),
+      height - crop.height,
+    ),
+    ...crop,
+  };
+  // The whole of every moment asked for is in the picture: a header sliced by its edge is a
+  // moment to frame again, not to keep.
+  for (const box of shown) {
+    if (
+      box.x < clip.x - 0.5 ||
+      box.y < clip.y - 0.5 ||
+      box.x + box.width > clip.x + clip.width + 0.5 ||
+      box.y + box.height > clip.y + clip.height + 0.5
+    ) {
+      throw new Error("A feature picture's moment would be cut by its crop; frame it again.");
+    }
+  }
+  return page.screenshot({ clip, style: OVERLAY });
 }
 
 /** The recording's layer, its pointer and rings, which a picture never shows. */

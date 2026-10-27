@@ -227,6 +227,11 @@ export class Film {
     return Object.fromEntries(this.marks);
   }
 
+  /** Every caption change, and the second it happens at; null marks a scene with no caption. */
+  captionTimes(): { at: number; text: string | null }[] {
+    return this.captions.map(({ at, text }) => ({ at, text }));
+  }
+
   /**
    * Starts a zoom onto a part of the window, easing in over `ZOOM.seconds`: the window's pixels
    * magnified by `factor` (never more than `ZOOM.most`) about the point that keeps `rect` in view.
@@ -322,7 +327,24 @@ export class Film {
    */
   async master(output: string): Promise<number> {
     const list = await this.list();
+    if (process.env.DEMO_DEBUG) {
+      const { copyFile } = await import("node:fs/promises");
+      await copyFile(list, `${process.env.DEMO_DEBUG}/frames.txt`).catch(() => undefined);
+    }
     const total = this.kept + 1;
+    // The frames at their own durations first: one giant filter graph over a few thousand
+    // images lost most of the film's time in encoding (13 s of a 60 s take), so the concat is
+    // settled into a 30 fps video on its own, and the zoom and captions are laid over that.
+    const plain = join(this.folder, "master-plain.mkv");
+    await ffmpeg([
+      ...["-f", "concat", "-safe", "0", "-i", list],
+      ...["-vf", `fps=${FRAME_RATE}`],
+      // The concat list repeats its last file, which plays that frame once more; the film ends
+      // at its own length, not at the last frame's second play.
+      ...["-t", this.kept.toFixed(3)],
+      ...["-c:v", "libx264rgb", "-preset", "veryfast", "-crf", "6", "-an"],
+      plain,
+    ]);
     const shown = [...this.intervals()].flatMap(([text, spans]) => {
       const path = this.pills.get(text);
       return path ? [{ path, spans }] : [];
@@ -339,12 +361,12 @@ export class Film {
     });
     const zoom = this.zoomFilter();
     const graph = [
-      `[0:v]fps=${FRAME_RATE}${zoom ? `,${zoom}` : ""},pad=${width}:${height + band}:0:0:color=0x${BAND}[v0]`,
+      `[0:v]${zoom ? `${zoom},` : ""}pad=${width}:${height + band}:0:0:color=0x${BAND}[v0]`,
       ...stages,
       `[v${shown.length}]format=gbrp[out]`,
     ].join(";");
     await ffmpeg([
-      ...["-f", "concat", "-safe", "0", "-i", list],
+      ...["-i", plain],
       ...shown.flatMap(({ path }) => [
         ...["-loop", "1", "-framerate", String(FRAME_RATE), "-t", total.toFixed(2), "-i", path],
       ]),
@@ -352,6 +374,18 @@ export class Film {
       ...["-c:v", "libx264rgb", "-preset", "veryfast", "-crf", "6", "-an"],
       output,
     ]);
+    const [frames, finished] = await Promise.all([probeDuration(plain), probeDuration(output)]);
+    console.log(
+      "master",
+      this.frames.length,
+      "frames,",
+      this.kept.toFixed(2),
+      "s kept,",
+      frames.toFixed(2),
+      "s plain,",
+      finished.toFixed(2),
+      "s finished",
+    );
     return (await stat(output)).size;
   }
 }
@@ -408,6 +442,27 @@ export async function encodeMp4(master: string, output: string, crf = 22): Promi
     output,
   ]);
   return (await stat(output)).size;
+}
+
+/** How long a video or GIF file really is, in seconds: what a reader will see. */
+export function probeDuration(file: string): Promise<number> {
+  return new Promise((done, fail) => {
+    const child = spawn("ffprobe", [
+      "-v",
+      "error",
+      "-show_entries",
+      "format=duration",
+      "-of",
+      "default=nw=1:nk=1",
+      file,
+    ]);
+    let text = "";
+    child.stdout.on("data", (chunk: Buffer) => (text += chunk.toString()));
+    child.on("error", fail);
+    child.on("close", (code) =>
+      code === 0 ? done(Number(text.trim())) : fail(new Error(`ffprobe stopped with ${code}`)),
+    );
+  });
 }
 
 function ffmpeg(args: string[]): Promise<void> {
