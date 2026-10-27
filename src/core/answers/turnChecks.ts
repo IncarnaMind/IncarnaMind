@@ -20,7 +20,7 @@ export interface TurnFinding {
 export interface TurnCheck {
   /** Names the check for its one ask; unique in the list. */
   name: string;
-  check(reply: string): TurnFinding | null;
+  check(reply: string): TurnFinding | null | Promise<TurnFinding | null>;
 }
 
 /** The most times, in all, the checks of one Answer ask the model once more. */
@@ -46,10 +46,14 @@ export function createNudges(maxSteps: number, steps: () => number): Nudges {
 /** What the checks make of a reply: to ask the model once more, or the claims to flag it with. */
 export type Settled = { nudge: string } | { claims: ClaimedChange[] };
 
-export function settleReply(checks: readonly TurnCheck[], reply: string, nudges: Nudges): Settled {
+export async function settleReply(
+  checks: readonly TurnCheck[],
+  reply: string,
+  nudges: Nudges,
+): Promise<Settled> {
   const claims = new Set<ClaimedChange>();
   for (const each of checks) {
-    const found = each.check(reply);
+    const found = await each.check(reply);
     if (!found) continue;
     if (found.note && nudges.take(each.name)) return { nudge: found.note };
     for (const claim of found.claims) claims.add(claim);
@@ -58,7 +62,10 @@ export function settleReply(checks: readonly TurnCheck[], reply: string, nudges:
 }
 
 /** What flags a reply that is not asked about again. */
-export const claimsOf = (checks: readonly TurnCheck[], reply: string): ClaimedChange[] => {
-  const settled = settleReply(checks, reply, { take: () => false });
+export const claimsOf = async (
+  checks: readonly TurnCheck[],
+  reply: string,
+): Promise<ClaimedChange[]> => {
+  const settled = await settleReply(checks, reply, { take: () => false });
   return "claims" in settled ? settled.claims : [];
 };

@@ -81,6 +81,30 @@ describe("the repeated checks", () => {
     expect(outcomeOf(undefined)).toBe("no-mark");
   });
 
+  test("say Unsupported, not Not found, for a check that found a Passage about the sentence and quotes none", () => {
+    const found = mark({
+      unsupported: { reason: null, covered: null, uncovered: null, found: true },
+    });
+    expect(outcomeOf(found)).toBe("unsupported");
+    expect(meetsExpected({ outcome: outcomeOf(found), expected: "absent" })).toBe(false);
+    expect(meetsExpected({ outcome: outcomeOf(found), expected: "unsupported" })).toBe(true);
+
+    const absent = mark({});
+    expect(outcomeOf(absent)).toBe("absent");
+    expect(meetsExpected({ outcome: outcomeOf(absent), expected: "absent" })).toBe(true);
+
+    const partly = mark({
+      unsupported: {
+        reason: null,
+        covered: "two days a week",
+        uncovered: "all staff",
+        found: true,
+        quoted: QUOTE,
+      },
+    });
+    expect(outcomeOf(partly)).toBe("partly");
+  });
+
   test("count false Supported, absent on a stated sentence, and checks that differ from the one before", () => {
     const [summary] = summarise([
       row(1, "notice", "supported"),
@@ -94,7 +118,7 @@ describe("the repeated checks", () => {
     expect(summary).toMatchObject({
       repeats: 3,
       falseSupported: 1,
-      absentOnStated: 1,
+      unsupportedOnStated: 1,
       partlyOnAbsent: 0,
     });
     expect(summary?.disagreeing).toBe(2);
@@ -108,6 +132,16 @@ describe("the repeated checks", () => {
       [3, "notice"],
       [3, "car"],
     ]);
+  });
+
+  test("count a stated sentence that comes back Unsupported with the Not found ones", () => {
+    const [summary] = summarise([
+      row(1, "notice", "absent"),
+      row(2, "notice", "unsupported"),
+      row(3, "notice", "partly"),
+    ]);
+    expect(summary?.unsupportedOnStated).toBe(2);
+    expect(summary?.misses).toHaveLength(3);
   });
 
   test("expect the partly-supported card for a general word for the agreement's term", () => {
@@ -131,7 +165,7 @@ describe("the repeated checks", () => {
     const [summary] = summarise(rows);
     expect(summary?.known).toHaveLength(4);
     expect(summary?.misses).toEqual([]);
-    expect(summary?.absentOnStated).toBe(0);
+    expect(summary?.unsupportedOnStated).toBe(0);
   });
 
   test("count a genuine conflict Supported as a false Supported, and a known miss apart", () => {

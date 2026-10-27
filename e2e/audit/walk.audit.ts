@@ -261,16 +261,15 @@ test("A2 first run without examples: chat setup, the empty Mind, Settings", asyn
       await shot(window, "A11-after-set-up-later");
       await scan(window, "A11-after-set-up-later");
     });
-    await step(T, "empty Mind with three steps", async () => {
+    await step(T, "empty Mind", async () => {
       await click(window, window.getByTestId("plus-menu"));
       await click(window, window.getByTestId("plus-new-mind"));
       await expect(window.getByTestId("mind-editor")).toBeVisible();
       await window.waitForTimeout(500);
-      await shot(window, "A12-empty-mind-three-steps");
-      await scan(window, "A12-empty-mind-three-steps");
+      await shot(window, "A12-empty-mind");
+      await scan(window, "A12-empty-mind");
       record("walk.emptyMind.readiness", {
         chatReadinessNotice: await window.getByTestId("chat-readiness").count(),
-        startGuide: await window.getByTestId("start-guide").count(),
       });
     });
     await step(T, "documents empty state", async () => {
@@ -794,17 +793,18 @@ test("A6 window sizes, the three steps, the @ and / menus, hover states", async 
     app = await launch(dataDir, { examples: true, fakeChat: true });
     const { window } = app;
     await sealShell(app.app);
-    await step(T, "three steps in an empty Mind (Get started showing)", async () => {
+    await step(T, "an empty Mind (Get started showing)", async () => {
       await expect(window.getByTestId("mind-editor").locator("h1")).toHaveText(
         "Draft: credit committee paper",
         { timeout: 20_000 },
       );
       await click(window, window.getByTestId("new-tab"));
-      await expect(window.getByTestId("start-guide")).toBeVisible();
+      // No second start guide in an empty note of the User's own (#1940).
+      await expect(window.getByTestId("start-guide")).toHaveCount(0);
       await window.mouse.move(700, 600, { steps: 6 });
       await window.waitForTimeout(400);
-      await shot(window, "A80-empty-mind-three-steps");
-      await scan(window, "A80-empty-mind-three-steps");
+      await shot(window, "A80-empty-mind");
+      await scan(window, "A80-empty-mind");
     });
     await chooseFakeModel(window);
     await window.evaluate(async (folder) => {

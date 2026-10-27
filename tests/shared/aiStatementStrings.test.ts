@@ -37,7 +37,14 @@ const everything: AiUseFigures = {
   ],
   removed: 2,
   citations: { found: 9, notFound: 1, cantCheck: 1, unsupported: 1, contradicted: 1, checking: 1 },
-  sentences: { supported: 3, unsupported: 2, contradicted: 1, needsRecheck: 1, notChecked: 1 },
+  sentences: {
+    supported: 3,
+    unsupported: 2,
+    notFound: 1,
+    contradicted: 1,
+    needsRecheck: 1,
+    notChecked: 1,
+  },
   checked: [
     {
       sentence: "Spring tides come at new and full moon.",
@@ -70,6 +77,7 @@ const everything: AiUseFigures = {
       pages: [],
     },
   ],
+  unreadNames: true,
 };
 const nothing: AiUseFigures = {
   uses: [],
@@ -77,11 +85,21 @@ const nothing: AiUseFigures = {
   sections: [],
   removed: 0,
   citations: { found: 0, notFound: 0, cantCheck: 0, unsupported: 0, contradicted: 0, checking: 0 },
-  sentences: { supported: 0, unsupported: 0, contradicted: 0, needsRecheck: 0, notChecked: 0 },
+  sentences: {
+    supported: 0,
+    unsupported: 0,
+    notFound: 0,
+    contradicted: 0,
+    needsRecheck: 0,
+    notChecked: 0,
+  },
   checked: [],
   unread: [],
+  unreadNames: false,
 };
-const FIGURES = { everything, nothing };
+/** The same record with the Mind not naming its files: the sentence ends in a full stop, no list. */
+const unticked: AiUseFigures = { ...everything, unreadNames: false };
+const FIGURES = { everything, unticked, nothing };
 
 const statementKeys = (Object.keys(en) as MessageKey[]).filter((key) =>
   key.startsWith("aiStatement."),

@@ -23,6 +23,6 @@ Free code signing provided by [SignPath.io](https://about.signpath.io), certific
 
 ## Privacy
 
-IncarnaMind has no account and no server of its own. Your files, Minds and search index stay on your computer. Anything IncarnaMind sends to an outside service (the AI model you choose, a Connector, a source search) is sent only after you agree, and [Settings → Privacy](privacy.md) lists each one and lets you take it back. Usage data is sent only if you agree; a test build for invited testers says on its first run that it sends usage data, with the switch to turn it off. Crash reports are off unless you turn them on. Update checks and model downloads send none of your content, and automatic update checks can be turned off in Settings.
+IncarnaMind has no account and no server of its own. Your files, Notes and search index stay on your computer. Anything IncarnaMind sends to an outside service (the AI model you choose, a Connector, a source search) is sent only after you agree, and [Settings → Privacy](privacy.md) lists each one and lets you take it back. Usage data is sent only if you agree; a test build for invited testers says on its first run that it sends usage data, with the switch to turn it off. Crash reports are off unless you turn them on. Update checks and model downloads send none of your content, and automatic update checks can be turned off in Settings.
 
 The full privacy statement is in [docs/privacy.md](privacy.md).

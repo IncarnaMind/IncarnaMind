@@ -22,7 +22,7 @@ function factText(t: Translate, row: ChangedMind, name: string, waiting: Waiting
 }
 
 /**
- * The card under the reply of an Answer that changed Minds (#202, D148):
+ * The card under the reply of an Answer that changed Minds (#202):
  * what its calls did, from their record rather than the reply's words.
  * "2 Minds changed · Review", a row for each Mind ("Edited: Q3 review · 4
  * waiting") with Open, then Accept all · Reject all while changes wait. For

@@ -643,7 +643,7 @@ describe("where an Answer found what it says", () => {
     const gone = foldedLine(
       input({ read: { ...READ, deleted: true }, steps: sentWhole("lease") }, { askedFrom: MIND }),
     );
-    expect(words(gone, library)).toBe("Read a deleted Mind and “租赁合同-2026”");
+    expect(words(gone, library)).toBe("Read a deleted note and “租赁合同-2026”");
   });
 
   // protects=a long scope sends nothing whole, so an Answer that searches says it searched and counts its sources, with no Document read with the Question; fails_when=a Document is called read that was only searched; no_claim=none beyond protects.

@@ -2,9 +2,16 @@ import { EXPORT_FORMATS } from "../../../core/api";
 import { exportAiUseStatement } from "../aiUseStatement";
 import { useExportDialog } from "../exportDialog";
 import { requestExportMenu } from "../exportMenuRequest";
-import { exportCheckRecord, exportMind, exportPreferences, FORMAT_LABELS } from "../exports";
+import {
+  canChangeExport,
+  changeExportChoices,
+  exportCheckRecord,
+  exportMind,
+  exportPreferences,
+  FORMAT_LABELS,
+  useExports,
+} from "../exports";
 import { currentTabOf } from "../layoutSlice";
-import { chooseOutputLocation } from "../outputFiles";
 import { useAppStore } from "../store";
 import { findTab } from "../tabs";
 import type { Command, CommandContext } from "./registry";
@@ -83,6 +90,31 @@ export const exportCommands: readonly Command[] = [
     }),
   ),
   {
+    // The same Change the Saved line offers, for the keys and ⌘K: only while that line holds a
+    // file whose choices can still be changed, which is a Word or PDF export (#1945).
+    id: "mind.exportChangeChoices",
+    label: "export.change.command",
+    keywords: ["export.change.command.keywords"],
+    shortcut: { keys: "CmdOrCtrl+Alt+E" },
+    group: "main",
+    reversible: true,
+    when: (ctx) => {
+      const mindId = mindOf(ctx);
+      const result = useExports.getState().result;
+      return (
+        mindId !== null &&
+        result?.mindId === mindId &&
+        result.state === "saved" &&
+        canChangeExport(result.format) &&
+        result.changing === undefined
+      );
+    },
+    run: (ctx) => {
+      const mindId = mindOf(ctx);
+      if (mindId) changeExportChoices(mindId);
+    },
+  },
+  {
     id: "mind.exportOptions",
     label: "export.options",
     keywords: ["export.keywords"],
@@ -107,17 +139,6 @@ export const exportCommands: readonly Command[] = [
     run: (ctx) => {
       const mindId = mindOf(ctx);
       if (mindId) return exportAiUseStatement(mindId);
-    },
-  },
-  {
-    id: "export.changeLocation",
-    label: "export.changeLocation",
-    keywords: ["export.changeLocation.keywords"],
-    group: "file",
-    // A setting, not a file moved: the User changes it again the same way, so there is nothing to undo.
-    reversible: true,
-    run: async () => {
-      await chooseOutputLocation();
     },
   },
   {

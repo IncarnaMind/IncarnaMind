@@ -24,7 +24,7 @@ import {
 } from "./app";
 
 /*
- * "Use my Claude plan" (#872): a row under Other ways in first run and a row in Settings ›
+ * "Use my Claude plan" (#872): one of the ways in beside the key in first run and a row in Settings ›
  * Models. A local stand-in for Anthropic signs in and answers; the browser is stood in for, and
  * the User pastes the code Anthropic's page shows, as they do.
  */
@@ -78,7 +78,7 @@ async function expectInside(card: Locator, parts: Locator[]) {
   }
 }
 
-test("first run: the row is first under Other ways, says the usage limits first before anything is sent, and the pasted code signs in and answers", async () => {
+test("first run: the row follows the plan, says the usage limits first before anything is sent, and the pasted code signs in and answers", async () => {
   const { app, window } = await launchApp(dataDir, { claude: fake.origin });
   try {
     await setWindowSize(app, window, 1100, 660);
@@ -87,7 +87,7 @@ test("first run: the row is first under Other ways, says the usage limits first 
     const card = await askFirstQuestion(window);
 
     await card.getByTestId("setup-other").click();
-    const ways = card.locator("[data-testid^='way-']:not([data-testid$='-open'])");
+    const ways = card.locator('[data-testid="way-claude"], [data-testid="way-local"]');
     await expect(ways.first()).toHaveAttribute("data-testid", "way-claude");
     const row = card.getByTestId("way-claude");
     await expect(row.getByText("Use my Claude plan", { exact: true })).toBeVisible();
@@ -181,7 +181,7 @@ test("first run: a code Anthropic refuses says so in the row, with a key as the 
     await expect(error).toContainText("The Claude sign-in didn’t work · Use an API key instead");
     await expect(row.getByTestId("claude-plan-sign-in")).toBeVisible();
     await row.getByTestId("claude-plan-use-key").click();
-    await expect(card.getByTestId("setup-back")).toBeVisible();
+    await expect(card.getByTestId("setup-key")).toBeFocused();
     expect((await account(window)).account).toEqual({ state: "signed-out" });
   } finally {
     await app.close();
@@ -310,7 +310,7 @@ test("⌘K: Sign in with Claude opens the words in Settings › Models, before a
   }
 });
 
-test("in Chinese: the row is first under Other ways too and a model on this computer last, with the usage limits first", async () => {
+test("in Chinese: the row follows the plan and comes before a model on this computer, with the usage limits first", async () => {
   const { app, window } = await launchApp(dataDir, { claude: fake.origin });
   try {
     await setWindowSize(app, window, 1100, 660);
@@ -319,7 +319,7 @@ test("in Chinese: the row is first under Other ways too and a model on this comp
     await acceptPlainTextKeys(window);
     const card = await askFirstQuestion(window);
     await card.getByTestId("setup-other").click();
-    const ways = card.locator("[data-testid^='way-']:not([data-testid$='-open'])");
+    const ways = card.locator('[data-testid="way-claude"], [data-testid="way-local"]');
     // Every plan comes before a model on this computer.
     await expect(ways.first()).toHaveAttribute("data-testid", "way-claude");
     await expect(ways.last()).toHaveAttribute("data-testid", "way-local");

@@ -24,17 +24,18 @@ concurrency:
 
 jobs:
   # The whole smoke suite on macOS, including the specs only macOS has, such as the traffic
-  # lights in the title bar (e2e/titleBar.spec.ts) and full screen. As one job it takes about two
+  # lights in the title bar (e2e/titleBar.spec.ts) and full screen. As one job it takes over four
   # hours there, so it is split into shards that run at once, balanced as CI's Linux shards are
-  # (scripts/smoke-shard.mjs and e2e/durations.json).
+  # (scripts/smoke-shard.mjs and e2e/durations.json). Each shard has to stay well inside the
+  # job's hour: with four, three of them ran out of time on 2026-10-26.
   smoke-macos:
-    name: Smoke shard ${{ matrix.shard }}/4 (macOS)
+    name: Smoke shard ${{ matrix.shard }}/8 (macOS)
     runs-on: macos-latest
     timeout-minutes: 60
     strategy:
       fail-fast: false
       matrix:
-        shard: [1, 2, 3, 4]
+        shard: [1, 2, 3, 4, 5, 6, 7, 8]
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-node@v7
@@ -51,7 +52,7 @@ jobs:
             sleep 20
           done
           exit 1
-      - run: npm run test:smoke -- $(node scripts/smoke-shard.mjs ${{ matrix.shard }} 4)
+      - run: npm run test:smoke -- $(node scripts/smoke-shard.mjs ${{ matrix.shard }} 8)
       - name: Upload Playwright traces
         if: failure()
         uses: actions/upload-artifact@v7
@@ -60,10 +61,10 @@ jobs:
           path: test-results/
           retention-days: 7
 
-  # The packaged app transcribes a meeting with its real speech engine and model (#1239), as
-  # ci.yml runs it for a pull request that changes what it covers.
+  # The packaged app reads scans with real OCR (#1819) and transcribes a meeting with its real
+  # speech engine and model (#1239), as ci.yml runs them for a pull request that changes their coverage.
   packaged-transcription:
-    name: Packaged app transcribes a meeting (macOS)
+    name: Packaged app's real engines (macOS)
     runs-on: macos-latest
     timeout-minutes: 45
     steps:

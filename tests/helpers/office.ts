@@ -66,6 +66,8 @@ export interface SheetInput {
   name: string;
   /** Rows from 1; numbers are stored as numbers, strings inline. */
   rows: (string | number)[][];
+  /** Excel hides it from the tabs: "hidden", or "veryHidden", which only a developer can show. */
+  state?: "hidden" | "veryHidden";
 }
 
 /** A sheet of an .xlsx written as XML, for the look the sheet preview reads. */
@@ -75,7 +77,7 @@ export interface RawSheet {
   xml: string;
   /** The sheet's relationships, as <Relationship> elements. */
   rels?: string;
-  state?: "hidden";
+  state?: "hidden" | "veryHidden";
 }
 
 /**
@@ -183,7 +185,7 @@ export function xlsxOf(sheets: readonly SheetInput[], options: PackageOptions = 
       data: `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets>${sheets
         .map(
           (sheet, index) =>
-            `<sheet name="${escapeXml(sheet.name)}" sheetId="${index + 1}" r:id="rId${index + 1}"/>`,
+            `<sheet name="${escapeXml(sheet.name)}" sheetId="${index + 1}"${sheet.state ? ` state="${sheet.state}"` : ""} r:id="rId${index + 1}"/>`,
         )
         .join("")}</sheets></workbook>`,
     },

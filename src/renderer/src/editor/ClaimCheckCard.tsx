@@ -12,7 +12,12 @@ import { createPortal } from "react-dom";
 import type * as Y from "yjs";
 import type { ClaimCalculation } from "../../../core/api";
 import { shownDocumentName } from "../../../shared/citations";
-import { checkedScope, coveredPart, SENTENCES_CHECKED_AT_MOST } from "../../../shared/claimChecks";
+import {
+  checkedScope,
+  coveredPart,
+  SENTENCES_CHECKED_AT_MOST,
+  saysNotFound,
+} from "../../../shared/claimChecks";
 import { formulaText } from "../../../shared/formula";
 import { citationLocation, formatLocation, openKind } from "../../../shared/locations";
 import { comparableSentence } from "../../../shared/sentences";
@@ -30,9 +35,12 @@ import {
   useChecks,
   widenCitation,
 } from "../checks";
+import { useCitesWorks } from "../citationFormatting";
 import { CountItLine } from "../components/CountItLine";
 import { MetaLine } from "../components/MetaLine";
+import { ObjectMenu, useObjectMenu } from "../components/ObjectMenu";
 import { LineAction } from "../components/ProblemLine";
+import { rowActionButtonClass } from "../components/sidebarRows";
 import { askInAssistant } from "../conversations";
 import { useFindSources } from "../findSources";
 import { translateNow, useLanguage, useT } from "../i18n";
@@ -43,14 +51,17 @@ import { useScopeName } from "../scopeDocuments";
 import { useAppStore } from "../store";
 import {
   applyFigure,
+  checkStateKey,
   cutSentence,
   cutUnsupported,
   keepAsView,
+  offersFindSources,
   offersFixes,
   offersKeepAsView,
   offersNotFound,
   offersUseFigure,
   searchedLess,
+  sentenceOf,
   uncoveredOf,
 } from "../unsupportedFixes";
 import { type CitationDecision, citationDecision, citationsOf } from "./alreadyCited";
@@ -79,10 +90,6 @@ const TONE: Record<ClaimMarkState, string> = {
   "not-checked": "cant-check",
   "needs-recheck": "checking",
 };
-
-/** The words of the sentence a check is about. */
-const sentenceOf = (editor: Editor, claim: ShownClaim) =>
-  editor.state.doc.textBetween(claim.sentence.from, claim.sentence.to, " ", " ").trim();
 
 const NO_DECISION: CitationDecision = { kind: "none" };
 
@@ -128,6 +135,8 @@ export function ClaimMark({
 }) {
   const t = useT();
   const state = claim.shown.state;
+  // A sentence not checked yet has no mark on the page (D276): its button stays, unseen, as its card's anchor (#1941).
+  const silent = state === "not-checked";
   const id = claim.check.id;
   const place = useCardPlace(mindId);
   const [button, setButton] = useState<HTMLButtonElement | null>(null);
@@ -143,6 +152,7 @@ export function ClaimMark({
   const decision = state === "supported" ? citationDecision(editor.state, claim) : NO_DECISION;
   const plus = decision.kind === "add";
   const added = useAddedDocuments((store) => store.byMind[mindId]?.[claim.check.id]?.length ?? 0);
+  const heading = t(checkStateKey(editor, claim));
 
   const hold = useCallback((source: string, on: boolean) => {
     if (on) askers.current.add(source);
@@ -251,7 +261,7 @@ export function ClaimMark({
           if (event.target === event.currentTarget && reveal) onRevealed();
         }}
       >
-        <ClaimMarkIcon state={state} className="margin-check-icon" />
+        {!silent && <ClaimMarkIcon state={state} className="margin-check-icon" />}
         {plus && <span aria-hidden="true">+</span>}
       </button>
       {open && button?.parentElement && (
@@ -270,7 +280,7 @@ export function ClaimMark({
             }}
             initialFocus={initialFocus}
             aria-label={t("claim.card.label", {
-              state: t(`claim.state.${state}`),
+              state: heading,
               sentence: comparableSentence(claim.sentence.text),
             })}
             data-testid="claim-card"
@@ -284,11 +294,13 @@ export function ClaimMark({
             <ClaimCard
               rootRef={card}
               claim={claim}
+              heading={heading}
               verified={verificationOf(doc)?.documentId ?? null}
               cited={citationsOf(editor.state, claim)}
               fixes={offersFixes(editor, claim)}
               notFound={offersNotFound(editor, claim)}
               keep={offersKeepAsView(editor, claim)}
+              editor={editor}
               decision={decision}
               added={added}
               onAdd={() => {
@@ -379,7 +391,12 @@ function Working({ calculation, onOpen }: { calculation: ClaimCalculation; onOpe
       </p>
       {!calculation.agrees && (
         <p data-testid="claim-stated" className="claim-card-says">
-          {t("claim.calculated.stated", { stated: calculation.stated })}
+          {t(
+            calculation.relation
+              ? `claim.calculated.stated.${calculation.relation}`
+              : "claim.calculated.stated",
+            { stated: calculation.stated },
+          )}
         </p>
       )}
       <ul aria-label={t("claim.calculated.inputs")} className="claim-card-inputs">
@@ -457,11 +474,13 @@ function WorkingInput({
 function ClaimCard({
   rootRef,
   claim,
+  heading,
   verified,
   cited,
   fixes,
   notFound,
   keep,
+  editor,
   decision,
   added,
   onAdd,
@@ -482,12 +501,14 @@ function ClaimCard({
 }: {
   rootRef: RefObject<HTMLDivElement | null>;
   claim: ShownClaim;
+  heading: string;
   /** The Document a Verify Mind checks: left out of every check, as itself, never as a copy. */
   verified: string | null;
   cited: readonly NumberedCitation[];
   fixes: boolean;
   notFound: boolean;
   keep: boolean;
+  editor: Editor;
   decision: CitationDecision;
   added: number;
   onAdd(): void;
@@ -508,6 +529,7 @@ function ClaimCard({
 }) {
   const t = useT();
   const language = useLanguage();
+  const citesWorks = useCitesWorks(editor);
   const webSearchOn = useAppStore((store) => store.settings?.user.webSearch === true);
   // Search the web with web search off says why, and where to turn it on, before anything else happens.
   const [webOffShown, setWebOffShown] = useState(false);
@@ -551,8 +573,9 @@ function ClaimCard({
       savedPage.versions.find((each) => each.contentHash === evidence?.contentHash)?.fetchedAt ??
       savedPage.fetchedAt,
   };
-  const saysNotFound =
-    state === "unsupported" && !differs && !decisionMissing && !fixes && !covers && !ownWorkings;
+  const nothingFound = saysNotFound(shown, check, cited.length);
+  const findSourcesOffered = offersFindSources(editor, claim);
+  const objectMenu = useObjectMenu({ kind: "check", id: check.id });
   const checkedIn = decided || state === "unsupported";
   const cuttable = fixes && uncoveredOf(claim) !== null;
   const pastCap = shown.state === "not-checked" && shown.reason === "too-many";
@@ -571,13 +594,12 @@ function ClaimCard({
       ref={rootRef}
       className={`citation-card citation-card--${TONE[state]}`}
       contentEditable={false}
+      {...objectMenu.rowProps}
     >
       <div className="citation-card-head">
         <p data-testid="claim-badge" data-check={state} className="citation-badge">
           <ClaimMarkIcon state={state} className="citation-badge-icon" />
-          <span>
-            {decisionMissing ? t("claim.courtDecision.title") : t(`claim.state.${state}`)}
-          </span>
+          <span>{decisionMissing ? t("claim.courtDecision.title") : heading}</span>
         </p>
         {sentence && (
           <p data-testid="claim-sentence" className="claim-card-sentence">
@@ -682,20 +704,25 @@ function ClaimCard({
               onOpen={onOpen}
             />
           )}
-          {!fixes && !covers && (
-            <p
-              data-testid={ownWorkings ? "claim-own-workings" : "claim-nothing"}
-              className="citation-card-note"
-            >
-              {ownWorkings
-                ? t("claim.unsupported.ownWorkings")
-                : looked && looked.more > 0
-                  ? t("claim.unsupported.notFound.more", {
-                      scope: lookedIn,
-                      count: looked.more,
-                      total: looked.more + 1,
-                    })
-                  : t("claim.unsupported.notFound", { scope: lookedIn })}
+          {ownWorkings && (
+            <p data-testid="claim-own-workings" className="citation-card-note">
+              {t("claim.unsupported.ownWorkings")}
+            </p>
+          )}
+          {nothingFound && (
+            <p data-testid="claim-nothing" className="citation-card-note">
+              {looked && looked.more > 0
+                ? t("claim.unsupported.notFound.more", {
+                    scope: lookedIn,
+                    count: looked.more,
+                    total: looked.more + 1,
+                  })
+                : t("claim.unsupported.notFound", { scope: lookedIn })}
+            </p>
+          )}
+          {!fixes && !covers && !ownWorkings && !nothingFound && check.unsupported?.reason && (
+            <p data-testid="claim-why" className="claim-card-says">
+              {check.unsupported.reason}
             </p>
           )}
         </>
@@ -756,7 +783,7 @@ function ClaimCard({
           />
         </div>
       )}
-      {checkedIn && !saysNotFound && (
+      {checkedIn && !nothingFound && (
         <p data-testid="claim-checked-in" className="citation-card-note">
           {looked && looked.more > 0
             ? t("claim.checkedIn.more", {
@@ -765,6 +792,11 @@ function ClaimCard({
                 total: looked.more + 1,
               })
             : t("claim.checkedIn", { scope: lookedIn })}
+        </p>
+      )}
+      {state === "supported" && (
+        <p data-testid="claim-limit" className="citation-card-note">
+          {t("claim.limit")}
         </p>
       )}
       {check.excluded.map((left) => {
@@ -901,16 +933,18 @@ function ClaimCard({
           </button>
         )}
         {/* Where the Documents say something different the card has Open the page and Fix the sentence already, so it offers no more ways to look. */}
-        {state === "unsupported" && !differs && !decisionMissing && !fixes && (
+        {findSourcesOffered && (
           <>
-            <button
-              type="button"
-              data-testid="claim-find-sources"
-              className="citation-card-action"
-              onClick={onFindSources}
-            >
-              {t("claim.findSources")}
-            </button>
+            {citesWorks && (
+              <button
+                type="button"
+                data-testid="claim-find-sources"
+                className="citation-card-action"
+                onClick={onFindSources}
+              >
+                {t("claim.findSources")}
+              </button>
+            )}
             <button
               type="button"
               data-testid="claim-search-web"
@@ -942,6 +976,15 @@ function ClaimCard({
           </button>
         )}
       </div>
+      {findSourcesOffered && (
+        <ObjectMenu
+          target={{ kind: "check", id: check.id }}
+          label={t("claim.more")}
+          here={{ "check.findSources": onFindSources }}
+          className={`${rowActionButtonClass} citation-card-menu`}
+          align="end"
+        />
+      )}
     </div>
   );
 }

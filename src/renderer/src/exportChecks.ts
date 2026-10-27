@@ -3,6 +3,7 @@ import type { Translate } from "../../shared/locations";
 
 const RESULTS = [
   ["contradicted", "contradicted"],
+  ["notFound", "notFound"],
   ["unsupported", "unsupported"],
   ["recheck", "needsRecheck"],
 ] as const;

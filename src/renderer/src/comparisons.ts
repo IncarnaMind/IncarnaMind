@@ -6,7 +6,12 @@
  * filled, by Mind or table, until the next try.
  */
 import { create } from "zustand";
-import type { ComparisonResult, ComparisonTableRef, Document } from "../../core/api";
+import type {
+  ComparisonFillRequest,
+  ComparisonResult,
+  ComparisonTableRef,
+  Document,
+} from "../../core/api";
 import { MAX_COMPARISON_DOCUMENTS } from "../../shared/comparisons";
 import { leftOutOfEvidence } from "../../shared/evidence";
 import { startingChecks } from "./compareScope";
@@ -60,6 +65,9 @@ const setProblem = (key: string, problem: StartProblem | null) =>
     const { [key]: _old, ...rest } = state.problems;
     return { problems: problem ? { ...rest, [key]: problem } : rest };
   });
+
+/** A problem about what the model can do goes, once the User has set one up. */
+export const clearCompareProblem = (mindId: string): void => setProblem(mindId, null);
 
 /** Opens a Mind's start sheet, its Documents those of `source` ticked, or keeps the one open. */
 export function openCompareSheet(
@@ -211,8 +219,8 @@ export async function makeComparisonTable(
   }
 }
 
-/** Fills a table's cells that have no Answer: a column just added, or those a fill left. */
-export async function fillComparisonTable(ref: ComparisonTableRef): Promise<void> {
+/** Fills a table's cells that have no Answer: a column just added or reworded alone, or those a fill left. */
+export async function fillComparisonTable(ref: ComparisonFillRequest): Promise<void> {
   setProblem(ref.tableId, null);
   try {
     const result = await core.fillComparisonTable(ref);

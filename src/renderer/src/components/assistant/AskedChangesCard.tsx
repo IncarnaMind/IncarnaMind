@@ -123,20 +123,8 @@ function AskedRow({
             {kept}
           </span>
         )}
-        {outcome === "applied" && <AppliedActions answerId={answerId} row={row} name={name} />}
-        {outcome === "opening" && (
-          <>
-            <Dot />
-            <button
-              type="button"
-              data-testid="mind-changes-open"
-              aria-label={`${t("mindChanges.open")} ${name}`}
-              onClick={() => showChanges(row)}
-              className="mind-changes-review"
-            >
-              {t("mindChanges.open")}
-            </button>
-          </>
+        {(outcome === "applied" || outcome === "undone") && (
+          <AppliedActions answerId={answerId} row={row} name={name} />
         )}
         {outcome === "held" && (
           <>

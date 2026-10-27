@@ -310,16 +310,8 @@ export function actionGroup(
       purpose: command.purpose ? t(command.purpose) : "",
       shortcut: menuKeysLabel(command),
     };
-    // A match by keyword or in the other language ranks below one by its name. A typo in a
-    // name is a guess, so an exact match anywhere ranks above it: "local" finds Local mode before
-    // "Change output location…", whose name is one typo away (#1012).
-    const score = named
-      ? named.typo
-        ? named.score - 4000
-        : named.score
-      : elsewhere
-        ? elsewhere.score - 4000
-        : 0;
+    // A match by keyword or in the other language ranks below one by its name.
+    const score = named?.score ?? (elsewhere ? elsewhere.score - 4000 : 0);
     return [{ item, score, group: command.group }];
   });
   const topOf = (id: CommandId) => commands.get(id)?.top ?? Number.MAX_SAFE_INTEGER;
