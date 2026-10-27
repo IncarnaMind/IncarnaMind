@@ -59,11 +59,13 @@ import {
   recheckWhereSelected,
 } from "./answers/citations";
 import {
+  addCitedUnit,
   addCitedUnits,
   addCitedVersions,
   type CitedUnits,
   type CitedVersions,
   eachCitation,
+  figureCitations,
   isCited,
 } from "./answers/citedVersions";
 import { createCiting } from "./answers/citing";
@@ -76,6 +78,7 @@ import {
   type ChatProviderKind,
   type CheckRecordFailure,
   type CheckRecordFormat,
+  CONTENT_SCHEMA_VERSION,
   type ConversationAskResult,
   type CoreApi,
   type CoreEventSource,
@@ -197,7 +200,7 @@ import { type MemoCue, memoTitle } from "./meetings/memo";
 import { createSpeakerPass } from "./meetings/speakerPass";
 import { createTranscripts } from "./meetings/transcript";
 import { accessFor, isKnownKind } from "./mindAccess";
-import { createMindContent } from "./mindContent";
+import { contentVersionOf, createMindContent, hasPendingMindChanges } from "./mindContent";
 import { createMindIndex, lineUnderName } from "./mindIndex";
 import {
   createMinds,
@@ -544,6 +547,7 @@ export function createCore(adapters: CoreAdapters): Core {
     now,
     (mindId, update, cause) => {
       events.emit("mind.update", { mindId, update, ...(cause && { cause }) });
+      rebuildFigureRetention(mindId);
       // Only notes the change; what became of AI text is worked out once the Mind is quiet.
       aiUse.contentStored(mindId);
       checkpoints.edited(mindId);
@@ -560,13 +564,17 @@ export function createCore(adapters: CoreAdapters): Core {
     mindIds: () => minds.list().map((mind) => mind.id),
   });
   // A Mind waiting in Recently deleted comes back with its Citations, so it counts until it is purged.
-  const eachCitingMind = (visit: (blocks: Y.XmlFragment) => void, exceptMindId?: string) => {
+  const eachCitingMind = (
+    visit: (blocks: Y.XmlFragment, mindId: string) => void,
+    exceptMindId?: string,
+  ) => {
     for (const mind of db.all<{ id: string; deleted_at: string | null }>(
       "SELECT id, deleted_at FROM minds WHERE purged_at IS NULL",
     )) {
       if (mind.id === exceptMindId) continue;
-      if (mind.deleted_at === null) content.peek(mind.id, visit);
-      else content.peekDeleted(mind.id, visit);
+      const look = (blocks: Y.XmlFragment) => visit(blocks, mind.id);
+      if (mind.deleted_at === null) content.peek(mind.id, look);
+      else content.peekDeleted(mind.id, look);
     }
   };
   const mindIndex = createMindIndex({
@@ -740,11 +748,41 @@ export function createCore(adapters: CoreAdapters): Core {
   const privacyChanged = () => events.emit("privacy.changed", privacy.status());
   const platform = process.platform;
   const retention = createVersionRetention(db, now);
+  const rebuildFigureRetention = (mindId: string) => {
+    try {
+      content.peek(mindId, (blocks) => {
+        if (
+          !blocks.doc ||
+          contentVersionOf(blocks.doc) > CONTENT_SCHEMA_VERSION ||
+          hasPendingMindChanges(blocks.doc)
+        )
+          return;
+        const citations = figureCitations(blocks);
+        const documents = new Set(
+          citations.flatMap(({ documentId }) =>
+            typeof documentId === "string" ? [documentId] : [],
+          ),
+        );
+        const units: CitedUnits[] = [];
+        for (const citation of citations) addCitedUnit(citation, documents, units);
+        retention.retain(
+          "note-figure",
+          mindId,
+          units.flatMap(({ documentId, contentHash, pageFrom, pageTo }) =>
+            contentHash ? [{ documentId, contentHash, pageFrom, pageTo }] : [],
+          ),
+        );
+      });
+    } catch (error) {
+      console.error(`Mind ${mindId}: retaining calculated figure sources failed`, error);
+    }
+  };
   const checkpoints = createCheckpoints({
     db,
     now,
     content,
     retention,
+    rebuildFigureRetention,
     requireMind: (mindId) => writableMind(mindId).id,
     changed: (mindId) => events.emit("checkpoints.changed", { mindId }),
     stopAnswer: (mindId, answerId) => answers.stop({ mindId, answerId }),
@@ -850,8 +888,16 @@ export function createCore(adapters: CoreAdapters): Core {
     const pagesCited = citedPages.collector();
     if (collectVersions || pagesCited) {
       const cited: CitedVersions = new Map();
-      eachCitingMind((fragment) => {
-        if (collectVersions) addCitedVersions(fragment, cited);
+      let complete = true;
+      eachCitingMind((fragment, mindId) => {
+        if (collectVersions) {
+          try {
+            addCitedVersions(fragment, cited);
+          } catch (error) {
+            complete = false;
+            console.error(`Mind ${mindId}: reading retained source dependencies failed`, error);
+          }
+        }
         if (pagesCited) eachCitation(fragment, pagesCited.cite);
       });
       // First, so a version only a page that went retained goes now too.
@@ -859,7 +905,7 @@ export function createCore(adapters: CoreAdapters): Core {
         conversations.eachCitation(pagesCited.cite);
         pagesCited.collect();
       }
-      if (collectVersions) {
+      if (collectVersions && complete) {
         conversations.addCitedVersions(cited);
         retention.addRetainedVersions(cited);
         const quoted = (documentId: string, contentHash: string) =>
@@ -3609,6 +3655,7 @@ export function createCore(adapters: CoreAdapters): Core {
       }
       const access = accessFor(mind.kind, content.contentVersion(mind.id));
       if (access === "read-only") return { mind, access, state: content.storedState(mind.id) };
+      rebuildFigureRetention(mind.id);
       answers.settleOrphans(mind.id);
       checks.settleStale(mind.id);
       return { mind, access, state: content.state(mind.id) };

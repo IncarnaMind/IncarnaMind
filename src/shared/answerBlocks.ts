@@ -1,18 +1,26 @@
 /**
  * An Answer of the assistant's conversations as Blocks (ADR-0017): the Markdown
  * the model wrote made into the node types of Notes, each Citation marker made
- * into its Citation and each figure marker into its calculated figure's shown
- * text (ADR-0021), its words AI text, exactly as an Answer written into a Mind
+ * into its Citation and each figure marker into its calculated figure
+ * (ADR-0021), its words AI text, exactly as an Answer written into a Mind
  * is made. The assistant shows them, Copy copies them and Add to note puts
  * them into a note.
  */
 
 import { markdownToBlocks } from "../core/answers/markdown";
 import { forPage } from "../core/answers/pointersBack";
-import { CITATION_NODE, type ConversationAnswer, type MarkedCitation } from "../core/api";
+import {
+  type AnswerAnalysis,
+  type CalculatedFigure,
+  CITATION_NODE,
+  type ConversationAnswer,
+  type MarkedCitation,
+} from "../core/api";
 import { asGenerated } from "./aiText";
 import { citationNode, type NodeJSON, withCitations } from "./blockJson";
+import { calculatedFigureNode } from "./calculatedFigures";
 import { withFigures } from "./figureMarkers";
+import { figureRunId } from "./figureRuns";
 import { withoutFraming } from "./noteBlocks";
 
 /**
@@ -22,7 +30,8 @@ import { withoutFraming } from "./noteBlocks";
  * figure is left out.
  */
 export function answerBlocks(
-  answer: Pick<ConversationAnswer, "text" | "citations" | "figures" | "status">,
+  answer: Pick<ConversationAnswer, "text" | "citations" | "figures" | "status"> &
+    Partial<Pick<ConversationAnswer, "id" | "analyses">>,
 ): NodeJSON[] {
   const streaming = answer.status === "streaming";
   const cited = new Map(answer.citations.map(({ marker, ...citation }) => [marker, citation]));
@@ -34,13 +43,31 @@ export function answerBlocks(
   });
   return asGenerated(
     closeUpCitations(
-      withFigures(
-        blocks,
-        (marker) => figures.get(marker) ?? null,
-        (figure) => figure.shown,
-      ),
+      withCalculatedFigures(blocks, (marker) => figures.get(marker) ?? null, answer),
     ),
   );
+}
+
+export function withCalculatedFigures(
+  blocks: readonly NodeJSON[],
+  figureOf: (marker: number) => CalculatedFigure | null,
+  answer: { id?: string; analyses?: readonly AnswerAnalysis[] },
+): NodeJSON[] {
+  let occurrence = 0;
+  return withFigures(blocks, figureOf, (figure, marker, written) => {
+    const analysis = figure.analysis
+      ? answer.analyses?.find((run) => run.number === figure.analysis?.analysis)
+      : undefined;
+    return calculatedFigureNode(
+      { ...figure, written },
+      `${answer.id ?? "preview"}:figure:${marker}:${occurrence++}`,
+      figure.analysis
+        ? analysis
+          ? figureRunId(answer.id ?? "preview", analysis)
+          : `${answer.id ?? "preview"}:missing-analysis:${figure.analysis.analysis}`
+        : null,
+    );
+  });
 }
 
 /**
@@ -50,7 +77,8 @@ export function answerBlocks(
  * keeps both.
  */
 export const pageBlocks = (
-  answer: Pick<ConversationAnswer, "text" | "citations" | "figures">,
+  answer: Pick<ConversationAnswer, "text" | "citations" | "figures"> &
+    Partial<Pick<ConversationAnswer, "id" | "analyses">>,
   question: string,
 ): NodeJSON[] =>
   withoutFraming(answerBlocks({ ...answer, text: forPage(answer.text, question), status: "done" }));

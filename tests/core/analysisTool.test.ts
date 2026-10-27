@@ -1,10 +1,18 @@
 import { createHash } from "node:crypto";
 import type { MockLanguageModelV4 } from "ai/test";
 import { describe, expect, test } from "vitest";
+import * as Y from "yjs";
 import type { Core } from "../../src/core";
 import { createFakeAnalysisRuntime, type FakeAnswer } from "../../src/core/analysis/fake";
+import { nodeOf } from "../../src/core/answers/blocks";
+import { plainText } from "../../src/core/mindText";
 import type { AnalysisJob } from "../../src/shared/analysis";
 import { answerBlocks } from "../../src/shared/answerBlocks";
+import {
+  calculatedFiguresIn,
+  figureRunsFor,
+  figureRunsOfAnswer,
+} from "../../src/shared/figureRuns";
 import { answerEnded, type ShownPassage, shownPassages } from "../helpers/citations";
 import { createTempDataFolder, queryDatabase, startCore } from "../helpers/core";
 import { addAndProcess, waitForProcessing, writeSourceFile } from "../helpers/documents";
@@ -320,7 +328,7 @@ describe("an Analysis an Answer runs", () => {
     expect(kept[0]?.pages).toBeGreaterThan(0);
   });
 
-  test("Add to note serializes the Analysis figure as text without new persisted Mind attributes", async () => {
+  test("Add to note owns the Analysis figure and its used run after its conversation is purged", async () => {
     const model = analysingModel({
       query: "revenue",
       runs: [salesRun()],
@@ -330,21 +338,51 @@ describe("an Analysis an Answer runs", () => {
     const { answer } = await askAndRead(core, "What was the total revenue?");
     const mind = await core.createMind({ title: "Revenue" });
 
+    const blocks = answerBlocks(answer);
     await core.addToNote({
       mindId: mind.id,
-      blocks: answerBlocks(answer),
+      blocks,
+      figureRuns: figureRunsOfAnswer(answer, blocks),
       model: answer.model,
       origin: null,
     });
     const reader = await connectToMind(core, mind.id);
     const read = readMind(reader);
-
-    expect(read.textContent).toContain("350.5");
-    const serialized = JSON.stringify(read.toJSON());
-    expect(serialized).not.toContain('"analyses"');
-    expect(serialized).not.toContain('"analysis"');
-    expect(serialized).not.toContain('"code"');
-    expect((await core.getConversation(answer.conversationId)).messages).toContainEqual(answer);
+    expect(
+      reader.blocks
+        .toArray()
+        .flatMap((node) =>
+          node instanceof Y.XmlElement || node instanceof Y.XmlText ? [plainText(node)] : [],
+        )
+        .join("\n"),
+    ).toContain("350.5");
+    const figures = calculatedFiguresIn(read.toJSON().content ?? []);
+    expect(figures).toHaveLength(1);
+    expect(figures[0]?.figure).toMatchObject({
+      value: 350.5,
+      analysis: { analysis: 1, result: "total" },
+    });
+    const retained = () =>
+      figureRunsFor(
+        reader.doc,
+        reader.blocks
+          .toArray()
+          .flatMap((node) => (node instanceof Y.XmlElement ? [nodeOf(node)] : [])),
+      );
+    expect(retained()).toEqual([
+      expect.objectContaining({
+        code: answer.analyses[0]?.code,
+        inputs: answer.analyses[0]?.inputs,
+        values: [
+          { kind: "figure", name: "total", label: "Total revenue", unit: "USD", value: 350.5 },
+        ],
+      }),
+    ]);
+    expect(retained()[0]).not.toHaveProperty("output");
+    expect(figures[0]?.figure).not.toHaveProperty("code");
+    await core.deleteConversation(answer.conversationId);
+    await core.deletePermanently([{ kind: "conversation", id: answer.conversationId }]);
+    expect(retained()[0]?.values[0]?.value).toBe(350.5);
   });
 
   test("an Analysis call survives the unchanged Mind editor schema's serialization", async () => {

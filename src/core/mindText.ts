@@ -33,6 +33,7 @@
  * Word export reads them too, for review (`ReadOptions.review`, #107).
  */
 import * as Y from "yjs";
+import { readCalculatedFigureAttributes } from "../shared/calculatedFigures";
 import { type ChartAttributes, chartSources, chosenSeries, readChart } from "../shared/charts";
 import { type RecheckReason, readClaimCheck } from "../shared/claimChecks";
 import {
@@ -61,6 +62,7 @@ import type { ScopeKind } from "../shared/searchScope";
 import { readWordAtom, wordAtomText } from "../shared/wordFiles";
 import {
   ANSWER_BLOCK,
+  CALCULATED_FIGURE_NODE,
   CHART_NODE,
   CITATION_NODE,
   type CitedWork,
@@ -413,10 +415,17 @@ export function readBlock(element: Y.XmlElement, options: ReadOptions): Block[] 
   return change ? withChange(readBlockElement(element, options), change) : [];
 }
 
+const hasTextChild = (children: readonly unknown[]): boolean =>
+  children.some(
+    (child) =>
+      child instanceof Y.XmlText ||
+      (child instanceof Y.XmlElement && child.nodeName === CALCULATED_FIGURE_NODE),
+  );
+
 /** The first stretch of text in an element: a list's first item, not all its items run together. */
 function firstText(element: Y.XmlElement): string {
   const children = element.toArray();
-  if (children.some((child) => child instanceof Y.XmlText)) return plainText(element);
+  if (hasTextChild(children)) return plainText(element);
   for (const child of children) {
     if (!(child instanceof Y.XmlElement)) continue;
     const text = firstText(child);
@@ -519,6 +528,7 @@ const INLINE_TYPES: ReadonlySet<string> = new Set([
   "inlineMath",
   "hardBreak",
   "image",
+  CALCULATED_FIGURE_NODE,
   CITATION_NODE,
   FOOTNOTE_NODE,
   WORD_ATOM_NODE,
@@ -916,6 +926,11 @@ function readInlineElement(
 ): void {
   const add = (inline: Inline) => content.push({ ...inline, ...change });
   switch (child.nodeName) {
+    case CALCULATED_FIGURE_NODE: {
+      const figure = readCalculatedFigureAttributes(child.getAttributes());
+      if (figure) add({ kind: "text", text: figure.figure.shown, marks: NO_MARKS });
+      break;
+    }
     case "inlineMath":
       add({ kind: "math", latex: stringAttribute(child, "latex") });
       break;
@@ -1008,7 +1023,7 @@ export function blockText(element: Y.XmlElement): string {
   const visit = (node: Y.XmlElement) => {
     if (proposedOnly(node)) return;
     const children = node.toArray();
-    if (!children.some((child) => child instanceof Y.XmlText)) {
+    if (!hasTextChild(children)) {
       for (const child of children) if (child instanceof Y.XmlElement) visit(child);
       return;
     }
@@ -1051,6 +1066,8 @@ export function plainText(element: Y.XmlElement | Y.XmlText, footnotes = false):
       .join("");
   }
   if (!footnotes && element.nodeName === FOOTNOTE_NODE) return "";
+  if (element.nodeName === CALCULATED_FIGURE_NODE)
+    return readCalculatedFigureAttributes(element.getAttributes())?.figure.shown ?? "";
   if (element.nodeName === WORD_ATOM_NODE || element.nodeName === WORD_BLOCK_NODE) {
     return wordAtomText(readWordAtom(element.getAttributes() as Record<string, unknown>));
   }

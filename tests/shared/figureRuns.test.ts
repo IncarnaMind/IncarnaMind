@@ -1,5 +1,6 @@
 import { describe, expect, test } from "vitest";
 import * as Y from "yjs";
+import { createElement } from "../../src/core/answers/blocks";
 import {
   type AnswerAnalysis,
   type CalculatedFigureAttributes,
@@ -7,7 +8,6 @@ import {
   MIND_FIGURE_RUNS_FIELD,
   type RetainedFigureAnalysis,
 } from "../../src/core/api";
-import { createElement } from "../../src/core/answers/blocks";
 import { noAnalysisOutput } from "../../src/shared/analysis";
 import type { NodeJSON } from "../../src/shared/blockJson";
 import { calculatedFigureNode } from "../../src/shared/calculatedFigures";
@@ -198,6 +198,63 @@ describe("a Note's bounded Analysis dependencies", () => {
     expect(() => doc.transact(() => installFigureRuns(doc, [record(["a"]), invalid]))).toThrow();
     expect(doc.getMap(MIND_FIGURE_RUNS_FIELD).size).toBe(0);
     doc.destroy();
+  });
+
+  test("a copy refuses a missing, invalid or different Analysis result", () => {
+    const source = docWith(["a"]);
+    const runs = source.getMap(MIND_FIGURE_RUNS_FIELD);
+    const entries = [...runs];
+    for (const [key, value] of entries) {
+      runs.delete(key);
+      expect(() => figureRunsFor(source, blocks(["a"]))).toThrow();
+      runs.set(key, value);
+      runs.set(key, { invalid: true });
+      expect(() => figureRunsFor(source, blocks(["a"]))).toThrow();
+      runs.set(key, value);
+    }
+    const changed = blocks(["a"]);
+    const attrs = changed[0]?.attrs;
+    if (!attrs) throw new Error("The figure fixture has no attributes.");
+    attrs.figure = { ...figure("a").figure, value: 11 };
+    expect(() => figureRunsFor(source, changed)).toThrow();
+    expect(() => figureRunsFor(source, [...blocks(["a"]), ...changed])).toThrow();
+    source.destroy();
+  });
+
+  test("a concurrent last-reference deletion does not delete a newly added result", () => {
+    const original = docWith(["a"]);
+    const removing = new Y.Doc();
+    const adding = new Y.Doc();
+    Y.applyUpdate(removing, Y.encodeStateAsUpdate(original));
+    Y.applyUpdate(adding, Y.encodeStateAsUpdate(original));
+    removing.transact(() => {
+      removing.getXmlFragment(MIND_CONTENT_FIELD).delete(0, 1);
+      pruneFigureRuns(removing);
+    });
+    adding.transact(() => {
+      append(adding, "b");
+      installFigureRuns(adding, [record(["b"])]);
+      pruneFigureRuns(adding);
+    });
+    for (const changes of [
+      [removing, adding],
+      [adding, removing],
+    ]) {
+      const merged = new Y.Doc();
+      merged.transact(() => {
+        for (const change of changes) Y.applyUpdate(merged, Y.encodeStateAsUpdate(change));
+        pruneFigureRuns(merged);
+      });
+      expect(merged.getXmlFragment(MIND_CONTENT_FIELD).length).toBe(1);
+      expect(figureRunsFor(merged, blocks(["b"]))[0]?.values.map((value) => value.name)).toEqual([
+        "b",
+      ]);
+      expect(merged.getMap(MIND_FIGURE_RUNS_FIELD).size).toBe(2);
+      merged.destroy();
+    }
+    removing.destroy();
+    adding.destroy();
+    original.destroy();
   });
 
   test("concurrent additions keep each used value from the same generation", () => {

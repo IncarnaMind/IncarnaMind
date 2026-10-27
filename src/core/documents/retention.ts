@@ -3,7 +3,8 @@
  * (#79, migration 48). An old version's text stays for as long as a Citation
  * quotes it (ADR-0010). A check result's evidence, a saved page, an
  * unfinished Task's sources and a Checkpoint's Citations need old text too,
- * and they are kept outside Minds. Each such owner retains here the versions
+ * and they are kept outside Minds. A Note's figure dependencies are projected
+ * here so older readers also keep their source text (ADR-0021). Each owner retains the versions
  * it needs, and where in them. The start-up clean-up then reads them all with
  * one query, beside the Minds it already walks.
  *
@@ -28,9 +29,15 @@ import type { Database } from "../storage";
 
 /**
  * What retains a version: a check result (its evidence, #96), a saved page
- * (#133), an unfinished Task (#126) or a Checkpoint (#113).
+ * (#133), an unfinished Task (#126), a Checkpoint (#113) or a Note's figure inputs.
  */
-export const RETENTION_KINDS = ["check-result", "saved-page", "task", "checkpoint"] as const;
+export const RETENTION_KINDS = [
+  "check-result",
+  "saved-page",
+  "task",
+  "checkpoint",
+  "note-figure",
+] as const;
 export type RetentionKind = (typeof RETENTION_KINDS)[number];
 
 /** A version of a Document that an owner retains, and where in it. */

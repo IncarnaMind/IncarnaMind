@@ -4,6 +4,7 @@ import {
   type AnswerAnalysisInput,
   CALCULATED_FIGURE_NODE,
   type CalculatedFigureAttributes,
+  type ConversationAnswer,
   MIND_CONTENT_FIELD,
   MIND_FIGURE_RUNS_FIELD,
   type RetainedFigureAnalysis,
@@ -11,11 +12,45 @@ import {
 import { isRecord } from "../core/errors";
 import { ANALYSIS_LIMITS, type AnalysisVersions } from "./analysis";
 import type { NodeJSON } from "./blockJson";
-import { readCalculatedFigure, readFigureCitation, readFigureInput } from "./calculatedFigures";
+import {
+  readCalculatedFigureAttributes,
+  readFigureCitation,
+  readFigureInput,
+} from "./calculatedFigures";
 
 const text = (value: unknown): value is string => typeof value === "string";
 const count = (value: unknown): value is number =>
   typeof value === "number" && Number.isSafeInteger(value) && value >= 0;
+
+export const figureRunId = (answerId: string, analysis: AnswerAnalysis): string =>
+  JSON.stringify([
+    answerId,
+    analysis.number,
+    analysis.ranAt,
+    analysis.codeSha256,
+    analysis.inputs.map((input) => [input.name, input.sha256]),
+  ]);
+
+export function calculatedFiguresIn(blocks: readonly NodeJSON[]): CalculatedFigureAttributes[] {
+  return blocks.flatMap((node) => {
+    const figure =
+      node.type === CALCULATED_FIGURE_NODE ? readCalculatedFigureAttributes(node.attrs) : null;
+    if (node.type === CALCULATED_FIGURE_NODE && !figure)
+      throw new Error("The calculated figure's record is invalid.");
+    return [...(figure ? [figure] : []), ...calculatedFiguresIn(node.content ?? [])];
+  });
+}
+
+export function figureRunsOfAnswer(
+  answer: Pick<ConversationAnswer, "id" | "analyses">,
+  blocks: readonly NodeJSON[],
+): RetainedFigureAnalysis[] {
+  const figures = calculatedFiguresIn(blocks);
+  return answer.analyses.flatMap((analysis) => {
+    const run = retainFigureAnalysis(analysis, figureRunId(answer.id, analysis), figures);
+    return run ? [run] : [];
+  });
+}
 
 function readInput(value: unknown): AnswerAnalysisInput | null {
   if (!isRecord(value) || !text(value.name) || !value.name || !text(value.sha256)) return null;
@@ -175,23 +210,25 @@ export function retainFigureAnalysis(
   });
 }
 
-function collectUse(attrs: Record<string, unknown>, needed: Map<string, Set<string>>): void {
-  const figure = readCalculatedFigure(attrs.figure);
-  if (!figure?.analysis || !text(attrs.analysisId) || !attrs.analysisId) return;
-  const values = needed.get(attrs.analysisId) ?? new Set<string>();
-  values.add(figure.analysis.result);
-  needed.set(attrs.analysisId, values);
+type FigureUses = Map<string, Map<string, Set<number | boolean>>>;
+
+function collectUse(attrs: Record<string, unknown>, needed: FigureUses): boolean {
+  const node = readCalculatedFigureAttributes(attrs);
+  if (!node) return false;
+  const { figure, analysisId } = node;
+  if (!figure.analysis) return true;
+  if (!analysisId) return false;
+  const values = needed.get(analysisId) ?? new Map<string, Set<number | boolean>>();
+  const expected = values.get(figure.analysis.result) ?? new Set<number | boolean>();
+  expected.add(figure.value);
+  values.set(figure.analysis.result, expected);
+  needed.set(analysisId, values);
+  return true;
 }
 
-function usesIn(blocks: readonly NodeJSON[]): Map<string, Set<string>> {
-  const needed = new Map<string, Set<string>>();
-  const visit = (nodes: readonly NodeJSON[]) => {
-    for (const node of nodes) {
-      if (node.type === CALCULATED_FIGURE_NODE && node.attrs) collectUse(node.attrs, needed);
-      if (node.content) visit(node.content);
-    }
-  };
-  visit(blocks);
+function usesIn(blocks: readonly NodeJSON[]): FigureUses {
+  const needed: FigureUses = new Map();
+  for (const node of calculatedFiguresIn(blocks)) collectUse({ ...node }, needed);
   return needed;
 }
 
@@ -200,16 +237,40 @@ const valueKey = (id: string, name: string) => JSON.stringify([id, name]);
 
 export function figureRunsFor(doc: Y.Doc, blocks: readonly NodeJSON[]): RetainedFigureAnalysis[] {
   const runs = doc.getMap<unknown>(MIND_FIGURE_RUNS_FIELD);
-  return [...usesIn(blocks)].flatMap(([id, names]) => {
+  return [...usesIn(blocks)].map(([id, names]) => {
     const metadata = runs.get(runKey(id));
-    if (!isRecord(metadata) || metadata.id !== id) return [];
-    const values = [...names].flatMap((name) => {
+    if (!isRecord(metadata) || metadata.id !== id)
+      throw new Error("The calculated figure's Analysis record is missing.");
+    const values = [...names.keys()].flatMap((name) => {
       const value = runs.get(valueKey(id, name));
       return value === undefined ? [] : [value];
     });
     const run = readFigureRun({ ...metadata, values });
-    return run ? [run] : [];
+    if (
+      !run ||
+      run.values.length !== names.size ||
+      run.values.some((value) => {
+        const expected = names.get(value.name);
+        return expected?.size !== 1 || !expected.has(value.value);
+      })
+    )
+      throw new Error("The calculated figure's value is not in its Analysis record.");
+    return run;
   });
+}
+
+export function readFigureRunClosure(
+  blocks: readonly NodeJSON[],
+  records: unknown,
+): RetainedFigureAnalysis[] {
+  if (!Array.isArray(records)) throw new Error("Analysis records must be a list.");
+  const doc = new Y.Doc();
+  try {
+    installFigureRuns(doc, records);
+    return figureRunsFor(doc, blocks);
+  } finally {
+    doc.destroy();
+  }
 }
 
 /** Install inside the transaction that inserts the figures, including the same Undo scope. */
@@ -249,19 +310,23 @@ export function installFigureRuns(doc: Y.Doc, records: readonly unknown[]): void
 
 /** Prune inside the same transaction as the content change, before its Undo item is captured. */
 export function pruneFigureRuns(doc: Y.Doc): void {
-  const needed = new Map<string, Set<string>>();
+  if (doc.store.pendingStructs !== null || doc.store.pendingDs !== null) return;
+  const needed: FigureUses = new Map();
+  let valid = true;
   const visit = (parent: Y.XmlFragment | Y.XmlElement) => {
     for (const node of parent.toArray()) {
       if (!(node instanceof Y.XmlElement)) continue;
-      if (node.nodeName === CALCULATED_FIGURE_NODE) collectUse(node.getAttributes(), needed);
+      if (node.nodeName === CALCULATED_FIGURE_NODE && !collectUse(node.getAttributes(), needed))
+        valid = false;
       visit(node);
     }
   };
   visit(doc.getXmlFragment(MIND_CONTENT_FIELD));
+  if (!valid) return;
   const keys = new Set<string>();
   for (const [id, names] of needed) {
     keys.add(runKey(id));
-    for (const name of names) keys.add(valueKey(id, name));
+    for (const name of names.keys()) keys.add(valueKey(id, name));
   }
   const runs = doc.getMap<unknown>(MIND_FIGURE_RUNS_FIELD);
   for (const key of runs.keys()) {

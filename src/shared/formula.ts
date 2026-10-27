@@ -243,7 +243,10 @@ type Node = { from: number; to: number } & (
  */
 function parse(formula: string): Node {
   if (formula.length > FORMULA_MAX_LENGTH)
-    refuse("syntax", `formula: it's longer than ${FORMULA_MAX_LENGTH} characters; write it in fewer.`);
+    refuse(
+      "syntax",
+      `formula: it's longer than ${FORMULA_MAX_LENGTH} characters; write it in fewer.`,
+    );
   const tokens = lex(formula);
   const end: Token = { kind: "end", text: "", at: formula.length };
   let index = 0;

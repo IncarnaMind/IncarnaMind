@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import * as Y from "yjs";
+import { pruneFigureRuns } from "../shared/figureRuns";
 import {
   CONTENT_SCHEMA_VERSION,
   CONTENT_SCHEMA_VERSION_KEY,
@@ -85,7 +86,8 @@ function missesEarlier(doc: Y.Doc, update: Uint8Array): boolean {
   return [...from].some(([client, clock]) => clock > (have.get(client) ?? 0));
 }
 
-const holdsBack = (doc: Y.Doc) => doc.store.pendingStructs !== null || doc.store.pendingDs !== null;
+export const hasPendingMindChanges = (doc: Y.Doc) =>
+  doc.store.pendingStructs !== null || doc.store.pendingDs !== null;
 
 /**
  * The authoritative Yjs document of each Mind being edited (ADR-0003).
@@ -320,14 +322,22 @@ export function createMindContent(
       requireWritable(mind);
       let failure: unknown;
       let missed = false;
-      const heldBack = holdsBack(mind.doc);
+      const heldBack = hasPendingMindChanges(mind.doc);
       mind.cause = cause;
       try {
         missed = missesEarlier(mind.doc, update);
         // One transaction, so recording the version rides in the same stored update.
         mind.doc.transact(() => {
-          Y.applyUpdate(mind.doc, update);
-          stampContentVersion(mind.doc);
+          try {
+            Y.applyUpdate(mind.doc, update);
+            stampContentVersion(mind.doc);
+          } finally {
+            if (
+              !hasPendingMindChanges(mind.doc) &&
+              contentVersionOf(mind.doc) <= CONTENT_SCHEMA_VERSION
+            )
+              pruneFigureRuns(mind.doc);
+          }
         }, CORE_ORIGIN);
       } catch (error) {
         failure = error;
@@ -340,7 +350,7 @@ export function createMindContent(
         throw new InvalidInputError("That isn't a valid Yjs update.", { cause: failure });
       }
       // Yjs holds back a change that builds on one it never got; acknowledging it would lose it.
-      if (missed || (!heldBack && holdsBack(mind.doc))) {
+      if (missed || (!heldBack && hasPendingMindChanges(mind.doc))) {
         throw new InvalidInputError({ key: "error.mind.missedChange" });
       }
     },
@@ -383,8 +393,16 @@ export function createMindContent(
       let result: T | undefined;
       try {
         mind.doc.transact(() => {
-          result = change(mind.doc.getXmlFragment(MIND_CONTENT_FIELD));
-          stampContentVersion(mind.doc);
+          try {
+            result = change(mind.doc.getXmlFragment(MIND_CONTENT_FIELD));
+            stampContentVersion(mind.doc);
+          } finally {
+            if (
+              !hasPendingMindChanges(mind.doc) &&
+              contentVersionOf(mind.doc) <= CONTENT_SCHEMA_VERSION
+            )
+              pruneFigureRuns(mind.doc);
+          }
         }, origin);
       } finally {
         flush(mindId, mind);

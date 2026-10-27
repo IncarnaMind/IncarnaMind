@@ -336,6 +336,45 @@ describe("The cited page, saved when a Citation is made", { timeout: 60_000 }, (
     expect(retainedBySavedPages()).toBe(0);
   });
 
+  test("a future Note's figure dependencies keep its saved page after the source file goes", async () => {
+    const model = citingModel({
+      query: "spring tides",
+      records: (passages) => [pdfRecord(passages, 2, SPRING)],
+      answer: "Spring tides come at new and full moon [^1].",
+    });
+    const { core, client, mind, dataDir, documents } = await setUpWithDocuments(model, [
+      { name: "Tides.pdf", contents: TIDES },
+    ]);
+    const { answerId } = await askAndFinish(core, client, mind.id, "When are spring tides?");
+    const [citation] = citationsIn(client, answerId);
+    const [document] = documents;
+    if (!citation?.documentId || !citation.contentHash || !document?.path)
+      throw new Error("The page fixture was not cited.");
+    const saved = await savedPage(core, citation);
+    writeMind(client, [note("Figure inputs are owned by the newer Note format.")]);
+    await client.settled();
+    client.doc.getMap("settings").set("schemaVersion", 999);
+    await client.settled();
+    core.retention.retain("note-figure", mind.id, [
+      {
+        documentId: citation.documentId,
+        contentHash: citation.contentHash,
+        pageFrom: citation.pageFrom,
+        pageTo: citation.pageTo,
+      },
+    ]);
+    await rm(document.path);
+    core.close();
+    const second = startCore(dataDir);
+    expect((await second.openMind(mind.id)).access).toBe("read-only");
+    expect(await second.citedPageImage(citation)).toEqual(saved);
+    second.retention.release("note-figure", mind.id);
+    second.close();
+    const third = startCore(dataDir);
+    expect(await third.citedPageImage(citation)).toBeNull();
+    expect(pictures(dataDir)).toEqual([]);
+  });
+
   test("a page is drawn only from the version cited: a file that changes first isn't, and an old version's page stays", async () => {
     const viewer = fakeViewer();
     const v1 = `# Tides\n\n${SPRING}\n`;

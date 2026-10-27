@@ -62,7 +62,13 @@ import {
 } from "../../shared/locations";
 import { findQuote, type TextRange } from "../../shared/quoteMatch";
 import { anchorsOf, cellNumber } from "../../shared/units";
-import type { CalculatedFigure, Citation, FigureInput, FigureShowOptions } from "../api";
+import type {
+  CalculatedFigure,
+  Citation,
+  FigureInput,
+  FigureShowOptions,
+  InputNumber,
+} from "../api";
 import { detectLanguage } from "../documents/textLanguage";
 import type { Language } from "../language";
 import type { AnswerDocuments, Matching, Quoted, QuoteInput } from "./citations";
@@ -83,6 +89,7 @@ function scaleChangeProblem(change: ScaleChange, language: Language): string {
 /** The most figures one call records, and inputs one figure has. */
 export const MAX_FIGURES_PER_CALL = 20;
 export { MAX_INPUTS_PER_FIGURE } from "../../shared/calculatedFigures";
+
 /** How many times one Answer may call `calculate`; later calls are refused, so the model answers. */
 const MAX_CALLS_PER_ANSWER = 5;
 
@@ -570,7 +577,10 @@ export function createCalculationSession(options: CalculationSessionOptions) {
   }
 
   /** Reads one input; or says why it can't be read. */
-  function readInput(given: GivenInput): ReadInput | string {
+  function readInput(
+    given: GivenInput,
+    original?: Pick<InputNumber, "at" | "chars">,
+  ): ReadInput | string {
     if (!given.name) return "give the input a name the formula uses, such as rev2024.";
     const source = quoteOf(given);
     if (typeof source === "string") return source;
@@ -600,7 +610,10 @@ export function createCalculationSession(options: CalculationSessionOptions) {
         ? "it has no number"
         : `it has ${figures.map((each) => each.chars).join(", ")}`;
     let figure: Figure | undefined;
-    if (given.position !== null) {
+    if (original) {
+      figure = figures.find((each) => each.start === original.at && each.chars === original.chars);
+      if (!figure) return "the number is no longer at its recorded place in the quote.";
+    } else if (given.position !== null) {
       figure = figures[given.position - 1];
       if (!figure) return `the quote has no number at position ${given.position}; ${has}.`;
     } else if (given.number !== null) {
@@ -775,6 +788,19 @@ export function createCalculationSession(options: CalculationSessionOptions) {
             currency: read.unit.stated.unit.kind === "currency" ? read.unit.stated.unit.code : null,
           }
         : null,
+    };
+  }
+
+  function checkedNumber(read: ReadInput): FigureInput {
+    const input = inputRecord(read, numberOf(read, read.unit?.stated ?? null));
+    const unit = input.unitStatement;
+    return {
+      ...input,
+      citation: { ...input.citation, ...read.quoted.check() },
+      unitStatement:
+        unit && read.unit
+          ? { ...unit, citation: { ...unit.citation, ...read.unit.quoted.check() } }
+          : unit,
     };
   }
 
@@ -991,18 +1017,42 @@ export function createCalculationSession(options: CalculationSessionOptions) {
           problem: `${read.figure.chars} has no unit, and ${read.where} says "${read.candidate.statement}"; give that line as unitQuote.`,
         };
       }
-      const input = inputRecord(read, numberOf(read, read.unit?.stated ?? null));
-      const unit = input.unitStatement;
-      return {
-        input: {
-          ...input,
-          citation: { ...input.citation, ...read.quoted.check() },
-          unitStatement:
-            unit && read.unit
-              ? { ...unit, citation: { ...unit.citation, ...read.unit.quoted.check() } }
-              : unit,
-        },
-      };
+      return { input: checkedNumber(read) };
+    },
+
+    /** Reads the saved UTF-16 span again; it is never an ordinal among a quote's numbers. */
+    recheck(input: FigureInput): { input: FigureInput } | { problem: string } {
+      const location = citationLocation(input.citation);
+      const read = readInput(
+        givenInput({
+          name: input.name,
+          label: input.label,
+          passage: input.citation.passageId,
+          quote: input.citation.quote,
+          ...(location && { location: englishLocation(location) }),
+          unitQuote: input.unitStatement?.citation.quote,
+          reading: input.number.reading,
+          ...(input.number.unit.kind === "rate" && {
+            rate: `${input.number.unit.of} per ${input.number.unit.per}`,
+          }),
+        }),
+        input.number,
+      );
+      if (typeof read === "string") return { problem: read };
+      const current = checkedNumber(read);
+      if (
+        current.citation.documentId !== input.citation.documentId ||
+        current.citation.contentHash !== input.citation.contentHash ||
+        JSON.stringify(current.number) !== JSON.stringify(input.number) ||
+        JSON.stringify(current.cell) !== JSON.stringify(input.cell) ||
+        current.unitStatement?.citation.contentHash !== input.unitStatement?.citation.contentHash ||
+        current.unitStatement?.scale !== input.unitStatement?.scale ||
+        current.unitStatement?.currency !== input.unitStatement?.currency
+      )
+        return {
+          problem: "the input or its Document has changed since this figure was calculated.",
+        };
+      return { input: current };
     },
 
     /** Records a figure an Analysis gave (#447) under the next marker no figure has: that marker. */

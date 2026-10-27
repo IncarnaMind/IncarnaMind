@@ -7,12 +7,14 @@
  */
 import {
   BLOCK_ID_ATTRIBUTE,
+  CALCULATED_FIGURE_NODE,
   CITATION_NODE,
   type CitationRecheck,
   NOTE_BLOCK_TYPES,
   type RecheckCitationInput,
 } from "../core/api";
 import type { NodeJSON } from "./blockJson";
+import { readCalculatedFigureAttributes } from "./calculatedFigures";
 
 /** At most this many Blocks go into a note at once, and this deep. */
 const MAX_BLOCKS = 2_000;
@@ -25,6 +27,10 @@ function parseNode(value: unknown, depth: number): NodeJSON | null {
   if (!isRecord(value) || typeof value.type !== "string" || value.type === "") return null;
   if (depth > MAX_DEPTH) return null;
   const node: NodeJSON = { type: value.type };
+  if (value.type === CALCULATED_FIGURE_NODE) {
+    const figure = readCalculatedFigureAttributes(value.attrs);
+    return figure ? { type: value.type, attrs: { ...figure } } : null;
+  }
   if (isRecord(value.attrs)) node.attrs = { ...value.attrs };
   if (typeof value.text === "string") node.text = value.text;
   if (Array.isArray(value.marks)) {

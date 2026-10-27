@@ -19,6 +19,7 @@ import {
 import { migrate, migrations, openDatabase } from "../../src/core/storage";
 import { answerBlocks } from "../../src/shared/answerBlocks";
 import type { NodeJSON } from "../../src/shared/blockJson";
+import { readCalculatedFigureAttributes } from "../../src/shared/calculatedFigures";
 import { translate } from "../../src/shared/i18n";
 import {
   answerEnded,
@@ -153,7 +154,11 @@ function told(model: MockLanguageModelV4, tool: string): string[] {
 /** Blocks' text as a reader sees it: a line per paragraph, a table's cells between bars. */
 function shown(blocks: readonly NodeJSON[]): string {
   const inline = (node: NodeJSON): string =>
-    node.type === "text" ? (node.text ?? "") : (node.content ?? []).map(inline).join("");
+    node.type === "text"
+      ? (node.text ?? "")
+      : node.type === "calculatedFigure"
+        ? (readCalculatedFigureAttributes(node.attrs)?.figure.shown ?? "")
+        : (node.content ?? []).map(inline).join("");
   return blocks
     .map((block) =>
       block.type === "table"
