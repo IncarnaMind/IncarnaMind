@@ -150,16 +150,23 @@ export const LISTED_MINDS = 30;
 const MIND_NAME_LENGTH = 80;
 
 /**
- * The line just before the Question naming the User's Minds (#1790); "" for none. Given no
- * names, models took "the Project plan" for a Document and wrote nothing.
+ * The line just before the Question naming the User's Minds (#1790), marking those an earlier
+ * Answer made so a new piece starts somewhere new; "" for none. Given no names, models took
+ * "the Project plan" for a Document and wrote nothing.
  */
-export function mindsLine(names: readonly string[]): string {
-  const listed = [...new Set(names)].slice(0, LISTED_MINDS).map((name) => {
-    const line = name.replace(/\s+/g, " ").trim();
-    return line.length > MIND_NAME_LENGTH ? `${line.slice(0, MIND_NAME_LENGTH - 1)}…` : line;
+export function mindsLine(minds: readonly { name: string; fromAnswer: boolean }[]): string {
+  const unique = [...new Map(minds.map((mind) => [mind.name, mind])).values()];
+  const listed = unique.slice(0, LISTED_MINDS).map((mind) => {
+    const line = mind.name.replace(/\s+/g, " ").trim();
+    return {
+      ...mind,
+      name: line.length > MIND_NAME_LENGTH ? `${line.slice(0, MIND_NAME_LENGTH - 1)}…` : line,
+    };
   });
   if (listed.length === 0) return "";
-  return `${YOUR_MINDS} ${listed.map((name) => `"${name}"`).join(", ")}`;
+  return `${YOUR_MINDS} ${listed
+    .map((mind) => `"${mind.name}"${mind.fromAnswer ? " (from an earlier Answer)" : ""}`)
+    .join(", ")}`;
 }
 
 /**
@@ -270,7 +277,8 @@ export function mindInstructions(
     TURN_RULE,
     "",
     "The write command is create_mind for a new Mind, or add_to_mind for the empty Mind in front and to add a part to the User's text; the edit command is edit_mind. read_mind reads a Mind the User names. A change applies at once, with Undo, unless it would take out most of the User's own text: then it waits for them. Each call's result says which.",
-    `- A line "${YOUR_MINDS} …" before the Question names their Minds, the most recently changed first. A name the User gives that one of their Minds has is that Mind, also when they don't call it a Mind ("the trip plan", "会议记录"): to write from it, read it with read_mind first; give its name in mind to add a part to it with add_to_mind (where it goes in after), or to change its text with edit_mind. Only a name that no Mind has can be a Document's. A name that is neither on the line nor a Document's may still be a Mind's, as read_mind finds any Mind by its name; when none has it, say so in one sentence that names it, and change nothing. A piece of writing the User asks for goes into the empty Mind in front or a new Mind, even when a Mind on the line has the same or a similar title. Change or add to a Mind on the line only when the User names it.`,
+    `- A line "${YOUR_MINDS} …" before the Question names their Minds, the most recently changed first. A name the User gives that one of their Minds has is that Mind, also when they don't call it a Mind ("the trip plan", "会议记录"): to write from it, read it with read_mind first; give its name in mind to add a part to it with add_to_mind (where it goes in after), or to change its text with edit_mind. A Mind marked "from an earlier Answer" can be read and named as a source too; a new piece never goes into it unless the User explicitly names it for a change. Only a name that no Mind has can be a Document's. A name that is neither on the line nor a Document's may still be a Mind's, as read_mind finds any Mind by its name; when none has it, say so in one sentence that names it, and change nothing. A piece of writing the User asks for goes into the empty Mind in front or a new Mind, even when a Mind on the line has the same or a similar title. Change or add to a Mind on the line only when the User names it.`,
+    '- The Library is every Document the User has added (资料库：用户添加的所有文档), not a Document or a Mind named "Library". A request about "this Library" or 这个知识库 is about all of them: never ask which Library they mean (不要追问用户指的是哪个知识库); search all of them and write the requested piece into the empty Mind in front or a new Mind.',
     "- A <tool-record> is IncarnaMind's record of what an earlier Answer's Tools really did, and what the User did with the changes since: trust it over that Answer's words, and never write one. A change the User undid or rejected is gone: don't bring it back or say it is still there. In <mind>, earlier Answers and read_mind, a Citation reads as its source and its id in brackets, like [Tides, p. 3 · C2].",
     "- The Mind to change is the one in <mind>, unless the User names another, or means a page your <tool-record> says you made or changed earlier in this conversation: then give that Mind's name in mind. If they ask to change their text but none is in <mind> and they name none, change nothing: say so, and that they can open one or ask for a new Mind.",
     "- In <mind> and read_mind, [waiting change, adds: …] and [waiting change, removes: …] mark changes still waiting for the User, often your own. To change text that waits (make it longer or shorter, reword it, remove part of it), call edit_mind on it, naming its heading in part: that revises the waiting text itself. Never add a second copy. To add more from the Documents, search and cite first, then give edit_mind the section's whole new text as content.",

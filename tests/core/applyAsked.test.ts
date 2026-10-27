@@ -27,6 +27,69 @@ const pendingIds = (doc: Y.Doc) =>
   new Set(pendingProposals(doc.getXmlFragment(MIND_CONTENT_FIELD)).map((each) => each.id));
 
 describe("Applying an assistant's changes in the core", () => {
+  for (const language of ["en", "zh-CN"] as const) {
+    test(`${language}: one core Undo removes an addition revised twice in the same turn`, async () => {
+      const heading = language === "en" ? "Decision" : "决定";
+      const versions =
+        language === "en"
+          ? ["A decision.", "A clearer decision.", "A final decision."]
+          : ["一个决定。", "一个更明确的决定。", "最终决定。"];
+      let revised = 0;
+      const model = scriptedModel((call): ScriptedReply => {
+        if (editPassage(call) !== null) {
+          revised++;
+          return { text: `## ${heading}\n\n${versions[revised]}\n<why>Revised.</why>` };
+        }
+        if (!call.results.some((result) => result.tool === "add_to_mind")) {
+          return {
+            calls: [
+              {
+                tool: "add_to_mind",
+                input: { mind: "Project plan", content: `## ${heading}\n\n${versions[0]}` },
+              },
+            ],
+          };
+        }
+        if (call.results.filter((result) => result.tool === "edit_mind").length < 2) {
+          return {
+            calls: [
+              {
+                tool: "edit_mind",
+                input: { mind: "Project plan", part: heading, instruction: "Revise this decision" },
+              },
+            ],
+          };
+        }
+        return {
+          text: language === "en" ? "Added and revised the decision." : "已添加并修改决定。",
+        };
+      });
+      const { core, mind } = await setUp(model);
+      await core.updateSettings({ user: { language } });
+      const answer = await askAssistant(core, {
+        text:
+          language === "en"
+            ? "Add a decision to Project plan and revise it twice"
+            : "给 Project plan 添加一个决定，再修改两次",
+      });
+      expect(revised).toBe(2);
+      const application = await applyFor(core, answer, mind.id);
+      expect(application.held).toBe(false);
+      for (let cycle = 0; cycle < 2; cycle++) {
+        const applied = await readState(core, mind.id);
+        expect(textOf(applied)).toBe(`Hire a designer.\n${heading}\n${versions[2]}`);
+        expect(pendingProposals(applied.getXmlFragment(MIND_CONTENT_FIELD))).toHaveLength(0);
+        applied.destroy();
+        expect(await core.undoAskedChanges(application.undoId)).not.toBeNull();
+        const undone = await readState(core, mind.id);
+        expect(textOf(undone)).toBe("Hire a designer.");
+        expect(pendingProposals(undone.getXmlFragment(MIND_CONTENT_FIELD))).toHaveLength(0);
+        undone.destroy();
+        expect(await core.redoAskedChanges(application.undoId)).not.toBeNull();
+      }
+    });
+  }
+
   test("an unopened Mind is applied with Review state and core Undo and Redo", async () => {
     const model = scriptedModel(
       (call): ScriptedReply =>

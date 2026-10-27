@@ -470,7 +470,10 @@ export type AnswerEngineEvent =
    */
   | {
       type: "phase";
-      phase: Extract<AnswerPhase, "searching" | "writing" | "checking-quotes" | "checking-figures">;
+      phase: Extract<
+        AnswerPhase,
+        "searching" | "writing" | "checking-quotes" | "checking-figures" | "checking-claims"
+      >;
     }
   /** The engine put in `count` Citation markers the model left out of its text (see ./markerPlacement). */
   | { type: "markers-placed"; count: number }
@@ -1758,11 +1761,11 @@ async function* toolLoop(
   const toolTextTags = [...new Set([...TOOL_TEXT_TAGS, ...offered.keys()])];
   const releasable = (text: string) =>
     Math.min(request.shownUpTo?.(text) ?? text.length, heldBackFrom(text, toolTextTags));
-  function* flag(text: string): Generator<AnswerEngineEvent> {
-    const claims = claimsOf(request.turnChecks ?? [], text);
+  async function* flag(text: string): AsyncGenerator<AnswerEngineEvent> {
+    const claims = await claimsOf(request.turnChecks ?? [], text);
     if (claims.length > 0) yield { type: "claims-unbacked", claims };
   }
-  function* backToFirst(written: string): Generator<AnswerEngineEvent> {
+  async function* backToFirst(written: string): AsyncGenerator<AnswerEngineEvent> {
     if (released > 0) yield { type: "text-retracted", length: released };
     released = 0;
     keptText = written;
@@ -1987,7 +1990,7 @@ async function* toolLoop(
             );
           }
         }
-        const settled = settleReply(request.turnChecks ?? [], taken.text, nudges);
+        const settled = await settleReply(request.turnChecks ?? [], taken.text, nudges);
         if ("nudge" in settled) {
           standing = taken.text;
           if (released > 0) yield { type: "text-retracted", length: released };
@@ -2151,8 +2154,11 @@ async function* structured(
   yield { type: "finished" };
 }
 
-function* flagClaims(request: AnswerRequest, text: string): Generator<AnswerEngineEvent> {
-  const claims = claimsOf(request.turnChecks ?? [], text);
+async function* flagClaims(
+  request: AnswerRequest,
+  text: string,
+): AsyncGenerator<AnswerEngineEvent> {
+  const claims = await claimsOf(request.turnChecks ?? [], text);
   if (claims.length > 0) yield { type: "claims-unbacked", claims };
 }
 

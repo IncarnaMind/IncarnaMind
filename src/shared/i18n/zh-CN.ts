@@ -2717,6 +2717,7 @@ export const zhCN = {
   "answer.phase.writing": "正在回答…",
   "answer.phase.checking-quotes": "正在核对引文…",
   "answer.phase.checking-figures": "正在核对数字…",
+  "answer.phase.checking-claims": "正在核对回答与实际改动…",
   "answer.figures.calculated": "计算了 {count} 个数字",
   "answer.figures.calculated.one": "计算了 1 个数字",
   "answer.figures.uncalculated": "{count} 个数字未能计算",

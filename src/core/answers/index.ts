@@ -45,7 +45,11 @@ import type * as Y from "yjs";
 import { asGenerated } from "../../shared/aiText";
 import { hasText, markersIn, pageBlocks } from "../../shared/answerBlocks";
 import { runsByDefault } from "../../shared/approvalRules";
-import { askedFor, waitsForUser as heldForUser } from "../../shared/askedChanges";
+import {
+  askedFor,
+  waitsForUser as heldForUser,
+  requestedRequests,
+} from "../../shared/askedChanges";
 import { citationNode, withCitations } from "../../shared/blockJson";
 import { type LiveDocument, shownDocumentName } from "../../shared/citations";
 import { withFigures, withFigureText } from "../../shared/figureMarkers";
@@ -194,10 +198,10 @@ import {
 import {
   askAgainNote,
   unbackedClaims as claimsNoCallMade,
-  holdBack,
   unmadeFixesNote,
 } from "./claimedChanges";
 import { unmadeFixesIn } from "./claimedFixes";
+import { holdBack } from "./claimStream";
 import {
   askedText,
   conversationContext,
@@ -1845,7 +1849,7 @@ export function createAnswers(options: AnswersOptions) {
       let consenting = input.consentNeeded;
       let activity: Extract<
         AnswerPhase,
-        "searching" | "writing" | "checking-quotes" | "checking-figures"
+        "searching" | "writing" | "checking-quotes" | "checking-figures" | "checking-claims"
       > = "writing";
       let loading = false;
       let responded = false;
@@ -2379,27 +2383,74 @@ export function createAnswers(options: AnswersOptions) {
           ),
         );
         return (
-          minds?.read(change.mindId, (blocks) =>
-            blocks.doc && askedFor(blocks.doc, change.request) && !heldForUser(blocks.doc, asked)
+          minds?.read(change.mindId, (blocks) => {
+            const doc = blocks.doc;
+            if (!doc) return null;
+            const requested = requestedRequests(doc, asked);
+            return askedFor(doc, change.request) && !heldForUser(doc, requested)
               ? { waiting: 0, accepted: 0, rejected: 0, applied: true }
-              : null,
-          ) ?? null
+              : null;
+          }) ?? null
         );
       };
       const turnChecks: TurnCheck[] = [
-        {
-          name: "claimed-change",
-          check: (text) => {
-            mindsNow = null;
-            const claims = claimsNoCallMade(text, toolCalls, mindsListed(), focusedId);
-            return claims.length > 0
-              ? {
-                  claims,
-                  note: askAgainNote(claims, toolCalls, options.readableMindName, appliedInTurn),
-                }
-              : null;
-          },
-        },
+        ...(mindsTools
+          ? [
+              {
+                name: "claimed-change",
+                check: async (text: string) => {
+                  if (text.trim() === "") return null;
+                  activity = "checking-claims";
+                  showPhase();
+                  try {
+                    let judgeModel = prepared.model;
+                    if (prepareQuick) {
+                      try {
+                        judgeModel = await prepareQuick(model, prepared);
+                      } catch (error) {
+                        console.error(
+                          `The quick-tasks model couldn't be used for the change-claim check: ${messageOf(error)}`,
+                        );
+                      }
+                    }
+                    mindsNow = null;
+                    const checked = await claimsNoCallMade(
+                      text,
+                      toolCalls,
+                      mindsListed(),
+                      focusedId,
+                      {
+                        model: judgeModel,
+                        names: options.readableMindName,
+                        states: appliedInTurn,
+                        signal: controller.signal,
+                      },
+                    );
+                    if (checked.usage) {
+                      usage.inputTokens += checked.usage.inputTokens ?? 0;
+                      usage.outputTokens += checked.usage.outputTokens ?? 0;
+                      usage.cachedInputTokens += checked.usage.cachedInputTokens ?? 0;
+                      usage.cacheWriteTokens += checked.usage.cacheWriteTokens ?? 0;
+                    }
+                    return checked.claims.length > 0
+                      ? {
+                          claims: checked.claims,
+                          note: askAgainNote(
+                            checked.claims,
+                            toolCalls,
+                            options.readableMindName,
+                            appliedInTurn,
+                          ),
+                        }
+                      : null;
+                  } finally {
+                    activity = "writing";
+                    showPhase();
+                  }
+                },
+              },
+            ]
+          : []),
         {
           name: "claimed-fixes",
           check: (text) => {
@@ -3039,14 +3090,13 @@ export function createAnswers(options: AnswersOptions) {
     return { quoted, leftOut };
   }
 
-  // A Mind only an Answer wrote in stays out: read_mind still finds it when the User names it.
   // Peeked, so Minds not open aren't loaded; and only so many, so a big Library doesn't slow a Question.
-  const namedMinds = (): string[] => {
-    const names: string[] = [];
+  const namedMinds = (): { name: string; fromAnswer: boolean }[] => {
+    const names: { name: string; fromAnswer: boolean }[] = [];
     for (const mind of options.minds?.list().slice(0, 2 * LISTED_MINDS) ?? []) {
       if (names.length >= LISTED_MINDS) break;
-      if (names.includes(mind.name) || options.content.peek(mind.id, madeByAnswer)) continue;
-      names.push(mind.name);
+      if (names.some((each) => each.name === mind.name)) continue;
+      names.push({ name: mind.name, fromAnswer: options.content.peek(mind.id, madeByAnswer) });
     }
     return names;
   };
