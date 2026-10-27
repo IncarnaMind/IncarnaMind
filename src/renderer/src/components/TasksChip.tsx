@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useState } from "react";
+import { type MouseEvent, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useShallow } from "zustand/react/shallow";
 import type { Task } from "../../../core/api";
 import { mindName } from "../../../shared/naming";
@@ -60,6 +60,8 @@ export function TasksChip() {
   const asked = useTaskMenu((state) => state.open);
   /** It was asked for from ⌘K: it shows and opens even with no chip in the band. */
   const [forced, setForced] = useState(false);
+  /** The Task a row action just acted on: its row takes the focus back once the list has settled. */
+  const acted = useRef<string | null>(null);
 
   useEffect(loadTasks, []);
   useLayoutEffect(() => {
@@ -75,6 +77,18 @@ export function TasksChip() {
   useLayoutEffect(() => {
     if (open) keepAboveAssistant(menuRef.current);
   }, [open, menuRef]);
+  // A row's action may take its button away, and the row may move to another group, which draws a
+  // new row: the focus comes back to the row the Task is in now. A field an action opened keeps it.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: the Tasks changed is when the row may have moved.
+  useLayoutEffect(() => {
+    const id = acted.current;
+    if (id === null) return;
+    acted.current = null;
+    const item = menuRef.current?.querySelector<HTMLElement>(`[data-task="${CSS.escape(id)}"]`);
+    const focused = document.activeElement;
+    const kept = item != null && focused instanceof HTMLElement && item.contains(focused);
+    if (!kept) item?.querySelector<HTMLElement>('[data-testid="tasks-popover-row"]')?.focus();
+  }, [tasks, menuRef]);
 
   if (!chip && !forced) return null;
   const summary = chip
@@ -117,16 +131,36 @@ export function TasksChip() {
         className="model-menu tasks-popover"
         onToggle={(event) => {
           menu.menuProps.onToggle(event);
-          if (event.newState === "closed") setForced(false);
+          // A close's event comes a task later, after Show Tasks may have opened it again: only
+          // a close that is still one takes it off the screen.
+          if (event.newState === "closed" && !menuRef.current?.matches(":popover-open")) {
+            setForced(false);
+          }
         }}
       >
-        {open && <TaskLists tasks={tasks} close={menu.close} />}
+        {open && (
+          <TaskLists
+            tasks={tasks}
+            close={menu.close}
+            onAct={(task) => {
+              acted.current = task.id;
+            }}
+          />
+        )}
       </div>
     </>
   );
 }
 
-function TaskLists({ tasks, close }: { tasks: readonly Task[]; close(): void }) {
+function TaskLists({
+  tasks,
+  close,
+  onAct,
+}: {
+  tasks: readonly Task[];
+  close(): void;
+  onAct(task: Task): void;
+}) {
   const t = useT();
   const groups = taskGroups(tasks);
   const open = (task: Task) => {
@@ -141,7 +175,7 @@ function TaskLists({ tasks, close }: { tasks: readonly Task[]; close(): void }) 
       <section className="model-menu-list" aria-label={t(heading)}>
         <p className="model-menu-heading">{t(heading)}</p>
         {list.map((task) => (
-          <TaskItem key={task.id} task={task} onOpen={() => open(task)} />
+          <TaskItem key={task.id} task={task} onOpen={() => open(task)} onAct={() => onAct(task)} />
         ))}
       </section>
     );
@@ -165,10 +199,10 @@ function TaskLists({ tasks, close }: { tasks: readonly Task[]; close(): void }) 
 
 /**
  * One Task in the popover: the row opens it, and the actions beside it (from
- * `taskRowActions`) act on it as data. Stopping one keeps the focus on its
- * row, which moves as the list regroups.
+ * `taskRowActions`) act on it as data. After one, the focus stays on its row,
+ * which moves as the list regroups, unless the action moved it into a field.
  */
-function TaskItem({ task, onOpen }: { task: Task; onOpen(): void }) {
+function TaskItem({ task, onOpen, onAct }: { task: Task; onOpen(): void; onAct(): void }) {
   const t = useT();
   const language = useLanguage();
   const mind = useAppStore((state) => {
@@ -180,15 +214,10 @@ function TaskItem({ task, onOpen }: { task: Task; onOpen(): void }) {
     ? recentText(task, mind, t, language)
     : { title: taskName(task, t), line: [mind, stepLine(task, t, language)] };
   const actions = taskRowActions(task, t);
-  const act = (run: () => void) => () => {
+  const act = (run: () => void) => (event: MouseEvent<HTMLButtonElement>) => {
+    event.currentTarget.blur();
+    onAct();
     run();
-    requestAnimationFrame(() =>
-      document
-        .querySelector<HTMLElement>(
-          `[data-testid="tasks-popover"] [data-task="${CSS.escape(task.id)}"] [data-testid="tasks-popover-row"]`,
-        )
-        ?.focus(),
-    );
   };
   return (
     <div role="none" data-task={task.id} className="tasks-popover-item">
@@ -224,22 +253,27 @@ function TaskItem({ task, onOpen }: { task: Task; onOpen(): void }) {
           </span>
         </span>
       </button>
-      {actions.map((action) => (
-        <button
-          key={action.key}
-          type="button"
-          role="menuitem"
-          data-testid={`tasks-popover-${action.key}`}
-          onClick={act(action.run)}
-          className={buttonStyle("ghost", "sm")}
-          {...withShortcut(
-            action.label,
-            action.shortcut ? shortcutLabel(action.shortcut) : undefined,
-          )}
-        >
-          {action.label}
-        </button>
-      ))}
+      {actions.length > 0 && (
+        // One place for the actions, however many a Task offers, so a second fits beside the first.
+        <div className="tasks-popover-actions">
+          {actions.map((action) => (
+            <button
+              key={action.key}
+              type="button"
+              role="menuitem"
+              data-testid={`tasks-popover-${action.key}`}
+              onClick={act(action.run)}
+              className={buttonStyle("ghost", "sm")}
+              {...withShortcut(
+                action.label,
+                action.shortcut ? shortcutLabel(action.shortcut) : undefined,
+              )}
+            >
+              {action.label}
+            </button>
+          ))}
+        </div>
+      )}
     </div>
   );
 }

@@ -78,6 +78,8 @@ interface ResearchInput {
   plan: ResearchPlan;
   sources: ResearchSources;
   writeInto: ResearchTarget;
+  /** It made its own Mind at its Start, so the draft's Folder is that Mind's too. */
+  ownMind: boolean;
   scope: SearchScope | null;
   providerId: string;
   modelId: string;
@@ -230,6 +232,7 @@ function inputOf(input: unknown): ResearchInput | null {
     plan: { title: plan.title, steps: plan.steps as string[] },
     sources: { web: sources.web, library: sources.library },
     writeInto: target,
+    ownMind: input.ownMind === true,
     scope: within,
     providerId,
     modelId,
@@ -685,18 +688,22 @@ export function createResearch(options: ResearchOptions) {
       const sources = parseSources(given.sources);
       const chosen = parseTarget(given.writeInto);
       const chosenMind = "mindId" in chosen ? options.requireMind(chosen.mindId) : null;
+      // Read before anything is made: a scope that can't be read makes no Mind to leave behind.
+      const within = parseSearchScope(given.scope);
       const ready = await readyModel(parseModel(given.model));
       if (!("model" in ready)) return ready;
       // With no Mind in focus, the new Mind its draft goes into is the Task's own, made first so
       // its progress shows there from the start; a Mind chosen to write into is that Mind.
+      const ownMind = asked === null && !("mindId" in chosen);
       const mindId = asked ?? chosenMind ?? options.createMind(cutTitle(plan.title), null);
       const writeInto: ResearchTarget = asked === null ? { mindId } : chosen;
-      const scope = options.searchedScope(parseSearchScope(given.scope), mindId);
+      const scope = options.searchedScope(within, mindId);
       const task = options.tasks.start(RESEARCH_TASK, mindId, {
         topic,
         plan,
         sources,
         writeInto,
+        ownMind,
         scope,
         providerId: ready.model.providerId,
         modelId: ready.model.modelId,

@@ -270,6 +270,20 @@ export function usePopoverMenu({
   const entered = useRef(false);
   const apex = useRef<Point | null>(null);
   const crossing = useRef<{ row: Element; timer: number } | null>(null);
+  /**
+   * What had the focus when the menu opened: its button, clicked or keyed, or where the User was
+   * in the window when it opened without one (Show Tasks has no button in the band to focus).
+   */
+  const returnTo = useRef<HTMLElement | null>(null);
+  /** Esc asked for the focus back: it is given once the popover has closed (see `onToggle`). */
+  const returnWanted = useRef(false);
+
+  /** Esc puts the focus back where the User was: never on a button that can't show it. */
+  const returnFocus = () => {
+    const target = returnTo.current;
+    if (target && target !== document.body && target.isConnected) target.focus();
+    else if (button.current && !button.current.hasAttribute("aria-hidden")) button.current.focus();
+  };
 
   const stopCrossing = () => {
     if (crossing.current) window.clearTimeout(crossing.current.timer);
@@ -328,8 +342,8 @@ export function usePopoverMenu({
       if (event.key !== "Escape" || event.defaultPrevented) return;
       if (!menu.current?.matches(":popover-open")) return;
       event.preventDefault();
+      returnWanted.current = true;
       menu.current.hidePopover();
-      button.current?.focus();
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
@@ -354,8 +368,8 @@ export function usePopoverMenu({
     if (event.key === "Escape") {
       // Handled here, so the Document viewer's Esc doesn't close it too.
       event.preventDefault();
+      returnWanted.current = true;
       menu.current?.hidePopover();
-      button.current?.focus();
       return;
     }
     if (event.key === "Tab") {
@@ -394,15 +408,27 @@ export function usePopoverMenu({
         if (event.newState === "closed" && menu.current)
           exitToward(menu.current, sourceOf(button.current));
         // Untouched from the moment it opens, not from a render after: keys can come first.
-        if (event.newState === "open") touched.current = false;
+        if (event.newState === "open") {
+          touched.current = false;
+          returnWanted.current = false;
+          returnTo.current =
+            document.activeElement instanceof HTMLElement ? document.activeElement : null;
+        }
         setOpen(event.newState === "open");
       },
       // Now it shows, where it was placed: it can take the focus, unless the User has moved it
       // already (the event can come after their first keys), or something in it has it: the
       // browser focuses an item as it shows (`autofocusFirst`), and by this event, a frame
-      // later, the focus may have moved on to the menu's field.
+      // later, the focus may have moved on to the menu's field. Closed after Esc, the focus goes
+      // back now, not during the key: a focus the browser's own close work runs over takes no text.
       onToggle: (event: ToggleEvent<HTMLDivElement>) => {
-        if (event.newState !== "open" || touched.current) return;
+        if (event.newState === "closed") {
+          if (!returnWanted.current) return;
+          returnWanted.current = false;
+          returnFocus();
+          return;
+        }
+        if (touched.current) return;
         if (menu.current?.contains(document.activeElement)) return;
         focusFirst(menu.current, first);
       },

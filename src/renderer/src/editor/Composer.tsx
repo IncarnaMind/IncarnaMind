@@ -700,9 +700,9 @@ export function Composer({
       setTellProblem(null);
       return;
     }
-    if (event.key === "Escape" && plan && mind) {
+    if (event.key === "Escape" && plan) {
       event.preventDefault();
-      cancelResearch(mind.mindId);
+      cancelResearch(key);
       return;
     }
     if (event.key === "Escape" && researching) {

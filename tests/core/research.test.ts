@@ -16,6 +16,7 @@ import {
   type Core,
   DATABASE_FILE,
   type ResearchPlan,
+  type SearchScope,
   type StartResearchInput,
   type Task,
 } from "../../src/core";
@@ -321,6 +322,37 @@ describe("Research", { timeout: 30_000 }, () => {
     if (!second.started) throw new Error(`Research didn't start: ${second.reason}`);
     expect(second.task.mindId).toBe(made?.id);
     await core.stopTask(second.task.id);
+  });
+
+  test("with no Mind in focus it makes its own Mind, and once its pages are filed that Mind is in their Folder", async () => {
+    const { core, folder } = await setUp(researcher([]));
+    const task = await started(core, startInput(null, folder.id));
+    const done = await waitForTask(core, task.id, (each) => each.finishedAt !== null);
+    expect(done.status).toBe("done");
+    // The Folder the pages it read were filed in, made by its save step.
+    const filed = (await core.getLibrary()).groups.find(
+      (each) => each.name === cutTitle(PLAN.title),
+    );
+    expect(filed).toBeDefined();
+    const minds = await core.listMinds();
+    const made = minds.find((each) => each.id === task.mindId);
+    expect(made).toMatchObject({ title: cutTitle(PLAN.title), folderId: filed?.id });
+    // Its draft went into that one Mind, which shows its progress; no second Mind was made.
+    expect(done.review?.mindId).toBe(task.mindId);
+    expect(minds.filter((each) => each.title === cutTitle(PLAN.title))).toHaveLength(1);
+    expect((await changesIn(core, task.mindId ?? "")).ids).toHaveLength(1);
+  });
+
+  test("a Search scope it can't read starts nothing, and leaves no Mind behind", async () => {
+    const { core, folder } = await setUp(researcher([]));
+    const minds = (await core.listMinds()).length;
+    await expect(
+      core.startResearch(
+        startInput(null, folder.id, { scope: { folderIds: [42] } as unknown as SearchScope }),
+      ),
+    ).rejects.toThrow();
+    expect(await core.listMinds()).toHaveLength(minds);
+    expect(await core.listTasks()).toEqual([]);
   });
 
   test("the plan asks the model not to think where it can: Kimi K2.6's thinking took its whole reply (#1369)", async () => {

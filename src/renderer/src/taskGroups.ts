@@ -32,9 +32,10 @@ export function taskGroups(tasks: readonly Task[]): TaskGroups {
 }
 
 /**
- * The Task the keyboard acts on: the one whose block or row holds the focus,
- * else the newest unfinished Task of the Mind in focus: none when no Mind is
- * in focus and no Task holds it.
+ * The Task the keyboard acts on: the one whose block or row held the focus,
+ * done or not, else the newest unfinished Task of the Mind in focus: none when
+ * no Mind is in focus and no Task holds it. A done Task in focus is never
+ * swapped for another one, which a command could act on by mistake.
  */
 export function taskInFocus(
   tasks: readonly Task[],
@@ -43,7 +44,7 @@ export function taskInFocus(
 ): Task | undefined {
   const focused =
     focusedTaskId === null ? undefined : tasks.find((task) => task.id === focusedTaskId);
-  if (focused && focused.finishedAt === null) return focused;
+  if (focused) return focused;
   if (mindId === null) return undefined;
   return tasks
     .filter((task) => task.mindId === mindId && task.finishedAt === null)

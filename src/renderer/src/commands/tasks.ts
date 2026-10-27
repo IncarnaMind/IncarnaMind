@@ -1,30 +1,8 @@
-import { useComposer } from "../composer";
 import { taskOffers } from "../taskActions";
-import { taskInFocus } from "../taskGroups";
+import { taskNow } from "../taskFocus";
 import { requestTaskMenu } from "../taskMenu";
-import { pauseTask, resumeTask, stopTask, useTasks } from "../tasks";
+import { pauseTask, resumeTask, stopTask } from "../tasks";
 import type { Command } from "./registry";
-
-/** The Task whose block or row holds the focus, if one does: what the User is looking at. */
-function focusedTaskId(): string | null {
-  if (typeof document === "undefined") return null;
-  const element = document.activeElement;
-  const id =
-    element instanceof Element
-      ? element.closest<HTMLElement>("[data-task]")?.dataset.task
-      : undefined;
-  return id ?? null;
-}
-
-/** The Task the keyboard acts on now (see `taskInFocus`). */
-function taskNow() {
-  const { seat } = useComposer.getState();
-  return taskInFocus(
-    Object.values(useTasks.getState().tasks),
-    seat?.mindId ?? null,
-    focusedTaskId(),
-  );
-}
 
 export const taskCommands: readonly Command[] = [
   {
@@ -43,9 +21,9 @@ export const taskCommands: readonly Command[] = [
     keywords: ["command.pauseTask.keywords"],
     group: "main",
     reversible: true,
-    when: () => taskOffers(taskNow(), "pause"),
-    run: () => {
-      const task = taskNow();
+    when: (ctx) => taskOffers(taskNow(ctx), "pause"),
+    run: (ctx) => {
+      const task = taskNow(ctx);
       if (task) void pauseTask(task.id);
     },
   },
@@ -55,9 +33,9 @@ export const taskCommands: readonly Command[] = [
     keywords: ["command.resumeTask.keywords"],
     group: "main",
     reversible: true,
-    when: () => taskOffers(taskNow(), "resume"),
-    run: () => {
-      const task = taskNow();
+    when: (ctx) => taskOffers(taskNow(ctx), "resume"),
+    run: (ctx) => {
+      const task = taskNow(ctx);
       if (task) void resumeTask(task.id);
     },
   },
@@ -69,10 +47,10 @@ export const taskCommands: readonly Command[] = [
     shortcut: { keys: "CmdOrCtrl+." },
     group: "main",
     // What it did stays; stopping is not taken back, and asking again starts another Task.
-    reversible: true,
-    when: () => taskOffers(taskNow(), "stop"),
-    run: () => {
-      const task = taskNow();
+    reversible: { confirm: "task.stopConfirm" },
+    when: (ctx) => taskOffers(taskNow(ctx), "stop"),
+    run: (ctx) => {
+      const task = taskNow(ctx);
       if (task) void stopTask(task.id);
     },
   },

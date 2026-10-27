@@ -8345,9 +8345,13 @@
     &:focus-within {
       background: var(--color-hover);
     }
-    & > button[role="menuitem"] + button[role="menuitem"] {
-      margin: 5px 0 0 2px;
-    }
+  }
+  /* Every action the row offers, in one line beside it: Stop, and more when a Task has them. */
+  .tasks-popover-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 2px;
+    margin: 5px 0 0 2px;
   }
   .tasks-popover-empty {
     padding: 8px;

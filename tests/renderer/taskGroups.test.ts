@@ -87,12 +87,14 @@ describe("the Task in focus", () => {
   const newer = task("newer", { startedAt: at("10:00") });
   const elsewhere = task("elsewhere", { mindId: "other", startedAt: at("11:00") });
 
-  test("is the Task whose block or row holds the focus, when it is still going", () => {
+  test("is the Task whose block or row holds the focus, done or not", () => {
     // The focused one is not the first: it still wins.
     expect(taskInFocus([newer, older], "mind", "older")?.id).toBe("older");
     expect(taskInFocus([older, newer], "mind", "newer")?.id).toBe("newer");
-    // A finished Task holding the focus leaves the Mind's unfinished one in focus.
-    expect(taskInFocus([older, done], "mind", "done")?.id).toBe("older");
+    // A done Task holding the focus is never swapped for one still going: a command would act on it.
+    expect(taskInFocus([older, done], "mind", "done")?.id).toBe("done");
+    expect(taskInFocus([done, newer], "mind", "done")?.id).toBe("done");
+    expect(taskInFocus([stopped, elsewhere], "other", "stopped")?.id).toBe("stopped");
   });
 
   test("else it is the newest unfinished Task of the Mind in focus, wherever it sits in the list", () => {

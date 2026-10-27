@@ -4628,7 +4628,7 @@ export interface TaskMessage {
   text: string;
 }
 
-/** A Research Task's plan as it runs (Plan): each step with how far it is. */
+/** A Research Task's plan (Plan): each step with how far it is, or how it ended. */
 export interface ResearchPlanView {
   title: string;
   steps: { text: string; status: "waiting" | "running" | "done" | "failed" }[];

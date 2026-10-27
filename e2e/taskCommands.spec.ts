@@ -227,28 +227,37 @@ test("a Task's row in the chip's popover stops it, by keyboard, and Show Tasks s
   await setWindowSize(app, window, 1440, 860);
   await useLocalChatModel(window);
 
-  // Nothing to show: Show Tasks opens the popover anyway, and says so.
+  // Nothing to show: Show Tasks opens the popover anyway, and says so, with its next step.
+  await window.getByTestId("composer-input").focus();
   await window.keyboard.press("ControlOrMeta+k");
   await window.keyboard.type(">show tasks");
   await window.keyboard.press("Enter");
   const empty = window.getByTestId("tasks-popover");
   await expect(empty).toBeVisible();
-  await expect(empty.getByTestId("tasks-popover-empty")).toHaveText("No Tasks right now.");
+  await expect(empty.getByTestId("tasks-popover-empty")).toHaveText(
+    "No Tasks yet. Start Research or a comparison and it shows here.",
+  );
   await expect(window.getByTestId("tasks-chip")).toHaveCount(0);
   await motionSettled(window);
   const emptyBox = await empty.boundingBox();
   expect(emptyBox && emptyBox.x >= 0 && emptyBox.y >= 0).toBe(true);
   await screenshot(window, "tasks-empty-en-1440");
+  // With no chip in the band, Esc gives the focus back to where it was, not to a hidden anchor.
   await window.keyboard.press("Escape");
   await expect(empty).toBeHidden();
+  await expect(window.getByTestId("composer-input")).toBeFocused();
 
   // In Chinese: Show Tasks is 显示任务, found by pinyin, and says there is nothing in Chinese.
   await setLanguage(window, "zh-CN");
   await window.keyboard.press("ControlOrMeta+k");
   await window.keyboard.type(">xianshi renwu");
-  await expect(window.locator('[data-key="command:tasks.show"]')).toContainText("显示任务");
+  await expect(
+    window.locator('[data-key="command:tasks.show"]').getByText("显示任务", { exact: true }),
+  ).toBeVisible();
   await window.keyboard.press("Enter");
-  await expect(window.getByTestId("tasks-popover-empty")).toHaveText("现在没有任务。");
+  await expect(window.getByTestId("tasks-popover-empty")).toHaveText(
+    "还没有任务。开始研究或对比后，任务会显示在这里。",
+  );
   await window.keyboard.press("Escape");
   await expect(window.getByTestId("tasks-popover")).toBeHidden();
   await setLanguage(window, "en");
@@ -298,6 +307,138 @@ test("a Task's row in the chip's popover stops it, by keyboard, and Show Tasks s
   await expect(chip).toHaveCount(0);
   await expect(again).toBeHidden();
   await app.close();
+});
+
+/** One Task, as the core lists it. */
+const taskById = async (window: Page, id: string) =>
+  (await tasksOf(window)).find((task) => task.id === id);
+
+/** A Task's block in the thread. */
+const progressOf = (window: Page, id: string) =>
+  window
+    .getByTestId("assistant-thread")
+    .locator(`[data-testid="task-progress"][data-task="${id}"]`);
+
+test("⌘K acts on the Task the User opened, and a Done Task's block never acts on another Task", async () => {
+  test.setTimeout(150_000);
+  const folder = await createDataFolder();
+  try {
+    const { app, window } = await launchApp(dataDir, { scriptedTasks: true });
+    await dismissChatSetup(window);
+    await setWindowSize(app, window, 1440, 860);
+    await newMind(window);
+    await window.keyboard.type("Two tasks");
+    await window.keyboard.press("Enter");
+    const mind = await mindIdOf(window, "Two tasks");
+
+    // Two Tasks wait for the User in one Mind: the second is the Mind's newest.
+    const first = await startScriptedTask(app, mind, { folder, files: ["a.txt"] });
+    await expect(window.getByTestId("task-progress")).toHaveCount(1);
+    const second = await startScriptedTask(app, mind, { folder, files: ["b.txt"] });
+    await expect(window.getByTestId("task-progress")).toHaveCount(2);
+    await expect(window.getByTestId("tasks-chip")).toHaveText("2 needs you");
+
+    // ⌘K from the older Task's block stops it, not the newest one its field could fall back to.
+    await progressOf(window, first).getByTestId("task-progress-stop").focus();
+    await window.keyboard.press("ControlOrMeta+k");
+    await window.keyboard.type(">stop task");
+    await window.keyboard.press("Enter");
+    await expect.poll(async () => (await taskById(window, first))?.status).toBe("stopped");
+    const newest = await taskById(window, second);
+    expect(newest?.finishedAt).toBeNull();
+    expect(newest?.ask).not.toBeNull();
+    await expect(window.getByTestId("tasks-chip")).toHaveText("1 needs you");
+
+    // Done, its block offers no Pause or Stop, and ⌘. takes nothing from the Task still going.
+    await window.getByTestId("task-ask").getByTestId("approval-allow-once").click();
+    await expect.poll(async () => (await taskById(window, second))?.status).toBe("done");
+    const third = await startScriptedTask(app, mind, { folder, files: ["c.txt"] });
+    await expect(window.getByTestId("task-progress")).toHaveCount(3);
+    await progressOf(window, second).getByTestId("task-progress-review").focus();
+    for (const words of [">stop task", ">pause task"]) {
+      await window.keyboard.press("ControlOrMeta+k");
+      await window.keyboard.type(words);
+      await expect(window.locator('[data-key="command:task.stop"]')).toHaveCount(0);
+      await expect(window.locator('[data-key="command:task.pause"]')).toHaveCount(0);
+      await window.keyboard.press("Escape");
+      await expect(window.getByTestId("palette")).toBeHidden();
+    }
+    await progressOf(window, second).getByTestId("task-progress-review").focus();
+    await window.keyboard.press("ControlOrMeta+Period");
+    await expect(progressOf(window, third).getByTestId("task-progress-stop")).toBeVisible();
+    const going = await taskById(window, third);
+    expect(going?.finishedAt).toBeNull();
+    await app.close();
+  } finally {
+    await removeDataFolder(folder);
+  }
+});
+
+test("a Task's row keeps the focus after its action, and the row fits more than one action", async () => {
+  test.setTimeout(120_000);
+  const folder = await createDataFolder();
+  try {
+    const { app, window } = await launchApp(dataDir, { scriptedTasks: true });
+    await dismissChatSetup(window);
+    await setWindowSize(app, window, 1440, 860);
+    await newMind(window);
+    await window.keyboard.type("Row actions");
+    await window.keyboard.press("Enter");
+    const mind = await mindIdOf(window, "Row actions");
+    const stopping = await startScriptedTask(app, mind, { folder, files: ["a.txt"] });
+    const other = await startScriptedTask(app, mind, { folder, files: ["b.txt"] });
+    await expect(window.getByTestId("tasks-chip")).toHaveText("2 needs you");
+
+    await window.keyboard.press("ControlOrMeta+k");
+    await window.keyboard.type(">show tasks");
+    await window.keyboard.press("Enter");
+    const popover = window.getByTestId("tasks-popover");
+    await expect(popover.getByTestId("tasks-popover-row")).toHaveCount(2);
+
+    // The row's actions fit a second one beside the first, in the popover's width: Pause and Steer come next.
+    const layout = await window.evaluate((id) => {
+      const item = document.querySelector<HTMLElement>(
+        `[data-testid="tasks-popover"] [data-task="${id}"]`,
+      );
+      const actions = item?.querySelector<HTMLElement>(".tasks-popover-actions");
+      const pop = document.querySelector('[data-testid="tasks-popover"]')?.getBoundingClientRect();
+      if (!actions || !pop) return null;
+      const extra = document.createElement("button");
+      extra.type = "button";
+      extra.textContent = "Pause";
+      actions.append(extra);
+      const boxes = [...actions.querySelectorAll("button")].map((each) =>
+        each.getBoundingClientRect(),
+      );
+      const [first] = boxes;
+      const row = item?.querySelector("button")?.getBoundingClientRect();
+      return {
+        buttons: boxes.length,
+        oneLine: first !== undefined && boxes.every((box) => Math.abs(box.top - first.top) < 1),
+        inside:
+          first !== undefined &&
+          boxes.every((box) => box.left >= pop.left && box.right <= pop.right),
+        besideTheRow: first !== undefined && row !== undefined && first.left >= row.right - 1,
+      };
+    }, stopping);
+    expect(layout).toEqual({ buttons: 2, oneLine: true, inside: true, besideTheRow: true });
+
+    // Stopping it from its row, by keyboard, keeps the focus on that row, now in Recent.
+    const stopOf = (id: string) =>
+      popover.locator(`[data-task="${id}"] [data-testid="tasks-popover-stop"]`);
+    await popover.locator(`[data-task="${stopping}"] [data-testid="tasks-popover-row"]`).focus();
+    await window.keyboard.press("ArrowDown");
+    await expect(stopOf(stopping)).toBeFocused();
+    await window.keyboard.press("Enter");
+    await expect.poll(async () => (await taskById(window, stopping))?.status).toBe("stopped");
+    await expect(
+      popover.locator(`[data-task="${stopping}"] [data-testid="tasks-popover-row"]`),
+    ).toBeFocused();
+    expect((await taskById(window, other))?.finishedAt).toBeNull();
+    await app.close();
+  } finally {
+    await removeDataFolder(folder);
+  }
 });
 
 test("the General page's Task notifications switch is on by default; off, a needing Task says nothing and still lists", async () => {
@@ -385,6 +526,10 @@ test("Research… with no Note open plans with Write into: New note, Start makes
   // Its plan opens above the composer, writing into a new Note, as the card already offers.
   const card = window.getByTestId("research-plan");
   await expect(card).toBeVisible();
+  // With no Note open, the thread still says what is being planned, over the topic asked.
+  const thread = window.getByTestId("assistant-thread");
+  await expect(thread.getByTestId("research-plan-line")).toBeVisible();
+  await expect(thread).toContainText(topic);
   await expect(card.getByTestId("research-plan-step")).toHaveCount(3);
   await expect(card.getByTestId("research-plan-write-into")).toHaveText("New note");
   await expect(card.getByTestId("research-plan-write-step")).toHaveText(
@@ -392,6 +537,17 @@ test("Research… with no Note open plans with Write into: New note, Start makes
   );
   await motionSettled(window);
   await screenshot(window, "research-no-note-en-1440");
+
+  // Esc in the composer puts the plan away with no Note open, and the topic comes back to ask again.
+  await window.getByTestId("composer-input").focus();
+  await window.keyboard.press("Escape");
+  await expect(card).toHaveCount(0);
+  await expect(thread.getByTestId("research-plan-line")).toHaveCount(0);
+  await expect(window.getByTestId("composer-input")).toHaveValue(topic);
+  await window.keyboard.press("Enter");
+  await expect(card).toBeVisible();
+  await expect(thread.getByTestId("research-plan-line")).toBeVisible();
+
   // At 900px, in Chinese, the plan and its buttons stay in the window.
   await setWindowSize(app, window, 900, 640);
   await setLanguage(window, "zh-CN");
@@ -432,8 +588,20 @@ test("Research… with no Note open plans with Write into: New note, Start makes
     await expect(step).toHaveAttribute("data-status", "done");
   await motionSettled(window);
   await screenshot(window, "research-done-plan-en-1600");
+  // Done, its Plan is in ⌘K too: the block in focus names the Task, and the plan comes and goes.
+  await progress.getByTestId("task-progress-plan").focus();
+  const planInPalette = async () => {
+    await window.keyboard.press("ControlOrMeta+k");
+    await window.keyboard.type(">research plan");
+    await expect(window.locator('[data-key="command:research.plan"]')).toBeVisible();
+    await window.keyboard.press("Enter");
+  };
+  await planInPalette();
+  await expect(plan).toBeHidden();
+  await planInPalette();
+  await expect(plan).toBeVisible();
   await setLanguage(window, "zh-CN");
-  await expect(plan).toHaveAttribute("aria-label", "运行中的研究计划");
+  await expect(plan).toHaveAttribute("aria-label", "研究计划");
   await expect(progress.getByTestId("task-progress-actions").getByRole("button")).toHaveText([
     "计划",
     "查看",
