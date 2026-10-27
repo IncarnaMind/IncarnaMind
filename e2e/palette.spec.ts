@@ -406,7 +406,7 @@ test("with a sentence selected, ⌘K finds the one check by check, find support,
         "Whether each claim has support in your Documents",
       );
       await expect(row("mind.checkContradictions").getByTestId("palette-purpose")).toHaveText(
-        "Where your Documents disagree with this Mind’s Citations",
+        "Where your Documents disagree with this note’s Citations",
       );
     }
     await window.keyboard.press("Escape");
@@ -458,7 +458,7 @@ test("with a sentence selected, ⌘K finds the one check by check, find support,
 
   await search("矛盾");
   await expect(row("mind.checkContradictions").getByTestId("palette-purpose")).toHaveText(
-    "你的文档与这个 Mind 的引用不一致的地方",
+    "你的文档与这篇笔记的引用不一致的地方",
   );
 });
 
@@ -642,9 +642,9 @@ test('with words typed, the last row is Ask “words”: Enter opens the first m
 
   // The command typed has the question after it too.
   await openPalette(window);
-  await window.keyboard.type("new mind");
-  await expect(group(window, "actions")).toContainText("New Mind");
-  await expect(rows.last()).toContainText("Ask “new mind”");
+  await window.keyboard.type("new note");
+  await expect(group(window, "actions")).toContainText("New note");
+  await expect(rows.last()).toContainText("Ask “new note”");
 
   // ">" asks for actions only: no question to ask there.
   await window.keyboard.press("ControlOrMeta+a");

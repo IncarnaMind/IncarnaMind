@@ -643,7 +643,7 @@ test("the original is also a Document: an Answer beside the Mind cites its claus
   await row.getByTestId("open-document").focus();
   await window.keyboard.press("ControlOrMeta+i");
   const panel = window.getByTestId("info-panel");
-  await expect(panel.getByTestId("info-imported-as")).toContainText("Imported as a Mind");
+  await expect(panel.getByTestId("info-imported-as")).toContainText("Imported as a note");
   await expect(panel.getByTestId("info-open-mind")).toHaveText("Supply agreement");
   await screenshot(panel, "word-original-info");
   await window.keyboard.press("Escape");
@@ -654,7 +654,7 @@ test("the original is also a Document: an Answer beside the Mind cites its claus
   await expect(window.getByTestId("mind-pane")).toHaveCount(0);
   await openDocumentMenu(row);
   const menu = row.getByTestId("document-file-actions");
-  await expect(menu.getByTestId("document.openMind")).toHaveText("Open its Mind");
+  await expect(menu.getByTestId("document.openMind")).toHaveText("Open its note");
   await pointAndClick(window, menu.getByTestId("document.openMind"));
   await expect(frontMindName(window)).toHaveText("Supply agreement");
 

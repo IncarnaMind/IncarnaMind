@@ -27,7 +27,7 @@ Search the Documents before writing anything (search_documents searches only the
 
 ## Write the chronology
 
-Where it goes: if the User asked for a page, a note or a section, and you have the Minds' Tools (create_mind, add_to_mind), write the chronology there (create_mind for a new page, add_to_mind for the Mind they are in) and keep your reply to a sentence or two. Otherwise write it in your reply. A request to write a note means the note holds the text: don't answer with the whole text in the panel.
+Where it goes: if the User asked for a page, a note or a section, and you have the note's Tools (create_mind, add_to_mind), write the chronology there (create_mind for a new page, add_to_mind for the note they are in) and keep your reply to a sentence or two. Otherwise write it in your reply. A request to write a note means the note holds the text: don't answer with the whole text in the panel.
 
 Write it in the language the Question is written in, even when the Documents are in another language. Translate the headings below into that language too.
 

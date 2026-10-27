@@ -876,13 +876,13 @@ describe("sentences whose check isn't good, in an imported file (#900)", () => {
       language: "en" as const,
       one: "Not found: I didn’t find this in “Okoro agreement”.",
       two: "Not found: I didn’t find this in “Okoro agreement” or 1 more.",
-      changed: "Needs re-check: the Mind’s Search scope has changed since.",
+      changed: "Needs re-check: the note’s Search scope has changed since.",
     },
     {
       language: "zh-CN" as const,
       one: "未找到：未在“Okoro agreement”中找到。",
       two: "未找到：未在“Okoro agreement”等 2 项中找到。",
-      changed: "需重新核对：这个 Mind 的搜索范围已更改。",
+      changed: "需重新核对：这篇笔记的搜索范围已更改。",
     },
   ])(
     // protects=the Word comment of a sentence checked in the Mind's chosen scope names that scope, as its card does, and one checked in another scope than the Mind's now needs a re-check (#1623); fails_when=it says All Documents, another wording than the card's, or keeps a verdict made elsewhere; no_claim=the card itself (e2e).
