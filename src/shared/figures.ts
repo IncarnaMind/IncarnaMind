@@ -379,6 +379,162 @@ function languageSeparators(language: string): Separators | null {
   return null;
 }
 
+/**
+ * The headings whose column keeps its digits as written: an identifier or a
+ * period. A year, an account number or a clause number grouped ("2,026")
+ * would stop reading as one (#2102).
+ */
+export const RAW_COLUMN_HEADERS: readonly string[] = [
+  "ID",
+  "code",
+  "No.",
+  "number",
+  "Year",
+  "FY",
+  "Period",
+  "Quarter",
+  "Fiscal year",
+  "Financial year",
+  "Reporting period",
+  "编号",
+  "代码",
+  "序号",
+  "年",
+  "年份",
+  "年度",
+  "期间",
+  "季度",
+  "财年",
+  "会计年度",
+  "报告期",
+];
+
+// One bracket after a heading's own words: "Year (FY)", "年份（财年）".
+const HEADER_BRACKET = /\s*[（(][^（()）]*[）)]$/;
+
+const RAW_HEADINGS: ReadonlySet<string> = new Set(
+  RAW_COLUMN_HEADERS.map((header) => header.toLowerCase()),
+);
+
+/**
+ * Whether a column keeps its cells' digits raw, decided by its heading alone
+ * and never by a cell's size: "Year (FY)", "年份（财年）", "Reporting period"
+ * and "ID" do, while "Yearly revenue", "Revenue per year (£)" and "FY 2024"
+ * don't. Other headings are amounts, whose numbers the interface writes.
+ */
+export function rawColumn(header: string): boolean {
+  const trimmed = header.trim();
+  return RAW_HEADINGS.has(trimmed.replace(HEADER_BRACKET, "").trim().toLowerCase());
+}
+
+/**
+ * A string that groups as a written number: digits that a person would group
+ * with the language's separator. A leading zero ("02139", a postcode), an
+ * exponent ("1e3") and anything else written stays exactly as it is (#2105).
+ */
+const GROUPABLE_NUMBER = /^[+-]?(?:0|[1-9]\d*)(?:\.\d+)?$/;
+
+/** Where a language puts its group separator, taken from the same formatter `figureText` uses. */
+function groupSeparator(language: string): string {
+  return (
+    groupedFormat(language, 0)
+      .formatToParts(1000)
+      .find((part) => part.type === "group")?.value ?? ""
+  );
+}
+
+/**
+ * A numeric string as text: the language's group separator in its integer
+ * digits, its fraction exactly as written. Nothing is turned into a number,
+ * so "9007199254740993" and "1234.50" keep every digit they were written with.
+ */
+function groupedNumberText(language: string, text: string): string {
+  const sign = text.startsWith("-") || text.startsWith("+") ? text.slice(0, 1) : "";
+  const body = text.slice(sign.length);
+  const point = body.indexOf(".");
+  const integer = point < 0 ? body : body.slice(0, point);
+  const fraction = point < 0 ? "" : body.slice(point);
+  if (integer.length <= 3) return text;
+  const separator = groupSeparator(language);
+  let grouped = "";
+  for (const [index, digit] of [...integer].entries()) {
+    if (index > 0 && (integer.length - index) % 3 === 0) grouped += separator;
+    grouped += digit;
+  }
+  return `${sign}${grouped}${fraction}`;
+}
+
+/** The precision an Analysis has always rounded a non-integer to, kept so grouping never changes it. */
+function roundedText(value: number): string {
+  if (Number.isInteger(value) || !Number.isFinite(value)) return String(value);
+  const whole = Math.floor(Math.log10(Math.abs(value))) + 1;
+  return String(Number(value.toPrecision(Math.max(4, whole + 2))));
+}
+
+const GROUPED_FORMATS = new Map<string, Intl.NumberFormat>();
+
+function groupedFormat(language: string, places: number): Intl.NumberFormat {
+  const key = `${language}\u0000${places}`;
+  const found = GROUPED_FORMATS.get(key);
+  if (found) return found;
+  const options: Intl.NumberFormatOptions = {
+    useGrouping: "always",
+    minimumFractionDigits: places,
+    maximumFractionDigits: places,
+  };
+  let format: Intl.NumberFormat;
+  try {
+    format = new Intl.NumberFormat(language, options);
+  } catch {
+    // Not a language tag at all ("English"): there is no language to write by.
+    format = new Intl.NumberFormat("en", options);
+  }
+  GROUPED_FORMATS.set(key, format);
+  return format;
+}
+
+/**
+ * A number as the interface writes it: an Analysis's own precision first, then
+ * the language's separators, with every number of 1,000 and over grouped
+ * (#2102). A number JavaScript writes exponentially keeps that form, since
+ * grouping it would add digits it never had.
+ */
+export function figureText(language: string, value: number): string {
+  const rounded = roundedText(value);
+  if (/e/i.test(rounded)) return rounded;
+  const point = rounded.indexOf(".");
+  const places = point === -1 ? 0 : rounded.length - point - 1;
+  return groupedFormat(language, places).format(Number(rounded));
+}
+
+/**
+ * A cell of an Analysis table as it reads: a string that is a plain number is
+ * grouped as text, so its digits are never read as a number; a string that is
+ * anything else ("7,509,964", "n/a", "12.5%", "02139", "1e3") stays exactly
+ * as it is. A column `rawColumn` names keeps its digits raw, however large a
+ * cell is.
+ */
+export function figureCellText(
+  language: string,
+  cell: string | number | boolean | null,
+  raw: boolean,
+): string {
+  if (cell === null) return "";
+  if (typeof cell === "number") return raw ? String(cell) : figureText(language, cell);
+  if (typeof cell !== "string") return String(cell);
+  const trimmed = cell.trim();
+  return !raw && GROUPABLE_NUMBER.test(trimmed) ? groupedNumberText(language, trimmed) : cell;
+}
+
+/**
+ * A single figure result as the interface writes it: a label a `rawColumn`
+ * heading names keeps its digits raw, as the same value in that column does
+ * (#2105).
+ */
+export function figureResultText(language: string, value: number, label: string): string {
+  return rawColumn(label) ? String(value) : figureText(language, value);
+}
+
 /** Numbers whose separators can only be read one way, and the convention each shows. */
 const EVIDENCE: readonly [RegExp, Separators][] = [
   [/(?<![\d.,'])\d{1,3}(?:,\d{3})+\.\d+(?![\d.,])/g, { decimal: ".", group: "," }],

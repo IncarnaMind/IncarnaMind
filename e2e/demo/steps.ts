@@ -12,6 +12,14 @@ import type { DemoScript } from "./script";
 export const bridgeOf = (window: Page) =>
   window.evaluateHandle(() => (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind);
 
+/** Unfolds the assistant when it is folded, so its Answer and its buttons are on screen. */
+export async function openAssistant(window: Page): Promise<void> {
+  const assistant = window.getByTestId("assistant");
+  if ((await assistant.getAttribute("data-folded")) !== "true") return;
+  await window.keyboard.press("ControlOrMeta+j");
+  await expect(assistant).not.toHaveAttribute("data-folded", "true");
+}
+
 /** Opens a Mind by its name from ⌘K, as a person does. */
 export async function openMind(window: Page, title: string): Promise<void> {
   await window.keyboard.press("ControlOrMeta+k");
