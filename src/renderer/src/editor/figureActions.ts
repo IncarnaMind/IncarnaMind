@@ -140,20 +140,27 @@ export function writeSentenceCheck(
     tr.setNodeMarkup(span.from, undefined, { ...owner.attrs, [CLAIM_CHECK_MARK]: check });
     return;
   }
+  const type = tr.doc.type.schema.marks[CLAIM_CHECK_MARK];
+  if (!type) return;
+  const marked = (node: ProseMirrorNode) =>
+    node.isText && node.marks.some((mark) => mark.type === type && mark.attrs.id === check.id);
+  let rewrite = false;
   let hasText = false;
   tr.doc.nodesBetween(span.from, span.to, (node) => {
+    if (marked(node)) rewrite = true;
     if (node.isText) hasText = true;
   });
+  // A check written again keeps to the words it had: words typed into the sentence since keep
+  // their own state. A sentence with no check yet gets it on all its words.
+  const checked = (node: ProseMirrorNode) => node.isText && (!rewrite || marked(node));
   let owned = false;
   tr.doc.nodesBetween(span.from, span.to, (node, pos) => {
-    if (node.isText) {
-      const mark = tr.doc.type.schema.marks[CLAIM_CHECK_MARK];
-      if (mark)
-        tr.addMark(
-          Math.max(pos, span.from),
-          Math.min(pos + node.nodeSize, span.to),
-          mark.create(check),
-        );
+    if (checked(node)) {
+      tr.addMark(
+        Math.max(pos, span.from),
+        Math.min(pos + node.nodeSize, span.to),
+        type.create(check),
+      );
     } else if (node.type.name === CALCULATED_FIGURE_NODE) {
       tr.setNodeMarkup(pos, undefined, {
         ...node.attrs,

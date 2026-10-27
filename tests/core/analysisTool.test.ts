@@ -380,6 +380,7 @@ describe("an Analysis an Answer runs", () => {
     ]);
     expect(retained()[0]).not.toHaveProperty("output");
     expect(figures[0]?.figure).not.toHaveProperty("code");
+    expect((await core.getConversation(answer.conversationId)).messages).toContainEqual(answer);
     await core.deleteConversation(answer.conversationId);
     await core.deletePermanently([{ kind: "conversation", id: answer.conversationId }]);
     expect(retained()[0]?.values[0]?.value).toBe(350.5);

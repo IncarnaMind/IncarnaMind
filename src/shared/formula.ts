@@ -567,6 +567,8 @@ function productScales(a: Value, b: Value): WrittenScale[] {
 
 /** The powers of ten that scale words stand for: thousand, 万, million, 亿, billion, trillion. */
 const SCALE_STEPS: ReadonlySet<number> = new Set([3, 4, 6, 8, 9, 12]);
+/** The scales Chinese statements are written in: 千, 万, 百万, 亿, 万亿. */
+const CHINESE_SCALES: ReadonlySet<number> = new Set([3, 4, 6, 8, 12]);
 
 /** The power of ten a number written in the formula is ("10000", "1e8", "10^4", "0.001"); null for any other. */
 function powerOfTen(value: Value): number | null {
@@ -693,13 +695,14 @@ function evaluate(
     const base = before?.amount ?? amount;
     scaledBy.set(node, { exponent, amount: base });
     changes.delete(amount.node);
-    if (SCALE_STEPS.has(Math.abs(exponent)))
-      changes.set(node, {
-        text: source(node),
-        amount: source(base.node),
-        exponent,
-        from: base.scales[0] ?? null,
-      });
+    const from = base.scales[0] ?? null;
+    // Or one written Chinese scale onto another, two steps apart: "rev / 100" reads 百万 as 亿.
+    const lands =
+      from?.word != null &&
+      /[\u4e00-\u9fff]/.test(from.word) &&
+      CHINESE_SCALES.has(from.exponent - exponent);
+    if (SCALE_STEPS.has(Math.abs(exponent)) || lands)
+      changes.set(node, { text: source(node), amount: source(base.node), exponent, from });
   };
   /** A division by a quantity: what scaled its dividend or its divisor made a rate per so many. */
   const divided = (node: Node, a: Value, b: Value) => {
