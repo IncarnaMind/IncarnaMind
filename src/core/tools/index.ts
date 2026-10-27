@@ -21,7 +21,7 @@
  */
 import type { Effect, ReadThirdPartySource } from "../api";
 
-/** v1's providers, Find sources, web search, the Minds, the commands and the assistant's questions; later ones add their kind here. */
+/** The built-in Tool providers; each host offers the capabilities it supports. */
 export type ToolProviderKind =
   | "documents"
   | "skills"
@@ -29,6 +29,7 @@ export type ToolProviderKind =
   | "sources"
   | "web"
   | "minds"
+  | "analysis"
   | "commands"
   | "asks";
 
@@ -137,6 +138,7 @@ export const MIND_TOOLS = {
   create: "create_mind",
 } as const;
 
+export const ANALYSIS_TOOLS = { run: "run_analysis" } as const;
 /** The names of the commands' Tools, offered to an Answer in the assistant (#1110). */
 export const COMMAND_TOOLS = { list: "list_commands", run: "run_command" } as const;
 
@@ -153,6 +155,7 @@ export const RESERVED_TOOL_NAMES: ReadonlySet<string> = new Set<string>([
   ...Object.values(SOURCE_TOOLS),
   ...Object.values(WEB_TOOLS),
   ...Object.values(MIND_TOOLS),
+  ...Object.values(ANALYSIS_TOOLS),
   ...Object.values(COMMAND_TOOLS),
   ...Object.values(ASK_TOOLS),
 ]);

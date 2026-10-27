@@ -1,6 +1,7 @@
 import { APICallError } from "ai";
 import { MockLanguageModelV4 } from "ai/test";
-import type { ChatModelFactory, ChatModelSpec } from "../../src/core";
+import type { ChatModelFactory, ChatModelSpec, ClaimedChange } from "../../src/core";
+import { CLAIM_CHECK_INSTRUCTIONS } from "../../src/core/answers/claimedChanges";
 import { CITE_RETRY_INSTRUCTIONS } from "../../src/core/answers/prompt";
 
 /** A chat model that answers "OK" to every request. */
@@ -255,6 +256,23 @@ export type GeneratedReply =
   | { text: string; cutOff?: boolean; usage?: ReportedUsage }
   | { error: { status: number; message: string } };
 
+export function claimCheckReply(
+  call: GenerateCall,
+  unbacked:
+    | readonly { sentence: string; kind: ClaimedChange }[]
+    | ((prompt: string) => readonly { sentence: string; kind: ClaimedChange }[]),
+): GeneratedReply {
+  const candidates = typeof unbacked === "function" ? unbacked(call.prompt) : unbacked;
+  const reply = /<reply>\n([\s\S]*)\n<\/reply>/.exec(call.prompt)?.[1] ?? "";
+  return {
+    text: JSON.stringify({
+      claims: candidates
+        .filter((claim) => reply.includes(claim.sentence))
+        .map((claim) => ({ ...claim, backed: false })),
+    }),
+  };
+}
+
 /** What a scripted model replies to one request. */
 export type ScriptedReply =
   | {
@@ -347,6 +365,14 @@ export function scriptedModel(
   return new MockLanguageModelV4({
     modelId,
     doGenerate: async (options) => {
+      if (!generate && systemOf(options.prompt).includes(CLAIM_CHECK_INSTRUCTIONS)) {
+        return {
+          content: [{ type: "text", text: '{"claims":[]}' }],
+          finishReason: { unified: "stop", raw: undefined },
+          usage,
+          warnings: [],
+        };
+      }
       if (!generate) throw new Error("This scripted model only streams.");
       const reply = generate({
         system: systemOf(options.prompt),

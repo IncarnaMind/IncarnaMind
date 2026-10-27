@@ -7,6 +7,7 @@ const FAILED: Record<string, UnreadReason> = {
   "password-protected": "password",
   "too-large": "too-large",
   "pages-unread": "pages",
+  "forms-unread": "pages",
 };
 
 /**
@@ -36,6 +37,7 @@ export function findUnreadDocuments(documents: readonly Document[]): UnreadFile[
       extension: null,
       documentId: document.id,
       pages: reason === "pages" ? (document.failure?.pages ?? []) : [],
+      ...(document.failure?.reason === "forms-unread" && { forms: true as const }),
       ...(reason === "parts" && parts ? { parts } : {}),
     });
   }

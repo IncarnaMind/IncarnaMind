@@ -5,7 +5,7 @@
 It drives the core's public interface in Node, the way the desktop app's UI does:
 
 1. It creates a temporary data folder. It never touches the app's real data folder.
-2. It turns embeddings on with the built-in model, as a User can in Settings (they are off by default, ADR-0009), adds the seven sample PDFs in `data/` (made for this repository and licensed under Apache-2.0; see [`data/README.md`](../data/README.md)) and the five Chinese Wikipedia articles in `retrieval/fixtures/` with `addDocuments`, and waits until each is processed: text extracted, Passages built and embedded with the real built-in model, multilingual-e5-small.
+2. It turns embeddings on with the built-in model, as a User can in Settings (they are off by default, ADR-0009), adds the seven generated sample PDFs in `data/` (made for this repository and licensed under Apache-2.0) and the five real Documents in `data/real/` (each under a licence or statute that allows redistribution; see [`data/README.md`](../data/README.md)) and the five Chinese Wikipedia articles in `retrieval/fixtures/` with `addDocuments`, and waits until each is processed: text extracted, Passages built and embedded with the real built-in model, multilingual-e5-small.
 3. It searches for each Question with `searchPassages` in hybrid, keyword and vector mode, and scores the top 5. A cross-lingual Question with a translated query is searched with that too.
 4. It reranks keyword search's top 20 with the built-in reranking model, mmarco-mMiniLMv2-L12-H384, as the search Tool does by default, with embeddings off, and scores the top 5 again ("keyword top 20 + rerank"; see [Keyword + rerank](#keyword--rerank)). Then, with embeddings off as Users have them, it runs the search Tool itself for each Question and scores the Passages it hands the model: this is the gate ("search Tool"). Then it reranks what the search Tool hands a reranker with embeddings on (keyword search's top 10 and vector search's top 10, each Passage once) with the same model ("hybrid + rerank", reported only). Other reranking candidates, when given, are scored both ways too. Then the built-in model reranks the candidates of seven other searches, with embeddings off, reported only (see [Other ways to find the candidates](#other-ways-to-find-the-candidates)).
 5. When a chat model is given, it turns embeddings off again, as Users have them by default (the vectors stay, unused), asks each Question with `askQuestion` and scores the Citations of each Answer. The core reranks those Answers' searches with the real built-in reranking model, as the app does.
@@ -341,6 +341,36 @@ Three quotes a model may well write were on their cited Unit but "not found", fa
 
 ## Results
 
+### 2026-10-26: the mixed sample set (#2019)
+
+The gating set's library now holds the seven generated sample PDFs in `data/`, the five Chinese
+Wikipedia articles in `retrieval/fixtures/`, and the five readable real Documents in `data/real/`
+(17 Documents, 877 Passages). The real Documents are extra library, not new Questions; their
+sources, licences and SHA-256 are in [`data/README.md`](../data/README.md). Measured with
+`npm run eval:dump` and `INCARNAMIND_EVAL_RERANK_CPU=1`, keyword search and the built-in reranker
+as the app runs them with embeddings off; the dump scores the same as the run's own scoring.
+
+| Order | Gating, top 5 | English gating | Chinese gating | All 65 |
+|---|---|---|---|---|
+| keyword | 34/40 | 15/20 | 19/20 | 55/65 |
+| keyword + rerank | 37/40 | 17/20 | 20/20 | 59/65 |
+| search Tool (Passages handed to the model) | **38/40** | **18/20** | **20/20** | 60/65 |
+
+The bar is 15 of 20 English and 20 of 20 Chinese (35 of 40, see above); the mixed set meets it,
+with 18 English and 20 Chinese. On the generated samples alone the same dump gives 15/20 and
+20/20 (35/40, 52/65).
+
+**A mixed set with a longer English report missed the Chinese bar by one.** Measured the same
+way, before two Documents were replaced on 2026-10-26: with the full 348-page World Development
+Report in the library, zh-03's expected Passage in the Vantrell ESG report fell from keyword rank
+19 to 26, outside the search Tool's keyword top 20, though its rerank score was unchanged
+(0.9968); the Tool found 18/20 English and 19/20 Chinese. With the 20-page Overview booklet the
+Passage is back at rank 19 and the bar holds. The loss is the candidate window, not the model;
+it is filed as a retrieval issue.
+
+Load: the final mixed run at a 1-minute load of 10 to 41 and a 15-minute load of 10 to 25; scores
+only, no timings are reported from it.
+
 ### Every format: first run pending
 
 The every-format set was built on 2026-10-09 (#70). Its first `npm run eval` hasn't run yet; its per-format table goes here once it has, with the bars it supports.
@@ -459,6 +489,7 @@ The check now ignores letter case, reads "[^3]" as "[3]", and finds a quote with
   - `citations.ts`: asks Questions, reads Answers, and scores Citations.
   - `timing.ts`, `timingReport.ts` and `handed.ts`: where an Answer's time went, how the reports show it, and whether searches handed the model what the Question needs.
   - `report.ts`: the reports and the summary.
+  - `notes.ts`: what an Answer left in a Mind, for the reports and the Skills.
   - `dumps.ts`: writes a set's dump (see Offline scoring); `commit.ts`: the commit a run was made at.
 - **Evaluation set:**
   - `retrieval/questions.json`: the Questions.
@@ -474,6 +505,7 @@ The check now ignores letter case, reads "[^3]" as "[3]", and finds a quote with
   - `tests/eval/smallModelCitations.test.ts` shows, without a model, the ways a small model's Citations of the gating set's long PDFs aren't found (#67): records written by hand, through the core's citation session, over the stored text of their pages.
   - `tests/eval/formatSet.test.ts` checks the every-format set against the stored text; `tests/eval/formatScoring.test.ts`, its figures and reports; `tests/eval/formatCitations.test.ts`, the Citation check on every Location kind.
   - `tests/eval/checkSet.test.ts` checks the checks evaluation's labels against the stored text; `tests/eval/checkScoring.test.ts`, its scoring; `tests/eval/checkPipeline.test.ts`, its pipeline through a core with a scripted model.
+  - `tests/eval/skillCases.test.ts` checks the finance and law Skills' case table: six Skills, each in both languages, with its invented Documents.
 
 ## The checks evaluation
 
@@ -502,3 +534,7 @@ The check before building the Library's grouping (#51) found that clustering Doc
 ## Reports from a cited Mind
 
 `npm run eval:reports` turns a Mind whose Notes cite two sample papers (6 Citations, in English and in Chinese, and 20) into a report with the built-in Skill "mind-to-report" forced, on a real chat model, in the Answer and in a new Mind (#1800). Each run counts the claims kept with a working Citation that opens the Mind's Location (and how many are its very record), the claims kept with none (a model judges that), every source or id left as text in the report and its Markdown export, and how often the app had to make an id written as text its Citation. `INCARNAMIND_EVAL_REPORTS` lists case ids (`reports/cases.ts`), `INCARNAMIND_EVAL_REPORTS_RUNS` sets the runs of each (10). About $0.003 a run on Claude Haiku 5.5 and $0.08 on Sonnet 5.5.
+
+## The finance and law Skills
+
+`npm run eval:skills` forces each built-in finance and law Skill in turn — covenant summary, CIM red flags, earnings review, credit memo outline, deposition summary and chronology — on a real chat model, over invented English and Chinese Documents in `skills/documents/` (#1938). Every run must write a note rather than answer in the panel; the note must state its case's facts; every Citation in it must be found by the app's own check; and no marker may stand without its Citation. `INCARNAMIND_EVAL_SKILLS` lists case ids (`skills/cases.ts`). Each run's note and verdicts go into `eval/results/<start time>-skills/report.md`.

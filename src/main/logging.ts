@@ -29,6 +29,13 @@ export function startLogging(dataDir: string): FileLogger {
   process.on("uncaughtExceptionMonitor", (error, origin) =>
     logger.exception("main.uncaught", error, { origin }),
   );
+  if (process.env.INCARNAMIND_TEST_HOOKS === "1") {
+    // Electron answers an uncaught main-process error with a synchronous error box. Nobody
+    // dismisses one on a runner, so the main thread stays blocked and every later call times
+    // out as an app that isn't answering, which hid the error itself (#1741). The monitor above
+    // has logged it; an app a test drives goes on.
+    process.on("uncaughtException", (error) => printError("Uncaught exception:", error));
+  }
   // Electron's main process only warns about these; this logs them whole, and still warns.
   process.on("unhandledRejection", (reason) => {
     logger.exception("main.unhandledRejection", reason);

@@ -1,4 +1,12 @@
-import { type ReactNode, type ToggleEvent, useEffect, useId, useRef, useState } from "react";
+import {
+  type ReactNode,
+  type ToggleEvent,
+  useEffect,
+  useId,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { useShallow } from "zustand/react/shallow";
 import type { DocumentStatus, EmbeddingModelError } from "../../../core/api";
 import { formatDateTime } from "../../../shared/dates";
@@ -12,6 +20,8 @@ import { saidInLine } from "../lineNames";
 import { useCapturing, useMeetings } from "../meetings";
 import { downloadProgress } from "../modelDownload";
 import { enterFrom, exitToward } from "../motion";
+import { organizeStateOf } from "../organizeOutcome";
+import { ownsATag, useOwnDocuments } from "../ownDocuments";
 import { rerankingModelStatus } from "../rerankStatus";
 import { openSandboxHelp, useRunsWithoutSandbox } from "../sandbox";
 import { useSettled } from "../settling";
@@ -99,8 +109,8 @@ interface Status {
  * model, a failure to retry, a web page that couldn't be added, skipped
  * files, files that were in IncarnaMind already). One line:
  * the most pressing status, and "+N" for the others, which lists them above
- * the row. The room of two lines is kept even when there is nothing to say,
- * so the tree above never moves for a status that wraps. A status that is only
+ * the row. Its 28px are kept even when there is nothing to say, so the tree
+ * above moves only for a status that takes two lines. A status that is only
  * progress shows after it has lasted 300 ms and stays at least 500 ms once shown,
  * so none flashes; a failure or a question shows at once.
  */
@@ -133,9 +143,7 @@ export function SidebarStatus({ problemsOnly = false }: { problemsOnly?: boolean
   ];
   if (problemsOnly && !first) return null;
   return (
-    // Two 20px lines and their 4px padding (#763): a status that wraps keeps its room, so the
-    // tree above the footer never moves when it comes or goes.
-    <div data-testid="sidebar-status" className="flex min-h-12 shrink-0 flex-col">
+    <div data-testid="sidebar-status" className="flex min-h-7 shrink-0 flex-col">
       {first && (
         <StatusRow status={first}>
           {others.length > 0 && <MoreStatuses others={others} />}
@@ -164,7 +172,7 @@ function StatusRow({ status, children }: { status: Status; children?: ReactNode 
       data-testid={status.testId}
       title={full}
       className={`flex shrink-0 gap-2 pr-1 pl-2 text-[13px] leading-5 text-ink-meta ${
-        wraps ? "min-h-12 items-start py-1" : "h-12 items-center"
+        wraps ? "min-h-7 items-start py-1" : "h-7 items-center"
       }`}
     >
       <span aria-hidden="true" className="flex h-5 w-4 shrink-0 items-center justify-center">
@@ -214,13 +222,7 @@ function StatusRow({ status, children }: { status: Status; children?: ReactNode 
         </span>
       )}
       <span className="sr-only">{full}</span>
-      {wraps ? (
-        // "+N" comes and goes: its room is kept in a wrapping row, so the line beside it keeps
-        // its width and the action in it never moves (#763).
-        <span className="flex w-9 shrink-0 justify-end">{children}</span>
-      ) : (
-        children
-      )}
+      {children}
       {action && !wraps && (
         <button
           type="button"
@@ -317,6 +319,16 @@ function useStatuses(): Status[] {
   const model = useAppStore((state) => state.embeddingModel);
   const embedding = useAppStore((state) => state.embedding);
   const library = useAppStore((state) => state.library);
+  // Organize never works on an example's Documents, so its counts are the User's own alone: an
+  // assignment an earlier version left against an example would otherwise progress for ever (#1942).
+  const ownDocuments = useOwnDocuments();
+  const liveStates = useMemo(() => {
+    const held = new Map((library?.assignments ?? []).map((item) => [item.documentId, item]));
+    return ownDocuments.map((doc) => {
+      const item = held.get(doc.id);
+      return { item, state: organizeStateOf(doc, item) };
+    });
+  }, [ownDocuments, library]);
   const organizing = organizes(library);
   const organizesNew = organizesNewDocuments(library);
   const capturing = useCapturing();
@@ -388,6 +400,10 @@ function useStatuses(): Status[] {
           }
         }
       }
+      // Before a Document of the User's own carries a Tag, the Tags' own progress isn't shown
+      // (#1942). Everything the User can act on stays: a missing consent, a refused key, a rate
+      // limit, a plan's limit and a failure are problems where they happened, Tag or no Tag.
+      if (!ownsATag(state)) tagging = 0;
       return {
         processing,
         scansReading,
@@ -438,13 +454,11 @@ function useStatuses(): Status[] {
   const sandboxNoticeDismissed = useAppStore(
     (state) => state.settings?.device.sandboxNoticeDismissed === true,
   );
+  // The first Tag a Document of the User's own carries: until then, no model is asked for Tags.
+  const tagsShown = useAppStore((state) => ownsATag(state));
   const taggingWaits = counts.waitingForTagger > 0;
   const tagging = !organizesNew && counts.tagging > 0;
-  const organizingNow =
-    organizing &&
-    !!library?.assignments.some(
-      (item) => item.status === "pending" || item.status === "classifying",
-    );
+  const organizingNow = organizing && liveStates.some(({ state }) => state.run === "working");
   const taggingService = useTaggingService(
     organizingNow ? "classification" : "tagging",
     taggingWaits || tagging || organizingNow,
@@ -467,10 +481,12 @@ function useStatuses(): Status[] {
   );
   const stoppedPlaces = useAppStore(
     useShallow((state) =>
-      stoppedDocumentPlaces(
-        state.documents.filter((each) => isOwnDocument(each, allExamples(state))),
-        state.library,
-      ),
+      ownsATag(state)
+        ? stoppedDocumentPlaces(
+            state.documents.filter((each) => isOwnDocument(each, allExamples(state))),
+            state.library,
+          )
+        : [],
     ),
   );
   const service = taggingService?.service.name;
@@ -776,13 +792,12 @@ function useStatuses(): Status[] {
             .catch((error: unknown) => useAppStore.getState().reportError(error)),
       },
     });
-  } else if (taggingWaits) {
+  } else if (tagsShown && taggingWaits) {
     statuses.push({
       testId: "tagging-waiting",
       tone: "waiting",
       short: t("status.taggingWaiting"),
       full: t("jev.waiting.notice"),
-      wraps: true,
       needsYou: true,
       alerts: true,
       action: {
@@ -906,16 +921,15 @@ function useStatuses(): Status[] {
   }
 
   if (organizing && library) {
-    const pending = library.assignments.filter(
-      (item) => item.status === "pending" || item.status === "classifying",
-    ).length;
-    const attention = library.assignments.filter(
-      (item) =>
-        (item.status === "waiting" &&
-          item.error?.kind !== "rate-limit" &&
-          item.error?.kind !== "auth" &&
-          item.error?.kind !== "plan-limit") ||
-        item.status === "failed",
+    const pending = liveStates.filter(({ state }) => state.run === "working").length;
+    const attention = liveStates.filter(
+      ({ item, state }) =>
+        !state.manual &&
+        (state.run === "failed" ||
+          (state.run === "waiting" &&
+            item?.error?.kind !== "rate-limit" &&
+            item?.error?.kind !== "auth" &&
+            item?.error?.kind !== "plan-limit")),
     ).length;
     if (attention)
       statuses.push({

@@ -59,6 +59,7 @@ const TEXTS = {
     usesColumns: ["Use", "Model", "Times"],
     sentenceColumns: ["Sentence", "Result", "Model", "Checked"],
     supported: "Supported",
+    notFound: "Not found",
     unsupported: "Unsupported",
     noRecord: "has no record of AI writing",
     checkedIntro:
@@ -82,6 +83,7 @@ const TEXTS = {
     usesColumns: ["用途", "模型", "次数"],
     sentenceColumns: ["句子", "核对结果", "模型", "核对日期"],
     supported: "有依据",
+    notFound: "未找到",
     unsupported: "无依据",
     noRecord: "中没有本文档使用 AI 撰写",
     checkedIntro: "以下是“对照文档核对”的结果：",
@@ -313,7 +315,7 @@ for (const language of ["en", "zh-CN"] as const) {
     expect(head).toEqual(text.sentenceColumns);
     expect(rows.map((row) => row.slice(0, 3))).toEqual([
       [sentences[0], text.supported, "fake-model"],
-      [sentences[1], text.unsupported, "fake-model"],
+      [sentences[1], text.notFound, "fake-model"],
     ]);
     for (const row of rows) expect(days).toContain(row[3]);
     await expect(statement.getByText(text.noRecord)).toHaveCount(0);

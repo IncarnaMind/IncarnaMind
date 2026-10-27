@@ -942,7 +942,11 @@ test("a bulk Organize leaves the Library's sections, filters and sidebar as the 
       await expect(section(library, name)).toHaveAttribute("data-count", String(total));
       if (name === "Not in a Folder")
         await expect(notInAFolder).toHaveAttribute("data-count", String(total));
-      else await expect(folderRow(name).getByTestId("browse-count")).toHaveText(String(total));
+      else
+        await expect(folderRow(name).getByTestId("browse-count")).toHaveText(
+          // Every Document Organize filed here waits for the User: the count says how many.
+          `${total} · ${total} suggested`,
+        );
     }
     // Closed, a Folder lists nothing; Not in a Folder lists its first few, then "Show N more".
     await expect(folders.getByTestId("document-list-item")).toHaveCount(5);

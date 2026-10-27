@@ -684,6 +684,39 @@ describe("One claim check", () => {
     ).toMatchObject({ verdict: "unsupported", versions: [] });
   });
 
+  test("a check Run whose quote was refused gives its verdict after the fix, though its model writes Answers before citing (#489)", async () => {
+    const quote = "Spring tides happen at new moon and at full moon";
+    const model = scriptedModel(
+      (call) => {
+        const searched = call.results.find((result) => result.tool === "search_documents");
+        const cites = call.results.filter((result) => result.tool === "cite").length;
+        if (!searched) return checkReply(call, PLANS);
+        const passage = shownPassages(searched.text)[0]?.id;
+        const cite = (quoted: string) => ({
+          tool: "cite",
+          input: { citations: [{ marker: 1, passage, quote: quoted }] },
+        });
+        if (cites === 0) {
+          return {
+            text: "Tides says spring tides happen at new and full moon [^1].",
+            calls: [cite("Spring tides happen every week")],
+          };
+        }
+        return cites === 1 ? { calls: [cite(quote)] } : { text: "Verdict: supported" };
+      },
+      { generate: checkGenerate(PLANS) },
+    );
+    const { core } = await setUpWithDocuments(model, [TIDES], {
+      answerPaths: { writesThenCites: () => true },
+    });
+
+    expect(await core.checkClaim({ claim: SUPPORTED })).toMatchObject({
+      verdict: "supported",
+      evidence: { check: "found" },
+    });
+    expect(model.doStreamCalls).toHaveLength(4);
+  });
+
   test("the quotes a sentence cites name their Document as it is now, and as cited once it is gone", async () => {
     const calls: ModelCall[] = [];
     const { core, client, check, tides } = await mindWith(
@@ -1561,6 +1594,7 @@ describe("A sentence the Documents state only part of, with no Citation", () => 
       reason: null,
       covered: "spring tides at new and full moon",
       uncovered: "the staff and the harbour wall",
+      found: true,
     });
     expect(penguins?.check.unsupported).toEqual({ reason: null, covered: null, uncovered: null });
     expect(asked(model, "named the part of it that a Passage does state")).toBe(1);
@@ -2329,6 +2363,7 @@ describe("Why a sentence is unsupported", () => {
       reason: "Tides gives the moon phases, not what they cause.",
       covered: "the moon phases",
       uncovered: "the high waters",
+      found: true,
     });
   });
 
@@ -2338,7 +2373,12 @@ describe("Why a sentence is unsupported", () => {
         "Verdict: unsupported\n引用只比较了速度。\nCovered: 速度比较\nNot covered: 内存和鲁棒性",
         OWNER,
       ),
-    ).toEqual({ reason: "引用只比较了速度。", covered: "速度比较", uncovered: "内存和鲁棒性" });
+    ).toEqual({
+      reason: "引用只比较了速度。",
+      covered: "速度比较",
+      uncovered: "内存和鲁棒性",
+      found: true,
+    });
   });
 
   test("keeps the reason alone when the reply names only one side", async () => {
@@ -2385,6 +2425,7 @@ describe("Why a sentence is unsupported", () => {
       reason: "Not stated.",
       covered: "the moon phases",
       uncovered: "the high waters",
+      found: true,
     });
   });
 });

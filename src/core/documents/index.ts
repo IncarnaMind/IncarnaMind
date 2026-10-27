@@ -84,7 +84,7 @@ import {
 } from "./files";
 import { isPackageKind, packageSizeError } from "./formats/zip";
 import { keywordText } from "./keywords";
-import { createLibrary, FORGET_FILE_IDENTITY, type LibraryHooks } from "./library";
+import { createLibrary, type LibraryHooks } from "./library";
 import type { PageText } from "./passages";
 import {
   CURRENT_SINCE,
@@ -97,7 +97,6 @@ import {
   type ProcessingResult,
   SCAN_CURRENT_SINCE,
   type ScanJob,
-  unreadMessage,
 } from "./processing";
 import { createProcessor } from "./processor";
 import { createReadingMeter, type ReadingMeterOptions } from "./readingSpeed";
@@ -125,6 +124,7 @@ import {
   topsOfEach,
 } from "./searchTool";
 import { detectLanguage, languageList, type TextLanguage } from "./textLanguage";
+import { unreadMessage } from "./unreadMessage";
 import { createVectorIndex } from "./vectors";
 import type { WatchFolder } from "./watcher";
 import type { SnapshotFile } from "./web";
@@ -166,6 +166,7 @@ interface DocumentRow {
   path: string;
   linked_folder_id: string | null;
   file_status: string;
+  source_kind: string;
   creation_date: string | null;
   title: string | null;
   own_file: string | null;
@@ -207,8 +208,8 @@ const toUnitText = (row: UnitRow): PageText => ({
 const COLUMNS = `id, content_hash, name, kind, size, page_count, status,
   failure_reason, failure_message, unread_parts, folder_id, tagging_status, tagging_error_kind,
   tagging_error_message, tagging_error_resets_at, embedding_model, path, linked_folder_id, file_status,
-  creation_date, title, own_file, counted_as_evidence, not_cited, processing_version, file_mtime_ms,
-  created_at, updated_at`;
+  source_kind, creation_date, title, own_file, counted_as_evidence, not_cited, processing_version,
+  file_mtime_ms, created_at, updated_at`;
 
 /** What IncarnaMind wrote the file as (#80), from its stored kind; a kind a newer version wrote counts as an export. */
 const ownFileOf = (row: Pick<DocumentRow, "own_file" | "counted_as_evidence">): OwnFile | null =>
@@ -293,13 +294,13 @@ function taggingOf(status: string, stored: string): TaggingState {
 }
 
 /**
- * Whether the Document is shown as failed, with its failure and Retry: its
- * processing failed with no version to keep, or the latest version read
- * failed while the last good one stays indexed (stored "ready", with the
- * failure recorded; see `record`).
+ * A stored failure shows only once processing has settled. While a Document is
+ * read again, its status and scan progress belong to the new job, not the old failure.
  */
 const failedNow = (row: Pick<DocumentRow, "status" | "failure_reason">) =>
-  row.status === "failed" || (row.status === "ready" && row.failure_reason !== null);
+  row.status === "failed" ||
+  (row.failure_reason !== null &&
+    (row.status === "ready" || row.status === "embedding" || row.status === "waiting-for-model"));
 
 /** `searchPassages` options, checked and with their defaults. */
 function parseSearchOptions(options: unknown): {
@@ -330,6 +331,15 @@ function parseSearchOptions(options: unknown): {
 }
 
 /** A search's `limit`, checked: a whole number from 1 to 200, 20 when not given. */
+/** Documents a text search leaves out, as the core asks (the examples', see #1942). */
+function excludedIds(value: unknown): string[] {
+  if (value === undefined) return [];
+  if (!Array.isArray(value) || !value.every((id) => typeof id === "string" && id !== "")) {
+    throw new InvalidInputError({ key: "error.search.options" });
+  }
+  return value as string[];
+}
+
 function searchLimit(limit: unknown = DEFAULT_SEARCH_LIMIT): number {
   if (
     typeof limit !== "number" ||
@@ -551,6 +561,7 @@ export function createDocuments(options: DocumentsOptions) {
       contentHash: row.content_hash,
       path: row.path,
       fileStatus: row.file_status as DocumentFileStatus,
+      keptByApp: row.source_kind === "data-folder",
       linkedFolderId: row.linked_folder_id,
       size: row.size,
       pageCount: row.page_count,
@@ -991,12 +1002,15 @@ export function createDocuments(options: DocumentsOptions) {
       } else {
         status = result.outcome;
       }
-      // Scanned pages that couldn't be read are this version's failure: the rest is searched (#397).
+      // A partial read keeps the readable text searchable (#397, #1818).
       const failure =
         result.outcome === "failed"
           ? { reason: result.reason, message: result.message }
           : result.outcome === "ready" && result.unread
-            ? { reason: "pages-unread", message: unreadMessage(result.unread) }
+            ? {
+                reason: result.unread.forms ? "forms-unread" : "pages-unread",
+                message: unreadMessage(result.unread),
+              }
             : null;
       const parts =
         result.outcome === "failed" || result.parts == null ? null : JSON.stringify(result.parts);
@@ -1526,7 +1540,7 @@ export function createDocuments(options: DocumentsOptions) {
       `SELECT id FROM documents
        WHERE deleted_at IS NULL AND file_status = 'available'
          AND status NOT IN ('queued', 'extracting')
-         AND (failure_reason = 'pages-unread' OR (kind = 'web' AND EXISTS (
+         AND (failure_reason IN ('pages-unread', 'forms-unread') OR (kind = 'web' AND EXISTS (
            SELECT 1 FROM document_pages dp, json_each(dp.label, '$.figures') figure
            WHERE dp.document_id = documents.id AND dp.content_hash = documents.content_hash
              AND dp.deleted_at IS NULL AND json_extract(figure.value, '$.unread') = 1)))
@@ -2037,6 +2051,17 @@ export function createDocuments(options: DocumentsOptions) {
         .map((row) => ({ id: row.id, name: row.name, size: Number(row.size) }));
     },
 
+    /** Whether any live Document to search (of all of them, or only of these) is a workbook or a CSV file. */
+    searchableHasSheets(documentIds: readonly string[] | undefined): boolean {
+      const { where, params } = searchable(documentIds);
+      return (
+        db.get<{ found: number }>(
+          `SELECT 1 AS found FROM documents d WHERE ${where} AND d.kind IN ('xlsx', 'csv') LIMIT 1`,
+          params,
+        ) !== undefined
+      );
+    },
+
     /**
      * The languages the live Documents with Passages to search are in (of all
      * of them, or only of these), the most common first, with how many
@@ -2357,30 +2382,11 @@ export function createDocuments(options: DocumentsOptions) {
     /** Looks at a file again now, as when it is opened: a new version is processed. */
     check: (path: string) => library.check([path]),
 
+    /** As `check`, and resolves only once the file has been read: for a file just written. */
+    checkNow: (path: string) => library.check([path], true),
+
     /** Tells the windows a Document changed besides its processing, such as a web page's look. */
     announce,
-
-    /**
-     * Points a Document added on its own at a copy IncarnaMind just saved of
-     * its file, elsewhere: a Transcript saved at Stop to the Output location
-     * (#136). It keeps its id, Folder, Tags and Citations; a copy that differs
-     * is a new version.
-     */
-    async moveFile(id: string, path: string): Promise<void> {
-      const row = find(id);
-      if (!row) return;
-      // Out of the data folder, it is a file of its own (ADR-0020); the check finds the
-      // Linked folder it is in, if the Output location is inside one.
-      db.run(
-        `UPDATE documents SET path = ?, source_kind = 'file', relative_path = NULL,
-           file_status = 'available', file_mtime_ms = NULL, ${FORGET_FILE_IDENTITY}, updated_at = ?
-         WHERE id = ? AND deleted_at IS NULL`,
-        [path, now(), id],
-      );
-      library.documentsChanged(null);
-      announce(id);
-      await library.check([path]);
-    },
 
     list,
     names,
@@ -2750,7 +2756,12 @@ export function createDocuments(options: DocumentsOptions) {
       if (options !== undefined && !isRecord(options)) {
         throw new InvalidInputError({ key: "error.search.options" });
       }
-      return textSearch(db, query, searchLimit(options?.limit));
+      return textSearch(
+        db,
+        query,
+        searchLimit(options?.limit),
+        excludedIds(options?.excludeDocumentIds),
+      );
     },
 
     /** Linked folders (see ./library). */

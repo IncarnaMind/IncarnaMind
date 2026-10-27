@@ -859,7 +859,7 @@ test("an empty Library says No Documents yet, with Add files… and Link a folde
       window.getByTestId("library-add-documents-items").getByRole("menuitem"),
     ).toHaveText([
       /^Files…(⌘O|Ctrl\+O)$/,
-      "A folder that stays in sync…",
+      "A folder on this computer…",
       "A web page…",
       "Find sources…",
       "Connect an app…",

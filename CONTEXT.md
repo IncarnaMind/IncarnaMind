@@ -71,8 +71,8 @@ A page of a PDF that is a picture of text, such as a scan, with little or no tex
 _Avoid_: image page, OCR page
 
 **Linked folder**:
-A folder on the User's computer that IncarnaMind keeps in sync: every supported file in it, at any depth, is a Document, and new, changed and removed files are picked up. IncarnaMind never changes or deletes a file in it, and adds a new file there only once the User allows it for that folder. Files a cloud drive keeps online only are indexed when the User asks. Moved, renamed or on another computer, it is located again from its menu and keeps its Documents.
-_Avoid_: workspace, vault, source
+A folder on the User's computer that IncarnaMind reads where it is: every supported file in it, at any depth, is a Document, and new and changed files are read as they come; a file removed from it keeps what was read of it, as a Missing Document does. Nothing is copied to a cloud; IncarnaMind keeps the text it read from each file, and the picture of a Cited page, as it does for any Document. IncarnaMind never changes or deletes a file in it, and adds a new file there only once the User allows it for that folder. Files a cloud drive keeps online only are read when the User asks. Moved, renamed or on another computer, it is located again from its menu and keeps its Documents.
+_Avoid_: workspace, vault, source, sync folder
 
 **Other Documents**:
 The Documents added on their own, outside any Linked folder.
@@ -204,7 +204,7 @@ An AI agent the User runs themselves, such as Claude Code or Codex, connected to
 _Avoid_: harness, plugin, client, bot
 
 **Built-in Skill**:
-A Skill that ships with IncarnaMind and is updated with it: summarise a Document, a literature review across Documents, and a Mind to report. The User can turn one off, remove it and restore it, or duplicate it as their own, but not change it.
+A Skill that ships with IncarnaMind and is updated with it: summarise a Document, a literature review across Documents, a Mind to report, a covenant summary, CIM red flags, an earnings review, a credit memo outline, a deposition summary and a chronology. The User can turn one off, remove it and restore it, or duplicate it as their own, but not change it.
 _Avoid_: default Skill, system Skill
 
 ### Changes
@@ -244,12 +244,16 @@ A number in an Answer that is neither in a quote of its sentence's Citations nor
 _Avoid_: hallucinated number, unsupported (a claim check's result)
 
 **Quote not found**:
-The result of a Citation check when the Citation's quote, or words its sentence puts in quotation marks, are not in the text at its Location. It says nothing about whether the claim is true. "Not found" is used only for this.
+The result of a Citation check when the Citation's quote, or words its sentence puts in quotation marks, are not in the text at its Location. It says nothing about whether the claim is true. The interface always says what wasn't found: "Quote not found" (未找到引文) on a Citation's card, "1 Citation not found" (1 处引用未找到) in the Note's health. "Not found" alone is a sentence's (Not found).
 _Avoid_: broken, invalid, failed
 
 **Unsupported**:
-The result for a sentence when Check against Documents, Verify or note health finds nothing in the Documents that backs it up. It is not a finding that the sentence is wrong. A sentence that cites a court decision none of the Documents holds is unsupported too, and its card says the case can't be checked here.
-_Avoid_: not found, unverified, false
+The result for a sentence when Check against Documents, Verify or note health finds nothing in the Documents that backs it up. It is not a finding that the sentence is wrong. Its card is headed Unsupported when the check found a Passage about the sentence that doesn't back it: one that says something different, states only part of it, or names another party, period or duty. When nothing in the scope is about the sentence, the card is headed Not found instead. A sentence that cites a court decision none of the Documents holds is unsupported too, and its card says the case can't be checked here.
+_Avoid_: unverified, false
+
+**Not found**:
+The heading of an unsupported sentence's card when nothing in the check's scope is about the sentence, after the check searched a second time with other words: "I didn't find this in “{scope}”" (未在“{scope}”中找到). It is a fact about the search, never a finding that the sentence is wrong. Once the check finds a Passage about the sentence that doesn't back it, the card says Unsupported. The mark is the same amber "!", and the Note's health counts both as need a look. Not the same as Quote not found, which is about a Citation's quote.
+_Avoid_: nothing says this, missing, not in your Documents
 
 **Contradicted**:
 The result for a sentence when Verify or contradiction watch finds a Passage that says the opposite. It is not the same as unsupported, where nothing is found either way.
@@ -297,8 +301,12 @@ _Avoid_: subscription key, membership
 A conversation the User records with the microphone and the computer's sound, which becomes a Transcript and the Notes written during it; the help panel beside it is Call help.
 _Avoid_: recording, session
 
+**Voice memo**:
+What the User records alone, with the microphone, to think out loud: recorded and transcribed as a Meeting is, without a call's parts (the computer's sound, Speakers, help during the call). After Stop, the speech is written into a Note as one change: a title line that names the Note, then that speech tidied into paragraphs in the User's own words, nothing added, each citing its time in the Transcript; with no model to tidy it, the Transcript as it is.
+_Avoid_: dictation, voice note, audio note, recording
+
 **Transcript**:
-The words of a Meeting, in order and with times, kept as a Document so that a Citation can point at it. Its Location is a range of time.
+The words of a Meeting, in order and with times, kept as a Document in the Library so that a Citation can point at it; its file is IncarnaMind's own, inside the data folder, never one the User keeps. A `.vtt` file the User adds is their own file, as any Document is. Its Location is a range of time.
 _Avoid_: captions, subtitles, minutes
 
 **Speaker**:
@@ -312,7 +320,7 @@ A folder the User has allowed an Answer or a Task to read, once. It is not a Lin
 _Avoid_: shared folder, workspace, permission
 
 **Output location**:
-The folder the files IncarnaMind creates go in, such as exports, Transcripts and Documents a Task saves. Until the User picks one, it is IncarnaMind in their Documents folder (Documents › IncarnaMind; in Chinese, 文稿 › IncarnaMind on a Mac and 文档 › IncarnaMind on Windows and Linux): the first save goes there without asking and says where. IncarnaMind writes nowhere else without asking: a Linked folder asks first, and if the default can't be made or written to, the save asks where instead.
+The folder the files IncarnaMind creates go in, such as exports and Documents a Task saves. Until the User picks one, it is IncarnaMind in their Documents folder (Documents › IncarnaMind; in Chinese, 文稿 › IncarnaMind on a Mac and 文档 › IncarnaMind on Windows and Linux): the first save goes there without asking and says where. IncarnaMind writes nowhere else without asking: a Linked folder asks first, and if the default can't be made or written to, the save asks where instead.
 _Avoid_: export folder, downloads, save path
 
 **Workspace**:

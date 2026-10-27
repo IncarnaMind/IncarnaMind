@@ -85,6 +85,24 @@ describe("The search Tool's reply says which Documents in scope couldn't be read
     expect(reply).not.toContain("Tariffs 2024.md");
   });
 
+  // protects=the search made before the first call (#1633) carries the same note as the search Tool's reply, read by the same function; fails_when=the model handed that search isn't told a Document in scope couldn't be read; no_claim=what a real model does with it.
+  test("the search made before the first call says so too", async () => {
+    const results: string[] = [];
+    const { core, client, mind } = await setUpWithDocuments(
+      searchingModel(results),
+      [OLD_TARIFF, SCAN],
+      { answerPaths: { retrievesFirst: () => true } },
+    );
+
+    await askAndFinish(core, client, mind.id, QUESTION);
+
+    const [reply = ""] = results;
+    expect(reply).toContain("A 10 metre boat pays 40 euros");
+    expect(reply).toContain(
+      `${NOTE}, so no Passage comes from that text: "Harbour tariff notice.pdf" (a scan with no text).`,
+    );
+  });
+
   test("is still searched when the only Document is a scan with no text", async () => {
     const results: string[] = [];
     const { core, client, mind } = await setUpWithDocuments(searchingModel(results), [SCAN]);
@@ -190,16 +208,26 @@ describe("unreadDocumentsNote", () => {
   test("says why each couldn't be read, and which pages", () => {
     const note = unreadDocumentsNote([
       { ...scan("Pages.pdf"), reason: "pages", pages: [3, 7] },
-      { ...scan("Whole.pdf"), reason: "pages", pages: [] },
+      { ...scan("Whole.pdf"), reason: "pages", pages: [], forms: true },
       { ...scan("Locked.docx"), reason: "password" },
       { ...scan("Broken.pdf"), reason: "damaged" },
       { ...scan("Huge.docx"), reason: "too-large" },
     ]);
 
     expect(note).toContain('"Pages.pdf" (scanned pages 3, 7 weren\'t read)');
-    expect(note).toContain('"Whole.pdf" (its scanned pages weren\'t read)');
+    expect(note).toContain('"Whole.pdf" (some page content couldn\'t be read)');
+    expect(note).toContain("Values missing from its Passages are unknown");
+    expect(note).toContain("[?] is IncarnaMind's unreadable-field status");
     expect(note).toContain('"Locked.docx" (password-protected)');
     expect(note).toContain('"Broken.pdf" (damaged or couldn\'t be opened)');
     expect(note).toContain('"Huge.docx" (too large to open)');
+  });
+
+  test("ordinary scanned pages do not get the PDF form marker explanation", () => {
+    const note = unreadDocumentsNote([{ ...scan("Scan.pdf"), reason: "pages", pages: [2] }]);
+
+    expect(note).toContain('"Scan.pdf" (scanned page 2 wasn\'t read)');
+    expect(note).not.toContain("PDF form text");
+    expect(note).not.toContain("unreadable-field status");
   });
 });

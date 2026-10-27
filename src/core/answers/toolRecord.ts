@@ -206,6 +206,11 @@ function lineOf(call: AnswerToolCall, names: MindNames, states?: ChangeStates): 
         return `run_skill_script ${field(call, "script")}: ${done ? "ran" : call.approval === "denied" ? "the User denied it" : "didn't run"}`;
       }
       return `${call.tool} ${quoted(field(call, "name") || field(call, "skill"))}: ${done ? "done" : "failed"}`;
+    case "analysis": {
+      const ran = call.analysis;
+      if (!ran) return `run_analysis ${quoted(field(call, "title"))}: didn't run`;
+      return `run_analysis ${quoted(ran.title)} (Analysis ${ran.number}, over ${ran.documents.map(quoted).join(", ") || "quoted numbers"}): ${ran.end === "done" ? "done" : ran.end}`;
+    }
     case "connector":
       if (call.signInRequired) return null;
       return `${call.tool} (the Connector ${quoted(call.connector?.name ?? "")}): ${

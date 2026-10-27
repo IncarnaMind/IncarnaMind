@@ -1,21 +1,28 @@
 import { useLayoutEffect, useRef } from "react";
-import { useHomeView, useMinuteClock, useOwnMinds } from "../../home";
-import { useT } from "../../i18n";
+import { useExports } from "../../exports";
+import { useHomeView, useMindNoteStates, useMinuteClock, useOwnMinds } from "../../home";
 import { rowsIn, useSelectionOrder } from "../../selection";
 import { useAppStore } from "../../store";
-import { ProblemLine } from "../ProblemLine";
+import { useHomeNextStep } from "../../useHomeNextStep";
 import { ComingUp } from "./ComingUp";
 import { FolderCards } from "./FolderCards";
 import { HomeHeader } from "./HomeHeader";
+import { HomeNextStep } from "./HomeNextStep";
 import { RecentMinds } from "./RecentMinds";
 
 export function HomePane() {
-  const t = useT();
   const now = useMinuteClock();
-  const documents = useAppStore((state) => state.documents.length);
-  const folders = useAppStore((state) => state.library?.groups.length ?? 0);
-  const minds = useOwnMinds().length;
-  const empty = documents === 0 && folders === 0 && minds === 0;
+  const minds = useOwnMinds();
+  const notes = useMindNoteStates(minds);
+  const exported = useAppStore((state) => state.settings?.device.gettingStarted.exported ?? false);
+  const result = useExports((state) => state.result);
+  const saved =
+    result?.state === "saved" &&
+    result.format === "docx" &&
+    minds.some((mind) => mind.id === result.mindId)
+      ? { mindId: result.mindId, path: result.path, at: result.at }
+      : null;
+  const next = useHomeNextStep(minds, notes, exported, saved);
   const scroller = useRef<HTMLDivElement>(null);
   useLayoutEffect(() => {
     if (scroller.current) scroller.current.scrollTop = useHomeView.getState().scrollTop;
@@ -39,27 +46,13 @@ export function HomePane() {
       >
         <div className="mx-auto w-full max-w-[760px] px-6 pt-10 pb-24 @max-[760px]/home:px-4 @max-[760px]/home:pt-8">
           <HomeHeader now={now} />
-          {empty && (
-            <ProblemLine
-              role="status"
-              testId="home-empty"
-              className="mb-7"
-              action={{
-                label: t("startGuide.documents.addFiles"),
-                testId: "home-empty-add-files",
-                onClick: () => void useAppStore.getState().pickDocuments(),
-              }}
-              also={{
-                label: t("startGuide.documents.linkFolder"),
-                testId: "home-empty-link-folder",
-                onClick: () => void useAppStore.getState().addLinkedFolder(),
-              }}
-            >
-              {t("library.none")}
-            </ProblemLine>
+          {next && (
+            <div className="mb-6 text-[13px] leading-5">
+              <HomeNextStep step={next} />
+            </div>
           )}
           <ComingUp now={now} />
-          <RecentMinds now={now} />
+          <RecentMinds now={now} states={notes} />
           <FolderCards now={now} />
         </div>
       </div>

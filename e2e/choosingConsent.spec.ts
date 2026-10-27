@@ -19,6 +19,7 @@ import {
   createDataFolder,
   dismissChatSetup,
   launchApp,
+  makeTagOnDocument,
   newMind,
   openAdvancedModels,
   openSettings,
@@ -180,6 +181,8 @@ test("first run: choosing a provider with a key is the consent for what runs by 
   const second = window.getByTestId("document-list-item").filter({ hasText: "Invoice 42" });
   await expect(second).toHaveAttribute("data-status", "ready");
   await expect(second).toHaveAttribute("data-tagging", "waiting-for-provider");
+  // A Tag of the User's own: only now is Tags named, and its permission asked for (#1942).
+  await makeTagOnDocument(window, "Invoice 42");
   const status = window.getByTestId("tagging-waiting");
   await expect(status).toContainText("Tags need your OK");
   await expect(status).toHaveAttribute(
@@ -213,6 +216,7 @@ test("before a model is chosen, a new Document's tagging waits with its line, an
 
   const item = window.getByTestId("document-list-item").filter({ hasText: "Invoice 43" });
   await expect(item).toHaveAttribute("data-tagging", "waiting-for-provider");
+  await makeTagOnDocument(window, "Invoice 43");
   const status = window.getByTestId("tagging-waiting");
   await expect(status).toContainText("Tags come once you choose an AI model");
   await expect(status).toHaveAttribute("title", "Tags come once you choose an AI model.");

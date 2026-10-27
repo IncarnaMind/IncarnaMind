@@ -344,6 +344,55 @@ export function unitlessRows(data: ChartData, series: number): Set<number> {
     : new Set();
 }
 
+export interface ChartUnitGroup {
+  /** The drawn series in this chart, by their place in `data.series`. */
+  series: number[];
+  /**
+   * What its values measure, for its label; null when none states one, and
+   * for a pie or scatter chart, whose series are read together.
+   */
+  unit: FigureUnit | null;
+}
+
+function seriesUnit(data: ChartData, series: number): { key: string; unit: FigureUnit | null } {
+  const unitless = unitlessRows(data, series);
+  const units = new Map<string, FigureUnit>();
+  data.rows.forEach((row, index) => {
+    const value = row.values[series];
+    if (!value || value.value === null || unitless.has(index) || !saysUnit(value)) return;
+    const key = unitKey(value);
+    if (!units.has(key)) units.set(key, value.unit ?? { kind: "plain" });
+  });
+  const entries = [...units.entries()];
+  const only = entries[0];
+  if (entries.length === 1 && only) {
+    return { key: only[0], unit: only[1].kind === "plain" ? null : only[1] };
+  }
+  const keys = entries.map(([key]) => key).sort();
+  return { key: keys.length === 0 ? "none" : `mixed:${keys.join(",")}`, unit: null };
+}
+
+/**
+ * A chart's drawn series grouped by what they measure (#1392): series of one
+ * unit share a chart, and each other unit gets its own, so none is drawn on
+ * another's scale. A pie draws one column, and a scatter chart's two are read
+ * together: either is one chart however its units differ.
+ */
+export function unitGroups(
+  chart: Pick<ChartAttributes, "kind" | "drawn" | "data">,
+): ChartUnitGroup[] {
+  const drawn = drawnSeries(chart);
+  if (chart.kind === "pie" || chart.kind === "scatter") return [{ series: drawn, unit: null }];
+  const groups = new Map<string, ChartUnitGroup>();
+  for (const series of drawn) {
+    const { key, unit } = seriesUnit(chart.data, series);
+    const group = groups.get(key);
+    if (group) group.series.push(series);
+    else groups.set(key, { series: [series], unit });
+  }
+  return [...groups.values()];
+}
+
 export interface ChartSourcePlace {
   /**
    * The first of its Citations whose quote wasn't found, if any, else the
@@ -639,10 +688,40 @@ export function switchedData(data: ChartData): ChartData | null {
   return matrix.series.length === 0 ? null : cut(matrix);
 }
 
-export const canSwitch = (chart: Pick<ChartAttributes, "data" | "source">): boolean =>
+const switchableData = (chart: Pick<ChartAttributes, "data" | "source">): boolean =>
   chart.source.kind === "table" &&
   chart.data.cutFrom === null &&
   chart.data.rows.length * chart.data.series.length > 1;
+
+/**
+ * A bare number is its own unit: `unitlessRows` would hide it beside a
+ * column's unit, or draw it on that unit's axis, so a Switch that makes such
+ * a series loses or misreads it (#1392).
+ */
+function mixesUnits(data: ChartData, series: number): boolean {
+  const keys = new Set<string>();
+  for (const row of data.rows) {
+    const value = row.values[series];
+    if (!value || value.value === null) continue;
+    keys.add(saysUnit(value) ? unitKey(value) : "none");
+  }
+  return keys.size > 1;
+}
+
+/**
+ * Whether the Switch would turn a row whose numbers don't share one unit
+ * into one series — different units, or a bare number beside a unit: their
+ * values would share one scale, and one would hide the other (#1392).
+ */
+export function switchMixesUnits(chart: Pick<ChartAttributes, "data" | "source">): boolean {
+  if (!switchableData(chart)) return false;
+  const next = switchedData(chart.data);
+  if (next === null) return false;
+  return next.series.some((_, series) => mixesUnits(next, series));
+}
+
+export const canSwitch = (chart: Pick<ChartAttributes, "data" | "source">): boolean =>
+  switchableData(chart) && !switchMixesUnits(chart);
 
 /**
  * `fromTable`: the table read the other way round, used in place of the chart's own data.

@@ -1,8 +1,8 @@
 /**
  * `npm run eval:speed` (eval/speed/README.md): the speed baseline of #1624. Each flow in ./flows,
- * on each model, in each language, a few times, over the sample reports, with the built-in
- * reranker on this computer as Users have it. Prints the tables of ./report and writes them to
- * eval/results/speed-<time>/.
+ * on each model, in each language, a few times, over the mixed sample set in data/ and data/real/,
+ * with the built-in reranker on this computer as Users have it. Prints the tables of ./report and
+ * writes them to eval/results/speed-<time>/.
  *
  * INCARNAMIND_EVAL_SPEED_MODELS: the models, "<kind>/<model id>" comma-separated, for example
  *   "anthropic/claude-haiku-5-5,kimi/kimi-k2.6". Each kind's key is INCARNAMIND_EVAL_SPEED_KEY_<KIND>
@@ -183,7 +183,7 @@ baseline("the speed of every AI flow, on each model and language", async () => {
     "",
     requestTable(results),
     "",
-    "## Indexing the sample reports on this computer",
+    "## Indexing the sample Documents on this computer",
     "",
     requestTable([
       {

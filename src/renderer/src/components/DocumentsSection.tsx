@@ -9,6 +9,7 @@ import { useFirstOpen } from "../firstOpen";
 import { useLanguage, useT } from "../i18n";
 import { currentTabOf } from "../layoutSlice";
 import { fileStatusLabel, formatCount } from "../linkedFolders";
+import { useDayOne, useOwnDocuments } from "../ownDocuments";
 import { usePeekKey } from "../peek";
 import { scanningStatus } from "../scanStatus";
 import {
@@ -84,7 +85,8 @@ const NO_DOCUMENTS: readonly Document[] = [];
 export function DocumentsSection() {
   const t = useT();
   const language = useLanguage();
-  const documentCount = useAppStore((state) => state.documents.length);
+  const ownDocuments = useOwnDocuments();
+  const dayOne = useDayOne();
   const firstOpen = useFirstOpen();
   const hasOwnDocuments = useAppStore((state) =>
     state.documents.some((each) => isOwnDocument(each, allExamples(state))),
@@ -117,9 +119,14 @@ export function DocumentsSection() {
         : documents.filter((each) => !folded.has(each.linkedFolderId ?? "")),
     [documents, folded],
   );
-  const hasLinkedFolders = useAppStore((state) =>
-    state.linkedFolders.some((each) => !folded.has(each.id)),
-  );
+  // The example's own folder is no Linked folder of the User's while its Mind is there to reach its
+  // Documents (#1942); once the fold's Mind is deleted, its row is the way back to them (#1944).
+  const hasLinkedFolders = useAppStore((state) => {
+    const shown = state.linkedFolders.filter((each) => !folded.has(each.id));
+    const exampleIds = new Set(exampleFolders.split(" ").filter(Boolean));
+    const onlyExamples = shown.length > 0 && shown.every((each) => exampleIds.has(each.id));
+    return shown.length > 0 && !(onlyExamples && exampleMindId !== null);
+  });
   const addDocuments = useAppStore((state) => state.addDocuments);
   const picker = useRef<HTMLInputElement>(null);
   const tree = useRef<HTMLDivElement>(null);
@@ -181,7 +188,7 @@ export function DocumentsSection() {
       />
       <SidebarHome />
       <SidebarSearch />
-      {!quiet && (
+      {!quiet && !dayOne && (
         <div className={rowClass(libraryOpen)}>
           <button
             type="button"
@@ -201,7 +208,7 @@ export function DocumentsSection() {
               data-testid="library-row-count"
               className="min-w-[6ch] text-right text-[12px] tabular-nums text-ink-meta"
             >
-              {formatCount(documentCount, language)}
+              {formatCount(ownDocuments.length, language)}
             </span>
           </button>
           <div className={rowActionsClass}>
@@ -228,6 +235,7 @@ export function DocumentsSection() {
           renderDocument={renderDocument}
           quiet={quiet}
           hideExamples={foldExamples}
+          dayOne={dayOne}
         />
         {!quiet && documents.length === 0 && (
           <ProblemLine

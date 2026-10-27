@@ -83,7 +83,11 @@ describe("The model's reasoning", { timeout: 30_000 }, () => {
     expect(Date.parse(answer.steps?.finishedAt ?? "")).toBeGreaterThanOrEqual(
       Date.parse(answer.steps?.sentAt ?? ""),
     );
-    expect(answer.steps?.phases.map((each) => each.phase)).toEqual(["writing"]);
+    expect(answer.steps?.phases.map((each) => each.phase)).toEqual([
+      "writing",
+      "checking-claims",
+      "writing",
+    ]);
     core.close();
 
     const later = startCore(dataDir, adapters);
@@ -146,6 +150,8 @@ describe("A search's steps", { timeout: 60_000 }, () => {
     expect(answer.steps?.phases.map((each) => each.phase)).toEqual([
       "writing",
       "searching",
+      "writing",
+      "checking-claims",
       "writing",
     ]);
     const times = answer.steps?.phases.map((each) => Date.parse(each.at)) ?? [];

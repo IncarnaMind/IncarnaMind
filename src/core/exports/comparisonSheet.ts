@@ -5,6 +5,7 @@
  * Citations in its note; and a Sources sheet, a Citation a row, that links back
  * to the cell citing it.
  */
+import { comparisonNameOf } from "../../shared/comparisons";
 import type { MessageKey, MessageParams } from "../../shared/i18n";
 import type { CitationCheck } from "../api";
 import type { Language } from "../language";
@@ -142,7 +143,7 @@ export function comparisonBook(input: ComparisonSheetInput): {
           cells: [
             {
               column: "cell",
-              value: { kind: "text", text: `${row.name} · ${question.text}` },
+              value: { kind: "text", text: `${row.name} · ${comparisonNameOf(question)}` },
               link: { sheet: TABLE, row: rowId, column: question.id },
               wrap: true,
             },
@@ -186,7 +187,7 @@ export function comparisonBook(input: ComparisonSheetInput): {
               [DOCUMENT_COLUMN, t("comparison.document")],
               ...reading.questions.map((question): [string, string] => [
                 question.id,
-                question.text,
+                comparisonNameOf(question),
               ]),
             ]),
             ...rows,
