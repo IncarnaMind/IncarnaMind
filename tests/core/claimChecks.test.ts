@@ -2517,11 +2517,15 @@ describe("A quote whose page mentions it before its Passage (#1981)", () => {
   ).join("\n\n");
   const REPORT = ["# 雪松业绩", "", `详见 ${HEADING}。`, "", FILLER, "", HEADING, "收入为400.0"];
 
-  const check = async (contents: string) => {
+  const check = async (
+    contents: string,
+    quote = HEADING,
+    problem = /the quote occurs more than once/,
+  ) => {
     const calculation = {
       inputs: [
         { name: "base", label: "2026年收入", quote: "收入为400.0", number: "400.0" },
-        { name: "section", label: "章节号", quote: HEADING, number: "3.1" },
+        { name: "section", label: "章节号", quote, number: "3.1" },
       ],
       formula: "base * section",
       as: "number",
@@ -2576,9 +2580,13 @@ describe("A quote whose page mentions it before its Passage (#1981)", () => {
     const replies = calls
       .flatMap((call) => call.results)
       .filter((each) => each.tool === "calculate");
-    expect(replies.at(-1)?.text).toMatch(/the quote has no number "3\.1"/);
+    expect(replies.at(-1)?.text).toMatch(problem);
     expect(result).toMatchObject({ verdict: "unsupported" });
   };
+
+  test("a unique quote of the heading still refuses its section number", async () => {
+    await check(REPORT.join("\n"), `${HEADING}\n收入为400.0`, /the quote has no number "3\.1"/);
+  });
 
   // protects=a quote of the real heading is read where its own Passage has it, so 3.1 stays a heading's number and calculate refuses it; fails_when=the earlier mention on the page places the quote after "详见 ", 3.1 reads as a figure, and the check is Supported on 3.1 × 400.0; no_claim=none beyond protects.
   test("reads the heading as a heading, not as a figure from the earlier mention", async () => {

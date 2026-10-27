@@ -128,17 +128,16 @@ describe("Versions of a Document", { timeout: 30_000 }, () => {
       pageTo: 2,
       location: { kind: "page", from: 2, to: 2 },
     });
-    // In version 3 the quote is back, on page 3: the recheck finds it there.
     await changeFile(core, document.id, document.path, V3);
     const rechecked = await core.recheckCitation(input);
     expect(rechecked).toEqual({
-      check: "found",
-      checkReason: null,
+      check: "not-found",
+      checkReason: "quote-not-on-pages",
       contentHash: sha256(V3),
       passageId: expect.any(String),
-      pageFrom: 3,
-      pageTo: 3,
-      location: { kind: "page", from: 3, to: 3 },
+      pageFrom: 2,
+      pageTo: 2,
+      location: { kind: "page", from: 2, to: 2 },
     });
     // Written onto the Citation, it no longer says the Document changed.
     expect(

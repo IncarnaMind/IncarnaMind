@@ -856,7 +856,7 @@ test("an empty Library offers one Add Documents, its ways in, and a place to dro
       window.getByTestId("library-add-documents-items").getByRole("menuitem"),
     ).toHaveText([
       /^Files…(⌘O|Ctrl\+O)$/,
-      "A folder that stays in sync…",
+      "A folder on this computer…",
       "A web page…",
       "Find sources…",
       "Connect an app…",

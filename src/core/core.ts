@@ -56,6 +56,8 @@ import { createChecks } from "./answers/checks";
 import { AFTER_NEW_VERSION_MS, CLAIM_TIME_LIMIT_MS } from "./answers/checks/watch";
 import {
   citeSelection,
+  locateQuote,
+  matchingOf,
   recheckCitation,
   recheckKept,
   recheckWhereSelected,
@@ -488,7 +490,9 @@ export function createCore(adapters: CoreAdapters): Core {
 
   const db = openDatabase(join(dataDir, DATABASE_FILE));
   try {
+    adapters.log?.info("core.startup.databaseOpened");
     migrate(db);
+    adapters.log?.info("core.startup.storageReady");
   } catch (error) {
     db.close();
     throw error;
@@ -3151,7 +3155,19 @@ export function createCore(adapters: CoreAdapters): Core {
       conversations.addCitedUnits(wanted, cited);
       return cited.length > 0;
     },
-    recheck: (input) => recheckCitation(documents, input),
+    cite: (input) => {
+      const hash = documents.currentVersion(input.documentId);
+      const units = hash ? documents.pageTexts(input.documentId, hash, null, null) : [];
+      const at = locateQuote(units, input.quote, matchingOf(units));
+      const checked = recheckCitation(documents, {
+        ...input,
+        pageFrom: at?.pageFrom ?? null,
+        pageTo: at?.pageTo ?? null,
+      });
+      return at || checked.check !== "found"
+        ? checked
+        : { ...checked, check: "not-found", checkReason: "quote-not-on-pages" };
+    },
     changed: (value) => events.emit("examples.changed", value),
   });
   events.on("document.status", () => examples.documentChanged());

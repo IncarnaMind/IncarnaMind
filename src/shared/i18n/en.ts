@@ -1434,8 +1434,9 @@ export const en = {
 
   "documents.add": "Add Documents",
   "documents.add.files": "Files…",
+  "documents.add.filesOrFolder": "Add files or a folder…",
   "documents.add.findSources": "Find sources…",
-  "documents.add.linkFolder": "A folder that stays in sync…",
+  "documents.add.linkFolder": "A folder on this computer…",
   "documents.add.webPage": "A web page…",
   "documents.add.connect": "Connect an app…",
   "command.rename.keywords": "name title change",
@@ -1488,7 +1489,9 @@ export const en = {
   "documents.more": "More actions for {name}",
   "documents.renameAction": "Rename",
   "documents.pick.title": "Add Documents",
+  "documents.pick.titleOrFolder": "Add files or a folder",
   "documents.pick.filter": "Documents",
+  "documents.pick.titleFiles": "Add files",
   "documents.retryAction": "Retry",
   "documents.printToPdfAction": "Open to print to PDF…",
   "documents.unlockAction": "Unlock…",
@@ -1591,6 +1594,12 @@ export const en = {
   "linkedFolders.preview.time": "Reading takes {time}, newest first.",
   "linkedFolders.preview.onlineOnly.one": "1 online-only file is skipped for now.",
   "linkedFolders.preview.onlineOnly.other": "{count} online-only files are skipped for now.",
+  "linkedFolders.readOnly": "read-only",
+  "linkedFolders.readOnly.full":
+    "IncarnaMind reads this folder where it is and never changes, moves or deletes anything in it.",
+  "linkedFolders.readOnly.unchecked": "not checked",
+  "linkedFolders.readOnly.unchecked.title":
+    "IncarnaMind couldn’t read which folders it may add files to. Open the Output location to answer it there.",
   "linkedFolders.preview.readOnly":
     "IncarnaMind only reads this folder. It never changes, moves or deletes anything.",
   "linkedFolders.preview.merge.one":
@@ -3959,9 +3968,25 @@ export const en = {
   "error.system.nameTooLong": "That name is too long for the file system.",
   "error.system.exists": "A file or folder with that name is already there.",
   "error.startup.title": "IncarnaMind couldn’t start",
-  "error.startup.body": "Your data folder couldn’t be opened.\n\n{message}",
+  "error.startup.body":
+    "Your data folder couldn’t be opened. Close this message, then open IncarnaMind again.\n\n{message}",
   "error.startup.busy":
     "IncarnaMind couldn’t open its data folder. Another copy may still be starting. Try again in a moment.",
+  "error.startup.starting":
+    "Another copy hasn’t finished starting. Wait a moment, then open IncarnaMind again.",
+  "error.startup.quitting":
+    "Another copy hasn’t finished closing. Wait for it to quit, then open IncarnaMind again.",
+  "error.startup.installing":
+    "An update is being installed. Wait for it to finish, then open IncarnaMind again.",
+  "error.startup.update.title": "IncarnaMind needs the latest version",
+  "error.startup.update.body":
+    "The update to {new} may not have finished. This copy is {old}, so it won’t open your data folder. Download and install the latest version, then open IncarnaMind again.",
+  "error.startup.update.withCurrent":
+    "The update may not have finished. This copy is {old}, so it won’t open your data folder. Download and install the latest version, then open IncarnaMind again.",
+  "error.startup.update.withTarget":
+    "The update to {new} may not have finished. This copy won’t open your data folder. Download and install the latest version, then open IncarnaMind again.",
+  "error.startup.update.unknown":
+    "The update may not have finished. This copy won’t open your data folder. Download and install the latest version, then open IncarnaMind again.",
   "error.startup.stalled":
     "IncarnaMind couldn’t open its window while another copy was quitting. Your data is unchanged. Open IncarnaMind again.",
   "error.startup.newer.title": "Update IncarnaMind to open your data",
@@ -4477,6 +4502,8 @@ export const en = {
   "update.ready.detail":
     "It installs the next time you quit IncarnaMind. Restart now to install it straight away.",
   "update.ready.confirm": "Restart now",
+  "update.pending.detail": "The update will finish the next time you quit IncarnaMind.",
+  "update.pending.dismiss": "Got it",
   "update.later": "Later",
   "update.failed.title": "The update couldn’t be installed",
   "update.failed.detail":
