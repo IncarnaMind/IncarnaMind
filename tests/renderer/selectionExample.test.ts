@@ -7,8 +7,12 @@ import { afterAll, beforeAll, describe, expect, test } from "vitest";
  */
 
 beforeAll(() => {
-  // The commands and the store read the bridge the preload exposes, and some modules a store.
-  const bridge = new Proxy({}, { get: () => () => () => undefined });
+  // The commands and the store read the bridge the preload exposes, and some modules a store:
+  // its methods answer at once, as the core's do, and events are listened to and never sent.
+  const bridge = new Proxy(
+    { on: () => () => undefined },
+    { get: (target, name) => (name === "on" ? target.on : async () => undefined) },
+  );
   const store = new Map<string, string>();
   const localStorage = {
     getItem: (key: string) => store.get(key) ?? null,

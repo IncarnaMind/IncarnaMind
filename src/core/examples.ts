@@ -232,7 +232,6 @@ export function createExamples(options: ExamplesOptions) {
         ...(group === DEFAULT_GROUP ? [] : [DEFAULT_GROUP]),
         ...order().filter((each) => each !== group),
       ],
-      exampleReadyQuestion: exampleReady(),
     };
   };
 
@@ -637,6 +636,9 @@ export function createExamples(options: ExamplesOptions) {
     const { folder, linked } = await copyAndLink(source, set);
     const questionId = randomUUID();
     const answerId = randomUUID();
+    // The old Documents go before the example names the new folder, so nothing reads them as the
+    // User's own in between (#2084); nothing waits between the link and "changed" (#914).
+    if (!sameFolder) options.unlinkFolder(examples.linkedFolderId);
     populate(examples.mindId, set, linked.folderId, questionId, answerId);
     options.renameMind(examples.mindId, set.title);
     options.writeValue(valueKey(group), {
@@ -648,8 +650,7 @@ export function createExamples(options: ExamplesOptions) {
       checked: false,
     } satisfies StoredExamples);
     options.changed(status(group));
-    // After "changed", not before: nothing may wait between linking the new folder and saying it
-    // is the example's, or its Documents are reported as the User's own (#914).
+    // Only the copies it made are left to remove: the folder is unlinked already.
     if (!sameFolder) await discardFiles(examples);
     checkWhenRead(group);
   };

@@ -19,7 +19,6 @@ import { translateNow } from "./i18n";
 import { documentsOnScreenOf, groupsMerged } from "./layoutSlice";
 import { useModelSetup, waitForModel } from "./modelSetup";
 import { useNotices } from "./notices";
-import { readyQuestionNow } from "./readyQuestion";
 import { useAppStore } from "./store";
 import { useUndo } from "./undo";
 
@@ -159,7 +158,7 @@ export async function askReadyQuestion(mindId: string): Promise<void> {
   if (readyAsking) return;
   readyAsking = true;
   try {
-    const ready = readyQuestionNow();
+    const ready = await core.readyQuestion();
     if (!ready) return;
     if (ready.scope) {
       // Asked like any Question: its step ticks when its Answer arrives, not when it is asked.

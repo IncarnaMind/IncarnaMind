@@ -640,7 +640,6 @@ describe("Get started's Add your Documents", () => {
       linkedFolderId,
       answerId: "a",
       more: [],
-      exampleReadyQuestion: null,
     }) satisfies CoreEvents["examples.changed"];
   const ticked = () => useAppStore.getState().settings?.device.gettingStarted.indexed;
 
@@ -1306,7 +1305,6 @@ describe("Get started's Ask a question", () => {
         linkedFolderId: "f",
         answerId: "example",
         more: [],
-        exampleReadyQuestion: null,
       } satisfies CoreEvents["examples.changed"],
       otherExamples: [],
       settings: {

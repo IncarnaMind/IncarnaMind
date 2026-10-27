@@ -13,7 +13,6 @@ import { useT } from "../i18n";
 import { openModelSetup } from "../modelSetup";
 import { stepsShownOf } from "../nudges";
 import { revealAssistant } from "../quietAssistant";
-import { useReadyQuestion } from "../readyQuestion";
 import { useAppStore } from "../store";
 import { useUnreadFiles } from "../unreadFiles";
 import { ExampleBanner } from "./GettingStarted";
@@ -137,7 +136,7 @@ export function FirstOpenSteps({ mindId }: { mindId: string }) {
   const progress = useAppStore((state) => state.settings?.device.gettingStarted);
   const pickDocumentsOrFolder = useAppStore((state) => state.pickDocumentsOrFolder);
   const updateGettingStarted = useAppStore((state) => state.updateGettingStarted);
-  const ready = useReadyQuestion();
+  const ready = useAppStore((state) => state.readyQuestion);
   const modelReady = useAppStore((state) => state.chatReadiness?.ready === true);
   const skipped = useAppStore((state) => state.skippedFiles);
   const unread = useUnreadFiles(null);

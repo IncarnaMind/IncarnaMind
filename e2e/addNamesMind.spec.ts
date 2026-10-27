@@ -11,9 +11,11 @@ import {
   coreOf,
   createDataFolder,
   dismissChatSetup,
+  expectReadyDocuments,
   focusRingShows,
   frontMind,
   launchApp,
+  markSteps,
   nameMind,
   newMind,
   pointAndClick,
@@ -71,7 +73,7 @@ test.afterEach(async () => {
   await removeDataFolder(sources);
 });
 
-async function start(language: Language, examples = false) {
+async function start(language: Language, examples = false, { document = true } = {}) {
   const { app, window } = await launchApp(dataDir, { fakeChat: true, home: sources, examples });
   await setWindowSize(app, window, 1440, 900);
   await dismissChatSetup(window);
@@ -82,8 +84,8 @@ async function start(language: Language, examples = false) {
     path,
     buildPdf([{ lines: ["Tides and the Moon", "Every tides document says tides rise and fall."] }]),
   );
-  await addDocuments(window, [path]);
-  return { app, window };
+  if (document) await addDocuments(window, [path]);
+  return { app, window, tides: path };
 }
 
 const editorOf = (window: Page) => frontMind(window).getByTestId("mind-editor");
@@ -310,10 +312,16 @@ for (const language of LANGUAGES) {
   });
 
   test(`the tip shows under the first own Answer with no own note; ✕ closes it and it never shows again (${language})`, async () => {
-    const { app, window } = await start(language, true);
+    const { app, window, tides } = await start(language, true, { document: false });
+    // The example's ready Question first: its Answer is the example's, and gets no tip.
+    await markSteps(window, { indexed: true });
+    // The example's Answer is written once its Documents are read.
+    await expectReadyDocuments(window, 2);
     await window.getByTestId("first-open-ready").click();
     await expect(assistantAnswers(window).last()).toHaveAttribute("data-status", "done");
     await expect(window.getByTestId("tip")).toHaveCount(0);
+    // Their own file, then their own Answer (#2084 made the ready Question theirs once one is ready).
+    await addDocuments(window, [tides]);
     const answer = await askInAssistant(window, w.short);
     const tip = window.getByTestId("tip");
     await expect(tip).toHaveText(w.tip);

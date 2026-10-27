@@ -248,7 +248,6 @@ describe("the example Mind", { timeout: 30_000 }, () => {
       linkedFolderId: null,
       answerId: null,
       more: expect.any(Array),
-      exampleReadyQuestion: null,
     });
     expect(await core.listMinds()).toEqual([]);
     expect(await core.listLinkedFolders()).toEqual([]);
@@ -513,7 +512,6 @@ describe("the example Mind", { timeout: 30_000 }, () => {
       linkedFolderId: made.linkedFolderId,
       answerId: null,
       more: expect.any(Array),
-      exampleReadyQuestion: null,
     });
 
     const again = await core.createExamples();
@@ -546,7 +544,6 @@ describe("the example Mind", { timeout: 30_000 }, () => {
       linkedFolderId: made?.linkedFolderId,
       answerId: made?.answerId,
       more: expect.arrayContaining(["papers", "contracts", "meetings"]),
-      exampleReadyQuestion: null,
     });
     // Offered already: nothing is made while it is there, and a change of language leaves it be.
     expect(await again.offerExamples()).toBeNull();
@@ -563,7 +560,6 @@ describe("the example Mind", { timeout: 30_000 }, () => {
       linkedFolderId: null,
       answerId: null,
       more: expect.any(Array),
-      exampleReadyQuestion: null,
     });
     expect(await again.listMinds()).toEqual([]);
     expect(await again.listLinkedFolders()).toEqual([]);
@@ -593,7 +589,6 @@ describe("the example Mind", { timeout: 30_000 }, () => {
       linkedFolderId: null,
       answerId: null,
       more: expect.any(Array),
-      exampleReadyQuestion: null,
     });
   });
 });

@@ -80,6 +80,14 @@ async function measure(window: Page) {
   return { card: Math.round(card.height), title: Math.round(title.y) };
 }
 
+/** The example follows the interface's language once it is switched (#709): its Mind says so. */
+async function expectExampleIn(window: Page, language: "en" | "zh-CN"): Promise<void> {
+  await expect(window.getByTestId("mind-editor").locator("h1")).toHaveText(
+    language === "en" ? "Draft: credit committee paper" : "授信委员会报告（草稿）",
+    { timeout: 30_000 },
+  );
+}
+
 async function showState(window: Page, { done, steps }: (typeof STATES)[number]): Promise<void> {
   await markSteps(window, done);
   for (const [index, state] of steps.entries()) {
@@ -144,7 +152,13 @@ for (const language of ["en", "zh-CN"] as const) {
         });
         await expect(step(window, "question")).toHaveAttribute("data-state", "open");
         before.push(await height());
-        expectOne(before, `${language} ${width} px, up to step 2`);
+        // Their file's Question replaces the example's here, and its words set the ready row's
+        // height: the card may set itself again there, by a line at most (#2084). From step 2 on
+        // the words stay, and the steps after this one check the card holds.
+        expect(
+          Math.abs((before[1] ?? 0) - (before[0] ?? 0)),
+          `${language} ${width} px, step 2`,
+        ).toBeLessThanOrEqual(32);
 
         // The example folds to one row, and Undo takes that back.
         await expect(window.getByTestId("example-open")).toBeVisible();
@@ -328,10 +342,13 @@ test("hiding the guide takes its red mark's ring and its ⌘K route away (#1944)
 test("the Welcome card keeps one height through every step, so the page's text never moves (#1195)", async () => {
   const { app, window } = await launchApp(dataDir, { examples: true, fakeChat: true });
   await expect(window.getByTestId("first-open-steps")).toBeVisible();
+  // The example, and its ready Question, are there before the first height is taken.
+  await expectReadyDocuments(window, 2);
 
   const heights = new Map<string, Awaited<ReturnType<typeof measure>>>();
   for (const language of ["en", "zh-CN"] as const) {
     await setLanguage(window, language);
+    await expectExampleIn(window, language);
     for (const width of [900, 1100, 1440, 1600]) {
       await setWindowSize(app, window, width, 900);
       heights.set(
@@ -344,6 +361,9 @@ test("the Welcome card keeps one height through every step, so the page's text n
   await enableLocalModel(window);
   for (const language of ["en", "zh-CN"] as const) {
     await setLanguage(window, language);
+    // The ready Question is the example's until a file of theirs is ready, and its words set the
+    // card's height: measured in the language the example has become (#2084).
+    await expectExampleIn(window, language);
     for (const width of [900, 1100, 1440, 1600]) {
       await setWindowSize(app, window, width, 900);
       await expect(window.getByTestId("first-open-next").first()).toBeVisible();
@@ -363,6 +383,7 @@ test("a file that couldn't be read says so in step 1 without changing the card's
   try {
     const files = window.locator('[data-testid="first-open-step"][data-step="files"]');
     await expect(files).toHaveAttribute("data-state", "open");
+    await expectReadyDocuments(window, 2);
     const add = files.getByTestId("first-open-add-files");
     const places = async () => ({
       ...(await measure(window)),
@@ -374,6 +395,7 @@ test("a file that couldn't be read says so in step 1 without changing the card's
     const before: Record<string, Awaited<ReturnType<typeof places>>> = {};
     for (const { language, width, name } of views) {
       await setLanguage(window, language);
+      await expectExampleIn(window, language);
       await setWindowSize(app, window, width, 900);
       before[name] = await places();
     }
@@ -384,9 +406,16 @@ test("a file that couldn't be read says so in step 1 without changing the card's
     await expect(unread).toBeVisible({ timeout: 30_000 });
     for (const { language, width, name } of views) {
       await setLanguage(window, language);
+      await expectExampleIn(window, language);
       await setWindowSize(app, window, width, 900);
       await expect(unread).toBeVisible();
-      expect(await places(), `${name}, the line shown`).toEqual(before[name]);
+      // The ready Question goes with the file it can't answer from, so the card sets its height
+      // without that row (#2084): its buttons stay where they are, and nothing grows.
+      const shown = await places();
+      const was = before[name] as Awaited<ReturnType<typeof places>>;
+      expect(shown.buttons, `${name}, the buttons`).toBe(was.buttons);
+      expect(shown.card, `${name}, the card`).toBeLessThanOrEqual(was.card);
+      expect(shown.title, `${name}, the title`).toBeLessThanOrEqual(was.title);
     }
   } finally {
     await app.close();

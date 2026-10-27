@@ -21,6 +21,7 @@ import type {
   LinkedFolderPreview,
   Mind,
   PrivacySettings,
+  ReadyQuestion,
   RerankSettings,
   RestoreRef,
   SearchScope,
@@ -201,6 +202,12 @@ export interface AppState extends LayoutSlice {
   /** The first-run example Mind and its Documents (onboarding). Null until loaded. */
   examples: Examples | null;
   otherExamples: Examples[];
+  /**
+   * The first open's ready Question (see `ReadyQuestion`), as the core reads it: about the
+   * User's own Document, or the example's while they have none. Set once loaded, then follows
+   * the Documents, the examples and the interface language.
+   */
+  readyQuestion: ReadyQuestion | null;
   ownAnswerArrived: boolean;
   askedOwnAtLaunch: boolean;
   usageNotice: "auto" | "kept" | "answered";
@@ -921,6 +928,7 @@ export const useAppStore = create<AppState>()((set, get) => {
     skills: [],
     examples: null,
     otherExamples: [],
+    readyQuestion: null,
     ownAnswerArrived: false,
     askedOwnAtLaunch: false,
     usageNotice: "auto",
@@ -947,6 +955,7 @@ export const useAppStore = create<AppState>()((set, get) => {
           linkedFolders,
           keptCitationTexts,
           examples,
+          readyQuestion,
           otherExamples,
           connectors,
           rerank,
@@ -964,6 +973,7 @@ export const useAppStore = create<AppState>()((set, get) => {
           readList("linkedFolders", core.listLinkedFolders(), readAt),
           readList("keptCitationTexts", core.listKeptCitationTexts(), readAt),
           core.getExamples(),
+          core.readyQuestion(),
           Promise.all(OTHER_EXAMPLE_GROUPS.map((group) => core.getExamples(group))),
           core.listConnectors(),
           readList("rerank", core.getRerankSettings(), readAt),
@@ -999,6 +1009,7 @@ export const useAppStore = create<AppState>()((set, get) => {
           ...fresh,
           documents,
           examples,
+          readyQuestion,
           otherExamples: otherExamples.filter(isMade),
           askedOwnAtLaunch: settings.device.gettingStarted.askedOwn,
           status: { kind: "ready" },
@@ -1876,6 +1887,21 @@ core.on("document.status", (changed) => {
 
 // The examples made, opened again or removed: their Mind and Linked folder show "Example".
 core.on("examples.changed", (examples) => useAppStore.setState(withExamples(examples)));
+
+// The ready Question is about the User's own Documents, or the example while they have none: the
+// core reads it again when either, or the interface language, changes.
+useAppStore.subscribe((state, before) => {
+  if (
+    state.documents !== before.documents ||
+    state.examples !== before.examples ||
+    state.settings?.language !== before.settings?.language
+  ) {
+    core.readyQuestion().then(
+      (readyQuestion) => useAppStore.setState({ readyQuestion }),
+      (error: unknown) => console.error("Couldn't read the first open's ready Question.", error),
+    );
+  }
+});
 
 // Privacy choices change on the Privacy page, in the usage data card, or with local mode.
 core.on("privacy.changed", (privacy) => {

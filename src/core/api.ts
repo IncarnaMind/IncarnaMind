@@ -3776,12 +3776,6 @@ export interface Examples {
   /** The example Answer, written in advance, while the example Mind exists. */
   answerId: string | null;
   more: ExampleGroup[];
-  /**
-   * The example's own ready Question (#123), while the credit paper is the one made: what the
-   * first open offered before the User had Documents, and what `readyQuestionOf` still offers
-   * while they have none. Not what it offers always: the reader decides (see `ReadyQuestion`).
-   */
-  exampleReadyQuestion: string | null;
 }
 
 /**
