@@ -513,6 +513,47 @@ test("Undo of an Organize that began with no model leaves the Documents unfiled 
   }
 });
 
+test("Organize's undo line says what it suggested once the run ends, in English and Chinese (#1391)", async () => {
+  const paths: string[] = [];
+  for (const name of ["Membrane one", "Membrane two", "Membrane three"]) {
+    const path = join(sources, `${name}.txt`);
+    await writeFile(path, `Research report about membrane separation, ${name}.`);
+    paths.push(path);
+  }
+  const { app, window } = await launchApp(dataDir, { fakeChat: true });
+  try {
+    await dismissChatSetup(window);
+    await makeFolders(window, [{ name: "Research", description: "Research papers and reports" }]);
+    await addDocuments(window, paths);
+    await connectLocalChatModel(window, "main-chat");
+    await window.getByTestId("open-library").click();
+    const library = window.getByTestId("library");
+    const research = section(library, "Research");
+    const suggested = research.getByTestId("library-suggested");
+    const line = window.getByTestId("undo-line");
+
+    // Organize asks for its model, runs, and says what it suggested, in English.
+    await pointAndClick(window, organize(library));
+    await pointAndClick(window, library.getByTestId("library-organize-use"));
+    await expect(suggested).toHaveCount(3);
+    await expect(line).toContainText("Organize suggested a Folder for 3 Documents");
+
+    // Undone and organized again, with the model already chosen, it says it in the language the interface is in.
+    await leaveText(window);
+    await window.keyboard.press("ControlOrMeta+z");
+    await expect(section(library, "Not in a Folder").getByTestId("library-document")).toHaveCount(
+      3,
+    );
+    await setLanguage(window, "zh-CN");
+    await expect(organize(library)).toHaveText("整理");
+    await pointAndClick(window, organize(library));
+    await expect(suggested).toHaveCount(3);
+    await expect(line).toContainText("已为 3 个文档推荐文件夹");
+  } finally {
+    await app.close();
+  }
+});
+
 test("onboarding offers starter folders, and Organize with no model chosen opens its settings, in Chinese", async () => {
   const { app, window } = await launchApp(dataDir, { examples: true });
   try {
