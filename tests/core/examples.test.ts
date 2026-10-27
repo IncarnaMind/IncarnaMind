@@ -174,9 +174,7 @@ describe("the example Mind", { timeout: 30_000 }, () => {
     const { core } = await startWithExamples();
     const made = await core.offerExamples();
     const mindId = made?.mindId as string;
-    expect((await core.readyQuestion())?.question).toBe(
-      "What does the facilities agreement say about the leverage limit?",
-    );
+    expect((await core.readyQuestion())?.question).toBe("What leverage does the agreement allow?");
     const answerEvents = vi.fn();
     core.on("answer.started", answerEvents);
     core.on("answer.finished", answerEvents);
@@ -195,7 +193,7 @@ describe("the example Mind", { timeout: 30_000 }, () => {
     const [question, answer] = messages;
     expect(question).toMatchObject({
       kind: "question",
-      text: "What does the facilities agreement say about the leverage limit?",
+      text: "What leverage does the agreement allow?",
       askedFrom: expect.objectContaining({ mindId }),
     });
     expect(answer).toMatchObject({

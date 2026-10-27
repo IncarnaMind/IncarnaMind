@@ -168,9 +168,9 @@ test("a first run opens on the credit paper with no model set up: its Citations 
   const assistant = window.getByTestId("assistant");
   await expect(assistant).toBeHidden();
   const ready = step(window, "question").getByTestId("first-open-ready");
-  // The line holds one height, so it shows a Question longer than it cut at a word's end; the
-  // whole one stays the button's name and its tooltip, and clicking asks it whole.
-  const askLabel = "Ask: “What does the facilities agreement say about the leverage limit?”";
+  // The whole Question is the line's name and its tooltip; a narrower line would cut it at a
+  // word's end, and clicking asks it whole.
+  const askLabel = "Ask: “What leverage does the agreement allow?”";
   await expect(ready).toHaveAttribute("aria-label", askLabel);
   await expect(ready).toHaveAttribute("title", askLabel);
   const shownAsk = await ready.innerText();
@@ -182,7 +182,7 @@ test("a first run opens on the credit paper with no model set up: its Citations 
   await pointAndClick(window, ready);
   await expect(assistant).toBeVisible();
   await expect(assistant.getByTestId("assistant-question")).toContainText(
-    "What does the facilities agreement say about the leverage limit?",
+    "What leverage does the agreement allow?",
   );
   const readyAnswer = assistantAnswers(window).last();
   await expect(readyAnswer).toHaveAttribute("data-status", "done");

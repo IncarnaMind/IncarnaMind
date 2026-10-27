@@ -508,6 +508,22 @@ test("a Chinese Question longer than the line cuts at a character, whole in its 
   }
 });
 
+test("the English example's Question shows whole on one line at 900 px (#2084)", async () => {
+  const { app, window } = await launchApp(dataDir, { examples: true, fakeChat: true });
+  try {
+    await setWindowSize(app, window, 900, 900);
+    await setLanguage(window, "en");
+    await expectReadyDocuments(window, 2);
+    await markSteps(window, { indexed: true });
+    const button = step(window, "question").getByTestId("first-open-ready");
+    const whole = "Ask: “What leverage does the agreement allow?”";
+    await expect(button).toHaveAttribute("aria-label", whole, { timeout: 30_000 });
+    await expect(button).toHaveText(whole);
+  } finally {
+    await app.close();
+  }
+});
+
 test("the Welcome card keeps one height through every step, so the page's text never moves (#1195)", async () => {
   const { app, window } = await launchApp(dataDir, { examples: true, fakeChat: true });
   await expect(window.getByTestId("first-open-steps")).toBeVisible();
@@ -531,7 +547,7 @@ test("the Welcome card keeps one height through every step, so the page's text n
   for (const language of ["en", "zh-CN"] as const) {
     await setLanguage(window, language);
     // The ready Question is the example's while there is no file of their own, and the card is
-    // measured in the example's language; the line's words no longer set its height (#2084).
+    // measured in the example's language.
     await expectExampleIn(window, language);
     for (const width of [900, 1100, 1440, 1600]) {
       await setWindowSize(app, window, width, 900);
