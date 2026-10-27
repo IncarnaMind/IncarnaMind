@@ -1,4 +1,4 @@
-import { Fragment, useEffect, useLayoutEffect, useState } from "react";
+import { Fragment, useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { LayoutGroup } from "../../../../core/api";
 import { useExportDialog } from "../../exportDialog";
 import { useT } from "../../i18n";
@@ -33,6 +33,9 @@ export function TabGroups() {
   const width = useWidth(container);
   /** Widths while a divider is dragged, before the core has them. */
   const [dragging, setDragging] = useState<number[] | null>(null);
+  // The resizes not yet answered. The widths stay as dragged until the last is: an earlier answer
+  // is older than the key pressed after it.
+  const resizing = useRef(0);
   /** The Mind whose Export options sheet is open (⋯, ⌘K, or its References block's Export…). */
   const exporting = useExportDialog((state) => state.mindId);
   const exportMind = useAppStore((state) => state.minds.find((mind) => mind.id === exporting));
@@ -73,10 +76,14 @@ export function TabGroups() {
                 room={room}
                 onPreview={setDragging}
                 onCommit={(next) => {
+                  resizing.current++;
                   void useAppStore
                     .getState()
                     .changeLayout({ type: "resize", widths: next })
-                    .finally(() => setDragging(null));
+                    .finally(() => {
+                      resizing.current--;
+                      if (resizing.current === 0) setDragging(null);
+                    });
                 }}
               />
             )}
