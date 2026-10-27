@@ -13,10 +13,12 @@ import type {
   FigureFinding,
 } from "../../src/core/api";
 import { MIND_CONTENT_FIELD } from "../../src/core/api";
+import { figureScheduleBook } from "../../src/core/exports/figureScheduleBook";
 import { augmentFigureFooting, figureSchedule } from "../../src/core/figureSchedule";
 import type { NodeJSON } from "../../src/shared/blockJson";
 import { calculatedFigureNode } from "../../src/shared/calculatedFigures";
 import { aggregateFigureResults } from "../../src/shared/figureChecks";
+import { childrenOf, lineShows } from "../../src/shared/figureSchedule";
 import { FORMULA_VERSION } from "../../src/shared/formula";
 
 const paragraph = (id: string, text: string, attrs: Record<string, string> = {}): NodeJSON => ({
@@ -786,6 +788,22 @@ test("the schedule includes compact used Analysis closure once and isolates a co
   expect(complete.analyses).toHaveLength(2);
   expect(complete.analyses[0]?.values).toHaveLength(1);
   expect(complete.analyses[0]).not.toHaveProperty("output");
+  // The range its Analysis read is the figure's input, in the schedule and in the workpaper.
+  const first = complete.rows[0];
+  if (!first) throw new Error("No Analysis row");
+  const [read] = childrenOf(first, complete);
+  if (!read) throw new Error("The Analysis row has no input");
+  expect(lineShows(read, "en")).toMatchObject({
+    name: "sales",
+    value: "A1:B3 · 2 rows",
+    citation: input.citation,
+    status: { word: "claim.state.supported" },
+  });
+  const book = figureScheduleBook(complete, { language: "en", modelName: () => "" });
+  expect(book.sheets[0]?.rows.find((each) => each.id === read.id)?.cells[0]).toMatchObject({
+    column: "figure",
+    value: { kind: "text", text: "sales" },
+  });
   doc.getMap("figureRuns").delete(JSON.stringify(["run-b"]));
   const before = Y.encodeStateAsUpdate(doc);
   const partial = project(blocks);

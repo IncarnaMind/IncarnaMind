@@ -1,18 +1,17 @@
 import { type ReactNode, useRef } from "react";
-import type { Citation, FigureScheduleRow } from "../../../../core/api";
+import type { Citation } from "../../../../core/api";
 import {
-  differenceText,
-  figureGroup,
   figurePlaceText,
   footingNotes,
+  type LineStatus,
   lineRef,
-  reasonKey,
+  lineShows,
+  notCheckedYet,
+  rowGlyph,
+  type ScheduleGlyph,
   type ScheduleLine,
   sourceValueText,
-  statusKey,
-  writtenLike,
 } from "../../../../shared/figureSchedule";
-import { formulaText } from "../../../../shared/formula";
 import { sourceParts } from "../../../../shared/sources";
 import { useLanguage, useT } from "../../i18n";
 import { useSelectable, useSelection } from "../../selection";
@@ -24,16 +23,7 @@ import { iconButtonClass, menuClass, menuItemClass, menuRuleClass } from "../ui"
 import { usePopoverMenu } from "../usePopoverMenu";
 import type { FigureScheduleViewProps } from "./FigureScheduleView";
 
-type Glyph = "supported" | "look" | "recheck" | "not-checked" | "kept";
-
-function glyphOf(row: FigureScheduleRow): Glyph {
-  const group = figureGroup(row);
-  if (row.shown.state === "needs-recheck") return "recheck";
-  if (group === "checking") return "not-checked";
-  return group;
-}
-
-const GLYPHS: Record<Glyph, string> = {
+const GLYPHS: Record<ScheduleGlyph, string> = {
   supported: "✓",
   look: "!",
   recheck: "↻",
@@ -41,15 +31,17 @@ const GLYPHS: Record<Glyph, string> = {
   kept: "–",
 };
 
-function Status({ glyph, word, why }: { glyph: Glyph; word: string; why?: string | null }) {
+function Status({ status }: { status: LineStatus }) {
+  const t = useT();
+  const { glyph, word, why } = status;
   return (
     <>
       <span className="figure-glyph" data-glyph={glyph} aria-hidden="true">
         {GLYPHS[glyph]}
       </span>
       <span className="figure-status-words">
-        <span className="figure-status-word">{word}</span>
-        {why && <span className="figure-why-word">{why}</span>}
+        <span className="figure-status-word">{t(word)}</span>
+        {why && <span className="figure-why-word">{t(why)}</span>}
       </span>
     </>
   );
@@ -94,8 +86,9 @@ export function FigureScheduleRowView({
     row.querySelector<HTMLButtonElement>("[data-figure-more]"),
   );
   const main = useRef<HTMLButtonElement>(null);
-  const glyph = glyphOf(parent);
-  const unchecked = parent.shown.state === "not-checked" || parent.shown.state === "checking";
+  const glyph = rowGlyph(parent);
+  const unchecked = notCheckedYet(parent);
+  const shows = lineShows(line, language);
   const sourceLink = (citation: Citation | null | undefined) => {
     if (!citation) return null;
     const { name, location } = sourceParts(citation, { language, documents });
@@ -166,68 +159,23 @@ export function FigureScheduleRowView({
           ),
       ].filter(Boolean);
 
-  const name = line.input
-    ? line.input.label
-    : line.component
-      ? (line.axis === "column"
-          ? line.component.place.table?.columnLabel
-          : line.component.place.table?.rowLabel) || line.component.reading.chars
-      : parent.reading.chars;
-  const value = line.input
-    ? line.omitted
-      ? writtenLike(parent.reading, line.input.number.value, parent.reading.decimals)
-      : line.input.number.chars
-    : line.component
-      ? line.component.reading.chars
-      : unchecked
-        ? null
-        : sourceValueText(parent);
-  const difference = kid || unchecked ? null : differenceText(parent, language);
-  const source = kid ? (
-    line.input && !line.omitted ? (
-      sourceLink(line.input.citation)
-    ) : null
-  ) : parent.calculated ? (
-    <span className="figure-formula">
-      {t("figures.calculated")} ·{" "}
-      {formulaText(
-        parent.calculated.figure.formula,
-        (input) =>
-          parent.calculated?.figure.inputs.find(
-            (each) => each.name.toLowerCase() === input.toLowerCase(),
-          )?.label ?? null,
-      )}
-    </span>
-  ) : unchecked ? null : (
-    sourceLink(parent.sourceInput?.citation ?? parent.source)
-  );
-  const reason = reasonKey(parent);
-  const status = line.omitted ? (
-    <Status glyph="look" word={t("figures.notInTable")} />
-  ) : line.input ? (
-    line.input.citation.check === "found" ? (
-      <Status glyph="supported" word={t("claim.state.supported")} />
-    ) : line.input.citation.check === "not-found" ? (
-      <Status glyph="look" word={t("figures.filter.look")} why={t("claim.why.quoteNotFound")} />
+  const { name, value, difference } = shows;
+  const source =
+    shows.formula !== null ? (
+      <span className="figure-formula">
+        {t("figures.calculated")} · {shows.formula}
+      </span>
     ) : (
-      <Status glyph="not-checked" word={t("claim.state.not-checked")} />
-    )
-  ) : kid ? null : (
-    <Status
-      glyph={glyph}
-      word={
-        glyph === "look" || glyph === "recheck" ? t("figures.filter.look") : t(statusKey(parent))
-      }
-      why={reason ? t(reason) : null}
-    />
-  );
+      sourceLink(shows.citation)
+    );
+  const status = shows.status && <Status status={shows.status} />;
   const notes = kid || unchecked ? [] : footingNotes(parent);
   return (
     <tr
       {...selected.rowProps}
       {...objectMenu.rowProps}
       data-figure-id={line.id}
-      data-kid={kid ? (line.input ? "input" : "part") : undefined}
+      data-kid={kid ? (line.input || line.range ? "input" : "part") : undefined}
       data-state={kid ? undefined : glyph}
       className={`figure-grid figure-row ${selected.selected ? "is-selected" : ""} ${line.omitted ? "is-omitted" : ""} ${menu.open ? "has-menu" : ""}`}
       onClick={(event) => {

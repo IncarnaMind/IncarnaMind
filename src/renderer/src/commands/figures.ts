@@ -1,3 +1,6 @@
+import type { FigureScheduleRow } from "../../../core/api";
+import { lineRef } from "../../../shared/figureSchedule";
+import { figureScheduleHandle } from "../components/figures/figureScheduleHandle";
 import { figureHandle } from "../editor/figureHandle";
 import type { Command, CommandContext } from "./registry";
 
@@ -33,3 +36,48 @@ export const figureCommands: readonly Command[] = (
     },
   };
 });
+
+/** The schedule's figures ⌘K acts on: those selected in it. */
+function chosenFigures(ctx: CommandContext): FigureScheduleRow[] {
+  const held = figureScheduleHandle.current;
+  if (!held) return [];
+  const chosen = new Set(ctx.selection.flatMap((ref) => (ref.kind === "check" ? [ref.id] : [])));
+  const { mindId, rows } = held.schedule;
+  return rows.filter((row) => chosen.has(lineRef(mindId, { id: row.id, parent: row }).id));
+}
+
+const ids = (ctx: CommandContext) => chosenFigures(ctx).map((row) => row.id);
+
+/** What a row's menu does to the figures chosen in the schedule, from ⌘K too. */
+export const figureScheduleCommands: readonly Command[] = [
+  {
+    id: "figures.checkChosen",
+    label: (ctx, t) => {
+      const count = chosenFigures(ctx).length;
+      return count > 1 ? t("figures.checkCount", { count }) : t("claim.checkAgain");
+    },
+    group: "main",
+    reversible: true,
+    appliesTo: ["check"],
+    when: (ctx) =>
+      chosenFigures(ctx).some(
+        (row) =>
+          row.shown.state === "not-checked" ||
+          row.shown.state === "needs-recheck" ||
+          row.shown.state === "kept",
+      ),
+    run: (ctx) => figureScheduleHandle.current?.checkAgain(ids(ctx)),
+  },
+  {
+    id: "figures.keepChosen",
+    label: (ctx, t) => {
+      const count = chosenFigures(ctx).length;
+      return count > 1 ? t("figures.keepCount", { count }) : t("claim.keepAsView");
+    },
+    group: "edit",
+    reversible: true,
+    appliesTo: ["check"],
+    when: (ctx) => chosenFigures(ctx).some((row) => row.shown.state !== "kept"),
+    run: (ctx) => figureScheduleHandle.current?.keep(ids(ctx)),
+  },
+];

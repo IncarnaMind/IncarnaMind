@@ -735,6 +735,51 @@ test("a figure given a currency its Document never states is Unsupported, and sa
   expect(result).toMatchObject({ verdict: "unsupported", unsupported: { found: true } });
 });
 
+test.each([
+  {
+    name: "a source in millions",
+    body: "Net debt (in millions)\n528.9",
+    shown: "£518.9m",
+    reply: reply([
+      {
+        ...item(),
+        source: { citation: 1, number: "528.9", reading: null, unitQuote: "in millions" },
+      },
+    ]),
+  },
+  {
+    name: "a calculation over bare digits",
+    body: "Net debt 528,900,000",
+    shown: "£518,900,000",
+    calculations: [
+      {
+        marker: 2,
+        label: "Net debt",
+        formula: "source",
+        stated: "£518,900,000",
+        relation: "equals",
+        inputs: [{ name: "source", label: "Net debt", citation: 1, position: 1 }],
+      },
+    ],
+    reply: reply([{ ...item(), source: null, calculation: 2 }]),
+  },
+])(
+  "$name gives a figure in a currency it never states no contradiction, only Unsupported",
+  async ({ body, shown, calculations, reply: text }) => {
+    const { result } = await checkWith({
+      figures: [target("f1", shown, "Net debt")],
+      claim: `Net debt was ${shown}.`,
+      body,
+      ...(calculations && { calculations }),
+      text,
+    });
+    expect(result.figures?.[0]?.result).toMatchObject({
+      verdict: "unsupported",
+      unsupported: { uncovered: expect.stringContaining("£") },
+    });
+  },
+);
+
 test("a source may give its quote in place of a marker, as calculate takes one", async () => {
   const quoted = {
     ...item(),

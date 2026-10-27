@@ -24,7 +24,7 @@
 
 import { generateText } from "ai";
 import { type CaseCitation, caseCitations, isOpinionOf } from "../../../shared/caseCitations";
-import type { FigureContext } from "../../../shared/figures";
+import type { FigureContext, FigureUnit } from "../../../shared/figures";
 import { type MessageKey, type MessageParams, translate } from "../../../shared/i18n";
 import { sentenceSpans } from "../../../shared/sentences";
 import type {
@@ -343,6 +343,7 @@ export function createClaimCheck(deps: ClaimCheckDependencies) {
     const unstatedUnit = (
       citations: readonly Citation[],
       claim = request.claim,
+      bound?: readonly { chars: string; unit: FigureUnit }[],
     ): UnsupportedReason | null => {
       const checked = citations.map((citation) => {
         const text = (from: number | null, to: number | null) =>
@@ -356,7 +357,7 @@ export function createClaimCheck(deps: ClaimCheckDependencies) {
           document: () => text(null, null),
         };
       });
-      const found = unitNotStated(claim, checked);
+      const found = unitNotStated(claim, checked, bound);
       if (!found) return null;
       const t = (key: MessageKey, params?: MessageParams) =>
         translate(deps.language(), key, params);
@@ -523,7 +524,7 @@ export function createClaimCheck(deps: ClaimCheckDependencies) {
         facts,
         caseFlags: citedCase,
         costs: (marker) => stated.get(marker)?.costs ?? new Set(),
-        unitReason: (figure, citations) => unstatedUnit(citations, figure),
+        unitReason: (figure, citations, bound) => unstatedUnit(citations, figure, bound),
         signal,
         async remainder(remainder) {
           const evidence =

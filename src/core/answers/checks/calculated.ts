@@ -11,7 +11,12 @@ import {
   type FigureUnit,
   readFigures,
 } from "../../../shared/figures";
-import { evaluateFormula, type FormulaInput, type ResultUnit } from "../../../shared/formula";
+import {
+  evaluateFormula,
+  type FormulaInput,
+  type ResultUnit,
+  sameNumber,
+} from "../../../shared/formula";
 import type { CalculatedFigure, LimitRelation } from "../../api";
 import { documentFigureContext } from "../calculations";
 
@@ -173,7 +178,7 @@ export function agreesAtShownPrecision(
       value >= Math.min(stated.value, stated.rangeTo) &&
       value <= Math.max(stated.value, stated.rangeTo)
     );
-  if (stated.precision === null) return value === stated.value;
+  if (stated.precision === null) return sameNumber(value, stated.value);
   if (stated.precision === undefined || !Number.isFinite(stated.precision) || stated.precision <= 0)
     return null;
   const places = -Math.round(Math.log10(stated.precision));

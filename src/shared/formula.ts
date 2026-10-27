@@ -550,6 +550,9 @@ function phrase(unit: Unit): string {
 /** Excel compares on the 15 significant digits it keeps, so 0.1 + 0.2 = 0.3 holds there and here. */
 const excelDigits = (x: number) => Number(x.toPrecision(15));
 
+/** Whether two numbers are equal as a formula's "=" compares them. */
+export const sameNumber = (x: number, y: number): boolean => excelDigits(x) === excelDigits(y);
+
 /**
  * A number with no unit or scale of its own ("3.5" in "3.5:1") times an amount in a scale is a
  * multiplier: the product is shown as the amount is written. Its own decimals, moved into that
@@ -789,8 +792,8 @@ function evaluate(
             if (!unit || pointsAndPercent) mismatch("compare", a, b);
             const [x, y] = [excelDigits(a.n), excelDigits(b.n)];
             const holds = {
-              "=": x === y,
-              "<>": x !== y,
+              "=": sameNumber(a.n, b.n),
+              "<>": !sameNumber(a.n, b.n),
               "<": x < y,
               ">": x > y,
               "<=": x <= y,

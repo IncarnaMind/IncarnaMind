@@ -793,6 +793,7 @@ export const en = {
   "figures.chartPoint": "chart, {row}, {series}",
   "figures.roundedFrom": "Rounded from {value}",
   "figures.notInTable": "Not in this table",
+  "figures.range": "{range} · {count} rows",
   "figures.foot.agrees": "Agrees with the source",
   "figures.foot.rows": "The rows above add to {value}",
   "figures.foot.columns": "The columns before it add to {value}",

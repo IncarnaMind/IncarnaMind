@@ -779,6 +779,7 @@ export const zhCN = {
   "figures.chartPoint": "图表，{row}，{series}",
   "figures.roundedFrom": "由 {value} 舍入",
   "figures.notInTable": "此表中没有",
+  "figures.range": "{range} · {count} 行",
   "figures.foot.agrees": "与来源一致",
   "figures.foot.rows": "上面各行相加为 {value}",
   "figures.foot.columns": "前面各列相加为 {value}",

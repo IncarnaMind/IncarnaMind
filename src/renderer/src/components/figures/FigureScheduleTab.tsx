@@ -26,6 +26,7 @@ import { ExportResultLine } from "../ExportResultLine";
 import { type PickerOption, SearchPicker } from "../SearchPicker";
 import { useTabPlace } from "../tabs/tabItems";
 import { FigureScheduleView } from "./FigureScheduleView";
+import { figureScheduleHandle } from "./figureScheduleHandle";
 
 interface Choice {
   row: FigureScheduleRow;
@@ -76,6 +77,24 @@ export function FigureScheduleTab({ mindId }: { mindId: string }) {
     }
   };
   const rowOf = (id: string) => schedule?.rows.find((row) => row.id === id);
+  const keep = (ids: string[]) => {
+    if (schedule) edit((note) => keepFigureViews(note, schedule, ids));
+  };
+  const checkAgain = (figureIds: string[]) => void checkMind(mindId, "all", { figureIds });
+  const actions = useRef({ keep, checkAgain });
+  actions.current = { keep, checkAgain };
+  useEffect(() => {
+    if (!schedule) return;
+    const held = {
+      schedule,
+      keep: (ids: string[]) => actions.current.keep(ids),
+      checkAgain: (ids: string[]) => actions.current.checkAgain(ids),
+    };
+    figureScheduleHandle.current = held;
+    return () => {
+      if (figureScheduleHandle.current === held) figureScheduleHandle.current = null;
+    };
+  }, [schedule]);
   const addCitation = (id: string) => {
     const row = rowOf(id);
     const citation = row?.sourceInput?.citation ?? row?.source;
@@ -159,12 +178,8 @@ export function FigureScheduleTab({ mindId }: { mindId: string }) {
           void exportFigureSchedule(mindId);
         }}
         onStop={() => stopCheck(mindId)}
-        onKeep={(ids) => {
-          if (schedule) edit((note) => keepFigureViews(note, schedule, ids));
-        }}
-        onCheckAgain={(figureIds) => {
-          void checkMind(mindId, "all", { figureIds });
-        }}
+        onKeep={keep}
+        onCheckAgain={checkAgain}
         onChangeToSource={(ids) => {
           if (!schedule) return;
           edit((note) => changeFiguresToSource(note, schedule, ids));

@@ -58,11 +58,13 @@ interface Read {
  * without it: a currency on a plain number, which no cited Unit nor any of their Documents names;
  * a percent where they give only percentage points; points where they give only a percent; or
  * another scale of the same written number. Null when it gives none. A figure they don't state,
- * or state with another currency or unit, is the model's to judge.
+ * or state with another currency or unit, is the model's to judge, unless `bound` names the
+ * numbers it was compared with: then their units are what the Citations give it, equal or not.
  */
 export function unitNotStated(
   claim: string,
   citations: readonly CheckedText[],
+  bound?: readonly { chars: string; unit: FigureUnit }[],
 ): UnitNotStated | null {
   const own = documentFigureContext([{ text: claim }]);
   if (citations.length === 0 || !readFigures(claim, own).some(hasUnit)) return null;
@@ -80,13 +82,15 @@ export function unitNotStated(
   });
   const [first] = read;
   for (const figure of figuresToCheck(claim, own.language || !first ? own : first.context)) {
-    const same = read.flatMap(({ figures }) =>
-      figures.flatMap((each) =>
-        readingsOf(each)
-          .filter((reading) => sameValue(reading.value, figure.value))
-          .map((reading) => ({ chars: each.chars, unit: reading.unit })),
-      ),
-    );
+    const same =
+      bound ??
+      read.flatMap(({ figures }) =>
+        figures.flatMap((each) =>
+          readingsOf(each)
+            .filter((reading) => sameValue(reading.value, figure.value))
+            .map((reading) => ({ chars: each.chars, unit: reading.unit })),
+        ),
+      );
     const sameWritten = read.flatMap(({ text, context, figures }) =>
       figures.flatMap((each) => {
         if (each.ambiguous.some(({ kind }) => kind !== "scale")) return [];

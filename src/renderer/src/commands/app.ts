@@ -36,7 +36,7 @@ import { evidenceCommands } from "./evidence";
 import { exampleCommands } from "./examples";
 import { exportCommands } from "./exports";
 import { feedbackCommands } from "./feedback";
-import { figureCommands } from "./figures";
+import { figureCommands, figureScheduleCommands } from "./figures";
 import { fileCommands } from "./fileInfo";
 import { footnoteCommands } from "./footnotes";
 import { formatCommands } from "./format";
@@ -172,6 +172,7 @@ const appCommands: readonly Command[] = [
   ...answerCommands,
   ...citationCommands,
   ...figureCommands,
+  ...figureScheduleCommands,
   ...tabCommands,
   ...meetingCommands,
   ...meetingHelpCommands,

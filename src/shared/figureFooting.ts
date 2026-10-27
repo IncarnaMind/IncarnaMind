@@ -1,5 +1,5 @@
 import type { Figure, FigureUnit, Reading } from "./figures";
-import { evaluateFormula, type FormulaInput } from "./formula";
+import { evaluateFormula, type FormulaInput, sameNumber } from "./formula";
 
 export interface FootingEntry {
   id: string;
@@ -123,7 +123,7 @@ function footing(
     return { ...facts, inability: "calculation" };
   const computed = { ...facts, sum: acc.value, difference: difference.value };
   const precision = entry.figure.precision;
-  if (precision === null) return { ...computed, agrees: acc.value === stated.value };
+  if (precision === null) return { ...computed, agrees: sameNumber(acc.value, stated.value) };
   if (precision === undefined || !Number.isFinite(precision) || precision <= 0)
     return { ...computed, inability: "precision" };
   const quantum = input("quantum", {
