@@ -10,6 +10,7 @@
  * (exports, Question context) and the tests share it.
  */
 import {
+  CALCULATED_FIGURE_NODE,
   CITATION_NODE,
   type CitationAttributes,
   type CitationCheck,
@@ -18,6 +19,7 @@ import {
   PROPOSAL_INSERT_MARK,
 } from "../core/api";
 import type { NodeJSON } from "./blockJson";
+import { figureShownText } from "./calculatedFigures";
 import { type Figure, type FigureUnit, figureContextOf, readFigures } from "./figures";
 import type { MessageKey, MessageParams } from "./i18n";
 import { holdsPeriods, isPeriod } from "./periods";
@@ -904,6 +906,10 @@ export function sourceLineOf(node: NodeJSON): SourceLine {
       return;
     }
     if (child.type === FOOTNOTE_NODE) return;
+    if (child.type === CALCULATED_FIGURE_NODE) {
+      text += figureShownText(child.attrs);
+      return;
+    }
     if (child.type === "text") text += child.text ?? "";
     else if (child.type === "hardBreak" || (BLOCK_TYPES.has(child.type) && text !== "")) {
       text += " ";

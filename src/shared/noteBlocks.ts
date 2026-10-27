@@ -14,7 +14,7 @@ import {
   type RecheckCitationInput,
 } from "../core/api";
 import type { NodeJSON } from "./blockJson";
-import { readCalculatedFigureAttributes } from "./calculatedFigures";
+import { figureShownText, readCalculatedFigureAttributes } from "./calculatedFigures";
 
 /** At most this many Blocks go into a note at once, and this deep. */
 const MAX_BLOCKS = 2_000;
@@ -166,7 +166,7 @@ const textOf = (node: NodeJSON): string =>
   node.type === "text"
     ? (node.text ?? "")
     : node.type === CALCULATED_FIGURE_NODE
-      ? (readCalculatedFigureAttributes(node.attrs)?.figure.shown ?? "")
+      ? figureShownText(node.attrs)
       : (node.content ?? []).map(textOf).join("");
 
 const holdsWords = (node: NodeJSON) => node.type === "text" || node.type === CALCULATED_FIGURE_NODE;

@@ -318,6 +318,10 @@ export function readCalculatedFigureAttributes(value: unknown): CalculatedFigure
   return evidence ? { id: value.id, ...evidence } : null;
 }
 
+/** A calculated figure node's words as the note shows them. */
+export const figureShownText = (attrs: unknown): string =>
+  readCalculatedFigureAttributes(attrs)?.figure.shown ?? "";
+
 export function calculatedFigureNode(
   figure: CalculatedFigure,
   id: string,

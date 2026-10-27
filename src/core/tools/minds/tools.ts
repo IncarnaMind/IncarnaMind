@@ -233,7 +233,7 @@ export interface MindToolsOptions {
   /**
    * Markdown as a Mind holds it: each Citation marker the Answer recorded a
    * Citation for, checked, each source written as a name in brackets the
-   * Citation recorded for it, and its figures as their shown text, without
+   * Citation recorded for it, and its calculated figures as figures, without
    * its sentences about the Answer's searching. Says how many of its
    * Citations weren't found, how many markers had no Citation, which sources
    * were written as text, and how many sentences it left out.

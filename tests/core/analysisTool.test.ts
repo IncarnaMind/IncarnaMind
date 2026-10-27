@@ -13,6 +13,7 @@ import {
   figureRunsFor,
   figureRunsOfAnswer,
 } from "../../src/shared/figureRuns";
+import { askAssistant } from "../helpers/assistant";
 import { answerEnded, type ShownPassage, shownPassages } from "../helpers/citations";
 import { createTempDataFolder, queryDatabase, startCore } from "../helpers/core";
 import { addAndProcess, waitForProcessing, writeSourceFile } from "../helpers/documents";
@@ -384,6 +385,39 @@ describe("an Analysis an Answer runs", () => {
     await core.deleteConversation(answer.conversationId);
     await core.deletePermanently([{ kind: "conversation", id: answer.conversationId }]);
     expect(retained()[0]?.values[0]?.value).toBe(350.5);
+  });
+
+  test("an Analysis figure the assistant writes into a Note is a figure there, with its used run (#439)", async () => {
+    const model = scriptedModel((call) => {
+      const searches = call.results.filter((result) => result.tool === "search_documents");
+      if (searches.length === 0)
+        return { calls: [{ tool: "search_documents", input: { query: "revenue" } }] };
+      if (!call.results.some((result) => result.tool === "run_analysis"))
+        return { calls: [salesRun()(searches.flatMap((each) => shownPassages(each.text)))] };
+      if (!call.results.some((result) => result.tool === "add_to_mind"))
+        return {
+          calls: [{ tool: "add_to_mind", input: { content: "Revenue came to [=1] in total." } }],
+        };
+      return { text: "" };
+    });
+    const { core } = await setUp(model, totalOf);
+    const mind = await core.createMind({ title: "Revenue" });
+    await askAssistant(core, { text: "Add the total revenue to the note", mindId: mind.id });
+
+    const reader = await connectToMind(core, mind.id);
+    const blocks = reader.blocks
+      .toArray()
+      .flatMap((node) => (node instanceof Y.XmlElement ? [nodeOf(node)] : []));
+    const figures = calculatedFiguresIn(blocks);
+    expect(figures).toHaveLength(1);
+    expect(figures[0]?.figure).toMatchObject({ value: 350.5, analysis: { result: "total" } });
+    expect(figureRunsFor(reader.doc, blocks)).toEqual([
+      expect.objectContaining({
+        values: [
+          { kind: "figure", name: "total", label: "Total revenue", unit: "USD", value: 350.5 },
+        ],
+      }),
+    ]);
   });
 
   test("an Analysis call survives the unchanged Mind editor schema's serialization", async () => {

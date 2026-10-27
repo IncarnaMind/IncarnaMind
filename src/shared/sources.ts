@@ -81,11 +81,6 @@ function webParts(name: string, web: { site: string }): string[] {
   return parts;
 }
 
-/**
- * A Citation's source as its footnote reads it: "Aldermoor MSA, p. 14", or a web page's
- * "Tea, The Open Encyclopedia, § History, ¶ 3, https://tea.example/history, accessed 3 October 2026".
- * `link` is the page's address, for a format that makes it a link.
- */
 /** A Citation's Document as it is named now, and where in it, apart, for a link beside its place. */
 export function sourceParts(
   attributes: Cited,
@@ -95,6 +90,11 @@ export function sourceParts(
   return { name: nameOf(attributes, context, t), location: citedLocation(attributes, t) };
 }
 
+/**
+ * A Citation's source as its footnote reads it: "Aldermoor MSA, p. 14", or a web page's
+ * "Tea, The Open Encyclopedia, § History, ¶ 3, https://tea.example/history, accessed 3 October 2026".
+ * `link` is the page's address, for a format that makes it a link.
+ */
 export function sourceText(
   attributes: Cited,
   context: SourceContext,

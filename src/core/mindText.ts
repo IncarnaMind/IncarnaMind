@@ -33,7 +33,7 @@
  * Word export reads them too, for review (`ReadOptions.review`, #107).
  */
 import * as Y from "yjs";
-import { readCalculatedFigureAttributes } from "../shared/calculatedFigures";
+import { figureShownText, readCalculatedFigureAttributes } from "../shared/calculatedFigures";
 import { type ChartAttributes, chartSources, chosenSeries, readChart } from "../shared/charts";
 import { type RecheckReason, readClaimCheck } from "../shared/claimChecks";
 import {
@@ -1114,8 +1114,7 @@ export function plainText(element: Y.XmlElement | Y.XmlText, footnotes = false):
       .join("");
   }
   if (!footnotes && element.nodeName === FOOTNOTE_NODE) return "";
-  if (element.nodeName === CALCULATED_FIGURE_NODE)
-    return readCalculatedFigureAttributes(element.getAttributes())?.figure.shown ?? "";
+  if (element.nodeName === CALCULATED_FIGURE_NODE) return figureShownText(element.getAttributes());
   if (element.nodeName === WORD_ATOM_NODE || element.nodeName === WORD_BLOCK_NODE) {
     return wordAtomText(readWordAtom(element.getAttributes() as Record<string, unknown>));
   }
