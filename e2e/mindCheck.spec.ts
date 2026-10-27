@@ -219,14 +219,14 @@ test("Check from ⌘K: the estimate first on a cloud model under a cap, then eve
 
   await window.keyboard.press("ControlOrMeta+k");
   await expect(window.getByTestId("palette-search")).toBeFocused();
-  await window.keyboard.type("check this mind");
-  const item = window.getByTestId("palette-item").filter({ hasText: "Checks this Note" }).first();
+  await window.keyboard.type("check this note");
+  const item = window.getByTestId("palette-item").filter({ hasText: "Checks this note" }).first();
   await pointAndClick(window, item);
 
   // The model names the claims first; the badge's card then opens by itself and asks with their
   // number and the estimate, its price first. Of the 20 sentences, all make a claim, so the one count says 20; the model names the 15 claims among them.
   const ask = window.getByTestId("check-card").getByTestId("mind-check-ask");
-  await expect(ask).toContainText("Check this Note’s 20 claims against your Documents?");
+  await expect(ask).toContainText("Check this note’s 20 claims against your Documents?");
   await expect(ask).toContainText("About $");
   await expect(window.getByTestId("palette-search")).toBeHidden();
   await checkCard(window);
@@ -268,10 +268,10 @@ test("Check from ⌘K: the estimate first on a cloud model under a cap, then eve
   await expect(marks(window).and(window.locator('[data-check="needs-recheck"]'))).toHaveCount(1);
   await window.keyboard.press("ControlOrMeta+k");
   await expect(window.getByTestId("palette-search")).toBeFocused();
-  await window.keyboard.type("check this mind");
+  await window.keyboard.type("check this note");
   await pointAndClick(
     window,
-    window.getByTestId("palette-item").filter({ hasText: "Checks this Note" }).first(),
+    window.getByTestId("palette-item").filter({ hasText: "Checks this note" }).first(),
   );
   await expect(marks(window).and(window.locator('[data-check="needs-recheck"]'))).toHaveCount(0);
   await expect(window.getByTestId("mind-check-ask")).toHaveCount(0);
@@ -286,7 +286,7 @@ test("Check from ⌘K: the estimate first on a cloud model under a cap, then eve
   );
   // Check every sentence again re-checks the 15 claims; the 5 the first run found make none stay out.
   await expect(window.getByTestId("check-card").getByTestId("mind-check-ask")).toContainText(
-    "Check this Note’s 15 claims against your Documents?",
+    "Check this note’s 15 claims against your Documents?",
   );
 });
 
@@ -377,7 +377,7 @@ test("when the provider can't be reached while the claims are named, Try again n
   await pointAndClick(window, window.getByRole("menuitem", { name: "Check", exact: true }));
   // The card asks with the one count at once; the model names the claims when Check is pressed.
   const ask = window.getByTestId("check-card").getByTestId("mind-check-ask");
-  await expect(ask).toContainText("Check this Note’s 20 claims against your Documents?");
+  await expect(ask).toContainText("Check this note’s 20 claims against your Documents?");
   await checkCard(window);
   await pointAndClick(window, ask.getByTestId("mind-check-check"));
   // The failure opens the badge's card to say why, with Try again.
@@ -385,7 +385,7 @@ test("when the provider can't be reached while the claims are named, Try again n
   await expect(failure).toHaveAttribute("data-error-kind", "network");
   await pointAndClick(window, failure.getByTestId("answer-error-action"));
 
-  await expect(ask).toContainText("Check this Note’s 20 claims against your Documents?");
+  await expect(ask).toContainText("Check this note’s 20 claims against your Documents?");
   await expect(marks(window)).toHaveCount(0);
   await pointAndClick(window, ask.getByTestId("mind-check-check"));
   await expect(marks(window)).toHaveCount(15);
@@ -436,7 +436,7 @@ test("Check with nothing changed sends nothing: the marks stay and the card says
   await window.keyboard.press("Enter");
   const ask = card.getByTestId("mind-check-ask");
   // Every sentence again re-checks the 15 claims; the 5 the first run found make none stay out.
-  await expect(ask).toContainText("Check this Note’s 15 claims against your Documents?");
+  await expect(ask).toContainText("Check this note’s 15 claims against your Documents?");
   await expect(unchanged).toHaveCount(0);
   expect(await modelRequests(window)).toBe(sent);
   await pointAndClick(window, ask.getByTestId("mind-check-check"));

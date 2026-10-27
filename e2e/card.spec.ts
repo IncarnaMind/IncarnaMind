@@ -195,7 +195,7 @@ test("the divider in the gap before the card is grabbed with the mouse and moved
   await app.close();
 });
 
-test("the + menu in the sidebar header offers New Mind, Add Documents…, New Folder, Record a meeting and More, with the rest under More, by mouse and by keyboard", async () => {
+test("the + menu in the sidebar header offers New note, Add Documents…, New Folder, Record a meeting and More, with the rest under More, by mouse and by keyboard", async () => {
   const { app, window } = await launchApp(dataDir);
   await dismissChatSetup(window);
   const plus = window.getByTestId("plus-menu");
@@ -219,7 +219,7 @@ test("the + menu in the sidebar header offers New Mind, Add Documents…, New Fo
   const items = menu.getByRole("menuitem");
   const add = addFilesLabel("en").replace(/…$/, "…");
   await expect(items).toHaveText([
-    /New Mind/,
+    /New note/,
     new RegExp(add),
     /New Folder/,
     /Record a meeting/,
@@ -264,7 +264,7 @@ test("the + menu in the sidebar header offers New Mind, Add Documents…, New Fo
   await expect(menu).toBeHidden();
   await expect(plus).toBeFocused();
 
-  // From the keyboard alone: Enter opens it, Enter on New Mind makes a Mind named by typing.
+  // From the keyboard alone: Enter opens it, Enter on New note makes a Mind named by typing.
   await window.keyboard.press("Enter");
   await expect(items.first()).toBeFocused();
   await window.keyboard.press("Enter");
@@ -314,7 +314,7 @@ test("the + menu and the shell speak Chinese too", async () => {
   await expect(plus).toHaveAccessibleName("新建或添加");
   await plus.click();
   await expect(window.getByRole("menuitem")).toHaveText([
-    /新建 Mind/,
+    /新建笔记/,
     new RegExp(addFilesLabel("zh-CN")),
     /新建文件夹/,
     /录制会议/,

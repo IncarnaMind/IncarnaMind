@@ -158,7 +158,7 @@ test("the + menu and a Folder's ⋯ make one too, and show the keys", async () =
     await window.keyboard.press("Enter");
     await expect(sidebarFolder(window, "Reading")).toHaveCount(1);
 
-    // The Folder's ⋯ has it after "New Mind here": the new Folder is a Folder of its own.
+    // The Folder's ⋯ has it after "New note here": the new Folder is a Folder of its own.
     const reading = sidebarFolder(window, "Reading");
     await reading.getByTestId("folder-row").hover();
     await pointAndClick(window, reading.getByTestId("folder-menu"));
@@ -405,7 +405,7 @@ test("a Mind's ⋯ makes a Folder with that Mind in it, and ⌘Z puts it back", 
     await mind.hover();
     await pointAndClick(window, mind.getByTestId("mind-menu"));
     const entry = window.getByTestId("folder.newWith");
-    await expect(entry).toHaveText(/New Folder with this Mind/);
+    await expect(entry).toHaveText(/New Folder with this note/);
     await pointAndClick(window, entry);
     const field = nameField(window);
     await expect(field).toBeFocused();

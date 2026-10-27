@@ -403,10 +403,10 @@ test("with a sentence selected, ⌘K finds the one check by check, find support,
     await expect(palette(window).locator('[data-key^="command:check."]')).toHaveCount(1);
     if (query === "check") {
       await expect(row("mind.check").getByTestId("palette-purpose")).toHaveText(
-        "Checks this Note’s Citations, sentences and figures against your Documents, and contradictions in its Folder",
+        "Checks this note’s Citations, sentences and figures against your Documents, and contradictions in its Folder",
       );
       await expect(row("mind.checkContradictions").getByTestId("palette-purpose")).toHaveText(
-        "Where your Documents disagree with this Note’s Citations",
+        "Where your Documents disagree with this note’s Citations",
       );
     }
     await window.keyboard.press("Escape");
@@ -642,9 +642,9 @@ test('with words typed, the last row is Ask “words”: Enter opens the first m
 
   // The command typed has the question after it too.
   await openPalette(window);
-  await window.keyboard.type("new mind");
-  await expect(group(window, "actions")).toContainText("New Mind");
-  await expect(rows.last()).toContainText("Ask “new mind”");
+  await window.keyboard.type("new note");
+  await expect(group(window, "actions")).toContainText("New note");
+  await expect(rows.last()).toContainText("Ask “new note”");
 
   // ">" asks for actions only: no question to ask there.
   await window.keyboard.press("ControlOrMeta+a");

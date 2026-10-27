@@ -58,7 +58,7 @@ const WORDS = {
     tableCells: "10 table cells",
     found: "22 Citations found",
     unsupported: "22 need a look",
-    ask: "Check this Note’s 11 claims against your Documents?",
+    ask: "Check this note’s 11 claims against your Documents?",
     notNow: "Not now",
     allChecked: "Everything checked",
   },

@@ -180,7 +180,7 @@ test("the one Check in a Folder checks the cited sentence and its contradiction 
   await expect(card.getByTestId("badge-check-mind")).toHaveText("Check");
   await pointAndClick(window, card.getByTestId("badge-check-mind"));
   const ask = card.getByTestId("mind-check-ask");
-  await expect(ask).toContainText("Check this Note’s claim against this Folder’s Documents?");
+  await expect(ask).toContainText("Check this note’s claim against this Folder’s Documents?");
   await expect(ask).not.toContainText("About");
   await pointAndClick(window, ask.getByTestId("mind-check-check"));
 
@@ -213,7 +213,7 @@ test("In Chinese and a narrow window: a Mind in no Folder, and a Folder of only 
   await runFromPalette(window, "矛盾", "核对矛盾");
   // A check the User started that can't run opens the card to say why.
   const problem = window.getByTestId("check-card").getByTestId("checks-problem");
-  await expect(problem).toContainText("这个 Mind 不在文件夹中");
+  await expect(problem).toContainText("这篇笔记不在文件夹中");
 
   await bridge(window).folder("潮汐", ["Tides"]);
   await pointAndClick(window, problem.getByTestId("checks-problem-close"));

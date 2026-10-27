@@ -143,7 +143,7 @@ describe("Asking before checking against Documents added since", () => {
   });
 });
 
-describe("The one Check", () => {
+describe("Check this note", () => {
   const SINCE = "2026-10-02T14:20:00.000Z";
   const unchanged: MindCheckPlan = { kind: "unchanged", since: SINCE };
 

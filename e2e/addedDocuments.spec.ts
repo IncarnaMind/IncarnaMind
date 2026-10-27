@@ -246,8 +246,8 @@ for (const widened of [false, true]) {
     const ask = window.getByTestId("check-card").getByTestId("mind-check-ask");
     await expect(ask).toContainText(
       widened
-        ? "Check this Note’s claim against your Documents?"
-        : "Check this Note’s claim against this Folder’s Documents?",
+        ? "Check this note’s claim against your Documents?"
+        : "Check this note’s claim against this Folder’s Documents?",
     );
     await expect(ask).toContainText("About $");
     await motionSettled(window);

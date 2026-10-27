@@ -33,7 +33,7 @@ Before you open the pull request, read every new Chinese string aloud. If it sou
 
 The words from `CONTEXT.md`, then the ones the interaction rules bring in. Where Chinese apps disagree, the choice follows the one most of them show.
 
-A Note is the document the User writes in (the old Mind); your text is a Block the User writes (the old Note). The code and the data keep `mind`. Today's strings still say Mind for the document and use 笔记 for your text: the string slices replace both, and `tests/shared/noteWording.test.ts` lists what each slice leaves behind.
+A Note is what the User writes in; your text is a Block the User writes. The code and the data keep `mind`. 笔记 means the Note, and 你写的内容 means your text.
 
 ### IncarnaMind's own words
 
@@ -42,7 +42,7 @@ A Note is the document the User writes in (the old Mind); your text is a Block t
 | Note | 笔记 | The place the User writes in. 篇 counts it in prose ("3 篇笔记"); a label takes no measure word: "笔记（3）", "收起笔记". Where the User first meets it (the example's banner, the first empty Note, New Note's tooltip) one sentence says what it is: "笔记：在这里写作、向文档提问，每条引文都会核对。" |
 | Assistant | 助手 | The one per window. "展开助手", "收起助手". As Kimi, Doubao and Yuanbao call themselves (智能助手, AI 助手). |
 | Conversation | 对话 | New chat is "新对话", History "历史对话", counted with 个: "3 个对话". As Doubao, Yuanbao, DeepSeek, Qwen, Feishu, Cherry Studio and Open WebUI show it. |
-| Your text | 你写的内容 | A Block the User writes, as opposed to one the assistant wrote. Today's strings use 笔记 for it too ("笔记内容", "正在搜索笔记和文档…"); the string slices replace those, so 笔记 means the Note. |
+| Your text | 你写的内容 | A Block the User writes, as opposed to one the assistant wrote. The strings say 你写的内容 for it ("你写的内容", "正在搜索你写的内容和文档…"); 笔记 means the Note. |
 | Block | 块 | "块选项". As Feishu does. |
 | Question | 问题 | Ask: 提问. "就此文档提问". |
 | Answer | 回答 | Generate: 生成; Regenerate: 重新生成; Stop: 停止. |
@@ -62,7 +62,7 @@ A Note is the document the User writes in (the old Mind); your text is a Block t
 | Selected text (in a Document) | 所选文字, 选中的文字 | Words the User selected in a Document's viewer, to ask about, add to a note or copy: "就此提问", "“{文档}”中选中的文字没有发送". Not a Quote block (引述). |
 | Location | 位置 | "第 3 页", "第 2 张幻灯片", "第 4–6 行", "§ 标题", a web page's "§ 历史，第 3 段". |
 | Cited page | 引用页面 | The saved picture of what a Citation points at: "打开引用页面". |
-| Source pack | PDF 引用页面合集 | The export of a Mind's cited pages. |
+| Source pack | PDF 引用页面合集 | The export of a Note's cited pages. |
 | Web page to share | 可分享的网页 | The export a reader opens in a browser, each Citation's quote a click away: "可分享的网页（.html）". A template puts no space around `{format}`: the space comes only beside a Latin name ("导出为 PDF", "导出为可分享的网页（.html）"). |
 | Footnote | 脚注 | As Word, WPS and Feishu. "插入脚注", "脚注 3". |
 | Reference record | 引用信息 | The "Cite as" panel's title too. Its fields: 类型、标题、作者、日期、期刊（出处）、卷、期、页码、出版者、DOI、网址、语言. |
@@ -78,15 +78,15 @@ A Note is the document the User writes in (the old Mind); your text is a Block t
 | Reference without a Document | 还没有文档 | Its list: "添加 PDF…" links it. |
 | Citation style | 引用格式 | "引用格式…", "引用格式已改为 APA 第 7 版". A style keeps its own name; its variant goes in full-width brackets, in the standard's words: "GB/T 7714—2015（顺序编码制）", "（著者-出版年制）". |
 | A citation style's form | 作者-年份, 作者, 编号, 代号, 脚注 | What the picker says after each style's name, for author-date, author, numeric, label and note. A label ("[Smi10]") is 代号, never 标签, which is a Tag. |
-| Bibliography | 参考文献 | Its heading in the Mind and in Chinese styles' exports. |
-| Style (a Mind's font and text size) | 样式 | "样式…" in the Mind's menu. Its parts: 字体 (font), 字号 (text size: 小、默认、大) and "设为新建 Mind 的默认样式". The three fonts are 默认, 衬线 and 等宽, as Notion's; a font the computer lacks is "此电脑未安装该字体". |
-| Format (the selection menu's Aa) | 格式 | As Word and WPS name formatting: 字体、字号; alignment 左对齐、居中、右对齐、两端对齐; 行距 with 单倍、1.15、1.5、双倍、自定义…; space around a paragraph 添加/移除段前间距, 添加/移除段后间距, as Google Docs words it; 增加缩进, 减少缩进 and 首行缩进 2 字符; 文字颜色 with 自动; 上标, 下标. A Mind's own line spacing in 样式 is 行距 too, its first choice 默认. |
+| Bibliography | 参考文献 | Its heading in the Note and in Chinese styles' exports. |
+| Style (a Note's font and text size) | 样式 | "样式…" in the Note's menu. Its parts: 字体 (font), 字号 (text size: 小、默认、大) and "设为新建笔记的默认样式". The three fonts are 默认, 衬线 and 等宽, as Notion's; a font the computer lacks is "此电脑未安装该字体". |
+| Format (the selection menu's Aa) | 格式 | As Word and WPS name formatting: 字体、字号; alignment 左对齐、居中、右对齐、两端对齐; 行距 with 单倍、1.15、1.5、双倍、自定义…; space around a paragraph 添加/移除段前间距, 添加/移除段后间距, as Google Docs words it; 增加缩进, 减少缩进 and 首行缩进 2 字符; 文字颜色 with 自动; 上标, 下标. A Note's own line spacing in 样式 is 行距 too, its first choice 默认. |
 | Folder | 文件夹 | |
 | Source location | 磁盘上的文件夹 | The sidebar's name for the files as they are on disk; the Library's filter names it 文件位置. |
 | Tag | 标签 | Tagging is 打标签; automatic tagging is 自动打标签. |
 | Library | 资料库 | Where the User's files live in ChatGPT (资料库), Yuanbao (资料库, 加入资料库) and LobeChat. Not 知识库, which in Feishu and Yuque is a wiki and in AI clients a collection built for one assistant. |
 | Organize | 整理 | "整理此文件夹". As Tencent Docs (批量整理文档) and Apple Notes (整理备忘录). |
-| Not in a Folder | 不在文件夹中 | One place for Documents and Minds in no Folder. |
+| Not in a Folder | 不在文件夹中 | One place for Documents and Notes in no Folder. |
 | Tab | 标签页 | As Chrome, Edge and VS Code. A preview tab is kept with 保持打开. |
 | Group (of tabs) | 栏 | "第 1 栏", "向右拆分", "各栏等宽", "移动到右侧一栏". |
 | Tool | 工具 | Calling one: 调用. |
@@ -98,7 +98,7 @@ A Note is the document the User writes in (the old Mind); your text is a Block t
 | Proposal | 修订 | Accept: 接受; Reject: 拒绝; Accept all: 全部接受; Reject all: 全部拒绝. As WPS and Feishu (接受修订, 拒绝修订). |
 | AI text | AI 生成的文字 | Not shown as a word in the interface yet. "Mark as mine" is 标为我写的, and its undo line 已标为你写的. |
 | Checkpoint | 检查点 | |
-| History (a Mind's versions) | 历史版本 | "历史版本", "恢复此版本", "当前版本". As Yuque and Tencent Docs. Not 历史对话, which is the assistant's. |
+| History (a Note's versions) | 历史版本 | "历史版本", "恢复此版本", "当前版本". As Yuque and Tencent Docs. Not 历史对话, which is the assistant's. |
 | Citation check | 核对 | "正在核对引文…", "无法核对". |
 | Quote not found | 未找到引文 | |
 | Unsupported | 无依据 | |
@@ -106,10 +106,10 @@ A Note is the document the User writes in (the old Mind); your text is a Block t
 | Contradicted | 与文档矛盾 | |
 | Needs re-check | 需重新核对 | |
 | Not checked | 未核对 | A claim that wasn't checked: the model declined, its reply couldn't be read, or a limit stopped the run ("未核对：已达花费上限"). |
-| Claim | 说法 | What a check looks at, in an Answer, a Mind or a document someone else wrote. Counted with 条: "核对 24 条说法". Not 论断, an argued conclusion, or 主张, a party's claim in law: neither fits a sentence in a contract or a site report. |
+| Claim | 说法 | What a check looks at, in an Answer, a Note or a document someone else wrote. Counted with 条: "核对 24 条说法". Not 论断, an argued conclusion, or 主张, a party's claim in law: neither fits a sentence in a contract or a site report. |
 | Shorten (an AI edit) | 精简 | "精简", "正在精简…". Not 缩写, which means abbreviate. The others: 润色, 翻译, 解释. |
 | Find support | 查找出处 | No longer a command: only a ⌘K keyword for Check against Documents, which offers Add as Citation. 出处 is the word for a source a writer cites (注明出处); not 依据, which reads as a check. |
-| Check record | 核对记录 | "将核对记录导出为 PDF". The PDF or CSV of what a Mind's checks left. |
+| Check record | 核对记录 | "将核对记录导出为 PDF". The PDF or CSV of what a Note's checks left. |
 | Check against Documents | 对照文档核对 | Gives a verdict: 有依据, 无依据 or 与文档矛盾. |
 | Check someone else's PDF | 核对别人的 PDF | The + menu and ⌘K command (#1941). The verb is 核对, as for a Citation; the card it opens still says 核对这个文档. |
 | Need a look | 需要留意 | The claims that are unsupported or contradicted: "3 条需要留意" in Verify. The Note's health counts its unsupported sentences with 处: "2 处需要留意". |

@@ -445,10 +445,10 @@ test("a check that fails says why in the interface language, and again in the ot
   });
   await pointAndClick(window, card.getByTestId("verify-check"));
   const problem = window.getByTestId("verify-problem");
-  await expect(problem).toContainText("Couldn’t check: This Mind doesn’t verify a document.");
+  await expect(problem).toContainText("Couldn’t check: This note doesn’t verify a document.");
   await setLanguage(window, "zh-CN");
-  await expect(problem).toContainText("无法核对：这个 Mind 没有在核对文档。");
+  await expect(problem).toContainText("无法核对：这篇笔记没有在核对文档。");
   await setLanguage(window, "en");
-  await expect(problem).toContainText("Couldn’t check: This Mind doesn’t verify a document.");
+  await expect(problem).toContainText("Couldn’t check: This note doesn’t verify a document.");
   await app.close();
 });
