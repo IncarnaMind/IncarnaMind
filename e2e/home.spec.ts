@@ -152,7 +152,7 @@ for (const [language, width] of [
     }
   });
 
-  test(`New Mind on Home makes a Mind in one click, the cursor in its title; its ▾ opens the sidebar's New menu by mouse and keyboard; ⌘J goes to the assistant and Home stays (${language}, ${width}px)`, async () => {
+  test(`New note on Home makes a Mind in one click, the cursor in its title; its ▾ opens the sidebar's New menu by mouse and keyboard; ⌘J goes to the assistant and Home stays (${language}, ${width}px)`, async () => {
     const t = (key: MessageKey, params?: MessageParams) => translate(language, key, params);
     let { app, window } = await launchApp(dataDir);
     await makeMinds(window, ["Ledger"]);

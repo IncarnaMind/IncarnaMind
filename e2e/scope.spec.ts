@@ -241,7 +241,7 @@ test("a Mind in a Folder asks within it by default: its chip can be taken out to
     );
     await expectReadyDocuments(window, 2);
 
-    // "New Mind here", from the Folder's menu.
+    // "New note here", from the Folder's menu.
     const folder = sidebarFolder(window, "Ocean research");
     await folder.getByTestId("folder-row").click({ button: "right" });
     await folder.getByTestId("folder.newMind").click();

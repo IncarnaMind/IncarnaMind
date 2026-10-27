@@ -30,7 +30,7 @@ import {
 /**
  * Under an Answer, Write as a note comes first and names what it does; Add to note names the
  * Mind it adds to when the Mind is the User's and empty, or the Answer is a long one with
- * Citations, and the ▾ keeps the other Minds and New Mind. One tip says so on the first Answer
+ * Citations, and the ▾ keeps the other Minds and New note. One tip says so on the first Answer
  * with Citations, at most twice on a device.
  */
 const WORDS = {
@@ -141,7 +141,7 @@ for (const language of LANGUAGES) {
     const editor = editorOf(window);
     await expect(editor).toHaveText("");
 
-    // The other Minds and New Mind stay behind the ▾.
+    // The other Minds and New note stay behind the ▾.
     await pointAndClick(window, answer.getByTestId("answer-add-to"));
     await expect(window.getByTestId("add-to-picker")).toBeVisible();
     await window.keyboard.press("Escape");

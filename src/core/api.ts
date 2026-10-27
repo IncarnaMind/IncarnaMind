@@ -5166,8 +5166,8 @@ export type LimitRelation = "at most" | "at least";
 /**
  * How a check worked out a figure the sentence states but the Documents don't
  * (#707): the figure, calculated from numbers they state (ADR-0021), and the
- * number the sentence writes for it. They agree to the sentence's rounding,
- * and the sentence is supported, or they don't, and it is contradicted.
+ * number the sentence writes for it. They agree to the sentence's rounding;
+ * agreement settles only that number, never the whole sentence by itself.
  */
 export interface ClaimCalculation {
   figure: CalculatedFigure;

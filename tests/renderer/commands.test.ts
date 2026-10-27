@@ -94,9 +94,9 @@ describe("New Folder with these", () => {
     const three = selecting(["document", "a"], ["document", "b"], ["document", "c"]);
     expect(saysIn(NOWHERE, "en")).toBe("New Folder with these");
     expect(saysIn(selecting(["document", "a"]), "en")).toBe("New Folder with this Document");
-    expect(saysIn(selecting(["mind", "m"]), "en")).toBe("New Folder with this Mind");
+    expect(saysIn(selecting(["mind", "m"]), "en")).toBe("New Folder with this note");
     expect(saysIn(three, "en")).toBe("New Folder with 3 Documents");
-    expect(saysIn(selecting(["mind", "m"], ["mind", "n"]), "en")).toBe("New Folder with 2 Minds");
+    expect(saysIn(selecting(["mind", "m"], ["mind", "n"]), "en")).toBe("New Folder with 2 notes");
     expect(saysIn(selecting(["mind", "m"], ["document", "a"]), "en")).toBe(
       "New Folder with 2 items",
     );

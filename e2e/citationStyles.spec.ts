@@ -511,7 +511,7 @@ test("in Chinese, a Mind that takes GB/T 7714 by default says so once on the und
       return editor;
     };
     const message = window.getByTestId("undo-line").getByTestId("undo-message");
-    const notice = "此 Mind 引用了论文，引用格式已设为 GB/T 7714—2015（顺序编码制）";
+    const notice = "此笔记引用了论文，引用格式已设为 GB/T 7714—2015（顺序编码制）";
 
     // The first Mind: the line says so, with Change and Undo; Change opens the picker.
     await chineseMind("第一章");
@@ -612,7 +612,7 @@ for (const release of ["a second own note", "an own export"] as const) {
     await pointAndClick(window, prompt.getByTestId("citation-style-prompt-dismiss"));
     await expect(prompt).toHaveCount(0);
     await expect(window.getByTestId("undo-line")).toContainText(
-      "Won’t ask about a citation style in this Mind",
+      "Won’t ask about a citation style in this note",
     );
     await pointAndClick(window, window.getByTestId("undo-action"));
     await expect(prompt).toBeVisible();
@@ -642,7 +642,7 @@ test("the style chosen for a Mind in a Folder, from its menu, is the one a new M
   await openPickerFromRow(window, folder.getByTestId("mind-row").filter({ hasText: "Chapter 1" }));
   await chooseStyle(window, "ieee", "IEEE");
 
-  // "New Mind here", from the Folder's menu: it starts in IEEE, ticked in its picker.
+  // "New note here", from the Folder's menu: it starts in IEEE, ticked in its picker.
   await pointAndClick(window, folder.getByTestId("folder-row"), { button: "right" });
   await pointAndClick(window, folder.getByTestId("folder.newMind"));
   const rows = folder.getByTestId("mind-row");

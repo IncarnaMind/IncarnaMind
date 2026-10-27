@@ -87,7 +87,7 @@ const badge = (window: Page) => window.getByTestId("check-badge");
 const stateWords = (window: Page) => badge(window).locator(".check-badge-words");
 
 /**
- * Runs Check this Mind from its card. It asks before it names the claims; a re-check of one
+ * Runs Check this note from its card. It asks before it names the claims; a re-check of one
  * edited claim may run at once, so wait for the question, the run, or the mark to change.
  */
 async function checkWholeMind(window: Page, from: string | null) {
