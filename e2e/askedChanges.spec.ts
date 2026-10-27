@@ -130,6 +130,7 @@ test("“write a summary page” makes the page with the summary applied, “mak
 
   // Typed after the summary, its line says why it can't undo it, until the typing is taken back.
   await paragraphs.last().click();
+  await focusSettled(window, editor);
   await window.keyboard.press("End");
   await window.keyboard.type(" Typed.");
   await expect(paragraphs.last()).toHaveText(`${NEAP} Typed.`);
@@ -319,6 +320,7 @@ test("an Answer written again replaces what it applied with what it writes now, 
   await window.keyboard.press("ControlOrMeta+Shift+z");
   await expect(paragraphs).toHaveText([`${SPRING} It says more.`, `${NEAP} It says more.`]);
   await paragraphs.last().click();
+  await focusSettled(window, editor);
   await window.keyboard.press("End");
   await window.keyboard.type(" Typed.");
   await expect(paragraphs.last()).toHaveText(`${NEAP} It says more. Typed.`);
