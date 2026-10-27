@@ -30,7 +30,7 @@ const WRITES_THEN_CITES: readonly Admitted[] = [
     model: "anthropic/claude-haiku-5-5",
     since: "2026-10-26",
     flows: ["question"],
-    gate: "Against citing first, paired, within one item in 30: gating 65 on this code (load median 11), 2.75 → 2.12 calls, done −0.4 s, cited 62 → 62, judged right 60 → 60, every Citation found 62 → 64; before its ending waited for every fix, gating 65 twice, cited 121 → 122, right 124 → 122, found 126 → 126; on earlier wordings, hard tier 225, cited 150 → 155, right 207 → 209, and everyday 39; no new duplicate, false Supported, unmade change or tool text.",
+    gate: "Against citing first, paired, within one item in 30: gating 65 on this code (load median 6), 2.89 → 2.20 calls, done −0.4 s, cited 61 → 61, judged right 61 → 59, every Citation found 63 → 62; on its earlier endings, gating 65 three times, cited 183 → 184, right 184 → 182, found 188 → 190; on earlier wordings, hard tier 225, cited 150 → 155, right 207 → 209, and everyday 39; no new duplicate, false Supported, unmade change or tool text.",
   },
 ];
 
