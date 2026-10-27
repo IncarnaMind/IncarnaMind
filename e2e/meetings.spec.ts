@@ -244,7 +244,7 @@ test("a meeting records from the + menu, after the one-time notice: the bar, ⌘
   // It can't be undone, so the line asks first; Esc keeps it.
   await audio.getByTestId("meeting-audio-delete").click();
   const confirm = window.getByTestId("meeting-audio-confirm");
-  await expect(confirm).toContainText("for good? Your notes stay.");
+  await expect(confirm).toContainText("for good? The note stays.");
   await expect(confirm.getByTestId("meeting-audio-delete-confirm")).toBeFocused();
   const question = await confirm.textContent();
   await window.keyboard.press("Escape");

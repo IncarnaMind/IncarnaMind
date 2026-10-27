@@ -505,7 +505,7 @@ async function notes(take: Take): Promise<void> {
   await hand.zoomOut();
 }
 
-/** Scene 6: Check this Mind marks the wrong figure again; it is corrected and the mark turns green. */
+/** Scene 6: Check this note marks the wrong figure again; it is corrected and the mark turns green. */
 async function check(take: Take): Promise<void> {
   const { window, hand, film, script } = take;
   const editor = window.getByTestId("mind-editor");

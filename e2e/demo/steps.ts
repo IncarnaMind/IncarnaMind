@@ -74,7 +74,7 @@ export async function command(
 }
 
 /**
- * Runs Check this Mind with no one watching and waits until every sentence has its mark. The
+ * Runs Check this note with no one watching and waits until every sentence has its mark. The
  * question that comes with its estimate is answered, as a person does.
  */
 export async function checkTheMind(window: Page, script: DemoScript): Promise<void> {
