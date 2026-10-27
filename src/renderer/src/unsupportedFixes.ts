@@ -29,7 +29,7 @@ import { makeMine } from "./editor/aiText";
 import { citationsOf } from "./editor/alreadyCited";
 import { paragraphPlaces, type ShownClaim, shownClaims } from "./editor/claimChecks";
 import { asOneStep, offerEditorUndo } from "./editor/editorUndo";
-import { writeSentenceCheck } from "./editor/figureActions";
+import { writeSentenceCheck } from "./editor/figurePlaces";
 import { requestEdit, useEdits } from "./editWithAi";
 import { translateNow } from "./i18n";
 import { useNotices } from "./notices";

@@ -5,7 +5,7 @@ import { type FigureSchedule, type FigureScheduleRow, MIND_CONTENT_FIELD } from 
 import { fingerprintOfMind } from "../../shared/mindState";
 import { useChecks } from "./checks";
 import { core } from "./core";
-import { figurePlace } from "./editor/figureActions";
+import { figurePlace } from "./editor/figurePlaces";
 import { mindEditor } from "./editor/openEditors";
 import { scrollMindTo } from "./editor/reviewPick";
 import { groupsMerged } from "./layoutSlice";

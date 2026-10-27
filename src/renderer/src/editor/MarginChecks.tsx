@@ -12,7 +12,7 @@ import { ClaimOutline } from "./ClaimOutline";
 import { useCardPlace } from "./checkPlace";
 import { textBlockEdited } from "./citationNumbers";
 import { type ShownClaim, shownClaims } from "./claimChecks";
-import { figurePlace } from "./figureActions";
+import { figurePlace } from "./figurePlaces";
 import type { ClaimMarkState } from "./icons";
 import { scrollMindTo } from "./reviewPick";
 

@@ -230,10 +230,6 @@ export function FigureScheduleRowView({
       data-kid={kid ? (line.input ? "input" : "part") : undefined}
       data-state={kid ? undefined : glyph}
       className={`figure-grid figure-row ${selected.selected ? "is-selected" : ""} ${line.omitted ? "is-omitted" : ""} ${menu.open ? "has-menu" : ""}`}
-      onContextMenu={(event) => {
-        if (!selected.selected) useSelection.getState().choose("figures", lineRef(mindId, line));
-        objectMenu.rowProps.onContextMenu(event);
-      }}
       onClick={(event) => {
         if ((event.target as Element).closest("button:not([data-tree-row]),[role=menu]")) return;
         main.current?.focus();
