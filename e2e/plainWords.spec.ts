@@ -3,11 +3,12 @@ import { join } from "node:path";
 import { expect, type Locator, type Page, test } from "@playwright/test";
 import { translate } from "../src/shared/i18n";
 import {
-  addDocuments,
   addFilesLabel,
+  coreOf,
   createDataFolder,
   dismissChatSetup,
   documentIdOf,
+  expectReadyDocuments,
   interceptOpenPath,
   launchApp,
   openDocumentAt,
@@ -15,6 +16,7 @@ import {
   pointAndClick,
   removeDataFolder,
   setLanguage,
+  setSidebarWidth,
   setWindowSize,
 } from "./app";
 
@@ -106,6 +108,9 @@ for (const [language, width] of [
 
 type Pick = { canceled: boolean; filePaths: string[] };
 
+const SIDEBAR_MIN = 165;
+const SIDEBAR_DEFAULT = 248;
+
 for (const language of ["en", "zh-CN"] as const) {
   test(`each of the five new buttons opens its own door (${language})`, async () => {
     const { app, window } = await launchApp(dataDir);
@@ -134,42 +139,91 @@ for (const language of ["en", "zh-CN"] as const) {
         }, pick);
       const folder = join(sources, "Reading");
       await mkdir(folder, { recursive: true });
-
-      // The sidebar's two: Add files asks the system for files; Link a folder asks for a folder
-      // and opens its dialog, which Escape closes with nothing linked.
+      const none = translate(language, "library.none");
       const sidebar = window.getByTestId("documents-empty");
-      await expect(sidebar).toBeVisible();
-      await sidebar.getByTestId("documents-empty-add-files").click();
-      await expect.poll(async () => (await asked()).length).toBe(1);
+      const dialog = window.getByTestId("link-folder-dialog");
+
+      // The empty sidebar at its narrowest, as the footer row is checked: the line and both ways
+      // in stay visible, each inside the sidebar's own box, nothing pushed out of it.
+      await expect(sidebar.getByText(none, { exact: true })).toBeVisible();
+      await setSidebarWidth(window, SIDEBAR_MIN);
+      const sidebarBox = await window.getByTestId("sidebar").boundingBox();
+      if (!sidebarBox) throw new Error("The sidebar isn't visible.");
+      for (const part of [
+        sidebar.getByText(none, { exact: true }),
+        sidebar.getByTestId("documents-empty-add-files"),
+        sidebar.getByTestId("documents-empty-link-folder"),
+      ]) {
+        await expect(part).toBeVisible();
+        const box = await part.boundingBox();
+        if (!box) throw new Error("A part of the empty sidebar isn't visible.");
+        expect(box.x).toBeGreaterThanOrEqual(sidebarBox.x);
+        expect(box.y).toBeGreaterThanOrEqual(sidebarBox.y);
+        expect(box.x + box.width).toBeLessThanOrEqual(sidebarBox.x + sidebarBox.width);
+        expect(box.y + box.height).toBeLessThanOrEqual(sidebarBox.y + sidebarBox.height);
+      }
+      await screenshot(window, `sidebar-empty-narrow-${language}`);
+      await setSidebarWidth(window, SIDEBAR_DEFAULT);
+
+      // The sidebar's two: Link a folder asks the system for a folder and opens its dialog, which
+      // Escape closes with nothing linked.
       await answer({ canceled: false, filePaths: [folder] });
       await sidebar.getByTestId("documents-empty-link-folder").click();
-      const dialog = window.getByTestId("link-folder-dialog");
+      await expect.poll(async () => (await asked()).length).toBe(1);
       await expect(dialog).toBeVisible();
+      await expect(dialog.getByTestId("link-folder-files")).toBeVisible();
       expect((await asked()).at(-1)).toBe("openDirectory");
       await window.keyboard.press("Escape");
       await expect(dialog).toBeHidden();
 
+      // Add files asks for files, and the file the sheet answers is added: the sidebar's count
+      // moves and its empty line gives way to the Document's row.
+      const orders = join(sources, "Harbour orders.csv");
+      await copyFile(join(FIXTURES, "Orders.csv"), orders);
+      await answer({ canceled: false, filePaths: [orders] });
+      await sidebar.getByTestId("documents-empty-add-files").click();
+      await expect.poll(async () => (await asked()).length).toBe(2);
+      await expect(window.getByTestId("library-row-count")).toHaveText("1");
+      const row = window.getByTestId("document-list-item");
+      await expect(row).toHaveCount(1);
+      await expect(row).toContainText("Harbour orders");
+      await expect(sidebar).toHaveCount(0);
+      await expectReadyDocuments(window, 1);
+
+      // The Library's Add door needs the Library empty again, so take the Document back through
+      // the core: its own pass then starts from nothing too.
+      const ordersId = await documentIdOf(window, "Harbour orders");
+      await (await coreOf(window)).evaluate((core, id) => core.deleteDocument(id), ordersId);
+      await expect(row).toHaveCount(0);
+      await expect(window.getByTestId("library-row-count")).toHaveText("0");
+      await expect(window.getByTestId("documents-empty")).toBeVisible();
+
       // The Library's two: the same doors, where the Library is empty too.
       await pointAndClick(window, window.getByTestId("open-library"));
       const library = window.getByTestId("library-empty");
-      await expect(
-        library.getByText(translate(language, "library.none"), { exact: true }),
-      ).toBeVisible();
-      await answer({ canceled: true, filePaths: [] });
-      await library.getByTestId("library-empty-add-files").click();
-      await expect.poll(async () => (await asked()).length).toBe(3);
+      await expect(library.getByText(none, { exact: true })).toBeVisible();
       await answer({ canceled: false, filePaths: [folder] });
       await library.getByTestId("library-empty-link-folder").click();
+      await expect.poll(async () => (await asked()).length).toBe(3);
       await expect(dialog).toBeVisible();
       await window.keyboard.press("Escape");
       await expect(dialog).toBeHidden();
-      // Nothing was linked or added, so the Library still has nothing.
+      // The dialog closed with nothing linked, so the Library still has nothing.
       await expect(window.getByTestId("library-count")).toHaveText("0");
+      await expect(library).toBeVisible();
 
-      // The empty sheet's one: its file's own app is asked to open the file.
+      // Add files here adds a real workbook too: the Library counts it and shows its row.
       const workbook = join(sources, "Regional Revenue.xlsx");
       await copyFile(join(FIXTURES, "Regional Revenue.xlsx"), workbook);
-      await addDocuments(window, [workbook]);
+      await answer({ canceled: false, filePaths: [workbook] });
+      await library.getByTestId("library-empty-add-files").click();
+      await expect.poll(async () => (await asked()).length).toBe(4);
+      await expect(window.getByTestId("library-count")).toHaveText("1");
+      await expect(library).toHaveCount(0);
+      await expect(window.getByTestId("library-document-name")).toHaveText("Regional Revenue");
+      await expectReadyDocuments(window, 1);
+
+      // The empty sheet's one: its file's own app is asked to open the file.
       await openDocumentAt(window, { documentId: await documentIdOf(window, "Regional Revenue") });
       const sheet = window.getByTestId("viewer-sheet");
       await sheet.getByRole("tab", { name: "Empty" }).click();
