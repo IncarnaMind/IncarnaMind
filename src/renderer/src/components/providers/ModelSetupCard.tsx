@@ -226,12 +226,15 @@ function LocalWay({ ollama, running }: { ollama: OllamaState; running: boolean }
       </span>
       <OllamaProgress ollama={ollama} />
       <OllamaAction ollama={ollama} />
-      {/* With a cloud service set up and Local mode off, the click leaves Local mode as it is. */}
-      {ollama.status?.running && ollama.keepLocal.checked && (
-        <p data-testid="setup-local-keeps" className="text-[12px] leading-[18px]">
+      {/* One line in every state, so nothing under it moves when the line below changes. */}
+      <p data-testid="setup-local-keeps" className="min-h-[18px] text-[12px] leading-[18px]">
+        {/* With a cloud service set up and Local mode off, the click leaves Local mode as it is. */}
+        {ollama.status?.running && ollama.keepLocal.checked ? (
           <OnThisComputer>{t("setup.way.local.keeps")}</OnThisComputer>
-        </p>
-      )}
+        ) : (
+          <span className="text-ink-meta">{t("setup.way.local.line")}</span>
+        )}
+      </p>
     </div>
   );
 }

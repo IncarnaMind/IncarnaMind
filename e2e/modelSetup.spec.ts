@@ -281,9 +281,7 @@ test("with no key and no AI model, the Example still opens and Set up later retu
     const card = await askFirstQuestion(window);
     await expect(card.getByTestId("setup-chatgpt")).toBeVisible();
     await expect(window.getByTestId("mind-list-item").getByTestId("example-chip")).toBeVisible();
-    // Playwright's own click, which waits for the button to stop moving: the local way's line
-    // arrives as Ollama is read, and on a computer running Ollama it moves the buttons under it.
-    await card.getByTestId("setup-later").click();
+    await pointAndClick(window, card.getByTestId("setup-later"));
     await expect(window.getByTestId("composer-input")).toHaveValue("What is in my Documents?");
   } finally {
     await app.close();
