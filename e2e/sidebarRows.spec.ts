@@ -1,6 +1,6 @@
-import { writeFile } from "node:fs/promises";
+import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { expect, type Locator, test } from "@playwright/test";
+import { expect, type Locator, type Page, test } from "@playwright/test";
 import type { EmbeddingModelStatus } from "../src/core/api";
 import {
   addDocuments,
@@ -40,6 +40,17 @@ test.afterEach(async () => {
   await removeDataFolder(dataDir);
   await removeDataFolder(sources);
 });
+
+/** Keeps a screenshot of the window, once it has settled, when INCARNAMIND_SCREENSHOTS names a folder. */
+async function screenshot(window: Page, name: string) {
+  const folder = process.env.INCARNAMIND_SCREENSHOTS;
+  if (!folder) return;
+  await window.waitForFunction(() =>
+    document.getAnimations().every((animation) => animation.playState !== "running"),
+  );
+  await mkdir(folder, { recursive: true });
+  await window.screenshot({ path: join(folder, `${name}.png`) });
+}
 
 const NARROWEST = 165;
 const DEFAULT = 248;
@@ -408,6 +419,7 @@ test("Tags need an AI model keeps one 28px line at the narrowest sidebar, in Eng
         );
         // The default width reads it whole; the narrowest gives way to an ellipsis.
         expect(clipped).toBe(width === NARROWEST);
+        await screenshot(window, `status-tagging-waits-${language}-${width}`);
       }
       // Hover gives the whole sentence, since the line can be cut.
       await expect(row).toHaveAttribute(
