@@ -698,3 +698,59 @@ test.each([undefined, []])(
     expect(result).not.toHaveProperty("remainder");
   },
 );
+
+test.each([
+  {
+    name: "a currency and scale",
+    shown: "£528.9m",
+    body: "Net debt 528.9",
+    verdict: "unsupported",
+  },
+  { name: "a scale", shown: "528.9m", body: "Net debt 528.9", verdict: "unsupported" },
+  {
+    name: "a written-out amount",
+    shown: "528.9m",
+    body: "Net debt 528,900,000",
+    verdict: "supported",
+  },
+  {
+    name: "a currency on the same amount",
+    shown: "£528,900,000",
+    body: "Net debt 528,900,000",
+    verdict: "unsupported",
+  },
+  {
+    name: "a stated currency and scale",
+    shown: "£528.9m",
+    body: "Net debt £528.9m",
+    verdict: "supported",
+  },
+  {
+    name: "a different stated amount",
+    shown: "£528.9m",
+    body: "Net debt £518.9m",
+    verdict: "contradicted",
+  },
+])(
+  "bare source digits never back or contradict $name the note adds (#2073)",
+  async ({ shown, body, verdict }) => {
+    const { result } = await checkWith({
+      figures: [target("f1", shown, "Net debt")],
+      body,
+      text: reply([item()]),
+    });
+    expect(result.figures?.[0]?.result.verdict).toBe(verdict);
+  },
+);
+
+test("a quoted heading states the scale and currency the bare digits lack", async () => {
+  const body = "Net debt (£m)\n528.9";
+  const { result } = await checkWith({
+    figures: [target("f1", "£528.9m", "Net debt")],
+    body,
+    quotes: ["528.9"],
+    text: reply([{ ...item(), source: { ...item().source, unitQuote: "Net debt (£m)" } }]),
+  });
+  expect(result.figures?.[0]?.sourceInput?.unitStatement).not.toBeNull();
+  expect(result.figures?.[0]?.result.verdict).toBe("supported");
+});

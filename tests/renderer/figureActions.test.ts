@@ -280,7 +280,7 @@ test("total roles are stored on real table rows and columns, then one Undo remov
   const row = schedule.rows.at(-1);
   if (!row) throw new Error("No amount");
   expect(row.footing).toEqual([]);
-  setFigureTotalRole(editor, schedule, row, "row", true);
+  setFigureTotalRole(editor, schedule, row, ["row"], true);
   expect(read().rows.at(-1)?.footing).toMatchObject([{ axis: "row", sum: 10, agrees: true }]);
   editor.commands.undo();
   expect(read().rows.at(-1)?.footing).toEqual([]);
@@ -288,7 +288,7 @@ test("total roles are stored on real table rows and columns, then one Undo remov
   const target = schedule.rows.at(-1);
   if (!target) throw new Error("No row");
   const before = editor.getJSON();
-  setFigureTotalRole(editor, schedule, target, "column", false);
+  setFigureTotalRole(editor, schedule, target, ["column"], false);
   const table = blocks.get(0);
   if (!(table instanceof Y.XmlElement)) throw new Error("No table");
   for (const row of table.toArray()) {

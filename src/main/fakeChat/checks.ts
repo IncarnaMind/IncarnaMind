@@ -6,9 +6,13 @@
  * lists, is unsupported and says what the quote covers and what it doesn't.
  * Offered calculate, a sentence that states a multiple ("1.1x") has it worked
  * out as the line's first number over its second (#707).
+ * A sentence whose figures are asked for one by one (#1932) gets each bound to
+ * the number nearest it in value on the Passage line that shares the most
+ * words with its row or sentence, or found nowhere when no line shares two.
  */
 
 import { SEARCH_AGAIN } from "../../core/answers/checks/searchAgain";
+import { readFigures } from "../../shared/figures";
 import { passagesIn, recordFor } from "./passages";
 import { lastUserText, type Prompt, type Reply, toolResults, userText } from "./prompt";
 
@@ -72,8 +76,8 @@ export const PARTLY_UNCITED = [
  */
 export function checkReply(prompt: Prompt, tools: readonly string[]): Reply {
   // The sentence is in the first message: the check may have been asked to search again since.
-  const asked = userText(prompt.find((message) => message.role === "user"));
-  const sentence = /<sentence>\n([\s\S]*?)\n<\/sentence>/.exec(asked)?.[1] ?? "";
+  const first = userText(prompt.find((message) => message.role === "user"));
+  const sentence = /<sentence>\n([\s\S]*?)\n<\/sentence>/.exec(first)?.[1] ?? "";
   if (/blank reply/i.test(sentence)) return { text: "" };
   if (/\brefuse\b/i.test(sentence)) return { text: "I'm sorry, I can't help with that." };
   const searches = toolResults(prompt, "search_documents");
@@ -82,6 +86,8 @@ export function checkReply(prompt: Prompt, tools: readonly string[]): Reply {
   if (searches.length === 1 && lastUserText(prompt).includes(SEARCH_AGAIN)) {
     return { tool: "search_documents", input: { query: checkWords(sentence).join(" ") } };
   }
+  const asked = /<figures>\n([\s\S]*?)\n<\/figures>/.exec(first)?.[1];
+  if (asked) return figuresReply(prompt, asked, sentence, searched);
   const words = checkWords(sentence);
   let best: { record: Record<string, unknown>; line: string; shared: number } | null = null;
   for (const passage of passagesIn(searched)) {
@@ -91,7 +97,7 @@ export function checkReply(prompt: Prompt, tools: readonly string[]): Reply {
     if (found && (!best || shared > best.shared)) best = { record: found.record, line, shared };
   }
   if (/\bno reason\b/i.test(sentence)) return { text: "Verdict: unsupported" };
-  const cited = /^The User cites this for it/m.test(asked);
+  const cited = /^The User cites this for it/m.test(first);
   const partly = cited
     ? PARTLY.find((each) => each.when.test(sentence))
     : PARTLY_UNCITED.find((each) => each.when.test(sentence));
@@ -143,5 +149,89 @@ export function checkReply(prompt: Prompt, tools: readonly string[]): Reply {
     text: contradicted
       ? `Verdict: contradicted\nThe Document says: ${best.line} [^1]`
       : `Verdict: supported\nThe Document says so [^1].`,
+  };
+}
+
+interface AskedFigure {
+  id: string;
+  shown: string;
+  context?: string;
+  label?: string;
+  saved?: unknown;
+}
+
+/** How far apart two numbers are, whatever scale each is written in. */
+const apart = (a: number, b: number) =>
+  a === 0 || b === 0 ? Math.abs(a - b) : Math.abs(Math.log10(Math.abs(a) / Math.abs(b)) % 3);
+
+function figuresReply(prompt: Prompt, asked: string, sentence: string, searched: string): Reply {
+  const figures = JSON.parse(asked) as AskedFigure[];
+  const passages = passagesIn(searched);
+  const lines = new Map<string, { record: Record<string, unknown>; marker: number }>();
+  const bound = figures.map((figure) => {
+    if (figure.saved) return { figure, line: null };
+    const about = `${figure.label ?? ""} ${figure.context ?? sentence}`;
+    let best: { record: Record<string, unknown>; quote: string; shared: number } | null = null;
+    for (const passage of passages) {
+      const found = recordFor(passage, about, lines.size + 1);
+      const quote = typeof found?.record.quote === "string" ? found.record.quote : "";
+      const words = checkWords(about);
+      const shared = checkWords(quote).filter((word) => words.includes(word)).length;
+      if (found && (!best || shared > best.shared)) best = { record: found.record, quote, shared };
+    }
+    if (!best || best.shared < 2) return { figure, line: null };
+    const known = lines.get(best.quote) ?? {
+      record: { ...best.record, marker: lines.size + 1 },
+      marker: lines.size + 1,
+    };
+    lines.set(best.quote, known);
+    return { figure, line: { quote: best.quote, marker: known.marker } };
+  });
+  if (lines.size > 0 && toolResults(prompt, "cite").length === 0) {
+    return { tool: "cite", input: { citations: [...lines.values()].map((line) => line.record) } };
+  }
+  const judged = { scope: "same", roles: "same", says: null, reading: null, relation: "equals" };
+  const items = bound.map(({ figure, line }) => {
+    if (figure.saved)
+      return {
+        id: figure.id,
+        verdict: "supported",
+        topic: "found",
+        ...judged,
+        source: null,
+        calculation: null,
+      };
+    const value = readFigures(figure.shown)[0]?.value;
+    const numbers = line ? readFigures(line.quote, { midLine: true }) : [];
+    const nearest =
+      value === undefined
+        ? -1
+        : numbers.reduce(
+            (best, each, index) =>
+              best < 0 || apart(each.value, value) < apart(numbers[best]?.value ?? 0, value)
+                ? index
+                : best,
+            -1,
+          );
+    if (!line || nearest < 0)
+      return {
+        id: figure.id,
+        verdict: "unsupported",
+        topic: "not found",
+        ...judged,
+        source: null,
+        calculation: null,
+      };
+    return {
+      id: figure.id,
+      verdict: "supported",
+      topic: "found",
+      ...judged,
+      source: { citation: line.marker, position: nearest + 1, reading: null, unitQuote: null },
+      calculation: null,
+    };
+  });
+  return {
+    text: `Verdict: supported\nFigures: ${JSON.stringify({ items, remainder: null })}`,
   };
 }

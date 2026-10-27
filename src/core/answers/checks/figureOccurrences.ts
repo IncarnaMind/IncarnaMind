@@ -9,13 +9,13 @@ import {
   type SourceGrid,
 } from "../../../shared/charts";
 import { readFigures } from "../../../shared/figures";
-import { sentenceSpans } from "../../../shared/sentences";
+import { targetHash } from "../../../shared/proposals";
 import { CALCULATED_FIGURE_NODE, CHART_NODE, type CheckFigure, type TextStretch } from "../../api";
 import { plainText } from "../../mindText";
 import { layout, textBlocks } from "../../proposals/write";
 import { nodeOf } from "../blocks";
 import { documentFigureContext } from "../calculations";
-import { type SelectedSentence, textOf } from "./sentences";
+import { type SelectedSentence, sentenceSpansIn, textOf, wordsOf } from "./sentences";
 
 export interface FigureOccurrence extends CheckFigure {
   sentence: TextStretch | null;
@@ -85,6 +85,12 @@ function tableContext(element: Y.XmlElement, grids: Map<Y.XmlElement, SourceGrid
   };
 }
 
+/**
+ * A figure's id and the context its check rests on are its own sentence's
+ * (and, in a table, its row's and column's headings), so editing another
+ * sentence of the paragraph leaves its result standing, as a sentence's own
+ * check stands (#1932).
+ */
 function inSentence(
   sentence: SelectedSentence,
   grids: Map<Y.XmlElement, SourceGrid>,
@@ -94,38 +100,51 @@ function inSentence(
   if (table?.place.header) return [];
   const raw = textOf(sentence.element);
   const parts = layout(sentence.element);
-  const expanded = parts
-    .map(({ node, start, size }) =>
-      node instanceof Y.XmlElement && node.nodeName === CALCULATED_FIGURE_NODE
-        ? (readCalculatedFigureAttributes(node.getAttributes())?.figure.shown ??
-          raw.slice(start, start + size))
-        : raw.slice(start, start + size),
-    )
-    .join("");
-  const context = [table?.header, expanded].filter(Boolean).join("\n");
-  const document = documentFigureContext([{ text: context }]);
-  const range: TextStretch = {
-    from: { blockId: sentence.blockId, offset: sentence.from },
-    to: { blockId: sentence.blockId, offset: sentence.to },
+  const spans = sentenceSpansIn(sentence.element);
+  const spanOf = (start: number, end: number) =>
+    spans.find((span) => span.from <= start && span.to >= end) ?? { from: 0, to: raw.length };
+  const around = (start: number, end: number) => {
+    const span = spanOf(start, end);
+    const words = wordsOf(sentence.element, span.from, span.to);
+    return {
+      span,
+      key: targetHash(raw.slice(span.from, span.to)),
+      context: [table?.header, words].filter(Boolean).join("\n"),
+      stretch: {
+        from: { blockId: sentence.blockId, offset: span.from },
+        to: { blockId: sentence.blockId, offset: span.to },
+      } satisfies TextStretch,
+    };
   };
-  const common = {
-    sentence: range,
-    context,
-    ...(table && { table: table.place, label: table.place.rowLabel }),
-  };
+  const document = documentFigureContext([
+    { text: [table?.header, wordsOf(sentence.element)].filter(Boolean).join("\n") },
+  ]);
+  const common = table ? { table: table.place, label: table.place.rowLabel } : {};
   const found: FigureOccurrence[] = readFigures(raw, { ...document, header: table?.header ?? null })
     .filter((reading) => reading.start >= sentence.from && reading.end <= sentence.to)
-    .map((reading) => ({
-      ...common,
-      id: JSON.stringify(["text", sentence.blockId, reading.start, reading.end, reading.chars]),
-      locator: {
-        kind: "text",
-        from: { blockId: sentence.blockId, offset: reading.start },
-        to: { blockId: sentence.blockId, offset: reading.end },
-      },
-      reading,
-      calculated: null,
-    }));
+    .map((reading) => {
+      const { span, key, context, stretch } = around(reading.start, reading.end);
+      return {
+        ...common,
+        sentence: stretch,
+        context,
+        id: JSON.stringify([
+          "text",
+          sentence.blockId,
+          key,
+          reading.start - span.from,
+          reading.end - span.from,
+          reading.chars,
+        ]),
+        locator: {
+          kind: "text",
+          from: { blockId: sentence.blockId, offset: reading.start },
+          to: { blockId: sentence.blockId, offset: reading.end },
+        },
+        reading,
+        calculated: null,
+      };
+    });
   for (const { node, start } of parts) {
     if (
       !(node instanceof Y.XmlElement) ||
@@ -143,8 +162,11 @@ function inSentence(
     });
     const reading = readings[0];
     if (readings.length !== 1 || !reading) continue;
+    const { context, stretch } = around(start, start + 1);
     found.push({
       ...common,
+      sentence: stretch,
+      context,
       id: calculated.id,
       locator: {
         kind: "text",
@@ -213,27 +235,12 @@ export function figuresInMind(blocks: Y.XmlFragment): FigureOccurrence[] {
       const blockId = element.getAttribute("id");
       if (typeof blockId !== "string") continue;
       const text = textOf(element);
-      const spans = sentenceSpans(text);
-      const occurrences = inSentence(
-        { element, blockId, from: 0, to: text.length, text, context: text, cited: [] },
-        grids,
+      found.push(
+        ...inSentence(
+          { element, blockId, from: 0, to: text.length, text, context: text, cited: [] },
+          grids,
+        ),
       );
-      for (const occurrence of occurrences) {
-        const span = spans.find(
-          (each) => each.from <= occurrence.reading.start && each.to >= occurrence.reading.end,
-        );
-        found.push(
-          span
-            ? {
-                ...occurrence,
-                sentence: {
-                  from: { blockId, offset: span.from },
-                  to: { blockId, offset: span.to },
-                },
-              }
-            : occurrence,
-        );
-      }
     }
   }
   return found;

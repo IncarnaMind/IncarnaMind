@@ -1,77 +1,124 @@
-import React, { useRef } from "react";
-import type { FigureScheduleRow } from "../../../../core/api";
-import { formatDateTime } from "../../../../shared/dates";
+import { type ReactNode, useRef } from "react";
+import type { Citation, FigureScheduleRow } from "../../../../core/api";
 import {
-  childrenOf,
+  differenceText,
   figureGroup,
+  figurePlaceText,
+  footingNotes,
   lineRef,
   reasonKey,
   type ScheduleLine,
-  shownNumber,
-  sourceOf,
+  sourceValueText,
   statusKey,
+  writtenLike,
 } from "../../../../shared/figureSchedule";
+import { formulaText } from "../../../../shared/formula";
+import { sourceParts } from "../../../../shared/sources";
 import { useLanguage, useT } from "../../i18n";
-import { useModelNames } from "../../modelNames";
 import { useSelectable, useSelection } from "../../selection";
+import { useAppStore } from "../../store";
 import { TREE_ROW } from "../../treeKeys";
-import { ChevronDownLineIcon, ChevronRightLineIcon, MoreLineIcon } from "../lineIcons";
+import { ChevronRightLineIcon, MoreLineIcon } from "../lineIcons";
 import { useObjectMenu } from "../ObjectMenu";
 import { iconButtonClass, menuClass, menuItemClass, menuRuleClass } from "../ui";
 import { usePopoverMenu } from "../usePopoverMenu";
 import type { FigureScheduleViewProps } from "./FigureScheduleView";
 
+type Glyph = "supported" | "look" | "recheck" | "not-checked" | "kept";
+
+function glyphOf(row: FigureScheduleRow): Glyph {
+  const group = figureGroup(row);
+  if (row.shown.state === "needs-recheck") return "recheck";
+  if (group === "checking") return "not-checked";
+  return group;
+}
+
+const GLYPHS: Record<Glyph, string> = {
+  supported: "✓",
+  look: "!",
+  recheck: "↻",
+  "not-checked": "",
+  kept: "–",
+};
+
+function Status({ glyph, word, why }: { glyph: Glyph; word: string; why?: string | null }) {
+  return (
+    <>
+      <span className="figure-glyph" data-glyph={glyph} aria-hidden="true">
+        {GLYPHS[glyph]}
+      </span>
+      <span className="figure-status-words">
+        <span className="figure-status-word">{word}</span>
+        {why && <span className="figure-why-word">{why}</span>}
+      </span>
+    </>
+  );
+}
+
 export function FigureScheduleRowView({
   line,
-  rows,
   mindId,
   current,
+  expandable,
   expanded,
-  parentIds,
+  chosen,
   props,
   onCurrent,
   onToggle,
   onOpen,
   onCopy,
-  sourceLabel,
 }: {
   line: ScheduleLine;
-  rows: FigureScheduleRow[];
   mindId: string;
   current: string | null;
+  expandable: boolean;
   expanded: boolean;
-  parentIds: string[];
+  /** The figures an action on this row acts on: the selection when it holds this row. */
+  chosen: readonly string[];
   props: FigureScheduleViewProps;
   onCurrent(id: string): void;
   onToggle(): void;
-  onOpen(): void;
+  onOpen(line: ScheduleLine): void;
   onCopy(): void;
-  sourceLabel: string;
 }) {
   const t = useT();
   const language = useLanguage();
+  const documents = useAppStore((state) => state.documents);
   const { parent } = line;
-  const modelNames = useModelNames();
-  const checked = [
-    parent.checkedAt ? formatDateTime(parent.checkedAt, language) : null,
-    parent.model ? modelNames(parent.model.modelId, parent.model.providerId).name : null,
-  ]
-    .filter(Boolean)
-    .join(" · ");
-  const child = line.id !== parent.id;
-  const selected = useSelectable(lineRef(mindId, line), "figures", () => {});
+  const kid = line.id !== parent.id;
+  const selected = useSelectable(lineRef(mindId, line), "figures", () => {
+    if (!kid) props.onFocusFigure(parent);
+  });
   const menu = usePopoverMenu({ focus: "first", align: "end" });
   const objectMenu = useObjectMenu(null, (row) =>
     row.querySelector<HTMLButtonElement>("[data-figure-more]"),
   );
-  const ids = selected.selected && parentIds.length ? parentIds : [parent.id];
-  const expandable = !child && childrenOf(parent, rows).length > 0;
-  const source = sourceOf(line);
-  const reason = reasonKey(parent);
-  const state = figureGroup(parent);
-  const context =
-    child && (parent.shown.state === "not-checked" || parent.shown.state === "needs-recheck");
-  const action = (label: string, run: () => void) => (
+  const main = useRef<HTMLButtonElement>(null);
+  const glyph = glyphOf(parent);
+  const unchecked = parent.shown.state === "not-checked" || parent.shown.state === "checking";
+  const sourceLink = (citation: Citation | null | undefined) => {
+    if (!citation) return null;
+    const { name, location } = sourceParts(citation, { language, documents });
+    return (
+      <button
+        type="button"
+        className="figure-link"
+        title={location ? `${name} · ${location}` : name}
+        onClick={(event) => {
+          event.stopPropagation();
+          useSelection.getState().choose("figures", lineRef(mindId, line));
+          onCurrent(line.id);
+          onOpen(line);
+        }}
+      >
+        <span className="figure-link-name">{name}</span>
+        {location && <span className="figure-link-place">· {location}</span>}
+      </button>
+    );
+  };
+  const dash = <span className="figure-dash">—</span>;
+
+  const action = (label: string, run: () => void, keys?: string) => (
     <button
       type="button"
       role="menuitem"
@@ -81,44 +128,142 @@ export function FigureScheduleRowView({
         run();
       }}
     >
-      {label}
+      <span className="flex-1">{label}</span>
+      {keys && <span className="text-ink-meta">{keys}</span>}
     </button>
   );
-  const main = useRef<HTMLButtonElement>(null);
+  const several = chosen.length > 1;
+  const looked = parent.shown.state;
+  const totals = parent.footing.map((axis) => axis.axis);
+  const acts: ReactNode[] = kid
+    ? []
+    : [
+        (looked === "not-checked" || looked === "needs-recheck" || looked === "kept") &&
+          action(
+            several ? t("figures.checkCount", { count: chosen.length }) : t("claim.checkAgain"),
+            () => props.onCheckAgain([...chosen]),
+          ),
+        looked === "contradicted" &&
+          parent.sourceInput &&
+          totals.length === 0 &&
+          action(t("figures.changeToSource", { value: sourceValueText(parent) ?? "" }), () =>
+            props.onChangeToSource([parent.id]),
+          ),
+        looked === "supported" &&
+          parent.sourceInput &&
+          !props.cited(parent) &&
+          action(t("claim.addAsCitation"), () => props.onAddCitation(parent.id)),
+        !parent.calculated &&
+          action(t("figures.chooseCitation"), () => props.onChooseCitation(parent.id)),
+        looked !== "kept" &&
+          action(
+            several ? t("figures.keepCount", { count: chosen.length }) : t("claim.keepAsView"),
+            () => props.onKeep([...chosen]),
+          ),
+        parent.place.table &&
+          action(t(totals.length > 0 ? "figures.notTotal" : "figures.total"), () =>
+            props.onTotalRole(parent.id, totals.length > 0 ? totals : ["row"], totals.length === 0),
+          ),
+      ].filter(Boolean);
+
+  const name = line.input
+    ? line.input.label
+    : line.component
+      ? (line.axis === "column"
+          ? line.component.place.table?.columnLabel
+          : line.component.place.table?.rowLabel) || line.component.reading.chars
+      : parent.reading.chars;
+  const value = line.input
+    ? line.omitted
+      ? writtenLike(parent.reading, line.input.number.value, parent.reading.decimals)
+      : line.input.number.chars
+    : line.component
+      ? line.component.reading.chars
+      : unchecked
+        ? null
+        : sourceValueText(parent);
+  const difference = kid || unchecked ? null : differenceText(parent, language);
+  const source = kid ? (
+    line.input && !line.omitted ? (
+      sourceLink(line.input.citation)
+    ) : null
+  ) : parent.calculated ? (
+    <span className="figure-formula">
+      {t("figures.calculated")} ·{" "}
+      {formulaText(
+        parent.calculated.figure.formula,
+        (input) =>
+          parent.calculated?.figure.inputs.find(
+            (each) => each.name.toLowerCase() === input.toLowerCase(),
+          )?.label ?? null,
+      )}
+    </span>
+  ) : unchecked ? null : (
+    sourceLink(parent.sourceInput?.citation ?? parent.source)
+  );
+  const reason = reasonKey(parent);
+  const status = line.omitted ? (
+    <Status glyph="look" word={t("figures.notInTable")} />
+  ) : line.input ? (
+    line.input.citation.check === "found" ? (
+      <Status glyph="supported" word={t("claim.state.supported")} />
+    ) : line.input.citation.check === "not-found" ? (
+      <Status glyph="look" word={t("figures.filter.look")} why={t("claim.state.quoteNotFound")} />
+    ) : (
+      <Status glyph="not-checked" word={t("claim.state.not-checked")} />
+    )
+  ) : kid ? null : (
+    <Status
+      glyph={glyph}
+      word={
+        glyph === "look" || glyph === "recheck" ? t("figures.filter.look") : t(statusKey(parent))
+      }
+      why={reason ? t(reason) : null}
+    />
+  );
+  const notes = kid || unchecked ? [] : footingNotes(parent);
   return (
-    <>
-      <tr
-        tabIndex={-1}
-        {...selected.rowProps}
-        {...objectMenu.rowProps}
-        data-figure-id={line.id}
-        data-input={child || undefined}
-        className={`figure-grid figure-row ${selected.selected ? "is-selected" : ""} ${line.omitted ? "is-omitted" : ""}`}
-        onContextMenu={(event) => {
-          if (!selected.selected) useSelection.getState().choose("figures", lineRef(mindId, line));
-          objectMenu.rowProps.onContextMenu(event);
-        }}
-        onClick={(event) => {
-          if ((event.target as Element).closest("button,[role=menu]")) return;
-          main.current?.focus();
-          selected.onClick(event);
-        }}
-      >
-        <td className="figure-number">{child ? "" : parent.number}</td>
-        <td className="figure-main">
+    <tr
+      {...selected.rowProps}
+      {...objectMenu.rowProps}
+      data-figure-id={line.id}
+      data-kid={kid ? (line.input ? "input" : "part") : undefined}
+      data-state={kid ? undefined : glyph}
+      className={`figure-grid figure-row ${selected.selected ? "is-selected" : ""} ${line.omitted ? "is-omitted" : ""} ${menu.open ? "has-menu" : ""}`}
+      onContextMenu={(event) => {
+        if (!selected.selected) useSelection.getState().choose("figures", lineRef(mindId, line));
+        objectMenu.rowProps.onContextMenu(event);
+      }}
+      onClick={(event) => {
+        if ((event.target as Element).closest("button:not([data-tree-row]),[role=menu]")) return;
+        main.current?.focus();
+        onCurrent(line.id);
+        selected.onClick(event);
+      }}
+    >
+      <td className="figure-number">{kid ? "" : parent.number}</td>
+      <td className="figure-main">
+        <div className="figure-main-line">
           {expandable && (
             <button
               type="button"
+              tabIndex={-1}
               className="figure-expand"
               aria-label={t(expanded ? "figures.collapse" : "figures.expand")}
+              title={t(expanded ? "figures.collapse" : "figures.expand")}
               aria-expanded={expanded}
               onClick={(event) => {
                 event.stopPropagation();
                 onToggle();
               }}
             >
-              {expanded ? <ChevronDownLineIcon /> : <ChevronRightLineIcon />}
+              <ChevronRightLineIcon />
             </button>
+          )}
+          {!kid && parent.calculated && (
+            <span className="figure-equals" title={t("figures.calculated")}>
+              =
+            </span>
           )}
           <button
             ref={main}
@@ -126,268 +271,110 @@ export function FigureScheduleRowView({
             type="button"
             tabIndex={current === line.id ? 0 : -1}
             className="figure-main-button"
+            aria-expanded={expandable ? expanded : undefined}
             onFocus={() => onCurrent(line.id)}
-            onClick={selected.onClick}
           >
-            {line.input?.label ?? line.component?.reading.chars ?? parent.reading.chars}
-            {!child && parent.calculated && (
-              <span className="figure-calc" title={t("figures.calculated")}>
-                {" "}
-                =
-              </span>
-            )}
+            {name}
           </button>
-          <div className="figure-meta">
-            {child ? (
-              <>
-                {line.axis && `${t(`figures.axis.${line.axis}`)} · `}
-                {line.omitted ? t("figures.omitted") : t("figures.retainedInput")}
-              </>
-            ) : parent.place.table ? (
-              `${parent.place.table.rowLabel} · ${parent.place.table.columnLabel}`
-            ) : parent.place.chart ? (
-              `${parent.place.chart.rowLabel} · ${parent.place.chart.seriesLabel}`
-            ) : (
-              parent.place.heading || t("figures.paragraph", { number: parent.place.paragraph })
-            )}
-          </div>
-        </td>
-        <td className="figure-value" data-label={t("figures.sourceValue")}>
-          {line.input?.number.chars ?? (line.component ?? parent).sourceShown ?? "—"}
-        </td>
-        <td className="figure-source" data-label={t("figures.source")}>
-          {!child && parent.calculated ? (
-            <button type="button" onClick={onToggle} title={parent.calculated.figure.formula}>
-              {t("figures.calculated")} · <code>{parent.calculated.figure.formula}</code>
-            </button>
-          ) : source ? (
+        </div>
+        {!kid && <div className="figure-place">{figurePlaceText(parent, language)}</div>}
+      </td>
+      <td className="figure-value" data-label={t("figures.sourceValue")}>
+        {value ?? dash}
+      </td>
+      <td className={`figure-source ${source ? "" : "is-empty"}`} data-label={t("figures.source")}>
+        {source ?? (kid ? null : dash)}
+      </td>
+      <td className="figure-difference" data-label={t("figures.difference")}>
+        {kid ? null : difference ? (
+          <span className={parent.roundedFrom === null ? "figure-delta" : ""}>{difference}</span>
+        ) : (
+          dash
+        )}
+      </td>
+      <td className="figure-status">{status}</td>
+      <td className="figure-actions">
+        {!kid && (
+          <>
             <button
+              {...menu.buttonProps}
               type="button"
-              title={sourceLabel}
-              onClick={() => {
-                useSelection.getState().choose("figures", lineRef(mindId, line));
-                onOpen();
+              tabIndex={-1}
+              data-figure-more=""
+              className={`${iconButtonClass} figure-more`}
+              aria-label={t("figures.actions", { figure: parent.reading.chars })}
+              title={t("figures.actions", { figure: parent.reading.chars })}
+              onClick={(event) => {
+                event.stopPropagation();
+                onCurrent(line.id);
+                if (!selected.selected)
+                  useSelection.getState().choose("figures", lineRef(mindId, line));
               }}
             >
-              {sourceLabel}
+              <MoreLineIcon className="size-4" />
             </button>
-          ) : (
-            "—"
-          )}
-          {line.input?.cell && (
-            <div className="figure-meta">
-              {line.input.cell.sheet ? `${line.input.cell.sheet}!` : ""}
-              {line.input.cell.ref}
-              {line.input.cell.stored !== null && (
-                <>
-                  {" "}
-                  · {t("figures.stored", { value: shownNumber(line.input.cell.stored, language) })}
-                </>
+            <div
+              {...menu.menuProps}
+              className={menuClass}
+              role="menu"
+              aria-label={t("figures.rowActions")}
+              onKeyDown={(event) => {
+                menu.menuProps.onKeyDown(event);
+                if (event.key === "Escape") event.stopPropagation();
+              }}
+            >
+              {action(t("figures.openSource"), () => onOpen(line), "↵")}
+              {action(t("figures.showInNote"), () => props.onFocusFigure(parent), "Space")}
+              {acts.length > 0 && <div className={menuRuleClass} />}
+              {acts}
+              <div className={menuRuleClass} />
+              {action(t("menu.copy"), onCopy, "⌘C")}
+            </div>
+          </>
+        )}
+      </td>
+      {notes.length > 0 && (
+        <td className="figure-why">
+          {notes.map((note) => (
+            <div key={note.axis} className="figure-why-axis">
+              {note.agrees && (
+                <div className="figure-why-line">
+                  <span className="figure-glyph" data-glyph="supported" aria-hidden="true">
+                    ✓
+                  </span>
+                  <span>{t("figures.foot.agrees")}</span>
+                </div>
+              )}
+              <div className="figure-why-line">
+                <span className="figure-glyph" data-glyph="look" aria-hidden="true">
+                  !
+                </span>
+                <span>
+                  {t(note.axis === "row" ? "figures.foot.rows" : "figures.foot.columns", {
+                    value: note.sum,
+                  })}
+                </span>
+              </div>
+              {note.omitted.length > 0 ? (
+                <div className="figure-why-more">
+                  {t(
+                    note.omitted.length > 1 ? "figures.foot.omitted.many" : "figures.foot.omitted",
+                    {
+                      rows: note.omitted.join(t("figures.foot.join")),
+                    },
+                  )}
+                </div>
+              ) : (
+                note.sourceSum && (
+                  <div className="figure-why-more">
+                    {t("figures.foot.source", { value: note.sourceSum })}
+                  </div>
+                )
               )}
             </div>
-          )}
-          {line.input && (
-            <details className="figure-quote">
-              <summary>{t("figures.quote")}</summary>
-              <blockquote>{line.input.citation.quote}</blockquote>
-              {line.input.unitStatement && (
-                <>
-                  <span>{t("figures.unitQuote")}</span>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      if (line.input?.unitStatement)
-                        props.onOpenSource(line.input.unitStatement.citation);
-                    }}
-                  >
-                    {line.input.unitStatement.citation.quote}
-                  </button>
-                </>
-              )}
-            </details>
-          )}
+          ))}
         </td>
-        <td className="figure-difference" data-label={t("figures.difference")}>
-          {child
-            ? ""
-            : parent.roundedFrom !== null
-              ? t("figures.roundedFrom", {
-                  value: shownNumber(parent.roundedFrom, language, parent.reading.unit),
-                })
-              : shownNumber(
-                  parent.difference,
-                  language,
-                  parent.reading.unit.kind === "percent" ? { kind: "points" } : parent.reading.unit,
-                )}
-        </td>
-        <td
-          className="figure-status"
-          data-state={child ? "input" : state}
-          title={checked || undefined}
-        >
-          {child ? (
-            context ? (
-              <span>
-                {t(statusKey(parent))}
-                <span className="figure-meta">{t("figures.parentContext")}</span>
-              </span>
-            ) : (
-              <span className="figure-meta">{t("figures.retainedInput")}</span>
-            )
-          ) : (
-            <>
-              <span>
-                <span aria-hidden="true" className="figure-status-icon">
-                  {state === "supported"
-                    ? "✓"
-                    : state === "look"
-                      ? "!"
-                      : state === "checking" || parent.shown.state === "needs-recheck"
-                        ? "↻"
-                        : "—"}
-                </span>
-                {state === "look" ? t("figures.filter.look") : t(statusKey(parent))}
-              </span>
-              {reason && <span className="figure-meta">{t(reason)}</span>}
-            </>
-          )}
-        </td>
-        <td className="figure-actions">
-          <button
-            {...menu.buttonProps}
-            type="button"
-            data-figure-more=""
-            className={iconButtonClass}
-            aria-label={t("figures.actions", { figure: line.input?.label ?? parent.reading.chars })}
-            onClick={(event) => {
-              event.stopPropagation();
-              onCurrent(line.id);
-              if (!selected.selected)
-                useSelection.getState().choose("figures", lineRef(mindId, line));
-            }}
-          >
-            <MoreLineIcon className="size-4" />
-          </button>
-          <div
-            {...menu.menuProps}
-            className={menuClass}
-            role="menu"
-            aria-label={t("figures.rowActions")}
-            onKeyDown={(event) => {
-              menu.menuProps.onKeyDown(event);
-              if (event.key === "Escape") event.stopPropagation();
-            }}
-          >
-            {(source || (!child && parent.calculated)) && action(t("figures.openSource"), onOpen)}
-            {action(t("figures.showInNote"), () => props.onFocusFigure(parent))}
-            {!child && (
-              <>
-                <div className={menuRuleClass} />
-                {action(t("figures.checkCount", { count: ids.length }), () =>
-                  props.onCheckAgain(ids),
-                )}
-                {parent.shown.state === "contradicted" &&
-                  parent.sourceInput &&
-                  action(t("figures.changeToSource"), () => props.onChangeToSource(ids))}
-                {parent.shown.state === "supported" &&
-                  parent.sourceInput &&
-                  action(t("claim.addAsCitation"), () => props.onAddCitation(parent.id))}
-                {!parent.calculated &&
-                  action(t("figures.chooseCitation"), () => props.onChooseCitation(parent.id))}
-                {parent.shown.state !== "kept" &&
-                  action(
-                    ids.length > 1
-                      ? t("figures.keepCount", { count: ids.length })
-                      : t("claim.keepAsView"),
-                    () => props.onKeep(ids),
-                  )}
-                {parent.place.table &&
-                  (["row", "column"] as const).map((axis) => (
-                    <React.Fragment key={axis}>
-                      {action(
-                        t(
-                          parent.footing.some((fact) => fact.axis === axis)
-                            ? `figures.notTotal.${axis}`
-                            : `figures.total.${axis}`,
-                        ),
-                        () =>
-                          props.onTotalRole(
-                            parent.id,
-                            axis,
-                            !parent.footing.some((fact) => fact.axis === axis),
-                          ),
-                      )}
-                    </React.Fragment>
-                  ))}
-              </>
-            )}
-            <div className={menuRuleClass} />
-            {action(t("menu.copy"), onCopy)}
-          </div>
-        </td>
-      </tr>
-      {!child &&
-        (parent.footing.length > 0 ||
-          (expanded && parent.calculated && parent.calculated.figure.literals.length > 0)) && (
-          <tr className={`figure-explanation-row ${selected.selected ? "is-selected" : ""}`}>
-            <td colSpan={7} className="figure-explanation">
-              {parent.footing.map((fact) => (
-                <div
-                  key={fact.axis}
-                  className={`figure-footing ${fact.agrees === false ? "has-problem" : ""}`}
-                >
-                  <span>
-                    {t(`figures.sum.${fact.axis}`, {
-                      value: shownNumber(fact.sum, language, parent.reading.unit),
-                    })}
-                  </span>
-                  {fact.agrees === false && <span> · {t("claim.state.doesntAddUp")}</span>}
-                  {parent.sourceFooting
-                    ?.filter((proof) => proof.axis === fact.axis)
-                    .map((proof) => (
-                      <div key={proof.axis}>
-                        <span>
-                          {t("figures.sourceSum", {
-                            value: shownNumber(proof.sum, language, parent.reading.unit),
-                          })}
-                          {proof.agrees === true
-                            ? ` · ${t("figures.sourceAddsUp")}`
-                            : proof.agrees === false
-                              ? ` · ${t("claim.state.doesntAddUp")}`
-                              : ""}
-                        </span>
-                        {proof.inputs.map((input) => (
-                          <div
-                            key={JSON.stringify([
-                              input.name,
-                              input.citation.passageId,
-                              input.number.at,
-                              input.cell?.ref,
-                            ])}
-                            className="figure-omitted-proof"
-                          >
-                            <span>{t("figures.omitted")}: </span>
-                            <button
-                              type="button"
-                              onClick={() => props.onOpenSource(input.citation)}
-                            >
-                              {input.label} · {input.number.chars}
-                            </button>
-                          </div>
-                        ))}
-                      </div>
-                    ))}
-                </div>
-              ))}
-              {expanded && parent.calculated && parent.calculated.figure.literals.length > 0 && (
-                <div className="figure-meta">
-                  {t("figures.literals")}:{" "}
-                  {parent.calculated.figure.literals.map((literal) => literal.text).join(", ")}
-                </div>
-              )}
-            </td>
-          </tr>
-        )}
-    </>
+      )}
+    </tr>
   );
 }

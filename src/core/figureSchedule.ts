@@ -85,8 +85,7 @@ export function augmentFigureFooting(
   }
   for (const occurrence of occurrences) {
     const next = incoming.get(occurrence.id);
-    if (!next || !same(occurrence.locator, next.locator) || next.context !== occurrence.context)
-      continue;
+    if (!next || next.context !== occurrence.context) continue;
     findings.set(next.id, next);
     if (next.result.verdict === "supported" || next.result.verdict === "contradicted")
       checked.add(next.id);
@@ -406,9 +405,10 @@ function childOf(occurrence: FigureOccurrence, owner: Owner | null) {
   return owner?.check.figures?.find((figure) => figure.id === occurrence.id) ?? null;
 }
 
+/** The id already says where in its sentence a figure is, so a sentence moved by an edit before it keeps its figures. */
 function sameIdentity(occurrence: FigureOccurrence, child: FigureCheckAttributes) {
   return (
-    same(occurrence.locator, child.locator) &&
+    occurrence.id === child.id &&
     occurrence.reading.chars === child.reading.chars &&
     same(occurrence.calculated, child.calculated)
   );

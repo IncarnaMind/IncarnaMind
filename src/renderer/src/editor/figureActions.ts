@@ -335,7 +335,7 @@ export function setFigureTotalRole(
   editor: Editor,
   schedule: FigureSchedule,
   row: FigureScheduleRow,
-  axis: "row" | "column",
+  axes: readonly ("row" | "column")[],
   total: boolean,
 ): void {
   requireCurrent(editor, schedule);
@@ -349,24 +349,55 @@ export function setFigureTotalRole(
   const tr = editor.state.tr;
   const table = at.node(tableDepth);
   const tableStart = at.start(tableDepth);
+  setTableRoles(
+    tr,
+    { table, start: tableStart },
+    at.before(tableDepth + 2) - tableStart,
+    axes,
+    total,
+  );
+  if (!tr.docChanged) return;
+  asOneStep(editor, () => editor.view.dispatch(tr));
+  offerEditorUndo(editor, (t) =>
+    t(total ? "figures.totalDone" : "figures.notTotalDone", { value: row.reading.chars }),
+  );
+}
+
+/**
+ * Marks the row or column of the cell at `cell` (an offset in `table`) a
+ * total, or not one, whatever its label says, for the footing of every figure
+ * in it (#1932). A column's role goes on each of its cells, so it survives
+ * rows added or moved.
+ */
+export function setTableRoles(
+  tr: Transaction,
+  { table, start }: { table: ProseMirrorNode; start: number },
+  cell: number,
+  axes: readonly ("row" | "column")[],
+  total: boolean,
+): void {
   const role = total ? "total" : "detail";
-  if (axis === "row") {
-    const depth = tableDepth + 1;
-    const node = at.node(depth);
-    tr.setNodeMarkup(at.before(depth), undefined, { ...node.attrs, figureRowRole: role });
-  } else {
-    const map = TableMap.get(table);
-    const cellDepth = tableDepth + 2;
-    const column = map.findCell(at.before(cellDepth) - tableStart).left;
+  const map = TableMap.get(table);
+  const rect = map.findCell(cell);
+  if (axes.includes("row")) {
+    let offset = 0;
+    for (let index = 0; index < rect.top; index++) offset += table.child(index).nodeSize;
+    const row = table.child(rect.top);
+    tr.setNodeMarkup(start + offset, undefined, { ...row.attrs, figureRowRole: role });
+  }
+  if (axes.includes("column"))
     for (const offset of new Set(
-      map.cellsInRect({ left: column, right: column + 1, top: 0, bottom: map.height }),
+      map.cellsInRect({ left: rect.left, right: rect.left + 1, top: 0, bottom: map.height }),
     )) {
       const node = table.nodeAt(offset);
       if (node)
-        tr.setNodeMarkup(tableStart + offset, undefined, { ...node.attrs, figureColumnRole: role });
+        tr.setNodeMarkup(start + offset, undefined, { ...node.attrs, figureColumnRole: role });
     }
-  }
-  if (!tr.docChanged) return;
-  asOneStep(editor, () => editor.view.dispatch(tr));
-  offerEditorUndo(editor, (t) => t(total ? `figures.total.${axis}` : `figures.notTotal.${axis}`));
+}
+
+/** Whether a Citation already follows the figure in the note, so Add as Citation has nothing to add. */
+export function figureCited(doc: ProseMirrorNode, figure: CheckFigure): boolean {
+  const place = figurePlace(doc, figure);
+  if (!place) return true;
+  return doc.nodeAt(place.to)?.type.name === CITATION_NODE;
 }

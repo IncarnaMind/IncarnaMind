@@ -787,3 +787,29 @@ test("the schedule includes compact used Analysis closure once and isolates a co
   expect(partial.rows.map((row) => row.shown.state)).toEqual(["supported", "not-checked"]);
   expect(Y.encodeStateAsUpdate(doc)).toEqual(before);
 });
+
+test.each([
+  { name: "another sentence before it is edited", edit: [0, "Overall, "], state: "supported" },
+  { name: "its own sentence is edited", edit: [27, " net"], state: "needs-recheck" },
+] as const)(
+  "a figure's result stands when $name only if its sentence is unchanged",
+  ({ edit, state }) => {
+    const blocks = note(paragraph("p", "Costs were flat. Revenue was £20."));
+    const block = blocks.get(0);
+    const before = figuresInMind(blocks)[0];
+    if (!(block instanceof Y.XmlElement) || !before) throw new Error("Missing fixture");
+    const from = textOf(block).indexOf("Revenue");
+    const sentence = textOf(block).slice(from);
+    const parent = basis(sentence);
+    markSentence(block, from, textOf(block).length, {
+      ...parent,
+      figures: [{ ...parent, ...finding(before) }],
+      remainder: null,
+    });
+    expect(project(blocks).rows.map((row) => row.shown.state)).toEqual(["supported"]);
+    const text = block.get(0);
+    if (!(text instanceof Y.XmlText)) throw new Error("Missing text");
+    text.insert(edit[0], edit[1]);
+    expect(project(blocks).rows.map((row) => row.shown.state)).toEqual([state]);
+  },
+);

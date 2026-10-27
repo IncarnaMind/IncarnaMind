@@ -86,13 +86,21 @@ function webParts(name: string, web: { site: string }): string[] {
  * "Tea, The Open Encyclopedia, § History, ¶ 3, https://tea.example/history, accessed 3 October 2026".
  * `link` is the page's address, for a format that makes it a link.
  */
+/** A Citation's Document as it is named now, and where in it, apart, for a link beside its place. */
+export function sourceParts(
+  attributes: Cited,
+  context: SourceContext,
+): { name: string; location: string | null } {
+  const t = translator(context.language);
+  return { name: nameOf(attributes, context, t), location: citedLocation(attributes, t) };
+}
+
 export function sourceText(
   attributes: Cited,
   context: SourceContext,
 ): { text: string; link: string | null } {
   const t = translator(context.language);
-  const name = nameOf(attributes, context, t);
-  const location = citedLocation(attributes, t);
+  const { name, location } = sourceParts(attributes, context);
   const found = webOf(attributes, context);
   if (!found) {
     return {

@@ -259,6 +259,16 @@ function replay(target: CheckFigure, calculations: CalculationSession): Calculat
   return { ...saved, inputs };
 }
 
+/** The source writes only digits, with no unit, currency or scale of its own or from a quoted heading, and the note's figure has one. */
+function addsToBareNumber(figure: CheckFigure["reading"], source: FigureInput): boolean {
+  return (
+    source.number.unit.kind === "plain" &&
+    source.number.scale === 1 &&
+    source.unitStatement === null &&
+    (figure.unit.kind !== "plain" || figure.scale !== 1)
+  );
+}
+
 export async function checkFigureReply(options: FigureCheckOptions): Promise<ClaimCheckResult> {
   const { requested, calculations } = options;
   const unavailable = (reason: ClaimCheckFailure = "no-evidence"): ClaimJudgment => ({
@@ -391,6 +401,19 @@ export async function checkFigureReply(options: FigureCheckOptions): Promise<Cla
       : null;
     if (agrees === null || !compared || typeof compared.value !== "number" || !evidence) {
       rows.push({ ...base, sourceInput, result: unavailable() });
+      continue;
+    }
+    // Digits alone neither back nor contradict the currency, unit or scale the note adds (#2073).
+    if (
+      sourceInput &&
+      addsToBareNumber(target.reading, sourceInput) &&
+      (!agrees || target.reading.unit.kind === "currency")
+    ) {
+      rows.push({
+        ...base,
+        sourceInput,
+        result: figureJudgment({ ...item, verdict: "unsupported" }, evidence, facts, flags),
+      });
       continue;
     }
     const difference = target.reading.value - compared.value;

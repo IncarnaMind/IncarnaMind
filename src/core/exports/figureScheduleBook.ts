@@ -1,21 +1,22 @@
+/**
+ * The Figure schedule as an Excel workpaper (#1932): a Schedule sheet with a
+ * header block (the note, when it was checked, the model, the check rules and
+ * the counts), then a row per figure and per calculated figure's input, each
+ * with the quote, Document, Location and reason; and a Sources sheet, a
+ * Citation a row, as the comparison export has, linked back to its figure.
+ */
 import { citedLocation } from "../../shared/citations";
 import { formatFullDateTime } from "../../shared/dates";
 import {
-  childrenOf,
+  differenceText,
+  figurePlaceText,
+  footingNotes,
   reasonKey,
-  type ScheduleLine,
-  shownNumber,
-  sourceOf,
+  sourceValueText,
   statusKey,
 } from "../../shared/figureSchedule";
 import { type MessageKey, type MessageParams, translate } from "../../shared/i18n";
-import type {
-  ChatModelChoice,
-  Citation,
-  FigureInput,
-  FigureSchedule,
-  FigureScheduleRow,
-} from "../api";
+import type { ChatModelChoice, Citation, FigureSchedule, FigureScheduleRow } from "../api";
 import type { Language } from "../language";
 import { figureCell } from "./figureCells";
 import type { SheetBook, SheetCell, SheetRow } from "./sheets";
@@ -23,10 +24,9 @@ import type { SheetBook, SheetCell, SheetRow } from "./sheets";
 export interface FigureScheduleBookOptions {
   language: Language;
   modelName(model: ChatModelChoice): string;
-  rules?: readonly string[];
 }
 
-const QUOTE_RESULTS: Readonly<Record<Citation["check"], MessageKey>> = {
+const CHECK_WORDS: Readonly<Record<Citation["check"], MessageKey>> = {
   found: "aiStatement.citations.found",
   "not-found": "aiStatement.citations.notFound",
   "cant-check": "aiStatement.citations.cantCheck",
@@ -35,289 +35,206 @@ const QUOTE_RESULTS: Readonly<Record<Citation["check"], MessageKey>> = {
   checking: "aiStatement.citations.checking",
 };
 
+const SCHEDULE = "schedule";
+const SOURCES = "sources";
+
+/** The one status word a row's state shows: a problem of any kind is "Needs a look". */
+export function statusWord(row: FigureScheduleRow): MessageKey {
+  const state = row.shown.state;
+  return state === "supported" ||
+    state === "kept" ||
+    state === "not-checked" ||
+    state === "checking"
+    ? statusKey(row)
+    : "figures.filter.look";
+}
+
+/** Why a row needs a look, in words: its reason, then what its footing found. */
+export function figureReason(row: FigureScheduleRow, language: Language): string {
+  const t = (key: MessageKey, params?: MessageParams) => translate(language, key, params);
+  const key = reasonKey(row);
+  return [
+    ...(key ? [t(key)] : []),
+    ...footingNotes(row).flatMap((note) => [
+      ...(note.agrees ? [t("figures.foot.agrees")] : []),
+      t(note.axis === "row" ? "figures.foot.rows" : "figures.foot.columns", { value: note.sum }),
+      ...(note.omitted.length > 0
+        ? [
+            t(note.omitted.length > 1 ? "figures.foot.omitted.many" : "figures.foot.omitted", {
+              rows: note.omitted.join(t("figures.foot.join")),
+            }),
+          ]
+        : note.sourceSum
+          ? [t("figures.foot.source", { value: note.sourceSum })]
+          : []),
+    ]),
+  ]
+    .map((part) => part.replace(/[.。]$/u, ""))
+    .join(language === "zh-CN" ? "。" : ". ");
+}
+
 export function figureScheduleBook(
   schedule: FigureSchedule,
   options: FigureScheduleBookOptions,
 ): SheetBook {
   const { language } = options;
   const t = (key: MessageKey, params?: MessageParams) => translate(language, key, params);
-  const text = (column: string, value: string): SheetCell => ({
+  const text = (column: string, value: string, wrap = false): SheetCell => ({
     column,
-    value: { kind: "text", text: value },
-    wrap: true,
+    value: value === "" ? { kind: "empty" } : { kind: "text", text: value },
+    ...(wrap && { wrap }),
   });
-  const numeric = (
-    column: string,
-    value: number | null,
-    unit?: FigureInput["number"]["unit"],
-  ): SheetCell => {
-    if (value === null) return { column, value: { kind: "empty" } };
-    if (!Number.isFinite(value)) throw new Error("A figure schedule value is not finite.");
-    const displayUnit = unit?.kind === "rate" ? undefined : unit;
-    const display = figureCell(shownNumber(value, language, displayUnit), language);
-    return {
-      column,
-      value: { kind: "number", number: value },
-      ...(display?.value.kind === "number" &&
-        display.value.number === value && {
-          format: display.format,
-        }),
-    };
+  /** A figure as a number Excel can add, shown as written, or its text when it isn't one. */
+  const amount = (column: string, value: string | null): SheetCell => {
+    const figure = value ? figureCell(value, language) : null;
+    return figure
+      ? { column, value: figure.value, format: figure.format }
+      : text(column, value ?? "");
   };
-  const time = (value: string | null) =>
-    value
-      ? formatFullDateTime(value, language, { timeZone: "UTC", twelveHour: false })
-      : t("checkRecord.notRecorded");
-  const columns: [string, string, number][] = [
-    ["number", "#", 10],
-    ["figure", t("figures.figure"), 36],
-    ["sourceValue", t("figures.sourceValue"), 24],
-    ["source", t("figures.source"), 36],
-    ["difference", t("figures.difference"), 26],
-    ["status", t("figures.status"), 26],
-    ["document", t("checkRecord.column.document"), 32],
-    ["location", t("checkRecord.column.location"), 24],
-    ["quote", t("checkRecord.column.quote"), 60],
-    ["reason", t("figures.export.reason"), 60],
-    ["formula", t("figures.export.formula"), 36],
-    ["checked", t("checkRecord.column.checked"), 26],
-    ["model", t("checkRecord.column.model"), 30],
-  ];
-  const header = (id: string, fields: readonly [string, string][]): SheetRow => ({
+  const header = (id: string, cells: [string, string][]): SheetRow => ({
     id,
     header: true,
-    cells: fields.map(([column, label]) => text(column, label)),
+    cells: cells.map(([column, label]) => text(column, label)),
   });
-  const metadata = (id: string, label: string, value: string | number): SheetRow => ({
+  const time = (value: string | null) =>
+    value ? formatFullDateTime(value, language, { timeZone: "UTC", twelveHour: false }) : "";
+  const { counts } = schedule;
+  const countLine = [
+    t("figures.supported", { count: counts.supported }),
+    counts.needsLook === 1 ? t("figures.look.one") : t("figures.look", { count: counts.needsLook }),
+    t("figures.notChecked", { count: counts.notChecked + counts.checking }),
+    ...(counts.kept > 0 ? [t("figures.yourView", { count: counts.kept })] : []),
+  ].join(" · ");
+  const info = (id: string, label: string, value: string): SheetRow => ({
     id,
-    cells: [
-      text("figure", label),
-      typeof value === "number" ? numeric("sourceValue", value) : text("sourceValue", value),
-    ],
+    cells: [text("number", label), text("figure", value)],
   });
+
   const sources: SheetRow[] = [];
-  const addSource = (
-    target: { id: string; label: string; value: number | null },
-    citation: Citation,
-    input?: FigureInput,
-    unit = false,
-    range?: string,
-  ) => {
+  const cite = (figure: string, row: string, citation: Citation) => {
     const id = `source-${sources.length}`;
-    const location = [citedLocation(citation, t), range].filter(Boolean).join(" · ");
     sources.push({
       id,
       cells: [
-        {
-          ...text("figure", target.label),
-          link: { sheet: "schedule", row: target.id, column: "figure" },
-        },
-        text("document", citation.documentName),
-        text("location", location),
-        text("quote", citation.quote),
-        numeric("value", unit ? null : (input?.number.value ?? target.value), input?.number.unit),
-        numeric("stored", unit ? null : (input?.cell?.stored ?? null)),
-        text("status", t(QUOTE_RESULTS[citation.check])),
-        text("hash", citation.contentHash),
-        text(
-          "details",
-          unit
-            ? t("figures.unitQuote")
-            : input
-              ? JSON.stringify({ name: input.name, number: input.number, cell: input.cell })
-              : "",
-        ),
+        { ...text("figure", figure, true), link: { sheet: SCHEDULE, row, column: "figure" } },
+        text("document", citation.documentName, true),
+        text("location", citedLocation(citation, t) ?? ""),
+        text("quote", citation.quote, true),
+        text("result", t(CHECK_WORDS[citation.check])),
       ],
     });
     return id;
   };
-  const reason = (row: FigureScheduleRow): string => {
-    const key = reasonKey(row);
-    return [
-      ...(key ? [t(key)] : []),
-      ...row.footing.map((fact) =>
-        t(`figures.sum.${fact.axis}`, { value: shownNumber(fact.sum, language, row.reading.unit) }),
-      ),
-      ...(row.sourceFooting ?? []).map((proof) =>
-        [
-          t("figures.sourceSum", { value: shownNumber(proof.sum, language, row.reading.unit) }),
-          ...(proof.agrees === true
-            ? [t("figures.sourceAddsUp")]
-            : proof.agrees === false
-              ? [t("claim.state.doesntAddUp")]
-              : []),
-        ].join(" · "),
-      ),
-    ].join("\n");
-  };
-  const allLines: ScheduleLine[] = schedule.rows.flatMap((parent) => {
-    const children = childrenOf(parent, schedule.rows);
-    for (const proof of parent.sourceFooting ?? []) {
-      if (parent.footing.some((fact) => fact.axis === proof.axis)) continue;
-      proof.inputs.forEach((input, index) => {
-        children.push({
-          id: `${parent.id}:${proof.axis}:retained:${index}`,
-          parent,
-          input,
-          omitted: true,
-          axis: proof.axis,
-        });
-      });
-    }
-    return [{ id: parent.id, parent }, ...children];
-  });
-  const rows = allLines.map((line): SheetRow => {
-    const child = line.id !== line.parent.id;
-    const row = line.component ?? line.parent;
-    const input = line.input;
-    const citation = sourceOf(line);
-    const citedInput = input ?? row.sourceInput ?? undefined;
-    const target = {
-      id: line.id,
-      label: `${line.parent.number} · ${input?.label ?? row.reading.chars}`,
-      value: row.sourceValue,
+  const rows: SheetRow[] = schedule.rows.flatMap((row) => {
+    const unchecked = row.shown.state === "not-checked" || row.shown.state === "checking";
+    const citation = unchecked ? null : (row.sourceInput?.citation ?? row.source ?? null);
+    const sourceId = citation ? cite(row.reading.chars, row.id, citation) : null;
+    const figureRow: SheetRow = {
+      id: row.id,
+      cells: [
+        text("number", String(row.number)),
+        text("figure", `${row.calculated ? "= " : ""}${row.reading.chars}`),
+        text("where", figurePlaceText(row, language), true),
+        amount("sourceValue", unchecked ? null : sourceValueText(row)),
+        {
+          ...text("document", citation?.documentName ?? "", true),
+          ...(sourceId && { link: { sheet: SOURCES, row: sourceId, column: "document" } }),
+        },
+        text("location", citation ? (citedLocation(citation, t) ?? "") : ""),
+        text("quote", citation?.quote ?? "", true),
+        text("difference", unchecked ? "" : (differenceText(row, language) ?? "")),
+        text("status", t(statusWord(row))),
+        text("reason", unchecked ? "" : figureReason(row, language), true),
+      ],
     };
-    const sourceId = citation ? addSource(target, citation, citedInput) : null;
-    if (citedInput?.unitStatement)
-      addSource(target, citedInput.unitStatement.citation, citedInput, true);
-    const location = citation ? (citedLocation(citation, t) ?? "") : "";
-    const facts = input
-      ? [
-          input.unitStatement?.citation.quote,
-          input.cell ? `${input.cell.sheet ? `${input.cell.sheet}!` : ""}${input.cell.ref}` : null,
-          ...(line.omitted ? [t("figures.omitted")] : []),
-        ]
-          .filter((part): part is string => typeof part === "string")
-          .join("\n")
-      : reason(row);
-    const cells: SheetCell[] = [
-      text(
-        "number",
-        child ? `${line.parent.number} · ${input?.name ?? row.number}` : String(row.number),
-      ),
-      text(
-        "figure",
-        input
-          ? `${input.label || input.name}: ${input.number.chars}`
-          : `${row.calculated ? "=" : ""}${row.reading.chars}`,
-      ),
-      numeric(
-        "sourceValue",
-        input?.number.value ?? row.sourceValue,
-        input?.number.unit ?? row.reading.unit,
-      ),
-      text("source", citation ? [citation.documentName, location].filter(Boolean).join(" · ") : ""),
-      input || row.roundedFrom === null
-        ? numeric("difference", input ? null : row.difference, row.reading.unit)
-        : text(
-            "difference",
-            t("figures.roundedFrom", {
-              value: shownNumber(row.roundedFrom, language, row.reading.unit),
-            }),
-          ),
-      text("status", input ? t("figures.retainedInput") : t(statusKey(row))),
-      text("document", citation?.documentName ?? ""),
-      text("location", location),
-      text("quote", citation?.quote ?? ""),
-      text("reason", facts),
-      text("formula", input ? "" : (row.calculated?.figure.formula ?? "")),
-      text("checked", input ? "" : time(row.checkedAt)),
-      text("model", !input && row.model ? options.modelName(row.model) : ""),
-    ];
-    const sourceCell = cells.find((cell) => cell.column === "source");
-    if (sourceCell && sourceId)
-      sourceCell.link = { sheet: "sources", row: sourceId, column: "document" };
-    return { id: line.id, cells };
-  });
-  const analysisRows = schedule.analyses.flatMap((analysis): SheetRow[] => {
-    const id = JSON.stringify(["analysis", analysis.id]);
-    const label = t("figures.inline.analysis", { title: analysis.title });
-    const target = { id, label, value: null };
-    for (const input of analysis.inputs) {
-      if (input.kind === "figure") {
-        addSource(target, input.input.citation, input.input);
-        if (input.input.unitStatement)
-          addSource(target, input.input.unitStatement.citation, input.input, true);
-      } else addSource(target, input.citation, undefined, false, input.range);
-    }
+    const inputs = unchecked ? [] : (row.calculated?.figure.inputs ?? []);
     return [
-      {
-        id,
-        cells: [
-          text("figure", label),
-          text("formula", analysis.code),
-          text("status", t("figures.inline.retained")),
-          text("checked", time(analysis.ranAt)),
-          text(
-            "reason",
-            JSON.stringify({
-              language: analysis.language,
-              versions: analysis.versions,
-              codeSha256: analysis.codeSha256,
-              inputs: analysis.inputs,
-            }),
-          ),
-        ],
-      },
-      ...analysis.values.map(
-        (value, index): SheetRow => ({
-          id: `${id}:value:${index}`,
+      figureRow,
+      ...inputs.map((input, index): SheetRow => {
+        const id = `${row.id}:input:${index}`;
+        const sourceRow = cite(`${row.reading.chars} · ${input.label}`, id, input.citation);
+        return {
+          id,
           cells: [
+            text("figure", input.label),
+            amount("sourceValue", input.number.chars),
+            {
+              ...text("document", input.citation.documentName, true),
+              link: { sheet: SOURCES, row: sourceRow, column: "document" },
+            },
+            text("location", citedLocation(input.citation, t) ?? ""),
+            text("quote", input.citation.quote, true),
             text(
-              "figure",
-              `${label} · ${value.label || value.name}${value.unit ? ` (${value.unit})` : ""}`,
+              "status",
+              t(
+                input.citation.check === "found"
+                  ? "claim.state.supported"
+                  : input.citation.check === "not-found"
+                    ? "figures.filter.look"
+                    : "claim.state.not-checked",
+              ),
             ),
-            numeric("sourceValue", value.value),
-            text("status", t("figures.inline.retained")),
+            text(
+              "reason",
+              input.citation.check === "not-found" ? t("claim.state.quoteNotFound") : "",
+            ),
           ],
-        }),
-      ),
+        };
+      }),
     ];
   });
+  const head: [string, string][] = [
+    ["number", "#"],
+    ["figure", t("figures.figure")],
+    ["where", t("figures.export.where")],
+    ["sourceValue", t("figures.sourceValue")],
+    ["document", t("checkRecord.column.document")],
+    ["location", t("checkRecord.column.location")],
+    ["quote", t("checkRecord.column.quote")],
+    ["difference", t("figures.difference")],
+    ["status", t("figures.status")],
+    ["reason", t("figures.export.reason")],
+  ];
+  const information = [
+    info("note", t("figures.export.note"), schedule.name),
+    info("checked", t("figures.export.checked"), time(schedule.checkedAt) || t("figures.noCheck")),
+    info(
+      "model",
+      t("figures.export.model"),
+      schedule.model ? options.modelName(schedule.model) : t("checkRecord.notRecorded"),
+    ),
+    info("rules", t("figures.export.rules"), t("figures.export.rulesStandard")),
+    info("counts", t("figures.export.counts"), countLine),
+  ];
   return {
     sheets: [
       {
-        id: "schedule",
+        id: SCHEDULE,
         name: t("figures.export.sheet"),
-        columns: columns.map(([id, , width]) => ({ id, width })),
-        rows: [
-          metadata("mind", t("checkRecord.summary.mind"), schedule.name),
-          metadata("checked", t("checkRecord.column.checked"), time(schedule.checkedAt)),
-          metadata(
-            "model",
-            t("checkRecord.column.model"),
-            schedule.model ? options.modelName(schedule.model) : t("checkRecord.notRecorded"),
-          ),
-          metadata(
-            "rules",
-            t("figures.export.rules"),
-            options.rules?.length ? options.rules.join("\n") : t("checkRecord.notRecorded"),
-          ),
-          metadata("counts", t("figures.title"), t("figures.counts", schedule.counts)),
-          metadata("checking", t("claim.state.checking"), schedule.counts.checking),
-          metadata("kept", t("claim.keptAsView"), schedule.counts.kept),
-          header(
-            "head",
-            columns.map(([id, label]) => [id, label]),
-          ),
-          ...rows,
-          ...analysisRows,
+        columns: [
+          { id: "number", width: 14 },
+          { id: "figure", width: 22 },
+          { id: "where", width: 30 },
+          { id: "sourceValue", width: 16 },
+          { id: "document", width: 30 },
+          { id: "location", width: 20 },
+          { id: "quote", width: 60 },
+          { id: "difference", width: 24 },
+          { id: "status", width: 16 },
+          { id: "reason", width: 60 },
         ],
-        frozen: { rows: 8, columns: 2 },
+        rows: [...information, { id: "gap", cells: [] }, header("head", head), ...rows],
+        frozen: { rows: information.length + 2, columns: 2 },
       },
       {
-        id: "sources",
+        id: SOURCES,
         name: t("export.excel.sources"),
         columns: [
-          { id: "figure", width: 36 },
+          { id: "figure", width: 30 },
           { id: "document", width: 32 },
-          { id: "location", width: 24 },
+          { id: "location", width: 20 },
           { id: "quote", width: 60 },
-          { id: "value", width: 24 },
-          { id: "stored", width: 24 },
-          { id: "status", width: 26 },
-          { id: "hash", width: 64 },
-          { id: "details", width: 60 },
+          { id: "result", width: 22 },
         ],
         rows: [
           header("head", [
@@ -325,15 +242,11 @@ export function figureScheduleBook(
             ["document", t("checkRecord.column.document")],
             ["location", t("checkRecord.column.location")],
             ["quote", t("checkRecord.column.quote")],
-            ["value", t("chart.series.value")],
-            ["stored", t("figures.stored", { value: "" })],
-            ["status", t("checkRecord.column.result")],
-            ["hash", t("checkRecord.column.sha256")],
-            ["details", t("checkRecord.column.says")],
+            ["result", t("checkRecord.column.result")],
           ]),
           ...sources,
         ],
-        frozen: { rows: 1, columns: 1 },
+        frozen: { rows: 1, columns: 0 },
       },
     ],
   };

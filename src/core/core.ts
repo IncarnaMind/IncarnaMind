@@ -2059,7 +2059,7 @@ export function createCore(adapters: CoreAdapters): Core {
     return content.read(mind.id, (blocks) => {
       return figureSchedule({
         mindId: mind.id,
-        name: mind.title,
+        name: mindName(mind) || translate(settings.get().language, "mind.untitled"),
         basis: targetHash(blocks.toString()),
         blocks,
         versions: new Map(documents.list().map((document) => [document.id, document.contentHash])),
@@ -4737,7 +4737,8 @@ export function createCore(adapters: CoreAdapters): Core {
           describeModel(providers, model.providerId, model.modelId)?.name ?? model.modelId,
       });
       const bytes = writeXlsx(book, deflateRawSync, { author: "IncarnaMind", created: now() });
-      return saveExport(`${safeFileName(schedule.name, "Note")}.xlsx`, bytes);
+      const name = translate(settings.get().language, "figures.exportName", { name: schedule.name });
+      return saveExport(`${safeFileName(name, "Note")}.xlsx`, bytes);
     },
     saveComparisonExport: async (input) => {
       const ref: Record<string, unknown> = isRecord(input) ? input : {};

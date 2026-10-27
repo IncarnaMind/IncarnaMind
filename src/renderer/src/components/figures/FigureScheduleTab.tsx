@@ -8,6 +8,7 @@ import { core } from "../../core";
 import {
   addFigureCitation,
   changeFiguresToSource,
+  figureCited,
   keepFigureViews,
   setFigureTotalRole,
 } from "../../editor/figureActions";
@@ -129,6 +130,10 @@ export function FigureScheduleTab({ mindId }: { mindId: string }) {
     >
       <FigureScheduleView
         schedule={schedule}
+        cited={(row) => {
+          const editor = mindEditor(mindId);
+          return editor ? figureCited(editor.state.doc, row) : true;
+        }}
         onFocusFigure={(row) => focusFigure(mindId, row)}
         onOpenSource={(citation) =>
           openCited(citation, {
@@ -148,21 +153,23 @@ export function FigureScheduleTab({ mindId }: { mindId: string }) {
           void checkMind(mindId, "all", { figureIds });
         }}
         onChangeToSource={(ids) => {
-          if (schedule) edit((editor) => changeFiguresToSource(editor, schedule, ids));
+          if (!schedule) return;
+          edit((editor) => changeFiguresToSource(editor, schedule, ids));
+          void checkMind(mindId, "changed");
         }}
         onAddCitation={addCitation}
         onChooseCitation={(id) => {
           void chooseCitation(id);
         }}
-        onTotalRole={(id, axis, total) => {
+        onTotalRole={(id, axes, total) => {
           const row = rowOf(id);
           if (schedule && row)
-            edit((editor) => setFigureTotalRole(editor, schedule, row, axis, total));
+            edit((editor) => setFigureTotalRole(editor, schedule, row, axes, total));
         }}
       />
       <SearchPicker
         anchor={choice?.anchor ?? null}
-        title={t("figures.chooseCitation")}
+        title={t("figures.chooseTitle")}
         searchLabel={t("figures.chooseCitation")}
         noMatch={() => t(choice?.loading ? "figures.loading" : "figures.noSources")}
         options={options}

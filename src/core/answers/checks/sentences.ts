@@ -111,7 +111,10 @@ export function wordsOf(element: Y.XmlElement, from = 0, to = textOf(element).le
 export function checkText(sentence: SelectedSentence) {
   return {
     claim: wordsOf(sentence.element, sentence.from, sentence.to),
-    context: sentence.figures?.[0]?.context ?? wordsOf(sentence.element),
+    // A table cell's words alone don't say what its figure is; its row and column headings do.
+    context:
+      (sentence.figures?.[0]?.label !== undefined ? sentence.figures[0]?.context : undefined) ??
+      wordsOf(sentence.element),
     ...(sentence.figures?.length && { figures: sentence.figures }),
   };
 }
