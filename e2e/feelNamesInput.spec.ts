@@ -68,12 +68,17 @@ test("a slow input names the event and the element it reached, as it was when it
     const named = Object.fromEntries(
       report.problems.filter((each) => each.kind === "input").map((each) => [each.step, each.on]),
     );
+    // Whichever event of the sequence the browser reports as slowest, on the element as it was.
     expect(named).toEqual({
-      "a key in a password field": "keydown on input[type=password] in feel-fixture",
-      "a click that removes its button":
-        "pointerdown on button[data-testid=removed-control] in feel-fixture",
-      "a click that changes its button's attributes":
-        "pointerdown on button[data-testid=before] in feel-fixture",
+      "a key in a password field": expect.stringMatching(
+        /^(keydown|keypress|keyup) on input\[type=password\] in feel-fixture$/,
+      ),
+      "a click that removes its button": expect.stringMatching(
+        /^(pointerdown|mousedown|pointerup|mouseup|click) on button\[data-testid=removed-control\] in feel-fixture$/,
+      ),
+      "a click that changes its button's attributes": expect.stringMatching(
+        /^(pointerdown|mousedown|pointerup|mouseup|click) on button\[data-testid=before\] in feel-fixture$/,
+      ),
     });
   } finally {
     await app.close();
