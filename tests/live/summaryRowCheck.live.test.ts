@@ -14,9 +14,9 @@
 import { appendFile } from "node:fs/promises";
 import { wrapLanguageModel } from "ai";
 import { describe, expect, test } from "vitest";
+import { writeResearchFiles } from "../../e2e/demo/research";
 import { type ChatModelFactory, createAiSdkChatModel } from "../../src/core";
 import { catalogProvider } from "../../src/core/providers/catalog/providers";
-import { writeResearchFiles } from "../../e2e/demo/research";
 import { askAssistant } from "../helpers/assistant";
 import { shownPassages } from "../helpers/citations";
 import { createTempDataFolder, startCore } from "../helpers/core";

@@ -2115,6 +2115,7 @@ export function createCore(adapters: CoreAdapters): Core {
         documents.searchableJoinedAfter(documentIds ?? undefined, since, folderId),
       names: () => documents.names(),
       searchableLanguages: (documentIds) => documents.searchableLanguages(documentIds ?? undefined),
+      searchableBySize: (documentIds) => documents.searchableBySize(documentIds ?? undefined),
       savedBySearch: (documentId) => documents.getMany([documentId])[0]?.web?.origin === "search",
       citationSource: (passageId) => documents.citationSource(passageId),
       pageTexts: (documentId, contentHash, from, to) =>

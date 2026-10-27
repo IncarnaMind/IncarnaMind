@@ -51,13 +51,13 @@ import type { MindContent } from "../../mindContent";
 import { parseMindId } from "../../minds";
 import type { PreparedChatModel } from "../../providers/chat";
 import type { CheckedCitation } from "./claimCheck";
-import { figuresInMind } from "./figureOccurrences";
 import { type ClaimsFound, claimsAmong } from "./findClaims";
 import { type QueuedClaim, type RunChecksOptions, runChecks } from "./runChecks";
 import {
   checkedSentences,
   checkText,
   everySentence,
+  figuresNow,
   keptAsView,
   markedSentences,
   markSentence,
@@ -144,6 +144,10 @@ interface Sending {
   held: string[];
 }
 
+/** A paragraph's sentence that holds figures, which the one Check checks each with its own source. */
+const figuredSentence = (sentence: SelectedSentence) =>
+  sentence.element.nodeName === "paragraph" && (sentence.figures?.length ?? 0) > 0;
+
 export function createMindCheck(options: MindCheckOptions) {
   const { content } = options;
 
@@ -202,15 +206,20 @@ export function createMindCheck(options: MindCheckOptions) {
     const folderId = options.mindFolder(mindId);
     const scope = content.readSettings(mindId, mindScopeIn);
     const changeable = content.read(mindId, (blocks) => {
-      const figureContexts = new Map(
-        figuresInMind(blocks).map((figure) => [figure.id, figure.context]),
-      );
-      return checkedSentences(blocks).flatMap(({ check, sentence }) =>
+      const { figureContexts, figured } = figuresNow(blocks);
+      return checkedSentences(blocks).flatMap((marked) =>
         addedCouldChange(
-          check,
-          claimCheckShown(check, { text: sentence, versions, folderId, scope, figureContexts }),
+          marked.check,
+          claimCheckShown(marked.check, {
+            text: marked.sentence,
+            versions,
+            folderId,
+            scope,
+            figureContexts,
+            figured: figured(marked),
+          }),
         )
-          ? [check]
+          ? [marked.check]
           : [],
       );
     });
@@ -259,9 +268,7 @@ export function createMindCheck(options: MindCheckOptions) {
     const scope = content.readSettings(mindId, mindScopeIn);
     const added = mode === "added" ? addedSince(mindId) : null;
     return content.read(mindId, (blocks) => {
-      const figureContexts = new Map(
-        figuresInMind(blocks).map((figure) => [figure.id, figure.context]),
-      );
+      const { figureContexts } = figuresNow(blocks);
       // Every sentence is read; the one count decides which have a check to make, whatever makes a claim (#1909).
       const sentences = everySentence(blocks);
       const keys = new Set(
@@ -309,6 +316,7 @@ export function createMindCheck(options: MindCheckOptions) {
                   folderId,
                   scope,
                   figureContexts,
+                  figured: figuredSentence(sentence),
                 })
               : null,
             skipped: skipped.has(sentenceKey(sentence.text)),
@@ -356,6 +364,7 @@ export function createMindCheck(options: MindCheckOptions) {
                 folderId,
                 scope,
                 figureContexts,
+                figured: figuredSentence(sentence),
               })
             : null,
           skipped: skipped.has(sentenceKey(sentence.text)),

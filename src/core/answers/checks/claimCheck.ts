@@ -57,7 +57,7 @@ import {
   givenList,
   whole,
 } from "../calculations";
-import { type AnswerDocuments, createCitationSession } from "../citations";
+import { type AnswerDocuments, createCitationSession, documentNamedAmong } from "../citations";
 import {
   type AnswerEngine,
   type AnswerTools,
@@ -105,6 +105,8 @@ export interface ClaimCheckDependencies {
   documents: Pick<AnswerDocuments, "citationSource" | "pageTexts" | "documentDate"> & {
     searchableCount(documentIds: readonly string[] | null): number;
     searchableLanguages(documentIds: readonly string[] | null): DocumentLanguage[];
+    /** The Documents with Passages to search, with their names: what a search names one by. */
+    searchableBySize(documentIds: readonly string[] | null): { id: string; name: string }[];
     savedBySearch(documentId: string): boolean;
   };
 }
@@ -292,8 +294,20 @@ export function createClaimCheck(deps: ClaimCheckDependencies) {
     const workings = new Map<string, PassageSearchResult[]>();
     const scoped: AnswerDocuments = {
       searchableCount: () => deps.documents.searchableCount(scope.documentIds),
-      async search(query, searchSignal) {
-        const found = await deps.evidence.search(query, scope, searchSignal);
+      // A search may name one Document, as an Answer's may: the one a Citation quotes, often.
+      documentNamed: (name) =>
+        documentNamedAmong(
+          deps.documents
+            .searchableBySize(scope.documentIds)
+            .filter((each) => !scope.excluded.has(each.id)),
+          name,
+        ),
+      async search(query, searchSignal, within) {
+        const found = await deps.evidence.search(
+          query,
+          within ? { ...scope, documentIds: [...within] } : scope,
+          searchSignal,
+        );
         // A web search's result never settles a citation of a court decision.
         const passages =
           decisions.length === 0

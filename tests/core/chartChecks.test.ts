@@ -6,6 +6,7 @@ import { expect, onTestFinished, test } from "vitest";
 import * as Y from "yjs";
 import { createElement } from "../../src/core/answers/blocks";
 import { figuresInMind } from "../../src/core/answers/checks/figureOccurrences";
+import { claimPrompt } from "../../src/core/answers/checks/prompt";
 import {
   checkedSentences,
   checkText,
@@ -100,6 +101,29 @@ test.each(["bar", "pie", "scatter"] as const)(
     expect(selected.ok && selected.sentences).toHaveLength(1);
   },
 );
+
+// protects=a chart's every value is checked with its row's label and its series' name, as a table's cell is with its row and column (#1459): both reach the check's prompt beside the value; fails_when=a value goes to the check alone, or under another row's or series' label; no_claim=how well a model judges it.
+test("each value of a chart goes to its check with its row's label and its series' name", () => {
+  const { blocks } = setup("bar");
+  const [sentence] = everySentence(blocks);
+  if (!sentence?.figures) throw new Error("No chart sentence");
+  expect(sentence.figures.map(({ label, context }) => ({ label, context }))).toEqual([
+    { label: "A", context: "Revenue / 收入\nA\n2024" },
+    { label: "A", context: "Revenue / 收入\nA\n2025" },
+  ]);
+  const prompt = claimPrompt({ ...checkText(sentence), language: "en" });
+  const sent = JSON.parse(/<figures>\n(.*)\n<\/figures>/s.exec(prompt)?.[1] ?? "[]");
+  expect(
+    sent.map((each: { shown: string; label: string; context: string }) => [
+      each.shown,
+      each.label,
+      each.context,
+    ]),
+  ).toEqual([
+    ["10", "A", "Revenue / 收入\nA\n2024"],
+    ["20", "A", "Revenue / 收入\nA\n2025"],
+  ]);
+});
 
 function checkedChart(blocks: Y.XmlFragment, element: Y.XmlElement) {
   const sentence = everySentence(blocks)[0];

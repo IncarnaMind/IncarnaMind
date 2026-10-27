@@ -499,10 +499,23 @@ function MindEditorView({
         : null,
     [schedule, doc],
   );
+  const figurePlaces = useMemo(() => {
+    if (!schedule || schedule.basis !== fingerprintOfMind(doc)) return null;
+    const places = new Map<string, [number, number][]>();
+    for (const { locator } of schedule.rows) {
+      if (locator.kind !== "text") continue;
+      const { blockId } = locator.from;
+      places.set(blockId, [
+        ...(places.get(blockId) ?? []),
+        [locator.from.offset, locator.to.offset],
+      ]);
+    }
+    return places;
+  }, [schedule, doc]);
   useEffect(() => {
     if (!editor.isDestroyed)
-      setClaimContext(editor.view, { versions, folderId, scope, figureContexts });
-  }, [editor, versions, folderId, scope, figureContexts]);
+      setClaimContext(editor.view, { versions, folderId, scope, figureContexts, figurePlaces });
+  }, [editor, versions, folderId, scope, figureContexts, figurePlaces]);
 
   // The Citations and References in the Mind's citation style (#289), formatted off the
   // window's thread, and the footnotes numbered again when the style counts Citations otherwise.

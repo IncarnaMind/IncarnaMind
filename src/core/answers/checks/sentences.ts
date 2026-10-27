@@ -132,6 +132,34 @@ export function figuresByBlock(blocks: Y.XmlFragment): ReadonlyMap<string, Check
   return index;
 }
 
+/**
+ * What a Mind's stored checks are compared with of its figures now: each figure's context, and
+ * whether a marked paragraph sentence holds any (`ClaimCheckNow.figured`).
+ */
+export function figuresNow(blocks: Y.XmlFragment): {
+  figureContexts: Map<string, string>;
+  figured(marked: { element: Y.XmlElement; from: number; to: number }): boolean;
+} {
+  const found = figuresInMind(blocks);
+  const byBlock = new Map<string, CheckFigure[]>();
+  for (const figure of found) {
+    if (figure.locator.kind !== "text") continue;
+    const id = figure.locator.from.blockId;
+    byBlock.set(id, [...(byBlock.get(id) ?? []), figure]);
+  }
+  return {
+    figureContexts: new Map(found.map((figure) => [figure.id, figure.context])),
+    figured: ({ element, from, to }) => {
+      const blockId = element.getAttribute(BLOCK_ID_ATTRIBUTE);
+      return (
+        element.nodeName === "paragraph" &&
+        typeof blockId === "string" &&
+        inSpan(byBlock.get(blockId) ?? [], from, to).length > 0
+      );
+    },
+  };
+}
+
 /** A paragraph's sentence as its check reads it: its words, its paragraph, its Citations and its figures. */
 export function sentenceOf(
   element: Y.XmlElement,

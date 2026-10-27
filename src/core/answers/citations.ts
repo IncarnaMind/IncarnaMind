@@ -361,6 +361,24 @@ export interface AnswerDocuments {
   documentNamed?(name: string): string | null;
 }
 
+/**
+ * The Document among `documents` a model named for a search: by its name as listed, else one
+ * whose name holds the name given or is held in it. Null for none.
+ */
+export function documentNamedAmong(
+  documents: readonly { id: string; name: string }[],
+  name: string,
+): string | null {
+  const key = (text: string) => text.replace(/\s+/g, " ").trim().toLocaleLowerCase();
+  const wanted = key(name.replace(/\s*\(“[^”]*”\)\s*$/, ""));
+  return (
+    documents.find((each) => key(each.name) === wanted)?.id ??
+    documents.find((each) => key(each.name).includes(wanted) || wanted.includes(key(each.name)))
+      ?.id ??
+    null
+  );
+}
+
 /** What re-checking a Citation against the current version needs from Documents. */
 export interface RecheckDocuments {
   /** The current version of a live Document; null if it was deleted. */

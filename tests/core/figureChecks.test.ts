@@ -269,6 +269,7 @@ async function checkWith(options: {
     documents: {
       searchableCount: () => 1,
       searchableLanguages: () => [],
+      searchableBySize: () => [{ id: source.documentId, name: source.documentName }],
       savedBySearch: () => false,
       citationSource: (id) => (id === source.passageId ? source : null),
       pageTexts: () => options.units ?? [{ page: 1, text: body, kind: "page", label: null }],
