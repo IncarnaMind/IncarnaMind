@@ -161,8 +161,8 @@ describe("record-cite choices through the core", () => {
     expect(candidates).toHaveLength(2);
     expect(candidates).toEqual(
       expect.arrayContaining([
-        { id: setup.first.id, name: "Ex. 7 first" },
-        { id: setup.second.id, name: "Ex. 7 second" },
+        { id: setup.first.id, name: "Ex. 7 first", detail: setup.first.path },
+        { id: setup.second.id, name: "Ex. 7 second", detail: setup.second.path },
       ]),
     );
 
@@ -206,6 +206,12 @@ describe("record-cite choices through the core", () => {
     expect(oneCite(updated, 1)).toMatchObject({ from: second.from, candidates: second.candidates });
     expect(setup.model.doGenerateCalls.length - generateCalls).toBe(1);
     expect(updated.state).toBe("supported");
+    expect(readRecordCiteChoices(recordCiteSettingsOf(setup.client.doc)).previous).toBeNull();
+
+    await choose(setup, second, setup.second, Promise.resolve(updated));
+    expect(
+      readRecordCiteChoices(recordCiteSettingsOf(setup.client.doc)).previous?.place?.citeFrom,
+    ).toBe(second.from);
   });
 
   test("a deleted chosen Document asks again instead of silently using the survivor", async () => {

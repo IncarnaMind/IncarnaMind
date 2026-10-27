@@ -6,6 +6,13 @@ import { parseLocation } from "./locations";
 export interface RecordCitePlace {
   blockId: string;
   from: number;
+  /** The record item's UTF-16 start within its sentence, when this is a saved referent. */
+  citeFrom?: number;
+}
+
+export interface RecordCiteSentence {
+  place: RecordCitePlace;
+  text: string;
 }
 
 export interface RecordCiteChoice {
@@ -28,20 +35,33 @@ function choiceOf(value: unknown): RecordCiteChoice | null {
   if (typeof documentId !== "string" || documentId === "") return null;
   const parsed = parseLocation(location);
   if (!parsed) return null;
-  const candidate = value as { place?: { blockId?: unknown; from?: unknown } };
+  const candidate = value as {
+    place?: { blockId?: unknown; from?: unknown; citeFrom?: unknown };
+  };
   const place = candidate.place;
   const blockId = place?.blockId;
   const from = place?.from;
+  const citeFrom = place?.citeFrom;
   const validPlace =
     typeof blockId === "string" &&
     blockId !== "" &&
     typeof from === "number" &&
     Number.isInteger(from) &&
-    from >= 0;
+    from >= 0 &&
+    (citeFrom === undefined ||
+      (typeof citeFrom === "number" && Number.isInteger(citeFrom) && citeFrom >= 0));
   return {
     documentId,
     location: parsed,
-    ...(validPlace ? { place: { blockId, from } } : {}),
+    ...(validPlace
+      ? {
+          place: {
+            blockId,
+            from,
+            ...(typeof citeFrom === "number" && { citeFrom }),
+          },
+        }
+      : {}),
   };
 }
 

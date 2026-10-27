@@ -426,6 +426,14 @@ export function createMindCheck(options: MindCheckOptions) {
           },
         ];
       });
+      const order = new Map(
+        now.map((sentence, index) => [JSON.stringify([sentence.blockId, sentence.from]), index]),
+      );
+      marked.sort(
+        (left, right) =>
+          (order.get(JSON.stringify([left.place?.blockId, left.place?.from])) ?? -1) -
+          (order.get(JSON.stringify([right.place?.blockId, right.place?.from])) ?? -1),
+      );
       if (marked.length > 0) options.recordUnread(blocks, requestId, unread);
       return marked;
     });

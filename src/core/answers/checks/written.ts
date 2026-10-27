@@ -32,7 +32,7 @@
 import { randomUUID } from "node:crypto";
 import * as Y from "yjs";
 import { SENTENCES_CHECKED_AT_MOST } from "../../../shared/claimChecks";
-import type { RecordCitePlace } from "../../../shared/recordCiteChoices";
+import type { RecordCitePlace, RecordCiteSentence } from "../../../shared/recordCiteChoices";
 import { INLINE_NODE, isClaim, sentenceSpans } from "../../../shared/sentences";
 import { judgesUnreliably } from "../../../shared/smallModel";
 import {
@@ -463,6 +463,7 @@ export function createWrittenCheck(options: WrittenCheckOptions) {
     prepared: PreparedChatModel,
     signal: AbortSignal,
     place?: RecordCitePlace,
+    recordSentences?: readonly RecordCiteSentence[],
   ): Promise<ClaimCheckResult> {
     const timedOut = AbortSignal.timeout(options.claimTimeLimitMs);
     const ended = AbortSignal.any([signal, timedOut]);
@@ -479,6 +480,7 @@ export function createWrittenCheck(options: WrittenCheckOptions) {
         model: prepared,
         mindId,
         ...(place && { place }),
+        ...(recordSentences && { recordSentences }),
         cacheKey: mindId,
         signal: ended,
       }),
@@ -494,9 +496,15 @@ export function createWrittenCheck(options: WrittenCheckOptions) {
     };
   }
 
-  const placeOf = (sentence: Sentence, ids: readonly string[]): RecordCitePlace | undefined => {
+  const placeOf = (
+    sentence: Sentence,
+    blocks: readonly NodeJSON[],
+    ids: readonly string[],
+  ): RecordCitePlace | undefined => {
+    const own = paragraphAt(blocks, sentence.path)?.attrs?.[BLOCK_ID_ATTRIBUTE];
     const top = sentence.path[0];
-    const blockId = top === undefined ? undefined : ids[top];
+    const fallback = top === undefined ? undefined : ids[top];
+    const blockId = typeof own === "string" ? own : fallback;
     return blockId ? { blockId, from: sentence.from } : undefined;
   };
 
@@ -507,6 +515,10 @@ export function createWrittenCheck(options: WrittenCheckOptions) {
     const { mindId, blocks, signal } = input;
     if (judgesUnreliably(input.prepared)) return null;
     const checkable = checkableSentences(blocks);
+    const recordSentences = checkable.flatMap((sentence): RecordCiteSentence[] => {
+      const place = placeOf(sentence, blocks, input.ids);
+      return place ? [{ place, text: sentence.text }] : [];
+    });
     // The claims with no Citation are left to the one count and Check the rest (#1909).
     const sentences = checkable.filter((sentence) => sentence.cited.length > 0);
     if (sentences.length === 0) return null;
@@ -527,7 +539,8 @@ export function createWrittenCheck(options: WrittenCheckOptions) {
           scope,
           prepared,
           signal,
-          placeOf(sentence, input.ids),
+          placeOf(sentence, blocks, input.ids),
+          recordSentences,
         );
         const failure = runFailureOf(result);
         if (failure) throw new RunItemError(failure);

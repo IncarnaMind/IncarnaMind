@@ -1,6 +1,6 @@
 import { describe, expect, test } from "vitest";
 import type { ClaimCheckAttributes, RecordCiteResult } from "../../src/core/api";
-import { readClaimCheck, restsOn } from "../../src/shared/claimChecks";
+import { claimCheckShown, readClaimCheck, restsOn } from "../../src/shared/claimChecks";
 
 const location: RecordCiteResult["location"] = {
   kind: "page",
@@ -89,6 +89,46 @@ describe("record-cite results in a claim-check mark", () => {
       ["doc-1", 45, 46],
       ["doc-1", 47, 47],
     ]);
+  });
+
+  test("retains recording and paragraph evidence and invalidates it when deleted", () => {
+    const check = attributes([
+      {
+        raw: "12:20",
+        outcome: "supported",
+        documentId: "transcript",
+        documentName: "Transcript",
+        contentHash: "hash-transcript",
+        location: { kind: "time", from: 740_000, to: 745_000 },
+        passage: "The answer",
+      },
+      {
+        raw: "Compl. ¶ 14",
+        outcome: "supported",
+        documentId: "complaint",
+        documentName: "Complaint",
+        contentHash: "hash-complaint",
+        location: { kind: "section", heading: null, paragraphs: { from: 14, to: 14 } },
+        passage: "¶ 14 The allegation",
+      },
+    ]);
+    check.versions = [
+      { documentId: "transcript", contentHash: "hash-transcript" },
+      { documentId: "complaint", contentHash: "hash-complaint" },
+    ];
+
+    expect(restsOn(check).map((each) => [each.documentId, each.pageFrom, each.pageTo])).toEqual([
+      ["transcript", null, null],
+      ["complaint", null, null],
+    ]);
+    expect(
+      claimCheckShown(check, {
+        text: check.text,
+        versions: new Map(),
+        folderId: null,
+        scope: null,
+      }),
+    ).toMatchObject({ state: "needs-recheck", why: "document-removed" });
   });
 
   test("an old check without record-cite entries reads exactly as before", () => {

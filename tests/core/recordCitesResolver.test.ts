@@ -738,7 +738,12 @@ describe("record-cite source resolution", () => {
           choices: {
             pl: {
               documentId: "chosen-production",
-              location: { kind: "page", from: 11, to: 11 },
+              location: {
+                kind: "page",
+                from: 11,
+                to: 11,
+                printed: { from: "PL 000123", to: "PL 000123" },
+              },
             },
           },
         },

@@ -685,6 +685,10 @@ const resolveDirect = (
   const candidates = sourceCandidates(cite, documents);
   if (saved !== undefined) {
     const document = saved ? chosenDocument(documents, saved.documentId) : undefined;
+    if (saved && document && cite.kind === "bates") {
+      const resolution = resolveRequested(cite, document, resolveDeposition);
+      if (resolution) return fromMatches(cite, [{ document, resolution }]);
+    }
     const savedResolution =
       saved && document ? resolveSavedLocation(document, saved.location, resolveDeposition) : null;
     if (!saved || !document || !savedResolution) {

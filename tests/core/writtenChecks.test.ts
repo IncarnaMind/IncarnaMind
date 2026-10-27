@@ -6,7 +6,7 @@ import { claimSpans } from "../../src/renderer/src/editor/claimChecks";
 import { claimCheckShown, SENTENCES_CHECKED_AT_MOST } from "../../src/shared/claimChecks";
 import { INLINE_NODE } from "../../src/shared/sentences";
 import { askAssistant, changesIn, lastResult } from "../helpers/assistant";
-import { checkReply, isCheckRun, type Plan } from "../helpers/checks";
+import { checkGenerate, checkReply, isCheckRun, type Plan } from "../helpers/checks";
 import { shownPassages } from "../helpers/citations";
 import { createTempDataFolder, startCore } from "../helpers/core";
 import { addAndProcess, writeSourceFile } from "../helpers/documents";
@@ -18,6 +18,7 @@ import {
   scriptedModel,
   scriptedModels,
 } from "../helpers/models";
+import { buildPdf } from "../helpers/pdf";
 
 /**
  * What the assistant writes into a Mind is checked against its own Citations
@@ -33,6 +34,8 @@ const MOON = "Spring tides come at new and full moon.";
 const OVERSTATED = "Spring tides come at new and full moon, and they flood the harbour every year";
 const UNBACKED = "Neap tides are twice as strong";
 const FAILING = "The harbour floods at every spring tide";
+const RECORD_SOURCE = "ECF No. 41 at 3 states the deadline";
+const RECORD_NEXT = "Id. at 2 states another deadline";
 
 /** A sentence as a check reads it: the Citation after its words as U+FFFC. */
 const asChecked = (words: string) => `${words} ${INLINE_NODE}.`;
@@ -47,6 +50,8 @@ const PLANS: Record<string, Plan> = {
     reply: { text: "Verdict: unsupported\nNo Passage compares the strength of the tides." },
   },
   [asChecked(FAILING)]: { reply: { error: { status: 500, message: "The service broke." } } },
+  [asChecked(RECORD_SOURCE)]: { verdict: "unsupported", judgement: "same" },
+  [asChecked(RECORD_NEXT)]: { verdict: "unsupported", judgement: "same" },
 };
 
 const CUT = /<task action="cut-unsupported">/;
@@ -63,6 +68,7 @@ interface Writing {
   cloud?: { kind: "anthropic"; modelId: string } | { kind: "ollama"; modelId: string };
   /** How the Answer ends: a spending cap reached during the check stops it too. */
   ends?: "finished" | "failed";
+  record?: { name: string; contents: string | Uint8Array; quote: string; query: string };
 }
 
 /**
@@ -71,47 +77,58 @@ interface Writing {
  * first clause and its marker.
  */
 function writingModel(
-  { content, into = false, during, check }: Writing,
+  { content, into = false, during, check, record }: Writing,
   calls: ModelCall[],
   coreOf: () => Core | null,
 ) {
   let waited: Promise<void> | null = null;
   const tool = into ? "add_to_mind" : "create_mind";
-  return scriptedModel((call): ScriptedReply => {
-    calls.push(call);
-    if (isCheckRun(call)) {
-      const core = coreOf();
-      const reply = (check && core && check(call, core)) || checkReply(call, PLANS);
-      if (!during || waited || "error" in reply) return reply;
-      waited = during();
-      return { ...reply, pause: { after: 0, until: waited } };
-    }
-    if (CUT.test(call.prompt)) {
-      return {
-        text: "Spring tides come at new and full moon [1].\n<why>Only what the source says.</why>",
-      };
-    }
-    const { results } = call;
-    const search = results.find((result) => result.tool === "search_documents");
-    if (!search) return { calls: [{ tool: "search_documents", input: { query: "spring tides" } }] };
-    if (!results.some((result) => result.tool === "cite")) {
-      const [passage] = shownPassages(search.text);
-      const record = { marker: 1, passage: passage?.id, quote: MOON };
-      return { calls: [{ tool: "cite", input: { citations: [record] } }] };
-    }
-    const writes = results.filter((result) => result.tool === tool);
-    // Told its text has no Citation (#1415), it writes it again as it was: it says nothing the Documents say.
-    const refused = writes.length === 1 && writes[0]?.text.includes("content has no Citation");
-    if (writes.length === 0 || refused) {
-      const input = into ? { content } : { title: "Tide notes", content };
-      return { calls: [{ tool, input }] };
-    }
-    return { text: "Wrote it from your Documents." };
-  });
+  return scriptedModel(
+    (call): ScriptedReply => {
+      calls.push(call);
+      if (isCheckRun(call)) {
+        const core = coreOf();
+        const reply = (check && core && check(call, core)) || checkReply(call, PLANS);
+        if (!during || waited || "error" in reply) return reply;
+        waited = during();
+        return { ...reply, pause: { after: 0, until: waited } };
+      }
+      if (CUT.test(call.prompt)) {
+        return {
+          text: "Spring tides come at new and full moon [1].\n<why>Only what the source says.</why>",
+        };
+      }
+      const { results } = call;
+      const search = results.find((result) => result.tool === "search_documents");
+      if (!search)
+        return {
+          calls: [{ tool: "search_documents", input: { query: record?.query ?? "spring tides" } }],
+        };
+      if (!results.some((result) => result.tool === "cite")) {
+        const [passage] = shownPassages(search.text);
+        const citation = { marker: 1, passage: passage?.id, quote: record?.quote ?? MOON };
+        const citations = record ? [citation, { ...citation, marker: 2 }] : [citation];
+        return { calls: [{ tool: "cite", input: { citations } }] };
+      }
+      const writes = results.filter((result) => result.tool === tool);
+      // Told its text has no Citation (#1415), it writes it again as it was: it says nothing the Documents say.
+      const refused = writes.length === 1 && writes[0]?.text.includes("content has no Citation");
+      if (writes.length === 0 || refused) {
+        const input = into ? { content } : { title: "Tide notes", content };
+        return { calls: [{ tool, input }] };
+      }
+      return { text: "Wrote it from your Documents." };
+    },
+    record ? { generate: checkGenerate(PLANS) } : undefined,
+  );
 }
 
 /** A core with the tides line in a Folder, and a Mind there with a heading and a line. */
-async function harbour(model: ReturnType<typeof writingModel>, cloud: Writing["cloud"]) {
+async function harbour(
+  model: ReturnType<typeof writingModel>,
+  cloud: Writing["cloud"],
+  record: Writing["record"],
+) {
   const core = startCore(await createTempDataFolder(), {
     createChatModel: scriptedModels(model).createChatModel,
   });
@@ -129,7 +146,11 @@ async function harbour(model: ReturnType<typeof writingModel>, cloud: Writing["c
   } else await core.saveChatProvider({ kind: "ollama", modelId: "local-model" });
   const sources = await createTempDataFolder();
   const documents = await addAndProcess(core, [
-    await writeSourceFile(sources, "Tides.md", `# Tides\n\n${MOON}\n`),
+    await writeSourceFile(
+      sources,
+      record?.name ?? "Tides.md",
+      record?.contents ?? `# Tides\n\n${MOON}\n`,
+    ),
   ]);
   const folder = await core.createLibraryGroup({ name: "Coast", description: "" });
   await core.moveToFolder({ documentIds: documents.map((each) => each.id), folderId: folder.id });
@@ -155,7 +176,11 @@ async function write(
   const calls: ModelCall[] = [];
   let started: Core | null = null;
   const model = writingModel(writing, calls, () => started);
-  const { core, folderId, mindId, client, service } = await harbour(model, writing.cloud);
+  const { core, folderId, mindId, client, service } = await harbour(
+    model,
+    writing.cloud,
+    writing.record,
+  );
   started = core;
   onStart?.({ core, client, service, calls });
   const answer = await askAssistant(
@@ -452,6 +477,33 @@ describe("What the assistant writes is checked before it lands", { timeout: 30_0
     expect(marks.map(({ sentence, shown }) => [sentence, shown.state])).toEqual([
       ["€12 million .", "unsupported"],
     ]);
+  });
+
+  test("a nested proposed write resolves Id. against its own preceding sentence", async () => {
+    const { core, change, client } = await write({
+      into: true,
+      record: {
+        name: "ECF No. 41.pdf",
+        contents: buildPdf([
+          { lines: ["Introduction"] },
+          { lines: ["Second page", "Another deadline"] },
+          { lines: ["Trial briefs", "Trial briefs are due September 2"] },
+        ]),
+        quote: "Trial briefs are due September 2",
+        query: "Trial briefs",
+      },
+      content: `> ${RECORD_SOURCE} [^1].\n> ${RECORD_NEXT} [^2].`,
+    });
+
+    expect(change?.selfCheck).toMatchObject({ cited: 2, sent: 2, checked: 2, failed: 0 });
+    const next = (await marksIn(core, client)).find(({ sentence }) =>
+      sentence.includes(RECORD_NEXT),
+    );
+    expect(next?.check.recordCites?.[0]).toMatchObject({
+      raw: "Id. at 2",
+      outcome: "supported",
+      location: { kind: "page", from: 2, to: 2 },
+    });
   });
 
   // protects=a sentence with no Citation isn't checked as it lands (#1909: it is left to the one count and the one Check), as its Citations are what the written check reads; fails_when=a check Run is made for it, or it lands marked; no_claim=none beyond protects.

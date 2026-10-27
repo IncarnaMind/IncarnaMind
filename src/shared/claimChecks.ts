@@ -317,22 +317,15 @@ export function saysNotFound(
 }
 
 function recordEvidence(cite: RecordCiteResult): CitationAttributes | null {
-  if (
-    !cite.documentId ||
-    !cite.documentName ||
-    !cite.location ||
-    cite.pageFrom === undefined ||
-    cite.pageTo === undefined ||
-    cite.passage === undefined
-  )
+  if (!cite.documentId || !cite.documentName || !cite.location || cite.passage === undefined)
     return null;
   return {
     passageId: null,
     documentId: cite.documentId,
     documentName: cite.documentName,
     contentHash: cite.contentHash ?? null,
-    pageFrom: cite.pageFrom,
-    pageTo: cite.pageTo,
+    pageFrom: cite.pageFrom ?? null,
+    pageTo: cite.pageTo ?? null,
     location: cite.location,
     quote: cite.passage,
     check: "found",

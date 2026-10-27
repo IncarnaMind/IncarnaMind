@@ -1732,10 +1732,10 @@ export function createDocuments(options: DocumentsOptions) {
   };
 
   /** Every live Document's id, version and names, in `list`'s order: what a Citation needs to show its Document's current name. */
-  const names = (): LiveDocument[] =>
+  const names = (): (LiveDocument & { path?: string })[] =>
     db
-      .all<{ id: string; content_hash: string; name: string; title: string | null }>(
-        `SELECT id, content_hash, name, title FROM documents
+      .all<{ id: string; content_hash: string; name: string; title: string | null; path: string }>(
+        `SELECT id, content_hash, name, title, path FROM documents
          WHERE deleted_at IS NULL ORDER BY created_at DESC, rowid DESC`,
       )
       .map((row) => ({
@@ -1743,6 +1743,7 @@ export function createDocuments(options: DocumentsOptions) {
         contentHash: row.content_hash,
         name: row.name,
         title: row.title,
+        path: row.path,
       }));
 
   /** The ids of the live Documents the filter keeps, in `list`'s order. */

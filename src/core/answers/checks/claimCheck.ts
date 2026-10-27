@@ -31,6 +31,7 @@ import type {
   RecordCiteChoice,
   RecordCiteChoices,
   RecordCitePlace,
+  RecordCiteSentence,
 } from "../../../shared/recordCiteChoices";
 import { sentenceSpans } from "../../../shared/sentences";
 import type {
@@ -102,7 +103,11 @@ export interface ClaimCheckDependencies {
   evidence: Pick<Evidence, "search">;
   documents: Pick<AnswerDocuments, "citationSource" | "pageTexts" | "documentDate"> & {
     names?(): readonly (LiveDocument & { path?: string })[];
-    recordChoices?(mindId: string | undefined, place?: RecordCitePlace): RecordCiteChoices;
+    recordChoices?(
+      mindId: string | undefined,
+      place?: RecordCitePlace,
+      sentences?: readonly RecordCiteSentence[],
+    ): RecordCiteChoices;
     recordPrevious?(mindId: string, choice: RecordCiteChoice | null): void;
     searchableCount(documentIds: readonly string[] | null): number;
     searchableLanguages(documentIds: readonly string[] | null): DocumentLanguage[];
@@ -122,6 +127,8 @@ export interface ClaimCheckRequest {
   mindId?: string;
   /** This claim's position in the Note, for `Id.`/`supra`; absent for a direct check. */
   place?: RecordCitePlace;
+  /** The proposed sentences in reading order, when they are not in the Note yet. */
+  recordSentences?: readonly RecordCiteSentence[];
   /** Names the Mind, for a provider's prompt cache. */
   cacheKey?: string;
   signal: AbortSignal;
@@ -212,7 +219,11 @@ async function withRecordCites(
   deps: ClaimCheckDependencies,
 ): Promise<ClaimCheckResult> {
   if (result.verdict === "not-checked") return result;
-  const choices = deps.documents.recordChoices?.(request.mindId, request.place) ?? {
+  const choices = deps.documents.recordChoices?.(
+    request.mindId,
+    request.place,
+    request.recordSentences,
+  ) ?? {
     previous: null,
     choices: {},
   };
@@ -242,7 +253,12 @@ async function withRecordCites(
         ? {
             documentId: previous.documentId,
             location: previous.location,
-            ...(request.place && { place: request.place }),
+            ...(request.place && {
+              place: {
+                ...request.place,
+                ...(typeof previous.from === "number" && { citeFrom: previous.from }),
+              },
+            }),
           }
         : null,
     );

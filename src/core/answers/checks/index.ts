@@ -31,6 +31,7 @@ import { restsOn } from "../../../shared/claimChecks";
 import { mindScopeIn } from "../../../shared/mindScope";
 import {
   type RecordCitePlace,
+  type RecordCiteSentence,
   readRecordCiteChoices,
   writePreviousRecordCite,
   writeRecordCiteChoice,
@@ -81,6 +82,7 @@ import type { MindContent } from "../../mindContent";
 import { parseMindId } from "../../minds";
 import type { PreparedChatModel } from "../../providers/chat";
 import { parseRecordCite, scanRecordCites } from "../../recordCites/parser";
+import { hasImmediateRecordCitePrevious } from "../../recordCites/previous";
 import {
   recordCiteChoiceAlias,
   resolveChosenRecordCite,
@@ -332,19 +334,17 @@ export function createChecks(options: ChecksOptions) {
     mindId: string,
     previous: RecordCitePlace | undefined,
     current: RecordCitePlace | undefined,
+    proposed?: readonly RecordCiteSentence[],
   ) => {
-    if (!previous || !current) return false;
-    const sentences = content.read(mindId, everySentence);
-    const before = sentences.findIndex(
-      (sentence) => sentence.blockId === previous.blockId && sentence.from === previous.from,
-    );
-    const now = sentences.findIndex(
-      (sentence) => sentence.blockId === current.blockId && sentence.from === current.from,
-    );
-    if (before < 0 || now < 0 || before >= now) return false;
-    return !sentences
-      .slice(before + 1, now)
-      .some((sentence) => scanRecordCites(sentence.text, { hasPrevious: true }).length > 0);
+    const sentences =
+      proposed ??
+      content.read(mindId, (blocks): RecordCiteSentence[] =>
+        everySentence(blocks).map((sentence) => ({
+          place: { blockId: sentence.blockId, from: sentence.from },
+          text: sentence.text,
+        })),
+      );
+    return hasImmediateRecordCitePrevious(sentences, previous, current);
   };
   /** The requests running, by id: how to stop each, and its Mind. */
   const running = new Map<string, { controller: AbortController; mindId: string }>();
@@ -352,10 +352,10 @@ export function createChecks(options: ChecksOptions) {
     ...options,
     documents: {
       ...options.documents,
-      recordChoices: (mindId, place) => {
+      recordChoices: (mindId, place, sentences) => {
         if (!mindId) return { previous: null, choices: {} };
         const stored = content.readSettings(mindId, readRecordCiteChoices);
-        return previousIsImmediate(mindId, stored.previous?.place, place)
+        return previousIsImmediate(mindId, stored.previous?.place, place, sentences)
           ? stored
           : { ...stored, previous: null };
       },
@@ -869,19 +869,20 @@ export function createChecks(options: ChecksOptions) {
       if (!final?.location) throw new InvalidInputError("The source could not be resolved.");
       const alias = parsed.status === "parsed" ? recordCiteChoiceAlias(parsed) : null;
       const blockId = stored.element.getAttribute(BLOCK_ID_ATTRIBUTE);
+      const last = scanRecordCites(stored.check.text, { hasPrevious: true }).at(-1);
+      const isLast = last?.raw === cite.raw && last.from === cite.from && last.to === cite.to;
       content.editSettings(input.mindId, (settings) => {
         if (alias)
           writeRecordCiteChoice(settings, alias, {
             documentId: document.id,
             location: final.location as NonNullable<RecordCiteResult["location"]>,
           });
-        writePreviousRecordCite(settings, {
-          documentId: document.id,
-          location: final.location as NonNullable<RecordCiteResult["location"]>,
-          ...(typeof blockId === "string" && {
-            place: { blockId, from: stored.from },
-          }),
-        });
+        if (isLast && typeof blockId === "string" && typeof cite.from === "number")
+          writePreviousRecordCite(settings, {
+            documentId: document.id,
+            location: final.location as NonNullable<RecordCiteResult["location"]>,
+            place: { blockId, from: stored.from, citeFrom: cite.from },
+          });
       });
       content.edit(input.mindId, (blocks) =>
         updateCheck(blocks, input.checkId, (check) => ({
