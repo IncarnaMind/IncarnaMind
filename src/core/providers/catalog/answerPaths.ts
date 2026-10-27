@@ -34,6 +34,21 @@ const WRITES_THEN_CITES: readonly Admitted[] = [
   },
 ];
 
+/**
+ * Searches the Question before the first call and answers from those Passages in one call,
+ * falling back to the Tool loop when it needs more (#1633, an amendment to ADR-0007). Claude
+ * Sonnet 5.5 was measured and left out (2026-10-26): it still gave its records first, so it
+ * answered in one call once in 94 and finished no sooner (+0.3 s on the gating set).
+ */
+const RETRIEVES_FIRST: readonly Admitted[] = [
+  {
+    model: "anthropic/claude-haiku-5-5",
+    since: "2026-10-26",
+    flows: ["question"],
+    gate: "Against the Tool loop with write-then-cite, paired, one run at a time at a normal load, within one item in 30, on turns offered no Tool that writes a Mind: gating 65, done −1.4 s, 2.11 → 1.29 calls, one call in 49, cited 63 → 65, judged right 62 → 61, every Citation found 62 → 64; hard 60, done −1.7 s, 2.95 → 1.75 calls, cited 45 → 44, right 57 → 57, every Citation found 59 → 59; on this code, gating 65 at a normal load, done −0.8 s, 2.18 → 1.25 calls, cited 62 → 62, right 60 → 58, every Citation found 64 → 63; no new false Supported, duplicate, unmade change or tool text. Assistant turns keep the loop.",
+  },
+];
+
 /** A model as an Answer runs it. */
 export interface ListedModel {
   catalogId: string | null;
@@ -43,6 +58,7 @@ export interface ListedModel {
 /** What tests and the evaluation decide instead of the lists; undefined: the list's. */
 export interface AnswerPathsOverride {
   writesThenCites?(model: ListedModel): boolean | undefined;
+  retrievesFirst?(model: ListedModel): boolean | undefined;
 }
 
 const listed = (
@@ -61,3 +77,9 @@ export const writesThenCites = (
   flow: AnswerFlow,
   override?: AnswerPathsOverride,
 ): boolean => override?.writesThenCites?.(model) ?? listed(WRITES_THEN_CITES, model, flow);
+
+export const retrievesFirst = (
+  model: ListedModel,
+  flow: AnswerFlow,
+  override?: AnswerPathsOverride,
+): boolean => override?.retrievesFirst?.(model) ?? listed(RETRIEVES_FIRST, model, flow);

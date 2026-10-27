@@ -539,6 +539,8 @@ export interface AnswersOptions {
   ): Promise<PreparedChatModel["model"]>;
   /** Whether this model writes the Answer, then cites it, in the Tool loop, in this flow (#489). */
   writesThenCites?(prepared: PreparedChatModel, flow: AnswerFlow): boolean;
+  /** Whether an Answer on this model, in this flow, searches its Question before the first call (#1633). */
+  retrievesFirst?(prepared: PreparedChatModel, flow: AnswerFlow): boolean;
   /** Searching the User's Documents, and what Citations point to. */
   documents: DocumentsForAnswers;
   /** Runs Analyses (#447, ADR-0023); absent: no Answer is offered `run_analysis`. */
@@ -2483,7 +2485,21 @@ export function createAnswers(options: AnswersOptions) {
           },
         },
       ];
-      const writeFirst = options.writesThenCites?.(prepared, flow) ?? false;
+      // The search made first takes the User's words as the query before the model has read them,
+      // which is right only for a Question about the Documents. So it is made only on a turn that is
+      // one by construction, offered no Tool that writes a Mind (a Question asked in a Mind, or an
+      // outside agent's), in a flow the list admits the model to. A request in the assistant may be
+      // a write, a follow-up or anything else, and keeps the loop. Call help already searches
+      // first; a check or a Task's Run keeps its loop.
+      const writesMinds = mindsTools?.tools.some((tool) => tool.name !== MIND_TOOLS.read) ?? false;
+      const retrieveFirst =
+        !help &&
+        !input.task &&
+        (input.toolSet ?? "answer") === "answer" &&
+        !writesMinds &&
+        (options.retrievesFirst?.(prepared, flow) ?? false);
+      // Its one call writes the Answer and then cites it (#1633 on #489's contract).
+      const writeFirst = retrieveFirst || (options.writesThenCites?.(prepared, flow) ?? false);
       for await (const event of engine.generate({
         instructions: (
           mode,
@@ -2579,6 +2595,7 @@ export function createAnswers(options: AnswersOptions) {
         thirdParty: contextReasons,
         support: startingSupport(prepared.support, supportByModel.get(learntKey)),
         writeThenCite: writeFirst,
+        retrieveFirst,
         structuredOutput: givesStructuredOutput(prepared.capabilities),
         takesTemperature: prepared.capabilities.facts.temperature,
         window: prepared.window,

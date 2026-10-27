@@ -11,6 +11,7 @@ import type { ChatModelChoice, CoreEventName } from "../../src/core";
 import { DATABASE_FILE } from "../../src/core";
 import { toolTextIn } from "../../src/core/answers/toolText";
 import { openDatabase } from "../../src/core/storage";
+import { queryDatabase } from "../../tests/helpers/core";
 import { type CaseResult, fetchPapers, fetchReserves, reports, runCase } from "../everyday/asking";
 import { CASES, type LibraryName } from "../everyday/cases";
 import { writeDatedDocuments } from "../everyday/dated";
@@ -42,6 +43,8 @@ export interface ArmRun {
   firstWordsMs: number | null;
   doneMs: number | null;
   modelCalls: number;
+  /** Of them, the Answer's own: not its search rewrite, translation or checks. */
+  answerCalls: number;
   inputTokens: number;
   outputTokens: number;
   citations: number;
@@ -63,7 +66,13 @@ export interface ArmRun {
 /** What an item measures itself; the times and calls come from the run around it. */
 export type Measured = Omit<
   ArmRun,
-  "firstSignMs" | "firstWordsMs" | "doneMs" | "modelCalls" | "inputTokens" | "outputTokens"
+  | "firstSignMs"
+  | "firstWordsMs"
+  | "doneMs"
+  | "modelCalls"
+  | "answerCalls"
+  | "inputTokens"
+  | "outputTokens"
 >;
 
 export interface ItemContext {
@@ -276,7 +285,16 @@ export function everydaySet(root: string, cacheDir: string): PairedGroup[] {
             error: result.error,
             duplicate: isWrittenTwice(result.reply),
             failures: result.failures.map((failure) => failure.kind),
-            text: result.reply,
+            // What the claims judge read and flagged, to tell an unmade claim from the judge's error.
+            text: [
+              result.reply,
+              ...result.calls.map((call) => `[call] ${call}`),
+              ...result.failures.flatMap((failure) =>
+                failure.kind === "unbacked"
+                  ? failure.sentences.map((each) => `[unbacked] ${each}`)
+                  : [],
+              ),
+            ].join("\n"),
           };
         },
       }),
@@ -408,6 +426,7 @@ export async function runOnArm(
 ): Promise<ArmRun> {
   const { core } = context.library;
   let begun: number | null = null;
+  let begunAt = "";
   let sign: number | null = null;
   let words: number | null = null;
   let ended: number | null = null;
@@ -429,6 +448,7 @@ export async function runOnArm(
     ...context.recorder,
     begin() {
       begun = performance.now();
+      begunAt = new Date().toISOString();
       sign = words = ended = null;
       context.recorder.begin();
     },
@@ -451,8 +471,20 @@ export async function runOnArm(
   const calls = (recording?.modelCalls ?? []).filter(
     (call) => doneMs === null || call.startMs <= doneMs,
   );
+  // The core tags a call made for an Answer by its step (src/core/timing): untagged, it is the Answer's.
+  const own =
+    begun === null
+      ? []
+      : queryDatabase<{ started_at: string }>(
+          context.library.dataDir,
+          "SELECT started_at FROM ai_timings WHERE kind = 'model' AND step IS NULL AND started_at >= ?",
+          [begunAt],
+        ).filter(
+          (row) => doneMs === null || Date.parse(row.started_at) <= Date.parse(begunAt) + doneMs,
+        );
   return {
     ...measured,
+    answerCalls: own.length,
     firstSignMs: sign,
     firstWordsMs:
       item.words === "answer" ? recording && firstKeptText(recording.textEvents) : words,

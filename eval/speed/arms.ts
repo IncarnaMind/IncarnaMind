@@ -18,20 +18,33 @@ export interface Arm {
   /** Each model request while the arm runs, as it is sent. */
   request?(params: LanguageModelV4CallOptions): LanguageModelV4CallOptions;
   /** Answer paths every model takes or doesn't while the arm runs; unset: the lists'. */
-  paths?: { writesThenCites?: boolean };
+  paths?: { writesThenCites?: boolean; retrievesFirst?: boolean };
 }
 
+// An arm that compares one Answer path keeps every other as the Tool loop has it from its first
+// call: a model the retrieve-first list names would otherwise write first in both citation arms.
 export const ARMS: readonly Arm[] = [
   { id: "today", label: "today's path, as the branch runs it" },
   {
     id: "cite-first",
     label: "the Tool loop's records first, then the Answer",
-    paths: { writesThenCites: false },
+    paths: { writesThenCites: false, retrievesFirst: false },
   },
   {
     id: "write-then-cite",
     label: "the Answer, then its records in the same reply (#489)",
-    paths: { writesThenCites: true },
+    paths: { writesThenCites: true, retrievesFirst: false },
+  },
+  {
+    id: "loop",
+    label: "the Tool loop from its first call, whatever the lists say",
+    paths: { retrievesFirst: false },
+  },
+  {
+    id: "retrieve-first",
+    label:
+      "the Question searched before the first call, answered in one call unless it needs more (#1633)",
+    paths: { retrievesFirst: true },
   },
 ];
 
@@ -54,6 +67,7 @@ export function armSwitch() {
   };
   const answerPaths: AnswerPathsOverride = {
     writesThenCites: () => current?.paths?.writesThenCites,
+    retrievesFirst: () => current?.paths?.retrievesFirst,
   };
   return {
     chatModels:

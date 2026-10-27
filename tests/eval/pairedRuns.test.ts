@@ -8,6 +8,11 @@ import { describe, expect, test } from "vitest";
 import { type Arm, armNamed, armSwitch } from "../../eval/speed/arms";
 import type { ArmRun } from "../../eval/speed/paired";
 import { guards, newFalseSupported, type PairedRow } from "../../eval/speed/pairedReport";
+import {
+  type AnswerPathsOverride,
+  retrievesFirst,
+  writesThenCites,
+} from "../../src/core/providers/catalog/answerPaths";
 
 const RUN: ArmRun = {
   status: "done",
@@ -16,6 +21,7 @@ const RUN: ArmRun = {
   firstWordsMs: 3000,
   doneMs: 5000,
   modelCalls: 3,
+  answerCalls: 3,
   inputTokens: 30_000,
   outputTokens: 900,
   citations: 2,
@@ -137,13 +143,45 @@ describe("the arm switch", () => {
 });
 
 describe("the arms' Answer paths", () => {
-  test("cite-first and write-then-cite decide for every model; today leaves it to the lists", () => {
-    const switcher = armSwitch();
-    const model = { catalogId: "anthropic", modelId: "claude-sonnet-5-5" };
-    const seen = ["cite-first", "write-then-cite", "today"].map((id) => {
-      switcher.use(armNamed(id));
-      return switcher.answerPaths.writesThenCites?.(model);
-    });
-    expect(seen).toEqual([false, true, undefined]);
-  });
+  // An Answer in the question flow, the one the arms' sets ask in, writes first when it retrieves
+  // first or writes then cites (src/core/answers/index.ts).
+  const pathOf = (model: { catalogId: string; modelId: string }, paths: AnswerPathsOverride) => {
+    const searchesFirst = retrievesFirst(model, "question", paths);
+    return {
+      searchesFirst,
+      writesFirst: searchesFirst || writesThenCites(model, "question", paths),
+    };
+  };
+
+  test.each([
+    [
+      "Claude Sonnet 5.5, on no list",
+      "claude-sonnet-5-5",
+      { searchesFirst: false, writesFirst: false },
+    ],
+    [
+      "Claude Haiku 5.5, on both lists",
+      "claude-haiku-5-5",
+      { searchesFirst: true, writesFirst: true },
+    ],
+  ])(
+    "%s: each arm decides the path it compares, the citation arms in the loop from its first call; today keeps the lists'",
+    (_, modelId, listed) => {
+      const switcher = armSwitch();
+      const model = { catalogId: "anthropic", modelId };
+      const seen = Object.fromEntries(
+        ["cite-first", "write-then-cite", "loop", "retrieve-first", "today"].map((id) => {
+          switcher.use(armNamed(id));
+          return [id, pathOf(model, switcher.answerPaths)];
+        }),
+      );
+      expect(seen).toEqual({
+        "cite-first": { searchesFirst: false, writesFirst: false },
+        "write-then-cite": { searchesFirst: false, writesFirst: true },
+        loop: { searchesFirst: false, writesFirst: listed.writesFirst },
+        "retrieve-first": { searchesFirst: true, writesFirst: true },
+        today: listed,
+      });
+    },
+  );
 });
