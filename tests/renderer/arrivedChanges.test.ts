@@ -6,11 +6,12 @@
  */
 import { Editor, type JSONContent } from "@tiptap/core";
 import type { Schema } from "@tiptap/pm/model";
+import type { EditorState } from "@tiptap/pm/state";
 import { prosemirrorToYXmlFragment } from "@tiptap/y-tiptap";
 import { describe, expect, onTestFinished, test } from "vitest";
 import * as Y from "yjs";
 import { MIND_CONTENT_FIELD, PROPOSAL_ATTRIBUTE } from "../../src/core";
-import { writeAccepted } from "../../src/renderer/src/editor/arrivedChanges";
+import { planChanges, writeAccepted } from "../../src/renderer/src/editor/arrivedChanges";
 import { noteExtensions } from "../../src/renderer/src/editor/noteSchema";
 import { pendingProposals } from "../../src/shared/proposals";
 
@@ -22,7 +23,12 @@ const text = (value: string, marks?: JSONContent["marks"]): JSONContent => ({
 const ref = (id: string, request: string) => ({ id, request });
 
 /** A Mind's document in Yjs, as the core writes it. */
-function mindWith(content: JSONContent[]): { doc: Y.Doc; blocks: Y.XmlFragment; schema: Schema } {
+function mindWith(content: JSONContent[]): {
+  doc: Y.Doc;
+  blocks: Y.XmlFragment;
+  schema: Schema;
+  state: EditorState;
+} {
   const editor = new Editor({
     element: null,
     extensions: noteExtensions(),
@@ -34,7 +40,7 @@ function mindWith(content: JSONContent[]): { doc: Y.Doc; blocks: Y.XmlFragment; 
     editor.state.doc,
     doc.getXmlFragment(MIND_CONTENT_FIELD),
   );
-  return { doc, blocks, schema: editor.schema };
+  return { doc, blocks, schema: editor.schema, state: editor.state };
 }
 
 const textOf = (blocks: Y.XmlFragment) =>
@@ -143,5 +149,58 @@ describe("Changes the User asked the assistant for", () => {
       "A new paragraph.",
       "Harbours openclose at nine.",
     ]);
+  });
+
+  // Value: protects=Review anchors only accepted deletions, leaving stale ones in place; fails_when=Restore inserts before the wrong survivor; why_new=mixed fresh/stale Review was unverified; seam=none; no_claim=full editor restore (anchor planning only)
+  test("a stale deletion stays beside an accepted deletion's Review anchor", () => {
+    const { state } = mindWith([
+      {
+        type: "paragraph",
+        attrs: {
+          id: "A",
+          [PROPOSAL_ATTRIBUTE]: { kind: "delete", id: "A", request: "request" },
+        },
+        content: [text("First")],
+      },
+      {
+        type: "paragraph",
+        attrs: {
+          id: "B",
+          [PROPOSAL_ATTRIBUTE]: { kind: "delete", id: "B", request: "request" },
+        },
+        content: [text("Second")],
+      },
+    ]);
+
+    const changes = planChanges(state, new Set(["request"]), new Set(["A"]));
+    expect(changes).toHaveLength(1);
+    const [change] = changes;
+    expect(change?.kind).toBe("removed");
+    if (change?.kind !== "removed") throw new Error("No accepted deletion was planned.");
+    expect(change.beside).toMatchObject({ side: "before", block: { blockId: "B" } });
+  });
+
+  // Value: protects=stale inline deletions remain in restored offsets; fails_when=accepted and stale marks are both subtracted; why_new=block-only Review coverage missed placeOnAccept; seam=none; no_claim=visual Review rendering (offset planning only)
+  test("a stale inline deletion still counts in the restored offset", () => {
+    const { state } = mindWith([
+      {
+        type: "paragraph",
+        attrs: { id: "p" },
+        content: [
+          text("A"),
+          text("old", [{ type: "proposalDelete", attrs: ref("stale", "request") }]),
+          text("B"),
+          text("new", [{ type: "proposalDelete", attrs: ref("accepted", "request") }]),
+          text("C"),
+        ],
+      },
+    ]);
+
+    const changes = planChanges(state, new Set(["request"]), new Set(["accepted"]));
+    expect(changes).toHaveLength(1);
+    const [change] = changes;
+    if (change?.kind !== "words") throw new Error("No inline change was planned.");
+    expect(change.from).toMatchObject({ blockId: "p", offset: 5 });
+    expect(change.to).toMatchObject({ blockId: "p", offset: 5 });
   });
 });
