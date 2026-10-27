@@ -289,7 +289,9 @@ test("the footer asks for a model to tag only once a Document of the User's own 
     if (document) await bridge.addTagToDocuments([document.id], tag.id);
   });
   await expect(notice).toBeVisible();
-  await expect(notice).toContainText("No AI model for Tags");
+  await expect(notice).toContainText("Tags need an AI model");
+  // One 28px line, never wrapping: the whole sentence is on hover (#763).
+  await expect(notice).toHaveAttribute("title", "Tags come once you choose an AI model.");
   await expect(notice.getByTestId("tagging-waiting-setup")).toHaveText("Choose…");
   await setLanguage(window, "zh-CN");
   await expect(notice).toContainText("打标签需要 AI 模型");
@@ -428,7 +430,7 @@ test("the steps card's first step offers Add files… and Link a folder… at on
   });
   await expect(steps).not.toContainText("准备好了。");
   await pointAndClick(window, steps.getByTestId("first-open-choose-model"));
-  await expect(window.getByTestId("model-setup")).toContainText("选择你的 AI");
+  await expect(window.getByTestId("model-setup")).toContainText("设置你的 AI");
   await useLocalChatModel(window);
   await expect(steps).toContainText("准备好了。");
   await continueSetup(window);
@@ -675,12 +677,12 @@ test("on a fresh install, a first checked Citation from the User's own file take
     );
     await step("Enter", () => window.keyboard.press("Enter"));
     const card = window.getByTestId("model-setup");
-    await step("Paste an API key", () => pointAndClick(window, card.getByTestId("setup-key")));
-    const form = card.getByTestId("provider-form");
-    await expect(form.getByLabel(/^API key/)).toBeFocused();
+    const field = card.getByTestId("setup-key");
+    await step("Paste an API key", () => pointAndClick(window, field));
+    await expect(field).toBeFocused();
     await step("paste the key", () => window.keyboard.insertText("sk-ant-a-key-from-the-company"));
-    await step("Use this key", () => pointAndClick(window, form.getByTestId("provider-use-key")));
-    await step("Continue", () => continueSetup(window));
+    await step("Enter", () => window.keyboard.press("Enter"));
+    await step("Use this", () => continueSetup(window));
 
     const citation = assistantAnswers(window).last().getByTestId("citation").first();
     await expect(citation).toHaveAttribute("data-check", "found", { timeout: 20_000 });
@@ -741,7 +743,7 @@ test("finishing the steps with no model asks for one in the card, never says You
   await pointAndClick(window, steps.getByTestId("first-open-choose-model"));
   const setup = window.getByTestId("model-setup");
   await expect(window.getByTestId("assistant")).toBeVisible();
-  await expect(setup.getByRole("heading", { level: 2 })).toHaveText("Choose your AI");
+  await expect(setup.getByRole("heading", { level: 2 })).toHaveText("Set up your AI");
   await useLocalChatModel(window);
   await expect(steps).toContainText("You’re set up.");
   await expect(steps.getByTestId("first-open-next").first()).toBeVisible();
@@ -760,22 +762,20 @@ test("by keyboard alone: Choose a model takes the focus into the setup, and a sa
   await choose.focus();
   await window.keyboard.press("Enter");
   const setup = window.getByTestId("model-setup");
-  await expect(setup.locator(":focus")).toHaveCount(1);
-  // The ChatGPT plan comes first where this computer can keep its sign-in; then the key.
-  const plan = setup.getByTestId("setup-chatgpt");
-  if (await plan.evaluate((button) => button === document.activeElement)) {
-    await window.keyboard.press("Tab");
-    // What goes to ChatGPT, behind Details, comes between the two.
-    await expect(setup.getByTestId("setup-chatgpt-sends-details")).toBeFocused();
-    await window.keyboard.press("Tab");
-  }
+  // The key field takes the focus as the card opens (#1922).
   await expect(setup.getByTestId("setup-key")).toBeFocused();
-  await window.keyboard.press("Enter");
-  await expect(setup.getByLabel(/^API key/)).toBeFocused();
   await window.keyboard.insertText("sk-ant-a-key-from-the-company");
   await window.keyboard.press("Enter");
-  // The card lists what each job uses, with Continue under the focus: Enter goes on.
-  await expect(setup.getByTestId("setup-continue")).toBeFocused();
+  // Steps 2 and 3 follow, each one key away: Tab to Use this, Enter, and on to the next step.
+  const transcription = setup.getByTestId("setup-transcription");
+  await expect(transcription).toBeFocused();
+  await window.keyboard.press("Tab");
+  await expect(setup.getByTestId("setup-transcription-use")).toBeFocused();
+  await window.keyboard.press("Enter");
+  const sorting = setup.getByTestId("models-sorting");
+  await expect(sorting).toBeFocused();
+  await window.keyboard.press("Tab");
+  await expect(setup.getByTestId("setup-sorting-use")).toBeFocused();
   await window.keyboard.press("Enter");
   await expect(setup).toHaveCount(0);
   await expect(window.getByTestId("first-open-steps")).toContainText("You’re set up.");

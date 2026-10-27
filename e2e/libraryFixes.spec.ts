@@ -183,13 +183,17 @@ for (const language of ["en", "zh-CN"] as const) {
     await pointAndClick(window, lib.getByTestId("library-organize"));
     const needs = lib.getByTestId("library-organize-needs-model");
     await expect(needs).toContainText(
-      language === "en" ? "Organize needs an AI model" : "“整理”需要 AI 模型",
+      language === "en" ? "Organize needs an AI model" : "整理需要一个 AI 模型",
     );
-    // No AI model is connected yet: only the way to set one up on this computer.
+    // No AI model is connected yet: first run's key field, in place, and no step through Settings.
     await expect(needs.getByTestId("library-organize-use")).toHaveCount(0);
-    await pointAndClick(window, needs.getByTestId("library-organize-set-up"));
-    await expect(window.getByTestId("settings")).toHaveAttribute("data-page", "models");
-    await window.keyboard.press("Escape");
+    await expect(needs.getByTestId("library-organize-set-up")).toHaveCount(0);
+    await expect(needs.getByTestId("library-organize-key")).toBeVisible();
+    await expect(needs).toContainText(
+      language === "en"
+        ? "It sends Documents’ names and excerpts, and Folder and Tag names and descriptions, to the model you set up."
+        : "它会把文档名称和摘录，以及文件夹和标签的名称与描述，发送给你设置的模型。",
+    );
 
     // With an AI model connected, Organize can use its company.
     await connectLocalChatModel(window);
