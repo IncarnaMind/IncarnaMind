@@ -12,8 +12,7 @@ import { core, files } from "../core";
 import { errorMessage } from "../errors";
 import { showFileLabelKey } from "../fileInfo";
 import { useT } from "../i18n";
-import { folderName } from "../linkedFolders";
-import { defaultFolderLabel } from "../outputFiles";
+import { savedFolderLabel } from "../outputFiles";
 import { formatSize, pickSkill, skillDescription, skillShortLine, skillTitle } from "../skills";
 import { useAppStore } from "../store";
 import { DetailsLine } from "./DetailsLine";
@@ -322,7 +321,7 @@ function ExportStatus({
       >
         {t("skills.settings.exported", {
           name: exported.name,
-          folder: exported.inDefaultFolder ? defaultFolderLabel(t) : folderName(exported.folder),
+          folder: savedFolderLabel(exported, t),
         })}
       </ProblemLine>
     );

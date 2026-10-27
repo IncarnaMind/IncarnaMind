@@ -24,14 +24,9 @@ import {
 import { showFileLabelKey } from "../fileInfo";
 import { useMindNoteStates } from "../home";
 import { useLanguage, useT } from "../i18n";
-import { folderName } from "../linkedFolders";
 import { enter } from "../motion";
 import { type NoteState, noteStateParts } from "../noteState";
-import {
-  chooseOutputLocation,
-  defaultFolderLabel,
-  showOutputLocationSetting,
-} from "../outputFiles";
+import { chooseOutputLocation, savedFolderLabel, showOutputLocationSetting } from "../outputFiles";
 import { saveFailureReason } from "../problems";
 import { useAppStore } from "../store";
 import { useHeld } from "../useHeld";
@@ -360,7 +355,7 @@ function useExportNoteState(mindId: string | null): NoteState | null {
 function SavedSentence({ result, withFile }: { result: SavedResult; withFile: SavedWithFile }) {
   const t = useT();
   const language = useLanguage();
-  const folder = result.inDefaultFolder ? defaultFolderLabel(t) : folderName(result.folder);
+  const folder = savedFolderLabel(result, t);
   const name = nameInLine(result.name);
   // The check record and the workbook aren't the note's file: their lines say what they are, not how the note stands.
   const noteExport = !isCheckRecord(result.format) && result.format !== COMPARISON_EXCEL;
