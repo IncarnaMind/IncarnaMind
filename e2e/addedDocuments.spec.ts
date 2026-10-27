@@ -96,7 +96,7 @@ test("a sentence nothing supported is offered a check again once a Document is a
   await expect(editor).toContainText(PENGUINS);
 
   await window.getByTestId("mind-tab").first().click({ button: "right" });
-  await pointAndClick(window, window.getByRole("menuitem", { name: "Check this note" }));
+  await pointAndClick(window, window.getByRole("menuitem", { name: "Check", exact: true }));
   const ask = window.getByTestId("check-card").getByTestId("mind-check-ask");
   await pointAndClick(window, ask.getByTestId("mind-check-check"));
   const marks = window.getByTestId("claim-mark");
@@ -133,7 +133,7 @@ test("a sentence nothing supported is offered a check again once a Document is a
 
   await setLanguage(window, "zh-CN");
   await checkCard(window);
-  await expect(line).toHaveText(/^检查之后新增了 1 个文档\s*·\s*重新核对\s*·\s*关闭$/);
+  await expect(line).toHaveText(/^核对之后新增了 1 个文档\s*·\s*重新核对\s*·\s*关闭$/);
   const box = await line.boundingBox();
   const lineHeight = await line.evaluate((element) =>
     Number.parseFloat(getComputedStyle(element).lineHeight),
@@ -176,6 +176,8 @@ for (const widened of [false, true]) {
           await core.allowDataFlow(flow, provider.service.id);
         }
       }
+      // A cap, so a run under a dollar still shows its estimate (#1941).
+      await core.updateSettings({ user: { monthlyCap: { amount: 20, currency: "USD" } } });
     });
     await setWindowSize(app, window, 1440, 900);
     await addDocuments(window, [join(sources, "Tides.pdf")]);
@@ -183,7 +185,7 @@ for (const widened of [false, true]) {
     await window.getByTestId("mind-list-item").filter({ hasText: "Harbour notes" }).click();
     await fileInto(window, ["Tides"]);
     await window.getByTestId("mind-tab").first().click({ button: "right" });
-    await pointAndClick(window, window.getByRole("menuitem", { name: "Check this note" }));
+    await pointAndClick(window, window.getByRole("menuitem", { name: "Check", exact: true }));
     await pointAndClick(
       window,
       window

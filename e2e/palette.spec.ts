@@ -403,7 +403,7 @@ test("with a sentence selected, ⌘K finds the one check by check, find support,
     await expect(palette(window).locator('[data-key^="command:check."]')).toHaveCount(1);
     if (query === "check") {
       await expect(row("mind.check").getByTestId("palette-purpose")).toHaveText(
-        "Whether each claim has support in your Documents",
+        "Checks this note’s Citations, sentences and figures against your Documents, and contradictions in its Folder",
       );
       await expect(row("mind.checkContradictions").getByTestId("palette-purpose")).toHaveText(
         "Where your Documents disagree with this note’s Citations",
@@ -442,14 +442,14 @@ test("with a sentence selected, ⌘K finds the one check by check, find support,
     await expect(palette(window).locator('[data-key^="command:check."]')).toHaveCount(1);
     if (query === "核对") {
       await expect(row("mind.check").getByTestId("palette-purpose")).toHaveText(
-        "每条说法在你的文档里有没有依据",
+        "对照文档核对这篇笔记的引用、句子和数字，以及文件夹中的矛盾",
       );
     }
     await window.keyboard.press("Escape");
     await expect(palette(window)).toBeHidden();
   }
 
-  await search("核对文档");
+  await search("核对别人的 PDF");
   await expect(row("verify.document").getByTestId("palette-purpose")).toHaveText(
     "核对别人写的 PDF 里的说法",
   );
