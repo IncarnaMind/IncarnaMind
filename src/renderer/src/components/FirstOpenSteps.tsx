@@ -1,6 +1,7 @@
 import { type ReactNode, useEffect, useRef } from "react";
 import type { CommandId } from "../../../shared/commands";
 import type { MessageKey } from "../../../shared/i18n";
+import { addFilesLabel } from "../addFilesAction";
 import { focusComposer } from "../commands/assistant";
 import { shortcutLabel } from "../commands/keymap";
 import { type CommandContext, commands, offered } from "../commands/registry";
@@ -134,8 +135,7 @@ function Step({
 export function FirstOpenSteps({ mindId }: { mindId: string }) {
   const t = useT();
   const progress = useAppStore((state) => state.settings?.device.gettingStarted);
-  const pickDocuments = useAppStore((state) => state.pickDocuments);
-  const addLinkedFolder = useAppStore((state) => state.addLinkedFolder);
+  const pickDocumentsOrFolder = useAppStore((state) => state.pickDocumentsOrFolder);
   const updateGettingStarted = useAppStore((state) => state.updateGettingStarted);
   const ready = useReadyQuestion();
   const modelReady = useAppStore((state) => state.chatReadiness?.ready === true);
@@ -208,7 +208,7 @@ export function FirstOpenSteps({ mindId }: { mindId: string }) {
             number={1}
             state={stateOf("files")}
             live={live}
-            onDo={() => void pickDocuments()}
+            onDo={() => void pickDocumentsOrFolder()}
           >
             {live && unread.length > 0 ? (
               <UnreadFilesLine files={unread} testId="first-open-unread" />
@@ -222,18 +222,10 @@ export function FirstOpenSteps({ mindId }: { mindId: string }) {
                 ref={live ? addFiles : undefined}
                 type="button"
                 data-testid={only("first-open-add-files")}
-                onClick={() => void pickDocuments()}
+                onClick={() => void pickDocumentsOrFolder()}
                 className={buttonStyle(stateOf("files") === "open" ? "primary" : "secondary", "sm")}
               >
-                {t("startGuide.documents.addFiles")}
-              </button>
-              <button
-                type="button"
-                data-testid={only("first-open-link-folder")}
-                onClick={() => void addLinkedFolder()}
-                className={buttonStyle("secondary", "sm")}
-              >
-                {t("startGuide.documents.linkFolder")}
+                {t(addFilesLabel())}
               </button>
             </div>
             {live && skipped.length > 0 && (

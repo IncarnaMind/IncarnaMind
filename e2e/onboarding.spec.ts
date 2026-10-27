@@ -5,6 +5,7 @@ import type { Editor } from "@tiptap/core";
 import type { CoreBridge } from "../src/core/api";
 import {
   acceptPlainTextKeys,
+  addFilesLabel,
   assistantAnswers,
   continueSetup,
   createDataFolder,
@@ -208,7 +209,7 @@ test("a first run opens on the credit paper with no model set up: its Citations 
   await setLanguage(window, "zh-CN");
   await expect(addOwn).toHaveText("添加你的文档");
   await pointAndClick(window, addOwn);
-  await expect(ways.getByRole("menuitem")).toHaveText(["添加文件…", "添加同步文件夹…"]);
+  await expect(ways.getByRole("menuitem")).toHaveText(["添加文件…", "添加关联文件夹…"]);
   await window.keyboard.press("Escape");
 
   await setLanguage(window, "en");
@@ -392,7 +393,7 @@ test("the steps card's first step offers Add files… and Link a folder… at on
   const files = step(window, "files");
   await expect(files).toHaveAttribute("data-state", "open");
   const offered = files.locator('button:not([data-testid="first-open-step-do"])');
-  await expect(offered).toHaveText(["Add files…", "Link a folder…"]);
+  await expect(offered).toHaveText([addFilesLabel("en")]);
   await expect(window.getByTestId("mind-editor").locator("h1")).toHaveText(
     "Draft: credit committee paper",
   );
@@ -400,7 +401,7 @@ test("the steps card's first step offers Add files… and Link a folder… at on
 
   await setLanguage(window, "zh-CN");
   await setWindowSize(app, window, 900, 760);
-  await expect(offered).toHaveText(["添加文件…", "添加同步文件夹…"]);
+  await expect(offered).toHaveText([addFilesLabel("zh-CN")]);
   await expectPlainWords(firstScreen);
   const card = await pane.getByTestId("first-open-steps").boundingBox();
   const buttons = await offered.last().boundingBox();
