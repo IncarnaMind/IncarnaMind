@@ -7,6 +7,7 @@ import { part, unzip } from "../tests/helpers/docx";
 import { refuseWrites } from "../tests/helpers/failingStorage";
 import {
   createDataFolder,
+  forceQuit,
   launchApp,
   nameMind,
   newMind,
@@ -227,9 +228,7 @@ test("after a crash while changes wait, the next start says how many were lost",
   await window.keyboard.type(" LOST");
   await expect(notice(window)).toBeVisible();
 
-  const exited = new Promise<void>((done) => app.process().once("exit", () => done()));
-  app.process().kill("SIGKILL");
-  await exited;
+  await forceQuit(app);
   restore();
   const second = await launchApp(dataDir);
 

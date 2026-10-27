@@ -12,6 +12,7 @@ import {
   dismissChatSetup,
   enterContent,
   expectBarOneRow,
+  forceQuit,
   frontMindName,
   launchApp,
   makeTagOnDocument,
@@ -704,8 +705,7 @@ test("killed mid-recording, IncarnaMind recovers the audio up to the last part a
   const meetingId = meeting?.id ?? "";
   // The first 10-second part is on disk: then the app is killed, with no time to save more.
   await expect.poll(() => partsOf(meetingId, "microphone").length, { timeout: 30_000 }).toBe(1);
-  first.app.process().kill("SIGKILL");
-  await first.app.waitForEvent("close");
+  await forceQuit(first.app);
   // The next part was being written when it died.
   await writeFile(join(dataDir, "meetings", meetingId, "microphone-0000010000.wav.writing"), "");
 
