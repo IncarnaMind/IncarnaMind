@@ -12,12 +12,17 @@ import * as Y from "yjs";
 import type { CoreBridge } from "../../src/core/api";
 import { mindNode } from "../app";
 import { type DemoLanguage, writeTermSheets } from "./documents";
+import { type ResearchFiles, writeResearchFiles } from "./research";
 import type { Block, DemoScript } from "./script";
 
 /** The model the recording is made with. */
 const MODEL = "claude-sonnet-5-5";
 /** The keys to try, in order: the first the provider doesn't refuse is used. */
-const KEY_NAMES = ["ANTHROPIC_API_KEY_JOEYXIONG26", "ANTHROPIC_API_KEY_JOEYXIONG28"];
+const KEY_NAMES = [
+  "ANTHROPIC_API_KEY_JOEYXIONG28",
+  "ANTHROPIC_API_KEY_JOEYXIONG27",
+  "ANTHROPIC_API_KEY_JOEYXIONG26",
+];
 
 const SHIPPED = resolve(__dirname, "../../resources/examples");
 
@@ -113,13 +118,18 @@ export interface Workspace {
   paperId: string;
   /** Where the lenders' new Documents are, on disk. */
   lendersPath: string;
+  /** Every Document the Library holds: the shipped credit pair, the term sheets and the research files. */
+  documentCount: number;
+  /** The workbook, the interview guide and the background deck, and their names in the Library. */
+  research: ResearchFiles;
 }
 
 /**
- * Makes the two Folders, adds the credit Documents to the first, links the folder the lenders'
- * new Documents arrived in (left for Organize to sort), makes the draft's title and the Mind the
- * term sheets are compared in, and waits until every Document is read. `writeDraft` adds the
- * rest once the cited paragraph is in.
+ * Makes the two Folders, adds the credit Documents to the first, links the two folders the
+ * recording's new Documents live in (a shared drive's lender documents, and Downloads, with the
+ * workbook and the interview guide), makes the draft's title and the Mind the term sheets are
+ * compared in, and waits until every Document is read. `writeDraft` adds the rest once the cited
+ * paragraph is in.
  */
 export async function buildWorkspace(
   window: Page,
@@ -127,36 +137,76 @@ export async function buildWorkspace(
   sources: string,
 ): Promise<Workspace> {
   const credit = join(SHIPPED, script.credit.source);
-  const lendersPath = join(sources, script.lenders);
+  const lendersPath = join(sources, script.sharedDrive, script.lenders);
+  const downloads = join(sources, script.language === "en" ? "Downloads" : "下载");
   const sheets = await writeTermSheets(lendersPath, script.language as DemoLanguage);
+  const research = await writeResearchFiles(downloads, script.language);
   const creditFiles = (await readdir(credit)).sort().map((name) => join(credit, name));
+  const researchFiles = [research.workbook, research.guide, research.background].length;
+  const documentCount = creditFiles.length + sheets.length + researchFiles;
   const { creditFolderId, contractsFolderId } = await window.evaluate(
-    async ({ folders, creditFiles: inCredit, lenders }) => {
+    async ({ folders, creditFiles: inCredit, lenders, research: inDownloads }) => {
       const bridge = () => (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
       const creditFolder = await bridge().createLibraryGroup(folders.credit);
       const contractsFolder = await bridge().createLibraryGroup(folders.contracts);
       await bridge().addDocuments(inCredit, { groupId: creditFolder.id });
       await bridge().addLinkedFolder(lenders);
+      await bridge().addLinkedFolder(inDownloads);
       return { creditFolderId: creditFolder.id, contractsFolderId: contractsFolder.id };
     },
-    { folders: script.folders, creditFiles, lenders: lendersPath },
+    {
+      folders: script.folders,
+      creditFiles,
+      lenders: lendersPath,
+      research: downloads,
+    },
   );
   // "Ready" comes before the search finds every Document's words: an Answer asked in between
   // says they are still being read.
-  await expect
-    .poll(
-      () =>
-        window.evaluate(async (expected) => {
-          const bridge = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
-          const documents = await bridge.listDocuments();
-          const found = await bridge.searchDocumentText("EBITDA");
-          const read =
-            documents.length === expected && documents.every((each) => each.status === "ready");
-          return read ? new Set(found.map((match) => match.documentId)).size : -1;
-        }, creditFiles.length + sheets.length),
-      { timeout: 120_000, intervals: [500] },
-    )
-    .toBeGreaterThanOrEqual(2);
+  try {
+    await expect
+      .poll(
+        () =>
+          window.evaluate(async (expected) => {
+            const bridge = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
+            const documents = await bridge.listDocuments();
+            const found = await bridge.searchDocumentText("EBITDA");
+            const read =
+              documents.length === expected && documents.every((each) => each.status === "ready");
+            return read ? new Set(found.map((match) => match.documentId)).size : -1;
+          }, documentCount),
+        { timeout: 600_000, intervals: [500] },
+      )
+      .toBeGreaterThanOrEqual(2);
+  } catch (error) {
+    const state = await window.evaluate(async () => {
+      const bridge = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
+      const documents = await bridge.listDocuments();
+      return documents.map((each) => `${each.name}: ${each.status}`);
+    });
+    throw new Error(`The Library did not read every Document: ${state.join("; ")}`, {
+      cause: error,
+    });
+  }
+
+  // The workbook and the interview guide are filed in the review's Folder before the first
+  // frame: the paper's scope is that Folder, so the Analysis reads the workbook and the call
+  // help reads the guide. The deck and the term sheets are still Organize's to sort on camera.
+  const filed = await window.evaluate(async (names) => {
+    const bridge = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
+    const documents = await bridge.listDocuments();
+    return [names.workbook, names.guide].map(
+      (name) => documents.find((each) => each.name === name)?.id ?? "",
+    );
+  }, research.names);
+  if (filed.some((id) => id === "")) throw new Error("A research Document was not read.");
+  await window.evaluate(
+    async ({ ids, groupId }) => {
+      const bridge = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
+      for (const id of ids) await bridge.assignDocumentGroup(id, groupId);
+    },
+    { ids: filed, groupId: creditFolderId },
+  );
 
   const doc = new Y.Doc();
   const [title] = script.paper.blocks;
@@ -193,7 +243,7 @@ export async function buildWorkspace(
       change: Array.from(Y.encodeStateAsUpdate(options)),
     },
   );
-  return { paperId, lendersPath };
+  return { paperId, lendersPath, documentCount, research };
 }
 
 /**

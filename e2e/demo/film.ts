@@ -113,6 +113,7 @@ export class Film {
   private pending: Promise<void>[] = [];
   private latest: { data: string; at: number } | null = null;
   private keeping = false;
+  private stills = false;
   private since = 0;
   private rate = 1;
   private count = 0;
@@ -183,6 +184,19 @@ export class Film {
       const last = this.frames.at(-1);
       if (last && last.end === undefined) last.end = now;
     }
+  }
+
+  /**
+   * The take is at a scene it keeps only a picture of: no frame from it enters the film, and its
+   * cuts leave the recording as it was, so the next scene starts its own.
+   */
+  picturesOnly(on: boolean): void {
+    this.stills = on;
+    if (on) this.keep(false);
+  }
+
+  get stillsOnly(): boolean {
+    return this.stills;
   }
 
   /** Plays what is kept from now on this many times faster (at most 2). */
@@ -695,7 +709,7 @@ export class Hand {
     } finally {
       if (parkAt) await this.place(parkAt.x, parkAt.y);
       else await this.window.mouse.move(this.x, this.y);
-      await this.begin();
+      if (!this.film.stillsOnly) await this.begin();
     }
   }
 
