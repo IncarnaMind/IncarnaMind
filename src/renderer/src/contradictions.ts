@@ -157,10 +157,12 @@ export async function startContradictionCheck(mindId: string): Promise<void> {
     }
     const estimate = await core
       .estimateRun({ items: plan.claims, each: "check", ...(plan.model && { model: plan.model }) })
-      .then((result) => estimateLine(result, translateNow, languageNow()))
       .catch(() => null);
-    if (estimate === null) return checkContradictions(mindId);
-    setFor("asking", mindId, { claims: plan.claims, estimate });
+    if (estimate === null || estimate.billing !== "per-token") return checkContradictions(mindId);
+    setFor("asking", mindId, {
+      claims: plan.claims,
+      estimate: estimateLine(estimate, translateNow, languageNow()),
+    });
   } catch (error) {
     setCheckProblem(mindId, {
       kind: "failed",
