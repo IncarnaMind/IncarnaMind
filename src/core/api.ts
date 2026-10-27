@@ -9130,9 +9130,9 @@ export interface CoreApi {
    */
   askInConversation(input: AskInConversationInput): Promise<ConversationAskResult>;
   /**
-   * Asks the example's ready Question, whose Answer is written in advance and
-   * needs no model, in a new conversation. Call it only while `readyQuestion`
-   * names the example's. Throws while it isn't made or its Documents aren't all read.
+   * Asks the example's ready Question, whose Answer is written in advance and needs no model, in
+   * a new conversation: whatever the User's own Documents are, as in a library that has some
+   * before the example is made. Throws while it isn't made or its Documents aren't all read.
    */
   askExampleReadyQuestion(): Promise<{ conversationId: string; answerId: string }>;
   /**

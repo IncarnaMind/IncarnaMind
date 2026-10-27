@@ -148,12 +148,12 @@ export async function openConversation(conversationId: string, answerId?: string
 let readyAsking = false;
 
 /**
- * Asks the first open's ready Question (see `ReadyQuestion`) from the Mind whose card shows it.
- * About the User's own Document, it is asked like any Question, from the composer's path, so it
- * waits for a model and says there why it couldn't be asked; the example's Answer is written in
- * advance, and the core writes it.
+ * Asks the first open's ready Question (see `ReadyQuestion`). About the User's own Document it is
+ * asked like any Question, from the composer's path, so it waits for a model and says why it
+ * couldn't be asked; no Mind is read, or the example the card sits in would colour the first
+ * Answer about their file. The example's Answer is written in advance, and the core writes it.
  */
-export async function askReadyQuestion(mindId: string): Promise<void> {
+export async function askReadyQuestion(): Promise<void> {
   // A double-click asks it once.
   if (readyAsking) return;
   readyAsking = true;
@@ -162,7 +162,7 @@ export async function askReadyQuestion(mindId: string): Promise<void> {
     if (!ready) return;
     if (ready.scope) {
       // Asked like any Question: its step ticks when its Answer arrives, not when it is asked.
-      await askInAssistant({ text: ready.question, mindId, scope: ready.scope });
+      await askInAssistant({ text: ready.question, mindId: null, scope: ready.scope });
       return;
     }
     const { conversationId } = await core.askExampleReadyQuestion();

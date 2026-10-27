@@ -1,5 +1,5 @@
 import { resolve } from "node:path";
-import { expect, test } from "vitest";
+import { expect, test, vi } from "vitest";
 import type { Core } from "../../src/core";
 import { EXAMPLE_SETS } from "../../src/core/exampleSets";
 import type { Language } from "../../src/core/language";
@@ -79,6 +79,24 @@ test("a Document they keep as their own workings: no Question about it, as no An
   ]);
   await core.setNotCited(brief?.id as string, true);
   expect(await core.readyQuestion()).toBeNull();
+});
+
+test("with a Document of theirs ready, the example's Answer is still asked: it needs none of theirs", async () => {
+  // As a library that has the User's own Documents before the example is made (the everyday
+  // harness asks the example's Answer there first, then the User's Questions).
+  const { core, sources } = await start();
+  await addAndProcess(core, [await writeSourceFile(sources, "Project brief.md", BRIEF)]);
+  expect((await core.readyQuestion())?.scope).not.toBeNull();
+  const asked = await vi.waitFor(() => core.askExampleReadyQuestion(), {
+    timeout: 20_000,
+    interval: 100,
+  });
+  const { messages } = await core.getConversation(asked.conversationId);
+  expect(messages.find((each) => each.kind === "answer")).toMatchObject({
+    status: "done",
+    text: EXAMPLE_SETS.credit.en.ready?.answer,
+    steps: expect.objectContaining({ example: true }),
+  });
 });
 
 test("a Chinese Document with the English interface: the Question in English, naming it", async () => {

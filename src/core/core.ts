@@ -3663,9 +3663,7 @@ export function createCore(adapters: CoreAdapters): Core {
     askInConversation: async (input) =>
       answers.askInConversation(conversations.parseQuestion(input)),
     askExampleReadyQuestion: async () => {
-      // Only while the reader names the example's own Question, whose Answer is written in advance.
-      const named = readyQuestionNow();
-      const ready = named !== null && named.scope === null ? examples.readyAnswer() : null;
+      const ready = examples.readyAnswer();
       if (!ready) {
         throw new InvalidInputError({ key: "error.examples.reading" });
       }

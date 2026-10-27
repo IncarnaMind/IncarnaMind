@@ -4645,6 +4645,7 @@ export const en = {
   "firstOpen.step.question.ready": "Ask: “{question}”",
   "firstOpen.step.question.own": "or press {shortcut} to type your own",
   "firstOpen.step.question.ownOnly": "Press {shortcut} to ask your own Question.",
+  "firstOpen.step.question.reading": "Reading “{document}”…",
   "readyQuestion.document": "What does ‘{document}’ say?",
   "firstOpen.step.files.title": "Add your files",
   "firstOpen.step.files.done": "Added your files",
