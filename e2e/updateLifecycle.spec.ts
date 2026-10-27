@@ -26,6 +26,7 @@ import {
   startLifecycleCopy,
   windowsOf,
 } from "./lifecycle";
+import { holdOwnerFile } from "./ownerFileHolder";
 
 type Scenario =
   | "pending"
@@ -94,6 +95,7 @@ test.afterEach(async () => {
       ["main-log", join(data, "logs", "incarnamind.log")],
       ["instance-state", join(data, "instance-info.json")],
       ["update-handoff", join(data, "instance-update.json")],
+      ["owner-file-holder", join(home, "owner-file-holder.jsonl")],
     ] as const)
       if (existsSync(path)) await test.info().attach(name, { path, contentType: "text/plain" });
   } finally {
@@ -202,6 +204,7 @@ function start(
   options: {
     language?: "en" | "zh-CN";
     repairAction?: "download" | "quit";
+    ownerRenameProbe?: boolean;
     args?: readonly string[];
   } = {},
 ): ChildProcess {
@@ -236,6 +239,7 @@ function start(
       INCARNAMIND_TEST_UPDATE_NEXT_PORT: String(nextPort),
       INCARNAMIND_TEST_UPDATE_LANGUAGE: options.language ?? "en",
       INCARNAMIND_TEST_UPDATE_REPAIR_ACTION: options.repairAction ?? "quit",
+      ...(options.ownerRenameProbe && { INCARNAMIND_TEST_OWNER_RENAME_LOG: "1" }),
       APPIMAGE: process.platform === "linux" ? mainExecutable() : "",
       ...(generation === "old-with-hint" && { APPIMAGE_SILENT_INSTALL: "true" }),
     },
@@ -640,7 +644,10 @@ for (const scenario of ["base-error", "squirrel-error"] as const) {
       const port = await freePort();
       const beforeErrorPort = await freePort();
       const secondPort = await freePort();
-      const old = start(scenario, true, port, port, "old", { language });
+      const old = start(scenario, true, port, port, "old", {
+        language,
+        ownerRenameProbe: process.platform === "win32",
+      });
       await expect.poll(() => windowsOf(port), { timeout: 60_000 }).toBe(1);
       await inCopyWindow(port, (window) => saveTyping(window, language));
       await signal("begin");
@@ -682,34 +689,68 @@ for (const scenario of ["base-error", "squirrel-error"] as const) {
           (entry) => entry.kind === "window-created" && entry.pid === second.pid,
         ),
       ).toEqual([]);
-      await signal("dismiss-problem");
-      await expect.poll(() => old.exitCode, { timeout: 30_000 }).toBe(0);
-      await expectOneSavedWindow([port, beforeErrorPort, secondPort]);
-      const recorded = await entries();
-      expect(recorded.filter((entry) => entry.kind === "relaunch")).toHaveLength(1);
-      expect(recorded.filter((entry) => entry.kind === "startup-problem")).toEqual([]);
-      expect(recorded.filter((entry) => entry.kind === "problem")).toHaveLength(1);
-      const recoveryArgs = recorded.find((entry) => entry.kind === "relaunch")?.options?.args;
-      if (!recoveryArgs?.length)
-        throw new Error("The failed install did not name its recovery start.");
-      const owner = await readyOwner();
-      expect(owner).toMatchObject({ version: apps.oldVersion, dataHeld: true });
-      expect(
-        recorded.find((entry) => entry.kind === "start" && entry.pid === owner?.pid)?.args,
-      ).toEqual(expect.arrayContaining(recoveryArgs));
-      if (process.env.INCARNAMIND_PACKAGED_APP) {
-        const executable = mainExecutable();
+      const holder =
+        process.platform === "win32"
+          ? await holdOwnerFile(
+              join(data, "instance-info.json"),
+              join(home, "owner-file-holder.jsonl"),
+            )
+          : undefined;
+      try {
+        await signal("dismiss-problem");
+        await expect.poll(() => old.exitCode, { timeout: 30_000 }).toBe(0);
+        if (holder) {
+          await expect
+            .poll(
+              async () => (await entries()).some((entry) => entry.kind === "owner-rename-refused"),
+              { timeout: 30_000 },
+            )
+            .toBe(true);
+          await holder.release();
+        }
+        await expectOneSavedWindow([port, beforeErrorPort, secondPort]);
+        const recorded = await entries();
+        expect(recorded.filter((entry) => entry.kind === "relaunch")).toHaveLength(1);
+        expect(recorded.filter((entry) => entry.kind === "startup-problem")).toEqual([]);
+        expect(recorded.filter((entry) => entry.kind === "problem")).toHaveLength(1);
+        const recoveryArgs = recorded.find((entry) => entry.kind === "relaunch")?.options?.args;
+        if (!recoveryArgs?.length)
+          throw new Error("The failed install did not name its recovery start.");
+        const owner = await readyOwner();
+        expect(owner).toMatchObject({ version: apps.oldVersion, dataHeld: true });
         expect(
-          recorded
-            .filter((entry) => entry.kind === "start")
-            .every(
-              (entry) =>
-                entry.packaged &&
-                (process.platform === "win32"
-                  ? entry.executable?.toLowerCase() === executable.toLowerCase()
-                  : entry.executable === executable),
-            ),
-        ).toBe(true);
+          recorded.find((entry) => entry.kind === "start" && entry.pid === owner?.pid)?.args,
+        ).toEqual(expect.arrayContaining(recoveryArgs));
+        if (process.env.INCARNAMIND_PACKAGED_APP) {
+          const executable = mainExecutable();
+          expect(
+            recorded
+              .filter((entry) => entry.kind === "start")
+              .every(
+                (entry) =>
+                  entry.packaged &&
+                  (process.platform === "win32"
+                    ? entry.executable?.toLowerCase() === executable.toLowerCase()
+                    : entry.executable === executable),
+              ),
+          ).toBe(true);
+        }
+        if (holder) {
+          expect(recorded.filter((entry) => entry.kind === "owner-rename-refused")).toHaveLength(1);
+          expect(recorded.some((entry) => entry.kind === "owner-rename")).toBe(true);
+          const evidence = (await readFile(join(home, "owner-file-holder.jsonl"), "utf8"))
+            .trim()
+            .split("\n")
+            .map(
+              (line) => JSON.parse(line) as { event: string; pid: number; deleteShared?: boolean },
+            );
+          expect(evidence).toEqual([
+            expect.objectContaining({ event: "holding", pid: holder.pid, deleteShared: false }),
+            expect.objectContaining({ event: "released", pid: holder.pid }),
+          ]);
+        }
+      } finally {
+        await holder?.release();
       }
     });
   }
