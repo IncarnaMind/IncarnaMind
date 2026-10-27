@@ -35,6 +35,10 @@ Rich Blocks were rejected: they would tie the history to the editor's schema, an
 - **Answers stream into the conversation** through the same Answer code as in a Mind, which writes to one of two homes: a Mind's document, or a conversation's rows (at most every 50 ms, as in a Mind). The Answer events and approval requests carry `conversationId`, with `mindId` null, for an Answer in a conversation. Each write is pushed to every window as `"conversation.message"`.
 - **Not built here:** the assistant itself and how it shows Answers (#253, #201), History (#258), the short title (#235), proposals across Minds (#202) and ⌘K (#230).
 
+## Amendment: call help reads sources for its action (2026-10-26, #1319)
+
+During a live call, actions that read or interpret what was said draw only on its Transcript: Sum up so far, What do they want?, A follow-up question, Am I leading them?, Decisions and owners so far, and Where we disagree. They do not read Library Documents, written notes, previous suggestions or selected Document words. With no call text yet, they do not substitute Library facts. Other call-help actions may read Documents in the Question's Search scope for their stated purpose: factual terms for a reply or a next step, checking a claim, or comparing the interview guide with what was covered. They distinguish those Document facts from speech; a suggestion explains their relevance. Not covered yet therefore keeps reading and citing the guide. An ordinary Question that asks for the written notes retains the normal Note context above.
+
 ## Considered options
 
 - **A Mind's Yjs document, or Minds of kind `chat`:** rejected, as above.

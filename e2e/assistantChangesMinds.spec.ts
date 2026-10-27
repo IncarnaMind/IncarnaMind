@@ -128,6 +128,7 @@ test("a change in a Mind not in front names it, with Open and Undo, beside the l
     "Wrote “Fieldwork plan”",
   ]);
   await expect(window.getByTestId("proposals-count")).toHaveCount(0);
+  await expect(frontMindName(window)).toHaveText("Fieldwork plan");
   await screenshot(window, "card-two-minds");
 
   await pointAndClick(window, answer.getByTestId("mind-changes-open").first());
