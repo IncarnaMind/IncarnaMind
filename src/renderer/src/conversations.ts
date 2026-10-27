@@ -213,7 +213,7 @@ export async function askInAssistant(
     sayLeftOut(result);
     if (!result.asked) return false;
     watchMindsMadeBy(result.answerId);
-    applyWhatWasAsked(result.answerId);
+    await applyWhatWasAsked(result.answerId);
     watchCommands(result.answerId);
     const id = result.conversation.id;
     if (useConversations.getState().stopWanted) {
@@ -257,8 +257,11 @@ core.on("chatReadiness.changed", (readiness) => {
     return;
   }
   const { wanted, waiting } = useModelSetup.getState();
-  // The setup card stays, saying what each job uses, until the User continues.
-  if (wanted || waiting) useModelSetup.setState({ ready: true });
+  if (!wanted && !waiting) return;
+  // The card stays for steps 2 and 3, after the Question that waited has been asked from it.
+  useModelSetup.setState({ ready: true, wanted: true });
+  // The Question runs as soon as step 1 works; steps 2 and 3 stay below its Answer (#1922).
+  askWaitingQuestion();
 });
 
 /** Continue on the setup card: the Question that waited is asked, and the composer takes the card's place. */
@@ -282,7 +285,7 @@ export async function regenerateAnswer(
   settleAsk(answerId, null);
   try {
     watchMindsMadeBy(answerId);
-    applyWhatWasAsked(answerId, { keepWritten: clearScope });
+    await applyWhatWasAsked(answerId, { keepWritten: clearScope });
     watchCommands(answerId);
     const result = await core.regenerateConversationAnswer({
       conversationId,

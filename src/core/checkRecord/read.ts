@@ -145,39 +145,42 @@ function holdsAiText(element: Y.XmlElement, from: number, to: number): boolean {
 export function readRecord(sources: RecordSources): {
   sentences: SentenceItem[];
   citations: CitationItem[];
+  /** The requests the sentences were checked with: what each check's unread files are kept by. */
+  requests: string[];
 } {
   const { fragment, documents, folderId, model } = sources;
   const scope = fragment.doc ? mindScopeOf(fragment.doc) : null;
   const versions = new Map(documents.map((document) => [document.id, document.contentHash]));
 
-  const sentences = checkedSentences(fragment).flatMap(
-    ({ element, from, to, check, sentence }): SentenceItem[] => {
-      const result = sentenceResultOf(
-        claimCheckShown(check, { text: sentence, versions, folderId, scope }),
-      );
-      if (!result) return [];
-      return [
-        {
-          kind: "sentence",
-          text: comparableSentence(sentence),
-          result,
-          origin:
-            blockOrigin(fragment, topOf(fragment, element)) ??
-            (holdsAiText(element, from, to) ? "ai" : "user"),
-          says: check.says,
-          evidence: check.evidence ? documentOf(check.evidence, sources) : null,
-          check:
-            result === "notChecked"
-              ? null
-              : {
-                  model: model(check.providerId, check.modelId),
-                  at: check.checkedAt === "" ? null : check.checkedAt,
-                  scope: check.scope,
-                },
-        },
-      ];
-    },
-  );
+  const sentences: SentenceItem[] = [];
+  const requests: string[] = [];
+  for (const { element, from, to, check, sentence, cited } of checkedSentences(fragment)) {
+    requests.push(check.request);
+    const result = sentenceResultOf(
+      claimCheckShown(check, { text: sentence, versions, folderId, scope }),
+      check,
+      cited.length,
+    );
+    if (!result) continue;
+    sentences.push({
+      kind: "sentence",
+      text: comparableSentence(sentence),
+      result,
+      origin:
+        blockOrigin(fragment, topOf(fragment, element)) ??
+        (holdsAiText(element, from, to) ? "ai" : "user"),
+      says: check.says,
+      evidence: check.evidence ? documentOf(check.evidence, sources) : null,
+      check:
+        result === "notChecked"
+          ? null
+          : {
+              model: model(check.providerId, check.modelId),
+              at: check.checkedAt === "" ? null : check.checkedAt,
+              scope: check.scope,
+            },
+    });
+  }
 
   const attributesOf = new Map<Footnote, Partial<CitationAttributes>>();
   const readOptions = {
@@ -199,7 +202,7 @@ export function readRecord(sources: RecordSources): {
       citations.push(...citationsIn(group, { attributesOf, origin, sources }));
     }
   }
-  return { sentences, citations };
+  return { sentences, citations, requests };
 }
 
 function citationsIn(

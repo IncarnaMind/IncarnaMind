@@ -29,6 +29,7 @@ import {
   scriptedModel,
   scriptedModels,
 } from "../helpers/models";
+import { xlsxOf } from "../helpers/office";
 
 const TIDES = {
   name: "Tides.md",
@@ -684,6 +685,39 @@ describe("One claim check", () => {
     ).toMatchObject({ verdict: "unsupported", versions: [] });
   });
 
+  test("a check Run whose quote was refused gives its verdict after the fix, though its model writes Answers before citing (#489)", async () => {
+    const quote = "Spring tides happen at new moon and at full moon";
+    const model = scriptedModel(
+      (call) => {
+        const searched = call.results.find((result) => result.tool === "search_documents");
+        const cites = call.results.filter((result) => result.tool === "cite").length;
+        if (!searched) return checkReply(call, PLANS);
+        const passage = shownPassages(searched.text)[0]?.id;
+        const cite = (quoted: string) => ({
+          tool: "cite",
+          input: { citations: [{ marker: 1, passage, quote: quoted }] },
+        });
+        if (cites === 0) {
+          return {
+            text: "Tides says spring tides happen at new and full moon [^1].",
+            calls: [cite("Spring tides happen every week")],
+          };
+        }
+        return cites === 1 ? { calls: [cite(quote)] } : { text: "Verdict: supported" };
+      },
+      { generate: checkGenerate(PLANS) },
+    );
+    const { core } = await setUpWithDocuments(model, [TIDES], {
+      answerPaths: { writesThenCites: () => true },
+    });
+
+    expect(await core.checkClaim({ claim: SUPPORTED })).toMatchObject({
+      verdict: "supported",
+      evidence: { check: "found" },
+    });
+    expect(model.doStreamCalls).toHaveLength(4);
+  });
+
   test("the quotes a sentence cites name their Document as it is now, and as cited once it is gone", async () => {
     const calls: ModelCall[] = [];
     const { core, client, check, tides } = await mindWith(
@@ -844,6 +878,45 @@ describe("A figure the Documents don't state, worked out (#707)", () => {
       for (const input of result.calculation?.figure.inputs ?? []) {
         expect(input.citation).toMatchObject({ documentId: board.id, check: "found" });
       }
+    },
+  );
+
+  test.each([
+    ["en", "Revenue was 7,509,964.", ["Customer", "Revenue"], "7509964", "North", "Ledger.xlsx"],
+    ["zh-CN", "收入为 7,509,964。", ["客户", "收入"], "7509964", "北方", "台账.xlsx"],
+  ] as const)(
+    "a grouped figure in %s matches its source cell with no Difference",
+    async (language, claim, headings, cell, customer, name) => {
+      const book = {
+        name,
+        contents: xlsxOf([
+          {
+            name: "Sheet1",
+            rows: [[...headings], [customer, 7_509_964]],
+          },
+        ]),
+      };
+      const calculation = {
+        inputs: [{ name: "v", label: headings[1], quote: cell, number: cell }],
+        formula: "v",
+        stated: "7,509,964",
+      };
+      const plans = { [claim]: { verdict: "supported", calculation } } as const;
+      const setup = await setUpWithDocuments(checkingModel(plans), [book]);
+      const saved = await setup.core.saveChatProvider({
+        kind: "anthropic",
+        apiKey: "sk-test",
+        modelId: "claude-haiku-5-5",
+      });
+      if (saved.service) await setup.core.allowDataFlow("checks", saved.service.id);
+      await setup.core.updateSettings({ user: { language } });
+
+      const result = await setup.core.checkClaim({ claim });
+
+      expect(result).toMatchObject({
+        verdict: "supported",
+        calculation: { stated: "7,509,964", agrees: true, figure: { value: 7_509_964 } },
+      });
     },
   );
 
@@ -1114,8 +1187,10 @@ describe("A limit the figure stays within, and a cost printed in brackets (#1908
     claim: string,
     calculation: NonNullable<Plan["calculation"]>,
     said: "supported" | "contradicted" | "unsupported",
+    says?: string,
+    language?: "en" | "zh-CN",
   ) {
-    const plans = { [claim]: { verdict: said, calculation } } as const;
+    const plans = { [claim]: { verdict: said, calculation, ...(says && { says }) } } as const;
     const calls: ModelCall[] = [];
     const setup = await setUpWithDocuments(checkingModel(plans, calls), [document]);
     const saved = await setup.core.saveChatProvider({
@@ -1124,6 +1199,7 @@ describe("A limit the figure stays within, and a cost printed in brackets (#1908
       modelId: "claude-haiku-5-5",
     });
     if (saved.service) await setup.core.allowDataFlow("checks", saved.service.id);
+    if (language) await setup.core.updateSettings({ user: { language } });
     const result = await setup.core.checkClaim({ claim });
     // Each case's figures are worked out: a verdict never stands because calculate refused one.
     const replies = calls
@@ -1132,8 +1208,8 @@ describe("A limit the figure stays within, and a cost printed in brackets (#1908
     expect(replies.at(-1)?.text).toMatch(/^Recorded/);
     return result;
   }
-  const INSIDE = (limit: string) =>
-    `Net debt at 30 June 2026 was £528.9m, so leverage should still be inside the ${limit} covenant.`;
+  const INSIDE = (limit: string, amount = "528.9") =>
+    `Net debt at 30 June 2026 was ${amount}, so leverage should still be inside the ${limit} covenant.`;
   const COVERED = (times: string) =>
     `Using finance costs of (41.2) as a stand-in, cover would be ${times}.`;
 
@@ -1165,6 +1241,233 @@ describe("A limit the figure stays within, and a cost printed in brackets (#1908
     const result = await checked(RESULTS, claim, calculation, said);
     expect(result).toMatchObject({ verdict, calculation: { stated: calculation.stated } });
   });
+
+  test("an agreeing limit does not settle an unstated monetary unit or scale", async () => {
+    const result = await checked(
+      RESULTS,
+      INSIDE("3.25x", "£528.9m"),
+      { ...LEVERAGE, stated: "3.25x", relation: "at most" },
+      "supported",
+    );
+    expect(result).toMatchObject({
+      verdict: "unsupported",
+      unsupported: {
+        covered: "the amount, 528.9",
+        uncovered: "the currency, unit or scale in £528.9m",
+        quoted: { check: "found" },
+      },
+      calculation: { agrees: true },
+    });
+  });
+
+  test("an unstated scale is named in Chinese", async () => {
+    const claim = "2026年6月30日净负债为£528.9m，因此杠杆率仍应在3.25倍的契约上限之内。";
+    const result = await checked(
+      RESULTS,
+      claim,
+      { ...LEVERAGE, stated: "3.25倍", relation: "at most" },
+      "supported",
+      undefined,
+      "zh-CN",
+    );
+    expect(result).toMatchObject({
+      verdict: "unsupported",
+      unsupported: {
+        reason: "文档写的是 528.9，不是 £528.9m。",
+        covered: "金额 528.9",
+        uncovered: "£528.9m 的币种、单位或量级",
+      },
+    });
+  });
+
+  test("an empty reply after an agreeing calculation is not whole-sentence support", async () => {
+    const claim = INSIDE("3.25x", "£528.9m");
+    const calculation = { ...LEVERAGE, stated: "3.25x", relation: "at most" as const };
+    const plans = { [claim]: { verdict: "supported" as const, calculation } };
+    const model = scriptedModel(
+      (call) => {
+        if (isCheckRun(call) && call.results.some((each) => each.tool === "calculate")) {
+          return { text: "" };
+        }
+        return checkReply(call, plans);
+      },
+      { generate: checkGenerate(plans) },
+    );
+    const setup = await setUpWithDocuments(model, [RESULTS]);
+    const saved = await setup.core.saveChatProvider({
+      kind: "anthropic",
+      apiKey: "sk-test",
+      modelId: "claude-haiku-5-5",
+    });
+    if (saved.service) await setup.core.allowDataFlow("checks", saved.service.id);
+
+    expect(await setup.core.checkClaim({ claim })).toMatchObject({
+      verdict: "not-checked",
+      reason: "empty",
+    });
+  });
+
+  test("a stated monetary unit and scale can support the same calculated claim", async () => {
+    const stated = {
+      ...RESULTS,
+      contents: `All amounts are in GBP millions.\n\n${RESULTS.contents}`,
+    };
+    const calculation = { ...LEVERAGE, stated: "3.25x", relation: "at most" as const };
+    const result = await checked(stated, INSIDE("3.25x", "£528.9m"), calculation, "supported");
+    expect(result).toMatchObject({ verdict: "supported", calculation: { agrees: true } });
+  });
+
+  test("a reasoned contradiction with no Citation is not erased by an agreeing calculation", async () => {
+    const result = await checked(
+      RESULTS,
+      INSIDE("3.25x"),
+      { ...LEVERAGE, stated: "3.25x", relation: "at most" },
+      "contradicted",
+      "The Documents give a different leverage ratio.",
+    );
+    expect(result).toMatchObject({ verdict: "contradicted", calculation: { agrees: true } });
+  });
+
+  test("a reasoned unsupported clause with no Citation or Topic is not erased by an agreeing calculation", async () => {
+    const claim = `${INSIDE("3.25x")} and the borrower is based in Scotland.`;
+    const calculation = { ...LEVERAGE, stated: "3.25x", relation: "at most" as const };
+    const plans = { [claim]: { verdict: "unsupported" as const, calculation } };
+    const model = scriptedModel(
+      (call) => {
+        if (isCheckRun(call) && call.results.some((each) => each.tool === "calculate")) {
+          return {
+            text: "Verdict: unsupported\nThe Documents do not support the borrower's location.",
+          };
+        }
+        return checkReply(call, plans);
+      },
+      { generate: checkGenerate(plans) },
+    );
+    const setup = await setUpWithDocuments(model, [RESULTS]);
+    const saved = await setup.core.saveChatProvider({
+      kind: "anthropic",
+      apiKey: "sk-test",
+      modelId: "claude-haiku-5-5",
+    });
+    if (saved.service) await setup.core.allowDataFlow("checks", saved.service.id);
+
+    expect(await setup.core.checkClaim({ claim })).toMatchObject({
+      verdict: "unsupported",
+      unsupported: { reason: "The Documents do not support the borrower's location." },
+      calculation: { agrees: true },
+    });
+  });
+
+  test.each([
+    {
+      label: "coordinated reason",
+      reply:
+        "The calculated 3.25x ratio agrees, but the Documents do not support the borrower's location.",
+      unsupported: {
+        reason:
+          "The calculated 3.25x ratio agrees, but the Documents do not support the borrower's location.",
+      },
+    },
+    {
+      label: "coordinated parts",
+      reply: "Covered: the amount 528.9\nNot covered: the 3.25x ratio and the borrower's location",
+      unsupported: { uncovered: "the 3.25x ratio and the borrower's location" },
+    },
+    {
+      label: "separate reason sentence",
+      reply:
+        "The calculated 3.25x ratio agrees. The Documents do not support the borrower's location.",
+      unsupported: {
+        reason:
+          "The calculated 3.25x ratio agrees. The Documents do not support the borrower's location.",
+      },
+    },
+    {
+      label: "separate part sentence",
+      reply:
+        "Covered: the amount 528.9\nNot covered: the 3.25x ratio. The borrower's location is not stated",
+      unsupported: { uncovered: "the 3.25x ratio. The borrower's location is not stated" },
+    },
+    {
+      label: "adjoined reason clause",
+      reply:
+        "The calculated 3.25x ratio agrees: the Documents do not support the borrower's location.",
+      unsupported: {
+        reason:
+          "The calculated 3.25x ratio agrees: the Documents do not support the borrower's location.",
+      },
+    },
+    {
+      label: "adjoined part clause",
+      reply:
+        "Covered: the amount 528.9\nNot covered: the 3.25x ratio — the borrower's location is not stated",
+      unsupported: { uncovered: "the 3.25x ratio — the borrower's location is not stated" },
+    },
+  ])(
+    "a derived figure beside an independent unsupported clause stays unsupported ($label)",
+    async ({ reply, unsupported }) => {
+      const claim = `${INSIDE("3.25x")} and the borrower is based in Scotland.`;
+      const calculation = { ...LEVERAGE, stated: "3.25x", relation: "at most" as const };
+      const plans = { [claim]: { verdict: "unsupported" as const, calculation } };
+      const model = scriptedModel(
+        (call) => {
+          if (isCheckRun(call) && call.results.some((each) => each.tool === "calculate")) {
+            return { text: `Verdict: unsupported\n${reply}` };
+          }
+          return checkReply(call, plans);
+        },
+        { generate: checkGenerate(plans) },
+      );
+      const setup = await setUpWithDocuments(model, [RESULTS]);
+      const saved = await setup.core.saveChatProvider({
+        kind: "anthropic",
+        apiKey: "sk-test",
+        modelId: "claude-haiku-5-5",
+      });
+      if (saved.service) await setup.core.allowDataFlow("checks", saved.service.id);
+
+      expect(await setup.core.checkClaim({ claim })).toMatchObject({
+        verdict: "unsupported",
+        unsupported,
+        calculation: { agrees: true },
+      });
+    },
+  );
+
+  test.each(["reason", "parts"])(
+    "an uncovered derived figure is settled by its calculation (%s)",
+    async (kind) => {
+      const claim = COVERED("4.55x");
+      const calculation = { ...COVER, stated: "4.55x" };
+      const plans = { [claim]: { verdict: "unsupported" as const, calculation } };
+      const model = scriptedModel(
+        (call) => {
+          if (isCheckRun(call) && call.results.some((each) => each.tool === "calculate")) {
+            return {
+              text:
+                kind === "reason"
+                  ? "Verdict: unsupported\nThe Documents do not state the 4.55x coverage multiple itself"
+                  : "Verdict: unsupported\nCovered: finance costs of (41.2)\nNot covered: the 4.55x coverage multiple itself",
+            };
+          }
+          return checkReply(call, plans);
+        },
+        { generate: checkGenerate(plans) },
+      );
+      const setup = await setUpWithDocuments(model, [RESULTS]);
+      const saved = await setup.core.saveChatProvider({
+        kind: "anthropic",
+        apiKey: "sk-test",
+        modelId: "claude-haiku-5-5",
+      });
+      if (saved.service) await setup.core.allowDataFlow("checks", saved.service.id);
+
+      expect(await setup.core.checkClaim({ claim })).toMatchObject({
+        verdict: "supported",
+        calculation: { agrees: true },
+      });
+    },
+  );
 
   const LEDGER = {
     name: "Ledger.md",
@@ -1561,6 +1864,7 @@ describe("A sentence the Documents state only part of, with no Citation", () => 
       reason: null,
       covered: "spring tides at new and full moon",
       uncovered: "the staff and the harbour wall",
+      found: true,
     });
     expect(penguins?.check.unsupported).toEqual({ reason: null, covered: null, uncovered: null });
     expect(asked(model, "named the part of it that a Passage does state")).toBe(1);
@@ -2329,6 +2633,7 @@ describe("Why a sentence is unsupported", () => {
       reason: "Tides gives the moon phases, not what they cause.",
       covered: "the moon phases",
       uncovered: "the high waters",
+      found: true,
     });
   });
 
@@ -2338,7 +2643,12 @@ describe("Why a sentence is unsupported", () => {
         "Verdict: unsupported\n引用只比较了速度。\nCovered: 速度比较\nNot covered: 内存和鲁棒性",
         OWNER,
       ),
-    ).toEqual({ reason: "引用只比较了速度。", covered: "速度比较", uncovered: "内存和鲁棒性" });
+    ).toEqual({
+      reason: "引用只比较了速度。",
+      covered: "速度比较",
+      uncovered: "内存和鲁棒性",
+      found: true,
+    });
   });
 
   test("keeps the reason alone when the reply names only one side", async () => {
@@ -2385,6 +2695,181 @@ describe("Why a sentence is unsupported", () => {
       reason: "Not stated.",
       covered: "the moon phases",
       uncovered: "the high waters",
+      found: true,
     });
+  });
+});
+
+describe("A quote that starts with a figure (#1969)", () => {
+  const RESULTS_ZH = {
+    name: "雪松业绩.md",
+    contents: [
+      "# 雪松业绩",
+      "",
+      "调整后EBITDA 187.3（2025财年），88.0 和 91.5（2025年上半年、2026年上半年）",
+      "",
+      "2026年6月30日净负债 528.9",
+    ].join("\n"),
+  };
+  const H1 = "88.0 和 91.5（2025年上半年、2026年上半年）";
+
+  // protects=a check whose input quotes "88.0 和 91.5（…）" from the middle of a line reads 88.0 as a figure, so a right Chinese ratio sentence is Supported by calculate; fails_when=calculate says the quote has no 88.0 and the model's own Unsupported stands; no_claim=none beyond protects.
+  test("is Supported by calculate when the sentence is right", async () => {
+    const claim = "2026年6月30日净负债为528.9，是近十二个月调整后EBITDA的2.77倍。";
+    const calculation = {
+      inputs: [
+        { name: "nd", label: "净负债", quote: "2026年6月30日净负债 528.9", number: "528.9" },
+        { name: "fy", label: "2025财年", quote: "调整后EBITDA 187.3（2025财年）", number: "187.3" },
+        { name: "h1a", label: "2025年上半年", quote: H1, number: "88.0" },
+        { name: "h1b", label: "2026年上半年", quote: H1, number: "91.5" },
+      ],
+      formula: "nd / (fy - h1a + h1b)",
+      as: "times",
+      stated: "2.77倍",
+    };
+    const calls: ModelCall[] = [];
+    const plans = { [claim]: { verdict: "unsupported", calculation } } as const;
+    const setup = await setUpWithDocuments(checkingModel(plans, calls), [RESULTS_ZH]);
+    const saved = await setup.core.saveChatProvider({
+      kind: "anthropic",
+      apiKey: "sk-test",
+      modelId: "claude-haiku-5-5",
+    });
+    if (saved.service) await setup.core.allowDataFlow("checks", saved.service.id);
+
+    const result = await setup.core.checkClaim({ claim });
+    const replies = calls
+      .flatMap((call) => call.results)
+      .filter((each) => each.tool === "calculate");
+    expect(replies.at(-1)?.text).toMatch(/^Recorded \[=1\] = 2\.77倍/);
+    expect(result).toMatchObject({ verdict: "supported", calculation: { agrees: true } });
+  });
+
+  // protects=a quote that is a list's line reads 5% as its figure, not the list's "1.", so a right sentence is Supported by calculate; fails_when=the list's number is read as the figure and 5% is refused; no_claim=none beyond protects.
+  test("reads a list's line's figure, not its number", async () => {
+    const list = {
+      name: "Revenue.md",
+      contents: ["# Revenue", "", "1. Revenue rose 5% in 2025."].join("\n"),
+    };
+    const claim = "Revenue rose 5% in 2025.";
+    const calculation = {
+      inputs: [{ name: "rose", label: "增长", quote: "1. Revenue rose 5% in 2025.", number: "5%" }],
+      formula: "rose",
+      as: "percent",
+      stated: "5%",
+    };
+    const calls: ModelCall[] = [];
+    const plans = { [claim]: { verdict: "unsupported", calculation } } as const;
+    const setup = await setUpWithDocuments(checkingModel(plans, calls), [list]);
+    const saved = await setup.core.saveChatProvider({
+      kind: "anthropic",
+      apiKey: "sk-test",
+      modelId: "claude-haiku-5-5",
+    });
+    if (saved.service) await setup.core.allowDataFlow("checks", saved.service.id);
+
+    const result = await setup.core.checkClaim({ claim });
+    const replies = calls
+      .flatMap((call) => call.results)
+      .filter((each) => each.tool === "calculate");
+    expect(replies.at(-1)?.text).toMatch(/^Recorded \[=1\] = 5\.0%/);
+    expect(result).toMatchObject({ verdict: "supported", calculation: { agrees: true } });
+  });
+});
+
+describe("A quote whose page mentions it before its Passage (#1981)", () => {
+  const HEADING = "3.1 收入";
+  const CLAIM = "2026年收入为1240.0。";
+  const FILLER = Array.from(
+    { length: 20 },
+    (_, index) =>
+      `第${index + 1}项说明：本期经营活动产生的现金流量净额与净利润的差异，主要来自折旧摊销、利息费用以及营运资本变动。`,
+  ).join("\n\n");
+  const REPORT = ["# 雪松业绩", "", `详见 ${HEADING}。`, "", FILLER, "", HEADING, "收入为400.0"];
+
+  const check = async (
+    contents: string,
+    quote = HEADING,
+    problem = /the quote occurs more than once/,
+  ) => {
+    const calculation = {
+      inputs: [
+        { name: "base", label: "2026年收入", quote: "收入为400.0", number: "400.0" },
+        { name: "section", label: "章节号", quote, number: "3.1" },
+      ],
+      formula: "base * section",
+      as: "number",
+      stated: "1240.0",
+    };
+    const plans = { [CLAIM]: { verdict: "unsupported", calculation } } as const;
+    const calls: ModelCall[] = [];
+    const model = scriptedModel(
+      (call) => {
+        calls.push(call);
+        const search = call.results.filter((each) => each.tool === "search_documents").at(-1);
+        if (!search) return { calls: [{ tool: "search_documents", input: { query: CLAIM } }] };
+        const heading = shownPassages(search.text).find((passage) =>
+          passage.text.split("\n").some((line) => line.trim() === HEADING),
+        );
+        if (!call.results.some((each) => each.tool === "calculate")) {
+          return {
+            calls: [
+              {
+                tool: "calculate",
+                input: {
+                  figures: [
+                    {
+                      marker: 1,
+                      label: "句子里的数字",
+                      relation: "equals",
+                      ...calculation,
+                      inputs: calculation.inputs.map((input) => ({
+                        ...input,
+                        passage: heading?.id,
+                      })),
+                    },
+                  ],
+                },
+              },
+            ],
+          };
+        }
+        return { text: "Verdict: unsupported" };
+      },
+      { generate: checkGenerate(plans) },
+    );
+    const setup = await setUpWithDocuments(model, [{ name: "雪松业绩半年报.md", contents }]);
+    const saved = await setup.core.saveChatProvider({
+      kind: "anthropic",
+      apiKey: "sk-test",
+      modelId: "claude-haiku-5-5",
+    });
+    if (saved.service) await setup.core.allowDataFlow("checks", saved.service.id);
+
+    const result = await setup.core.checkClaim({ claim: CLAIM });
+    const replies = calls
+      .flatMap((call) => call.results)
+      .filter((each) => each.tool === "calculate");
+    expect(replies.at(-1)?.text).toMatch(problem);
+    expect(result).toMatchObject({ verdict: "unsupported" });
+  };
+
+  test("a unique quote of the heading still refuses its section number", async () => {
+    await check(REPORT.join("\n"), `${HEADING}\n收入为400.0`, /the quote has no number "3\.1"/);
+  });
+
+  // protects=a quote of the real heading is read where its own Passage has it, so 3.1 stays a heading's number and calculate refuses it; fails_when=the earlier mention on the page places the quote after "详见 ", 3.1 reads as a figure, and the check is Supported on 3.1 × 400.0; no_claim=none beyond protects.
+  test("reads the heading as a heading, not as a figure from the earlier mention", async () => {
+    await check(REPORT.join("\n"));
+  });
+
+  // protects=a Passage that holds the heading and an earlier mention of those words keeps the heading's reading, so calculate refuses 3.1; fails_when=the first place in the Passage decides mid-line and the check is Supported on 3.1 × 400.0; no_claim=none beyond protects.
+  test("reads the heading as a heading when its Passage holds both mentions", async () => {
+    await check(["# 雪松业绩", "", `详见 ${HEADING}。`, "", HEADING, "收入为400.0"].join("\n"));
+  });
+
+  // protects=a Passage that runs past the cited page keeps the heading's reading from the page's own places, so calculate refuses 3.1; fails_when=the Passage's text isn't found on the cited page and the first place there decides mid-line; no_claim=none beyond protects.
+  test("reads the heading as a heading when its Passage runs past the cited page", async () => {
+    await check([...REPORT, "", "# 附注", "", "附注内容：本节说明会计政策。"].join("\n"));
   });
 });

@@ -39,6 +39,13 @@ export type {
  * This file must stay free of imports with side effects: the preload script and
  * the renderer import it.
  */
+import type {
+  AnalysisEnd,
+  AnalysisLanguage,
+  AnalysisOutput,
+  AnalysisUnavailableReason,
+  AnalysisVersions,
+} from "../shared/analysis";
 import type { CitationForm, CitationStyleId, StyleCatalogue } from "../shared/citationStyles";
 import type { AppCommandId, AssistantCommandId } from "../shared/commands";
 import type { FormulaInput, FormulaLiteral, ResultUnit, ShowAs } from "../shared/formula";
@@ -194,8 +201,17 @@ export interface CreateMindInput {
  *   Document changed (#99): `keptOver` on the Citation, which an older
  *   version's editor would strip, so it would ask again to be checked. Older
  *   content is version 28 content as it is.
+ * - 29: whether a check found a Passage about the sentence that doesn't back
+ *   it (#1608): `found` in the `claimCheck` mark's `unsupported` reason, which
+ *   an older version's editor would strip, so its card would say Not found.
+ *   Older content is version 29 content as it is.
+ * - 30: a comparison table's columns have a `label` of their own, beside
+ *   their Question (#1833), and room for their `width` and whether they are
+ *   `hidden`. An older version's editor writes the columns back without
+ *   these when it changes one, so it opens these Minds read-only. Older
+ *   content is version 30 content as it is.
  */
-export const CONTENT_SCHEMA_VERSION = 28;
+export const CONTENT_SCHEMA_VERSION = 30;
 
 /**
  * The key, in the Mind's settings map (`MIND_SETTINGS_FIELD`), of the content
@@ -228,11 +244,6 @@ export interface MessageAnchor {
   kind: "message";
   messageId: string;
 }
-
-export type ReferenceAnchor = BlockAnchor | MessageAnchor;
-
-/** What a reference points into: a Mind, or one of the assistant's conversations (ADR-0017). */
-export type ArtifactKind = "mind" | "conversation";
 
 /**
  * One reference from one artifact to another (ADR-0003, ADR-0017): a Block's
@@ -451,7 +462,12 @@ export type ProposalRequest =
       reason?: string;
     })
   | (ProposalMaker & { source: "answer"; answerId: string })
-  | (ProposalMaker & { source: "answer-added"; requested?: RequestedChange })
+  | (ProposalMaker & {
+      source: "answer-added";
+      requested?: RequestedChange;
+      action?: EditAction;
+      instruction?: string;
+    })
   | (ProposalMaker & { source: "comparison-table"; tableId: string })
   | (ProposalMaker & { source: "research"; taskId: string })
   | WordChangeRequest;
@@ -628,11 +644,17 @@ export const COMPARISON_ROW_NODE = "comparisonRow";
  */
 export const COMPARISON_CELL_NODE = "comparisonCell";
 
-/** A comparison table's column: its Question. */
+/** A comparison table's column: its Question, and its own heading when it has one. */
 export interface ComparisonQuestion {
   /** A random UUID: what each row's cell for this column names. */
   id: string;
   text: string;
+  /** Its heading, which starts as its Question shortened; absent: the Question shortened. */
+  label?: string;
+  /** Its width in the table; absent: the table's own. */
+  width?: number;
+  /** Whether the table draws it; absent: it does. */
+  hidden?: boolean;
 }
 
 /** Attributes of a comparison table's Block, as stored in the Mind's Yjs document. */
@@ -860,8 +882,18 @@ export interface AnswerToolCall {
    * `read_mind`, `edit_mind`, `add_to_mind`, `create_mind`, see `mindChange`); "commands",
    * the commands it runs for the User (#1110: `list_commands`, `run_command`, see `command`);
    * "asks", a question it asked the User (#1374: `ask_user`, see `asked`).
+   * "analysis", `run_analysis` (#447, see `analysis`).
    */
-  source: "documents" | "skill" | "connector" | "sources" | "web" | "minds" | "commands" | "asks";
+  source:
+    | "documents"
+    | "skill"
+    | "connector"
+    | "sources"
+    | "web"
+    | "minds"
+    | "commands"
+    | "asks"
+    | "analysis";
   /** A Connector's Tool: which Connector, with its name when the call was made. */
   connector?: { id: string; name: string };
   /** What the model asked, e.g. `{ query }` for a search, or the arguments sent to a Connector. */
@@ -920,6 +952,8 @@ export interface AnswerToolCall {
   mindChange?: MindChange;
   /** A Minds' Tool that changed nothing: why, as its card says. Absent otherwise. */
   mindProblem?: MindProblem;
+  /** "run_analysis" only, once it ran: which of the Answer's Analyses, and what its step says. */
+  analysis?: AnalysisCall;
   /** `list_commands`, once it ended: the Documents or Minds it found (#1110). Absent otherwise. */
   found?: CommandsFound;
   /** `run_command`, once it ran: what it changed, from what the command returned (#1110). */
@@ -1021,6 +1055,20 @@ export interface CommandProblem {
   /** In English, for the log; `wording` says it in the interface language when there is one. */
   message: string;
   wording: ErrorWording | null;
+}
+
+/** What a `run_analysis` call's step says of its Analysis (#447): "Ran an analysis on Sales.xlsx". */
+export interface AnalysisCall {
+  /** Its number among the Answer's Analyses (`ConversationAnswer.analyses`). */
+  number: number;
+  title: string;
+  /** The Documents its inputs read, by name, each once. */
+  documents: string[];
+  end: AnalysisEnd["kind"];
+  /** Why it couldn't run, when `end` is "unavailable". */
+  reason?: AnalysisUnavailableReason;
+  /** Its time limit, when `end` is "timed-out". */
+  limitMs?: number;
 }
 
 /**
@@ -1718,8 +1766,8 @@ export interface RecheckCitationInput {
 /**
  * A Citation checked again against its Document's current version: the
  * attributes to store on its node in place of the old ones. The quote is
- * looked for in the cited Units first, then in any Unit (or two consecutive
- * ones) of the current version, so `pageFrom`, `pageTo` and `location` may change.
+ * checked in its cited Units in the current version. A quote elsewhere never
+ * changes the Citation's Unit bounds; a whole-Document Citation stays whole.
  */
 export interface CitationRecheck {
   check: Exclude<CitationCheck, "checking">;
@@ -1966,6 +2014,8 @@ export interface CalculatedFigure {
    * figure, which the text then shows once.
    */
   written: string | null;
+  /** Given by an Analysis of the Answer, not worked out from a formula (#447). */
+  analysis?: FigureFromAnalysis;
 }
 
 /** How a calculated figure's result was shown (see `showResult` in src/shared/formula.ts). */
@@ -1980,6 +2030,74 @@ export interface FigureShowOptions {
 /** A calculated figure of an Answer: where it goes is its marker ("[=2]") in the text. */
 export interface MarkedFigure extends CalculatedFigure {
   marker: number;
+}
+
+export interface FigureFromAnalysis {
+  /** The Answer's Analysis, by its number. */
+  analysis: number;
+  /** The result's name in the code: "total_revenue". */
+  result: string;
+}
+
+/** A range of a sheet or CSV an Analysis read (#447), in one version of its Document (ADR-0010). */
+export interface AnalysisRangeInput {
+  kind: "range";
+  /** The name the code reads it by: `inputs["sales"]`. */
+  name: string;
+  /** Where it is: the rows read, under the Passage the model named, quoting the headings. */
+  citation: Citation;
+  /** As read, headings included: "A1:F1240". */
+  range: string;
+  /** Rows read under the headings, and columns. */
+  rows: number;
+  columns: number;
+  /** Rows the range has under its headings: more than `rows` when only its first ones were read. */
+  rowCount: number;
+  /** Only part of the range was read: it has more than an Analysis reads, or its sheet was cut when indexed. */
+  cut: boolean;
+  /** SHA-256 of its headings and rows as read. */
+  sha256: string;
+}
+
+/** A number an Analysis read from a quote (#447), as `calculate` reads one. */
+export interface AnalysisFigureInput {
+  kind: "figure";
+  name: string;
+  input: FigureInput;
+  sha256: string;
+}
+
+export type AnswerAnalysisInput = AnalysisRangeInput | AnalysisFigureInput;
+
+/**
+ * An Analysis an Answer ran (#447, ADR-0023): the code the model wrote, what
+ * it read, what it came to, and what that was recorded with, so it can be
+ * shown, checked and run again.
+ */
+export interface AnswerAnalysis {
+  /** From 1, in the order the Answer ran them: "Analysis 2". */
+  number: number;
+  title: string;
+  language: AnalysisLanguage;
+  code: string;
+  inputs: AnswerAnalysisInput[];
+  versions: AnalysisVersions | null;
+  /** SHA-256 of the code, and of what it came to (its end and output). */
+  codeSha256: string;
+  outputSha256: string;
+  end: AnalysisEnd;
+  output: AnalysisOutput;
+  ms: number;
+  ranAt: string;
+  /**
+   * The markers the Answer writes its results with: each figure's "[=3]", and
+   * each table's and chart's number, "[=table 1]", "[=chart 1]", counted across the Answer.
+   */
+  markers: {
+    figures: { result: string; marker: number }[];
+    tables: { result: string; marker: number }[];
+    charts: number[];
+  };
 }
 
 /** A number a calculated figure is worked out from: one read from a Citation's quote. */
@@ -2158,8 +2276,12 @@ export interface GettingStarted {
   askedOwn: boolean;
   /** The User asked the first open's ready Question (`askReadyQuestion`). */
   askedReady: boolean;
+  /** An own note was exported successfully on this device. */
+  exported: boolean;
   /** The User hid the checklist. */
   hidden: boolean;
+  /** The first-run card was shown on this device: an empty note keeps no second guide after that (#1940). */
+  seen: boolean;
 }
 
 /** Settings that belong to this device and never sync (ADR-0003). */
@@ -2168,8 +2290,6 @@ export interface DeviceSettings {
   sidebarWidth: number;
   /** The User hid the sidebar (the shortcut, the button, View menu, or dragging it shut). Its width is kept. */
   sidebarHidden: boolean;
-  /** The User chose "set up later" on the first-run chat setup screen. */
-  chatSetupDismissed: boolean;
   /** The User dismissed the sidebar's line saying the app runs without its sandbox (#1179). */
   sandboxNoticeDismissed: boolean;
   /** The app has opened on this device before: from its second launch it opens on Home. */
@@ -2581,6 +2701,7 @@ export type DocumentFailureReason =
    * searched; Retry reads the others.
    */
   | "pages-unread"
+  | "forms-unread"
   /**
    * The app stopped while it was being read, not closed in good order: it
    * isn't read again by itself, as it could stop the app again. Retry reads it.
@@ -2703,6 +2824,12 @@ export interface Document {
   path: string;
   /** Where the file is: see `DocumentFileStatus`. */
   fileStatus: DocumentFileStatus;
+  /**
+   * Its file is IncarnaMind's own, inside the data folder: a saved web page's
+   * snapshot, or a Meeting's Transcript. It is not a file the User keeps on
+   * this computer, so it has no path to show and no app to open it in (#763).
+   */
+  keptByApp: boolean;
   /** The Linked folder the file is in, or null for a file added on its own ("Other Documents"). */
   linkedFolderId: string | null;
   /** In bytes. */
@@ -2720,6 +2847,16 @@ export interface Document {
   scan: DocumentScanProgress | null;
   /** Set when `status` is "failed": why the latest version read failed. */
   failure: DocumentFailure | null;
+  /**
+   * What of it wasn't read when the rest was (#740): a workbook's hidden sheets and the sheets
+   * the reading limit cut short. Null when all of it was, and for every other kind.
+   */
+  unreadParts: UnreadParts | null;
+  /**
+   * Its stored `unreadParts` couldn't be read (damaged data): what it left unread is unknown,
+   * never taken for everything read. The unread list says so, and the log names the Document.
+   */
+  unreadPartsUnknown: boolean;
   /**
    * The Folder its file is in: the Linked folder's own Folder, or one inside
    * it. Null for a file added on its own.
@@ -3702,9 +3839,28 @@ export interface UnsupportedFile {
  *   (`unlockDocument`, #763); another kind needs its password removed;
  * - "damaged": the file is broken, or couldn't be read;
  * - "too-large": too large to open;
- * - "pages": a scan some of whose pages haven't been read yet.
+ * - "pages": a PDF with page content that couldn't be read;
+ * - "parts": a workbook read in part, whose hidden sheets or rows past the reading limit were
+ *   left out (`UnreadFile.parts` says which). The rest of it is searched.
  */
-export type UnreadReason = "format" | "scan" | "password" | "damaged" | "too-large" | "pages";
+export type UnreadReason =
+  | "format"
+  | "scan"
+  | "password"
+  | "damaged"
+  | "too-large"
+  | "pages"
+  | "parts";
+
+/** What of a Document wasn't read when the rest was (#740). */
+export interface UnreadParts {
+  /** Hidden and very hidden sheets left out, by name, in the file's order. */
+  hiddenSheets: string[];
+  /** Sheets with rows left out at the reading limit: the first row not read, from 1. */
+  rowsCut: { sheet: string; from: number }[];
+  /** Sheets after the limit was reached, from which nothing was read. */
+  sheetsNotRead: string[];
+}
 
 /** A file in a Search scope that couldn't be read, with why (#740). */
 export interface UnreadFile {
@@ -3719,6 +3875,10 @@ export interface UnreadFile {
   documentId: string | null;
   /** For "pages": the scanned pages that couldn't be read, from 1; empty when none could be, and for every other reason. */
   pages: number[];
+  /** For "pages" with unread PDF form fields, whose marker needs explaining to the model (#1818). */
+  forms?: true;
+  /** For "parts": what wasn't read; absent for every other reason. */
+  parts?: UnreadParts;
 }
 
 /**
@@ -4288,6 +4448,13 @@ export interface CostSummary {
  */
 export type RunStop = { reason: "cost-cap" } | { reason: "plan-limit"; resetsAt: string | null };
 
+/**
+ * Why a full watch of a Mind ended before it finished: a stop a Run gives way
+ * to, or the User stopping it. A cancelled watch is never a complete one: the
+ * next Check sweeps every cited sentence again (#1941).
+ */
+export type WatchStop = RunStop | { reason: "cancelled" };
+
 /** What Compare Documents makes a comparison table of (#98). */
 export interface CompareDocumentsInput {
   mindId: string;
@@ -4310,6 +4477,15 @@ export interface CompareDocumentsInput {
 export interface ComparisonTableRef {
   mindId: string;
   tableId: string;
+}
+
+/**
+ * A comparison table to fill: the whole table, or some of its columns alone,
+ * so a column just added or reworded never writes its neighbours again.
+ */
+export interface ComparisonFillRequest extends ComparisonTableRef {
+  /** The columns to fill, by their Questions' ids; absent: every cell to fill in the table. */
+  questionIds?: readonly string[];
 }
 
 /**
@@ -4957,6 +5133,12 @@ export interface UnsupportedReason {
   /** A short phrase for what they don't ("memory and robustness"); null when none. */
   uncovered: string | null;
   /**
+   * True when the check found a Passage about the sentence that doesn't back it: its card says
+   * Unsupported, never Not found (#1608). Absent when nothing in its scope was about it, and on
+   * checks made before it was kept.
+   */
+  found?: true;
+  /**
    * The Passage the check quoted for what is covered, as a Citation whose quote the
    * Citation check found; absent when it quoted none.
    */
@@ -4982,8 +5164,8 @@ export type LimitRelation = "at most" | "at least";
 /**
  * How a check worked out a figure the sentence states but the Documents don't
  * (#707): the figure, calculated from numbers they state (ADR-0021), and the
- * number the sentence writes for it. They agree to the sentence's rounding,
- * and the sentence is supported, or they don't, and it is contradicted.
+ * number the sentence writes for it. They agree to the sentence's rounding;
+ * agreement settles only that number, never the whole sentence by itself.
  */
 export interface ClaimCalculation {
   figure: CalculatedFigure;
@@ -5237,11 +5419,25 @@ export type CheckContradictionsResult =
  * Folder started (#112), kept in the Mind's settings so its line can show
  * what it found and cost (`src/shared/contradictionWatch.ts`).
  */
-export interface ContradictionWatchRun extends ContradictionCheckOutcome {
-  /** When it finished. ISO 8601, UTC. */
+export interface ContradictionWatchRun {
+  /** The cited sentences checked: a contradicted one has its mark, the others none. */
+  claims: number;
+  /** Of them, those the model gave a verdict for. */
+  checked: number;
+  contradicted: number;
+  /** What its requests billed per token cost; null when none was priced. */
+  cost: Money | null;
+  /** The monthly cap or a plan's limit stopped it, or the User stopped it: the claims after it weren't checked. */
+  stop: WatchStop | null;
+  /** The verdicts came from a model too small to judge reliably (#680). */
+  smallModel: boolean;
+  /** When it ended. ISO 8601, UTC. */
   at: string;
-  /** The Document whose new version started it, by name. */
-  documentName: string;
+  /**
+   * The Document whose new version started it, by name; null when a Document
+   * joining the Folder, the Mind joining it, or an on-demand check started it.
+   */
+  documentName: string | null;
 }
 
 /**
@@ -5437,7 +5633,8 @@ export interface AnswerDelta extends AnswerPlace {
  * that answered with structured output is asked once more for the quotes of
  * its Citations that the check didn't find (ADR-0007); "checking-figures", it
  * is asked once more for the calculated figures it gave that couldn't be
- * worked out (ADR-0021).
+ * worked out (ADR-0021); "checking-claims", the quick model is checking the
+ * reply's claims of changes against what the Tools did.
  */
 export type AnswerPhase =
   | "waiting-for-consent"
@@ -5445,7 +5642,8 @@ export type AnswerPhase =
   | "searching"
   | "writing"
   | "checking-quotes"
-  | "checking-figures";
+  | "checking-figures"
+  | "checking-claims";
 
 /** An Answer being written moved to another phase. */
 export interface AnswerPhaseEvent extends AnswerPlace {
@@ -5559,6 +5757,36 @@ export interface AnswerToolCallEvent extends AnswerPlace {
   call: AnswerToolCall;
 }
 
+export interface ApplyAskedChangesInput {
+  answerId: string;
+  mindId: string;
+  requests: readonly string[];
+}
+
+export interface AskedChangeTransition {
+  /** The clocks after Undo or Redo, for matching updates still arriving. */
+  vector: Uint8Array;
+  /** The content after Undo or Redo, which also changes when a deletion advances no clock. */
+  fingerprint: string;
+  /** The complete Undo or Redo as one Yjs update, for the renderer to apply before judging staleness. */
+  update: Uint8Array;
+}
+
+export interface AskedChangeApplication {
+  /** Identifies this application's in-session Undo in the core. */
+  undoId: string;
+  /** The original text with the turn's Proposals still marked, for Review. */
+  reviewBefore: Uint8Array;
+  /** The version after acceptance; Review is offered only while the editor is still at it. */
+  afterVector: Uint8Array;
+  /** The content after acceptance, including deletions that advance no clock. */
+  afterFingerprint: string;
+  /** The Proposal ids actually accepted; stale ones were left waiting. */
+  accepted: readonly string[];
+  requests: readonly string[];
+  held: boolean;
+}
+
 /**
  * The model gave the record for a Citation marker in the Answer: the marker
  * becomes this Citation, "checking" until the Answer finishes.
@@ -5575,8 +5803,8 @@ export interface RejectedRecord {
   /** Null when it wasn't a number. */
   marker: number | null;
   passage: string;
-  /** "marker": no marker number of 1 or more. "passage": it named no Passage the model was given. */
-  reason: "marker" | "passage";
+  /** "marker": invalid marker. "passage": unknown Passage. "quote-context": more than one place in its cited Units. */
+  reason: "marker" | "passage" | "quote-context";
 }
 
 /** An Answer is complete ("done") or the User stopped it ("stopped"), keeping what was written. */
@@ -5587,7 +5815,7 @@ export interface AnswerFinished extends AnswerPlace {
   citations: Citation[];
   /** Markers the model wrote with no valid record: removed, leaving their sentences uncited. */
   droppedMarkers: number;
-  /** Records the model gave for no marker in the text, or naming no Passage it was given: dropped. */
+  /** Records with an invalid marker, unknown Passage or ambiguous quote: dropped. */
   droppedRecords: number;
   /**
    * The records among those that the core couldn't take, as the model gave
@@ -5617,6 +5845,7 @@ export interface AnswerFinished extends AnswerPlace {
   quoteRetry: QuoteRetry | null;
   /** Its calculated figures (ADR-0021), in the order of their markers in the text, each once. */
   figures: MarkedFigure[];
+  analyses: AnswerAnalysis[];
   /** Figure markers in its text that had no figure: left out, so their numbers are missing. */
   uncalculated: number;
   /**
@@ -5739,6 +5968,8 @@ export interface ConversationQuestion {
   model: ChatModelChoice | null;
   /** The Skill forced on it, by name; null: none. */
   forcedSkill: string | null;
+  /** Asked with "Analyse data…" (#447): its Answer may run an Analysis whatever its Search scope holds. */
+  analyse: boolean;
   /** The words the User selected in Documents to ask about, in order; empty: none. */
   quotes: AskedQuote[];
   /** ISO 8601, UTC. */
@@ -5767,6 +5998,8 @@ export interface ConversationAnswer {
   citations: MarkedCitation[];
   /** Its calculated figures (ADR-0021), in the order of their markers ("[=1]") in the text, each once. */
   figures: MarkedFigure[];
+  /** The Analyses it ran (#447), in order: a figure "From Analysis 2" names one by its number. */
+  analyses: AnswerAnalysis[];
   /** The model that wrote it; null for one that says its Search scope has no Documents. */
   model: ChatModelChoice | null;
   status: AnswerStatus;
@@ -5842,6 +6075,8 @@ export interface AskInConversationInput {
   model?: ChatModelChoice | null;
   /** A Skill to load up front, by name. */
   forcedSkill?: string | null;
+  /** "Analyse data…" was chosen (#447): its Answer may run an Analysis whatever its Search scope holds. */
+  analyse?: boolean;
 }
 
 /** An Answer in a conversation, for regenerating or stopping it. */
@@ -5905,6 +6140,23 @@ export interface UndoAddToNoteInput {
   blockIds: string[];
 }
 
+/**
+ * What taking an "Add to note" back kept: the Blocks whose words the User changed
+ * since they went in, which Undo leaves rather than take away their edit (#1962).
+ */
+export interface UndoAddToNoteResult {
+  kept: number;
+}
+
+/**
+ * A Conversation a note's Blocks came from (#1940): History names that Conversation
+ * under the note's title, also while the note is closed.
+ */
+export interface NoteConversation {
+  mindId: string;
+  conversationId: string;
+}
+
 /** Where words of a search are in a piece of text: `start` to `end`, in UTF-16 code units. */
 export interface TextRange {
   start: number;
@@ -5937,6 +6189,12 @@ export interface ConversationMatch {
 export interface MindSnippet {
   mindId: string;
   text: string;
+}
+
+/** A Mind's whole Yjs document, as stored (`CoreApi.readMindContents`), for Home's state line (D266). */
+export interface MindContentSnapshot {
+  mindId: string;
+  state: Uint8Array;
 }
 
 /**
@@ -7046,6 +7304,7 @@ export type ConnectorErrorKind =
   | "stopped"
   /** Remote: its server can't be reached, e.g. no network, or nothing answers at its URL. */
   | "unreachable"
+  | "key-refused"
   /** Anything else, e.g. it doesn't speak MCP. */
   | "failed";
 
@@ -7156,12 +7415,13 @@ export interface RemoteConnectorSignIn {
 }
 
 /**
- * A remote Connector: an MCP server reached by its URL over Streamable HTTP.
- * If it requires a sign-in, the User signs in in their browser (OAuth 2.1
- * with PKCE, as the MCP authorization spec describes).
+ * A remote Connector using Streamable HTTP or older SSE, with device-only
+ * header secrets or browser sign-in (OAuth 2.1 with PKCE).
  */
 export interface RemoteConnector extends ConnectorBase {
   transport: "http";
+  connection?: "http" | "sse";
+  headers?: string[];
   /** Its MCP endpoint, e.g. "https://mcp.example.com/mcp". */
   url: string;
   /**
@@ -7201,6 +7461,8 @@ export interface AddRemoteConnectorInput {
    * "http://127.0.0.1:8000/mcp"). Its sign-in, if any, starts with `signInToConnector`.
    */
   url: string;
+  connection?: "http" | "sse";
+  headers?: Record<string, string>;
   /** Only for a service that can't register IncarnaMind by itself (see `ConnectorClientInput`). */
   client?: ConnectorClientInput;
 }
@@ -7218,8 +7480,7 @@ export type ConnectorSignInResult =
  * - "add": it is added as a Connector;
  * - "exists": a Connector with its name already exists (or the configuration
  *   lists the name twice), so it is skipped;
- * - "remote": it is a remote server IncarnaMind can't connect to: one that
- *   uses the older SSE transport, or needs custom headers;
+ * - "remote": it uses a transport IncarnaMind can't connect to;
  * - "invalid": it has neither a command nor a URL, or its arguments,
  *   environment or URL aren't valid.
  */
@@ -7232,6 +7493,8 @@ export interface ConnectorImportEntry {
   env: string[];
   /** A remote server's URL. Absent for a local one. */
   url?: string;
+  connection?: "http" | "sse";
+  headers?: string[];
   action: "add" | "exists" | "remote" | "invalid";
 }
 
@@ -7485,6 +7748,7 @@ export type EffectScope =
   | { kind: "service"; serviceId: string; name: string } // an external service, as consent names it
   | { kind: "host"; host: string } // a web host
   | { kind: "mind"; mindId: string } // one of the User's Minds
+  | { kind: "sandbox" } // the analysis sandbox, with no files and no network (ADR-0023)
   | { kind: "library" } // the Library: its Documents' names, Folders and Tags, Recently deleted
   | { kind: "output" } // the Output location, the folder the User chose for new files
   | { kind: "anywhere" };
@@ -7821,11 +8085,17 @@ export interface MindExportPreview {
   fromWord: boolean;
   /** Someone's changes from that Word file still waiting (#734), shown or accepted as `theirChanges` says. */
   theirChanges: number;
+  /** The files in the Mind's Search scope that couldn't be read (#740); 0 when everything in it was read. */
+  unreadFiles: number;
+  /** Whether the export names those files, or only counts them: the Mind's choice, off until the User ticks it. */
+  unreadFileNames: boolean;
 }
 
 /** The sentences an export holds whose check isn't good, by result (`MindExport.sentenceChecks`). */
 export interface SentenceChecksExported {
   contradicted: number;
+  /** Nothing in its scope was about it, as its card says (`saysNotFound`): its comment says Not found. */
+  notFound: number;
   unsupported: number;
   needsRecheck: number;
   /** They went into the file as comments: a Word file, with `commentFailedChecks` on. Otherwise they went out unmarked. */
@@ -8012,7 +8282,7 @@ export interface SetMindCitationStyleOptions {
 export interface OutputSettings {
   /**
    * The folder new files go in, absolute, symbolic links resolved; null until
-   * the first save, which takes `suggested` without asking (D209).
+   * the first save, which takes `suggested` without asking.
    */
   location: string | null;
   /** The default: "IncarnaMind" in the User's Documents folder (文稿 on a Chinese Mac). */
@@ -8070,7 +8340,7 @@ export interface SavedFile {
   folder: string;
   /**
    * This save took the default Output location, Documents › IncarnaMind,
-   * none being chosen yet (D209): what shows it says where, with a way to change it.
+   * none being chosen yet: what shows it says where, with a way to change it.
    */
   defaulted: boolean;
   /** The folder is the default Output location, which a line names as this computer names Documents. */
@@ -8091,6 +8361,13 @@ export type AudioSource = "microphone" | "system";
  * - "stopped": over. Its audio is kept until it expires.
  */
 export type MeetingStatus = "ready" | "recording" | "paused" | "stopped";
+
+/**
+ * What is recorded: a call ("meeting"), or a voice memo (#1568), the User alone, with the
+ * microphone only, no help during the call and no Speakers, whose note after Stop is the speech
+ * tidied under a title line.
+ */
+export type MeetingKind = "meeting" | "memo";
 
 /**
  * How one source is recorded right now:
@@ -8129,6 +8406,7 @@ export interface Meeting {
   id: string;
   /** The Mind it belongs to, where its notes are written. */
   mindId: string;
+  kind: MeetingKind;
   status: MeetingStatus;
   /** Why it is paused: the User did, or IncarnaMind closed while it was recording. Null unless paused. */
   pausedBy: "user" | "interrupted" | null;
@@ -8181,11 +8459,19 @@ export interface Meeting {
  * - "failed": nothing was written, and `problem` says why; Try again fills it in;
  * - "off": not run, and `problem` says why: "Keep everything on this computer" is on and the
  *   Mind's model isn't on this computer, or the model isn't ready or allowed yet.
+ *
+ * A voice memo's note (#1568) is its speech tidied into paragraphs under a title line, each citing
+ * its time ("memo"), at the start of a Mind with no text yet, so the title line names it. With no
+ * model to tidy it, or when the tidied note had words that weren't said, the Transcript goes in as
+ * it is instead, a line a paragraph ("transcript"), and `problem` says why.
  */
 export interface MeetingFill {
   state: "waiting" | "filling" | "filled" | "undone" | "failed" | "off";
-  /** Under the User's lines ("notes"), or in sections because they wrote none. Null before it knows. */
-  mode: "notes" | "sections" | null;
+  /**
+   * Under the User's lines ("notes"), or in sections because they wrote none; a voice memo's
+   * note tidied ("memo") or its Transcript as it is ("transcript"). Null before it knows.
+   */
+  mode: "notes" | "sections" | "memo" | "transcript" | null;
   /** The model that wrote it runs on this computer. */
   local: boolean;
   problem: MeetingFillProblem | null;
@@ -8198,10 +8484,11 @@ export interface MeetingFill {
  * - "local-mode": "Keep everything on this computer" is on and the Mind's model isn't local;
  * - "not-allowed": the User hasn't allowed sending to the model's service yet (`service`);
  * - "no-model": no model is set up, or it needs a key or a sign-in;
- * - "no-transcript": the Transcript has no lines.
+ * - "no-transcript": the Transcript has no lines;
+ * - "added": a voice memo's tidied note had words that weren't said.
  */
 export interface MeetingFillProblem {
-  kind: "model" | "stopped" | "local-mode" | "not-allowed" | "no-model" | "no-transcript";
+  kind: "model" | "stopped" | "local-mode" | "not-allowed" | "no-model" | "no-transcript" | "added";
   message: string;
   /** For "not-allowed": the service's name, as the User knows it. */
   service?: string;
@@ -8327,8 +8614,8 @@ export type EngineSwitchReason = "behind" | "failed" | "user" | "cap";
  * - "live": lines arrive a few seconds behind the Meeting.
  * - "behind": live text fell behind, or couldn't go on: the meeting bar says
  *   "Recording…", and the rest is transcribed once the Meeting stops.
- * - "finishing": stopped; what is left is being transcribed and saved.
- * - "saved": saved as a WebVTT file in the Output location (`savedPath`).
+ * - "finishing": stopped; what is left is being transcribed.
+ * - "saved": finished, and kept in the Library as a Document (`savedPath` is its own file, inside the data folder).
  * - "empty": stopped with nothing said that could be transcribed: no file is saved.
  * - "failed": it couldn't be finished; `problem` says why.
  */
@@ -8346,7 +8633,7 @@ export type TranscriptState =
  * What stops a Transcript, each with one thing to do (`retryTranscript`):
  * - "download": the speech-to-text model couldn't be downloaded.
  * - "engine": it couldn't start, or stopped again and again.
- * - "save": the WebVTT file couldn't be saved, or no Output location was chosen.
+ * - "save": the Transcript couldn't be written to the data folder.
  * - "speakers": saved, but the speaker pass (#138) couldn't run: its lines keep the labels of
  *   where they came from. Trying again runs the pass again while the audio is kept.
  */
@@ -8363,9 +8650,10 @@ export interface MeetingTranscript {
   lines: number;
   /**
    * The speech being transcribed now, while live: where it starts, in the Meeting's time, its
-   * words so far, and whose they are ("Me", "Them" or "Speaker ?", see src/shared/speakers.ts).
+   * words so far, and whose they are ("Me", "Them" or "Speaker ?", see src/shared/speakers.ts;
+   * null in a voice memo).
    */
-  partial: { startMs: number; text: string; speaker: string } | null;
+  partial: { startMs: number; text: string; speaker: string | null } | null;
   /** The speech-to-text model, while it is downloading or failed to. */
   model: TranscriptionModelStatus | null;
   /** The cloud service transcribing the live audio now (#141); null: this computer. */
@@ -8381,10 +8669,8 @@ export interface MeetingTranscript {
     atMs: number;
     reason: "dropped" | "refused" | "cap" | "local-mode";
   } | null;
-  /** The WebVTT file in the Output location, once saved. */
+  /** Its own file in the data folder, once saved: kept for the Library, never shown as a path (#763). */
   savedPath: string | null;
-  /** Its save took the default Output location, none being chosen yet (`SavedFile.defaulted`). */
-  savedDefaulted: boolean;
   /** Saved, its speakers are being told apart after the call (#138): their labels may still change. */
   separating: boolean;
   problem: TranscriptProblem | null;
@@ -8908,6 +9194,12 @@ export interface CoreApi {
    */
   listMindSnippets(): Promise<MindSnippet[]>;
   /**
+   * Home's Recent (D266): each named Mind's whole Yjs document as stored, the one reader of
+   * its health there. Reads only: nothing is settled, compacted or written, and a Mind that
+   * isn't there or is deleted is left out.
+   */
+  readMindContents(mindIds: readonly string[]): Promise<MindContentSnapshot[]>;
+  /**
    * ⌘K's "In your Documents" and the Library's search: live Documents whose Passages hold every
    * word of `query`, as `searchMinds` reads it, best match first, one Passage each, at most
    * `limit` (20 unless asked; InvalidInputError outside 1 to 200). Keyword search over the
@@ -8929,6 +9221,14 @@ export interface CoreApi {
    * Block's origin. Restoring what it points into makes it lead there again.
    */
   resolveReference(reference: ArtifactReference): Promise<ReferenceTarget>;
+  /** Applies a turn's asked changes without its editor, or null when none remain. */
+  applyAskedChanges(input: ApplyAskedChangesInput): Promise<AskedChangeApplication | null>;
+  /** Takes back a core-applied change if nothing in its Mind followed it; returns the resulting state, or null when refused. */
+  undoAskedChanges(undoId: string): Promise<AskedChangeTransition | null>;
+  /** Does a core-applied change again after its Undo, with the same result contract. */
+  redoAskedChanges(undoId: string): Promise<AskedChangeTransition | null>;
+  /** Lets go of a core-applied change's in-session Review and Undo records. */
+  releaseAskedChanges(undoId: string): Promise<void>;
   /**
    * "Add to note" (#201) into a Mind that isn't open in the editor: Blocks at the
    * end of its note (in place of its empty last line), each Citation in them
@@ -8938,8 +9238,16 @@ export interface CoreApi {
    * Mind open in the editor adds at its cursor itself, by the same rules.
    */
   addToNote(input: AddToNoteInput): Promise<AddedToNote>;
-  /** Takes the Blocks an "Add to note" put into a Mind back out, with their links back. */
-  undoAddToNote(input: UndoAddToNoteInput): Promise<void>;
+  /**
+   * Takes the Blocks an "Add to note" put into a Mind back out, with their links back. A Block
+   * whose words the User changed since it went in stays, and is counted in `kept`.
+   */
+  undoAddToNote(input: UndoAddToNoteInput): Promise<UndoAddToNoteResult>;
+  /**
+   * The Conversation each Mind's Blocks came from, by Mind id, for History's names: read from
+   * the links back the Blocks keep, so it covers notes made before this version too.
+   */
+  listNoteConversations(): Promise<NoteConversation[]>;
 
   getSettings(): Promise<Settings>;
   /**
@@ -9246,6 +9554,11 @@ export interface CoreApi {
   /** An example Mind and its Documents, if made (see `Examples`); the credit paper by default. */
   getExamples(group?: ExampleGroup): Promise<Examples>;
   /**
+   * Whether a Document is one of the examples' (see `Examples`): read with them,
+   * and left out of the User's own Folders, Tags and search (#1942).
+   */
+  isExampleDocument(documentId: string): Promise<boolean>;
+  /**
    * On a first run (no Mind yet, examples never offered before), makes the
    * examples, once. Returns them, or null when nothing was made.
    */
@@ -9449,10 +9762,12 @@ export interface CoreApi {
   compareDocuments(input: CompareDocumentsInput): Promise<ComparisonResult>;
   /**
    * Fills a comparison table's cells that have no Answer (`cellToFill`): a
-   * column the editor just added, or cells a fill left (a quit, the monthly
-   * cap, a failure). A fill already going takes them up once its cells are done.
+   * column the editor just added or reworded, or cells a fill left (a quit,
+   * the monthly cap, a failure). Given `questionIds`, it fills those columns
+   * alone, so the others' Answers and problems stay as they are. A fill
+   * already going takes them up once its cells are done.
    */
-  fillComparisonTable(input: ComparisonTableRef): Promise<ComparisonResult>;
+  fillComparisonTable(input: ComparisonFillRequest): Promise<ComparisonResult>;
   /** Stops filling a comparison table: cells being written stay as they were. */
   stopComparisonTable(input: ComparisonTableRef): Promise<void>;
   /** The comparison tables whose cells are being filled now. */
@@ -9938,6 +10253,8 @@ export interface CoreApi {
    * automatically. Either way it signs out first.
    */
   setConnectorClient(connectorId: string, client: ConnectorClientInput | null): Promise<Connector>;
+  /** Replaces device-only header secrets and restarts; an empty map removes them and disconnects. Values are never returned. */
+  setConnectorHeaders(connectorId: string, headers: Record<string, string>): Promise<Connector>;
   /**
    * What importing an `mcpServers` configuration (Claude Desktop's or
    * Cursor's JSON, pasted or read from a file) would add, without adding anything.
@@ -10139,6 +10456,12 @@ export interface CoreApi {
     options?: SetMindCitationStyleOptions,
   ): Promise<MindCitationStyle>;
   /**
+   * Whether this Mind's exports name the files in its Search scope that couldn't be read, or only
+   * count them (#740). Off until the User ticks it in the export options; the export and its
+   * preview ask this.
+   */
+  setMindUnreadFileNames(mindId: string, names: boolean): Promise<void>;
+  /**
    * Every style the app ships but the common ones, for the picker, read from the style pack the
    * first time it is asked for.
    */
@@ -10190,6 +10513,12 @@ export interface CoreApi {
    * no other Meeting recording.
    */
   startMeeting(input: StartMeetingInput): Promise<Meeting>;
+  /**
+   * Records a voice memo at once (#1568): the microphone alone, in the empty Mind given, else in
+   * a new Mind with no title, in the Folder given, so the note's title line names it. Needs what
+   * `startMeeting` does; nothing is made when it can't start.
+   */
+  recordMemo(input?: CreateMeetingInput): Promise<Meeting>;
   pauseMeeting(meetingId: string): Promise<Meeting>;
   /** Records again after a pause, the User's or one IncarnaMind closing made. */
   resumeMeeting(meetingId: string): Promise<Meeting>;
@@ -10211,6 +10540,12 @@ export interface CoreApi {
    * measured it; null before one has been. The speed probe (#462) will measure it sooner.
    */
   getTranscriptionSpeed(): Promise<{ keepsUp: boolean | null }>;
+  /**
+   * The speech-to-text model on this computer and its download, or null where this copy can't
+   * transcribe. The first Record says its size and offers "Download and start" only while it
+   * isn't here (#763).
+   */
+  getTranscriptionModel(): Promise<TranscriptionModelStatus | null>;
   /**
    * Tries the Meeting's Transcript again after a problem (`MeetingTranscript.problem`):
    * downloads or starts the speech-to-text model, or saves the WebVTT file again.
@@ -10547,12 +10882,18 @@ const methods: Record<CoreApiMethod, true> = {
   searchConversations: true,
   searchMinds: true,
   listMindSnippets: true,
+  readMindContents: true,
   searchDocumentText: true,
   renameConversation: true,
   deleteConversation: true,
   resolveReference: true,
   addToNote: true,
+  applyAskedChanges: true,
+  undoAskedChanges: true,
+  redoAskedChanges: true,
+  releaseAskedChanges: true,
   undoAddToNote: true,
+  listNoteConversations: true,
   getSettings: true,
   updateSettings: true,
   getLayout: true,
@@ -10751,6 +11092,7 @@ const methods: Record<CoreApiMethod, true> = {
   listConnectors: true,
   addConnector: true,
   getExamples: true,
+  isExampleDocument: true,
   offerExamples: true,
   createExamples: true,
   removeExamples: true,
@@ -10763,6 +11105,7 @@ const methods: Record<CoreApiMethod, true> = {
   cancelConnectorSignIn: true,
   signOutOfConnector: true,
   setConnectorClient: true,
+  setConnectorHeaders: true,
   previewConnectorImport: true,
   importConnectors: true,
   listConnectorDirectory: true,
@@ -10800,6 +11143,7 @@ const methods: Record<CoreApiMethod, true> = {
   formatCitations: true,
   getMindCitationStyle: true,
   setMindCitationStyle: true,
+  setMindUnreadFileNames: true,
   listCitationStyles: true,
   openCitationStyleLicences: true,
   getMindStyle: true,
@@ -10814,6 +11158,7 @@ const methods: Record<CoreApiMethod, true> = {
   createMeeting: true,
   discardMeeting: true,
   startMeeting: true,
+  recordMemo: true,
   pauseMeeting: true,
   resumeMeeting: true,
   stopMeeting: true,
@@ -10822,6 +11167,7 @@ const methods: Record<CoreApiMethod, true> = {
   setTranscriptionKey: true,
   removeTranscriptionKey: true,
   getTranscriptionSpeed: true,
+  getTranscriptionModel: true,
   retryTranscript: true,
   fillMeetingNotes: true,
   undoMeetingFill: true,

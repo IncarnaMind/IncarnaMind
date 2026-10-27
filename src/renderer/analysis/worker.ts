@@ -3,9 +3,9 @@
  * numpy and pandas from the bundled files, never a package index, and the
  * helper every job runs through (./incarnamind.py).
  */
-import type { loadPyodide as LoadPyodide } from "pyodide";
 import { PYTHON_PATH } from "../../shared/analysisWindow";
 import helper from "./incarnamind.py?raw";
+import { loadPython } from "./loadPyodide";
 
 const HELPER_FOLDER = "/incarnamind";
 const PACKAGES = ["numpy", "pandas"];
@@ -17,20 +17,7 @@ const messageOf = (error: unknown) => (error instanceof Error ? error.message : 
 
 async function start(): Promise<(job: string) => string> {
   const base = new URL(PYTHON_PATH, self.location.href).href;
-  // Loaded as its own file, unmodified, as Pyodide's licence exception asks (ADR-0023).
-  const pyodideModule: { loadPyodide: typeof LoadPyodide } = await import(
-    /* @vite-ignore */ `${base}pyodide.mjs`
-  );
-  const pyodide = await pyodideModule.loadPyodide({
-    indexURL: base,
-    lockFileURL: `${base}pyodide-lock.json`,
-    packageBaseUrl: base,
-    fullStdLib: false,
-    // Sets and dicts of text iterate in the same order on every run.
-    env: { PYTHONHASHSEED: "0" },
-    stdout: () => {},
-    stderr: () => {},
-  });
+  const pyodide = await loadPython(base);
   const failed: string[] = [];
   await pyodide.loadPackage(PACKAGES, {
     messageCallback: () => {},

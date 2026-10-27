@@ -193,8 +193,9 @@ export function claudeCodeCommand(launch: AgentLaunch, platform: NodeJS.Platform
   ]);
   return [
     "claude mcp add --scope user",
-    ...env,
+    // Claude Code's variadic --env consumes a server name placed after it (#1998).
     SERVER_KEY,
+    ...env,
     "--",
     quote(launch.command, platform),
     ...launch.args.map((arg) => quote(arg, platform)),

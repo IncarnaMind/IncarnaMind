@@ -198,13 +198,10 @@ test("with no Ollama on this computer, the setup card's local way says so, and o
   await window.keyboard.press("Enter");
   const setup = window.getByTestId("model-setup");
   await expect(setup).toBeVisible();
-  await setup.getByTestId("setup-other").click();
+  // A model on this computer is one of the ways in from the start (#1922), and says it needs Ollama.
   const local = setup.getByTestId("way-local");
-  await expect(local).toContainText("Needs the free Ollama app");
-  await local.click();
-  await expect(setup.getByTestId("ollama-status")).toHaveText(
-    "Install and start Ollama from ollama.com to run models here.",
-  );
+  await expect(local).toContainText("Install a model on this computer…");
+  await expect(local.getByTestId("ollama-status")).toHaveText("Needs the free Ollama app");
   const get = setup.getByTestId("ollama-get");
   const again = setup.getByTestId("ollama-check-again");
   await expect(get).toHaveText("Get Ollama ↗");

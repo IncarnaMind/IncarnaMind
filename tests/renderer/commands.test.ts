@@ -94,9 +94,9 @@ describe("New Folder with these", () => {
     const three = selecting(["document", "a"], ["document", "b"], ["document", "c"]);
     expect(saysIn(NOWHERE, "en")).toBe("New Folder with these");
     expect(saysIn(selecting(["document", "a"]), "en")).toBe("New Folder with this Document");
-    expect(saysIn(selecting(["mind", "m"]), "en")).toBe("New Folder with this Mind");
+    expect(saysIn(selecting(["mind", "m"]), "en")).toBe("New Folder with this note");
     expect(saysIn(three, "en")).toBe("New Folder with 3 Documents");
-    expect(saysIn(selecting(["mind", "m"], ["mind", "n"]), "en")).toBe("New Folder with 2 Minds");
+    expect(saysIn(selecting(["mind", "m"], ["mind", "n"]), "en")).toBe("New Folder with 2 notes");
     expect(saysIn(selecting(["mind", "m"], ["document", "a"]), "en")).toBe(
       "New Folder with 2 items",
     );
@@ -144,6 +144,35 @@ describe("New Folder with these", () => {
       expect(offered(command(), { selection: [], focus: null, surface: "sidebar" })).toBe(false);
       expect(offered(command(), row("folder", "f", "sidebar"))).toBe(false);
     });
+  });
+});
+
+describe("Output location", () => {
+  const command = () => {
+    const found = commands.get("settings.outputLocation");
+    if (!found) throw new Error("There is no Output location command.");
+    return found;
+  };
+
+  test("is in ⌘K named for the switches it opens, and says where they are, in both languages", () => {
+    expect(labelOf(command(), NOWHERE, translator("en"))).toBe("New files in Linked folders");
+    expect(command().purpose && translator("en")(command().purpose as MessageKey)).toBe(
+      "Output location",
+    );
+    expect(labelOf(command(), NOWHERE, translator("zh-CN"))).toBe("在关联文件夹中添加文件");
+  });
+
+  test("opens where files are saved, as a Linked folder's not-checked line does", async () => {
+    const { useAppStore } = await import("../../src/renderer/src/store");
+    const openSettings = useAppStore.getState().openSettings;
+    const opened = vi.fn();
+    useAppStore.setState({ openSettings: opened });
+    try {
+      await commands.run("settings.outputLocation", NOWHERE);
+      expect(opened.mock.calls).toEqual([["general", "output-location"]]);
+    } finally {
+      useAppStore.setState({ openSettings });
+    }
   });
 });
 

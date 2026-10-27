@@ -102,16 +102,20 @@ export const isPrintedName = (value: unknown): value is string =>
   value.length <= MAX_PRINTED_PAGE_LENGTH &&
   !/\p{C}/u.test(value);
 
+export type QuarterTurn = 0 | 90 | 180 | 270;
+
 /**
  * How a scanned page's text was read (#397). Its anchors are its lines, in
  * reading order ("line1", "line2", …), each with its box on the page (`Anchor.quad`).
  */
 export interface UnitScan {
   /**
-   * What read it, and which version of how it reads ("PP-OCRv5 mobile/1"):
+   * What read it, and which version of how it reads ("PP-OCRv5 mobile/2"):
    * a page read by an older one is read again, unless a Citation quotes it.
    */
   reader: string;
+  /** The clockwise turn from the displayed page to its reading frame; absent when 0 (#1819). */
+  turn?: QuarterTurn;
   /** The words it was unsure of: [start, end) UTF-16 offsets into the Unit's text. */
   unsure?: [number, number][];
   /**

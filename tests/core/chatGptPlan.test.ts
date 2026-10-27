@@ -22,6 +22,7 @@ import { firstReset, nextPlanModel } from "../../src/shared/planLimits";
 import {
   ACCOUNT_MODELS,
   ANSWER,
+  answerResponses,
   createFakeBrowser,
   EMAIL,
   type FakeBrowser,
@@ -1109,7 +1110,7 @@ describe("A model's usage limit, used up", { timeout: 30_000 }, () => {
     return { event, answer: answer as ConversationAnswer, conversationId: asked.conversation.id };
   }
 
-  const lastModel = (fake: FakeOpenAI) => fake.responses().at(-1)?.body.model;
+  const lastModel = (fake: FakeOpenAI) => answerResponses(fake).at(-1)?.body.model;
 
   /** What the Problem line offers for an Answer `modelId` couldn't write: the next model, or the first reset. */
   async function offered(core: Core, modelId: string) {
@@ -1260,12 +1261,11 @@ describe("A model's usage limit, used up", { timeout: 30_000 }, () => {
     clock.advance(hours(1) - 60_000);
     expect((await ask("Second?")).answer.model?.modelId).toBe(LUNA);
     clock.advance(60_000);
-    const sent = fake.responses().length;
+    const sent = answerResponses(fake).length;
     expect((await ask("Third?")).answer.model?.modelId).toBe(LUNA);
     // One small try of Sol first, refused, then the Question to Luna.
     expect(
-      fake
-        .responses()
+      answerResponses(fake)
         .slice(sent)
         .map((request) => request.body.model),
     ).toEqual([SOL, LUNA]);

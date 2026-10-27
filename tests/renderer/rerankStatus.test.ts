@@ -38,7 +38,7 @@ describe("The reranking model's download in the sidebar's status row", () => {
     ).toEqual({
       testId: "reranking-model-download",
       tone: "progress",
-      short: "Search setup",
+      short: "Getting search ready",
       figure: "45/136 MB",
       full: "Getting search ready: 45 of 136 MB. Until then, search keeps its own order.",
       retry: false,
@@ -47,7 +47,7 @@ describe("The reranking model's download in the sidebar's status row", () => {
       settings({}, { state: "downloading", downloadedBytes: 0 }),
       zh,
     );
-    expect([started?.short, started?.figure]).toEqual(["准备搜索", "0/136 MB"]);
+    expect([started?.short, started?.figure]).toEqual(["正在准备搜索", "0/136 MB"]);
   });
 
   test("says why it failed, with a retry", () => {

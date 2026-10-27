@@ -35,7 +35,7 @@ const text = (value: string): Child => ({ node: "text", text: value });
 const heading = (value: string): Child => ({ node: "heading", children: [text(value)] });
 
 describe("A Mind that holds nothing yet (#1559)", () => {
-  // protects=New Mind under an Answer and the assistant agree on an empty Mind: nothing, empty lines, typed-then-deleted text and a title heading; fails_when=one of them reads as holding something, so a new Mind is made beside it; no_claim=how the editor writes a Mind.
+  // protects=New note under an Answer and the assistant agree on an empty Mind: nothing, empty lines, typed-then-deleted text and a title heading; fails_when=one of them reads as holding something, so a new Mind is made beside it; no_claim=how the editor writes a Mind.
   test.each([
     ["nothing at all", []],
     ["empty lines", [paragraph(), paragraph()]],
@@ -45,7 +45,7 @@ describe("A Mind that holds nothing yet (#1559)", () => {
     expect(holdsNothing(mindOf(blocks))).toBe(true);
   });
 
-  // protects=a Mind holding only an image, a chart, a divider, a table or an inline formula isn't empty, so New Mind makes a new Mind rather than writing into it (#1576's review); fails_when=any reads as empty; no_claim=none beyond protects.
+  // protects=a Mind holding only an image, a chart, a divider, a table or an inline formula isn't empty, so New note makes a new Mind rather than writing into it (#1576's review); fails_when=any reads as empty; no_claim=none beyond protects.
   test.each([
     ["an image", [{ node: "image" }]],
     ["a chart", [{ node: "chart" }]],

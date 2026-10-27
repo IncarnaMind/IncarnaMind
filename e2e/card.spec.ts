@@ -3,6 +3,7 @@ import { join } from "node:path";
 import { expect, type Locator, type Page, test } from "@playwright/test";
 import type { CoreBridge } from "../src/core/api";
 import {
+  addFilesLabel,
   confirmLink,
   createDataFolder,
   dismissChatSetup,
@@ -12,7 +13,6 @@ import {
   launchApp,
   linkedFolderRow,
   placeAssistant,
-  previewLink,
   removeDataFolder,
   setLanguage,
   setWindowSize,
@@ -195,7 +195,7 @@ test("the divider in the gap before the card is grabbed with the mouse and moved
   await app.close();
 });
 
-test("the + menu in the sidebar header offers New Mind, Add Documents…, New Folder and More, with the rest under More, by mouse and by keyboard", async () => {
+test("the + menu in the sidebar header offers New note, Add Documents…, New Folder, Record a meeting and More, with the rest under More, by mouse and by keyboard", async () => {
   const { app, window } = await launchApp(dataDir);
   await dismissChatSetup(window);
   const plus = window.getByTestId("plus-menu");
@@ -210,33 +210,40 @@ test("the + menu in the sidebar header offers New Mind, Add Documents…, New Fo
   await expect(plus).toHaveAccessibleName("New or add");
   await expect(plus).toHaveAttribute("aria-haspopup", "menu");
 
-  // Opened by the mouse, its four rows are menu items, each with its keys, and the first has the focus.
+  // Opened by the mouse, its five rows are menu items, each with its keys, and the first has the focus.
   await window.mouse.move(button.x - 40, button.y + 14);
   await window.mouse.move(button.x + 14, button.y + 14, { steps: 6 });
   await window.mouse.down();
   await window.mouse.up();
   await expect(menu).toBeVisible();
   const items = menu.getByRole("menuitem");
-  await expect(items).toHaveText([/New Mind/, /Add Documents…/, /New Folder/, /More/]);
+  const add = addFilesLabel("en").replace(/…$/, "…");
+  await expect(items).toHaveText([
+    /New note/,
+    new RegExp(add),
+    /New Folder/,
+    /Record a meeting/,
+    /More/,
+  ]);
   const mod = process.platform === "darwin" ? "⌘" : "Ctrl+";
   await expect(items.nth(0)).toContainText(`${mod}T`);
-  await expect(items.nth(1)).toContainText(`${mod}O`);
+  // The one way in has no key of its own: ⌘O still opens the file picker, and ⌘K finds this.
+  await expect(items.nth(1)).not.toContainText(`${mod}O`);
   await expect(items.first()).toBeFocused();
   await expect(plus).toHaveAttribute("aria-expanded", "true");
   if (SCREENSHOTS) await window.screenshot({ path: join(SCREENSHOTS, "shell-menu-en.png") });
 
   // More opens beside it as the pointer comes onto it, with the rest.
-  await items.nth(3).hover();
+  await items.nth(4).hover();
   await expect(more).toBeVisible();
   await expect(more.getByRole("menuitem")).toHaveText([
     /Import a Word file…/,
-    /Record a meeting/,
+    /Voice memo/,
     /Compare Documents…/,
-    /Verify a document…/,
+    /Check someone else’s PDF…/,
     /From starter Folders…/,
     /Add a web page…/,
     /Find sources…/,
-    /Link a folder…/,
   ]);
 
   // The arrow keys, Home and End move between the rows; → opens More, ← closes it; Esc closes the
@@ -245,19 +252,19 @@ test("the + menu in the sidebar header offers New Mind, Add Documents…, New Fo
   await window.keyboard.press("ArrowDown");
   await expect(items.nth(1)).toBeFocused();
   await window.keyboard.press("End");
-  await expect(items.nth(3)).toBeFocused();
+  await expect(items.nth(4)).toBeFocused();
   await window.keyboard.press("ArrowRight");
   await expect(more.getByRole("menuitem").first()).toBeFocused();
   await window.keyboard.press("ArrowLeft");
   await expect(more).toBeHidden();
-  await expect(items.nth(3)).toBeFocused();
+  await expect(items.nth(4)).toBeFocused();
   await window.keyboard.press("ArrowDown");
   await expect(items.first()).toBeFocused();
   await window.keyboard.press("Escape");
   await expect(menu).toBeHidden();
   await expect(plus).toBeFocused();
 
-  // From the keyboard alone: Enter opens it, Enter on New Mind makes a Mind named by typing.
+  // From the keyboard alone: Enter opens it, Enter on New note makes a Mind named by typing.
   await window.keyboard.press("Enter");
   await expect(items.first()).toBeFocused();
   await window.keyboard.press("Enter");
@@ -268,7 +275,7 @@ test("the + menu in the sidebar header offers New Mind, Add Documents…, New Fo
     "From the menu",
   ]);
 
-  // Add Documents… opens the system's picker and adds what is chosen.
+  // Add files or a folder… opens the system's picker and adds the file chosen.
   const notes = join(sources, "Field notes.txt");
   await writeFile(notes, "Tea is picked by hand in spring.\n");
   await interceptOpenDialog(app, notes);
@@ -279,19 +286,18 @@ test("the + menu in the sidebar header offers New Mind, Add Documents…, New Fo
   await window.keyboard.press("Enter");
   await expect(window.getByTestId("document-list-item")).toHaveCount(1);
 
-  // More › Link a folder… asks first, as "Add folder…" does.
+  // A folder picked there instead is offered to be read where it is, then linked.
   const folder = join(sources, "Library");
   await mkdir(folder);
   await writeFile(join(folder, "Brew.txt"), "Water at eighty degrees.\n");
+  await interceptOpenDialog(app, folder);
   await plus.focus();
   await window.keyboard.press("Enter");
   await expect(items.first()).toBeFocused();
-  await window.keyboard.press("End");
+  await window.keyboard.press("ArrowDown");
   await window.keyboard.press("Enter");
-  await expect(more.getByRole("menuitem").first()).toBeFocused();
-  await window.keyboard.press("End");
-  await expect(more.getByRole("menuitem").last()).toBeFocused();
-  const dialog = await previewLink(app, window, folder, more.getByRole("menuitem").last());
+  const dialog = window.getByTestId("link-folder-dialog");
+  await expect(dialog).toBeVisible();
   await confirmLink(dialog);
   await expect(linkedFolderRow(window, "Library")).toHaveCount(1);
   await app.close();
@@ -308,21 +314,21 @@ test("the + menu and the shell speak Chinese too", async () => {
   await expect(plus).toHaveAccessibleName("新建或添加");
   await plus.click();
   await expect(window.getByRole("menuitem")).toHaveText([
-    /新建 Mind/,
-    /添加文档…/,
+    /新建笔记/,
+    new RegExp(addFilesLabel("zh-CN")),
     /新建文件夹/,
+    /录制会议/,
     /更多/,
   ]);
   await window.getByTestId("plus-more").hover();
   await expect(window.getByRole("menu", { name: "更多" }).getByRole("menuitem")).toHaveText([
     /导入 Word 文件…/,
-    /录制会议/,
+    /语音备忘/,
     /对比文档…/,
-    /核对文档…/,
+    /核对别人的 PDF…/,
     /从预设文件夹新建…/,
     /添加网页…/,
     /查找资料…/,
-    /添加同步文件夹…/,
   ]);
   if (SCREENSHOTS) await window.screenshot({ path: join(SCREENSHOTS, "shell-zh-menu.png") });
   await window.keyboard.press("Escape");

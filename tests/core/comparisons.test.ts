@@ -2,9 +2,16 @@ import type { Node as ProseMirrorNode } from "@tiptap/pm/model";
 import type { MockLanguageModelV4 } from "ai/test";
 import { describe, expect, test, vi } from "vitest";
 import * as Y from "yjs";
-import { type CitationAttributes, InvalidInputError, MIND_CONTENT_FIELD } from "../../src/core";
+import {
+  type CitationAttributes,
+  COMPARISON_TABLE_NODE,
+  InvalidInputError,
+  MIND_CONTENT_FIELD,
+} from "../../src/core";
+import { createElement, type NodeJSON } from "../../src/core/answers/blocks";
 import { CLOUD_CELLS_AT_ONCE } from "../../src/core/comparisons";
 import { readBlocks } from "../../src/core/mindText";
+import { comparisonQuestionsOf } from "../../src/shared/comparisons";
 import { answerEnded, setUpWithDocuments } from "../helpers/citations";
 import { cellModel, compare, fillEnded } from "../helpers/comparisons";
 import { createTempDataFolder, queryDatabase, startCore } from "../helpers/core";
@@ -74,6 +81,27 @@ function tableIn(client: MindClient) {
     questions: (found.attrs.questions as { text: string }[]).map((question) => question.text),
     proposal: found.attrs.proposal as { kind: string } | null,
     rows,
+  };
+}
+
+/** A table of `documents` by `questions`, every cell waiting: what an editor leaves before a fill. */
+function waitingTable(
+  documents: readonly { id: string; name: string }[],
+  questions: readonly { id: string; text: string }[],
+): NodeJSON {
+  const cell = (questionId: string): NodeJSON => ({
+    type: "comparisonCell",
+    attrs: { questionId, status: "waiting" },
+    content: [{ type: "paragraph", attrs: { id: crypto.randomUUID() } }],
+  });
+  return {
+    type: "comparisonTable",
+    attrs: { id: "held-table", questions },
+    content: documents.map((document) => ({
+      type: "comparisonRow",
+      attrs: { documentId: document.id, documentName: document.name },
+      content: questions.map((question) => cell(question.id)),
+    })),
   };
 }
 
@@ -620,6 +648,227 @@ describe("Compare Documents", () => {
     expect(problems()[1]).toEqual([null, null]);
     expect(tableIn(client).rows[1]?.cells[1]?.text).toBe("twice the annual fees");
     expect(problems()[2]).toEqual(["source-removed", "source-removed"]);
+  });
+
+  test("a fill of one column writes that column alone, so a reword or an insert never retries its neighbours", async () => {
+    let keyRefused = true;
+    /** Each cell asked, once per try: the Question's text. */
+    const asked: string[] = [];
+    const model = cellModel((call, question) => {
+      if (call.results.length > 0) return null;
+      asked.push(question.question);
+      return keyRefused ? { error: { status: 401, message: "Invalid API key" } } : null;
+    });
+    const { core, client, mind, documents } = await setUpWithDocuments(model, SUPPLIERS);
+    const tableId = await compare(core, client, {
+      mindId: mind.id,
+      documentIds: documents.map((document) => document.id),
+      questions: QUESTIONS,
+    });
+    const problems = () => tableIn(client).rows.map((row) => row.cells.map((cell) => cell.problem));
+    expect(problems()).toEqual([
+      ["auth", "auth"],
+      ["auth", "auth"],
+      ["auth", "auth"],
+    ]);
+    const columns = comparisonQuestionsOf(
+      client.doc
+        .getXmlFragment(MIND_CONTENT_FIELD)
+        .toArray()
+        .find(
+          (element): element is Y.XmlElement =>
+            element instanceof Y.XmlElement && element.nodeName === COMPARISON_TABLE_NODE,
+        )
+        ?.getAttributes() ?? {},
+    );
+    const [notice, liability] = columns;
+    if (!notice || !liability) throw new Error("The table has no columns.");
+    const askedSince = (at: number) => new Set(asked.slice(at));
+
+    // A column reworded fills its column alone: the failed cells beside it keep their problem.
+    keyRefused = false;
+    let calls = asked.length;
+    await core.fillComparisonTable({ mindId: mind.id, tableId, questionIds: [notice.id] });
+    await fillEnded(core, tableId);
+    await client.settled();
+    expect(askedSince(calls)).toEqual(new Set(["Termination notice"]));
+    expect(problems()).toEqual([
+      [null, "auth"],
+      [null, "auth"],
+      [null, "auth"],
+    ]);
+    const written = tableIn(client).rows.map((row) => row.cells[0]?.text);
+
+    // Retrying the failed column alone writes it, and leaves the other column whole.
+    calls = asked.length;
+    await core.fillComparisonTable({ mindId: mind.id, tableId, questionIds: [liability.id] });
+    await fillEnded(core, tableId);
+    await client.settled();
+    expect(askedSince(calls)).toEqual(new Set(["Liability cap"]));
+    expect(problems()).toEqual([
+      [null, null],
+      [null, null],
+      [null, "not-found"],
+    ]);
+    expect(tableIn(client).rows.map((row) => row.cells[0]?.text)).toEqual(written);
+    expect(tableIn(client).rows.map((row) => row.cells[0]?.citations.length)).toEqual([1, 1, 1]);
+  });
+
+  test("a column asked for while one fills is filled after it, when that column's cells are released", async () => {
+    let release = () => {};
+    const held = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    /** Each cell asked, once per try: the Question's text. */
+    const asked: string[] = [];
+    const model = cellModel((call, question) => {
+      if (call.results.length === 0) asked.push(question.question);
+      return null;
+    }, held);
+    const { core, client, mind, documents } = await setUpWithDocuments(model, SUPPLIERS);
+    const questions = [
+      { id: "q-notice", text: "Termination notice" },
+      { id: "q-liability", text: "Liability cap" },
+    ];
+    client.doc.transact(() =>
+      client.doc
+        .getXmlFragment(MIND_CONTENT_FIELD)
+        .push([createElement(waitingTable(documents, questions))]),
+    );
+    await client.settled();
+    const tableId = "held-table";
+    const statuses = () => tableIn(client).rows.map((row) => row.cells.map((cell) => cell.status));
+
+    // The first column's cells are held mid-answer; the second column is asked for meanwhile,
+    // twice: it joins once, and each of its cells is filled once.
+    expect(
+      await core.fillComparisonTable({ mindId: mind.id, tableId, questionIds: ["q-notice"] }),
+    ).toEqual({ started: true, tableId });
+    await vi.waitFor(() => expect(asked.length).toBeGreaterThan(0));
+    expect(new Set(asked)).toEqual(new Set(["Termination notice"]));
+    for (let ask = 0; ask < 2; ask++) {
+      expect(
+        await core.fillComparisonTable({ mindId: mind.id, tableId, questionIds: ["q-liability"] }),
+      ).toEqual({ started: true, tableId });
+    }
+    release();
+    await fillEnded(core, tableId);
+    await client.settled();
+
+    // Lumeric has no Liability cap line: its cell was asked, and says why it has no Answer.
+    expect(statuses()).toEqual([
+      ["done", "done"],
+      ["done", "done"],
+      ["done", "failed"],
+    ]);
+    expect(tableIn(client).rows[2]?.cells[1]?.problem).toBe("not-found");
+    expect(asked.filter((question) => question === "Liability cap")).toHaveLength(3);
+  });
+
+  test("a column queued while another fills is still filled after a quit", async () => {
+    let release = () => {};
+    const held = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const model = cellModel(undefined, held);
+    const { core, client, mind, documents, dataDir } = await setUpWithDocuments(model, SUPPLIERS);
+    const questions = [
+      { id: "q-notice", text: "Termination notice" },
+      { id: "q-liability", text: "Liability cap" },
+    ];
+    client.doc.transact(() =>
+      client.doc
+        .getXmlFragment(MIND_CONTENT_FIELD)
+        .push([createElement(waitingTable(documents, questions))]),
+    );
+    await client.settled();
+    const tableId = "held-table";
+    expect(
+      await core.fillComparisonTable({ mindId: mind.id, tableId, questionIds: ["q-notice"] }),
+    ).toEqual({ started: true, tableId });
+    await vi.waitFor(() => expect(model.doStreamCalls.length).toBeGreaterThan(0));
+    expect(
+      await core.fillComparisonTable({ mindId: mind.id, tableId, questionIds: ["q-liability"] }),
+    ).toEqual({ started: true, tableId });
+    const [task] = await core.listTasks();
+    expect(task).toMatchObject({ kind: "comparison", blockId: tableId });
+    core.close();
+    release();
+
+    // The Task's input kept the queued column: the run it resumes fills both columns.
+    const reopened = startCore(dataDir, {
+      createChatModel: scriptedModels(model).createChatModel,
+    });
+    const again = await connectToMind(reopened, mind.id);
+    await vi.waitFor(
+      async () =>
+        expect((await reopened.listTasks()).find((each) => each.id === task?.id)?.status).toBe(
+          "done",
+        ),
+      { timeout: 15_000 },
+    );
+    await again.settled();
+    expect(tableIn(again).rows.map((row) => row.cells.map((cell) => cell.status))).toEqual([
+      ["done", "done"],
+      ["done", "done"],
+      ["done", "failed"],
+    ]);
+  });
+
+  test("the whole table asked for while a column fills is still filled after a quit", async () => {
+    let release = () => {};
+    const held = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const asked: string[] = [];
+    const model = cellModel((call, question) => {
+      if (call.results.length === 0) asked.push(question.question);
+      return null;
+    }, held);
+    const { core, client, mind, documents, dataDir } = await setUpWithDocuments(model, SUPPLIERS);
+    const questions = [
+      { id: "q-notice", text: "Termination notice" },
+      { id: "q-liability", text: "Liability cap" },
+      { id: "q-law", text: "Governing law" },
+    ];
+    client.doc.transact(() =>
+      client.doc
+        .getXmlFragment(MIND_CONTENT_FIELD)
+        .push([createElement(waitingTable(documents, questions))]),
+    );
+    await client.settled();
+    const tableId = "held-table";
+    expect(
+      await core.fillComparisonTable({ mindId: mind.id, tableId, questionIds: ["q-notice"] }),
+    ).toEqual({ started: true, tableId });
+    await vi.waitFor(() => expect(asked.length).toBeGreaterThan(0));
+    // Fill, with no column named: the Task widens to every cell.
+    expect(await core.fillComparisonTable({ mindId: mind.id, tableId })).toEqual({
+      started: true,
+      tableId,
+    });
+    const [task] = await core.listTasks();
+    const beforeQuit = asked.length;
+    core.close();
+    release();
+
+    const reopened = startCore(dataDir, {
+      createChatModel: scriptedModels(model).createChatModel,
+    });
+    const again = await connectToMind(reopened, mind.id);
+    await vi.waitFor(
+      async () =>
+        expect((await reopened.listTasks()).find((each) => each.id === task?.id)?.status).toBe(
+          "done",
+        ),
+      { timeout: 15_000 },
+    );
+    await again.settled();
+    const cells = tableIn(again).rows.flatMap((row) => row.cells);
+    expect(cells.every((cell) => cell.status === "done" || cell.status === "failed")).toBe(true);
+    expect(new Set(asked.slice(beforeQuit))).toEqual(
+      new Set(["Termination notice", "Liability cap", "Governing law"]),
+    );
   });
 
   test("a plan's limit mid-run stops the fill: the cells left say they weren't checked", async () => {
