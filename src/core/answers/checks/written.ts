@@ -58,10 +58,9 @@ import {
   recordJudged,
   runFailureOf,
 } from "./claimCheck";
+import { claimsAtOnce } from "./runChecks";
 import { checkText, citedQuoteOf, figuresByBlock, markSentence, sentenceOf } from "./sentences";
 import type { CheckScope } from "./verify";
-
-const CLOUD_SENTENCES_AT_ONCE = 3;
 
 const UNCHECKED: ReadonlySet<string> = new Set(["question", "codeBlock", "blockMath", "heading"]);
 
@@ -564,7 +563,7 @@ export function createWrittenCheck(options: WrittenCheckOptions) {
         const nodes = uncovered ? await cutOf(blocks, sentence, uncovered, prepared, signal) : null;
         return { result, uncovered, nodes };
       },
-      { concurrency: prepared.provider.service ? CLOUD_SENTENCES_AT_ONCE : 1, signal },
+      { concurrency: claimsAtOnce(prepared), signal },
     );
     if (signal.aborted) return null;
 

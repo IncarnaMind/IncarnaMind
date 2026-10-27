@@ -680,6 +680,28 @@ test("asked to record a quote its Figures line names, the model's next step must
   expect(result.figures?.[0]?.result.verdict).toBe("supported");
 });
 
+test.each([
+  { named: "5704", verdict: "supported" },
+  { named: "5,704", verdict: "supported" },
+  { named: "57.04", verdict: "not-checked" },
+])(
+  "a source number named by its plain digits ($named) is read as the quote writes it",
+  async ({ named, verdict }) => {
+    // Its other numbers settle that the comma groups thousands, as a results release's do.
+    const body = "Revenue was £4,983.4m. Net debt was £5,704m at 30 September 2026.";
+    const { result } = await checkWith({
+      figures: [target("f1", "£5.7bn", "Net debt")],
+      claim: "Net debt was £5.7bn.",
+      body,
+      text: reply([
+        { ...item(), source: { citation: 1, number: named, reading: null, unitQuote: null } },
+      ]),
+    });
+    expect(result.figures?.[0]?.result.verdict).toBe(verdict);
+    if (verdict === "supported") expect(result.figures?.[0]?.roundedFrom).toBe(5_704_000_000);
+  },
+);
+
 test("narration with a marker beside cite isn't taken for the reply: the model goes on to write it", async () => {
   const { result, calls } = await checkWith({
     figures: [target("f1", "£20", "Revenue in 2024")],

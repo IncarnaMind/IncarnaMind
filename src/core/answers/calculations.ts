@@ -47,6 +47,7 @@ import {
   formulaText,
   type ScaleChange,
   type ShowAs,
+  sameNumber,
   scaleChanges,
   scaleWordOf,
   scaleWords,
@@ -315,6 +316,16 @@ function givenFigure(value: unknown): GivenFigure {
 
 /** Text as numbers are compared: full-width as half-width, no spaces. */
 const squeezed = (value: string) => value.normalize("NFKC").replace(/\s+/g, "");
+
+/**
+ * Whether `named` is a figure's own digits written plainly, without its separators, sign, scale
+ * or currency: "5704" for "£5,704m", as a model names a number it read.
+ */
+function writtenAs(figure: Figure, named: string): boolean {
+  const plain = named.normalize("NFKC").trim();
+  if (!/^\d+(?:\.\d+)?$/.test(plain)) return false;
+  return sameNumber(Math.abs(figure.value) / figure.scale, Number(plain));
+}
 
 /** Whether `named` is in a figure's characters, not as part of a longer number. */
 function namedIn(chars: string, named: string): boolean {
@@ -635,7 +646,9 @@ export function createCalculationSession(options: CalculationSessionOptions) {
     } else if (given.number !== null) {
       const named = given.number;
       const exact = figures.filter((each) => squeezed(each.chars) === squeezed(named));
-      const found = exact.length > 0 ? exact : figures.filter((each) => namedIn(each.chars, named));
+      const inChars =
+        exact.length > 0 ? exact : figures.filter((each) => namedIn(each.chars, named));
+      const found = inChars.length > 0 ? inChars : figures.filter((each) => writtenAs(each, named));
       if (found.length === 0) return `the quote has no number "${named}"; ${has}.`;
       if (found.length > 1)
         return `"${named}" is in the quote ${found.length} times; give its position (${either(found.map((each) => figures.indexOf(each) + 1))}).`;

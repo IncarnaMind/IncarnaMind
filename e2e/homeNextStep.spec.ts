@@ -99,7 +99,7 @@ for (const language of ["en", "zh-CN"] as const)
             ),
           )
           .toBe(true);
-        await core.evaluate((each) => each.askReadyQuestion());
+        await core.evaluate((each) => each.askExampleReadyQuestion());
         await expect(await shown(window, "add")).toHaveText(t("home.next.add"));
         await window.getByTestId("mind-tab").first().click();
         await exportFromMenu(window, "markdown");
