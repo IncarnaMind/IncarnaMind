@@ -455,7 +455,9 @@ describe("The assistant revises its own changes still waiting", { timeout: 30_00
 
     const edits = mindCalls(answer).filter((call) => call.tool === "edit_mind");
     expect(edits).toHaveLength(2);
-    expect(edits[1]).toMatchObject({ status: "failed", mindProblem: { kind: "waiting" } });
+    expect(edits[1]).toMatchObject({ status: "failed", mindProblem: { kind: "content-not-own" } });
+    expect(lastResult(model)).toContain("they are not waiting for review");
+    expect(lastResult(model)).not.toContain("accept or reject");
     await client.settled();
     expect(
       waitsForUser(

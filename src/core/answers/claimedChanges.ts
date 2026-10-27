@@ -71,7 +71,9 @@ function targetOf(call: AnswerToolCall, names: MindNames) {
   const problem: MindProblem | undefined = call.mindProblem;
   const id = call.mindChange?.mindId ?? (problem && "mindId" in problem ? problem.mindId : null);
   if (id) return { id, name: names(id) };
-  const named = [call.input.mind, call.input.title].find(
+  const item = call.command?.items.find((each) => each.kind === "mind");
+  if (item) return { id: item.id, name: item.renamed ?? item.name };
+  const named = [call.input.mind, call.input.title, call.input.name].find(
     (value): value is string => typeof value === "string" && value.trim() !== "",
   );
   return named ? { name: named } : null;
@@ -109,6 +111,11 @@ function recordOf(calls: readonly AnswerToolCall[], names: MindNames, states?: C
       resultCount: call.resultCount,
       target: targetOf(call, names),
       ...(call.mindProblem && { problem: call.mindProblem.kind }),
+      ...(call.tool === "run_command" && {
+        input: call.input,
+        command: call.command ?? null,
+        ...(call.commandProblem && { commandProblem: call.commandProblem.message }),
+      }),
       ...(change && {
         change: {
           created: change.created,
@@ -135,6 +142,8 @@ function verdictOf(value: unknown, reply: string): ClaimedChange[] | null {
   for (const item of value.claims) {
     if (!isRecord(item)) continue;
     const { sentence, kind, backed } = item;
+    const claimed = CLAIMED_CHANGES.find((claim) => claim === kind);
+    if (!claimed) return null;
     if (
       typeof sentence !== "string" ||
       sentence.trim() === "" ||
@@ -143,7 +152,7 @@ function verdictOf(value: unknown, reply: string): ClaimedChange[] | null {
     ) {
       continue;
     }
-    if (!backed) unbacked.add(CLAIMED_CHANGES.find((claim) => claim === kind) ?? "changed");
+    if (!backed) unbacked.add(claimed);
   }
   return [...unbacked];
 }

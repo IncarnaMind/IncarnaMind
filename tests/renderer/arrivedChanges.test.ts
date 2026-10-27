@@ -15,7 +15,7 @@ import { replaceOwn, waitingIn } from "../../src/core/proposals/ownWaiting";
 import { writeAccepted } from "../../src/renderer/src/editor/arrivedChanges";
 import { noteExtensions } from "../../src/renderer/src/editor/noteSchema";
 import { waitsForUser } from "../../src/shared/askedChanges";
-import { pendingProposals } from "../../src/shared/proposals";
+import { pendingProposals, recordProposalRequest } from "../../src/shared/proposals";
 
 const text = (value: string, marks?: JSONContent["marks"]): JSONContent => ({
   type: "text",
@@ -190,6 +190,159 @@ describe("Changes the User asked the assistant for", () => {
     expect(textOf(blocks)).toEqual(["The quarter was good."]);
     undo.undo();
     expect(textOf(blocks)).toEqual(["The quarter was very good."]);
+  });
+
+  // Value: protects=the applies-with-Undo refusal agrees with cumulative destructive holds; fails_when=only the selected stretch is measured; why_new=independent chains elsewhere in the Mind can push the turn over half its original text; seam=waitingIn with three requested revision chains; no_claim=the actual application decision (covered by core application tests)
+  test("the applies flag is cumulative and scoped to the Mind", () => {
+    const paragraph = (id: string, request: string, removed: number) => ({
+      type: "paragraph",
+      attrs: { id },
+      content: [
+        text("x".repeat(removed), [
+          { type: "proposalDelete", attrs: ref(`${id}-delete`, request) },
+        ]),
+        text("x".repeat(100 - removed)),
+      ],
+    });
+    const { doc, blocks } = mindWith([
+      paragraph("a", "a", 80),
+      paragraph("b", "b", 80),
+      paragraph("c", "c", 10),
+      {
+        type: "paragraph",
+        attrs: {
+          id: "added",
+          [PROPOSAL_ATTRIBUTE]: { id: "added-c", request: "c", kind: "insert" },
+        },
+        content: [text("Added", [{ type: GENERATED_MARK }])],
+      },
+    ]);
+    for (const request of ["a", "b", "c"]) {
+      recordProposalRequest(doc, request, {
+        source: "answer-added",
+        requested: "edit",
+        providerId: "local",
+        modelId: "local",
+        createdAt: "2026-01-01T00:00:00.000Z",
+      });
+    }
+
+    const waiting = waitingIn(
+      blocks,
+      { blockId: "c", offset: 0 },
+      { blockId: "added", offset: 1 },
+      new Set(["a", "b", "c"]),
+    );
+
+    expect(waiting.kind).toBe("mixed");
+    if (waiting.kind !== "mixed") throw new Error("The guarded revision wasn't found.");
+    expect(waiting.applies).toBe(false);
+
+    const translated = mindWith([
+      paragraph("a", "a", 80),
+      paragraph("c", "c", 10),
+      {
+        type: "paragraph",
+        attrs: {
+          id: "added",
+          [PROPOSAL_ATTRIBUTE]: { id: "added-c", request: "c", kind: "insert" },
+        },
+        content: [text("Added", [{ type: GENERATED_MARK }])],
+      },
+    ]);
+    for (const request of ["a", "c"]) {
+      recordProposalRequest(translated.doc, request, {
+        source: "answer-added",
+        requested: "edit",
+        action: "translate",
+        providerId: "local",
+        modelId: "local",
+        createdAt: "2026-01-01T00:00:00.000Z",
+      });
+    }
+    recordProposalRequest(translated.doc, "unrequested", {
+      source: "answer-added",
+      instruction: "rewrite",
+      providerId: "local",
+      modelId: "local",
+      createdAt: "2026-01-01T00:00:00.000Z",
+    });
+    const acrossMinds = waitingIn(
+      translated.blocks,
+      { blockId: "c", offset: 0 },
+      { blockId: "added", offset: 1 },
+      new Set(["a", "c", "another-mind", "unrequested"]),
+    );
+    expect(acrossMinds.kind).toBe("mixed");
+    if (acrossMinds.kind !== "mixed") throw new Error("The translation wasn't found.");
+    expect(acrossMinds.applies).toBe(true);
+  });
+
+  // Value: protects=a heading's pending Proposal cannot authorize a different turn; fails_when=headings are removed before ownership checks or a heading-only range vacuously passes; why_new=review reproduced old and mixed heading ownership; seam=waitingIn with real heading attributes; no_claim=an unmarked structural heading or a current heading-only revision (both remain allowed)
+  test("heading Proposals are checked against the current turn", () => {
+    const oldHeading = {
+      type: "heading",
+      attrs: {
+        id: "h",
+        level: 2,
+        [PROPOSAL_ATTRIBUTE]: { id: "old", request: "old", kind: "delete" },
+      },
+      content: [text("Summary")],
+    };
+    const currentBody = {
+      type: "paragraph",
+      attrs: {
+        id: "p",
+        [PROPOSAL_ATTRIBUTE]: { id: "new", request: "first", kind: "delete" },
+      },
+      content: [text("Body")],
+    };
+    const { blocks } = mindWith([oldHeading, currentBody]);
+    const headingOnly = waitingIn(
+      blocks,
+      { blockId: "h", offset: 0 },
+      { blockId: "h", offset: 1 },
+      new Set(["first"]),
+    );
+    const mixed = waitingIn(
+      blocks,
+      { blockId: "h", offset: 0 },
+      { blockId: "p", offset: 1 },
+      new Set(["first"]),
+    );
+    expect(headingOnly.kind).not.toBe("own");
+    expect(mixed.kind).not.toBe("own");
+
+    const structural = mindWith([
+      { type: "heading", attrs: { id: "h", level: 2 }, content: [text("Summary")] },
+      currentBody,
+    ]);
+    expect(
+      waitingIn(
+        structural.blocks,
+        { blockId: "h", offset: 0 },
+        { blockId: "p", offset: 1 },
+        new Set(["first"]),
+      ).kind,
+    ).toBe("own");
+
+    const currentHeading = mindWith([
+      {
+        ...oldHeading,
+        attrs: {
+          ...oldHeading.attrs,
+          [PROPOSAL_ATTRIBUTE]: { id: "new", request: "first", kind: "delete" },
+        },
+      },
+    ]);
+    expect(
+      waitingIn(
+        currentHeading.blocks,
+        { blockId: "h", offset: 0 },
+        { blockId: "h", offset: 1 },
+        new Set(["first"]),
+      ).kind,
+    ).toBe("own");
   });
 
   // Value: protects=inline code counts as original User text during same-turn revision; fails_when=the AI heuristic sends it through insert-only replacement; why_new=inline code cannot carry the generated mark; seam=waitingIn and replaceOwn with real inline-code marks; no_claim=full editor formatting UI

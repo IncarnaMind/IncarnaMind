@@ -103,6 +103,59 @@ describe("The quick model's verdict", () => {
     expect(prompt).toContain('\\"name\\": \\"Q3 review\\"');
   });
 
+  // Value: protects=the judge can distinguish completed and unmade Mind commands; fails_when=run_command loses its input, affected items or renamed target; why_new=review found generic command records; seam=the exact structured judge prompt; no_claim=model wording beyond the supplied record
+  test("run_command records carry the command, input and affected Mind items", async () => {
+    const model = judge({ claims: [] });
+    const calls: AnswerToolCall[] = [
+      {
+        id: "rename",
+        tool: "run_command",
+        source: "commands",
+        input: { command: "mind.rename", ids: ["q3"], name: "Q3 summary" },
+        status: "done",
+        resultCount: null,
+        command: {
+          command: "mind.rename",
+          run: "r1",
+          items: [{ kind: "mind", id: "q3", name: "Q3 review", renamed: "Q3 summary" }],
+        },
+      },
+      {
+        id: "delete",
+        tool: "run_command",
+        source: "commands",
+        input: { command: "mind.delete", ids: ["weekly"] },
+        status: "done",
+        resultCount: null,
+        command: {
+          command: "mind.delete",
+          run: "r2",
+          items: [{ kind: "mind", id: "weekly", name: "周报" }],
+        },
+      },
+    ];
+
+    await check(model, "I renamed and deleted the pages.", calls);
+
+    const prompt = JSON.stringify(model.doGenerateCalls[0]?.prompt);
+    expect(prompt).toContain("mind.rename");
+    expect(prompt).toContain("mind.delete");
+    expect(prompt).toContain("Q3 summary");
+    expect(prompt).toContain("周报");
+    expect(prompt).toContain('\\"ids\\"');
+  });
+
+  test.each(["typo", undefined])(
+    "a verdict with an invalid change kind finds nothing: %s",
+    async (kind) => {
+      const result = await check(
+        judge({ claims: [{ sentence: "An honest Answer.", kind, backed: false }] }),
+        "An honest Answer.",
+      );
+      expect(result.claims).toEqual([]);
+    },
+  );
+
   test("a blank reply costs no judge call", async () => {
     const model = judge({ claims: [] });
     expect((await check(model, "  ")).claims).toEqual([]);

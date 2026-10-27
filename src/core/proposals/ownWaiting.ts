@@ -10,7 +10,7 @@
 import { randomUUID } from "node:crypto";
 import * as Y from "yjs";
 import { INLINE_CODE_MARK } from "../../shared/aiText";
-import { askedFor, ownTextLength } from "../../shared/askedChanges";
+import { askedFor, ownTextLength, waitsForUser } from "../../shared/askedChanges";
 import { originOf } from "../../shared/blockOrigins";
 import { readChart } from "../../shared/charts";
 import {
@@ -49,9 +49,13 @@ export interface OwnWaiting {
  * What waits in a stretch of a Mind: nothing; only the assistant's own
  * waiting Blocks (`OwnWaiting`); some of those beside the User's text
  * ("mixed"); or changes the assistant can't revise ("other"). `count`: the
- * changes waiting in the whole Mind, as the User is told.
+ * changes waiting in the whole Mind, as the User is told. `applies`: the
+ * guarded same-turn requests apply with Undo, not review; false otherwise.
  */
-export type WaitingIn = { kind: "none" } | OwnWaiting | { kind: "mixed" | "other"; count: number };
+export type WaitingIn =
+  | { kind: "none" }
+  | OwnWaiting
+  | { kind: "mixed" | "other"; count: number; applies: boolean };
 
 interface Run {
   insert: unknown;
@@ -264,23 +268,40 @@ export function waitingIn(
   if (!holdsProposal(range)) return { kind: "none" };
   const count = waitingChanges(blocks);
   const requests = requestsIn(range);
+  const doc = blocks.doc;
+  const currentHere = doc
+    ? new Set([...inTurn].filter((request) => askedFor(doc, request)))
+    : new Set<string>();
+  const applies =
+    doc !== null &&
+    requests.length > 0 &&
+    requests.every((request) => inTurn.has(request) && askedFor(doc, request)) &&
+    !waitsForUser(doc, currentHere);
   const own = range.filter(isOwn);
   if (unsafeCurrentRevision(range, inTurn)) {
-    return { kind: own.length > 0 ? "mixed" : "other", count };
+    return { kind: own.length > 0 ? "mixed" : "other", count, applies };
   }
-  const thisTurn = range
-    .filter((element) => element.nodeName !== "heading")
-    .every((element) => {
-      const proposal = readProposalAttribute(element.getAttribute(PROPOSAL_ATTRIBUTE));
-      if (proposal?.kind === "insert" && !allAiText(element)) return false;
-      const requests = requestsIn([element]);
-      return requests.length > 0 && requests.every((request) => inTurn.has(request));
-    });
+  const body = range.filter((element) => element.nodeName !== "heading");
+  const thisTurn = range.every((element) => {
+    const requests = requestsIn([element]);
+    if (element.nodeName === "heading") {
+      return requests.length === 0
+        ? body.length > 0
+        : requests.every((request) => inTurn.has(request));
+    }
+    const proposal = readProposalAttribute(element.getAttribute(PROPOSAL_ATTRIBUTE));
+    if (proposal?.kind === "insert" && !allAiText(element)) return false;
+    return requests.length > 0 && requests.every((request) => inTurn.has(request));
+  });
   if (thisTurn || own.length === range.length) {
     return { kind: "own", blockIds: range.map(idOf), requests, fingerprint: fingerprintOf(range) };
   }
   const others = range.filter((element) => !own.includes(element));
-  return { kind: own.length > 0 && !holdsProposal(others) ? "mixed" : "other", count };
+  return {
+    kind: own.length > 0 && !holdsProposal(others) ? "mixed" : "other",
+    count,
+    applies: false,
+  };
 }
 
 /** The Blocks of `own` in the Mind now, in order; null once they have changed. */

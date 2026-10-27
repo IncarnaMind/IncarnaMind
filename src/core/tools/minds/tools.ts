@@ -727,9 +727,15 @@ const APPLIES =
 const held = (name: string) =>
   `It would take out most of the User's own text in “${name}”, so it waits there for them to apply or discard; nothing of their text has changed yet. Say that it waits for them, not that it changed.`;
 
-function waitingMessage(name: string, count: number, mixed: boolean): string {
+function waitingMessage(name: string, count: number, mixed: boolean, applies: boolean): string {
   const how =
     "Make no other change for this request: don't add the text elsewhere or make a new Mind.";
+  if (applies || count === 0) {
+    const state = applies
+      ? "The earlier requested changes in that text apply in the Mind with Undo; they are not waiting for review."
+      : "No changes are waiting for review.";
+    return `Nothing was changed in “${name}”: the text you named is not solely the assistant's own current revision, so replacing it would risk the other text. ${state} Say that nothing was changed, then name a smaller range containing only the assistant's own text. ${how}`;
+  }
   return mixed
     ? `Nothing was changed in “${name}”: the text you named holds the User's text and your own changes still waiting. To revise only your waiting text, call edit_mind again naming its section's heading in part. To change the User's text, the User needs to accept or reject the ${changes(count)} waiting first: if that is what they asked, say so first, in one sentence. ${how}`
     : `Nothing was changed in “${name}”: ${changes(count)} wait there for the User, and the text you asked to change holds some that you can't revise (the User's own requests, or someone's from a Word file). Say so first, in one sentence: the User needs to accept or reject them first, and Review under your reply shows them. ${how}`;
@@ -1951,10 +1957,15 @@ export function mindTools(options: MindToolsOptions): { tools: Tool[]; settle():
       noTableMessage(mind.name, unmadeSaid(mind.name), null),
     );
 
-  const refuseWaiting = (mind: ChangeableMind, waiting: { count: number; mixed: boolean }) =>
+  const refuseWaiting = (
+    mind: ChangeableMind,
+    waiting: { count: number; mixed: boolean; applies: boolean },
+  ) =>
     new Refusal(
-      { kind: "waiting", mindId: mind.id, ...waiting },
-      waitingMessage(mind.name, waiting.count, waiting.mixed),
+      waiting.applies || waiting.count === 0
+        ? { kind: "content-not-own", mindId: mind.id }
+        : { kind: "waiting", mindId: mind.id, ...waiting },
+      waitingMessage(mind.name, waiting.count, waiting.mixed, waiting.applies),
     );
 
   const edit: Tool = {
@@ -2012,7 +2023,11 @@ export function mindTools(options: MindToolsOptions): { tools: Tool[]; settle():
         waitingIn(blocks, stretch.from, stretch.to, ownRequests),
       );
       if (waiting.kind === "mixed" || waiting.kind === "other") {
-        throw refuseWaiting(mind, { count: waiting.count, mixed: waiting.kind === "mixed" });
+        throw refuseWaiting(mind, {
+          count: waiting.count,
+          mixed: waiting.kind === "mixed",
+          applies: waiting.applies,
+        });
       }
       if (markdown !== null) {
         const over =
@@ -2077,6 +2092,7 @@ export function mindTools(options: MindToolsOptions): { tools: Tool[]; settle():
           throw refuseWaiting(mind, {
             count: now.kind === "none" || now.kind === "own" ? 0 : now.count,
             mixed: now.kind === "mixed",
+            applies: now.kind === "mixed" || now.kind === "other" ? now.applies : false,
           });
         }
         throw why;

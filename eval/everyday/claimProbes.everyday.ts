@@ -49,6 +49,60 @@ const writeCall: AnswerToolCall = {
   mindChange: { mindId: "q3", created: false, request: "r1", proposals: 2 },
 };
 
+const renameCommand: AnswerToolCall = {
+  id: "rename-1",
+  tool: "run_command",
+  source: "commands",
+  input: { command: "mind.rename", ids: ["q3"], name: "Q3 summary" },
+  status: "done",
+  resultCount: null,
+  command: {
+    command: "mind.rename",
+    run: "r2",
+    items: [{ kind: "mind", id: "q3", name: "Q3 review", renamed: "Q3 summary" }],
+  },
+};
+
+const deleteCommand: AnswerToolCall = {
+  id: "delete-1",
+  tool: "run_command",
+  source: "commands",
+  input: { command: "mind.delete", ids: ["weekly"] },
+  status: "done",
+  resultCount: null,
+  command: {
+    command: "mind.delete",
+    run: "r3",
+    items: [{ kind: "mind", id: "weekly", name: "周报" }],
+  },
+};
+
+const commandProbes: {
+  id: string;
+  reply: string;
+  unbacked: boolean;
+  calls: AnswerToolCall[];
+}[] = [
+  {
+    id: "backed-rename-command-en",
+    reply: "I've renamed the page to “Q3 summary”.",
+    unbacked: false,
+    calls: [renameCommand],
+  },
+  {
+    id: "unbacked-delete-command-en",
+    reply: "I deleted “周报”.",
+    unbacked: true,
+    calls: [renameCommand],
+  },
+  {
+    id: "backed-delete-command-en",
+    reply: "I deleted “周报”.",
+    unbacked: false,
+    calls: [deleteCommand],
+  },
+];
+
 test.skipIf(process.env.INCARNAMIND_EVAL_EVERYDAY !== "claim-probes")(
   "change-claim probes",
   async () => {
@@ -74,13 +128,19 @@ test.skipIf(process.env.INCARNAMIND_EVAL_EVERYDAY !== "claim-probes")(
       cacheWriteTokens: 0,
     };
     const runs = Number(process.env.INCARNAMIND_EVAL_CLAIM_PROBES_RUNS ?? "5") || 5;
-    for (const probe of probes) {
+    for (const probe of [...probes, ...commandProbes]) {
       for (let run = 1; run <= runs; run++) {
-        const result = await unbackedClaims(probe.reply, [], MINDS, null, {
-          model,
-          names,
-          signal: new AbortController().signal,
-        });
+        const result = await unbackedClaims(
+          probe.reply,
+          "calls" in probe ? probe.calls : [],
+          MINDS,
+          null,
+          {
+            model,
+            names,
+            signal: new AbortController().signal,
+          },
+        );
         if (result.usage) {
           usage.inputTokens += result.usage.inputTokens ?? 0;
           usage.outputTokens += result.usage.outputTokens ?? 0;
