@@ -375,11 +375,11 @@ export function createClaimCheck(deps: ClaimCheckDependencies) {
     }
     if (signal.aborted) return notChecked("stopped");
     if (failed) return failedCheck(failed);
-    const worked = calculated(request.claim, figures, stated, (citation) =>
+    const figureContext = (citation: Citation) =>
       documentFigureContext(
         scoped.pageTexts(citation.documentId, citation.contentHash, null, null),
-      ),
-    );
+      );
+    const worked = calculated(request.claim, figures, stated, figureContext);
     // A figure that disagrees contradicts the sentence. One that agrees settles only that
     // number: the model's verdict still stands on the rest of the sentence.
     if (worked && !worked.calculation.agrees) {
@@ -482,7 +482,15 @@ export function createClaimCheck(deps: ClaimCheckDependencies) {
     if (byCalculation && verdict.verdict === "unsupported") {
       const onTopic = verdict.topic !== "not found";
       const parts = onTopic && verdict.covered !== null && verdict.uncovered !== null;
-      if (verdict.topic === "found" || parts)
+      const derivedUncovered =
+        worked !== null &&
+        verdict.uncovered !== null &&
+        statedFigure(
+          verdict.uncovered,
+          worked.calculation.stated,
+          figureContext(worked.evidence),
+        ) !== null;
+      if (!derivedUncovered && (verdict.topic === "found" || parts))
         return unsupported(
           {
             reason: verdict.says,

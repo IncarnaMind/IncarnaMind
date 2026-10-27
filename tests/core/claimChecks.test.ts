@@ -1318,6 +1318,35 @@ describe("A limit the figure stays within, and a cost printed in brackets (#1908
     });
   });
 
+  test("an uncovered derived figure is settled by its calculation", async () => {
+    const claim = COVERED("4.55x");
+    const calculation = { ...COVER, stated: "4.55x" };
+    const plans = { [claim]: { verdict: "unsupported" as const, calculation } };
+    const model = scriptedModel(
+      (call) => {
+        if (isCheckRun(call) && call.results.some((each) => each.tool === "calculate")) {
+          return {
+            text: "Verdict: unsupported\nCovered: finance costs of (41.2)\nNot covered: the 4.55x coverage multiple itself",
+          };
+        }
+        return checkReply(call, plans);
+      },
+      { generate: checkGenerate(plans) },
+    );
+    const setup = await setUpWithDocuments(model, [RESULTS]);
+    const saved = await setup.core.saveChatProvider({
+      kind: "anthropic",
+      apiKey: "sk-test",
+      modelId: "claude-haiku-5-5",
+    });
+    if (saved.service) await setup.core.allowDataFlow("checks", saved.service.id);
+
+    expect(await setup.core.checkClaim({ claim })).toMatchObject({
+      verdict: "supported",
+      calculation: { agrees: true },
+    });
+  });
+
   const LEDGER = {
     name: "Ledger.md",
     contents: [
