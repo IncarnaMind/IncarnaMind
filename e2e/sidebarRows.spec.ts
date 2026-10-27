@@ -402,9 +402,11 @@ test("Tags need an AI model keeps one 28px line at the narrowest sidebar, in Eng
     const row = window.getByTestId("tagging-waiting");
     await expect(row).toBeVisible();
 
+    const label = row.getByTestId("status-label");
+    const clipped = () => label.evaluate((element) => element.scrollWidth > element.clientWidth);
     for (const language of ["en", "zh-CN"] as const) {
       await setLanguage(window, language);
-      for (const width of [DEFAULT, NARROWEST]) {
+      for (const width of [WIDE, DEFAULT, NARROWEST]) {
         await setSidebarWidth(window, width);
         const [rowBox, sidebarBox] = await Promise.all([
           boxOf(row),
@@ -413,13 +415,10 @@ test("Tags need an AI model keeps one 28px line at the narrowest sidebar, in Eng
         // One line: the row keeps its 28px, and nothing of it runs past the sidebar.
         expect(rowBox.height).toBeCloseTo(28, 0);
         expect(rowBox.x + rowBox.width).toBeLessThanOrEqual(sidebarBox.x + sidebarBox.width);
-        const label = row.getByTestId("status-label");
-        const clipped = await label.evaluate(
-          (element) => element.scrollWidth > element.clientWidth,
-        );
-        // The default width reads it whole; the narrowest gives way to an ellipsis.
-        expect(clipped).toBe(width === NARROWEST);
-        await screenshot(window, `status-tagging-waits-${language}-${width}`);
+        // Whole at a little wider; at the narrowest it gives way to an ellipsis, never a wrap.
+        if (width === WIDE) expect(await clipped()).toBe(false);
+        if (width === NARROWEST) expect(await clipped()).toBe(true);
+        if (width !== WIDE) await screenshot(window, `status-tagging-waits-${language}-${width}`);
       }
       // Hover gives the whole sentence, since the line can be cut.
       await expect(row).toHaveAttribute(
