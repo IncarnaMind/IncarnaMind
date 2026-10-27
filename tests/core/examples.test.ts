@@ -226,15 +226,12 @@ describe("the example Mind", { timeout: 30_000 }, () => {
     async (language) => {
       const { core } = await startWithExamples(language);
       await core.offerExamples();
-      const documents = await vi.waitFor(
-        async () => {
-          const documents = await core.listDocuments();
-          expect(documents).toHaveLength(2);
-          expect(documents.every((document) => document.status === "ready")).toBe(true);
-          return documents;
-        },
-        { timeout: 20_000, interval: 100 },
-      );
+      const documents = await vi.waitFor(async () => {
+        const documents = await core.listDocuments();
+        expect(documents).toHaveLength(2);
+        expect(documents.every((document) => document.status === "ready")).toBe(true);
+        return documents;
+      });
       const quote = EXAMPLE_SETS.credit[language].ready?.quotes[0];
       const document = documents.find((document) => document.name === quote?.document);
       if (!document || !quote) throw new Error("The ready Answer's Document is missing.");
