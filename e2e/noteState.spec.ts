@@ -1,6 +1,7 @@
 import { writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { expect, type Locator, type Page, test } from "@playwright/test";
+import type { Editor } from "@tiptap/core";
 import type { CoreBridge } from "../src/core/api";
 import { lockedPdf } from "../tests/helpers/lockedPdf";
 import { buildPdf } from "../tests/helpers/pdf";
@@ -87,7 +88,7 @@ const badge = (window: Page) => window.getByTestId("check-badge");
 const stateWords = (window: Page) => badge(window).locator(".check-badge-words");
 
 /**
- * Runs Check this note from its card. It asks before it names the claims; a re-check of one
+ * Runs the one Check from its card. It asks before it names the claims; a re-check of one
  * edited claim may run at once, so wait for the question, the run, or the mark to change.
  */
 async function checkWholeMind(window: Page, from: string | null) {
@@ -303,6 +304,38 @@ for (const language of ["en", "zh-CN"] as const) {
 
 const READABLE = "Spring tides happen at new moon and at full moon.";
 
+/**
+ * Cites the Files Folder's Tides after the typed sentence, as its card's Add as Citation leaves it:
+ * the Citation sits in the sentence, and the check's own mark stays on it.
+ */
+async function citeTides(window: Page, quote: string) {
+  const documents = await window.evaluate(() =>
+    (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind.listDocuments(),
+  );
+  const tides = documents.find((each) => each.name === "Tides");
+  await window.getByTestId("mind-editor").evaluate(
+    (dom, attrs) => {
+      const { editor } = dom as unknown as { editor: Editor };
+      const first = editor.state.doc.firstChild;
+      if (first) {
+        editor.commands.insertContentAt(1 + first.content.size, { type: "citation", attrs });
+      }
+    },
+    {
+      passageId: "passage-1",
+      documentId: tides?.id,
+      documentName: "Tides",
+      contentHash: tides?.contentHash,
+      pageFrom: 1,
+      pageTo: 1,
+      location: null,
+      quote,
+      check: "found",
+      checkReason: null,
+    },
+  );
+}
+
 for (const language of ["en", "zh-CN"] as const) {
   test(`a checked note's green names the files its checks couldn't read (${language})`, async () => {
     test.setTimeout(120_000);
@@ -357,7 +390,123 @@ for (const language of ["en", "zh-CN"] as const) {
       await expect(badge(window)).toContainText(
         language === "en" ? "3 files couldn’t be read" : "3 个文件未能读取",
       );
+      // Its card's summary counts what its rows show (#1941): the claim holds but still has no
+      // Citation, so nothing says everything is checked.
+      const done = await checkCard(window);
+      await expect(done.getByTestId("health-summary")).toHaveText(
+        language === "en"
+          ? "1 claim supported · 1 claim with no Citation"
+          : "1 条说法有依据 · 1 条说法没有引用",
+      );
+      await expect(done.getByTestId("health-all-checked")).toHaveCount(0);
+      await expect(done.getByTestId("checks-unread")).toContainText(
+        language === "en" ? "3 files couldn’t be read" : "3 个文件未能读取",
+      );
+
+      // An all-Documents check that couldn't read files leaves the Note checked (D266): with the
+      // Citation added nothing is left, and the files stay named under the summary.
+      await citeTides(window, READABLE);
+      await expect(window.getByTestId("claim-mark")).toHaveAttribute("data-check", "supported");
+      const allDone = await checkCard(window);
+      await expect(allDone.getByTestId("health-all-checked")).toHaveText(
+        language === "en" ? "Everything checked" : "已全部核对",
+      );
+      await expect(allDone.getByTestId("health-summary")).toHaveCount(0);
+      await expect(allDone.getByTestId("checks-unread")).toContainText(
+        language === "en" ? "3 files couldn’t be read" : "3 个文件未能读取",
+      );
       await screenshot(window, `note-state-${language}-checked-unread`);
+      await app.close();
+    } finally {
+      await removeDataFolder(library);
+    }
+  });
+}
+
+for (const language of ["en", "zh-CN"] as const) {
+  test(`a check in a Folder that couldn't read files keeps the Note amber, and its card never says everything is checked (${language})`, async () => {
+    test.setTimeout(180_000);
+    const library = await createDataFolder();
+    try {
+      await writeFile(join(library, "Tides.txt"), `${READABLE}\n`);
+      await writeFile(join(library, "Contract.doc"), "binary");
+      await writeFile(
+        join(library, "Locked.pdf"),
+        lockedPdf(["Harbour fees rise in May."], "harbour"),
+      );
+      await writeFile(join(library, "Scan.pdf"), buildPdf([{ image: true }]));
+      const { app, window } = await launchApp(dataDir, { fakeChat: true, home: library });
+      await setWindowSize(app, window, 1440, 900);
+      await dismissChatSetup(window);
+      await connectLocalChatModel(window);
+      await setLanguage(window, language);
+      await window.evaluate(async (path) => {
+        await (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind.addLinkedFolder(
+          path,
+        );
+      }, library);
+      await expect
+        .poll(() =>
+          window.evaluate(async () => {
+            const bridge = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
+            const [linked] = await bridge.listLinkedFolders();
+            const documents = await bridge.listDocuments();
+            return (
+              linked?.status === "watching" &&
+              documents.length > 0 &&
+              documents.every((each) => each.status !== "queued" && each.status !== "extracting")
+            );
+          }),
+        )
+        .toBe(true);
+
+      await newMind(window);
+      await window.getByTestId("mind-editor").click();
+      await window.keyboard.type(READABLE);
+      await expect(window.getByTestId("mind-editor")).toContainText(READABLE);
+      // The Mind and the files in one Folder: its check searches the Folder, a scope narrower
+      // than all Documents, so a file it couldn't read could hold the evidence it looked for (D266).
+      await window.evaluate(async () => {
+        const core = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
+        const folder = await core.createLibraryGroup({ name: "Harbours", description: "" });
+        await core.moveToFolder({
+          documentIds: (await core.listDocuments()).map((each) => each.id),
+          mindIds: (await core.listMinds()).map((each) => each.id),
+          folderId: folder.id,
+        });
+      });
+      await checkWholeMind(window, null);
+      await expect(window.getByTestId("claim-mark")).toHaveAttribute("data-check", "supported", {
+        timeout: 60_000,
+      });
+      // Amber, naming the file its check couldn't read (D266).
+      await expect(badge(window)).toHaveAttribute("data-state", "needs-look", {
+        timeout: 60_000,
+      });
+      await expect(stateWords(window)).toHaveText(
+        language === "en" ? "3 files couldn’t be read" : "3 个文件未能读取",
+      );
+      // The card names what is left under its rows: the claim holds but still has no Citation.
+      const narrow = await checkCard(window);
+      await expect(narrow.getByTestId("health-summary")).toHaveText(
+        language === "en"
+          ? "1 claim supported · 1 claim with no Citation"
+          : "1 条说法有依据 · 1 条说法没有引用",
+      );
+      await expect(narrow.getByTestId("health-all-checked")).toHaveCount(0);
+
+      // With the Citation added nothing is left; the narrower check still keeps the Note amber,
+      // so the card says nothing there rather than that everything is checked (#1941).
+      await citeTides(window, READABLE);
+      await expect(window.getByTestId("claim-mark")).toHaveAttribute("data-check", "supported");
+      const still = await checkCard(window);
+      await expect(still.getByTestId("health-summary")).toHaveCount(0);
+      await expect(still.getByTestId("health-all-checked")).toHaveCount(0);
+      await expect(still.getByTestId("checks-unread")).toContainText(
+        language === "en" ? "3 files couldn’t be read" : "3 个文件未能读取",
+      );
+      await expect(badge(window)).toHaveAttribute("data-state", "needs-look");
+      await screenshot(window, `note-state-${language}-narrow-unread`);
       await app.close();
     } finally {
       await removeDataFolder(library);

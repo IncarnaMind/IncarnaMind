@@ -11,7 +11,7 @@ import { exportMind, useExports } from "../../exports";
 import type { HomeNextStep as Step } from "../../homeNextStep";
 import { useLanguage, useT } from "../../i18n";
 import { saidInLine } from "../../lineNames";
-import { showCheckCard, startCheckThisMind } from "../../mindCheck";
+import { showCheckCard, startCheck } from "../../mindCheck";
 import { useAppStore } from "../../store";
 
 /** Opens the Mind where Home is, once its tab is in the layout: its card and result line need it there. */
@@ -88,7 +88,7 @@ export function HomeNextStep({ step }: { step: Step }) {
           break;
         }
         case "check":
-          await startCheckThisMind(step.note.mind.id);
+          await startCheck(step.note.mind.id);
           break;
         case "look":
           await openInPlace(step.note.mind.id);

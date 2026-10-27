@@ -94,7 +94,7 @@ test("first open, a Question, its Citation, and the Mind checked", async () => {
     await window.keyboard.type("check this note");
     await pointAndClick(
       window,
-      window.getByTestId("palette-item").filter({ hasText: "Check this note" }).first(),
+      window.getByTestId("palette-item").filter({ hasText: "Checks this note" }).first(),
     );
     const card = window.getByTestId("check-card");
     const ask = card.getByTestId("mind-check-ask").getByTestId("mind-check-check");
