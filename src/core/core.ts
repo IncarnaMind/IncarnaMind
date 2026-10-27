@@ -1743,7 +1743,7 @@ export function createCore(adapters: CoreAdapters): Core {
     );
   const notifyTask = ({ task, what }: TaskNotice) => {
     const notifications = adapters.notifications;
-    if (!notifications) return;
+    if (!notifications || !settings.get().user.taskNotifications) return;
     const language = settings.get().language;
     const name = taskName(task.kind);
     const title = translate(

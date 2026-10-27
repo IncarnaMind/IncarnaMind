@@ -21,6 +21,7 @@ import {
 } from "../../src/core";
 import { CostCapError } from "../../src/core/providers/providerErrors";
 import { openDatabase } from "../../src/core/storage";
+import { cutTitle } from "../../src/shared/naming";
 import { aiUseOfAccepted, pendingProposals, resolveProposals } from "../../src/shared/proposals";
 import { shownPassages } from "../helpers/citations";
 import {
@@ -197,12 +198,16 @@ async function setUp(
   return { core, dataDir, web, searches, provider, folder, mind, report, keychain, asked };
 }
 
-const startInput = (mindId: string, folderId: string, patch: Partial<StartResearchInput> = {}) => ({
+const startInput = (
+  mindId: string | null,
+  folderId: string,
+  patch: Partial<StartResearchInput> = {},
+) => ({
   mindId,
   topic: "Research how tea reached Europe",
   plan: PLAN,
   sources: { web: true, library: true },
-  writeInto: { mindId },
+  writeInto: mindId === null ? ({ newMind: true } as const) : { mindId },
   scope: { folderIds: [folderId], tagIds: [], documentIds: [] },
   ...patch,
 });
@@ -280,6 +285,42 @@ describe("Research", { timeout: 30_000 }, () => {
         steps: ["Find the first traders", "Check the dates"],
       },
     });
+  });
+
+  test("with no Mind in focus it plans without one, and Start makes the new Mind its Task's own", async () => {
+    const { core, folder } = await setUp(researcher([]));
+    const planned = await core.planResearch({
+      mindId: null,
+      topic: "Research how tea reached Europe",
+      sources: { web: false, library: true },
+    });
+    expect(planned).toMatchObject({ planned: true });
+
+    const result = await core.startResearch(
+      startInput(null, folder.id, {
+        sources: { web: false, library: true },
+        writeInto: { newMind: true },
+      }),
+    );
+    if (!result.started) throw new Error(`Research didn't start: ${result.reason}`);
+    const { task } = result;
+    expect(task.mindId).not.toBeNull();
+    const made = (await core.listMinds()).find((each) => each.id === task.mindId);
+    expect(made?.title).toBe(cutTitle(PLAN.title));
+    // Its plan says where its draft goes: the Mind it made, not "a new Mind".
+    expect(await core.getResearchPlan(task.id)).toMatchObject({ writeInto: task.mindId });
+    await waitForTask(core, task.id, (each) => each.finishedAt !== null);
+
+    // A Mind chosen to write into is the Task's own too, with no Mind in focus.
+    const second = await core.startResearch(
+      startInput(null, folder.id, {
+        sources: { web: false, library: true },
+        writeInto: { mindId: made?.id ?? "" },
+      }),
+    );
+    if (!second.started) throw new Error(`Research didn't start: ${second.reason}`);
+    expect(second.task.mindId).toBe(made?.id);
+    await core.stopTask(second.task.id);
   });
 
   test("the plan asks the model not to think where it can: Kimi K2.6's thinking took its whole reply (#1369)", async () => {

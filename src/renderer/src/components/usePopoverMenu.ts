@@ -320,6 +320,21 @@ export function usePopoverMenu({
     crossing.current = null;
   }, [open]);
 
+  // Esc closes it even with nothing in it to take the focus, as a menu that says it has nothing
+  // to show: the browser's own close request only reaches a popover the focus is in.
+  useEffect(() => {
+    if (!open) return;
+    const onKey = (event: globalThis.KeyboardEvent) => {
+      if (event.key !== "Escape" || event.defaultPrevented) return;
+      if (!menu.current?.matches(":popover-open")) return;
+      event.preventDefault();
+      menu.current.hidePopover();
+      button.current?.focus();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [open]);
+
   // Items that come after it opened, such as models still being listed then: placed again for
   // the menu's new size, and the checked one focused, as it would have been had it been there.
   useEffect(() => {

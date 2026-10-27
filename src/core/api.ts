@@ -2247,6 +2247,12 @@ export interface UserSettings {
    */
   keepWebPageLook: boolean;
   /**
+   * The system's notifications when a Task needs the User or finishes, unless
+   * its Mind is on screen (DESIGN.md, Finding Tasks): on until they turn it
+   * off in Settings.
+   */
+  taskNotifications: boolean;
+  /**
    * The citation styles last chosen for a Mind, newest first, up to five
    * (`RECENT_CITATION_STYLES`): the picker's Recently used.
    */
@@ -4639,8 +4645,8 @@ export interface ResearchSources {
 
 /** What to plan a Research Task for. */
 export interface PlanResearchInput {
-  /** The Mind the assistant reads, where the Task will be. */
-  mindId: string;
+  /** The Mind the assistant reads, where the Task will be; null with no Mind in focus. */
+  mindId: string | null;
   topic: string;
   /** Where it will look, as the plan card's toggles stand. */
   sources: ResearchSources;
@@ -4668,8 +4674,11 @@ export type ResearchTarget = { mindId: string } | { newMind: true };
 
 /** A Research Task to start, from its plan card. */
 export interface StartResearchInput {
-  /** The Mind the assistant reads: the Task shows in its thread. */
-  mindId: string;
+  /**
+   * The Mind the assistant reads: the Task shows in its thread. Null with no
+   * Mind in focus: the Task gets the new Mind its draft goes into.
+   */
+  mindId: string | null;
   topic: string;
   plan: ResearchPlan;
   sources: ResearchSources;

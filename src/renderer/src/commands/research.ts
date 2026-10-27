@@ -1,4 +1,4 @@
-import { useComposer } from "../composer";
+import { NO_MIND, useComposer } from "../composer";
 import { togglePlanView } from "../research";
 import { aimAt, tellableIn } from "../taskTell";
 import { focusComposer } from "./assistant";
@@ -17,13 +17,12 @@ export const researchCommands: readonly Command[] = [
     label: "research.command",
     keywords: ["research.command.keywords"],
     group: "main",
-    // It only marks the composer; the Task starts from the plan card.
+    // It only marks the composer; the Task starts from the plan card, writing into a new Mind
+    // when no Mind is in focus.
     reversible: true,
-    enabled: () => (useComposer.getState().seat ? true : { reason: "research.needsMind" }),
     run: () => {
       const { seat, update } = useComposer.getState();
-      if (!seat) return;
-      update(seat.mindId, { research: true, skill: null, analyse: false });
+      update(seat?.mindId ?? NO_MIND, { research: true, skill: null, analyse: false });
       focusComposer();
     },
   },

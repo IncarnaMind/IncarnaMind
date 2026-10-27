@@ -185,6 +185,23 @@ const blockFirst = (window: Command, block: Command) =>
   block.appliesTo?.every((kind) => kind === "block") === true &&
   block.when !== undefined;
 
+describe("Tasks from the keyboard", () => {
+  test("Show Tasks is offered with no Task at all, so Recent is always in reach", () => {
+    const show = commands.get("tasks.show");
+    expect(show).toBeDefined();
+    expect(show !== undefined && offered(show, NOWHERE)).toBe(true);
+  });
+
+  test("Stop Task is ⌘. on macOS and Ctrl+. elsewhere; Pause and Resume are in ⌘K", () => {
+    const stop = commands.get("task.stop");
+    expect(commands.get("task.pause")).toBeDefined();
+    expect(commands.get("task.resume")).toBeDefined();
+    const shortcut = stop?.shortcut;
+    expect(shortcut !== undefined && keysLabel(keysOn(shortcut.keys, true), true)).toBe("⌘.");
+    expect(shortcut !== undefined && keysLabel(keysOn(shortcut.keys, false), false)).toBe("Ctrl+.");
+  });
+});
+
 describe("shortcuts", () => {
   test.each(SYSTEMS)("no keys are bound twice where both commands can act, on $name", ({ mac }) => {
     const bound = all.filter((command) => command.shortcut);

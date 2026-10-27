@@ -1989,6 +1989,10 @@ export const en = {
   "settings.motion.reduced": "Reduced",
   "settings.motion.off": "Off",
   "settings.motion.system": "Until you choose, this follows your system’s setting.",
+  "settings.notifications": "Notifications",
+  "settings.taskNotifications": "Task notifications",
+  "settings.taskNotifications.tip":
+    "When a Task needs you or finishes, unless its Note is on screen.",
   "settings.close": "Close Settings",
   "settings.about.title": "About",
   "settings.about.body": "IncarnaMind is open source, under the Apache 2.0 license.",
@@ -3037,7 +3041,6 @@ export const en = {
   "research.command.hint.libraryOnly":
     "Searches the Library only, then drafts with Citations. {reason}.",
   "research.command.keywords": "deep research web sources",
-  "research.needsMind": "Open a note to research for",
   "research.chip": "Research",
   "research.chip.remove": "Ask instead",
   "research.placeholder": "What should it research?",
@@ -3129,6 +3132,13 @@ export const en = {
   "command.tellTask.keywords": "tell message steer change research queue",
   "command.researchPlan": "Show the Research Plan",
   "command.researchPlan.keywords": "plan steps research running",
+  "command.pauseTask": "Pause Task",
+  "command.pauseTask.keywords": "pause task wait hold",
+  "command.resumeTask": "Resume Task",
+  "command.resumeTask.keywords": "resume task continue carry on",
+  "command.stopTask": "Stop Task",
+  "command.stopTask.keywords": "stop task end cancel quit",
+  "tasks.popover.empty": "No Tasks right now.",
 
   "cost.and": "{first} and {second}",
   "cost.estimate.price": "About {cost}",

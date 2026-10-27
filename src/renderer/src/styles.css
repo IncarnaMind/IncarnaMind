@@ -8322,10 +8322,48 @@
 
     .model-menu-item {
       align-items: start;
+      background: transparent;
+
+      &:hover,
+      &:focus-visible {
+        background: transparent;
+      }
     }
     .task-dot {
       margin: 7px 0 0 5px;
     }
+  }
+  /* A row with its actions beside it, the row taking the room the actions leave. */
+  .tasks-popover-item {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: start;
+    border-radius: 6px;
+    padding-right: 4px;
+
+    &:hover,
+    &:focus-within {
+      background: var(--color-hover);
+    }
+    & > button[role="menuitem"] + button[role="menuitem"] {
+      margin: 5px 0 0 2px;
+    }
+  }
+  .tasks-popover-empty {
+    padding: 8px;
+    font-size: 13px;
+    line-height: 20px;
+    color: var(--color-ink-meta);
+  }
+  /* Where the chip would sit in the band, for "Show Tasks" with nothing running. */
+  .tasks-anchor {
+    position: fixed;
+    top: 48px;
+    right: 16px;
+    width: 0;
+    height: 0;
+    padding: 0;
+    pointer-events: none;
   }
   .tasks-popover-title,
   .tasks-popover-line {
