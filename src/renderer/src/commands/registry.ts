@@ -67,6 +67,12 @@ export interface CommandContext {
   focus: ObjectRef | null;
   surface: Surface;
   /**
+   * The Task whose block or row held the focus when this context was made;
+   * null when none did. ⌘K's field holds the focus once the palette is open,
+   * so a command chosen there acts on this Task rather than on another.
+   */
+  task?: string | null;
+  /**
    * Where ⌘Z would act when ⌘K opened: the note's own history, a field's, or
    * the app's changes (null). ⌘K holds the focus in its field, so Undo reads
    * where the User was rather than where the palette is.

@@ -106,7 +106,7 @@ test("an English Conversation's Citations open their original pages after the in
 
   const again = await launchApp(dataDir, { examples: true });
   await setWindowSize(again.app, again.window, 1440, 900);
-  const reopened = await openFromPalette(again.window, "facilities agreement");
+  const reopened = await openFromPalette(again.window, "leverage");
   await expect(reopened.getByTestId("citation-chip")).toHaveCount(2);
   await expectCitedPage(
     again.window,

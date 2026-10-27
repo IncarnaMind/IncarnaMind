@@ -91,6 +91,9 @@ export function TabStrip({
         className="tab-strip title-bar"
       >
         {index === 0 && <SidebarToggle place="band" />}
+        <span className="tab-strip-spacer" />
+        {/* Its slot in the band: "Show Tasks" is in ⌘K here too, and it needs somewhere to open from. */}
+        {last && <TasksChip />}
       </header>
     );
   }

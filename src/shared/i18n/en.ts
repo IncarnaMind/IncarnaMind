@@ -2010,6 +2010,10 @@ export const en = {
   "settings.motion.reduced": "Reduced",
   "settings.motion.off": "Off",
   "settings.motion.system": "Until you choose, this follows your system’s setting.",
+  "settings.notifications": "Notifications",
+  "settings.taskNotifications": "Task notifications",
+  "settings.taskNotifications.tip":
+    "When a Task needs you or finishes, unless its note is on screen.",
   "settings.close": "Close Settings",
   "settings.about.title": "About",
   "settings.about.body": "IncarnaMind is open source, under the Apache 2.0 license.",
@@ -2631,7 +2635,7 @@ export const en = {
     "Before a built-in model downloads, IncarnaMind asks ModelScope and Hugging Face which answers first, to choose where to download from. Nothing of yours is sent.",
   "privacy.traffic.model-source-hf-mirror": "Built-in models from hf-mirror.com",
   "privacy.traffic.model-source-hf-mirror.tip":
-    "If Hugging Face can’t be reached, a built-in model’s files may come from this mirror of it. Nothing of yours is sent.",
+    "Before a built-in model downloads, IncarnaMind may ask Hugging Face and this mirror which answers first, and the mirror leads when it answers first, even when Hugging Face is reachable. If Hugging Face can’t be reached, the model’s files may come from this mirror. Nothing of yours is sent.",
   "privacy.traffic.model-source-copy": "Built-in models from IncarnaMind’s copy",
   "privacy.traffic.model-source-copy.tip":
     "The last source for a built-in model’s files. Nothing of yours is sent.",
@@ -2917,6 +2921,9 @@ export const en = {
   "answer.wait.usually.minutes": "Usually about {count} minutes with {model}",
   "answer.regenerate": "Regenerate",
   "answer.more": "More for this Answer",
+  "answer.refused.noSuchMind": "There is no note called “{name}”, so the change wasn’t made.",
+  "answer.refused.noSuchMind.many":
+    "There are no notes called {names}, so those changes weren’t made.",
   "answer.error.thisModel": "this model",
   "answer.error.auth": "The key for {model} was refused",
   "answer.error.thisService": "This service",
@@ -3062,7 +3069,7 @@ export const en = {
   "research.ask.folderNew": "{name} (new)",
   "research.ask.pages": "Pages",
   "research.step.notFiled": "The web pages stay where they were saved",
-  "research.plan.view": "Research plan, as it runs",
+  "research.plan.view": "Research plan",
   "research.plan.close": "Close",
   "task.tell.chip": "→ {task}",
   "task.tell.hint": "Enter sends this to {task} for its next step",
@@ -3091,7 +3098,6 @@ export const en = {
   "research.command.hint.libraryOnly":
     "Searches the Library only, then drafts with Citations. {reason}.",
   "research.command.keywords": "deep research web sources",
-  "research.needsMind": "Open a note to research for",
   "research.chip": "Research",
   "research.chip.remove": "Ask instead",
   "research.placeholder": "What should it research?",
@@ -3182,7 +3188,15 @@ export const en = {
   "command.tellTask": "Tell the Running Task…",
   "command.tellTask.keywords": "tell message steer change research queue",
   "command.researchPlan": "Show the Research Plan",
-  "command.researchPlan.keywords": "plan steps research running",
+  "command.researchPlan.keywords": "plan steps research",
+  "command.pauseTask": "Pause Task",
+  "command.pauseTask.keywords": "pause task wait hold",
+  "command.resumeTask": "Resume Task",
+  "command.resumeTask.keywords": "resume task continue carry on",
+  "command.stopTask": "Stop Task",
+  "command.stopTask.keywords": "stop task end cancel quit",
+  "task.stopConfirm": "Stop the Task? You can’t carry on with it; the steps it finished are kept.",
+  "tasks.popover.empty": "No Tasks yet. Start Research or a comparison and it shows here.",
 
   "cost.and": "{first} and {second}",
   "cost.estimate.price": "About {cost}",
@@ -4702,6 +4716,8 @@ export const en = {
   "firstOpen.step.question.ready": "Ask: “{question}”",
   "firstOpen.step.question.own": "or press {shortcut} to type your own",
   "firstOpen.step.question.ownOnly": "Press {shortcut} to ask your own Question.",
+  "firstOpen.step.question.reading": "Reading “{document}”…",
+  "readyQuestion.document": "What does ‘{document}’ say?",
   "firstOpen.step.files.title": "Add your files",
   "firstOpen.step.files.done": "Added your files",
   "firstOpen.step.files.body":
@@ -5596,6 +5612,10 @@ export const en = {
   "answer.notWritten.noCall": "the assistant didn’t run the write",
   "answer.notWritten.retry": "Try again",
   "answer.notAllDone": "The assistant didn’t make every change this reply describes",
+  "answer.uncitedReply":
+    "This reply has no Citations, so none of it was checked against your Documents",
+  "answer.uncitedWrite":
+    "What was written in “{mind}” has no Citations, so none of it was checked against your Documents",
   "answer.added": "Added to “{mind}”",
   "answer.undoKept.one": "Kept the Block you edited",
   "answer.undoKept": "Kept {count} Blocks you edited",

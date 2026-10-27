@@ -39,13 +39,15 @@ for (const language of ["en", "zh-CN"] as const)
       try {
         await setWindowSize(app, window, width, 900);
         await dismissChatSetup(window);
-        await window.keyboard.press("ControlOrMeta+k");
-        await window.getByTestId("palette-search").fill("Connectors");
-        const command = window.locator('[data-key="command:settings.connectors"]');
-        await expect(command).toBeVisible();
-        await window.keyboard.press("Enter");
-        await expect(window.getByTestId("palette")).toBeHidden();
-        await expect(window.getByTestId("settings")).toHaveAttribute("data-page", "connectors");
+        await run.feel.step("open ⌘K", async () => {
+          await window.keyboard.press("ControlOrMeta+k");
+          await window.getByTestId("palette-search").fill("Connectors");
+          const command = window.locator('[data-key="command:settings.connectors"]');
+          await expect(command).toBeVisible();
+          await window.keyboard.press("Enter");
+          await expect(window.getByTestId("palette")).toBeHidden();
+          await expect(window.getByTestId("settings")).toHaveAttribute("data-page", "connectors");
+        });
         await setLanguage(window, language);
         const page = window.getByTestId("settings-page-connectors");
         await page.getByTestId("connector-add-custom").focus();

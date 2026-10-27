@@ -314,6 +314,7 @@ function changesOf(state: EditorState, request: string): ChangePlace[] {
       removed: Fragment.from(removed),
       block: null,
       ...(paragraph && { paragraph }),
+      writtenSize: words.to - words.from,
     };
   });
 }
