@@ -11,7 +11,7 @@ import type { Expected } from "./checks";
  * contracts and minutes whose files' dates are none of their text's (./dated), or the table of
  * China's official reserve assets, whose cells give a difference (#1444).
  */
-export type LibraryName = "papers" | "reports" | "dated" | "reserves";
+export type LibraryName = "papers" | "reports" | "dated" | "reserves" | "filings";
 
 export interface EverydayCase {
   id: string;
@@ -1629,6 +1629,57 @@ export const CASES: readonly EverydayCase[] = [
     mind: null,
     request: "董事会是哪天开的会？做了什么决定？",
     expected: TEXT_DATES_ZH,
+  },
+  {
+    id: "filing-comparable-en",
+    language: "en",
+    library: "filings",
+    mind: null,
+    request:
+      "In Northmart's Q2 2026 10-Q, what was the consolidated comparable-sales change? Answer with the figure and cite it.",
+    expected: { ...ANSWER, answerWith: /6\.2%/, noDocumentAbsence: /comparable|同店/ },
+  },
+  {
+    id: "filing-comparable-zh",
+    language: "zh-CN",
+    library: "filings",
+    mind: null,
+    request: "北域零售2026年第二季度季报中，集团同店销售额变化了多少？请给出数字并注明出处。",
+    expected: { ...ANSWER, answerWith: /6\.2%/, noDocumentAbsence: /comparable|同店/ },
+  },
+  {
+    id: "filing-margin-en",
+    language: "en",
+    library: "filings",
+    mind: null,
+    request:
+      "What operating margin did Harbour Hotels report for 2026? Give the percentage and cite the release.",
+    expected: { ...ANSWER, answerWith: /38\.2%/, noDocumentAbsence: /margin|利润率/ },
+  },
+  {
+    id: "filing-margin-zh",
+    language: "zh-CN",
+    library: "filings",
+    mind: null,
+    request: "港湾酒店2026年度业绩公告中的经营利润率是多少？请给出百分比并注明出处。",
+    expected: { ...ANSWER, answerWith: /38\.2%/, noDocumentAbsence: /margin|利润率/ },
+  },
+  {
+    id: "filing-recast-en",
+    language: "en",
+    library: "filings",
+    mind: null,
+    request:
+      "In Delta Manufacturing's 2026 8-K, what was the recast second-quarter revenue? Answer with the amount and cite it.",
+    expected: { ...ANSWER, answerWith: /\$423 million/, noDocumentAbsence: /recast|重述|revenue|销售额/ },
+  },
+  {
+    id: "filing-recast-zh",
+    language: "zh-CN",
+    library: "filings",
+    mind: null,
+    request: "三角洲制造2026年8-K中重述的第二季度收入是多少？请给出金额并注明出处。",
+    expected: { ...ANSWER, answerWith: /4\.23 亿元/, noDocumentAbsence: /recast|重述|revenue|销售额/ },
   },
   {
     id: "reserves-change-zh",

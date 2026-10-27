@@ -2,7 +2,7 @@ import { APICallError } from "ai";
 import type { MockLanguageModelV4 } from "ai/test";
 import { describe, expect, test } from "vitest";
 import type { ConversationAnswer, Core, CoreEvents } from "../../src/core";
-import { citingModel } from "../helpers/citations";
+import { citingModel, shownPassages } from "../helpers/citations";
 import { createTempDataFolder, queryDatabase, startCore } from "../helpers/core";
 import { addAndProcess, createSourceFolder, writeSourceFile } from "../helpers/documents";
 import { scriptedModel, scriptedModels } from "../helpers/models";
@@ -193,6 +193,61 @@ describe("A search's steps", { timeout: 60_000 }, () => {
       status: "failed",
       error: { kind: "auth", message: expect.stringContaining("Invalid API key") },
     });
+    core.close();
+  });
+});
+
+describe("A Document read", { timeout: 60_000 }, () => {
+  test("after a search miss ends with the figure on the read page cited", async () => {
+    const model = scriptedModel((call) => {
+      if (!call.tools.includes("read_document")) return { text: "read_document was not offered." };
+      const reads = call.results.filter((result) => result.tool === "read_document");
+      if (call.results.length === 0) {
+        return { calls: [{ tool: "search_documents", input: { query: "no matching words" } }] };
+      }
+      if (reads.length === 0) {
+        return {
+          calls: [{ tool: "read_document", input: { document: "Filing", pages: "2" } }],
+        };
+      }
+      if (!call.results.some((result) => result.tool === "cite")) {
+        const passages = shownPassages(reads.at(-1)?.text ?? "");
+        return {
+          calls: [
+            {
+              tool: "cite",
+              input: {
+                citations: [
+                  {
+                    marker: 1,
+                    passage: passages[0]?.id,
+                    pageFrom: 2,
+                    pageTo: 2,
+                    quote: "Comparable sales declined 6.2%.",
+                  },
+                ],
+              },
+            },
+          ],
+        };
+      }
+      return { text: "Comparable sales declined 6.2% [^1]." };
+    });
+    const { core } = await setUp(model, "ollama");
+    const sources = await createSourceFolder();
+    const filing = buildPdf([
+      { lines: ["Segment results", "Domestic comparable sales declined 5.1%."] },
+      { lines: ["Consolidated results", "Comparable sales declined 6.2%."] },
+    ]);
+    await addAndProcess(core, [await writeSourceFile(sources, "Filing.pdf", filing)]);
+
+    const { answer } = await ask(core, "What was the consolidated comparable-sales change?");
+
+    expect(answer.text).toBe("Comparable sales declined 6.2% [^1].");
+    expect(answer.citations[0]).toMatchObject({ pageFrom: 2, pageTo: 2, check: "found" });
+    const read = answer.toolCalls.find((call) => call.tool === "read_document");
+    expect(read).toMatchObject({ status: "done", input: { document: "Filing", pages: "2" } });
+    expect(read?.passages).toContain(answer.citations[0]?.passageId);
     core.close();
   });
 });

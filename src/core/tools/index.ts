@@ -113,6 +113,7 @@ export interface ToolProvider {
 /** The names of the Documents' Tools. */
 export const DOCUMENT_TOOLS = {
   search: "search_documents",
+  read: "read_document",
   cite: "cite",
   calculate: "calculate",
 } as const;

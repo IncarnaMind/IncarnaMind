@@ -820,3 +820,55 @@ describe("The judge of claims", () => {
     ).toEqual({ unbacked: [] });
   });
 });
+
+describe("The filing guards", () => {
+  const filingOutcome = (text: string) =>
+    requestFailures(
+      outcome({
+        expected: {
+          write: false,
+          cite: true,
+          coverAll: false,
+          answerWith: /38\.2%/,
+          noDocumentAbsence: /margin|利润率/,
+        },
+        answer: {
+          text,
+          citations: [citation("tutorial", 1)],
+          toolCalls: [],
+          steps: null,
+        },
+        citedInMinds: [],
+      }),
+    );
+
+  test("requires the expected figure and rejects a whole-Document absence claim in English and Chinese", () => {
+    expect(filingOutcome("Operating margin was 38.2% [^1].").map((failure) => failure.kind)).toEqual(
+      [],
+    );
+    expect(
+      filingOutcome("The release doesn't state the operating margin.").map(
+        (failure) => failure.kind,
+      ),
+    ).toEqual(["missing-answer-text", "document-absence"]);
+    expect(
+      filingOutcome("报告未披露 38.2% 的营业利润率。").map((failure) => failure.kind),
+    ).toEqual(["document-absence"]);
+  });
+
+  test("allows a search-miss statement without treating it as a whole-Document absence", () => {
+    expect(
+      filingOutcome("I didn't find the operating margin in the release.").map(
+        (failure) => failure.kind,
+      ),
+    ).toEqual(["missing-answer-text"]);
+  });
+
+  test("allows an unrelated caveat beside the cited answer", () => {
+    expect(
+      filingOutcome("Operating margin was 38.2% [^1]. 文档本身没有说明换算关系。").map(
+        (failure) => failure.kind,
+      ),
+    ).toEqual([]);
+  });
+});

@@ -93,6 +93,10 @@ export interface Expected {
   language?: "en" | "zh-CN";
   /** It asks for a figure the Documents' numbers give: a Calculated figure shows a result matching this, and the reply never says it couldn't calculate (#1444). */
   figure?: RegExp;
+  /** The reply states this figure or fact; used with a Citation requirement when the Documents state it directly. */
+  answerWith?: RegExp;
+  /** It may report a search miss, never that the Document lacks the fact this expression names. */
+  noDocumentAbsence?: RegExp;
   /**
    * The words what it writes into a Mind must use for a thing, and must not: a translation's own
    * term ("spring tides" is 大潮, never 春潮), which Kimi K2.6 lost with thinking off (#1635).
@@ -169,6 +173,8 @@ export type RequestFailure =
   | { kind: "date-not-in-text"; dates: string[] }
   | { kind: "wrong-language"; wanted: "en" | "zh-CN"; share: number }
   | { kind: "no-figure"; wanted: string; shown: string[] }
+  | { kind: "missing-answer-text"; wanted: string }
+  | { kind: "document-absence" }
   | { kind: "gave-up"; said: string }
   | { kind: "term"; want: string; found: string[] }
   | { kind: "other-documents"; documents: string[] }
@@ -456,6 +462,17 @@ export function rewrittenLater(outcome: RequestOutcome): { given: string; now: s
   });
 }
 
+const DOCUMENT_ABSENCE = [
+  /\b(?:documents?|reports?|releases?|filings?|papers?|10-q|8-k)\b[^.!?\n]{0,50}\b(?:do(?:es)?n't|do(?:es)? not|never)\s+(?:\w+\s+){0,3}(?:state|mention|report|give|disclose|contain|include|record)\b/i,
+  /(?:文档|报告|公告|文件)[^。！？!?\n]{0,12}(?:未|没有|并未|不曾)(?:披露|提及|说明|记载|给出|包含|列出)/,
+];
+
+function statesDocumentAbsence(text: string, about: RegExp): boolean {
+  return text
+    .split(/[\n。！？!?]+|\.(?!\d)/)
+    .some((sentence) => about.test(sentence) && DOCUMENT_ABSENCE.some((phrase) => phrase.test(sentence)));
+}
+
 /** The ways one request failed its guards; none when it passed. */
 export function requestFailures(outcome: RequestOutcome): RequestFailure[] {
   const { expected, answer } = outcome;
@@ -546,6 +563,12 @@ export function requestFailures(outcome: RequestOutcome): RequestFailure[] {
       wanted: expected.language,
       share: chineseShare(answer.text),
     });
+  }
+  if (expected.answerWith && !expected.answerWith.test(answer.text)) {
+    failures.push({ kind: "missing-answer-text", wanted: expected.answerWith.source });
+  }
+  if (expected.noDocumentAbsence && statesDocumentAbsence(answer.text, expected.noDocumentAbsence)) {
+    failures.push({ kind: "document-absence" });
   }
   if (expected.figure) {
     const shown = (answer.figures ?? []).map((figure) => figure.shown);
@@ -673,6 +696,10 @@ export function failureLine(failure: RequestFailure): string {
       return `gives a date the Documents' text doesn't: ${failure.dates.join(", ")}`;
     case "no-figure":
       return `has no Calculated figure matching /${failure.wanted}/ (figures: ${failure.shown.length > 0 ? failure.shown.join(", ") : "none"})`;
+    case "missing-answer-text":
+      return `doesn't state the expected figure or fact /${failure.wanted}/`;
+    case "document-absence":
+      return "states that the Document itself lacks the answer, rather than reporting only the search miss";
     case "gave-up":
       return `says it couldn't calculate what its Citations give: “${failure.said}”`;
     case "term":

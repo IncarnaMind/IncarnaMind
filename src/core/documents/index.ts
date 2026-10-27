@@ -112,6 +112,7 @@ import {
   livePassage,
   passagesBetween,
   passagesBySeq,
+  passagesCovering,
   passagesInWindow,
   textSearch,
   type WindowedPassage,
@@ -2166,16 +2167,8 @@ export function createDocuments(options: DocumentsOptions) {
       documentId: string,
       from: number | null,
       to: number | null,
-    ): { id: string; text: string }[] {
-      const range = from === null || to === null ? "" : "AND p.page_from <= ? AND p.page_to >= ?";
-      const params = from === null || to === null ? [] : [BigInt(from), BigInt(to)];
-      return db.all<{ id: string; text: string }>(
-        `SELECT p.id, p.text FROM passages p JOIN documents d ON d.id = p.document_id
-         WHERE p.document_id = ? AND p.deleted_at IS NULL AND d.deleted_at IS NULL
-           AND p.content_hash = d.content_hash ${range}
-         ORDER BY p.position`,
-        [documentId, ...params],
-      );
+    ): (WindowedPassage & { id: string })[] {
+      return passagesCovering(db, documentId, from, to);
     },
 
     /**

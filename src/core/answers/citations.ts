@@ -86,6 +86,7 @@ import type {
   AnswerTools,
   CitationRecordInput,
   CiteOptions,
+  ReadDocumentRequest,
   SearchResultForModel,
   UnfoundQuote,
 } from "./engine";
@@ -100,6 +101,15 @@ const sameSearch = (query: string) =>
     .toLowerCase()
     .replace(/[^\p{L}\p{N}]+/gu, " ")
     .trim();
+
+function readPages(pages: string): { from: number; to: number } | null {
+  const match = /^(\d+)(?:\s*[-–]\s*(\d+))?$/.exec(pages.trim());
+  if (!match) return null;
+  const from = Number(match[1]);
+  const to = Number(match[2] ?? match[1]);
+  if (from < 1 || to < from) return null;
+  return { from, to };
+}
 
 const FIX_THESE = "Fix these with another cite call:";
 
@@ -359,6 +369,10 @@ export interface AnswerDocuments {
   documentDate(documentId: string): DocumentDate | null;
   /** The id of the Document to search named `name`, as the instructions list it; null for none. */
   documentNamed?(name: string): string | null;
+  /** Live Passages at positions `from` to `to`, when Document reads are offered. */
+  passagesBetween?(documentId: string, from: number, to: number): WindowedPassage[];
+  /** Live Passages covering pages `from` to `to`, when Document reads are offered. */
+  passagesCovering?(documentId: string, from: number | null, to: number | null): WindowedPassage[];
 }
 
 /** What re-checking a Citation against the current version needs from Documents. */
@@ -1131,6 +1145,7 @@ export function createCitationSession(
   /** Records naming no Passage the model was given, or no marker: as given, and why. */
   const rejected: RejectedRecord[] = [];
   const searched = new Set<string>();
+  let reads = 0;
   let openingGiven = false;
   /** Markers in the final text, in order of first appearance, and those that had no record. */
   const finalMarkers: number[] = [];
@@ -1591,6 +1606,52 @@ export function createCitationSession(
         }),
       };
     },
+
+    ...(documents.documentNamed && documents.passagesCovering
+      ? {
+          async readDocument(request: ReadDocumentRequest): Promise<SearchResultForModel> {
+            if (reads >= 3) {
+              return {
+                text: "This Answer has reached its 3-read limit. Answer from the Passages already read.",
+                passageCount: 0,
+              };
+            }
+            const documentId = documents.documentNamed?.(request.document);
+            if (!documentId) {
+              return {
+                text: `No Document to read is called “${request.document}”: name one in the Question's Search scope, as the instructions list it.`,
+                passageCount: 0,
+              };
+            }
+            const pages = readPages(request.pages);
+            if (!pages) {
+              return {
+                text: `Pages must be one page or a range, such as "16" or "15-17".`,
+                passageCount: 0,
+              };
+            }
+            const to = Math.min(pages.to, pages.from + 2);
+            const found = documents.passagesCovering?.(documentId, pages.from, to) ?? [];
+            reads++;
+            if (found.length === 0) {
+              return {
+                text: `No Passages were found at pages ${pages.from}–${to} of “${request.document}”.`,
+                passageCount: 0,
+              };
+            }
+            const limited = to < pages.to ? "Only the first 3 requested pages are shown.\n" : "";
+            return {
+              text: `${limited}${show(found)}`,
+              passageCount: found.length,
+              passageIds: found.map((passage) => passage.passageId),
+              ranks: found.map((_, index) => index),
+              ...(found.some((passage) => passage.documentKind === "web") && {
+                thirdParty: ["web-page"] as const,
+              }),
+            };
+          },
+        }
+      : {}),
 
     cite,
 

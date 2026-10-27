@@ -376,6 +376,30 @@ export function passagesBetween(
  * those whose own window range takes in `window`. With windows of 3 and step 1,
  * window w holds the Passages at positions w, w + 1 and w + 2.
  */
+/** The live Passages of a Document's current version covering pages `from` to `to`, in reading order. */
+export function passagesCovering(
+  db: Database,
+  documentId: string,
+  from: number | null,
+  to: number | null,
+): (WindowedPassage & { id: string })[] {
+  const range = from === null || to === null ? "" : "AND p.page_from <= ? AND p.page_to >= ?";
+  const params = from === null || to === null ? [] : [BigInt(from), BigInt(to)];
+  return db
+    .all<WindowedRow>(
+      `SELECT ${WINDOWED_COLUMNS}
+       FROM passages p JOIN documents d ON d.id = p.document_id
+       WHERE p.document_id = ? AND p.deleted_at IS NULL AND d.deleted_at IS NULL
+         AND p.content_hash = d.content_hash ${range}
+       ORDER BY p.position`,
+      [documentId, ...params],
+    )
+    .map((row) => {
+      const passage = toWindowed(row);
+      return { ...passage, id: passage.passageId };
+    });
+}
+
 export function passagesInWindow(
   db: Database,
   documentId: string,

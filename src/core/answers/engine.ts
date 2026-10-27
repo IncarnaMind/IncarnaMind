@@ -180,6 +180,12 @@ export interface AnswerSearchOptions {
   document?: string;
 }
 
+/** A page range to read from a Document in the Question's Search scope. */
+export interface ReadDocumentRequest {
+  document: string;
+  pages: string;
+}
+
 /** What a search gives the model. */
 export interface SearchResultForModel {
   /** The Passages, formatted for the model, or a sentence saying there are none. */
@@ -230,6 +236,8 @@ export interface AnswerTools {
     signal?: AbortSignal,
     options?: AnswerSearchOptions,
   ): Promise<SearchResultForModel>;
+  /** Reads pages of a Document in the Search scope, when the Answer offers `read_document`. */
+  readDocument?(request: ReadDocumentRequest): Promise<SearchResultForModel>;
   /** Takes Citation records; returns what to tell the model about them. */
   cite(records: readonly CitationRecordInput[], options?: CiteOptions): string;
   /** Whether a valid record was taken for this marker: the engine places its marker if the model left it out. */
@@ -1467,7 +1475,7 @@ export function documentTools(
   documents: AnswerTools,
   hooks: DocumentToolsHooks,
   toolSet: ToolSet = "answer",
-): { search: Tool; cite: Tool; calculate: Tool | null } {
+): { search: Tool; read: Tool | null; cite: Tool; calculate: Tool | null } {
   const own = (name: string) => ({ name, provider: DOCUMENTS_PROVIDER, providerTool: name });
   const checking = toolSet === "check";
   return {
@@ -1518,6 +1526,45 @@ export function documentTools(
         return searchResultText(result.text, documents, hooks.languageNote);
       },
     },
+    read:
+      !checking && documents.readDocument
+        ? {
+            ...own(DOCUMENT_TOOLS.read),
+            description:
+              'Read pages of a Document in the Question\'s Search scope when search did not show them. Give the Document name exactly as the instructions list it and pages as "16" or "15-17". Read the pages where the answer would be before saying the Document does not state it.',
+            inputSchema: {
+              type: "object",
+              properties: {
+                document: {
+                  type: "string",
+                  description: "The Document to read, named as the instructions list it.",
+                },
+                pages: {
+                  type: "string",
+                  description: 'One page or a page range, such as "16" or "15-17".',
+                },
+              },
+              required: ["document", "pages"],
+            },
+            shownInput: ({ document, pages }) => ({
+              document: String(document ?? ""),
+              pages: String(pages ?? ""),
+            }),
+            effects: () => [{ action: "read", scope: { kind: "documents" } }],
+            untrustedResult: true,
+            async call({ document, pages }, { toolCallId, readThirdParty }) {
+              const found = await documents.readDocument?.({
+                document: String(document ?? ""),
+                pages: String(pages ?? ""),
+              });
+              if (!found) throw new Error("read_document is unavailable");
+              for (const source of found.thirdParty ?? []) readThirdParty?.(source);
+              const result = hooks.fit(found);
+              hooks.searched(toolCallId, result.passageCount, found.passageIds);
+              return searchResultText(result.text, documents, hooks.languageNote);
+            },
+          }
+        : null,
     cite: {
       ...own(DOCUMENT_TOOLS.cite),
       description:
@@ -1683,6 +1730,7 @@ async function* toolLoop(
         )
       : null;
   const search = documents?.search ?? null;
+  const read = documents?.read ?? null;
   const cite = documents?.cite ?? null;
   const calculate = documents?.calculate ?? null;
   /** `cite` and `calculate` record something for the Answer: they have no Tool-call card. */
@@ -1745,7 +1793,7 @@ async function* toolLoop(
   /** The Tools offered, by the name the model calls them; never a Connector's with one of ours. */
   const offered = new Map(
     offeredTools([
-      ...(documents ? [documents.search, documents.cite] : []),
+      ...(documents ? [documents.search, documents.read, documents.cite].filter((tool) => tool !== null) : []),
       ...(calculate ? [calculate] : []),
       ...request.tools,
     ]).map((each) => [each.name, each]),
@@ -1795,7 +1843,7 @@ async function* toolLoop(
     window = {
       // What another provider's Tool returns (or the gate gives instead) is cut to the room left.
       fitResult: (text, tool) =>
-        tool === search?.name || tool === cite?.name || tool === calculate?.name
+        tool === search?.name || tool === read?.name || tool === cite?.name || tool === calculate?.name
           ? text
           : account.result(text),
       canCallTools: () => account.canCallTools(),
