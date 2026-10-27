@@ -14,8 +14,8 @@ import { buttonStyle, fieldClass, hintClass } from "../ui";
 import { CHATGPT_RECIPIENT } from "./ChatGptSignIn";
 import { providerName } from "./ProviderPage";
 import { SendsLine } from "./SendsLine";
-import { SETUP_UNDO_PLACE } from "./shared";
 import { SortingLine, SortingSelect, useSorting } from "./SortingChoice";
+import { SETUP_UNDO_PLACE } from "./shared";
 
 const linkClass =
   "text-[13px] leading-5 font-semibold text-accent underline-offset-2 hover:underline";

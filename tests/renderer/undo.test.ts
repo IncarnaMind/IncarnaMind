@@ -341,6 +341,7 @@ describe("the undo stack", () => {
 describe("what an undo says afterwards", () => {
   test("a note says what an undo left, in the place its change showed its line (#1573)", async () => {
     const log: string[] = [];
+    const hide = useUndo.getState().showPlace("setup");
     push({
       ...change("Local mode", log),
       undoneNote: () => () => "Still using the model",
@@ -352,6 +353,7 @@ describe("what an undo says afterwards", () => {
     expect(line?.shownAt).toBe("setup");
     // Notes go to their place too, so neither the sidebar nor the pill shows it again.
     expect(lineShownAt(useUndo.getState())).toBe("setup");
+    hide();
 
     push({ ...change("Move", log), undoneNote: () => () => "Kept the Folder" });
     await undo();

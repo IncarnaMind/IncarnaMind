@@ -24,8 +24,8 @@ import { KeyEntry } from "./KeyEntry";
 import { OllamaAction, OllamaProgress, type Ollama as OllamaState, useOllama } from "./OllamaCard";
 import { ProviderForm } from "./ProviderForm";
 import { SendsLine } from "./SendsLine";
-import { SETUP_UNDO_PLACE } from "./shared";
 import { SetupSteps } from "./SetupSteps";
+import { SETUP_UNDO_PLACE } from "./shared";
 
 const CLAUDE_DOWNLOAD = "https://claude.ai/download";
 
@@ -227,12 +227,13 @@ function LocalWay({ ollama, running }: { ollama: OllamaState; running: boolean }
       </span>
       <OllamaProgress ollama={ollama} />
       <OllamaAction ollama={ollama} />
-      {/* With a cloud service set up and Local mode off, the click leaves Local mode as it is. */}
-      {ollama.status?.running && ollama.keepLocal.checked && (
-        <p data-testid="setup-local-keeps" className="text-[12px] leading-[18px]">
+      {/* Its row is kept from the card's first paint, so the line arriving doesn't move the buttons under it. */}
+      <p data-testid="setup-local-keeps" className="min-h-[18px] text-[12px] leading-[18px]">
+        {/* With a cloud service set up and Local mode off, the click leaves Local mode as it is. */}
+        {ollama.status?.running && ollama.keepLocal.checked && (
           <OnThisComputer>{t("setup.way.local.keeps")}</OnThisComputer>
-        </p>
-      )}
+        )}
+      </p>
     </div>
   );
 }

@@ -109,8 +109,7 @@ async function openLocalWay(window: Page): Promise<Locator> {
   await window.keyboard.type("What is in my Documents?");
   await window.keyboard.press("Enter");
   const setup = window.getByTestId("model-setup");
-  await pointAndClick(window, setup.getByTestId("setup-other"));
-  await pointAndClick(window, setup.getByTestId("way-local"));
+  await expect(setup.getByTestId("way-local")).toBeVisible();
   return setup;
 }
 
@@ -273,7 +272,7 @@ for (const [name, locale] of [
     );
     await expect(undo).toBeInViewport();
 
-    // Back from Continue, where the focus starts: Undo, then Change.
+    // The keyboard alone reaches Change, and Enter opens the switch with the focus on it.
     const change = undo.getByTestId("undo-change-local-mode");
     for (let tabs = 0; tabs < 6; tabs++) {
       if (await change.evaluate((node) => node === document.activeElement)) break;
@@ -296,3 +295,15 @@ for (const [name, locale] of [
     await app.close();
   });
 }
+
+test("the line's row is kept in the card whether or not it shows, so the buttons under it don't move when it arrives", async () => {
+  const { app, window } = await launchApp(dataDir, { ollama: "http://127.0.0.1:9" });
+  await setWindowSize(app, window, 900, 760);
+  const setup = await openLocalWay(window);
+  const row = setup.getByTestId("setup-local-keeps");
+  await expect(row).toHaveText("");
+  const box = await row.boundingBox();
+  if (!box) throw new Error("The line's row isn't laid out.");
+  expect(box.height).toBeGreaterThanOrEqual(18);
+  await app.close();
+});
