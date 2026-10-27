@@ -42,7 +42,6 @@ describe("The README recorder's plan", () => {
       "add to note",
       "analyse",
       "check",
-      "formula",
       "export",
       "call",
       "notes",

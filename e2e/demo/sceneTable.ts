@@ -49,8 +49,8 @@ export const SCENE_TABLE: readonly SceneRow[] = [
     still: "ask",
     caption: "ask",
     shows: {
-      en: "An Answer about the covenant, with its Citations; one Citation opens its page with the quote lit up.",
-      "zh-CN": "关于杠杆率条款的回答带着引用；点开一条引用，原页上的引文亮起来。",
+      en: "An Answer about the Q3 results, with its Citations; one Citation opens its page with the quote lit up.",
+      "zh-CN": "关于第三季度业绩的回答带着引用；点开一条引用，原页上的引文亮起来。",
     },
   },
   {
@@ -80,18 +80,9 @@ export const SCENE_TABLE: readonly SceneRow[] = [
     still: "check",
     caption: "check",
     shows: {
-      en: "The whole paper checked at once; the figure the sources contradict is marked and its card opens.",
-      "zh-CN": "整份报告一次核对；与来源矛盾的数字被标出，卡片打开。",
-    },
-  },
-  {
-    scene: "formula",
-    film: true,
-    still: null,
-    caption: "working",
-    shows: {
-      en: "The calculated figure's card shows its formula and the page each input came from.",
-      "zh-CN": "计算出来的数字，卡片给出算式和每个输入来自哪一页。",
+      en: "The whole paper checked: the badge counts the results, the wrong figure's page opens beside it, the fix turns the mark green, and a calculated figure's formula follows.",
+      "zh-CN":
+        "整份报告一次核对：角标把结果逐个算出来，与来源矛盾的数字在原页上打开，改正后标记变绿，再接一个计算出来的数字的算式。",
     },
   },
   {

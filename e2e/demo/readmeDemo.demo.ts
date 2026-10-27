@@ -221,7 +221,7 @@ async function run(scene: Scene, take: Take): Promise<void> {
   await take.hand.zoomOutIfIn();
 }
 
-/** The README's GIF is the whole film: the star reads it from the top. */
+/** The README's GIF is the whole film, from its first frame to its end card. */
 function cutOf(marks: Record<string, number>): [number, number][] {
   const end = marks.end;
   if (end === undefined || end <= 0) throw new Error("The recording has no end mark.");

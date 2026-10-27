@@ -63,6 +63,7 @@ export interface DemoScript {
     notCovered: string;
     callNotes: string;
     check: string;
+    fixed: string;
     export: string;
   };
   endCard: { lines: string[] };
@@ -76,6 +77,10 @@ export interface DemoScript {
     failed: RegExp;
     /** What the transcript of the call must have heard: the expert's own words. */
     heard: RegExp;
+    /** The promise the call must hold before it stops: what the expert will send, and when. */
+    friday: RegExp;
+    /** Talk that has drifted off the guide, the line Not covered yet answers. */
+    drift: RegExp;
     me: string;
     filled: string;
     /** The call help buttons, as the app names them: the interview template's two. */
@@ -133,7 +138,8 @@ export const SCRIPTS: Record<DemoLanguage, DemoScript> = {
     wrong: { draft: "36.8", document: "38.6" },
     seedQuestion:
       "In two sentences: what leverage limit does the facilities agreement set, and what was Northwind’s leverage at the end of Q3?",
-    question: "Is Northwind inside its leverage covenant?",
+    question:
+      "Using the documents: what was Northwind’s group gross margin in Q3, and what did the results blame?",
     chartRequest:
       "Use Python Analysis on Northwind Retail’s monthly sales workbook to check the 2026 sales by region. Then add a bar chart of 2026 sales by region to this Note, with its cited table.",
     compareQuestions: ["Margin", "Tenor", "Leverage covenant"],
@@ -169,11 +175,12 @@ export const SCRIPTS: Record<DemoLanguage, DemoScript> = {
       voices: { them: "Daniel", me: "Samantha" },
     },
     captions: {
-      hook: "The paper says 36.8%. The Q3 results say 38.6%.",
+      hook: "The memo says 36.8%. The Q3 results say 38.6%.",
       organize: "Monday. Files everywhere. Link the folders, and it reads and sorts them.",
-      ask: "Is Northwind inside its covenant? Don’t take its word. Click.",
+      ask: "What was the margin? Don’t take its word. Click.",
       click: "Click it. The quote lights up on the page.",
-      working: "Even the maths shows its working.",
+      fixed: "Wrong figure caught. Fixed in one click.",
+      working: "Calculations show their working too.",
       compare: "Three banks, one table.",
       addToNote: "It drafts from your files. Grey is the AI’s, and you can undo it.",
       chart: "Analyse the spreadsheet. Every bar links to its cell.",
@@ -192,6 +199,8 @@ export const SCRIPTS: Record<DemoLanguage, DemoScript> = {
       saved: "Saved",
       footnote: /Q3 2026 results, p\./,
       heard: /traffic[\s\S]*(afternoon|four)/i,
+      friday: /Friday/i,
+      drift: /station works/i,
       me: "Me",
       filled: "Note filled in",
       followUp: translate("en", "meetings.help.followUp"),
@@ -243,7 +252,7 @@ export const SCRIPTS: Record<DemoLanguage, DemoScript> = {
     wrong: { draft: "36.8", document: "38.6" },
     seedQuestion:
       "用两句话回答，不要加粗：贷款协议规定的杠杆率上限是多少，第三季度末 Northwind 的杠杆率是多少？",
-    question: "Northwind 有没有超出杠杆率条款的限制？用一句话回答，不要加粗。",
+    question: "根据文档回答：Northwind 第三季度集团毛利率是多少，业绩把原因归在哪里？不要加粗。",
     chartRequest:
       "用 Python 数据分析核对 Northwind Retail 月度销售工作簿里 2026 年各地区销售额，然后在这篇笔记中加入 2026 年各地区销售额的柱状图和带引用的表格。不要加粗。",
     compareQuestions: ["利差", "期限", "杠杆率约定"],
@@ -281,9 +290,10 @@ export const SCRIPTS: Record<DemoLanguage, DemoScript> = {
     captions: {
       hook: "报告里写 36.8%，Q3 业绩里是 38.6%。",
       organize: "周一，文件散在各处。关联文件夹，它读进来并分好类。",
-      ask: "Northwind 超限了吗？别信它说的，点开看。",
+      ask: "毛利率是多少？别信它说的，点开看。",
       click: "点一下，引文在原页上亮起来。",
-      working: "连算式都摆给你看。",
+      fixed: "错数被拦下，一键改正。",
+      working: "算出来的数也摆出算式和出处。",
       compare: "三家银行，一张表。",
       addToNote: "根据你的文件起草。灰字是 AI 写的，可以撤销。",
       chart: "分析表格，每根柱子都连到它的单元格。",
@@ -302,6 +312,8 @@ export const SCRIPTS: Record<DemoLanguage, DemoScript> = {
       saved: "已保存",
       footnote: /2026 年第三季度业绩/,
       heard: /(下午|四点)[\s\S]*(客流|门店)/,
+      friday: /周五/,
+      drift: /车站/,
       me: "我",
       filled: "已补全笔记",
       followUp: translate("zh-CN", "meetings.help.followUp"),

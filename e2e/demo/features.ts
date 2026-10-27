@@ -21,13 +21,16 @@ import {
 
 /**
  * The app's screen around these parts of it, as a PNG: the crop the card will show, taken at the
- * window's own density and centred on them, kept inside the window. The card lays it at the
- * picture's 2.5 pixels per CSS pixel, so the app's text reads at the README's size; a moment too
- * big for the crop is a moment to crop again, so it says so rather than shrinking the text.
+ * window's own density and centred on them, kept inside the window. A card that runs past the
+ * crop asks for its bottom: the crop then ends just under the moment, in the gap after it, rather
+ * than through a line below. The card lays it at the picture's 2.5 pixels per CSS pixel, so the
+ * app's text reads at the README's size; a moment too big for the crop is a moment to crop again,
+ * so it says so rather than shrinking the text.
  */
 export async function captureFeature(
   page: Page,
   targets: Locator | readonly Locator[],
+  { anchor = "center" }: { anchor?: "center" | "bottom" } = {},
 ): Promise<Buffer> {
   const list = Array.isArray(targets) ? targets : [targets as Locator];
   const boxes = await Promise.all(list.map((target) => target.boundingBox()));
@@ -59,10 +62,12 @@ export async function captureFeature(
       "Recrop the feature picture around one readable moment; its target is too large.",
     );
   }
+  const middle = (top + bottom - crop.height) / 2;
+  const under = bottom + 8 - crop.height;
   return page.screenshot({
     clip: {
       x: Math.min(Math.max((left + right - crop.width) / 2, 0), width - crop.width),
-      y: Math.min(Math.max((top + bottom - crop.height) / 2, 0), height - crop.height),
+      y: Math.min(Math.max(anchor === "bottom" ? under : middle, 0), height - crop.height),
       ...crop,
     },
     style: OVERLAY,
