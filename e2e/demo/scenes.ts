@@ -158,7 +158,9 @@ async function ask(take: Take): Promise<void> {
   );
   film.speed(2);
   const streamed = film.kept;
-  while ((await answer.getAttribute("data-status")) !== "done" && film.kept - streamed < 2.2) {
+  // Pace the film only while the Answer streams: a stills-only scene keeps no frames, and an
+  // Answer that ends failed must fall through to the check below rather than wait forever.
+  while ((await answer.getAttribute("data-status")) === "streaming" && film.kept - streamed < 2.2) {
     await hand.hold(100);
   }
   film.speed(1);
