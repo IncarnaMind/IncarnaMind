@@ -176,6 +176,18 @@ export interface FakeOpenAI {
   responses(): ApiRequest[];
 }
 
+/** Responses requests apart from the reply's change-claim judge. */
+export const answerResponses = (fake: FakeOpenAI): ApiRequest[] =>
+  fake
+    .responses()
+    .filter(
+      (request) =>
+        typeof request.body.instructions !== "string" ||
+        !request.body.instructions.startsWith(
+          "You check an AI assistant's reply against IncarnaMind's record",
+        ),
+    );
+
 /** What the User does on OpenAI's page, as the redirect back to the app says it. */
 export type Decision = { approve: Approval } | "decline";
 

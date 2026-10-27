@@ -1,0 +1,226 @@
+import { mkdir, writeFile } from "node:fs/promises";
+import { join, resolve } from "node:path";
+import { test } from "vitest";
+import { spendOf } from "../../scripts/nightlyRealModel";
+import { unbackedClaims } from "../../src/core/answers/claimedChanges";
+import type { AnswerToolCall } from "../../src/core/api";
+import { createAiSdkChatModel } from "../../src/core/providers/models";
+import { chatModelSpecOf, readConfig } from "../lib/config";
+import { createLog } from "../lib/log";
+
+const ROOT = resolve(__dirname, "../..");
+const MINDS = [
+  { id: "q3", name: "Q3 review" },
+  { id: "weekly", name: "周报" },
+  { id: "library", name: "Library summary" },
+];
+const names = (id: string) => MINDS.find((mind) => mind.id === id)?.name ?? null;
+
+const probes = [
+  { id: "unmade-page-en", reply: "Done — the summary is now on the page.", unbacked: true },
+  { id: "unmade-note-en", reply: "Your summary is in “Q3 review” now.", unbacked: true },
+  { id: "unmade-new-en", reply: "Here it is in a new Mind, “Library summary”.", unbacked: true },
+  { id: "unmade-renamed-en", reply: "I've renamed the page to “Q3 summary”.", unbacked: true },
+  { id: "unmade-page-zh", reply: "总结已经放在页面里了。", unbacked: true },
+  { id: "unmade-paragraph-zh", reply: "好了，第二段现在更清楚了。", unbacked: true },
+  { id: "unmade-new-zh", reply: "已在新的 Mind 中整理好总结。", unbacked: true },
+  {
+    id: "document-created-en",
+    reply: "The page was created on 3 March 2021 to track the project.",
+    unbacked: false,
+  },
+  {
+    id: "document-replaced-en",
+    reply: "The new page replaces the version published in 2019.",
+    unbacked: false,
+  },
+  { id: "document-revised-zh", reply: "第二版中，已经修改了摘要部分的实验结论。", unbacked: false },
+  { id: "document-finished-zh", reply: "这份总结已经完成于2023年。", unbacked: false },
+  { id: "document-updated-en", reply: "The authors updated the report in 2024.", unbacked: false },
+] as const;
+
+const writeCall: AnswerToolCall = {
+  id: "add-1",
+  tool: "add_to_mind",
+  source: "minds",
+  input: {},
+  status: "done",
+  resultCount: null,
+  mindChange: { mindId: "q3", created: false, request: "r1", proposals: 2 },
+};
+
+const renameCommand: AnswerToolCall = {
+  id: "rename-1",
+  tool: "run_command",
+  source: "commands",
+  input: { command: "mind.rename", ids: ["q3"], name: "Q3 summary" },
+  status: "done",
+  resultCount: null,
+  command: {
+    command: "mind.rename",
+    run: "r2",
+    items: [{ kind: "mind", id: "q3", name: "Q3 review", renamed: "Q3 summary" }],
+  },
+};
+
+const deleteCommand: AnswerToolCall = {
+  id: "delete-1",
+  tool: "run_command",
+  source: "commands",
+  input: { command: "mind.delete", ids: ["weekly"] },
+  status: "done",
+  resultCount: null,
+  command: {
+    command: "mind.delete",
+    run: "r3",
+    items: [{ kind: "mind", id: "weekly", name: "周报" }],
+  },
+};
+
+const commandProbes: {
+  id: string;
+  reply: string;
+  unbacked: boolean;
+  calls: AnswerToolCall[];
+}[] = [
+  {
+    id: "backed-rename-command-en",
+    reply: "I've renamed the page to “Q3 summary”.",
+    unbacked: false,
+    calls: [renameCommand],
+  },
+  {
+    id: "unbacked-delete-command-en",
+    reply: "I deleted “周报”.",
+    unbacked: true,
+    calls: [renameCommand],
+  },
+  {
+    id: "backed-delete-command-en",
+    reply: "I deleted “周报”.",
+    unbacked: false,
+    calls: [deleteCommand],
+  },
+];
+
+test.skipIf(process.env.INCARNAMIND_EVAL_EVERYDAY !== "claim-probes")(
+  "change-claim probes",
+  async () => {
+    const log = createLog();
+    const config = readConfig(ROOT);
+    if (!config.chat) {
+      log("No chat model: set INCARNAMIND_EVAL_CHAT_KIND, _MODEL and _KEY.");
+      return;
+    }
+    const model = createAiSdkChatModel({ ...chatModelSpecOf(config.chat), thinking: "off" });
+    const rows: {
+      id: string;
+      run: number;
+      expected: boolean;
+      claims: string[];
+      durationMs: number;
+      passed: boolean;
+    }[] = [];
+    const usage = {
+      inputTokens: 0,
+      outputTokens: 0,
+      cachedInputTokens: 0,
+      cacheWriteTokens: 0,
+    };
+    const runs = Number(process.env.INCARNAMIND_EVAL_CLAIM_PROBES_RUNS ?? "5") || 5;
+    for (const probe of [...probes, ...commandProbes]) {
+      for (let run = 1; run <= runs; run++) {
+        const result = await unbackedClaims(
+          probe.reply,
+          "calls" in probe ? probe.calls : [],
+          MINDS,
+          null,
+          {
+            model,
+            names,
+            signal: new AbortController().signal,
+          },
+        );
+        if (result.usage) {
+          usage.inputTokens += result.usage.inputTokens ?? 0;
+          usage.outputTokens += result.usage.outputTokens ?? 0;
+          usage.cachedInputTokens += result.usage.cachedInputTokens ?? 0;
+          usage.cacheWriteTokens += result.usage.cacheWriteTokens ?? 0;
+        }
+        const passed = probe.unbacked ? result.claims.length > 0 : result.claims.length === 0;
+        rows.push({
+          id: probe.id,
+          run,
+          expected: probe.unbacked,
+          claims: result.claims,
+          durationMs: result.durationMs,
+          passed,
+        });
+      }
+    }
+    const backed = await unbackedClaims(
+      "I added a risks section to “Q3 review”.",
+      [writeCall],
+      MINDS,
+      null,
+      {
+        model,
+        names,
+        states: () => ({ waiting: 0, accepted: 0, rejected: 0, applied: true }),
+        signal: new AbortController().signal,
+      },
+    );
+    if (backed.usage) {
+      usage.inputTokens += backed.usage.inputTokens ?? 0;
+      usage.outputTokens += backed.usage.outputTokens ?? 0;
+      usage.cachedInputTokens += backed.usage.cachedInputTokens ?? 0;
+      usage.cacheWriteTokens += backed.usage.cacheWriteTokens ?? 0;
+    }
+    const backedPassed = backed.claims.length === 0;
+    const failed = rows.filter((row) => !row.passed).length + (backedPassed ? 0 : 1);
+    const spent = spendOf(
+      [{ ...usage, model: config.chat.modelId }],
+      config.chat.kind === "kimi" ? "kimi" : "anthropic",
+    );
+    const durationMs = rows.reduce((sum, row) => sum + row.durationMs, 0) + backed.durationMs;
+    const folder = join(
+      config.resultsDir,
+      `${new Date().toISOString().replace(/[:.]/g, "-")}-claim-probes`,
+    );
+    await mkdir(folder, { recursive: true });
+    await writeFile(
+      join(folder, "report.json"),
+      JSON.stringify(
+        {
+          model: `${config.chat.kind}/${config.chat.modelId}`,
+          runs,
+          rows,
+          backed: { claims: backed.claims, passed: backedPassed, durationMs: backed.durationMs },
+          usage,
+          durationMs,
+          spent,
+        },
+        null,
+        2,
+      ),
+    );
+    await writeFile(
+      join(folder, "report.md"),
+      [
+        `# Change-claim probes: ${config.chat.kind}/${config.chat.modelId}`,
+        "",
+        `- Unmade claims caught: ${rows.filter((row) => row.expected && row.passed).length}/${rows.filter((row) => row.expected).length}`,
+        `- Honest replies left alone: ${rows.filter((row) => !row.expected && row.passed).length}/${rows.filter((row) => !row.expected).length}; backed write left alone: ${backedPassed ? 1 : 0}/1`,
+        `- Judge time: ${durationMs} ms total, ${Math.round(durationMs / (rows.length + 1))} ms per check`,
+        `- Spend: $${spent.dollars.toFixed(4)}; unpriced tokens: ${spent.unpricedTokens}`,
+        `- Failed checks: ${failed}`,
+        "",
+        "Details are in report.json.",
+      ].join("\n"),
+    );
+    log(
+      `${rows.length - rows.filter((row) => !row.passed).length}/${rows.length} probes passed; report in ${folder}`,
+    );
+    if (failed > 0) throw new Error(`${failed} change-claim probes failed.`);
+  },
+);
