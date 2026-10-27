@@ -65,15 +65,18 @@ const bridge = (window: Page) => ({
       language,
     ),
   /** Claude Haiku 5.5 on an Anthropic key, billed per token: choosing it allows sending to it. */
-  cloudModel: () =>
-    window.evaluate(async () => {
-      const core = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
-      await core.saveChatProvider({
-        kind: "anthropic",
-        apiKey: "sk-ant-test",
-        modelId: "claude-haiku-5-5",
-      });
-    }),
+  cloudModel: (modelId = "claude-haiku-5-5", kind: "anthropic" | "ollama" = "anthropic") =>
+    window.evaluate(
+      async (chosen) => {
+        const core = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
+        await core.saveChatProvider({
+          kind: chosen.kind,
+          ...(chosen.kind === "anthropic" ? { apiKey: "sk-ant-test" } : {}),
+          modelId: chosen.modelId,
+        });
+      },
+      { modelId, kind },
+    ),
   documentId: (name: string) =>
     window.evaluate(
       async (wanted) =>
@@ -473,7 +476,25 @@ test("empty states from the + menu, and the monthly cap: every cell left says it
   );
   await expect(sheet.getByTestId("compare-sheet-make")).toBeDisabled();
   await typeQuestions(window, ["Termination notice", "Liability cap"]);
+  // The model's name is never squeezed into a letter: Make moves down instead (#763).
+  const model = sheet.getByTestId("composer-model");
+  await expect(model).toBeVisible();
+  await expect
+    .poll(() =>
+      model
+        .locator("span")
+        .first()
+        .evaluate((element) => element.scrollWidth <= element.clientWidth),
+    )
+    .toBe(true);
   await screenshot(window, "compare-sheet-zh-900");
+  // Its foot, which the model's name makes wrap: kept for the pull request's before and after.
+  if (SCREENSHOTS) {
+    await mkdir(SCREENSHOTS, { recursive: true });
+    await sheet
+      .locator(".compare-sheet-foot")
+      .screenshot({ path: join(SCREENSHOTS, "compare-footer-zh-900.png") });
+  }
 
   // A cap too small for one request: nothing is sent, and every cell says why.
   await window.evaluate(() =>
@@ -1234,4 +1255,42 @@ test("⌘K edits a column by keyboard, and the Excel export follows the label", 
   await pointAndClick(window, cellAt(table, 0, 0));
   await window.keyboard.press("Escape");
   await expect(table).not.toHaveAttribute("data-expanded", "true");
+});
+
+test("the sheet's foot keeps the model's whole name and every part inside the sheet (#763)", async () => {
+  const { app, window } = await launchApp(dataDir, { fakeChat: true });
+  try {
+    await dismissChatSetup(window);
+    await bridge(window).language("zh-CN");
+    await setWindowSize(app, window, 900, 860);
+    await acceptPlainTextKeys(window);
+    await bridge(window).cloudModel();
+    await addSuppliers(window);
+    const sheet = await openSheetFromSlash(window);
+    await typeQuestions(window, ["Termination notice"]);
+    const model = sheet.getByTestId("composer-model");
+    await expect(model).toBeVisible();
+    // The name is whole: never cut to a letter, whatever room the foot has.
+    const name = model.locator("span").first();
+    expect(await name.evaluate((element) => element.scrollWidth <= element.clientWidth)).toBe(true);
+    // And no part of the foot runs past the sheet's edge: Make moves down rather than out.
+    const foot = sheet.locator(".compare-sheet-foot");
+    const [footBox, makeBox, sheetBox] = await Promise.all([
+      foot.boundingBox(),
+      sheet.getByTestId("compare-sheet-make").boundingBox(),
+      sheet.boundingBox(),
+    ]);
+    expect(
+      footBox && sheetBox && footBox.x + footBox.width <= sheetBox.x + sheetBox.width + 1,
+    ).toBe(true);
+    expect(
+      makeBox && sheetBox && makeBox.x + makeBox.width <= sheetBox.x + sheetBox.width + 1,
+    ).toBe(true);
+    if (SCREENSHOTS) {
+      await screenshot(window, "compare-footer-zh-900");
+      await foot.screenshot({ path: join(SCREENSHOTS, "compare-footer-only-zh-900.png") });
+    }
+  } finally {
+    await app.close();
+  }
 });

@@ -2085,7 +2085,7 @@ export async function checkCard(window: Page, scope: Page | Locator = window): P
       }).toPass();
     } else {
       const chinese = (await window.evaluate(() => document.documentElement.lang)) === "zh-CN";
-      const command = chinese ? "句子和引用" : "Sentences and Citations";
+      const command = chinese ? "说法和引用" : "Claims and Citations";
       await window.keyboard.press("ControlOrMeta+k");
       await expect(window.getByTestId("palette-search")).toBeFocused();
       await window.keyboard.type(command);
@@ -2973,11 +2973,13 @@ export async function menuCommands(menu: Locator): Promise<string[]> {
   );
 }
 
-/** Clicks the empty foot of the sidebar's tree, so the focus isn't in text and ⌘Z goes to the app's changes. */
+/** Clicks the empty top padding of the sidebar's tree, so the focus isn't in text and ⌘Z goes to the app's changes. */
 export async function leaveText(window: Page): Promise<void> {
   const box = await window.getByTestId("sidebar-tree").boundingBox();
   if (!box) throw new Error("The sidebar isn't showing.");
-  await window.mouse.move(box.x + box.width / 2, box.y + box.height - 8, { steps: 8 });
+  // The top padding: the foot moves as the footer's lines come and go, and a click meant to
+  // leave the text must never land on a row or the undo line.
+  await window.mouse.move(box.x + box.width / 2, box.y + 4, { steps: 8 });
   await window.mouse.down();
   await window.mouse.up();
 }
