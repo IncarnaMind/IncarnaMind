@@ -128,8 +128,34 @@ interface FeelEntries {
   take(): void;
 }
 
+/** The inputs the browser times as interactions, which a flow's slowest is chosen from. */
+const INPUT_EVENTS = [
+  "pointerdown",
+  "pointerup",
+  "pointercancel",
+  "mousedown",
+  "mouseup",
+  "click",
+  "dblclick",
+  "auxclick",
+  "contextmenu",
+  "keydown",
+  "keypress",
+  "keyup",
+  "beforeinput",
+  "input",
+  "compositionstart",
+  "compositionupdate",
+  "compositionend",
+  "dragstart",
+  "dragend",
+  "drop",
+  "touchstart",
+  "touchend",
+];
+
 async function observe(window: Page): Promise<void> {
-  await window.evaluate(() => {
+  await window.evaluate((inputEvents) => {
     const holder = globalThis as unknown as { feel?: FeelEntries };
     if (holder.feel) return;
     const describe = (node: Node | null): string => {
@@ -163,13 +189,45 @@ async function observe(window: Page): Promise<void> {
         feel.longTasks.push({ at: entry.startTime, duration: entry.duration });
       }
     };
+    // What an input reached, written down as it is dispatched: by the time the timing entry
+    // arrives its target may be gone from the page or have changed its attributes.
+    const dispatched = new Map<string, { at: number; on: string }[]>();
+    const nameOf = (target: EventTarget | null): string => {
+      if (!(target instanceof Element)) {
+        return target === document ? "document" : target === globalThis ? "window" : "(no element)";
+      }
+      const own = ["type", "role", "data-testid"].flatMap((attribute) => {
+        const value = target.getAttribute(attribute);
+        return value === null ? [] : [`[${attribute}=${value}]`];
+      });
+      const classes = [...target.classList].slice(0, 2).join(".");
+      const within = target.parentElement?.closest("[data-testid]")?.getAttribute("data-testid");
+      return `${target.tagName.toLowerCase()}${own.join("") || (classes ? `.${classes}` : "")}${within ? ` in ${within}` : ""}`;
+    };
+    for (const type of inputEvents) {
+      globalThis.addEventListener(
+        type,
+        (event) => {
+          const seen = dispatched.get(type) ?? [];
+          seen.push({ at: event.timeStamp, on: nameOf(event.target) });
+          dispatched.set(type, seen.slice(-64));
+        },
+        { capture: true, passive: true },
+      );
+    }
     const onEvents = (entries: PerformanceEntryList) => {
       for (const event of entries) {
         if (!(event instanceof PerformanceEventTiming) || event.interactionId === 0) continue;
+        const same = (dispatched.get(event.name) ?? []).filter(
+          (each) => Math.abs(each.at - event.startTime) < 1,
+        );
+        const nearest = same.sort(
+          (a, b) => Math.abs(a.at - event.startTime) - Math.abs(b.at - event.startTime),
+        )[0];
         feel.events.push({
           at: event.startTime,
           duration: event.duration,
-          on: `${event.name} on ${describe(event.target)}`,
+          on: `${event.name} on ${nearest?.on ?? "(a target from before the check began)"}`,
         });
       }
     };
@@ -196,7 +254,7 @@ async function observe(window: Page): Promise<void> {
       durationThreshold: 16,
     };
     events.observe(everyInput);
-  });
+  }, INPUT_EVENTS);
 }
 
 // Two frames: what the last step changed has been painted by then.
@@ -379,7 +437,9 @@ function tableOf(
     return [
       step.name,
       shift === 0 ? "0" : shift.toFixed(4),
-      step.inputMs === null ? "–" : `${Math.round(step.inputMs)} ms`,
+      step.inputMs === null
+        ? "–"
+        : `${Math.round(step.inputMs)} ms${step.inputOn ? ` (${step.inputOn})` : ""}`,
       step.longTasks.length === 0
         ? "–"
         : `${step.longTasks.length}, longest ${Math.round(Math.max(...step.longTasks))} ms`,
