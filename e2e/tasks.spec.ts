@@ -6,9 +6,10 @@ import {
   addDocuments,
   createDataFolder,
   dismissChatSetup,
-  enterContent,
   expectDotsBetweenParts,
+  focusSettled,
   forceQuit,
+  frontMind,
   launchApp,
   motionSettled,
   newMind,
@@ -290,11 +291,15 @@ test("a Task waiting for approval comes back paused after a quit: â€œNeeds youâ€
     await newMind(window);
     await window.keyboard.type("Credit memo");
     await window.keyboard.press("ControlOrMeta+t");
-    // Typed once the new tab's text has the focus, or the first keys land in the last Mind.
-    await enterContent(window);
+    // Typed once the editor has taken the focus and its own selection check has run: a key in
+    // that gap is lost, and the Mind is named "tes" instead of "Notes" (#1741).
+    await focusSettled(window, frontMind(window).getByTestId("mind-editor"));
     await window.keyboard.type("Notes");
     const memoTab = window.getByTestId("mind-tab").filter({ hasText: "Credit memo" });
     const notesTab = window.getByTestId("mind-tab").filter({ hasText: "Notes" });
+    // The tab is drawn before its Mind's name reaches it from the core: wait for the name as long
+    // as this file's other states, not the default (#1741).
+    await expect(notesTab).toHaveCount(1, { timeout: 30_000 });
     await expect(notesTab).toHaveAttribute("aria-selected", "true");
     const memo = await mindIdOf(window, "Credit memo");
 

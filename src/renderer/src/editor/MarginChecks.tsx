@@ -5,6 +5,7 @@ import type * as Y from "yjs";
 import { setClaimFocus, setOpenClaim } from "../checks";
 import { useT } from "../i18n";
 import { motionMode, subscribeMotion } from "../motion";
+import { checkStateKey } from "../unsupportedFixes";
 import { ClaimMark } from "./ClaimCheckCard";
 import { useCardPlace } from "./checkPlace";
 import { textBlockEdited } from "./citationNumbers";
@@ -136,11 +137,15 @@ export function MarginChecks({
         seen.current.set(mark.key, state);
         next.push(mark);
       }
-      // Top to bottom; a mark that would overlap the one above goes under it.
+      // Top to bottom; a mark that would overlap the one above goes under it. A sentence not
+      // checked yet has no mark on the page (D276): its button is only its card's anchor, so it
+      // keeps its sentence's line and takes no room in the stack (#1941).
       next.sort((a, b) => a.middle - b.middle);
       let bottom = Number.NEGATIVE_INFINITY;
       for (const mark of next) {
-        mark.top = Math.max(Math.round(mark.middle - MARK_HEIGHT / 2), bottom + MARK_GAP);
+        mark.top = Math.round(mark.middle - MARK_HEIGHT / 2);
+        if (mark.state === "not-checked") continue;
+        mark.top = Math.max(mark.top, bottom + MARK_GAP);
         bottom = mark.top + MARK_HEIGHT;
       }
       // Only with motion on: otherwise the marks are there at once, with no cascade to end.
@@ -233,7 +238,7 @@ export function MarginChecks({
           editor={editor}
           mindId={mind.id}
           doc={mind.doc}
-          label={t("claim.mark.label", { state: t(`claim.state.${mark.state}`) })}
+          label={t("claim.mark.label", { state: t(checkStateKey(editor, mark.claim)) })}
           reveal={mark.delay !== null}
           style={{ top: mark.top, "--reveal-delay": `${mark.delay ?? 0}ms` } as CSSProperties}
           onRevealed={() => {

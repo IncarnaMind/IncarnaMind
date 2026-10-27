@@ -61,7 +61,12 @@ export function exportLabels(language: Language): ExportLabels {
         if (sentence.says)
           return t("export.comment.sentence.contradicted", { says: sentence.says });
         return sentence.worked
-          ? t("export.comment.sentence.contradicted.worked", sentence.worked)
+          ? t(
+              sentence.worked.relation
+                ? `export.comment.sentence.contradicted.worked.${sentence.worked.relation}`
+                : "export.comment.sentence.contradicted.worked",
+              sentence.worked,
+            )
           : t("export.comment.sentence.contradicted.plain");
       }
       if (sentence.nearest)
@@ -76,17 +81,22 @@ export function exportLabels(language: Language): ExportLabels {
           part,
         );
       }
+      if (!sentence.notFound) {
+        return sentence.reason
+          ? t("export.comment.sentence.unsupported.reason", { reason: sentence.reason })
+          : t("export.comment.sentence.unsupported.plain");
+      }
       const { scope } = sentence;
       const name = scope
         ? (scope.name ?? t(`scope.chip.deleted.${scope.kind}`))
         : t("composer.scope.all");
       return scope && scope.more > 0
-        ? t("export.comment.sentence.unsupported.more", {
+        ? t("export.comment.sentence.notFound.more", {
             scope: name,
             count: scope.more,
             total: scope.more + 1,
           })
-        : t("export.comment.sentence.unsupported", { scope: name });
+        : t("export.comment.sentence.notFound", { scope: name });
     },
     change: ({ kind, pending }) => {
       const author = pending.by || t("export.change.someone");

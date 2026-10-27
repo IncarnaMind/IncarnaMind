@@ -10,6 +10,7 @@ import { mindName } from "../../shared/naming";
 import type { PrintPaper } from "../../shared/printDocument";
 import { readableQuoteText } from "../../shared/readableQuote";
 import { SCOPE_KINDS, type ScopeKind, scopeIds } from "../../shared/searchScope";
+import { checkUnreadOf } from "../../shared/unreadFiles";
 import type { Printer } from "../adapters";
 import type {
   ChatProvider,
@@ -18,6 +19,7 @@ import type {
   Document,
   KeptCitationText,
   Mind,
+  UnreadFile,
 } from "../api";
 import { describeModel } from "../chatModelNames";
 import { TranslatableError } from "../errors";
@@ -62,6 +64,8 @@ export interface CheckRecord {
   searched: string[];
   localMode: boolean;
   models: string[];
+  /** What the checks couldn't read when they started (#740); empty when they read everything. */
+  unread: UnreadFile[];
   sentences: SentenceItem[];
   citations: CitationItem[];
   language: Language;
@@ -83,8 +87,8 @@ export function createCheckRecord(deps: CheckRecordDependencies) {
     const language = deps.language();
     const providers = await deps.providers();
     const t = translatorFor(language);
-    const { sentences, citations } = deps.read(mind.id, (fragment) =>
-      readRecord({
+    const { sentences, citations, unread } = deps.read(mind.id, (fragment) => {
+      const record = readRecord({
         fragment,
         documents: deps.documents(),
         kept: deps.keptCitationTexts(),
@@ -95,8 +99,12 @@ export function createCheckRecord(deps: CheckRecordDependencies) {
           attributes.quote
             ? (deps.readableQuote(attributes) ?? readableQuoteText(attributes.quote))
             : null,
-      }),
-    );
+      });
+      return {
+        ...record,
+        unread: fragment.doc ? checkUnreadOf(fragment.doc, record.requests) : [],
+      };
+    });
 
     const searched = new Set<string>();
     const models = new Map<string, number>();
@@ -125,6 +133,7 @@ export function createCheckRecord(deps: CheckRecordDependencies) {
             ? t("checkRecord.models.one", { model })
             : t("checkRecord.models.other", { model, count }),
         ),
+      unread,
       sentences,
       citations,
       language,

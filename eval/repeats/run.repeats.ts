@@ -16,6 +16,7 @@ import { createLog } from "../lib/log";
 import { createWorkerCrossEncoder, prepareGpuFile } from "../lib/rerank";
 import { documentsOf, type RepeatSet, SETS, writeDocuments } from "./cases";
 import { repeatChecks } from "./repeat";
+import { watchRequests } from "./requests";
 import { type RepeatRow, report, summarise } from "./score";
 
 const ROOT = resolve(__dirname, "../..");
@@ -54,6 +55,7 @@ test("repeated checks of an unchanged Mind", async () => {
     if (!first || stopped) continue;
     const { language } = first;
     const folder = await mkdtemp(join(tmpdir(), "incarnamind-repeats-"));
+    const watch = watchRequests(ofLibrary.flatMap((set) => set.sentences.map((each) => each.text)));
     // The Library of a first run: the example's Documents beside the User's own, so the search
     // weighs the agreement against others as it does for a newcomer.
     const library = await openLibrary({
@@ -65,6 +67,7 @@ test("repeated checks of an unchanged Mind", async () => {
       examples: join(ROOT, "resources", "examples"),
       keep: config.keepData,
       embeddings: false,
+      chatModels: watch.chatModels,
       log,
     });
     try {
@@ -93,12 +96,15 @@ test("repeated checks of an unchanged Mind", async () => {
       for (const set of ofLibrary) {
         if (stopped) break;
         log(`${model} · ${set.id}: ${set.sentences.length} sentences, ${repeats} checks`);
+        watch.take();
+        const requests = new Map<string, ReturnType<typeof watch.take>>();
         const results = await repeatChecks(core, {
           mind: set.mind,
           sentences: set.sentences.map((each) => each.text),
           repeats,
           model: choice,
           async onRepeat(done) {
+            requests.set(String(done[0]?.repeat), watch.take());
             const spent = spentBefore + (await spentOf(core));
             log(
               `  check ${done[0]?.repeat}: ${done.map((each) => each.outcome).join(" ")} · $${spent.toFixed(3)}`,
@@ -118,6 +124,7 @@ test("repeated checks of an unchanged Mind", async () => {
             key: sentence.key,
             kind: sentence.kind,
             expected: sentence.expected,
+            requests: requests.get(String(result.repeat))?.get(result.sentence) ?? [],
             ...(sentence.knownMiss !== undefined && { knownMiss: sentence.knownMiss }),
           });
         }

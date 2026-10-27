@@ -243,6 +243,8 @@ test("export as Word saves into the Output location at once; to another folder i
 
   const here = await askInAssistant(window, "Export this Mind as Word");
   await expect(here.getByTestId("approval-card")).toHaveCount(0);
+  // Nothing is asked about marking the text IncarnaMind wrote: the default marks it (#1945).
+  await expect(window.getByTestId("task-tray").getByTestId("question-card")).toHaveCount(0);
   await expect(here.getByTestId("command-changes-title")).toHaveText(
     `Saved “Deal notes.docx” in “${out.split("/").at(-1)}”`,
   );

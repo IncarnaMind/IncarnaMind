@@ -143,8 +143,8 @@ function hostOf(baseUrl: string): string | null {
  * it, and so does leaving the address field pointing at another host. `text`
  * is the key as it is sent, and `stray` the character in it that keys don't use.
  */
-export function useProviderKey() {
-  const [apiKey, setApiKey] = useState("");
+export function useProviderKey(initial = "") {
+  const [apiKey, setApiKey] = useState(initial);
   /** The host the address field held when the key was typed, if it held one. */
   const typedFor = useRef<string | null>(null);
   const { key: text, stray } = checkApiKey(apiKey);

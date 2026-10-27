@@ -16,6 +16,35 @@ export interface StartupDialog {
   cancelId: number;
 }
 
+export function updateStartupDialog(
+  language: Language,
+  currentVersion?: string,
+  targetVersion?: string,
+): StartupDialog {
+  const title = translate(language, "error.startup.update.title");
+  const detail = currentVersion
+    ? targetVersion
+      ? translate(language, "error.startup.update.body", {
+          old: currentVersion,
+          new: targetVersion,
+        })
+      : translate(language, "error.startup.update.withCurrent", { old: currentVersion })
+    : targetVersion
+      ? translate(language, "error.startup.update.withTarget", { new: targetVersion })
+      : translate(language, "error.startup.update.unknown");
+  return {
+    title,
+    message: title,
+    detail,
+    buttons: [
+      translate(language, "error.startup.newer.download"),
+      translate(language, "error.startup.newer.quit"),
+    ],
+    defaultId: DOWNLOAD_BUTTON,
+    cancelId: 1,
+  };
+}
+
 /** What the User sees when start-up fails. Only a data folder from a newer version gets buttons. */
 export function startupDialog(error: unknown, language: Language): StartupDialog {
   if (error instanceof DataFromNewerVersionError) {
@@ -49,7 +78,7 @@ export function startupDialog(error: unknown, language: Language): StartupDialog
  */
 export function startupProblem(
   language: Language,
-  reason: "busy" | "stalled",
+  reason: "busy" | "starting" | "quitting" | "installing" | "stalled",
 ): { title: string; detail: string } {
   return {
     title: translate(language, "error.startup.title"),

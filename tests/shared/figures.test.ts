@@ -1128,3 +1128,26 @@ describe("how a Document writes its numbers", () => {
     expect(figureContextOf("RMB 1.2bn and JPY 3bn").yen).toBeNull();
   });
 });
+
+describe("A number at the start of a quote (#1969)", () => {
+  const read = (text: string, context: FigureContext) =>
+    readFigures(text, context).map((each) => [each.chars, each.value]);
+
+  // protects=a number joined to the next one ("88.0 和 91.5") is a figure at a line's start, in Chinese and English, and so is any number at the start of a quote taken from the middle of a line, while a real heading's and list's numbers stay theirs; fails_when=88.0 is read as a heading number and calculate says the quote has no 88.0, or "3.1 收入" and "1. Revenue" give figures; no_claim=none beyond protects.
+  test("is a figure unless it is a heading's or a list's", () => {
+    expect(read("88.0 和 91.5（单位：百万元）", ZH)).toEqual([
+      ["88.0", 88],
+      ["91.5", 91.5],
+    ]);
+    expect(read("88.0 and 91.5 (GBP million)", EN).map(([chars]) => chars)).toEqual([
+      "88.0",
+      "91.5",
+    ]);
+    expect(read("3.1 收入", ZH)).toEqual([]);
+    expect(read("3.1 收入\n收入为400.0", ZH)).toEqual([["400.0", 400]]);
+    expect(read("2.1 Methods", EN)).toEqual([]);
+    expect(read("1. Revenue rose 5%", EN)).toEqual([["5%", 0.05]]);
+    expect(read("3.1 收入", { ...ZH, midLine: true })).toEqual([["3.1", 3.1]]);
+    expect(read("88.0 起（2025年上半年）", { ...ZH, midLine: true })).toEqual([["88.0", 88]]);
+  });
+});
