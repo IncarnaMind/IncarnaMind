@@ -425,7 +425,11 @@ export function usePopoverMenu({
         if (event.newState === "closed") {
           if (!returnWanted.current) return;
           returnWanted.current = false;
-          returnFocus();
+          // A caller that already gave the focus a place after the close (a row's menu back to
+          // its row) keeps it; only a focus on the page or still in the popover is returned.
+          const focused = document.activeElement;
+          const inMenu = menu.current?.contains(focused) === true;
+          if (focused === null || focused === document.body || inMenu) returnFocus();
           return;
         }
         if (touched.current) return;
