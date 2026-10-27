@@ -220,7 +220,7 @@ test("before a model is chosen, a new Document's tagging waits with its line, an
   await expect(item).toHaveAttribute("data-tagging", "waiting-for-provider");
   await makeTagOnDocument(window, "Invoice 43");
   const status = window.getByTestId("tagging-waiting");
-  await expect(status).toContainText("No AI model for Tags");
+  await expect(status.getByTestId("status-label")).toHaveText("Tags need an AI model");
   await expect(status).toHaveAttribute("title", "Tags come once you choose an AI model.");
   await expect(window.getByTestId("consent-dialog")).toBeHidden();
   expect(await consentAsked()).toEqual([]);
