@@ -1265,11 +1265,11 @@ export function createCitationSession(
     }
     const taken = takeQuote(input, marker, options);
     if (taken.ok && !taken.record.kept) {
-      const problem = quotePlaceProblem(
-        taken.record.quote,
-        citedText(taken.record),
-        matchingFor(taken.source),
-      );
+      const problem =
+        quotePlaceProblem(taken.record.quote, citedText(taken.record), matchingFor(taken.source)) ??
+        (check(taken.record).check === "not-found"
+          ? quotePlaceProblem(taken.record.quote, taken.passageUnits, matchingFor(taken.source))
+          : null);
       if (problem) {
         return {
           ok: false,
@@ -1287,11 +1287,12 @@ export function createCitationSession(
         };
   }
 
-  /** `take`, for a quote with or without a marker (0 for none). */
+  /** `take`, for a quote with or without a marker (0 for none). A calculated figure's direct input keeps its supplied Location (#1979). */
   function takeQuote(
     input: QuoteInput,
     marker: number,
     options: CiteOptions,
+    relocate = true,
   ): Extract<Taken, { ok: true }> | { ok: false; problem: string } {
     const named = typeof input.passage === "string" ? input.passage : "";
     const kept = ids?.get(named);
@@ -1341,9 +1342,9 @@ export function createCitationSession(
       result: null,
     };
     let record: Accepted = { ...taken, location: locationFor(taken) };
-    // Structured output can't be told to fix a record (see `CiteOptions`): a quote that isn't where
-    // it names is cited where it is in its Passage, never outside it, and the check still reads it there.
-    if (options.structured && quote && check(record).check === "not-found") {
+    // A quote that isn't where it names is cited where it uniquely occurs in its Passage,
+    // never outside it, and the check still reads it there.
+    if (relocate && quote && check(record).check === "not-found") {
       const placedAt = locateQuote(passageUnits, quote, matchingFor(source));
       if (placedAt) {
         const placed = { ...taken, range: placedAt, requested: null, unresolved: false };
@@ -1684,7 +1685,7 @@ export function createCitationSession(
 
     /** A quote outside the markers, read as a record is; or what the check would find wrong with it. */
     quote(input: QuoteInput, options: CiteOptions = {}): Quoted | { problem: string } {
-      const taken = takeQuote(input, 0, options);
+      const taken = takeQuote(input, 0, options, false);
       if (!taken.ok) return { problem: taken.problem };
       const problem = recordProblem(taken.record, taken.source, taken.passageUnits);
       return problem ? { problem } : quotedOf(taken.record);
