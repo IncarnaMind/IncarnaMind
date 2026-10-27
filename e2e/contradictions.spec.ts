@@ -176,7 +176,7 @@ test("In Chinese and a narrow window: a Mind in no Folder, and a Folder of only 
   await runFromPalette(window, "矛盾", "检查矛盾");
   // A check the User started that can't run opens the card to say why.
   const problem = window.getByTestId("check-card").getByTestId("checks-problem");
-  await expect(problem).toContainText("这个 Mind 不在文件夹中");
+  await expect(problem).toContainText("这篇笔记不在文件夹中");
 
   await bridge(window).folder("潮汐", ["Tides"]);
   await pointAndClick(window, problem.getByTestId("checks-problem-close"));

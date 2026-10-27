@@ -851,7 +851,7 @@ test("an empty Library says No Documents yet, with its two ways in beside one Ad
     const library = window.getByTestId("library");
     const empty = library.getByTestId("library-empty");
     await expect(library.getByTestId("library-count")).toHaveText("0");
-    await expect(empty).toContainText("No Documents yet");
+    await expect(empty.getByText("No Documents yet", { exact: true })).toBeVisible();
     await expect(empty.getByTestId("library-empty-add-files")).toHaveText(addFilesLabel("en"));
     await expect(empty.getByTestId("library-empty-link-folder")).toHaveText(
       translate("en", "startGuide.documents.linkFolder"),
@@ -871,7 +871,7 @@ test("an empty Library says No Documents yet, with its two ways in beside one Ad
     ]);
     await window.keyboard.press("Escape");
     await setLanguage(window, "zh-CN");
-    await expect(empty).toContainText("还没有文档");
+    await expect(empty.getByText("还没有文档", { exact: true })).toBeVisible();
     await expect(empty.getByTestId("library-empty-add-files")).toHaveText(addFilesLabel("zh-CN"));
     await expect(empty.getByTestId("library-empty-link-folder")).toHaveText(
       translate("zh-CN", "startGuide.documents.linkFolder"),

@@ -130,12 +130,12 @@ test("a follow-up from a Document's tab is answered from All Documents, and Add 
   // No Mind in focus: Add to note asks which, in place.
   await pointAt(window, second.getByTestId("assistant-answer-text"));
   const add = second.getByTestId("answer-add");
-  await expect(add).toHaveAttribute("title", "Choose a Mind to add it to");
+  await expect(add).toHaveAttribute("title", "Choose a note to add it to");
   await pointAndClick(window, add);
   const picker = window.getByTestId("add-to-picker");
   await expect(picker).toBeVisible();
   await expect(picker.getByTestId("add-to-search")).toBeFocused();
-  await expect(picker.getByTestId("add-to-option").last()).toContainText("New Mind");
+  await expect(picker.getByTestId("add-to-option").last()).toContainText("New note");
   await screenshot(window, "composer-stays-picker-en");
   // The keyboard reaches the list: ↓ to the Mind, Enter adds.
   await window.keyboard.press("ArrowDown");
@@ -442,7 +442,7 @@ for (const language of ["en", "zh-CN"] as const) {
   });
 }
 
-test("with the Library in front and no Mind open, a Question is answered from All Documents, and Add to note → New Mind makes a Mind beside the Library", async () => {
+test("with the Library in front and no Mind open, a Question is answered from All Documents, and Add to note → New note makes a Mind beside the Library", async () => {
   const { app, window } = await start(1440, 900);
   await pointAndClick(window, window.getByTestId("open-library"));
   await expect(window.getByTestId("library-tab")).toHaveAttribute("aria-selected", "true");
@@ -487,7 +487,7 @@ test("in Chinese: the composer stays in the Library, and the line says what it s
   await app.close();
 });
 
-test("clicking + New Mind and then the composer at once: what is typed, and the focus, carry over to the Mind's composer", async () => {
+test("clicking + New note and then the composer at once: what is typed, and the focus, carry over to the Mind's composer", async () => {
   const { app, window } = await start(1440, 900);
   await pointAndClick(window, window.getByTestId("plus-menu"));
   await pointAndClick(window, window.getByTestId("plus-new-mind"));

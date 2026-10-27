@@ -110,7 +110,7 @@ async function madeQuietly(window: Page, make: () => Promise<void>): Promise<str
   return made;
 }
 
-test("Ask about a Document with no Mind to ask in, New Mind here, ⌘N, + and Start a Mind from a Document: each makes a Mind with no line and nothing for ⌘Z to take back", async () => {
+test("Ask about a Document with no Mind to ask in, New note here, ⌘N, + and Start a Mind from a Document: each makes a Mind with no line and nothing for ⌘Z to take back", async () => {
   const { window } = await startWithADocument();
 
   // With no Mind, asking about a Document makes one.

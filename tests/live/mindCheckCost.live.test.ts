@@ -1,5 +1,5 @@
 /**
- * Check this Mind's cost on a real model (#973): a one-page memo of 26
+ * Check this note's cost on a real model (#973): a one-page memo of 26
  * sentences checked against the three report examples, the estimate for the
  * claims the model named beside what the run then sent and cost. Runs only with
  * INCARNAMIND_LIVE_ANTHROPIC_KEY (INCARNAMIND_LIVE_ANTHROPIC_MODEL, Haiku by
@@ -36,7 +36,7 @@ const MEMO: readonly string[][] = JSON.parse(
 const text = (value: string): JSONContent => ({ type: "text", text: value });
 
 test.skipIf(!KEY || !MODEL)(
-  "Check this Mind on a one-page memo: the estimate beside what the run sent and cost",
+  "Check this note on a one-page memo: the estimate beside what the run sent and cost",
   { timeout: 600_000 },
   async () => {
     const dataDir = await createTempDataFolder();

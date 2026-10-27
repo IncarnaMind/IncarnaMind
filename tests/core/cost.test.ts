@@ -996,7 +996,7 @@ describe("The estimate before a large run", () => {
 
 describe("The estimate before a check run (#973)", () => {
   const AT = new Date("2026-10-12T09:00:00.000Z");
-  /** A real Check this Mind run's calls, as Anthropic reported them (see the fixture's "about"). */
+  /** A real Check this note run's calls, as Anthropic reported them (see the fixture's "about"). */
   const recordedRun = async (): Promise<{ checked: number; calls: Counted[] }> =>
     JSON.parse(
       await readFile(join(import.meta.dirname, "../fixtures/cost/recorded-checks.json"), "utf8"),

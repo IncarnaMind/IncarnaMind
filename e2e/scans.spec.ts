@@ -134,6 +134,9 @@ for (const language of ["en", "zh-CN"] as const) {
   });
 }
 
+/** The first scan is read for longer than a slow runner needs to find the two behind it. */
+const FIRST_SCAN_PAGES = 30;
+
 const LANE = {
   en: { line: "Reading 1 scan, 2 waiting", one: "Reading 1 scan…" },
   "zh-CN": { line: "正在识别 1 个扫描件，2 个排队中", one: "正在识别 1 个扫描件…" },
@@ -142,17 +145,28 @@ const LANE = {
 for (const language of ["en", "zh-CN"] as const) {
   // protects=a text PDF added after three scans is ready while they are still read, and the sidebar says how many scans are read and how many wait, in English and Chinese (#1502); fails_when=the text PDF waits behind the scans, or the line counts pages or Documents instead of scans; no_claim=how many scans a computer reads at once, which the unit tests cover.
   test(`a text PDF is ready while scans are still read, and the sidebar says how many scans wait (${language})`, async () => {
+    test.setTimeout(120_000);
     const script = join(sources, "scans.json");
     const lines = { lines: linesOf("en-clean") };
+    const pagesOf = (count: number) => Array.from({ length: count }, (_, index) => index + 1);
     await writeFile(
       script,
       JSON.stringify({
-        pages: Object.fromEntries([1, 2, 3, 4, 5, 6, 7, 8].map((page) => [page, lines])),
+        pages: Object.fromEntries(pagesOf(FIRST_SCAN_PAGES).map((page) => [page, lines])),
       }),
     );
-    const scan = buildPdf([1, 2, 3, 4, 5, 6, 7, 8].map(() => ({ scan: picture("en-clean") })));
-    const files = ["Scan A.pdf", "Scan B.pdf", "Scan C.pdf"].map((name) => join(sources, name));
-    for (const file of files) await writeFile(file, scan);
+    const scanOf = (pages: number) =>
+      buildPdf(pagesOf(pages).map(() => ({ scan: picture("en-clean") })));
+    const files: string[] = [];
+    for (const [name, pages] of [
+      ["Scan A.pdf", FIRST_SCAN_PAGES],
+      ["Scan B.pdf", 8],
+      ["Scan C.pdf", 8],
+    ] as const) {
+      const file = join(sources, name);
+      await writeFile(file, scanOf(pages));
+      files.push(file);
+    }
     const text = join(sources, "Board minutes.pdf");
     await writeFile(
       text,
@@ -174,7 +188,7 @@ for (const language of ["en", "zh-CN"] as const) {
     await window.getByTestId("add-documents-input").setInputFiles([...files, text]);
     const rows = window.getByTestId("document-list-item");
     const status = window.getByTestId("processing-status");
-    await expect(status).toHaveAttribute("title", LANE[language].line);
+    await expect(status).toHaveAttribute("title", LANE[language].line, { timeout: 30_000 });
     const minutes = rows.filter({ hasText: "Board minutes" });
     await expect(minutes).toHaveAttribute("data-status", "ready");
     // Ready while the scans are still read: the last of them is still queued.

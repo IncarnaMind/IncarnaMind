@@ -209,7 +209,7 @@ for (const [language, width] of [
       await expect(sidebar.getByRole("button", { name: t("assistant.newChat") })).toHaveCount(0);
       // Nothing to list yet: it says so, with the two ways to add the first Document (#763).
       const empty = sidebar.getByTestId("documents-empty");
-      await expect(empty).toContainText(t("library.none"));
+      await expect(empty.getByText(t("library.none"), { exact: true })).toBeVisible();
       await expect(empty.getByTestId("documents-empty-add-files")).toHaveText(t(addFilesLabelKey));
       await expect(empty.getByTestId("documents-empty-link-folder")).toHaveText(
         t("startGuide.documents.linkFolder"),
