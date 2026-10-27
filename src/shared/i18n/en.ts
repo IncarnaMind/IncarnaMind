@@ -745,6 +745,7 @@ export const en = {
   "claim.unsupported.currency.reason": "The Document gives {amount} without a currency.",
   "claim.unsupported.currency.covered": "the amount, {amount}",
   "claim.unsupported.currency.uncovered": "the currency ({currency})",
+  "claim.unsupported.scale.uncovered": "the currency, unit or scale in {figure}",
   "claim.unsupported.unit": "The Document gives {amount}, not {figure}.",
   "claim.openCitation": "Open citation {number}",
   "claim.cutUnsupported": "Cut the unsupported part",

@@ -53,6 +53,34 @@ describe("A currency the Document doesn't state", () => {
   });
 
   // protects=only a currency the Document names counts: "元" inside 单元, figures elsewhere in more than one currency ("$" and "HK$"), a lowercase "php" and a stated sign of another currency don't name the one the sentence adds, and a scale its table states ("in thousands") doesn't hide it; fails_when=any of these hides the added currency; no_claim=none beyond protects.
+  test("a calculated ratio does not settle an added monetary unit or scale", () => {
+    const claim =
+      "Net debt at 30 June 2026 was £528.9m, so leverage should still be inside the 3.25x covenant.";
+    const cited = "Net debt at 30 June 2026 528.9";
+    expect(unitNotStated(claim, read(cited))).toEqual({
+      kind: "scale",
+      figure: "£528.9m",
+      amount: "528.9",
+    });
+    expect(unitNotStated(claim, read("Net debt at 30 June 2026 £528.9m"))).toBeNull();
+    expect(
+      unitNotStated(
+        claim,
+        read("All amounts are in GBP millions.\nNet debt at 30 June 2026 528.9"),
+      ),
+    ).toBeNull();
+    expect(unitNotStated("Leverage was 2.82x.", read(cited))).toBeNull();
+  });
+
+  test("the same written number at another scale is not supported in Chinese either", () => {
+    const claim = "2026年6月30日净负债为£528.9m，因此杠杆率仍应在3.25倍的契约上限之内。";
+    expect(unitNotStated(claim, read("2026年6月30日净负债 528.9"))).toEqual({
+      kind: "scale",
+      figure: "£528.9m",
+      amount: "528.9",
+    });
+  });
+
   test.each([
     ["第三单元 薪酬\n年薪为 54,000，按月支付。", "年薪为 54,000元。", "元"],
     [

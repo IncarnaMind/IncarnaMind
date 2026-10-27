@@ -729,6 +729,7 @@ export const zhCN = {
   "claim.unsupported.currency.reason": "文档写的是 {amount}，没有注明币种。",
   "claim.unsupported.currency.covered": "金额 {amount}",
   "claim.unsupported.currency.uncovered": "币种（{currency}）",
+  "claim.unsupported.scale.uncovered": "{figure} 的币种、单位或量级",
   "claim.unsupported.unit": "文档写的是 {amount}，不是 {figure}。",
   "claim.openCitation": "打开引用 {number}",
   "claim.cutUnsupported": "删去无依据的部分",
