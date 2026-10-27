@@ -4,7 +4,7 @@
  * memo (#1568) gets its first line's first words as its title, and that line, cited. In the
  * call's language, as its lines are said.
  */
-import { passagesIn, recordFor } from "./passages";
+import { passagesIn, recordFor, withSurroundingWords } from "./passages";
 import { lastUserText, type Prompt, type Reply, toolResults } from "./prompt";
 
 const FILLING = /Fill them in from the transcript|The User took no notes|voice memo the User just/;
@@ -19,8 +19,10 @@ export function fillReply(prompt: Prompt, tools: readonly string[]): Reply | nul
   const first = heard[0];
   const firstLine = first?.text.split("\n").find((line) => line.trim() !== "") ?? "";
   const taken = first && recordFor(first, firstLine, 1);
-  if (taken && tools.includes("cite") && toolResults(prompt, "cite").length === 0) {
-    return { tool: "cite", input: { citations: [taken.record] } };
+  if (first && taken && tools.includes("cite")) {
+    const cited = toolResults(prompt, "cite");
+    const record = cited.length === 0 ? taken.record : withSurroundingWords(cited, first, 1);
+    if (record) return { tool: "cite", input: { citations: [record] } };
   }
   // A transcript line's time and speaker lead its text: "[0:04 Them] …".
   const said = String(taken?.record.quote ?? firstLine)
