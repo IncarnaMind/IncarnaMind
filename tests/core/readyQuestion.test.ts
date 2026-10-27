@@ -72,6 +72,15 @@ test("a file of their own that couldn't be read: no Question, and not the exampl
   expect(await core.readyQuestion()).toBeNull();
 });
 
+test("a Document they keep as their own workings: no Question about it, as no Answer may cite it", async () => {
+  const { core, sources } = await start();
+  const [brief] = await addAndProcess(core, [
+    await writeSourceFile(sources, "Project brief.md", BRIEF),
+  ]);
+  await core.setNotCited(brief?.id as string, true);
+  expect(await core.readyQuestion()).toBeNull();
+});
+
 test("a Chinese Document with the English interface: the Question in English, naming it", async () => {
   const { core, sources } = await start();
   const [brief] = await addAndProcess(core, [

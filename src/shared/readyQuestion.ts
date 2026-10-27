@@ -10,7 +10,10 @@ import { isSearchable } from "./documentStatus";
 import { translate } from "./i18n";
 
 /** What the reader needs of a Document: enough to name it, ask about it, and tell whether it can answer. */
-type AskableDocument = Pick<Document, "id" | "name" | "title" | "status" | "fileStatus">;
+type AskableDocument = Pick<
+  Document,
+  "id" | "name" | "title" | "status" | "fileStatus" | "notCited"
+>;
 
 export function readyQuestionOf({
   own,
@@ -24,8 +27,11 @@ export function readyQuestionOf({
   language: Language;
 }): ReadyQuestion | null {
   if (own.length === 0) return example === null ? null : { question: example, scope: null };
-  // A missing file's text is left out of search, so a Question about it couldn't be answered.
-  const latest = own.find((each) => isSearchable(each.status) && each.fileStatus !== "missing");
+  // A missing file's text is left out of search, and a Document the User kept as their own
+  // workings is never cited: a Question about either one could not be answered and cited.
+  const latest = own.find(
+    (each) => isSearchable(each.status) && each.fileStatus !== "missing" && !each.notCited,
+  );
   if (latest === undefined) return null;
   return {
     question: translate(language, "readyQuestion.document", { document: displayName(latest) }),
