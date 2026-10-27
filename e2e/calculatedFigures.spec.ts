@@ -139,12 +139,18 @@ for (const [language, width] of [
         card.locator(".calculated-figure-input").first().getByRole("button").first(),
       );
       await expect(
-        window.getByTestId("document-viewer").locator(".quote-highlight").first(),
+        window.getByTestId("viewer").locator("[data-quote-highlight]").first(),
       ).toBeVisible({
         timeout: 30_000,
       });
 
       // Convert to text keeps the shown words without the working; Undo brings the figure back.
+      // In a narrow window the Document took the note's place: its tab brings the note back.
+      if (!(await editor.isVisible()))
+        await pointAndClick(window, window.getByRole("tab", { name: /^(It grew|增长了)/ }));
+      await markers.nth(0).focus();
+      await window.keyboard.press("Escape");
+      await expect(card).toBeHidden();
       await pointAndClick(window, figures.nth(1), { button: "right" });
       await pointAndClick(
         window,

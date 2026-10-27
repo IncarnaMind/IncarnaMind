@@ -2,13 +2,12 @@ import { NodeViewWrapper, type ReactNodeViewProps, useEditorState } from "@tipta
 import { useCallback, useContext, useEffect, useMemo, useReducer, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import type * as Y from "yjs";
-import { CLAIM_CHECK_MARK, MIND_FIGURE_RUNS_FIELD } from "../../../core/api";
+import { MIND_FIGURE_RUNS_FIELD } from "../../../core/api";
 import {
   readCalculatedFigureAttributes,
   readCalculatedFigureEvidence,
 } from "../../../shared/calculatedFigures";
 import { commonCitationStyle } from "../../../shared/citationStyles";
-import { readClaimCheck } from "../../../shared/claimChecks";
 import { calculatedCitations, calculatedSources } from "../../../shared/figureRuns";
 import { useMindFormatting } from "../citationFormatting";
 import { useStyleCatalogue } from "../citationStylePicker";
@@ -151,15 +150,7 @@ export function CalculatedFigureView({
       </NodeViewWrapper>
     );
   const figure = attributes.figure;
-  const child = readClaimCheck(node.attrs[CLAIM_CHECK_MARK])?.figures?.find(
-    (child) => child.id === attributes.id,
-  );
-  const replayed =
-    !figure.analysis &&
-    shown.state === "supported" &&
-    child?.calculation !== null &&
-    child?.calculation !== undefined &&
-    JSON.stringify(child.calculation.figure) === JSON.stringify(figure);
+  const replayed = !figure.analysis && shown.recalculated === true;
   const label = t("figures.inline.label", { number, figure: figure.shown });
   const [before = "", after = ""] = t("figures.inline.cluster", { cluster: "\u0000" }).split(
     "\u0000",

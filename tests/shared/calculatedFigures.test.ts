@@ -14,6 +14,7 @@ import {
   readFigureInput,
 } from "../../src/shared/calculatedFigures";
 import { FORMULA_MAX_LENGTH, FORMULA_VERSION } from "../../src/shared/formula";
+import { firstLineOfBlocks } from "../../src/shared/noteBlocks";
 
 function citation(): Citation {
   return {
@@ -321,4 +322,20 @@ test.each([null, true, 1, "{}", []])("non-record input is rejected: %j", (value)
   expect(readFigureInput(value)).toBeNull();
   expect(readCalculatedFigure(value)).toBeNull();
   expect(readCalculatedFigureAttributes(value)).toBeNull();
+});
+
+test("an unnamed note added from an Answer is named with its figure's shown text", () => {
+  const shown = figure().shown;
+  expect(
+    firstLineOfBlocks([
+      {
+        type: "paragraph",
+        content: [
+          { type: "text", text: "Revenue grew " },
+          calculatedFigureNode(figure(), "figure"),
+          { type: "text", text: " on the year." },
+        ],
+      },
+    ]),
+  ).toBe(`Revenue grew ${shown} on the year.`);
 });

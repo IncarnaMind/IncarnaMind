@@ -118,6 +118,8 @@ async function checkWith(options: {
   judgement?: string;
   failure?: { status: number; message: string };
   besideCite?: string;
+  /** The model's search finds nothing, as when it searched with other words. */
+  findsNothing?: boolean;
 }) {
   const body =
     options.body ?? "Revenue in 2024 was £20; revenue in 2025 was £21. The licence has expired.";
@@ -202,7 +204,9 @@ async function checkWith(options: {
     evidence: {
       async search() {
         return {
-          passages: [{ ...source, seq: 1, position: 0, windowFrom: 0, windowTo: 0 }],
+          passages: options.findsNothing
+            ? []
+            : [{ ...source, seq: 1, position: 0, windowFrom: 0, windowTo: 0 }],
           excluded: [],
         };
       },
@@ -501,6 +505,13 @@ test("saved formulas recheck exact UTF-16 spans without another calculate call",
   expect(
     again.calls.flatMap((call) => call.results).some((result) => result.tool === "calculate"),
   ).toBe(false);
+  const elsewhere = await checkWith({
+    figures: [saved],
+    body,
+    findsNothing: true,
+    text: reply([{ ...item(), source: null }]),
+  });
+  expect(elsewhere.result.figures?.[0]?.result.verdict).toBe("supported");
   const changed = {
     ...saved,
     calculated: {

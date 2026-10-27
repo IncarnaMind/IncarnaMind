@@ -315,13 +315,24 @@ export function shownClaims(state: EditorState): readonly ShownClaim[] {
   return claimsKey.getState(state)?.claims ?? [];
 }
 
-export function figureShownIn(state: EditorState, id: string): ClaimCheckShown {
+/**
+ * How a figure's check shows, and whether that check worked it out again from its kept
+ * inputs (a calculated figure's "Inputs found · recalculated").
+ */
+export function figureShownIn(
+  state: EditorState,
+  id: string,
+): ClaimCheckShown & { recalculated?: true } {
   const context = claimsKey.getState(state)?.context ?? NO_CONTEXT;
   for (const span of claimSpans(state.doc)) {
     const child = span.check.figures?.find((figure) => figure.id === id);
     if (!child) continue;
     const now = { ...context, text: span.sentence.text };
-    return span.check.kept ? claimCheckShown(span.check, now) : figureCheckShown(child, now);
+    if (span.check.kept) return claimCheckShown(span.check, now);
+    const shown = figureCheckShown(child, now);
+    return shown.state === "supported" && child.calculation
+      ? { ...shown, recalculated: true }
+      : shown;
   }
   return { state: "not-checked", reason: "unread" };
 }

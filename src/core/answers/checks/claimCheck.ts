@@ -390,6 +390,32 @@ export function createClaimCheck(deps: ClaimCheckDependencies) {
       if (!finished || reply.trim() === "") return notChecked("empty");
       if (readsAsRefusal(reply)) return notChecked("refused");
       if (searches === 0) return notChecked("unread");
+      // A saved figure is worked out again from its own inputs, wherever the model searched.
+      const saved = new Map(
+        request.figures
+          .flatMap((figure) =>
+            figure.calculated && !figure.calculated.figure.analysis
+              ? figure.calculated.figure.inputs
+              : [],
+          )
+          .flatMap((input) => [
+            input.citation,
+            ...(input.unitStatement ? [input.unitStatement.citation] : []),
+          ])
+          .flatMap((citation) => {
+            const source = deps.documents.citationSource(citation.passageId);
+            return source ? [[source.passageId, source] as const] : [];
+          }),
+      );
+      session.show(
+        [...saved.values()].map((source) => ({
+          ...source,
+          seq: 0,
+          position: 0,
+          windowFrom: 0,
+          windowTo: 0,
+        })),
+      );
       session.check();
       return checkFigureReply({
         requested: request.figures,

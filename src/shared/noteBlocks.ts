@@ -161,13 +161,20 @@ export function textLength(blocks: readonly NodeJSON[]): number {
   return blocks.reduce((sum, block) => sum + length(block), 0);
 }
 
+/** A node's words as the note shows them: a calculated figure by its shown text. */
 const textOf = (node: NodeJSON): string =>
-  node.type === "text" ? (node.text ?? "") : (node.content ?? []).map(textOf).join("");
+  node.type === "text"
+    ? (node.text ?? "")
+    : node.type === CALCULATED_FIGURE_NODE
+      ? (readCalculatedFigureAttributes(node.attrs)?.figure.shown ?? "")
+      : (node.content ?? []).map(textOf).join("");
+
+const holdsWords = (node: NodeJSON) => node.type === "text" || node.type === CALCULATED_FIGURE_NODE;
 
 /** The first stretch of text in a Block: a list's first item or a table's first cell, not all of them run together. */
 function firstText(node: NodeJSON): string {
   const children = node.content ?? [];
-  if (node.type === "text" || children.some((child) => child.type === "text")) return textOf(node);
+  if (holdsWords(node) || children.some(holdsWords)) return textOf(node);
   for (const child of children) {
     const text = firstText(child);
     if (text.trim() !== "") return text;

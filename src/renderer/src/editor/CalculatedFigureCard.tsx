@@ -165,7 +165,7 @@ function CalculationQuote({ citation }: { citation: Citation }) {
           type="button"
           onClick={() => openCited(citation, { check: citation.check, withQuote: true })}
         >
-          {t("figures.openSource")}
+          {t("figures.inline.openInput")}
         </button>
       </div>
       <p className="calculated-figure-note">

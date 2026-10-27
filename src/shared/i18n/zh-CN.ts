@@ -717,6 +717,7 @@ export const zhCN = {
   "figures.inline.literal": "{value}，公式中的固定数字",
   "figures.inline.raw": "单元格原始值：{value}",
   "figures.inline.original": "原计算输入",
+  "figures.inline.openInput": "打开",
   "figures.export.sheet": "核对表",
   "figures.export.rules": "核对规则",
   "figures.export.reason": "原因",
