@@ -2,7 +2,7 @@ import type { MessageKey } from "../../../../shared/i18n";
 import { useComposer } from "../../composer";
 import { useT } from "../../i18n";
 import { useAppStore } from "../../store";
-import { settingsPageFor } from "../providers/ChatReadinessNotice";
+import { NeedsModelCard } from "../providers/NeedsModelCard";
 
 const STARTERS: readonly MessageKey[] = [
   "meeting.ask.recap",
@@ -12,25 +12,22 @@ const STARTERS: readonly MessageKey[] = [
 
 /**
  * A new conversation during a call (#144): quick asks that follow the call, each asked at
- * once from the composer, as if typed there. With no AI model ready, one line and Set up instead.
+ * once from the composer, as if typed there. With no AI model ready, first run's key field
+ * in place (#1922), and the asks come back once a model works.
  */
 export function MeetingStarters() {
   const t = useT();
   const readiness = useAppStore((state) => state.chatReadiness);
-  const openSettings = useAppStore((state) => state.openSettings);
   if (readiness && !readiness.ready && readiness.reason === "no-provider") {
     return (
-      <p data-testid="meeting-set-up" className="assistant-empty">
-        {t("meetings.help.setUp")}
-        <span aria-hidden="true"> · </span>
-        <button
-          type="button"
-          onClick={() => openSettings(settingsPageFor(readiness))}
-          className="font-semibold text-accent hover:underline"
-        >
-          {t("providers.readiness.setUp")}
-        </button>
-      </p>
+      <div data-testid="meeting-set-up" className="assistant-empty">
+        <NeedsModelCard
+          line="needsModel.help"
+          testId="meeting-needs-model"
+          autoFocus={false}
+          onDone={() => undefined}
+        />
+      </div>
     );
   }
   return (
