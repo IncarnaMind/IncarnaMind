@@ -39,6 +39,23 @@ test.each([
   },
 );
 
+test("an exact fraction equals a worked-out value as a formula's = compares them", () => {
+  const stated = readFigures("十分之三", { language: "zh-CN" })[0];
+  if (!stated) throw new Error("No figure in 十分之三.");
+  expect(stated.precision).toBeNull();
+  expect(
+    agreesAtShownPrecision(stated, {
+      value: 0.1 + 0.2,
+      unit: stated.unit,
+      inputs: [],
+      formula: "",
+    }),
+  ).toBe(true);
+  expect(
+    agreesAtShownPrecision(stated, { value: 0.31, unit: stated.unit, inputs: [], formula: "" }),
+  ).toBe(false);
+});
+
 test("an old reading without its precision cannot establish rounding", () => {
   const stated = reading("1.2");
   delete stated.precision;

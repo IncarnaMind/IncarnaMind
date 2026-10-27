@@ -455,6 +455,12 @@ export interface AnswerRequest {
    */
   turnChecks?: readonly TurnCheck[];
   /**
+   * For a reply with a form of its own (a check's "Verdict: …"): whether a text is that reply.
+   * A step that says it records a marker ("to record the quote for marker [^1]") beside `cite`
+   * then doesn't end the Run as an Answer would; the model goes on to write the reply.
+   */
+  isReply?(text: string): boolean;
+  /**
    * How much of a reply being written may show while it streams: up to the
    * first sentence that may claim a change, which waits for the checks.
    * Absent: all of it.
@@ -1912,18 +1918,17 @@ async function* toolLoop(
     endsAfter: (step) => {
       const recordsOnly =
         step.calls.length > 0 && step.calls.every((call) => recording(offered.get(call.tool)));
+      const reply = (text: string) => MARKER.test(text) && (request.isReply?.(text) ?? true);
       if (!request.writeThenCite) {
         return (
           cite !== null &&
-          MARKER.test(step.text) &&
+          reply(step.text) &&
           recordsOnly &&
           step.calls.every((call) => askedForFixes.get(call.id) === false)
         );
       }
       if (recordsOnly) besideRecords += step.text;
-      return (
-        cite !== null && recordsOnly && MARKER.test(besideRecords) && owesNothing(besideRecords)
-      );
+      return cite !== null && recordsOnly && reply(besideRecords) && owesNothing(besideRecords);
     },
     temperature,
     signal: AbortSignal.any([signal, rambling.signal]),

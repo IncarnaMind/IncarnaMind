@@ -4,17 +4,14 @@ import type { Citation, FigureSchedule, FigureScheduleRow } from "../../../../co
 import { formatDateTime } from "../../../../shared/dates";
 import {
   childrenOf,
-  differenceText,
   type FigureFilter,
   lineRef,
-  reasonKey,
+  lineShows,
+  notCheckedYet,
   type ScheduleLine,
   scheduleLines,
   selectedFigures,
   sourceOf,
-  sourceValueText,
-  statusKey,
-  writtenLike,
 } from "../../../../shared/figureSchedule";
 import { sourceText } from "../../../../shared/sources";
 import { useLanguage, useT } from "../../i18n";
@@ -46,10 +43,6 @@ export interface FigureScheduleViewProps {
 const FILTERS = ["all", "look", "supported", "not-checked"] as const;
 
 /** The figures whose rows show an outcome the last Check gave them. */
-const settled = (row: FigureScheduleRow) =>
-  row.shown.state !== "not-checked" &&
-  row.shown.state !== "checking" &&
-  row.shown.state !== "needs-recheck";
 
 export function FigureScheduleView(props: FigureScheduleViewProps) {
   const { schedule } = props;
@@ -68,7 +61,7 @@ export function FigureScheduleView(props: FigureScheduleViewProps) {
   const shownExpanded = new Set(
     [...expanded].filter((id) => {
       const row = schedule?.rows.find((each) => each.id === id);
-      return row !== undefined && hasKids(row, schedule?.rows ?? []);
+      return row !== undefined && hasKids(row, schedule);
     }),
   );
   const lines = schedule ? scheduleLines(schedule, filter, statusSort, shownExpanded) : [];
@@ -105,33 +98,15 @@ export function FigureScheduleView(props: FigureScheduleViewProps) {
     return () => useSelection.getState().clear("figures");
   }, [mindId]);
 
-  const sourceLabel = (line: ScheduleLine) => {
-    const citation = sourceOf(line);
-    return citation ? sourceText(citation, { language, documents }).text : "";
-  };
-  const statusLabel = (line: ScheduleLine) => {
-    if (line.omitted) return t("figures.notInTable");
-    if (line.input)
-      return t(
-        line.input.citation.check === "found" ? "claim.state.supported" : "claim.state.not-checked",
-      );
-    if (line.component) return "";
-    const reason = reasonKey(line.parent);
-    const word =
-      line.parent.shown.state === "supported" ||
-      line.parent.shown.state === "kept" ||
-      line.parent.shown.state === "not-checked" ||
-      line.parent.shown.state === "checking"
-        ? t(statusKey(line.parent))
-        : t("figures.filter.look");
-    return reason ? `${word}: ${t(reason)}` : word;
-  };
-  const copy = (fallback?: ScheduleLine) => {
+  /** A row's menu copies what its actions act on: the selection when it holds the row. */
+  const copy = (from?: ScheduleLine) => {
     const chosen = allLines.filter((line) => selectedIds.has(lineRef(mindId, line).id));
-    const copied = chosen.length
-      ? chosen
-      : fallback
-        ? [fallback]
+    const copied = from
+      ? chosen.some((line) => line.id === from.id)
+        ? chosen
+        : [from]
+      : chosen.length > 0
+        ? chosen
         : lines.filter((line) => line.id === shownCurrent);
     if (copied.length === 0) return;
     const head = [
@@ -143,31 +118,19 @@ export function FigureScheduleView(props: FigureScheduleViewProps) {
       t("figures.status"),
     ];
     const body = copied.map((line) => {
-      const kid = line.id !== line.parent.id;
-      const unchecked =
-        !kid && !settled(line.parent) && line.parent.shown.state !== "needs-recheck";
+      const shows = lineShows(line, language);
+      const status = shows.status;
       return [
-        kid ? "" : String(line.parent.number),
-        line.input?.label ??
-          (line.component
-            ? (line.component.place.table?.rowLabel ?? "")
-            : line.parent.reading.chars),
-        line.input
-          ? line.omitted
-            ? writtenLike(
-                line.parent.reading,
-                line.input.number.value,
-                line.parent.reading.decimals,
-              )
-            : line.input.number.chars
-          : line.component
-            ? line.component.reading.chars
-            : unchecked
-              ? ""
-              : (sourceValueText(line.parent) ?? ""),
-        unchecked || line.component || line.omitted ? "" : sourceLabel(line),
-        kid || unchecked ? "" : (differenceText(line.parent, language) ?? ""),
-        statusLabel(line),
+        line.id === line.parent.id ? String(line.parent.number) : "",
+        shows.name,
+        shows.value ?? "",
+        shows.formula !== null
+          ? `${t("figures.calculated")} · ${shows.formula}`
+          : shows.citation
+            ? sourceText(shows.citation, { language, documents }).text
+            : "",
+        shows.difference ?? "",
+        status ? (status.why ? `${t(status.word)}: ${t(status.why)}` : t(status.word)) : "",
       ];
     });
     const escaped = (text: string) =>
@@ -263,7 +226,7 @@ export function FigureScheduleView(props: FigureScheduleViewProps) {
     if (
       event.key === "ArrowRight" &&
       line.id === line.parent.id &&
-      hasKids(line.parent, schedule?.rows ?? [])
+      hasKids(line.parent, schedule)
     ) {
       event.preventDefault();
       if (!expanded.has(line.parent.id)) toggle(line.parent.id, true);
@@ -441,7 +404,7 @@ export function FigureScheduleView(props: FigureScheduleViewProps) {
                   line={line}
                   mindId={mindId}
                   current={shownCurrent}
-                  expandable={line.id === line.parent.id && hasKids(line.parent, schedule.rows)}
+                  expandable={line.id === line.parent.id && hasKids(line.parent, schedule)}
                   expanded={shownExpanded.has(line.parent.id)}
                   chosen={
                     parentIds.includes(line.parent.id) && parentIds.length > 1
@@ -464,7 +427,7 @@ export function FigureScheduleView(props: FigureScheduleViewProps) {
 }
 
 /** A figure that unfolds: a calculated one to its inputs, a total to the rows it adds, once checked. */
-function hasKids(row: FigureScheduleRow, rows: readonly FigureScheduleRow[]): boolean {
-  if (row.shown.state === "not-checked" || row.shown.state === "checking") return false;
-  return childrenOf(row, rows).length > 0;
+function hasKids(row: FigureScheduleRow, schedule: FigureSchedule | null): boolean {
+  if (!schedule || notCheckedYet(row)) return false;
+  return childrenOf(row, schedule).length > 0;
 }

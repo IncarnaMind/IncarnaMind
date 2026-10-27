@@ -8,9 +8,11 @@
 import { citedLocation } from "../../shared/citations";
 import { formatFullDateTime } from "../../shared/dates";
 import {
+  childrenOf,
   differenceText,
   figurePlaceText,
   footingNotes,
+  lineShows,
   reasonKey,
   sourceValueText,
   statusKey,
@@ -147,37 +149,31 @@ export function figureScheduleBook(
         text("reason", unchecked ? "" : figureReason(row, language), true),
       ],
     };
-    const inputs = unchecked ? [] : (row.calculated?.figure.inputs ?? []);
+    // What it is worked out from, a formula's inputs or the ranges and figures its Analysis read.
+    const inputs = unchecked
+      ? []
+      : childrenOf(row, schedule).filter((line) => line.input !== undefined || line.range);
     return [
       figureRow,
-      ...inputs.map((input, index): SheetRow => {
-        const id = `${row.id}:input:${index}`;
-        const sourceRow = cite(`${row.reading.chars} · ${input.label}`, id, input.citation);
+      ...inputs.map((line): SheetRow => {
+        const shows = lineShows(line, language);
+        const cited = shows.citation;
+        const sourceRow = cited
+          ? cite(`${row.reading.chars} · ${shows.name}`, line.id, cited)
+          : null;
         return {
-          id,
+          id: line.id,
           cells: [
-            text("figure", input.label),
-            amount("sourceValue", input.number.chars),
+            text("figure", shows.name),
+            amount("sourceValue", shows.value),
             {
-              ...text("document", input.citation.documentName, true),
-              link: { sheet: SOURCES, row: sourceRow, column: "document" },
+              ...text("document", cited?.documentName ?? "", true),
+              ...(sourceRow && { link: { sheet: SOURCES, row: sourceRow, column: "document" } }),
             },
-            text("location", citedLocation(input.citation, t) ?? ""),
-            text("quote", input.citation.quote, true),
-            text(
-              "status",
-              t(
-                input.citation.check === "found"
-                  ? "claim.state.supported"
-                  : input.citation.check === "not-found"
-                    ? "figures.filter.look"
-                    : "claim.state.not-checked",
-              ),
-            ),
-            text(
-              "reason",
-              input.citation.check === "not-found" ? t("claim.why.quoteNotFound") : "",
-            ),
+            text("location", cited ? (citedLocation(cited, t) ?? "") : ""),
+            text("quote", cited?.quote ?? "", true),
+            text("status", shows.status ? t(shows.status.word) : ""),
+            text("reason", shows.status?.why ? t(shows.status.why) : ""),
           ],
         };
       }),

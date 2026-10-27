@@ -3,11 +3,13 @@ import { act, type ComponentType, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import type { Citation, FigureInput, FigureSchedule, FigureScheduleRow } from "../../src/core/api";
+import type { CommandContext } from "../../src/renderer/src/commands/registry";
 import {
   childrenOf,
   differenceText,
   footingNotes,
   lineRef,
+  lineShows,
   scheduleLines,
   selectedFigures,
   sourceOf,
@@ -179,7 +181,7 @@ test("bulk parent IDs exclude input selections and omitted Source rows on both a
     })),
   });
   const source = schedule([row("first", 1), calculated, total]);
-  const children = childrenOf(total, source.rows);
+  const children = childrenOf(total, source);
   expect(children.map((line) => [line.axis, !!line.omitted])).toEqual([
     ["row", false],
     ["row", true],
@@ -561,6 +563,90 @@ test("the keyboard moves, opens, outlines, unfolds a calculated figure's inputs 
   );
   expect(text).toContain("\tRevenue 2026\t1,200\t");
   expect(html).toContain("<th>Source value</th>");
+});
+
+test("a row's Copy copies the rows its menu acts on: that row, unless the selection holds it", async () => {
+  await render(schedule([row("a", 1), row("b", 2)]));
+  await click(mainOf("a"));
+  await click(button("Copy", menuOf("b") ?? container));
+  await act(async () => {});
+  expect(state.copied.mock.lastCall?.[0]).toMatch(/\n2\t20.0%\t/);
+  expect(state.copied.mock.lastCall?.[0]).not.toMatch(/\n1\t/);
+  await click(mainOf("b"), { ctrlKey: true });
+  await click(button("Copy", menuOf("b") ?? container));
+  await act(async () => {});
+  expect(state.copied.mock.lastCall?.[0]).toMatch(/\n1\t20.0%\t[^\n]*\n2\t20.0%\t/);
+});
+
+test("a line copies as it reads: an input whose quote isn't found, and a column total's parts by their column", () => {
+  const lost = { ...input, citation: { ...citation, check: "not-found" as const } };
+  const parent = row("calculated", 2, {
+    calculated: calculated.calculated && {
+      ...calculated.calculated,
+      figure: { ...calculated.calculated.figure, inputs: [lost] },
+    },
+  });
+  expect(lineShows({ id: "kid", parent, input: lost }, "en").status).toEqual({
+    glyph: "look",
+    word: "figures.filter.look",
+    why: "claim.why.quoteNotFound",
+  });
+  const part = row("q3", 1, {
+    place: {
+      heading: null,
+      paragraph: 1,
+      table: { row: 1, column: 2, rowLabel: "Revenue", columnLabel: "Q3" },
+    },
+  });
+  const total = row("total", 3);
+  expect(lineShows({ id: "kid", parent: total, component: part, axis: "column" }, "en").name).toBe(
+    "Q3",
+  );
+  expect(lineShows({ id: "kid", parent: total, component: part, axis: "row" }, "en").name).toBe(
+    "Revenue",
+  );
+});
+
+test("⌘K offers the menu's actions on the figures chosen in the schedule, saying how many", async () => {
+  const { figureScheduleCommands } = await import("../../src/renderer/src/commands/figures");
+  const { figureScheduleHandle } = await import(
+    "../../src/renderer/src/components/figures/figureScheduleHandle"
+  );
+  const unread = (id: string, number: number) =>
+    row(id, number, { shown: { state: "not-checked", reason: "unread" } });
+  const shown = schedule([unread("a", 1), unread("b", 2), row("c", 3)]);
+  const keep = vi.fn();
+  const checkAgain = vi.fn();
+  figureScheduleHandle.current = { schedule: shown, keep, checkAgain };
+  const refOf = (id: string) => {
+    const each = shown.rows.find((candidate) => candidate.id === id);
+    if (!each) throw new Error(`No row ${id}`);
+    return lineRef("note", { id, parent: each });
+  };
+  const ctx: CommandContext = {
+    selection: [refOf("a"), refOf("b")],
+    focus: null,
+    surface: "palette",
+  };
+  const t = (key: Parameters<typeof translate>[1], params?: Parameters<typeof translate>[2]) =>
+    translate("en", key, params);
+  const [check, kept] = ["figures.checkChosen", "figures.keepChosen"].map((id) => {
+    const command = figureScheduleCommands.find((each) => each.id === id);
+    if (!command) throw new Error(`No command ${id}`);
+    return command;
+  });
+  const label = (command: typeof check) =>
+    typeof command?.label === "function" ? command.label(ctx, t) : command?.label;
+  expect(label(check)).toBe("Check 2 figures again");
+  expect(label(kept)).toBe("Keep 2 figures as my view");
+  expect(check?.when?.(ctx)).toBe(true);
+  check?.run(ctx);
+  expect(checkAgain).toHaveBeenLastCalledWith(["a", "b"]);
+  kept?.run(ctx);
+  expect(keep).toHaveBeenLastCalledWith(["a", "b"]);
+  expect(check?.when?.({ ...ctx, selection: [refOf("c")] })).toBe(false);
+  figureScheduleHandle.current = null;
+  expect(kept?.when?.(ctx)).toBe(false);
 });
 
 test("a figure not checked yet has nothing to open: Enter says so", async () => {

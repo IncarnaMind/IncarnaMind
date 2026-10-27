@@ -66,6 +66,8 @@ const SEGMENTS_2025: [string, number][] = [
   ["Other", 170],
 ];
 
+// Revenue (£4,983.4m) isn't the segments' total (£4,980m): the memo's £4,983m is rounded from
+// one source only, where £4,980m would be the segment total stated exactly.
 const PACKS: Record<string, Pack> = {
   en: {
     accounts: {
@@ -76,8 +78,8 @@ const PACKS: Record<string, Pack> = {
           rows: [
             ["All figures in £m"],
             ["Line", "Q3 2026", "Q3 2025"],
-            ["Revenue", 4979.6, 4860.0],
-            ["Cost of sales", 3057.6, 2891.7],
+            ["Revenue", 4983.4, 4860.0],
+            ["Cost of sales", 3061.4, 2891.7],
             ["Gross profit", 1922.0, 1968.3],
             ["Operating costs", 1262.4, 1201.5],
             ["EBITDA", 1840.0, 1795.0],
@@ -107,7 +109,7 @@ const PACKS: Record<string, Pack> = {
       text: [
         "# Northwind Retail: third quarter 2026 results",
         "",
-        "Revenue was £4,979.6m in the third quarter of 2026, up from £4,860.0m a year earlier.",
+        "Revenue was £4,983.4m in the third quarter of 2026, up from £4,860.0m a year earlier.",
         "",
         "Gross margin was 38.6%, against 40.5% in the third quarter of 2025.",
         "",
@@ -125,9 +127,9 @@ const PACKS: Record<string, Pack> = {
     title: "Q3 2026 results memo",
     paragraphs: [
       {
-        text: "Revenue was £4,980m, up from £4,860m a year earlier.",
+        text: "Revenue was £4,983m, up from £4,860m a year earlier.",
         figures: [
-          ["£4,980m", "rounded"],
+          ["£4,983m", "rounded"],
           ["£4,860m", "supported"],
         ],
       },
@@ -186,7 +188,7 @@ const PACKS: Record<string, Pack> = {
       },
       { text: "Free cash flow was £48m in the quarter.", figures: [["£48m", "wrong"]] },
       { text: "Operating costs were £1,262m.", figures: [["£1,262m", "rounded"]] },
-      { text: "Cost of sales was £3,057.6m.", figures: [["£3,057.6m", "supported"]] },
+      { text: "Cost of sales was £3,061.4m.", figures: [["£3,061.4m", "supported"]] },
       {
         text: "Groceries sold £2,160m, fresh food £1,420m and fuel £510m in the quarter.",
         figures: [
@@ -196,7 +198,7 @@ const PACKS: Record<string, Pack> = {
         ],
       },
       {
-        text: "Clothing brought in £300m and other income £130m in the quarter.",
+        text: "Clothing brought in £300m and the Other segment £130m in the quarter.",
         figures: [
           ["£300m", "supported"],
           ["£130m", "supported"],
@@ -240,8 +242,8 @@ const PACKS: Record<string, Pack> = {
           rows: [
             ["单位：人民币百万元"],
             ["项目", "2026年第三季度", "2025年第三季度"],
-            ["营业收入", 4979.6, 4860.0],
-            ["营业成本", 3057.6, 2891.7],
+            ["营业收入", 4983.4, 4860.0],
+            ["营业成本", 3061.4, 2891.7],
             ["毛利", 1922.0, 1968.3],
             ["营业费用", 1262.4, 1201.5],
             ["息税折旧摊销前利润", 1840.0, 1795.0],
@@ -272,7 +274,7 @@ const PACKS: Record<string, Pack> = {
       text: [
         "# 诺斯文德零售2026年第三季度业绩",
         "",
-        "2026年第三季度营业收入为人民币4,979.6百万元，上年同期为人民币4,860.0百万元。",
+        "2026年第三季度营业收入为人民币4,983.4百万元，上年同期为人民币4,860.0百万元。",
         "",
         "毛利率为38.6%，2025年第三季度为40.5%。",
         "",
@@ -290,9 +292,9 @@ const PACKS: Record<string, Pack> = {
     title: "2026年第三季度业绩备忘录",
     paragraphs: [
       {
-        text: "营业收入为49.80亿元，上年同期为48.60亿元。",
+        text: "营业收入为49.83亿元，上年同期为48.60亿元。",
         figures: [
-          ["49.80亿元", "rounded"],
+          ["49.83亿元", "rounded"],
           ["48.60亿元", "supported"],
         ],
       },
@@ -345,7 +347,7 @@ const PACKS: Record<string, Pack> = {
       },
       { text: "本季度自由现金流为0.48亿元。", figures: [["0.48亿元", "wrong"]] },
       { text: "营业费用为12.62亿元。", figures: [["12.62亿元", "rounded"]] },
-      { text: "营业成本为30.576亿元。", figures: [["30.576亿元", "supported"]] },
+      { text: "营业成本为30.614亿元。", figures: [["30.614亿元", "supported"]] },
       {
         text: "本季度日用食品收入21.60亿元，生鲜食品14.20亿元，燃油5.10亿元。",
         figures: [
@@ -355,7 +357,7 @@ const PACKS: Record<string, Pack> = {
         ],
       },
       {
-        text: "本季度服装收入3.00亿元，其他收入1.30亿元。",
+        text: "本季度服装分部收入3.00亿元，“其他”分部收入1.30亿元。",
         figures: [
           ["3.00亿元", "supported"],
           ["1.30亿元", "supported"],

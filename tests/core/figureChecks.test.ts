@@ -657,6 +657,18 @@ test("saved formulas recheck exact UTF-16 spans without another calculate call",
   expect(retained.result.figures?.[0]?.sourceInput).toBeNull();
 });
 
+test("narration with a marker beside cite isn't taken for the reply: the model goes on to write it", async () => {
+  const { result, calls } = await checkWith({
+    figures: [target("f1", "£20", "Revenue in 2024")],
+    besideCite: "Calling cite now to record the quote for marker [^1].",
+    text: reply([
+      { ...item(), source: { citation: 1, number: "£20", reading: null, unitQuote: null } },
+    ]),
+  });
+  expect(result.figures?.[0]?.result.verdict).toBe("supported");
+  expect(calls.length).toBeGreaterThan(2);
+});
+
 test("a verdict with no Figures line is asked for it once, and the reply that has it binds", async () => {
   const asked = await checkWith({
     figures: [target("f1")],
@@ -689,6 +701,32 @@ function cell(id: string, shown: string, header: string): CheckFigure {
   if (!reading) throw new Error("Missing cell reading");
   return { ...target(id, shown, "Clothing Q3 2026"), reading };
 }
+
+test.each([
+  { shown: "300", reading: null, verdict: "supported" },
+  { shown: "330", reading: null, verdict: "contradicted" },
+  { shown: "330", reading: 2, verdict: "contradicted" },
+])(
+  "a bare cell under the note's “(£m)” heading needs no reading named when its source states the frame: $shown, reading $reading",
+  async ({ shown, reading, verdict }) => {
+    const unitQuote = "All figures in £m";
+    const { result } = await checkWith({
+      figures: [cell("f1", shown, "Q3 2026 (£m)")],
+      body: SEGMENTS,
+      units: segments(SEGMENTS),
+      quotes: ["Clothing\t300\t310", unitQuote],
+      text: reply([
+        {
+          ...item(),
+          verdict,
+          reading,
+          source: { citation: 1, number: "300", reading: null, unitQuote },
+        },
+      ]),
+    });
+    expect(result.figures?.[0]?.result.verdict).toBe(verdict);
+  },
+);
 
 test.each([
   { unitQuote: "All figures in £m", verdict: "supported" },
@@ -734,6 +772,51 @@ test("a figure given a currency its Document never states is Unsupported, and sa
   });
   expect(result).toMatchObject({ verdict: "unsupported", unsupported: { found: true } });
 });
+
+test.each([
+  {
+    name: "a source in millions",
+    body: "Net debt (in millions)\n528.9",
+    shown: "£518.9m",
+    reply: reply([
+      {
+        ...item(),
+        source: { citation: 1, number: "528.9", reading: null, unitQuote: "in millions" },
+      },
+    ]),
+  },
+  {
+    name: "a calculation over bare digits",
+    body: "Net debt 528,900,000",
+    shown: "£518,900,000",
+    calculations: [
+      {
+        marker: 2,
+        label: "Net debt",
+        formula: "source",
+        stated: "£518,900,000",
+        relation: "equals",
+        inputs: [{ name: "source", label: "Net debt", citation: 1, position: 1 }],
+      },
+    ],
+    reply: reply([{ ...item(), source: null, calculation: 2 }]),
+  },
+])(
+  "$name gives a figure in a currency it never states no contradiction, only Unsupported",
+  async ({ body, shown, calculations, reply: text }) => {
+    const { result } = await checkWith({
+      figures: [target("f1", shown, "Net debt")],
+      claim: `Net debt was ${shown}.`,
+      body,
+      ...(calculations && { calculations }),
+      text,
+    });
+    expect(result.figures?.[0]?.result).toMatchObject({
+      verdict: "unsupported",
+      unsupported: { uncovered: expect.stringContaining("£") },
+    });
+  },
+);
 
 test("a source may give its quote in place of a marker, as calculate takes one", async () => {
   const quoted = {

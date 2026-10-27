@@ -548,9 +548,7 @@ export function HealthCard({
           resetsAt={problem.error.resetsAt ?? null}
           signInRoute={problem.error.signInRoute ?? null}
           details={problem.error.message}
-          onRetry={() =>
-            void startMindCheck(mindId, problem.mode, { allDocuments: problem.allDocuments })
-          }
+          onRetry={problem.retry}
           onOpenSettings={openSettings}
         />
       )}

@@ -36,6 +36,16 @@ describe("figureFooting", () => {
     ]);
   });
 
+  test("exact fractions add up as a formula's = compares them", () => {
+    const zh = { language: "zh-CN" } as const;
+    const [facts] = figureFooting([
+      entry("a", "甲", "十分之一", zh),
+      entry("b", "乙", "五分之一", zh),
+      entry("total", "合计", "十分之三", zh),
+    ]);
+    expect(facts).toMatchObject({ id: "total", componentIds: ["a", "b"], agrees: true });
+  });
+
   test.each([
     ["Subtotal", "Total", "Grand total"],
     ["小计", "合计", "总计"],
@@ -355,7 +365,9 @@ describe("figureFooting", () => {
     ["0.75‰", "0.75‰", "1‰", false],
     ["六分之一", "六分之一", "三分之一", true],
     ["0.2", "0.2", "三分之一", false],
-    ["0.333333333333333", "0", "三分之一", false],
+    // An exact total agrees as a formula's "=" compares, on the 15 digits Excel keeps.
+    ["0.333333333333333", "0", "三分之一", true],
+    ["0.3333", "0", "三分之一", false],
   ] as const)("uses the reader's actual precision for %s plus %s at %s", (a, b, total, agrees) => {
     expect(
       figureFooting([entry("a", "A", a), entry("b", "B", b), entry("total", "Total", total)]),

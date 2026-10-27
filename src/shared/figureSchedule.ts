@@ -1,4 +1,5 @@
 import type {
+  AnalysisRangeInput,
   Citation,
   FigureFinding,
   FigureInput,
@@ -7,6 +8,7 @@ import type {
 } from "../core/api";
 import type { Language } from "../core/language";
 import type { Figure, FigureUnit, Reading } from "./figures";
+import { formulaText } from "./formula";
 import { type MessageKey, translate } from "./i18n";
 
 export type FigureFilter = "all" | "look" | "supported" | "not-checked";
@@ -14,6 +16,8 @@ export interface ScheduleLine {
   id: string;
   parent: FigureScheduleRow;
   input?: FigureInput;
+  /** A sheet range an Analysis behind the figure read. */
+  range?: AnalysisRangeInput;
   component?: FigureScheduleRow;
   omitted?: boolean;
   axis?: "row" | "column";
@@ -57,17 +61,32 @@ export function reasonKey(row: FigureScheduleRow): MessageKey | null {
 
 export function sourceOf(line: ScheduleLine): Citation | null {
   if (line.input) return line.input.citation;
+  if (line.range) return line.range.citation;
   const row = line.component ?? line.parent;
   return row.sourceInput?.citation ?? row.source ?? null;
 }
 
+/** What a calculated figure is worked out from: its formula's inputs, or what its Analysis read. */
+function inputsOf(
+  row: FigureScheduleRow,
+  analyses: FigureSchedule["analyses"],
+): Pick<ScheduleLine, "input" | "range">[] {
+  const calculated = row.calculated;
+  if (!calculated) return [];
+  if (!calculated.figure.analysis) return calculated.figure.inputs.map((input) => ({ input }));
+  const run = analyses.find((each) => each.id === calculated.analysisId);
+  return (run?.inputs ?? []).map((each) =>
+    each.kind === "figure" ? { input: each.input } : { range: each },
+  );
+}
+
 export function childrenOf(
   row: FigureScheduleRow,
-  rows: readonly FigureScheduleRow[],
+  { rows, analyses }: Pick<FigureSchedule, "rows" | "analyses">,
 ): ScheduleLine[] {
   const children: ScheduleLine[] = [];
-  for (const [index, input] of (row.calculated?.figure.inputs ?? []).entries())
-    children.push({ id: `${row.id}:input:${index}`, parent: row, input });
+  for (const [index, input] of inputsOf(row, analyses).entries())
+    children.push({ id: `${row.id}:input:${index}`, parent: row, ...input });
   for (const footing of row.footing) {
     for (const id of footing.componentIds) {
       const component = rows.find((candidate) => candidate.id === id);
@@ -105,7 +124,7 @@ export function scheduleLines(
     parents.sort((a, b) => ranks[figureGroup(a)] - ranks[figureGroup(b)] || a.number - b.number);
   return parents.flatMap((parent) => [
     { id: parent.id, parent },
-    ...(expanded.has(parent.id) ? childrenOf(parent, schedule.rows) : []),
+    ...(expanded.has(parent.id) ? childrenOf(parent, schedule) : []),
   ]);
 }
 
@@ -210,6 +229,118 @@ export function differenceText(row: FigureScheduleRow, language: Language): stri
       }).format(Math.abs(row.difference) * 100)}`,
     });
   return `${sign}${writtenLike(row.reading, row.difference, decimals)}`;
+}
+
+export type ScheduleGlyph = "supported" | "look" | "recheck" | "not-checked" | "kept";
+
+/** A line's status: its glyph, its word and, when it needs a look, why. */
+export interface LineStatus {
+  glyph: ScheduleGlyph;
+  word: MessageKey;
+  why: MessageKey | null;
+}
+
+/**
+ * What a schedule line shows in each column, the one reading the schedule, Copy and the
+ * workpaper all write: the figure or its input's name, the source value, where it comes from
+ * (a Citation, or for a calculated figure its formula, read by the view), the Difference and
+ * the status. Null where the column is empty.
+ */
+export interface LineShows {
+  name: string;
+  value: string | null;
+  citation: Citation | null;
+  /** A calculated figure's formula, in its inputs' names. */
+  formula: string | null;
+  difference: string | null;
+  status: LineStatus | null;
+}
+
+const citationStatus = (citation: Citation): LineStatus =>
+  citation.check === "found"
+    ? { glyph: "supported", word: "claim.state.supported", why: null }
+    : citation.check === "not-found"
+      ? { glyph: "look", word: "figures.filter.look", why: "claim.why.quoteNotFound" }
+      : { glyph: "not-checked", word: "claim.state.not-checked", why: null };
+
+export function rowGlyph(row: FigureScheduleRow): ScheduleGlyph {
+  const group = figureGroup(row);
+  if (row.shown.state === "needs-recheck") return "recheck";
+  if (group === "checking") return "not-checked";
+  return group;
+}
+
+/** A row that isn't checked yet shows no source, value or Difference. */
+export const notCheckedYet = (row: FigureScheduleRow): boolean =>
+  row.shown.state === "not-checked" || row.shown.state === "checking";
+
+export function lineShows(line: ScheduleLine, language: Language): LineShows {
+  const { parent } = line;
+  if (line.input) {
+    return {
+      name: line.input.label,
+      value: line.omitted
+        ? writtenLike(parent.reading, line.input.number.value, parent.reading.decimals)
+        : line.input.number.chars,
+      citation: line.omitted ? null : line.input.citation,
+      formula: null,
+      difference: null,
+      status: line.omitted
+        ? { glyph: "look", word: "figures.notInTable", why: null }
+        : citationStatus(line.input.citation),
+    };
+  }
+  if (line.range) {
+    return {
+      name: line.range.name,
+      value: translate(language, "figures.range", {
+        range: line.range.range,
+        count: new Intl.NumberFormat(language).format(line.range.rows),
+      }),
+      citation: line.range.citation,
+      formula: null,
+      difference: null,
+      status: citationStatus(line.range.citation),
+    };
+  }
+  if (line.component) {
+    const place = line.component.place.table;
+    return {
+      name:
+        (line.axis === "column" ? place?.columnLabel : place?.rowLabel) ||
+        line.component.reading.chars,
+      value: line.component.reading.chars,
+      citation: null,
+      formula: null,
+      difference: null,
+      status: null,
+    };
+  }
+  const unchecked = notCheckedYet(parent);
+  const glyph = rowGlyph(parent);
+  return {
+    name: parent.reading.chars,
+    value: unchecked ? null : sourceValueText(parent),
+    citation:
+      unchecked || parent.calculated
+        ? null
+        : (parent.sourceInput?.citation ?? parent.source ?? null),
+    formula: parent.calculated
+      ? formulaText(
+          parent.calculated.figure.formula,
+          (name) =>
+            parent.calculated?.figure.inputs.find(
+              (each) => each.name.toLowerCase() === name.toLowerCase(),
+            )?.label ?? null,
+        )
+      : null,
+    difference: unchecked ? null : differenceText(parent, language),
+    status: {
+      glyph,
+      word: glyph === "look" || glyph === "recheck" ? "figures.filter.look" : statusKey(parent),
+      why: reasonKey(parent),
+    },
+  };
 }
 
 /** A total's footing, as its row explains it under the figure. */
