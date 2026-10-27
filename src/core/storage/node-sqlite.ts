@@ -1,5 +1,6 @@
 import { DatabaseSync, type StatementSync } from "node:sqlite";
 import { isRecord } from "../errors";
+import { probeStep } from "../startupProbe";
 import type { Database, SqlValue } from "./database";
 
 /**
@@ -7,9 +8,13 @@ import type { Database, SqlValue } from "./database";
  * Electron's Node (24), so it needs no native module build.
  */
 export function openNodeSqlite(file: string): Database {
+  probeStep("sqlite-open-start");
   const db = new DatabaseSync(file);
+  probeStep("sqlite-open-done");
   try {
+    probeStep("sqlite-wal-start");
     db.exec("PRAGMA journal_mode = WAL");
+    probeStep("sqlite-wal-ready");
   } catch (error) {
     if (
       process.platform !== "win32" ||
@@ -23,8 +28,13 @@ export function openNodeSqlite(file: string): Database {
     const deadline = performance.now() + 5_000;
     const pause = new Int32Array(new SharedArrayBuffer(4));
     let failure = error;
-    for (;;) {
+    for (let attempt = 1; ; attempt++) {
       const remaining = deadline - performance.now();
+      probeStep("sqlite-wal-retry", {
+        attempt,
+        errcode: isRecord(failure) ? failure.errcode : null,
+        remainingMs: Math.round(remaining),
+      });
       if (remaining <= 0) throw failure;
       Atomics.wait(pause, 0, 0, Math.min(250, remaining));
       if (performance.now() >= deadline) throw failure;
@@ -37,6 +47,7 @@ export function openNodeSqlite(file: string): Database {
         continue;
       }
       if (performance.now() >= deadline) throw failure;
+      probeStep("sqlite-wal-recovered", { attempt });
       break;
     }
   }

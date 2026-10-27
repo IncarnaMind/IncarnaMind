@@ -23,6 +23,7 @@ import { DataFromNewerVersionError } from "../core/errors";
 import type { Language } from "../core/language";
 import { defaultOllamaUrl } from "../core/providers/kinds";
 import { installedOllamaModels } from "../core/providers/ollama";
+import { probeStep } from "../core/startupProbe";
 import { channelFor, EVENT_CHANNEL } from "../shared/bridge";
 import { translate } from "../shared/i18n";
 import { ANALYSIS_SCHEME_PRIVILEGES } from "./analysis";
@@ -395,6 +396,7 @@ async function showUpdateProblem(
 
 app.whenReady().then(async () => {
   if (!ownsDataFolder) return;
+  probeStep("main-ready");
   if (instance.kind === "owner") instance.owner.starting();
   showDevelopmentDockIcon();
   const createChatModel = await testChatModel();
@@ -403,10 +405,13 @@ app.whenReady().then(async () => {
   if (instance.kind === "owner") instance.owner.starting();
   // The window's page starts loading while the core starts. Its calls reach the core once
   // `exposeCore` has run, below: they wait until this synchronous run is done.
+  probeStep("main-window-creating");
   createWindow();
+  probeStep("main-window-returned");
   logger.info("app.startup.windowReturned");
   try {
     const adapters = createElectronAdapters(logger);
+    probeStep("main-adapters-ready");
     logger.info("app.startup.adaptersReady");
     core = createCore({
       ...adapters,
@@ -421,6 +426,7 @@ app.whenReady().then(async () => {
       }),
       ...(taskKinds.length > 0 && { taskKinds }),
     });
+    probeStep("main-core-created");
     logger.info("app.startup.coreReady");
   } catch (error) {
     await showStartupError(error);
@@ -428,6 +434,7 @@ app.whenReady().then(async () => {
     return;
   }
   exposeCore(core);
+  probeStep("main-core-exposed");
   const settleQuit = guardQuit(
     core,
     () => BrowserWindow.getFocusedWindow() ?? appWindows()[0] ?? null,
@@ -549,6 +556,7 @@ app.whenReady().then(async () => {
   // A Meeting saves what it has before the computer sleeps, and records again when it wakes.
   powerMonitor.on("suspend", () => core?.systemSleeping());
   powerMonitor.on("resume", () => core?.systemAwake());
+  probeStep("main-host-ready");
   startupComplete = true;
   finishStartup();
   logger.info("app.startup.hostReady");

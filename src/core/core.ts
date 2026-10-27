@@ -265,6 +265,7 @@ import { createSources, FIND_SOURCES_SENDS } from "./sources";
 import { createSourceHttp, SourceError } from "./sources/http";
 import { createPace, realTimers } from "./sources/pace";
 import { createSourceProviders, sourceKeySecret } from "./sources/providers";
+import { probeStep } from "./startupProbe";
 import { migrate, openDatabase } from "./storage";
 import { createSuggestions } from "./suggestions";
 import { createTags, tagsOfDocument } from "./tags";
@@ -470,13 +471,17 @@ const STILL_PROCESSING: ReadonlySet<DocumentStatus> = new Set([
 ]);
 
 export function createCore(adapters: CoreAdapters): Core {
+  probeStep("core-start");
   const { dataDir } = adapters.paths;
   mkdirSync(dataDir, { recursive: true });
+  probeStep("core-data-folder-ready");
 
   const db = openDatabase(join(dataDir, DATABASE_FILE));
+  probeStep("core-database-opened");
   try {
     adapters.log?.info("core.startup.databaseOpened");
     migrate(db);
+    probeStep("core-migrations-applied");
     adapters.log?.info("core.startup.storageReady");
   } catch (error) {
     db.close();
@@ -490,6 +495,7 @@ export function createCore(adapters: CoreAdapters): Core {
     log: adapters.log ?? silentLogger,
   });
   timings.prune();
+  probeStep("core-timings-pruned");
   const systemPaper = () =>
     paperFor(systemRegion(adapters.systemRegion?.(), adapters.systemLanguages()));
   try {
@@ -498,6 +504,7 @@ export function createCore(adapters: CoreAdapters): Core {
     db.close();
     throw error;
   }
+  probeStep("core-workspace-ready");
   const events = createEventHub();
   const knownSecrets = new Set<string>();
   // Logs what happens from here on, from the events: never the User's content.
