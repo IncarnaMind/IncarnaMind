@@ -391,7 +391,6 @@ test("one divider runs the full height through the strips and the pages; it resi
     .toBeLessThanOrEqual(1);
 });
 
-/** Holds the first resize the core is asked for: `answerHeldResize` lets it through and waits for its answer. */
 async function holdFirstResize(app: ElectronApplication): Promise<void> {
   await app.evaluate(({ ipcMain }) => {
     const handlers = (
@@ -405,43 +404,27 @@ async function holdFirstResize(app: ElectronApplication): Promise<void> {
     const ready = new Promise<void>((resolve) => {
       release = resolve;
     });
-    let answered: () => void = () => {};
-    const done = new Promise<void>((resolve) => {
-      answered = resolve;
-    });
     let held = false;
-    Object.assign(globalThis, { heldResize: { release: () => release(), done } });
+    Object.assign(globalThis, { heldResize: { release: () => release() } });
     ipcMain.removeHandler("core:changeLayout");
     ipcMain.handle("core:changeLayout", async (event, ...args) => {
       const change = args[1] as { type?: string } | undefined;
       if (held || change?.type !== "resize") return original(event, ...args);
       held = true;
       await ready;
-      const answer = await original(event, ...args);
-      answered();
-      return answer;
+      return original(event, ...args);
     });
   });
 }
 
-/** The held resize is answered, and the page has taken the answer in: what it sent after cannot come first. */
 async function answerHeldResize(app: ElectronApplication, window: Page): Promise<void> {
-  await app.evaluate(async () => {
-    const held = (globalThis as unknown as { heldResize: { release(): void; done: Promise<void> } })
-      .heldResize;
-    held.release();
-    await held.done;
+  await app.evaluate(() => {
+    (globalThis as unknown as { heldResize: { release(): void } }).heldResize.release();
   });
-  await window.evaluate(async () => {
-    const bridge = (
-      globalThis as unknown as { incarnamind: { getLayout(window: string): Promise<unknown> } }
-    ).incarnamind;
-    await bridge.getLayout("main");
-    await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
-  });
+  // The page marks its groups while a resize it asked for is unanswered: this is its own word that the answer came.
+  await expect(window.getByTestId("tab-groups")).not.toHaveAttribute("data-resizing");
 }
 
-/** Two groups, a key pressed on the divider whose resize is held, and a drag begun and moved past it. */
 async function dragWhileResizeUnanswered(app: ElectronApplication, window: Page) {
   await dismissChatSetup(window);
   await newMind(window, "Alpha");
@@ -455,6 +438,7 @@ async function dragWhileResizeUnanswered(app: ElectronApplication, window: Page)
   await divider.focus();
   await window.keyboard.press("Shift+ArrowLeft");
   await expect(divider).toHaveAttribute("aria-valuenow", String(start - 50));
+  await expect(window.getByTestId("tab-groups")).toHaveAttribute("data-resizing", "true");
   const box = await boxOf(divider);
   const x = box.x + box.width / 2 - 3;
   const y = box.y + box.height / 2;

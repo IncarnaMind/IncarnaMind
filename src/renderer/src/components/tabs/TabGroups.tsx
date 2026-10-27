@@ -34,8 +34,9 @@ export function TabGroups() {
   /** Widths while a divider is dragged, before it is let go. */
   const [dragging, setDragging] = useState<number[] | null>(null);
   /**
-   * Widths asked of the core and not yet answered, oldest first. The newest is on screen until the
-   * last is answered: an earlier answer is older than the key or drag that came after it.
+   * Widths asked of the core and not yet answered, oldest first. The core answers in the order it
+   * was asked, so the newest ask is the newest word, and it stays on screen until the last is
+   * answered: an earlier answer is older than the key or drag that came after it.
    */
   const [asked, setAsked] = useState<readonly number[][]>([]);
   /** The Mind whose Export options sheet is open (⋯, ⌘K, or its References block's Export…). */
@@ -66,6 +67,7 @@ export function TabGroups() {
         ref={setContainer}
         data-testid="tab-groups"
         data-merged={merged || undefined}
+        data-resizing={asked.length > 0 || undefined}
         className="tab-groups"
         {...drag.dropProps}
       >
