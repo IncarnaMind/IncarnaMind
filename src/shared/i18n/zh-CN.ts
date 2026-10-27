@@ -2511,7 +2511,7 @@ export const zhCN = {
     "内置模型下载前，IncarnaMind 会询问魔搭社区（ModelScope）和 Hugging Face 哪个先响应，以选择从哪里下载。不会发送你的任何内容。",
   "privacy.traffic.model-source-hf-mirror": "从 hf-mirror.com 下载内置模型",
   "privacy.traffic.model-source-hf-mirror.tip":
-    "如果无法连接 Hugging Face，内置模型的文件可能从这个镜像下载。不会发送你的任何内容。",
+    "如果无法连接 Hugging Face，内置模型的文件可能从这个镜像下载。下载前，IncarnaMind 也可能询问这个镜像和 Hugging Face 哪个先响应。不会发送你的任何内容。",
   "privacy.traffic.model-source-copy": "从 IncarnaMind 的副本下载内置模型",
   "privacy.traffic.model-source-copy.tip": "内置模型文件的最后一个来源。不会发送你的任何内容。",
   "privacy.traffic.ollama-pull": "下载本地模型",

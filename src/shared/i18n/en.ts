@@ -2628,7 +2628,7 @@ export const en = {
     "Before a built-in model downloads, IncarnaMind asks ModelScope and Hugging Face which answers first, to choose where to download from. Nothing of yours is sent.",
   "privacy.traffic.model-source-hf-mirror": "Built-in models from hf-mirror.com",
   "privacy.traffic.model-source-hf-mirror.tip":
-    "If Hugging Face can’t be reached, a built-in model’s files may come from this mirror of it. Nothing of yours is sent.",
+    "If Hugging Face can’t be reached, a built-in model’s files may come from this mirror of it. Before a download, IncarnaMind may also ask it and Hugging Face which answers first. Nothing of yours is sent.",
   "privacy.traffic.model-source-copy": "Built-in models from IncarnaMind’s copy",
   "privacy.traffic.model-source-copy.tip":
     "The last source for a built-in model’s files. Nothing of yours is sent.",
