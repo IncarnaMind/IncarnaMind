@@ -425,41 +425,41 @@ export function rawColumn(header: string): boolean {
   return RAW_HEADINGS.has(trimmed.replace(HEADER_BRACKET, "").trim().toLowerCase());
 }
 
-/** A string that is a plain number, as a cell may hold the number it means. */
-const PLAIN_NUMBER = /^[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?$/;
+/**
+ * A string that groups as a written number: digits that a person would group
+ * with the language's separator. A leading zero ("02139", a postcode), an
+ * exponent ("1e3") and anything else written stays exactly as it is (#2105).
+ */
+const GROUPABLE_NUMBER = /^[+-]?(?:0|[1-9]\d*)(?:\.\d+)?$/;
 
-/** A plain number's digits with its exponent applied, so "1e3" and "1000" compare alike. */
-function canonicalNumber(text: string): string | null {
-  const match = /^([+-]?)(\d*)(?:\.(\d*))?(?:[eE]([+-]?\d+))?$/.exec(text);
-  if (!match) return null;
-  const [, sign = "", whole = "", fraction = "", exponent = "0"] = match;
-  const shift = Number(exponent);
-  if (!Number.isSafeInteger(shift) || Math.abs(shift) > 400) return null;
-  const written = `${whole}${fraction}`;
-  let point = whole.length + shift;
-  const digits = written.replace(/^0+/, "");
-  point -= written.length - digits.length;
-  if (digits === "") return "0";
-  const body =
-    point <= 0
-      ? `0.${"0".repeat(-point)}${digits}`
-      : point >= digits.length
-        ? `${digits}${"0".repeat(point - digits.length)}`
-        : `${digits.slice(0, point)}.${digits.slice(point)}`;
-  return sign === "-" ? `-${body}` : body;
+/** Where a language puts its group separator, taken from the same formatter `figureText` uses. */
+function groupSeparator(language: string): string {
+  return (
+    groupedFormat(language, 0)
+      .formatToParts(1000)
+      .find((part) => part.type === "group")?.value ?? ""
+  );
 }
 
 /**
- * A numeric string as its number, only when JavaScript holds it exactly: a
- * long integer or decimal such as "9007199254740993" would lose digits if it
- * were turned into a number, so it stays as it is. "1e3" is exact and takes
- * the formatter; "12.50" keeps the precision it was written with.
+ * A numeric string as text: the language's group separator in its integer
+ * digits, its fraction exactly as written. Nothing is turned into a number,
+ * so "9007199254740993" and "1234.50" keep every digit they were written with.
  */
-function exactNumber(text: string): number | null {
-  if (!PLAIN_NUMBER.test(text)) return null;
-  const signed = text.startsWith("+") ? text.slice(1) : text;
-  const value = Number(signed);
-  return canonicalNumber(signed) === canonicalNumber(String(value)) ? value : null;
+function groupedNumberText(language: string, text: string): string {
+  const sign = text.startsWith("-") || text.startsWith("+") ? text.slice(0, 1) : "";
+  const body = text.slice(sign.length);
+  const point = body.indexOf(".");
+  const integer = point < 0 ? body : body.slice(0, point);
+  const fraction = point < 0 ? "" : body.slice(point);
+  if (integer.length <= 3) return text;
+  const separator = groupSeparator(language);
+  let grouped = "";
+  for (const [index, digit] of [...integer].entries()) {
+    if (index > 0 && (integer.length - index) % 3 === 0) grouped += separator;
+    grouped += digit;
+  }
+  return `${sign}${grouped}${fraction}`;
 }
 
 /** The precision an Analysis has always rounded a non-integer to, kept so grouping never changes it. */
@@ -506,10 +506,11 @@ export function figureText(language: string, value: number): string {
 }
 
 /**
- * A cell of an Analysis table as it reads: a number, or a string that is a
- * plain number, takes `figureText`; a string that is anything else
- * ("7,509,964", "n/a", "12.5%") stays exactly as it is. A column `rawColumn`
- * names keeps its digits raw, however large a cell is.
+ * A cell of an Analysis table as it reads: a string that is a plain number is
+ * grouped as text, so its digits are never read as a number; a string that is
+ * anything else ("7,509,964", "n/a", "12.5%", "02139", "1e3") stays exactly
+ * as it is. A column `rawColumn` names keeps its digits raw, however large a
+ * cell is.
  */
 export function figureCellText(
   language: string,
@@ -519,8 +520,17 @@ export function figureCellText(
   if (cell === null) return "";
   if (typeof cell === "number") return raw ? String(cell) : figureText(language, cell);
   if (typeof cell !== "string") return String(cell);
-  const value = raw ? null : exactNumber(cell.trim());
-  return value === null ? cell : figureText(language, value);
+  const trimmed = cell.trim();
+  return !raw && GROUPABLE_NUMBER.test(trimmed) ? groupedNumberText(language, trimmed) : cell;
+}
+
+/**
+ * A single figure result as the interface writes it: a label a `rawColumn`
+ * heading names keeps its digits raw, as the same value in that column does
+ * (#2105).
+ */
+export function figureResultText(language: string, value: number, label: string): string {
+  return rawColumn(label) ? String(value) : figureText(language, value);
 }
 
 /** Numbers whose separators can only be read one way, and the convention each shows. */

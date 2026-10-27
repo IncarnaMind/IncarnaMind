@@ -186,6 +186,31 @@ describe("an Analysis an Answer runs", () => {
     ]);
   });
 
+  test.each([
+    ["en", "Which year does the sheet cover?"],
+    ["zh-CN", "这张表覆盖哪一年？"],
+  ])("%s keeps a figure result labelled Year raw", async (_language, asked) => {
+    const model = analysingModel({
+      query: "revenue",
+      runs: [salesRun('result("year", 2026, "Year")')],
+      answer: "The sheet covers [=1].",
+    });
+    const { core } = await setUp(model, () => ({
+      output: {
+        results: [{ kind: "figure", name: "year", label: "Year", unit: null, value: 2026 }],
+      },
+    }));
+    const { answer } = await askAndRead(core, asked);
+    expect(answer.figures).toEqual([
+      expect.objectContaining({
+        value: 2026,
+        shown: "2026",
+        analysis: { analysis: 1, result: "year" },
+      }),
+    ]);
+    expect(told(model, "run_analysis")[0]).toContain("Year: 2026");
+  });
+
   test("calculate cannot replace an Analysis marker and can use a new marker", async () => {
     const model = scriptedModel((call) => {
       const searches = call.results.filter((result) => result.tool === "search_documents");
@@ -611,8 +636,11 @@ describe("an Analysis table writes its numbers as the Answer's language does (#2
       ["Huge", "9007199254740993"],
       ["Exponent", "1e3"],
       ["Exact", "1.5e3"],
+      ["Grouped", "1234.50"],
+      ["Zeroed", "02139"],
     ],
   );
+  const postcodes = table("postcodes", ["Postcode"], [["02139"]]);
   const identifiers = table(
     "identifiers",
     ["ID", "Code", "No.", "number", "编号", "代码", "序号"],
@@ -665,7 +693,8 @@ describe("an Analysis table writes its numbers as the Answer's language does (#2
     },
   };
 
-  const answer = "[=table 1]\n\n[=table 2]\n\n[=table 3]\n\n[=table 4]\n\n[=table 5]\n\n[=chart 1]";
+  const answer =
+    "[=table 1]\n\n[=table 2]\n\n[=table 3]\n\n[=table 4]\n\n[=table 5]\n\n[=table 6]\n\n[=chart 1]";
 
   test.each([
     ["en", "What were the figures?"],
@@ -674,7 +703,7 @@ describe("an Analysis table writes its numbers as the Answer's language does (#2
     const model = analysingModel({ query: "revenue", runs: [salesRun()], answer });
     const { core } = await setUp(model, () => ({
       output: {
-        results: [amounts, strings, identifiers, periods, headings],
+        results: [amounts, strings, identifiers, periods, headings, postcodes],
         charts: [chart],
       },
     }));
@@ -689,9 +718,12 @@ describe("an Analysis table writes its numbers as the Answer's language does (#2
     expect(read.text).toContain("| East | 7,509,964 |");
     expect(read.text).toContain("| West | n/a |");
     expect(read.text).toContain("| Padded | 12.50 |");
-    expect(read.text).toContain("| Huge | 9007199254740993 |");
-    expect(read.text).toContain("| Exponent | 1,000 |");
-    expect(read.text).toContain("| Exact | 1,500 |");
+    expect(read.text).toContain("| Huge | 9,007,199,254,740,993 |");
+    expect(read.text).toContain("| Exponent | 1e3 |");
+    expect(read.text).toContain("| Exact | 1.5e3 |");
+    expect(read.text).toContain("| Grouped | 1,234.50 |");
+    expect(read.text).toContain("| Zeroed | 02139 |");
+    expect(read.text).toContain("| 02139 |");
     expect(read.text).toContain("| 7509964 | 7509964 | 1284 | 2024 | 7509964 | 0012 | 2026 |");
     expect(read.text).toContain(
       "| 2026 | 2026 | 2026 | 2026 | 2026 | 2026 | 2026 | 2026 | 2026 | 2026 | 2026 | 2026 | 2026 | 2026 | 2026 |",

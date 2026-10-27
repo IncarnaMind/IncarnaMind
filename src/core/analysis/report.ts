@@ -1,5 +1,5 @@
 import type { AnalysisCell, AnalysisTable } from "../../shared/analysis";
-import { figureCellText, figureText, rawColumn } from "../../shared/figures";
+import { figureCellText, figureResultText, figureText, rawColumn } from "../../shared/figures";
 import type { AnswerAnalysis } from "../api";
 import type { Language } from "../language";
 
@@ -112,7 +112,9 @@ function resultLines(analysis: AnswerAnalysis, language: Language): string[] {
     const unit = result.unit ? ` ${result.unit}` : "";
     if (result.kind === "figure") {
       const marker = figure.get(result.name);
-      lines.push(`- [=${marker}] ${result.label}: ${figureText(language, result.value)}${unit}`);
+      lines.push(
+        `- [=${marker}] ${result.label}: ${figureResultText(language, result.value, result.label)}${unit}`,
+      );
     } else {
       const marker = table.get(result.name);
       const { rowCount, columnCount } = result.table;

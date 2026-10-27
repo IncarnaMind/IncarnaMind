@@ -1,5 +1,5 @@
 import { type AnalysisInput, type AnalysisValue, noAnalysisOutput } from "../../shared/analysis";
-import { figureText } from "../../shared/figures";
+import { figureText, rawColumn } from "../../shared/figures";
 import {
   FORMULA_VERSION,
   type FormulaResult,
@@ -194,7 +194,11 @@ export function analysisTool(options: AnalysisToolOptions): Tool {
       value: result.value,
       unit,
       approximate: false,
-      shown: shown.ok ? shown.shown : figureText(options.language, result.value),
+      shown: rawColumn(result.label)
+        ? String(result.value)
+        : shown.ok
+          ? shown.shown
+          : figureText(options.language, result.value),
       show,
       literals: [],
       engine: FORMULA_VERSION,
