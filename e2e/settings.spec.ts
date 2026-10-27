@@ -141,6 +141,37 @@ test("a press on the dimmed area closes Settings, and one inside it doesn't", as
   }
 });
 
+test("Settings shows again when it is asked for before the browser's close is heard, in English and Chinese", async () => {
+  const { app, window } = await launchApp(dataDir);
+  try {
+    await dismissChatSetup(window);
+    const settings = window.getByTestId("settings");
+    for (const language of ["en", "zh-CN"] as const) {
+      await setLanguage(window, language);
+      await window
+        .getByRole("button", { name: language === "en" ? "Settings" : "设置", exact: true })
+        .click();
+      await showSettingsPage(window, "privacy");
+      // A close the browser makes itself (Esc) tells React a task later; a press on Settings in
+      // that moment, as a busy computer can deliver it, must show Settings again.
+      await window.evaluate(() => {
+        document.querySelector<HTMLDialogElement>('[data-testid="settings"]')?.close();
+        const buttons = document.querySelectorAll<HTMLButtonElement>(
+          '[data-testid="sidebar-footer"] button',
+        );
+        buttons[buttons.length - 1]?.click();
+      });
+      await expect(settings).toBeVisible();
+      await expect(settings).toHaveAttribute("data-page", "general");
+      // The close it pushed aside still closes Settings when the User means it.
+      await window.keyboard.press("Escape");
+      await expect(settings).toBeHidden();
+    }
+  } finally {
+    await app.close();
+  }
+});
+
 test("the list of pages works by keyboard, with a focus ring", async () => {
   const { app, window } = await launchApp(dataDir);
   try {

@@ -343,12 +343,12 @@ describe("The assistant changes Minds as Proposals", { timeout: 30_000 }, () => 
   test("a Mind that isn't there, or none in focus, changes nothing and says why", async () => {
     const named = toolModel(
       { tool: "edit_mind", input: { mind: "Chapter 9", instruction: "Shorten it" } },
-      "There is no Mind called Chapter 9.",
+      "There is no note called Chapter 9.",
     );
     const { core, mind, client } = await setUp(named);
     const answer = await ask(core, { text: "Shorten Chapter 9", mindId: mind.id });
     expect(mindCalls(answer)[0]?.status).toBe("failed");
-    expect(lastResult(named)).toContain("The User has no Mind called “Chapter 9”.");
+    expect(lastResult(named)).toContain("The User has no note called “Chapter 9”.");
     expect(lastResult(named)).toContain("“Q3 review”");
     expect(pendingProposals(client.blocks)).toEqual([]);
 

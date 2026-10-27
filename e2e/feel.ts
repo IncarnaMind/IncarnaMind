@@ -65,6 +65,10 @@ export const KNOWN: readonly Known[] = [
   },
   { flow: "library-2000", step: "show all 2,000", kind: "input", max: 2900, issue: 1313 },
   { flow: "library-2000", step: "show all 2,000", kind: "long-task", max: 2500, issue: 1313 },
+  // The palette's first open: the runner's software-rendered paint of the scrim, the dialog's
+  // shadow and the design's fade. The palette's own open is about 20 ms on a laptop (#1741).
+  { flow: "1995-after-en-900", step: "open ⌘K", kind: "input", max: 1456, issue: 1741 },
+  { flow: "1995-after-zh-CN-900", step: "open ⌘K", kind: "input", max: 1200, issue: 1741 },
 ];
 
 interface Shift {

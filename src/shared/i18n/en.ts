@@ -2914,6 +2914,9 @@ export const en = {
   "answer.wait.usually.minutes": "Usually about {count} minutes with {model}",
   "answer.regenerate": "Regenerate",
   "answer.more": "More for this Answer",
+  "answer.refused.noSuchMind": "There is no note called “{name}”, so the change wasn’t made.",
+  "answer.refused.noSuchMind.many":
+    "There are no notes called {names}, so those changes weren’t made.",
   "answer.error.thisModel": "this model",
   "answer.error.auth": "The key for {model} was refused",
   "answer.error.thisService": "This service",
@@ -5588,6 +5591,10 @@ export const en = {
   "answer.notWritten.noCall": "the assistant didn’t run the write",
   "answer.notWritten.retry": "Try again",
   "answer.notAllDone": "The assistant didn’t make every change this reply describes",
+  "answer.uncitedReply":
+    "This reply has no Citations, so none of it was checked against your Documents",
+  "answer.uncitedWrite":
+    "What was written in “{mind}” has no Citations, so none of it was checked against your Documents",
   "answer.added": "Added to “{mind}”",
   "answer.undoKept.one": "Kept the Block you edited",
   "answer.undoKept": "Kept {count} Blocks you edited",
