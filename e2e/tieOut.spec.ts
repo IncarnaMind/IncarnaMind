@@ -85,7 +85,7 @@ async function addSegments(window: Page, mindId: string) {
 /**
  * Runs Tie out figures from ⌘K. Billed per token, the one Check asks first, in the note's card;
  * in a window too narrow for groups side by side the schedule then waits in its tab beside the
- * note, which the User opens once they've answered.
+ * note, and Tie out figures once more shows it when the Check has run.
  */
 async function tieOut(window: Page, schedule: Locator, title: string, label: string) {
   await runCommand(window, "mind.tieOut", label);
@@ -96,12 +96,10 @@ async function tieOut(window: Page, schedule: Locator, title: string, label: str
   const tab = window.getByRole("tab", { name: new RegExp(`^${title}`) });
   await expect(schedule.or(tab).first()).toBeVisible({ timeout: 30_000 });
   if (await schedule.isVisible()) return;
-  // The User opens it once the Check they answered has run, its card closed.
+  // Once the Check they answered has run, Tie out figures again shows the schedule at once:
+  // every figure is checked since its last edit.
   await expect(window.getByTestId("badge-stop")).toHaveCount(0, { timeout: 60_000 });
-  if (await window.getByTestId("check-card").isVisible()) await window.keyboard.press("Escape");
-  await expect(window.getByTestId("check-card")).toHaveCount(0);
-  await motionSettled(window);
-  await pointAndClick(window, tab);
+  await runCommand(window, "mind.tieOut", label);
   await expect(tab).toHaveAttribute("aria-selected", "true");
   await expect(schedule).toBeVisible({ timeout: 30_000 });
 }
