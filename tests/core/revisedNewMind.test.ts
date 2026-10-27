@@ -2,19 +2,20 @@ import { getSchema } from "@tiptap/core";
 import { describe, expect, test } from "vitest";
 import * as Y from "yjs";
 import { decideAll } from "../../eval/minds/state";
-import type { ConversationAnswer, Core } from "../../src/core";
+import { BLOCK_ID_ATTRIBUTE, type ConversationAnswer, type Core } from "../../src/core";
 import { EDIT_INSTRUCTIONS } from "../../src/core/edits/prompt";
 import { changedMinds } from "../../src/renderer/src/changedMinds";
 import { writeAccepted } from "../../src/renderer/src/editor/arrivedChanges";
 import { noteExtensions } from "../../src/renderer/src/editor/noteSchema";
 import { resolveInEditor } from "../../src/renderer/src/editor/proposalReview";
+import { allOrigins } from "../../src/shared/blockOrigins";
 import { pendingProposals } from "../../src/shared/proposals";
 import { askAssistant } from "../helpers/assistant";
 import { answerEnded } from "../helpers/citations";
 import { createTempDataFolder, startCore } from "../helpers/core";
 import { addAndProcess, createSourceFolder, writeSourceFile } from "../helpers/documents";
 import { boundEditor } from "../helpers/editor";
-import { connectToMind } from "../helpers/mindClient";
+import { connectToMind, type MindClient } from "../helpers/mindClient";
 import { heading, note, shownWithChanges, writeMind } from "../helpers/minds";
 import {
   type ModelCall,
@@ -116,6 +117,17 @@ async function shown(core: Core, mindId: string): Promise<string[] | null> {
   if (!(await core.listMinds()).some((mind) => mind.id === mindId)) return null;
   return shownWithChanges(await connectToMind(core, mindId));
 }
+
+/** The origin of each Block in a Mind, as the Answer it names. */
+const originsOf = (client: MindClient) => {
+  const origins = allOrigins(client.doc);
+  return client.blocks
+    .toArray()
+    .flatMap((block) =>
+      block instanceof Y.XmlElement ? [String(block.getAttribute(BLOCK_ID_ATTRIBUTE))] : [],
+    )
+    .map((blockId) => JSON.stringify(origins.get(blockId)?.from ?? null));
+};
 
 /** How many changes wait in every Mind there. */
 async function waitingAnywhere(core: Core): Promise<number> {
@@ -346,6 +358,7 @@ describe("A Mind that was there, its waiting text revised by a later Answer", {
     const first = await askAssistant(core, { text: "Add the risks to the Project plan" });
     const planId = changedMinds(first)[0]?.mindId ?? "";
     const before = await shown(core, planId);
+    const originsBefore = originsOf(await connectToMind(core, planId));
     expect(before).toContain("+ Legal review may take longer.");
     revising = true;
     const second = await askAssistant(core, {
@@ -355,7 +368,7 @@ describe("A Mind that was there, its waiting text revised by a later Answer", {
     const last = how === "content" ? (RISKS[times - 1]?.split("\n\n")[1] ?? "") : LONGER_RISK;
     const now = await shown(core, planId);
     expect(now?.some((line) => line.startsWith("+") && line.includes(last))).toBe(true);
-    return { core, planId, before, second };
+    return { core, planId, before, originsBefore, second };
   }
 
   // protects=Reject all on an Answer that revised an earlier Answer's waiting text twice brings that text back exactly, still waiting, and leaves the Mind; fails_when=the first revision comes back waiting instead, or the Mind goes; no_claim=none beyond protects.
@@ -377,7 +390,7 @@ describe("A Mind that was there, its waiting text revised by a later Answer", {
     expect(shownWithChanges(client)).toEqual(before);
   });
 
-  // protects=an earlier Answer's waiting text that a later Answer revised, with new text or with an instruction, comes back waiting with each Reject all (the card, the Mind's bar as ⌘K's, the review pane); fails_when=it is thrown away with the revision, or the revision stays; no_claim=what the rewrite says.
+  // protects=an earlier Answer's waiting text that a later Answer revised, with new text or with an instruction, comes back waiting with each Reject all (the card, the Mind's bar as ⌘K's, the review pane), each Block with its earlier origin (#1950); fails_when=it is thrown away with the revision, the revision stays, or a Block keeps the later Answer's origin; no_claim=what the rewrite says.
   test.each([
     ["content", "the card"],
     ["content", "the Mind's bar"],
@@ -388,7 +401,7 @@ describe("A Mind that was there, its waiting text revised by a later Answer", {
   ] as const)(
     "revised with %s, Reject all on %s brings back the earlier Answer's text, still waiting",
     async (how, where) => {
-      const { core, planId, before, second } = await revised(1, how);
+      const { core, planId, before, originsBefore, second } = await revised(1, how);
       const client = await connectToMind(core, planId);
 
       if (where === "the card") await decideAll(core, changedMinds(second), "reject");
@@ -399,6 +412,7 @@ describe("A Mind that was there, its waiting text revised by a later Answer", {
       }
 
       expect(await shown(core, planId)).toEqual(before);
+      expect(originsOf(await connectToMind(core, planId))).toEqual(originsBefore);
     },
   );
 });

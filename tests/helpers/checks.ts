@@ -2,6 +2,7 @@
  * A scripted model that checks claims (#96, #97) as its plans say, and names
  * a verified document's claims: those it has a plan for.
  */
+import { SEARCH_AGAIN } from "../../src/core/answers/checks/searchAgain";
 import { shownPassages } from "./citations";
 import {
   type GenerateCall,
@@ -27,14 +28,26 @@ export interface Plan {
   part?: string;
   /**
    * A figure it works out with calculate before its verdict (#707), each
-   * input from the Passage that holds its quote, as marker 1.
+   * input from the Passage that holds its quote, as marker 1; or several, as
+   * markers 1, 2, … in their order.
    */
-  calculation?: {
-    inputs: { name: string; label: string; quote: string; number: string }[];
-    formula: string;
-    as?: string;
-    stated: string;
-  };
+  calculation?: PlannedFigure | readonly PlannedFigure[];
+  /** Asked to search again before it says the sentence isn't found: the query it writes, then how it checks. */
+  again?: { query: string; plan: Plan };
+}
+
+interface PlannedFigure {
+  inputs: readonly {
+    name: string;
+    label: string;
+    quote: string;
+    number: string;
+    bracketedCost?: boolean;
+  }[];
+  formula: string;
+  as?: string;
+  stated: string;
+  relation?: "equals" | "at most" | "at least";
 }
 
 const SENTENCE = /<sentence>\n([\s\S]*?)\n<\/sentence>/;
@@ -71,34 +84,31 @@ export const isCheckRun = (call: ModelCall) => call.system.startsWith("You check
  * then gives its verdict.
  */
 export function checkReply(call: ModelCall, plans: Record<string, Plan>): ScriptedReply {
-  const plan = plans[sentenceOf(call)] ?? { verdict: "unsupported" };
+  const planned = plans[sentenceOf(call)] ?? { verdict: "unsupported" };
   const searches = call.results.filter((result) => result.tool === "search_documents");
   if (searches.length === 0) {
     return { calls: [{ tool: "search_documents", input: { query: sentenceOf(call) } }] };
   }
+  const again = call.prompt.includes(SEARCH_AGAIN) ? planned.again : undefined;
+  if (again && searches.length === 1) {
+    return { calls: [{ tool: "search_documents", input: { query: again.query } }] };
+  }
+  const plan = again?.plan ?? planned;
   if (plan.reply) return plan.reply;
   const shown = shownPassages(searches.at(-1)?.text ?? "");
   const { calculation } = plan;
   if (calculation && !call.results.some((result) => result.tool === "calculate")) {
-    const { inputs, ...figure } = calculation;
     const passageOf = (quote: string) => shown.find((each) => each.text.includes(quote))?.id;
-    return {
-      calls: [
-        {
-          tool: "calculate",
-          input: {
-            figures: [
-              {
-                marker: 1,
-                label: "The sentence's figure",
-                ...figure,
-                inputs: inputs.map((input) => ({ ...input, passage: passageOf(input.quote) })),
-              },
-            ],
-          },
-        },
-      ],
-    };
+    const planned: readonly PlannedFigure[] =
+      "formula" in calculation ? [calculation] : calculation;
+    const figures = planned.map(({ inputs, ...figure }, index) => ({
+      marker: index + 1,
+      label: "The sentence's figure",
+      relation: "equals",
+      ...figure,
+      inputs: inputs.map((input) => ({ ...input, passage: passageOf(input.quote) })),
+    }));
+    return { calls: [{ tool: "calculate", input: { figures } }] };
   }
   const { quote } = plan;
   if (quote && !call.results.some((result) => result.tool === "cite")) {

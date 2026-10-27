@@ -5,9 +5,16 @@
  * now (ADR-0003).
  */
 import type * as Y from "yjs";
-import { MIND_CHECK_UNREAD_FIELD, type UnreadFile, type UnreadReason } from "../core/api";
+import {
+  MIND_CHECK_UNREAD_FIELD,
+  type UnreadFile,
+  type UnreadParts,
+  type UnreadReason,
+} from "../core/api";
 import { isRecord } from "../core/errors";
-import type { MessageKey } from "./i18n";
+import type { MessageKey, MessageParams } from "./i18n";
+
+type Translate = (key: MessageKey, params?: MessageParams) => string;
 
 export const UNREAD_REASON_KEYS: Record<UnreadReason, MessageKey> = {
   format: "unread.reason.format",
@@ -16,9 +23,209 @@ export const UNREAD_REASON_KEYS: Record<UnreadReason, MessageKey> = {
   damaged: "unread.reason.damaged",
   "too-large": "unread.reason.too-large",
   pages: "unread.reason.pages",
+  parts: "unread.reason.parts",
 };
 
 const REASONS = Object.keys(UNREAD_REASON_KEYS) as UnreadReason[];
+
+/** "3 files couldn't be read": the line beside an Answer, a check, and in what an export keeps. */
+export function unreadCountText(files: readonly UnreadFile[], t: Translate): string {
+  return t(files.length === 1 ? "unread.count.one" : "unread.count", { count: files.length });
+}
+
+const withThousandSeparators = (number: number) =>
+  String(number).replace(/\B(?=(\d{3})+(?!\d))/g, ",");
+
+/**
+ * What of a workbook wasn't read (#740): its hidden sheets, and the sheets its rows were cut
+ * short in. `names`: name the sheets, as the app and the check record do; an export that goes to
+ * someone else counts them instead.
+ */
+export function unreadPartsText(parts: UnreadParts, t: Translate, names: boolean): string {
+  const segments: string[] = [];
+  if (parts.hiddenSheets.length > 0) {
+    segments.push(
+      names
+        ? t(
+            parts.hiddenSheets.length === 1
+              ? "unread.parts.hiddenNames.one"
+              : "unread.parts.hiddenNames.other",
+            {
+              names: parts.hiddenSheets
+                .map((name) => `“${name}”`)
+                .join(t("unread.parts.names.separator")),
+            },
+          )
+        : t(
+            parts.hiddenSheets.length === 1
+              ? "unread.parts.hidden.one"
+              : "unread.parts.hidden.other",
+            {
+              count: parts.hiddenSheets.length,
+            },
+          ),
+    );
+  }
+  const cut = parts.rowsCut.length + parts.sheetsNotRead.length;
+  if (cut > 0) {
+    if (names) {
+      for (const each of parts.rowsCut) {
+        segments.push(
+          t("unread.parts.rows", { names: each.sheet, from: withThousandSeparators(each.from) }),
+        );
+      }
+      for (const sheet of parts.sheetsNotRead) {
+        segments.push(t("unread.parts.notRead", { names: sheet }));
+      }
+    } else {
+      segments.push(
+        t(cut === 1 ? "unread.parts.rowsCount.one" : "unread.parts.rowsCount.other", {
+          count: cut,
+        }),
+      );
+    }
+  }
+  return segments.join(t("unread.parts.separator"));
+}
+
+/**
+ * "Contract.doc: Format not read yet (.doc)…", as the list and an export's own text say it.
+ * `names`: name a workbook's sheets; an export that goes to someone else counts them instead.
+ */
+export function unreadFileText(
+  file: Pick<UnreadFile, "name" | "reason" | "extension" | "parts">,
+  t: Translate,
+  names = true,
+): string {
+  const reason =
+    file.reason === "parts" && file.parts
+      ? unreadPartsText(file.parts, t, names)
+      : t(UNREAD_REASON_KEYS[file.reason], { extension: file.extension ?? "" });
+  return `${file.name}${t("unread.file.reason", { reason })}`;
+}
+
+/** A stored UnreadParts, or null when there is none or it isn't one. */
+export function parseUnreadParts(json: string | null): UnreadParts | null {
+  if (json === null) return null;
+  let value: unknown;
+  try {
+    value = JSON.parse(json);
+  } catch {
+    return null;
+  }
+  const parts = partsOf(value);
+  return parts && unreadOfParts(parts) ? parts : null;
+}
+
+/** An UnreadParts a Mind's check kept, or one read from storage; null when it isn't one. */
+export function partsOf(value: unknown): UnreadParts | null {
+  if (!isRecord(value)) return null;
+  const names = (list: unknown): string[] | null =>
+    Array.isArray(list) && list.every((each) => typeof each === "string") ? list : null;
+  const hiddenSheets = names(value.hiddenSheets);
+  const sheetsNotRead = names(value.sheetsNotRead);
+  const rowsCut = Array.isArray(value.rowsCut)
+    ? value.rowsCut.flatMap((each): { sheet: string; from: number }[] =>
+        isRecord(each) &&
+        typeof each.sheet === "string" &&
+        typeof each.from === "number" &&
+        Number.isInteger(each.from) &&
+        each.from >= 1
+          ? [{ sheet: each.sheet, from: each.from }]
+          : [],
+      )
+    : null;
+  return hiddenSheets && sheetsNotRead && rowsCut ? { hiddenSheets, rowsCut, sheetsNotRead } : null;
+}
+
+/** Whether a workbook said some of it wasn't read (#740). */
+export const unreadOfParts = (parts: UnreadParts): boolean =>
+  parts.hiddenSheets.length > 0 || parts.rowsCut.length > 0 || parts.sheetsNotRead.length > 0;
+
+/** What workbooks left unread, counted, for an export that doesn't name files (#740). */
+export function unreadPartsCounts(files: readonly UnreadFile[], t: Translate): string[] {
+  let hidden = 0;
+  let cut = 0;
+  for (const file of files) {
+    if (!file.parts) continue;
+    hidden += file.parts.hiddenSheets.length;
+    cut += file.parts.rowsCut.length + file.parts.sheetsNotRead.length;
+  }
+  return [
+    ...(hidden > 0
+      ? [
+          t(hidden === 1 ? "unread.parts.hidden.one" : "unread.parts.hidden.other", {
+            count: hidden,
+          }),
+        ]
+      : []),
+    ...(cut > 0
+      ? [
+          t(cut === 1 ? "unread.parts.rowsCount.one" : "unread.parts.rowsCount.other", {
+            count: cut,
+          }),
+        ]
+      : []),
+  ];
+}
+
+/** The check record names at most this many files, then says how many more (#740). */
+export const CHECK_RECORD_NAMES = 20;
+
+/**
+ * The lines the check record's summary holds: the count, then each file with why, at most
+ * `CHECK_RECORD_NAMES` of them and a last line for the rest (#740).
+ */
+export function unreadRecordLines(files: readonly UnreadFile[], t: Translate): string[] {
+  const shown = files.slice(0, CHECK_RECORD_NAMES).map((file) => unreadFileText(file, t));
+  const left = files.length - shown.length;
+  return [
+    unreadCountText(files, t),
+    ...shown,
+    ...(left > 0 ? [t("unread.more", { count: left })] : []),
+  ];
+}
+
+/** The words of an export's section about what couldn't be read (#740). */
+export interface UnreadSection {
+  heading: string;
+  count: string;
+  /** A line for each file, when the Mind names them. */
+  items: string[];
+  /** What a workbook left unread, counted, when it doesn't. */
+  counts: string[];
+}
+
+/** An export's words about what its Mind's checks couldn't read (#740): its heading, count and, at the Mind's word, each file's line. */
+export function unreadSection(
+  files: readonly UnreadFile[],
+  t: Translate,
+  names: boolean,
+  counts: readonly string[] = [],
+): UnreadSection {
+  return {
+    heading: t("unread.heading"),
+    count: unreadCountText(files, t),
+    items: names ? files.map((file) => unreadFileText(file, t, true)) : [],
+    counts: names ? [] : [...counts],
+  };
+}
+
+/** The Mind settings key that says its exports name the files they couldn't read; absent: count only. */
+const NAMES_KEY = "unreadFileNames";
+
+/** Whether this Mind's exports name the files that couldn't be read, or only count them (#740). */
+export function unreadFileNamesOf(settings: Y.Map<unknown>): boolean {
+  return settings.get(NAMES_KEY) === true;
+}
+
+export function setUnreadFileNames(settings: Y.Map<unknown>, names: boolean): void {
+  if (names) {
+    if (settings.get(NAMES_KEY) !== true) settings.set(NAMES_KEY, true);
+  } else if (settings.has(NAMES_KEY)) {
+    settings.delete(NAMES_KEY);
+  }
+}
 
 const unreadOf = (doc: Y.Doc): Y.Map<unknown> => doc.getMap(MIND_CHECK_UNREAD_FIELD);
 
@@ -31,6 +238,7 @@ function keptFiles(value: unknown): Omit<UnreadFile, "id">[] {
     const name = text(each.name);
     const reason = REASONS.find((known) => known === each.reason);
     if (!name || !reason) return [];
+    const parts = partsOf(each.parts);
     return [
       {
         name,
@@ -40,6 +248,7 @@ function keptFiles(value: unknown): Omit<UnreadFile, "id">[] {
         pages: Array.isArray(each.pages)
           ? each.pages.filter((page): page is number => Number.isInteger(page) && page >= 1)
           : [],
+        ...(parts ? { parts } : {}),
       },
     ];
   });
@@ -65,12 +274,19 @@ export function recordCheckUnread(
     // Without a file's path, which is this computer's, not the Mind's.
     unread.set(
       request,
-      files.map(({ name, reason, extension, documentId, pages }) => ({
+      files.map(({ name, reason, extension, documentId, pages, parts }) => ({
         name,
         reason,
         extension,
         documentId,
         pages: [...pages],
+        ...(parts && {
+          parts: {
+            hiddenSheets: [...parts.hiddenSheets],
+            rowsCut: parts.rowsCut.map((each) => ({ ...each })),
+            sheetsNotRead: [...parts.sheetsNotRead],
+          },
+        }),
       })),
     );
   });

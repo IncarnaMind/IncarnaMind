@@ -1,3 +1,4 @@
+import { CLAIM_CHECK_INSTRUCTIONS } from "../../core/answers/claimedChanges";
 import { type GenerateOptions, lastUserText, systemOf } from "./prompt";
 
 /** Finding the claims of a verified document (#97) or of the User's own draft (#737), src/core/answers/checks/claims.ts. */
@@ -21,4 +22,16 @@ export function fakeClaims(options: GenerateOptions): string | null {
         : [Number(listed[1])];
     });
   return JSON.stringify({ claims });
+}
+
+export const checksChangeClaims = (options: GenerateOptions): boolean =>
+  systemOf(options.prompt).includes(CLAIM_CHECK_INSTRUCTIONS);
+
+export function fakeChangeClaims(options: GenerateOptions): string | null {
+  if (!checksChangeClaims(options)) return null;
+  const reply = /<reply>\n([\s\S]*)\n<\/reply>/.exec(lastUserText(options.prompt))?.[1] ?? "";
+  const unmade = /I've added a risks section|我已经把风险部分/.test(reply);
+  return JSON.stringify({
+    claims: unmade ? [{ sentence: reply, kind: "added", backed: false }] : [],
+  });
 }

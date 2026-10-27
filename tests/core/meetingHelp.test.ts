@@ -130,16 +130,22 @@ describe("Help during the call", { timeout: 60_000 }, () => {
     });
   });
 
-  // protects=every button sends the same instructions, its own going with its Question, so a call's presses share them in the provider's cache (#1634: about 3k tokens written again each press before); fails_when=a button's words, its shape or the call's language are in the instructions; no_claim=the provider's cache itself.
-  test("every button sends the same instructions, its own with its Question", async () => {
+  // Button instructions stay with the Question so presses with the same Search scope share the provider's cache (#1634).
+  test("buttons with the same source scope send the same instructions, their own with the Question", async () => {
     const { core, meeting, calls } = await setUp();
-    await press(core, meeting, "no");
-    const second = calls.length;
     await press(core, meeting, "want");
+    const second = calls.length;
+    await press(core, meeting, "sum");
 
     expect(calls[second]?.system).toBe(calls[0]?.system);
-    expect(calls[0]?.prompt).toContain("Decline what was just asked of the User");
-    expect(calls[second]?.prompt).toContain("What does the other side want?");
+    expect(calls[0]?.prompt).toContain("What does the other side want?");
+    expect(calls[second]?.prompt).toContain("Sum up the call so far");
+
+    const third = calls.length;
+    await press(core, meeting, "answer");
+    const fourth = calls.length;
+    await press(core, meeting, "check");
+    expect(calls[fourth]?.system).toBe(calls[third]?.system);
   });
 
   test("Answer their question finds the User's Documents ahead for the newest lines, not the transcript, and cites them", async () => {
@@ -259,7 +265,7 @@ describe("Help during the call", { timeout: 60_000 }, () => {
     expect(specs.at(-1)?.thinking).toBe("off");
     const asked = await core.askInConversation({ mindId: meeting.mindId, text: "Who joined?" });
     if (asked.asked) await answerEnded(core, asked.answerId);
-    expect(specs.at(-1)?.thinking).toBe("answer");
+    expect(specs.findLast((spec) => spec.thinking === "answer")?.thinking).toBe("answer");
   });
 
   test("help answers in the call's language, whatever the interface's: Sum up, What to ask next and Check what was said", async () => {

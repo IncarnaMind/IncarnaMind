@@ -369,9 +369,15 @@ export function createMindContent(
     /**
      * Changes the Mind's Blocks in one Yjs transaction (the core's own edits,
      * e.g. writing an Answer), then stores and reports the change like any
-     * client's. `change` must not keep the Blocks, as for `read`.
+     * client's. `change` must not keep the Blocks, as for `read`, except for
+     * `createAskedChanges`'s explicit live-document Undo handle, which is
+     * released on a later edit, close or document destruction.
      */
-    edit<T>(mindId: string, change: (blocks: Y.XmlFragment) => T): T {
+    edit<T>(
+      mindId: string,
+      change: (blocks: Y.XmlFragment) => T,
+      origin: unknown = CORE_ORIGIN,
+    ): T {
       const mind = load(mindId);
       requireWritable(mind);
       let result: T | undefined;
@@ -379,7 +385,7 @@ export function createMindContent(
         mind.doc.transact(() => {
           result = change(mind.doc.getXmlFragment(MIND_CONTENT_FIELD));
           stampContentVersion(mind.doc);
-        }, CORE_ORIGIN);
+        }, origin);
       } finally {
         flush(mindId, mind);
       }

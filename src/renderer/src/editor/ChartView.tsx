@@ -19,6 +19,8 @@ import {
   MAX_CHART_VALUES,
   seriesName as nameOfSeries,
   readChart,
+  switchMixesUnits,
+  unitGroups,
   unitlessRows,
 } from "../../../shared/charts";
 import {
@@ -191,6 +193,13 @@ export function ChartView({ node, editor, getPos, deleteNode }: ReactNodeViewPro
   const listed = listedRows(chart.data);
   const drawn = drawnSeries(chart);
   const points = chartPoints(chart);
+  // One chart per unit (#1392), the ones with something in them; kept between hovers.
+  const panels = useMemo(() => {
+    const drawnPoints = chartPoints(chart);
+    return unitGroups(chart).filter((group) =>
+      group.series.some((series) => drawnPoints.some((point) => point.series === series)),
+    );
+  }, [chart]);
   const sources = chartSources(chart);
   /** The value with no Citation the foot's button last found, which of how many, and of which. */
   const [found, setFound] = useState<{
@@ -371,12 +380,6 @@ export function ChartView({ node, editor, getPos, deleteNode }: ReactNodeViewPro
 
   const objectMenu = useObjectMenu({ kind: "chart", id: blockId });
   const title = chart.title ? t("chart.label", { title: chart.title }) : t("chart.label.untitled");
-  const kindName = t(`chart.kindName.${chart.kind}`);
-  const plotLabel = t("chart.plot.label", {
-    kind: kindName,
-    title: chart.title || kindName,
-    count: points.length,
-  });
   const legend = !asTable ? chartLegend(chart, seriesName) : [];
   const shownCard = card ? listed[card.point.row]?.values[card.point.series] : null;
   const shownState = stateOf(shownCard);
@@ -459,6 +462,7 @@ export function ChartView({ node, editor, getPos, deleteNode }: ReactNodeViewPro
             fits={(kind) => kindFits(kind, chart.data)}
             onKind={setKind}
             onSwitch={canSwitch(chart) ? switchRowsAndColumns : null}
+            switchWhy={switchMixesUnits(chart) ? t("chart.switch.mixedUnits") : null}
             onSeries={(series) => {
               dismiss();
               change({ drawn: toggledSeries(chart, series) });
@@ -513,7 +517,7 @@ export function ChartView({ node, editor, getPos, deleteNode }: ReactNodeViewPro
             seriesName={seriesName}
             active={card?.point ?? null}
             events={events}
-            label={plotLabel}
+            groups={panels.length > 1 ? panels : undefined}
           />
         )}
       </div>

@@ -179,7 +179,6 @@ test("the meeting bar's speech model line says every source failed, and its Deta
     await bridge.updateSettings({ device: { meetingNoticeAccepted: true } });
   });
   await pointAndClick(window, window.getByTestId("plus-menu"));
-  await pointAndClick(window, window.getByTestId("plus-more"));
   await pointAndClick(window, window.getByTestId("plus-record-meeting"));
   const line = window.getByTestId("meeting-transcript-line");
   await expect(line).toContainText(WORDS.en.speech);

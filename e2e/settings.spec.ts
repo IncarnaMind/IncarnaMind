@@ -141,6 +141,37 @@ test("a press on the dimmed area closes Settings, and one inside it doesn't", as
   }
 });
 
+test("Settings shows again when it is asked for before the browser's close is heard, in English and Chinese", async () => {
+  const { app, window } = await launchApp(dataDir);
+  try {
+    await dismissChatSetup(window);
+    const settings = window.getByTestId("settings");
+    for (const language of ["en", "zh-CN"] as const) {
+      await setLanguage(window, language);
+      await window
+        .getByRole("button", { name: language === "en" ? "Settings" : "设置", exact: true })
+        .click();
+      await showSettingsPage(window, "privacy");
+      // A close the browser makes itself (Esc) tells React a task later; a press on Settings in
+      // that moment, as a busy computer can deliver it, must show Settings again.
+      await window.evaluate(() => {
+        document.querySelector<HTMLDialogElement>('[data-testid="settings"]')?.close();
+        const buttons = document.querySelectorAll<HTMLButtonElement>(
+          '[data-testid="sidebar-footer"] button',
+        );
+        buttons[buttons.length - 1]?.click();
+      });
+      await expect(settings).toBeVisible();
+      await expect(settings).toHaveAttribute("data-page", "general");
+      // The close it pushed aside still closes Settings when the User means it.
+      await window.keyboard.press("Escape");
+      await expect(settings).toBeHidden();
+    }
+  } finally {
+    await app.close();
+  }
+});
+
 test("the list of pages works by keyboard, with a focus ring", async () => {
   const { app, window } = await launchApp(dataDir);
   try {
@@ -166,7 +197,7 @@ test("the list of pages works by keyboard, with a focus ring", async () => {
   }
 });
 
-test("Organize in the Library, with no model chosen yet, opens Models at Tagging, with Advanced open", async () => {
+test("Organize in the Library, with no model chosen yet, offers first run's key field in place, and Dismiss puts the row away", async () => {
   const { app, window } = await launchApp(dataDir);
   try {
     await dismissChatSetup(window);
@@ -185,14 +216,13 @@ test("Organize in the Library, with no model chosen yet, opens Models at Tagging
       }),
     );
     await window.getByTestId("open-library").click();
-    await window.getByTestId("library").getByTestId("library-organize").click();
-    await window.getByTestId("library").getByTestId("library-organize-set-up").click();
-    const settings = window.getByTestId("settings");
-    await expect(settings).toHaveAttribute("data-page", "models");
-    await expect(settings.getByTestId("models-advanced")).toHaveAttribute("open", "");
-    const tagging = settings.getByTestId("tagging-settings");
-    await expect(tagging).toBeInViewport();
-    await expect(tagging.getByTestId("tagging-automatic").getByRole("radio")).toBeFocused();
+    const library = window.getByTestId("library");
+    await library.getByTestId("library-organize").click();
+    const needs = library.getByTestId("library-organize-needs-model");
+    await expect(needs.getByTestId("library-organize-key")).toBeVisible();
+    await expect(window.getByTestId("settings")).toBeHidden();
+    await needs.getByTestId("library-organize-dismiss").click();
+    await expect(needs).toHaveCount(0);
   } finally {
     await app.close();
   }
@@ -385,7 +415,7 @@ test("signed in with ChatGPT, the plan's model is chosen in one place: the Answe
 
     // With no model before, the plan became the default: Answers offers the account's models.
     await expect(settings.getByTestId("provider-row")).toHaveText([/^ChatGPT plan/]);
-    const model = settings.getByRole("combobox", { name: "Answers" });
+    const model = settings.getByRole("combobox", { name: "Your AI" });
     await expect(model.locator("option")).toHaveText([
       "GPT-6.1 Sol · ChatGPT plan",
       "GPT-6 Luna · ChatGPT plan",

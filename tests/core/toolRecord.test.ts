@@ -107,9 +107,9 @@ describe("The record of an Answer's Tool calls", () => {
     ]);
   });
 
-  // protects=a Word export's line in the record says where the file went (the Output location), how the text IncarnaMind wrote was marked and why, and that the User was asked in the tray and what they answered; fails_when=the line is a bare folder, or loses the marking or the question and answer, so a later reply "corrects" a true one; no_claim=how a model reads it.
-  test("a Word export says its place, its marking and the question the User answered (#1535)", () => {
-    const exported = (marking: object, asked?: AnswerToolCall["asked"]) =>
+  // protects=a Word export's line in the record says where the file went (the Output location), how the text IncarnaMind wrote was marked, and where that choice came from now that nothing is asked; fails_when=the line is a bare folder, or loses the marking or its source, so a later reply "corrects" a true one; no_claim=how a model reads it.
+  test("a Word export says its marking, and where the choice came from (#1535, #1945)", () => {
+    const exported = (marking: object) =>
       call({
         tool: "run_command",
         source: "commands",
@@ -126,22 +126,13 @@ describe("The record of an Answer's Tool calls", () => {
           inOutputLocation: true,
           marking,
         } as never,
-        ...(asked && { asked }),
       });
-    const answered = {
-      question: "Mark the text IncarnaMind wrote?",
-      detail: null,
-      options: [],
-      multiple: false,
-      other: false,
-      answer: { skipped: false, chosen: ["Leave it out"], wrote: null },
-    } as const;
     const lines = (each: AnswerToolCall) => toolRecordLines([each], names, () => null).at(0);
-    expect(lines(exported({ choice: "leave", how: "kept" }, answered as never))).toBe(
-      "- run_command mind.export: 1 item (“Tides”), saved as “Tides.docx” in the Output location, /out; the text IncarnaMind wrote is left unmarked: the User was asked in the tray and answered “Leave it out”, a choice now saved for every Word export",
+    expect(lines(exported({ choice: "leave", how: "default" }))).toBe(
+      "- run_command mind.export: 1 item (“Tides”), saved as “Tides.docx” in the Output location, /out; the text IncarnaMind wrote is left unmarked, using the default for Word exports; that choice is now saved",
     );
     expect(lines(exported({ choice: "mark", how: "earlier" }))).toBe(
-      "- run_command mind.export: 1 item (“Tides”), saved as “Tides.docx” in the Output location, /out; the text IncarnaMind wrote is marked with comments, following the choice the User saved earlier for Word exports",
+      "- run_command mind.export: 1 item (“Tides”), saved as “Tides.docx” in the Output location, /out; the text IncarnaMind wrote is marked with comments, following the choice saved for Word exports",
     );
     expect(lines(exported({ choice: "mark", how: "this-file" }))).toContain(
       "as the User's request named it for this file, their saved choice unchanged",
@@ -204,6 +195,7 @@ describe("A record within the context's budget", () => {
     text,
     citations: [],
     figures: [],
+    analyses: [],
     model: null,
     status: "done",
     errorKind: null,
@@ -228,6 +220,7 @@ describe("A record within the context's budget", () => {
       scope: null,
       model: null,
       forcedSkill: null,
+      analyse: false,
       quotes: [],
       createdAt: "2026-10-16T00:00:00.000Z",
     },

@@ -2,12 +2,15 @@ import { type ChangeEvent, type KeyboardEvent, memo, type ReactNode, useMemo, us
 import type { Document, DocumentStatus, Tag } from "../../../core/api";
 import { displayName, sourceOf } from "../../../shared/documentNames";
 import type { MessageKey } from "../../../shared/i18n";
+import { addFilesLabel } from "../addFilesAction";
+import { useDocumentPlace } from "../documentPlaces";
 import { documentStatusText, isProcessing } from "../documentStatus";
 import { useDraggedRef, useDragSource } from "../dragDrop";
 import { useFirstOpen } from "../firstOpen";
 import { useLanguage, useT } from "../i18n";
 import { currentTabOf } from "../layoutSlice";
 import { fileStatusLabel, formatCount } from "../linkedFolders";
+import { useDayOne, useOwnDocuments } from "../ownDocuments";
 import { usePeekKey } from "../peek";
 import { scanningStatus } from "../scanStatus";
 import {
@@ -32,6 +35,7 @@ import { LinkedFolderRows } from "./LinkedFolderRows";
 import { LinkFolderDialog } from "./LinkFolderDialog";
 import { DocumentLineIcon, MoreLineIcon } from "./lineIcons";
 import { ObjectMenu, useObjectMenu } from "./ObjectMenu";
+import { ProblemLine } from "./ProblemLine";
 import { SidebarHome } from "./SidebarHome";
 import { SidebarMoveTo } from "./SidebarMoveTo";
 import { SidebarSearch } from "./SidebarSearch";
@@ -82,7 +86,8 @@ const NO_DOCUMENTS: readonly Document[] = [];
 export function DocumentsSection() {
   const t = useT();
   const language = useLanguage();
-  const documentCount = useAppStore((state) => state.documents.length);
+  const ownDocuments = useOwnDocuments();
+  const dayOne = useDayOne();
   const firstOpen = useFirstOpen();
   const hasOwnDocuments = useAppStore((state) =>
     state.documents.some((each) => isOwnDocument(each, allExamples(state))),
@@ -115,9 +120,14 @@ export function DocumentsSection() {
         : documents.filter((each) => !folded.has(each.linkedFolderId ?? "")),
     [documents, folded],
   );
-  const hasLinkedFolders = useAppStore((state) =>
-    state.linkedFolders.some((each) => !folded.has(each.id)),
-  );
+  // The example's own folder is no Linked folder of the User's while its Mind is there to reach its
+  // Documents (#1942); once the fold's Mind is deleted, its row is the way back to them (#1944).
+  const hasLinkedFolders = useAppStore((state) => {
+    const shown = state.linkedFolders.filter((each) => !folded.has(each.id));
+    const exampleIds = new Set(exampleFolders.split(" ").filter(Boolean));
+    const onlyExamples = shown.length > 0 && shown.every((each) => exampleIds.has(each.id));
+    return shown.length > 0 && !(onlyExamples && exampleMindId !== null);
+  });
   const addDocuments = useAppStore((state) => state.addDocuments);
   const picker = useRef<HTMLInputElement>(null);
   const tree = useRef<HTMLDivElement>(null);
@@ -179,7 +189,7 @@ export function DocumentsSection() {
       />
       <SidebarHome />
       <SidebarSearch />
-      {!quiet && (
+      {!quiet && !dayOne && (
         <div className={rowClass(libraryOpen)}>
           <button
             type="button"
@@ -199,7 +209,7 @@ export function DocumentsSection() {
               data-testid="library-row-count"
               className="min-w-[6ch] text-right text-[12px] tabular-nums text-ink-meta"
             >
-              {formatCount(documentCount, language)}
+              {formatCount(ownDocuments.length, language)}
             </span>
           </button>
           <div className={rowActionsClass}>
@@ -226,7 +236,27 @@ export function DocumentsSection() {
           renderDocument={renderDocument}
           quiet={quiet}
           hideExamples={foldExamples}
+          dayOne={dayOne}
         />
+        {!quiet && documents.length === 0 && (
+          <ProblemLine
+            role="status"
+            testId="documents-empty"
+            className="px-2 pt-2 pb-1"
+            action={{
+              label: t(addFilesLabel()),
+              testId: "documents-empty-add-files",
+              onClick: () => void useAppStore.getState().pickDocumentsOrFolder(),
+            }}
+            also={{
+              label: t("startGuide.documents.linkFolder"),
+              testId: "documents-empty-link-folder",
+              onClick: () => void useAppStore.getState().addLinkedFolder(),
+            }}
+          >
+            {t("library.none")}
+          </ProblemLine>
+        )}
         {!quiet && hasLinkedFolders && (
           <SidebarSection testId="linked-folders-section" title={t("sidebar.linkedFolders")}>
             <LinkedFolderRows hideExamples={foldExamples} />
@@ -266,6 +296,7 @@ const DocumentRow = memo(function DocumentRow({
   const rename = useRename<HTMLButtonElement>(`sidebar-document:${item.id}`);
   const renameDocument = useAppStore((state) => state.renameDocument);
   const shownName = displayName(item);
+  const place = useDocumentPlace(item.id);
   const source = sourceOf(item);
   const chips = chipsOf(item.tags, tagsById);
   const tagNames =
@@ -332,7 +363,7 @@ const DocumentRow = memo(function DocumentRow({
           data-testid="open-document"
           aria-current={isOpen ? "true" : undefined}
           aria-description={tagNames}
-          title={[shownName === source ? shownName : `${shownName}\n${source}`, tagNames]
+          title={[shownName === source ? shownName : `${shownName}\n${source}`, place, tagNames]
             .filter(Boolean)
             .join("\n")}
           // A click opens it, in a preview beside the Mind or in the group already showing a Document;
@@ -349,8 +380,15 @@ const DocumentRow = memo(function DocumentRow({
           <DocumentLineIcon kind={item.kind} className={rowIconClass(lit)} />
           {/* Takes what the status leaves; in it, the name gives way before the colours. */}
           <span className="flex min-w-0 flex-1 items-center gap-2">
-            <span data-testid="row-text" className="min-w-0 truncate">
-              {shownName}
+            <span className="flex min-w-0 items-center gap-2">
+              <span data-testid="row-text" className="max-w-full shrink-0 truncate">
+                {shownName}
+              </span>
+              {place && (
+                <span data-testid="row-place" className="min-w-0 truncate text-ink-meta">
+                  {place}
+                </span>
+              )}
             </span>
             <NotCitedLabel item={item} />
             <TagMarks

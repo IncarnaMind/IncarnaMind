@@ -358,6 +358,52 @@ test("one an older build deleted, its copy already gone, comes back as a Documen
   ).toHaveAttribute("data-file-status", "missing");
 });
 
+test("a Document restored from Recently deleted comes back with no Organize mark, in English and Chinese (#1433)", async () => {
+  test.setTimeout(120_000);
+  const file = join(sources, "Harbour notes.txt");
+  await writeFile(file, "Notes about the harbour and its tides.\n");
+  const { window } = await launchApp(dataDir);
+  await dismissChatSetup(window);
+  await addDocuments(window, [file]);
+  // The Folder comes after the Document, so Organize had nothing to file it into then.
+  await read(window, async (core) => {
+    const [document] = await core.listDocuments();
+    if (!document) throw new Error("The Document was not added.");
+    await core.createLibraryGroup({ name: "Finance", description: "" });
+    await core.deleteDocument(document.id);
+  });
+  await openDeleted(window);
+  await row(window, "Harbour notes").getByTestId("deleted-restore").click();
+  await expect(undoLine(window).getByTestId("undo-message")).toHaveText("Restored “Harbour notes”");
+
+  // The Library read again, as a restart or another change reads it, so the row shows the assignment the core holds.
+  await window.reload();
+  await pointAndClick(window, window.getByTestId("open-library"));
+  const library = window.getByTestId("library");
+  const item = library
+    .getByTestId("library-document")
+    .filter({ has: window.getByRole("button", { name: "Harbour notes", exact: true }) });
+  const organizeOf = async () => {
+    await item.locator("[data-row-main]").focus();
+    await window.keyboard.press("ControlOrMeta+i");
+    const info = window.getByTestId("info-panel");
+    await expect(info).toBeVisible();
+    return info.getByTestId("info-organize");
+  };
+  const english = await organizeOf();
+  await expect(english).toContainText("Not organized yet");
+  await expect(english).not.toContainText("Needs attention");
+  await window.keyboard.press("Escape");
+
+  await read(window, (core) => core.updateSettings({ user: { language: "zh-CN" } }));
+  const chinese = await organizeOf();
+  await expect(chinese).toContainText("尚未整理");
+  await expect(chinese).not.toContainText("需要处理");
+  await window.keyboard.press("Escape");
+
+  expect(await read(window, async (core) => (await core.getLibrary()).assignments)).toEqual([]);
+});
+
 test("emptying Recently deleted with many items asks once, counting what is lost", async () => {
   test.setTimeout(120_000);
   const { window } = await launchApp(dataDir);
@@ -373,7 +419,7 @@ test("emptying Recently deleted with many items asks once, counting what is lost
   await window.getByTestId("deleted-empty").click();
   const dialog = window.getByTestId("delete-permanently-dialog");
   await expect(dialog.getByRole("heading")).toHaveText("Empty Recently deleted?");
-  await expect(dialog).toContainText("The notes in 12 Minds are gone.");
+  await expect(dialog).toContainText("Your text in 12 notes is gone.");
   await dialog.getByTestId("confirm-delete-permanently").click();
   await nothingDeleted(window);
   expect(await deletedNames(window)).toEqual([]);

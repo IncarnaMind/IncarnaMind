@@ -10,6 +10,7 @@ import {
   editFolderInLibrary,
   frontMindName,
   launchApp,
+  leaveText,
   linkedFolderRow,
   linkFolderFromSidebar,
   motionRunning,
@@ -63,15 +64,6 @@ const undoMessage = (window: Page) => window.getByTestId("undo-message");
 const undo = (window: Page) => window.keyboard.press("ControlOrMeta+z");
 const redo = (window: Page) => window.keyboard.press("ControlOrMeta+Shift+z");
 
-/** Clicks the empty foot of the sidebar's tree, where ⌘Z goes to the app's changes. */
-async function leaveText(window: Page): Promise<void> {
-  const box = await window.getByTestId("sidebar-tree").boundingBox();
-  if (!box) throw new Error("The sidebar isn't showing.");
-  await window.mouse.move(box.x + box.width / 2, box.y + box.height - 8, { steps: 8 });
-  await window.mouse.down();
-  await window.mouse.up();
-}
-
 const mindIds = (window: Page) =>
   read(window, async (core) => (await core.listMinds()).map((mind) => mind.id).sort());
 const deletedMindIds = (window: Page) =>
@@ -118,7 +110,7 @@ async function madeQuietly(window: Page, make: () => Promise<void>): Promise<str
   return made;
 }
 
-test("Ask about a Document with no Mind to ask in, New Mind here, ⌘N, + and Start a Mind from a Document: each makes a Mind with no line and nothing for ⌘Z to take back", async () => {
+test("Ask about a Document with no Mind to ask in, New note here, ⌘N, + and Start a Mind from a Document: each makes a Mind with no line and nothing for ⌘Z to take back", async () => {
   const { window } = await startWithADocument();
 
   // With no Mind, asking about a Document makes one.
@@ -299,7 +291,7 @@ async function linkPapers(window: Page, app: ElectronApplication) {
   return { row: linkedFolderRow(window, "Papers"), linked };
 }
 
-test("pausing a Linked folder and showing it as a flat list: ⌘Z sets it back as it was, ⇧⌘Z does it again, with the line in English and Chinese", async () => {
+test("pausing a Linked folder: ⌘Z sets it back as it was, ⇧⌘Z does it again, with the line in English and Chinese", async () => {
   const { app, window } = await launchApp(dataDir);
   await dismissChatSetup(window);
   const { row, linked } = await linkPapers(window, app);
@@ -319,17 +311,6 @@ test("pausing a Linked folder and showing it as a flat list: ⌘Z sets it back a
   await undo(window);
   await expect.poll(async () => (await linked())?.status).toBe("watching");
 
-  await (await openLinkedFolderMenu(row)).getByTestId("linkedFolder.layout").click();
-  await expect(undoMessage(window)).toHaveText("Showing “Papers” as a flat list");
-  expect((await linked())?.layout).toBe("flat");
-  await leaveText(window);
-  await undo(window);
-  await expect.poll(async () => (await linked())?.layout).toBe("tree");
-  await redo(window);
-  await expect.poll(async () => (await linked())?.layout).toBe("flat");
-  await undo(window);
-  await expect.poll(async () => (await linked())?.layout).toBe("tree");
-
   await setLanguage(window, "zh-CN");
   await (await openLinkedFolderMenu(row)).getByTestId("linkedFolder.pause").click();
   await expect(undoMessage(window)).toHaveText("已暂停读取“Papers”");
@@ -342,8 +323,6 @@ test("pausing a Linked folder and showing it as a flat list: ⌘Z sets it back a
   await screenshot(window, "pause-a-linked-folder-zh-1600");
   await undo(window);
   await expect.poll(async () => (await linked())?.status).toBe("watching");
-  await (await openLinkedFolderMenu(row)).getByTestId("linkedFolder.layout").click();
-  await expect(undoMessage(window)).toHaveText("已将“Papers”显示为平铺列表");
 });
 
 test("quitting between the change and its Undo leaves the change made, and ⌘Z in the next launch takes back nothing", async () => {

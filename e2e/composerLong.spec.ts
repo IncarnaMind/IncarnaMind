@@ -222,7 +222,7 @@ async function paste(app: ElectronApplication, window: Page, text: string) {
 const LONG_PASTE = Array.from(
   { length: 74 },
   (_, line) =>
-    `${line + 1}. Spring tides happen at new moon and at full moon, and the harbour master logs them.`,
+    `${line + 1}. Spring tides happen at new moon and at full moon, and the harbour master logs entry ${line + 1}.`,
 ).join("\n");
 
 test("a long paste becomes a chip that can be viewed, put back, or saved as a Document that is cited", async () => {

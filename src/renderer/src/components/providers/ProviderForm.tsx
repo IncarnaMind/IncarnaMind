@@ -166,6 +166,7 @@ export function ProviderForm({
   standalone = false,
   keepDefault = false,
   initialEndpoint = null,
+  initialKey = "",
 }: {
   /** Saved providers, to tell the User when a key is already stored. */
   providers: readonly ChatProvider[];
@@ -182,6 +183,8 @@ export function ProviderForm({
   /** The default model stays as it is, so while there is one the form asks for no model. */
   keepDefault?: boolean;
   initialEndpoint?: string | null;
+  /** The key the User typed where the service wasn't named, kept as the service is picked. */
+  initialKey?: string;
 }) {
   const t = useT();
   const id = useId();
@@ -197,7 +200,7 @@ export function ProviderForm({
   const [endpointId, setEndpointId] = useState(
     refused?.endpoint ?? initialEndpoint ?? defaultRegion(first, language),
   );
-  const key = useProviderKey();
+  const key = useProviderKey(initialKey);
   const { apiKey } = key;
   const [fieldValue, setFieldValue] = useState(() => fieldDefault(first));
   const [baseUrl, setBaseUrl] = useState("");
@@ -879,9 +882,11 @@ export function KeyRefusedLine({ id, refused }: { id: string; refused: KeyRefusa
   const when = refused.at ? dayOf(new Date(refused.at), new Date(), language, t) : null;
   return (
     <span id={id} data-testid="provider-key-refused" role="status" className={hintClass}>
-      {when
-        ? t("providers.form.keyRefused", { provider, when })
-        : t("providers.form.keyRefusedNow", { provider })}
+      {refused.kind === "out-of-credit"
+        ? t("answer.error.out-of-credit")
+        : when
+          ? t("providers.form.keyRefused", { provider, when })
+          : t("providers.form.keyRefusedNow", { provider })}
     </span>
   );
 }

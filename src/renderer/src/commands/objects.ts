@@ -2,7 +2,7 @@ import type { LinkedFolder } from "../../../core/api";
 import { displayName } from "../../../shared/documentNames";
 import { core, files } from "../core";
 import { useDocumentPasswords } from "../documentPasswords";
-import { showFileLabelKey } from "../fileInfo";
+import { showFileLabelKey, userFile } from "../fileInfo";
 import { countNow, translateNow } from "../i18n";
 import { bridgeFrom, type LibraryBridge } from "../libraryBridges";
 import { fileStatusLabel, folderName } from "../linkedFolders";
@@ -66,7 +66,7 @@ const fileReason = (ctx: CommandContext) => {
   return true as const;
 };
 
-const onFiles = (ctx: CommandContext) => everyDocument(ctx, (document) => !document.web);
+const onFiles = (ctx: CommandContext) => everyDocument(ctx, userFile);
 
 /** A PDF that couldn't be read for want of its password (#763). */
 const isLockedPdf = (document: { kind: string; failure: { reason: string } | null }) =>
@@ -191,9 +191,9 @@ export const documentCommands: readonly Command[] = [
     appliesTo: ["document"],
     when: (ctx) => documentsOf(ctx).length >= 1,
     reversible: true,
-    run(ctx) {
+    run: async (ctx) => {
       const bridge = bridgeOf(ctx);
-      if (bridge) return store().startMindFrom(bridge);
+      if (bridge) await store().startMindFrom(bridge);
     },
   },
   {
@@ -341,7 +341,9 @@ export const folderCommands: readonly Command[] = [
     top: 22,
     appliesTo: ["folder"],
     reversible: true,
-    run: (ctx) => store().createMind({ titled: true, folderId: idsOf(ctx, "folder")[0] ?? null }),
+    run: async (ctx) => {
+      await store().createMind({ titled: true, folderId: idsOf(ctx, "folder")[0] ?? null });
+    },
   },
   {
     id: "folder.ask",
@@ -540,25 +542,6 @@ export const linkedFolderCommands: readonly Command[] = [
     run(ctx) {
       const linked = linkedOf(ctx);
       return linked && store().setLinkedFolderPaused(linked.id, linked.status !== "paused");
-    },
-  },
-  {
-    id: "linkedFolder.layout",
-    label: (ctx, t) =>
-      t(
-        linkedOf(ctx)?.layout === "flat"
-          ? "linkedFolders.layout.tree"
-          : "linkedFolders.layout.flat",
-      ),
-    group: "main",
-    appliesTo: ["linkedFolder"],
-    reversible: true,
-    run(ctx) {
-      const linked = linkedOf(ctx);
-      return (
-        linked &&
-        store().setLinkedFolderLayout(linked.id, linked.layout === "flat" ? "tree" : "flat")
-      );
     },
   },
   {

@@ -188,7 +188,7 @@ describe("Why a call changed nothing, on its row", () => {
     }
   });
 
-  // protects=after the User skips the question which Mind (#1865), the row says no note was picked, never that several Minds share the name; fails_when=it reads as "Several Minds are called"; no_claim=none beyond protects.
+  // protects=after the User skips the question which Mind (#1865), the row says no note was picked, never that several Minds share the name; fails_when=it reads as "Several notes are called"; no_claim=none beyond protects.
   test("a Mind not picked says so", () => {
     const problem: MindProblem = { kind: "not-picked", name: "Q3 plan" };
     expect(problemText(en, problem, "Q3 plan")).toBe("Didn’t change “Q3 plan”: no note was picked");
