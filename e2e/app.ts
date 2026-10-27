@@ -31,7 +31,8 @@ import { translate } from "../src/shared/i18n";
 import { defaultHelpKeys, HELP_SHORTCUTS, type HelpKeys } from "../src/shared/meetingHelp";
 import type { TestHooks } from "../src/shared/testHooks";
 import { type FakeOpenAIServer, signInAt } from "../tests/helpers/fakeOpenAI";
-import { APP_ARGS, homeEnv, KEYCHAIN_ARGS } from "../tests/helpers/home";
+import { APP_ARGS, KEYCHAIN_ARGS } from "../tests/helpers/home";
+import { assertPackagedMain, lifecycleHomeEnv, mainExecutable } from "./lifecycle";
 
 const appDir = resolve(__dirname, "..");
 
@@ -49,6 +50,8 @@ if (displays.length > 0 && Number.isInteger(workerIndex)) {
  * the test failed.
  */
 const openApps = new Map<ElectronApplication, string>();
+// Playwright’s Windows handle is a shell; cache the main PID before it can stop answering (#2022).
+const mainProcessIds = new WeakMap<ElectronApplication, number>();
 
 export interface RunningApp {
   app: ElectronApplication;
@@ -321,7 +324,7 @@ export async function launchApp(
     if (usageData.testerBuild) env.INCARNAMIND_TEST_TESTER_BUILD = "1";
   }
   const appHome = home ?? (await mkdtemp(join(tmpdir(), "incarnamind-home-")));
-  Object.assign(env, homeEnv(appHome));
+  Object.assign(env, lifecycleHomeEnv(appHome));
   if (referenceLookup) env.INCARNAMIND_TEST_REFERENCE_LOOKUP = referenceLookup;
   if (sources) env.INCARNAMIND_TEST_SOURCES = sources;
   if (connectorDirectory) env.INCARNAMIND_TEST_CONNECTOR_DIRECTORY = connectorDirectory;
@@ -349,11 +352,13 @@ export async function launchApp(
   }
   if (transcriber) env.INCARNAMIND_TEST_TRANSCRIBER_OPTIONS = JSON.stringify(transcriber);
 
+  const packaged = process.env.INCARNAMIND_PACKAGED_APP !== undefined;
   const app = await electron.launch({
+    ...(packaged && { executablePath: mainExecutable() }),
     args: [
       ...KEYCHAIN_ARGS,
       ...(sandboxNotice === "switch" ? ["--no-sandbox"] : []),
-      appDir,
+      ...(packaged ? [] : [appDir]),
       ...APP_ARGS,
     ],
     env,
@@ -362,8 +367,11 @@ export async function launchApp(
   openApps.set(app, dataDir);
   app.on("close", () => {
     openApps.delete(app);
+    mainProcessIds.delete(app);
     if (!home) void rm(appHome, { recursive: true, force: true, maxRetries: 3 });
   });
+  mainProcessIds.set(app, await app.evaluate(() => process.pid));
+  await assertPackagedMain(app);
   const window = await app.firstWindow();
   await window.getByTestId("plus-menu").waitFor();
   await waitUntilLive(app, window);
@@ -592,9 +600,12 @@ export const notificationsShown = (app: ElectronApplication) =>
 
 /** Force-quits the app as a crash would: its process killed, nothing saved on the way out. */
 export async function forceQuit(app: ElectronApplication): Promise<void> {
-  const exited = new Promise<void>((resolve) => app.process().once("exit", () => resolve()));
-  app.process().kill("SIGKILL");
-  await exited;
+  const pid = mainProcessIds.get(app);
+  if (!openApps.has(app) || pid === undefined)
+    throw new Error("The app was not launched by this test or has already closed.");
+  const closed = new Promise<void>((resolve) => app.once("close", () => resolve()));
+  process.kill(pid, "SIGKILL");
+  await closed;
 }
 
 /** Chooses an editing command, as the application menu has it now. */
@@ -1527,7 +1538,7 @@ async function resizeContent(
  */
 async function keepWhatTheAppWasDoing(app: ElectronApplication): Promise<string> {
   const info = test.info();
-  const pid = app.process().pid;
+  const pid = mainProcessIds.get(app);
   let sampled = false;
   // The failure being reported can already have used most of the test's time: the sample may
   // take no more than what is left, or the report itself would never be made.
@@ -2825,8 +2836,11 @@ async function closeOrKill(app: ElectronApplication): Promise<void> {
   const stuck = new Promise<"stuck">((resolve) => {
     timer = setTimeout(() => resolve("stuck"), 10_000);
   });
-  if ((await Promise.race([quit, stuck])) === "stuck") app.process().kill("SIGKILL");
-  clearTimeout(timer);
+  try {
+    if ((await Promise.race([quit, stuck])) === "stuck") await forceQuit(app);
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 /**
@@ -2840,7 +2854,6 @@ export async function removeDataFolder(dataDir: string): Promise<void> {
   const info = test.info();
   for (const [app, folder] of [...openApps]) {
     if (folder !== dataDir) continue;
-    openApps.delete(app);
     const window = app.windows()[0];
     if (info.status !== info.expectedStatus && window) {
       const path = info.outputPath("app-window.png");
@@ -2848,6 +2861,7 @@ export async function removeDataFolder(dataDir: string): Promise<void> {
       if (shot) await info.attach("app-window", { path, contentType: "image/png" });
     }
     await closeOrKill(app);
+    openApps.delete(app);
   }
   // The app's log goes with a failed test's traces: what happened on CI's machine is gone after.
   const log = join(dataDir, "logs", "incarnamind.log");

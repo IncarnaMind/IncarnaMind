@@ -3699,8 +3699,21 @@ export const zhCN = {
   "error.system.nameTooLong": "名称太长，文件系统无法使用。",
   "error.system.exists": "已有同名的文件或文件夹。",
   "error.startup.title": "IncarnaMind 无法启动",
-  "error.startup.body": "无法打开你的数据文件夹。\n\n{message}",
+  "error.startup.body":
+    "无法打开你的数据文件夹。请关闭此提示，然后重新打开 IncarnaMind。\n\n{message}",
   "error.startup.busy": "IncarnaMind 无法打开数据文件夹。可能另一个副本仍在启动，请稍后再试。",
+  "error.startup.starting": "另一个副本尚未完成启动。请稍候，再重新打开 IncarnaMind。",
+  "error.startup.quitting": "另一个副本尚未退出。请等待它退出，再重新打开 IncarnaMind。",
+  "error.startup.installing": "正在安装更新。请等待安装完成，再重新打开 IncarnaMind。",
+  "error.startup.update.title": "需要安装最新版本",
+  "error.startup.update.body":
+    "更新到 {new} 可能没有完成。当前版本是 {old}，所以不会打开你的数据文件夹。下载并安装最新版本后，再打开 IncarnaMind。",
+  "error.startup.update.withCurrent":
+    "更新可能没有完成。当前版本是 {old}，所以不会打开你的数据文件夹。下载并安装最新版本后，再打开 IncarnaMind。",
+  "error.startup.update.withTarget":
+    "更新到 {new} 可能没有完成。当前版本不会打开你的数据文件夹。下载并安装最新版本后，再打开 IncarnaMind。",
+  "error.startup.update.unknown":
+    "更新可能没有完成。当前版本不会打开你的数据文件夹。下载并安装最新版本后，再打开 IncarnaMind。",
   "error.startup.stalled":
     "另一个副本正在退出，IncarnaMind 无法打开窗口。数据未改动，请重新打开 IncarnaMind。",
   "error.startup.newer.title": "更新 IncarnaMind 才能打开你的数据",
@@ -4162,6 +4175,8 @@ export const zhCN = {
   "update.ready.message": "IncarnaMind {version} 已准备好安装",
   "update.ready.detail": "将在下次退出 IncarnaMind 时自动安装。也可以立即重启，马上完成安装。",
   "update.ready.confirm": "立即重启",
+  "update.pending.detail": "下次退出 IncarnaMind 时将完成更新。",
+  "update.pending.dismiss": "知道了",
   "update.later": "稍后",
   "update.failed.title": "未能安装更新",
   "update.failed.detail": "关闭此提示后，IncarnaMind 会重新打开。之后可以再安装更新。",
