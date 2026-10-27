@@ -391,6 +391,28 @@ describe("A Document read", { timeout: 60_000 }, () => {
     core.close();
   });
 
+  test("a search miss without a read says I didn't find and has no Citation", async () => {
+    const model = scriptedModel((call) =>
+      call.results.length === 0
+        ? { calls: [{ tool: "search_documents", input: { query: "no matching words" } }] }
+        : { text: "I didn't find the consolidated comparable-sales change in “Filing”." },
+    );
+    const { core } = await setUp(model, "ollama");
+    const sources = await createSourceFolder();
+    const filing = buildPdf([
+      { lines: ["Segment results", "Domestic comparable sales declined 5.1%."] },
+      { lines: ["Consolidated results", "Comparable sales declined 6.2%."] },
+    ]);
+    await addAndProcess(core, [await writeSourceFile(sources, "Filing.pdf", filing)]);
+
+    const { answer } = await ask(core, "What was the consolidated comparable-sales change?");
+
+    expect(answer.text).toBe("I didn't find the consolidated comparable-sales change in “Filing”.");
+    expect(answer.citations).toEqual([]);
+    expect(answer.toolCalls.filter((call) => call.tool === "read_document")).toEqual([]);
+    core.close();
+  });
+
   test("refuses a page number outside the safe integer range", async () => {
     const model = scriptedModel((call) =>
       call.results.length === 0
