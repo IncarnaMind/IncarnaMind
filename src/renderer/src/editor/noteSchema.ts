@@ -18,7 +18,7 @@ import {
 } from "../../../core/api";
 import { translate } from "../../../shared/i18n";
 import { Generated } from "./aiText";
-import { CalculatedFigure } from "./calculatedFigureSchema";
+import { CalculatedFigure, FigureTableRoles } from "./calculatedFigureSchema";
 import { Chart } from "./chartSchema";
 import { checklistItem } from "./checklistItem";
 import { Citation } from "./citationSchema";
@@ -176,6 +176,7 @@ export function noteExtensions({
     Answer.configure({ view: answerView ?? null }),
     Citation.configure({ view: citationView ?? null }),
     CalculatedFigure.configure({ view: calculatedFigureView ?? null }),
+    FigureTableRoles,
     Footnote.configure({ view: footnoteView ?? null }),
     DocumentChip.configure({ view: documentChipView ?? null }),
     Chart.configure({ view: chartView ?? null }),

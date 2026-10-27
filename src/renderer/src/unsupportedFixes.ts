@@ -29,6 +29,7 @@ import { makeMine } from "./editor/aiText";
 import { citationsOf } from "./editor/alreadyCited";
 import { paragraphPlaces, type ShownClaim, shownClaims } from "./editor/claimChecks";
 import { asOneStep, offerEditorUndo } from "./editor/editorUndo";
+import { writeSentenceCheck } from "./editor/figureActions";
 import { requestEdit, useEdits } from "./editWithAi";
 import { translateNow } from "./i18n";
 import { useNotices } from "./notices";
@@ -41,6 +42,7 @@ import { useNotices } from "./notices";
 export function offersFixes(editor: Editor, claim: ShownClaim): boolean {
   const { check } = claim;
   return (
+    claim.kind !== "chart" &&
     claim.shown.state === "unsupported" &&
     check.evidence === null &&
     !check.citedCaseUnchecked &&
@@ -61,6 +63,7 @@ export const uncoveredOf = (claim: ShownClaim): string | null =>
 export function offersNotFound(editor: Editor, claim: ShownClaim): boolean {
   return (
     editor.isEditable &&
+    claim.kind !== "chart" &&
     claim.shown.state === "unsupported" &&
     !claim.check.citedCaseUnchecked &&
     citationsOf(editor.state, claim).length === 0
@@ -77,6 +80,7 @@ export const notFoundIn = (editor: Editor, claim: ShownClaim): boolean =>
  */
 export function offersFindSources(editor: Editor, claim: ShownClaim): boolean {
   return (
+    claim.kind !== "chart" &&
     claim.shown.state === "unsupported" &&
     claim.check.evidence === null &&
     !claim.check.citedCaseUnchecked &&
@@ -93,7 +97,7 @@ export const checkStateKey = (editor: Editor, claim: ShownClaim): MessageKey =>
   notFoundIn(editor, claim) ? "claim.state.notFound" : `claim.state.${claim.shown.state}`;
 
 export function offersKeepAsView(editor: Editor, claim: ShownClaim): boolean {
-  return editor.isEditable && claim.shown.state === "contradicted";
+  return claim.kind !== "chart" && editor.isEditable && claim.shown.state === "contradicted";
 }
 
 /** A number a check's calculated figure disagrees with, and the figure to write in its place. */
@@ -138,6 +142,7 @@ export function figureFix(
 export function offersUseFigure(editor: Editor, claim: ShownClaim): boolean {
   const { shown } = claim;
   return (
+    claim.kind !== "chart" &&
     editor.isEditable &&
     (shown.state === "supported" || shown.state === "contradicted") &&
     figureFix(claim.check.calculation, claim.sentence.text) !== null
@@ -240,16 +245,12 @@ export function keepAsView(editor: Editor, claim: ShownClaim): void {
   const { state } = editor;
   const type = state.schema.marks[CLAIM_CHECK_MARK];
   if (!type) return;
-  const kept = type.create({ ...claim.check, kept: true });
   const tr = state.tr;
-  // Only its words: the binding keeps no marks on a Citation.
-  state.doc.nodesBetween(claim.from, claim.to, (node, pos) => {
-    const marked = node.marks.some(
-      (mark) => mark.type === type && mark.attrs.id === claim.check.id,
-    );
-    if (!node.isText || !marked) return;
-    tr.addMark(Math.max(pos, claim.from), Math.min(pos + node.nodeSize, claim.to), kept);
-  });
+  writeSentenceCheck(
+    tr,
+    { ...claim, ...(claim.kind === "chart" && { node: true as const }) },
+    { ...claim.check, kept: true },
+  );
   makeMine(state, tr, claim.sentence.from, claim.sentence.to);
   asOneStep(editor, () => editor.view.dispatch(tr));
   offerEditorUndo(editor, (t) => t("claim.keptAsView"));

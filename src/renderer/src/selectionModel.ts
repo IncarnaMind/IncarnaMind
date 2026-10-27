@@ -6,7 +6,7 @@ import type { ObjectRef } from "./objects";
  */
 
 /** The places that keep a selection each (Recently deleted at the Library's foot is one): moving to another clears it, as Finder does per window. */
-export type SelectSurface = "sidebar" | "library" | "deleted" | "home";
+export type SelectSurface = "sidebar" | "library" | "deleted" | "home" | "figures";
 
 export const refKey = (ref: ObjectRef): string => `${ref.kind}:${ref.id}`;
 

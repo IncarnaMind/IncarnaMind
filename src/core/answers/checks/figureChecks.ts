@@ -326,7 +326,14 @@ export async function checkFigureReply(options: FigureCheckOptions): Promise<Cla
         )
       )
         calculation = null;
-    } else if (target.calculated) calculation = replay(target, calculations);
+    }
+    if (target.calculated && !target.calculated.figure.analysis) {
+      calculation = replay(target, calculations);
+      if (!calculation) {
+        rows.push({ ...base, sourceInput, result: unavailable() });
+        continue;
+      }
+    }
     const evidence = sourceInput?.citation ?? calculation?.inputs[0]?.citation ?? null;
     const inputs = sourceInput ? [sourceInput] : (calculation?.inputs ?? []);
     const known = options.facts();
@@ -366,14 +373,17 @@ export async function checkFigureReply(options: FigureCheckOptions): Promise<Cla
       rows.push({ ...base, sourceInput, result: figureJudgment(item, evidence, facts, flags) });
       continue;
     }
-    const compared = sourceInput
-      ? {
-          value: sourceInput.number.value,
-          unit: sourceInput.number.unit,
-          inputs: [sourceInput],
-          formula: "",
-        }
-      : calculation;
+    const compared =
+      target.calculated && !target.calculated.figure.analysis
+        ? calculation
+        : sourceInput
+          ? {
+              value: sourceInput.number.value,
+              unit: sourceInput.number.unit,
+              inputs: [sourceInput],
+              formula: "",
+            }
+          : calculation;
     const relation: LimitRelation | undefined =
       item.relation === "equals" ? undefined : item.relation;
     const agrees = compared

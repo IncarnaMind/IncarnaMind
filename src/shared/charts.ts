@@ -303,6 +303,32 @@ export function chartPoints(chart: Pick<ChartAttributes, "kind" | "drawn" | "dat
   return points;
 }
 
+export function chartCheckText(chart: ChartAttributes): string {
+  const points = chartPoints(chart);
+  const plotted = new Set(points.map(({ row, series }) => `${row}:${series}`));
+  if (chart.kind === "scatter") {
+    const across = drawnSeries(chart)[0];
+    if (across !== undefined) for (const point of points) plotted.add(`${point.row}:${across}`);
+  }
+  return JSON.stringify({
+    kind: chart.kind,
+    title: chart.title,
+    label: chart.data.labelHeading,
+    values: chartCells(chart)
+      .filter(({ row, series }) => plotted.has(`${row}:${series}`))
+      .map(({ row, series, value }) => ({
+        row,
+        series,
+        label: chart.data.rows[row]?.label ?? "",
+        heading: chart.data.series[series] ?? "",
+        shown: value.shown,
+        value: value.value,
+        unit: value.unit,
+        scale: value.scale,
+      })),
+  });
+}
+
 type Measured = Pick<ChartValue, "unit" | "scale">;
 
 /** Whether a value says what it counts: a unit ("$", "%", "吨") or a scale ("million", "亿"). */

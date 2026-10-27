@@ -3,13 +3,16 @@ import type { Editor } from "@tiptap/react";
 import { type CSSProperties, useEffect, useRef, useState } from "react";
 import type * as Y from "yjs";
 import { setClaimFocus, setOpenClaim } from "../checks";
+import { useFigureFocus } from "../figures";
 import { useT } from "../i18n";
 import { motionMode, subscribeMotion } from "../motion";
 import { checkStateKey } from "../unsupportedFixes";
 import { ClaimMark } from "./ClaimCheckCard";
+import { ClaimOutline } from "./ClaimOutline";
 import { useCardPlace } from "./checkPlace";
 import { textBlockEdited } from "./citationNumbers";
 import { type ShownClaim, shownClaims } from "./claimChecks";
+import { figurePlace } from "./figureActions";
 import type { ClaimMarkState } from "./icons";
 
 const MARK_HEIGHT = 18;
@@ -87,6 +90,7 @@ export function MarginChecks({
   const t = useT();
   const place = useCardPlace(mind.id);
   const layer = useRef<HTMLDivElement>(null);
+  const focusedFigure = useFigureFocus((state) => (state.mindId === mind.id ? state.row : null));
   const [marks, setMarks] = useState<readonly Mark[]>([]);
   /** Each mark's state as last drawn: a change from "checking" is its check finishing. */
   const seen = useRef(new Map<string, ClaimMarkState>());
@@ -227,6 +231,13 @@ export function MarginChecks({
 
   return (
     <div ref={layer} className="margin-checks" data-testid="margin-checks">
+      {focusedFigure && layer.current && (
+        <ClaimOutline
+          editor={editor}
+          layer={layer.current}
+          rangeOf={() => figurePlace(editor.state.doc, focusedFigure)}
+        />
+      )}
       {marks.map((mark) => (
         <ClaimMark
           key={mark.key}

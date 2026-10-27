@@ -2466,6 +2466,7 @@ export const MAX_TAB_GROUPS = 3;
 /** What a tab shows. The Library has one tab per window. */
 export type TabItem =
   | { kind: "mind"; mindId: string }
+  | { kind: "figures"; mindId: string }
   | { kind: "library" }
   | { kind: "home" }
   | { kind: "document"; documentId: string };
@@ -5311,6 +5312,7 @@ export interface FigureScheduleRow extends FigureFinding {
 }
 
 export interface FigureSchedule {
+  analyses: RetainedFigureAnalysis[];
   mindId: string;
   name: string;
   /** Fingerprint of the exact Note state used for this projection, including deletions. */
@@ -5560,6 +5562,8 @@ export interface DocumentsAddedSince {
 }
 
 export interface CheckMindInput {
+  /** Only these current figures; sibling judgments and personal-view choices are kept. */
+  figureIds?: string[];
   requestId: string;
   mindId: string;
   mode: CheckMindMode;
@@ -10066,6 +10070,7 @@ export interface CoreApi {
   checkMind(input: CheckMindInput): Promise<CheckMindResult>;
   /** The current Note’s figures, projected from its one Check and saved evidence. */
   getFigureSchedule(mindId: string): Promise<FigureSchedule>;
+  saveFigureScheduleExport(mindId: string): Promise<SavedExport>;
   /** The Mind's checks that Documents added since could change, with those Documents (#993). Sends nothing. */
   documentsAddedSinceChecks(mindId: string): Promise<DocumentsAddedSince[]>;
 
@@ -11111,6 +11116,7 @@ const methods: Record<CoreApiMethod, true> = {
   findMindClaims: true,
   checkMind: true,
   getFigureSchedule: true,
+  saveFigureScheduleExport: true,
   documentsAddedSinceChecks: true,
   getSecretStorage: true,
   acceptPlainTextSecretStorage: true,

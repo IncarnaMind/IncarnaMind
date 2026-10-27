@@ -11,6 +11,7 @@ import {
   type ExportResult,
   exportAgain,
   exportMind,
+  FIGURE_SCHEDULE_EXCEL,
   FORMAT_LABELS,
   isCheckRecord,
   revealNeedsDetails,
@@ -114,7 +115,7 @@ function ResultBody({
   }, [plain, held, dismiss]);
 
   const saving =
-    result.format === COMPARISON_EXCEL
+    result.format === COMPARISON_EXCEL || result.format === FIGURE_SCHEDULE_EXCEL
       ? t("export.excel.saving")
       : isCheckRecord(result.format)
         ? t("checkRecord.saving")

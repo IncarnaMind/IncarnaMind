@@ -10,13 +10,16 @@ import { type EditorState, Plugin, PluginKey } from "@tiptap/pm/state";
 import { Decoration, DecorationSet, type EditorView } from "@tiptap/pm/view";
 import {
   CALCULATED_FIGURE_NODE,
+  CHART_NODE,
   CLAIM_CHECK_MARK,
   type ClaimCheckAttributes,
   type SearchScope,
 } from "../../../core/api";
+import { chartCheckText, chartPoints, readChart } from "../../../shared/charts";
 import {
   type ClaimCheckShown,
   claimCheckShown,
+  figureCheckShown,
   type KeptMark,
   readClaimCheck,
 } from "../../../shared/claimChecks";
@@ -111,6 +114,7 @@ export function paragraphPlaces(
 
 /** A check where it is in the editor now. */
 export interface ClaimSpan {
+  kind?: "chart";
   check: ClaimCheckAttributes;
   /** The first marked character, and after the last. */
   from: number;
@@ -123,6 +127,22 @@ export interface ClaimSpan {
 export function claimSpans(doc: ProseMirrorNode): ClaimSpan[] {
   const spans: ClaimSpan[] = [];
   doc.descendants((block, pos) => {
+    if (block.type.name === CHART_NODE) {
+      const check = readClaimCheck(block.attrs[CLAIM_CHECK_MARK]);
+      if (check)
+        spans.push({
+          kind: "chart",
+          check,
+          from: pos,
+          to: pos + block.nodeSize,
+          sentence: {
+            from: pos,
+            to: pos + block.nodeSize,
+            text: chartCheckText(readChart(block.attrs)),
+          },
+        });
+      return false;
+    }
     if (!block.isTextblock) return true;
     const found = new Map<string, { check: ClaimCheckAttributes; from: number; to: number }>();
     let at = 0;
@@ -202,7 +222,20 @@ export function claimsOf(
   const claims: ShownClaim[] = [];
   const kept: KeptMark[] = [];
   for (const span of claimSpans(doc)) {
-    const shown = claimCheckShown(span.check, { ...context, text: span.sentence.text });
+    let shown = claimCheckShown(span.check, { ...context, text: span.sentence.text });
+    if (span.kind === "chart") {
+      const node = doc.nodeAt(span.from);
+      const chart = readChart(node?.attrs ?? {});
+      const expected = chartPoints(chart).length * (chart.kind === "scatter" ? 2 : 1);
+      if (
+        (!span.check.figures?.length || span.check.figures.length !== expected) &&
+        shown.state !== "kept" &&
+        shown.state !== "checking" &&
+        shown.state !== "needs-recheck" &&
+        (!span.check.figures?.length || shown.state === "supported")
+      )
+        shown = { state: "not-checked", reason: "unread" };
+    }
     if (shown.state === "kept") {
       kept.push({ from: span.from, to: span.to, text: span.sentence.text });
     } else claims.push({ ...span, shown });
@@ -212,9 +245,13 @@ export function claimsOf(
 
 function stateOf(doc: ProseMirrorNode, context: ClaimContext): ClaimState {
   const { claims, kept } = claimsOf(doc, context);
-  const washes = claims.flatMap(({ shown, from, to }) =>
+  const washes = claims.flatMap(({ shown, from, to, kind }) =>
     shown.state === "unsupported" || shown.state === "contradicted"
-      ? [Decoration.inline(from, to, { class: `claim-wash claim-wash--${shown.state}` })]
+      ? [
+          kind === "chart"
+            ? Decoration.node(from, to, { class: `claim-wash claim-wash--${shown.state}` })
+            : Decoration.inline(from, to, { class: `claim-wash claim-wash--${shown.state}` }),
+        ]
       : [],
   );
   return { context, claims, kept, decorations: DecorationSet.create(doc, washes) };
@@ -278,6 +315,17 @@ export function shownClaims(state: EditorState): readonly ShownClaim[] {
   return claimsKey.getState(state)?.claims ?? [];
 }
 
+export function figureShownIn(state: EditorState, id: string): ClaimCheckShown {
+  const context = claimsKey.getState(state)?.context ?? NO_CONTEXT;
+  for (const span of claimSpans(state.doc)) {
+    const child = span.check.figures?.find((figure) => figure.id === id);
+    if (!child) continue;
+    const now = { ...context, text: span.sentence.text };
+    return span.check.kept ? claimCheckShown(span.check, now) : figureCheckShown(child, now);
+  }
+  return { state: "not-checked", reason: "unread" };
+}
+
 const NONE_KEPT: readonly KeptMark[] = [];
 
 /** The marks the User keeps as their own view, at their places: not counted. */
@@ -291,7 +339,13 @@ export function setClaimContext(view: EditorView, context: ClaimContext): void {
   const sameScopes =
     now?.scope === context.scope ||
     (now?.scope && context.scope && sameScope(now.scope, context.scope));
-  if (now?.versions === context.versions && now.folderId === context.folderId && sameScopes) return;
+  if (
+    now?.versions === context.versions &&
+    now.folderId === context.folderId &&
+    sameScopes &&
+    now.figureContexts === context.figureContexts
+  )
+    return;
   view.dispatch(view.state.tr.setMeta(CONTEXT, context).setMeta("addToHistory", false));
 }
 
@@ -308,7 +362,9 @@ export const ClaimChecks = Extension.create({
           apply: (tr, claims) => {
             const context = tr.getMeta(CONTEXT) as ClaimContext | undefined;
             if (context) return stateOf(tr.doc, context);
-            return tr.docChanged ? stateOf(tr.doc, claims.context) : claims;
+            return tr.docChanged
+              ? stateOf(tr.doc, { ...claims.context, figureContexts: null })
+              : claims;
           },
         },
         props: {

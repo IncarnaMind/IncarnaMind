@@ -42,6 +42,7 @@ import { ObjectMenu, useObjectMenu } from "../components/ObjectMenu";
 import { LineAction } from "../components/ProblemLine";
 import { rowActionButtonClass } from "../components/sidebarRows";
 import { askInAssistant } from "../conversations";
+import { openFigureSchedule } from "../figures";
 import { useFindSources } from "../findSources";
 import { translateNow, useLanguage, useT } from "../i18n";
 import { groupsMerged } from "../layoutSlice";
@@ -146,8 +147,11 @@ export function ClaimMark({
   const card = useRef<HTMLDivElement>(null);
   /** Whether the card was opened with the keyboard, whose Esc gives the caret back (#1762). */
   const openedByKeyboard = useRef(false);
-  const open = pinned || peeking;
-  const decision = state === "supported" ? citationDecision(editor.state, claim) : NO_DECISION;
+  const open = claim.kind !== "chart" && (pinned || peeking);
+  const decision =
+    state === "supported" && claim.kind !== "chart"
+      ? citationDecision(editor.state, claim)
+      : NO_DECISION;
   const plus = decision.kind === "add";
   const added = useAddedDocuments((store) => store.byMind[mindId]?.[claim.check.id]?.length ?? 0);
   const heading = t(checkStateKey(editor, claim));
@@ -248,6 +252,10 @@ export function ClaimMark({
         }}
         onBlur={() => hold("focus", false)}
         onClick={(event) => {
+          if (claim.kind === "chart") {
+            void openFigureSchedule(mindId).catch(useAppStore.getState().reportError);
+            return;
+          }
           if (event.detail === 0) setClaimFocus(place, id);
           setOpenClaim(place, id);
           // In the example's red ≠: opening it records that the check was seen.

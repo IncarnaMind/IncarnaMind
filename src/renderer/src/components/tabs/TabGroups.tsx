@@ -7,6 +7,7 @@ import { useAppStore } from "../../store";
 import { forgetTabCloseFocus, resumeTabCloseFocus } from "../../tabFocus";
 import { useGroupsMerged } from "../../useWindowWidth";
 import { ExportDialog } from "../ExportDialog";
+import { FigureScheduleTab } from "../figures/FigureScheduleTab";
 import { HomePane } from "../home/HomePane";
 import { LibraryPane } from "../LibraryPane";
 import { ResizeRod } from "../ResizeRod";
@@ -201,6 +202,8 @@ function TabGroup({
             {tab.item.kind === "mind" ? (
               // Keyed, so another Mind starts a fresh title field and editor.
               <MindTab key={`${tab.id}:${tab.item.mindId}`} mindId={tab.item.mindId} />
+            ) : tab.item.kind === "figures" ? (
+              <FigureScheduleTab key={`${tab.id}:${tab.item.mindId}`} mindId={tab.item.mindId} />
             ) : tab.item.kind === "library" ? (
               <LibraryPane />
             ) : tab.item.kind === "home" ? (

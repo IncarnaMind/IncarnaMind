@@ -337,7 +337,18 @@ export function aggregateFigureResults(
 }
 
 export function emptyFigureFinding(figure: CheckFigure): FigureFinding {
-  return { ...figure, sourceInput: null, roundedFrom: null, difference: null, footing: [] };
+  return {
+    id: figure.id,
+    locator: figure.locator,
+    reading: figure.reading,
+    calculated: figure.calculated,
+    ...(figure.context !== undefined && { context: figure.context }),
+    ...(figure.label !== undefined && { label: figure.label }),
+    sourceInput: null,
+    roundedFrom: null,
+    difference: null,
+    footing: [],
+  };
 }
 
 export function beginFigureCheck(

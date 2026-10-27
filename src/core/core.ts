@@ -2,6 +2,7 @@ import { mkdirSync } from "node:fs";
 import { mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { tmpdir, userInfo } from "node:os";
 import { join } from "node:path";
+import { deflateRawSync } from "node:zlib";
 import * as Y from "yjs";
 import { cleanApiKey } from "../shared/apiKey";
 import { isCitationStyleId, withRecentStyle } from "../shared/citationStyles";
@@ -25,7 +26,6 @@ import {
 } from "../shared/mindCitationStyle";
 import { mindModelOf } from "../shared/mindModel";
 import { mindScopeIn } from "../shared/mindScope";
-import { fingerprintOfMind } from "../shared/mindState";
 import {
   DEFAULT_MIND_STYLE,
   exportedFamily,
@@ -37,7 +37,7 @@ import {
 } from "../shared/mindStyle";
 import { mindName } from "../shared/naming";
 import { paperFor } from "../shared/printDocument";
-import { resolveProposals, restoreRevised } from "../shared/proposals";
+import { resolveProposals, restoreRevised, targetHash } from "../shared/proposals";
 import { isPaperOrBook } from "../shared/references";
 import { RESEARCH_TASK } from "../shared/research";
 import { hasSearchScope, holdsText, mindSearchScope, type ScopeKind } from "../shared/searchScope";
@@ -113,6 +113,7 @@ import {
 } from "./api";
 import { createApprovals } from "./approvals";
 import { createBackgroundQueue } from "./backgroundQueue";
+import { describeModel } from "./chatModelNames";
 import { createCheckpoints } from "./checkpoints";
 import { createCheckRecord } from "./checkRecord";
 import { createCitationStyles } from "./citationStyles";
@@ -177,10 +178,12 @@ import { createLocalExecutor } from "./execution";
 import { createExports, type ExportsDependencies } from "./exports";
 import { citationPlaceQuestion } from "./exports/citationPlaceQuestion";
 import { createComparisonExport } from "./exports/comparisonExport";
+import { figureScheduleBook } from "./exports/figureScheduleBook";
 import { exportLabels } from "./exports/labels";
 import { markAiTextQuestion } from "./exports/markAiTextQuestion";
 import { renderMarkdown } from "./exports/markdown";
 import { setTextOnlyDocuments, textOnlyDocuments } from "./exports/sharedPictures";
+import { writeXlsx } from "./exports/xlsx";
 import { figureSchedule } from "./figureSchedule";
 import { createFileLock } from "./fileLock";
 import { safeFileName, writeNewFile } from "./fileNames";
@@ -2049,6 +2052,22 @@ export function createCore(adapters: CoreAdapters): Core {
     usageData.record({ event: "mind_created", fields: {} });
     return mind;
   };
+
+  function readFigureSchedule(mindId: string) {
+    const mind = minds.get(mindId);
+    const scope = content.readSettings(mind.id, mindScopeIn);
+    return content.read(mind.id, (blocks) => {
+      return figureSchedule({
+        mindId: mind.id,
+        name: mind.title,
+        basis: targetHash(blocks.toString()),
+        blocks,
+        versions: new Map(documents.list().map((document) => [document.id, document.contentHash])),
+        folderId: mind.folderId,
+        scope,
+      });
+    });
+  }
 
   const checks = createChecks({
     language: () => settings.get().language,
@@ -4182,24 +4201,7 @@ export function createCore(adapters: CoreAdapters): Core {
     planMindCheck: (mindId, mode, allDocuments) => checks.planMindCheck(mindId, mode, allDocuments),
     findMindClaims: (input) => inFlow("check-mind", () => checks.findMindClaims(input)),
     checkMind: (input) => inFlow("check-mind", () => checks.checkMind(input)),
-    getFigureSchedule: async (mindId) => {
-      const mind = minds.get(mindId);
-      const scope = content.readSettings(mind.id, mindScopeIn);
-      return content.read(mind.id, (blocks) => {
-        if (!blocks.doc) throw new Error("The Note is detached from its document.");
-        return figureSchedule({
-          mindId: mind.id,
-          name: mind.title,
-          basis: fingerprintOfMind(blocks.doc),
-          blocks,
-          versions: new Map(
-            documents.list().map((document) => [document.id, document.contentHash]),
-          ),
-          folderId: mind.folderId,
-          scope,
-        });
-      });
-    },
+    getFigureSchedule: async (mindId) => readFigureSchedule(mindId),
     documentsAddedSinceChecks: async (mindId) => checks.documentsAddedSinceChecks(mindId),
 
     getSecretStorage: async () => secrets.status(),
@@ -4724,6 +4726,21 @@ export function createCore(adapters: CoreAdapters): Core {
         withCsv: first.format === "pdf" && saved.some((each) => each.format === "csv"),
         failures,
       };
+    },
+    saveFigureScheduleExport: async (mindId) => {
+      const schedule = readFigureSchedule(mindId);
+      if (schedule.progress) throw new InvalidInputError({ key: "error.figure.checking" });
+      const providers = await chat.list();
+      const book = figureScheduleBook(schedule, {
+        language: settings.get().language,
+        modelName: (model) =>
+          describeModel(providers, model.providerId, model.modelId)?.name ?? model.modelId,
+      });
+      const bytes = writeXlsx(book, deflateRawSync, {
+        author: "IncarnaMind",
+        created: new Date(now()),
+      });
+      return saveExport(`${safeFileName(schedule.name, "Note")}.xlsx`, bytes);
     },
     saveComparisonExport: async (input) => {
       const ref: Record<string, unknown> = isRecord(input) ? input : {};

@@ -1,4 +1,5 @@
 import * as Y from "yjs";
+import type { NodeJSON } from "../shared/blockJson";
 import { MAX_INPUTS_PER_FIGURE } from "../shared/calculatedFigures";
 import { gridOfTable, readChart, type SourceGrid } from "../shared/charts";
 import {
@@ -7,8 +8,9 @@ import {
   figureCheckShown,
   saysNotFound,
 } from "../shared/claimChecks";
-import { aggregateFigureResults, figureProblem } from "../shared/figureChecks";
+import { aggregateFigureResults, figureProblem, readFigureFinding } from "../shared/figureChecks";
 import { type FootingEntry, figureFooting } from "../shared/figureFooting";
+import { calculatedFiguresIn, figureRunsFor } from "../shared/figureRuns";
 import { type Figure, readFigures } from "../shared/figures";
 import { englishLocation } from "../shared/locations";
 import { anchorsOf, columnName, parseCellRef, type UnitText } from "../shared/units";
@@ -31,13 +33,16 @@ import type {
   FigureSchedule,
   FigureScheduleRow,
   FigureSourceFooting,
+  RetainedFigureAnalysis,
 } from "./api";
+import { CALCULATED_FIGURE_NODE } from "./api";
 import { type Cell, headerRow } from "./documents/formats/grid";
 import { plainText } from "./mindText";
 
 type Axis = "row" | "column";
 type Owner = ReturnType<typeof checkedSentences>[number];
 type Place = { element: Y.XmlElement; heading: string | null; paragraph: number };
+type SourceDocuments = Pick<AnswerDocuments, "citationSource" | "documentDate" | "pageTexts">;
 
 export interface FigureScheduleInput extends Omit<ClaimCheckNow, "text"> {
   mindId: string;
@@ -49,7 +54,7 @@ export interface FigureScheduleInput extends Omit<ClaimCheckNow, "text"> {
 export function augmentFigureFooting(
   blocks: Y.XmlFragment,
   result: ClaimCheckResult,
-  documents: AnswerDocuments,
+  documents: SourceDocuments,
   now?: Omit<ClaimCheckNow, "text">,
 ): ClaimCheckResult {
   if (!result.figures?.length) return result;
@@ -142,7 +147,7 @@ function sourceFootingFor(
   axis: FigureFinding["footing"][number],
   findings: ReadonlyMap<string, FigureFinding>,
   checked: ReadonlySet<string>,
-  documents: AnswerDocuments,
+  documents: SourceDocuments,
   limit: number,
 ): FigureSourceFooting | null {
   const stated = total.sourceInput;
@@ -324,6 +329,7 @@ function sourceFootingFor(
 function placesIn(blocks: Y.XmlFragment) {
   const places = new Map<string, Place>();
   const tables = new Map<string, SourceGrid>();
+  const figures: NodeJSON[] = [];
   let paragraph = 0;
   let heading: string | null = null;
   const visit = (parent: Y.XmlFragment | Y.XmlElement) => {
@@ -331,6 +337,7 @@ function placesIn(blocks: Y.XmlFragment) {
       if (!(element instanceof Y.XmlElement)) continue;
       if (element.nodeName === "heading") heading = plainText(element);
       if (element.nodeName === "paragraph") paragraph++;
+      if (element.nodeName === CALCULATED_FIGURE_NODE) figures.push(nodeOf(element));
       const id = element.getAttribute("id");
       if (typeof id === "string") {
         places.set(id, { element, heading, paragraph });
@@ -340,13 +347,48 @@ function placesIn(blocks: Y.XmlFragment) {
     }
   };
   visit(blocks);
-  return { places, tables };
+  return { places, tables, figures };
+}
+
+function retainedAnalyses(blocks: Y.XmlFragment, nodes: readonly NodeJSON[], mindId: string) {
+  const groups = new Map<string, NodeJSON[]>();
+  const invalid = new Set<string>();
+  const analyses: RetainedFigureAnalysis[] = [];
+  for (const node of nodes) {
+    try {
+      const figure = calculatedFiguresIn([node])[0];
+      if (!figure?.figure.analysis) continue;
+      if (!figure.analysisId) throw new Error("The calculated figure's Analysis id is missing.");
+      groups.set(figure.analysisId, [...(groups.get(figure.analysisId) ?? []), node]);
+    } catch (error) {
+      const id = node.attrs?.analysisId;
+      if (typeof id === "string") invalid.add(id);
+      console.error(
+        `Mind ${mindId}: reading a calculated figure's Analysis reference failed`,
+        error,
+      );
+    }
+  }
+  for (const [id, figures] of groups) {
+    if (invalid.has(id)) continue;
+    try {
+      if (!blocks.doc) throw new Error("The Note's Analysis record is unavailable.");
+      analyses.push(...figureRunsFor(blocks.doc, figures));
+    } catch (error) {
+      invalid.add(id);
+      console.error(`Mind ${mindId}: reading retained Analysis ${id} failed`, error);
+    }
+  }
+  return { analyses, invalid };
 }
 
 const same = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b);
 
 function ownerOf(occurrence: FigureOccurrence, owners: readonly Owner[]): Owner | null {
-  if (occurrence.locator.kind !== "text") return null;
+  if (occurrence.locator.kind === "chart") {
+    const blockId = occurrence.locator.blockId;
+    return owners.find((owner) => owner.element.getAttribute("id") === blockId) ?? null;
+  }
   const { from, to } = occurrence.locator;
   return (
     owners
@@ -383,7 +425,12 @@ function sameOccurrence(occurrence: FigureOccurrence, child: FigureCheckAttribut
 
 function emptyFinding(occurrence: FigureOccurrence): FigureFinding {
   return {
-    ...occurrence,
+    id: occurrence.id,
+    locator: occurrence.locator,
+    reading: occurrence.reading,
+    calculated: occurrence.calculated,
+    context: occurrence.context,
+    ...(occurrence.label !== undefined && { label: occurrence.label }),
     source: null,
     sourceInput: null,
     roundedFrom: null,
@@ -392,9 +439,47 @@ function emptyFinding(occurrence: FigureOccurrence): FigureFinding {
   };
 }
 
-function roleOf(place: Place | undefined, axis: Axis): FootingEntry["role"] {
-  const value = place?.element.getAttribute(axis === "row" ? "figureRowRole" : "figureColumnRole");
-  return value === "total" || value === "detail" ? value : undefined;
+function roleOf(
+  place: Place | undefined,
+  axis: Axis,
+  table: Place | undefined,
+  grid: SourceGrid,
+  column: number,
+): FootingEntry["role"] {
+  const read = (value: unknown) => (value === "total" || value === "detail" ? value : undefined);
+  let cell: unknown = place?.element;
+  while (
+    cell instanceof Y.XmlElement &&
+    cell.nodeName !== "tableCell" &&
+    cell.nodeName !== "tableHeader"
+  )
+    cell = cell.parent;
+  if (!(cell instanceof Y.XmlElement)) return undefined;
+  if (axis === "row")
+    return cell.parent instanceof Y.XmlElement
+      ? read(cell.parent.getAttribute("figureRowRole"))
+      : undefined;
+  const own = read(cell.getAttribute("figureColumnRole"));
+  if (own) return own;
+  const rows =
+    table?.element.toArray().filter((row): row is Y.XmlElement => row instanceof Y.XmlElement) ??
+    [];
+  for (const [rowIndex, row] of rows.entries()) {
+    const cells = row
+      .toArray()
+      .filter((cell): cell is Y.XmlElement => cell instanceof Y.XmlElement);
+    let index = 0;
+    for (const [start, slot] of (grid[rowIndex] ?? []).entries()) {
+      if (!slot || slot.continued) continue;
+      const candidate = cells[index++];
+      const span = Number(candidate?.getAttribute("colspan")) || 1;
+      if (column >= start && column < start + span) {
+        const inherited = read(candidate?.getAttribute("figureColumnRole"));
+        if (inherited) return inherited;
+      }
+    }
+  }
+  return undefined;
 }
 
 function tableFooting(
@@ -444,7 +529,7 @@ function tableFooting(
           label:
             !occurrence && slot.text.trim() === "" && label.trim() === "" ? "" : label || slot.text,
           figure,
-          role: roleOf(place, axis),
+          role: roleOf(place, axis, layout.places.get(tableId), grid, column),
         });
       }
       for (const footing of figureFooting(entries)) {
@@ -485,6 +570,7 @@ export function figureSchedule(input: FigureScheduleInput): FigureSchedule {
   const occurrences = figuresInMind(blocks);
   const owners = checkedSentences(blocks);
   const layout = placesIn(blocks);
+  const retained = retainedAnalyses(blocks, layout.figures, input.mindId);
   const figureContexts = new Map(
     occurrences.map((occurrence) => [occurrence.id, occurrence.context]),
   );
@@ -509,7 +595,14 @@ export function figureSchedule(input: FigureScheduleInput): FigureSchedule {
     findings.set(
       occurrence.id,
       child
-        ? { ...child, ...occurrence, reading: current ? child.reading : occurrence.reading }
+        ? {
+            ...(readFigureFinding(child) ?? emptyFinding(occurrence)),
+            locator: occurrence.locator,
+            calculated: occurrence.calculated,
+            context: occurrence.context,
+            label: occurrence.label,
+            reading: current ? child.reading : occurrence.reading,
+          }
         : emptyFinding(occurrence),
     );
     states.set(occurrence.id, { owner, child, now, current });
@@ -532,7 +625,8 @@ export function figureSchedule(input: FigureScheduleInput): FigureSchedule {
     };
     const check = state?.child ?? state?.owner?.check ?? null;
     let shown: FigureScheduleRow["shown"] = { state: "not-checked", reason: "unread" };
-    if (state?.child)
+    if (state?.owner?.check.kept) shown = claimCheckShown(state.owner.check, state.now);
+    else if (state?.child)
       shown = !sameIdentity(occurrence, state.child)
         ? { state: "needs-recheck", why: "edited" }
         : figureCheckShown({ ...state.child, ...finding, context: state.child.context }, state.now);
@@ -540,7 +634,6 @@ export function figureSchedule(input: FigureScheduleInput): FigureSchedule {
       const parent = state.owner.check;
       const legacy = claimCheckShown({ ...parent, figures: undefined }, state.now);
       if (
-        !parent.figures ||
         legacy.state === "needs-recheck" ||
         legacy.state === "kept" ||
         legacy.state === "checking"
@@ -554,6 +647,13 @@ export function figureSchedule(input: FigureScheduleInput): FigureSchedule {
       figureProblem(finding)
     )
       shown = { state: "unsupported" };
+    if (
+      occurrence.calculated?.figure.analysis &&
+      (!occurrence.calculated.analysisId ||
+        retained.invalid.has(occurrence.calculated.analysisId)) &&
+      shown.state !== "kept"
+    )
+      shown = { state: "not-checked", reason: "no-evidence" };
     const reason =
       shown.state === "needs-recheck"
         ? "needs-recheck"
@@ -618,6 +718,7 @@ export function figureSchedule(input: FigureScheduleInput): FigureSchedule {
     mindId: input.mindId,
     name: input.name,
     basis: input.basis,
+    analyses: retained.analyses,
     rows,
     counts: {
       total: rows.length,

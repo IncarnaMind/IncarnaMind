@@ -87,7 +87,7 @@ const everywhere = (problem: CheckProblem, mindId: string, mode: CheckMindMode) 
 export async function checkMind(
   mindId: string,
   mode: CheckMindMode,
-  { allDocuments = false }: { allDocuments?: boolean } = {},
+  { allDocuments = false, figureIds }: { allDocuments?: boolean; figureIds?: string[] } = {},
 ): Promise<void> {
   if (useChecks.getState().running[mindId]) return;
   dismissMindCheck(mindId);
@@ -95,7 +95,13 @@ export async function checkMind(
   const requestId = crypto.randomUUID();
   setCheckRunning(mindId, { requestId, action: "whole-mind" });
   try {
-    const result = await core.checkMind({ requestId, mindId, mode, allDocuments });
+    const result = await core.checkMind({
+      requestId,
+      mindId,
+      mode,
+      allDocuments,
+      ...(figureIds && { figureIds }),
+    });
     if (result.kind === "checked") setCheckSmallModel(mindId, result.smallModel);
     else if (result.kind === "failed") {
       setCheckProblem(mindId, { kind: "find-failed", error: result.error, mode, allDocuments });

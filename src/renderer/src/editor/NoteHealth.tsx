@@ -24,6 +24,7 @@ import { UnreadFilesLine } from "../components/UnreadFilesLine";
 import { useComposer } from "../composer";
 import { useContradictionLine } from "../contradictions";
 import { errorMessage } from "../errors";
+import { openFigureSchedule } from "../figures";
 import { useLanguage, useT } from "../i18n";
 import { startMindCheck, useMindCheck, useMindCheckRun } from "../mindCheck";
 import { type NoteState, unreadForCard } from "../noteState";
@@ -242,6 +243,10 @@ export function HealthCard({
       : shownClaims(editor.state).find((each) => each.sentence.from <= at && at < each.sentence.to);
     if (!claim) return;
     setCheckCardOpen(place, false);
+    if (claim.kind === "chart") {
+      void openFigureSchedule(mindId).catch(useAppStore.getState().reportError);
+      return;
+    }
     setOpenClaim(place, claim.check.id);
   };
 

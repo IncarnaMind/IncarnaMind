@@ -523,6 +523,13 @@ test("saved formulas recheck exact UTF-16 spans without another calculate call",
     verdict: "not-checked",
     reason: "no-evidence",
   });
+  const shortcut = await checkWith({ figures: [changed], body, text: reply([item()]) });
+  expect(shortcut.result.figures?.[0]?.sourceInput).not.toBeNull();
+  expect(shortcut.result.figures?.[0]?.result).toMatchObject({
+    verdict: "not-checked",
+    reason: "no-evidence",
+  });
+
   const analysis = {
     ...saved,
     calculated: {

@@ -1,4 +1,4 @@
-import { mergeAttributes, Node, type NodeViewRenderer } from "@tiptap/core";
+import { Extension, mergeAttributes, Node, type NodeViewRenderer } from "@tiptap/core";
 import { CALCULATED_FIGURE_NODE } from "../../../core/api";
 import { readCalculatedFigureAttributes } from "../../../shared/calculatedFigures";
 
@@ -73,5 +73,29 @@ export const CalculatedFigure = Node.create<CalculatedFigureOptions>({
 
   addNodeView() {
     return this.options.view;
+  },
+});
+
+export const FigureTableRoles = Extension.create({
+  name: "figureTableRoles",
+  addGlobalAttributes() {
+    const role = (name: string) => ({
+      default: null,
+      parseHTML: (element: HTMLElement) => {
+        const value = element.getAttribute(`data-${name}`);
+        return value === "total" || value === "detail" ? value : null;
+      },
+      renderHTML: (attributes: Record<string, unknown>) => {
+        const value = attributes[name];
+        return value === "total" || value === "detail" ? { [`data-${name}`]: value } : {};
+      },
+    });
+    return [
+      { types: ["tableRow"], attributes: { figureRowRole: role("figureRowRole") } },
+      {
+        types: ["tableCell", "tableHeader"],
+        attributes: { figureColumnRole: role("figureColumnRole") },
+      },
+    ];
   },
 });

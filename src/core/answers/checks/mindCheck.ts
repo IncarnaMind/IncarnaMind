@@ -28,6 +28,7 @@ import {
   claimCheckShown,
   restsOn,
 } from "../../../shared/claimChecks";
+import { beginFigureCheck } from "../../../shared/figureChecks";
 import { readMindCheck, sentenceKey, writeMindCheck } from "../../../shared/mindCheck";
 import { mindModelOf } from "../../../shared/mindModel";
 import { mindScopeIn } from "../../../shared/mindScope";
@@ -36,7 +37,6 @@ import { isClaim } from "../../../shared/sentences";
 import { judgesUnreliably } from "../../../shared/smallModel";
 import type {
   ChatModelChoice,
-  CheckMindInput,
   CheckMindMode,
   CheckMindResult,
   CitedQuote,
@@ -97,16 +97,26 @@ export interface MindCheckOptions extends RunChecksOptions {
 
 const MODES: readonly CheckMindMode[] = ["all", "changed", "added"];
 
-function parseCheckMind(input: unknown): Required<Omit<CheckMindInput, "model">> & {
-  model: ChatModelChoice | null;
-} {
+function parseCheckMind(input: unknown) {
   if (!isRecord(input)) throw new InvalidInputError({ key: "error.mindCheck.request" });
   const { requestId } = input;
   if (typeof requestId !== "string" || requestId === "") {
     throw new InvalidInputError({ key: "error.mindCheck.request" });
   }
+  let figureIds: string[] | null = null;
+  if (input.figureIds !== undefined) {
+    if (
+      !Array.isArray(input.figureIds) ||
+      input.figureIds.length === 0 ||
+      !input.figureIds.every((id): id is string => typeof id === "string" && id !== "") ||
+      new Set(input.figureIds).size !== input.figureIds.length
+    )
+      throw new InvalidInputError({ key: "error.mindCheck.request" });
+    figureIds = input.figureIds;
+  }
   return {
     requestId,
+    figureIds,
     mindId: parseMindId(input.mindId),
     mode: parseMode(input.mode),
     allDocuments: input.allDocuments === true,
@@ -237,7 +247,11 @@ export function createMindCheck(options: MindCheckOptions) {
     (fresh.length === 0 && again.length > 0 && again.every((each) => widened.has(each)));
 
   /** The sentences a run in `mode` sends now. */
-  function sending(mindId: string, mode: CheckMindMode): Sending {
+  function sending(
+    mindId: string,
+    mode: CheckMindMode,
+    figureIds: readonly string[] | null = null,
+  ): Sending {
     const skipped = new Set(content.readSettings(mindId, readMindCheck)?.skipped ?? []);
     const versions = options.documentVersions();
     const folderId = options.mindFolder(mindId);
@@ -261,6 +275,24 @@ export function createMindCheck(options: MindCheckOptions) {
           (mark) =>
             mark.element === sentence.element && mark.from < sentence.to && mark.to > sentence.from,
         );
+      if (figureIds !== null) {
+        const selected = new Set(figureIds);
+        const known = new Set(
+          sentences.flatMap((sentence) => sentence.figures?.map((figure) => figure.id) ?? []),
+        );
+        if (figureIds.some((id) => !known.has(id)))
+          throw new InvalidInputError({ key: "error.mindCheck.request" });
+        return {
+          fresh: [],
+          again: sentences.filter((sentence) =>
+            sentence.figures?.some((figure) => selected.has(figure.id)),
+          ),
+          keys,
+          skipped,
+          widened,
+          held: [],
+        };
+      }
       if (mode === "all") {
         const fresh: SelectedSentence[] = [];
         const again: SelectedSentence[] = [];
@@ -369,7 +401,7 @@ export function createMindCheck(options: MindCheckOptions) {
     signal: AbortSignal,
   ): Promise<FindMindClaimsResult> {
     const { mindId, mode } = input;
-    const sent = sending(mindId, mode);
+    const sent = sending(mindId, mode, input.figureIds);
     const { fresh, again } = sent;
     if (fresh.length + again.length === 0) return { kind: "nothing" };
     const { empty } = options.scopeOf(mindId, everywhere(input.allDocuments, sent));
@@ -388,7 +420,7 @@ export function createMindCheck(options: MindCheckOptions) {
     signal: AbortSignal,
   ): Promise<CheckMindResult> {
     const { mindId, requestId, mode } = input;
-    const sent = sending(mindId, mode);
+    const sent = sending(mindId, mode, input.figureIds);
     const { fresh, again, keys, skipped, widened } = sent;
     if (fresh.length + again.length === 0) return { kind: "nothing" };
     const { empty, check: scope } = options.scopeOf(mindId, everywhere(input.allDocuments, sent));
@@ -439,11 +471,29 @@ export function createMindCheck(options: MindCheckOptions) {
           excluded: [],
           checkedAt: startedAt,
         };
-        markSentence(sentence.element, sentence.from, sentence.to, mark);
+        const selected = input.figureIds === null ? null : new Set(input.figureIds);
+        const previous =
+          markedSentences(blocks).find(
+            (known) =>
+              known.element === sentence.element &&
+              known.from < sentence.to &&
+              known.to > sentence.from,
+          )?.check ?? null;
+        const pending = sentence.figures?.length
+          ? beginFigureCheck(previous, mark, sentence.figures, selected)
+          : mark;
+        markSentence(sentence.element, sentence.from, sentence.to, pending);
         return [
           {
             id: mark.id,
-            ...checkText(sentence),
+            ...checkText(
+              selected === null
+                ? sentence
+                : {
+                    ...sentence,
+                    figures: sentence.figures?.filter((figure) => selected.has(figure.id)),
+                  },
+            ),
             cited: options.citedNow(sentence.cited),
             scope: within.scope,
           },
@@ -465,14 +515,15 @@ export function createMindCheck(options: MindCheckOptions) {
       return { kind: "cancelled" };
     }
     const sentences = content.read(mindId, (blocks) => markedSentences(blocks).length);
-    content.editSettings(mindId, (settings) =>
-      writeMindCheck(settings, {
-        at: options.now().toISOString(),
-        sentences,
-        stop,
-        skipped: [...skipped].filter((key) => keys.has(key)),
-      }),
-    );
+    if (input.figureIds === null)
+      content.editSettings(mindId, (settings) =>
+        writeMindCheck(settings, {
+          at: options.now().toISOString(),
+          sentences,
+          stop,
+          skipped: [...skipped].filter((key) => keys.has(key)),
+        }),
+      );
     return {
       kind: "checked",
       sentences: queued.length,

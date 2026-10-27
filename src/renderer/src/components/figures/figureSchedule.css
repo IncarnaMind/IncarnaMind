@@ -1,0 +1,329 @@
+.figure-schedule {
+  container: figure-schedule / inline-size;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  height: 100%;
+  color: var(--color-ink);
+  background: var(--color-sheet);
+  font-size: 13px;
+  line-height: 20px;
+}
+.figure-heading {
+  padding: 14px 16px 0;
+  border-bottom: 1px solid var(--color-rule);
+}
+.figure-heading-top {
+  display: flex;
+  gap: 12px;
+  align-items: start;
+  justify-content: space-between;
+}
+.figure-heading h2 {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+.figure-meta {
+  display: block;
+  color: var(--color-ink-meta);
+  font-size: 12px;
+  line-height: 16px;
+  font-weight: 400;
+  overflow-wrap: anywhere;
+}
+.figure-counts {
+  margin-top: 10px;
+  color: var(--color-ink-secondary);
+  font-size: 12px;
+}
+.figure-counts button,
+.figure-bulk button {
+  color: var(--color-accent);
+}
+.figure-counts button:hover,
+.figure-bulk button:hover {
+  text-decoration: underline;
+}
+.figure-filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  padding: 9px 0 10px;
+}
+.figure-filters button {
+  border-radius: 5px;
+  padding: 2px 7px;
+  color: var(--color-ink-secondary);
+  font-size: 12px;
+}
+.figure-filters button:hover {
+  background: var(--color-hover);
+}
+.figure-filters button[aria-pressed="true"] {
+  background: var(--color-accent-wash);
+  color: var(--color-accent);
+}
+.figure-bulk {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  padding-bottom: 10px;
+  font-size: 12px;
+}
+.figure-table,
+.figure-table thead,
+.figure-table tbody {
+  display: block;
+  width: 100%;
+}
+.figure-table th {
+  text-align: left;
+  font-weight: 400;
+}
+.figure-grid > td {
+  padding: 0;
+}
+.figure-scroll {
+  overflow: auto;
+  min-height: 0;
+  flex: 1;
+}
+.figure-grid {
+  display: grid;
+  grid-template-columns: 20px minmax(96px, 1.1fr) minmax(70px, 0.8fr) minmax(120px, 1.4fr) minmax(
+      84px,
+      0.9fr
+    ) minmax(100px, 1fr) 24px;
+  grid-template-areas: "n fg val src df st act" ". why why why why why .";
+  gap: 0 10px;
+  padding: 8px 12px 8px 16px;
+  align-items: start;
+}
+.figure-columns {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  color: var(--color-ink-meta);
+  background: var(--color-sheet);
+  font-size: 12px;
+  border-bottom: 1px solid var(--color-rule);
+}
+.figure-row {
+  border-bottom: 1px solid var(--color-rule);
+}
+.figure-row:hover {
+  background: var(--color-hover);
+}
+.figure-row.is-selected {
+  background: var(--color-accent-wash);
+}
+.figure-row[data-input="true"] {
+  background: var(--color-frame);
+  padding-block: 6px;
+}
+.figure-row[data-input="true"].is-selected {
+  background: var(--color-accent-wash);
+}
+.figure-number {
+  grid-area: n;
+  font-size: 12px;
+  color: var(--color-ink-meta);
+  font-variant-numeric: tabular-nums;
+}
+.figure-main {
+  grid-area: fg;
+  position: relative;
+  min-width: 0;
+}
+.figure-row[data-input="true"] .figure-main {
+  padding-left: 22px;
+}
+.figure-main-button {
+  font-weight: 600;
+  text-align: left;
+  overflow-wrap: anywhere;
+}
+.figure-main-button:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 2px;
+  border-radius: 2px;
+}
+.figure-row[data-input="true"] .figure-main-button {
+  font-weight: 400;
+}
+.figure-expand {
+  display: inline-flex;
+  width: 16px;
+  height: 18px;
+  margin-left: -2px;
+  vertical-align: middle;
+  align-items: center;
+}
+.figure-expand svg {
+  width: 14px;
+  height: 14px;
+  color: var(--color-ink-meta);
+}
+.figure-calc {
+  color: var(--color-ink-meta);
+  font-weight: 400;
+}
+.figure-value {
+  grid-area: val;
+  font-variant-numeric: tabular-nums;
+  overflow-wrap: anywhere;
+}
+.figure-source {
+  grid-area: src;
+  min-width: 0;
+}
+.figure-source > button {
+  display: block;
+  max-width: 100%;
+  color: var(--color-accent);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  text-align: left;
+}
+.figure-source > button:hover,
+.figure-omitted-proof button:hover {
+  text-decoration: underline;
+}
+.figure-source code {
+  font-family: var(--font-mono);
+}
+.figure-difference {
+  grid-area: df;
+  color: var(--color-ink-secondary);
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+.figure-status {
+  grid-area: st;
+  font-size: 12px;
+  min-width: 0;
+}
+.figure-status-icon {
+  margin-right: 5px;
+}
+.figure-status[data-state="supported"] .figure-status-icon {
+  color: var(--color-success);
+}
+.figure-status[data-state="look"] .figure-status-icon {
+  color: var(--color-warning);
+}
+.figure-status[data-state="checking"] {
+  color: var(--color-ink-meta);
+}
+.figure-actions {
+  grid-area: act;
+}
+.figure-actions > button {
+  opacity: 0;
+  width: 24px;
+  height: 24px;
+}
+.figure-explanation {
+  grid-area: why;
+  min-width: 0;
+}
+.figure-explanation:empty {
+  display: none;
+}
+.figure-footing {
+  margin-top: 6px;
+  color: var(--color-ink-secondary);
+  font-size: 12px;
+  line-height: 18px;
+}
+.figure-footing.has-problem {
+  border-radius: 6px;
+  padding: 8px 10px;
+  background: var(--color-warning-wash);
+  color: var(--color-warning);
+}
+.figure-omitted-proof {
+  padding-left: 12px;
+  overflow-wrap: anywhere;
+}
+.is-omitted .figure-main .figure-meta {
+  color: var(--color-warning);
+}
+.figure-quote {
+  margin-top: 3px;
+  font-size: 12px;
+  color: var(--color-ink-meta);
+}
+.figure-quote summary {
+  cursor: pointer;
+}
+.figure-quote blockquote {
+  margin: 4px 0;
+  color: var(--color-ink-secondary);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.figure-quote > button {
+  display: block;
+  color: var(--color-accent);
+  text-align: left;
+  overflow-wrap: anywhere;
+}
+.figure-empty {
+  padding: 28px 16px;
+  margin: 0;
+  color: var(--color-ink-meta);
+}
+@container figure-schedule (max-width: 619px) {
+  .figure-grid {
+    grid-template-columns: 20px minmax(0, 1fr) auto 24px;
+    grid-template-areas: "n fg st act" ". val df df" ". src src src" ". why why why";
+    gap: 2px 8px;
+    padding-left: 12px;
+    padding-right: 8px;
+  }
+  .figure-columns .figure-value,
+  .figure-columns .figure-source,
+  .figure-columns .figure-difference {
+    display: none;
+  }
+  .figure-status {
+    text-align: right;
+  }
+  .figure-row .figure-value:not(:empty)::before,
+  .figure-row .figure-difference:not(:empty)::before {
+    content: attr(data-label) ": ";
+    color: var(--color-ink-meta);
+    font-size: 12px;
+  }
+  .figure-row[data-input="true"] .figure-difference:empty {
+    display: none;
+  }
+}
+@container figure-schedule (max-width: 420px) {
+  .figure-grid {
+    grid-template-areas: "n fg st act" ". val val val" ". df df df" ". src src src" ". why why why";
+  }
+  .figure-heading-top {
+    flex-wrap: wrap;
+  }
+}
+.figure-row:is(:hover, :focus-within, .is-selected) .figure-actions > button {
+  opacity: 1;
+}
+
+.figure-explanation-row {
+  display: block;
+  border-bottom: 1px solid var(--color-rule);
+}
+.figure-explanation-row .figure-explanation {
+  display: block;
+  padding: 0 12px 8px 46px;
+}
+.figure-explanation-row.is-selected {
+  background: var(--color-accent-wash);
+}

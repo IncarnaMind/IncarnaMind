@@ -204,50 +204,37 @@ function inChart(element: Y.XmlElement): FigureOccurrence[] {
 }
 
 export function figuresInMind(blocks: Y.XmlFragment): FigureOccurrence[] {
-  const paragraphs = new Set(
-    textBlocks(blocks)
-      .filter(({ element, busy }) => !busy && element.nodeName === "paragraph")
-      .map(({ element }) => element),
-  );
   const grids = new Map<Y.XmlElement, SourceGrid>();
   const found: FigureOccurrence[] = [];
-  const visit = (parent: Y.XmlFragment | Y.XmlElement) => {
-    for (const element of parent.toArray()) {
-      if (!(element instanceof Y.XmlElement)) continue;
-      if (
-        ["question", "codeBlock", "blockMath", "heading"].includes(element.nodeName) ||
-        (element.nodeName === "answer" && element.getAttribute("status") === "streaming")
-      )
-        continue;
-      if (element.nodeName === CHART_NODE) found.push(...inChart(element));
-      else if (paragraphs.has(element)) {
-        const blockId = element.getAttribute("id");
-        if (typeof blockId !== "string") continue;
-        const text = textOf(element);
-        const spans = sentenceSpans(text);
-        const occurrences = inSentence(
-          { element, blockId, from: 0, to: text.length, text, context: text, cited: [] },
-          grids,
+  for (const { element, busy } of textBlocks(blocks, { charts: true })) {
+    if (busy) continue;
+    if (element.nodeName === CHART_NODE) found.push(...inChart(element));
+    else if (element.nodeName === "paragraph") {
+      const blockId = element.getAttribute("id");
+      if (typeof blockId !== "string") continue;
+      const text = textOf(element);
+      const spans = sentenceSpans(text);
+      const occurrences = inSentence(
+        { element, blockId, from: 0, to: text.length, text, context: text, cited: [] },
+        grids,
+      );
+      for (const occurrence of occurrences) {
+        const span = spans.find(
+          (each) => each.from <= occurrence.reading.start && each.to >= occurrence.reading.end,
         );
-        for (const occurrence of occurrences) {
-          const span = spans.find(
-            (each) => each.from <= occurrence.reading.start && each.to >= occurrence.reading.end,
-          );
-          found.push(
-            span
-              ? {
-                  ...occurrence,
-                  sentence: {
-                    from: { blockId, offset: span.from },
-                    to: { blockId, offset: span.to },
-                  },
-                }
-              : occurrence,
-          );
-        }
-      } else visit(element);
+        found.push(
+          span
+            ? {
+                ...occurrence,
+                sentence: {
+                  from: { blockId, offset: span.from },
+                  to: { blockId, offset: span.to },
+                },
+              }
+            : occurrence,
+        );
+      }
     }
-  };
-  visit(blocks);
+  }
   return found;
 }

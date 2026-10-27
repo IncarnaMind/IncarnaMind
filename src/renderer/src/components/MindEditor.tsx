@@ -1,3 +1,4 @@
+import { fingerprintOfMind } from "../../../shared/mindState";
 import "katex/dist/katex.min.css";
 import Collaboration from "@tiptap/extension-collaboration";
 import { Focus, Placeholder } from "@tiptap/extensions";
@@ -34,6 +35,7 @@ import { AppliedEditLine } from "../editor/appliedEditLine";
 import { BlockHandle } from "../editor/BlockHandle";
 import { BlockCommands } from "../editor/blockCommands";
 import { BlockOrigins } from "../editor/blockOrigins";
+import { CalculatedFigureView } from "../editor/CalculatedFigureView";
 import { ChartView } from "../editor/ChartView";
 import { CheckBadge } from "../editor/CheckBadge";
 import { CitationStylePrompt } from "../editor/CitationStylePrompt";
@@ -114,6 +116,7 @@ import { useWordLookStyle } from "../editor/wordLookStyle";
 import { WordPaste } from "../editor/wordPaste";
 import { setWritingPlace, WritingPlace } from "../editor/writingPlace";
 import { requestEdit, startEditing, TRANSLATE_LANGUAGES, useEdits } from "../editWithAi";
+import { useFigureSchedule } from "../figures";
 import { useFirstOpen } from "../firstOpen";
 import { translateNow, useT } from "../i18n";
 import { useKeptScope, useMindScope } from "../keptScope";
@@ -368,6 +371,10 @@ function MindEditorView({
           questionView: ReactNodeViewRenderer(QuestionView),
           answerView: ReactNodeViewRenderer(AnswerView),
           citationView,
+          calculatedFigureView: ReactNodeViewRenderer(
+            (props) => <CalculatedFigureView {...props} doc={doc} />,
+            { as: "span" },
+          ),
           footnoteView: footnoteView(() => footnoteLabel.current),
           documentChipView: ReactNodeViewRenderer(DocumentChipView, { as: "span" }),
           comparisonViews,
@@ -484,9 +491,18 @@ function MindEditorView({
     [documents],
   );
   const scope = useMindScope(doc);
+  const schedule = useFigureSchedule(mindId, doc);
+  const figureContexts = useMemo(
+    () =>
+      schedule && schedule.basis === fingerprintOfMind(doc)
+        ? new Map(schedule.rows.map((row) => [row.id, row.context ?? ""]))
+        : null,
+    [schedule, doc],
+  );
   useEffect(() => {
-    if (!editor.isDestroyed) setClaimContext(editor.view, { versions, folderId, scope });
-  }, [editor, versions, folderId, scope]);
+    if (!editor.isDestroyed)
+      setClaimContext(editor.view, { versions, folderId, scope, figureContexts });
+  }, [editor, versions, folderId, scope, figureContexts]);
 
   // The Citations and References in the Mind's citation style (#289), formatted off the
   // window's thread, and the footnotes numbered again when the style counts Citations otherwise.
@@ -495,7 +511,7 @@ function MindEditorView({
   const form = citationForm(style, useMindFormatting(mindId));
   formRef.current = form;
   useDefaultStyleNotice({ mindId, doc, style, chosen: styleChoice.chosen, readOnly });
-  useCitationFormattingFor(editor, style, mindId, textLanguage);
+  useCitationFormattingFor(editor, style, mindId, textLanguage, doc);
   useEffect(() => {
     if (!editor.isDestroyed) setCitationForm(editor.view, form);
   }, [editor, form]);

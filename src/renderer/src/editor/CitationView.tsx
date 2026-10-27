@@ -69,7 +69,7 @@ import { asOneStep, offerEditorUndo } from "./editorUndo";
 import { CheckMarkIcon, CheckStateIcon, ClaimMarkIcon } from "./icons";
 import { InFootnoteContext, MindIdContext, RegenerateAnswerContext } from "./mindContext";
 import { Popover } from "./Popover";
-import { onPeek, peekCitation } from "./peek";
+import { onPeek, peekCitation, useCitationPeek } from "./peek";
 import { isQuietFocus } from "./quietFocus";
 import { StyledRuns, StyledRunView } from "./StyledRuns";
 import { runsText } from "./styledText";
@@ -78,10 +78,6 @@ useAppStore.subscribe((state) => {
   const mindId = pinnedMind();
   if (mindId !== null && !staysPinned(currentTabOf(state.layout)?.item, mindId)) unpinCitation();
 });
-
-/** How long a pointer rests on a Citation before its card shows, and how long it may leave before it goes. */
-const SHOW_MS = 120;
-const HIDE_MS = 200;
 
 /** The Answer a Citation sits in, if it does (it may have been copied into a Note). */
 function answerAround(
@@ -171,7 +167,7 @@ export function CitationView({
   /** Clicked: the card stays until it is dismissed. */
   const [pinned, setPinned] = useState(false);
   /** Hovered or focused, with the card, the marker or its mark. */
-  const [peeking, setPeeking] = useState(false);
+  const { peeking, hold, clear: clearPeek } = useCitationPeek();
   const open = pinned || peeking;
   const marker = useRef<HTMLButtonElement>(null);
   // Its dot breathes only while a check the User started runs: an Answer is being written.
@@ -182,24 +178,11 @@ export function CitationView({
   /** The marker whose card the pointer over this one asks for: its own, or a neighbour's. */
   const pointed = useRef<HTMLElement | null>(null);
   const formatting = useMindFormatting(mindId);
-  const askers = useRef(new Set<string>());
-  const timer = useRef<number | undefined>(undefined);
-
-  /** Shows the card while anyone asks for it; hides it shortly after the last stops. */
-  const hold = useCallback((source: string, on: boolean) => {
-    if (on) askers.current.add(source);
-    else askers.current.delete(source);
-    window.clearTimeout(timer.current);
-    const wanted = askers.current.size > 0;
-    timer.current = window.setTimeout(() => setPeeking(wanted), wanted ? SHOW_MS : HIDE_MS);
-  }, []);
   const dismiss = useCallback(() => {
-    askers.current.clear();
-    window.clearTimeout(timer.current);
+    clearPeek();
     setPinned(false);
-    setPeeking(false);
     unpinCitation();
-  }, []);
+  }, [clearPeek]);
   const placeOf = () => {
     const at = getPos();
     return at === undefined ? null : `${footnoteId ?? "text"}:${at}`;
@@ -218,7 +201,6 @@ export function CitationView({
     const stop = element && onPeek(element, ({ source, on }) => hold(source, on));
     return () => {
       stop?.();
-      window.clearTimeout(timer.current);
     };
   }, [hold]);
 

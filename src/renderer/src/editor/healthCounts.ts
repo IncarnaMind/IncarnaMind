@@ -14,12 +14,14 @@ import type { Node as ProseMirrorNode } from "@tiptap/pm/model";
 import type { EditorState } from "@tiptap/pm/state";
 import {
   CALCULATED_FIGURE_NODE,
+  CHART_NODE,
   CITATION_NODE,
   type CitationAttributes,
   type CitationCheck,
   PROPOSAL_ATTRIBUTE,
   PROPOSAL_INSERT_MARK,
 } from "../../../core/api";
+import { chartCheckText, chartPoints, readChart } from "../../../shared/charts";
 import {
   type CheckedSentence,
   checkedSentence,
@@ -71,13 +73,7 @@ export interface NoteHealth {
 }
 
 /** Blocks whose text isn't counted. */
-const UNCOUNTED: ReadonlySet<string> = new Set([
-  "question",
-  "heading",
-  "codeBlock",
-  "blockMath",
-  "chart",
-]);
+const UNCOUNTED: ReadonlySet<string> = new Set(["question", "heading", "codeBlock", "blockMath"]);
 
 /** Words or a node a change adds: not the Mind's until it is accepted. */
 const proposed = (node: ProseMirrorNode) =>
@@ -99,6 +95,7 @@ export interface NoteHealthInput extends SentenceInput {
 
 /** One sentence a check reads, where it is and how it counts. */
 export interface SentencePlace {
+  kind?: "chart";
   /** The whole sentence's first and last characters in the document. */
   from: number;
   to: number;
@@ -130,6 +127,33 @@ function eachSentence(
   const kept = input.kept ?? [];
   doc.descendants((node, pos) => {
     if (UNCOUNTED.has(node.type.name) || proposed(node)) return false;
+    if (node.type.name === CHART_NODE) {
+      const chart = readChart(node.attrs);
+      if (chartPoints(chart).length === 0) return false;
+      const text = chartCheckText(chart);
+      const from = pos;
+      const to = pos + node.nodeSize;
+      const claim =
+        input.claims.find((claim) => claim.kind === "chart" && claim.from === from) ?? null;
+      visit({
+        kind: "chart",
+        from,
+        to,
+        text,
+        claim,
+        citations: [],
+        blockId: node.attrs[BLOCK_ID_ATTRIBUTE],
+        inTable: false,
+        state: checkedSentence({
+          text,
+          hasFigures: true,
+          check: claim?.shown ?? null,
+          skipped: false,
+          kept: keptOn(kept, { from, to, text }),
+        }),
+      });
+      return false;
+    }
     if (!node.isTextblock) return true;
     if (node.type.name !== "paragraph") return false;
     const blockId = doc.resolve(pos + 1).node(1).attrs[BLOCK_ID_ATTRIBUTE];
@@ -189,7 +213,7 @@ export function noteHealth(doc: ProseMirrorNode, input: NoteHealthInput): NoteHe
     checkable: 0,
     checkedAt: null,
   };
-  eachSentence(doc, input, ({ from, text, claim, citations, inTable: table, state }) => {
+  eachSentence(doc, input, ({ from, text, claim, citations, inTable: table, state, kind }) => {
     for (const citation of citations) {
       const check = input.citationCheck(citation.attributes);
       if (check === "found") health.found.push(citation.pos);
@@ -224,7 +248,8 @@ export function noteHealth(doc: ProseMirrorNode, input: NoteHealthInput): NoteHe
     }
     if (claim.shown.state === "unsupported") health.unsupported.push(from);
     else if (claim.shown.state === "contradicted") health.contradicted.push(from);
-    else if (isClaim(text) && citations.length === 0) health.noCitation.push(from);
+    else if (kind !== "chart" && isClaim(text) && citations.length === 0)
+      health.noCitation.push(from);
   });
   return health;
 }

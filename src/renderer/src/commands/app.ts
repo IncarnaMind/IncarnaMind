@@ -9,6 +9,7 @@ import { originOf } from "../editor/blockOrigins";
 import { goToCitation } from "../editor/citationMark";
 import { blockAt, noteHolding } from "../editor/noteKeymap";
 import { openOrigin } from "../editor/originActions";
+import { tieOutFigures } from "../figures";
 import { useFindSources } from "../findSources";
 import { useHistory } from "../history";
 import { translateNow } from "../i18n";
@@ -35,6 +36,7 @@ import { evidenceCommands } from "./evidence";
 import { exampleCommands } from "./examples";
 import { exportCommands } from "./exports";
 import { feedbackCommands } from "./feedback";
+import { figureCommands } from "./figures";
 import { fileCommands } from "./fileInfo";
 import { footnoteCommands } from "./footnotes";
 import { formatCommands } from "./format";
@@ -169,6 +171,7 @@ const appCommands: readonly Command[] = [
   ...languageCommands,
   ...answerCommands,
   ...citationCommands,
+  ...figureCommands,
   ...tabCommands,
   ...meetingCommands,
   ...meetingHelpCommands,
@@ -300,6 +303,17 @@ const appCommands: readonly Command[] = [
     reversible: true,
     when: () => homeNextHandle.current !== null && !homeNextHandle.current.busy,
     run: () => homeNextHandle.current?.run(),
+  },
+  {
+    id: "mind.tieOut",
+    label: "figures.command",
+    group: "main",
+    reversible: true,
+    when: (ctx) => onlyOne(ctx) && mindShown(ctx) !== null,
+    run: (ctx) => {
+      const mindId = mindShown(ctx);
+      if (mindId) return tieOutFigures(mindId);
+    },
   },
   {
     id: "mind.check",

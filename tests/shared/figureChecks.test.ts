@@ -5,7 +5,12 @@ import type {
   FigureCheckAttributes,
 } from "../../src/core/api";
 import { type ClaimCheckNow, claimCheckShown, readClaimCheck } from "../../src/shared/claimChecks";
-import { aggregateFigureStates, readFigureFinding } from "../../src/shared/figureChecks";
+import {
+  aggregateFigureStates,
+  beginFigureCheck,
+  readFigureFinding,
+  settleFigureCheck,
+} from "../../src/shared/figureChecks";
 import { readFigures } from "../../src/shared/figures";
 
 const sentence = "Revenue was 10 and profit was 2. / 收入10，利润2。";
@@ -154,3 +159,70 @@ for (const context of ["Revenue | FY 2025 | £m", "收入 | 2025年 | 百万元"
     });
   });
 }
+
+test("a selected check preserves sibling evidence and the independent remainder", () => {
+  const sibling = { ...figure("revenue"), kept: true as const };
+  const selected = figure("profit", "contradicted");
+  const previous = check([sibling, selected], basis("unsupported"));
+  const pending = beginFigureCheck(
+    previous,
+    { ...basis(), request: "new" },
+    [sibling, selected],
+    new Set(["profit"]),
+  );
+  expect(pending.figures?.[0]).toEqual(sibling);
+  expect(pending.figures?.[1]).toMatchObject({ id: "profit", request: "new", state: "checking" });
+  expect(pending.figures?.[1]?.kept).toBeUndefined();
+  expect(pending.remainder).toEqual(previous.remainder);
+  const stopped = settleFigureCheck(pending, (child) => ({
+    ...child,
+    state: "not-checked",
+    reason: "stopped",
+  }));
+  expect(stopped.figures?.[0]).toEqual(sibling);
+  expect(stopped.figures?.[1]).toMatchObject({ state: "not-checked", reason: "stopped" });
+  expect(stopped.remainder).toEqual(previous.remainder);
+});
+
+test("checking one figure of a kept sentence leaves its other figures and prose kept", () => {
+  const first = figure("revenue");
+  const second = figure("profit");
+  const previous = { ...basis("contradicted"), kept: true as const };
+  const pending = beginFigureCheck(
+    previous,
+    { ...basis(), request: "new" },
+    [first, second],
+    new Set(["profit"]),
+  );
+  expect(pending.kept).toBeUndefined();
+  expect(pending.figures?.[0]?.kept).toBe(true);
+  expect(pending.figures?.[1]?.kept).toBeUndefined();
+  expect(pending.remainder?.kept).toBe(true);
+  expect(claimCheckShown(pending, now)).toEqual({ state: "checking" });
+});
+
+test("a legacy whole-sentence verdict cannot verify unselected figures or erase an unknown remainder", () => {
+  const first = figure("revenue");
+  const second = figure("profit");
+  const pending = beginFigureCheck(
+    basis(),
+    { ...basis(), request: "new" },
+    [first, second],
+    new Set(["profit"]),
+  );
+  expect(pending.figures?.[0]).toMatchObject({ state: "not-checked", reason: "unread" });
+  expect(pending.remainder).toBeUndefined();
+});
+
+test("a full check reopens every child and explicitly checks its qualitative remainder", () => {
+  const first = { ...figure("revenue"), kept: true as const };
+  const pending = beginFigureCheck(
+    check([first], null),
+    { ...basis(), request: "new" },
+    [first],
+    null,
+  );
+  expect(pending.figures?.[0]).toMatchObject({ state: "checking", request: "new" });
+  expect(pending.figures?.[0]?.kept).toBeUndefined();
+  expect(pending.remainder).toMatchObject({ state: "checking", request: "new" });
+});

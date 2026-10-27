@@ -72,13 +72,10 @@ function chartCitations(chart: Y.XmlElement): CitationFields[] {
 
 function figureCheckCitations(fragment: Y.XmlFragment | Y.XmlElement): CitationFields[] {
   const cited: CitationFields[] = [];
-  const seen = new Set<string>();
   const add = (raw: unknown) => {
     if (!isRecord(raw) || raw.figures == null) return;
     const check = readClaimCheck(raw);
     if (!check) throw new Error("The figure Check's record is invalid.");
-    if (seen.has(check.id)) return;
-    seen.add(check.id);
     cited.push(...restsOn(check).map((citation) => ({ ...citation })));
   };
   const visit = (parent: Y.XmlFragment | Y.XmlElement) => {

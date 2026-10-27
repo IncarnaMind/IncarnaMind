@@ -352,6 +352,7 @@ export function figureCheckShown(
   const shown = basisShown(figure, now);
   if (
     shown.state !== "kept" &&
+    shown.state !== "checking" &&
     figure.context !== undefined &&
     now.figureContexts?.get(figure.id) !== figure.context
   )

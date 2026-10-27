@@ -2,11 +2,14 @@ import { Extension } from "@tiptap/core";
 import type { Node as ProseMirrorNode } from "@tiptap/pm/model";
 import { type EditorState, Plugin, PluginKey } from "@tiptap/pm/state";
 import { Decoration, DecorationSet } from "@tiptap/pm/view";
+import type * as Y from "yjs";
 import { CITATION_NODE, type CitationAttributes, type CitedWork } from "../../../core/api";
 import { citationLocation } from "../../../shared/locations";
+import { calculatedCitations, calculatedSources } from "./calculatedFigureSources";
 import {
   type NumberedCitation,
   numberCitations,
+  numberedFigures,
   sideBySide,
   textBlockEdited,
 } from "./citationNumbers";
@@ -41,7 +44,7 @@ export function citedWorkOf(attributes: CitationAttributes): CitedWork {
   };
 }
 
-const workSignature = (attributes: CitationAttributes) =>
+export const citationWorkSignature = (attributes: CitationAttributes) =>
   JSON.stringify([
     attributes.documentId,
     attributes.documentName,
@@ -64,7 +67,7 @@ export function clusterCitations(doc: ProseMirrorNode): CitationCluster[] {
   }
   return clusters.map(({ members }) => ({
     members,
-    signature: members.map((member) => workSignature(member.attributes)).join("|"),
+    signature: members.map((member) => citationWorkSignature(member.attributes)).join("|"),
   }));
 }
 
@@ -161,6 +164,40 @@ const citationsIn = (block: ProseMirrorNode | null) => {
 /** The editor's clusters as of its last change; empty without `CitationClusters`. */
 export function citationClusters(state: EditorState): readonly CitationCluster[] {
   return clustersKey.getState(state)?.clusters ?? [];
+}
+
+export interface FormattingCluster {
+  pos: number;
+  works: CitedWork[];
+  signature: string;
+  citation: number | null;
+  figure: string | null;
+}
+
+/** Includes figure inputs in the style's order without changing Citation decoration indices. */
+export function formattingClusters(state: EditorState, doc: Y.Doc | null): FormattingCluster[] {
+  const ordinary = citationClusters(state).map((cluster, index) => ({
+    pos: cluster.members[0]?.pos ?? 0,
+    works: cluster.members.map((member) => citedWorkOf(member.attributes)),
+    signature: cluster.signature,
+    citation: index,
+    figure: null,
+  }));
+  const figures = numberedFigures(state).flatMap(({ pos, attributes }) => {
+    const citations = calculatedCitations(calculatedSources(attributes, doc));
+    return citations.length
+      ? [
+          {
+            pos,
+            works: citations.map(citedWorkOf),
+            signature: citations.map(citationWorkSignature).join("|"),
+            citation: null,
+            figure: attributes.id,
+          },
+        ]
+      : [];
+  });
+  return [...ordinary, ...figures].sort((a, b) => a.pos - b.pos);
 }
 
 /** The plugin behind `CitationClusters`, which keeps the clusters in the editor's state. */
