@@ -64,7 +64,7 @@ function findingsOf(groups: [FindableKind, FoundObject[]][]): Palette.Findings {
 const found = findingsOf([
   [
     kindOf("mind", "minds", "palette.group.minds"),
-    minds.map((each) => object("mind", each.id, each.title, "Mind")),
+    minds.map((each) => object("mind", each.id, each.title, "Note")),
   ],
   [
     kindOf("conversation", "conversations", "palette.group.conversations"),
@@ -150,7 +150,7 @@ describe("⌘K's actions", () => {
 
   test("are the registry's, found by their name or keywords in English or in Chinese", () => {
     expect(actions("settings models")).toEqual([["actions", ["Settings: Models"]]]);
-    expect(actions("new mind")).toEqual([["actions", ["New Mind"]]]);
+    expect(actions("new note")).toEqual([["actions", ["New note"]]]);
     expect(actions("设置 模型")).toEqual([["actions", ["Settings: Models"]]]);
     expect(actions("设置 模型", "zh-CN")).toEqual([["actions", ["设置：模型"]]]);
     expect(actions("settings models", "zh-CN")).toEqual([["actions", ["设置：模型"]]]);
@@ -186,11 +186,11 @@ describe("⌘K's actions", () => {
   });
 
   test("a word inside another word, or one typo across two, doesn't find an action (#1372)", () => {
-    expect(actions("ew mind")).toEqual([]);
+    expect(actions("ew note")).toEqual([]);
     expect(actions("theme")).toEqual([]);
-    expect(actions("new mind")).toEqual([["actions", ["New Mind"]]]);
+    expect(actions("new note")).toEqual([["actions", ["New note"]]]);
     // A typo of a word's start still finds the action.
-    expect(actions("neww mind")).toEqual([["actions", ["New Mind"]]]);
+    expect(actions("neww note")).toEqual([["actions", ["New note"]]]);
   });
 
   test("act on the selection, saying how many, or on the one thing in front, naming it", () => {
@@ -255,7 +255,7 @@ describe("⌘K's actions", () => {
     for (const keys of [mind, document, folder]) {
       expect(keys.length).toBeLessThanOrEqual(6);
       expect(keys).toContain("command:library.open");
-      // New Mind first, Open the Library last.
+      // New note first, Open the Library last.
       expect(keys.indexOf("command:mind.new")).toBeLessThan(keys.indexOf("command:library.open"));
       expect(keys.at(-1)).toBe("command:library.open");
     }
@@ -277,7 +277,7 @@ describe("⌘K's actions", () => {
     );
   });
 
-  test("a Mind in front lists Export… after Check and before New Mind, as the prototype does", () => {
+  test("a Mind in front lists Export… after Check and before New note, as the prototype does", () => {
     const mind = list([], { kind: "mind", id: "m-contract" });
     expect(mind.indexOf("command:mind.exportMenu")).toBeGreaterThanOrEqual(0);
     expect(mind.indexOf("command:mind.exportMenu")).toBeLessThan(mind.indexOf("command:mind.new"));

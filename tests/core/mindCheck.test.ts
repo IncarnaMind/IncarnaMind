@@ -1,5 +1,5 @@
 /**
- * Check this Mind (#737): every sentence of a Mind that makes a claim,
+ * Check this note (#737): every sentence of a Mind that makes a claim,
  * checked in one run; then only what changed. Headings, questions and the
  * User's own opinions are left out, as the model names the claims.
  */
@@ -201,7 +201,7 @@ async function shownChecks(
   }));
 }
 
-describe("Check this Mind", () => {
+describe("Check this note", () => {
   test("the model it names is the one in use: an older Mind follows a new last pick, its own pick wins, and a removed provider falls back", async () => {
     const { core, client, mindId } = await setUp();
     const named = async () => {
@@ -550,7 +550,7 @@ describe("Check this Mind", () => {
     expect(estimate.tokens / (run?.tokens ?? 0)).toBeLessThan(1.5);
   });
 
-  // protects=Check this Mind with nothing changed sends nothing and says since when (#1669); fails_when=it plans a check of every sentence again, dates itself by the newest check, or an edit taken back still counts as a change; no_claim=the card's words.
+  // protects=Check this note with nothing changed sends nothing and says since when (#1669); fails_when=it plans a check of every sentence again, dates itself by the newest check, or an edit taken back still counts as a change; no_claim=the card's words.
   test("when nothing changed the plan says since the oldest check that holds; an edit taken back holds the checks again", async () => {
     const { core, client, mindId, checks, finds, clock } = await setUp();
     expect(await core.planMindCheck(mindId, "changed")).toMatchObject({
@@ -703,7 +703,7 @@ describe("Check this Mind", () => {
   });
 });
 
-describe("A sentence gets the same verdict in Check this Mind as checked alone", () => {
+describe("A sentence gets the same verdict in Check this note as checked alone", () => {
   // The engine's MAX_STEPS: the model calls one check's Run may make.
   const STEPS = 10;
   const LOAN = "The Northgate Bank term loan stood at £214,480.00 at 31 March 2026.";

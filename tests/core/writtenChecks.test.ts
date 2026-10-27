@@ -235,8 +235,8 @@ describe("What the assistant writes is checked before it lands", { timeout: 30_0
     expect(runs.map((run) => run.text).join("")).toBe("Spring tides come at new and full moon .");
   });
 
-  // protects=a written sentence its Citations don't support at all lands marked unsupported, with the check's reason, so Check this Mind has nothing more to find; fails_when=it lands unmarked, is cut, or Check this Mind sends it again; no_claim=none beyond protects.
-  test("a sentence still unsupported lands marked, and Check this Mind leaves it", async () => {
+  // protects=a written sentence its Citations don't support at all lands marked unsupported, with the check's reason, so Check this note has nothing more to find; fails_when=it lands unmarked, is cut, or Check this note sends it again; no_claim=none beyond protects.
+  test("a sentence still unsupported lands marked, and Check this note leaves it", async () => {
     const { core, model, calls, change, client } = await write({
       content: `## Tides\n\n${UNBACKED} [^1].`,
     });

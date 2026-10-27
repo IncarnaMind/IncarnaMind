@@ -707,8 +707,8 @@ test("the model chip chooses the model for one Mind, which remembers it after a 
     await expect(options).toHaveText([/fake-model/, /other-model/]);
     await expect(options.first()).toHaveAttribute("aria-checked", "true");
     await expect(options.first()).toBeFocused();
-    await expect(menu).not.toContainText("For this Mind’s Questions.");
-    await expect(menu).toContainText("Default for new Minds: fake-model · Change in Settings");
+    await expect(menu).not.toContainText("For this note’s Questions.");
+    await expect(menu).toContainText("Default for new notes: fake-model · Change in Settings");
     // What stays on this computer says so with its icon, in ink-secondary: green is for checks.
     const stays = menu.getByTestId("on-this-computer").first();
     await expect(stays).toHaveCSS("color", "rgb(74, 79, 87)");
@@ -771,7 +771,7 @@ test("the model chip chooses the model for one Mind, which remembers it after a 
     await pointAndClick(window, window.getByTestId("composer-model"));
     const menuZh = window.getByTestId("composer-model-menu");
     await expect(menuZh.getByRole("group", { name: "在本机运行" })).toBeVisible();
-    await expect(menuZh).toContainText("新 Mind 的默认模型：fake-model · 在设置中更改");
+    await expect(menuZh).toContainText("新笔记的默认模型：fake-model · 在设置中更改");
     await screenshot(window, "composer-model-menu-zh");
     await window.keyboard.press("Escape");
     await screenshot(window, "composer-zh");
