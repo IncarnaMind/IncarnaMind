@@ -3519,18 +3519,18 @@ export const en = {
   "aiStatement.keywords": "AI use disclosure declaration thesis dissertation paper record",
   "aiStatement.title": "AI use statement: {name}",
   "aiStatement.intro":
-    "Drawn from the record IncarnaMind keeps of this document, as of {date}. It covers only what IncarnaMind recorded, so add any use of AI elsewhere, and edit this before you attach it.",
+    "Drawn from the record IncarnaMind keeps of this note, as of {date}. It covers only what IncarnaMind recorded, so add any use of AI elsewhere, and edit this before you attach it.",
   "aiStatement.empty":
-    "There is nothing to report: IncarnaMind has no record of AI use in this document, and the document has no Citations or checks.",
+    "There is nothing to report: IncarnaMind has no record of AI use in this note, and the note has no Citations or checks.",
   "aiStatement.uses.heading": "AI models and what they were used for",
   "aiStatement.uses.none":
-    "IncarnaMind has no record of AI writing, suggesting changes, searching or checking sentences for this document.",
+    "IncarnaMind has no record of AI writing, suggesting changes, searching or checking sentences for this note.",
   "aiStatement.uses.column.use": "Use",
   "aiStatement.uses.column.model": "Model",
   "aiStatement.uses.column.times": "Times",
   "aiStatement.uses.modelUnknown": "Not recorded",
   "aiStatement.use.answer": "Answers written",
-  "aiStatement.use.answer-added": "Answers added to the document",
+  "aiStatement.use.answer-added": "Answers added to the note",
   "aiStatement.use.edit-with-ai-accepted": "Changes from Edit with AI accepted",
   "aiStatement.use.assistant-change-accepted": "Changes from the assistant accepted",
   "aiStatement.use.comparison-table-accepted": "Comparison tables accepted",
@@ -3540,20 +3540,20 @@ export const en = {
   "aiStatement.use.search-web": "Web searches",
   "aiStatement.use.sentence-checked": "Sentences checked against the Documents",
   "aiStatement.text.heading": "AI text, by section",
-  "aiStatement.text.none": "This document has no AI text.",
+  "aiStatement.text.none": "This note has no AI text.",
   "aiStatement.text.intro":
-    "IncarnaMind marks the words an AI model writes into a document until the author edits them or marks them as their own. A piece is one Answer, one Answer added to the document or one accepted change from the AI. Sections with no AI text are not listed.",
+    "IncarnaMind marks the words an AI model writes into a note until the author edits them or marks them as their own. A piece is one Answer, one Answer added to the note or one accepted change from the AI. Sections with no AI text are not listed.",
   "aiStatement.text.column.section": "Section",
   "aiStatement.text.column.kept": "Pieces kept as written",
   "aiStatement.text.column.rewritten": "Pieces rewritten",
   "aiStatement.text.column.words": "Words of AI text now",
   "aiStatement.text.start": "Before the first heading",
-  "aiStatement.text.whole": "Whole document",
+  "aiStatement.text.whole": "Whole note",
   "aiStatement.text.total": "Total",
   "aiStatement.text.untitled": "Untitled section",
-  "aiStatement.text.removed": "Pieces of AI text removed from the document: {count}.",
+  "aiStatement.text.removed": "Pieces of AI text removed from the note: {count}.",
   "aiStatement.checks.heading": "Checks",
-  "aiStatement.checks.none": "This document has no Citations and no checked sentences.",
+  "aiStatement.checks.none": "This note has no Citations and no checked sentences.",
   "aiStatement.citations.intro":
     "IncarnaMind checks each Citation’s quote against the text of the Document it cites. A found quote shows that the words are in the Document, not that the claim is right. Citations by result:",
   "aiStatement.citations.column.result": "Result",
@@ -5009,7 +5009,7 @@ export const en = {
   "transcript.addToNote.added": "Added to the note",
   "transcript.addToNote.already": "Already in the note",
   "transcript.addToNote.undo": "Added a transcript line to the note",
-  "transcript.addToNote.failed": "Couldn’t add the line. This meeting’s notes didn’t open.",
+  "transcript.addToNote.failed": "Couldn’t add the line. This meeting’s note didn’t open.",
   "transcript.line.hint": "Up and Down move between lines, Enter adds one to the note",
 
   "citationStyle.numbered": "Numbered (Document and Location)",
@@ -5246,7 +5246,7 @@ export const en = {
   "meetings.mic.resumeLine": "Resume",
   "meetings.help.pinCommand": "Pin the latest suggestion",
   "meetings.help.unpinCommand": "Unpin the latest suggestion",
-  "meetings.help.addCommand": "Add the latest suggestion to notes",
+  "meetings.help.addCommand": "Add the latest suggestion to the note",
   "meetings.help.none": "Press a help button first",
   "meetings.help.stillWriting": "The suggestion is still being written.",
   "meetings.level.label": "Sound level",
@@ -5553,7 +5553,7 @@ export const en = {
   "agents.problem.outside-scope":
     "That Folder isn’t shared with this agent. Share more in Settings → Agents.",
   "agents.problem.not-found":
-    "No such Passage, Document, Note or Citation in the Folders shared with this agent.",
+    "No such Passage, Document, note or Citation in the Folders shared with this agent.",
   "agents.problem.chat-not-ready":
     "No AI model is ready in IncarnaMind. Set one up in Settings → Models, or search and cite.",
   "agents.problem.chat-consent":

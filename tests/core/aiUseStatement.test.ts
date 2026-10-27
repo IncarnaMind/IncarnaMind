@@ -481,9 +481,9 @@ describe("The AI use statement", () => {
     const { parts } = await statementOf(core, mind.id);
 
     expect(paragraphsOf(parts)).toContain(
-      "IncarnaMind has no record of AI writing, suggesting changes, searching or checking sentences for this document.",
+      "IncarnaMind has no record of AI writing, suggesting changes, searching or checking sentences for this note.",
     );
-    expect(paragraphsOf(parts)).toContain("This document has no AI text.");
+    expect(paragraphsOf(parts)).toContain("This note has no AI text.");
     expect(tablesOf(parts)).toEqual([
       [
         ["Result", "Citations"],
@@ -722,7 +722,7 @@ describe("Checks in the statement", () => {
       [PENGUINS, "Not found", "local-model", on],
     ]);
     expect(paragraphsOf(parts).filter((each) => NO_RECORD.test(each))).toEqual([]);
-    expect(paragraphsOf(parts)).toContain("This document has no AI text.");
+    expect(paragraphsOf(parts)).toContain("This note has no AI text.");
   });
 
   test("checks beside written text are listed with it", async () => {

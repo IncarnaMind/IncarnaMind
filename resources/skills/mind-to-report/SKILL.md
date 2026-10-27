@@ -22,7 +22,7 @@ Write in the language the Question is written in, even when the note is in anoth
 
 1. **Title**: a `#` heading that says what the report is about.
 2. **Summary**: one short paragraph with the main points and conclusions.
-3. **Sections**: `##` headings, organised by topic rather than in the order things were written. Merge points that are repeated, keep the reasoning that connects them, and turn notes and fragments into full sentences. Where the Notes and the Answers disagree, say so in the text rather than silently choosing one.
+3. **Sections**: `##` headings, organised by topic rather than in the order things were written. Merge points that are repeated, keep the reasoning that connects them, and turn notes and fragments into full sentences. Where the User's text and the Answers disagree, say so in the text rather than silently choosing one.
 4. **Conclusion**: what follows from the sections, and what is still open or unresolved in the note.
 
 Write connected paragraphs; use lists only where the material is a list. Don't use tables.

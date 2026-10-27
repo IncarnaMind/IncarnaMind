@@ -2,6 +2,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, test } from "vitest";
+import { matchName, queryWords } from "../../src/renderer/src/matcher";
 import { en } from "../../src/shared/i18n/en";
 import type { MessageKey } from "../../src/shared/i18n/types";
 import { zhCN } from "../../src/shared/i18n/zh-CN";
@@ -213,11 +214,11 @@ describe("the Chinese word for it", () => {
 });
 
 describe("the retired Block-level Note", () => {
-  test.each(RETIRED_NOTE)("$key is the old Note, or fully your text in both languages", (entry) => {
+  test.each(RETIRED_NOTE)("$key is fully your text in both languages", (entry) => {
     expect(
       stateOf(en[entry.key], zhCN[entry.key], entry),
-      `${entry.key}: both languages stay the old Note, or both move to "your text" / 你写的内容, with 笔记 only where the wording names the Note`,
-    ).not.toBe("unfinished");
+      `${entry.key}: the finished wording names your text / 你写的内容 in both languages, with 笔记 only where it names the Note`,
+    ).toBe("final");
   });
 
   test("one language moving alone is unfinished", () => {
@@ -302,15 +303,11 @@ describe("the retired Block-level Note", () => {
 });
 
 describe("the Meeting's Note", () => {
-  test("the Meetings Note | Transcript tab and the call help Note | Ask field read Note", () => {
-    expect(MEETING_LABELS.map((label) => [label.english, label.chinese])).toEqual([
-      ["Note", "笔记"],
-      ["Note", "笔记"],
-    ]);
-    expect(MEETING_LABELS.map((label) => label.where)).toEqual([
-      "the Meetings Note | Transcript tab",
-      "the call help quick Note | Ask field",
-    ]);
+  test("the Meetings Note | Transcript tab and the call help Note | Ask field read the interface's Note", () => {
+    for (const label of MEETING_LABELS) {
+      expect(label.english, label.where).toBe(en["palette.kind.mind"]);
+      expect(label.chinese, label.where).toBe(zhCN["palette.kind.mind"]);
+    }
   });
 
   test("the Meeting definition says the Note written during it", () => {
@@ -320,6 +317,63 @@ describe("the Meeting's Note", () => {
   test("the Library preset for minutes is Documents, not a Note", () => {
     expect(en["library.preset.meetings"]).toBe("Meeting minutes");
     expect(zhCN["library.preset.meetings"]).toBe("会议纪要");
+  });
+});
+
+describe("the rules the finished wording keeps", () => {
+  test("a count says notes, and 篇 in Chinese; a label takes no measure word", () => {
+    expect(en["home.minds"]).toBe("{count} notes");
+    expect(en["home.minds.one"]).toBe("1 note");
+    expect(en["commands.found.mind"]).toBe("Found {count} notes");
+    expect(zhCN["home.minds"]).toBe("{count} 篇笔记");
+    expect(zhCN["home.minds.one"]).toBe("1 篇笔记");
+    expect(zhCN["mind.count"]).toBe("笔记（{count}）");
+    expect(zhCN["mindChanges.minds"]).toBe("修改过的笔记（{count}）");
+  });
+
+  test("inside a sentence the word is note, never Note", () => {
+    const offenders = (Object.keys(en) as MessageKey[]).filter((key) => {
+      if (ANOTHER_NOTE.includes(key)) return false;
+      const value = en[key];
+      const at = value.search(/\bNotes?\b/);
+      if (at < 0) return false;
+      if (at === 0 || /[.!?]\s+$/.test(value.slice(0, at))) return false;
+      return /^Notes?\b/.test(value.slice(at));
+    });
+    expect(offenders, "a sentence capitalises Note in the middle of it").toEqual([]);
+  });
+
+  test("the AI use statement names the Note, never a document", () => {
+    const aboutTheNote: readonly MessageKey[] = [
+      "aiStatement.intro",
+      "aiStatement.empty",
+      "aiStatement.uses.none",
+      "aiStatement.use.answer-added",
+      "aiStatement.text.none",
+      "aiStatement.text.intro",
+      "aiStatement.text.whole",
+      "aiStatement.text.removed",
+      "aiStatement.checks.none",
+    ];
+    for (const key of aboutTheNote) {
+      expect(/\bdocuments?\b/i.test(en[key]), key).toBe(false);
+      expect(/文档/.test(zhCN[key]), key).toBe(false);
+    }
+  });
+
+  test("the zh-CN guide quotes the interface's own words", () => {
+    const text = readDoc("docs/agents/zh-CN.md");
+    expect(text).toContain(zhCN["mindStyle.makeDefault"]);
+    expect(text).toContain(zhCN["palette.group.notes"]);
+    expect(text).toContain(zhCN["palette.searching"]);
+    expect(text).not.toContain("Today's strings");
+  });
+
+  test("⌘K finds New note by its Chinese pinyin and initials", () => {
+    const name = zhCN["sidebar.newMind"];
+    for (const typed of ["xinjian", "biji", "xinjianbiji", "bj"]) {
+      expect(matchName(queryWords(typed), name), typed).not.toBeNull();
+    }
   });
 });
 
