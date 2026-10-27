@@ -32,17 +32,20 @@ export function attachStartupEvents(): void {
   };
 
   let beats = 0;
-  let recordedBeats = 0;
-  const beatStart = performance.now();
-  setInterval(() => {
-    beats++;
-    if (recordedBeats >= 240) return;
-    const lagMs = Math.round(performance.now() - (beatStart + beats * 250));
-    if (lagMs >= 100 || beats % 8 === 0) {
-      recordedBeats++;
-      recordStartupEvent("heartbeat", { tick: beats, lagMs });
-    }
-  }, 250).unref();
+  let recordedGaps = 0;
+  let started: number | undefined;
+  app.whenReady().then(() => {
+    started = performance.now();
+    setInterval(() => {
+      beats++;
+      if (recordedGaps >= 240 || started === undefined) return;
+      const gapMs = Math.round(performance.now() - (started + beats * 100));
+      if (gapMs > 250) {
+        recordedGaps++;
+        recordStartupEvent("event-loop-gap", { tick: beats, gapMs });
+      }
+    }, 100).unref();
+  });
 
   let gone = 0;
   app.on("child-process-gone", (_event, details) => {

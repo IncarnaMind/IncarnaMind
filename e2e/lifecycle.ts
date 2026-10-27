@@ -1,4 +1,5 @@
 import { type ChildProcess, execFileSync, spawn } from "node:child_process";
+import { appendFile } from "node:fs/promises";
 import { createServer } from "node:net";
 import { dirname, join, resolve, sep } from "node:path";
 import { chromium, type ElectronApplication, expect, type Page } from "@playwright/test";
@@ -255,6 +256,137 @@ export function listedCopies(tag: string, executable?: string): ListedCopy[] {
       ? [{ pid: Number(pid), args }]
       : [];
   });
+}
+
+export interface AppProcess {
+  pid: number;
+  startedAt: string | null;
+  args: string;
+}
+
+export interface AppProcessSnapshot {
+  processes: AppProcess[];
+  openFiles?: string;
+}
+
+const windowsAppProcesses = `
+$ErrorActionPreference = 'Stop'
+[Console]::OutputEncoding = [System.Text.UTF8Encoding]::new($false)
+$folders = ConvertFrom-Json $env:INCARNAMIND_PROCESS_FOLDERS
+$rows = @(Get-CimInstance Win32_Process | Where-Object {
+  if (-not $_.ExecutablePath) { return $false }
+  foreach ($folder in $folders) {
+    if ($_.ExecutablePath.StartsWith($folder, [System.StringComparison]::OrdinalIgnoreCase)) { return $true }
+  }
+  return $false
+} | ForEach-Object {
+  $startedAt = $null
+  if ($_.CreationDate) { $startedAt = $_.CreationDate.ToString('o') }
+  @{ pid = [int]$_.ProcessId; startedAt = $startedAt; args = [string]$_.CommandLine }
+})
+$openFiles = ''
+try { $openFiles = (& openfiles.exe /query /fo csv 2>&1 | Out-String).Trim() } catch { $openFiles = $_.Exception.Message }
+if ($openFiles.Length -gt 600) { $openFiles = $openFiles.Substring(0, 600) }
+ConvertTo-Json -InputObject @{ processes = $rows; openFiles = $openFiles } -Compress -Depth 4
+`;
+
+/**
+ * Every app process still alive, for the #2104 probe: a repeat that starts while an earlier
+ * copy survives says whether the job piles copies up or the storage stage is the cause.
+ */
+export function appProcesses(): AppProcessSnapshot {
+  const executables = [
+    mainExecutable(),
+    ...ownedExecutables,
+    process.env.INCARNAMIND_PACKAGED_UPDATED_APP,
+  ];
+  const prefixes = [
+    ...new Set(
+      executables.flatMap((file) => {
+        if (!file) return [];
+        const directory = process.platform === "darwin" ? dirname(dirname(file)) : dirname(file);
+        return [resolve(directory) + sep];
+      }),
+    ),
+  ];
+  if (process.platform === "win32") {
+    const output = execFileSync(
+      "powershell.exe",
+      ["-NoProfile", "-NonInteractive", "-Command", windowsAppProcesses],
+      {
+        encoding: "utf8",
+        windowsHide: true,
+        env: { ...process.env, INCARNAMIND_PROCESS_FOLDERS: JSON.stringify(prefixes) },
+      },
+    );
+    const parsed: unknown = JSON.parse(output.replace(/^﻿/, ""));
+    if (!isRecord(parsed) || !Array.isArray(parsed.processes))
+      throw new Error("The Windows app process inventory is not a list.");
+    return {
+      processes: readAppProcesses(parsed.processes),
+      ...(typeof parsed.openFiles === "string" && { openFiles: parsed.openFiles }),
+    };
+  }
+  const uid = process.getuid?.();
+  if (uid === undefined) throw new Error("The app process inventory cannot identify this user.");
+  const output = execFileSync(
+    "ps",
+    ["-A", "-ww", "-o", "uid=", "-o", "pid=", "-o", "lstart=", "-o", "args="],
+    {
+      encoding: "utf8",
+    },
+  );
+  const processes: AppProcess[] = [];
+  for (const line of output.split("\n")) {
+    const [, owner, pid, startedAt, args = ""] =
+      line.trim().match(/^(\d+)\s+(\d+)\s+(\w{3} \w{3}\s+\d+ \d{2}:\d{2}:\d{2} \d{4})\s+(.*)$/) ??
+      [];
+    if (pid && Number(owner) === uid && prefixes.some((prefix) => args.startsWith(prefix)))
+      processes.push({ pid: Number(pid), startedAt: startedAt ?? null, args: args.slice(0, 400) });
+  }
+  return { processes: processes.slice(0, 50) };
+}
+
+function readAppProcesses(rows: unknown[]): AppProcess[] {
+  return rows.slice(0, 50).flatMap((row) => {
+    if (
+      !isRecord(row) ||
+      !Number.isSafeInteger(row.pid) ||
+      typeof row.pid !== "number" ||
+      row.pid <= 0 ||
+      typeof row.args !== "string"
+    )
+      return [];
+    return [
+      {
+        pid: row.pid,
+        startedAt: typeof row.startedAt === "string" ? row.startedAt : null,
+        args: row.args.slice(0, 400),
+      },
+    ];
+  });
+}
+
+export async function recordProcessSnapshot(
+  folder: string,
+  extra: Record<string, unknown> = {},
+): Promise<void> {
+  let evidence: Record<string, unknown>;
+  try {
+    evidence = { ...appProcesses() };
+  } catch (error) {
+    evidence = { snapshotError: String(error).slice(0, 300) };
+  }
+  await appendFile(
+    join(folder, "events.jsonl"),
+    `${JSON.stringify({
+      kind: "process-snapshot",
+      at: new Date().toISOString(),
+      pid: process.pid,
+      ...extra,
+      ...evidence,
+    })}\n`,
+  );
 }
 
 export const copiesWith = (tag: string, relaunching = false): number[] =>

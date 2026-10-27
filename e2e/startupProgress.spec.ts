@@ -14,6 +14,7 @@ import {
   freePort,
   inCopyWindow,
   killCopies,
+  recordProcessSnapshot,
   startLifecycleCopy,
   windowsOf,
 } from "./lifecycle";
@@ -29,6 +30,7 @@ test.beforeEach(async () => {
   home = await mkdtemp(join(tmpdir(), "incarnamind-startup-"));
   tag = `--startup-progress-${randomUUID()}`;
   port = await freePort();
+  await recordProcessSnapshot(home, { data });
 });
 test.afterEach(() => teardownStartup());
 

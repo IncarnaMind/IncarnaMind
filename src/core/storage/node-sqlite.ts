@@ -25,19 +25,35 @@ export function openNodeSqlite(file: string): Database {
       throw error;
     // SQLite cannot truncate mapped SHM on Windows (#2067, upstream 7c103a0b7d).
     // Remove this bounded workaround when the released runtime contains that fix.
-    const deadline = performance.now() + 5_000;
+    const started = performance.now();
+    const deadline = started + 5_000;
     const pause = new Int32Array(new SharedArrayBuffer(4));
     let failure = error;
+    let attempts = 0;
     for (let attempt = 1; ; attempt++) {
+      attempts = attempt;
       const remaining = deadline - performance.now();
       probeStep("sqlite-wal-retry", {
         attempt,
         errcode: isRecord(failure) ? failure.errcode : null,
+        elapsedMs: Math.round(performance.now() - started),
         remainingMs: Math.round(remaining),
       });
-      if (remaining <= 0) throw failure;
+      if (remaining <= 0) {
+        probeStep("sqlite-wal-failed", {
+          attempts,
+          elapsedMs: Math.round(performance.now() - started),
+        });
+        throw failure;
+      }
       Atomics.wait(pause, 0, 0, Math.min(250, remaining));
-      if (performance.now() >= deadline) throw failure;
+      if (performance.now() >= deadline) {
+        probeStep("sqlite-wal-failed", {
+          attempts,
+          elapsedMs: Math.round(performance.now() - started),
+        });
+        throw failure;
+      }
       try {
         db.exec("PRAGMA journal_mode = WAL");
       } catch (next) {
@@ -46,8 +62,17 @@ export function openNodeSqlite(file: string): Database {
         failure = next;
         continue;
       }
-      if (performance.now() >= deadline) throw failure;
-      probeStep("sqlite-wal-recovered", { attempt });
+      if (performance.now() >= deadline) {
+        probeStep("sqlite-wal-failed", {
+          attempts,
+          elapsedMs: Math.round(performance.now() - started),
+        });
+        throw failure;
+      }
+      probeStep("sqlite-wal-recovered", {
+        attempts,
+        elapsedMs: Math.round(performance.now() - started),
+      });
       break;
     }
   }
@@ -55,6 +80,7 @@ export function openNodeSqlite(file: string): Database {
   db.exec("PRAGMA synchronous = FULL");
   db.exec("PRAGMA foreign_keys = ON");
   db.exec("PRAGMA busy_timeout = 5000");
+  probeStep("sqlite-busy-timeout", { ms: 5000 });
 
   const reads = new Map<string, StatementSync>();
   const writes = new Map<string, StatementSync>();

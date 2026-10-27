@@ -23,6 +23,7 @@ import {
   killCopies,
   mainExecutable,
   prepareLifecycleApps,
+  recordProcessSnapshot,
   startLifecycleCopy,
   windowsOf,
 } from "./lifecycle";
@@ -79,6 +80,7 @@ test.beforeEach(async () => {
   home = await mkdtemp(join(tmpdir(), "incarnamind-update-lifecycle-"));
   tag = `--incarnamind-smoke-copy=${randomUUID()}`;
   apps = await prepareLifecycleApps(home);
+  await recordProcessSnapshot(home, { data });
 });
 
 test.afterEach(async () => {

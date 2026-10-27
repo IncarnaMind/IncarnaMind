@@ -1940,10 +1940,11 @@ export function migrate(db: Database, list: readonly Migration[] = migrations): 
   }
 
   let pending = 0;
+  const started = performance.now();
   for (const migration of list) {
     if (applied.has(migration.version)) continue;
     pending++;
-    const started = performance.now();
+    const began = performance.now();
     db.transaction(() => {
       db.exec(migration.sql);
       db.run("INSERT INTO schema_migrations (version, applied_at) VALUES (?, ?)", [
@@ -1954,10 +1955,16 @@ export function migrate(db: Database, list: readonly Migration[] = migrations): 
       const highest = db.get<{ v: number }>("SELECT max(version) AS v FROM schema_migrations")?.v;
       db.exec(`PRAGMA user_version = ${highest ?? 0}`);
     });
-    const ms = Math.round(performance.now() - started);
-    if (ms >= 100) probeStep("migration-slow", { version: migration.version, ms });
+    probeStep("migration", {
+      version: migration.version,
+      name: migration.description.slice(0, 120),
+      ms: Math.round(performance.now() - began),
+    });
   }
-  probeStep("migrate-done", { pending });
+  probeStep("migrate-done", {
+    pending,
+    ms: Math.round(performance.now() - started),
+  });
 }
 
 /**
