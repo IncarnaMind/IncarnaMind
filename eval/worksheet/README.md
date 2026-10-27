@@ -18,7 +18,7 @@ Import each fixture into a fresh app profile. For the raster, wait for the real 
 
 Use Claude Haiku 5.5 and Sonnet 5.5, three Answers per model/format, on main before changing behavior and again on the branch. Use a $5 total task cap and retain every completed run or failure, including spend. Supplement with the same Question translated into Chinese, one Answer per model/format. No expected numeric answer is supplied in the Question.
 
-Score separately:
+Score separately. `score.ts` applies these rules to a retained run, including figure inputs and computed totals; `tests/eval/worksheetScore.test.ts` holds the calibration controls.
 
 - Current arithmetic: 0.075 × 2 = 0.150, 0.050 × 2 = 0.100, total 0.250 kg, equal to the current limit. Record the requested 250 g conversion separately if omitted.
 - Attribution: inspect every current input, subtotal and total Citation for page 2 and enough row/role context. A bare value or unlabelled string of numbers fails this criterion, even when found and numerically correct.
