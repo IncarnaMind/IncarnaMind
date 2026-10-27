@@ -1,6 +1,7 @@
 import type { ChildProcess } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { once } from "node:events";
+import { existsSync } from "node:fs";
 import { mkdir, mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -29,7 +30,9 @@ test.beforeEach(async () => {
   tag = `--startup-progress-${randomUUID()}`;
   port = await freePort();
 });
-test.afterEach(async () => {
+test.afterEach(() => teardownStartup());
+
+async function collectStartupDiagnostics(): Promise<void> {
   const pids = copiesWith(tag, true);
   const path = test.info().outputPath("startup-events.json");
   await writeFile(path, JSON.stringify(await events(), null, 2));
@@ -49,11 +52,36 @@ test.afterEach(async () => {
     ),
   );
   await test.info().attach("startup-state", { path: state, contentType: "application/json" });
-  killCopies(tag);
-  await expect.poll(() => copiesWith(tag, true)).toEqual([]);
-  await removeDataFolder(data);
-  await rm(home, { recursive: true, force: true, maxRetries: 3 });
-});
+}
+
+async function teardownStartup(diagnostics = collectStartupDiagnostics): Promise<void> {
+  const failures: unknown[] = [];
+  try {
+    await diagnostics();
+  } catch (error) {
+    failures.push(error);
+  } finally {
+    try {
+      killCopies(tag);
+      await expect.poll(() => copiesWith(tag, true)).toEqual([]);
+    } catch (error) {
+      failures.push(error);
+    }
+    try {
+      await removeDataFolder(data);
+    } catch (error) {
+      failures.push(error);
+    }
+    try {
+      await rm(home, { recursive: true, force: true, maxRetries: 3 });
+    } catch (error) {
+      failures.push(error);
+    }
+  }
+  if (failures.length === 1) throw failures[0];
+  if (failures.length > 1)
+    throw new AggregateError(failures, "Startup diagnostics or cleanup failed.");
+}
 
 async function events(): Promise<Record<string, unknown>[]> {
   try {
@@ -164,6 +192,52 @@ async function ownerWindow(): Promise<void> {
     }
   }
 }
+
+test("failed startup diagnostics still clean the owned process and temporary folders", async () => {
+  const owner = start();
+  try {
+    await ownerWindow();
+    expect(copiesWith(tag, true)).toContain(owner.pid);
+    await writeFile(join(home, "events.jsonl"), '{"kind":"malformed-diagnostic",\n');
+    let originalError: unknown;
+    let reportedError: unknown;
+    try {
+      await teardownStartup(async () => {
+        try {
+          await collectStartupDiagnostics();
+        } catch (error) {
+          originalError = error;
+          throw error;
+        }
+      });
+    } catch (error) {
+      reportedError = error;
+    }
+    const state = {
+      ownerPid: owner.pid,
+      pids: copiesWith(tag, true),
+      dataExists: existsSync(data),
+      homeExists: existsSync(home),
+      error:
+        reportedError instanceof Error
+          ? { name: reportedError.name, message: reportedError.message }
+          : null,
+      originalErrorPreserved: reportedError === originalError,
+    };
+    const path = test.info().outputPath("malformed-diagnostic-cleanup.json");
+    await writeFile(path, JSON.stringify(state, null, 2));
+    await test
+      .info()
+      .attach("malformed-diagnostic-cleanup", { path, contentType: "application/json" });
+    expect(reportedError).toBeInstanceOf(SyntaxError);
+    expect(reportedError).toBe(originalError);
+    expect(state.pids).toEqual([]);
+    expect(state.dataExists).toBe(false);
+    expect(state.homeExists).toBe(false);
+  } finally {
+    await teardownStartup(async () => undefined);
+  }
+});
 
 test("a lost request-watch event still brings the existing window forward", async () => {
   test.setTimeout(60_000);
