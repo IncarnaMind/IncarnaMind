@@ -107,6 +107,7 @@ export {
   SecretStorageError,
 } from "./errors";
 export * from "./language";
+export type { AnswerPathsOverride } from "./providers/catalog/answerPaths";
 export type { ChatGptPlanEndpoints } from "./providers/chatgpt/plan";
 export type { EmbeddingModelFactory, EmbeddingModelSpec } from "./providers/embeddings";
 export {

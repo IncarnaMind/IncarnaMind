@@ -796,11 +796,16 @@ export function createLibrary(options: LibraryOptions) {
     if (place.linkedFolderId) changes.folders.add(place.linkedFolderId);
   }
 
+  function consumeMatchedSource(row: FileRow, removed: FileRow[]): void {
+    const at = removed.findIndex((each) => each.id === row.id);
+    if (at !== -1) removed.splice(at, 1);
+  }
+
   /**
    * The Document a new file is, moved: one with the same content whose file
    * went, in this pass (`removed`) or before (missing), or whose copy in the
-   * data folder the old layout made. Taken out of `removed` if found there.
-   * With `single`, only a file added on its own, and not such a copy.
+   * data folder the old layout made. With `single`, only a file added on its
+   * own, and not such a copy.
    */
   async function movedDocument(
     contentHash: string,
@@ -812,10 +817,7 @@ export function createLibrary(options: LibraryOptions) {
     const inPass = removed
       .filter((row) => row.content_hash === contentHash && (!single || !row.linked_folder_id))
       .sort((a, b) => Number(basename(b.path) === name) - Number(basename(a.path) === name))[0];
-    if (inPass) {
-      removed.splice(removed.indexOf(inPass), 1);
-      return inPass;
-    }
+    if (inPass) return inPass;
     const candidates = db.all<FileRow>(
       `SELECT ${FILE_COLUMNS} FROM documents
        WHERE content_hash = ? AND path <> ? AND deleted_at IS NULL
@@ -843,8 +845,8 @@ export function createLibrary(options: LibraryOptions) {
    * else one with an older modified time; from another disk, which gives the
    * file a new number, one with an older modified time and a size close to
    * its. Those without the creation time only if no other new file in the
-   * pass has that name (`twins`). Never one of two that fit. Taken out of
-   * `removed` if found there. With `single`, only a file added on its own.
+   * pass has that name (`twins`). Never one of two that fit. With `single`,
+   * only a file added on its own.
    */
   async function editedDocument(
     file: Found,
@@ -863,8 +865,6 @@ export function createLibrary(options: LibraryOptions) {
     if (named.length > 0) candidates = savedAgain(file, identity, named, twins);
     const [match] = candidates;
     if (!match || candidates.length > 1) return undefined;
-    const at = removed.findIndex((row) => row.id === match.id);
-    if (at !== -1) removed.splice(at, 1);
     return match;
   }
 
@@ -1026,16 +1026,20 @@ export function createLibrary(options: LibraryOptions) {
     const moved =
       (await movedDocument(hashed.contentHash, file.path, removed)) ??
       (await editedDocument(file, identity, removed, twins));
-    if (closed) return undefined;
+    if (closed || (!explicit && !ownerStillActive(file.owner))) return undefined;
     const seen = {
       size: hashed.size,
       identity,
       newVersion: moved?.content_hash !== hashed.contentHash,
     };
-    if (moved && (await relocate(moved, file, seen, changes))) return moved.id;
+    if (moved && (await relocate(moved, file, seen, changes))) {
+      consumeMatchedSource(moved, removed);
+      return moved.id;
+    }
     // Checked just before writing, with nothing awaited in between: another task may have added it.
     const there = documentAt(file.path);
     if (there) return there.id;
+    if (closed || (!explicit && !ownerStillActive(file.owner))) return undefined;
     const place = placeOf(file.path, file.owner);
     const id = randomUUID();
     const at = now();
@@ -1107,7 +1111,7 @@ export function createLibrary(options: LibraryOptions) {
       identity,
       newVersion: moved.content_hash !== hashed?.contentHash,
     };
-    await relocate(moved, file, seen, changes);
+    if (await relocate(moved, file, seen, changes)) consumeMatchedSource(moved, removed);
   }
 
   /**
