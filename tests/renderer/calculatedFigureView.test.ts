@@ -16,11 +16,6 @@ import {
 import { figureCommands } from "../../src/renderer/src/commands/figures";
 import { editCalculatedFigure } from "../../src/renderer/src/editor/calculatedFigureActions";
 import {
-  type CalculatedSources,
-  calculatedCitations,
-  calculatedSources,
-} from "../../src/renderer/src/editor/calculatedFigureSources";
-import {
   citationClustersPlugin,
   formattingClusters,
 } from "../../src/renderer/src/editor/citationClusters";
@@ -31,7 +26,13 @@ import { noteExtensions } from "../../src/renderer/src/editor/noteSchema";
 import { useCitationPeek } from "../../src/renderer/src/editor/peek";
 import { calculatedFigureNode } from "../../src/shared/calculatedFigures";
 import type { ClaimCheckShown } from "../../src/shared/claimChecks";
-import { figureRunsFor, installFigureRuns } from "../../src/shared/figureRuns";
+import {
+  type CalculatedSources,
+  calculatedCitations,
+  calculatedSources,
+  figureRunsFor,
+  installFigureRuns,
+} from "../../src/shared/figureRuns";
 import { FORMULA_VERSION } from "../../src/shared/formula";
 import { translate } from "../../src/shared/i18n";
 

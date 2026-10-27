@@ -173,12 +173,14 @@ export function HealthCard({
   mindId,
   health,
   state,
+  figures,
 }: {
   editor: Editor;
   doc: Y.Doc;
   mindId: string;
   health: Health;
   state: NoteState | null;
+  figures: number;
 }) {
   const t = useT();
   const language = useLanguage();
@@ -308,6 +310,25 @@ export function HealthCard({
       {health.tableCells.length > 0 && (
         <p data-testid="health-table-cells" className="mind-health-line">
           {t("health.tableCells", { count: format(health.tableCells.length) })}
+        </p>
+      )}
+      {figures > 0 && (
+        <p data-testid="health-figures" className="mind-health-line">
+          {figures === 1 ? t("figures.count.one") : t("figures.count", { count: format(figures) })}
+          <span className="mind-health-sep" aria-hidden="true">
+            {" · "}
+          </span>
+          <button
+            type="button"
+            className="mind-health-link"
+            data-testid="health-open-schedule"
+            onClick={() => {
+              setCheckCardOpen(place, false);
+              void openFigureSchedule(mindId).catch(useAppStore.getState().reportError);
+            }}
+          >
+            {t("figures.openSchedule")}
+          </button>
         </p>
       )}
       {everythingChecked(health, {

@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest";
-import { type FootingEntry, figureFooting } from "../../src/shared/figureFooting";
+import { type FootingEntry, figureFooting, labelRole } from "../../src/shared/figureFooting";
 import { type FigureContext, readFigures } from "../../src/shared/figures";
 
 function entry(
@@ -391,4 +391,19 @@ describe("figureFooting", () => {
       },
     ]);
   });
+});
+
+test.each([
+  ["Total", "total"],
+  [" TOTAL ", "total"],
+  ["Subtotal", "subtotal"],
+  ["Grand total", "grand-total"],
+  ["合计", "total"],
+  ["小计", "subtotal"],
+  ["总计", "grand-total"],
+  ["Total revenue", "detail"],
+  ["合计收入", "detail"],
+  ["Other", "detail"],
+])('a row labelled "%s" is a %s row by its label', (label, role) => {
+  expect(labelRole(label)).toBe(role);
 });

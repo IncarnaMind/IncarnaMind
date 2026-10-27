@@ -8,7 +8,7 @@ import {
   readChart,
   type SourceGrid,
 } from "../../../shared/charts";
-import { readFigures } from "../../../shared/figures";
+import { type FigureContext, readFigures } from "../../../shared/figures";
 import { targetHash } from "../../../shared/proposals";
 import { CALCULATED_FIGURE_NODE, CHART_NODE, type CheckFigure, type TextStretch } from "../../api";
 import { plainText } from "../../mindText";
@@ -94,6 +94,7 @@ function tableContext(element: Y.XmlElement, grids: Map<Y.XmlElement, SourceGrid
 function inSentence(
   sentence: SelectedSentence,
   grids: Map<Y.XmlElement, SourceGrid>,
+  note: FigureContext,
 ): FigureOccurrence[] {
   if (sentence.element.nodeName !== "paragraph") return [];
   const table = tableContext(sentence.element, grids);
@@ -116,11 +117,8 @@ function inSentence(
       } satisfies TextStretch,
     };
   };
-  const document = documentFigureContext([
-    { text: [table?.header, wordsOf(sentence.element)].filter(Boolean).join("\n") },
-  ]);
   const common = table ? { table: table.place, label: table.place.rowLabel } : {};
-  const found: FigureOccurrence[] = readFigures(raw, { ...document, header: table?.header ?? null })
+  const found: FigureOccurrence[] = readFigures(raw, { ...note, header: table?.header ?? null })
     .filter((reading) => reading.start >= sentence.from && reading.end <= sentence.to)
     .map((reading) => {
       const { span, key, context, stretch } = around(reading.start, reading.end);
@@ -156,7 +154,7 @@ function inSentence(
     const calculated = readCalculatedFigureAttributes(node.getAttributes());
     if (!calculated || typeof calculated.figure.value !== "number") continue;
     const readings = readFigures(calculated.figure.shown, {
-      ...document,
+      ...note,
       language: calculated.figure.show.language,
       header: null,
     });
@@ -181,7 +179,7 @@ function inSentence(
 }
 
 export function figuresInSentence(sentence: SelectedSentence): FigureOccurrence[] {
-  return inSentence(sentence, new Map());
+  return inSentence(sentence, new Map(), documentFigureContext([{ text: sentence.context }]));
 }
 
 function inChart(element: Y.XmlElement): FigureOccurrence[] {
@@ -228,7 +226,17 @@ function inChart(element: Y.XmlElement): FigureOccurrence[] {
 export function figuresInMind(blocks: Y.XmlFragment): FigureOccurrence[] {
   const grids = new Map<Y.XmlElement, SourceGrid>();
   const found: FigureOccurrence[] = [];
-  for (const { element, busy } of textBlocks(blocks, { charts: true })) {
+  const read = textBlocks(blocks, { charts: true });
+  // A Note's numbers are read as a Document's are: its separators and language from all its text,
+  // so "2,160" alone in a table cell reads as the memo around it writes numbers.
+  const note = documentFigureContext([
+    {
+      text: read
+        .flatMap(({ element }) => (element.nodeName === "paragraph" ? [wordsOf(element)] : []))
+        .join("\n"),
+    },
+  ]);
+  for (const { element, busy } of read) {
     if (busy) continue;
     if (element.nodeName === CHART_NODE) found.push(...inChart(element));
     else if (element.nodeName === "paragraph") {
@@ -239,6 +247,7 @@ export function figuresInMind(blocks: Y.XmlFragment): FigureOccurrence[] {
         ...inSentence(
           { element, blockId, from: 0, to: text.length, text, context: text, cited: [] },
           grids,
+          note,
         ),
       );
     }

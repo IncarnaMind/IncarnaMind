@@ -1,18 +1,22 @@
 import * as Y from "yjs";
 import {
+  type AnalysisRangeInput,
   type AnswerAnalysis,
   type AnswerAnalysisInput,
   CALCULATED_FIGURE_NODE,
   type CalculatedFigureAttributes,
+  type Citation,
   type ConversationAnswer,
+  type FigureInput,
   MIND_CONTENT_FIELD,
   MIND_FIGURE_RUNS_FIELD,
   type RetainedFigureAnalysis,
 } from "../core/api";
-import { isRecord } from "../core/errors";
+import { InvalidInputError, isRecord } from "../core/errors";
 import { ANALYSIS_LIMITS, type AnalysisVersions } from "./analysis";
 import type { NodeJSON } from "./blockJson";
 import {
+  calculatedFigureNode,
   readCalculatedFigureEvidence,
   readFigureCitation,
   readFigureInput,
@@ -335,3 +339,50 @@ export function pruneFigureRuns(doc: Y.Doc): void {
     if (!keys.has(key)) runs.delete(key);
   }
 }
+
+export interface CalculatedSources {
+  inputs: FigureInput[];
+  ranges: AnalysisRangeInput[];
+  analysis: RetainedFigureAnalysis | null;
+}
+
+export function calculatedSources(
+  attributes: CalculatedFigureAttributes,
+  doc: Y.Doc | null,
+): CalculatedSources {
+  const inputs = [...attributes.figure.inputs];
+  const ranges: AnalysisRangeInput[] = [];
+  let analysis: RetainedFigureAnalysis | null = null;
+  if (attributes.figure.analysis) {
+    if (!doc) throw new InvalidInputError({ key: "figures.evidenceMissing" });
+    analysis =
+      figureRunsFor(doc, [
+        calculatedFigureNode(attributes.figure, attributes.id, attributes.analysisId),
+      ])[0] ?? null;
+    if (!analysis) throw new InvalidInputError({ key: "figures.evidenceMissing" });
+    for (const input of analysis.inputs) {
+      if (input.kind === "figure") inputs.push(input.input);
+      else ranges.push(input);
+    }
+  }
+  return { inputs, ranges, analysis };
+}
+
+/** Each Citation a figure is worked out from, in the order a style cites them, with the input's label or the range's name. */
+export function labelledCitations(
+  sources: CalculatedSources,
+): { label: string; citation: Citation }[] {
+  return [
+    ...sources.inputs.flatMap((input) => {
+      const label = input.label.trim() || input.name;
+      return [
+        { label, citation: input.citation },
+        ...(input.unitStatement ? [{ label, citation: input.unitStatement.citation }] : []),
+      ];
+    }),
+    ...sources.ranges.map((range) => ({ label: range.name, citation: range.citation })),
+  ];
+}
+
+export const calculatedCitations = (sources: CalculatedSources): Citation[] =>
+  labelledCitations(sources).map(({ citation }) => citation);

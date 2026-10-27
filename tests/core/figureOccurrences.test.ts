@@ -301,3 +301,27 @@ test("boolean and malformed calculated nodes do not invent numeric readings", ()
     ),
   ).toEqual([]);
 });
+
+test.each([
+  { language: "en", prose: "Revenue was £4,979.6m.", caption: "Revenue by segment (£m)" },
+  { language: "zh-CN", prose: "营业收入为49.80亿元。", caption: "分部收入（单位：人民币百万元）" },
+])(
+  "a table cell's figure reads as the $language note around it writes numbers, leaving only its heading's scale to settle",
+  ({ prose, caption }) => {
+    const cell = (id: string, value: string, header = false): NodeJSON => ({
+      type: header ? "tableHeader" : "tableCell",
+      content: [paragraph(id, text(value))],
+    });
+    const blocks = stored(paragraph("prose", text(prose)), paragraph("caption", text(caption)), {
+      type: "table",
+      attrs: { id: "table" },
+      content: [
+        { type: "tableRow", content: [cell("h0", "Segment", true), cell("h1", "Q3", true)] },
+        { type: "tableRow", content: [cell("c0", "Groceries"), cell("c1", "2,160")] },
+      ],
+    });
+    const figure = figuresInMind(blocks).find((each) => each.reading.chars === "2,160");
+    expect(figure?.reading.value).toBe(2160);
+    expect(figure?.reading.ambiguous.map((each) => each.kind)).toEqual(["scale"]);
+  },
+);

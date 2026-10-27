@@ -5,11 +5,14 @@ import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import type { Citation, FigureInput, FigureSchedule, FigureScheduleRow } from "../../src/core/api";
 import {
   childrenOf,
+  differenceText,
+  footingNotes,
   lineRef,
   scheduleLines,
   selectedFigures,
-  shownNumber,
   sourceOf,
+  sourceValueText,
+  writtenLike,
 } from "../../src/shared/figureSchedule";
 import { readFigures } from "../../src/shared/figures";
 import { FORMULA_VERSION } from "../../src/shared/formula";
@@ -31,12 +34,6 @@ vi.mock("../../src/renderer/src/store", () => {
 vi.mock("../../src/renderer/src/layoutSlice", () => ({ currentTabOf: () => null }));
 vi.mock("../../src/renderer/src/modelNames", () => ({
   useModelNames: () => () => ({ name: "Test model", id: "test-model" }),
-}));
-vi.mock("../../src/renderer/src/copied", () => ({
-  copyText: (value: string) => {
-    state.copied(value);
-    return Promise.resolve();
-  },
 }));
 vi.mock("../../src/renderer/src/i18n", () => ({
   useLanguage: () => state.language,
@@ -202,8 +199,11 @@ test("bulk parent IDs exclude input selections and omitted Source rows on both a
 let root: Root | null = null;
 let container: HTMLElement;
 let selection: typeof import("../../src/renderer/src/selection");
+let notices: typeof import("../../src/renderer/src/notices");
+/** As FigureScheduleView takes them; the view itself is imported at run time, as a .tsx file. */
 interface ViewProps {
   schedule: FigureSchedule | null;
+  cited(row: FigureScheduleRow): boolean;
   onFocusFigure(row: FigureScheduleRow | null): void;
   onOpenSource(source: Citation): void;
   onExport(): void;
@@ -213,7 +213,7 @@ interface ViewProps {
   onChangeToSource(ids: string[]): void;
   onAddCitation(id: string): void;
   onChooseCitation(id: string): void;
-  onTotalRole(id: string, axis: "row" | "column", total: boolean): void;
+  onTotalRole(id: string, axes: ("row" | "column")[], total: boolean): void;
 }
 let View: ComponentType<ViewProps>;
 let actions: Omit<ViewProps, "schedule">;
@@ -223,7 +223,7 @@ beforeEach(async () => {
     "text/html",
   );
   const window = document.defaultView;
-  for (const [name, value] of Object.entries({
+  const globals: Record<string, unknown> = {
     document,
     window,
     HTMLElement: window.HTMLElement,
@@ -235,9 +235,25 @@ beforeEach(async () => {
     MutationObserver: window.MutationObserver,
     getComputedStyle: () => ({ direction: "ltr" }),
     CSS: { escape: (value: string) => value },
+    requestAnimationFrame: (run: () => void) => {
+      run();
+      return 0;
+    },
+    ClipboardItem: class {
+      constructor(readonly parts: Record<string, Blob>) {}
+    },
+    navigator: {
+      clipboard: {
+        write: async (items: { parts: Record<string, Blob> }[]) => {
+          const text = await items[0]?.parts["text/plain"]?.text();
+          const html = await items[0]?.parts["text/html"]?.text();
+          state.copied(text, html);
+        },
+      },
+    },
     IS_REACT_ACT_ENVIRONMENT: true,
-  }))
-    vi.stubGlobal(name, value);
+  };
+  for (const [name, value] of Object.entries(globals)) vi.stubGlobal(name, value);
   container = document.createElement("div", {});
   document.body.append(container);
   window.HTMLElement.prototype.hidePopover = () => {};
@@ -254,8 +270,11 @@ beforeEach(async () => {
   const module: { FigureScheduleView: ComponentType<ViewProps> } = await import(modulePath);
   View = module.FigureScheduleView;
   selection = await import("../../src/renderer/src/selection");
+  notices = await import("../../src/renderer/src/notices");
   selection.useSelection.getState().clear();
+  notices.useNotices.getState().dismissConfirmation();
   actions = {
+    cited: () => false,
     onFocusFigure: vi.fn(),
     onOpenSource: vi.fn(),
     onExport: vi.fn(),
@@ -286,9 +305,11 @@ async function click(target: Element | null, extra: Record<string, boolean> = {}
     target.dispatchEvent(event);
   });
 }
-function button(text: string) {
+function button(text: string, within: ParentNode = container) {
   return (
-    [...container.querySelectorAll("button")].find((each) => each.textContent === text) ?? null
+    [...within.querySelectorAll("button")].find(
+      (each) => each.textContent?.replace(/(?:↵|Space|⌘C)$/, "").trim() === text,
+    ) ?? null
   );
 }
 async function press(target: Element | null, key: string, extra: Record<string, boolean> = {}) {
@@ -300,91 +321,198 @@ async function press(target: Element | null, key: string, extra: Record<string, 
     target.dispatchEvent(event);
   });
 }
+const mainOf = (id: string) => container.querySelector(`[data-figure-id="${id}"] [data-tree-row]`);
+const menuOf = (id: string) => container.querySelector(`[data-figure-id="${id}"] [role="menu"]`);
 
 test.each(["en", "zh-CN"] as const)(
-  "%s distinguishes loading, empty and no filter matches and uses supplied counts",
+  "%s shows loading, the note's name and time, counts in the one vocabulary, empty and no matches",
   async (language) => {
     state.language = language;
+    const t = (key: Parameters<typeof translate>[1], params?: Parameters<typeof translate>[2]) =>
+      translate(language, key, params);
     await render(null);
-    expect(container.textContent).toContain(translate(language, "figures.loading"));
+    expect(container.textContent).toContain(t("figures.loading"));
     await render(schedule([]));
-    expect(container.textContent).toContain(translate(language, "figures.empty"));
+    expect(container.textContent).toContain(t("figures.empty"));
     await render(schedule([row("a", 1)]));
-    expect(container.textContent).toContain("47");
-    expect(container.textContent).toContain("Test model");
-    await click(button(translate(language, "figures.filter.look")));
-    expect(container.textContent).toContain(translate(language, "figures.noMatches"));
-    await click(button(translate(language, "figures.export")));
+    expect(container.querySelector(".figure-name")?.textContent).toBe("Q3 2026 results");
+    expect(container.querySelector('[data-testid="figure-when"]')?.textContent).toMatch(
+      language === "en" ? /^Checked / : /^已核对 /,
+    );
+    expect(container.querySelector('[data-testid="figure-counts"]')?.textContent).toBe(
+      [
+        t("figures.count", { count: 47 }),
+        t("figures.supported", { count: 21 }),
+        t("figures.look", { count: 13 }),
+        t("figures.notChecked", { count: 12 }),
+        t("figures.yourView", { count: 1 }),
+      ].join(" · "),
+    );
+    await click(button(t("figures.filter.look")));
+    expect(container.textContent).toContain(t("figures.noMatches"));
+    await click(button(t("figures.showAll")));
+    expect(container.querySelector('[data-figure-id="a"]')).not.toBeNull();
+    await click(button(t("figures.export")));
     expect(actions.onExport).toHaveBeenCalledWith();
   },
 );
 
-test("zero-progress disables export, Stop and remaining checks use parent IDs", async () => {
+test("a run in progress disables export and offers Stop; figures left unchecked offer Check the rest", async () => {
   const source = schedule([
+    row("checked", 1),
     calculated,
     row("unread", 3, { shown: { state: "not-checked", reason: "unread" } }),
   ]);
   await render({ ...source, progress: { done: 0, total: 2 } });
-  expect(button("Export workbook")?.hasAttribute("disabled")).toBe(true);
+  expect(container.textContent).toContain("Checking 0 of 2 figures…");
+  expect(button("Export schedule…")?.hasAttribute("disabled")).toBe(true);
   await click(button("Stop"));
   expect(actions.onStop).toHaveBeenCalledWith();
   await render(source);
-  await click(button("Check remaining"));
+  expect(container.querySelector('[data-testid="figure-when"]')?.textContent).toContain(
+    "45 of 47 figures checked",
+  );
+  await click(button("Check the rest"));
   expect(actions.onCheckAgain).toHaveBeenLastCalledWith(["calculated", "unread"]);
 });
 
-test("actual shared selection excludes retained inputs from bulk actions, survives filtering, and Escape clears hidden selection", async () => {
-  await render(schedule([row("a", 1), calculated]));
-  await click(container.querySelector('[data-figure-id="calculated"] .figure-expand'));
-  await click(container.querySelector('[data-figure-id="a"] [data-tree-row]'));
-  await click(container.querySelector('[data-figure-id="calculated:input:0"] [data-tree-row]'), {
-    ctrlKey: true,
-  });
-  expect(selection.useSelection.getState().items).toHaveLength(2);
-  await click(button("Keep 1 as my view"));
-  expect(actions.onKeep).toHaveBeenLastCalledWith(["a"]);
-  await click(button("Supported"));
-  const event = new window.Event("keydown", { bubbles: true });
-  Object.defineProperty(event, "key", { value: "Escape" });
-  await act(() => {
-    container.querySelector("section")?.dispatchEvent(event);
-  });
-  expect(selection.useSelection.getState().items).toEqual([]);
-  expect(actions.onFocusFigure).toHaveBeenLastCalledWith(null);
-});
-
-test("expanded calculated inputs show exact raw cells and unit quotes without inventing a current Supported verdict", async () => {
-  await render(schedule([calculated]));
-  await click(container.querySelector(".figure-expand"));
-  const child = container.querySelector('[data-figure-id="calculated:input:0"]');
-  expect(child?.textContent).toContain("1,200");
-  expect(child?.textContent).toContain("Results!C5");
-  expect(child?.textContent).toContain("Amounts in GBP");
-  expect(child?.querySelector(".figure-status")?.textContent).toContain("Needs re-check");
-  expect(child?.querySelector(".figure-status")?.textContent).not.toContain("Supported");
-  expect(container.textContent).toContain("Numbers written in the formula: 4");
-  await click(child?.querySelector(".figure-source > button") ?? null);
-  expect(actions.onOpenSource).toHaveBeenLastCalledWith(citation);
-});
-
-test("filtering keeps the first visible row keyboard reachable when Note row one is hidden", async () => {
-  await render(
-    schedule([
-      row("hidden", 1, { shown: { state: "unsupported" }, reason: "unsupported" }),
-      row("visible", 2),
-    ]),
+test("a row shows its source value and difference in the note's own terms", () => {
+  const pounds = (text: string) => {
+    const figure = readFigures(text, { language: "en", midLine: true })[0];
+    if (!figure) throw new Error(`No figure in ${text}`);
+    return figure;
+  };
+  const number = (text: string) => {
+    const figure = pounds(text);
+    return {
+      ...input.number,
+      chars: figure.chars,
+      value: figure.value,
+      scale: figure.scale,
+      scaleWord: figure.scaleWord,
+      unit: figure.unit,
+      decimals: figure.decimals,
+    };
+  };
+  const at = (shown: string, source: string, changes: Partial<FigureScheduleRow> = {}) => {
+    const reading = pounds(shown);
+    const sourceNumber = number(source);
+    return row("r", 1, {
+      reading,
+      sourceInput: { ...input, number: sourceNumber, unitStatement: null },
+      sourceValue: sourceNumber.value,
+      sourceShown: source,
+      difference: reading.value - sourceNumber.value,
+      ...changes,
+    });
+  };
+  const rounded = at("£4,980m", "£4,979.6m", { roundedFrom: 4_979_600_000 });
+  expect(sourceValueText(rounded)).toBe("£4,979.6m");
+  expect(differenceText(rounded, "en")).toBe("Rounded from £4,979.6m");
+  expect(differenceText(rounded, "zh-CN")).toBe("由 £4,979.6m 舍入");
+  const off = at("£402m", "£392m", { shown: { state: "contradicted" } });
+  expect(differenceText(off, "en")).toBe("+£10m");
+  expect(differenceText(at("£5.7bn", "£5,704m", { roundedFrom: 5_704_000_000 }), "en")).toBe(
+    "Rounded from £5.704bn",
   );
-  await click(button("Supported"));
-  expect(
-    container.querySelector('[data-figure-id="visible"] [data-tree-row]')?.getAttribute("tabindex"),
-  ).toBe("0");
+  expect(differenceText(at("38.6%", "38.4%"), "en")).toBe("+0.2 percentage points");
+  expect(differenceText(at("3.1×", "3.3×"), "en")).toBe("−0.2×");
+  expect(differenceText(at("£20", "£20"), "en")).toBeNull();
+  expect(writtenLike(pounds("1.2亿元"), 125_000_000, 2)).toBe("1.25亿元");
 });
 
-test("Escape closes the inner shared menu before clearing selection and retains row focus", async () => {
+test("a total that agrees with its source but doesn't add up names both facts and the row the table leaves out", async () => {
+  const reading = readFigures("£4,980m", { language: "en" })[0];
+  const other = {
+    ...input,
+    label: "Other",
+    number: { ...input.number, chars: "130", value: 130_000_000, scale: 1_000_000 },
+  };
+  if (!reading) throw new Error("Missing reading");
+  const total = row("total", 3, {
+    reading,
+    reason: "doesnt-add-up",
+    shown: { state: "unsupported" },
+    sourceValue: 4_980_000_000,
+    difference: 0,
+    footing: [
+      {
+        id: "total",
+        axis: "row",
+        role: "total",
+        componentIds: ["first"],
+        excludedIds: [],
+        sum: 4_850_000_000,
+        difference: -130_000_000,
+        agrees: false,
+      },
+    ],
+    sourceFooting: [
+      { axis: "row", componentIds: ["first"], inputs: [other], sum: 4_980_000_000, agrees: true },
+    ],
+    place: {
+      heading: "Segments",
+      paragraph: 3,
+      table: { row: 3, column: 1, rowLabel: "Total", columnLabel: "" },
+    },
+  });
+  expect(footingNotes(total)).toEqual([
+    { axis: "row", agrees: true, sum: "£4,850m", omitted: ["Other £130m"], sourceSum: null },
+  ]);
+  await render(schedule([row("first", 1), total]));
+  const why = container.querySelector('[data-figure-id="total"] .figure-why');
+  expect(why?.textContent).toContain("Agrees with the source");
+  expect(why?.textContent).toContain("The rows above add to £4,850m");
+  expect(why?.textContent).toContain(
+    "The source also has a row “Other £130m”, which this table leaves out.",
+  );
+  expect(container.querySelector('[data-figure-id="total"] .figure-place')?.textContent).toBe(
+    "Segments › table, Total row",
+  );
+  expect(button("Treat as a total", menuOf("total") ?? container)).toBeNull();
+  await click(button("Not a total", menuOf("total") ?? container));
+  expect(actions.onTotalRole).toHaveBeenLastCalledWith("total", ["row"], false);
+  expect(button("Not a total", menuOf("first") ?? container)).toBeNull();
+});
+
+test("one selected figure is outlined; the menu acts on every selected figure and says how many", async () => {
+  const unread = (id: string, number: number) =>
+    row(id, number, { shown: { state: "not-checked", reason: "unread" } });
+  await render(schedule([unread("a", 1), unread("b", 2), row("c", 3)]));
+  await click(mainOf("a"));
+  expect(actions.onFocusFigure).toHaveBeenLastCalledWith(expect.objectContaining({ id: "a" }));
+  await click(mainOf("b"), { ctrlKey: true });
+  expect(selection.useSelection.getState().items).toHaveLength(2);
+  expect(actions.onFocusFigure).toHaveBeenLastCalledWith(null);
+  const menu = menuOf("b");
+  await click(button("Keep 2 figures as my view", menu ?? container));
+  expect(actions.onKeep).toHaveBeenLastCalledWith(["a", "b"]);
+  await click(button("Check 2 figures again", menu ?? container));
+  expect(actions.onCheckAgain).toHaveBeenLastCalledWith(["a", "b"]);
+  expect(button("Check again", menuOf("c") ?? container)).toBeNull();
+});
+
+test("a contradicted figure offers Change to its source value; a supported uncited one Add as Citation", async () => {
+  const off = row("off", 1, {
+    shown: { state: "contradicted" },
+    reason: "contradicted",
+    difference: 0.01,
+  });
+  await render(schedule([off, row("cited", 2)]));
+  await click(button("Change to 20%", menuOf("off") ?? container));
+  expect(actions.onChangeToSource).toHaveBeenLastCalledWith(["off"]);
+  await click(button("Add as Citation", menuOf("cited") ?? container));
+  expect(actions.onAddCitation).toHaveBeenLastCalledWith("cited");
+  actions.cited = () => true;
+  await render(schedule([row("cited", 2)]));
+  expect(button("Add as Citation", menuOf("cited") ?? container)).toBeNull();
+});
+
+test("Escape closes the row's menu first, then clears the selection and the outline, keeping focus on the row", async () => {
   await render(schedule([row("a", 1)]));
-  const main = container.querySelector('[data-figure-id="a"] [data-tree-row]');
+  const main = mainOf("a");
   await click(main);
-  const menu = container.querySelector('[role="menu"]');
+  const menu = menuOf("a");
   if (!menu) throw new Error("Missing menu fixture");
   const hide = vi.fn();
   Object.defineProperty(menu, "hidePopover", { value: hide });
@@ -397,72 +525,47 @@ test("Escape closes the inner shared menu before clearing selection and retains 
   expect(actions.onFocusFigure).toHaveBeenLastCalledWith(null);
 });
 
-test("shared row navigation extends selection, opens sources and copies parent and retained inputs", async () => {
+test("the keyboard moves, opens, outlines, unfolds a calculated figure's inputs and copies rows", async () => {
   await render(schedule([row("a", 1), calculated]));
-  await click(container.querySelector('[data-figure-id="calculated"] .figure-expand'));
-  const first = container.querySelector('[data-figure-id="a"] [data-tree-row]');
+  const first = mainOf("a");
   await click(first);
-  await press(first, "ArrowDown", { shiftKey: true });
-  expect(selection.useSelection.getState().items).toHaveLength(2);
-  const main = container.querySelector('[data-figure-id="calculated"] [data-tree-row]');
-  await press(main, "End");
-  const child = container.querySelector('[data-figure-id="calculated:input:0"] [data-tree-row]');
-  expect(document.activeElement).toBe(child);
+  await press(first, "Enter");
+  expect(actions.onOpenSource).toHaveBeenLastCalledWith(citation);
+  await press(first, " ");
+  expect(actions.onFocusFigure).toHaveBeenLastCalledWith(expect.objectContaining({ id: "a" }));
+  await press(first, "ArrowDown");
+  const parent = mainOf("calculated");
+  expect(document.activeElement).toBe(parent);
+  expect(container.querySelector('[data-figure-id="calculated"] .figure-equals')).not.toBeNull();
+  expect(container.querySelector('[data-figure-id="calculated"] .figure-source')?.textContent).toBe(
+    "Calculated · Revenue 2026 ÷ 4",
+  );
+  await press(parent, "ArrowRight");
+  const child = mainOf("calculated:input:0");
+  expect(child?.textContent).toBe("Revenue 2026");
+  expect(
+    container.querySelector('[data-figure-id="calculated:input:0"] .figure-status')?.textContent,
+  ).toContain("Supported");
+  await press(parent, "ArrowDown");
   await press(child, "Enter");
   expect(actions.onOpenSource).toHaveBeenLastCalledWith(citation);
-  await press(child, "a", { ctrlKey: true });
+  await press(child, "ArrowLeft");
+  expect(document.activeElement).toBe(parent);
+  await press(parent, "a", { ctrlKey: true });
   expect(selection.useSelection.getState().items).toHaveLength(3);
-  await press(child, "c", { ctrlKey: true });
-  expect(state.copied).toHaveBeenCalledWith(expect.stringContaining("Revenue 2026\t1,200"));
+  await press(parent, "c", { ctrlKey: true });
+  await act(async () => {});
+  const [text, html] = state.copied.mock.lastCall ?? [];
+  expect(text).toMatch(
+    /^#\tFigure\tSource value\tSource\tDifference\tStatus\n1\t20.0%\t20%\tInvented accounts, p. 1\t\tSupported\n/,
+  );
+  expect(text).toContain("\tRevenue 2026\t1,200\t");
+  expect(html).toContain("<th>Source value</th>");
 });
 
-test("both-axis Source footing proofs display only supplied sums and omitted inputs", async () => {
-  const total = row("total", 1, {
-    reason: "doesnt-add-up",
-    shown: { state: "unsupported" },
-    footing: (["row", "column"] as const).map((axis) => ({
-      id: "total",
-      axis,
-      role: "total",
-      componentIds: [],
-      excludedIds: [],
-      sum: 1200,
-      difference: 2,
-      agrees: false,
-    })),
-    sourceFooting: (["row", "column"] as const).map((axis) => ({
-      axis,
-      componentIds: [],
-      inputs: [input],
-      sum: 1250,
-      agrees: true,
-    })),
-    place: {
-      heading: null,
-      paragraph: 1,
-      table: { row: 1, column: 1, rowLabel: "Total", columnLabel: "2026" },
-    },
-  });
-  await render(schedule([total]));
-  expect(container.querySelectorAll(".figure-footing")).toHaveLength(2);
-  expect(container.querySelector('[data-figure-id="total"]')?.children).toHaveLength(7);
-  const explanation = container.querySelector(".figure-explanation");
-  if (!explanation) throw new Error("Missing footing explanation");
-  expect(explanation.getAttribute("colSpan")).toBe("7");
-  expect(container.querySelectorAll(".figure-omitted-proof")).toHaveLength(2);
-  expect(container.textContent).toContain("Doesn’t add up");
-  expect(button("Treat as row total")).toBeNull();
-  expect(actions.onTotalRole).not.toHaveBeenCalled();
-  await click(button("Not a row total"));
-  expect(actions.onTotalRole).toHaveBeenLastCalledWith("total", "row", false);
-  await render(schedule([row("text", 1)]));
-  expect(button("Treat as row total")).toBeNull();
-});
-
-test("raw values keep units and all meaningful digits, without clamping a small difference", () => {
-  expect(shownNumber(0.19999999999999998, "en", { kind: "percent" })).toBe("19.999999999999998%");
-  expect(shownNumber(0.002, "en", { kind: "points" })).toBe("0.2 percentage points");
-  expect(shownNumber(0.002, "zh-CN", { kind: "points" })).toBe("0.2个百分点");
-  expect(shownNumber(null, "en")).toBe("—");
-  expect(shownNumber(Number.NaN, "en")).toBe("—");
+test("a figure not checked yet has nothing to open: Enter says so", async () => {
+  await render(schedule([row("unread", 1, { shown: { state: "not-checked", reason: "unread" } })]));
+  await press(mainOf("unread"), "Enter");
+  expect(actions.onOpenSource).not.toHaveBeenCalled();
+  expect(notices.useNotices.getState().confirmation?.message).toBe("figures.notCheckedNotice");
 });

@@ -9,6 +9,7 @@ import {
 } from "../../../shared/calculatedFigures";
 import { commonCitationStyle } from "../../../shared/citationStyles";
 import { readClaimCheck } from "../../../shared/claimChecks";
+import { calculatedCitations, calculatedSources } from "../../../shared/figureRuns";
 import { useMindFormatting } from "../citationFormatting";
 import { useStyleCatalogue } from "../citationStylePicker";
 import { registerMenu } from "../commands/menus";
@@ -18,7 +19,6 @@ import { useT } from "../i18n";
 import { useAppStore } from "../store";
 import { CalculatedFigureCard } from "./CalculatedFigureCard";
 import { editCalculatedFigure } from "./calculatedFigureActions";
-import { calculatedCitations, calculatedSources } from "./calculatedFigureSources";
 import { citationWorkSignature } from "./citationClusters";
 import { figureNumberOf } from "./citationNumbers";
 import { figureShownIn } from "./claimChecks";

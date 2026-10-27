@@ -231,6 +231,8 @@ function citationsIn(
     if (inline.inserted) continue;
     if (inline.kind === "text") {
       add(inline.text, inline.ai === true);
+    } else if (inline.kind === "figure") {
+      add(inline.figure.shown, false);
     } else if (inline.kind === "citation") {
       const attributes = attributesOf.get(inline.footnote);
       if (attributes) placed.push({ offset: aiAt.length, attributes });

@@ -243,6 +243,8 @@ export function readFigures(sources: FigureSources): AiUseFigures {
         if (inline.kind === "text") {
           if (inline.ai) aiText += inline.text;
           else otherText += inline.text;
+        } else if (inline.kind === "figure") {
+          otherText += inline.figure.shown;
         } else if (inline.kind === "citation") {
           const attributes = attributesOf.get(inline.footnote);
           if (attributes) citations[checkKeys[citationState(attributes, documents, kept).check]]++;

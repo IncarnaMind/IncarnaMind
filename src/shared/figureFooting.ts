@@ -19,9 +19,13 @@ export interface FigureFooting {
   inability?: "missing-figure" | "unsettled-figure" | "no-components" | "calculation" | "precision";
 }
 
-function roleOf(entry: FootingEntry): NonNullable<FootingEntry["role"]> {
-  if (entry.role) return entry.role;
-  switch (entry.label.trim().toLowerCase()) {
+/**
+ * What a row's or column's label alone makes it. Only the bare words count:
+ * "Total revenue" atop a statement isn't the sum of the rows above it, and the
+ * User marks a row like it with Treat as a total.
+ */
+export function labelRole(label: string): NonNullable<FootingEntry["role"]> {
+  switch (label.trim().toLowerCase()) {
     case "subtotal":
     case "小计":
       return "subtotal";
@@ -36,6 +40,10 @@ function roleOf(entry: FootingEntry): NonNullable<FootingEntry["role"]> {
     default:
       return "detail";
   }
+}
+
+function roleOf(entry: FootingEntry): NonNullable<FootingEntry["role"]> {
+  return entry.role ?? labelRole(entry.label);
 }
 
 function input(name: string, reading: Reading): FormulaInput {

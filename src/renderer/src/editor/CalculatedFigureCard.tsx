@@ -1,6 +1,7 @@
 import type { CalculatedFigure, Citation, FigureInput } from "../../../core/api";
 import { badgeMessage, citationState } from "../../../shared/citations";
 import type { ClaimCheckShown } from "../../../shared/claimChecks";
+import type { CalculatedSources } from "../../../shared/figureRuns";
 import { shownNumber } from "../../../shared/figureSchedule";
 import { formulaText } from "../../../shared/formula";
 import { sourceText } from "../../../shared/sources";
@@ -8,7 +9,6 @@ import { buttonStyle } from "../components/ui";
 import { useLanguage, useT } from "../i18n";
 import { openCited } from "../openCited";
 import { useAppStore } from "../store";
-import type { CalculatedSources } from "./calculatedFigureSources";
 import { QuoteWithUnsureWords, ScanLine, useScannedQuote } from "./citationScan";
 
 export function CalculatedFigureCard({

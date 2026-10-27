@@ -71,7 +71,7 @@ import {
 } from "../mindText";
 import { withChangesAccepted } from "../shownChanges";
 import { type CitationCard, citationCard } from "./citationCards";
-import { addSources, listCitations, styleCitations } from "./citations";
+import { addSources, listCitations, styleCitations, withFigureNotes } from "./citations";
 import { piecesOf, renderDocx } from "./docx";
 import { bodyFamily, renderHtml } from "./html";
 import { exportLabels } from "./labels";
@@ -378,10 +378,13 @@ export function createExports(deps: ExportsDependencies) {
     };
   };
 
-  const shareBlocks = ({ bibliography, blocks, language, documents }: Prepared) =>
-    bibliography
-      ? addSources(blocks, { language, documents }, translate(language, "bibliography.title"))
-      : blocks;
+  const shareBlocks = ({ bibliography, blocks, language, documents, readOptions }: Prepared) =>
+    withFigureNotes(
+      bibliography
+        ? addSources(blocks, { language, documents }, translate(language, "bibliography.title"))
+        : blocks,
+      { footnote: readOptions.footnote, labels: exportLabels(language) },
+    );
 
   const unitsOf = (attributes: Partial<CitationAttributes>) =>
     deps.citedUnits({
@@ -593,22 +596,27 @@ export function createExports(deps: ExportsDependencies) {
         };
       }
       const labels = exportLabels(language);
-      const blocks = prepared.listed
-        ? listCitations(
-            prepared.blocks,
-            { language, documents },
-            translate(language, "bibliography.title"),
-            labels.unverified,
-          )
-        : style.form !== "numbered"
-          ? await styleCitations(prepared.blocks, style, thin.format)
-          : prepared.bibliography
-            ? addSources(
-                prepared.blocks,
-                { language, documents },
-                translate(language, "bibliography.title"),
-              )
-            : prepared.blocks;
+      const figures = { footnote: prepared.readOptions.footnote, labels };
+      const blocks =
+        style.form !== "numbered"
+          ? await styleCitations(prepared.blocks, style, thin.format, figures)
+          : withFigureNotes(
+              prepared.listed
+                ? listCitations(
+                    prepared.blocks,
+                    { language, documents },
+                    translate(language, "bibliography.title"),
+                    labels.unverified,
+                  )
+                : prepared.bibliography
+                  ? addSources(
+                      prepared.blocks,
+                      { language, documents },
+                      translate(language, "bibliography.title"),
+                    )
+                  : prepared.blocks,
+              figures,
+            );
       let data: Uint8Array;
       let commented: readonly FailedSentence[] = [];
       if (format === "markdown") {

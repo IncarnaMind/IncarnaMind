@@ -4,8 +4,8 @@ import { type EditorState, Plugin, PluginKey } from "@tiptap/pm/state";
 import { Decoration, DecorationSet } from "@tiptap/pm/view";
 import type * as Y from "yjs";
 import { CITATION_NODE, type CitationAttributes, type CitedWork } from "../../../core/api";
+import { calculatedCitations, calculatedSources } from "../../../shared/figureRuns";
 import { citationLocation } from "../../../shared/locations";
-import { calculatedCitations, calculatedSources } from "./calculatedFigureSources";
 import {
   type NumberedCitation,
   numberCitations,

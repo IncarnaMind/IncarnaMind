@@ -1963,7 +1963,12 @@ export function createCore(adapters: CoreAdapters): Core {
     const { folderId } = minds.get(mindId);
     const { chineseText, cited } = content.read(mindId, (blocks) => {
       const versions: CitedVersions = new Map();
-      addCitedVersions(blocks, versions);
+      try {
+        addCitedVersions(blocks, versions);
+      } catch (error) {
+        // The style is chosen from the Documents read so far; the export says what it can't write.
+        console.error(`Mind ${mindId}: reading the Documents its Citations cite failed`, error);
+      }
       return {
         chineseText: writtenInChinese(textStart(blocks, LANGUAGE_SAMPLE)),
         cited: [...versions.keys()],
@@ -2257,6 +2262,7 @@ export function createCore(adapters: CoreAdapters): Core {
     printer: adapters.printer ?? null,
     paper: systemPaper,
     now,
+    figures: (mindId) => readFigureSchedule(mindId).rows,
   });
   const ownFileOf = (options: ExportMindOptions): OwnFileKind =>
     options.format === "source-pack" ? "source-pack" : "export";
@@ -4737,7 +4743,9 @@ export function createCore(adapters: CoreAdapters): Core {
           describeModel(providers, model.providerId, model.modelId)?.name ?? model.modelId,
       });
       const bytes = writeXlsx(book, deflateRawSync, { author: "IncarnaMind", created: now() });
-      const name = translate(settings.get().language, "figures.exportName", { name: schedule.name });
+      const name = translate(settings.get().language, "figures.exportName", {
+        name: schedule.name,
+      });
       return saveExport(`${safeFileName(name, "Note")}.xlsx`, bytes);
     },
     saveComparisonExport: async (input) => {

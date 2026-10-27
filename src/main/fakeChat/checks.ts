@@ -8,12 +8,14 @@
  * out as the line's first number over its second (#707).
  * A sentence whose figures are asked for one by one (#1932) gets each bound to
  * the number nearest it in value on the Passage line that shares the most
- * words with its row or sentence, or found nowhere when no line shares two.
+ * words with its sentence (two at least), or with its row's label and headings
+ * in a table (one at least), or found nowhere. A number with no unit of its own
+ * on a Passage that states one ("All figures in £m") quotes that line as its unit.
  */
 
 import { SEARCH_AGAIN } from "../../core/answers/checks/searchAgain";
 import { readFigures } from "../../shared/figures";
-import { passagesIn, recordFor } from "./passages";
+import { passagesIn, recordFor, UNIT_MARK } from "./passages";
 import { lastUserText, type Prompt, type Reply, toolResults, userText } from "./prompt";
 
 /** A check Run's instructions (#96, src/core/answers/checks/prompt.ts). */
@@ -158,7 +160,11 @@ interface AskedFigure {
   context?: string;
   label?: string;
   saved?: unknown;
+  ambiguities?: { kind: string }[];
 }
+
+/** A line of a Passage that states its figures' scale or currency: "All figures in £m", "单位：百万元". */
+const UNIT_LINE = /^(?:all figures in|figures in)\b|^单位[:：]/i;
 
 /** How far apart two numbers are, whatever scale each is written in. */
 const apart = (a: number, b: number) =>
@@ -167,25 +173,40 @@ const apart = (a: number, b: number) =>
 function figuresReply(prompt: Prompt, asked: string, sentence: string, searched: string): Reply {
   const figures = JSON.parse(asked) as AskedFigure[];
   const passages = passagesIn(searched);
-  const lines = new Map<string, { record: Record<string, unknown>; marker: number }>();
+  const lines = new Map<
+    string,
+    { record: Record<string, unknown>; marker: number; unitLine: string | null }
+  >();
   const bound = figures.map((figure) => {
     if (figure.saved) return { figure, line: null };
-    const about = `${figure.label ?? ""} ${figure.context ?? sentence}`;
-    let best: { record: Record<string, unknown>; quote: string; shared: number } | null = null;
+    const about = figure.label ? `${figure.label} ${figure.context ?? ""}` : sentence;
+    let best: {
+      record: Record<string, unknown>;
+      quote: string;
+      shared: number;
+      unitLine: string | null;
+    } | null = null;
     for (const passage of passages) {
       const found = recordFor(passage, about, lines.size + 1);
       const quote = typeof found?.record.quote === "string" ? found.record.quote : "";
       const words = checkWords(about);
       const shared = checkWords(quote).filter((word) => words.includes(word)).length;
-      if (found && (!best || shared > best.shared)) best = { record: found.record, quote, shared };
+      const unitLine =
+        passage.text
+          .split("\n")
+          .map((line) => line.replace(UNIT_MARK, "").trim())
+          .find((line) => UNIT_LINE.test(line)) ?? null;
+      if (found && (!best || shared > best.shared))
+        best = { record: found.record, quote, shared, unitLine };
     }
-    if (!best || best.shared < 2) return { figure, line: null };
+    if (!best || best.shared < (figure.label ? 1 : 2)) return { figure, line: null };
     const known = lines.get(best.quote) ?? {
       record: { ...best.record, marker: lines.size + 1 },
       marker: lines.size + 1,
+      unitLine: best.unitLine,
     };
     lines.set(best.quote, known);
-    return { figure, line: { quote: best.quote, marker: known.marker } };
+    return { figure, line: { quote: best.quote, marker: known.marker, unitLine: known.unitLine } };
   });
   if (lines.size > 0 && toolResults(prompt, "cite").length === 0) {
     return { tool: "cite", input: { citations: [...lines.values()].map((line) => line.record) } };
@@ -222,12 +243,16 @@ function figuresReply(prompt: Prompt, asked: string, sentence: string, searched:
         source: null,
         calculation: null,
       };
+    const bare = numbers[nearest]?.unit.kind === "plain" && numbers[nearest]?.scale === 1;
+    const unitQuote = bare ? line.unitLine : null;
+    const own = figure.ambiguities?.length === 1 ? figure.ambiguities[0] : undefined;
     return {
       id: figure.id,
       verdict: "supported",
       topic: "found",
       ...judged,
-      source: { citation: line.marker, position: nearest + 1, reading: null, unitQuote: null },
+      reading: own ? (own.kind === "scale" && unitQuote ? 2 : 1) : null,
+      source: { citation: line.marker, position: nearest + 1, reading: null, unitQuote },
       calculation: null,
     };
   });

@@ -272,7 +272,9 @@ test.each(["mixed", "only", "table", "answer"])(
     const expected = kind === "mixed" ? "收入20.0。" : "20.0";
     expect(plainText(element)).toBe(expected);
     expect(blockText(element)).toBe(expected);
-    expect(toMarkdown(element)).toContain(expected);
+    expect(toMarkdown(element)).toContain(
+      kind === "mixed" ? "收入20.0 (calculated)。" : "20.0 (calculated)",
+    );
     if (kind !== "answer")
       expect(firstLineOf(blocks)).toBe(kind === "mixed" ? "收入20.0" : expected);
     if (kind !== "table") {
@@ -280,7 +282,10 @@ test.each(["mixed", "only", "table", "answer"])(
         {
           kind: "paragraph",
           content: expect.arrayContaining([
-            expect.objectContaining({ kind: "text", text: "20.0" }),
+            expect.objectContaining({
+              kind: "figure",
+              figure: expect.objectContaining({ shown: "20.0" }),
+            }),
           ]),
         },
       ]);
@@ -316,14 +321,16 @@ test.each(["insert", "delete"] as const)(
     const expected = kind === "insert" ? "beforeafter" : "before20.0after";
     expect(plainText(element)).toBe(expected);
     expect(blockText(element)).toBe(expected);
-    expect(toMarkdown(element)).toBe(expected);
+    expect(toMarkdown(element)).toBe(
+      kind === "insert" ? "beforeafter" : "before20.0 (calculated)after",
+    );
     const reviewed = readBlock(element, { ...readOptions, review: reviewReading(blocks) });
     expect(reviewed).toMatchObject([
       {
         content: expect.arrayContaining([
           expect.objectContaining({
-            kind: "text",
-            text: "20.0",
+            kind: "figure",
+            figure: expect.objectContaining({ shown: "20.0" }),
             [kind === "insert" ? "inserted" : "deleted"]: expect.objectContaining({
               id: "change-1",
             }),

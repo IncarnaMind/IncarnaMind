@@ -42,6 +42,7 @@ import {
   comparisonNameOf,
   comparisonQuestionsOf,
 } from "../shared/comparisons";
+import { type CalculatedSources, calculatedSources, labelledCitations } from "../shared/figureRuns";
 import { type MessageKey, type MessageParams, translate } from "../shared/i18n";
 import { citationLocation } from "../shared/locations";
 import type { TableAlign } from "../shared/markdownTables";
@@ -63,8 +64,11 @@ import { readWordAtom, wordAtomText } from "../shared/wordFiles";
 import {
   ANSWER_BLOCK,
   CALCULATED_FIGURE_NODE,
+  type CalculatedFigure,
+  type CalculatedFigureAttributes,
   CHART_NODE,
   CITATION_NODE,
+  type Citation,
   type CitedWork,
   CLAIM_CHECK_MARK,
   type ClaimCalculation,
@@ -181,6 +185,17 @@ export interface Image {
   alt: string;
 }
 
+/**
+ * A Citation a calculated figure is worked out from (`labelledCitations`), with the input's label
+ * or the range's name. A writer makes its footnote with `ReadOptions.footnote` only when it
+ * writes it: Question context gives an id to each Citation it reads, and shows none of these.
+ */
+export interface FigureSource {
+  label: string;
+  citation: Citation;
+  work: CitedWork;
+}
+
 export type Inline = (
   | {
       kind: "text";
@@ -193,6 +208,17 @@ export type Inline = (
   | { kind: "math"; latex: string }
   | { kind: "break" }
   | { kind: "citation"; footnote: Footnote; work: CitedWork }
+  /**
+   * A calculated figure (ADR-0021), written as `figure.shown` where a writer has nothing more to
+   * show; `analysis` is the title of the saved Analysis it came from (#447). Its sources are null
+   * when that Analysis isn't saved in the Note.
+   */
+  | {
+      kind: "figure";
+      figure: CalculatedFigure;
+      sources: FigureSource[] | null;
+      analysis: string | null;
+    }
   /**
    * A footnote the User wrote, at its marker: its text. A Citation in it is
    * part of that text (written as its source), not a footnote of its own.
@@ -927,8 +953,8 @@ function readInlineElement(
   const add = (inline: Inline) => content.push({ ...inline, ...change });
   switch (child.nodeName) {
     case CALCULATED_FIGURE_NODE: {
-      const figure = readCalculatedFigureAttributes(child.getAttributes());
-      if (figure) add({ kind: "text", text: figure.figure.shown, marks: NO_MARKS });
+      const attributes = readCalculatedFigureAttributes(child.getAttributes());
+      if (attributes) add(readFigure(attributes, child.doc));
       break;
     }
     case "inlineMath":
@@ -985,6 +1011,28 @@ function readInlineElement(
       if (text) add({ kind: "text", text, marks: NO_MARKS });
     }
   }
+}
+
+function readFigure(attributes: CalculatedFigureAttributes, doc: Y.Doc | null): Inline {
+  const { figure } = attributes;
+  let sources: CalculatedSources;
+  try {
+    sources = calculatedSources(attributes, doc);
+  } catch {
+    // Its saved Analysis is gone: it still reads as its text, and an export that would write its
+    // sources says they aren't available, as the editor does (`figures.evidenceMissing`).
+    return { kind: "figure", figure, sources: null, analysis: null };
+  }
+  return {
+    kind: "figure",
+    figure,
+    sources: labelledCitations(sources).map(({ label, citation }) => ({
+      label,
+      citation,
+      work: citedWork({ ...citation }),
+    })),
+    analysis: sources.analysis?.title ?? null,
+  };
 }
 
 /** What a citation style needs of a Citation: its Document, its Location and the version quoted. */
