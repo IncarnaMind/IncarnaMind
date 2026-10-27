@@ -71,8 +71,8 @@ A page of a PDF that is a picture of text, such as a scan, with little or no tex
 _Avoid_: image page, OCR page
 
 **Linked folder**:
-A folder on the User's computer that IncarnaMind keeps in sync: every supported file in it, at any depth, is a Document, and new, changed and removed files are picked up. IncarnaMind never changes or deletes a file in it, and adds a new file there only once the User allows it for that folder. Files a cloud drive keeps online only are indexed when the User asks. Moved, renamed or on another computer, it is located again from its menu and keeps its Documents.
-_Avoid_: workspace, vault, source
+A folder on the User's computer that IncarnaMind reads where it is: every supported file in it, at any depth, is a Document, and new and changed files are read as they come; a file removed from it keeps what was read of it, as a Missing Document does. Nothing is copied to a cloud; IncarnaMind keeps the text it read from each file, and the picture of a Cited page, as it does for any Document. IncarnaMind never changes or deletes a file in it, and adds a new file there only once the User allows it for that folder. Files a cloud drive keeps online only are read when the User asks. Moved, renamed or on another computer, it is located again from its menu and keeps its Documents.
+_Avoid_: workspace, vault, source, sync folder
 
 **Other Documents**:
 The Documents added on their own, outside any Linked folder.
