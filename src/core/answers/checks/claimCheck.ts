@@ -178,11 +178,16 @@ const SEARCH_FIRST =
 const FIGURES_LINE =
   "Your reply has no Figures line that can be read. Write your whole reply again, ending with the one Figures: line, its JSON object on that line.";
 
-const figureSourcesNote = (problems: readonly string[]) =>
+const figureSourcesNote = (problems: readonly string[], unrecorded: readonly number[]) =>
   [
+    ...(unrecorded.length > 0
+      ? [
+          `Your Figures line names ${unrecorded.map((marker) => `[^${marker}]`).join(", ")}, never recorded: call cite now with each quote it uses, under the marker you gave it.`,
+        ]
+      : []),
     "Some sources in your Figures line can't be read:",
     ...problems.map((problem) => `- ${problem}`),
-    "Fix each one, recording a quote with cite first where it says so, then write your whole reply again, its Figures line included.",
+    "Fix each one, then write your whole reply again, its Figures line included.",
   ].join("\n");
 
 /**
@@ -228,7 +233,19 @@ function figuresReplied(
         const remainder = read.remainder?.citation;
         if (remainder && !recorded(remainder))
           problems.push(`remainder: [^${remainder}] isn't recorded; record it with cite first.`);
-        return problems.length > 0 ? { claims: [], note: figureSourcesNote(problems) } : null;
+        const unrecorded = [
+          ...new Set(
+            [
+              ...read.items.flatMap((item) =>
+                item.source?.citation ? [item.source.citation] : [],
+              ),
+              ...(remainder ? [remainder] : []),
+            ].filter((marker) => !recorded(marker)),
+          ),
+        ];
+        return problems.length > 0
+          ? { claims: [], note: figureSourcesNote(problems, unrecorded) }
+          : null;
       },
     },
   ];

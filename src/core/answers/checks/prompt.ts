@@ -90,6 +90,12 @@ const calculationInstructions = (figures: boolean) =>
       ? "- call calculate with a distinct marker for each requested figure you work out: its cited inputs, its formula and stated, the requested figure as written; bind that calculate marker to its exact requested id in Figures. Never infer the id from a matching value;"
       : '- call calculate with one figure, marker 1: its inputs, a formula that gives the figure as the sentence states it (for "fell 5%", the fall: (a - b) / a), and stated, the number as the sentence writes it ("1.1x");',
     '- an input keeps its sign as the Passage writes it: an amount in brackets, "(12,500)", is negative, so take a deduction written in brackets off a total by adding it (price + fee), never by subtracting it;',
+    '- an input comes in base units with its unit line\'s scale applied ("248.5" under "单位：人民币百万元" is 248,500,000 yuan), so never convert a scale in the formula;',
+    ...(figures
+      ? [
+          "- a number a Passage states in another scale (248.5 in 百万元 for 2.485亿元, 4,979.6 in £m for £5.0bn) is stated directly, not worked out: give it as source, and the scales are compared for you;",
+        ]
+      : []),
     "- IncarnaMind works it out and compares it with the sentence's number, to its rounding. Then reply as below.",
   ].join("\n");
 

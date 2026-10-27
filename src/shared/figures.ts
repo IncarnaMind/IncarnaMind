@@ -861,7 +861,7 @@ const STATEMENTS: readonly RegExp[] = [
     "dg",
   ),
   new RegExp(
-    `(?<![${CN_NUMERAL_CHARS}\\d.,])(?<before>人民币|RMB)?(?<scale>亿|千万|百万|万|千)(?<unit>${CN_UNIT_WORDS})`,
+    `(?<![${CN_NUMERAL_CHARS}\\d.,百千万亿])(?<before>人民币|RMB)?(?<scale>亿|千万|百万|万|千)(?<unit>${CN_UNIT_WORDS})`,
     "dg",
   ),
   /(?<![A-Za-z])in (?<scale>thousands|millions|billions)(?: of (?<cur>U\.?S\.? dollars|US dollars|Hong Kong dollars|HK dollars|dollars|euros|[Rr]enminbi|RMB|yuan|pounds sterling|pounds|yen))?(?![A-Za-z])/dgi,

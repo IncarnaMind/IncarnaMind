@@ -686,6 +686,27 @@ test("a number that writes its own scale is read whatever unit line comes with i
   });
 });
 
+test("a bare cell worked out from inputs in the frame its heading states is compared in that frame", async () => {
+  const { result } = await checkWith({
+    figures: [cell("f1", "300", "Q3 2026 (£m)")],
+    body: SEGMENTS,
+    units: segments(),
+    quotes: ["Clothing\t300\t310", "All figures in £m"],
+    calculations: [
+      {
+        marker: 1,
+        label: "Clothing Q3 2026",
+        formula: "c",
+        stated: "300",
+        relation: "equals",
+        inputs: [{ name: "c", citation: 1, number: "300", unitQuote: "All figures in £m" }],
+      },
+    ],
+    text: reply([{ ...item(), reading: 1, source: null, calculation: 1 }]),
+  });
+  expect(result.figures?.[0]?.result.verdict).toBe("supported");
+});
+
 test("a source left without its sheet's unit line is asked for with calculate's words, and the fixed reply binds", async () => {
   const bare = {
     ...item(),

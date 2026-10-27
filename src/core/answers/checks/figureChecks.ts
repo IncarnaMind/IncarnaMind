@@ -292,6 +292,26 @@ function addsToBareNumber(figure: CheckFigure["reading"], source: FigureInput): 
 }
 
 /**
+ * The scale and unit a figure's source writes it in: its source number's, or a calculation's
+ * when every input shares one with the result ("£m" inputs summed to an amount in £).
+ */
+function frameOf(
+  inputs: readonly FigureInput[],
+  result: unknown,
+): { scale: number; unit: string } | null {
+  const unit = JSON.stringify(result);
+  const scales = new Set(inputs.map((input) => input.number.scale));
+  const [scale] = scales;
+  if (
+    scale === undefined ||
+    scales.size !== 1 ||
+    inputs.some((input) => JSON.stringify(input.number.unit) !== unit)
+  )
+    return null;
+  return { scale, unit };
+}
+
+/**
  * A number the note writes as bare digits under its own statement of a scale ("(£m)") is
  * compared in its source's frame when the note offers that one: both write the same digits
  * under the same statement, which is how the model compares them too. A frame the note
@@ -300,17 +320,15 @@ function addsToBareNumber(figure: CheckFigure["reading"], source: FigureInput): 
 function inSourceFrame(
   original: CheckFigure,
   target: CheckFigure,
-  source: FigureInput,
+  frame: { scale: number; unit: string } | null,
 ): CheckFigure {
   const { reading } = target;
-  if (reading.unit.kind !== "plain" || reading.scale !== 1) return target;
+  if (!frame || reading.unit.kind !== "plain" || reading.scale !== 1) return target;
   const framed = original.reading.ambiguous
     .find((each) => each.kind === "scale")
     ?.readings.find(
       (each) =>
-        each.scale !== 1 &&
-        each.scale === source.number.scale &&
-        JSON.stringify(each.unit) === JSON.stringify(source.number.unit),
+        each.scale !== 1 && each.scale === frame.scale && JSON.stringify(each.unit) === frame.unit,
     );
   if (!framed) return target;
   return {
@@ -388,7 +406,6 @@ export async function checkFigureReply(options: FigureCheckOptions): Promise<Cla
         (!input.input.unitStatement || input.input.unitStatement.citation.check === "found")
       )
         sourceInput = input.input;
-      if (sourceInput) target = inSourceFrame(original, target, sourceInput);
     } else if (item.calculation !== null) {
       calculation = calculations.figure(item.calculation);
       costs = options.costs(item.calculation);
@@ -402,6 +419,15 @@ export async function checkFigureReply(options: FigureCheckOptions): Promise<Cla
       )
         calculation = null;
     }
+    target = inSourceFrame(
+      original,
+      target,
+      sourceInput
+        ? frameOf([sourceInput], sourceInput.number.unit)
+        : calculation
+          ? frameOf(calculation.inputs, calculation.unit)
+          : null,
+    );
     const base = { ...finding(target), source: cited ?? sourceInput?.citation ?? null };
     if (target.calculated && !target.calculated.figure.analysis) {
       calculation = replay(target, calculations);

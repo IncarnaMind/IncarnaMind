@@ -1065,6 +1065,15 @@ describe("stated units", () => {
     expect(stated("100million USD", EN)).toEqual([]);
   });
 
+  test("an amount's own compound scale states nothing: “4,979.6百万元” holds “万元” but is a figure", () => {
+    expect(stated("营业收入为人民币4,979.6百万元，上年同期为人民币4,860.0百万元。", ZH)).toEqual(
+      [],
+    );
+    expect(stated("分部收入（单位：人民币百万元）", ZH)).toMatchObject([
+      { scale: 1000000, unit: { kind: "currency", code: "CNY" } },
+    ]);
+  });
+
   test("a Chinese header states a scale and a currency", () => {
     expect(stated("单位：万元")).toEqual([
       {
