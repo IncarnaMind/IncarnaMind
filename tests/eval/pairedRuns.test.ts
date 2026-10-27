@@ -143,10 +143,14 @@ describe("the arm switch", () => {
 });
 
 describe("the arms' Answer paths", () => {
-  // An Answer writes first when it retrieves first or writes then cites (src/core/answers/index.ts).
+  // An Answer in the question flow, the one the arms' sets ask in, writes first when it retrieves
+  // first or writes then cites (src/core/answers/index.ts).
   const pathOf = (model: { catalogId: string; modelId: string }, paths: AnswerPathsOverride) => {
-    const searchesFirst = retrievesFirst(model, paths);
-    return { searchesFirst, writesFirst: searchesFirst || writesThenCites(model, paths) };
+    const searchesFirst = retrievesFirst(model, "question", paths);
+    return {
+      searchesFirst,
+      writesFirst: searchesFirst || writesThenCites(model, "question", paths),
+    };
   };
 
   test.each([

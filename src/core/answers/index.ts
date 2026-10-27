@@ -136,6 +136,7 @@ import { plainText } from "../mindText";
 import { docOf } from "../proposals/merge";
 import { proposeBlocks } from "../proposals/write";
 import { givesStructuredOutput, calculates as offersCalculate } from "../providers/capabilities";
+import type { AnswerFlow } from "../providers/catalog/answerPaths";
 import type { PreparedChatModel } from "../providers/chat";
 import { classifyProviderError } from "../providers/providerErrors";
 import type { WebResult } from "../providers/webSearch";
@@ -531,10 +532,10 @@ export interface AnswersOptions {
     answers: ChatModelChoice,
     prepared: PreparedChatModel,
   ): Promise<PreparedChatModel["model"]>;
-  /** Whether this model writes the Answer, then cites it, in the Tool loop (#489). */
-  writesThenCites?(prepared: PreparedChatModel): boolean;
-  /** Whether an Answer on this model searches its Question before the first call (#1633). */
-  retrievesFirst?(prepared: PreparedChatModel): boolean;
+  /** Whether this model writes the Answer, then cites it, in the Tool loop, in this flow (#489). */
+  writesThenCites?(prepared: PreparedChatModel, flow: AnswerFlow): boolean;
+  /** Whether an Answer on this model, in this flow, searches its Question before the first call (#1633). */
+  retrievesFirst?(prepared: PreparedChatModel, flow: AnswerFlow): boolean;
   /** Searching the User's Documents, and what Citations point to. */
   documents: DocumentsForAnswers;
   /** Runs Analyses (#447, ADR-0023); absent: no Answer is offered `run_analysis`. */
@@ -1042,6 +1043,16 @@ export function createAnswers(options: AnswersOptions) {
     /** The Documents the live transcript came from: the "listened" step names them. */
     const transcripts = new Set<string>();
     const { help } = input;
+    // An Answer inside another flow (a comparison's cell, a check's sentence) is that flow's step.
+    const flow: AnswerFlow = help
+      ? "call-help"
+      : input.toolSet === "check"
+        ? "check"
+        : input.task
+          ? "task-answer"
+          : outside
+            ? "outside-agent"
+            : "question";
     let foundAhead = false;
     /** The language the call's newest lines are in, which a help Answer is written in. */
     let callLanguage: string | null = null;
@@ -2419,18 +2430,19 @@ export function createAnswers(options: AnswersOptions) {
       ];
       // The search made first takes the User's words as the query before the model has read them,
       // which is right only for a Question about the Documents. So it is made only on a turn that is
-      // one by construction, offered no Tool that writes a Mind: a Question asked in a Mind, or an
-      // outside agent's. A request in the assistant may be a write, a follow-up or anything else, and
-      // keeps the loop. Call help already searches first; a check or a Task's Run keeps its loop.
+      // one by construction, offered no Tool that writes a Mind (a Question asked in a Mind, or an
+      // outside agent's), in a flow the list admits the model to. A request in the assistant may be
+      // a write, a follow-up or anything else, and keeps the loop. Call help already searches
+      // first; a check or a Task's Run keeps its loop.
       const writesMinds = mindsTools?.tools.some((tool) => tool.name !== MIND_TOOLS.read) ?? false;
       const retrieveFirst =
         !help &&
         !input.task &&
         (input.toolSet ?? "answer") === "answer" &&
         !writesMinds &&
-        (options.retrievesFirst?.(prepared) ?? false);
+        (options.retrievesFirst?.(prepared, flow) ?? false);
       // Its one call writes the Answer and then cites it (#1633 on #489's contract).
-      const writeFirst = retrieveFirst || (options.writesThenCites?.(prepared) ?? false);
+      const writeFirst = retrieveFirst || (options.writesThenCites?.(prepared, flow) ?? false);
       for await (const event of engine.generate({
         instructions: (
           mode,
@@ -2679,16 +2691,6 @@ export function createAnswers(options: AnswersOptions) {
       settleMinds();
       finish(outcome);
     };
-    // An Answer inside another flow (a comparison's cell, a check's sentence) is that flow's step.
-    const flow = help
-      ? "call-help"
-      : input.toolSet === "check"
-        ? "check"
-        : input.task
-          ? "task-answer"
-          : outside
-            ? "outside-agent"
-            : "question";
     inFlow(flow, run).catch((error: unknown) => {
       options.reportError(error);
       settleMinds();
