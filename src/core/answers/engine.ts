@@ -239,7 +239,7 @@ export interface AnswerTools {
    * `cite` call was refused or came back with a problem to fix, written or not, until a record
    * for it is taken without one; each marker `text` writes with no record; and each figure marker
    * it writes that `figured` says has no worked-out figure. The one test of whether a written,
-   * then cited Answer is complete, and of which records' markers may be placed. Absent: nothing.
+   * then cited Answer is complete. Absent: nothing.
    */
   owed?(text: string, figured?: (marker: number) => boolean): Owed;
   /** The Passages the model was given in this Answer, by the id it cites them by, as it read them. */

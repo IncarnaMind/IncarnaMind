@@ -356,20 +356,18 @@ export function* textEdits(from: string, to: string): Generator<AnswerEngineEven
 
 /**
  * Where the engine handles a finished Answer's records: the edits that put in
- * the markers the model left out of `text` for records the core took and the
- * Run owes nothing for (see `AnswerTools.owed`), and how many it put in.
- * Returns the text with them.
+ * the markers the model left out of `text` for records the core took (see
+ * `AnswerTools.hasRecord`), and how many it put in. Returns the text with them.
  */
 export function* missingMarkerEvents(
   text: string,
   records: readonly MarkerRecord[],
-  tools: Pick<AnswerTools, "hasRecord" | "owed">,
+  tools: Pick<AnswerTools, "hasRecord">,
 ): Generator<AnswerEngineEvent, string> {
-  const owed = new Set(tools.owed?.(text).citations);
   const { text: placed, placed: markers } = withMissingMarkers(
     text,
     records,
-    (marker) => (tools.hasRecord?.(marker) ?? false) && !owed.has(marker),
+    (marker) => tools.hasRecord?.(marker) ?? false,
   );
   if (markers.length === 0) return text;
   yield* textEdits(text, placed);
