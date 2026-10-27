@@ -123,9 +123,9 @@ export const checkCommands: readonly Command[] = [
     keywords: ["claim.checkAgainstDocument.keywords"],
     group: "main",
     reversible: true,
-    when: () => withNotFound() !== null,
+    when: () => withCuttable() !== null,
     run() {
-      const at = withNotFound();
+      const at = withCuttable();
       if (!at) return;
       showClaimCard(at);
       requestDocumentPicker(at.claim.check.id);

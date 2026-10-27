@@ -296,18 +296,18 @@ export function checkAgain(
   claim: ShownClaim,
   allDocuments = claim.check.scope.widened,
 ): Promise<void> {
-  const wholeRead = claim.check.action === "check-against-document" && !allDocuments;
-  return checkSentences(
-    editor,
-    mindId,
-    doc,
-    wholeRead ? "check-against-document" : "check-against-documents",
-    {
-      ranges: [{ from: claim.from, to: claim.to }],
-      allDocuments,
-      within: wholeRead ? claim.check.scope.chosen : undefined,
-    },
-  );
+  const { action } = claim.check;
+  const wholeRead = action === "check-against-document" && !allDocuments;
+  const rerun = wholeRead
+    ? "check-against-document"
+    : action === "check-against-document"
+      ? "check-against-documents"
+      : action;
+  return checkSentences(editor, mindId, doc, rerun, {
+    ranges: [{ from: claim.from, to: claim.to }],
+    allDocuments,
+    within: wholeRead ? claim.check.scope.chosen : undefined,
+  });
 }
 
 /** Takes a sentence's check mark off, leaving the sentence: one step for ⌘Z. */

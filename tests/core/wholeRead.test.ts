@@ -1,6 +1,6 @@
 import type { JSONContent } from "@tiptap/core";
 import { describe, expect, test } from "vitest";
-import type { ClaimCheckAttributes, Document, SearchScope } from "../../src/core";
+import type { ClaimCheckAttributes, CoreAdapters, Document, SearchScope } from "../../src/core";
 import { claimSpans } from "../../src/renderer/src/editor/claimChecks";
 import { readClaimCheck } from "../../src/shared/claimChecks";
 import { checkGenerate, checkingModel, checkReply, isCheckRun, type Plan } from "../helpers/checks";
@@ -38,9 +38,10 @@ async function setup(
   calls: ModelCall[] = [],
   initial?: ClaimCheckAttributes,
   givenModel?: ReturnType<typeof checkingModel>,
+  overrides: Partial<CoreAdapters> = {},
 ) {
   const model = givenModel ?? checkingModel(plans, calls);
-  const result = await setUpWithDocuments(model, files);
+  const result = await setUpWithDocuments(model, files, overrides);
   const block = paragraph(text(claim, initial));
   writeMind(result.client, [block]);
   await result.client.settled();
@@ -185,7 +186,7 @@ describe("Check against a Document, read whole", () => {
     expect(progress).toHaveLength(2);
     const check = await onlyMark(client);
     expect(check.state).toBe("supported");
-    expect(check.read).toEqual({ pages: 0, of: 1 });
+    expect(check.read).toEqual({ pages: 1, of: 1 });
     expect(progress.at(-1)).toBe(check.read?.pages);
   });
 
@@ -215,6 +216,50 @@ describe("Check against a Document, read whole", () => {
     expect(check.read?.pages).toBe(check.read?.of);
     expect(progress[0]).toBe(0);
     expect(progress.at(-1)).toBe(check.read?.of);
+  });
+
+  test("reports only the pages the model actually received when a window is fitted", async () => {
+    const document = buildPdf(
+      Array.from({ length: 12 }, (_, page) => ({
+        lines: Array.from(
+          { length: 30 },
+          (_, line) => `Page ${page + 1} line ${line + 1} has ordinary lease words for this check.`,
+        ),
+      })),
+    );
+    const calls: ModelCall[] = [];
+    const plan = { [EN.claim]: { verdict: "unsupported" as const } };
+    const ollamaModels: CoreAdapters["ollamaModels"] = {
+      describe: async () => ({
+        digest: null,
+        capabilities: ["completion", "tools"],
+        contextLength: 4096,
+        parameters: null,
+        support: "tools",
+        chat: true,
+        remote: false,
+        settings: { numCtx: 4096, outputTokens: 1024, keepAlive: "5m", think: false },
+      }),
+      loaded: async () => true,
+      running: async () => true,
+    };
+    const { core, client, mind, block, documents } = await setup(
+      [{ name: "Lease-long.pdf", contents: document }],
+      plan,
+      EN.claim,
+      calls,
+      undefined,
+      undefined,
+      { ollamaModels },
+    );
+
+    await core.checkSentences(
+      checkInput(mind.id, block, EN.claim, within([documents[0]?.id ?? ""])),
+    );
+
+    expect(JSON.stringify(calls.filter(isCheckRun))).not.toContain("Page 12 line 30");
+    const check = await onlyMark(client);
+    expect(check.read?.pages).toBeLessThan(check.read?.of ?? 0);
   });
 
   test("keeps an earlier on-topic result when a later window finds nothing", async () => {

@@ -101,6 +101,11 @@ const pagesOf = ({ pageFrom, pageTo }: WindowedPassage): number[] => {
   return Array.from({ length: Math.max(1, to - pageFrom + 1) }, (_, at) => pageFrom + at);
 };
 
+const coverageOf = (passages: readonly WindowedPassage[]): number =>
+  new Set(
+    passages.flatMap((passage) => pagesOf(passage).map((page) => `${passage.documentId}:${page}`)),
+  ).size;
+
 const ENDS_READ = new Set(["failed", "consent-revoked", "local-mode"]);
 
 export function windowTokens(model: PreparedChatModel): number {
@@ -197,6 +202,10 @@ export function createWholeRead(options: WholeReadOptions) {
     signal: AbortSignal,
   ): Promise<{ result: ClaimCheckResult; pages: number } | null> {
     const windows = windowsOf(read, windowTokens(model));
+    const supplied = new Map(
+      read.passages.map(({ passage }) => [passage.passageId, passage] as const),
+    );
+    const received = new Set<string>();
     const versions = new Map<string, CheckedVersion>();
     const excluded = new Map<string, LeftOutDocument>();
     const report = (pages: number) =>
@@ -217,9 +226,15 @@ export function createWholeRead(options: WholeReadOptions) {
         signal,
       });
       if (signal.aborted) return null;
+      for (const id of result.readPassages ?? []) received.add(id);
       for (const each of result.versions) versions.set(each.documentId, each);
       for (const each of result.excluded) excluded.set(each.documentId, each);
-      pages = window.pages;
+      pages = coverageOf(
+        [...received].flatMap((id) => {
+          const passage = supplied.get(id);
+          return passage ? [passage] : [];
+        }),
+      );
       report(pages);
       if (result.verdict === "supported" || result.verdict === "contradicted") {
         return { result: merged(result, versions, excluded), pages };

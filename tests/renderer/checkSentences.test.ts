@@ -3,6 +3,7 @@ import { beforeAll, describe, expect, test, vi } from "vitest";
 import * as Y from "yjs";
 import type { CheckSentencesInput } from "../../src/core/api";
 import type * as Checks from "../../src/renderer/src/checks";
+import type { ShownClaim } from "../../src/renderer/src/editor/claimChecks";
 
 /*
  * Asking for a check from a mark an older version made: its action says
@@ -61,5 +62,19 @@ describe("a check asked again", () => {
     expect(asked[0]?.input.action).toBe(expected);
     expect(asked[0]?.running).toMatchObject({ action: expected });
     expect(checks.useChecks.getState().running["mind-1"]).toBeUndefined();
+  });
+
+  test("Check again preserves a contradiction watch's action", async () => {
+    asked.length = 0;
+    const claim = {
+      from: 1,
+      to: 2,
+      check: { action: "contradiction-watch", scope: { widened: false } },
+    } as unknown as ShownClaim;
+
+    await checks.checkAgain(editor, "mind-1", new Y.Doc(), claim);
+
+    expect(asked).toHaveLength(1);
+    expect(asked[0]?.input.action).toBe("contradiction-watch");
   });
 });

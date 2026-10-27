@@ -172,6 +172,7 @@ export function createClaimCheck(deps: ClaimCheckDependencies) {
     const { scope, signal } = request;
     let searches = 0;
     const read = new Map<string, string>();
+    const readPassages = new Set<string>();
     const excluded = new Map<string, LeftOutDocument>();
     const decisions = caseCitations(request.claim);
     const workings = new Map<string, PassageSearchResult[]>();
@@ -185,7 +186,9 @@ export function createClaimCheck(deps: ClaimCheckDependencies) {
         const passages = (request.window ?? found?.passages ?? []).filter(
           (passage) => decisions.length === 0 || !deps.documents.savedBySearch(passage.documentId),
         );
-        for (const passage of passages) read.set(passage.documentId, passage.contentHash);
+        if (!request.window) {
+          for (const passage of passages) read.set(passage.documentId, passage.contentHash);
+        }
         for (const each of found?.excluded ?? []) {
           if (each.reason === "own-workings") {
             workings.set(each.documentId, [
@@ -300,6 +303,7 @@ export function createClaimCheck(deps: ClaimCheckDependencies) {
       excluded: [...excluded.values()].filter(
         (each) => each.reason === "own-file" || each.reason === "checked-document",
       ),
+      ...(request.window && { readPassages: [...readPassages] }),
     });
     const workingsSayingIt = (): LeftOutDocument[] =>
       [...workings].flatMap(([documentId, passages]) => {
@@ -351,6 +355,16 @@ export function createClaimCheck(deps: ClaimCheckDependencies) {
       question: request.claim,
       model: model.model,
       documents: tools,
+      ...(request.window && {
+        fitted: (passageIds: readonly string[]) => {
+          const fitted = new Set(passageIds);
+          for (const passage of request.window ?? []) {
+            if (!fitted.has(passage.passageId)) continue;
+            read.set(passage.documentId, passage.contentHash);
+            readPassages.add(passage.passageId);
+          }
+        },
+      }),
       tools: [],
       toolSet: "check",
       thirdParty: request.thirdParty ?? [],

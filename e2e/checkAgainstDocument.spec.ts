@@ -133,6 +133,12 @@ async function choose(window: Page, name: string) {
   const option = picker.getByText(name, { exact: true });
   await expect(option).toBeVisible();
   await pointAndClick(window, option);
+  const ask = window.getByTestId("document-check-ask");
+  const next = ask
+    .or(window.getByTestId("consent-dialog"))
+    .or(window.getByTestId("document-check-progress"));
+  await expect(next.filter({ visible: true }).first()).toBeVisible();
+  if (await ask.isVisible()) await pointAndClick(window, ask.getByTestId("document-check-read"));
 }
 
 const FILES = [

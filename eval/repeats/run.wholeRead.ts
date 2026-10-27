@@ -213,10 +213,13 @@ test("check against a Document, read whole", async () => {
             await record(sentence, index, repeat, "read");
           }
         }
-        spentBefore += await spentOf(core);
       } finally {
-        await library.close();
-        await rm(folder, { recursive: true, force: true });
+        try {
+          spentBefore += await spentOf(library.core);
+        } finally {
+          await library.close();
+          await rm(folder, { recursive: true, force: true });
+        }
       }
     }
   } finally {

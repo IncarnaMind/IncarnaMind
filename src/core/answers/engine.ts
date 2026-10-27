@@ -387,6 +387,8 @@ export interface AnswerRequest {
   quickModel?(): Promise<ChatLanguageModel>;
   /** Searching and citing the Documents: the Documents' Tools, and the search of a model without Tools. */
   documents: AnswerTools;
+  /** The Passage ids a search actually fitted into the model's request, for exact whole-read coverage. */
+  fitted?(passageIds: readonly string[]): void;
   /**
    * The other Tools a model that can call Tools is offered, from their
    * providers: the Skills' and the Connectors' (see ../tools). Within a
@@ -1170,6 +1172,7 @@ function createWritingEngine(options: AiSdkAnswerEngineOptions): AnswerEngine {
       const onePass = (mode: CitationSupport | "no-documents", found?: SearchResultForModel) =>
         fitted(async function* () {
           if (!budget) {
+            if (found) request.fitted?.(fittedPassageIds(found, found.text));
             const instructions = request.instructions(mode, { passages: found?.text });
             yield* tempered((sent) =>
               mode === "structured-output"
@@ -1187,6 +1190,7 @@ function createWritingEngine(options: AiSdkAnswerEngineOptions): AnswerEngine {
                   request.question,
                   found.ranks,
                 );
+          if (found && kept !== undefined) request.fitted?.(fittedPassageIds(found, kept));
           const instructions = request.instructions(mode, { passages: kept });
           const fit = budget.fit({
             instructions,
@@ -1427,6 +1431,8 @@ export function createAiSdkAnswerEngine(options: AiSdkAnswerEngineOptions = {}):
 interface DocumentToolsHooks {
   /** A search's result as the model gets it: within a window, the Passages that fit (see ./window). */
   fit(found: SearchResultForModel): SearchResultForModel;
+  /** The Passage ids that survived that fit. */
+  fitted?(passageIds: readonly string[]): void;
   /** A search gave the model `count` Passages, of those it found (`passageIds`): its Tool-call card says so. */
   searched(toolCallId: string, count: number, passageIds?: readonly string[]): void;
   /** A search failed: its card says why. */
@@ -1441,6 +1447,15 @@ interface DocumentToolsHooks {
  * A search's result as the model reads it: the Passages that fit, then what every search's
  * result says beside them (Documents not read, dates, the Answer's language).
  */
+function fittedPassageIds(found: SearchResultForModel, fitted: string): readonly string[] {
+  if (fitted === found.text) return found.passageIds ?? [];
+  const handles = (text: string) =>
+    [...text.matchAll(/<passage id="([^"]+)"/g)].map((match) => match[1] ?? "");
+  const original = handles(found.text);
+  const kept = new Set(handles(fitted));
+  return (found.passageIds ?? []).filter((_, index) => kept.has(original[index] ?? ""));
+}
+
 function searchResultText(
   fitted: string,
   documents: AnswerTools,
@@ -1514,6 +1529,7 @@ export function documentTools(
         }
         for (const source of found.thirdParty ?? []) readThirdParty?.(source);
         const result = hooks.fit(found);
+        hooks.fitted?.(fittedPassageIds(found, result.text));
         hooks.searched(toolCallId, result.passageCount, found.passageIds);
         return searchResultText(result.text, documents, hooks.languageNote);
       },
@@ -1614,6 +1630,7 @@ function presearchMessages(
         read(passages),
       ])
     : result;
+  request.fitted?.(fittedPassageIds(result, fitted.text));
   return [
     { role: "assistant", text: "", toolCalls: [{ id, tool, input }] },
     { role: "tool", id, tool, result: read(fitted.text), ok: true },
@@ -1671,6 +1688,7 @@ async function* toolLoop(
           {
             fit: (found) =>
               loop ? loop.passages(found.text, found.passageCount, found.ranks) : found,
+            ...(request.fitted && { fitted: request.fitted }),
             searched: (toolCallId, count, passageIds) => {
               results.set(toolCallId, count);
               if (passageIds) found.set(toolCallId, passageIds);

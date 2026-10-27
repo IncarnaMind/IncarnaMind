@@ -5227,6 +5227,8 @@ export type ClaimCheckResult =
       /** The versions of the Documents it read, each once. */
       versions: CheckedVersion[];
       excluded: LeftOutDocument[];
+      /** For an explicit whole read: the Passages that actually fitted into model requests. */
+      readPassages?: readonly string[];
     }
   | {
       verdict: "not-checked";
@@ -5235,6 +5237,8 @@ export type ClaimCheckResult =
       detail: string | null;
       versions: CheckedVersion[];
       excluded: LeftOutDocument[];
+      /** For an explicit whole read: the Passages that actually fitted into model requests. */
+      readPassages?: readonly string[];
     };
 
 /**

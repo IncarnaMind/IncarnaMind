@@ -83,9 +83,16 @@ export function DocumentCheckAction({
         setPlan(next);
         return;
       }
-      const amount = next.estimate?.billing === "per-token" ? next.estimate.cost?.amount : 0;
-      if ((amount ?? 0) > 0.5) setPlan(next);
-      else await read(picked);
+      const { estimate } = next;
+      if (
+        estimate?.billing !== "per-token" ||
+        estimate.cost === null ||
+        estimate.cost.amount > 0.5
+      ) {
+        setPlan(next);
+      } else {
+        await read(picked);
+      }
     } catch (error) {
       setFailure(errorMessage(error, t));
     }

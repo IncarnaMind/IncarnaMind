@@ -58,7 +58,6 @@ function ServiceItem({ group }: { group: ServiceGroup }) {
   const t = useT();
   const language = useLanguage();
   const [busy, setBusy] = useState(false);
-  const item = useRef<HTMLLIElement>(null);
   const buttons = useRef<HTMLDivElement>(null);
   const invoked = useRef<HTMLButtonElement | null>(null);
   const stopping = useRef<string | null>(null);
@@ -73,8 +72,7 @@ function ServiceItem({ group }: { group: ServiceGroup }) {
     if (!actionGone && !useGone) return;
     invoked.current = null;
     if (useGone) stopping.current = null;
-    const active = document.activeElement;
-    if (active?.isConnected && active !== document.body && !item.current?.contains(active)) return;
+    if (document.activeElement?.isConnected && document.activeElement !== document.body) return;
     buttons.current?.querySelector("button")?.focus();
   });
 
@@ -192,7 +190,6 @@ function ServiceItem({ group }: { group: ServiceGroup }) {
 
   return (
     <li
-      ref={item}
       data-testid="data-service"
       data-service-id={service.id}
       data-consent={decision.kind}
