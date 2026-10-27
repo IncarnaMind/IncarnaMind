@@ -4457,6 +4457,13 @@ export interface CostSummary {
  */
 export type RunStop = { reason: "cost-cap" } | { reason: "plan-limit"; resetsAt: string | null };
 
+/**
+ * Why a full watch of a Mind ended before it finished: a stop a Run gives way
+ * to, or the User stopping it. A cancelled watch is never a complete one: the
+ * next Check sweeps every cited sentence again (#1941).
+ */
+export type WatchStop = RunStop | { reason: "cancelled" };
+
 /** What Compare Documents makes a comparison table of (#98). */
 export interface CompareDocumentsInput {
   mindId: string;
@@ -5421,11 +5428,25 @@ export type CheckContradictionsResult =
  * Folder started (#112), kept in the Mind's settings so its line can show
  * what it found and cost (`src/shared/contradictionWatch.ts`).
  */
-export interface ContradictionWatchRun extends ContradictionCheckOutcome {
-  /** When it finished. ISO 8601, UTC. */
+export interface ContradictionWatchRun {
+  /** The cited sentences checked: a contradicted one has its mark, the others none. */
+  claims: number;
+  /** Of them, those the model gave a verdict for. */
+  checked: number;
+  contradicted: number;
+  /** What its requests billed per token cost; null when none was priced. */
+  cost: Money | null;
+  /** The monthly cap or a plan's limit stopped it, or the User stopped it: the claims after it weren't checked. */
+  stop: WatchStop | null;
+  /** The verdicts came from a model too small to judge reliably (#680). */
+  smallModel: boolean;
+  /** When it ended. ISO 8601, UTC. */
   at: string;
-  /** The Document whose new version started it, by name. */
-  documentName: string;
+  /**
+   * The Document whose new version started it, by name; null when a Document
+   * joining the Folder, the Mind joining it, or an on-demand check started it.
+   */
+  documentName: string | null;
 }
 
 /**
