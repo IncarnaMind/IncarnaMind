@@ -1,4 +1,5 @@
 import { DataFromNewerVersionError } from "../errors";
+import { probeStep } from "../startupProbe";
 import type { Database } from "./database";
 
 /**
@@ -1921,6 +1922,7 @@ export const migrations: readonly Migration[] = [
  * newer version of IncarnaMind, and is refused.
  */
 export function migrate(db: Database, list: readonly Migration[] = migrations): void {
+  probeStep("migrate-start");
   list.forEach((migration, index) => {
     const previous = list[index - 1];
     if (previous && migration.version <= previous.version) {
@@ -1937,8 +1939,11 @@ export function migrate(db: Database, list: readonly Migration[] = migrations): 
     throw new DataFromNewerVersionError(Math.max(...unknown));
   }
 
+  let pending = 0;
   for (const migration of list) {
     if (applied.has(migration.version)) continue;
+    pending++;
+    const started = performance.now();
     db.transaction(() => {
       db.exec(migration.sql);
       db.run("INSERT INTO schema_migrations (version, applied_at) VALUES (?, ?)", [
@@ -1949,7 +1954,10 @@ export function migrate(db: Database, list: readonly Migration[] = migrations): 
       const highest = db.get<{ v: number }>("SELECT max(version) AS v FROM schema_migrations")?.v;
       db.exec(`PRAGMA user_version = ${highest ?? 0}`);
     });
+    const ms = Math.round(performance.now() - started);
+    if (ms >= 100) probeStep("migration-slow", { version: migration.version, ms });
   }
+  probeStep("migrate-done", { pending });
 }
 
 /**

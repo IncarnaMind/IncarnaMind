@@ -480,6 +480,7 @@ export function createCore(adapters: CoreAdapters): Core {
   probeStep("core-database-opened");
   try {
     adapters.log?.info("core.startup.databaseOpened");
+    probeStep("core-database-logged");
     migrate(db);
     probeStep("core-migrations-applied");
     adapters.log?.info("core.startup.storageReady");
