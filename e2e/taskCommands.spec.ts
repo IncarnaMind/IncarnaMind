@@ -311,7 +311,7 @@ test("a Task's row in the chip's popover stops it, by keyboard, and Show Tasks s
   await expect(again).toBeVisible();
   const recentRow = again.locator(`[data-task="${taskId}"] [data-testid="tasks-popover-row"]`);
   await expect(recentRow).toBeFocused();
-  await expect(again.locator('section[aria-label="Recent"]')).toContainText("Shortlist");
+  await expect(again.locator('section[aria-label="Recent (7 days)"]')).toContainText("Shortlist");
 
   // Esc closes it, and the focus goes where the chip's was: the composer, as the chip is gone.
   await window.keyboard.press("Escape");
@@ -590,6 +590,17 @@ test("Research… with no Note open plans with Write into: New note, Start makes
   );
   await motionSettled(window);
   await screenshot(window, "research-no-note-en-1440");
+
+  // The Tasks list over the composer takes Esc first: the plan stays, and the next Esc puts it away.
+  await window.keyboard.press("ControlOrMeta+k");
+  await window.keyboard.type(">show tasks");
+  await window.keyboard.press("Enter");
+  const overPlan = window.getByTestId("tasks-popover");
+  await expect(overPlan).toBeVisible();
+  await window.getByTestId("composer-input").focus();
+  await window.keyboard.press("Escape");
+  await expect(overPlan).toBeHidden();
+  await expect(card).toBeVisible();
 
   // Esc in the composer puts the plan away with no Note open, and the topic comes back to ask again.
   await window.getByTestId("composer-input").focus();

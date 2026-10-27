@@ -58,10 +58,12 @@ export function giveFocusBack(
   fallback: HTMLElement | null = null,
 ): boolean {
   const focused = document.activeElement instanceof HTMLElement ? document.activeElement : null;
-  // Somewhere else that isn't the overlay's own: whatever gave it there keeps it.
+  // Somewhere else that isn't the overlay's own: whatever gave it there keeps it. Not an
+  // aria-hidden element, which the browser may drop the focus onto as the overlay closes.
   if (
     focused !== null &&
     focused !== document.body &&
+    !focused.hasAttribute("aria-hidden") &&
     focused !== remembered?.element &&
     overlay?.contains(focused) !== true
   ) {

@@ -128,6 +128,17 @@ test("an aria-hidden element is never given the focus", () => {
   expect(page.activeElement).toBe(fallback);
 });
 
+test("a focus the browser dropped on an aria-hidden element is no place to keep", () => {
+  // Closing a popover hands the focus back to its invoker, which may have become the invisible
+  // anchor in the band: the focus goes where the overlay's own rule says instead.
+  const anchor = new FakeElement();
+  anchor.hidden.add("aria-hidden");
+  const field = new FakeField();
+  page.activeElement = anchor;
+  expect(giveFocusBack(asRemembered(field, [2, 5]), null)).toBe(true);
+  expect(page.activeElement).toBe(field);
+});
+
 test("an element that has gone is not given the focus", () => {
   const field = new FakeField();
   field.isConnected = false;
