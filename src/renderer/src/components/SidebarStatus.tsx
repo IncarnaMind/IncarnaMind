@@ -116,8 +116,11 @@ interface Status {
  */
 export function SidebarStatus({ problemsOnly = false }: { problemsOnly?: boolean }) {
   const statuses = useStatuses();
+  // The quiet first open draws none of these rows, so their time starts when it ends.
   const shown = useSettled(
-    statuses.filter((status) => !isProblem(status)).map((status) => status.testId),
+    problemsOnly
+      ? []
+      : statuses.filter((status) => !isProblem(status)).map((status) => status.testId),
   );
   // A status the work has left stays its last 500 ms as it was.
   const seen = useRef(new Map<string, Status>());

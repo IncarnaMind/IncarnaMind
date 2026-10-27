@@ -38,7 +38,7 @@ export function taskOffers(task: Task | undefined, command: TaskCommand): boolea
 }
 
 export function taskRowActions(task: Task, t: Translate): TaskRowAction[] {
-  if (task.finishedAt !== null || !task.actions.includes("stop")) return [];
+  if (!taskOffers(task, "stop")) return [];
   return [
     {
       key: "stop",

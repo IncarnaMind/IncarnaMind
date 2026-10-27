@@ -1,4 +1,4 @@
-import { beforeAll, describe, expect, test, vi } from "vitest";
+import { afterEach, beforeAll, describe, expect, test, vi } from "vitest";
 import type { Task } from "../../src/core/api";
 import { keysForm, keysLabel, keysOn, pressed } from "../../src/renderer/src/commands/keys";
 import {
@@ -187,6 +187,14 @@ const blockFirst = (window: Command, block: Command) =>
   block.when !== undefined;
 
 describe("Tasks from the keyboard", () => {
+  // The Tasks and the seat one test sets are the store's for every test after it.
+  afterEach(async () => {
+    const { useTasks } = await import("../../src/renderer/src/tasks");
+    const { useComposer } = await import("../../src/renderer/src/composer");
+    useTasks.setState({ tasks: {}, shown: null });
+    useComposer.setState({ seat: null });
+  });
+
   test("Show Tasks is offered with no Task at all, so Recent is always in reach", () => {
     const show = commands.get("tasks.show");
     expect(show).toBeDefined();

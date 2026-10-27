@@ -1029,8 +1029,8 @@ export interface CommandItem {
 /** How a Word export settled whether to mark the text IncarnaMind wrote (#1535): `how` says where the choice came from. */
 export interface ExportMarking {
   choice: MarkAiTextChoice;
-  /** Kept as the answer by this export (asked in the tray, or named in the request); for this file only; or saved before. */
-  how: "kept" | "this-file" | "earlier";
+  /** For this file only, as the request named it; the choice saved before; or the default (#1945). */
+  how: "this-file" | "earlier" | "default";
 }
 
 /** What a call of `run_command` did (#1110), from what its command returned. */
@@ -1171,6 +1171,8 @@ export interface MindChange {
   replacedOwn?: { paragraphs: number; tables: number; charts: number };
   /** How many Citations the text it wrote there holds. Absent: none, or it rewrote text keeping its own. */
   cited?: number;
+  /** It wrote new text there with no Citation at all, once its Answer had searched and found Passages (#1415). */
+  uncited?: true;
   /** How many of its text's markers had no Citation recorded, and were left out. Absent: none. */
   unrecorded?: number;
   /**
@@ -5699,6 +5701,11 @@ export interface AnswerSteps {
    */
   citedAfterChecking?: number;
   /**
+   * The model was asked once for the Citations its reply left out, and none came of it that
+   * could be checked (#1415). Absent: it wasn't asked, or Citations came of it.
+   */
+  notCitedAfterAsking?: true;
+  /**
    * How long, in ms, the Question was with the model before the Answer had
    * words: its text, or a Mind its Tool call began to change. Absent while
    * there are none, and for an Answer written before #899.
@@ -7982,7 +7989,7 @@ export interface ExportPreferences {
   "share-page": SharePagePreferences;
   /** How a PDF, an HTML file or Markdown shows someone's changes still waiting (#734). Absent: shown. */
   theirChanges?: TheirChangesShown;
-  /** Where Word and PDF put a Numbered Mind's Citations. Absent until the User has chosen; footnotes meanwhile. */
+  /** Where Word and PDF put a Numbered Mind's Citations. Absent until an export writes them: footnotes, and that choice is then saved. */
   citationPlace?: CitationPlace;
 }
 
@@ -8011,7 +8018,7 @@ export type MarkAiTextChoice = (typeof MARK_AI_TEXT_CHOICES)[number];
 
 /**
  * A Word export's own choices (#107). The switches are on until the User turns them off; marking
- * AI text is the User's to answer, once: null until they have (see `ExportMindOptions`).
+ * AI text is on until an export writes a file (or the User changes it), and then saved.
  */
 export interface WordExportPreferences {
   includeQuestions: boolean;
@@ -8098,6 +8105,13 @@ export interface MindExportPreview {
   unreadFiles: number;
   /** Whether the export names those files, or only counts them: the Mind's choice, off until the User ticks it. */
   unreadFileNames: boolean;
+  /**
+   * Where the file puts its Citations, for the Saved line (#1945): footnotes or a list at the end,
+   * for a Numbered Mind with Citations that Word or PDF writes. Null when nothing placed them.
+   */
+  citationPlace: CitationPlace | null;
+  /** Whether a Word file marks the text IncarnaMind wrote (#107), for the Saved line (#1945); null for a format that can't mark it. */
+  markAiText: boolean | null;
 }
 
 /** The sentences an export holds whose check isn't good, by result (`MindExport.sentenceChecks`). */
@@ -8153,9 +8167,18 @@ export type SavedMindExport =
   /** Saved, with what it holds, so the result line can say how many quotes weren't found. */
   | ({ status: "saved"; file: SavedFile; word: WordExportReport | null } & Omit<
       MindExportPreview,
-      "fileName" | "fromWord" | "theirChanges" | "citedDocuments" | "numbered"
+      "fileName" | "fromWord" | "theirChanges"
     > &
-      Pick<MindExport, "sentenceChecks" | "trackedChanges" | "needsDetails">)
+      Pick<
+        MindExport,
+        | "sentenceChecks"
+        | "trackedChanges"
+        | "needsDetails"
+        | "citations"
+        | "citedDocuments"
+        | "citationPlace"
+        | "markAiText"
+      >)
   /**
    * Not saved: a Mind imported from Word can't keep something in its file
    * (`WordExportReport.notKept`) the User hasn't accepted (`ExportMindOptions.accept`).

@@ -186,6 +186,31 @@ describe("an Analysis an Answer runs", () => {
     ]);
   });
 
+  test.each([
+    ["en", "Which year does the sheet cover?"],
+    ["zh-CN", "这张表覆盖哪一年？"],
+  ])("%s keeps a figure result labelled Year raw", async (_language, asked) => {
+    const model = analysingModel({
+      query: "revenue",
+      runs: [salesRun('result("year", 2026, "Year")')],
+      answer: "The sheet covers [=1].",
+    });
+    const { core } = await setUp(model, () => ({
+      output: {
+        results: [{ kind: "figure", name: "year", label: "Year", unit: null, value: 2026 }],
+      },
+    }));
+    const { answer } = await askAndRead(core, asked);
+    expect(answer.figures).toEqual([
+      expect.objectContaining({
+        value: 2026,
+        shown: "2026",
+        analysis: { analysis: 1, result: "year" },
+      }),
+    ]);
+    expect(told(model, "run_analysis")[0]).toContain("Year: 2026");
+  });
+
   test("calculate cannot replace an Analysis marker and can use a new marker", async () => {
     const model = scriptedModel((call) => {
       const searches = call.results.filter((result) => result.tool === "search_documents");
@@ -577,5 +602,137 @@ describe("an Analysis an Answer runs", () => {
 
     expect(offered.at(0)).toBe(false);
     expect(offered.at(-1)).toBe(true);
+  });
+});
+
+describe("an Analysis table writes its numbers as the Answer's language does (#2102)", () => {
+  const table = (name: string, columns: string[], rows: (string | number)[][]) => ({
+    kind: "table" as const,
+    name,
+    label: name,
+    unit: null,
+    table: { columns, rows, rowCount: rows.length, columnCount: columns.length },
+  });
+
+  const amounts = table(
+    "amounts",
+    ["Region", "Revenue"],
+    [
+      ["North", 7509964],
+      ["South", -1284.5],
+      ["East", 0.7717546362339514],
+      ["Precise", 12.5],
+    ],
+  );
+  const strings = table(
+    "strings",
+    ["Region", "Revenue"],
+    [
+      ["North", 7509964],
+      ["South", "7509964"],
+      ["East", "7,509,964"],
+      ["West", "n/a"],
+      ["Padded", "12.50"],
+      ["Huge", "9007199254740993"],
+      ["Exponent", "1e3"],
+      ["Exact", "1.5e3"],
+      ["Grouped", "1234.50"],
+      ["Zeroed", "02139"],
+    ],
+  );
+  const postcodes = table("postcodes", ["Postcode"], [["02139"]]);
+  const identifiers = table(
+    "identifiers",
+    ["ID", "Code", "No.", "number", "编号", "代码", "序号"],
+    [[7509964, "7509964", 1284, 2024, 7509964, "0012", 2026]],
+  );
+  const periods = table(
+    "periods",
+    [
+      "Year",
+      "FY",
+      "Period",
+      "Quarter",
+      "Fiscal year",
+      "Financial year",
+      "Reporting period",
+      "年",
+      "年份",
+      "年度",
+      "期间",
+      "季度",
+      "财年",
+      "会计年度",
+      "报告期",
+    ],
+    [Array.from({ length: 15 }, () => 2026)],
+  );
+  const headings = table(
+    "headings",
+    [
+      "Year (FY)",
+      "年份（财年）",
+      "Period (quarter)",
+      "Revenue per year (£)",
+      "Yearly revenue",
+      "年收入",
+      "FY 2024",
+    ],
+    [[2026, 2026, 2026, 1284, 1284, 1284, 2024]],
+  );
+  const chart = {
+    kind: "bar" as const,
+    title: "Revenue",
+    x: "Region",
+    y: ["Revenue"],
+    table: {
+      columns: ["Region", "Revenue"],
+      rows: [["North", 7509964]],
+      rowCount: 1,
+      columnCount: 2,
+    },
+  };
+
+  const answer =
+    "[=table 1]\n\n[=table 2]\n\n[=table 3]\n\n[=table 4]\n\n[=table 5]\n\n[=table 6]\n\n[=chart 1]";
+
+  test.each([
+    ["en", "What were the figures?"],
+    ["zh-CN", "这些数字分别是多少？"],
+  ])("%s groups every thousand and keeps identifiers and periods raw", async (_language, asked) => {
+    const model = analysingModel({ query: "revenue", runs: [salesRun()], answer });
+    const { core } = await setUp(model, () => ({
+      output: {
+        results: [amounts, strings, identifiers, periods, headings, postcodes],
+        charts: [chart],
+      },
+    }));
+
+    const { answer: read } = await askAndRead(core, asked);
+
+    expect(read.text).toContain("| North | 7,509,964 |");
+    expect(read.text).toContain("| South | -1,284.5 |");
+    expect(read.text).toContain("| East | 0.7718 |");
+    expect(read.text).toContain("| Precise | 12.5 |");
+    expect(read.text).toContain("| South | 7,509,964 |");
+    expect(read.text).toContain("| East | 7,509,964 |");
+    expect(read.text).toContain("| West | n/a |");
+    expect(read.text).toContain("| Padded | 12.50 |");
+    expect(read.text).toContain("| Huge | 9,007,199,254,740,993 |");
+    expect(read.text).toContain("| Exponent | 1e3 |");
+    expect(read.text).toContain("| Exact | 1.5e3 |");
+    expect(read.text).toContain("| Grouped | 1,234.50 |");
+    expect(read.text).toContain("| Zeroed | 02139 |");
+    expect(read.text).toContain("| 02139 |");
+    expect(read.text).toContain("| 7509964 | 7509964 | 1284 | 2024 | 7509964 | 0012 | 2026 |");
+    expect(read.text).toContain(
+      "| 2026 | 2026 | 2026 | 2026 | 2026 | 2026 | 2026 | 2026 | 2026 | 2026 | 2026 | 2026 | 2026 | 2026 | 2026 |",
+    );
+    expect(read.text).toContain("| 2026 | 2026 | 2026 | 1,284 | 1,284 | 1,284 | 2,024 |");
+    expect(read.text).toContain("| North | 7,509,964 |");
+    expect(read.text).not.toContain("| North | 7509964 |");
+
+    // The report the model reads writes the same table the same way.
+    expect(told(model, "run_analysis")[0]).toContain("| North | 7,509,964 |");
   });
 });

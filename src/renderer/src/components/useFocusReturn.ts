@@ -21,8 +21,9 @@ export interface FocusReturn {
    * overlay has closed. A place something else has given the focus since keeps
    * it, and so does anything still inside the closing overlay's.
    * `fallback` is where to go when what the overlay opened from has gone.
+   * Says whether the focus went anywhere.
    */
-  giveBack(overlay: Element | null, fallback?: HTMLElement | null): void;
+  giveBack(overlay: Element | null, fallback?: HTMLElement | null): boolean;
 }
 
 const caretOf = (field: HTMLElement): readonly [number, number] | null => {
@@ -48,33 +49,37 @@ const usable = (element: HTMLElement | null): element is HTMLElement =>
 /**
  * Gives the focus back to what had it as an overlay opened, as the overlay
  * closes: the one rule for the command palette, the popover menus and ⋯ menus,
- * the dialogs and the pickers beside a row.
+ * the dialogs and the pickers beside a row. Says whether it went anywhere, so
+ * a caller can send it somewhere of its own when the place it was is gone.
  */
 export function giveFocusBack(
   remembered: Remembered | null,
   overlay: Element | null,
   fallback: HTMLElement | null = null,
-): void {
+): boolean {
   const focused = document.activeElement instanceof HTMLElement ? document.activeElement : null;
-  // Somewhere else that isn't the overlay's own: whatever gave it there keeps it.
+  // Somewhere else that isn't the overlay's own: whatever gave it there keeps it. Not an
+  // aria-hidden element, which the browser may drop the focus onto as the overlay closes.
   if (
     focused !== null &&
     focused !== document.body &&
+    !focused.hasAttribute("aria-hidden") &&
     focused !== remembered?.element &&
     overlay?.contains(focused) !== true
   ) {
-    return;
+    return true;
   }
   const target = remembered?.element ?? null;
   let to: HTMLElement | null = null;
   if (usable(target)) to = target;
   else if (usable(fallback)) to = fallback;
-  if (!to) return;
+  if (!to) return false;
   if (focused !== to) to.focus();
   const caret = target === to ? (remembered?.caret ?? null) : null;
   if (caret !== null && (to instanceof HTMLInputElement || to instanceof HTMLTextAreaElement)) {
     to.setSelectionRange(caret[0], caret[1]);
   }
+  return true;
 }
 
 /** Keeps what an overlay takes the focus from, to give it back when the overlay closes. */
@@ -83,8 +88,10 @@ export function useFocusReturn(): FocusReturn {
   const remember = useCallback(() => {
     remembered.current = rememberFocus();
   }, []);
-  const giveBack = useCallback((overlay: Element | null, fallback: HTMLElement | null = null) => {
-    giveFocusBack(remembered.current, overlay, fallback);
-  }, []);
+  const giveBack = useCallback(
+    (overlay: Element | null, fallback: HTMLElement | null = null) =>
+      giveFocusBack(remembered.current, overlay, fallback),
+    [],
+  );
   return useMemo(() => ({ remember, giveBack }), [remember, giveBack]);
 }

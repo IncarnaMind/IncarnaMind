@@ -297,7 +297,8 @@ function madeMind(options: FinishOptions, task: TaskRun, target: ResearchTarget)
 /**
  * The Mind the draft goes into: the one chosen, else the new one an earlier try made, else a new
  * one. A Mind this Task made at its Start (`ownMind`) moves into the Folder its sources were
- * filed in, so the draft sits beside them.
+ * filed in, so the draft sits beside them: unless the User has filed it somewhere since, whose
+ * Folder stays.
  */
 export function draftMind(
   options: FinishOptions,
@@ -309,7 +310,9 @@ export function draftMind(
 ): string {
   const made = madeMind(options, task, target);
   if (made) {
-    if (ownMind && folderId) options.moveMind(made, folderId);
+    // Only while it is unfiled: a Folder the User gave it during the run is theirs to keep.
+    if (ownMind && folderId && options.folderOfMind(made) === null)
+      options.moveMind(made, folderId);
     return made;
   }
   const home = folderId ?? (task.mindId ? options.folderOfMind(task.mindId) : null);

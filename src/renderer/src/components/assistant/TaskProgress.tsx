@@ -11,6 +11,7 @@ import { withShortcut } from "../../editor/withShortcut";
 import { useLanguage, useT } from "../../i18n";
 import type { Translate } from "../../objects";
 import { useAppStore } from "../../store";
+import { taskOffers } from "../../taskActions";
 import { needsYou } from "../../taskGroups";
 import { pauseTask, resumeTask, reviewTask, stopTask, useTasks } from "../../tasks";
 import { stepLine, taskName } from "../../taskText";
@@ -202,11 +203,13 @@ export function TaskProgress({
     if (task.status === "paused" && task.pausedReason === "cost-cap") {
       offer("cap", t("answer.error.changeCap"), () => openSettings("general"));
     }
-    if (has("pause") && live) offer("pause", t("task.pause"), () => void pauseTask(task.id));
-    if (has("pause") && task.status === "paused" && task.ask === null) {
+    if (taskOffers(task, "pause")) {
+      offer("pause", t("task.pause"), () => void pauseTask(task.id));
+    }
+    if (taskOffers(task, "resume")) {
       offer("pause", t("task.resume"), () => void resumeTask(task.id), "resume");
     }
-    if (has("stop")) {
+    if (taskOffers(task, "stop")) {
       offered.push({
         key: "stop",
         testId: "stop",

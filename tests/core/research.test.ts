@@ -343,6 +343,24 @@ describe("Research", { timeout: 30_000 }, () => {
     expect((await changesIn(core, task.mindId ?? "")).ids).toHaveLength(1);
   });
 
+  test("a Mind the Task made keeps the Folder the User gave it while it waited", async () => {
+    let mine = "";
+    const { core, folder } = await setUp(researcher([]), {
+      // While the save step waits for approval, the User files the Task's own Mind elsewhere.
+      onAsk: async (core) => {
+        const running = (await core.listTasks()).find((each) => each.finishedAt === null);
+        if (running?.mindId) await core.moveToFolder({ mindIds: [running.mindId], folderId: mine });
+      },
+    });
+    mine = (await core.createLibraryGroup({ name: "Mine", description: "" })).id;
+    const task = await started(core, startInput(null, folder.id));
+    const done = await waitForTask(core, task.id, (each) => each.finishedAt !== null);
+    expect(done.status).toBe("done");
+    const made = (await core.listMinds()).find((each) => each.id === task.mindId);
+    expect(made).toMatchObject({ folderId: mine });
+    expect(done.review?.mindId).toBe(task.mindId);
+  });
+
   test("a Search scope it can't read starts nothing, and leaves no Mind behind", async () => {
     const { core, folder } = await setUp(researcher([]));
     const minds = (await core.listMinds()).length;

@@ -248,15 +248,20 @@ export function openMenuFromRightClick(
  * menu of actions with a switch among them, rather than a choice of options.
  * `align: "end"` lines its right edge up with the button's, for a button at
  * the right of what it sits in.
+ * `whenFocusGone` is the last place to send the focus Esc wanted back: for a
+ * menu whose button went while it was open, such as a chip no Task shows once
+ * the last one stops.
  */
 export function usePopoverMenu({
   around,
   focus = "checked",
   align = "start",
+  whenFocusGone,
 }: {
   around?: (button: HTMLElement) => HTMLElement | null;
   focus?: "checked" | "first";
   align?: "start" | "end";
+  whenFocusGone?: () => void;
 } = {}) {
   const id = useId();
   const button = useRef<HTMLButtonElement>(null);
@@ -326,18 +331,33 @@ export function usePopoverMenu({
   }, [open]);
 
   // Esc closes it even with nothing in it to take the focus, as a menu that says it has nothing
-  // to show: the browser's own close request only reaches a popover the focus is in.
+  // to show: the browser's own close request only reaches a popover the focus is in. It runs
+  // before the page's own handlers, so a menu over the composer takes the key and the composer
+  // keeps what it was doing (a plan being asked again); a key an IME is composing never closes it.
   useEffect(() => {
     if (!open) return;
     const onKey = (event: globalThis.KeyboardEvent) => {
-      if (event.key !== "Escape" || event.defaultPrevented) return;
-      if (!menu.current?.matches(":popover-open")) return;
+      if (event.key !== "Escape" || event.isComposing || event.defaultPrevented) return;
+      // A dialog over the menu is what Esc closes first.
+      if (document.querySelector("dialog:modal") !== null) return;
+      const element = menu.current;
+      if (!element?.matches(":popover-open")) return;
+      // In the menu or in one of its submenus, its own keys answer: a submenu closes first.
+      const target = event.target;
+      if (
+        target instanceof Node &&
+        (element.contains(target) ||
+          openSubmenus(element).some(({ submenu }) => submenu.contains(target)))
+      ) {
+        return;
+      }
       event.preventDefault();
+      event.stopPropagation();
       returnWanted.current = true;
-      menu.current.hidePopover();
+      element.hidePopover();
     };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
+    window.addEventListener("keydown", onKey, true);
+    return () => window.removeEventListener("keydown", onKey, true);
   }, [open]);
 
   // Items that come after it opened, such as models still being listed then: placed again for
@@ -415,7 +435,9 @@ export function usePopoverMenu({
         if (event.newState === "closed") {
           if (!returnWanted.current) return;
           returnWanted.current = false;
-          focusReturn.giveBack(menu.current, button.current);
+          // A caller that already gave the focus a place after the close (a row's menu back to
+          // its row) keeps it; only a focus on the page or still in the popover is returned.
+          if (!focusReturn.giveBack(menu.current, button.current)) whenFocusGone?.();
           return;
         }
         if (touched.current) return;

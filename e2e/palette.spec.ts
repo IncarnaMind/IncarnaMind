@@ -114,7 +114,7 @@ test("the words inside a Mind are found as soon as they are typed", async () => 
   await expect(group(window, "notes").locator("b")).toHaveText("Ålesund");
 });
 
-test("a press on the dimmed area closes ⌘K, and one inside it doesn't", async () => {
+test("a press outside closes ⌘K without acting on what is under it, and one inside it doesn't", async () => {
   const { app, window } = await launchApp(dataDir);
   try {
     await setWindowSize(app, window, 1280, 660);
@@ -128,17 +128,86 @@ test("a press on the dimmed area closes ⌘K, and one inside it doesn't", async 
     await expect(palette(window)).toBeVisible();
     await expect(group(window, "notes")).toContainText("Harbour log");
 
-    // Outside: the press lands on the dimmed area, clear of the palette, and closes it.
+    // Outside, clear of the palette: it closes and the focus goes back to the Note, as before.
     const box = await palette(window).boundingBox();
     if (!box) throw new Error("The palette isn't on the page.");
     expect(box.x).toBeGreaterThan(24);
     await window.mouse.click(box.x - 24, box.y + box.height / 2);
     await expect(palette(window)).toBeHidden();
     await expect.poll(() => focusInNote(window)).toBe(true);
+
+    // Outside, over the sidebar's Search, which would open ⌘K itself: the press only closes it.
+    await openPalette(window);
+    const search = window.getByTestId("sidebar-search");
+    const searchBox = await search.boundingBox();
+    if (!searchBox) throw new Error("The sidebar's Search isn't on the page.");
+    await window.mouse.click(searchBox.x + searchBox.width / 2, searchBox.y + searchBox.height / 2);
+    await expect(palette(window)).toBeHidden();
+    // It stays closed: the Search under the palette never opened it.
+    await window.evaluate(
+      () =>
+        new Promise<void>((drawn) =>
+          requestAnimationFrame(() => requestAnimationFrame(() => drawn())),
+        ),
+    );
+    await expect(palette(window)).toBeHidden();
   } finally {
     await app.close();
   }
 });
+
+for (const language of ["en", "zh-CN"] as const) {
+  test(`⌘K appears at once with the popover depth and no scrim, in ${language === "en" ? "English" : "Chinese"}`, async () => {
+    const { app, window } = await launchApp(dataDir);
+    try {
+      await setWindowSize(app, window, 1280, 760);
+      await dismissChatSetup(window);
+      await writeMind(window, ["Harbour log", "Tides in Bergen at dawn"]);
+      await window.evaluate(async () => {
+        const bridge = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
+        await bridge.updateSettings({ device: { motion: "on" } });
+      });
+      await window.waitForFunction(() => document.documentElement.dataset.motion === "on");
+      await setLanguage(window, language);
+
+      // The opacity the palette has the moment it is in the page, before its first paint.
+      await window.evaluate(() => {
+        const holder = globalThis as unknown as { arrival: string[] };
+        holder.arrival = [];
+        new MutationObserver(() => {
+          if (holder.arrival.length > 0) return;
+          const element = document.querySelector('[data-testid="palette"]');
+          if (element) holder.arrival.push(getComputedStyle(element).opacity);
+        }).observe(document.body, { childList: true, subtree: true });
+      });
+      await window.keyboard.press("ControlOrMeta+k");
+      await expect(palette(window)).toBeVisible();
+      await expect(window.getByTestId("palette-search")).toBeFocused();
+      await expect(window.getByTestId("palette-search")).toHaveAttribute(
+        "placeholder",
+        language === "en" ? /^Search/ : /^搜索/,
+      );
+      // No fade-in: it is at full opacity in the first frame it is in.
+      expect(
+        await window.evaluate(() => (globalThis as unknown as { arrival: string[] }).arrival[0]),
+      ).toBe("1");
+      const look = await palette(window).evaluate((element) => ({
+        backdrop: getComputedStyle(element, "::backdrop").backgroundColor,
+        shadow: getComputedStyle(element).boxShadow,
+      }));
+      // The popover's depth, and no scrim over the Note.
+      expect(look.shadow).toContain("12px 32px");
+      expect(look.shadow).not.toContain("24px 64px");
+      expect(look.backdrop).toMatch(/rgba\(0, 0, 0, 0\)|transparent/);
+
+      await window.keyboard.press("Escape");
+      await expect(palette(window)).toBeHidden();
+      await expect.poll(() => focusInNote(window)).toBe(true);
+    } finally {
+      await app.close();
+    }
+  });
+}
 
 test("names, commands and the words in Documents, all by keyboard; Esc closes and gives the focus back", async () => {
   const { app, window } = await launchApp(dataDir);
