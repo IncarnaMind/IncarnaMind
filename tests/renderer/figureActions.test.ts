@@ -85,6 +85,14 @@ function setup(
   vi.stubGlobal("window", document.defaultView);
   vi.stubGlobal("requestAnimationFrame", () => 0);
   vi.stubGlobal("cancelAnimationFrame", () => {});
+  vi.stubGlobal(
+    "ResizeObserver",
+    class {
+      observe() {}
+      unobserve() {}
+      disconnect() {}
+    },
+  );
   vi.stubGlobal("getComputedStyle", () => ({
     fontStyle: "",
     fontWeight: "",
@@ -105,7 +113,7 @@ function setup(
     markSentence(paragraph, 0, words.length, { ...basis(), figures, remainder: basis() });
   }
   const editor = new Editor({
-    element: document.createElement("div"),
+    element: globalThis.document.createElement("div"),
     editorProps: { handleScrollToSelection: () => true },
     extensions: [
       ...noteExtensions(),

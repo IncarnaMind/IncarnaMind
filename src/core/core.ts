@@ -4736,10 +4736,7 @@ export function createCore(adapters: CoreAdapters): Core {
         modelName: (model) =>
           describeModel(providers, model.providerId, model.modelId)?.name ?? model.modelId,
       });
-      const bytes = writeXlsx(book, deflateRawSync, {
-        author: "IncarnaMind",
-        created: new Date(now()),
-      });
+      const bytes = writeXlsx(book, deflateRawSync, { author: "IncarnaMind", created: now() });
       return saveExport(`${safeFileName(schedule.name, "Note")}.xlsx`, bytes);
     },
     saveComparisonExport: async (input) => {

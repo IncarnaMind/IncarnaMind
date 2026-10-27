@@ -2,13 +2,13 @@ import { NodeViewWrapper, type ReactNodeViewProps, useEditorState } from "@tipta
 import { useCallback, useContext, useEffect, useMemo, useReducer, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import type * as Y from "yjs";
-import { MIND_FIGURE_RUNS_FIELD } from "../../../core/api";
+import { CLAIM_CHECK_MARK, MIND_FIGURE_RUNS_FIELD } from "../../../core/api";
 import {
   readCalculatedFigureAttributes,
   readCalculatedFigureEvidence,
 } from "../../../shared/calculatedFigures";
 import { commonCitationStyle } from "../../../shared/citationStyles";
-import { CLAIM_CHECK_MARK, readClaimCheck } from "../../../shared/claimChecks";
+import { readClaimCheck } from "../../../shared/claimChecks";
 import { useMindFormatting } from "../citationFormatting";
 import { useStyleCatalogue } from "../citationStylePicker";
 import { registerMenu } from "../commands/menus";

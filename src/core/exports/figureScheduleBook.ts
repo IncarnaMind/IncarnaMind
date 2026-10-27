@@ -53,8 +53,7 @@ export function figureScheduleBook(
   ): SheetCell => {
     if (value === null) return { column, value: { kind: "empty" } };
     if (!Number.isFinite(value)) throw new Error("A figure schedule value is not finite.");
-    const displayUnit =
-      unit?.kind === "rate" || unit?.kind === "ratio" || unit?.kind === "yes-no" ? undefined : unit;
+    const displayUnit = unit?.kind === "rate" ? undefined : unit;
     const display = figureCell(shownNumber(value, language, displayUnit), language);
     return {
       column,
