@@ -13,6 +13,7 @@ import type {
 } from "../../api";
 import type { MindContent } from "../../mindContent";
 import type { PreparedChatModel } from "../../providers/chat";
+import { scanRecordCites } from "../../recordCites/parser";
 import { RunItemError, runItems } from "../../runs/stop";
 import { type ClaimCheckRequest, recordJudged, runFailureOf } from "./claimCheck";
 import { updateCheck } from "./sentences";
@@ -71,6 +72,11 @@ export async function runChecks(
     });
 
   let checked = 0;
+  const hasPreviousReference = run.queued.some((claim) =>
+    scanRecordCites(claim.claim, { hasPrevious: true }).some(
+      (occurrence) => occurrence.result.status === "parsed" && occurrence.result.reference,
+    ),
+  );
   const { stop } = await runItems(
     run.queued,
     async (claim) => {
@@ -90,7 +96,7 @@ export async function runChecks(
       return result;
     },
     {
-      concurrency: prepared.provider.service ? CLOUD_CLAIMS_AT_ONCE : 1,
+      concurrency: hasPreviousReference ? 1 : prepared.provider.service ? CLOUD_CLAIMS_AT_ONCE : 1,
       signal,
       onOutcome(claim, outcome) {
         if (outcome.status === "done") {

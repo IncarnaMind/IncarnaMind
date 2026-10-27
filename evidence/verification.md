@@ -6,10 +6,10 @@ Updated 2026-10-27. This is not yet a claim that every acceptance box is met.
 
 - Parser: 209 tests, including ten fixtures of every accepted shape and reading-order/`Id.`/`supra` cases.
 - Deposition mapping and processing: 17 tests, including digital/OCR layouts and page breaks.
-- Resolver and public source choice: 26 resolver tests plus 5 public-core choice tests. These cover candidates, normalized aliases, stable-id choices after a name no longer matches, only-one-occurrence recheck, deleted/changed choices, and direct checks with no Note.
+- Resolver and public source choice: 28 resolver tests plus 9 public-core choice tests. These cover candidates, normalized aliases, stable-id choices after a name no longer matches, only-one-occurrence recheck, deleted/changed choices, direct checks with no Note, cross-sentence `Id.`, Search scope/exclusions, timestamp persistence and deletion-driven Needs re-check.
+- Shared resolving fixtures: 160 exact Document/Location/Passage cases, ten of every accepted shape, all green. Two scanned PDF pages also pass through the actual render → OCR → stored-anchor path before resolving across their break.
 - Fixed-passage judgement: 6 tests, including a retained supported nearby suggestion, rejection of an unhelpful one, and no nearby display for a Supported cited result.
-- Claim/check regression suites: 456 tests across parser, deposition, Check record, renderer record-cite retention, claim checks, scope, Mind checks, contradiction watch and written checks pass.
-- Focused DOCX/public-evaluation integration: 115 tests pass before the later stable-id addition; that addition's resolver/public-choice run is 31/31.
+- All affected suites: 743 tests pass across parser, exact resolving fixtures, deposition, Check record, renderer record-cite retention, claim checks, scope, Mind checks, contradiction watch, written checks, public-core choices, DOCX and public-evaluation key/scoring.
 - Full TypeScript typecheck passes. Biome passes on the changed files.
 
 ## Public court records
@@ -42,6 +42,10 @@ Screenshots (public test data, in the screenshots repository):
 - [Chinese source picker at 900 px](https://raw.githubusercontent.com/IncarnaMind/pr-screenshots/main/1709/record-cites-picker-narrow-zh.png)
 - [Chinese card at 900 px](https://raw.githubusercontent.com/IncarnaMind/pr-screenshots/main/1709/record-cites-narrow-zh.png)
 - [Built flow recording (5.6 s)](https://raw.githubusercontent.com/IncarnaMind/pr-screenshots/main/1709/record-cites-flow.mp4)
+
+## Independent-review corrections
+
+The final diff also fixes the review's concrete findings: the model now judges the Passage rather than the raw cite; cross-sentence `Id.`/`supra` use persisted Note history in reading order; resolution honors EvidenceScope and checked-Document exclusions; chosen sources join `check.versions`; timestamp choices persist; invalid choices become actionable Not found/Choose results; Bates matching rejects alphanumeric suffixes. The established provider-failure rule remains overall `not-checked`, with no fabricated per-cite verdict.
 
 ## Still open before `Closes #1709`
 

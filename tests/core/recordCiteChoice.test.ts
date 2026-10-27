@@ -2,6 +2,7 @@ import type { JSONContent } from "@tiptap/core";
 import { describe, expect, test } from "vitest";
 import type { ClaimCheckAttributes, Document, RecordCiteResult } from "../../src/core";
 import { claimSpans } from "../../src/renderer/src/editor/claimChecks";
+import { claimCheckShown } from "../../src/shared/claimChecks";
 import {
   readRecordCiteChoices,
   recordCiteSettingsOf,
@@ -10,13 +11,13 @@ import {
 import { checkingModel, type Plan } from "../helpers/checks";
 import { setUpWithDocuments } from "../helpers/citations";
 import type { MindClient } from "../helpers/mindClient";
-import { readMind, writeMind } from "../helpers/minds";
+import { editMind, readMind, writeMind } from "../helpers/minds";
 import { buildPdf } from "../helpers/pdf";
 
 const CLAIM = "Ex. 7 at 1 proves the record fact.";
 const REPEATED = "Ex. 7 at 1 and Ex. 7 at 1 together prove the record fact.";
 
-async function setUp(claim = CLAIM) {
+async function setUp(claim = CLAIM, morePlans: Record<string, Plan> = {}) {
   const plans: Record<string, Plan> = {
     [claim]: {
       verdict: "supported",
@@ -24,11 +25,24 @@ async function setUp(claim = CLAIM) {
       says: "The exhibit proves the record fact.",
       judgement: "same",
     },
+    ...morePlans,
   };
   const model = checkingModel(plans);
   const setup = await setUpWithDocuments(model, [
-    { name: "Ex. 7 first.pdf", contents: buildPdf([{ lines: ["record fact", "First copy"] }]) },
-    { name: "Ex. 7 second.pdf", contents: buildPdf([{ lines: ["record fact", "Second copy"] }]) },
+    {
+      name: "Ex. 7 first.pdf",
+      contents: buildPdf([
+        { lines: ["record fact", "First copy"] },
+        { lines: ["Second page", "First next"] },
+      ]),
+    },
+    {
+      name: "Ex. 7 second.pdf",
+      contents: buildPdf([
+        { lines: ["record fact", "Second copy"] },
+        { lines: ["Second page", "Second next"] },
+      ]),
+    },
   ]);
   const block: JSONContent & { attrs: { id: string } } = {
     type: "paragraph",
@@ -53,10 +67,14 @@ async function setUp(claim = CLAIM) {
 
 type Setup = Awaited<ReturnType<typeof setUp>>;
 
-async function storedCheck(client: MindClient): Promise<ClaimCheckAttributes> {
+async function storedChecks(client: MindClient): Promise<ClaimCheckAttributes[]> {
   await client.settled();
-  const spans = claimSpans(readMind(client));
-  const check = spans.length === 1 ? spans[0]?.check : undefined;
+  return claimSpans(readMind(client)).map((span) => span.check);
+}
+
+async function storedCheck(client: MindClient): Promise<ClaimCheckAttributes> {
+  const checks = await storedChecks(client);
+  const check = checks.length === 1 ? checks[0] : undefined;
   if (!check) throw new Error("The Note does not hold exactly one check.");
   return check;
 }
@@ -88,6 +106,47 @@ async function choose(
 async function chooseSecond(setup: Setup) {
   const stored = await storedCheck(setup.client);
   return choose(setup, oneCite(stored), setup.second, Promise.resolve(stored));
+}
+
+async function setUpTime() {
+  const claim = "12:20 proves the record fact.";
+  const model = checkingModel({
+    [claim]: {
+      verdict: "supported",
+      quote: "record fact",
+      says: "The transcript proves the record fact.",
+      judgement: "same",
+    },
+  });
+  const setup = await setUpWithDocuments(model, [
+    {
+      name: "First transcript.vtt",
+      contents: "WEBVTT\n\n00:12:20.000 --> 00:12:25.000\nrecord fact First copy\n",
+    },
+    {
+      name: "Second transcript.vtt",
+      contents: "WEBVTT\n\n00:12:20.000 --> 00:12:25.000\nrecord fact Second copy\n",
+    },
+  ]);
+  const block: JSONContent & { attrs: { id: string } } = {
+    type: "paragraph",
+    attrs: { id: "record-cite-time" },
+    content: [{ type: "text", text: claim }],
+  };
+  writeMind(setup.client, [block]);
+  await setup.client.settled();
+  const check = () =>
+    setup.core.checkSentences({
+      requestId: crypto.randomUUID(),
+      mindId: setup.mind.id,
+      action: "check-against-documents",
+      from: { blockId: block.attrs.id, offset: 0 },
+      to: { blockId: block.attrs.id, offset: claim.length },
+    });
+  const first = setup.documents[0];
+  const second = setup.documents[1];
+  if (!first || !second) throw new Error("The two transcript Documents were not added.");
+  return { ...setup, model, check, first, second };
 }
 
 describe("record-cite choices through the core", () => {
@@ -207,6 +266,117 @@ describe("record-cite choices through the core", () => {
     expect(readRecordCiteChoices(recordCiteSettingsOf(setup.client.doc))).toEqual({
       previous: null,
       choices: {},
+    });
+  });
+
+  test("a later sentence resolves Id. from the previous successful check", async () => {
+    const next = "Id. at 2 confirms the second page.";
+    const setup = await setUp(CLAIM, {
+      [next]: {
+        verdict: "supported",
+        quote: "Second page",
+        says: "The next page confirms it.",
+        judgement: "same",
+      },
+    });
+    await setup.check();
+    await chooseSecond(setup);
+    const block: JSONContent & { attrs: { id: string } } = {
+      type: "paragraph",
+      attrs: { id: "record-cite-next-sentence" },
+      content: [{ type: "text", text: next }],
+    };
+    editMind(setup.client, (blocks) => [...blocks, block]);
+    await setup.client.settled();
+
+    await setup.core.checkSentences({
+      requestId: crypto.randomUUID(),
+      mindId: setup.mind.id,
+      action: "check-against-documents",
+      from: { blockId: block.attrs.id, offset: 0 },
+      to: { blockId: block.attrs.id, offset: next.length },
+    });
+
+    const checked = (await storedChecks(setup.client)).find((check) => check.text === next);
+    expect(checked?.recordCites?.[0]).toMatchObject({
+      raw: "Id. at 2",
+      outcome: "supported",
+      documentId: setup.second.id,
+      location: { kind: "page", from: 2, to: 2 },
+      passage: expect.stringContaining("Second next"),
+    });
+  });
+
+  test("record resolution honors the direct Search scope and checked-Document exclusion", async () => {
+    const setup = await setUp();
+
+    const scoped = await setup.core.checkClaim({
+      claim: CLAIM,
+      scope: { folderIds: [], tagIds: [], documentIds: [setup.first.id] },
+    });
+    expect(scoped.recordCites?.[0]).toMatchObject({
+      outcome: "supported",
+      documentId: setup.first.id,
+    });
+
+    const excluded = await setup.core.checkClaim({
+      claim: CLAIM,
+      checked: { documentIds: [setup.first.id] },
+    });
+    expect(excluded.recordCites?.[0]).toMatchObject({
+      outcome: "supported",
+      documentId: setup.second.id,
+    });
+  });
+
+  test("choosing adds the source version, so deleting it makes the stored check stale", async () => {
+    const setup = await setUp();
+    await setup.check();
+    editMind(setup.client, (blocks) =>
+      blocks.map((block) => ({
+        ...block,
+        content: (block.content ?? []).map((node) => ({
+          ...node,
+          marks: (node.marks ?? []).map((mark) => ({
+            ...mark,
+            attrs: { ...mark.attrs, versions: [] },
+          })),
+        })),
+      })),
+    );
+    await setup.client.settled();
+    await chooseSecond(setup);
+    expect((await storedCheck(setup.client)).versions).toEqual([
+      { documentId: setup.second.id, contentHash: setup.second.contentHash },
+    ]);
+
+    await setup.core.deleteDocument(setup.second.id);
+    const stale = await storedCheck(setup.client);
+    expect(
+      claimCheckShown(stale, {
+        text: stale.text,
+        versions: new Map([[setup.first.id, setup.first.contentHash]]),
+        folderId: null,
+        scope: null,
+      }),
+    ).toMatchObject({ state: "needs-recheck", why: "document-removed" });
+  });
+
+  test("a timestamp source choice is remembered by its stable time key", async () => {
+    const setup = await setUpTime();
+    await setup.check();
+    expect(oneCite(await storedCheck(setup.client)).outcome).toBe("choose");
+
+    await chooseSecond(setup);
+    expect(
+      readRecordCiteChoices(recordCiteSettingsOf(setup.client.doc)).choices["time:740000:740000"],
+    ).toMatchObject({ documentId: setup.second.id });
+
+    await setup.check();
+    expect(oneCite(await storedCheck(setup.client))).toMatchObject({
+      outcome: "supported",
+      documentId: setup.second.id,
+      passage: expect.stringContaining("Second copy"),
     });
   });
 });

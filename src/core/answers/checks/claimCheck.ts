@@ -27,7 +27,7 @@ import { type CaseCitation, caseCitations, isOpinionOf } from "../../../shared/c
 import type { LiveDocument } from "../../../shared/citations";
 import type { FigureContext } from "../../../shared/figures";
 import { type MessageKey, type MessageParams, translate } from "../../../shared/i18n";
-import type { RecordCiteChoices } from "../../../shared/recordCiteChoices";
+import type { RecordCiteChoice, RecordCiteChoices } from "../../../shared/recordCiteChoices";
 import { sentenceSpans } from "../../../shared/sentences";
 import type {
   CheckedVersion,
@@ -99,6 +99,7 @@ export interface ClaimCheckDependencies {
   documents: Pick<AnswerDocuments, "citationSource" | "pageTexts" | "documentDate"> & {
     names?(): readonly LiveDocument[];
     recordChoices?(mindId?: string): RecordCiteChoices;
+    recordPrevious?(mindId: string, choice: RecordCiteChoice): void;
     searchableCount(documentIds: readonly string[] | null): number;
     searchableLanguages(documentIds: readonly string[] | null): DocumentLanguage[];
     savedBySearch(documentId: string): boolean;
@@ -174,17 +175,23 @@ export function recordJudged(
 const SEARCH_FIRST =
   "You gave a verdict without searching the User's Documents. Search them with search_documents first, then give your verdict from what you find.";
 
-function recordDocuments(deps: ClaimCheckDependencies): RecordCiteDocument[] {
-  return (deps.documents.names?.() ?? []).map((document) => ({
-    id: document.id,
-    name: document.name ?? document.title ?? "",
-    contentHash: document.contentHash,
-    units: deps.documents.pageTexts(document.id, document.contentHash, null, null),
-  }));
+function recordDocuments(deps: ClaimCheckDependencies, scope: EvidenceScope): RecordCiteDocument[] {
+  const allowed = scope.documentIds === null ? null : new Set(scope.documentIds);
+  return (deps.documents.names?.() ?? [])
+    .filter(
+      (document) =>
+        (allowed === null || allowed.has(document.id)) && !scope.excluded.has(document.id),
+    )
+    .map((document) => ({
+      id: document.id,
+      name: document.name ?? document.title ?? "",
+      contentHash: document.contentHash,
+      units: deps.documents.pageTexts(document.id, document.contentHash, null, null),
+    }));
 }
 
-function recordOccurrences(claim: string) {
-  return scanRecordCites(claim).map((occurrence) => ({
+function recordOccurrences(claim: string, hasPrevious: boolean) {
+  return scanRecordCites(claim, { hasPrevious }).map((occurrence) => ({
     ...occurrence.result,
     raw: occurrence.raw,
     from: occurrence.from,
@@ -198,10 +205,14 @@ async function withRecordCites(
   deps: ClaimCheckDependencies,
 ): Promise<ClaimCheckResult> {
   if (result.verdict === "not-checked") return result;
+  const choices = deps.documents.recordChoices?.(request.mindId) ?? {
+    previous: null,
+    choices: {},
+  };
   const resolved = resolveRecordCites({
-    cites: recordOccurrences(request.claim),
-    documents: recordDocuments(deps),
-    choices: deps.documents.recordChoices?.(request.mindId) ?? { previous: null, choices: {} },
+    cites: recordOccurrences(request.claim, choices.previous !== null),
+    documents: recordDocuments(deps, request.scope),
+    choices,
     resolveDeposition: mapDeposition,
   });
   const judged = await judgeResolvedRecordCites(
@@ -215,6 +226,13 @@ async function withRecordCites(
   const versions = new Map(result.versions.map((version) => [version.documentId, version]));
   for (const version of recordCiteVersions(judged.recordCites)) {
     if (!versions.has(version.documentId)) versions.set(version.documentId, version);
+  }
+  const previous = judged.recordCites.findLast((cite) => cite.documentId && cite.location);
+  if (request.mindId && previous?.documentId && previous.location) {
+    deps.documents.recordPrevious?.(request.mindId, {
+      documentId: previous.documentId,
+      location: previous.location,
+    });
   }
   return { ...result, recordCites: judged.recordCites, versions: [...versions.values()] };
 }

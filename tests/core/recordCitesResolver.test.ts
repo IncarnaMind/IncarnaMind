@@ -175,6 +175,24 @@ describe("record-cite source resolution", () => {
     ]);
   });
 
+  test("a deleted sole saved choice is not-found, not an empty picker", () => {
+    const result = resolveRecordCites({
+      cites: [parseRecordCite("Ex. 7 at 3")],
+      documents: [],
+      choices: {
+        previous: null,
+        choices: {
+          "ex 7": {
+            documentId: "deleted",
+            location: { kind: "page", from: 9, to: 9 },
+          },
+        },
+      },
+    });
+
+    expect(result).toEqual([{ raw: "Ex. 7 at 3", outcome: "not-found" }]);
+  });
+
   test("invalidates a saved choice whose printed page changed", () => {
     const changed = document([{ page: 4, label: { printed: "amended" }, text: "Changed" }]);
     const result = resolveRecordCites({
@@ -196,13 +214,7 @@ describe("record-cite source resolution", () => {
       },
     });
 
-    expect(result).toEqual([
-      {
-        raw: "Ex. 7 at 3",
-        outcome: "choose",
-        candidates: [{ id: "exhibit-7", name: "Exhibit 7.pdf" }],
-      },
-    ]);
+    expect(result).toEqual([{ raw: "Ex. 7 at 3", outcome: "not-found" }]);
   });
 
   test("finds an exact Bates identifier without losing its prefix or leading zeros", () => {
@@ -232,6 +244,22 @@ describe("record-cite source resolution", () => {
         passage: "PL-000123\nExact Bates page",
       },
     ]);
+  });
+
+  test("a Bates identifier with a trailing letter is a different identifier", () => {
+    const source = {
+      ...document([{ page: 7, text: "PL-000123A\nDifferent Bates page" }]),
+      id: "production",
+      name: "Production.pdf",
+    };
+
+    expect(
+      resolveRecordCites({
+        cites: [parseRecordCite("PL-000123")],
+        documents: [source],
+        choices,
+      }),
+    ).toEqual([{ raw: "PL-000123", outcome: "not-found" }]);
   });
 
   test("resolves every exact Bates page in a five-page range", () => {

@@ -21,18 +21,17 @@ export interface RecordCiteJudgement {
 export async function judgeRecordCite(
   model: PreparedChatModel,
   claim: string,
-  raw: string,
   passage: string,
   signal: AbortSignal,
   language: Language,
 ): Promise<RecordCiteJudgement | { failed: ProviderError }> {
-  const first = await compare(model, claim, raw, passage, CONFIRM_INSTRUCTIONS, signal);
+  const first = await compare(model, claim, passage, CONFIRM_INSTRUCTIONS, signal);
   if ("failed" in first) return first;
   const judged = readJudgement(first.reply);
   if (judged === "same") return { outcome: "supported" };
   if (judged === null)
     return { failed: { kind: "unknown", message: "The check gave no verdict." } };
-  const part = await compare(model, claim, raw, passage, partInstructions(language), signal);
+  const part = await compare(model, claim, passage, partInstructions(language), signal);
   if ("failed" in part) return part;
   const { covered, uncovered } = readPart(part.reply);
   return covered && uncovered
@@ -57,26 +56,12 @@ export async function judgeResolvedRecordCites(
       recordCites.push({ ...result, outcome: "not-found" });
       continue;
     }
-    const judgement = await judgeRecordCite(
-      model,
-      claim,
-      result.raw,
-      result.passage,
-      signal,
-      language,
-    );
+    const judgement = await judgeRecordCite(model, claim, result.passage, signal, language);
     if ("failed" in judgement) return judgement;
     const judged = { ...result, ...judgement };
     if (judgement.outcome !== "not-found") delete judged.nearby;
     if (judgement.outcome === "not-found" && result.nearby) {
-      const nearby = await judgeRecordCite(
-        model,
-        claim,
-        result.raw,
-        result.nearby.passage,
-        signal,
-        language,
-      );
+      const nearby = await judgeRecordCite(model, claim, result.nearby.passage, signal, language);
       if ("failed" in nearby) return nearby;
       if (nearby.outcome === "not-found") delete judged.nearby;
     }
@@ -100,7 +85,6 @@ export function recordCiteVersions(results: readonly RecordCiteResult[]): Checke
 async function compare(
   model: PreparedChatModel,
   claim: string,
-  raw: string,
   passage: string,
   instructions: string,
   signal: AbortSignal,
@@ -109,7 +93,7 @@ async function compare(
     const { text } = await generateText({
       model: model.model,
       instructions,
-      prompt: confirmPrompt({ claim, quote: raw, passage }),
+      prompt: confirmPrompt({ claim, quote: passage, passage }),
       temperature: answerTemperature(model.capabilities.facts.temperature),
       maxOutputTokens: 300,
       maxRetries: 1,

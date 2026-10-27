@@ -63,7 +63,7 @@ import {
 } from "../../api";
 import type { Consent } from "../../consent";
 import { resolveDeposition as mapDeposition } from "../../documents/deposition";
-import type { Evidence } from "../../documents/evidence";
+import type { Evidence, EvidenceScope } from "../../documents/evidence";
 import { parseCheckedDocument } from "../../documents/evidence";
 import type { RetainVersion, VersionRetention } from "../../documents/retention";
 import { parseModel, parsePlace } from "../../edits";
@@ -79,7 +79,11 @@ import type { MindContent } from "../../mindContent";
 import { parseMindId } from "../../minds";
 import type { PreparedChatModel } from "../../providers/chat";
 import { parseRecordCite, scanRecordCites } from "../../recordCites/parser";
-import { resolveChosenRecordCite, resolveRecordCites } from "../../recordCites/resolver";
+import {
+  recordCiteChoiceAlias,
+  resolveChosenRecordCite,
+  resolveRecordCites,
+} from "../../recordCites/resolver";
 import { parseSearchScope } from "../../scope";
 import type { AnswerEngine } from "../engine";
 import { type ClaimCheckDependencies, createClaimCheck, recordJudged } from "./claimCheck";
@@ -326,16 +330,26 @@ export function createChecks(options: ChecksOptions) {
         mindId
           ? content.readSettings(mindId, readRecordCiteChoices)
           : { previous: null, choices: {} },
+      recordPrevious: (mindId, choice) =>
+        content.editSettings(mindId, (settings) => writePreviousRecordCite(settings, choice)),
     },
   });
 
-  const recordDocuments = () =>
-    options.documents.names().map((document) => ({
-      id: document.id,
-      name: document.name ?? document.title ?? "",
-      contentHash: document.contentHash,
-      units: options.documents.pageTexts(document.id, document.contentHash, null, null),
-    }));
+  const recordDocuments = (scope: EvidenceScope) => {
+    const allowed = scope.documentIds === null ? null : new Set(scope.documentIds);
+    return options.documents
+      .names()
+      .filter(
+        (document) =>
+          (allowed === null || allowed.has(document.id)) && !scope.excluded.has(document.id),
+      )
+      .map((document) => ({
+        id: document.id,
+        name: document.name ?? document.title ?? "",
+        contentHash: document.contentHash,
+        units: options.documents.pageTexts(document.id, document.contentHash, null, null),
+      }));
+  };
   options.consent.registry.register({
     id: "checks",
     sends: CHECKS_FLOW_SENDS,
@@ -781,7 +795,14 @@ export function createChecks(options: ChecksOptions) {
       if (existing.length !== 1)
         throw new InvalidInputError("The record cite to resolve was not found.");
       const cite = existing[0] as RecordCiteResult;
-      const documents = recordDocuments();
+      const wanted =
+        stored.check.scope.chosen ??
+        (stored.check.scope.widened ? null : folderScope(stored.check.scope.folderId));
+      const scope = options.evidence.scope(
+        wanted ? options.resolveScope(wanted) : null,
+        leftOutOf(input.mindId),
+      );
+      const documents = recordDocuments(scope);
       const candidates = cite.candidates ?? [];
       if (!candidates.some((candidate) => candidate.id === input.documentId)) {
         return { cite: { ...cite, outcome: "choose" as const } };
@@ -814,7 +835,7 @@ export function createChecks(options: ChecksOptions) {
       if ("failed" in judged) throw new Error(judged.failed.message);
       const final = judged.recordCites[0];
       if (!final?.location) throw new InvalidInputError("The source could not be resolved.");
-      const alias = parsed.status === "parsed" ? parsed.sourceAlias : null;
+      const alias = parsed.status === "parsed" ? recordCiteChoiceAlias(parsed) : null;
       content.editSettings(input.mindId, (settings) => {
         if (alias)
           writeRecordCiteChoice(settings, alias, {
@@ -832,6 +853,15 @@ export function createChecks(options: ChecksOptions) {
           recordCites: (check.recordCites ?? []).map((each) =>
             each.raw === cite.raw && each.from === cite.from && each.to === cite.to ? final : each,
           ),
+          versions:
+            final.documentId &&
+            final.contentHash &&
+            !check.versions.some((version) => version.documentId === final.documentId)
+              ? [
+                  ...check.versions,
+                  { documentId: final.documentId, contentHash: final.contentHash },
+                ]
+              : check.versions,
         })),
       );
       retainEvidence(input.mindId);

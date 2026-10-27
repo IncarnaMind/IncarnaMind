@@ -1,6 +1,10 @@
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { describe, expect, test } from "vitest";
+import { resolveDeposition } from "../../src/core/documents/deposition";
 import { PROCESSING_VERSION } from "../../src/core/documents/processing";
-import { createTempDataFolder, queryDatabase, startCore } from "../helpers/core";
+import { createFakeTextRecognizer } from "../../src/core/documents/scan/fake";
+import { createTempDataFolder, NO_MODEL_FILES, queryDatabase, startCore } from "../helpers/core";
 import { addAndProcess, createSourceFolder, writeSourceFile } from "../helpers/documents";
 import { buildPdf } from "../helpers/pdf";
 
@@ -67,5 +71,51 @@ describe("deposition anchors through document processing", () => {
       (JSON.parse(row.anchors ?? "[]") as { target: string }[]).map((anchor) => anchor.target),
     );
     expect(targets.some((target) => target.startsWith("deposition:"))).toBe(false);
+  });
+
+  test("scanned pages gain printed anchors through OCR and resolve across a page break", {
+    timeout: 60_000,
+  }, async () => {
+    const dataDir = await createTempDataFolder();
+    const source = await createSourceFolder();
+    const recognizer = createFakeTextRecognizer({
+      script: {
+        pages: {
+          1: { lines: ["Page 45", "1 Q. First?", "2 A. Yes."] },
+          2: { lines: ["Page 46", "1 Q. Next?", "2 A. Last."] },
+        },
+      },
+    });
+    const core = startCore(dataDir, {
+      textRecognizer: recognizer,
+      textRecognitionModelSource: NO_MODEL_FILES,
+    });
+    const scan = readFileSync(join(import.meta.dirname, "../fixtures/scans/en-clean.jpg"));
+    const path = await writeSourceFile(
+      source,
+      "smith-deposition-scan.pdf",
+      buildPdf([{ scan }, { scan }]),
+    );
+    const [document] = await addAndProcess(core, [path]);
+    if (!document) throw new Error("The scanned deposition was not added.");
+    expect(document.status).toBe("ready");
+
+    const { pages } = await core.readDocumentText(document.id);
+    const resolved = resolveDeposition(pages, {
+      kind: "page",
+      from: 1,
+      to: 2,
+      printed: { from: "45", to: "46" },
+      lines: { from: 1, to: 2 },
+    });
+    expect(resolved.status).toBe("found");
+    if (resolved.status !== "found") throw new Error("The scanned lines did not resolve.");
+    expect(resolved.units.map((unit) => unit.text)).toEqual([
+      "Q. First?",
+      "A. Yes.",
+      "Q. Next?",
+      "A. Last.",
+    ]);
+    expect(resolved.units.map((unit) => unit.page)).toEqual([1, 1, 2, 2]);
   });
 });

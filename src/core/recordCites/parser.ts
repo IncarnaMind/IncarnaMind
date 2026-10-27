@@ -267,8 +267,16 @@ const nameSuffix = (name: string) => {
 const insideWord = (text: string, from: number, to: number) =>
   /[\p{L}\p{N}_]$/u.test(text.slice(0, from)) || /^[\p{L}\p{N}_]/u.test(text.slice(to));
 
+export interface ScanRecordCiteOptions {
+  /** Whether an earlier resolvable record item exists in the Note, before this text. */
+  hasPrevious?: boolean;
+}
+
 /** Finds citations in reading order, retaining duplicates and their exact UTF-16 ranges. */
-export function scanRecordCites(text: string): RecordCiteOccurrence[] {
+export function scanRecordCites(
+  text: string,
+  options: ScanRecordCiteOptions = {},
+): RecordCiteOccurrence[] {
   const candidates: Candidate[] = [];
   for (const [shapeIndex, shape] of SHAPES.entries()) {
     const source = shape.pattern.source.replace(/^\^/, "").replace(/\$$/, "");
@@ -290,7 +298,7 @@ export function scanRecordCites(text: string): RecordCiteOccurrence[] {
 
   const occurrences: RecordCiteOccurrence[] = [];
   let occupiedTo = -1;
-  let lastResolvable: number | null = null;
+  let lastResolvable: number | null = options.hasPrevious ? -1 : null;
   for (const candidate of candidates) {
     if (candidate.from < occupiedTo) continue;
     const raw = text.slice(candidate.from, candidate.to);

@@ -83,6 +83,14 @@ const normalize = (value: string) =>
     .replace(/\s+/g, " ")
     .toLocaleLowerCase();
 
+export function recordCiteChoiceAlias(cite: ParsedRecordCite): string | null {
+  if (cite.sourceAlias) return normalize(cite.sourceAlias);
+  if (cite.kind === "time" && cite.location?.kind === "time") {
+    return `time:${cite.location.from}:${cite.location.to}`;
+  }
+  return null;
+}
+
 const aliasMatches = (document: RecordCiteDocument, alias: string) => {
   const name = normalize(document.name);
   return name === alias || name.startsWith(`${alias} `);
@@ -478,7 +486,7 @@ const escapePattern = (value: string) => value.replace(/[.*+?^${}()|[\]\\]/g, "\
 
 const hasBates = (unit: UnitText, prefix: string, identifier: string) => {
   const pattern = new RegExp(
-    `(?:^|[^a-z0-9])${escapePattern(prefix)}[\\t -]?${identifier}(?![0-9])`,
+    `(?:^|[^a-z0-9])${escapePattern(prefix)}[\\t -]?${identifier}(?![a-z0-9])`,
     "i",
   );
   return (
@@ -670,7 +678,7 @@ const resolveDirect = (
   choices: RecordCiteChoices,
   resolveDeposition: ResolveDeposition | undefined,
 ): CiteOutcome => {
-  const alias = cite.sourceAlias ? normalize(cite.sourceAlias) : null;
+  const alias = recordCiteChoiceAlias(cite);
   const saved = alias === null ? undefined : choiceFor(choices, alias);
   const candidates = sourceCandidates(cite, documents);
   if (saved !== undefined) {
@@ -678,12 +686,11 @@ const resolveDirect = (
     const savedResolution =
       saved && document ? resolveSavedLocation(document, saved.location, resolveDeposition) : null;
     if (!saved || !document || !savedResolution) {
-      const possible =
-        cite.kind === "bates"
-          ? matchingDocuments(cite, documents, resolveDeposition).map((match) => match.document)
-          : candidates;
+      const possible = matchingDocuments(cite, candidates, resolveDeposition).map(
+        (match) => match.document,
+      );
       return {
-        result: choose(cite, uniqueDocuments([...possible, ...(document ? [document] : [])])),
+        result: possible.length === 0 ? notFound(cite) : choose(cite, uniqueDocuments(possible)),
         resolved: null,
       };
     }
