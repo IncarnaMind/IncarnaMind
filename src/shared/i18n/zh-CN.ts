@@ -2782,6 +2782,8 @@ export const zhCN = {
   "answer.wait.usually.minutes": "用 {model} 通常要 {count} 分钟左右",
   "answer.regenerate": "重新生成",
   "answer.more": "这条回答的更多操作",
+  "answer.refused.noSuchMind": "没有名为“{name}”的笔记，因此没有做这项改动。",
+  "answer.refused.noSuchMind.many": "没有名为{names}的笔记，因此没有做这些改动。",
   "answer.error.thisModel": "这个模型",
   "answer.error.auth": "{model} 的密钥被拒绝了",
   "answer.error.thisService": "这个服务",
