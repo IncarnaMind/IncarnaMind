@@ -1,11 +1,5 @@
-const {
-  appendFileSync,
-  closeSync,
-  existsSync,
-  openSync,
-  watch,
-  writeFileSync,
-} = require("node:fs");
+const fs = require("node:fs");
+const { appendFileSync, closeSync, existsSync, openSync, watch, writeFileSync } = fs;
 const { join } = require("node:path");
 const { createRequire } = require("node:module");
 const { DatabaseSync } = require("node:sqlite");
@@ -43,6 +37,22 @@ const record = (kind, extra = {}) =>
     `${JSON.stringify({ kind, pid: process.pid, native: app.hasSingleInstanceLock(), ...extra })}\n`,
   );
 const sampleVisibility = createVisibilitySampler(BrowserWindow, record);
+if (process.env.INCARNAMIND_TEST_OWNER_RENAME_LOG === "1") {
+  const ownerFile = join(process.env.INCARNAMIND_DATA_DIR, "instance-info.json");
+  const rename = fs.renameSync;
+  // The holder releases after the real replacement refuses, never after a guessed delay (#2097).
+  fs.renameSync = (from, to) => {
+    try {
+      const result = rename(from, to);
+      if (to === ownerFile) record("owner-rename", { at: new Date().toISOString() });
+      return result;
+    } catch (error) {
+      if (to === ownerFile && error.code === "EPERM")
+        record("owner-rename-refused", { at: new Date().toISOString(), errorCode: error.code });
+      throw error;
+    }
+  };
+}
 shell.openExternal = async (url) => record("external-open", { url });
 if (language) app.getPreferredSystemLanguages = () => [language];
 
