@@ -153,7 +153,8 @@ for (const context of ["Revenue | FY 2025 | £m", "收入 | 2025年 | 百万元"
         figureContexts: new Map([[child.id, `${context} changed`]]),
       }),
     ).toEqual({ state: "needs-recheck", why: "edited" });
-    expect(claimCheckShown(marked, now)).toEqual({ state: "needs-recheck", why: "edited" });
+    // A reader that hasn't read the note's figures yet doesn't call them edited.
+    expect(claimCheckShown(marked, now)).toEqual({ state: "supported" });
     expect(claimCheckShown(check([{ ...child, kept: true }], null), now)).toEqual({
       state: "kept",
     });

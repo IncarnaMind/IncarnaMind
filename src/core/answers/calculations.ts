@@ -603,7 +603,9 @@ export function createCalculationSession(options: CalculationSessionOptions) {
 
     const page = onPage(quoted);
     // A quote from the middle of a line ("…，88.0 和 91.5") starts with no list's or heading's number.
-    const quoteContext = { ...context, midLine: page.midLine };
+    // A sheet row's cells are numbers whatever they look like: "Gross profit	1922" holds no year.
+    const cells = quoted.units.some((unit) => unit.kind === "rows");
+    const quoteContext = { ...context, midLine: page.midLine, ...(cells && { dates: true }) };
     const figures = readFigures(quote, quoteContext);
     const has =
       figures.length === 0

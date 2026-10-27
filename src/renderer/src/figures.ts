@@ -1,8 +1,7 @@
 import { useEffect, useState } from "react";
 import type * as Y from "yjs";
 import { create } from "zustand";
-import type { FigureScheduleRow } from "../../core/api";
-import { type FigureSchedule, MIND_CONTENT_FIELD } from "../../core/api";
+import { type FigureSchedule, type FigureScheduleRow, MIND_CONTENT_FIELD } from "../../core/api";
 import { fingerprintOfMind } from "../../shared/mindState";
 import { useChecks } from "./checks";
 import { core } from "./core";
@@ -19,40 +18,14 @@ export function useFigureSchedule(mindId: string, doc: Y.Doc | null): FigureSche
   const [read, setRead] = useState<{ doc: Y.Doc; schedule: FigureSchedule } | null>(null);
   // biome-ignore lint/correctness/useExhaustiveDependencies: Source versions and Folder/title changes invalidate the core projection.
   useEffect(() => {
-    setRead(null);
     if (!doc) return;
     const blocks = doc.getXmlFragment(MIND_CONTENT_FIELD);
     let active = true;
     let pending = false;
     let changed = false;
+    // The schedule shown stays until the core's projection of the new text arrives: actions
+    // on it are refused once the text moved on (`requireCurrent`).
     const refresh = () => {
-      setRead((current) => {
-        if (current?.doc !== doc) return null;
-        const rows = current.schedule.rows.map(
-          (row): FigureScheduleRow =>
-            row.shown.state === "kept" ||
-            row.shown.state === "checking" ||
-            row.shown.state === "not-checked"
-              ? row
-              : {
-                  ...row,
-                  shown: { state: "needs-recheck", why: "edited" },
-                  reason: "needs-recheck",
-                },
-        );
-        return {
-          doc,
-          schedule: {
-            ...current.schedule,
-            rows,
-            counts: {
-              ...current.schedule.counts,
-              supported: 0,
-              needsLook: rows.filter((row) => row.shown.state === "needs-recheck").length,
-            },
-          },
-        };
-      });
       if (pending) {
         changed = true;
         return;

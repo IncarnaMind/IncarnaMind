@@ -14,13 +14,19 @@ import {
   type ClaimCheckAttributes,
   MIND_SETTINGS_FIELD,
 } from "../../src/core/api";
-import { isRecord } from "../../src/core/errors";
 import { claimSpans } from "../../src/renderer/src/editor/claimChecks";
 import { claimCheckShown } from "../../src/shared/claimChecks";
 import { readFigures } from "../../src/shared/figures";
 import { mindCheckOf, writeMindCheck } from "../../src/shared/mindCheck";
 import { setMindModel } from "../../src/shared/mindModel";
-import { checkGenerate, checkReply, isCheckRun, type Plan, sentenceOf } from "../helpers/checks";
+import {
+  checkGenerate,
+  checkReply,
+  isCheckRun,
+  type Plan,
+  requestedFigures,
+  sentenceOf,
+} from "../helpers/checks";
 import { shownPassages } from "../helpers/citations";
 import { createTempDataFolder, manualClock, queryDatabase, startCore } from "../helpers/core";
 import { addAndProcess, waitForDocuments, writeSourceFile } from "../helpers/documents";
@@ -63,18 +69,6 @@ const PLANS: Record<string, Plan> = {
 };
 
 const text = (value: string): JSONContent => ({ type: "text", text: value });
-
-function requestedFigures(call: ModelCall): { id: string; shown: string }[] {
-  const match = /<figures>\n([\s\S]*?)\n<\/figures>/.exec(call.prompt);
-  if (!match?.[1]) return [];
-  const value: unknown = JSON.parse(match[1]);
-  if (!Array.isArray(value)) throw new Error("The fixture expected requested figures.");
-  return value.map((figure: unknown) => {
-    if (!isRecord(figure) || typeof figure.id !== "string" || typeof figure.shown !== "string")
-      throw new Error("The fixture received an invalid figure.");
-    return { id: figure.id, shown: figure.shown };
-  });
-}
 
 const unbackedFigures = (call: ModelCall) =>
   `Figures: ${JSON.stringify({

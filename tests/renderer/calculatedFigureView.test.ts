@@ -356,7 +356,7 @@ test.each(["en", "zh-CN"] as const)(
     expect(copy).toHaveBeenCalledOnce();
     await act(() => {
       buttons
-        .find((button) => button.textContent === translate(language, "figures.openSource"))
+        .find((button) => button.textContent === translate(language, "figures.inline.openInput"))
         ?.click();
     });
     expect(state.open).toHaveBeenCalledWith(input.citation, { check: "found", withQuote: true });

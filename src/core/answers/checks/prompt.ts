@@ -4,10 +4,34 @@
  * `cite`, as marker 1, then replies with its verdict on the first line and
  * one sentence on what the Document says, carrying the marker.
  */
+import type { Reading } from "../../../shared/figures";
 import type { CheckFigure, CitationSupport, ClaimVerdict } from "../../api";
 import { LANGUAGE_NAMES, type Language } from "../../language";
 
 const VERDICTS: readonly ClaimVerdict[] = ["supported", "unsupported", "contradicted"];
+
+/** What a reading of a figure means, written out for the model: "2,160", "2,160m GBP", "38.6%". */
+function readingWords(reading: Reading): string {
+  const { unit } = reading;
+  const share = unit.kind === "percent" || unit.kind === "points";
+  const amount = (share ? reading.value * 100 : reading.value / reading.scale).toLocaleString(
+    "en-US",
+    { maximumFractionDigits: 12 },
+  );
+  const after =
+    unit.kind === "currency"
+      ? ` ${unit.code}`
+      : unit.kind === "percent"
+        ? "%"
+        : unit.kind === "points"
+          ? " percentage points"
+          : unit.kind === "times"
+            ? "x"
+            : unit.kind === "other"
+              ? ` ${unit.word}`
+              : "";
+  return `${amount}${reading.scaleWord ?? ""}${after}`;
+}
 
 const RULES = [
   "You check one sentence the User wrote against the User's Documents. You don't answer it, add to it or rewrite it.",
@@ -71,11 +95,11 @@ const calculationInstructions = (figures: boolean) =>
 
 const FIGURE_INSTRUCTIONS = [
   "For the requested figures, append exactly one final line beginning Figures: followed by one JSON object. Do not add more Verdict lines and do not omit a requested id.",
-  'Its shape is {"items":[{"id":"the exact requested id","verdict":"supported","scope":"same","topic":"found","roles":"same","says":null,"reading":null,"relation":"equals","source":{"citation":1,"position":1,"reading":null,"unitQuote":null},"calculation":null}],"remainder":null}.',
+  'Its shape is {"items":[{"id":"the exact requested id","verdict":"supported","scope":"same","topic":"found","roles":"same","says":null,"reading":null,"relation":"equals","source":{"citation":1,"number":"4979.6","reading":null,"unitQuote":null},"calculation":null}],"remainder":null}.',
   "Give every requested id exactly once, and no other id. Each verdict is supported, unsupported or contradicted; scope same or wider; topic found or not found; roles same or differs; says is a plain sentence or null. Covered and uncovered may name short parts, or be null.",
   "Match the exact subject, period, column, unit and obligation of each occurrence from its own context. Equal values alone never support a match. Use topic not found, scope wider or roles differs when appropriate, not a numeric match from another subject or period.",
-  "If an occurrence offers one ambiguity with readings, give reading as its one-based offered own reading, choosing only from that list using its context. This is separate from source.reading. Never supply a value yourself. Leave multiple unresolved ambiguities unchecked; never combine choices. A range remains a range, never an endpoint choice. An unambiguous occurrence needs no reading.",
-  "For a value stated directly in a quote recorded by cite, source names its citation marker and the number's one-based position in that quote. reading is the one-based reader choice only when needed; unitQuote is the exact heading or row-unit quote when needed. Never type a numerical value as a source.",
+  'If an occurrence offers one ambiguity with readings, give reading as its one-based offered own reading, choosing only from that list using its context; each reading says what the number would mean, and a table\'s caption or column heading that states a scale or currency ("(£m)", "单位：百万元") says it of the table\'s cells. This is separate from source.reading. Never supply a value yourself. Leave multiple unresolved ambiguities unchecked; never combine choices. A range remains a range, never an endpoint choice. An unambiguous occurrence needs no reading.',
+  'For a value stated directly in a quote recorded by cite, source names its citation marker and number, the number exactly as that quote writes it ("4979.6", "1.2亿"); give position, its one-based place among the quote\'s numbers, only when the quote writes the same number twice. reading is the one-based reader choice only when needed; unitQuote is the exact heading or row-unit quote when needed. Never type a value the quote doesn\'t write.',
   "For a calculation made in this run, set calculation to its calculate marker and source to null. A saved formula can instead be checked from its saved inputs when both are null. Retained Analysis code or a receipt is not a newly executed calculation: do not invent a formula or claim it was recalculated.",
   "Use exactly one of source and calculation, or both null for an unsupported/unavailable binding. relation is equals, at most or at least, according to the User's words; never loosen a limit to its rounding.",
   'remainder is null ONLY when the sentence has no assertion beyond those requested numeric facts. Otherwise give its independent {"text":"an exact nonnumeric assertion copied from the sentence","verdict":"supported","scope":"same","topic":"found","roles":"same","says":null,"citation":1}. Do not repeat the whole numerical verdict as the remainder. Preserve an adverse qualitative assertion even when all figures agree.',
@@ -172,7 +196,15 @@ export function claimPrompt(input: {
               locator,
               shown: reading.chars,
               unit: reading.unit,
-              ...(reading.ambiguous.length > 0 && { ambiguities: reading.ambiguous }),
+              ...(reading.ambiguous.length > 0 && {
+                ambiguities: reading.ambiguous.map(({ kind, readings }) => ({
+                  kind,
+                  readings: readings.map((each, index) => ({
+                    reading: index + 1,
+                    means: readingWords(each),
+                  })),
+                })),
+              }),
               ...(context && { context }),
               ...(label && { label }),
               ...(calculated && { saved: calculated.figure }),

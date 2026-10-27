@@ -23,7 +23,9 @@ export interface FigureReplyItem extends ReadVerdict {
   relation: "equals" | "at most" | "at least";
   source: {
     citation: number;
-    position: number;
+    /** The number as the quote writes it; `position` counts instead when the quote writes it twice. */
+    number: string | null;
+    position: number | null;
     reading: number | null;
     unitQuote: string | null;
   } | null;
@@ -111,17 +113,23 @@ export function readFigureReply(
     if (raw.source !== null) {
       const input = raw.source;
       const unitQuote = isRecord(input) ? (input.unitQuote ?? null) : null;
+      const written =
+        isRecord(input) && typeof input.number === "string" && input.number.trim() !== ""
+          ? input.number.trim().slice(0, 80)
+          : null;
+      const position = isRecord(input) && positive(input.position) ? input.position : null;
       if (
         !isRecord(input) ||
         !positive(input.citation) ||
-        !positive(input.position) ||
+        (written === null && position === null) ||
         !(input.reading == null || positive(input.reading)) ||
         !optionalText(unitQuote)
       )
         return null;
       source = {
         citation: input.citation,
-        position: input.position,
+        number: written,
+        position,
         reading: input.reading ?? null,
         unitQuote,
       };

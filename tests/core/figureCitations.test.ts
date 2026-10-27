@@ -7,6 +7,7 @@
 import type { Node as ProseMirrorNode } from "@tiptap/pm/model";
 import { describe, expect, test } from "vitest";
 import type { CitationAttributes } from "../../src/core";
+import { readCalculatedFigureAttributes } from "../../src/shared/calculatedFigures";
 import { comparisonCellOf } from "../../src/shared/comparisons";
 import { askAssistant } from "../helpers/assistant";
 import { shownPassages } from "../helpers/citations";
@@ -110,6 +111,17 @@ function paragraphQuotes(client: Awaited<ReturnType<typeof setUp>>["client"]) {
     });
   });
   return found;
+}
+
+/** The words a node shows, its calculated figures as they read in the note. */
+function shownText(node: ProseMirrorNode): string {
+  return node
+    .textBetween(0, node.content.size, "", (leaf) =>
+      leaf.type.name === "calculatedFigure"
+        ? (readCalculatedFigureAttributes(leaf.attrs)?.figure.shown ?? "")
+        : "",
+    )
+    .trim();
 }
 
 function citationsIn(node: ProseMirrorNode): CitationAttributes[] {
@@ -436,7 +448,7 @@ describe("A figure whose input quotes its Passage directly is cited", { timeout:
       block.descendants((cell) => {
         if (cell.type.name !== "comparisonCell") return true;
         const { problem } = comparisonCellOf(cell.attrs);
-        cells.push({ text: cell.textContent.trim(), problem, citations: citationsIn(cell) });
+        cells.push({ text: shownText(cell), problem, citations: citationsIn(cell) });
         return false;
       });
     });

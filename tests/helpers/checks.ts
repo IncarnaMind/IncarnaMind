@@ -3,6 +3,7 @@
  * a verified document's claims: those it has a plan for.
  */
 import { SEARCH_AGAIN } from "../../src/core/answers/checks/searchAgain";
+import { isRecord } from "../../src/core/errors";
 import { shownPassages } from "./citations";
 import {
   type GenerateCall,
@@ -51,6 +52,20 @@ interface PlannedFigure {
 }
 
 const SENTENCE = /<sentence>\n([\s\S]*?)\n<\/sentence>/;
+const FIGURES = /<figures>\n([\s\S]*?)\n<\/figures>/;
+
+/** The figures of the sentence a check Run is asked to bind, each with its id and shown text. */
+export function requestedFigures(call: ModelCall): { id: string; shown: string }[] {
+  const match = FIGURES.exec(call.prompt);
+  if (!match?.[1]) return [];
+  const value: unknown = JSON.parse(match[1]);
+  if (!Array.isArray(value)) throw new Error("The fixture expected requested figures.");
+  return value.map((figure: unknown) => {
+    if (!isRecord(figure) || typeof figure.id !== "string" || typeof figure.shown !== "string")
+      throw new Error("The fixture received an invalid figure.");
+    return { id: figure.id, shown: figure.shown };
+  });
+}
 
 /** The sentence a check Run is asked about. */
 export const sentenceOf = (call: ModelCall) => {
@@ -117,9 +132,26 @@ export function checkReply(call: ModelCall, plans: Record<string, Plan>): Script
       calls: [{ tool: "cite", input: { citations: [{ marker: 1, passage: passage?.id, quote }] } }],
     };
   }
-  return {
-    text: `Verdict: ${plan.verdict}${plan.says ? `\n${plan.says} [^1]` : ""}`,
-  };
+  const verdict = `Verdict: ${plan.verdict}${plan.says ? `\n${plan.says} [^1]` : ""}`;
+  const figures = requestedFigures(call);
+  if (!calculation || figures.length === 0) return { text: verdict };
+  const worked: readonly PlannedFigure[] = "formula" in calculation ? [calculation] : calculation;
+  const items = figures.map(({ id, shown }) => {
+    const marker = worked.findIndex((figure) => figure.stated === shown) + 1;
+    return {
+      id,
+      verdict: marker > 0 ? (plan.verdict ?? "unsupported") : "unsupported",
+      scope: "same",
+      topic: marker > 0 ? "found" : "not found",
+      roles: "same",
+      says: null,
+      reading: null,
+      relation: "equals",
+      source: null,
+      calculation: marker > 0 ? marker : null,
+    };
+  });
+  return { text: `${verdict}\nFigures: ${JSON.stringify({ items, remainder: null })}` };
 }
 
 /**

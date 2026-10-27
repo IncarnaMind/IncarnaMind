@@ -493,6 +493,17 @@ function roleOf(
   return undefined;
 }
 
+/**
+ * A table's figures are added up at the scale the note writes them: a scale its caption or
+ * heading states applies to every cell alike, so it can't change whether they add up, and
+ * no cell's check has to settle it first. A check's other choices, such as a bracket's sign,
+ * still count.
+ */
+function footedReading(written: Figure, checked: Figure | undefined): Figure {
+  const reading = checked && checked.scale === written.scale ? checked : written;
+  return { ...reading, ambiguous: reading.ambiguous.filter((each) => each.kind !== "scale") };
+}
+
 function tableFooting(
   occurrences: readonly FigureOccurrence[],
   findings: ReadonlyMap<string, FigureFinding>,
@@ -529,7 +540,7 @@ function tableFooting(
               ].at(-1) ?? "");
         const id = occurrence?.id ?? JSON.stringify(["cell", tableId, row, column]);
         const figure = occurrence
-          ? (findings.get(occurrence.id)?.reading ?? occurrence.reading)
+          ? footedReading(occurrence.reading, findings.get(occurrence.id)?.reading)
           : null;
         const place =
           occurrence?.locator.kind === "text"

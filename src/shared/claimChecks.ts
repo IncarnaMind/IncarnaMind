@@ -350,11 +350,13 @@ export function figureCheckShown(
   now: ClaimCheckNow,
 ): ClaimCheckShown {
   const shown = basisShown(figure, now);
+  // Unknown contexts (null) are a reader that hasn't read them yet, not a change to them.
   if (
     shown.state !== "kept" &&
     shown.state !== "checking" &&
     figure.context !== undefined &&
-    now.figureContexts?.get(figure.id) !== figure.context
+    now.figureContexts != null &&
+    now.figureContexts.get(figure.id) !== figure.context
   )
     return { state: "needs-recheck", why: "edited" };
   return shown.state !== "kept" &&

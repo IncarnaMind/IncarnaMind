@@ -63,11 +63,13 @@ import {
   type CiteOptions,
   type DocumentLanguage,
 } from "../engine";
+import type { TurnCheck } from "../turnChecks";
 import { agreesWith, statedFigure } from "./calculated";
 import {
   checkFigureReply,
   figureJudgment,
   figureReplyText,
+  readFigureReply,
   uncheckedFigureResults,
 } from "./figureChecks";
 import { figuresMatch, nearestLine } from "./nearest";
@@ -171,6 +173,35 @@ export function recordJudged(
 
 const SEARCH_FIRST =
   "You gave a verdict without searching the User's Documents. Search them with search_documents first, then give your verdict from what you find.";
+
+const CITE_FIGURES =
+  "Your Figures line names citation markers you never recorded. Call cite with each quote it uses, under the marker you gave it, then reply again.";
+
+/**
+ * A reply whose Figures line binds figures to quotes it never recorded is asked for once
+ * more: models skip the cite call (Claude Haiku 5.5 did, for about a third of sentences).
+ */
+function figuresReplied(
+  request: ClaimCheckRequest,
+  recorded: (marker: number) => boolean,
+): TurnCheck {
+  return {
+    name: "figures-reply",
+    check(text) {
+      const figures = request.figures ?? [];
+      if (figures.length === 0 || readsAsRefusal(text)) return null;
+      const read = readFigureReply(text, figures, request.claim);
+      if (!read) return null;
+      const markers = [
+        ...read.items.flatMap((item) => (item.source ? [item.source.citation] : [])),
+        ...(read.remainder?.citation ? [read.remainder.citation] : []),
+      ];
+      return markers.some((marker) => !recorded(marker))
+        ? { claims: [], note: CITE_FIGURES }
+        : null;
+    },
+  };
+}
 
 export function createClaimCheck(deps: ClaimCheckDependencies) {
   return async function checkClaim(request: ClaimCheckRequest): Promise<ClaimCheckResult> {
@@ -375,6 +406,7 @@ export function createClaimCheck(deps: ClaimCheckDependencies) {
             searches === 0 && readVerdict(text) ? { claims: [], note: SEARCH_FIRST } : null,
         },
         searchAgain(() => searches),
+        figuresReplied(request, (marker) => session.tools.hasRecord?.(marker) ?? false),
       ],
       signal,
     })) {

@@ -12,9 +12,13 @@
  * - INCARNAMIND_LIVE_LANGUAGES: "en", "zh" or both ("en,zh" when unset).
  * - INCARNAMIND_LIVE_REPORT: a file to keep each run's counts, cost and every figure that
  *   came out other than expected.
+ * - INCARNAMIND_LIVE_TRACE: a file to keep each check's last request and what the model
+ *   wrote back, to read why a figure came out as it did.
  */
+import { randomUUID } from "node:crypto";
 import { appendFile } from "node:fs/promises";
 import type { JSONContent } from "@tiptap/core";
+import { wrapLanguageModel } from "ai";
 import { expect, test } from "vitest";
 import type { FigureScheduleRow } from "../../src/core/api";
 import { catalogProvider } from "../../src/core/providers/catalog/providers";
@@ -389,24 +393,30 @@ const PACKS: Record<string, Pack> = {
 };
 
 const text = (value: string): JSONContent => ({ type: "text", text: value });
+const paragraph = (value: string): JSONContent => ({
+  type: "paragraph",
+  attrs: { id: randomUUID() },
+  content: [text(value)],
+});
 const cell = (value: string, header = false): JSONContent => ({
   type: header ? "tableHeader" : "tableCell",
-  content: [{ type: "paragraph", content: [text(value)] }],
+  content: [paragraph(value)],
 });
 
 function memo(pack: Pack): { blocks: JSONContent[]; truth: Figure[] } {
   const truth: Figure[] = [];
   const blocks: JSONContent[] = [
-    { type: "heading", attrs: { level: 1 }, content: [text(pack.title)] },
+    { type: "heading", attrs: { id: randomUUID(), level: 1 }, content: [text(pack.title)] },
   ];
-  for (const paragraph of pack.paragraphs) {
-    blocks.push({ type: "paragraph", content: [text(paragraph.text)] });
-    truth.push(...paragraph.figures);
+  for (const line of pack.paragraphs) {
+    blocks.push(paragraph(line.text));
+    truth.push(...line.figures);
   }
   for (const table of pack.tables) {
-    blocks.push({ type: "paragraph", content: [text(table.caption)] });
+    blocks.push(paragraph(table.caption));
     blocks.push({
       type: "table",
+      attrs: { id: randomUUID() },
       content: [
         { type: "tableRow", content: table.head.map((value) => cell(value, true)) },
         ...table.rows.map(([label, value]) => ({
@@ -419,6 +429,39 @@ function memo(pack: Pack): { blocks: JSONContent[]; truth: Figure[] } {
   }
   return { blocks, truth };
 }
+
+const TRACE = process.env.INCARNAMIND_LIVE_TRACE;
+const createChatModel: typeof createAiSdkChatModel = (spec) =>
+  wrapLanguageModel({
+    model: createAiSdkChatModel(spec),
+    middleware: {
+      specificationVersion: "v4",
+      wrapStream: async ({ doStream, params }) => {
+        const result = await doStream();
+        if (!TRACE) return result;
+        let written = "";
+        const calls: unknown[] = [];
+        const kept = result.stream.pipeThrough(
+          new TransformStream({
+            transform(part, controller) {
+              if (part.type === "text-delta") written += part.delta;
+              if (part.type === "tool-call") calls.push({ tool: part.toolName, input: part.input });
+              controller.enqueue(part);
+            },
+            async flush() {
+              const asked = JSON.stringify(params.prompt[1] ?? "");
+              const sentence = /<sentence>\\n(.*?)\\n<\/sentence>/.exec(asked)?.[1] ?? null;
+              await appendFile(
+                TRACE,
+                `${JSON.stringify({ sentence, prompt: params.prompt.slice(-2), written, calls })}\n`,
+              );
+            },
+          }),
+        );
+        return { ...result, stream: kept };
+      },
+    },
+  });
 
 const lookStates = new Set(["unsupported", "contradicted", "needs-recheck"]);
 
@@ -436,7 +479,13 @@ function score(rows: readonly FigureScheduleRow[], truth: readonly Figure[]) {
     falseAlarms: 0,
     notChecked: 0,
   };
-  const misses: { chars: string; truth: Truth; state: string; reason: string | null }[] = [];
+  const misses: {
+    chars: string;
+    truth: Truth;
+    state: string;
+    reason: string | null;
+    why?: string;
+  }[] = [];
   truth.forEach(([chars, expected], index) => {
     const row = rows[index];
     const state = row?.shown.state ?? "missing";
@@ -469,6 +518,7 @@ function score(rows: readonly FigureScheduleRow[], truth: readonly Figure[]) {
         truth: expected,
         state,
         reason: row?.reason ?? null,
+        ...(row?.shown.state === "not-checked" && { why: row.shown.reason }),
       });
   });
   return { counts, misses };
@@ -485,7 +535,7 @@ for (const language of LANGUAGES) {
       expect(truth).toHaveLength(40);
       for (let run = 1; run <= RUNS; run++) {
         const dataDir = await createTempDataFolder();
-        const core = startCore(dataDir, { createChatModel: createAiSdkChatModel });
+        const core = startCore(dataDir, { createChatModel });
         core.on("consent.requested", (asked) => void core.respondToConsent(asked.requestId, true));
         await core.updateSettings({ user: { language: language === "zh" ? "zh-CN" : "en" } });
         await core.saveChatProvider({ kind: "anthropic", apiKey: KEY ?? "", modelId: MODEL ?? "" });
