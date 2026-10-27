@@ -1289,14 +1289,29 @@ describe("A limit the figure stays within, and a cost printed in brackets (#1908
   });
 
   test("a reasoned unsupported clause with no Citation is not erased by an agreeing calculation", async () => {
-    const result = await checked(
-      RESULTS,
-      INSIDE("3.25x"),
-      { ...LEVERAGE, stated: "3.25x", relation: "at most" },
-      "unsupported",
-      "The Documents do not state the monetary unit or scale.",
+    const claim = INSIDE("3.25x");
+    const calculation = { ...LEVERAGE, stated: "3.25x", relation: "at most" as const };
+    const plans = { [claim]: { verdict: "unsupported" as const, calculation } };
+    const model = scriptedModel(
+      (call) => {
+        if (isCheckRun(call) && call.results.some((each) => each.tool === "calculate")) {
+          return {
+            text: "Verdict: unsupported\nTopic: found\nThe Documents do not state the monetary unit or scale.",
+          };
+        }
+        return checkReply(call, plans);
+      },
+      { generate: checkGenerate(plans) },
     );
-    expect(result).toMatchObject({
+    const setup = await setUpWithDocuments(model, [RESULTS]);
+    const saved = await setup.core.saveChatProvider({
+      kind: "anthropic",
+      apiKey: "sk-test",
+      modelId: "claude-haiku-5-5",
+    });
+    if (saved.service) await setup.core.allowDataFlow("checks", saved.service.id);
+
+    expect(await setup.core.checkClaim({ claim })).toMatchObject({
       verdict: "unsupported",
       unsupported: { reason: "The Documents do not state the monetary unit or scale." },
       calculation: { agrees: true },

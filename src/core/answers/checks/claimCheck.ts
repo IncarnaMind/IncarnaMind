@@ -480,7 +480,7 @@ export function createClaimCheck(deps: ClaimCheckDependencies) {
     if (byCalculation && verdict.verdict === "unsupported") {
       const onTopic = verdict.topic !== "not found";
       const parts = onTopic && verdict.covered !== null && verdict.uncovered !== null;
-      if (verdict.topic === "found" || parts || (onTopic && verdict.says !== null))
+      if (verdict.topic === "found" || parts)
         return unsupported(
           {
             reason: verdict.says,
