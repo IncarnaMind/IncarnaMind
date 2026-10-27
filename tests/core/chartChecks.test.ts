@@ -18,7 +18,7 @@ import {
 import { type ClaimCheckAttributes, MIND_CONTENT_FIELD } from "../../src/core/api";
 import { figureSchedule } from "../../src/core/figureSchedule";
 import { claimSpans, claimsOf } from "../../src/renderer/src/editor/claimChecks";
-import { everythingChecked, noteHealth } from "../../src/renderer/src/editor/healthCounts";
+import { healthSummary, noteHealth } from "../../src/renderer/src/editor/healthCounts";
 import { noteExtensions } from "../../src/renderer/src/editor/noteSchema";
 import { type ChartAttributes, chartCheckText, readChart } from "../../src/shared/charts";
 
@@ -166,7 +166,7 @@ test("one bad chart child prevents all-good health and counts its owner once", (
   const health = noteHealth(pm, { ...projected, citationCheck: (citation) => citation.check });
   expect(health.checkable).toBe(1);
   expect(health.contradicted).toEqual([0]);
-  expect(everythingChecked(health, { running: false, problem: false })).toBe(false);
+  expect(healthSummary(health, { running: false, problem: false, unread: 0 })?.kind).toBe("left");
 });
 
 test.each(["title", "row-label", "series-label", "shown", "coordinate"] as const)(
@@ -238,5 +238,5 @@ test("an unchecked Chart contributes one to-check owner rather than disappearing
   const health = noteHealth(pm, { ...projected, citationCheck: (citation) => citation.check });
   expect(health.checkable).toBe(1);
   expect(health.toCheck).toEqual([0]);
-  expect(everythingChecked(health, { running: false, problem: false })).toBe(false);
+  expect(healthSummary(health, { running: false, problem: false, unread: 0 })?.kind).toBe("left");
 });
