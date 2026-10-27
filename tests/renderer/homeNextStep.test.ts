@@ -8,6 +8,8 @@ import { translate } from "../../src/shared/i18n";
 const health = (parts: Partial<NoteHealth> = {}): NoteHealth => ({
   found: [],
   notFound: [],
+  lookClaims: [],
+  lookNotFound: [],
   unsupported: [],
   contradicted: [],
   toCheck: [],
@@ -104,12 +106,15 @@ describe("Home's next step", () => {
           unsupported: [1],
           contradicted: [10],
           notFound: [20],
+          lookClaims: [1, 10, 20],
           toCheck: [30],
         }),
       }),
     ).toMatchObject({ kind: "look", count: 3 });
     expect(choose({ note: note({ checkable: 1, toCheck: [1] }) })?.kind).toBe("check");
-    expect(choose({ note: note({ checkable: 1, contradicted: [1] }) })?.kind).toBe("look");
+    expect(choose({ note: note({ checkable: 1, contradicted: [1], lookClaims: [1] }) })?.kind).toBe(
+      "look",
+    );
   });
 
   test("every claim covered: ready to export, or done", () => {
@@ -135,7 +140,7 @@ describe("Home's next step", () => {
       }),
     ).toMatchObject({ kind: "check" });
     expect(
-      choose({ exported: true, note: note({ checkable: 1, unsupported: [2] }) }),
+      choose({ exported: true, note: note({ checkable: 1, unsupported: [2], lookClaims: [2] }) }),
     ).toMatchObject({
       kind: "look",
     });

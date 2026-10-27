@@ -29,6 +29,8 @@ const CHECKED_AT = "2026-10-20T14:25:00.000Z";
 const health = (parts: Partial<NoteHealth>): NoteHealth => ({
   found: [],
   notFound: [],
+  lookClaims: [],
+  lookNotFound: [],
   unsupported: [],
   contradicted: [],
   toCheck: [],
@@ -73,7 +75,9 @@ describe("A note's state (D266)", () => {
   });
 
   test("is needs-a-look with a contradiction, in red", () => {
-    const state = noteStateOf(health({ checkable: 2, contradicted: [0], checkedAt: CHECKED_AT }));
+    const state = noteStateOf(
+      health({ checkable: 2, contradicted: [0], lookClaims: [0], checkedAt: CHECKED_AT }),
+    );
     expect(state).toMatchObject({
       kind: "needs-look",
       look: 1,
@@ -83,8 +87,8 @@ describe("A note's state (D266)", () => {
   });
 
   test.each<[string, Partial<NoteHealth>, string]>([
-    ["an unsupported claim", { unsupported: [0] }, "unsupported"],
-    ["a Citation not found", { notFound: [0] }, "notFound"],
+    ["an unsupported claim", { unsupported: [0], lookClaims: [0] }, "unsupported"],
+    ["a Citation not found", { notFound: [0], lookClaims: [0] }, "notFound"],
   ])("is needs-a-look, in amber, with %s", (_, parts, mark) => {
     expect(noteStateOf(health({ checkable: 1, ...parts }))).toMatchObject({
       kind: "needs-look",
@@ -101,6 +105,8 @@ describe("A note's state (D266)", () => {
         contradicted: [0],
         unsupported: [6],
         notFound: [12],
+        lookClaims: [0, 6, 12],
+        lookNotFound: [12],
         failed: [18],
         toCheck: [18, 24],
         recheck: [24],
@@ -146,7 +152,9 @@ describe("A note's state (D266)", () => {
   });
 
   test("names only the narrow-scope unread files: a wide search's stay out of an amber state", () => {
-    expect(noteStateOf(health({ checkable: 1, contradicted: [0] }), 3)?.unread).toBe(0);
+    expect(
+      noteStateOf(health({ checkable: 1, contradicted: [0], lookClaims: [0] }), 3)?.unread,
+    ).toBe(0);
     expect(noteStateOf(health({ checkable: 1, toCheck: [0] }), 3)?.unread).toBe(0);
   });
 
@@ -160,8 +168,9 @@ describe("A note's state (D266)", () => {
         " · ",
       );
     const fresh = noteStateOf(health({ checkable: 1, toCheck: [0] })) ?? fail();
-    const one = noteStateOf(health({ checkable: 1, contradicted: [0] })) ?? fail();
-    const two = noteStateOf(health({ checkable: 2, unsupported: [0, 6] })) ?? fail();
+    const one = noteStateOf(health({ checkable: 1, contradicted: [0], lookClaims: [0] })) ?? fail();
+    const two =
+      noteStateOf(health({ checkable: 2, unsupported: [0, 6], lookClaims: [0, 6] })) ?? fail();
     const done = noteStateOf(health({ checkable: 1, checkedAt: CHECKED_AT }), 3) ?? fail();
     expect(en(fresh)).toBe("Not checked");
     expect(zh(fresh)).toBe("未核对");

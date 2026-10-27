@@ -56,6 +56,10 @@ export type HealthPart = (typeof HEALTH_PARTS)[number];
 export interface NoteHealth {
   found: number[];
   notFound: number[];
+  /** The covered claims that need a look: contradicted, unsupported, or one of their Citations not found. */
+  lookClaims: number[];
+  /** The Citations not found on those claims: a reason's count, never a claim's (#1941). */
+  lookNotFound: number[];
   unsupported: number[];
   contradicted: number[];
   toCheck: number[];
@@ -170,6 +174,8 @@ export function noteHealth(doc: ProseMirrorNode, input: NoteHealthInput): NoteHe
   const health: NoteHealth = {
     found: [],
     notFound: [],
+    lookClaims: [],
+    lookNotFound: [],
     unsupported: [],
     contradicted: [],
     toCheck: [],
@@ -184,10 +190,14 @@ export function noteHealth(doc: ProseMirrorNode, input: NoteHealthInput): NoteHe
     checkedAt: null,
   };
   eachSentence(doc, input, ({ from, text, claim, citations, inTable: table, state }) => {
+    const missing: number[] = [];
     for (const citation of citations) {
       const check = input.citationCheck(citation.attributes);
       if (check === "found") health.found.push(citation.pos);
-      else if (check === "not-found") health.notFound.push(citation.pos);
+      else if (check === "not-found") {
+        health.notFound.push(citation.pos);
+        missing.push(citation.pos);
+      }
     }
     if (state.kind === "to-check") {
       health.checkable++;
@@ -216,11 +226,17 @@ export function noteHealth(doc: ProseMirrorNode, input: NoteHealthInput): NoteHe
     ) {
       health.checkedAt = checkedAt;
     }
-    if (claim.shown.state === "unsupported") health.unsupported.push(from);
-    else if (claim.shown.state === "contradicted") health.contradicted.push(from);
+    const unsupported = claim.shown.state === "unsupported";
+    const contradicted = claim.shown.state === "contradicted";
+    if (unsupported) health.unsupported.push(from);
+    else if (contradicted) health.contradicted.push(from);
     else {
       health.supported++;
       if (isClaim(text) && citations.length === 0) health.noCitation.push(from);
+    }
+    if (unsupported || contradicted || missing.length > 0) {
+      health.lookClaims.push(from);
+      health.lookNotFound.push(...missing);
     }
   });
   return health;
@@ -230,8 +246,11 @@ export function noteHealth(doc: ProseMirrorNode, input: NoteHealthInput): NoteHe
 export interface HealthSummary {
   /** The covered claims a check found supported. */
   supported: number;
-  /** The covered claims a check found a problem with, by the reason its card names (D276). */
-  look: { contradicted: number; unsupported: number; notFound: number };
+  /**
+   * What needs a look: the claims, counted once each however many things are wrong with one
+   * (D276), and the Citations not found on them, which the reason names separately (#1941).
+   */
+  look: { claims: number; contradicted: number; unsupported: number; notFound: number };
   /** The claims nothing has checked yet. */
   toCheck: number;
   /** The supported claims that cite nowhere, so they still need a Citation. */
@@ -254,19 +273,15 @@ export function healthSummary(
   const summary: HealthSummary = {
     supported: health.supported,
     look: {
+      claims: health.lookClaims.length,
       contradicted: health.contradicted.length,
       unsupported: health.unsupported.length,
-      notFound: health.notFound.length,
+      notFound: health.lookNotFound.length,
     },
     toCheck: health.toCheck.length,
     noCitation: health.noCitation.length,
   };
-  const left =
-    summary.look.contradicted +
-    summary.look.unsupported +
-    summary.look.notFound +
-    summary.toCheck +
-    summary.noCitation;
+  const left = summary.look.claims + summary.toCheck + summary.noCitation;
   if (left > 0) return { kind: "left", summary };
   return unread > 0 ? null : { kind: "all" };
 }

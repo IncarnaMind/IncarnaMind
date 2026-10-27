@@ -51,6 +51,8 @@ import { COUNT_IDLE_MS } from "./WordCount";
 const NO_HEALTH: Health = {
   found: [],
   notFound: [],
+  lookClaims: [],
+  lookNotFound: [],
   unsupported: [],
   contradicted: [],
   toCheck: [],
@@ -125,7 +127,7 @@ function summaryParts(
       }),
     );
   }
-  const look = summary.look.contradicted + summary.look.unsupported + summary.look.notFound;
+  const look = summary.look.claims;
   if (look > 0) {
     const reasons = (["contradicted", "unsupported", "notFound"] as const)
       .filter((reason) => summary.look[reason] > 0)

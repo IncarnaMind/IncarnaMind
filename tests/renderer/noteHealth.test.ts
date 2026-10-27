@@ -327,7 +327,7 @@ describe("A Mind's health", () => {
       kind: "left",
       summary: {
         supported: 1,
-        look: { contradicted: 0, unsupported: 0, notFound: 0 },
+        look: { claims: 0, contradicted: 0, unsupported: 0, notFound: 0 },
         toCheck: 0,
         noCitation: 1,
       },
@@ -352,7 +352,7 @@ describe("A Mind's health", () => {
       kind: "left",
       summary: {
         supported: 4,
-        look: { contradicted: 0, unsupported: 0, notFound: 0 },
+        look: { claims: 0, contradicted: 0, unsupported: 0, notFound: 0 },
         toCheck: 0,
         noCitation: 3,
       },
@@ -376,9 +376,46 @@ describe("A Mind's health", () => {
       kind: "left",
       summary: {
         supported: 2,
-        look: { contradicted: 1, unsupported: 1, notFound: 1 },
+        look: { claims: 2, contradicted: 1, unsupported: 1, notFound: 0 },
         toCheck: 1,
         noCitation: 1,
+      },
+    });
+  });
+
+  // A claim with two missing Citations, and a claim with a verdict problem and a missing
+  // Citation: the headline counts claims, once each, and the reason counts the Citations.
+  test("the Needs-a-look headline counts claims once and names the Citations in its reason (#1941)", () => {
+    const twice = healthOf(
+      docOf(
+        paragraph(
+          checked("Spring tides come at full moon.", "supported"),
+          citation("not-found"),
+          citation("not-found"),
+        ),
+      ),
+    );
+    expect(healthSummary(twice, { running: false, problem: false, unread: 0 })).toMatchObject({
+      kind: "left",
+      summary: {
+        supported: 1,
+        look: { claims: 1, contradicted: 0, unsupported: 0, notFound: 2 },
+      },
+    });
+
+    const both = healthOf(
+      docOf(
+        paragraph(
+          checked("Online sales grew 12% in the quarter.", "unsupported"),
+          citation("not-found"),
+        ),
+      ),
+    );
+    expect(healthSummary(both, { running: false, problem: false, unread: 0 })).toMatchObject({
+      kind: "left",
+      summary: {
+        supported: 0,
+        look: { claims: 1, contradicted: 0, unsupported: 1, notFound: 1 },
       },
     });
   });
