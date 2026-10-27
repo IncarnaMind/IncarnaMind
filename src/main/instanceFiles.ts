@@ -57,6 +57,8 @@ export function writeJson(file: string, value: unknown): void {
     if (!failed) {
       failed = true;
       failure = error;
+    } else {
+      console.error("app.instanceFileCleanupFailed", temporary, error);
     }
   }
   if (failed) throw failure;

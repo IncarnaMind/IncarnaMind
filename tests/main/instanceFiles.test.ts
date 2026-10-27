@@ -97,6 +97,7 @@ test("a held temporary source cannot replace the rename failure with a cleanup f
     throw cleanupError;
   });
 
+  const report = vi.spyOn(console, "error").mockImplementation(() => undefined);
   let thrown: unknown;
   try {
     writeJson(file, { pid: 1836 });
@@ -107,6 +108,9 @@ test("a held temporary source cannot replace the rename failure with a cleanup f
 
   expect(fsControl.rename).toHaveBeenCalledTimes(20);
   expect(fsControl.unlink).toHaveBeenCalledTimes(1);
+  const temporary = fsControl.unlink.mock.calls[0]?.[0];
+  expect(temporary).toEqual(expect.stringMatching(/\.tmp$/));
+  expect(report).toHaveBeenCalledWith("app.instanceFileCleanupFailed", temporary, cleanupError);
   expect(JSON.parse(await readFile(file, "utf8"))).toEqual({ pid: "old" });
   expect((await readdir(folder)).filter((name) => name.endsWith(".tmp"))).toHaveLength(1);
 });
