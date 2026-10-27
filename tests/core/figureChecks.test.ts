@@ -129,8 +129,13 @@ test("only the last verdict-bearing preamble can supply its own Figures envelope
   expect(figureReplyText(superseding, [latest])).toBe(superseding);
 });
 
-function target(id: string, shown = "£20", context = "Revenue in 2024"): CheckFigure {
-  const reading = readFigures(shown, { language: "en" })[0];
+function target(
+  id: string,
+  shown = "£20",
+  context = "Revenue in 2024",
+  language: "en" | "zh-CN" = "en",
+): CheckFigure {
+  const reading = readFigures(shown, { language })[0];
   if (!reading) throw new Error("Missing target reading");
   return {
     id,
@@ -504,6 +509,47 @@ test.each([
   expect(result.figures?.[0]?.result.verdict).toBe(verdict);
   expect(result.figures?.[0]?.roundedFrom).toBe(rounded);
 });
+
+test.each([
+  { language: "en", shown: "7,509,964", cell: true },
+  { language: "zh-CN", shown: "7,509,964", cell: true },
+  { language: "en", shown: "7509964", cell: false },
+  { language: "zh-CN", shown: "7509964", cell: false },
+] as const)(
+  "$shown in a $language Note agrees with its source grouped the other way, exactly",
+  async ({ language, shown, cell }) => {
+    const label = language === "en" ? "Revenue" : "收入";
+    const body = cell ? `${label}\t7509964` : `${label} 7,509,964`;
+    const { result } = await checkWith({
+      figures: [target("f1", shown, label, language)],
+      claim: language === "en" ? `Revenue was ${shown}.` : `收入为${shown}。`,
+      body,
+      ...(cell && {
+        units: [
+          {
+            page: 1,
+            text: body,
+            kind: "rows" as const,
+            label: {
+              sheet: "Accounts",
+              from: 1,
+              to: 1,
+              rows: [1],
+              column: 0,
+              values: { B1: 7509964 },
+            },
+          },
+        ],
+      }),
+      text: reply([{ ...item(), source: { ...item().source, reading: 1 } }]),
+    });
+    const figure = result.figures?.[0];
+    expect(figure?.sourceInput?.number.value).toBe(7509964);
+    expect(figure?.result.verdict).toBe("supported");
+    expect(figure?.difference).toBe(0);
+    expect(figure?.roundedFrom).toBeNull();
+  },
+);
 
 test("one failed quote cannot erase another figure's checked evidence", async () => {
   const { result } = await checkWith({

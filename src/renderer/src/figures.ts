@@ -8,7 +8,7 @@ import { core } from "./core";
 import { figurePlace } from "./editor/figurePlaces";
 import { mindEditor } from "./editor/openEditors";
 import { scrollMindTo } from "./editor/reviewPick";
-import { groupsMerged } from "./layoutSlice";
+import { frontTabOfMind, groupsMerged } from "./layoutSlice";
 import { startCheck, useMindCheck } from "./mindCheck";
 import { useAppStore } from "./store";
 
@@ -114,11 +114,24 @@ function checkAsks(mindId: string, started: Promise<void>): Promise<boolean> {
   });
 }
 
+/** Resolves once the note's Check no longer waits for the User's answer. */
+function answered(mindId: string): Promise<void> {
+  return new Promise((resolve) => {
+    if (!useMindCheck.getState().asking[mindId]) return resolve();
+    const stop = useMindCheck.subscribe((state) => {
+      if (state.asking[mindId]) return;
+      stop();
+      resolve();
+    });
+  });
+}
+
 /**
  * Tie out figures: runs the one Check when any figure isn't checked since its last edit, then
  * shows the schedule beside the note, which fills in as results come. When the Check first asks
  * (a run billed per token) and the window has no room for groups side by side, the note's
- * question stays in front and the schedule waits in a tab beside it.
+ * question stays in front until the User answers it, then the schedule comes to the front: a
+ * strip that holds only the note's tab would otherwise keep it out of sight.
  */
 export async function tieOutFigures(mindId: string): Promise<void> {
   const schedule = await core.getFigureSchedule(mindId);
@@ -126,7 +139,12 @@ export async function tieOutFigures(mindId: string): Promise<void> {
     (row) => row.shown.state === "not-checked" || row.shown.state === "needs-recheck",
   );
   const asks = stale ? await checkAsks(mindId, startCheck(mindId)) : false;
-  await openFigureSchedule(mindId, !(asks && groupsMerged()));
+  if (!(asks && groupsMerged())) return openFigureSchedule(mindId);
+  await openFigureSchedule(mindId, false);
+  await answered(mindId);
+  // Answered in the note's card, so the note is still in front unless the User has left it.
+  if (frontTabOfMind(useAppStore.getState().layout, mindId, groupsMerged()))
+    await openFigureSchedule(mindId);
 }
 
 /**

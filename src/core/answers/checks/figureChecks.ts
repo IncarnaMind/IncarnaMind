@@ -526,6 +526,8 @@ export async function checkFigureReply(options: FigureCheckOptions): Promise<Cla
       target.reading.rangeTo === null &&
       target.reading.value * compared.value >= 0 &&
       difference !== 0;
+    // Unlike a sentence's, this contradiction isn't judged a second time: it is arithmetic on two
+    // numbers read in one frame, and the card shows the source value and its Location beside it.
     rows.push({
       ...base,
       sourceInput,

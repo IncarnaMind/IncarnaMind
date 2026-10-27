@@ -27,7 +27,7 @@ import {
  * with its source but doesn't add up names the source row the table leaves out. A row
  * outlines its figure in the note, Keep as my view acts on the chosen figure only, Esc
  * clears the selection, and Not a total takes a total's footing away, each with Undo.
- * English wide, Chinese narrow.
+ * English and Chinese, each wide and narrow.
  */
 
 const SHOTS = process.env.INCARNAMIND_SCREENSHOTS;
@@ -83,61 +83,51 @@ async function addSegments(window: Page, mindId: string) {
 }
 
 /**
- * Runs Tie out figures from ⌘K. Billed per token, the one Check asks first, in the note's card;
- * in a window too narrow for groups side by side the schedule then waits in its tab beside the
- * note, which the User opens once they've answered.
+ * Clicks a tab as a person does. A strip with room for fewer tabs than it holds keeps the rest
+ * out of sight behind its fade, so the wheel over the strip brings this one into view first.
  */
-/** Clicks a tab as a person does, first saying what lies under the point (diagnosis, #2092). */
-async function clickTab(window: Page, tab: Locator, why: string) {
-  await motionSettled(window);
-  const box = await tab.boundingBox();
-  const seen = await tab.evaluate((element, label) => {
-    const rect = element.getBoundingClientRect();
-    const x = rect.left + rect.width / 2;
-    const y = rect.top + rect.height / 2;
-    const hit = document.elementFromPoint(x, y);
-    const describe = (node: Element | null) =>
-      node
-        ? `${node.tagName.toLowerCase()}${node.id ? `#${node.id}` : ""}.${[...node.classList].join(".")}[testid=${node.getAttribute("data-testid") ?? ""}][role=${node.getAttribute("role") ?? ""}]`
-        : "none";
-    const strip = element.closest('[role="tablist"]');
-    const chain: string[] = [];
-    for (let node: Element | null = hit; node && chain.length < 6; node = node.parentElement)
-      chain.push(describe(node));
-    return JSON.stringify({
-      label,
-      rect: [rect.left, rect.top, rect.width, rect.height].map(Math.round),
-      inside: hit ? element.contains(hit) : false,
-      hit: chain,
-      strip: strip
-        ? {
-            rect: (() => {
-              const r = strip.getBoundingClientRect();
-              return [r.left, r.top, r.width, r.height].map(Math.round);
-            })(),
-            scroll: [strip.scrollLeft, strip.scrollWidth, strip.clientWidth],
-          }
-        : null,
-      viewport: [globalThis.innerWidth, globalThis.innerHeight, globalThis.devicePixelRatio],
-      region: getComputedStyle(hit ?? element).getPropertyValue("-webkit-app-region"),
+async function clickTab(window: Page, tab: Locator) {
+  const strip = window.getByRole("tablist").filter({ has: tab });
+  let point = { x: 0, y: 0 };
+  await expect(async () => {
+    await motionSettled(window);
+    const seen = await tab.evaluate((element) => {
+      const at = element.getBoundingClientRect();
+      const list = element.parentElement?.getBoundingClientRect() ?? at;
+      const x = (Math.max(at.left, list.left) + Math.min(at.right, list.right)) / 2;
+      const y = at.top + at.height / 2;
+      const hit = document.elementFromPoint(x, y);
+      const inView = hit !== null && element.contains(hit);
+      return { x, y, inView, later: at.left >= list.right - 1 };
     });
-  }, why);
-  console.log(`tab click diagnosis (${process.platform}): ${seen} box=${JSON.stringify(box)}`);
-  await pointAndClick(window, tab);
+    if (!seen.inView) {
+      const box = await strip.boundingBox();
+      if (box) await window.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+      await window.mouse.wheel(0, seen.later ? 120 : -120);
+    }
+    expect(seen.inView).toBe(true);
+    point = seen;
+  }).toPass();
+  await window.mouse.move(point.x, point.y, { steps: 8 });
+  await window.mouse.click(point.x, point.y);
 }
 
+/**
+ * Runs Tie out figures from ⌘K. Billed per token, the one Check asks first, in the note's card;
+ * in a window too narrow for groups side by side the schedule comes to the front once the User
+ * has answered.
+ */
 async function tieOut(window: Page, schedule: Locator, title: string, label: string) {
   await runCommand(window, "mind.tieOut", label);
   const ask = window.getByTestId("mind-check-ask");
   await expect(ask.or(schedule).first()).toBeVisible({ timeout: 30_000 });
   if (!(await ask.isVisible())) return;
   await pointAndClick(window, ask.getByTestId("mind-check-check"));
-  const tab = window.getByRole("tab", { name: new RegExp(`^${title}`) });
-  await expect(schedule.or(tab).first()).toBeVisible({ timeout: 30_000 });
-  if (await schedule.isVisible()) return;
-  await clickTab(window, tab, "after the answered ask");
-  await expect(tab).toHaveAttribute("aria-selected", "true");
   await expect(schedule).toBeVisible({ timeout: 30_000 });
+  await expect(window.getByRole("tab", { name: new RegExp(`^${title}`) })).toHaveAttribute(
+    "aria-selected",
+    "true",
+  );
 }
 
 /** The contradicted figure's card names the number its source gives, and where (#1932). */
@@ -282,7 +272,7 @@ for (const [language, width] of [
         await shot(window, `tieout-outline-${language}-${width}`);
         await contradictedCard(window, language);
         const tab = window.getByRole("tab", { name: new RegExp(`^${t("figures.title")}`) });
-        await clickTab(window, tab, "back from the note");
+        await clickTab(window, tab);
         await expect(tab).toHaveAttribute("aria-selected", "true");
         await expect(schedule).toBeVisible({ timeout: 30_000 });
         await pointAndClick(window, rowOf(2).locator("[data-tree-row]"));
