@@ -83,6 +83,7 @@ import {
 } from "./moves";
 import { untitledFolderName } from "./newFolder";
 import { useNotices } from "./notices";
+import { stepsShownOf } from "./nudges";
 import type { ObjectRef } from "./objects";
 import { useRequests } from "./requests";
 import { resolveSettingsPage, type SettingsPage, type SettingsTarget } from "./settingsPages";
@@ -1889,12 +1890,13 @@ core.on("document.status", (changed) => {
 core.on("examples.changed", (examples) => useAppStore.setState(withExamples(examples)));
 
 // The ready Question is about the User's own Documents, or the example while they have none: the
-// core reads it again when either, or the interface language, changes.
+// core reads it again when either, or the interface language, changes, while its card shows it.
 useAppStore.subscribe((state, before) => {
   if (
-    state.documents !== before.documents ||
-    state.examples !== before.examples ||
-    state.settings?.language !== before.settings?.language
+    stepsShownOf(state.settings?.device?.gettingStarted) &&
+    (state.documents !== before.documents ||
+      state.examples !== before.examples ||
+      state.settings?.language !== before.settings?.language)
   ) {
     core.readyQuestion().then(
       (readyQuestion) => useAppStore.setState({ readyQuestion }),
