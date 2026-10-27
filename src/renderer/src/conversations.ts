@@ -213,7 +213,7 @@ export async function askInAssistant(
     sayLeftOut(result);
     if (!result.asked) return false;
     watchMindsMadeBy(result.answerId);
-    applyWhatWasAsked(result.answerId);
+    await applyWhatWasAsked(result.answerId);
     watchCommands(result.answerId);
     const id = result.conversation.id;
     if (useConversations.getState().stopWanted) {
@@ -282,7 +282,7 @@ export async function regenerateAnswer(
   settleAsk(answerId, null);
   try {
     watchMindsMadeBy(answerId);
-    applyWhatWasAsked(answerId, { keepWritten: clearScope });
+    await applyWhatWasAsked(answerId, { keepWritten: clearScope });
     watchCommands(answerId);
     const result = await core.regenerateConversationAnswer({
       conversationId,
