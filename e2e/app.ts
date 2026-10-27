@@ -801,6 +801,38 @@ export async function tagDocument(window: Page, documentName: string, tagName: s
   ).toBeAttached();
 }
 
+/**
+ * Makes a Tag and puts it on a Document of the User's own (the first one, or one by name): the
+ * footer names Tags only once one exists (#1942).
+ */
+export async function makeTagOnDocument(
+  window: Page,
+  documentName?: string,
+  tagName = "Files",
+): Promise<void> {
+  await expect
+    .poll(() =>
+      window.evaluate(
+        async () =>
+          (await (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind.listDocuments())
+            .length,
+      ),
+    )
+    .toBeGreaterThan(0);
+  await window.evaluate(
+    async (wanted: { document?: string; tag: string }) => {
+      const core = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
+      const documents = await core.listDocuments();
+      const named = wanted.document;
+      const document = named ? documents.find((each) => each.name.startsWith(named)) : documents[0];
+      if (!document) throw new Error("No Document to tag.");
+      const tag = await core.createTag({ name: wanted.tag, description: "" });
+      await core.addTagToDocuments([document.id], tag.id);
+    },
+    { document: documentName, tag: tagName },
+  );
+}
+
 /** Manage Tags, from ⌘K, in the interface's language. */
 export async function openManageTags(window: Page, language: "en" | "zh-CN" = "en"): Promise<void> {
   const label = translate(language, "tags.menu.manage");
@@ -968,8 +1000,7 @@ export async function recordMeeting(window: Page): Promise<Locator> {
   const plus = window.getByTestId("plus-menu");
   await plus.hover();
   await plus.click();
-  await window.getByTestId("plus-more").click();
-  await window.getByRole("menuitem", { name: "Record a meeting" }).click();
+  await window.getByTestId("plus-record-meeting").click();
   const start = window.getByTestId("meeting-start");
   await expect(start).toBeVisible();
   return start;
@@ -980,8 +1011,7 @@ export async function recordMeetingNow(window: Page): Promise<Locator> {
   const plus = window.getByTestId("plus-menu");
   await plus.hover();
   await plus.click();
-  await window.getByTestId("plus-more").click();
-  await window.getByRole("menuitem", { name: "Record a meeting" }).click();
+  await window.getByTestId("plus-record-meeting").click();
   const bar = window.getByTestId("meeting-bar");
   await expect(bar).toHaveAttribute("data-status", "recording");
   return bar;

@@ -15,6 +15,7 @@ const documentOf = (linkedFolderId: string, name: string): Document => ({
   contentHash: randomUUID(),
   path: `/examples/${name}.pdf`,
   fileStatus: "available",
+  keptByApp: false,
   linkedFolderId,
   size: 1000,
   pageCount: 1,

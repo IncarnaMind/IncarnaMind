@@ -15,6 +15,7 @@ import {
   createDataFolder,
   dismissChatSetup,
   launchApp,
+  makeTagOnDocument,
   pointAndClick,
   pointAt,
   removeDataFolder,
@@ -265,6 +266,8 @@ test("tagging that meets the plan's limit waits: one line says until when, with 
     // The plan's limit resets a little later: long enough to read the line.
     const resets = usedUp(openai, LUNA, 20 / 3600);
     await addDocuments(window, await invoices(sources, ["Invoice 71", "Invoice 72"]));
+    // A Tag of the User's own: only then does the footer name Tags (#1942).
+    await makeTagOnDocument(window, "Invoice 71");
     await expect(listed(window, "Invoice 71")).toHaveAttribute(
       "data-tagging",
       "waiting-for-provider",
@@ -347,6 +350,7 @@ test("while Organize files new Documents on the plan, its limit has the same one
 
     const resets = usedUp(openai, LUNA, 15 / 3600);
     await addDocuments(window, await invoices(sources, ["Invoice 81"]));
+    await makeTagOnDocument(window, "Invoice 81");
     await expect(listed(window, "Invoice 81")).toHaveAttribute(
       "data-tagging",
       "waiting-for-provider",
@@ -365,6 +369,92 @@ test("while Organize files new Documents on the plan, its limit has the same one
       timeout: 60_000,
     });
     await expect(paused).toHaveCount(0);
+  } finally {
+    await app.close();
+    await openai.close();
+    await removeDataFolder(sources);
+  }
+});
+
+test("with no Tag yet, an Organize on the plan still says when its limit resets (#1942)", async () => {
+  test.setTimeout(120_000);
+  const openai = await createFakeOpenAI();
+  openai.reply = {
+    kind: "answer",
+    text: JSON.stringify({ groupId: "__unsorted__", tags: [] }),
+  };
+  const sources = await createDataFolder();
+  const { app, window } = await launchApp(dataDir, { chatGpt: openai.endpoints.issuer, home });
+  try {
+    await setWindowSize(app, window, WIDE.width, WIDE.height);
+    await dismissChatSetup(window);
+    await signInWithChatGpt(app, window, openai);
+    await window.evaluate(async (model) => {
+      const core = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
+      const plan = (await core.listChatProviders()).find((each) => each.kind === "chatgpt");
+      if (!plan) throw new Error("The ChatGPT plan isn't set up.");
+      await core.createLibraryGroup({ name: "Invoices", description: "Invoices" });
+      await core.saveLibrarySettings({
+        classifier: { kind: "chat", choice: { providerId: plan.id, modelId: model } },
+        automatic: true,
+      });
+    }, LUNA);
+
+    const resets = usedUp(openai, LUNA, 15 / 3600);
+    await addDocuments(window, await invoices(sources, ["Invoice 87"]));
+    // No Tag of the User's own yet: the footer names none...
+    await expect(window.getByTestId("sidebar-tags")).toHaveCount(0);
+    // ...while Organize's own limit is still the User's to act on.
+    const paused = window.getByTestId("sidebar-status").getByTestId("tagging-paused");
+    await expect(paused.getByTestId("status-label")).toHaveText(
+      new RegExp(`^Your ChatGPT plan’s limit is reached until .*:${minutesOf(resets)}`),
+    );
+  } finally {
+    await app.close();
+    await openai.close();
+    await removeDataFolder(sources);
+  }
+});
+
+test("with no Tag and no Folder, a Tagging that meets the plan's limit still says so, in English and Chinese (#1942)", async () => {
+  test.setTimeout(120_000);
+  const openai = await createFakeOpenAI();
+  openai.reply = {
+    kind: "answer",
+    text: JSON.stringify({ groupId: "__unsorted__", tags: [] }),
+  };
+  const sources = await createDataFolder();
+  const { app, window } = await launchApp(dataDir, { chatGpt: openai.endpoints.issuer, home });
+  try {
+    await setWindowSize(app, window, WIDE.width, WIDE.height);
+    await dismissChatSetup(window);
+    await signInWithChatGpt(app, window, openai);
+    await window.evaluate(async (model) => {
+      const core = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
+      const plan = (await core.listChatProviders()).find((each) => each.kind === "chatgpt");
+      if (!plan) throw new Error("The ChatGPT plan isn't set up.");
+      // No Folder, so Organize never runs: only tagging meets the plan's limit.
+      await core.saveLibrarySettings({
+        classifier: { kind: "chat", choice: { providerId: plan.id, modelId: model } },
+        automatic: true,
+      });
+    }, LUNA);
+
+    const resets = usedUp(openai, LUNA, 15 / 3600);
+    await addDocuments(window, await invoices(sources, ["Invoice 97"]));
+    // No Tag of the User's own, and no Organize: the limit is still the User's to act on.
+    await expect(window.getByTestId("sidebar-tags")).toHaveCount(0);
+    const label = window
+      .getByTestId("sidebar-status")
+      .getByTestId("tagging-paused")
+      .getByTestId("status-label");
+    await expect(label).toHaveText(
+      new RegExp(`^Your ChatGPT plan’s limit is reached until .*:${minutesOf(resets)}`),
+    );
+    await setLanguage(window, "zh-CN");
+    await expect(label).toHaveText(
+      new RegExp(`^ChatGPT 订阅额度已用完，.*:${minutesOf(resets)}.* 恢复$`),
+    );
   } finally {
     await app.close();
     await openai.close();
@@ -407,6 +497,7 @@ test("an Organize the User runs on the plan, while Automatic tagging goes to ano
       await core.setTaggingWithAi(null, false);
     }, LUNA);
     await addDocuments(window, await invoices(sources, ["Invoice 91"]));
+    await makeTagOnDocument(window, "Invoice 91");
     await expect(listed(window, "Invoice 91")).toBeVisible();
 
     const resets = usedUp(openai, LUNA, 1);
