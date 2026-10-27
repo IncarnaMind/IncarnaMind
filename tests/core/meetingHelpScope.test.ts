@@ -154,6 +154,38 @@ for (const language of ["en", "zh-CN"] as const) {
     expect(calls.some((call) => call.prompt.includes(fact))).toBe(false);
   });
 
+  for (const scope of ["folder", "selection"] as const) {
+    test(`${language}: ${scope} keeps the guide for Document actions and the call for a summary`, async () => {
+      const { core, meeting, guide, calls, fact, spoken } = await setup(language);
+      await core.setMeetingTemplate({ meetingId: meeting.id, template: "interview" });
+      if (scope === "folder") {
+        const folder = await core.createLibraryGroup({ name: "Call sources", description: "" });
+        await core.moveToFolder({
+          documentIds: [guide.id],
+          mindIds: [meeting.mindId],
+          folderId: folder.id,
+        });
+      }
+      const ask = (kind: MeetingHelpKind) =>
+        scope === "folder"
+          ? core.askMeetingHelp({ meetingId: meeting.id, kind })
+          : core.askInConversation({
+              mindId: meeting.mindId,
+              text: translate(language, `meetings.help.${kind}`),
+              scope: { folderIds: [], tagIds: [], documentIds: [guide.id] },
+            });
+      const summary = await answerOf(core, await ask("sum"));
+      expect(summary.text.replace(/\[\^\d+\]/g, "")).toContain(spoken);
+      expect(summary.citations.length).toBeGreaterThan(0);
+      expect(summary.citations.every((citation) => citation.documentId !== guide.id)).toBe(true);
+      expect(calls.some((call) => call.prompt.includes(fact))).toBe(false);
+      const uncovered = await answerOf(core, await ask("notCovered"));
+      expect(uncovered.citations.length).toBeGreaterThan(0);
+      expect(uncovered.citations.every((citation) => citation.documentId === guide.id)).toBe(true);
+      expect(uncovered.citations.every((citation) => citation.check === "found")).toBe(true);
+    });
+  }
+
   test(`${language}: summary, typed button name and Try again leave out prior Library help, open Documents and unasked notes`, async () => {
     const { core, meeting, guide, calls, fact, note } = await setup(language);
     await core.setMeetingTemplate({ meetingId: meeting.id, template: "interview" });
