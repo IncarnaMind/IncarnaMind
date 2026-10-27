@@ -465,6 +465,8 @@ for (const language of ["en", "zh-CN"] as const) {
       await expect(groups).toHaveCount(2);
       await window.keyboard.press("ControlOrMeta+Alt+Backslash");
       await expect(groups).toHaveCount(3);
+      // The split moves the focus to the new group's tab once it is drawn: a key before it goes there.
+      await expect(groups.nth(2).getByTestId("mind-tab")).toBeFocused();
       for (const index of [0, 1]) {
         const divider = window.getByTestId("group-divider").nth(index);
         await divider.focus();
