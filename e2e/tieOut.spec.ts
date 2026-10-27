@@ -229,11 +229,9 @@ for (const [language, width] of [
         await expect(editor).toBeVisible();
         await expect(outline.first()).toBeVisible();
         await shot(window, `tieout-outline-${language}`);
-        await pointAndClick(
-          window,
-          window.getByRole("tab", { name: new RegExp(`^${t("figures.title")}`) }),
-        );
-        await expect(schedule).toBeVisible();
+        // Back to the schedule: Tie out figures shows it again, every figure checked.
+        await runCommand(window, "mind.tieOut", t("figures.command"));
+        await expect(schedule).toBeVisible({ timeout: 30_000 });
         await pointAndClick(window, rowOf(2).locator("[data-tree-row]"));
         await window.keyboard.press("Escape");
         await expect(rowOf(2)).toHaveAttribute("aria-selected", "false");
