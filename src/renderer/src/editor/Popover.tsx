@@ -129,6 +129,8 @@ export function Popover({
       const target = event.target;
       if (!(target instanceof Node) || element.contains(target) || inLater(target)) return;
       if (anchor instanceof Element && anchor.contains(target)) return;
+      const dialog = target instanceof Element ? target.closest("dialog[open]") : null;
+      if (dialog && !dialog.contains(element)) return;
       dismiss.current("outside");
     };
     // Esc while the focus is elsewhere, e.g. still in the editor or on the
