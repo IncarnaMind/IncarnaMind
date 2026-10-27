@@ -26,6 +26,7 @@ import { generateText } from "ai";
 import { type CaseCitation, caseCitations, isOpinionOf } from "../../../shared/caseCitations";
 import type { FigureContext } from "../../../shared/figures";
 import { type MessageKey, type MessageParams, translate } from "../../../shared/i18n";
+import { sentenceSpans } from "../../../shared/sentences";
 import type {
   CheckedVersion,
   Citation,
@@ -486,18 +487,15 @@ export function createClaimCheck(deps: ClaimCheckDependencies) {
       const derivedReason =
         worked !== null &&
         verdict.says !== null &&
-        !ANOTHER_CLAUSE.test(verdict.says) &&
-        statedFigure(verdict.says, worked.calculation.stated, figureContext(worked.evidence)) !==
-          null;
+        derivedFigureOnly(verdict.says, worked.calculation.stated, figureContext(worked.evidence));
       const derivedPart =
         worked !== null &&
         verdict.uncovered !== null &&
-        !ANOTHER_CLAUSE.test(verdict.uncovered) &&
-        statedFigure(
+        derivedFigureOnly(
           verdict.uncovered,
           worked.calculation.stated,
           figureContext(worked.evidence),
-        ) !== null;
+        );
       const independentReason = verdict.says !== null && !derivedReason;
       const independentPart = parts && !derivedPart;
       if (
@@ -796,7 +794,12 @@ const messageOf = (error: unknown) => (error instanceof Error ? error.message : 
 
 // A calculation settles one missing figure, not another coordinated or adjoining clause.
 const ANOTHER_CLAUSE =
-  /(?:[;；,，]|\b(?:and|but|or|yet|however|although|though|while|whereas)\b|和|与|及|以及|并且|但|但是|然而|或|或者|而)/iu;
+  /(?:[;；,，:：—]|\b(?:and|but|or|yet|however|although|though|while|whereas)\b|和|与|及|以及|并且|但|但是|然而|或|或者|而)/iu;
+
+const derivedFigureOnly = (text: string, stated: string, document: FigureContext) =>
+  sentenceSpans(text).length === 1 &&
+  !ANOTHER_CLAUSE.test(text) &&
+  statedFigure(text, stated, document) !== null;
 
 /**
  * A Passage the check found and judged that doesn't back the sentence, with nothing to quote from it:

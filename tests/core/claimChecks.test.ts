@@ -1318,21 +1318,61 @@ describe("A limit the figure stays within, and a cost printed in brackets (#1908
     });
   });
 
-  test.each(["reason", "parts"])(
-    "a derived figure beside an independent unsupported clause stays unsupported (%s)",
-    async (kind) => {
+  test.each([
+    {
+      label: "coordinated reason",
+      reply:
+        "The calculated 3.25x ratio agrees, but the Documents do not support the borrower's location.",
+      unsupported: {
+        reason:
+          "The calculated 3.25x ratio agrees, but the Documents do not support the borrower's location.",
+      },
+    },
+    {
+      label: "coordinated parts",
+      reply: "Covered: the amount 528.9\nNot covered: the 3.25x ratio and the borrower's location",
+      unsupported: { uncovered: "the 3.25x ratio and the borrower's location" },
+    },
+    {
+      label: "separate reason sentence",
+      reply:
+        "The calculated 3.25x ratio agrees. The Documents do not support the borrower's location.",
+      unsupported: {
+        reason:
+          "The calculated 3.25x ratio agrees. The Documents do not support the borrower's location.",
+      },
+    },
+    {
+      label: "separate part sentence",
+      reply:
+        "Covered: the amount 528.9\nNot covered: the 3.25x ratio. The borrower's location is not stated",
+      unsupported: { uncovered: "the 3.25x ratio. The borrower's location is not stated" },
+    },
+    {
+      label: "adjoined reason clause",
+      reply:
+        "The calculated 3.25x ratio agrees: the Documents do not support the borrower's location.",
+      unsupported: {
+        reason:
+          "The calculated 3.25x ratio agrees: the Documents do not support the borrower's location.",
+      },
+    },
+    {
+      label: "adjoined part clause",
+      reply:
+        "Covered: the amount 528.9\nNot covered: the 3.25x ratio — the borrower's location is not stated",
+      unsupported: { uncovered: "the 3.25x ratio — the borrower's location is not stated" },
+    },
+  ])(
+    "a derived figure beside an independent unsupported clause stays unsupported ($label)",
+    async ({ reply, unsupported }) => {
       const claim = `${INSIDE("3.25x")} and the borrower is based in Scotland.`;
       const calculation = { ...LEVERAGE, stated: "3.25x", relation: "at most" as const };
       const plans = { [claim]: { verdict: "unsupported" as const, calculation } };
       const model = scriptedModel(
         (call) => {
           if (isCheckRun(call) && call.results.some((each) => each.tool === "calculate")) {
-            return {
-              text:
-                kind === "reason"
-                  ? "Verdict: unsupported\nThe calculated 3.25x ratio agrees, but the Documents do not support the borrower's location."
-                  : "Verdict: unsupported\nCovered: the amount 528.9\nNot covered: the 3.25x ratio and the borrower's location",
-            };
+            return { text: `Verdict: unsupported\n${reply}` };
           }
           return checkReply(call, plans);
         },
@@ -1348,13 +1388,7 @@ describe("A limit the figure stays within, and a cost printed in brackets (#1908
 
       expect(await setup.core.checkClaim({ claim })).toMatchObject({
         verdict: "unsupported",
-        unsupported:
-          kind === "reason"
-            ? {
-                reason:
-                  "The calculated 3.25x ratio agrees, but the Documents do not support the borrower's location.",
-              }
-            : { uncovered: "the 3.25x ratio and the borrower's location" },
+        unsupported,
         calculation: { agrees: true },
       });
     },
