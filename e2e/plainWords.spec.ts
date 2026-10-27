@@ -1,4 +1,6 @@
-import { expect, type Locator, test } from "@playwright/test";
+import { mkdir } from "node:fs/promises";
+import { join } from "node:path";
+import { expect, type Locator, type Page, test } from "@playwright/test";
 import { translate } from "../src/shared/i18n";
 import {
   addFilesLabel,
@@ -23,6 +25,17 @@ test.beforeEach(async () => {
 test.afterEach(async () => {
   await removeDataFolder(dataDir);
 });
+
+/** Keeps a screenshot of the window, once it has settled, when INCARNAMIND_SCREENSHOTS names a folder. */
+async function screenshot(window: Page, name: string) {
+  const folder = process.env.INCARNAMIND_SCREENSHOTS;
+  if (!folder) return;
+  await window.waitForFunction(() =>
+    document.getAnimations().every((animation) => animation.playState !== "running"),
+  );
+  await mkdir(folder, { recursive: true });
+  await window.screenshot({ path: join(folder, `${name}.png`) });
+}
 
 for (const [language, width] of [
   ["en", 900],
@@ -53,6 +66,17 @@ for (const [language, width] of [
           .toBe(true);
       };
 
+      const sidebar = window.getByTestId("documents-empty");
+      await expect(sidebar).toContainText(none);
+      await fits(
+        sidebar,
+        sidebar.getByTestId("documents-empty-add-files"),
+        sidebar.getByTestId("documents-empty-link-folder"),
+      );
+      await expect(sidebar.getByTestId("documents-empty-add-files")).toHaveText(add);
+      await expect(sidebar.getByTestId("documents-empty-link-folder")).toHaveText(link);
+      await screenshot(window, `sidebar-empty-${language}-${width}`);
+
       const library = window.getByTestId("library-empty");
       await pointAndClick(window, window.getByTestId("open-library"));
       await expect(library).toContainText(none);
@@ -63,16 +87,7 @@ for (const [language, width] of [
       );
       await expect(library.getByTestId("library-empty-add-files")).toHaveText(add);
       await expect(library.getByTestId("library-empty-link-folder")).toHaveText(link);
-
-      const sidebar = window.getByTestId("documents-empty");
-      await expect(sidebar).toContainText(none);
-      await fits(
-        sidebar,
-        sidebar.getByTestId("documents-empty-add-files"),
-        sidebar.getByTestId("documents-empty-link-folder"),
-      );
-      await expect(sidebar.getByTestId("documents-empty-add-files")).toHaveText(add);
-      await expect(sidebar.getByTestId("documents-empty-link-folder")).toHaveText(link);
+      await screenshot(window, `library-empty-${language}-${width}`);
     } finally {
       await app.close();
     }
