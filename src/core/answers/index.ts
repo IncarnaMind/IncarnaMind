@@ -2255,7 +2255,11 @@ export function createAnswers(options: AnswersOptions) {
             ? citeRecords(records, citeOptions)
             : session.tools.cite(records, citeOptions),
         hasRecord: (marker) => session.tools.hasRecord?.(marker) ?? false,
-        owesFix: (marker) => session.tools.owesFix?.(marker) ?? false,
+        owed: (text) =>
+          session.tools.owed?.(
+            text,
+            calculating ? (marker) => figures.figure(marker) !== null : undefined,
+          ) ?? { citations: [], figures: [] },
         unfoundQuotes: () => session.tools.unfoundQuotes?.() ?? [],
         correctQuote: (marker, quote) => session.tools.correctQuote?.(marker, quote) ?? false,
         shownPassages: () => session.tools.shownPassages?.() ?? [],
@@ -2265,7 +2269,6 @@ export function createAnswers(options: AnswersOptions) {
         ...(calculating && {
           calculate: calculateFigures,
           figureProblems: () => figures.problems(),
-          hasFigure: (marker) => figures.figure(marker) !== null,
           citeFigures,
         }),
       };

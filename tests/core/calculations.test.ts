@@ -2219,6 +2219,113 @@ describe("A fix asked for in one step is still owed in the next (#489)", {
     },
   );
 
+  /** Writes the revenue sentence marked [^1] and the margin sentence unmarked, citing both: [^2] as `margin` says. */
+  const writesOneMarker = (margin: { passage?: string; quote: string }) => (passage: string) => ({
+    text: "Revenue was $1,482.6 million in 2025[^1]. Gross margin was 41.2% in 2025.",
+    calls: [
+      {
+        tool: "cite",
+        input: {
+          citations: [
+            { marker: 1, passage, location: "p. 1", quote: REVENUE },
+            {
+              marker: 2,
+              passage: margin.passage ?? passage,
+              location: "p. 2",
+              quote: margin.quote,
+            },
+          ],
+        },
+      },
+    ],
+  });
+
+  test.each([
+    ["writes then cites", true],
+    ["cites first", false],
+  ])(
+    "%s: a record whose marker isn't written, good: the Run ends with it and its marker is placed",
+    async (_, writes) => {
+      const model = steppingModel([writesOneMarker({ quote: MARGIN })]);
+      const { core } = await setUpCalculating(model, [ACME], undefined, {
+        answerPaths: { writesThenCites: () => writes },
+      });
+
+      const { answer } = await askAndRead(core, "How did Acme do in 2025?");
+
+      expect(model.doStreamCalls).toHaveLength(2);
+      expect(answer.text).toContain("[^2]");
+      expect(answer.citations.map((citation) => citation.check)).toEqual(["found", "found"]);
+    },
+  );
+
+  test.each([
+    ["writes then cites", "a quote the Passage doesn't hold", true, 3],
+    ["cites first", "a quote the Passage doesn't hold", false, 4],
+    ["writes then cites", "a Passage it wasn't shown", true, 3],
+    ["cites first", "a Passage it wasn't shown", false, 4],
+  ])(
+    "%s: a record whose marker isn't written, refused for %s, then fixed: the Run goes on until it is, and its marker is placed",
+    async (_, refused, writes, requests) => {
+      const margin =
+        refused === "a Passage it wasn't shown"
+          ? { passage: "P999", quote: MARGIN }
+          : { quote: "Gross margin 99.9%" };
+      const model = steppingModel([
+        writesOneMarker(margin),
+        (passage) => ({ calls: [citeOne(passage, 2, "p. 2", MARGIN)] }),
+      ]);
+      const { core } = await setUpCalculating(model, [ACME], undefined, {
+        answerPaths: { writesThenCites: () => writes },
+      });
+
+      const { answer } = await askAndRead(core, "How did Acme do in 2025?");
+
+      expect(model.doStreamCalls).toHaveLength(requests);
+      expect(answer.text).toContain("[^2]");
+      expect(answer.citations.map((citation) => citation.check)).toEqual(["found", "found"]);
+    },
+  );
+
+  test.each([
+    ["writes then cites", true],
+    ["cites first", false],
+  ])(
+    "%s: a record whose marker isn't written, refused and never fixed: its marker isn't placed",
+    async (_, writes) => {
+      const model = steppingModel([writesOneMarker({ quote: "Gross margin 99.9%" })]);
+      const { core } = await setUpCalculating(model, [ACME], undefined, {
+        answerPaths: { writesThenCites: () => writes },
+      });
+
+      const { answer } = await askAndRead(core, "How did Acme do in 2025?");
+
+      expect(model.doStreamCalls).toHaveLength(3);
+      expect(answer.text).toBe(
+        "Revenue was $1,482.6 million in 2025[^1]. Gross margin was 41.2% in 2025.",
+      );
+      expect(answer.citations.map((citation) => citation.check)).toEqual(["found"]);
+    },
+  );
+
+  test("writes then cites: a written marker with no record: the Run goes on until it has one", async () => {
+    const model = steppingModel([
+      (passage) => ({
+        text: "Revenue was $1,482.6 million in 2025[^1]. Gross margin was 41.2%[^2].",
+        calls: [citeOne(passage, 1, "p. 1", REVENUE)],
+      }),
+      (passage) => ({ calls: [citeOne(passage, 2, "p. 2", MARGIN)] }),
+    ]);
+    const { core } = await setUpCalculating(model, [ACME], undefined, {
+      answerPaths: { writesThenCites: () => true },
+    });
+
+    const { answer } = await askAndRead(core, "How did Acme do in 2025?");
+
+    expect(model.doStreamCalls).toHaveLength(3);
+    expect(answer.citations.map((citation) => citation.check)).toEqual(["found", "found"]);
+  });
+
   test("cites first: what the model writes after its fix is the rest of the Answer", async () => {
     const model = steppingModel([
       (passage) => ({

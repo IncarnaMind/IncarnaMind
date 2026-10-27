@@ -72,8 +72,6 @@ import {
   parsePartialJson,
   streamText,
 } from "ai";
-import { markersIn } from "../../shared/answerBlocks";
-import { FIGURE_MARKER } from "../../shared/figureMarkers";
 import type {
   AnswerPhase,
   CitationSupport,
@@ -236,10 +234,14 @@ export interface AnswerTools {
   cite(records: readonly CitationRecordInput[], options?: CiteOptions): string;
   /** Whether a valid record was taken for this marker: the engine places its marker if the model left it out. */
   hasRecord?(marker: number): boolean;
-  /** Whether this marker's record has a problem `cite` asked the model to fix. */
-  owesFix?(marker: number): boolean;
-  /** Whether a figure was worked out for this marker ("[=1]"). Absent: the Answer offers no `calculate`. */
-  hasFigure?(marker: number): boolean;
+  /**
+   * What the Run still owes with `text` written so far: each marker whose last record from a
+   * `cite` call was refused or came back with a problem to fix, written or not, until a record
+   * for it is taken without one; each marker `text` writes with no record; and each figure marker
+   * it writes that `figured` says has no worked-out figure. The one test of whether a written,
+   * then cited Answer is complete, and of which records' markers may be placed. Absent: nothing.
+   */
+  owed?(text: string, figured?: (marker: number) => boolean): Owed;
   /** The Passages the model was given in this Answer, by the id it cites them by, as it read them. */
   shownPassages?(): readonly { id: string; text: string }[];
   /**
@@ -281,6 +283,12 @@ export interface AnswerTools {
    * figure's sentence or table cell has none (#1831); each quote is recorded as a Citation.
    */
   citeFigures?(text: string): string;
+}
+
+/** What a Run still owes, by marker (`AnswerTools.owed`). */
+export interface Owed {
+  citations: readonly number[];
+  figures: readonly number[];
 }
 
 /** A record whose quote the check doesn't find, with the text of the Passage it names (see `AnswerTools.unfoundQuotes`). */
@@ -1804,16 +1812,10 @@ async function* toolLoop(
   let answered = false;
   /** As the Run engine ends steps: the text written beside `cite` or `calculate` alone. */
   let besideRecords = "";
-  /** Every Citation marker in `text` has its record with no fix owed, and every figure marker its figure. */
-  const allTaken = (text: string) =>
-    markersIn(text).every(
-      (marker) =>
-        (request.documents.hasRecord?.(marker) ?? true) &&
-        !(request.documents.owesFix?.(marker) ?? false),
-    ) &&
-    [...text.matchAll(FIGURE_MARKER)].every(
-      (match) => request.documents.hasFigure?.(Number(match[1])) ?? true,
-    );
+  const owesNothing = (text: string) => {
+    const left = request.documents.owed?.(text);
+    return left === undefined || left.citations.length + left.figures.length === 0;
+  };
   /**
    * Texts written beside `cite` or `calculate` alone, with no marker in them,
    * and taken back: the last is the Answer if the model never writes another,
@@ -1902,9 +1904,8 @@ async function* toolLoop(
     },
     window,
     // The Answer written beside `cite` or `calculate`, with all they were given taken, is complete:
-    // another call would only write it again. Written then cited (#489), it is complete once every
-    // marker it wrote has a record with no fix owed and every figure is worked out, whichever step
-    // took them.
+    // another call would only write it again. Written then cited (#489), it is complete once the
+    // Run owes nothing (`AnswerTools.owed`), whichever step took the records.
     endsAfter: (step) => {
       const recordsOnly =
         step.calls.length > 0 && step.calls.every((call) => recording(offered.get(call.tool)));
@@ -1917,7 +1918,9 @@ async function* toolLoop(
         );
       }
       if (recordsOnly) besideRecords += step.text;
-      return cite !== null && recordsOnly && MARKER.test(besideRecords) && allTaken(besideRecords);
+      return (
+        cite !== null && recordsOnly && MARKER.test(besideRecords) && owesNothing(besideRecords)
+      );
     },
     temperature,
     signal: AbortSignal.any([signal, rambling.signal]),

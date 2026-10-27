@@ -224,6 +224,11 @@ export function createClaimCheck(deps: ClaimCheckDependencies) {
       },
       cite: (records, options) => session.tools.cite(records, options),
       hasRecord: (marker) => session.tools.hasRecord?.(marker) ?? false,
+      owed: (text) =>
+        session.tools.owed?.(
+          text,
+          calculating ? (marker) => figures.figure(marker) !== null : undefined,
+        ) ?? { citations: [], figures: [] },
       unfoundQuotes: () => session.tools.unfoundQuotes?.() ?? [],
       correctQuote: (marker, quote) => session.tools.correctQuote?.(marker, quote) ?? false,
       ...(calculating && {
