@@ -21,7 +21,7 @@ import { findable } from "../finding";
 import "../findingKinds";
 import { useLanguage, useT } from "../i18n";
 import { prepareName } from "../matcher";
-import { enter, exit } from "../motion";
+import { exit } from "../motion";
 import {
   actionGroup,
   activeOf,
@@ -153,7 +153,6 @@ function Palette() {
     if (!element) return;
     element.showModal();
     field.current?.focus();
-    enter(element, {});
   }, []);
 
   const { text, words, actionsOnly } = useMemo(() => readQuery(query), [query]);
@@ -255,7 +254,7 @@ function Palette() {
       aria-label={t("palette.label")}
       onKeyDown={onKeyDown}
       onClose={() => usePalette.getState().hide()}
-      className="mx-auto mt-16 mb-auto open:flex max-h-[calc(100vh-96px)] w-[640px] max-w-[calc(100vw-32px)] flex-col overflow-hidden rounded-xl bg-sheet p-0 text-ink shadow-dialog backdrop:bg-scrim"
+      className="mx-auto mt-16 mb-auto open:flex max-h-[calc(100vh-96px)] w-[640px] max-w-[calc(100vw-32px)] flex-col overflow-hidden rounded-xl bg-sheet p-0 text-ink shadow-popover backdrop:bg-transparent"
     >
       <div className="flex h-[52px] shrink-0 items-center gap-2.5 border-b border-rule px-4">
         <SearchLineIcon className="size-4 shrink-0 text-ink-meta" />
