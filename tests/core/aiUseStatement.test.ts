@@ -354,7 +354,7 @@ describe("The AI use statement", () => {
       "Checks",
     ]);
     expect(paragraphsOf(parts)[0]).toBe(
-      `Drawn from the record IncarnaMind keeps of this document, as of ${formatDate(NOW, "en")}. It covers only what IncarnaMind recorded, so add any use of AI elsewhere, and edit this before you attach it.`,
+      `Drawn from the record IncarnaMind keeps of this note, as of ${formatDate(NOW, "en")}. It covers only what IncarnaMind recorded, so add any use of AI elsewhere, and edit this before you attach it.`,
     );
     const [uses, sections, citations, sentences, checkedList] = tablesOf(parts);
     const haiku = "Claude Haiku 5.5 (Anthropic)";
@@ -362,7 +362,7 @@ describe("The AI use statement", () => {
       ["Use", "Model", "Times"],
       ["Answers written", haiku, "1"],
       ["Answers written", "local-model", "1"],
-      ["Answers added to the document", haiku, "3"],
+      ["Answers added to the note", haiku, "3"],
       ["Changes from Edit with AI accepted", "local-model", "1"],
       ["Writing suggestions accepted", "local-model", "1"],
       ["Searches of the author’s own Documents", haiku, "2"],
@@ -380,7 +380,7 @@ describe("The AI use statement", () => {
       ["Results", "0", "1", "5"],
       ["Total", "3", "2", "31"],
     ]);
-    expect(paragraphsOf(parts)).toContain("Pieces of AI text removed from the document: 1.");
+    expect(paragraphsOf(parts)).toContain("Pieces of AI text removed from the note: 1.");
     expect(citations).toEqual([
       ["Result", "Citations"],
       ["Quote found", "2"],
@@ -465,7 +465,7 @@ describe("The AI use statement", () => {
     expect(tablesOf(parts)).toEqual([]);
     expect(paragraphsOf(parts)).toEqual([
       expect.stringContaining("Drawn from the record IncarnaMind keeps"),
-      "There is nothing to report: IncarnaMind has no record of AI use in this document, and the document has no Citations or checks.",
+      "There is nothing to report: IncarnaMind has no record of AI use in this note, and the note has no Citations or checks.",
       NOTE_EN,
     ]);
   });
@@ -513,7 +513,7 @@ describe("The AI use statement", () => {
 
     expect(tablesOf(parts)[1]).toEqual([
       ["Section", "Pieces kept as written", "Pieces rewritten", "Words of AI text now"],
-      ["Whole document", "1", "0", "6"],
+      ["Whole note", "1", "0", "6"],
     ]);
   });
 
@@ -563,7 +563,7 @@ describe("The AI use statement", () => {
     const [uses, sections] = tablesOf(parts);
     expect(uses).toEqual([
       ["用途", "模型", "次数"],
-      ["将助手的回答加入文档", "Claude Haiku 5.5 (Anthropic)", "1"],
+      ["将助手的回答加入笔记", "Claude Haiku 5.5 (Anthropic)", "1"],
     ]);
     // The section with no AI text isn't listed; Chinese is counted by character.
     expect(sections).toEqual([
@@ -739,7 +739,7 @@ describe("Checks in the statement", () => {
 
     expect(tablesOf(parts)[0]).toEqual([
       ["Use", "Model", "Times"],
-      ["Answers added to the document", "Not recorded", "1"],
+      ["Answers added to the note", "Not recorded", "1"],
       ["Sentences checked against the Documents", "local-model", "1"],
     ]);
   });
@@ -752,7 +752,7 @@ describe("Checks in the statement", () => {
     expect(paragraphsOf(parts).filter((each) => NO_RECORD.test(each))).toHaveLength(0);
     expect(tablesOf(parts)).toEqual([]);
     expect(paragraphsOf(parts)).toContain(
-      "There is nothing to report: IncarnaMind has no record of AI use in this document, and the document has no Citations or checks.",
+      "There is nothing to report: IncarnaMind has no record of AI use in this note, and the note has no Citations or checks.",
     );
   });
 
