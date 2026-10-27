@@ -9,6 +9,7 @@ import {
   type SearchScope,
   type UnreadFile,
 } from "../../src/core/api";
+import { messageReference } from "../../src/core/references";
 import type { NoteHealth } from "../../src/renderer/src/editor/healthCounts";
 import { noteExtensions } from "../../src/renderer/src/editor/noteSchema";
 import {
@@ -17,6 +18,7 @@ import {
   readNoteState,
   unreadForCard,
 } from "../../src/renderer/src/noteState";
+import { setOrigins } from "../../src/shared/blockOrigins";
 import { formatDateTime } from "../../src/shared/dates";
 import { translate } from "../../src/shared/i18n";
 import { setMindScope } from "../../src/shared/mindScope";
@@ -538,6 +540,26 @@ describe("Reading a note's state from its Yjs document (Home and Export)", () =>
     );
     const { state } = read(doc);
     expect(state).toMatchObject({ kind: "checked", unread: 1, unreadMatters: false });
+    doc.destroy();
+  });
+
+  test("names the Answers its live Blocks hold, not one whose Block was deleted since", () => {
+    const doc = source([
+      {
+        type: "paragraph",
+        attrs: { id: "live" },
+        content: [checked("Spring tides happen at new and full moon.", "supported")],
+      },
+    ]);
+    setOrigins(doc, ["live", "deleted"], {
+      from: messageReference("conversation", "answer-in-the-note"),
+      question: "How do tides work?",
+    });
+    setOrigins(doc, ["deleted-elsewhere"], {
+      from: messageReference("conversation", "answer-no-longer-in-the-note"),
+      question: "How do tides work?",
+    });
+    expect(read(doc).filedAnswers).toEqual(new Set(["answer-in-the-note"]));
     doc.destroy();
   });
 });
