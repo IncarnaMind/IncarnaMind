@@ -93,9 +93,11 @@ async function tieOut(window: Page, schedule: Locator, title: string, label: str
   await expect(ask.or(schedule).first()).toBeVisible({ timeout: 30_000 });
   if (!(await ask.isVisible())) return;
   await pointAndClick(window, ask.getByTestId("mind-check-check"));
+  const tab = window.getByRole("tab", { name: new RegExp(`^${title}`) });
+  await expect(schedule.or(tab).first()).toBeVisible({ timeout: 30_000 });
   if (await schedule.isVisible()) return;
-  await pointAndClick(window, window.getByRole("tab", { name: new RegExp(`^${title}`) }));
-  await expect(schedule).toBeVisible();
+  await pointAndClick(window, tab);
+  await expect(schedule).toBeVisible({ timeout: 30_000 });
 }
 
 for (const [language, width] of [

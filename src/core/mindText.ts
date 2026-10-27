@@ -1020,7 +1020,7 @@ function readFigure(attributes: CalculatedFigureAttributes, doc: Y.Doc | null): 
     sources = calculatedSources(attributes, doc);
   } catch {
     // Its saved Analysis is gone: it still reads as its text, and an export that would write its
-    // sources says they aren't available, as the editor does (`figures.evidenceMissing`).
+    // sources says they aren't available, as the editor does (`error.figure.evidenceMissing`).
     return { kind: "figure", figure, sources: null, analysis: null };
   }
   return {

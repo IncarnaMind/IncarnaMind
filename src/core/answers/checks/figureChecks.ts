@@ -12,6 +12,7 @@ import type {
   FigureCheckResult,
   FigureInput,
   LimitRelation,
+  UnsupportedReason,
 } from "../../api";
 import { isRecord } from "../../errors";
 import { type CalculationSession, documentFigureContext, whole } from "../calculations";
@@ -253,6 +254,8 @@ export interface FigureCheckOptions {
   caseFlags(evidence: Citation | null): CaseFlags;
   costs(marker: number): ReadonlySet<string>;
   remainder(reply: FigureReplyRemainder): Promise<ClaimJudgment>;
+  /** Why a figure's unit, currency or scale isn't backed by these Citations or their Documents (#1798). */
+  unitReason(figure: string, citations: readonly Citation[]): UnsupportedReason | null;
   signal: AbortSignal;
 }
 
@@ -495,16 +498,24 @@ export async function checkFigureReply(options: FigureCheckOptions): Promise<Cla
       rows.push({ ...base, sourceInput, result: unavailable() });
       continue;
     }
-    // Digits alone neither back nor contradict the currency, unit or scale the note adds (#2073).
-    if (
-      sourceInput &&
+    // Digits alone neither back nor contradict the currency, unit or scale the note adds (#2073),
+    // and an agreeing number backs no unit its Documents never state (#1798).
+    const quoted = inputs.flatMap((input) => [
+      input.citation,
+      ...(input.unitStatement ? [input.unitStatement.citation] : []),
+    ]);
+    const bare =
+      sourceInput !== null &&
       addsToBareNumber(target.reading, sourceInput) &&
-      (!agrees || target.reading.unit.kind === "currency")
-    ) {
+      (!agrees || target.reading.unit.kind === "currency");
+    const unit = bare || agrees ? options.unitReason(target.reading.chars, quoted) : null;
+    if (bare || unit) {
+      const judged = figureJudgment({ ...item, verdict: "unsupported" }, evidence, facts, flags);
       rows.push({
         ...base,
         sourceInput,
-        result: figureJudgment({ ...item, verdict: "unsupported" }, evidence, facts, flags),
+        result:
+          unit && judged.verdict === "unsupported" ? { ...judged, unsupported: unit } : judged,
       });
       continue;
     }

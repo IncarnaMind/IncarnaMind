@@ -340,7 +340,10 @@ export function createClaimCheck(deps: ClaimCheckDependencies) {
       }),
     };
 
-    const unstatedUnit = (citations: readonly Citation[]): UnsupportedReason | null => {
+    const unstatedUnit = (
+      citations: readonly Citation[],
+      claim = request.claim,
+    ): UnsupportedReason | null => {
       const checked = citations.map((citation) => {
         const text = (from: number | null, to: number | null) =>
           scoped
@@ -353,7 +356,7 @@ export function createClaimCheck(deps: ClaimCheckDependencies) {
           document: () => text(null, null),
         };
       });
-      const found = unitNotStated(request.claim, checked);
+      const found = unitNotStated(claim, checked);
       if (!found) return null;
       const t = (key: MessageKey, params?: MessageParams) =>
         translate(deps.language(), key, params);
@@ -520,6 +523,7 @@ export function createClaimCheck(deps: ClaimCheckDependencies) {
         facts,
         caseFlags: citedCase,
         costs: (marker) => stated.get(marker)?.costs ?? new Set(),
+        unitReason: (figure, citations) => unstatedUnit(citations, figure),
         signal,
         async remainder(remainder) {
           const evidence =

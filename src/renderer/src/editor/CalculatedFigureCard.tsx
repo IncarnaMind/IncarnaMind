@@ -70,7 +70,7 @@ export function CalculatedFigureCard({
       )}
       {problem && (
         <p className="calculated-figure-problem" role="alert">
-          {t("figures.evidenceMissing")}
+          {t("error.figure.evidenceMissing")}
         </p>
       )}
       {sources?.inputs.map((input) => (

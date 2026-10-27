@@ -354,12 +354,12 @@ export function calculatedSources(
   const ranges: AnalysisRangeInput[] = [];
   let analysis: RetainedFigureAnalysis | null = null;
   if (attributes.figure.analysis) {
-    if (!doc) throw new InvalidInputError({ key: "figures.evidenceMissing" });
+    if (!doc) throw new InvalidInputError({ key: "error.figure.evidenceMissing" });
     analysis =
       figureRunsFor(doc, [
         calculatedFigureNode(attributes.figure, attributes.id, attributes.analysisId),
       ])[0] ?? null;
-    if (!analysis) throw new InvalidInputError({ key: "figures.evidenceMissing" });
+    if (!analysis) throw new InvalidInputError({ key: "error.figure.evidenceMissing" });
     for (const input of analysis.inputs) {
       if (input.kind === "figure") inputs.push(input.input);
       else ranges.push(input);

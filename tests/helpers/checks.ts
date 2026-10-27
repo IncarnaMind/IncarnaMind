@@ -2,8 +2,11 @@
  * A scripted model that checks claims (#96, #97) as its plans say, and names
  * a verified document's claims: those it has a plan for.
  */
+
+import { documentFigureContext } from "../../src/core/answers/calculations";
 import { SEARCH_AGAIN } from "../../src/core/answers/checks/searchAgain";
 import { isRecord } from "../../src/core/errors";
+import { readFigures } from "../../src/shared/figures";
 import { shownPassages } from "./citations";
 import {
   type GenerateCall,
@@ -134,7 +137,29 @@ export function checkReply(call: ModelCall, plans: Record<string, Plan>): Script
   }
   const verdict = `Verdict: ${plan.verdict}${plan.says ? `\n${plan.says} [^1]` : ""}`;
   const figures = requestedFigures(call);
-  if (!calculation || figures.length === 0) return { text: verdict };
+  if (figures.length === 0) return { text: verdict };
+  if (!calculation) {
+    if (!quote) return { text: verdict };
+    // Each figure from the cited quote's number of its own kind of unit, or its first.
+    const numbers = readFigures(quote, documentFigureContext([{ text: quote }]));
+    const items = figures.map(({ id, shown }) => {
+      const kind = readFigures(shown, documentFigureContext([{ text: shown }]))[0]?.unit.kind;
+      const source = numbers.find((each) => each.unit.kind === kind) ?? numbers[0];
+      return {
+        id,
+        verdict: source ? (plan.verdict ?? "unsupported") : "unsupported",
+        scope: "same",
+        topic: source ? "found" : "not found",
+        roles: "same",
+        says: null,
+        reading: null,
+        relation: "equals",
+        source: source ? { citation: 1, number: source.chars } : null,
+        calculation: null,
+      };
+    });
+    return { text: `${verdict}\nFigures: ${JSON.stringify({ items, remainder: null })}` };
+  }
   const worked: readonly PlannedFigure[] = "formula" in calculation ? [calculation] : calculation;
   const items = figures.map(({ id, shown }) => {
     const marker = worked.findIndex((figure) => figure.stated === shown) + 1;

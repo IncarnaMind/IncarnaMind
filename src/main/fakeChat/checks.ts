@@ -94,7 +94,7 @@ export function checkReply(prompt: Prompt, tools: readonly string[]): Reply {
   if (searches.length === 1 && lastUserText(prompt).includes(SEARCH_AGAIN)) {
     return { tool: "search_documents", input: { query: checkWords(sentence).join(" ") } };
   }
-  if (asked) return figuresReply(prompt, asked, sentence, searched);
+  if (asked) return figuresReply(prompt, tools, asked, sentence, searched);
   const words = checkWords(sentence);
   let best: { record: Record<string, unknown>; line: string; shared: number } | null = null;
   for (const passage of passagesIn(searched)) {
@@ -175,7 +175,16 @@ const UNIT_LINE = /^(?:all figures in|figures in)\b|^单位[:：]/i;
 const apart = (a: number, b: number) =>
   a === 0 || b === 0 ? Math.abs(a - b) : Math.abs(Math.log10(Math.abs(a) / Math.abs(b)) % 3);
 
-function figuresReply(prompt: Prompt, asked: string, sentence: string, searched: string): Reply {
+/** A multiple the sentence states, as "1.3x": offered calculate, it is worked out from its line. */
+const MULTIPLE = /\d+(?:\.\d+)?x\b/;
+
+function figuresReply(
+  prompt: Prompt,
+  tools: readonly string[],
+  asked: string,
+  sentence: string,
+  searched: string,
+): Reply {
   const figures = JSON.parse(asked) as AskedFigure[];
   const passages = passagesIn(searched);
   const lines = new Map<
@@ -192,7 +201,14 @@ function figuresReply(prompt: Prompt, asked: string, sentence: string, searched:
       unitLine: string | null;
     } | null = null;
     for (const passage of passages) {
-      const found = recordFor(passage, about, lines.size + 1);
+      // A row named by a short name with a digit ("Q13") is the line that names it, whole.
+      const names = about
+        .toLowerCase()
+        .split(/\W+/)
+        .filter((word) => word.length < 4 && /\d/.test(word) && /\p{L}/u.test(word));
+      const found = recordFor(passage, about, lines.size + 1, (line) =>
+        names.some((name) => line.toLowerCase().split(/\W+/).includes(name)),
+      );
       const quote = typeof found?.record.quote === "string" ? found.record.quote : "";
       const words = checkWords(about);
       const shared = checkWords(quote).filter((word) => words.includes(word)).length;
@@ -216,16 +232,41 @@ function figuresReply(prompt: Prompt, asked: string, sentence: string, searched:
   if (lines.size > 0 && toolResults(prompt, "cite").length === 0) {
     return { tool: "cite", input: { citations: [...lines.values()].map((line) => line.record) } };
   }
+  const worked = tools.includes("calculate")
+    ? bound.filter(({ figure, line }) => line && MULTIPLE.test(figure.shown))
+    : [];
+  if (worked.length > 0 && toolResults(prompt, "calculate").length === 0) {
+    return {
+      tool: "calculate",
+      input: {
+        figures: worked.map(({ figure, line }, index) => ({
+          marker: index + 1,
+          label: "Multiple",
+          inputs: [1, 2].map((position) => ({
+            name: `n${position}`,
+            label: position === 1 ? "First" : "Second",
+            citation: line?.marker,
+            position,
+          })),
+          formula: "n1 / n2",
+          as: "times",
+          stated: figure.shown,
+          relation: "equals",
+        })),
+      },
+    };
+  }
   const judged = { scope: "same", roles: "same", says: null, reading: null, relation: "equals" };
   const items = bound.map(({ figure, line }) => {
-    if (figure.saved)
+    const marker = worked.findIndex((each) => each.figure === figure) + 1;
+    if (figure.saved || marker > 0)
       return {
         id: figure.id,
         verdict: "supported",
         topic: "found",
         ...judged,
         source: null,
-        calculation: null,
+        calculation: marker > 0 ? marker : null,
       };
     const value = readFigures(figure.shown)[0]?.value;
     const numbers = line ? readFigures(line.quote, { midLine: true }) : [];
@@ -257,7 +298,8 @@ function figuresReply(prompt: Prompt, asked: string, sentence: string, searched:
       topic: "found",
       ...judged,
       reading: own ? (own.kind === "scale" && unitQuote ? 2 : 1) : null,
-      source: { citation: line.marker, position: nearest + 1, reading: null, unitQuote },
+      // A lone number's separators settle nothing in its Document: it reads as written.
+      source: { citation: line.marker, position: nearest + 1, reading: 1, unitQuote },
       calculation: null,
     };
   });

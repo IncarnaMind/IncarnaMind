@@ -208,20 +208,21 @@ export function citationClustersPlugin(): Plugin<Clusters> {
       init: (_config, state) => clustersOf(state.doc),
       apply: (tr, previous) => {
         if (!tr.docChanged) return previous;
+        // A node decoration goes with its node: a Citation drawn again in place (a synced edit
+        // that replaces it with its like) would keep its shape but lose its place.
+        const members = previous.clusters.reduce((sum, each) => sum + each.members.length, 0);
+        const mapped = previous.decorations.map(tr.mapping, tr.doc);
+        const kept = mapped.find().length === members;
         // Typing in a text block with fewer than two Citations can't join or part any:
         // they only move along. (Their positions in `clusters` aren't kept up to date.)
         const typedIn = textBlockEdited(tr);
-        if (typedIn !== null && citationsIn(tr.doc.nodeAt(typedIn)) < 2) {
-          return { ...previous, decorations: previous.decorations.map(tr.mapping, tr.doc) };
+        if (kept && typedIn !== null && citationsIn(tr.doc.nodeAt(typedIn)) < 2) {
+          return { ...previous, decorations: mapped };
         }
         const next = clusterCitations(tr.doc);
         const shape = shapeOf(next);
-        if (shape !== previous.shape) return clustersOf(tr.doc);
-        return {
-          clusters: next,
-          shape,
-          decorations: previous.decorations.map(tr.mapping, tr.doc),
-        };
+        if (!kept || shape !== previous.shape) return clustersOf(tr.doc);
+        return { clusters: next, shape, decorations: mapped };
       },
     },
     props: {

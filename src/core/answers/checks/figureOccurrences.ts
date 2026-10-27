@@ -1,5 +1,6 @@
 import * as Y from "yjs";
 import { readCalculatedFigureAttributes } from "../../../shared/calculatedFigures";
+import { citedCases } from "../../../shared/caseCitations";
 import {
   chartCells,
   chartPoints,
@@ -118,8 +119,13 @@ function inSentence(
     };
   };
   const common = table ? { table: table.place, label: table.place.rowLabel } : {};
+  // A court decision's citation ("512 S.W.3d 101 (Tex. 2017)") holds no figure to tie out.
+  const cases = citedCases(raw);
   const found: FigureOccurrence[] = readFigures(raw, { ...note, header: table?.header ?? null })
     .filter((reading) => reading.start >= sentence.from && reading.end <= sentence.to)
+    .filter(
+      (reading) => !cases.some((each) => reading.start >= each.from && reading.end <= each.to),
+    )
     .map((reading) => {
       const { span, key, context, stretch } = around(reading.start, reading.end);
       return {

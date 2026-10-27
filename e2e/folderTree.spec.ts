@@ -232,6 +232,7 @@ test("a Mind moves by its menu, by the keyboard and by dragging, each with Undo;
       /^Export check record…$/,
       /^History$/,
       /^Check this note$/,
+      /^Tie out figures$/,
       /^Check for contradictions$/,
       /^Citation style…$/,
       /^Style…$/,
@@ -265,7 +266,7 @@ test("a Mind moves by its menu, by the keyboard and by dragging, each with Undo;
     await expect(undoLine.getByTestId("undo-message")).toHaveCount(0);
 
     // By the keyboard alone: Shift+F10 on the row, down past Outline, the exports, the AI use
-    // statement, History, Check this note, Check for contradictions, Citation style…, Style… and
+    // statement, History, Check this note, Tie out figures, Check for contradictions, Citation style…, Style… and
     // Make this a Skill to Move to…, type, Enter. The row's ⋯ is not a Tab stop.
     await shortlist.getByTestId("mind-list-item").focus();
     await window.keyboard.press("Tab");
@@ -274,7 +275,7 @@ test("a Mind moves by its menu, by the keyboard and by dragging, each with Undo;
     await expect(shortlist.getByTestId("mind-list-item")).toBeFocused();
     await window.keyboard.press("Shift+F10");
     await expect(actions.getByTestId("mind.open")).toBeFocused();
-    for (let step = 0; step < 12; step++) await window.keyboard.press("ArrowDown");
+    for (let step = 0; step < 13; step++) await window.keyboard.press("ArrowDown");
     await expect(actions.getByTestId("mind.moveTo")).toBeFocused();
     await window.keyboard.press("Enter");
     await expect(picker.getByTestId("move-to-search")).toBeFocused();

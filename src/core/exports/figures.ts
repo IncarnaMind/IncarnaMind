@@ -26,7 +26,7 @@ export interface FigureWriting {
 
 /** A figure's sources; one whose saved Analysis is gone can't be written with them. */
 export function figureSourcesOf(figure: FigureInline): FigureSource[] {
-  if (figure.sources === null) throw new InvalidInputError({ key: "figures.evidenceMissing" });
+  if (figure.sources === null) throw new InvalidInputError({ key: "error.figure.evidenceMissing" });
   return figure.sources;
 }
 

@@ -670,6 +670,25 @@ test.each([
   },
 );
 
+test("a figure given a currency its Document never states is Unsupported, and says which part (#1798)", async () => {
+  const body = "The annual salary is 54,000, paid monthly in arrears.";
+  const { result } = await checkWith({
+    figures: [target("f1", "£54,000", "The annual salary")],
+    claim: "The annual salary is £54,000, paid monthly in arrears.",
+    body,
+    // One number alone doesn't settle whether its comma groups thousands: the model says so.
+    text: reply([{ ...item(), source: { citation: 1, number: "54,000", reading: 1 } }]),
+  });
+  expect(result.figures?.[0]?.result).toMatchObject({
+    verdict: "unsupported",
+    unsupported: {
+      covered: expect.stringContaining("54,000"),
+      uncovered: expect.stringContaining("£"),
+    },
+  });
+  expect(result).toMatchObject({ verdict: "unsupported", unsupported: { found: true } });
+});
+
 test("a source may give its quote in place of a marker, as calculate takes one", async () => {
   const quoted = {
     ...item(),

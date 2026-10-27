@@ -708,8 +708,6 @@ export const en = {
   "figures.changed": "The figures changed. Open the schedule again.",
   "figures.kept": "Kept {count} figures as your view",
   "figures.changedToSource": "Changed {old} to {now}",
-  "figures.evidenceMissing":
-    "The saved inputs for this figure aren’t available. Check the figure again or choose its source.",
   "figures.inline.open": "Open calculation card",
   "figures.inline.copyFormula": "Copy formula",
   "figures.inline.convert": "Convert to text",
@@ -4074,6 +4072,8 @@ export const en = {
   "error.mind.newerVersionEdit": "A newer IncarnaMind wrote this note. Update to edit it.",
   "error.figure.checking":
     "The figures are still being checked. Export the schedule when Check finishes.",
+  "error.figure.evidenceMissing":
+    "The saved inputs for this figure aren’t available. Check the figure again or choose its source.",
   "error.figure.paste":
     "The calculation’s evidence couldn’t be pasted. Copy the figure again, or paste as plain text.",
   "error.conversation.notFound": "That conversation doesn’t exist or has been deleted.",
