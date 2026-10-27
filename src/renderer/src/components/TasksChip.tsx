@@ -2,6 +2,7 @@ import { type MouseEvent, useEffect, useLayoutEffect, useRef, useState } from "r
 import { useShallow } from "zustand/react/shallow";
 import type { Task } from "../../../core/api";
 import { mindName } from "../../../shared/naming";
+import { focusComposer } from "../commands/assistant";
 import { shortcutLabel } from "../commands/keymap";
 import { dayOf } from "../dates";
 import { withShortcut } from "../editor/withShortcut";
@@ -54,14 +55,20 @@ export function TasksChip() {
   const menu = usePopoverMenu({
     focus: "first",
     around: (button) => button.closest<HTMLElement>('[data-testid="tab-strip"]'),
+    // The chip goes once the last Task stops, and the anchor can't take the focus: the User's
+    // place is the composer they were in.
+    whenFocusGone: focusComposer,
   });
   const { open } = menu;
   const menuRef = menu.menuProps.ref;
   const asked = useTaskMenu((state) => state.open);
   /** It was asked for from ⌘K: it shows and opens even with no chip in the band. */
   const [forced, setForced] = useState(false);
-  /** The Task a row action just acted on: its row takes the focus back once the list has settled. */
-  const acted = useRef<string | null>(null);
+  /**
+   * The Task a row action just acted on, and when it was last updated: its row takes the focus
+   * back once that Task has changed, not when another Task's progress draws the list again.
+   */
+  const acted = useRef<{ id: string; updatedAt: string } | null>(null);
 
   useEffect(loadTasks, []);
   useLayoutEffect(() => {
@@ -78,19 +85,25 @@ export function TasksChip() {
     if (open) keepAboveAssistant(menuRef.current);
   }, [open, menuRef]);
   // A row's action may take its button away, and the row may move to another group, which draws a
-  // new row: the focus comes back to the row the Task is in now. A field an action opened keeps it.
-  // biome-ignore lint/correctness/useExhaustiveDependencies: the Tasks changed is when the row may have moved.
+  // new row: the focus comes back to the row the Task is in now, once that Task has changed and
+  // not when another one's progress draws the list again. A field an action opened keeps it.
   useLayoutEffect(() => {
-    const id = acted.current;
-    if (id === null) return;
+    const pending = acted.current;
+    if (pending === null) return;
+    const task = tasks.find((each) => each.id === pending.id);
+    if (task && task.updatedAt === pending.updatedAt) return;
     acted.current = null;
-    const item = menuRef.current?.querySelector<HTMLElement>(`[data-task="${CSS.escape(id)}"]`);
+    const item = menuRef.current?.querySelector<HTMLElement>(
+      `[data-task="${CSS.escape(pending.id)}"]`,
+    );
     const focused = document.activeElement;
     const kept = item != null && focused instanceof HTMLElement && item.contains(focused);
     if (!kept) item?.querySelector<HTMLElement>('[data-testid="tasks-popover-row"]')?.focus();
   }, [tasks, menuRef]);
 
-  if (!chip && !forced) return null;
+  // Kept mounted while it is open: the last Task stopping takes the chip away, and its row, now
+  // in Recent, must keep the focus the User's action gave it.
+  if (!chip && !forced && !open) return null;
   const summary = chip
     ? chip.running > 0
       ? t("tasks.chip.running", { count: chip.running })
@@ -143,7 +156,7 @@ export function TasksChip() {
             tasks={tasks}
             close={menu.close}
             onAct={(task) => {
-              acted.current = task.id;
+              acted.current = { id: task.id, updatedAt: task.updatedAt };
             }}
           />
         )}

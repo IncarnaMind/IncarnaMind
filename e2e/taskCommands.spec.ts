@@ -8,6 +8,7 @@ import {
   dismissChatSetup,
   enterContent,
   launchApp,
+  leaveFirstOpen,
   motionSettled,
   newMind,
   notificationsShown,
@@ -24,7 +25,8 @@ import {
  * Tasks from the keyboard (#1255): Pause, Resume and Stop in ⌘K while a Task
  * runs or is paused, Stop on ⌘. (Ctrl+. elsewhere) in Stop's tooltip, Stop on
  * a Task's row in the Tasks chip's popover, "Show Tasks" always offered (saying
- * "No Tasks right now." when there is nothing to show), Research… with no Note
+ * "No Tasks yet. Start Research or a comparison and it shows here." when there
+ * is nothing to show, and opening in a first open), Research… with no Note
  * open planning with "Write into: New note", Plan kept on a finished Task, and
  * the General page's switch for Task notifications. Set INCARNAMIND_SCREENSHOTS
  * to a folder to also save screenshots.
@@ -296,7 +298,8 @@ test("a Task's row in the chip's popover stops it, by keyboard, and Show Tasks s
   await window.keyboard.press("Escape");
   await expect(narrow).toBeHidden();
 
-  // Back at 1440, Stop ends it from its row.
+  // Back at 1440, Stop ends it from its row: the chip goes, and the popover stays with the focus
+  // on the row, now in Recent, rather than killing the popover under the User's keyboard.
   await setWindowSize(app, window, 1440, 860);
   await chip.focus();
   await window.keyboard.press("Enter");
@@ -305,7 +308,41 @@ test("a Task's row in the chip's popover stops it, by keyboard, and Show Tasks s
   await window.keyboard.press("Enter");
   await taskStatus(window, taskId).toBe("stopped");
   await expect(chip).toHaveCount(0);
+  await expect(again).toBeVisible();
+  const recentRow = again.locator(`[data-task="${taskId}"] [data-testid="tasks-popover-row"]`);
+  await expect(recentRow).toBeFocused();
+  await expect(again.locator('section[aria-label="Recent"]')).toContainText("Shortlist");
+
+  // Esc closes it, and the focus goes where the chip's was: the composer, as the chip is gone.
+  await window.keyboard.press("Escape");
   await expect(again).toBeHidden();
+  await expect(window.getByTestId("composer-input")).toBeFocused();
+  await app.close();
+});
+
+test("Show Tasks opens the popover in a first open, and nothing opens by itself when the band comes back", async () => {
+  test.setTimeout(90_000);
+  const { app, window } = await launchApp(dataDir, { examples: true });
+  await setWindowSize(app, window, 1440, 860);
+  // The quiet first open draws no tabs: the popover's owner lives in that band all the same.
+  await expect(window.getByTestId("tab-list")).toHaveCount(0);
+
+  await window.keyboard.press("ControlOrMeta+k");
+  await expect(window.getByTestId("palette-search")).toBeFocused();
+  await window.keyboard.type(">show tasks");
+  await window.keyboard.press("Enter");
+  const popover = window.getByTestId("tasks-popover");
+  await expect(popover).toBeVisible();
+  await expect(popover.getByTestId("tasks-popover-empty")).toBeVisible();
+  await expect(window.getByTestId("tasks-anchor")).toHaveCount(1);
+  await window.keyboard.press("Escape");
+  await expect(popover).toBeHidden();
+
+  // The band comes back once the first open is done: nothing was left waiting to open.
+  await leaveFirstOpen(window);
+  await expect(window.getByTestId("tab-list")).toBeVisible();
+  await expect(window.getByTestId("tasks-chip")).toHaveCount(0);
+  await expect(popover).toBeHidden();
   await app.close();
 });
 
@@ -350,7 +387,7 @@ test("⌘K acts on the Task the User opened, and a Done Task's block never acts 
     await expect(window.getByTestId("tasks-chip")).toHaveText("1 needs you");
 
     // Done, its block offers no Pause or Stop, and ⌘. takes nothing from the Task still going.
-    await window.getByTestId("task-ask").getByTestId("approval-allow-once").click();
+    await pointAndClick(window, window.getByTestId("task-ask").getByTestId("approval-allow-once"));
     await expect.poll(async () => (await taskById(window, second))?.status).toBe("done");
     const third = await startScriptedTask(app, mind, { folder, files: ["c.txt"] });
     await expect(window.getByTestId("task-progress")).toHaveCount(3);
@@ -365,9 +402,13 @@ test("⌘K acts on the Task the User opened, and a Done Task's block never acts 
     }
     await progressOf(window, second).getByTestId("task-progress-review").focus();
     await window.keyboard.press("ControlOrMeta+Period");
-    await expect(progressOf(window, third).getByTestId("task-progress-stop")).toBeVisible();
+    // A later key the app answers (⌘K's palette opens, lists nothing for this done Task, and
+    // closes again) shows the shortcut was dealt with: it is not a quiet moment that passes it.
+    await paletteLists(window, "task.stop", "stop task", false);
     const going = await taskById(window, third);
     expect(going?.finishedAt).toBeNull();
+    expect(going?.status).not.toBe("stopped");
+    await expect(progressOf(window, third).getByTestId("task-progress-stop")).toBeVisible();
     await app.close();
   } finally {
     await removeDataFolder(folder);
@@ -474,11 +515,10 @@ test("the General page's Task notifications switch is on by default; off, a need
     await window.keyboard.press("Escape");
     await expect(settings).toBeHidden();
 
-    // Its Note off screen, the Task needs the User: no notification, and nothing else changes.
-    const taskId = await startScriptedTask(app, memo, { folder, files: ["a.txt", "b.txt"] });
+    // Its Note off screen, the Task needs the User: the list shows it, and nothing else does.
+    const taskId = await startScriptedTask(app, memo, { folder, files: ["a.txt"] });
     const chip = window.getByTestId("tasks-chip");
     await expect(chip).toHaveText("1 needs you");
-    expect(await notificationsShown(app)).toEqual([]);
     await window.keyboard.press("ControlOrMeta+k");
     await window.keyboard.type(">show tasks");
     await window.keyboard.press("Enter");
@@ -490,6 +530,19 @@ test("the General page's Task notifications switch is on by default; off, a need
     const needs = (await tasksOf(window)).find((task) => task.id === taskId);
     expect(needs?.finishedAt).toBeNull();
     expect(needs?.ask).not.toBeNull();
+    await window.keyboard.press("Escape");
+    await expect(popover).toBeHidden();
+
+    // Its ask answered, the Task runs to its end: both the state that would have notified and
+    // the one at its finish have passed, and neither raised anything.
+    await window.evaluate(async (id) => {
+      const bridge = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
+      const [ask] = (await bridge.listApprovalRequests()).filter((each) => each.taskId === id);
+      if (!ask) throw new Error("The Task is not asking for approval.");
+      await bridge.respondToApproval(ask.requestId, "allow-once");
+    }, taskId);
+    await expect.poll(async () => (await taskById(window, taskId))?.status).toBe("done");
+    expect(await notificationsShown(app)).toEqual([]);
     await app.close();
   } finally {
     await removeDataFolder(folder);
