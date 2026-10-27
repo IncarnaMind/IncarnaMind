@@ -97,7 +97,13 @@ test("a held temporary source cannot replace the rename failure with a cleanup f
     throw cleanupError;
   });
 
-  expect(() => writeJson(file, { pid: 1836 })).toThrow(renameError);
+  let thrown: unknown;
+  try {
+    writeJson(file, { pid: 1836 });
+  } catch (error) {
+    thrown = error;
+  }
+  expect(thrown).toBe(renameError);
 
   expect(fsControl.rename).toHaveBeenCalledTimes(20);
   expect(fsControl.unlink).toHaveBeenCalledTimes(1);
