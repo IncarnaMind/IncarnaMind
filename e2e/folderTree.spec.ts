@@ -121,7 +121,7 @@ test("each Folder lists its Minds above its Documents and opens in place; a Mind
     await expect(window.getByTestId("mind-none-open")).toBeVisible();
     await expect(window.getByTestId("library")).toHaveCount(0);
 
-    // "New Mind here", from its menu (a right-click, as in Finder): listed in the Folder,
+    // "New note here", from its menu (a right-click, as in Finder): listed in the Folder,
     // above its Documents, and open.
     await folder.getByTestId("folder-row").click({ button: "right" });
     await folder.getByTestId("folder.newMind").click();
@@ -231,13 +231,13 @@ test("a Mind moves by its menu, by the keyboard and by dragging, each with Undo;
       /^Export AI use statement$/,
       /^Export check record…$/,
       /^History$/,
-      /^Check this Mind$/,
+      /^Check$/,
       /^Check for contradictions$/,
       /^Citation style…$/,
       /^Style…$/,
       /^Make this a Skill$/,
       /^Move to…(⇧⌘M|Ctrl\+Shift\+M)$/,
-      /^New Folder with this Mind(⌃⌘N)?$/,
+      /^New Folder with this note(⌃⌘N)?$/,
       /^RenameF2$/,
       /^Delete$/,
     ]);
@@ -265,7 +265,7 @@ test("a Mind moves by its menu, by the keyboard and by dragging, each with Undo;
     await expect(undoLine.getByTestId("undo-message")).toHaveCount(0);
 
     // By the keyboard alone: Shift+F10 on the row, down past Outline, the exports, the AI use
-    // statement, History, Check this Mind, Check for contradictions, Citation style…, Style… and
+    // statement, History, Check, Check for contradictions, Citation style…, Style… and
     // Make this a Skill to Move to…, type, Enter. The row's ⋯ is not a Tab stop.
     await shortlist.getByTestId("mind-list-item").focus();
     await window.keyboard.press("Tab");
@@ -353,7 +353,7 @@ test("a Mind moves by its menu, by the keyboard and by dragging, each with Undo;
     const folderActions = renamed.getByTestId("folder-actions");
     await expect(folderActions.getByRole("menuitem")).toHaveText([
       /^Open in the Library$/,
-      /^New Mind here$/,
+      /^New note here$/,
       /^New Folder(⇧⌘N|Ctrl\+Shift\+N)$/,
       /^Organize this Folder$/,
       /^Edit description…$/,

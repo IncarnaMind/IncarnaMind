@@ -32,15 +32,19 @@
  * Document's whole text, and calls no search. One that turns the Mind "into a report" (整理成报告)
  * keeps each Citation it reads there by its id, with no search, as #1800 asks of a model.
  * One that says "边想边写" writes pages of working notes after its search, with no
- * marker (#1344). One that asks how much something grew (增长) has the growth from the first
- * two numbers of its quote calculated, and writes it with its marker.
+ * marker (#1344). One that says "search twice" (搜两次) searches once more after its first
+ * search, as a model does whose first Passages fall short. One that asks how much something
+ * grew (增长) has the growth from the first two numbers of its quote calculated, and writes it
+ * with its marker.
  * As models did (#1172), one for a "short summary" (简短的摘要) ends with a
  * paragraph pointing to an earlier Answer, and one about "home working"
  * (居家办公) asked beside a Mind ends by setting the Documents apart from it,
  * unless the instructions say that Mind is an example.
  * Before its search it reasons, a line that quotes the Question, as a model
- * that thinks does. A Question asked "slowly" waits a moment before each step
- * and writes its Answer word by word, so a test sees each step of the Answer.
+ * that thinks does; given the Question's search before its first call (#1633),
+ * it answers from those Passages and reasons on that call. A Question asked
+ * "slowly" waits a moment before each step and writes its Answer word by word,
+ * so a test sees each step of the Answer.
  *
  * With Skills: a Question that names a listed Skill gets it loaded with
  * use_skill first. An Answer that follows a Skill (forced, or loaded) starts
@@ -57,6 +61,7 @@ import {
   TWELVE_IN_A_ROW,
 } from "./passages";
 import {
+  calledSinceQuestion,
   lastQuestion,
   lastUserText,
   type Prompt,
@@ -70,6 +75,8 @@ import {
 
 /** What the scripted model reasons before it searches: a line that quotes the Question. */
 const reasoningFor = (question: string) => `Search the Documents for “${question}”.`;
+/** What it reasons when the Question was searched before its first call (#1633). */
+const reasoningOnFound = (question: string) => `Answer “${question}” from the Passages found.`;
 
 /** The scripted Answer to a Question, when there are no Documents; it says which Skill it follows, if any. */
 function fakeAnswer(question: string, skill: string | null = null): string {
@@ -112,6 +119,14 @@ const WORKING_NOTES = "等一下，可能还有一份相同的文件。再搜一
 const WITHOUT_SEARCHING = /\bwithout searching\b|不用搜索/i;
 
 const INTO_A_REPORT = /\binto a report\b|整理成报告/i;
+
+/** A Question whose first Passages fall short: the model searches once more, in its own words. */
+const SEARCH_TWICE = /\bsearch twice\b|搜两次/i;
+const ownWords = (question: string) =>
+  question
+    .replace(SEARCH_TWICE, "")
+    .replace(/[\s.?!。？！]+$/u, "")
+    .toLowerCase();
 
 /** A report of the Mind: each Citation it reads there recorded by its id, then a marker for each. */
 function reportReply(prompt: Prompt, question: string): Reply {
@@ -512,6 +527,45 @@ export function searchParts(tool: string, query: string): StreamPart[] {
   ];
 }
 
+const BY_REGION = /\bby region\b|按地区/i;
+const WITH_MANAGERS = /\bmanager|负责人/i;
+
+function analysisReply(prompt: Prompt, question: string, searched: string): Reply | null {
+  const ran = toolResults(prompt, "run_analysis");
+  const chinese = /\p{Script=Han}/u.test(question);
+  if (ran.length > 0) {
+    return {
+      text: chinese
+        ? "各地区收入如下：\n\n[=table 1]\n\n合计 [=1]。"
+        : "Revenue by region:\n\n[=table 1]\n\nIn total, [=1].",
+    };
+  }
+  const passages = passagesIn(searched);
+  const sales = passages.find((passage) => /sales|销售/i.test(passage.document));
+  if (!sales) return null;
+  const regions = passages.find((passage) => /regions|地区/i.test(passage.document));
+  const joining = WITH_MANAGERS.test(question) && regions;
+  const code = [
+    'sales = step("Read the sales", inputs["sales"])',
+    'sales["Revenue"] = pd.to_numeric(sales["Revenue"], errors="coerce")',
+    'totals = sales.groupby("Region", sort=True)["Revenue"].sum()',
+    'result("by_region", totals, "Revenue by region")',
+    'result("total", totals.sum(), "Total revenue")',
+    ...(joining ? ['merged = sales.merge(inputs["regions"], on="Region", how="left")'] : []),
+  ].join("\n");
+  return {
+    tool: "run_analysis",
+    input: {
+      title: chinese ? "各地区收入" : "Revenue by region",
+      inputs: [
+        { name: "sales", passage: sales.id },
+        ...(joining ? [{ name: "regions", passage: regions.id }] : []),
+      ],
+      code,
+    },
+  };
+}
+
 /** What the model does next, apart from Connector Tools: call a Tool, or stream its Answer. */
 export function answerReply(prompt: Prompt, tools: readonly string[]): Reply {
   const question = lastQuestion(prompt);
@@ -531,6 +585,28 @@ export function answerReply(prompt: Prompt, tools: readonly string[]): Reply {
       input: { query: question },
       reasoning: reasoningFor(question),
     };
+  }
+  const reply: Reply =
+    SEARCH_TWICE.test(question) && searches.length === 1
+      ? { tool: "search_documents", input: { query: ownWords(question) } }
+      : answerFrom(prompt, question, tools, searches, skill);
+  // Searched before its first call, the model thinks on the first call it makes itself.
+  return given || calledSinceQuestion(prompt)
+    ? reply
+    : { ...reply, reasoning: reasoningOnFound(question) };
+}
+
+/** What the model does once it has Passages to answer from. */
+function answerFrom(
+  prompt: Prompt,
+  question: string,
+  tools: readonly string[],
+  searches: readonly string[],
+  skill: string | null,
+): Reply {
+  if (tools.includes("run_analysis") && BY_REGION.test(question)) {
+    const reply = analysisReply(prompt, question, searches.at(-1) ?? "");
+    if (reply) return reply;
   }
   if (THINKING_ALOUD.test(question)) return { text: WORKING_NOTES };
   if (WITHOUT_CITING.test(question)) return { text: uncitedAnswer(question) };

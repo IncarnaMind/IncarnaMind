@@ -249,11 +249,9 @@ test("typing in the composer and pressing Enter shows the Question in the assist
   await expect(answer.getByTestId("answer-stop")).toHaveCount(0);
   const live = composer.getByTestId("composer-live");
   await expect(live).toHaveAttribute("aria-live", "polite");
-  await expect(live).toHaveText(/^(?:Writing the Answer…|Your Documents answer this[\s\S]*)$/);
+  await expect(live).toHaveText(/Writing the Answer…|Your Documents answer this/);
   await expect(answer).toHaveAttribute("data-status", "done", { timeout: 15_000 });
-  // The announcer reads a whole sentence at a time, up to 1.5 s apart, so a batch may already
-  // have read the first sentence, which the last text doesn't say again (#1741).
-  await expect(live).toHaveText(/^(?:.*\s)?The Answer is done\.$/);
+  await expect(live).toHaveText("Your Documents answer this. That is all. The Answer is done.");
   // The Mind is as it was written.
   await expect.poll(() => order(editor)).toEqual(["Spring tides come twice a month."]);
 
@@ -709,8 +707,8 @@ test("the model chip chooses the model for one Mind, which remembers it after a 
     await expect(options).toHaveText([/fake-model/, /other-model/]);
     await expect(options.first()).toHaveAttribute("aria-checked", "true");
     await expect(options.first()).toBeFocused();
-    await expect(menu).not.toContainText("For this Mind’s Questions.");
-    await expect(menu).toContainText("Default for new Minds: fake-model · Change in Settings");
+    await expect(menu).not.toContainText("For this note’s Questions.");
+    await expect(menu).toContainText("Default for new notes: fake-model · Change in Settings");
     // What stays on this computer says so with its icon, in ink-secondary: green is for checks.
     const stays = menu.getByTestId("on-this-computer").first();
     await expect(stays).toHaveCSS("color", "rgb(74, 79, 87)");
@@ -773,7 +771,7 @@ test("the model chip chooses the model for one Mind, which remembers it after a 
     await pointAndClick(window, window.getByTestId("composer-model"));
     const menuZh = window.getByTestId("composer-model-menu");
     await expect(menuZh.getByRole("group", { name: "在本机运行" })).toBeVisible();
-    await expect(menuZh).toContainText("新 Mind 的默认模型：fake-model · 在设置中更改");
+    await expect(menuZh).toContainText("新笔记的默认模型：fake-model · 在设置中更改");
     await screenshot(window, "composer-model-menu-zh");
     await window.keyboard.press("Escape");
     await screenshot(window, "composer-zh");

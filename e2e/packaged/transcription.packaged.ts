@@ -80,7 +80,10 @@ test("the packaged app transcribes a meeting from the microphone on this compute
     .getByTestId("meeting-transcript-line")
     .filter({ hasText: "Transcript saved" });
   await expect(saved).toBeVisible({ timeout: 5 * 60_000 });
-  expect(await readdir(output)).not.toHaveLength(0);
+  // Finished, it is kept in the Library: its file is the data folder's own, and the chosen
+  // Output location gets nothing (#763).
+  expect(await readdir(join(dataDir, "Transcripts"))).not.toHaveLength(0);
+  expect(await readdir(output)).toEqual([]);
 
   const speakers = lines.getByTestId("transcript-speaker");
   const failed = window

@@ -101,7 +101,25 @@ async function hashes(root: string): Promise<Record<string, string>> {
 }
 
 describe("The Output location", () => {
-  test("the first save goes to IncarnaMind in Documents without asking, making it, says it took the default, and later saves go there too (D209)", async () => {
+  test("does not resolve Documents while starting, and exposes the default through Core", async () => {
+    const data = await createTempDataFolder();
+    const resolveDocuments = vi.fn(() => join(data, "Documents"));
+    const core = startCore(data, {
+      paths: {
+        get documents() {
+          return resolveDocuments();
+        },
+      },
+    });
+    expect(resolveDocuments).not.toHaveBeenCalled();
+    expect(await core.getOutputSettings()).toMatchObject({
+      location: null,
+      suggested: join(data, "Documents", "IncarnaMind"),
+    });
+    expect(resolveDocuments).toHaveBeenCalledOnce();
+  });
+
+  test("the first save goes to IncarnaMind in Documents without asking, making it, says it took the default, and later saves go there too", async () => {
     const { core, save, suggested } = await setUp();
     expect(await core.getOutputSettings()).toEqual({
       location: null,
@@ -125,11 +143,21 @@ describe("The Output location", () => {
       unverifiedCitations: 0,
       questions: 0,
       word: null,
-      sentenceChecks: { contradicted: 0, unsupported: 0, needsRecheck: 0, commented: false },
+      sentenceChecks: {
+        contradicted: 0,
+        notFound: 0,
+        unsupported: 0,
+        needsRecheck: 0,
+        commented: false,
+      },
       trackedChanges: 0,
       unreadFiles: 0,
       unreadFileNames: false,
       needsDetails: [],
+      citedDocuments: 0,
+      numbered: true,
+      citationPlace: null,
+      markAiText: null,
     });
     expect(await readFile(join(location, "Tides.md"), "utf8")).toContain(
       "Spring tides come twice a month.",

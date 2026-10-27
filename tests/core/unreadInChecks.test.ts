@@ -3,11 +3,12 @@ import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import type { JSONContent } from "@tiptap/core";
 import { describe, expect, test, vi } from "vitest";
-import { type Core, MIND_CHECK_UNREAD_FIELD, type UnreadFile } from "../../src/core";
+import { type Core, type Logger, MIND_CHECK_UNREAD_FIELD, type UnreadFile } from "../../src/core";
+import { MAX_ROWS } from "../../src/core/documents/formats/grid";
 import { claimSpans } from "../../src/renderer/src/editor/claimChecks";
 import { checkUnreadOf } from "../../src/shared/unreadFiles";
 import { checkingModel, type Plan } from "../helpers/checks";
-import { createTempDataFolder, startCore } from "../helpers/core";
+import { createTempDataFolder, queryDatabase, startCore } from "../helpers/core";
 import { parseCsv } from "../helpers/csv";
 import {
   createSourceFolder,
@@ -20,12 +21,13 @@ import { lockedPdf } from "../helpers/lockedPdf";
 import { connectToMind, type MindClient } from "../helpers/mindClient";
 import { editMind, readMind, writeMind } from "../helpers/minds";
 import { scriptedModels } from "../helpers/models";
+import { xlsxOf } from "../helpers/office";
 import { buildPdf } from "../helpers/pdf";
 import { fakePrinter } from "../helpers/printer";
 
 /*
  * Checks say which files in their scope couldn't be read, and why (#740):
- * Check against Documents, Check this Mind and Verify keep, with the request
+ * Check against Documents, Check this note and Verify keep, with the request
  * that made their marks, the files their scope couldn't read as it started,
  * which the line beside them, the AI use statement and an export read back.
  */
@@ -63,14 +65,47 @@ async function linkedFolderWith(
   for (const [name, contents] of Object.entries(files)) {
     await writeSourceFile(library, name, contents);
   }
-  const core = startCore(await createTempDataFolder(), {
+  const dataDir = await createTempDataFolder();
+  const core = startCore(dataDir, {
     ...options,
     createChatModel: scriptedModels(checkingModel(PLANS)).createChatModel,
   });
   await core.saveChatProvider({ kind: "ollama", modelId: "local-model" });
   const harbour = await core.createLibraryGroup({ name: "Harbour", description: "" });
   await linkAndProcess(core, library, { groupId: harbour.id });
-  return { core, folderId: harbour.id, library };
+  return { core, folderId: harbour.id, library, dataDir };
+}
+
+/** Adds a Citation of Tides to a Mind, which a source pack needs. */
+async function citeTides(core: Core, mindId: string): Promise<void> {
+  const tides = (await core.listDocuments()).find((document) => document.name === "Tides");
+  if (!tides) throw new Error("No Tides.");
+  const client = await connectToMind(core, mindId);
+  editMind(client, (blocks) => [
+    ...blocks,
+    {
+      type: "paragraph",
+      attrs: { id: randomUUID() },
+      content: [
+        { type: "text", text: "The tides." },
+        {
+          type: "citation",
+          attrs: {
+            passageId: "passage-1",
+            documentId: tides.id,
+            documentName: tides.name,
+            contentHash: tides.contentHash,
+            pageFrom: 1,
+            pageTo: 1,
+            quote: "Spring tides happen at new moon and at full moon",
+            check: "found",
+            checkReason: null,
+          },
+        },
+      ],
+    },
+  ]);
+  await client.settled();
 }
 
 const withUnreadFiles = (options: Parameters<typeof startCore>[1] = {}) =>
@@ -191,7 +226,7 @@ describe("What a check couldn't read", () => {
     expect(named(await unreadOfChecks(client))).toEqual(UNREAD);
   });
 
-  test("Check this Mind names the same three", async () => {
+  test("Check this note names the same three", async () => {
     const { core, folderId } = await withUnreadFiles();
     const { mind, client } = await mindOf(core, folderId, [SUPPORTED, UNSUPPORTED]);
 
@@ -478,34 +513,7 @@ describe("An export", () => {
     const { core, folderId } = await withUnreadFiles({ printer });
     const { mind, check } = await mindOf(core, folderId, [SUPPORTED]);
     await check();
-    const tides = (await core.listDocuments()).find((document) => document.name === "Tides");
-    if (!tides) throw new Error("No Tides.");
-    const client = await connectToMind(core, mind.id);
-    editMind(client, (blocks) => [
-      ...blocks,
-      {
-        type: "paragraph",
-        attrs: { id: randomUUID() },
-        content: [
-          { type: "text", text: "The tides." },
-          {
-            type: "citation",
-            attrs: {
-              passageId: "passage-1",
-              documentId: tides.id,
-              documentName: tides.name,
-              contentHash: tides.contentHash,
-              pageFrom: 1,
-              pageTo: 1,
-              quote: "Spring tides happen at new moon and at full moon",
-              check: "found",
-              checkReason: null,
-            },
-          },
-        ],
-      },
-    ]);
-    await client.settled();
+    await citeTides(core, mind.id);
 
     await core.exportMind(mind.id, { format: "source-pack" });
     const counted = printed[0]?.body ?? "";
@@ -595,5 +603,202 @@ describe("The check record", () => {
     const csvName = readdirSync(out).find((name) => name.endsWith(".csv"));
     const rows = parseCsv(readFileSync(join(out, csvName ?? ""), "utf8"));
     expect(rows.some((each) => each[0] === "What couldn’t be read")).toBe(false);
+  });
+});
+
+/**
+ * A workbook is read in part without a word (#740): hidden and very hidden sheets are left
+ * out, and the reading limit cuts its rows. Both are named in the same list, with what the
+ * rest of the workbook says.
+ */
+describe("A workbook read in part", () => {
+  const BUDGET = "Budget 2026.xlsx";
+  const workbook = () =>
+    xlsxOf([
+      { name: "Visible", rows: [["Region"]] },
+      { name: "Q3 raw", state: "hidden", rows: [["Secret"], ["1"]] },
+      { name: "Q4 raw", state: "veryHidden", rows: [["Secret"], ["2"]] },
+      {
+        name: "Big",
+        rows: Array.from({ length: MAX_ROWS + 5 }, (_, index) => [`R${index + 1}`, index]),
+      },
+      { name: "After", rows: [["never read"]] },
+    ]);
+  const withWorkbook = (options: Parameters<typeof startCore>[1] = {}) =>
+    linkedFolderWith({ [BUDGET]: workbook() }, options);
+
+  test("the list names the hidden sheets and the rows past the limit, with the workbook", async () => {
+    const { core } = await withWorkbook();
+
+    expect(await core.listUnreadFiles(null)).toMatchObject([
+      {
+        name: BUDGET,
+        reason: "parts",
+        parts: {
+          hiddenSheets: ["Q3 raw", "Q4 raw"],
+          rowsCut: [{ sheet: "Big", from: MAX_ROWS }],
+          sheetsNotRead: ["After"],
+        },
+      },
+    ]);
+  });
+
+  test("an export counts them, and names them only when the Mind names the files", async () => {
+    const { core, folderId } = await withWorkbook();
+    const { mind, check } = await mindOf(core, folderId, [SUPPORTED]);
+    await check();
+
+    const counted = await markdownOf(core, mind.id);
+    expect(counted).toContain("1 file couldn’t be read");
+    expect(counted).toContain("2 hidden sheets weren’t read");
+    expect(counted).toContain("2 sheets have rows that weren’t read");
+    expect(counted).not.toContain(BUDGET);
+    expect(counted).not.toContain("Q3 raw");
+
+    await core.setMindUnreadFileNames(mind.id, true);
+    const named = await markdownOf(core, mind.id);
+    expect(named).toContain(
+      "Budget 2026.xlsx: the hidden sheets “Q3 raw”, “Q4 raw” weren’t read; “Big”: rows 20,000+ weren’t read; “After”: the whole sheet wasn’t read",
+    );
+  });
+
+  test("an unticked export names neither the workbook nor its sheets, in every format", async () => {
+    const { printed, printer } = fakePrinter();
+    const { core, folderId } = await withWorkbook({ printer });
+    const { mind, check } = await mindOf(core, folderId, [SUPPORTED]);
+    await check();
+    await citeTides(core, mind.id);
+
+    const markdown = await markdownOf(core, mind.id);
+    const html = new TextDecoder().decode(
+      (await core.exportMind(mind.id, { format: "html" })).data,
+    );
+    const docx =
+      unzip((await core.exportMind(mind.id, { format: "docx" })).data)
+        .get("word/document.xml")
+        ?.toString("utf8") ?? "";
+    const before = printed.length;
+    await core.exportMind(mind.id, { format: "pdf" });
+    await core.exportMind(mind.id, { format: "source-pack" });
+    const pdf = printed[before]?.body ?? "";
+    const pack = printed[before + 1]?.body ?? "";
+
+    for (const said of [markdown, html, docx, pdf, pack]) {
+      for (const secret of [BUDGET, "Q3 raw", "Q4 raw", "Big", "After"]) {
+        expect(said).not.toContain(secret);
+      }
+    }
+    // It still says what it was made without, counted.
+    expect(markdown).toContain("2 hidden sheets weren’t read");
+    expect(markdown).toContain("2 sheets have rows that weren’t read");
+    expect(pack).toContain("2 hidden sheets weren’t read");
+  });
+
+  test("names no hidden sheet of a workbook its checks never tried", async () => {
+    const { core, folderId } = await withWorkbook();
+    const personal = await core.createLibraryGroup({ name: "Personal", description: "" });
+    const elsewhere = await createSourceFolder();
+    await writeSourceFile(
+      elsewhere,
+      "Salaries.xlsx",
+      xlsxOf([
+        { name: "Salaries Secret", state: "hidden", rows: [["Fund"]] },
+        { name: "Visible", rows: [["Region"]] },
+      ]),
+    );
+    await linkAndProcess(core, elsewhere, { groupId: personal.id });
+
+    const { mind, check } = await mindOf(core, folderId, [SUPPORTED]);
+    await check();
+    await core.setMindUnreadFileNames(mind.id, true);
+
+    const named = await markdownOf(core, mind.id);
+    expect(named).toContain("Q3 raw");
+    expect(named).not.toContain("Salaries");
+    expect(named).not.toContain("Salaries Secret");
+  });
+
+  test("the AI use statement names no hidden sheet until the Mind asks", async () => {
+    const { core, folderId } = await withWorkbook();
+    const { mind, check } = await mindOf(core, folderId, [SUPPORTED, UNSUPPORTED]);
+    await check();
+
+    const unticked = readMind(
+      await connectToMind(core, (await core.createAiUseStatement(mind.id)).id),
+    );
+    expect(unticked.textContent).toContain("2 hidden sheets weren’t read");
+    expect(unticked.textContent).not.toContain(BUDGET);
+    expect(unticked.textContent).not.toContain("Q3 raw");
+
+    await core.setMindUnreadFileNames(mind.id, true);
+    const ticked = readMind(
+      await connectToMind(core, (await core.createAiUseStatement(mind.id)).id),
+    );
+    expect(ticked.textContent).toContain(BUDGET);
+    expect(ticked.textContent).toContain("Q3 raw");
+  });
+
+  test("a stored value that can't be read says some of it wasn't read, never that all was", async () => {
+    const warnings: string[] = [];
+    const log: Logger = {
+      info: () => {},
+      warn: (event) => warnings.push(event),
+      error: () => {},
+    };
+    const { core, folderId, dataDir } = await withWorkbook({ log });
+    const { mind, check } = await mindOf(core, folderId, [SUPPORTED]);
+    const budget = (await core.listDocuments()).find((document) => document.name === "Budget 2026");
+    if (!budget) throw new Error("No workbook.");
+    queryDatabase(dataDir, "UPDATE documents SET unread_parts = ? WHERE id = ?", [
+      '{"hiddenSheets":"Q3 raw"}',
+      budget.id,
+    ]);
+    await check();
+
+    const found = (await core.listUnreadFiles(null)).find((file) => file.name === BUDGET);
+    expect(found).toMatchObject({ reason: "parts" });
+    expect(found?.parts).toBeUndefined();
+    expect(
+      (await core.listDocuments()).find((document) => document.id === budget.id)
+        ?.unreadPartsUnknown,
+    ).toBe(true);
+    expect(warnings).toContain("documents.unreadPartsUnreadable");
+
+    await core.setMindUnreadFileNames(mind.id, true);
+    expect(await markdownOf(core, mind.id)).toContain(
+      "Budget 2026.xlsx: Some of it hasn’t been read.",
+    );
+  });
+
+  test("the check record names the workbook and what it didn't read, in English and Chinese", async () => {
+    const out = await createTempDataFolder();
+    const { printed, printer } = fakePrinter();
+    const { core, folderId } = await withWorkbook({ printer });
+    await core.setOutputLocation(out);
+    const { mind, check } = await mindOf(core, folderId, [SUPPORTED]);
+    await check();
+
+    const saved = await core.saveCheckRecord(mind.id);
+
+    if (saved.status !== "saved") throw new Error(`Not saved: ${saved.status}`);
+    expect(printed[0]?.body ?? "").toContain(
+      "Budget 2026.xlsx: the hidden sheets “Q3 raw”, “Q4 raw”",
+    );
+    const csvName = readdirSync(out).find((name) => name.endsWith(".csv"));
+    const rows = parseCsv(readFileSync(join(out, csvName ?? ""), "utf8"));
+    expect(rows.find((each) => each[0] === "What couldn’t be read")?.[1]).toContain(
+      "“Big”: rows 20,000+ weren’t read; “After”: the whole sheet wasn’t read",
+    );
+
+    const chinese = await createTempDataFolder();
+    await core.updateSettings({ user: { language: "zh-CN" } });
+    await core.setOutputLocation(chinese);
+    const again = await core.saveCheckRecord(mind.id);
+    if (again.status !== "saved") throw new Error(`Not saved: ${again.status}`);
+    const zhName = readdirSync(chinese).find((name) => name.endsWith(".csv"));
+    const zhRows = parseCsv(readFileSync(join(chinese, zhName ?? ""), "utf8"));
+    expect(zhRows.find((each) => each[0] === "未能读取的文件")?.[1]).toContain(
+      "Budget 2026.xlsx：隐藏工作表“Q3 raw”、“Q4 raw”未读取；“Big”：第 20,000 行及之后的内容未读取；“After”：整张工作表未读取",
+    );
   });
 });

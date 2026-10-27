@@ -17,6 +17,7 @@ import { shownDocumentName } from "../../../../shared/citations";
 import { citationLocation, formatLocation } from "../../../../shared/locations";
 import { mindName } from "../../../../shared/naming";
 import { NO_SCOPE } from "../../../../shared/searchScope";
+import { analysisCallText } from "../../analysisCall";
 import {
   type FoldedLine,
   foldedLine,
@@ -348,6 +349,8 @@ function liveText(
       return checkingWords(t, step.count);
     case "checking-figures":
       return t("answer.phase.checking-figures");
+    case "checking-claims":
+      return t("answer.phase.checking-claims");
   }
 }
 
@@ -368,6 +371,7 @@ function runningText(
   }
   if (call.source === "sources") return t("sources.call.running", { query: field(call, "query") });
   if (call.source === "minds") return mindCallText(t, call, mindOf(call));
+  if (call.source === "analysis") return analysisCallText(t, call);
   if (call.source === "commands") return commandCallText(t, call);
   if (call.source === "asks") return askCallText(t, call);
   if (call.source === "web") {
