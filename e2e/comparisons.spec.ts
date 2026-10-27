@@ -82,6 +82,13 @@ const bridge = (window: Page) => ({
         ).find((document) => document.name === wanted)?.id ?? "",
       name,
     ),
+  /** A monthly cap, so the estimate shows under it even for a run that costs less than a dollar (#1941). */
+  cap: () =>
+    window.evaluate(() =>
+      (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind.updateSettings({
+        user: { monthlyCap: { amount: 20, currency: "USD" } },
+      }),
+    ),
   deleteDocument: (id: string) =>
     window.evaluate(
       (documentId) =>
@@ -144,16 +151,20 @@ test("Compare Documents from “/”: 3 Documents × 2 Questions fill as a chang
   await setWindowSize(app, window, 1440, 860);
   await acceptPlainTextKeys(window);
   await bridge(window).cloudModel();
+  await bridge(window).cap();
   await addSuppliers(window);
 
   const sheet = await openSheetFromSlash(window);
   await expect(sheet.getByTestId("compare-sheet-counted")).toHaveText("3 of 3");
   await expect(sheet.getByTestId("compare-sheet-document")).toHaveCount(3);
   await typeQuestions(window, ["Termination notice", "Liability cap (busy)"]);
-  // A cloud model billed per token: the estimate shows before the run.
-  await expect(sheet.getByTestId("compare-sheet-estimate")).toContainText(
-    "About $0.0095 · 18 model calls",
+  // A cloud model billed per token under a monthly cap: the estimate shows before the run, and
+  // never says model calls.
+  const estimateLine = sheet.getByTestId("compare-sheet-estimate");
+  await expect(estimateLine).toHaveText(
+    /^About \$[\d.,]+ · [\d.,]+[KMB]? tokens · \$[\d.,]+ of \$20\.00 used this month$/,
   );
+  await expect(estimateLine).not.toContainText("model calls");
   await screenshot(window, "compare-sheet-en-1440");
   await pointAndClick(window, sheet.getByTestId("compare-sheet-make"));
 
@@ -548,6 +559,7 @@ for (const { language, width } of SCOPE_VARIANTS) {
     await setWindowSize(app, window, width, 860);
     await acceptPlainTextKeys(window);
     await bridge(window).cloudModel();
+    await bridge(window).cap();
     await addLibrary(window, 22);
 
     const sheet = await openSheetFromPlusMenu(window);
@@ -576,7 +588,12 @@ for (const { language, width } of SCOPE_VARIANTS) {
     await expect(counted).toHaveText(words.counted(1, 22));
     await expect(make).toBeEnabled();
     await expect(selectAll).toHaveJSProperty("indeterminate", true);
-    await expect(estimate).toContainText("$0.00");
+    const estimateText =
+      language === "zh-CN"
+        ? /^约 \$[\d.,]+ · [^\s·]+ token · 本月已用 \$[\d.,]+，上限 \$20\.00$/
+        : /^About \$[\d.,]+ · [^\s·]+ tokens · \$[\d.,]+ of \$20\.00 used this month$/;
+    await expect(estimate).toHaveText(estimateText);
+    await expect(estimate).not.toContainText("model calls");
     const [estimateBox, makeBox, sheetBox] = [
       await estimate.boundingBox(),
       await make.boundingBox(),
@@ -659,6 +676,7 @@ test("a tick doesn't move the sheet: the estimate stays on show while the next o
   await setWindowSize(app, window, 900, 860);
   await acceptPlainTextKeys(window);
   await bridge(window).cloudModel();
+  await bridge(window).cap();
   await addLibrary(window, 12);
 
   const sheet = await openSheetFromPlusMenu(window);
@@ -666,7 +684,9 @@ test("a tick doesn't move the sheet: the estimate stays on show while the next o
   const estimate = sheet.getByTestId("compare-sheet-estimate");
   await typeQuestions(window, ["Termination notice"]);
   await pointAndClick(window, boxes.first());
-  await expect(estimate).toContainText("About $");
+  await expect(estimate).toHaveText(
+    /^About \$[\d.,]+ · [\d.,]+[KMB]? tokens · \$[\d.,]+ of \$20\.00 used this month$/,
+  );
 
   // A flash lasts a frame or two, so it is sampled on every frame rather than polled for.
   await window.evaluate(() => {
@@ -684,7 +704,9 @@ test("a tick doesn't move the sheet: the estimate stays on show while the next o
   });
   for (const index of [1, 2, 3, 4, 5]) await pointAndClick(window, boxes.nth(index));
   await expect(sheet.getByTestId("compare-sheet-counted")).toHaveText("6 of 12");
-  await expect(estimate).toContainText("18 model calls");
+  await expect(estimate).toHaveText(
+    /^About \$[\d.,]+ · [\d.,]+[KMB]? tokens · \$[\d.,]+ of \$20\.00 used this month$/,
+  );
   const frames = await window.evaluate(() => {
     const { sampler } = globalThis as unknown as {
       sampler: { running: boolean; frames: { estimate: boolean; height: number }[] };

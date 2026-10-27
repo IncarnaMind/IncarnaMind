@@ -708,6 +708,12 @@ export function createChecks(options: ChecksOptions) {
     /** A Document's status changed: a new version has its Folder's Minds checked for contradictions. */
     documentChanged: (document: Document) => watch.documentChanged(document),
 
+    /** A Note joined a Folder: the background watch a change in the Folder's contents starts. */
+    mindJoinedFolder: (mindId: string) => watch.mindJoinedFolder(mindId),
+
+    /** Documents joined a Folder: its Notes' background watch, as for a new version there. */
+    folderContentsChanged: (folderId: string) => watch.folderContentsChanged(folderId),
+
     /** Starts watching for new versions of Documents. */
     startWatching: () => watch.start(),
 
