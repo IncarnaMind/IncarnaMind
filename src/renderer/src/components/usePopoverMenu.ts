@@ -11,6 +11,7 @@ import {
 } from "react";
 import { type Box, enterFrom, exitToward } from "../motion";
 import { isSlidingTo, type Point } from "./submenuSlide";
+import { useFocusReturn } from "./useFocusReturn";
 
 const GAP_PX = 4;
 const EDGE_PX = 8;
@@ -270,20 +271,10 @@ export function usePopoverMenu({
   const entered = useRef(false);
   const apex = useRef<Point | null>(null);
   const crossing = useRef<{ row: Element; timer: number } | null>(null);
-  /**
-   * What had the focus when the menu opened: its button, clicked or keyed, or where the User was
-   * in the window when it opened without one (Show Tasks has no button in the band to focus).
-   */
-  const returnTo = useRef<HTMLElement | null>(null);
+  /** Where the User was when the menu opened, to give the focus back to. */
+  const focusReturn = useFocusReturn();
   /** Esc asked for the focus back: it is given once the popover has closed (see `onToggle`). */
   const returnWanted = useRef(false);
-
-  /** Esc puts the focus back where the User was: never on a button that can't show it. */
-  const returnFocus = () => {
-    const target = returnTo.current;
-    if (target && target !== document.body && target.isConnected) target.focus();
-    else if (button.current && !button.current.hasAttribute("aria-hidden")) button.current.focus();
-  };
 
   const stopCrossing = () => {
     if (crossing.current) window.clearTimeout(crossing.current.timer);
@@ -411,8 +402,7 @@ export function usePopoverMenu({
         if (event.newState === "open") {
           touched.current = false;
           returnWanted.current = false;
-          returnTo.current =
-            document.activeElement instanceof HTMLElement ? document.activeElement : null;
+          focusReturn.remember();
         }
         setOpen(event.newState === "open");
       },
@@ -425,11 +415,7 @@ export function usePopoverMenu({
         if (event.newState === "closed") {
           if (!returnWanted.current) return;
           returnWanted.current = false;
-          // A caller that already gave the focus a place after the close (a row's menu back to
-          // its row) keeps it; only a focus on the page or still in the popover is returned.
-          const focused = document.activeElement;
-          const inMenu = menu.current?.contains(focused) === true;
-          if (focused === null || focused === document.body || inMenu) returnFocus();
+          focusReturn.giveBack(menu.current, button.current);
           return;
         }
         if (touched.current) return;
