@@ -887,14 +887,38 @@ export async function ollamaListing(models: string[], { delayMs = 0 }: { delayMs
 }
 
 /**
- * Continue on the setup card, once a key or sign-in works and the card says what each job uses:
- * the Question that waited is asked then, and the composer takes the card's place.
+ * Steps 2 and 3 of the setup card, once a key or sign-in works (#1922): each is one click, and
+ * the composer takes the card's place. The Question that waited is asked as step 1 works.
  */
 export async function continueSetup(window: Page): Promise<void> {
-  const next = window.getByTestId("setup-continue");
-  await expect(next).toBeVisible();
-  await pointAndClick(window, next);
-  await expect(window.getByTestId("model-setup")).toBeHidden();
+  const card = window.getByTestId("model-setup");
+  await expect(card.getByTestId("setup-ready-title")).toBeVisible({ timeout: 15_000 });
+  const transcription = card.getByTestId("setup-transcription-use");
+  if (await transcription.isVisible()) await pointAndClick(window, transcription);
+  const sorting = card.getByTestId("setup-sorting-use");
+  await expect(sorting).toBeVisible();
+  await expect(sorting).toBeEnabled();
+  await pointAndClick(window, sorting);
+  await expect(card).toBeHidden();
+}
+
+/**
+ * Opens the key form where a key's own form names no service we list (#1922): the field says so,
+ * and its way on picks the service.
+ */
+export async function openServiceList(
+  window: Page,
+  card: Locator,
+  key = "sk-unknown",
+): Promise<void> {
+  const field = card.getByTestId("setup-key");
+  await field.fill(key);
+  await field.press("Enter");
+  await pointAndClick(window, card.getByTestId("setup-key-choose-service"));
+  const form = card.getByTestId("provider-form");
+  await expect(form).toBeVisible();
+  // The key only reached the list: the form starts as it would from Settings.
+  await form.locator('input[type="password"]').fill("");
 }
 
 /**
@@ -982,13 +1006,17 @@ export async function addProviderPage(settings: Locator, catalogId: string): Pro
   return page;
 }
 
-/** In Settings › Models, opens Advanced while it's folded (#1570). Returns the Tagging section in it. */
+/**
+ * In Settings › Models, opens Advanced (#1570). Returns the Tagging section in it. It may already
+ * be open, as it is once first run has chosen what sorts (#1922).
+ */
 export async function openAdvancedModels(settings: Locator): Promise<Locator> {
   const advanced = settings.getByTestId("models-advanced");
   const toggle = advanced.getByTestId("models-advanced-toggle");
   await expect(toggle).toBeVisible();
-  await expect(advanced).not.toHaveAttribute("open");
-  await toggle.click();
+  if (!(await advanced.evaluate((element) => element.hasAttribute("open")))) {
+    await toggle.click();
+  }
   await expect(advanced).toHaveAttribute("open", "");
   const tagging = advanced.getByTestId("tagging-settings");
   await expect(tagging).toBeVisible();
@@ -2085,7 +2113,7 @@ export async function checkCard(window: Page, scope: Page | Locator = window): P
       }).toPass();
     } else {
       const chinese = (await window.evaluate(() => document.documentElement.lang)) === "zh-CN";
-      const command = chinese ? "句子和引用" : "Sentences and Citations";
+      const command = chinese ? "说法和引用" : "Claims and Citations";
       await window.keyboard.press("ControlOrMeta+k");
       await expect(window.getByTestId("palette-search")).toBeFocused();
       await window.keyboard.type(command);
@@ -2973,11 +3001,13 @@ export async function menuCommands(menu: Locator): Promise<string[]> {
   );
 }
 
-/** Clicks the empty foot of the sidebar's tree, so the focus isn't in text and ⌘Z goes to the app's changes. */
+/** Clicks the empty top padding of the sidebar's tree, so the focus isn't in text and ⌘Z goes to the app's changes. */
 export async function leaveText(window: Page): Promise<void> {
   const box = await window.getByTestId("sidebar-tree").boundingBox();
   if (!box) throw new Error("The sidebar isn't showing.");
-  await window.mouse.move(box.x + box.width / 2, box.y + box.height - 8, { steps: 8 });
+  // The top padding: the foot moves as the footer's lines come and go, and a click meant to
+  // leave the text must never land on a row or the undo line.
+  await window.mouse.move(box.x + box.width / 2, box.y + 4, { steps: 8 });
   await window.mouse.down();
   await window.mouse.up();
 }
