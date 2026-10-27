@@ -63,11 +63,11 @@ test("the quiet first open keeps the example's marks to its margin, but a check 
   await expect(window.getByTestId("claim-mark")).toHaveCount(1, { timeout: 30_000 });
   await expect(window.getByTestId("check-badge")).toHaveCount(0);
 
-  // No model yet: Check this note can't run, and says so where the User asked.
+  // No model yet: Check can't run, and says so where the User asked.
   await window.keyboard.press("ControlOrMeta+k");
   await expect(window.getByTestId("palette-search")).toBeFocused();
-  await window.keyboard.type("Check this note");
-  await window.getByTestId("palette-item").filter({ hasText: "Check this note" }).first().click();
+  await window.keyboard.type("check this note");
+  await window.getByTestId("palette-item").filter({ hasText: "Checks this note" }).first().click();
   await expect(window.getByTestId("check-badge")).toBeVisible();
   await expect(window.getByTestId("check-card")).toBeVisible();
   await app.close();
