@@ -1,7 +1,9 @@
-import type { AnalysisTable } from "../../shared/analysis";
+import type { AnalysisCell, AnalysisTable } from "../../shared/analysis";
+import { figureCellText, figureText, rawColumn } from "../../shared/figures";
 import type { AnswerAnalysis } from "../api";
+import type { Language } from "../language";
 
-const count = (n: number) => n.toLocaleString("en-US");
+const count = (n: number) => figureText("en", n);
 
 const rowsOf = (n: number) => `${count(n)} ${n === 1 ? "row" : "rows"}`;
 
@@ -12,11 +14,14 @@ function stepLine(rows: number, before: number | null): string {
   return `${rowsOf(before)} → ${rowsOf(rows)} (${change})`;
 }
 
-function tableText(table: AnalysisTable, shownRows: number): string {
-  const cell = (value: unknown) =>
-    value === null ? "" : String(value).replaceAll("|", "\\|").replaceAll("\n", " ");
+const escaped = (text: string): string => text.replaceAll("|", "\\|").replaceAll("\n", " ");
+
+function tableText(table: AnalysisTable, shownRows: number, language: Language): string {
+  const raw = table.columns.map(rawColumn);
+  const cell = (value: AnalysisCell, at: number) =>
+    escaped(figureCellText(language, value, raw[at] ?? false));
   const lines = [
-    `| ${table.columns.map(cell).join(" | ")} |`,
+    `| ${table.columns.map(escaped).join(" | ")} |`,
     `|${table.columns.map(() => "---").join("|")}|`,
     ...table.rows.slice(0, shownRows).map((row) => `| ${row.map(cell).join(" | ")} |`),
   ];
@@ -27,7 +32,7 @@ function tableText(table: AnalysisTable, shownRows: number): string {
 
 const ROWS_READ = 20;
 
-export function analysisReport(analysis: AnswerAnalysis): string {
+export function analysisReport(analysis: AnswerAnalysis, language: Language): string {
   const { output, end } = analysis;
   const lines = [`Analysis ${analysis.number}: ${analysis.title}`];
   lines.push("Inputs:");
@@ -84,7 +89,7 @@ export function analysisReport(analysis: AnswerAnalysis): string {
     lines.push(`Printed:\n${output.printed.trimEnd()}${output.cut.printed ? "\n(cut)" : ""}`);
   }
   if (end.kind === "done") {
-    const results = resultLines(analysis);
+    const results = resultLines(analysis, language);
     if (results.length > 0) lines.push("Results:", ...results);
   } else {
     lines.push("Its figures, tables and charts can't be used because this run did not finish.");
@@ -99,7 +104,7 @@ export function analysisReport(analysis: AnswerAnalysis): string {
   return lines.join("\n");
 }
 
-function resultLines(analysis: AnswerAnalysis): string[] {
+function resultLines(analysis: AnswerAnalysis, language: Language): string[] {
   const lines: string[] = [];
   const figure = new Map(analysis.markers.figures.map((each) => [each.result, each.marker]));
   const table = new Map(analysis.markers.tables.map((each) => [each.result, each.marker]));
@@ -107,13 +112,13 @@ function resultLines(analysis: AnswerAnalysis): string[] {
     const unit = result.unit ? ` ${result.unit}` : "";
     if (result.kind === "figure") {
       const marker = figure.get(result.name);
-      lines.push(`- [=${marker}] ${result.label}: ${result.value}${unit}`);
+      lines.push(`- [=${marker}] ${result.label}: ${figureText(language, result.value)}${unit}`);
     } else {
       const marker = table.get(result.name);
       const { rowCount, columnCount } = result.table;
       lines.push(
         `- [=table ${marker}] ${result.label}${unit}: ${rowsOf(rowCount)} × ${columnCount} columns`,
-        tableText(result.table, ROWS_READ),
+        tableText(result.table, ROWS_READ, language),
       );
     }
   }

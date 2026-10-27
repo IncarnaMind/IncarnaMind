@@ -579,3 +579,124 @@ describe("an Analysis an Answer runs", () => {
     expect(offered.at(-1)).toBe(true);
   });
 });
+
+describe("an Analysis table writes its numbers as the Answer's language does (#2102)", () => {
+  const table = (name: string, columns: string[], rows: (string | number)[][]) => ({
+    kind: "table" as const,
+    name,
+    label: name,
+    unit: null,
+    table: { columns, rows, rowCount: rows.length, columnCount: columns.length },
+  });
+
+  const amounts = table(
+    "amounts",
+    ["Region", "Revenue"],
+    [
+      ["North", 7509964],
+      ["South", -1284.5],
+      ["East", 0.7717546362339514],
+      ["Precise", 12.5],
+    ],
+  );
+  const strings = table(
+    "strings",
+    ["Region", "Revenue"],
+    [
+      ["North", 7509964],
+      ["South", "7509964"],
+      ["East", "7,509,964"],
+      ["West", "n/a"],
+      ["Padded", "12.50"],
+      ["Huge", "9007199254740993"],
+    ],
+  );
+  const identifiers = table(
+    "identifiers",
+    ["ID", "Code", "No.", "number", "编号", "代码", "序号"],
+    [[7509964, "7509964", 1284, 2024, 7509964, "0012", 2026]],
+  );
+  const periods = table(
+    "periods",
+    [
+      "Year",
+      "FY",
+      "Period",
+      "Quarter",
+      "Fiscal year",
+      "Financial year",
+      "Reporting period",
+      "年",
+      "年份",
+      "年度",
+      "期间",
+      "季度",
+      "财年",
+      "会计年度",
+      "报告期",
+    ],
+    [Array.from({ length: 15 }, () => 2026)],
+  );
+  const headings = table(
+    "headings",
+    [
+      "Year (FY)",
+      "年份（财年）",
+      "Period (quarter)",
+      "Revenue per year (£)",
+      "Yearly revenue",
+      "年收入",
+      "FY 2024",
+    ],
+    [[2026, 2026, 2026, 1284, 1284, 1284, 2024]],
+  );
+  const chart = {
+    kind: "bar" as const,
+    title: "Revenue",
+    x: "Region",
+    y: ["Revenue"],
+    table: {
+      columns: ["Region", "Revenue"],
+      rows: [["North", 7509964]],
+      rowCount: 1,
+      columnCount: 2,
+    },
+  };
+
+  const answer = "[=table 1]\n\n[=table 2]\n\n[=table 3]\n\n[=table 4]\n\n[=table 5]\n\n[=chart 1]";
+
+  test.each([
+    ["en", "What were the figures?"],
+    ["zh-CN", "这些数字分别是多少？"],
+  ])("%s groups every thousand and keeps identifiers and periods raw", async (_language, asked) => {
+    const model = analysingModel({ query: "revenue", runs: [salesRun()], answer });
+    const { core } = await setUp(model, () => ({
+      output: {
+        results: [amounts, strings, identifiers, periods, headings],
+        charts: [chart],
+      },
+    }));
+
+    const { answer: read } = await askAndRead(core, asked);
+
+    expect(read.text).toContain("| North | 7,509,964 |");
+    expect(read.text).toContain("| South | -1,284.5 |");
+    expect(read.text).toContain("| East | 0.7718 |");
+    expect(read.text).toContain("| Precise | 12.5 |");
+    expect(read.text).toContain("| South | 7,509,964 |");
+    expect(read.text).toContain("| East | 7,509,964 |");
+    expect(read.text).toContain("| West | n/a |");
+    expect(read.text).toContain("| Padded | 12.50 |");
+    expect(read.text).toContain("| Huge | 9007199254740993 |");
+    expect(read.text).toContain("| 7509964 | 7509964 | 1284 | 2024 | 7509964 | 0012 | 2026 |");
+    expect(read.text).toContain(
+      "| 2026 | 2026 | 2026 | 2026 | 2026 | 2026 | 2026 | 2026 | 2026 | 2026 | 2026 | 2026 | 2026 | 2026 | 2026 |",
+    );
+    expect(read.text).toContain("| 2026 | 2026 | 2026 | 1,284 | 1,284 | 1,284 | 2,024 |");
+    expect(read.text).toContain("| North | 7,509,964 |");
+    expect(read.text).not.toContain("| North | 7509964 |");
+
+    // The report the model reads writes the same table the same way.
+    expect(told(model, "run_analysis")[0]).toContain("| North | 7,509,964 |");
+  });
+});

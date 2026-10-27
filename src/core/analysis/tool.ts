@@ -1,4 +1,5 @@
 import { type AnalysisInput, type AnalysisValue, noAnalysisOutput } from "../../shared/analysis";
+import { figureText } from "../../shared/figures";
 import {
   FORMULA_VERSION,
   type FormulaResult,
@@ -193,7 +194,7 @@ export function analysisTool(options: AnalysisToolOptions): Tool {
       value: result.value,
       unit,
       approximate: false,
-      shown: shown.ok ? shown.shown : String(result.value),
+      shown: shown.ok ? shown.shown : figureText(options.language, result.value),
       show,
       literals: [],
       engine: FORMULA_VERSION,
@@ -303,7 +304,7 @@ export function analysisTool(options: AnalysisToolOptions): Tool {
         markers,
       };
       options.ran(toolCallId, analysis);
-      return analysisReport(analysis);
+      return analysisReport(analysis, options.language);
     },
   };
 }
