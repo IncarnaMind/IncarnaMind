@@ -8,7 +8,7 @@ import { ProblemLine } from "../components/ProblemLine";
 import { buttonStyle } from "../components/ui";
 import { type EstimateLine, runStopParts } from "../cost";
 import { useLanguage, useT } from "../i18n";
-import { checkMind, dismissMindCheck, startMindCheck, useMindCheck } from "../mindCheck";
+import { confirmCheck, dismissMindCheck, startMindCheck, useMindCheck } from "../mindCheck";
 import { shownClaims } from "./claimChecks";
 
 /**
@@ -54,7 +54,7 @@ export function AskBlock({
   );
 }
 
-/** Check this Mind's question (#737): "Check this Mind's 48 claims against this Folder's Documents?" */
+/** The one Check's question (#1941): "Check this Note's 48 claims against this Folder's Documents?" */
 export function MindCheckAsk({ mindId }: { mindId: string }) {
   const t = useT();
   const language = useLanguage();
@@ -77,7 +77,7 @@ export function MindCheckAsk({ mindId }: { mindId: string }) {
       check={{
         label: t("mindCheck.check"),
         testId: "mind-check-check",
-        onClick: () => void checkMind(mindId, asking.mode, { allDocuments: asking.allDocuments }),
+        onClick: () => void confirmCheck(mindId),
       }}
       notNow={{
         label: t("mindCheck.cancel"),

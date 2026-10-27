@@ -133,6 +133,7 @@ npm install && npm run dev
 
 - **要花钱吗？** 不用，开源免费（Apache 2.0 许可证）。模型的费用由提供它的服务收取，或者由你已有的订阅承担。
 - **和 NotebookLM（现名 Gemini Notebook）有什么不同？** 它在你的电脑上运行，文件在原处读取，不需要账号。模型由你来选，点开引用就到原文那一页，能核对你自己写的草稿，还能导出带脚注的 Word。其余见上面的比较表。
+- **核对会漏掉什么吗？** 会：可能漏掉义务的变化，比如把“可以”写成“应当”。
 - **能用哪些模型？** 最省事的是填一个 DeepSeek 密钥（设置里有“如何获取？”）。也可以用通义千问、硅基流动、Kimi、智谱 GLM、OpenAI、Anthropic、Google、OpenRouter、Mistral、xAI 的密钥，或任何兼容 OpenAI 接口的服务；还能直接登录 ChatGPT Plus 或 Pro、Claude、GitHub Copilot（实验性），登录之前不会启用。
 - **能离线用吗？** 读取文件和搜索可以离线。回答和核对需要模型：云端模型，或通过 Ollama 运行的本地模型，后者更慢。
 - **能用在客户文件上吗？** 你的文件留在你的电脑上，只有你选的模型和你允许的服务会收到内容。请先看[客户数据声明](docs/client-data-statement.zh-CN.md)。

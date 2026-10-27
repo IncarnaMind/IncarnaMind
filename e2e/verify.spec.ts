@@ -21,7 +21,7 @@ import {
 } from "./app";
 
 /*
- * Verify (#97): "Verify a document…" in the + menu takes a PDF someone else
+ * Verify (#97): "Check someone else’s PDF…" in the + menu takes a PDF someone else
  * wrote. It opens beside the Mind made of its text, whose claims are found;
  * the check badge's card checks them, and each gets a mark in the margin.
  * The scripted model (src/main/fakeChat/) takes every sentence but
@@ -81,7 +81,7 @@ async function readyToVerify({ app, window }: Awaited<ReturnType<typeof launch>>
   await interceptOpenDialog(app, join(sources, "Harbour report.pdf"));
 }
 
-/** "Verify a document…" from the + menu. */
+/** "Check someone else’s PDF…" from the + menu. */
 async function verifyFromPlusMenu(window: Page, label: string) {
   await pointAndClick(window, window.getByTestId("plus-menu"));
   await pointAndClick(window, window.getByTestId("plus-more"));
@@ -99,7 +99,7 @@ test("Verify a PDF: its Mind opens beside it, its claims are checked, and the co
   await readyToVerify(running);
   await setWindowSize(app, window, 1440, 900);
 
-  await verifyFromPlusMenu(window, "Verify a document…");
+  await verifyFromPlusMenu(window, "Check someone else’s PDF…");
 
   await expect(frontMindName(window)).toHaveText("Checking: Harbour report");
   // The question opens the badge's card by itself.
@@ -117,7 +117,7 @@ test("Verify a PDF: its Mind opens beside it, its claims are checked, and the co
   await expect(check).toHaveText("Check 4 claims");
   await expect(ask).toContainText("Check it against your Documents?");
   await expect(window.getByTestId("check-badge-open")).toHaveAccessibleName(
-    "Sentences and Citations: 4 claims not checked yet",
+    "Claims and Citations: 4 claims not checked yet",
   );
   // A model on this computer costs nothing: no estimate.
   await expect(ask.getByTestId("verify-estimate")).toHaveCount(0);
@@ -143,7 +143,8 @@ test("Verify a PDF: its Mind opens beside it, its claims are checked, and the co
   await expect(marks(window).and(window.locator('[data-check="contradicted"]'))).toHaveCount(1);
   await expect(marks(window).and(window.locator('[data-check="unsupported"]'))).toHaveCount(1);
   const notChecked = marks(window).and(window.locator('[data-check="not-checked"]'));
-  await expect(notChecked).toHaveAccessibleName("Sentence check: Not checked");
+  // A claim not checked yet has no mark on the page: its card opens from the row and from the shortcut.
+  await expect(notChecked).toBeHidden();
   await screenshot(window, "verify-results-en");
 
   // Where its text came from is in the page's ⋯ menu.
@@ -152,8 +153,10 @@ test("Verify a PDF: its Mind opens beside it, its claims are checked, and the co
   await window.keyboard.press("Escape");
   await expect(pageMenu).toBeHidden();
 
-  // The claim the model failed on says why, with Check again.
-  await pointAndClick(window, notChecked);
+  // The claim the model failed on says why, with Check again, opened from its row's sentence.
+  await pointAndClick(window, (await checkCard(window)).getByTestId("verify-notChecked"));
+  await expect(editor).toBeFocused();
+  await window.keyboard.press("ControlOrMeta+Shift+KeyK");
   const claimCard = window.getByTestId("claim-card");
   await expect(claimCard.getByTestId("claim-reason")).toHaveText("The model declined to check it.");
   await window.keyboard.press("Escape");
@@ -264,7 +267,7 @@ test("Twenty-four claims, two contradicted and four the model fails on: the card
   await setWindowSize(app, window, 1440, 900);
 
   await interceptOpenDialog(app, join(sources, "Station report.pdf"));
-  await verifyFromPlusMenu(window, "Verify a document…");
+  await verifyFromPlusMenu(window, "Check someone else’s PDF…");
   const card = window.locator('[data-testid="check-card"]:visible');
   await expect(card.getByTestId("verify-ask")).toBeVisible();
   await pointAndClick(window, card.getByTestId("verify-check"));
@@ -281,7 +284,7 @@ test("Twenty-four claims, two contradicted and four the model fails on: the card
   await setLanguage(window, "en");
 
   await interceptOpenDialog(app, join(sources, "Refusals.pdf"));
-  await verifyFromPlusMenu(window, "Verify a document…");
+  await verifyFromPlusMenu(window, "Check someone else’s PDF…");
   await expect(frontMindName(window)).toHaveText("Checking: Refusals");
   // The question opens the card by itself once the claims are found.
   await expect(card.getByTestId("verify-ask")).toBeVisible();
@@ -300,7 +303,7 @@ test("In Chinese and a narrow window: the same, in Chinese", async () => {
   await setLanguage(window, "zh-CN");
   await setWindowSize(app, window, 900, 720);
 
-  await verifyFromPlusMenu(window, "核对文档…");
+  await verifyFromPlusMenu(window, "核对别人的 PDF…");
 
   await expect(window.getByTestId("check-card").getByTestId("verify-ask")).toBeVisible();
   const card = await checkCard(window);
@@ -338,7 +341,10 @@ for (const [language, width] of [
     await setWindowSize(app, window, width, 820);
     await addDocuments(window, [join(sources, "Fleet ledger.md")]);
     await interceptOpenDialog(app, STATEMENT);
-    await verifyFromPlusMenu(window, language === "en" ? "Verify a document…" : "核对文档…");
+    await verifyFromPlusMenu(
+      window,
+      language === "en" ? "Check someone else’s PDF…" : "核对别人的 PDF…",
+    );
 
     const editor = window.getByTestId("mind-editor");
     const tables = editor.locator("table");
@@ -379,7 +385,7 @@ test("Empty states: nothing to check against, then no claims found", async () =>
   await readyToVerify(running, false);
   await setWindowSize(app, window, 1440, 900);
 
-  await verifyFromPlusMenu(window, "Verify a document…");
+  await verifyFromPlusMenu(window, "Check someone else’s PDF…");
   const card = window.getByTestId("check-card");
   // The PDF is the only Document, and it is never its own evidence.
   await expect(card.getByTestId("verify-empty")).toHaveText(
@@ -394,7 +400,7 @@ test("Empty states: nothing to check against, then no claims found", async () =>
   const tides = window.getByTestId("document-list-item").filter({ hasText: "Tides" });
   await expect(tides).toHaveAttribute("data-status", "ready");
   await interceptOpenDialog(app, join(sources, "Thanks.pdf"));
-  await verifyFromPlusMenu(window, "Verify a document…");
+  await verifyFromPlusMenu(window, "Check someone else’s PDF…");
   // The first Mind's tab stays open behind it.
   await expect(frontMindName(window)).toHaveText("Checking: Thanks");
   // Nothing to check: the card opens by itself to say so.
@@ -409,7 +415,7 @@ test("a provider failure while finding the claims is worded like an Answer's, wi
   await readyToVerify(running);
   await setWindowSize(app, window, 1440, 900);
 
-  await verifyFromPlusMenu(window, "Verify a document…");
+  await verifyFromPlusMenu(window, "Check someone else’s PDF…");
 
   const failure = window.getByTestId("answer-error");
   await expect(failure).toHaveAttribute("data-error-kind", "model");
@@ -425,7 +431,7 @@ test("a check that fails says why in the interface language, and again in the ot
   await useLocalChatModel(window);
   await readyToVerify(running);
   await setWindowSize(app, window, 1440, 900);
-  await verifyFromPlusMenu(window, "Verify a document…");
+  await verifyFromPlusMenu(window, "Check someone else’s PDF…");
   const card = window.getByTestId("check-card");
   await expect(card.getByTestId("verify-ask")).toBeVisible();
 
