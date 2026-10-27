@@ -9,6 +9,9 @@ const MIN_CLAUSE = 16;
 
 const trailingMarks = /[\s.,;:!?…。，；：！？、\-–—]+$/u;
 
+/** `text` without the marks a sentence ends with, so a name taken from a sentence ends on its words. */
+export const withoutTrailingMarks = (text: string): string => text.replace(trailingMarks, "");
+
 /** Where the text's words begin and end, in any language (Chinese and Japanese included). */
 const words = new Intl.Segmenter(undefined, { granularity: "word" });
 

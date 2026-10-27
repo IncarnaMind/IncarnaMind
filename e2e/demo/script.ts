@@ -3,6 +3,7 @@
  * the Questions, the captions and the call. Everything the app answers is the app's own: nothing
  * here is an answer.
  */
+import { translate } from "../../src/shared/i18n";
 import type { DemoLanguage } from "./documents";
 
 export interface Block {
@@ -15,6 +16,11 @@ interface FolderScript {
   description: string;
 }
 
+export interface CallLine {
+  side: "them" | "me";
+  text: string;
+}
+
 export interface DemoScript {
   language: DemoLanguage;
   /** The README this recording is for. */
@@ -22,6 +28,8 @@ export interface DemoScript {
   /** The shipped examples' Documents, by file name, in this language's folder of them. */
   credit: { source: "credit/en" | "credit/zh-CN" };
   folders: { credit: FolderScript; contracts: FolderScript };
+  /** The synced drive the lenders' folder sits in, so the linked folder reads as one from work. */
+  sharedDrive: string;
   /** The folder on disk the lenders' new Documents arrive in, which is linked. */
   lenders: string;
   /** The Folder the exported file is saved in, which the Saved line names. */
@@ -35,13 +43,13 @@ export interface DemoScript {
   seedQuestion: string;
   /** The Question of the Answer scene, typed at its first frame. */
   question: string;
-  /** What the Answer is asked for in the paper, and its chart. */
+  /** The Question the paper is asked: Python Analysis over the workbook, then its table and chart. */
   chartRequest: string;
   compareQuestions: string[];
-  /** The line the User types in the notes during the call. */
+  /** The line the User types in the notes before the call, which the filled notes go under. */
   callNote: string;
-  /** What each side says: the other side asks, the User answers in one line. */
-  call: { them: string; me: string; voices: { them: string; me: string } };
+  /** What each side says, in order: the expert, then the User, then the drift. */
+  call: { lines: readonly CallLine[]; voices: { them: string; me: string } };
   captions: {
     hook: string;
     organize: string;
@@ -52,11 +60,13 @@ export interface DemoScript {
     addToNote: string;
     chart: string;
     call: string;
+    notCovered: string;
     callNotes: string;
     check: string;
+    fixed: string;
     export: string;
   };
-  endCard: { lines: string[]; audience: string };
+  endCard: { lines: string[] };
   /** What the interface calls things the recording points at. */
   words: {
     contradicted: RegExp;
@@ -65,11 +75,19 @@ export interface DemoScript {
     footnote: RegExp;
     /** What an Answer says when its model has failed at the job: a take with it is not kept. */
     failed: RegExp;
-    /** What the transcript of the call must have heard: the two figures. */
+    /** What the transcript of the call must have heard: the expert's own words. */
     heard: RegExp;
+    /** The promise the call must hold before it stops: what the expert will send, and when. */
+    friday: RegExp;
+    /** Talk that has drifted off the guide, the line Not covered yet answers. */
+    drift: RegExp;
     me: string;
     filled: string;
-    answerTheirQuestion: string;
+    /** The call help buttons, as the app names them: the interview template's two. */
+    followUp: string;
+    notCovered: string;
+    /** The template's command in ⌘K, in this language. */
+    templateCommand: string;
     checkCommand: string;
     compareCommand: string;
     recordCommand: string;
@@ -94,6 +112,7 @@ export const SCRIPTS: Record<DemoLanguage, DemoScript> = {
         description: "Term sheets and agreements from lenders.",
       },
     },
+    sharedDrive: "Shared drive",
     lenders: "Lender documents",
     outputFolder: "Committee papers",
     options: { title: "Refinancing options", intro: "Three banks sent term sheets." },
@@ -119,53 +138,81 @@ export const SCRIPTS: Record<DemoLanguage, DemoScript> = {
     wrong: { draft: "36.8", document: "38.6" },
     seedQuestion:
       "In two sentences: what leverage limit does the facilities agreement set, and what was Northwind’s leverage at the end of Q3?",
-    question: "Is Northwind inside its leverage covenant?",
-    chartRequest: "Make a bar chart of gross margin by segment",
+    question:
+      "In one sentence, using the Q3 results: what did Northwind’s online gross margin fall to, and from what?",
+    chartRequest:
+      "Use Python Analysis on Northwind Retail’s monthly sales workbook to check the 2026 sales by region. Then add a bar chart of 2026 sales by region to this Note, with its cited table.",
     compareQuestions: ["Margin", "Tenor", "Leverage covenant"],
-    callNote: "Covenant headroom",
+    callNote: "Northwind Retail expert interview",
     call: {
-      them: "Before we go on, how much headroom is there under the leverage covenant at the moment?",
-      me: "We are at three point one times against a limit of three point five.",
+      lines: [
+        {
+          side: "them",
+          text: "I visit Northwind’s stores every month, usually on a Tuesday or a Thursday. I walk the floor, look at the tills and talk to the managers.",
+        },
+        { side: "me", text: "Thanks for making the time today." },
+        {
+          side: "them",
+          text: "Since they began closing an hour earlier, store traffic has fallen most after four in the afternoon. The shops near the station have lost more visits than the ones in the suburbs. Online orders look steadier, but I can’t tell you whether they make up the difference.",
+        },
+        {
+          side: "me",
+          text: "I know that station well. Before I moved, I used to wait in the cafe by the entrance every week. The bakery next door has gone, and the whole corner is being rebuilt now, so I wonder how long the work will take.",
+        },
+        {
+          side: "them",
+          text: "The station works are due to finish in March, though the council has moved that date twice already. The managers near the station told me they are counting the days.",
+        },
+        {
+          side: "me",
+          text: "That is helpful. Could you send me the station stores’ monthly footfall figures by Friday? The committee meets on Monday.",
+        },
+        {
+          side: "them",
+          text: "Yes, I’ll send them on Friday. They go back to January last year, so you’ll see the change week by week.",
+        },
+      ],
       voices: { them: "Daniel", me: "Samantha" },
     },
     captions: {
-      hook: "The paper says 36.8%. The Q3 results say 38.6%.",
-      organize: "Monday, 9:12. New lender documents. Organize suggests Folders and Tags.",
-      ask: "Is Northwind inside its covenant? Don’t take its word. Click.",
+      hook: "The memo says 36.8%. The Q3 results say 38.6%.",
+      organize: "Monday. Files everywhere. Link the folders, and it reads and sorts them.",
+      ask: "What was the online margin? Don’t take its word. Click.",
       click: "Click it. The quote lights up on the page.",
-      working: "Even the maths shows its working.",
+      fixed: "Wrong figure caught. Fixed in one click.",
+      working: "Calculations show their working too.",
       compare: "Three banks, one table.",
-      addToNote: "Add it to the paper. Grey text is the AI’s.",
-      chart: "A chart from the same numbers.",
-      call: "A lender asks about headroom. It answers, with the page.",
-      callNotes: "The notes cite what was said, and when.",
-      check: "Check the whole paper. That wrong number gets caught.",
-      export: "Send it as Word. The sources go with it.",
+      addToNote: "It drafts from your files. Grey is the AI’s, and you can undo it.",
+      chart: "Analyse the spreadsheet. Every bar links to its cell.",
+      call: "An expert call. It suggests the next question.",
+      notCovered: "Drifting? See what your guide hasn’t covered.",
+      callNotes: "After the call, notes that cite what was said.",
+      check: "Check the whole memo against your files.",
+      export: "Send it as Word. Footnotes and sources go with it.",
     },
     endCard: {
-      lines: [
-        "Don’t trust the AI. Click the source.",
-        "Every answer shows the page it came from.",
-        "Free, open source, runs on your computer.",
-        "github.com/IncarnaMind/IncarnaMind",
-      ],
-      audience:
-        "For analysts, lawyers and engineers who write from documents and stand behind every figure.",
+      lines: ["Free and open source · macOS, Windows, Linux", "github.com/IncarnaMind/IncarnaMind"],
     },
     words: {
       contradicted: /Contradicted/,
       failed: /couldn.t calculate|could not calculate|can.t calculate|unable to calculate/i,
       saved: "Saved",
       footnote: /Q3 2026 results, p\./,
-      heard: /(3\.1|three point one)[\s\S]*(3\.5|point five)/i,
+      heard: /traffic[\s\S]*(afternoon|four)/i,
+      friday: /Friday/i,
+      drift: /station works/i,
       me: "Me",
       filled: "Note filled in",
-      answerTheirQuestion: "Answer their question",
-      checkCommand: "Check this note",
+      followUp: translate("en", "meetings.help.followUp"),
+      notCovered: translate("en", "meetings.help.notCovered"),
+      templateCommand: translate("en", "meetings.template.command", {
+        name: translate("en", "meetings.template.interview"),
+      }),
+      checkCommand: "Check",
       compareCommand: "Compare Documents…",
       recordCommand: "Record a meeting",
       foldCommand: "Assistant: Fold",
-      typed: { check: "Check this", compare: "Compare", record: "Record a" },
+      typed: { check: "Check", compare: "Compare", record: "Record a" },
     },
   },
   "zh-CN": {
@@ -182,6 +229,7 @@ export const SCRIPTS: Record<DemoLanguage, DemoScript> = {
         description: "各家银行新发来的再融资条款清单（报价），以及其他合同。",
       },
     },
+    sharedDrive: "共享盘",
     lenders: "贷款方文件",
     outputFolder: "授信委员会文件",
     options: { title: "再融资方案", intro: "三家银行发来了条款清单。" },
@@ -203,53 +251,81 @@ export const SCRIPTS: Record<DemoLanguage, DemoScript> = {
     },
     wrong: { draft: "36.8", document: "38.6" },
     seedQuestion:
-      "用两句话回答：贷款协议规定的杠杆率上限是多少，第三季度末 Northwind 的杠杆率是多少？",
-    question: "Northwind 有没有超出杠杆率条款的限制？",
-    chartRequest: "画一个各业务板块毛利率的柱状图",
+      "用两句话回答，不要加粗：贷款协议规定的杠杆率上限是多少，第三季度末 Northwind 的杠杆率是多少？",
+    question: "根据文档回答：Northwind 第三季度集团毛利率是多少，业绩把原因归在哪里？不要加粗。",
+    chartRequest:
+      "用 Python 数据分析核对 Northwind Retail 月度销售工作簿里 2026 年各地区销售额，然后在这篇笔记中加入 2026 年各地区销售额的柱状图和带引用的表格。不要加粗。",
     compareQuestions: ["利差", "期限", "杠杆率约定"],
-    callNote: "杠杆率还有多少余地",
+    callNote: "Northwind Retail 专家访谈",
     call: {
-      them: "我们先确认一个问题：现在的杠杆率，离贷款协议的上限还有多少空间？",
-      me: "现在的杠杆率是三点一倍，上限是三点五倍。",
+      lines: [
+        {
+          side: "them",
+          text: "我每个月都会去 Northwind 的门店，通常是周二或周四。我会在店里走一圈，看看收银台，也跟店长聊几句。",
+        },
+        { side: "me", text: "谢谢你今天抽时间。" },
+        {
+          side: "them",
+          text: "自从提前一个小时关门以后，下午四点以后的门店客流减少得最明显。车站附近的门店比郊区少得更多。线上订单看起来稳定一些，但我不能确定能不能弥补门店的损失。",
+        },
+        {
+          side: "me",
+          text: "那个车站我也很熟。搬家以前，我每个星期都会在入口旁边的咖啡馆等一会儿。旁边的面包店已经搬走了，整个路口都在重建，不知道要修到什么时候。",
+        },
+        {
+          side: "them",
+          text: "车站的施工原定三月完工，不过市政已经把日期推后过两次。车站附近的店长跟我说，他们都在数着日子。",
+        },
+        {
+          side: "me",
+          text: "很有用。能不能请你周五前把车站附近门店的月度客流数据发给我？委员会周一开会。",
+        },
+        {
+          side: "them",
+          text: "可以，我周五发给你。数据从去年一月开始，每周的变化都看得出来。",
+        },
+      ],
       voices: { them: "Eddy (Chinese (China mainland))", me: "Tingting" },
     },
     captions: {
       hook: "报告里写 36.8%，Q3 业绩里是 38.6%。",
-      organize: "周一 9:12，贷款方发来新文件。“整理”建议文件夹和标签。",
-      ask: "Northwind 超限了吗？别信它说的，点开看。",
+      organize: "周一，文件散在各处。关联文件夹，它读进来并分好类。",
+      ask: "线上毛利率是多少？别信它说的，点开看。",
       click: "点一下，引文在原页上亮起来。",
-      working: "连算式都摆给你看。",
+      fixed: "错数被拦下，一键改正。",
+      working: "算出来的数也摆出算式和出处。",
       compare: "三家银行，一张表。",
-      addToNote: "加进报告。灰色的字是 AI 写的。",
-      chart: "图表用的是同一批数字。",
-      call: "贷款方问还剩多少空间，它直接答，还带着出处。",
-      callNotes: "笔记引用通话里说的话，连时间都有。",
-      check: "整份报告核对一遍，那个错数被拦住了。",
-      export: "导出成 Word，出处跟着走。",
+      addToNote: "根据你的文件起草。灰字是 AI 写的，可以撤销。",
+      chart: "分析表格，每根柱子都连到它的单元格。",
+      call: "专家访谈，它帮你想好下一个问题。",
+      notCovered: "聊偏了？看看提纲里还有什么没聊到。",
+      callNotes: "通话结束，纪要里每一点都标出原话。",
+      check: "整份报告对照你的文件核对。",
+      export: "导出成 Word，脚注和出处都在。",
     },
     endCard: {
-      lines: [
-        "别信 AI，点开出处看。",
-        "每个回答都标出它来自哪一页。",
-        "免费开源，在你自己的电脑上运行。",
-        "github.com/IncarnaMind/IncarnaMind",
-      ],
-      audience: "适合靠文件写报告、要对每个数字负责的分析师、律师和工程师。",
+      lines: ["免费开源 · macOS、Windows、Linux", "github.com/IncarnaMind/IncarnaMind"],
     },
     words: {
       contradicted: /与文档矛盾/,
       failed: /(无法|没能|未能|不能)(计算|算出)/,
       saved: "已保存",
       footnote: /2026 年第三季度业绩/,
-      heard: /(3\.1|三点一)[\s\S]*(3\.5|点五)/,
+      heard: /(下午|四点)[\s\S]*(客流|门店)/,
+      friday: /周五/,
+      drift: /车站/,
       me: "我",
       filled: "已补全笔记",
-      answerTheirQuestion: "回答对方的问题",
-      checkCommand: "核对此笔记",
+      followUp: translate("zh-CN", "meetings.help.followUp"),
+      notCovered: translate("zh-CN", "meetings.help.notCovered"),
+      templateCommand: translate("zh-CN", "meetings.template.command", {
+        name: translate("zh-CN", "meetings.template.interview"),
+      }),
+      checkCommand: "核对",
       compareCommand: "对比文档…",
       recordCommand: "录制会议",
       foldCommand: "助手：收起",
-      typed: { check: "核对此", compare: "对比文档", record: "录制会议" },
+      typed: { check: "核对", compare: "对比文档", record: "录制会议" },
     },
   },
 };

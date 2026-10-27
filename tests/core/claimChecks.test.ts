@@ -29,6 +29,7 @@ import {
   scriptedModel,
   scriptedModels,
 } from "../helpers/models";
+import { xlsxOf } from "../helpers/office";
 
 const TIDES = {
   name: "Tides.md",
@@ -877,6 +878,45 @@ describe("A figure the Documents don't state, worked out (#707)", () => {
       for (const input of result.calculation?.figure.inputs ?? []) {
         expect(input.citation).toMatchObject({ documentId: board.id, check: "found" });
       }
+    },
+  );
+
+  test.each([
+    ["en", "Revenue was 7,509,964.", ["Customer", "Revenue"], "7509964", "North", "Ledger.xlsx"],
+    ["zh-CN", "收入为 7,509,964。", ["客户", "收入"], "7509964", "北方", "台账.xlsx"],
+  ] as const)(
+    "a grouped figure in %s matches its source cell with no Difference",
+    async (language, claim, headings, cell, customer, name) => {
+      const book = {
+        name,
+        contents: xlsxOf([
+          {
+            name: "Sheet1",
+            rows: [[...headings], [customer, 7_509_964]],
+          },
+        ]),
+      };
+      const calculation = {
+        inputs: [{ name: "v", label: headings[1], quote: cell, number: cell }],
+        formula: "v",
+        stated: "7,509,964",
+      };
+      const plans = { [claim]: { verdict: "supported", calculation } } as const;
+      const setup = await setUpWithDocuments(checkingModel(plans), [book]);
+      const saved = await setup.core.saveChatProvider({
+        kind: "anthropic",
+        apiKey: "sk-test",
+        modelId: "claude-haiku-5-5",
+      });
+      if (saved.service) await setup.core.allowDataFlow("checks", saved.service.id);
+      await setup.core.updateSettings({ user: { language } });
+
+      const result = await setup.core.checkClaim({ claim });
+
+      expect(result).toMatchObject({
+        verdict: "supported",
+        calculation: { stated: "7,509,964", agrees: true, figure: { value: 7_509_964 } },
+      });
     },
   );
 

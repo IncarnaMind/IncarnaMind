@@ -44,6 +44,11 @@ if (displays.length > 0 && Number.isInteger(workerIndex)) {
   process.env.DISPLAY = displays[workerIndex % displays.length];
 }
 
+// Set by the named-specs workflow (docs/agents/testing.md): every test keeps its app's trace,
+// video and window picture, not only a failed one. Playwright's own settings leave an Electron
+// app out, so the launch opts in.
+const KEEP_ARTIFACTS = process.env.INCARNAMIND_KEEP_ARTIFACTS === "1";
+
 /**
  * The apps this test launched that are still open, by the data folder each
  * runs on: `removeDataFolder` closes them, keeping a picture of the window if
@@ -204,17 +209,6 @@ export interface LaunchOptions {
    * of the app as the User runs it.
    */
   realEngines?: boolean;
-  /**
-   * The first Word export asks whether to mark the text IncarnaMind wrote. Without this, a launch
-   * answers it "Mark it" if nobody has, so a test that exports to Word is not stopped by it;
-   * with it, the app is left asking.
-   */
-  askToMarkAiText?: boolean;
-  /**
-   * The first Word or PDF export of a Mind with Citations asks where they go. Without this, a
-   * launch answers it "Footnotes" if nobody has; with it, the app is left asking.
-   */
-  askCitationPlace?: boolean;
 }
 
 /**
@@ -282,8 +276,6 @@ export async function launchApp(
     sandboxed = false,
     sandboxNotice,
     realEngines = false,
-    askToMarkAiText = false,
-    askCitationPlace = false,
   }: LaunchOptions = {},
 ): Promise<RunningApp> {
   const env: Record<string, string> = {};
@@ -376,7 +368,11 @@ export async function launchApp(
     ],
     env,
     chromiumSandbox: sandboxed || sandboxNotice === "environment" || sandboxNotice === "on",
+    ...(KEEP_ARTIFACTS && {
+      recordVideo: { dir: test.info().outputPath("video", basename(dataDir)) },
+    }),
   });
+  if (KEEP_ARTIFACTS) await keepOnClose(app, dataDir);
   openApps.set(app, dataDir);
   app.on("close", () => {
     openApps.delete(app);
@@ -394,7 +390,6 @@ export async function launchApp(
       message: `the window is ${WINDOW_SIZE.width} × ${WINDOW_SIZE.height}: is the screen too short for it?`,
     });
   }
-  await answerExportQuestions(window, !askToMarkAiText, !askCitationPlace);
   return { app, window };
 }
 
@@ -436,32 +431,6 @@ async function waitUntilLive(app: ElectronApplication, window: Page): Promise<vo
   } finally {
     clearTimeout(timer);
   }
-}
-
-async function answerExportQuestions(
-  window: Page,
-  markAiText: boolean,
-  citationPlace: boolean,
-): Promise<void> {
-  await window.evaluate(
-    async ([mark, place]) => {
-      const bridge = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
-      const { exportOptions } = (await bridge.getSettings()).user;
-      const docx =
-        mark && exportOptions.docx.markAiText === null
-          ? { ...exportOptions.docx, markAiText: "mark" as const }
-          : exportOptions.docx;
-      const citations =
-        place && exportOptions.citationPlace === undefined
-          ? { citationPlace: "footnotes" as const }
-          : {};
-      if (docx === exportOptions.docx && Object.keys(citations).length === 0) return;
-      await bridge.updateSettings({
-        user: { exportOptions: { ...exportOptions, docx, ...citations } },
-      });
-    },
-    [markAiText, citationPlace],
-  );
 }
 
 /**
@@ -887,14 +856,38 @@ export async function ollamaListing(models: string[], { delayMs = 0 }: { delayMs
 }
 
 /**
- * Continue on the setup card, once a key or sign-in works and the card says what each job uses:
- * the Question that waited is asked then, and the composer takes the card's place.
+ * Steps 2 and 3 of the setup card, once a key or sign-in works (#1922): each is one click, and
+ * the composer takes the card's place. The Question that waited is asked as step 1 works.
  */
 export async function continueSetup(window: Page): Promise<void> {
-  const next = window.getByTestId("setup-continue");
-  await expect(next).toBeVisible();
-  await pointAndClick(window, next);
-  await expect(window.getByTestId("model-setup")).toBeHidden();
+  const card = window.getByTestId("model-setup");
+  await expect(card.getByTestId("setup-ready-title")).toBeVisible({ timeout: 15_000 });
+  const transcription = card.getByTestId("setup-transcription-use");
+  if (await transcription.isVisible()) await pointAndClick(window, transcription);
+  const sorting = card.getByTestId("setup-sorting-use");
+  await expect(sorting).toBeVisible();
+  await expect(sorting).toBeEnabled();
+  await pointAndClick(window, sorting);
+  await expect(card).toBeHidden();
+}
+
+/**
+ * Opens the key form where a key's own form names no service we list (#1922): the field says so,
+ * and its way on picks the service.
+ */
+export async function openServiceList(
+  window: Page,
+  card: Locator,
+  key = "sk-unknown",
+): Promise<void> {
+  const field = card.getByTestId("setup-key");
+  await field.fill(key);
+  await field.press("Enter");
+  await pointAndClick(window, card.getByTestId("setup-key-choose-service"));
+  const form = card.getByTestId("provider-form");
+  await expect(form).toBeVisible();
+  // The key only reached the list: the form starts as it would from Settings.
+  await form.locator('input[type="password"]').fill("");
 }
 
 /**
@@ -982,13 +975,17 @@ export async function addProviderPage(settings: Locator, catalogId: string): Pro
   return page;
 }
 
-/** In Settings › Models, opens Advanced while it's folded (#1570). Returns the Tagging section in it. */
+/**
+ * In Settings › Models, opens Advanced (#1570). Returns the Tagging section in it. It may already
+ * be open, as it is once first run has chosen what sorts (#1922).
+ */
 export async function openAdvancedModels(settings: Locator): Promise<Locator> {
   const advanced = settings.getByTestId("models-advanced");
   const toggle = advanced.getByTestId("models-advanced-toggle");
   await expect(toggle).toBeVisible();
-  await expect(advanced).not.toHaveAttribute("open");
-  await toggle.click();
+  if (!(await advanced.evaluate((element) => element.hasAttribute("open")))) {
+    await toggle.click();
+  }
   await expect(advanced).toHaveAttribute("open", "");
   const tagging = advanced.getByTestId("tagging-settings");
   await expect(tagging).toBeVisible();
@@ -2085,7 +2082,7 @@ export async function checkCard(window: Page, scope: Page | Locator = window): P
       }).toPass();
     } else {
       const chinese = (await window.evaluate(() => document.documentElement.lang)) === "zh-CN";
-      const command = chinese ? "句子和引用" : "Sentences and Citations";
+      const command = chinese ? "说法和引用" : "Claims and Citations";
       await window.keyboard.press("ControlOrMeta+k");
       await expect(window.getByTestId("palette-search")).toBeFocused();
       await window.keyboard.type(command);
@@ -2869,6 +2866,33 @@ export async function stubClipboard(window: Page) {
 /** A fresh, empty data folder. Remove it with `removeDataFolder`. */
 export const createDataFolder = () => mkdtemp(join(tmpdir(), "incarnamind-smoke-"));
 
+/**
+ * Makes closing the app, by the test or by `removeDataFolder`, first keep its window as it is
+ * and its trace with the test's results; the video is finished by the close itself.
+ */
+async function keepOnClose(app: ElectronApplication, dataDir: string): Promise<void> {
+  await app.context().tracing.start({ screenshots: true, snapshots: true });
+  const close = app.close.bind(app);
+  let kept = false;
+  app.close = async () => {
+    if (!kept) {
+      kept = true;
+      const info = test.info();
+      const window = app.windows()[0];
+      if (window) {
+        const path = info.outputPath(`app-window-${basename(dataDir)}.png`);
+        const shot = await window.screenshot({ path }).catch(() => undefined);
+        if (shot) await info.attach("app-window", { path, contentType: "image/png" });
+      }
+      await app
+        .context()
+        .tracing.stop({ path: info.outputPath(`trace-${basename(dataDir)}.zip`) })
+        .catch((error: unknown) => console.warn(`The app's trace was not kept: ${error}`));
+    }
+    return close();
+  };
+}
+
 /** Closes an app, and kills it if it hasn't quit in 10 s, so one stuck app can't hold up the worker. */
 async function closeOrKill(app: ElectronApplication): Promise<void> {
   const quit = app.close().catch(() => undefined);
@@ -2895,7 +2919,7 @@ export async function removeDataFolder(dataDir: string): Promise<void> {
   for (const [app, folder] of [...openApps]) {
     if (folder !== dataDir) continue;
     const window = app.windows()[0];
-    if (info.status !== info.expectedStatus && window) {
+    if (!KEEP_ARTIFACTS && info.status !== info.expectedStatus && window) {
       const path = info.outputPath("app-window.png");
       const shot = await window.screenshot({ path }).catch(() => undefined);
       if (shot) await info.attach("app-window", { path, contentType: "image/png" });
@@ -2973,11 +2997,13 @@ export async function menuCommands(menu: Locator): Promise<string[]> {
   );
 }
 
-/** Clicks the empty foot of the sidebar's tree, so the focus isn't in text and ⌘Z goes to the app's changes. */
+/** Clicks the empty top padding of the sidebar's tree, so the focus isn't in text and ⌘Z goes to the app's changes. */
 export async function leaveText(window: Page): Promise<void> {
   const box = await window.getByTestId("sidebar-tree").boundingBox();
   if (!box) throw new Error("The sidebar isn't showing.");
-  await window.mouse.move(box.x + box.width / 2, box.y + box.height - 8, { steps: 8 });
+  // The top padding: the foot moves as the footer's lines come and go, and a click meant to
+  // leave the text must never land on a row or the undo line.
+  await window.mouse.move(box.x + box.width / 2, box.y + 4, { steps: 8 });
   await window.mouse.down();
   await window.mouse.up();
 }
