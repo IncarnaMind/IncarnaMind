@@ -260,7 +260,7 @@ async function answerOf(
 async function askExample(core: Core, language: "en" | "zh-CN") {
   await core.updateSettings({ user: { language } });
   const { mindId } = await core.createExamples();
-  const asked = await vi.waitFor(() => core.askReadyQuestion(), {
+  const asked = await vi.waitFor(() => core.askExampleReadyQuestion(), {
     timeout: 2 * 60_000,
     interval: 500,
   });

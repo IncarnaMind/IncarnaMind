@@ -242,6 +242,7 @@ function storedSteps(value: string | null): AnswerSteps | null {
     reasoning,
     readShare,
     citedAfterChecking,
+    notCitedAfterAsking,
     firstWordMs,
     careful,
     unbackedClaims,
@@ -277,6 +278,7 @@ function storedSteps(value: string | null): AnswerSteps | null {
     ...(typeof citedAfterChecking === "number" &&
       Number.isInteger(citedAfterChecking) &&
       citedAfterChecking > 0 && { citedAfterChecking }),
+    ...(notCitedAfterAsking === true && { notCitedAfterAsking }),
     ...(typeof firstWordMs === "number" && firstWordMs >= 0 && { firstWordMs }),
     ...(careful === true && { careful }),
     ...(claimed.length > 0 && { unbackedClaims: claimed }),

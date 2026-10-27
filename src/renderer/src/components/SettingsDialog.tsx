@@ -21,6 +21,7 @@ import { SavedWebPagesSettings } from "./SavedWebPagesSettings";
 import { SkillScriptsSettings, SkillsSettings } from "./SkillsSettings";
 import { SpendingCapSettings } from "./SpendingCapSettings";
 import { SuggestionSettings } from "./SuggestionSettings";
+import { TaskNotificationSettings } from "./TaskNotificationSettings";
 import {
   buttonClass,
   dialogFrameClass,
@@ -47,11 +48,10 @@ const REPOSITORY_URL = "https://github.com/IncarnaMind/IncarnaMind";
 export function SettingsDialog() {
   const t = useT();
   const open = useAppStore((state) => state.settingsOpen);
-  const asks = useAppStore((state) => state.settingsOpenCount);
   const page = useAppStore((state) => state.settingsPage);
   const showPage = useAppStore((state) => state.showSettingsPage);
   const close = useAppStore((state) => state.closeSettings);
-  const dialog = useModal(open, { request: asks });
+  const dialog = useModal(open);
   useBackdropClose(dialog, close);
   /** The pages shown since Settings opened. Closing forgets them. */
   const [visited, setVisited] = useState<readonly SettingsPage[]>([]);
@@ -66,11 +66,7 @@ export function SettingsDialog() {
   return (
     <dialog
       ref={dialog}
-      // The browser can close the dialog and tell React a task later, by which time Settings may
-      // have been asked for again: a close event that finds the dialog open is old news.
-      onClose={(event) => {
-        if (!event.currentTarget.open) close();
-      }}
+      onClose={close}
       data-testid="settings"
       data-page={page}
       aria-labelledby="settings-title"
@@ -151,6 +147,7 @@ function PageContent({ page }: { page: SettingsPage }) {
           <LanguageSettings />
           <SpendingCapSettings />
           <MotionSettings />
+          <TaskNotificationSettings />
           <SuggestionSettings />
           <OutputLocationSettings />
           <AuthorNameSettings />
