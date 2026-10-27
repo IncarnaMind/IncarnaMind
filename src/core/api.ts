@@ -5350,13 +5350,15 @@ export type ClaimCheckResult = ClaimJudgment & {
 
 /**
  * What a sentence already cites: a Citation's quote, and its Document as it was cited. With
- * `documentId` (or `contentHash`) the check names the Document as it is named now.
+ * `documentId` (or `contentHash`) the check names the Document as it is named now; with
+ * `passageId`, of the version it quotes, the check reads that Passage itself (#1459).
  */
 export interface CitedQuote {
   documentName: string;
   quote: string;
   documentId?: string;
   contentHash?: string;
+  passageId?: string;
 }
 
 /** What the claim-check function checks (`checkClaim`). */

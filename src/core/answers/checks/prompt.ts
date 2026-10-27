@@ -170,6 +170,8 @@ export function claimPrompt(input: {
   claim: string;
   context?: string;
   cited?: readonly { documentName: string; quote: string }[];
+  /** The Passages those Citations quote, as the search Tool shows Passages. */
+  citedShown?: string | null;
   language: Language;
   figures?: readonly CheckFigure[];
 }): string {
@@ -187,6 +189,7 @@ export function claimPrompt(input: {
       ? [
           "The User cites this for it. Check the claim itself, not only that the quote is there:",
           ...cited.map((each) => `- ${each.documentName}: “${each.quote}”`),
+          ...(input.citedShown ? ["", "The Passages it quotes:", input.citedShown] : []),
           "",
         ]
       : []),

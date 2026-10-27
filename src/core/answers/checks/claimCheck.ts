@@ -43,6 +43,7 @@ import type {
   ThirdPartyReason,
   UnsupportedReason,
 } from "../../api";
+import type { CitationSource } from "../../documents";
 import type { Evidence, EvidenceScope } from "../../documents/evidence";
 import type { Language } from "../../language";
 import { calculates, givesStructuredOutput } from "../../providers/capabilities";
@@ -108,11 +109,18 @@ export interface ClaimCheckDependencies {
   };
 }
 
+/** A Citation the sentence has, as its check reads it: `passageId` when it quotes the Document as it is now. */
+export interface CheckedCitation {
+  documentName: string;
+  quote: string;
+  passageId?: string;
+}
+
 export interface ClaimCheckRequest {
   claim: string;
   figures?: readonly CheckFigure[];
   context?: string;
-  cited?: readonly { documentName: string; quote: string }[];
+  cited?: readonly CheckedCitation[];
   scope: EvidenceScope;
   model: PreparedChatModel;
   /** The Run reads the document being checked (#97): it is third-party from its start. */
@@ -252,6 +260,28 @@ function figuresReplied(
   ];
 }
 
+/** The Passages a sentence's Citations quote that its check may read: live, cited and in its scope. */
+function citedSources(
+  cited: readonly CheckedCitation[],
+  scope: EvidenceScope,
+  documents: ClaimCheckDependencies["documents"],
+): CitationSource[] {
+  const found = new Map<string, CitationSource>();
+  for (const { passageId } of cited) {
+    const source = passageId ? documents.citationSource(passageId) : null;
+    if (
+      !source ||
+      source.documentDeleted ||
+      source.notCited ||
+      scope.excluded.has(source.documentId) ||
+      (scope.documentIds !== null && !scope.documentIds.includes(source.documentId))
+    )
+      continue;
+    found.set(source.passageId, source);
+  }
+  return [...found.values()];
+}
+
 export function createClaimCheck(deps: ClaimCheckDependencies) {
   return async function checkClaim(request: ClaimCheckRequest): Promise<ClaimCheckResult> {
     const { scope, signal } = request;
@@ -292,6 +322,22 @@ export function createClaimCheck(deps: ClaimCheckDependencies) {
       documentDate: (documentId) => deps.documents.documentDate(documentId),
     };
     const session = createCitationSession(scoped, { onRecord: () => undefined });
+    // The words a Citation quotes don't say where they stand: a sheet row's year is in its
+    // sheet's name and heading row, which the check reads only in the Passage itself (#1459).
+    const citedPassages = citedSources(request.cited ?? [], scope, deps.documents);
+    for (const passage of citedPassages) read.set(passage.documentId, passage.contentHash);
+    const citedShown =
+      citedPassages.length > 0
+        ? session.show(
+            citedPassages.map((source) => ({
+              ...source,
+              seq: 0,
+              position: 0,
+              windowFrom: 0,
+              windowTo: 0,
+            })),
+          )
+        : null;
     const { model } = request;
     const calculating = model.support === "tools" && calculates(model.capabilities);
     const figures = createCalculationSession({
@@ -444,7 +490,12 @@ export function createClaimCheck(deps: ClaimCheckDependencies) {
           calculating,
           (request.figures?.length ?? 0) > 0,
         ),
-      messages: [{ role: "user", content: claimPrompt({ ...request, language: deps.language() }) }],
+      messages: [
+        {
+          role: "user",
+          content: claimPrompt({ ...request, citedShown, language: deps.language() }),
+        },
+      ],
       question: request.claim,
       model: model.model,
       documents: tools,

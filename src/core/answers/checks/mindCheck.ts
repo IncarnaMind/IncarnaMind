@@ -50,6 +50,7 @@ import { InvalidInputError, isRecord } from "../../errors";
 import type { MindContent } from "../../mindContent";
 import { parseMindId } from "../../minds";
 import type { PreparedChatModel } from "../../providers/chat";
+import type { CheckedCitation } from "./claimCheck";
 import { figuresInMind } from "./figureOccurrences";
 import { type ClaimsFound, claimsAmong } from "./findClaims";
 import { type QueuedClaim, type RunChecksOptions, runChecks } from "./runChecks";
@@ -74,7 +75,7 @@ export interface MindCheckOptions extends RunChecksOptions {
   /** The Folder the Mind is in; null for none. */
   mindFolder(mindId: string): string | null;
   /** What the Citations quote, each Document named as it is now. */
-  citedNow(cited: readonly CitedQuote[]): { documentName: string; quote: string }[];
+  citedNow(cited: readonly CitedQuote[]): CheckedCitation[];
   /** Each live Document's version now, for which checks need a re-check. */
   documentVersions(): ReadonlyMap<string, string>;
   documents: {

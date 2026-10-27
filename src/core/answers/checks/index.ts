@@ -80,11 +80,17 @@ import { parseMindId } from "../../minds";
 import type { PreparedChatModel } from "../../providers/chat";
 import { parseSearchScope } from "../../scope";
 import type { AnswerEngine } from "../engine";
-import { type ClaimCheckDependencies, createClaimCheck, recordJudged } from "./claimCheck";
+import {
+  type CheckedCitation,
+  type ClaimCheckDependencies,
+  createClaimCheck,
+  recordJudged,
+} from "./claimCheck";
 import { createMindCheck, type MindCheckOptions } from "./mindCheck";
 import {
   markedSentences as allMarks,
   checkText,
+  citedQuoteOf,
   markedSentences,
   markSentence,
   selectedSentences,
@@ -217,10 +223,9 @@ function parseClaim(input: unknown) {
         isRecord(each) && typeof each.quote === "string"
           ? [
               {
+                ...citedQuoteOf(each),
                 documentName: String(each.documentName ?? ""),
                 quote: each.quote,
-                ...(typeof each.documentId === "string" && { documentId: each.documentId }),
-                ...(typeof each.contentHash === "string" && { contentHash: each.contentHash }),
               },
             ]
           : [],
@@ -445,12 +450,18 @@ export function createChecks(options: ChecksOptions) {
   }
 
   /** What a sentence cites, each Document named as it is now. */
-  function citedNow(cited: readonly CitedQuote[]): { documentName: string; quote: string }[] {
+  function citedNow(cited: readonly CitedQuote[]): CheckedCitation[] {
     const live = options.documents.names();
-    return cited.map((each) => ({
-      documentName: withShownName(each, live).documentName,
-      quote: each.quote,
-    }));
+    return cited.map((each) => {
+      const current = live.find((document) => document.id === each.documentId);
+      return {
+        documentName: withShownName(each, live).documentName,
+        quote: each.quote,
+        // A Passage of an older version isn't what the Document says now.
+        ...(each.passageId &&
+          current?.contentHash === each.contentHash && { passageId: each.passageId }),
+      };
+    });
   }
 
   /** Marks a request's sentences not checked yet "stopped". */
@@ -700,7 +711,8 @@ export function createChecks(options: ChecksOptions) {
     claimCheck,
     scopeOf: (mindId) => scopeOf(mindId, false),
     citedNow,
-    withResult,
+    withResult: noteResult,
+    read: (mindId, look) => content.read(mindId, look),
     retainEvidence,
     claimTimeLimitMs: options.watch.claimTimeLimitMs,
   });
