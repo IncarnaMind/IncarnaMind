@@ -135,7 +135,7 @@ for (const language of ["en", "zh-CN"] as const) {
 
     await pointAt(window, unsupported);
     await expect(card.getByTestId("claim-badge")).toHaveText(
-      translate(language, "claim.state.unsupported"),
+      translate(language, "claim.state.notFound"),
     );
     await expect(limit).toHaveCount(0);
   });
