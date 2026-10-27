@@ -348,7 +348,7 @@ describe("What the assistant writes is checked before it lands", { timeout: 30_0
       },
     );
 
-    // The checks' first requests were on their way, a cloud model's three at once; none went after.
+    // The checks' first requests were on their way, a cloud model's several at once; none went after.
     const checks = calls.filter(isCheckRun);
     expect(sentBefore).toBeGreaterThan(0);
     expect(checks).toHaveLength(sentBefore);
