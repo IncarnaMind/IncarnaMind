@@ -6,17 +6,20 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { build } from "vite";
-import { afterAll, afterEach, beforeAll, expect, test } from "vitest";
+import { afterAll, afterEach, beforeAll, expect, test, vi } from "vitest";
 import { isRecord } from "../../src/core/errors";
 import { identity } from "../../src/main/instanceFiles";
 import { heldByAnotherCopy } from "../../src/main/instanceLock";
 import { failUpdate, prepareUpdate } from "../../src/main/instanceUpdate";
+import { homeEnv } from "../helpers/home";
 
 const root = fileURLToPath(new URL("../..", import.meta.url));
 let bundleFolder = "";
 let bundle = "";
+let home = "";
 beforeAll(async () => {
   bundleFolder = await mkdtemp(join(tmpdir(), "incarnamind-owner-module-"));
+  home = await mkdtemp(join(tmpdir(), "incarnamind-owner-home-"));
   await build({
     configFile: false,
     root,
@@ -32,7 +35,10 @@ beforeAll(async () => {
   });
   bundle = join(bundleFolder, "owner.mjs");
 });
-afterAll(() => rm(bundleFolder, { recursive: true, force: true }));
+afterAll(async () => {
+  await rm(bundleFolder, { recursive: true, force: true });
+  await rm(home, { recursive: true, force: true });
+});
 
 const children: ChildProcessWithoutNullStreams[] = [];
 const folders: string[] = [];
@@ -64,7 +70,7 @@ function start(folder: string, mode = "owner", wait = 10000, recoveryId?: string
       String(wait),
       ...(recoveryId ? [recoveryId] : []),
     ],
-    { stdio: "pipe" },
+    { stdio: "pipe", env: { ...process.env, ...homeEnv(home), INCARNAMIND_DATA_DIR: folder } },
   );
   children.push(child);
   const messages: Record<string, unknown>[] = [];
@@ -359,21 +365,51 @@ test("corrupt pending update metadata cannot block the real data-folder owner", 
   expect(await readFile(join(folder, "instance-update.json"), "utf8")).toBe("{broken");
 });
 
-test("an unreadable update sidecar cannot block a writable SQLite data folder", async () => {
+test.each([
+  ["unset", false],
+  ["set to another folder", true],
+])(
+  "an unreadable update sidecar cannot block a writable SQLite data folder, with INCARNAMIND_DATA_DIR %s",
+  async (_, elsewhere) => {
+    const folder = await tempFolder();
+    const other = await tempFolder();
+    await writeFile(join(folder, "instance-update.json"), "{}");
+    vi.stubEnv("INCARNAMIND_DATA_DIR", elsewhere ? other : undefined);
+    const owner = start(folder, "unreadable-update");
+    vi.unstubAllEnvs();
+    await owner.message("owner");
+    expect(owner.child.exitCode).toBeNull();
+    expect(
+      heldByAnotherCopy(folder, (what, error) => {
+        throw new Error(what, { cause: error });
+      }),
+    ).toBe(true);
+    expect(await owner.message("reported")).toMatchObject({
+      what: "app.updateHandoffReadFailed",
+      code: "EACCES",
+    });
+    expect(await readdir(other)).toEqual([]);
+  },
+);
+
+test("a child given another data folder than its own refuses to start, and touches neither", async () => {
   const folder = await tempFolder();
-  await writeFile(join(folder, "instance-update.json"), "{}");
-  const owner = start(folder, "unreadable-update");
-  await owner.message("owner");
-  expect(owner.child.exitCode).toBeNull();
-  expect(
-    heldByAnotherCopy(folder, (what, error) => {
-      throw new Error(what, { cause: error });
-    }),
-  ).toBe(true);
-  expect(await owner.message("reported")).toMatchObject({
-    what: "app.updateHandoffReadFailed",
-    code: "EACCES",
+  const other = await tempFolder();
+  const child = spawn(process.execPath, [bundle, "owner", folder], {
+    stdio: "pipe",
+    env: { ...process.env, ...homeEnv(home), INCARNAMIND_DATA_DIR: other },
   });
+  children.push(child);
+  let stderr = "";
+  child.stderr.setEncoding("utf8");
+  child.stderr.on("data", (chunk: string) => {
+    stderr += chunk;
+  });
+  const [code] = (await once(child, "exit")) as [number | null];
+  expect(code).not.toBe(0);
+  expect(stderr).toContain("INCARNAMIND_DATA_DIR");
+  expect(await readdir(folder)).toEqual([]);
+  expect(await readdir(other)).toEqual([]);
 });
 
 test("a second start waits for the scheduled failed-install recovery after the original owner exits", async () => {

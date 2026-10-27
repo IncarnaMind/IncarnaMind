@@ -3,6 +3,11 @@ import { acquireInstance } from "../../src/main/singleInstance";
 
 const [mode, folder, wait = "10000", recoveryId] = process.argv.slice(2);
 if (!folder) throw new Error("A temporary data folder is required.");
+if (process.env.INCARNAMIND_DATA_DIR !== folder) {
+  throw new Error(
+    `INCARNAMIND_DATA_DIR must be this child's own temporary data folder (${folder}), not ${process.env.INCARNAMIND_DATA_DIR ?? "unset"}.`,
+  );
+}
 if (mode === "wait-recovery") console.log(JSON.stringify({ kind: "starting" }));
 const instance = acquireInstance(
   folder,
