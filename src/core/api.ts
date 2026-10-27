@@ -5736,6 +5736,36 @@ export interface AnswerToolCallEvent extends AnswerPlace {
   call: AnswerToolCall;
 }
 
+export interface ApplyAskedChangesInput {
+  answerId: string;
+  mindId: string;
+  requests: readonly string[];
+}
+
+export interface AskedChangeTransition {
+  /** The clocks after Undo or Redo, for matching updates still arriving. */
+  vector: Uint8Array;
+  /** The content after Undo or Redo, which also changes when a deletion advances no clock. */
+  fingerprint: string;
+  /** The complete Undo or Redo as one Yjs update, for the renderer to apply before judging staleness. */
+  update: Uint8Array;
+}
+
+export interface AskedChangeApplication {
+  /** Identifies this application's in-session Undo in the core. */
+  undoId: string;
+  /** The original text with the turn's Proposals still marked, for Review. */
+  reviewBefore: Uint8Array;
+  /** The version after acceptance; Review is offered only while the editor is still at it. */
+  afterVector: Uint8Array;
+  /** The content after acceptance, including deletions that advance no clock. */
+  afterFingerprint: string;
+  /** The Proposal ids actually accepted; stale ones were left waiting. */
+  accepted: readonly string[];
+  requests: readonly string[];
+  held: boolean;
+}
+
 /**
  * The model gave the record for a Citation marker in the Answer: the marker
  * becomes this Citation, "checking" until the Answer finishes.
@@ -9170,6 +9200,14 @@ export interface CoreApi {
    * Block's origin. Restoring what it points into makes it lead there again.
    */
   resolveReference(reference: ArtifactReference): Promise<ReferenceTarget>;
+  /** Applies a turn's asked changes without its editor, or null when none remain. */
+  applyAskedChanges(input: ApplyAskedChangesInput): Promise<AskedChangeApplication | null>;
+  /** Takes back a core-applied change if nothing in its Mind followed it; returns the resulting state, or null when refused. */
+  undoAskedChanges(undoId: string): Promise<AskedChangeTransition | null>;
+  /** Does a core-applied change again after its Undo, with the same result contract. */
+  redoAskedChanges(undoId: string): Promise<AskedChangeTransition | null>;
+  /** Lets go of a core-applied change's in-session Review and Undo records. */
+  releaseAskedChanges(undoId: string): Promise<void>;
   /**
    * "Add to note" (#201) into a Mind that isn't open in the editor: Blocks at the
    * end of its note (in place of its empty last line), each Citation in them
@@ -10829,6 +10867,10 @@ const methods: Record<CoreApiMethod, true> = {
   deleteConversation: true,
   resolveReference: true,
   addToNote: true,
+  applyAskedChanges: true,
+  undoAskedChanges: true,
+  redoAskedChanges: true,
+  releaseAskedChanges: true,
   undoAddToNote: true,
   listNoteConversations: true,
   getSettings: true,
