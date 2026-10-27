@@ -9,29 +9,37 @@
  * the User undoes and redoes in the Mind. The core applies a Mind that isn't
  * open in an editor before that Mind opens beside the one in view.
  */
+import type { Editor } from "@tiptap/core";
 import type { EditorState } from "@tiptap/pm/state";
 import { ySyncPluginKey } from "@tiptap/y-tiptap";
 import { useCallback, useSyncExternalStore } from "react";
 import type * as Y from "yjs";
 import { create } from "zustand";
-import type { AskedChangeApplication, ConversationAnswer } from "../../core/api";
+import type {
+  AskedChangeApplication,
+  AskedChangeTransition,
+  ConversationAnswer,
+} from "../../core/api";
 import { askedFor } from "../../shared/askedChanges";
 import {
   type AppliedAsked,
   applyArrived,
   canReviewApplied,
+  coreApplicationStatus,
   onAskedApplied,
   releaseCoreChange,
   reviewApplied,
+  shareCoreUndo,
   undoCoreChange,
 } from "./appliedEdits";
 import { type ChangedMind, changedMinds } from "./changedMinds";
+import { changeFact } from "./changeFacts";
 import { core } from "./core";
 import type { FollowedSteps } from "./editor/editorUndo";
 import { mindEditor, onMindEditorOpen, whenMindEditor } from "./editor/openEditors";
 import { applyingIn, editorDoc, setApplying } from "./editor/proposalReview";
 import { useAppStore } from "./store";
-import { undoSettled } from "./undo";
+import { answerUndoPlace, type Undoable, UndoRefused, undoSettled, useUndo } from "./undo";
 
 export type AskedOutcome = "applied" | "held" | "undone";
 
@@ -62,10 +70,22 @@ interface Asked {
   application: ApplicationRef | null;
 }
 
+interface HeadlessChange {
+  application: ApplicationRef;
+  change: Undoable;
+  stop: () => void;
+  followerStop: (() => void) | null;
+  undone: boolean;
+  released: boolean;
+}
+
 const asked = new Map<string, Asked>();
 const askedHere = new Set<string>();
 const finishing = new Map<string, Promise<unknown>>();
 const recovering = new Set<string>();
+const catchingUp = new Map<string, () => void>();
+const deferring = new Set<string>();
+const headlessChanges = new Map<string, HeadlessChange>();
 
 /** Whether this window has a Question in flight whose request, as the Mind's record has it, asks for these changes. */
 export function askedInThisWindow(state: EditorState, request: string): boolean {
@@ -89,6 +109,162 @@ function setOutcome(each: Asked, outcome: AskedOutcome): void {
 export const useAskedFacts = (answerId: string, mindId: string): ChangedMind | undefined =>
   useAskedChanges((state) => state.facts[keyOf(answerId, mindId)]);
 
+async function releaseApplication(application: ApplicationRef): Promise<void> {
+  await core.releaseAskedChanges(application.undoId).catch(useAppStore.getState().reportError);
+}
+
+function releaseHeadless(each: Asked, current: HeadlessChange): void {
+  if (current.released) return;
+  current.released = true;
+  if (each.applied) releaseCoreChange(each.applied.followed);
+  else void releaseApplication(current.application);
+}
+
+function forgetHeadless(each: Asked, release: boolean): void {
+  const key = keyOf(each.answerId, each.mindId);
+  const current = headlessChanges.get(key);
+  if (!current) return;
+  if (useUndo.getState().running?.change === current.change) {
+    void undoSettled().then(() => forgetHeadless(each, release));
+    return;
+  }
+  headlessChanges.delete(key);
+  current.stop();
+  current.followerStop?.();
+  current.followerStop = null;
+  useUndo.getState().withdraw(current.change);
+  if (release) releaseHeadless(each, current);
+}
+
+function failHeadless(
+  each: Asked,
+  current: HeadlessChange,
+  error: unknown,
+  step: "undo" | "redo",
+): never {
+  releaseHeadless(each, current);
+  each.application = null;
+  setOutcome(each, step === "undo" ? "applied" : "undone");
+  void undoSettled().then(() => forgetHeadless(each, false));
+  throw error;
+}
+
+function headlessFor(each: Asked): HeadlessChange | null {
+  const key = keyOf(each.answerId, each.mindId);
+  const existing = headlessChanges.get(key);
+  if (existing) return existing;
+  const application = each.application;
+  if (!application || application.held) return null;
+  const change: Undoable = {
+    said: (t) => changeFact(t, each.facts, null),
+    shownAt: answerUndoPlace(each.answerId),
+    undo: async () => {
+      cancelCatchUp(key);
+      const followed = each.applied?.followed;
+      if (followed) {
+        try {
+          const undone = await followed.undo();
+          if (undone === false) {
+            return failHeadless(
+              each,
+              current,
+              new UndoRefused((t) => t("edit.review.changedSince"), null),
+              "undo",
+            );
+          }
+        } catch (error) {
+          return failHeadless(each, current, error, "undo");
+        }
+      } else {
+        let transition: AskedChangeTransition | null;
+        try {
+          transition = await core.undoAskedChanges(application.undoId);
+        } catch (error) {
+          return failHeadless(each, current, error, "undo");
+        }
+        if (!transition) {
+          return failHeadless(
+            each,
+            current,
+            new UndoRefused((t) => t("edit.review.changedSince"), null),
+            "undo",
+          );
+        }
+      }
+      current.undone = true;
+      each.application = null;
+      setOutcome(each, "undone");
+    },
+    redo: async () => {
+      const followed = each.applied?.followed;
+      if (followed) {
+        try {
+          const redone = await followed.redo?.();
+          if (redone === false) {
+            return failHeadless(
+              each,
+              current,
+              new UndoRefused((t) => t("edit.review.changedSince"), null),
+              "redo",
+            );
+          }
+        } catch (error) {
+          return failHeadless(each, current, error, "redo");
+        }
+        current.undone = false;
+        setOutcome(each, "applied");
+        return;
+      }
+      let transition: AskedChangeTransition | null;
+      try {
+        transition = await core.redoAskedChanges(application.undoId);
+      } catch (error) {
+        return failHeadless(each, current, error, "redo");
+      }
+      if (!transition) {
+        return failHeadless(
+          each,
+          current,
+          new UndoRefused((t) => t("edit.review.changedSince"), null),
+          "redo",
+        );
+      }
+      current.undone = false;
+      each.application = application;
+      setOutcome(each, "applied");
+      const editor = mindEditor(each.mindId);
+      if (editor) {
+        void undoSettled()
+          .then(async () => {
+            if (asked.get(key) !== each || each.applied || !each.application) return;
+            await recover(each, editor);
+          })
+          .catch(useAppStore.getState().reportError);
+      }
+    },
+  };
+  const current: HeadlessChange = {
+    application,
+    change,
+    undone: false,
+    released: false,
+    followerStop: null,
+    stop: () => undefined,
+  };
+  current.stop = useUndo.subscribe((state) => {
+    if (
+      !state.done.includes(change) &&
+      !state.undone.includes(change) &&
+      state.running?.change !== change
+    ) {
+      forgetHeadless(each, true);
+    }
+  });
+  headlessChanges.set(key, current);
+  useUndo.getState().offer(change);
+  return current;
+}
+
 async function makeWayForAnswer(
   followed: FollowedSteps | null,
   application: ApplicationRef | null,
@@ -102,7 +278,7 @@ async function makeWayForAnswer(
       useAppStore.getState().reportError(error);
       return "stayed";
     } finally {
-      await core.releaseAskedChanges(application.undoId).catch(useAppStore.getState().reportError);
+      await releaseApplication(application);
     }
   }
   await followed.settled?.();
@@ -129,10 +305,22 @@ export async function applyWhatWasAsked(
   const stayed: string[] = [];
   for (const [key, each] of asked) {
     if (each.answerId !== answerId) continue;
+    const headless = headlessChanges.get(key);
+    cancelCatchUp(key);
     asked.delete(key);
     const { created, wrote, tables, charts } = each.facts;
-    if (keepWritten && (created || wrote + tables + charts > 0)) continue;
-    const outcome = await makeWayForAnswer(each.applied?.followed ?? null, each.application);
+    if (keepWritten && (created || wrote + tables + charts > 0)) {
+      forgetHeadless(each, true);
+      continue;
+    }
+    const application = each.application ?? headless?.application ?? null;
+    const wasUndone = headless?.undone === true;
+    forgetHeadless(each, false);
+    if (wasUndone) {
+      if (application) await releaseApplication(application);
+      continue;
+    }
+    const outcome = await makeWayForAnswer(each.applied?.followed ?? null, application);
     if (outcome === "stayed") stayed.push(key);
   }
   useAskedChanges.setState((state) => {
@@ -163,6 +351,78 @@ const openBeside = (mindId: string, behind: boolean) =>
     where: { in: "place" },
     behind,
   });
+
+function cancelCatchUp(key: string): void {
+  catchingUp.get(key)?.();
+}
+
+function applyCore(
+  each: Asked,
+  editor: Editor,
+  application: AskedChangeApplication,
+  afterSteps = false,
+): void {
+  const key = keyOf(each.answerId, each.mindId);
+  const headless = headlessChanges.get(key);
+  if (headless && !afterSteps) {
+    if (deferring.has(key)) return;
+    deferring.add(key);
+    void undoSettled()
+      .then(() => {
+        deferring.delete(key);
+        if (
+          asked.get(key) === each &&
+          !each.applied &&
+          each.application?.undoId === application.undoId
+        ) {
+          applyCore(each, editor, application, true);
+        }
+      })
+      .catch((error: unknown) => {
+        deferring.delete(key);
+        useAppStore.getState().reportError(error);
+      });
+    return;
+  }
+  if (!application.held && coreApplicationStatus(editor, application) === "behind") {
+    if (catchingUp.has(key)) return;
+    const doc = editorDoc(editor);
+    if (!doc) return;
+    const stop = () => {
+      doc.off("afterTransaction", check);
+      editor.off("destroy", stop);
+      catchingUp.delete(key);
+    };
+    const check = () => {
+      if (
+        asked.get(key) !== each ||
+        each.applied ||
+        each.application?.undoId !== application.undoId ||
+        editor.isDestroyed
+      ) {
+        stop();
+        return;
+      }
+      if (coreApplicationStatus(editor, application) === "behind") return;
+      stop();
+      applyArrived(editor, each.mindId, each.requests, each.facts, {
+        application,
+        retainHeadless: headless !== undefined,
+      });
+      each.application = each.applied ? null : refOf(application);
+    };
+    catchingUp.set(key, stop);
+    doc.on("afterTransaction", check);
+    editor.on("destroy", stop);
+    return;
+  }
+  cancelCatchUp(key);
+  applyArrived(editor, each.mindId, each.requests, each.facts, {
+    application,
+    retainHeadless: headless !== undefined,
+  });
+  each.application = each.applied ? null : refOf(application);
+}
 
 function follow(row: ChangedMind): void {
   const editor = mindEditor(row.mindId);
@@ -234,10 +494,7 @@ async function finishIn(
       return;
     }
     const opened = behind ? mindEditor(row.mindId) : await whenMindEditor(row.mindId, OPEN_WAIT_MS);
-    if (opened && editorDoc(opened)) {
-      applyArrived(opened, row.mindId, requests, facts, { application });
-    }
-    each.application = each.applied ? null : refOf(application);
+    if (opened && editorDoc(opened)) applyCore(each, opened, application);
     return;
   }
   const doc = editorDoc(editor);
@@ -268,12 +525,55 @@ async function finishIn(
   if (applyArrived(editor, row.mindId, requests, facts) === "held") setOutcome(each, "held");
 }
 
+async function recover(each: Asked, editor: Editor): Promise<void> {
+  const key = keyOf(each.answerId, each.mindId);
+  if (each.applied || !each.application || recovering.has(key)) return;
+  recovering.add(key);
+  try {
+    const pending = finishing.get(each.answerId);
+    if (pending) await pending;
+    if (asked.get(key) !== each || each.applied || !each.application) return;
+    const application = await core.applyAskedChanges({
+      answerId: each.answerId,
+      mindId: each.mindId,
+      requests: each.requested,
+    });
+    if (asked.get(key) !== each || each.applied || !each.application) return;
+    if (!application) {
+      each.application = null;
+      return;
+    }
+    applyCore(each, editor, application);
+  } finally {
+    recovering.delete(key);
+  }
+}
+
 onAskedApplied((mindId, requests, applied) => {
   for (const each of asked.values()) {
     if (each.mindId !== mindId || ![...requests].some((request) => each.requests.has(request)))
       continue;
+    const key = keyOf(each.answerId, mindId);
+    cancelCatchUp(key);
     each.applied = applied;
     each.application = null;
+    const current = headlessChanges.get(key);
+    if (current) {
+      shareCoreUndo(applied.followed, current.change);
+      current.followerStop?.();
+      const check = () => {
+        const state = applied.followed.state();
+        if (
+          state === "gone" ||
+          (state === "done" && !applied.followed.onTop()) ||
+          (state === "undone" && applied.followed.canRedo && !applied.followed.canRedo())
+        ) {
+          forgetHeadless(each, true);
+        }
+      };
+      current.followerStop = applied.followed.observe(check);
+      check();
+    }
     setOutcome(each, "applied");
   }
 });
@@ -281,30 +581,7 @@ onAskedApplied((mindId, requests, applied) => {
 onMindEditorOpen((mindId, editor) => {
   void Promise.all(
     [...asked.values()].map(async (each) => {
-      const key = keyOf(each.answerId, mindId);
-      if (each.mindId !== mindId || each.applied || !each.application || recovering.has(key)) {
-        return;
-      }
-      recovering.add(key);
-      try {
-        const pending = finishing.get(each.answerId);
-        if (pending) await pending;
-        if (asked.get(key) !== each || each.applied || !each.application) return;
-        const application = await core.applyAskedChanges({
-          answerId: each.answerId,
-          mindId,
-          requests: each.requested,
-        });
-        if (asked.get(key) !== each || each.applied || !each.application) return;
-        if (!application) {
-          each.application = null;
-          return;
-        }
-        applyArrived(editor, mindId, each.requests, each.facts, { application });
-        each.application = each.applied ? null : refOf(application);
-      } finally {
-        recovering.delete(key);
-      }
+      if (each.mindId === mindId) await recover(each, editor);
     }),
   ).catch(useAppStore.getState().reportError);
 });
@@ -337,19 +614,23 @@ export function useAskedState(answerId: string, mindId: string): AskedState {
 }
 
 export function undoAsked(answerId: string, mindId: string): void {
+  const key = keyOf(answerId, mindId);
+  const current = headlessChanges.get(key);
+  if (current) {
+    void useUndo.getState().undo(current.change).catch(useAppStore.getState().reportError);
+    return;
+  }
   const followed = followedOf(answerId, mindId);
   if (followed?.onTop()) {
     void undoCoreChange(followed);
     return;
   }
-  const each = asked.get(keyOf(answerId, mindId));
+  const each = asked.get(key);
   if (!each?.application || each.application.held) return;
-  void makeWayForAnswer(null, each.application)
-    .then((outcome) => {
-      each.application = null;
-      setOutcome(each, outcome === "undone" ? "undone" : "applied");
-    })
-    .catch(useAppStore.getState().reportError);
+  cancelCatchUp(key);
+  const created = headlessFor(each);
+  if (created)
+    void useUndo.getState().undo(created.change).catch(useAppStore.getState().reportError);
 }
 
 function reviewableIn(mindId: string, followed: FollowedSteps | null): boolean {

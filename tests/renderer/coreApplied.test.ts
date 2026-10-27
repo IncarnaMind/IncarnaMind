@@ -20,7 +20,7 @@ import type { FollowedSteps } from "../../src/renderer/src/editor/editorUndo";
 import { noteExtensions } from "../../src/renderer/src/editor/noteSchema";
 import { registerMindEditor } from "../../src/renderer/src/editor/openEditors";
 import { ProposalReview } from "../../src/renderer/src/editor/proposalReview";
-import { nextToRedo, useUndo } from "../../src/renderer/src/undo";
+import { nextToRedo, undoSettled, useUndo } from "../../src/renderer/src/undo";
 import { fingerprintOfMind, transitionOfMind } from "../../src/shared/mindState";
 import { recordProposalRequest, resolveProposals } from "../../src/shared/proposals";
 
@@ -618,6 +618,50 @@ test("an editor opened during a background core apply is followed immediately", 
   doc.destroy();
 });
 
+// Value: protects=a response before the accepted Yjs update is catch-up, not divergence; fails_when=Review and core Undo are released while the editor is behind; why_new=independent review reproduced the ordering; seam=real background apply and later accepted update; no_claim=an actually diverged editor (covered by Review invalidation tests)
+test("an editor behind the accepted update recovers Review and Undo on arrival", async () => {
+  const { doc, application } = applicationWithChange(false);
+  const lagging = new Y.Doc();
+  Y.applyUpdate(lagging, application.reviewBefore);
+  let editor: Editor | null = null;
+  let releases = 0;
+  mountDom(
+    {
+      undoAskedChanges: async () => transitionOfMind(doc),
+      redoAskedChanges: async () => transitionOfMind(doc),
+      releaseAskedChanges: async () => {
+        releases += 1;
+      },
+    },
+    {
+      apply: async (input) => {
+        if (input.mindId !== "mind") return null;
+        editor = editorWith(lagging);
+        onTestFinished(registerMindEditor("mind", editor));
+        return application;
+      },
+    },
+  );
+  const { applyWhatWasAsked, useAskedChanges } = await import(
+    "../../src/renderer/src/askedChanges"
+  );
+  const { offersReview } = await import("../../src/renderer/src/appliedEdits");
+  const answer = conversationWithMadeChange(application);
+  await applyWhatWasAsked(answer.id);
+  emitConversation(answer);
+  await eventually(() => useAskedChanges.getState().outcomes[answer.id]?.mind ?? null);
+  expect(useUndo.getState().done).toHaveLength(0);
+  expect(releases).toBe(0);
+
+  Y.applyUpdate(lagging, Y.encodeStateAsUpdate(doc, Y.encodeStateVector(lagging)));
+
+  await eventually(() => (editor && offersReview(editor) ? true : null));
+  expect(useUndo.getState().done).toHaveLength(1);
+  expect(releases).toBe(0);
+  lagging.destroy();
+  doc.destroy();
+});
+
 // Value: protects=regeneration waits for in-flight Redo then undoes once; fails_when=old text survives or the old stack entry remains; why_new=review reproduced the race; seam=real conversation-finish path and global Redo; no_claim=multi-window remote edits (single-window sequence)
 test("regeneration waits for in-flight core Redo and undoes it once", async () => {
   const { doc, application } = applicationWithChange(false);
@@ -676,10 +720,11 @@ test("regeneration waits for in-flight core Redo and undoes it once", async () =
   doc.destroy();
 });
 
-// Value: protects=a failed open still leaves a working core Undo; fails_when=the card is stuck closed or the edit is not undone; why_new=review found the stranded outcome; seam=real conversation-finish path with layout failure; no_claim=global Redo (headless fallback only)
-test("a failed open leaves a working card Undo", async () => {
+// Value: protects=headless Undo keeps a working global Redo and regeneration still releases once; fails_when=the initial Undo releases the only core entry; why_new=independent review found no Redo route; seam=real card Undo, global Redo and re-ask; no_claim=editor-follower Redo (covered separately)
+test("a failed open leaves working card Undo and global Redo", async () => {
   const { doc, application } = applicationWithChange(false);
   let undoCalls = 0;
+  let redoCalls = 0;
   let releases = 0;
   mountDom(
     {
@@ -687,7 +732,10 @@ test("a failed open leaves a working card Undo", async () => {
         undoCalls += 1;
         return transitionOfMind(doc);
       },
-      redoAskedChanges: async () => null,
+      redoAskedChanges: async () => {
+        redoCalls += 1;
+        return transitionOfMind(doc);
+      },
       releaseAskedChanges: async () => {
         releases += 1;
       },
@@ -711,7 +759,436 @@ test("a failed open leaves a working card Undo", async () => {
     useAskedChanges.getState().outcomes[answer.id]?.mind === "undone" ? "undone" : null,
   );
   expect(undoCalls).toBe(1);
+  expect(releases).toBe(0);
+  expect(nextToRedo(useUndo.getState())).toBeDefined();
+
+  await useUndo.getState().redo();
+  expect(redoCalls).toBe(1);
+  expect(releases).toBe(0);
+  expect(useAskedChanges.getState().outcomes[answer.id]?.mind).toBe("applied");
+  expect(useUndo.getState().done).toHaveLength(1);
+
+  await applyWhatWasAsked(answer.id);
+  expect(undoCalls).toBe(2);
   expect(releases).toBe(1);
+  expect(useUndo.getState().done).toEqual([]);
+  expect(useUndo.getState().undone).toEqual([]);
+  doc.destroy();
+});
+
+// Value: protects=taking a headless change back does not clear unrelated Redo; fails_when=the card's first Undo pushes a new edit and erases the existing undone stack; why_new=review found push semantics on an old change; seam=unrelated Undo followed by card Undo; no_claim=the headless change's own Redo (covered above)
+test("headless Undo preserves unrelated Redo history", async () => {
+  const { doc, application } = applicationWithChange(false);
+  let otherRedos = 0;
+  mountDom(
+    {
+      undoAskedChanges: async () => transitionOfMind(doc),
+      redoAskedChanges: async () => transitionOfMind(doc),
+      releaseAskedChanges: async () => undefined,
+    },
+    {
+      apply: async () => application,
+      layout: async () => {
+        throw new Error("Open failed.");
+      },
+    },
+  );
+  const other = {
+    said: () => "Other change",
+    undo: async () => undefined,
+    redo: async () => {
+      otherRedos += 1;
+    },
+  };
+  useUndo.getState().push(other);
+  await useUndo.getState().undo();
+  const { applyWhatWasAsked, undoAsked, useAskedChanges } = await import(
+    "../../src/renderer/src/askedChanges"
+  );
+  const answer = conversationWithChange(application);
+  await applyWhatWasAsked(answer.id);
+  emitConversation(answer);
+  await eventually(() => useAskedChanges.getState().outcomes[answer.id]?.mind ?? null);
+
+  undoAsked(answer.id, "mind");
+  await eventually(() =>
+    useAskedChanges.getState().outcomes[answer.id]?.mind === "undone" ? "undone" : null,
+  );
+
+  expect(useUndo.getState().undone).toHaveLength(2);
+  await useUndo.getState().redo();
+  expect(otherRedos).toBe(0);
+  expect(useUndo.getState().undone).toEqual([other]);
+  await applyWhatWasAsked(answer.id);
+  expect(useUndo.getState().undone).toEqual([other]);
+  doc.destroy();
+});
+
+// Value: protects=a failed headless Undo or Redo is visible and cannot repeat a released id; fails_when=the running entry is withdrawn before the global error handler or application stays live; why_new=review reproduced silent null/IPC failures; seam=card Undo with null and rejected core responses; no_claim=error wording (covered by shared error tests)
+test.each([null, new Error("IPC failed")])(
+  "a failed headless Undo reports and closes the lifecycle: %s",
+  async (failure) => {
+    const { doc, application } = applicationWithChange(false);
+    let undoCalls = 0;
+    let releases = 0;
+    mountDom(
+      {
+        undoAskedChanges: async () => {
+          undoCalls += 1;
+          if (failure) throw failure;
+          return null;
+        },
+        redoAskedChanges: async () => transitionOfMind(doc),
+        releaseAskedChanges: async () => {
+          releases += 1;
+        },
+      },
+      {
+        apply: async () => application,
+        layout: async () => {
+          throw new Error("Open failed.");
+        },
+      },
+    );
+    const { applyWhatWasAsked, undoAsked, useAskedChanges } = await import(
+      "../../src/renderer/src/askedChanges"
+    );
+    const answer = conversationWithChange(application);
+    await applyWhatWasAsked(answer.id);
+    emitConversation(answer);
+    await eventually(() => useAskedChanges.getState().outcomes[answer.id]?.mind ?? null);
+    undoAsked(answer.id, "mind");
+    await eventually(() => (useUndo.getState().line ? true : null));
+
+    expect(useUndo.getState().line).toMatchObject({ problem: { step: "undo" } });
+    expect(releases).toBe(1);
+    expect(useUndo.getState().running).toBeNull();
+    undoAsked(answer.id, "mind");
+    await Promise.resolve();
+    expect(undoCalls).toBe(1);
+    doc.destroy();
+  },
+);
+
+// Value: protects=a failed headless Redo is visible and releases its retained entry; fails_when=Redo fails silently or leaves a repeatable released id; why_new=the retained Redo lifecycle needs its own failure case; seam=successful Undo then null core Redo; no_claim=IPC failure wording (covered by the Undo failure cases)
+test("a failed headless Redo reports and closes the lifecycle", async () => {
+  const { doc, application } = applicationWithChange(false);
+  let redoCalls = 0;
+  let releases = 0;
+  mountDom(
+    {
+      undoAskedChanges: async () => transitionOfMind(doc),
+      redoAskedChanges: async () => {
+        redoCalls += 1;
+        return null;
+      },
+      releaseAskedChanges: async () => {
+        releases += 1;
+      },
+    },
+    {
+      apply: async () => application,
+      layout: async () => {
+        throw new Error("Open failed.");
+      },
+    },
+  );
+  const { applyWhatWasAsked, undoAsked, useAskedChanges } = await import(
+    "../../src/renderer/src/askedChanges"
+  );
+  const answer = conversationWithChange(application);
+  await applyWhatWasAsked(answer.id);
+  emitConversation(answer);
+  await eventually(() => useAskedChanges.getState().outcomes[answer.id]?.mind ?? null);
+  undoAsked(answer.id, "mind");
+  await eventually(() =>
+    useAskedChanges.getState().outcomes[answer.id]?.mind === "undone" ? "undone" : null,
+  );
+
+  await useUndo.getState().redo();
+  expect(useUndo.getState().line).toMatchObject({ problem: { step: "redo" } });
+  expect(redoCalls).toBe(1);
+  expect(releases).toBe(1);
+  expect(useUndo.getState().running).toBeNull();
+  await useUndo.getState().redo();
+  expect(redoCalls).toBe(1);
+  doc.destroy();
+});
+
+// Value: protects=regeneration after headless Undo releases without applying a second Undo; fails_when=the retained Redo entry leaks or is undone again; why_new=headless Redo requires retaining the core entry; seam=card Undo then re-ask; no_claim=the successful Redo path (covered above)
+test("regeneration after headless Undo releases without a second Undo", async () => {
+  const { doc, application } = applicationWithChange(false);
+  let undoCalls = 0;
+  let releases = 0;
+  mountDom(
+    {
+      undoAskedChanges: async () => {
+        undoCalls += 1;
+        return transitionOfMind(doc);
+      },
+      redoAskedChanges: async () => transitionOfMind(doc),
+      releaseAskedChanges: async () => {
+        releases += 1;
+      },
+    },
+    {
+      apply: async () => application,
+      layout: async () => {
+        throw new Error("Open failed.");
+      },
+    },
+  );
+  const { applyWhatWasAsked, undoAsked, useAskedChanges } = await import(
+    "../../src/renderer/src/askedChanges"
+  );
+  const answer = conversationWithChange(application);
+  await applyWhatWasAsked(answer.id);
+  emitConversation(answer);
+  await eventually(() => useAskedChanges.getState().outcomes[answer.id]?.mind ?? null);
+  undoAsked(answer.id, "mind");
+  await eventually(() =>
+    useAskedChanges.getState().outcomes[answer.id]?.mind === "undone" ? "undone" : null,
+  );
+
+  await applyWhatWasAsked(answer.id);
+
+  expect(undoCalls).toBe(1);
+  expect(releases).toBe(1);
+  expect(useUndo.getState().done).toEqual([]);
+  expect(useUndo.getState().undone).toEqual([]);
+  doc.destroy();
+});
+
+// Value: protects=editor recovery cannot displace a headless Undo still running; fails_when=handoff withdraws the running entry before it reaches the undone stack; why_new=review resolved recovery before Undo; seam=deferred recovery and core Undo; no_claim=handoff after Undo settles (covered by ordinary recovery)
+test("editor recovery waits for an in-flight headless Undo", async () => {
+  const { doc, application } = applicationWithChange(false);
+  const recovery = Promise.withResolvers<AskedChangeApplication | null>();
+  const undoing = Promise.withResolvers<AskedChangeTransition | null>();
+  let applyCalls = 0;
+  let releases = 0;
+  mountDom(
+    {
+      undoAskedChanges: () => undoing.promise,
+      redoAskedChanges: async () => transitionOfMind(doc),
+      releaseAskedChanges: async () => {
+        releases += 1;
+      },
+    },
+    {
+      apply: async (input) => {
+        if (input.mindId !== "mind") return null;
+        applyCalls += 1;
+        return applyCalls === 1 ? application : recovery.promise;
+      },
+      layout: async () => {
+        throw new Error("Open failed.");
+      },
+    },
+  );
+  const { applyWhatWasAsked, undoAsked, useAskedChanges } = await import(
+    "../../src/renderer/src/askedChanges"
+  );
+  const answer = conversationWithChange(application);
+  await applyWhatWasAsked(answer.id);
+  emitConversation(answer);
+  await eventually(() => useAskedChanges.getState().outcomes[answer.id]?.mind ?? null);
+  const editor = editorWith(doc);
+  onTestFinished(registerMindEditor("mind", editor));
+  await eventually(() => (applyCalls === 2 ? true : null));
+  undoAsked(answer.id, "mind");
+  await eventually(() => (useUndo.getState().running ? true : null));
+
+  recovery.resolve(application);
+  for (let index = 0; index < 3; index++) await Promise.resolve();
+  undoing.resolve(transitionOfMind(doc));
+  await undoSettled();
+
+  expect(useUndo.getState().done).toEqual([]);
+  expect(useUndo.getState().undone).toHaveLength(1);
+  expect(useAskedChanges.getState().outcomes[answer.id]?.mind).toBe("undone");
+  expect(releases).toBe(0);
+  doc.destroy();
+});
+
+// Value: protects=recovery cannot cancel a headless Undo queued behind another change; fails_when=only the headless running slot is checked; why_new=review resolved recovery while an unrelated operation held the queue; seam=deferred unrelated Undo, queued card Undo and recovery; no_claim=the already-running recovery race (covered above)
+test("editor recovery waits for a queued headless Undo", async () => {
+  const { doc, application } = applicationWithChange(false);
+  const recovery = Promise.withResolvers<AskedChangeApplication | null>();
+  const otherUndo = Promise.withResolvers<void>();
+  let applyCalls = 0;
+  let undoCalls = 0;
+  mountDom(
+    {
+      undoAskedChanges: async () => {
+        undoCalls += 1;
+        return transitionOfMind(doc);
+      },
+      redoAskedChanges: async () => transitionOfMind(doc),
+      releaseAskedChanges: async () => undefined,
+    },
+    {
+      apply: async (input) => {
+        if (input.mindId !== "mind") return null;
+        applyCalls += 1;
+        return applyCalls === 1 ? application : recovery.promise;
+      },
+      layout: async () => {
+        throw new Error("Open failed.");
+      },
+    },
+  );
+  const { applyWhatWasAsked, undoAsked, useAskedChanges } = await import(
+    "../../src/renderer/src/askedChanges"
+  );
+  const answer = conversationWithChange(application);
+  await applyWhatWasAsked(answer.id);
+  emitConversation(answer);
+  await eventually(() => useAskedChanges.getState().outcomes[answer.id]?.mind ?? null);
+  const other = {
+    said: () => "Other change",
+    undo: () => otherUndo.promise,
+    redo: async () => undefined,
+  };
+  useUndo.getState().push(other);
+  const earlier = useUndo.getState().undo();
+  const editor = editorWith(doc);
+  onTestFinished(registerMindEditor("mind", editor));
+  await eventually(() => (applyCalls === 2 ? true : null));
+  undoAsked(answer.id, "mind");
+
+  recovery.resolve(application);
+  for (let index = 0; index < 3; index++) await Promise.resolve();
+  expect(undoCalls).toBe(0);
+  otherUndo.resolve();
+  await earlier;
+  await undoSettled();
+
+  expect(undoCalls).toBe(1);
+  expect(useAskedChanges.getState().outcomes[answer.id]?.mind).toBe("undone");
+  expect(useUndo.getState().undone).toHaveLength(2);
+  doc.destroy();
+});
+
+// Value: protects=a card Undo queued after recovery's wait cannot be cancelled by handoff; fails_when=the follower withdraws the queued headless change before its turn; why_new=review found the queue-snapshot race; seam=recovery waiting on another operation, then card Undo; no_claim=recovery before the card operation (covered above)
+test("a card Undo queued after recovery's wait still runs", async () => {
+  const { doc, application } = applicationWithChange(false);
+  const recovery = Promise.withResolvers<AskedChangeApplication | null>();
+  const otherUndo = Promise.withResolvers<void>();
+  let applyCalls = 0;
+  let undoCalls = 0;
+  mountDom(
+    {
+      undoAskedChanges: async () => {
+        undoCalls += 1;
+        return transitionOfMind(doc);
+      },
+      redoAskedChanges: async () => transitionOfMind(doc),
+      releaseAskedChanges: async () => undefined,
+    },
+    {
+      apply: async (input) => {
+        if (input.mindId !== "mind") return null;
+        applyCalls += 1;
+        return applyCalls === 1 ? application : recovery.promise;
+      },
+      layout: async () => {
+        throw new Error("Open failed.");
+      },
+    },
+  );
+  const { applyWhatWasAsked, undoAsked, useAskedChanges } = await import(
+    "../../src/renderer/src/askedChanges"
+  );
+  const answer = conversationWithChange(application);
+  await applyWhatWasAsked(answer.id);
+  emitConversation(answer);
+  await eventually(() => useAskedChanges.getState().outcomes[answer.id]?.mind ?? null);
+  undoAsked(answer.id, "mind");
+  await eventually(() =>
+    useAskedChanges.getState().outcomes[answer.id]?.mind === "undone" ? "undone" : null,
+  );
+  await useUndo.getState().redo();
+  const other = {
+    said: () => "Other change",
+    undo: () => otherUndo.promise,
+    redo: async () => undefined,
+  };
+  useUndo.getState().push(other);
+  const earlier = useUndo.getState().undo();
+  const editor = editorWith(doc);
+  onTestFinished(registerMindEditor("mind", editor));
+  await eventually(() => (applyCalls === 2 ? true : null));
+  recovery.resolve(application);
+  for (let index = 0; index < 3; index++) await Promise.resolve();
+
+  undoAsked(answer.id, "mind");
+  otherUndo.resolve();
+  await earlier;
+  await undoSettled();
+
+  expect(undoCalls).toBe(2);
+  expect(useAskedChanges.getState().outcomes[answer.id]?.mind).toBe("undone");
+  expect(useUndo.getState().undone).toHaveLength(2);
+  doc.destroy();
+});
+
+// Value: protects=Redo keeps its stack entry until editor recovery installs the follower; fails_when=handoff withdraws before asynchronous apply finishes; why_new=review found a global-Undo gap; seam=deferred recovery after headless Redo; no_claim=the follower's later Undo (covered by core follower tests)
+test("headless Redo keeps its change until the editor follower exists", async () => {
+  const { doc, application } = applicationWithChange(false);
+  const recovery = Promise.withResolvers<AskedChangeApplication | null>();
+  let applyCalls = 0;
+  let releases = 0;
+  mountDom(
+    {
+      undoAskedChanges: async () => transitionOfMind(doc),
+      redoAskedChanges: async () => transitionOfMind(doc),
+      releaseAskedChanges: async () => {
+        releases += 1;
+      },
+    },
+    {
+      apply: async (input) => {
+        if (input.mindId !== "mind") return null;
+        applyCalls += 1;
+        return applyCalls === 1 ? application : recovery.promise;
+      },
+      layout: async () => {
+        throw new Error("Open failed.");
+      },
+    },
+  );
+  const { applyWhatWasAsked, undoAsked, useAskedChanges } = await import(
+    "../../src/renderer/src/askedChanges"
+  );
+  const { offersReview } = await import("../../src/renderer/src/appliedEdits");
+  const answer = conversationWithChange(application);
+  await applyWhatWasAsked(answer.id);
+  emitConversation(answer);
+  await eventually(() => useAskedChanges.getState().outcomes[answer.id]?.mind ?? null);
+  const other = {
+    said: () => "Other change",
+    undo: async () => undefined,
+    redo: async () => undefined,
+  };
+  useUndo.getState().push(other);
+  await useUndo.getState().undo();
+  undoAsked(answer.id, "mind");
+  await eventually(() =>
+    useAskedChanges.getState().outcomes[answer.id]?.mind === "undone" ? "undone" : null,
+  );
+  const editor = editorWith(doc);
+  onTestFinished(registerMindEditor("mind", editor));
+
+  await useUndo.getState().redo();
+  await eventually(() => (applyCalls === 2 ? true : null));
+  expect(useUndo.getState().done).toHaveLength(1);
+  expect(useUndo.getState().undone).toEqual([other]);
+
+  recovery.resolve(application);
+  await eventually(() => (offersReview(editor) ? true : null));
+  expect(useUndo.getState().done).toHaveLength(1);
+  expect(useUndo.getState().undone).toEqual([other]);
+  expect(releases).toBe(0);
   doc.destroy();
 });
 

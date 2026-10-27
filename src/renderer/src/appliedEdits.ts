@@ -606,6 +606,16 @@ function offerCoreUndo(edit: Applying, followed: FollowedSteps, facts: ChangeCou
   useUndo.getState().push(change);
 }
 
+export function shareCoreUndo(followed: FollowedSteps, change: Undoable): void {
+  coreUndoRegistrations.set(followed, {
+    change,
+    forget: () => {
+      coreUndoRegistrations.delete(followed);
+      void followed.release?.();
+    },
+  });
+}
+
 export async function undoCoreChange(followed: FollowedSteps): Promise<void> {
   const registered = coreUndoRegistrations.get(followed)?.change;
   if (registered) await useUndo.getState().undo(registered);
@@ -632,6 +642,19 @@ const coveredBy = (doc: Y.Doc, expected: Uint8Array): boolean => {
   return [...now].every(([client, clock]) => (wanted.get(client) ?? 0) >= clock);
 };
 
+/** Whether an editor matches an accepted core change, can still receive it, or has diverged. */
+export function coreApplicationStatus(
+  editor: Editor,
+  application: AskedChangeApplication,
+): "current" | "behind" | "diverged" {
+  const doc = editorDoc(editor);
+  if (!doc) return "diverged";
+  if (sameVector(doc, application.afterVector)) {
+    return fingerprintOfMind(doc) === application.afterFingerprint ? "current" : "diverged";
+  }
+  return coveredBy(doc, application.afterVector) ? "behind" : "diverged";
+}
+
 /** Calls `listener` as the changes the User asked for apply: at once, or later from a held line. */
 export function onAskedApplied(listener: AskedApplied): () => void {
   applied.add(listener);
@@ -650,7 +673,11 @@ export function applyArrived(
   mindId: string,
   requests: ReadonlySet<string>,
   facts: ChangeCounts,
-  { holds = true, application }: { holds?: boolean; application?: AskedChangeApplication } = {},
+  {
+    holds = true,
+    application,
+    retainHeadless = false,
+  }: { holds?: boolean; application?: AskedChangeApplication; retainHeadless?: boolean } = {},
 ): "applied" | "held" | null {
   const first = proposalsIn(editor.state.doc).find((each) => requests.has(each.request));
   if ((!first && !application) || editor.isDestroyed) return null;
@@ -683,9 +710,12 @@ export function applyArrived(
   let planned: ReturnType<typeof planChanges>;
   if (application) {
     planned = [];
-    const current =
-      sameVector(edit.doc, application.afterVector) &&
-      fingerprintOfMind(edit.doc) === application.afterFingerprint;
+    const status = coreApplicationStatus(editor, application);
+    if (status === "behind") {
+      edit.forget();
+      return null;
+    }
+    const current = status === "current";
     if (current) {
       const reviewDoc = new Y.Doc();
       Y.applyUpdate(reviewDoc, application.reviewBefore);
@@ -737,8 +767,11 @@ export function applyArrived(
     kept: null,
   });
   if (application) {
-    if (followed?.onTop()) offerCoreUndo(edit, followed, facts);
-    else void followed?.release?.();
+    if (followed?.onTop()) {
+      if (!retainHeadless) offerCoreUndo(edit, followed, facts);
+    } else {
+      void followed?.release?.();
+    }
   } else {
     offerEditorUndo(editor, (t) => changeFact(t, facts, null), pageUndoPlace);
   }

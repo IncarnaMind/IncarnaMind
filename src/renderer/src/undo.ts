@@ -116,6 +116,8 @@ interface UndoState {
   making: number;
   /** Puts a change just made on the stack and shows its line; nothing more can be redone. */
   push(change: Undoable): void;
+  /** Tracks an existing change without showing a new line or clearing Redo. */
+  offer(change: Undoable): void;
   /** Shows a line that isn't a change, in place of what shows, as after a tab closes. */
   tell(line: ToldLine): void;
   undo(change?: Undoable): Promise<void>;
@@ -230,6 +232,10 @@ export const useUndo = create<UndoState>()((set, get) => {
       // A command offers the change its action already offered.
       if (get().done.at(-1) === change) return;
       set((state) => ({ done: [...state.done, change], undone: [], line: lineOf(change) }));
+    },
+    offer(change) {
+      if (get().done.includes(change) || get().undone.includes(change)) return;
+      set((state) => ({ done: [...state.done, change] }));
     },
     tell(line) {
       set({ line: { id: ++lines, told: line } });
