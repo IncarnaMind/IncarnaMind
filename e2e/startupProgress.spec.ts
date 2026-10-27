@@ -252,9 +252,44 @@ test("a killed copy leaves a slow fresh launch alone and keeps its saved text", 
 
 for (const language of ["en", "zh-CN"]) {
   test(`a fresh initial launch reaches its native page (${language})`, async () => {
-    start("ready", [], language);
-    await ownerWindow();
-    expect((await events()).filter((event) => event.kind === "problem")).toEqual([]);
+    test.setTimeout(90_000);
+    const child = start("quitting", [], language);
+    try {
+      await ownerWindow();
+      expect((await events()).filter((event) => event.kind === "problem")).toEqual([]);
+    } catch (error) {
+      const observation: Record<string, unknown> = {
+        failedAt: new Date().toISOString(),
+        error: String(error),
+      };
+      try {
+        await expect
+          .poll(
+            async () =>
+              child.exitCode !== null ||
+              child.signalCode !== null ||
+              (await events()).some(
+                (event) => event.kind === "window-main-yield" || event.kind === "problem",
+              ),
+            { timeout: 60_000 },
+          )
+          .toBe(true);
+        observation.reachedReturn = true;
+      } catch (observationError) {
+        observation.observationError = String(observationError);
+      }
+      observation.observedAt = new Date().toISOString();
+      observation.owner = await ownerState();
+      observation.exitCode = child.exitCode;
+      observation.signalCode = child.signalCode;
+      const path = test.info().outputPath("initial-page-failure-observation.json");
+      await writeFile(path, JSON.stringify(observation, null, 2));
+      await test.info().attach("initial-page-failure-observation", {
+        path,
+        contentType: "application/json",
+      });
+      throw error;
+    }
   });
 
   test(`a content database that cannot open gives the next step and releases its folder (${language})`, async () => {

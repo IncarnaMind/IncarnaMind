@@ -150,14 +150,14 @@ jobs:
         run: |
           $env:INCARNAMIND_PACKAGED_APP = Join-Path $pwd "startup-main-control/dist/startup-main-control/win-unpacked/IncarnaMind.exe"
           Remove-Item Env:INCARNAMIND_PACKAGED_UPDATED_APP -ErrorAction SilentlyContinue
-          node node_modules/@playwright/test/cli.js test startupProgress.spec.ts --grep "a fresh initial launch reaches its native page" --repeat-each=5 --workers=1 --retries=0 --output=test-results/startup-main-control 2>&1 | Tee-Object test-results/startup-comparison/main-tests.log
+          node node_modules/@playwright/test/cli.js test startupProgress.spec.ts --grep "a fresh initial launch reaches its native page" --repeat-each=5 --workers=1 --retries=0 --max-failures=1 --output=test-results/startup-main-control 2>&1 | Tee-Object test-results/startup-comparison/main-tests.log
           exit $LASTEXITCODE
       - name: Compare initial pages on the pull request (second, ten starts)
         if: always() && github.event_name == 'pull_request' && steps.startup_control.outcome == 'success'
         run: |
           $env:INCARNAMIND_PACKAGED_APP = Join-Path $pwd "dist/lifecycle-old/win-unpacked/IncarnaMind.exe"
           Remove-Item Env:INCARNAMIND_PACKAGED_UPDATED_APP -ErrorAction SilentlyContinue
-          node node_modules/@playwright/test/cli.js test startupProgress.spec.ts --grep "a fresh initial launch reaches its native page" --repeat-each=5 --workers=1 --retries=0 --output=test-results/startup-pr-control 2>&1 | Tee-Object test-results/startup-comparison/pr-tests.log
+          node node_modules/@playwright/test/cli.js test startupProgress.spec.ts --grep "a fresh initial launch reaches its native page" --repeat-each=5 --workers=1 --retries=0 --max-failures=1 --output=test-results/startup-pr-control 2>&1 | Tee-Object test-results/startup-comparison/pr-tests.log
           exit $LASTEXITCODE
       - if: always()
         uses: actions/upload-artifact@v7

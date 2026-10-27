@@ -74,6 +74,9 @@ const manifest = {
   repeatsPerLanguage: 5,
   workers: 1,
   retries: 0,
+  maxFailuresPerArm: 1,
+  startupFixtureMode: "quitting (before any quit is requested)",
+  afterFailedAssertion: "Observe return/exit for up to 60 seconds, then rethrow the original failure.",
   runtimeEvidence: {
     main: "test-results/startup-main-control/**/startup-events*.json",
     pullRequest: "test-results/startup-pr-control/**/startup-events*.json",
