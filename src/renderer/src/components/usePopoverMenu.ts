@@ -342,8 +342,15 @@ export function usePopoverMenu({
       if (document.querySelector("dialog:modal") !== null) return;
       const element = menu.current;
       if (!element?.matches(":popover-open")) return;
-      // In the menu, its own keys answer: a submenu closes before the menu it is in.
-      if (event.target instanceof Node && element.contains(event.target)) return;
+      // In the menu or in one of its submenus, its own keys answer: a submenu closes first.
+      const target = event.target;
+      if (
+        target instanceof Node &&
+        (element.contains(target) ||
+          openSubmenus(element).some(({ submenu }) => submenu.contains(target)))
+      ) {
+        return;
+      }
       event.preventDefault();
       event.stopPropagation();
       returnWanted.current = true;
