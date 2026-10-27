@@ -2,6 +2,9 @@ import { DatabaseSync, type StatementSync } from "node:sqlite";
 import { isRecord } from "../errors";
 import type { Database, SqlValue } from "./database";
 
+/** How long a start keeps trying WAL shared memory another process maps, on Windows (#2067). */
+export const MAPPED_WAL_RETRY_MS = 5_000;
+
 /**
  * The `node:sqlite` adapter for the storage port. `node:sqlite` ships with
  * Electron's Node (24), so it needs no native module build.
@@ -20,7 +23,7 @@ export function openNodeSqlite(file: string): Database {
       throw error;
     // SQLite cannot truncate mapped SHM on Windows (#2067, upstream 7c103a0b7d).
     // Remove this bounded workaround when the released runtime contains that fix.
-    const deadline = performance.now() + 5_000;
+    const deadline = performance.now() + MAPPED_WAL_RETRY_MS;
     const pause = new Int32Array(new SharedArrayBuffer(4));
     let failure = error;
     for (;;) {

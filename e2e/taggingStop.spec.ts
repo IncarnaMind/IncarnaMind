@@ -101,7 +101,7 @@ test("the status names where Tagging goes; Stop keeps the Folder's new Documents
   const footer = window.getByTestId("sidebar-status");
   // A Tag of the User's own: only now is Tags named (#1942).
   await makeTagOnDocument(window, "Opening note");
-  await expect(footer.getByTestId("tagging-waiting")).toContainText("No AI model for Tags");
+  await expect(footer.getByTestId("tagging-waiting")).toContainText("Tags need an AI model");
 
   // Documents added before the key and the switch aren't tagged by it: only those added since.
   await pasteKey(window);

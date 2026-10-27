@@ -123,7 +123,8 @@ export const en = {
   "library.fix.readAgain": "Read it again",
   "library.noMatch": "No Documents match",
   "library.noMatch.clear": "Clear search and filters",
-  "library.drop.title": "Drop files or a folder here",
+  "library.none": "No Documents yet",
+  "library.none.hint": "Add files or a folder.",
   "library.drop.formats": "PDF, Word, PowerPoint, Excel, Markdown, text",
   "library.drop.stay": "Your files stay where they are.",
   "library.review": "Review",
@@ -1701,7 +1702,7 @@ export const en = {
   "status.taggingSends.full.other":
     "Tagging {count} Documents with {service}: each one’s name, outline and short excerpts are sent",
   "status.sendsScans": " (page images for scans)",
-  "status.taggingWaiting": "No AI model for Tags",
+  "status.taggingWaiting": "Tags need an AI model",
   "status.taggingPermission": "Tags need your OK",
   "status.taggingFailed.one": "1 Document couldn’t be tagged",
   "status.taggingFailed.other": "{count} Documents couldn’t be tagged",
@@ -1752,7 +1753,7 @@ export const en = {
   "modelSource.copy": "IncarnaMind’s copy",
   "status.downloadFailed": "Search model download failed",
   "status.modelFailed": "Search model couldn’t start",
-  "status.rerankDownloading": "Search setup",
+  "status.rerankDownloading": "Getting search ready",
   "status.rerankDownloading.full":
     "Getting search ready: {downloaded} of {total} MB. Until then, search keeps its own order.",
   "status.rerankDownloadFailed": "Couldn’t get search ready",
@@ -2419,7 +2420,7 @@ export const en = {
   "copilot.notice.experimental": "Experimental: GitHub may block this sign-in.",
   "copilot.notice.sends": "Sends your questions and document text to GitHub.",
   "copilot.notice.sends.details":
-    "Your Questions, the note you’re in, Passages from your Documents, and Document text for Tags go to GitHub under your account.",
+    "Your Questions, the note you’re in, passages from your Documents, and Document text for Tags go to GitHub under your account.",
   "copilot.cancel": "Cancel",
   "copilot.code.asking": "Asking GitHub for a code…",
   "copilot.code.title": "Enter this code on GitHub’s page",
@@ -2535,7 +2536,7 @@ export const en = {
   "consent.flow.embeddings": "Document search",
   "consent.flow.embeddings.purpose": "search your Documents by their meaning",
   "consent.data.document-text":
-    "The text of every Document, each Passage with its Document’s name, again when you change the model",
+    "The text of every Document, each passage with its Document’s name, again when you change the model",
   "consent.data.verified-document": "The sentences of a document you verify, to find claims",
   "consent.data.queries": "Your searches: each Question’s words, or what an Answer searches for",
   "consent.flow.suggestions": "Writing suggestions",
@@ -3307,7 +3308,7 @@ export const en = {
   "citation.badge.unsupported": "Unsupported by your Documents",
   "citation.badge.contradicted": "Contradicted",
   "citation.reason.quote-not-on-pages": "The quote isn’t in the text of the place it cites.",
-  "citation.reason.pages-outside-passage": "The cited place isn’t in the quote’s Passage.",
+  "citation.reason.pages-outside-passage": "The cited place isn’t in the quote’s passage.",
   "citation.reason.too-many-pages": "A Citation can cite one place, or two in a row.",
   "citation.reason.in-several-places":
     "The words are in several places, and nothing around them tells which.",
@@ -5743,7 +5744,7 @@ export const en = {
   "agents.problem.outside-scope":
     "That Folder isn’t shared with this agent. Share more in Settings → Agents.",
   "agents.problem.not-found":
-    "No such Passage, Document, note or Citation in the Folders shared with this agent.",
+    "No such passage, Document, note or Citation in the Folders shared with this agent.",
   "agents.problem.chat-not-ready":
     "No AI model is ready in IncarnaMind. Set one up in Settings → Models, or search and cite.",
   "agents.problem.chat-consent":

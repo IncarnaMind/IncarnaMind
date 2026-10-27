@@ -289,7 +289,9 @@ test("the footer asks for a model to tag only once a Document of the User's own 
     if (document) await bridge.addTagToDocuments([document.id], tag.id);
   });
   await expect(notice).toBeVisible();
-  await expect(notice).toContainText("No AI model for Tags");
+  await expect(notice).toContainText("Tags need an AI model");
+  // One 28px line, never wrapping: the whole sentence is on hover (#763).
+  await expect(notice).toHaveAttribute("title", "Tags come once you choose an AI model.");
   await expect(notice.getByTestId("tagging-waiting-setup")).toHaveText("Choose…");
   await setLanguage(window, "zh-CN");
   await expect(notice).toContainText("打标签需要 AI 模型");
