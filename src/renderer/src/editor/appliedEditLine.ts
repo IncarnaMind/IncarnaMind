@@ -285,7 +285,8 @@ function anchoredPlace(state: EditorState, change: ChangePlace): Place | null {
   const { from, to } = ends;
   if (to === null || to > state.doc.content.size) return null;
   // Its start may hold to the words its own change took out, which are gone; its end and the size it wrote say where its words begin.
-  const start = from ?? (change.block === null ? to - (change.writtenSize ?? 0) : null);
+  const written = change.block === null ? change.writtenSize : undefined;
+  const start = from ?? (written === undefined ? null : to - written);
   if (start === null || start < 0 || to < start) return null;
   // That start is counted, not held: words taken out since would carry it into the paragraph before.
   if (from === null && !state.doc.resolve(start).sameParent(state.doc.resolve(to))) return null;
