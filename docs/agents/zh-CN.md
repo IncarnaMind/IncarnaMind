@@ -13,7 +13,7 @@ Read this before adding or changing a string in `src/shared/i18n/zh-CN.ts`, whet
 5. **One "…" (U+2026)** after a command that asks for more before it acts ("导出…", "移动到…") and on progress ("正在整理…"). Use "……" only in running prose.
 6. **Buttons and menu items are a verb, or a verb and its object:** 保存, 添加文档, 移动到…. No 请, no 点击, no 。. Cancel is 取消, Done is 完成, Retry is 重试.
 7. **Errors say what happened, then what to do.** Prefer 无法… or 未能… to a bare 失败 or 没有成功: "无法调用 Notion：search", "未能登录。", "无法读取此文件". Don't blame the User.
-8. **Empty states say "还没有…" and the next step:** "还没有文档。添加一个同步文件夹，或单独添加文件。" Not "暂无数据".
+8. **Empty states say "还没有…" and the next step:** "还没有文档。添加文件或文件夹。" Not "暂无数据".
 9. **Counts use 个** for 文档, 文件, 文件夹, 标签, 引用, 段落 and 工具, and **项** for a mixed selection ("还有 3 项"). 篇 counts a Note ("3 篇笔记"), and stays only in prose for a Document ("一篇文档"). A Note takes no plural in a label: "笔记（3）", "收起笔记".
 10. **Status:** progress is 正在… ("正在整理 3 个文档…"), done is 已… ("已保存"), not yet is 尚未… or 未….
 11. **Use the verbs Chinese apps use:** 生成 an Answer (not 写), 加载 (not 载入), 调用 a Tool (not 询问), 搜索 in a search field (not 查找), 新建 (not 创建), 重命名 (not 改名), 撤销 (not 撤消).
@@ -51,7 +51,7 @@ A Note is what the User writes in; your text is a Block the User writes. The cod
 | Document | 文档 | Counted with 个. |
 | Missing Document | (status) 文件缺失 | Long form: "找不到文件：引用保留原文，搜索不再包含它。" |
 | Unavailable Document | (status) 无法访问 | |
-| Linked folder | 同步文件夹 | "添加同步文件夹…", "移除同步文件夹…". As Tencent Docs does. Say IncarnaMind only reads it wherever a Linked folder is added. |
+| Linked folder | 关联文件夹 | "添加文件或文件夹…", "移除关联文件夹…". Nothing is synced to a cloud: IncarnaMind reads the folder where it is, and says so ("开始读取"). Not 同步文件夹, which promises a copy IncarnaMind doesn't make. |
 | Other Documents | 其他文档 | |
 | Web page | 网页 | A Document saved from a web address (网址). Its snapshot is 快照, as search engines' 网页快照: "打开快照". Fetching it is 抓取: "重新抓取", "无法抓取：网页需要登录". The live page: 原网页 ("打开原网页"). |
 | Passage | 段落 | |

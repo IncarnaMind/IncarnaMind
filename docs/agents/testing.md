@@ -14,7 +14,7 @@ CI (`.github/workflows/ci.yml`) runs three checks on every pull request (`pull_r
 
 `main` should stay green. A pull request merges once its sign-off check passes and its CI checks are green, or each red one is a known flaky spec named with its issue; the full suite also runs on `main` every night. If a night goes red, fixing it comes before new work.
 
-Every night, and by hand from the Actions tab, the Electron smoke test (macOS) in `.github/workflows/nightly.yml` runs the same suite on macOS, in four shards (`Smoke shard N/4 (macOS)`), with the specs only macOS has, such as the traffic lights in the title bar. A failing night is fixed before new work, like a red `main`.
+Every night, and by hand from the Actions tab, the Electron smoke test (macOS) in `.github/workflows/nightly.yml` runs the same suite on macOS, in eight shards (`Smoke shard N/8 (macOS)`), with the specs only macOS has, such as the traffic lights in the title bar. A failing night is fixed before new work, like a red `main`.
 
 Every night too, `.github/workflows/nightly-real-model.yml` asks real models, since the scripted one can't tell whether an AI feature works: the live tests (`tests/live`) and the everyday requests (`eval/everyday`) on Claude Haiku 5.5, a live test of Kimi International, and the everyday requests in Chinese on Kimi K2.6 (Kimi sees only the evaluation's own public and made-up Documents). It runs once a night on one runner and writes `summary.md` to the `nightly-real-model` artifact: a result for every case, which key it used, and what it spent, counted from every request's tokens at the catalog's prices. A failing night is fixed like a red `main`.
 
