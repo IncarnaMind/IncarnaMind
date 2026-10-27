@@ -76,6 +76,8 @@ interface StepRecord {
   name: string;
   shifts: Shift[];
   inputMs: number | null;
+  /** What the slowest input was: its event and the element it reached. */
+  inputOn: string | null;
   longTasks: number[];
   focus: string | null;
 }
@@ -83,7 +85,8 @@ interface StepRecord {
 type Problem = { step: string } & (
   | { kind: "shift"; value: number; moved: string[] }
   | { kind: "focus"; at: string; expected: string }
-  | { kind: "input" | "long-task"; ms: number }
+  | { kind: "input"; ms: number; on: string }
+  | { kind: "long-task"; ms: number }
 );
 
 function detailOf(problem: Problem): string {
@@ -93,7 +96,7 @@ function detailOf(problem: Problem): string {
     case "focus":
       return `on ${problem.at}, not the expected ${problem.expected}`;
     case "input":
-      return `${Math.round(problem.ms)} ms to next paint`;
+      return `${Math.round(problem.ms)} ms to next paint (${problem.on})`;
     case "long-task":
       return `${Math.round(problem.ms)} ms`;
   }
@@ -120,7 +123,7 @@ function excuses(known: Known, problem: Problem): boolean {
 
 interface FeelEntries {
   shifts: { at: number; value: number; moved: string[] }[];
-  events: { at: number; duration: number }[];
+  events: { at: number; duration: number; on: string }[];
   longTasks: { at: number; duration: number }[];
   take(): void;
 }
@@ -163,7 +166,11 @@ async function observe(window: Page): Promise<void> {
     const onEvents = (entries: PerformanceEntryList) => {
       for (const event of entries) {
         if (!(event instanceof PerformanceEventTiming) || event.interactionId === 0) continue;
-        feel.events.push({ at: event.startTime, duration: event.duration });
+        feel.events.push({
+          at: event.startTime,
+          duration: event.duration,
+          on: `${event.name} on ${describe(event.target)}`,
+        });
       }
     };
     const shifts = new PerformanceObserver((list) => onShifts(list.getEntries()));
@@ -260,11 +267,20 @@ export async function feelOf(window: Page, flow: string): Promise<Feel> {
     const shifts = entries.shifts
       .filter((shift) => shift.value > 0)
       .map(({ value, moved }) => ({ value, moved }));
-    const input = entries.events.length
-      ? Math.max(...entries.events.map((event) => event.duration))
-      : null;
+    const slowest = entries.events.reduce<(typeof entries.events)[number] | null>(
+      (most, event) => (most === null || event.duration > most.duration ? event : most),
+      null,
+    );
+    const input = slowest?.duration ?? null;
     const longTasks = entries.longTasks.map((task) => task.duration);
-    steps.push({ name, shifts, inputMs: input, longTasks, focus: null });
+    steps.push({
+      name,
+      shifts,
+      inputMs: input,
+      inputOn: slowest?.on ?? null,
+      longTasks,
+      focus: null,
+    });
     // Summed over the step: two small shifts in one frame move as much as one big one.
     const shifted = shifts.reduce((sum, each) => sum + each.value, 0);
     const bounded = KNOWN.some(
@@ -274,8 +290,8 @@ export async function feelOf(window: Page, flow: string): Promise<Feel> {
       const moved = [...new Set(shifts.flatMap((each) => each.moved))];
       problems.push({ kind: "shift", step: name, value: shifted, moved });
     }
-    if (input !== null && input > INPUT_CEILING_MS) {
-      problems.push({ kind: "input", step: name, ms: input });
+    if (slowest !== null && slowest.duration > INPUT_CEILING_MS) {
+      problems.push({ kind: "input", step: name, ms: slowest.duration, on: slowest.on });
     }
     for (const ms of longTasks.filter((each) => each > LONG_TASK_CEILING_MS)) {
       problems.push({ kind: "long-task", step: name, ms });
