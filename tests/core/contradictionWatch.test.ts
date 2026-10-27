@@ -263,7 +263,7 @@ describe("Check for contradictions", () => {
     expect(await core.planContradictionCheck(plain.id)).toEqual({ kind: "nothing" });
   });
 
-  // protects=#972; fails_when=a Mind imported from Word has its claims checked against its own original, which can clear a real contradiction; no_claim=Check this Mind, which tests/core/mindCheck.test.ts covers.
+  // protects=#972; fails_when=a Mind imported from Word has its claims checked against its own original, which can clear a real contradiction; no_claim=Check this note, which tests/core/mindCheck.test.ts covers.
   test("never checks a Mind's claims against the file it was imported from", async () => {
     const calls: ModelCall[] = [];
     const { core, tides, office, folder } = await setUp({ calls });

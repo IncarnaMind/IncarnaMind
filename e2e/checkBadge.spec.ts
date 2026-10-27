@@ -83,7 +83,7 @@ test("a Mind of plain notes says its state; its card, from ⌘K, has one count p
   await expect(card.getByTestId("health-toCheck")).toContainText("1 claim not checked yet");
   await expect(card.getByTestId("health-noCitation")).toHaveCount(0);
   // One action, and the one under it; no lines about them, and no Close: Esc closes it.
-  await expect(card.getByTestId("badge-check-mind")).toHaveText("Check this Mind");
+  await expect(card.getByTestId("badge-check-mind")).toHaveText("Check this note");
   await expect(card.getByTestId("badge-check-contradictions")).toHaveText(
     "Check for contradictions",
   );
