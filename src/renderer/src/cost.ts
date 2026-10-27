@@ -85,9 +85,10 @@ export interface EstimateLine {
 
 /**
  * The line before a large run on a model billed per token, shown and never
- * asked: "About $0.40 · 24 model calls · $12.40 of $20.00 used this month",
- * with the tokens in its tooltip (price first, as DESIGN.md's plan card writes
- * it). With no known price: "About 24 model calls · 310K tokens". Null for a
+ * asked: "About $1.40 · 310K tokens · $12.40 of $20.00 used this month"
+ * (price first, as DESIGN.md's plan card writes it). A run that would cost a
+ * dollar or less shows none unless a monthly cap is set, whose month so far
+ * is worth seeing (#1941); so does one no price is known for. Null for a
  * plan or a model on this computer, which show nothing.
  */
 export function estimateLine(
@@ -96,10 +97,10 @@ export function estimateLine(
   language: Language,
 ): EstimateLine | null {
   if (estimate.billing !== "per-token") return null;
+  if (!estimate.cap && !(estimate.cost !== null && estimate.cost.amount > 1)) return null;
   const tokens = t("cost.estimate.tokens", {
     tokens: new Intl.NumberFormat(language, { notation: "compact" }).format(estimate.tokens),
   });
-  const { calls } = estimate;
   const aside = estimate.setAsideTowardCap
     ? setAsideText([estimate.setAsideTowardCap], t, language)
     : null;
@@ -114,14 +115,8 @@ export function estimateLine(
         ]
       : [];
   const run = estimate.cost
-    ? [
-        t("cost.estimate.price", { cost: formatMoney(estimate.cost, language) }),
-        t(calls === 1 ? "cost.estimate.calls.one" : "cost.estimate.calls", { calls }),
-      ]
-    : [
-        t(calls === 1 ? "cost.estimate.callsAbout.one" : "cost.estimate.callsAbout", { calls }),
-        tokens,
-      ];
+    ? [t("cost.estimate.price", { cost: formatMoney(estimate.cost, language) }), tokens]
+    : [tokens];
   const parts = [...run, ...month];
-  return { parts, title: joinMeta(estimate.cost ? [...run, tokens, ...month] : parts) };
+  return { parts, title: joinMeta(parts) };
 }

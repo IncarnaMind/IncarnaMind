@@ -548,7 +548,7 @@ describe("the source pack: Chinese, a huge Mind, and the file", () => {
     const [printedPack] = printed;
     const { cover, rows, sheets } = pack(printedPack?.body ?? "");
     expect(printedPack).toMatchObject({ language: "zh-CN", title: "Tides - 引用页面合集" });
-    expect(cover).toContain("此 Mind 引用的页面。引文已高亮，编号与 Mind 中的引用一致。");
+    expect(cover).toContain("此笔记引用的页面。引文已高亮，编号与笔记中的引用一致。");
     expect(cover).toContain("<th>引用</th><th>文档和位置</th><th>页码</th>");
     expect(rows.map((row) => row.source)).toEqual(["潮汐，§ 潮汐"]);
     expect(sheets[0]?.marks).toEqual([mark(1, 0, 12)]);

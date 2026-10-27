@@ -236,7 +236,7 @@ test("a right-click opens the menu the ⋯ button opens, for a Mind, a Document,
   await newMind(window);
 
   // A Mind: Open, Open in new tab; Export… (one item, which opens the Export button's menu),
-  // the AI use statement and check record; Move to…, New Folder with this Mind; Rename; then
+  // the AI use statement and check record; Move to…, New Folder with this note; Rename; then
   // Delete after a rule.
   const mind = window.getByTestId("mind-row").first();
   const mindMenu = await sameFromBothWays(
@@ -510,13 +510,13 @@ test("each item shows its shortcut as the system writes it, and the labels are i
     "导出 AI 使用声明",
     "导出核对记录…",
     "历史版本",
-    "核对此 Mind",
-    "检查矛盾",
+    "核对",
+    "核对矛盾",
     "引用格式…",
     "样式…",
     "做成技能",
     /^移动到…(⇧⌘M|Ctrl\+Shift\+M)$/,
-    /^新建文件夹并放入此 Mind(⌃⌘N)?$/,
+    /^新建文件夹并放入此笔记(⌃⌘N)?$/,
     /^重命名F2$/,
     "删除",
   ]);

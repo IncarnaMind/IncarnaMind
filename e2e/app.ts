@@ -31,7 +31,8 @@ import { translate } from "../src/shared/i18n";
 import { defaultHelpKeys, HELP_SHORTCUTS, type HelpKeys } from "../src/shared/meetingHelp";
 import type { TestHooks } from "../src/shared/testHooks";
 import { type FakeOpenAIServer, signInAt } from "../tests/helpers/fakeOpenAI";
-import { APP_ARGS, homeEnv, KEYCHAIN_ARGS } from "../tests/helpers/home";
+import { APP_ARGS, KEYCHAIN_ARGS } from "../tests/helpers/home";
+import { assertPackagedMain, lifecycleHomeEnv, mainExecutable } from "./lifecycle";
 
 const appDir = resolve(__dirname, "..");
 
@@ -54,6 +55,8 @@ const KEEP_ARTIFACTS = process.env.INCARNAMIND_KEEP_ARTIFACTS === "1";
  * the test failed.
  */
 const openApps = new Map<ElectronApplication, string>();
+// Playwright’s Windows handle is a shell; cache the main PID before it can stop answering (#2022).
+const mainProcessIds = new WeakMap<ElectronApplication, number>();
 
 export interface RunningApp {
   app: ElectronApplication;
@@ -339,7 +342,7 @@ export async function launchApp(
     if (usageData.testerBuild) env.INCARNAMIND_TEST_TESTER_BUILD = "1";
   }
   const appHome = home ?? (await mkdtemp(join(tmpdir(), "incarnamind-home-")));
-  Object.assign(env, homeEnv(appHome));
+  Object.assign(env, lifecycleHomeEnv(appHome));
   if (referenceLookup) env.INCARNAMIND_TEST_REFERENCE_LOOKUP = referenceLookup;
   if (sources) env.INCARNAMIND_TEST_SOURCES = sources;
   if (connectorDirectory) env.INCARNAMIND_TEST_CONNECTOR_DIRECTORY = connectorDirectory;
@@ -367,11 +370,13 @@ export async function launchApp(
   }
   if (transcriber) env.INCARNAMIND_TEST_TRANSCRIBER_OPTIONS = JSON.stringify(transcriber);
 
+  const packaged = process.env.INCARNAMIND_PACKAGED_APP !== undefined;
   const app = await electron.launch({
+    ...(packaged && { executablePath: mainExecutable() }),
     args: [
       ...KEYCHAIN_ARGS,
       ...(sandboxNotice === "switch" ? ["--no-sandbox"] : []),
-      appDir,
+      ...(packaged ? [] : [appDir]),
       ...APP_ARGS,
     ],
     env,
@@ -384,8 +389,11 @@ export async function launchApp(
   openApps.set(app, dataDir);
   app.on("close", () => {
     openApps.delete(app);
+    mainProcessIds.delete(app);
     if (!home) void rm(appHome, { recursive: true, force: true, maxRetries: 3 });
   });
+  mainProcessIds.set(app, await app.evaluate(() => process.pid));
+  await assertPackagedMain(app);
   const window = await app.firstWindow();
   await window.getByTestId("plus-menu").waitFor();
   await waitUntilLive(app, window);
@@ -641,9 +649,12 @@ export const notificationsShown = (app: ElectronApplication) =>
 
 /** Force-quits the app as a crash would: its process killed, nothing saved on the way out. */
 export async function forceQuit(app: ElectronApplication): Promise<void> {
-  const exited = new Promise<void>((resolve) => app.process().once("exit", () => resolve()));
-  app.process().kill("SIGKILL");
-  await exited;
+  const pid = mainProcessIds.get(app);
+  if (!openApps.has(app) || pid === undefined)
+    throw new Error("The app was not launched by this test or has already closed.");
+  const closed = new Promise<void>((resolve) => app.once("close", () => resolve()));
+  process.kill(pid, "SIGKILL");
+  await closed;
 }
 
 /** Chooses an editing command, as the application menu has it now. */
@@ -665,7 +676,7 @@ export const editItem = (app: ElectronApplication, id: "edit.undo" | "edit.redo"
   }, id);
 
 /**
- * "New Mind" from the sidebar header's "+" menu, the one place to add: a Mind
+ * "New note" from the sidebar header's "+" menu, the one place to add: a Mind
  * in no Folder. Returns once its first line has the cursor: keys a test
  * presses a millisecond apart can outrun the editor while frames are busy.
  * That line starts as an empty title; unless `title`, Backspace makes
@@ -885,14 +896,38 @@ export async function ollamaListing(models: string[], { delayMs = 0 }: { delayMs
 }
 
 /**
- * Continue on the setup card, once a key or sign-in works and the card says what each job uses:
- * the Question that waited is asked then, and the composer takes the card's place.
+ * Steps 2 and 3 of the setup card, once a key or sign-in works (#1922): each is one click, and
+ * the composer takes the card's place. The Question that waited is asked as step 1 works.
  */
 export async function continueSetup(window: Page): Promise<void> {
-  const next = window.getByTestId("setup-continue");
-  await expect(next).toBeVisible();
-  await pointAndClick(window, next);
-  await expect(window.getByTestId("model-setup")).toBeHidden();
+  const card = window.getByTestId("model-setup");
+  await expect(card.getByTestId("setup-ready-title")).toBeVisible({ timeout: 15_000 });
+  const transcription = card.getByTestId("setup-transcription-use");
+  if (await transcription.isVisible()) await pointAndClick(window, transcription);
+  const sorting = card.getByTestId("setup-sorting-use");
+  await expect(sorting).toBeVisible();
+  await expect(sorting).toBeEnabled();
+  await pointAndClick(window, sorting);
+  await expect(card).toBeHidden();
+}
+
+/**
+ * Opens the key form where a key's own form names no service we list (#1922): the field says so,
+ * and its way on picks the service.
+ */
+export async function openServiceList(
+  window: Page,
+  card: Locator,
+  key = "sk-unknown",
+): Promise<void> {
+  const field = card.getByTestId("setup-key");
+  await field.fill(key);
+  await field.press("Enter");
+  await pointAndClick(window, card.getByTestId("setup-key-choose-service"));
+  const form = card.getByTestId("provider-form");
+  await expect(form).toBeVisible();
+  // The key only reached the list: the form starts as it would from Settings.
+  await form.locator('input[type="password"]').fill("");
 }
 
 /**
@@ -980,13 +1015,17 @@ export async function addProviderPage(settings: Locator, catalogId: string): Pro
   return page;
 }
 
-/** In Settings › Models, opens Advanced while it's folded (#1570). Returns the Tagging section in it. */
+/**
+ * In Settings › Models, opens Advanced (#1570). Returns the Tagging section in it. It may already
+ * be open, as it is once first run has chosen what sorts (#1922).
+ */
 export async function openAdvancedModels(settings: Locator): Promise<Locator> {
   const advanced = settings.getByTestId("models-advanced");
   const toggle = advanced.getByTestId("models-advanced-toggle");
   await expect(toggle).toBeVisible();
-  await expect(advanced).not.toHaveAttribute("open");
-  await toggle.click();
+  if (!(await advanced.evaluate((element) => element.hasAttribute("open")))) {
+    await toggle.click();
+  }
   await expect(advanced).toHaveAttribute("open", "");
   const tagging = advanced.getByTestId("tagging-settings");
   await expect(tagging).toBeVisible();
@@ -1576,7 +1615,7 @@ async function resizeContent(
  */
 async function keepWhatTheAppWasDoing(app: ElectronApplication): Promise<string> {
   const info = test.info();
-  const pid = app.process().pid;
+  const pid = mainProcessIds.get(app);
   let sampled = false;
   // The failure being reported can already have used most of the test's time: the sample may
   // take no more than what is left, or the report itself would never be made.
@@ -2083,7 +2122,7 @@ export async function checkCard(window: Page, scope: Page | Locator = window): P
       }).toPass();
     } else {
       const chinese = (await window.evaluate(() => document.documentElement.lang)) === "zh-CN";
-      const command = chinese ? "句子和引用" : "Sentences and Citations";
+      const command = chinese ? "说法和引用" : "Claims and Citations";
       await window.keyboard.press("ControlOrMeta+k");
       await expect(window.getByTestId("palette-search")).toBeFocused();
       await window.keyboard.type(command);
@@ -2901,8 +2940,11 @@ async function closeOrKill(app: ElectronApplication): Promise<void> {
   const stuck = new Promise<"stuck">((resolve) => {
     timer = setTimeout(() => resolve("stuck"), 10_000);
   });
-  if ((await Promise.race([quit, stuck])) === "stuck") app.process().kill("SIGKILL");
-  clearTimeout(timer);
+  try {
+    if ((await Promise.race([quit, stuck])) === "stuck") await forceQuit(app);
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 /**
@@ -2916,7 +2958,6 @@ export async function removeDataFolder(dataDir: string): Promise<void> {
   const info = test.info();
   for (const [app, folder] of [...openApps]) {
     if (folder !== dataDir) continue;
-    openApps.delete(app);
     const window = app.windows()[0];
     if (!KEEP_ARTIFACTS && info.status !== info.expectedStatus && window) {
       const path = info.outputPath("app-window.png");
@@ -2924,6 +2965,7 @@ export async function removeDataFolder(dataDir: string): Promise<void> {
       if (shot) await info.attach("app-window", { path, contentType: "image/png" });
     }
     await closeOrKill(app);
+    openApps.delete(app);
   }
   // The app's log goes with a failed test's traces: what happened on CI's machine is gone after.
   const log = join(dataDir, "logs", "incarnamind.log");
@@ -2995,11 +3037,13 @@ export async function menuCommands(menu: Locator): Promise<string[]> {
   );
 }
 
-/** Clicks the empty foot of the sidebar's tree, so the focus isn't in text and ⌘Z goes to the app's changes. */
+/** Clicks the empty top padding of the sidebar's tree, so the focus isn't in text and ⌘Z goes to the app's changes. */
 export async function leaveText(window: Page): Promise<void> {
   const box = await window.getByTestId("sidebar-tree").boundingBox();
   if (!box) throw new Error("The sidebar isn't showing.");
-  await window.mouse.move(box.x + box.width / 2, box.y + box.height - 8, { steps: 8 });
+  // The top padding: the foot moves as the footer's lines come and go, and a click meant to
+  // leave the text must never land on a row or the undo line.
+  await window.mouse.move(box.x + box.width / 2, box.y + 4, { steps: 8 });
   await window.mouse.down();
   await window.mouse.up();
 }

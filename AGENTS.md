@@ -76,7 +76,7 @@ Read [`docs/agents/testing.md`](docs/agents/testing.md). Work is done when the c
   - borrow familiar conventions;
   - edit in place;
   - every drag has a non-drag alternative;
-  - never replace the Mind the User is in;
+  - never replace the Note the User is in;
   - Undo instead of confirmations;
   - one right-click menu order and one selection model;
   - the keyboard and ⌘K reach everything;

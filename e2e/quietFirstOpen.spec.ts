@@ -63,11 +63,11 @@ test("the quiet first open keeps the example's marks to its margin, but a check 
   await expect(window.getByTestId("claim-mark")).toHaveCount(1, { timeout: 30_000 });
   await expect(window.getByTestId("check-badge")).toHaveCount(0);
 
-  // No model yet: Check this Mind can't run, and says so where the User asked.
+  // No model yet: Check can't run, and says so where the User asked.
   await window.keyboard.press("ControlOrMeta+k");
   await expect(window.getByTestId("palette-search")).toBeFocused();
-  await window.keyboard.type("Check this Mind");
-  await window.getByTestId("palette-item").filter({ hasText: "Check this Mind" }).first().click();
+  await window.keyboard.type("check this note");
+  await window.getByTestId("palette-item").filter({ hasText: "Checks this note" }).first().click();
   await expect(window.getByTestId("check-badge")).toBeVisible();
   await expect(window.getByTestId("check-card")).toBeVisible();
   await app.close();
@@ -143,14 +143,14 @@ test("the examples alone keep the footer quiet, but the User's own file waiting 
   await expect(line).toHaveCount(0);
   await makeTagOnDocument(window, "Harbour notes");
   await expect(line).toBeVisible();
-  await expect(line).toContainText("No AI model for Tags");
+  await expect(line.getByTestId("status-label")).toHaveText("Tags need an AI model");
   await expect(window.getByTestId("first-open-steps")).toBeVisible();
   await expect(window.getByTestId("tab-list")).toHaveCount(0);
 
   const choose = line.getByTestId("tagging-waiting-setup");
   await expect(choose).toHaveText("Choose…");
   await setLanguage(window, "zh-CN");
-  await expect(line).toContainText("打标签需要 AI 模型");
+  await expect(line.getByTestId("status-label")).toHaveText("打标签需要 AI 模型");
   await expect(choose).toHaveText("选择…");
   for (const [width, height] of [
     [900, 700],

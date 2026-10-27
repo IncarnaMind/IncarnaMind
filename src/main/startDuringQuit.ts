@@ -5,12 +5,21 @@
  */
 import type { App, Event, RelaunchOptions } from "electron";
 import type { Logger } from "../core";
+import { UPDATE_RECOVERY_PREFIX } from "./instanceUpdate";
 
 const STARTED_AGAIN = "--started-again-after-stall";
 const STALL_MS = 5_000;
 
 function relaunchOptions(extra: string[] = []): RelaunchOptions {
-  const args = [...process.argv.slice(1).filter((arg) => arg !== STARTED_AGAIN), ...extra];
+  const args = [
+    ...process.argv
+      .slice(1)
+      .filter(
+        (arg) =>
+          arg !== STARTED_AGAIN && arg !== "--updated" && !arg.startsWith(UPDATE_RECOVERY_PREFIX),
+      ),
+    ...extra,
+  ];
   // An AppImage's own files go away when it quits: it is started again from the AppImage.
   const appImage = process.env.APPIMAGE;
   return { args, ...(appImage && { execPath: appImage }) };
@@ -21,18 +30,31 @@ export function restartAfterFailedUpdate(
   app: Pick<App, "relaunch" | "exit">,
   showProblem: () => void,
   closeCore: () => void,
+  recoveryId?: string,
 ): void {
   try {
     showProblem();
   } finally {
+    exitAfterFailedUpdate(app, closeCore, { recoveryId });
+  }
+}
+
+export function exitAfterFailedUpdate(
+  app: Pick<App, "relaunch" | "exit">,
+  closeCore: () => void,
+  restart: { recoveryId?: string } | null,
+): void {
+  try {
+    if (restart) {
+      const args = [STARTED_AGAIN];
+      if (restart.recoveryId) args.push(`${UPDATE_RECOVERY_PREFIX}${restart.recoveryId}`);
+      app.relaunch(relaunchOptions(args));
+    }
+  } finally {
     try {
-      app.relaunch(relaunchOptions([STARTED_AGAIN]));
+      closeCore();
     } finally {
-      try {
-        closeCore();
-      } finally {
-        app.exit(0);
-      }
+      app.exit(0);
     }
   }
 }

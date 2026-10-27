@@ -29,7 +29,7 @@
   <a href="https://github.com/IncarnaMind/IncarnaMind/stargazers"><img alt="GitHub stars" src="https://img.shields.io/github/stars/IncarnaMind/IncarnaMind?color=17191C"></a>
 </p>
 
-<p align="center"><img src="docs/images/demo-tour-2026-10-25-en.gif" width="880" alt="A wrong figure in a credit analyst's draft is marked in the margin. A click opens the page it contradicts, and checking the draft again turns the mark green. Recorded in the app with Claude Sonnet 5.5."></p>
+<p align="center"><img src="docs/images/demo-tour-2026-10-25-en.gif" width="880" alt="A credit memo says 36.8% where the Q3 results say 38.6%, and the figure is marked in the margin. Then the app sorts scattered files, drafts from them, charts a spreadsheet with every bar linked to its cell, checks the whole memo and fixes the wrong figure in one click, exports to Word with footnotes, and takes notes on an expert call that cite what was said. Recorded in the app with Claude Sonnet 5.5."></p>
 
 <p align="center"><sub>Everything shown is in the app today. <a href="docs/images/demo-tour-2026-10-25-en.mp4">Watch the full film in HD</a>.<br>Alpha: free test builds, not yet signed. The public alpha opens in early 2027.</sub></p>
 
@@ -133,6 +133,7 @@ Where a provider offers the choice, IncarnaMind asks it not to keep your request
 
 - **Is it free?** Yes, open source under Apache 2.0. The model is billed by its provider, or covered by a plan you already have.
 - **How is it different from NotebookLM (now Gemini Notebook)?** It runs on your computer, reads your files where they are and needs no account. It works with the model you choose, opens each citation at its page, checks your own draft and exports to Word with footnotes. The table above has the rest.
+- **Can a check miss something?** Yes: a check can miss a change of obligation, such as “should” where the Document says “may”.
 - **Which models can I use?** Sign in with ChatGPT Plus or Pro, Claude, or GitHub Copilot (experimental); each stays off until you sign in. Or use your own key from OpenAI, Anthropic, Google, DeepSeek, Qwen, SiliconFlow, OpenRouter, Kimi, GLM, Mistral, xAI or any OpenAI-compatible server.
 - **Does it work offline?** Reading files and search do. Answers and checks need a model: a cloud one, or a local one through Ollama, which is slower.
 - **Can I use it on client documents?** Your files stay on your computer, and only the model you chose and the services you allow receive anything. Read the [client data statement](docs/client-data-statement.md) first.
