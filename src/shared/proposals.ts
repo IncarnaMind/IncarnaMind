@@ -196,6 +196,7 @@ export function resolveProposals(
   blocks: Y.XmlFragment,
   picked: (proposal: ProposalRef) => boolean,
   outcome: "accept" | "reject",
+  within?: ReadonlySet<string>,
 ): ResolvedProposal[] {
   const stale = outcome === "accept" ? outOfDateProposals(blocks) : new Set<string>();
   const wanted = (proposal: ProposalRef) => picked(proposal) && !stale.has(proposal.id);
@@ -259,6 +260,7 @@ export function resolveProposals(
       }
       if (!(child instanceof Y.XmlElement)) continue;
       const top = parent === blocks ? idOf(child) : above;
+      if (parent === blocks && within && (!top || !within.has(top))) continue;
       // A footnote has an id but isn't a Block, and one a Proposal moves holds the User's text.
       const footnote = child.nodeName === FOOTNOTE_NODE;
       const own = (footnote ? null : idOf(child)) ?? owner;
@@ -605,7 +607,16 @@ export function proposalRequestOf(doc: Y.Doc, request: string): ProposalRequest 
   }
   const requested =
     record.requested === "edit" || record.requested === "write" ? record.requested : null;
-  if (source === "answer-added") return { ...made, source, ...(requested && { requested }) };
+  if (source === "answer-added") {
+    const action = editActions.find((each) => each === record.action);
+    return {
+      ...made,
+      source,
+      ...(requested && { requested }),
+      ...(action && { action }),
+      ...(typeof record.instruction === "string" && { instruction: record.instruction }),
+    };
+  }
   if (source === "comparison-table") {
     return isText(record.tableId) ? { ...made, source, tableId: record.tableId } : null;
   }

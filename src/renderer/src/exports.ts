@@ -16,6 +16,7 @@ import { type CitedCount, DEFAULT_CITATION_PLACE, optionsFor } from "../../share
 import type { MessageKey } from "../../shared/i18n";
 import { core } from "./core";
 import { errorMessage } from "./errors";
+import { ownMindsOf } from "./home";
 import { translateNow } from "./i18n";
 import { folderName } from "./linkedFolders";
 import { useAppStore } from "./store";
@@ -341,6 +342,10 @@ export async function exportMind(
         ? { mindId, state: "review", format: chosen, word: saved.word }
         : savedResult(mindId, chosen, saved),
     );
+    const store = useAppStore.getState();
+    if (saved.status === "saved" && ownMindsOf(store).some((mind) => mind.id === mindId)) {
+      store.updateGettingStarted({ exported: true });
+    }
   } catch (failure) {
     settle({
       mindId,

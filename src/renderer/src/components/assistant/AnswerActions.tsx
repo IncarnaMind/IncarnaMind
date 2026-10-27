@@ -4,10 +4,12 @@ import { addNamesItsMind } from "../../answerAdd";
 import { copyAnswer } from "../../answerEditors";
 import { shortcutLabel } from "../../commands/keymap";
 import { useDismissOnEscape } from "../../escapeDismiss";
+import { useOwnMinds } from "../../home";
+import { isExampleAnswer } from "../../homeNextStep";
 import { useT } from "../../i18n";
 import { saidInLine } from "../../lineNames";
-import { useAppStore } from "../../store";
-import { closeTip, offerTip, useTipRoom, useTipShown } from "../../tips";
+import { allExamples, useAppStore } from "../../store";
+import { closeTip, offerTip, releaseTip, useTipRoom, useTipShown } from "../../tips";
 import { useAnswerLine, useUndo } from "../../undo";
 import {
   CheckLineIcon,
@@ -77,12 +79,16 @@ export function AnswerActions({
     [canKeep, streaming, focusedMindName, answer, mindEmpty],
   );
   const room = useTipRoom("add-answer", answer.id);
-  const tipWanted =
-    room &&
-    canKeep &&
-    focusedMindName !== null &&
-    answer.citations.length > 0 &&
-    answer.status === "done";
+  const first = useRef(!useAppStore.getState().settings?.device.gettingStarted.askedOwn);
+  const noOwnNote = useOwnMinds().length === 0;
+  const exampleIds = useAppStore((state) =>
+    allExamples(state)
+      .map((each) => each.answerId)
+      .join("|"),
+  );
+  const eligible =
+    first.current && noOwnNote && !isExampleAnswer(answer, new Set(exampleIds.split("|")));
+  const tipWanted = room && canKeep && eligible && answer.status === "done";
   // Only an Answer seen being written gets the tip: one opened later, from History, doesn't.
   const [watched, setWatched] = useState(streaming);
   useEffect(() => {
@@ -96,12 +102,13 @@ export function AnswerActions({
     }
   }, [streaming, watched, tipWanted, answer.id]);
   const tipShown = useTipShown("add-answer", answer.id);
+  useEffect(() => () => releaseTip("add-answer", answer.id), [answer.id]);
+  const tipVisible = tipShown && eligible;
   useEffect(() => {
-    if (added && tipShown) closeTip("add-answer");
-  }, [added, tipShown]);
+    if (tipShown && (added || !eligible)) closeTip("add-answer");
+  }, [added, tipShown, eligible]);
   const keepsRoom =
-    tipShown ||
-    (watched && room && focusedMindName !== null && (streaming || answer.status === "done"));
+    tipVisible || (watched && room && eligible && (streaming || answer.status === "done"));
   // Once kept, the line stays until a later Question takes it back: closing the tip or adding the
   // Answer must not slide the Answer.
   const [kept, setKept] = useState(false);
@@ -255,7 +262,7 @@ export function AnswerActions({
       </div>
       {holdsRoom && (
         <TipRoom>
-          {tipShown && (
+          {tipVisible && (
             <Tip
               id="add-answer"
               onClose={() => {
@@ -263,7 +270,17 @@ export function AnswerActions({
                 addButton.current?.focus();
               }}
             >
-              {t("tip.addAnswer")}
+              <button
+                type="button"
+                data-testid="tip-write-note"
+                onClick={() => {
+                  closeTip("add-answer");
+                  onWriteNote();
+                }}
+                className="rounded-sm font-semibold text-accent underline-offset-2 hover:underline"
+              >
+                {t("tip.addAnswer")}
+              </button>
             </Tip>
           )}
         </TipRoom>

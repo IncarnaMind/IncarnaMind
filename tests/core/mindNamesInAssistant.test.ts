@@ -71,6 +71,8 @@ describe("The User's Minds in the assistant", { timeout: 30_000 }, () => {
     expect(instructionsOf(model)).toContain(
       "A name the User gives that one of their Minds has is that Mind",
     );
+    expect(instructionsOf(model)).toContain("The Library is every Document the User has added");
+    expect(instructionsOf(model)).toContain('A request about "this Library" or 这个知识库');
   });
 
   // protects=a User with many Minds sends the names of the 30 most recently changed, each once, as the privacy page says; fails_when=more go, an older one is kept for a newer one, or a name shared by two Minds goes twice; no_claim=none beyond protects.
@@ -88,8 +90,8 @@ describe("The User's Minds in the assistant", { timeout: 30_000 }, () => {
     expect(lastSent(model)).toBe(`The User's Minds: ${newest.join(", ")}\n\nWhat can you do?`);
   });
 
-  // protects=a Mind only an Answer wrote in stays off the line, so a later request for a new piece isn't drawn into it, and it is back once the User writes in it (#1790); fails_when=the made Mind is named before the User writes in it, or stays off after; no_claim=what a real model does with the line, which eval/everyday measures.
-  test("leave out a Mind only an Answer wrote in, until the User writes in it", async () => {
+  // protects=a Mind only an Answer wrote in is named as a source from an earlier Answer, not passed off as the User's own writing, and loses that mark once the User writes in it; fails_when=it is missing, or the mark stays after the User writes; no_claim=what a real model does with the line, which eval/minds measures.
+  test("name a Mind an Answer made as a source, until the User writes in it", async () => {
     const made = {
       title: "Launch brief",
       content: "# Launch brief\n\nThe beta opens on 2 February.",
@@ -108,7 +110,9 @@ describe("The User's Minds in the assistant", { timeout: 30_000 }, () => {
 
     await ask(core, "Write a launch brief.");
     await ask(core, "What can you do?");
-    expect(lastSent(model)).toBe(`The User's Minds: "Project plan"\n\nWhat can you do?`);
+    expect(lastSent(model)).toBe(
+      `The User's Minds: "Launch brief" (from an earlier Answer), "Project plan"\n\nWhat can you do?`,
+    );
 
     const brief = (await core.listMinds()).find((mind) => mind.title === "Launch brief");
     if (!brief) throw new Error("The Answer made no Launch brief.");

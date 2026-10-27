@@ -109,13 +109,13 @@ describe("Before a check says a sentence isn't found (#1608)", () => {
     expect(found.check?.state).toBe("supported");
   });
 
-  test("parts named for a topic no Passage is about don't spare the ask, which a model that searched more than once, or not at all, never gets", () => {
+  test("parts named for a topic no Passage is about don't spare the ask, which a model that searched more than once, or not at all, never gets", async () => {
     const reply = "Verdict: unsupported\nThe Documents don't say how often.";
-    expect(searchAgain(() => 1).check(reply)?.note).toBe(SEARCH_AGAIN);
+    expect((await searchAgain(() => 1).check(reply))?.note).toBe(SEARCH_AGAIN);
     const offTopic = `${reply}\nTopic: not found\nCovered: tides\nNot covered: how often`;
-    expect(searchAgain(() => 1).check(offTopic)?.note).toBe(SEARCH_AGAIN);
-    expect(searchAgain(() => 2).check(reply)).toBeNull();
-    expect(searchAgain(() => 0).check(reply)).toBeNull();
+    expect((await searchAgain(() => 1).check(offTopic))?.note).toBe(SEARCH_AGAIN);
+    expect(await searchAgain(() => 2).check(reply)).toBeNull();
+    expect(await searchAgain(() => 0).check(reply)).toBeNull();
   });
 });
 
