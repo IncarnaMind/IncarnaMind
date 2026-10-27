@@ -12,7 +12,13 @@ import type { MockLanguageModelV4 } from "ai/test";
 import { describe, expect, test, vi } from "vitest";
 import type { Core } from "../../src/core";
 import { askAssistant } from "../helpers/assistant";
-import { answerEnded, askAndFinish, setUpWithDocuments, shownPassages } from "../helpers/citations";
+import {
+  answerEnded,
+  askAndFinish,
+  setUpWithDocuments,
+  shownPassages,
+  transcriptCitations,
+} from "../helpers/citations";
 import { cellModel, compare } from "../helpers/comparisons";
 import { createTempDataFolder, startCore } from "../helpers/core";
 import { addAndProcess, createSourceFolder, writeSourceFile } from "../helpers/documents";
@@ -117,11 +123,8 @@ async function notesFilled() {
   const model = scriptedModel((call): ScriptedReply => {
     if (!call.prompt.includes("Fill them in from the transcript")) return { text: "OK" };
     const transcript = /<live-transcript>\n([\s\S]*?)\n<\/live-transcript>/.exec(call.prompt);
-    const passage = shownPassages(transcript?.[1] ?? "").find((each) => each.text.includes(PRICE));
-    if (!call.results.some((result) => result.tool === "cite")) {
-      const citations = [{ marker: 1, passage: passage?.id, quote: PRICE }];
-      return { calls: [{ tool: "cite", input: { citations } }] };
-    }
+    const citations = transcriptCitations(call, shownPassages(transcript?.[1] ?? ""), { 1: PRICE });
+    if (citations) return citations;
     return { text: "### L1\nThe enterprise price is 45 dollars a seat [^1]." };
   });
   const { core, record } = await transcribingCore(await createTempDataFolder(), {

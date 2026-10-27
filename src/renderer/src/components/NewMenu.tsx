@@ -12,7 +12,6 @@ import {
   DocumentLineIcon,
   FindSourcesLineIcon,
   FolderLineIcon,
-  FolderPlusLineIcon,
   MicLineIcon,
   MindLineIcon,
   MoreLineIcon,
@@ -39,7 +38,7 @@ const WebPageIcon = ({ className }: { className?: string }) => (
 );
 
 const ADD_DOCUMENTS: NewItem = {
-  id: "documents.add",
+  id: "documents.addFilesOrFolder",
   testId: "plus-add-documents",
   icon: PlusLineIcon,
 };
@@ -69,7 +68,6 @@ const MORE_ITEMS: readonly NewItem[] = [
     icon: FindSourcesLineIcon,
     label: "sidebar.plus.findSources",
   },
-  { id: "linkedFolder.add", testId: "plus-link-folder", icon: FolderPlusLineIcon },
 ];
 
 const WINDOW: CommandContext = { selection: [], focus: null, surface: "sidebar" };

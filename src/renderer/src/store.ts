@@ -344,6 +344,11 @@ export interface AppState extends LayoutSlice {
   addPaths(paths: readonly string[]): Promise<void>;
   /** "Add Documents": the system's open dialog (see `FilesBridge.pickDocuments`), then the files picked are added. */
   pickDocuments(): Promise<void>;
+  /**
+   * "Add files or a folder…" (#1942): the system's open dialog, then the files
+   * picked are added and a folder picked is offered to be read where it is.
+   */
+  pickDocumentsOrFolder(): Promise<void>;
   /** While that dialog is open: the buttons that open it wait, so it isn't opened twice. */
   pickingDocuments: boolean;
   /**
@@ -1453,6 +1458,18 @@ export const useAppStore = create<AppState>()((set, get) => {
         try {
           const paths = await files.pickDocuments();
           if (paths.length > 0) await addByPath(paths, [], []);
+        } finally {
+          set({ pickingDocuments: false });
+        }
+      }),
+
+    pickDocumentsOrFolder: () =>
+      attempt(async () => {
+        if (get().pickingDocuments) return;
+        set({ pickingDocuments: true });
+        try {
+          const { files: paths, folders } = await files.pickDocumentsOrFolder();
+          if (paths.length > 0 || folders.length > 0) await addByPath(paths, folders, []);
         } finally {
           set({ pickingDocuments: false });
         }

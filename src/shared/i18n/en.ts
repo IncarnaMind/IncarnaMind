@@ -1317,8 +1317,9 @@ export const en = {
 
   "documents.add": "Add Documents",
   "documents.add.files": "Files…",
+  "documents.add.filesOrFolder": "Add files or a folder…",
   "documents.add.findSources": "Find sources…",
-  "documents.add.linkFolder": "A folder that stays in sync…",
+  "documents.add.linkFolder": "A folder on this computer…",
   "documents.add.webPage": "A web page…",
   "documents.add.connect": "Connect an app…",
   "command.rename.keywords": "name title change",
@@ -1371,7 +1372,9 @@ export const en = {
   "documents.more": "More actions for {name}",
   "documents.renameAction": "Rename",
   "documents.pick.title": "Add Documents",
+  "documents.pick.titleOrFolder": "Add files or a folder",
   "documents.pick.filter": "Documents",
+  "documents.pick.titleFiles": "Add files",
   "documents.retryAction": "Retry",
   "documents.printToPdfAction": "Open to print to PDF…",
   "documents.unlockAction": "Unlock…",
@@ -1474,6 +1477,12 @@ export const en = {
   "linkedFolders.preview.time": "Reading takes {time}, newest first.",
   "linkedFolders.preview.onlineOnly.one": "1 online-only file is skipped for now.",
   "linkedFolders.preview.onlineOnly.other": "{count} online-only files are skipped for now.",
+  "linkedFolders.readOnly": "read-only",
+  "linkedFolders.readOnly.full":
+    "IncarnaMind reads this folder where it is and never changes, moves or deletes anything in it.",
+  "linkedFolders.readOnly.unchecked": "not checked",
+  "linkedFolders.readOnly.unchecked.title":
+    "IncarnaMind couldn’t read which folders it may add files to. Open the Output location to answer it there.",
   "linkedFolders.preview.readOnly":
     "IncarnaMind only reads this folder. It never changes, moves or deletes anything.",
   "linkedFolders.preview.merge.one":

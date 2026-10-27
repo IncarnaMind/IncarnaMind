@@ -19,7 +19,7 @@ import {
 import { CITATION_NODE, GENERATED_MARK } from "../../src/core/api";
 import { readVtt } from "../../src/core/documents/formats/vtt";
 import { wordsAdded } from "../../src/core/meetings/memo";
-import { shownPassages } from "../helpers/citations";
+import { shownPassages, transcriptCitations } from "../helpers/citations";
 import { createTempDataFolder, saveProviderUnasked, startCore } from "../helpers/core";
 import { connectToMind, type MindClient } from "../helpers/mindClient";
 import { note, readMind, shownWithAiText, writeMind } from "../helpers/minds";
@@ -27,7 +27,6 @@ import { type ModelCall, scriptedModel } from "../helpers/models";
 import { fakeSeparator, transcribingCore, transcriptOf, until } from "../helpers/transcription";
 
 const SECOND = 1000;
-// None repeats: a repeated line's Citation finds its first time.
 const SAID = [
   "So I was thinking about the garden this morning",
   "We should plant the tomatoes in May after the frost",
@@ -57,14 +56,8 @@ function tidyingModel(
     if (!isTidy(call)) return { text: "OK" };
     if (failing()) return { error: { status: 500, message: "The model is overloaded." } };
     const shown = shownPassages(block(call.prompt, "live-transcript") ?? "");
-    if (!call.results.some((result) => result.tool === "cite")) {
-      const citations = Object.entries(quotes).map(([marker, quote]) => ({
-        marker: Number(marker),
-        passage: shown.find((passage) => passage.text.includes(quote))?.id,
-        quote,
-      }));
-      return { calls: [{ tool: "cite", input: { citations } }] };
-    }
+    const citations = transcriptCitations(call, shown, quotes);
+    if (citations) return citations;
     return { text: reply };
   });
 }
