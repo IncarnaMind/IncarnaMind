@@ -480,66 +480,68 @@ async function chooseAction(window: Page, action: (typeof CHANGING)[number]): Pr
 }
 
 for (const language of ["en", "zh-CN"] as const) {
-  test(`Improve writing, Shorten and Translate report where their Undo line lands, at 1,600 px with the sidebar shown and 900 px with it hidden, in ${language} (#1411)`, async () => {
-    const { app, window } = await launchApp(dataDir, { fakeChat: true });
-    await dismissChatSetup(window);
-    await useLocalChatModel(window);
-    await setLanguage(window, language);
-    await newMind(window);
-    const editor = window.getByTestId("mind-editor");
-    await editor.click();
-    await window.keyboard.type(TIDE_LINE);
-    const note = editor.locator(":scope > p").first();
-    const running = editor.getByTestId("menu-edit-line");
-    const applied = editor.getByTestId("applied-line");
-    const words = LINES[language];
-    await watchPage(window);
-
-    for (const sidebar of ["shown", "hidden"] as const) {
-      await setWindowSize(app, window, sidebar === "hidden" ? 900 : 1600, 820);
+  for (const sidebar of ["shown", "hidden"] as const) {
+    test(`Improve writing, Shorten and Translate report where their Undo line lands, at 900 and 1,600 px, with the sidebar ${sidebar}, in ${language} (#1411)`, async () => {
+      const { app, window } = await launchApp(dataDir, { fakeChat: true });
+      await dismissChatSetup(window);
+      await useLocalChatModel(window);
+      await setLanguage(window, language);
+      await newMind(window);
+      const editor = window.getByTestId("mind-editor");
+      await editor.click();
+      await window.keyboard.type(TIDE_LINE);
+      const note = editor.locator(":scope > p").first();
+      const running = editor.getByTestId("menu-edit-line");
+      const applied = editor.getByTestId("applied-line");
+      const words = LINES[language];
+      await watchPage(window);
       // It hides after the Mind is made: the + menu it holds makes one.
       if (sidebar === "hidden") await hideSidebar(window);
 
-      for (const action of CHANGING) {
-        await slideSelect(window, note, TIDES);
-        await watchAgain(window);
-        await chooseAction(window, action);
+      for (const width of [900, 1600] as const) {
+        await setWindowSize(app, window, width, 820);
 
-        // Nothing in the composer's row: the line shows where the Undo line lands.
-        await expect(window.getByTestId("edit-pending")).toHaveCount(0);
-        await expect(window.getByTestId("edit-status-problem")).toHaveCount(0);
-        await expect(running).toBeVisible();
-        await expect(running).toContainText(words.making);
-        await expect(running.getByTestId("menu-edit-stop")).toHaveText(words.stop);
-        expect(await onScreen(running)).toBe(true);
-        await expect(applied).toBeVisible({ timeout: 40_000 });
-        await expect(applied.getByTestId("applied-count")).toHaveText(words.applied);
-        await expect(applied.getByTestId("applied-undo")).toHaveText(words.undo);
+        for (const action of CHANGING) {
+          await slideSelect(window, note, TIDES);
+          await watchAgain(window);
+          await chooseAction(window, action);
 
-        const { actedAt, looks } = await watched(window);
-        const seen = looks.filter((each) => each.running !== null);
-        const first = seen[0];
-        const last = seen.at(-1);
-        const landed = looks.find((each) => each.applied !== null);
-        if (!first || !last || !landed || actedAt === 0) {
-          throw new Error(
-            `The running or the Undo line was never seen for ${action}: the action at ${actedAt}, ${looks.length} looks, ${seen.length} with the running line, the last ${JSON.stringify(looks.at(-1))}.`,
-          );
+          // Nothing in the composer's row: the line shows where the Undo line lands.
+          await expect(window.getByTestId("edit-pending")).toHaveCount(0);
+          await expect(window.getByTestId("edit-status-problem")).toHaveCount(0);
+          await expect(running).toBeVisible();
+          await expect(running).toContainText(words.making);
+          await expect(running.getByTestId("menu-edit-stop")).toHaveText(words.stop);
+          expect(await onScreen(running)).toBe(true);
+          await expect(applied).toBeVisible({ timeout: 40_000 });
+          await expect(applied.getByTestId("applied-count")).toHaveText(words.applied);
+          await expect(applied.getByTestId("applied-undo")).toHaveText(words.undo);
+
+          const { actedAt, looks } = await watched(window);
+          const seen = looks.filter((each) => each.running !== null);
+          const first = seen[0];
+          const last = seen.at(-1);
+          const landed = looks.find((each) => each.applied !== null);
+          if (!first || !last || !landed || actedAt === 0) {
+            throw new Error(
+              `The running or the Undo line was never seen for ${action}: the action at ${actedAt}, ${looks.length} looks, ${seen.length} with the running line, the last ${JSON.stringify(looks.at(-1))}.`,
+            );
+          }
+          // Nothing shows for the first 300 ms of the request, which starts with the click.
+          expect(first.t - actedAt).toBeGreaterThanOrEqual(300);
+          // The Undo line takes the running line's box, and nothing around it moves with the swap.
+          expect(landed.applied).toEqual(last.running);
+          expect(landed.boxes).toEqual(last.boxes);
+
+          await editor.focus();
+          await window.keyboard.press("ControlOrMeta+z");
+          await expect(note).toHaveText(TIDE_LINE);
+          await expect(applied).toHaveCount(0);
         }
-        // Nothing shows for the first 300 ms of the request, which starts with the click.
-        expect(first.t - actedAt).toBeGreaterThanOrEqual(300);
-        // The Undo line takes the running line's box, and nothing around it moves with the swap.
-        expect(landed.applied).toEqual(last.running);
-        expect(landed.boxes).toEqual(last.boxes);
-
-        await editor.focus();
-        await window.keyboard.press("ControlOrMeta+z");
-        await expect(note).toHaveText(TIDE_LINE);
-        await expect(applied).toHaveCount(0);
       }
-    }
-    await app.close();
-  });
+      await app.close();
+    });
+  }
 }
 
 test("Review changes of Improve writing at a paragraph's start shows its marks and restores them, in a two-paragraph edit (#1411)", async () => {
@@ -575,11 +577,10 @@ test("Review changes of Improve writing at a paragraph's start shows its marks a
 
 for (const language of ["en", "zh-CN"] as const) {
   for (const sidebar of ["shown", "hidden"] as const) {
-    test(`a failed Improve writing, Shorten or Translate shows a problem line with Try again where its Undo line would land, in ${language}, at ${sidebar === "hidden" ? "900 px with the sidebar hidden" : "1,600 px with the sidebar shown"} (#1411)`, async () => {
+    test(`a failed Improve writing, Shorten or Translate shows a problem line with Try again where its Undo line would land, in ${language}, at 900 and 1,600 px, with the sidebar ${sidebar} (#1411)`, async () => {
       const { app, window } = await launchApp(dataDir, { fakeChat: true });
       await dismissChatSetup(window);
       await useLocalChatModel(window, "fake-not-found");
-      await setWindowSize(app, window, sidebar === "hidden" ? 900 : 1600, 820);
       await setLanguage(window, language);
       await newMind(window);
       const editor = window.getByTestId("mind-editor");
@@ -591,18 +592,22 @@ for (const language of ["en", "zh-CN"] as const) {
       const problem = editor.getByTestId("edit-problem");
       const words = LINES[language];
 
-      for (const action of CHANGING) {
-        await slideSelect(window, note, TIDES);
-        await chooseAction(window, action);
-        await expect(problem).toBeVisible({ timeout: 40_000 });
-        await expect(problem).toContainText(words.failed);
-        await expect(problem.getByTestId("menu-edit-action")).toHaveText(words.retry);
-        // In the page where the change would have gone, and not in the composer's row.
-        await expect(window.getByTestId("edit-pending")).toHaveCount(0);
-        expect(await onScreen(problem)).toBe(true);
-        await expect(note).toHaveText(TIDE_LINE);
-        await pointAndClick(window, problem.getByTestId("menu-edit-close"));
-        await expect(problem).toHaveCount(0);
+      for (const width of [900, 1600] as const) {
+        await setWindowSize(app, window, width, 820);
+
+        for (const action of CHANGING) {
+          await slideSelect(window, note, TIDES);
+          await chooseAction(window, action);
+          await expect(problem).toBeVisible({ timeout: 40_000 });
+          await expect(problem).toContainText(words.failed);
+          await expect(problem.getByTestId("menu-edit-action")).toHaveText(words.retry);
+          // In the page where the change would have gone, and not in the composer's row.
+          await expect(window.getByTestId("edit-pending")).toHaveCount(0);
+          expect(await onScreen(problem)).toBe(true);
+          await expect(note).toHaveText(TIDE_LINE);
+          await pointAndClick(window, problem.getByTestId("menu-edit-close"));
+          await expect(problem).toHaveCount(0);
+        }
       }
       await app.close();
     });
