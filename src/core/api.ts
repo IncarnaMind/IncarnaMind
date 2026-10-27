@@ -462,7 +462,12 @@ export type ProposalRequest =
       reason?: string;
     })
   | (ProposalMaker & { source: "answer"; answerId: string })
-  | (ProposalMaker & { source: "answer-added"; requested?: RequestedChange })
+  | (ProposalMaker & {
+      source: "answer-added";
+      requested?: RequestedChange;
+      action?: EditAction;
+      instruction?: string;
+    })
   | (ProposalMaker & { source: "comparison-table"; tableId: string })
   | (ProposalMaker & { source: "research"; taskId: string })
   | WordChangeRequest;
@@ -5607,7 +5612,8 @@ export interface AnswerDelta extends AnswerPlace {
  * that answered with structured output is asked once more for the quotes of
  * its Citations that the check didn't find (ADR-0007); "checking-figures", it
  * is asked once more for the calculated figures it gave that couldn't be
- * worked out (ADR-0021).
+ * worked out (ADR-0021); "checking-claims", the quick model is checking the
+ * reply's claims of changes against what the Tools did.
  */
 export type AnswerPhase =
   | "waiting-for-consent"
@@ -5615,7 +5621,8 @@ export type AnswerPhase =
   | "searching"
   | "writing"
   | "checking-quotes"
-  | "checking-figures";
+  | "checking-figures"
+  | "checking-claims";
 
 /** An Answer being written moved to another phase. */
 export interface AnswerPhaseEvent extends AnswerPlace {

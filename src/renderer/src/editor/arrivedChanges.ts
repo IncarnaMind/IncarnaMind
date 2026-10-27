@@ -24,6 +24,7 @@ import {
 } from "../../../core/api";
 import { copyOrigins } from "../../../shared/blockOrigins";
 import {
+  pendingProposals,
   type ResolvedProposal,
   readProposalAttribute,
   resolveProposals,
@@ -338,7 +339,11 @@ export function writeAccepted(
     });
     const blocks = doc.getXmlFragment(MIND_CONTENT_FIELD);
     doc.transact(() => {
-      resolveProposals(blocks, picked, "reject");
+      for (let depth = 0; depth < 100; depth++) {
+        resolveProposals(blocks, picked, "reject");
+        if (!pendingProposals(blocks).some(picked)) break;
+      }
+      if (pendingProposals(blocks).some(picked)) throw new Error("Too many revisions to set aside");
     }, aside);
     // Setting the changes aside gave the Blocks they were written over their earlier origins back;
     // accepted, those Blocks keep the change's.

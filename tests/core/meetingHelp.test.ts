@@ -264,7 +264,7 @@ describe("Help during the call", { timeout: 60_000 }, () => {
     expect(specs.at(-1)?.thinking).toBe("off");
     const asked = await core.askInConversation({ mindId: meeting.mindId, text: "Who joined?" });
     if (asked.asked) await answerEnded(core, asked.answerId);
-    expect(specs.at(-1)?.thinking).toBe("answer");
+    expect(specs.findLast((spec) => spec.thinking === "answer")?.thinking).toBe("answer");
   });
 
   test("help answers in the call's language, whatever the interface's: Sum up, What to ask next and Check what was said", async () => {
