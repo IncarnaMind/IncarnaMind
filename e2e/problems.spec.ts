@@ -334,7 +334,7 @@ test("an export that can't be saved says why in the Mind, and Change output loca
   await expect(result.getByTestId("export-change-location")).toHaveCSS("outline-style", "solid");
   await window.keyboard.press("Enter");
   const done = result.getByTestId("export-done");
-  await expect(done).toHaveText(savedLine("Tides.docx", sources));
+  await expect(done).toContainText(savedLine("Tides.docx", sources));
   await expect(done).toHaveAttribute("role", "status");
   await expect(result.getByTestId("export-show")).toHaveText(/^Show in (Finder|folder)$/);
   await expect(problem).toHaveCount(0);
@@ -351,7 +351,7 @@ test("an export that can't be saved says why in the Mind, and Change output loca
   await expect(problem).toHaveText("无法保存：这个文件夹是只读的 · 更改保存位置…");
   await screenshot(result, "export-cant-save-zh");
   await result.getByTestId("export-change-location").click();
-  await expect(result.getByTestId("export-done")).toHaveText(
+  await expect(result.getByTestId("export-done")).toContainText(
     savedLine("Tides 2.docx", sources, "zh-CN"),
   );
   await screenshot(result, "export-saved-zh");

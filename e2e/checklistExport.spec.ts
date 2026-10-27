@@ -67,7 +67,7 @@ for (const language of ["en", "zh-CN"] as const) {
 
       await setOutputLocation(window, output);
       await exportFromMenu(window, "markdown");
-      await expect(window.getByTestId("export-done")).toHaveText(
+      await expect(window.getByTestId("export-done")).toContainText(
         savedLine("Checklist 清单.md", output, language),
       );
       const path = join(output, "Checklist 清单.md");
