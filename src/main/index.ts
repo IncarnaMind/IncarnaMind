@@ -23,7 +23,6 @@ import { DataFromNewerVersionError } from "../core/errors";
 import type { Language } from "../core/language";
 import { defaultOllamaUrl } from "../core/providers/kinds";
 import { installedOllamaModels } from "../core/providers/ollama";
-import { probeStep } from "../core/startupProbe";
 import { channelFor, EVENT_CHANNEL } from "../shared/bridge";
 import { translate } from "../shared/i18n";
 import { ANALYSIS_SCHEME_PRIVILEGES } from "./analysis";
@@ -59,6 +58,7 @@ import {
   startupProblem,
   updateStartupDialog,
 } from "./startupError";
+import { attachStartupEvents, recordStartupEvent } from "./startupEvents";
 import { showMessageBox } from "./systemDialogs";
 import { realHomeProblem } from "./testHome";
 import { reportFullScreen, titleBarOptions } from "./titleBar";
@@ -160,6 +160,10 @@ if (testHooks) {
   app.commandLine.appendSwitch("disable-renderer-backgrounding");
   app.commandLine.appendSwitch("disable-background-timer-throttling");
 }
+
+// A lifecycle test's retained startup log gets this start's steps and its windows' load events
+// (#2104). No test folder is set in a release build.
+attachStartupEvents();
 
 // Electron takes every privileged scheme in one call: a second would replace the first.
 protocol.registerSchemesAsPrivileged([DOCUMENT_SCHEME_PRIVILEGES, ANALYSIS_SCHEME_PRIVILEGES]);
@@ -396,7 +400,7 @@ async function showUpdateProblem(
 
 app.whenReady().then(async () => {
   if (!ownsDataFolder) return;
-  probeStep("main-ready");
+  recordStartupEvent("main-ready");
   if (instance.kind === "owner") instance.owner.starting();
   showDevelopmentDockIcon();
   const createChatModel = await testChatModel();
@@ -405,13 +409,13 @@ app.whenReady().then(async () => {
   if (instance.kind === "owner") instance.owner.starting();
   // The window's page starts loading while the core starts. Its calls reach the core once
   // `exposeCore` has run, below: they wait until this synchronous run is done.
-  probeStep("main-window-creating");
+  recordStartupEvent("main-window-creating");
   createWindow();
-  probeStep("main-window-returned");
+  recordStartupEvent("main-window-returned");
   logger.info("app.startup.windowReturned");
   try {
     const adapters = createElectronAdapters(logger);
-    probeStep("main-adapters-ready");
+    recordStartupEvent("main-adapters-ready");
     logger.info("app.startup.adaptersReady");
     core = createCore({
       ...adapters,
@@ -426,7 +430,7 @@ app.whenReady().then(async () => {
       }),
       ...(taskKinds.length > 0 && { taskKinds }),
     });
-    probeStep("main-core-created");
+    recordStartupEvent("main-core-created");
     logger.info("app.startup.coreReady");
   } catch (error) {
     await showStartupError(error);
@@ -434,7 +438,7 @@ app.whenReady().then(async () => {
     return;
   }
   exposeCore(core);
-  probeStep("main-core-exposed");
+  recordStartupEvent("main-core-exposed");
   const settleQuit = guardQuit(
     core,
     () => BrowserWindow.getFocusedWindow() ?? appWindows()[0] ?? null,
@@ -556,7 +560,7 @@ app.whenReady().then(async () => {
   // A Meeting saves what it has before the computer sleeps, and records again when it wakes.
   powerMonitor.on("suspend", () => core?.systemSleeping());
   powerMonitor.on("resume", () => core?.systemAwake());
-  probeStep("main-host-ready");
+  recordStartupEvent("main-host-ready");
   startupComplete = true;
   finishStartup();
   logger.info("app.startup.hostReady");

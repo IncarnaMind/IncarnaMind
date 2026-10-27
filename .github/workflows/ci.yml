@@ -10,9 +10,9 @@ env:
 
 jobs:
   startup-stall-probe:
-    name: Windows startup, ten English and ten Chinese starts (#2104)
+    name: Windows startup and update lifecycle probe (#2104)
     runs-on: windows-latest
-    timeout-minutes: 30
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-node@v7
@@ -27,8 +27,12 @@ jobs:
           node node_modules/electron-vite/bin/electron-vite.js build --mode test
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           Copy-Item e2e/lifecycleMain.cjs out/main/lifecycle.cjs
-          npx electron-builder --win --x64 --dir --publish never "--config.directories.output=dist/lifecycle-old" "--config.extraMetadata.main=./out/main/lifecycle.cjs"
+          $versions = Get-Content tests/fixtures/lifecycle-versions.json | ConvertFrom-Json
+          npx electron-builder --win --x64 --dir --publish never "--config.directories.output=dist/lifecycle-old" "--config.extraMetadata.main=./out/main/lifecycle.cjs" "--config.extraMetadata.version=$($versions.old)"
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          npx electron-builder --win --x64 --dir --publish never "--config.directories.output=dist/lifecycle-updated" "--config.extraMetadata.main=./out/main/lifecycle.cjs" "--config.extraMetadata.version=$($versions.updated)"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          node scripts/check-lifecycle-packages.mjs dist/lifecycle-old/win-unpacked/resources/app.asar dist/lifecycle-updated/win-unpacked/resources/app.asar
       - name: Ten English starts
         run: |
           $env:INCARNAMIND_PACKAGED_APP = Join-Path $pwd "dist/lifecycle-old/win-unpacked/IncarnaMind.exe"
@@ -38,6 +42,12 @@ jobs:
         run: |
           $env:INCARNAMIND_PACKAGED_APP = Join-Path $pwd "dist/lifecycle-old/win-unpacked/IncarnaMind.exe"
           node node_modules/@playwright/test/cli.js test startupProgress.spec.ts --grep "a quitting copy that stops exiting gives a quitting problem \(zh-CN\)" --repeat-each=10 --workers=1 --retries=0 --output=test-results/startup-stall-zh
+      - name: Ten installing-update starts
+        if: always()
+        run: |
+          $env:INCARNAMIND_PACKAGED_APP = Join-Path $pwd "dist/lifecycle-old/win-unpacked/IncarnaMind.exe"
+          $env:INCARNAMIND_PACKAGED_UPDATED_APP = Join-Path $pwd "dist/lifecycle-updated/win-unpacked/IncarnaMind.exe"
+          node node_modules/@playwright/test/cli.js test updateLifecycle.spec.ts --grep "an installing update refuses an unrelated start and keeps its own replacement" --repeat-each=10 --workers=1 --retries=0 --output=test-results/update-lifecycle-probe
       - if: always()
         uses: actions/upload-artifact@v7
         with:

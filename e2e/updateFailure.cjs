@@ -112,9 +112,6 @@ app.on("browser-window-created", (_event, window) => {
     record("window-ready-to-show", { windowId });
     setImmediate(sampleVisibility);
   });
-  window.webContents.on("did-finish-load", () => {
-    record("window-loaded", { url: window.webContents.getURL() });
-  });
 });
 autoUpdater.checkForUpdates = async () => {
   if (!first) return null;
