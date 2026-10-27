@@ -1,4 +1,4 @@
-import type { ContradictionCheckOutcome } from "../../../core/api";
+import type { ContradictionCheckOutcome, ContradictionWatchRun } from "../../../core/api";
 import type { Language } from "../../../core/language";
 import type { MessageKey, MessageParams } from "../../../shared/i18n";
 import { runStopParts } from "../cost";
@@ -11,7 +11,7 @@ type Translate = (key: MessageKey, params?: MessageParams) => string;
  * wasn't checked is never counted as free of contradictions (#112).
  */
 export function contradictionOutcomeParts(
-  run: ContradictionCheckOutcome,
+  run: ContradictionCheckOutcome | ContradictionWatchRun,
   t: Translate,
   language: Language,
 ): string[] {
@@ -30,6 +30,12 @@ export function contradictionOutcomeParts(
             ? [t("contradictions.notChecked", { count: format(notChecked) })]
             : []),
         ];
-  if (run.stop) parts.push(...runStopParts(run.stop, t, language));
+  if (run.stop) {
+    parts.push(
+      ...(run.stop.reason === "cancelled"
+        ? [t("run.stopped.cancelled")]
+        : runStopParts(run.stop, t, language)),
+    );
+  }
   return parts;
 }

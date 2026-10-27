@@ -191,10 +191,10 @@ for (const [language, width] of [
       );
       await expect(rowOf(0).locator(".figure-status")).toContainText(t("claim.state.supported"));
       await expect(rowOf(2).locator(".figure-difference")).toHaveText("+£10m");
-      await expect(rowOf(2).locator(".figure-status")).toContainText(t("claim.state.contradicted"));
-      await expect(rowOf(3).locator(".figure-status")).toContainText(t("claim.state.notFound"));
+      await expect(rowOf(2).locator(".figure-status")).toContainText(t("claim.why.contradicted"));
+      await expect(rowOf(3).locator(".figure-status")).toContainText(t("claim.why.notFound"));
       const total = rowOf(6);
-      await expect(total.locator(".figure-status")).toContainText(t("claim.state.doesntAddUp"));
+      await expect(total.locator(".figure-status")).toContainText(t("claim.why.doesntAddUp"));
       const why = total.locator(".figure-why");
       await expect(why).toContainText(t("figures.foot.agrees"));
       await expect(why).toContainText(t("figures.foot.rows", { value: "£4,850m" }));

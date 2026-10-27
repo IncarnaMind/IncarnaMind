@@ -8,10 +8,10 @@ import type { Verification } from "../../../shared/verification";
 import { setCheckCardOpen, stopCheck, useChecks } from "../checks";
 import { useTabPlace } from "../components/tabs/tabItems";
 import { buttonStyle } from "../components/ui";
-import { startContradictionCheck, useContradictions } from "../contradictions";
+import { useContradictions } from "../contradictions";
 import { useLanguage, useT } from "../i18n";
 import { frontTabOfMind } from "../layoutSlice";
-import { startCheckThisMind, useMindCheck, useMindCheckRun } from "../mindCheck";
+import { startCheck, useMindCheck, useMindCheckRun } from "../mindCheck";
 import { useFade } from "../motion";
 import { type NoteState, noteStateOf, noteStateParts } from "../noteState";
 import { useAppStore } from "../store";
@@ -61,7 +61,7 @@ function useJustChecked<Run>(
 }
 
 /**
- * The check badge at the bottom right of a Mind's page (#909; the boards
+ * The check badge at the bottom right of a Note's page (#909; the boards
  * Page-Clean-Badge-*): the margin marks' counts, and the claims no check
  * has looked at, "≠ 1 · ! 1 · 3 to check"; "Checking 12 of 24 · Stop" while
  * a check runs; "✓ 24 checked" after a check the User started, until they
@@ -175,20 +175,11 @@ function CheckActions({
           type="button"
           data-testid="badge-check-mind"
           disabled={running}
-          title={planned === null ? undefined : checkTitle(t, planned.plan)}
+          title={planned === null ? undefined : checkTitle(t, planned)}
           className={buttonStyle("primary", "sm")}
-          onClick={() => void startCheckThisMind(mindId)}
+          onClick={() => void startCheck(mindId)}
         >
           {t("mindCheck.command")}
-        </button>
-        <button
-          type="button"
-          data-testid="badge-check-contradictions"
-          disabled={running}
-          className="check-card-link"
-          onClick={() => void startContradictionCheck(mindId)}
-        >
-          {t("contradictions.command")}
         </button>
       </div>
     </>

@@ -176,7 +176,7 @@ export function figureScheduleBook(
             ),
             text(
               "reason",
-              input.citation.check === "not-found" ? t("claim.state.quoteNotFound") : "",
+              input.citation.check === "not-found" ? t("claim.why.quoteNotFound") : "",
             ),
           ],
         };

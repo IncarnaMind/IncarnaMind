@@ -231,7 +231,7 @@ test("a Mind moves by its menu, by the keyboard and by dragging, each with Undo;
       /^Export AI use statement$/,
       /^Export check record…$/,
       /^History$/,
-      /^Check this note$/,
+      /^Check$/,
       /^Tie out figures$/,
       /^Check for contradictions$/,
       /^Citation style…$/,
@@ -266,7 +266,7 @@ test("a Mind moves by its menu, by the keyboard and by dragging, each with Undo;
     await expect(undoLine.getByTestId("undo-message")).toHaveCount(0);
 
     // By the keyboard alone: Shift+F10 on the row, down past Outline, the exports, the AI use
-    // statement, History, Check this note, Tie out figures, Check for contradictions, Citation style…, Style… and
+    // statement, History, Check, Tie out figures, Check for contradictions, Citation style…, Style… and
     // Make this a Skill to Move to…, type, Enter. The row's ⋯ is not a Tab stop.
     await shortlist.getByTestId("mind-list-item").focus();
     await window.keyboard.press("Tab");

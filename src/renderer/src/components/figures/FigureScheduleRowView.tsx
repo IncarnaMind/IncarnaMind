@@ -208,7 +208,7 @@ export function FigureScheduleRowView({
     line.input.citation.check === "found" ? (
       <Status glyph="supported" word={t("claim.state.supported")} />
     ) : line.input.citation.check === "not-found" ? (
-      <Status glyph="look" word={t("figures.filter.look")} why={t("claim.state.quoteNotFound")} />
+      <Status glyph="look" word={t("figures.filter.look")} why={t("claim.why.quoteNotFound")} />
     ) : (
       <Status glyph="not-checked" word={t("claim.state.not-checked")} />
     )

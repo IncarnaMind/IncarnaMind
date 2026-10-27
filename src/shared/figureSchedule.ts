@@ -39,13 +39,13 @@ export function reasonKey(row: FigureScheduleRow): MessageKey | null {
   if (row.shown.state === "kept" || row.reason === null) return null;
   switch (row.reason) {
     case "not-found":
-      return "claim.state.notFound";
+      return "claim.why.notFound";
     case "quote-not-found":
-      return "claim.state.quoteNotFound";
+      return "claim.why.quoteNotFound";
     case "doesnt-add-up":
-      return "claim.state.doesntAddUp";
+      return "claim.why.doesntAddUp";
     default:
-      return `claim.state.${row.reason}`;
+      return `claim.why.${row.reason}`;
   }
 }
 

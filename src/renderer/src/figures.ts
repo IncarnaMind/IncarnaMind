@@ -9,7 +9,7 @@ import { figurePlace } from "./editor/figurePlaces";
 import { mindEditor } from "./editor/openEditors";
 import { scrollMindTo } from "./editor/reviewPick";
 import { groupsMerged } from "./layoutSlice";
-import { startCheckThisMind, useMindCheck } from "./mindCheck";
+import { startCheck, useMindCheck } from "./mindCheck";
 import { useAppStore } from "./store";
 
 export function useFigureSchedule(mindId: string, doc: Y.Doc | null): FigureSchedule | null {
@@ -125,7 +125,7 @@ export async function tieOutFigures(mindId: string): Promise<void> {
   const stale = schedule.rows.some(
     (row) => row.shown.state === "not-checked" || row.shown.state === "needs-recheck",
   );
-  const asks = stale ? await checkAsks(mindId, startCheckThisMind(mindId)) : false;
+  const asks = stale ? await checkAsks(mindId, startCheck(mindId)) : false;
   await openFigureSchedule(mindId, !(asks && groupsMerged()));
 }
 

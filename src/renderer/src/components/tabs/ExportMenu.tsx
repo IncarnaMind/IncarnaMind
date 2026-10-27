@@ -11,7 +11,7 @@ import { takeExportMenuRequest, useExportMenuRequests } from "../../exportMenuRe
 import { FORMAT_LABELS, useExports } from "../../exports";
 import { useMindNoteStates } from "../../home";
 import { useLanguage, useT } from "../../i18n";
-import { showCheckCard, startCheckThisMind } from "../../mindCheck";
+import { showCheckCard, startCheck } from "../../mindCheck";
 import { noteStateParts } from "../../noteState";
 import { useAppStore } from "../../store";
 import {
@@ -112,7 +112,7 @@ export function ExportMenu({ mindId }: { mindId: string }) {
         : {
             label: t("export.checkFirst"),
             run: () => {
-              startCheckThisMind(mindId).catch(useAppStore.getState().reportError);
+              startCheck(mindId).catch(useAppStore.getState().reportError);
             },
           };
 
