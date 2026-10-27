@@ -27,7 +27,7 @@ import { fakePrinter } from "../helpers/printer";
 
 /*
  * Checks say which files in their scope couldn't be read, and why (#740):
- * Check against Documents, Check this Mind and Verify keep, with the request
+ * Check against Documents, Check this note and Verify keep, with the request
  * that made their marks, the files their scope couldn't read as it started,
  * which the line beside them, the AI use statement and an export read back.
  */
@@ -226,7 +226,7 @@ describe("What a check couldn't read", () => {
     expect(named(await unreadOfChecks(client))).toEqual(UNREAD);
   });
 
-  test("Check this Mind names the same three", async () => {
+  test("Check this note names the same three", async () => {
     const { core, folderId } = await withUnreadFiles();
     const { mind, client } = await mindOf(core, folderId, [SUPPORTED, UNSUPPORTED]);
 

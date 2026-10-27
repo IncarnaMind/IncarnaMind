@@ -216,7 +216,7 @@ test("an Answer goes to another Mind through the ▾, and to a new Mind as chang
   const before = await noteJSON(editor);
   const answer = await askInAssistant(window, "When do spring tides happen?");
 
-  // ▾: the Mind in focus first, then the recent ones, a search, and New Mind.
+  // ▾: the Mind in focus first, then the recent ones, a search, and New note.
   await pointAt(window, answer.getByTestId("assistant-answer-text"));
   await pointAndClick(window, answer.getByTestId("answer-add-to"));
   const picker = window.getByTestId("add-to-picker");
@@ -225,7 +225,7 @@ test("an Answer goes to another Mind through the ▾, and to a new Mind as chang
   const options = picker.getByTestId("add-to-option");
   await expect(options.first()).toContainText("Reading notes: tides");
   await expect(options.filter({ hasText: "Chapter 2 outline" })).toHaveCount(1);
-  await expect(options.last()).toContainText("New Mind");
+  await expect(options.last()).toContainText("New note");
   await screenshot(window, "assistant-add-to-picker");
   // Esc closes it and the focus goes back to the control that opened it.
   await window.keyboard.press("Escape");
@@ -277,7 +277,7 @@ test("an Answer goes to another Mind through the ▾, and to a new Mind as chang
   await window.keyboard.press("Enter");
   await expect(assistantAnswers(window)).toHaveCount(1);
 
-  // ▾ → New Mind: named by its first line, in a new tab, its content in at once (#1559), with Undo.
+  // ▾ → New note: named by its first line, in a new tab, its content in at once (#1559), with Undo.
   const shown = assistantAnswers(window).first();
   await pointAt(window, shown.getByTestId("assistant-answer-text"));
   // "Added to …" under it goes after a few seconds, and its actions come back.
@@ -360,7 +360,7 @@ test("with no Mind in focus, Add to note opens the ▾, and adds through it", as
   await pointAndClick(window, window.getByTestId("open-library"));
   await pointAt(window, answer.getByTestId("assistant-answer-text"));
   const add = answer.getByTestId("answer-add");
-  await expect(add).toHaveAttribute("title", "Choose a Mind to add it to");
+  await expect(add).toHaveAttribute("title", "Choose a note to add it to");
   await pointAndClick(window, add);
   const picker = window.getByTestId("add-to-picker");
   await expect(picker).toBeVisible();
@@ -390,7 +390,7 @@ test("the keyboard reaches it all: ⌘J, Tab through an Answer's actions, ⌘⇧
   }
   expect(seen).toEqual(
     expect.arrayContaining([
-      "Add to another Mind or a new Mind",
+      "Add to another note or a new note",
       expect.stringMatching(/^Add to “Reading notes: tides”/),
       first,
     ]),

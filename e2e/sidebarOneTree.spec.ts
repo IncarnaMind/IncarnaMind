@@ -5,6 +5,7 @@ import type { CoreBridge } from "../src/core/api";
 import { translate } from "../src/shared/i18n";
 import type { MessageKey, MessageParams } from "../src/shared/i18n/types";
 import {
+  addFilesLabelKey,
   useLocalChatModel as connectLocalChatModel,
   createDataFolder,
   dragOnto,
@@ -586,24 +587,23 @@ for (const [language, width] of [
 
 const NEW_MENU_ROWS: readonly MessageKey[] = [
   "menu.newMind",
-  "sidebar.plus.addDocuments",
+  addFilesLabelKey,
   "menu.newFolder",
+  "meetings.record",
   "sidebar.plus.more",
 ];
 const MORE_ROWS: readonly MessageKey[] = [
   "wordImport.command",
-  "meetings.record",
   "memos.record.menu",
   "command.compareDocuments",
   "verify.command",
   "folder.fromStarters",
   "sidebar.plus.addWebPage",
   "sidebar.plus.findSources",
-  "sidebar.plus.linkFolder",
 ];
 const IN_PALETTE: readonly MessageKey[] = [
   "menu.newMind",
-  "sidebar.plus.addDocuments",
+  addFilesLabelKey,
   "menu.newFolder",
   "sidebar.plus.linkFolder",
   "wordImport.command",
@@ -620,7 +620,7 @@ for (const [language, width] of [
   ["en", 1440],
   ["zh-CN", 900],
 ] as const) {
-  test(`the New menu's four rows and what is under More open by mouse and keyboard, and each is in ⌘K too (${language}, ${width}px)`, async () => {
+  test(`the New menu's five rows and what is under More open by mouse and keyboard, and each is in ⌘K too (${language}, ${width}px)`, async () => {
     const t = (key: MessageKey) => translate(language, key);
     const { app, window } = await launchApp(dataDir);
     try {
@@ -630,7 +630,7 @@ for (const [language, width] of [
       const rows = window.getByTestId("plus-menu-items").getByRole("menuitem");
       const more = window.getByTestId("plus-more-menu").getByRole("menuitem");
 
-      // By mouse: four rows in order, and More lists the rest.
+      // By mouse: five rows in order, and More lists the rest.
       await pointAt(window, plus);
       await window.mouse.down();
       await window.mouse.up();
@@ -638,9 +638,8 @@ for (const [language, width] of [
       for (const [index, key] of NEW_MENU_ROWS.entries()) {
         await expect(rows.nth(index)).toContainText(t(key));
       }
-      await expect(window.getByTestId("plus-add-documents")).toContainText(
-        process.platform === "darwin" ? "⌘O" : "Ctrl+O",
-      );
+      // The one way in has no key of its own (⌘O still opens the file picker): ⌘K finds it.
+      await expect(window.getByTestId("plus-add-documents")).not.toContainText("⌘O");
       await pointAt(window, window.getByTestId("plus-more"));
       await expect(more).toHaveCount(MORE_ROWS.length);
       for (const [index, key] of MORE_ROWS.entries()) {

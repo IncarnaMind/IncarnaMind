@@ -15,6 +15,7 @@ const documentOf = (linkedFolderId: string, name: string): Document => ({
   contentHash: randomUUID(),
   path: `/examples/${name}.pdf`,
   fileStatus: "available",
+  keptByApp: false,
   linkedFolderId,
   size: 1000,
   pageCount: 1,
@@ -125,7 +126,7 @@ async function exampleOverFakes() {
     checksRelyOn: () => false,
     citationsRelyOn: (documentIds, exceptMindId) =>
       documentIds.some((id) => cited.has(id) && cited.get(id) !== exceptMindId),
-    recheck: () => {
+    cite: () => {
       throw new Error("No Document has been read.");
     },
     changed: (value) => {

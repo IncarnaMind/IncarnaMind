@@ -110,7 +110,7 @@ for (const value of ["en", "zh-CN"] as const) {
       window,
       window
         .getByTestId("palette-item")
-        .filter({ hasText: value === "en" ? "Check for contradictions" : "检查矛盾" })
+        .filter({ hasText: value === "en" ? "Check for contradictions" : "核对矛盾" })
         .first(),
     );
     // A check that can't run opens the card to say why.

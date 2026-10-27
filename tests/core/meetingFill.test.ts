@@ -11,7 +11,7 @@ import { FILL_PART_TOKENS, transcriptParts } from "../../src/core/meetings/fill"
 import { setMindModel } from "../../src/shared/mindModel";
 import { pendingProposals } from "../../src/shared/proposals";
 import { checkReply, isCheckRun, type Plan } from "../helpers/checks";
-import { shownPassages } from "../helpers/citations";
+import { shownPassages, transcriptCitations } from "../helpers/citations";
 import { createTempDataFolder, saveProviderUnasked } from "../helpers/core";
 import { addAndProcess, createSourceFolder, writeSourceFile } from "../helpers/documents";
 import { connectToMind, type MindClient } from "../helpers/mindClient";
@@ -53,14 +53,8 @@ function fillingModel(
     if (!isFill(call)) return { text: "OK" };
     if (failing()) return { error: { status: 500, message: "The model is overloaded." } };
     const shown = shownPassages(block(call.prompt, "live-transcript") ?? "");
-    if (!call.results.some((result) => result.tool === "cite")) {
-      const citations = Object.entries(quotes).map(([marker, quote]) => ({
-        marker: Number(marker),
-        passage: shown.find((passage) => passage.text.includes(quote))?.id,
-        quote,
-      }));
-      return { calls: [{ tool: "cite", input: { citations } }] };
-    }
+    const citations = transcriptCitations(call, shown, quotes);
+    if (citations) return citations;
     return { text: reply, ...(held && { pause: { after: 0, until: held } }) };
   });
 }

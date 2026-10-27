@@ -5,6 +5,7 @@ import type { Editor } from "@tiptap/core";
 import type { CoreBridge } from "../src/core/api";
 import {
   acceptPlainTextKeys,
+  addFilesLabel,
   assistantAnswers,
   continueSetup,
   createDataFolder,
@@ -24,7 +25,6 @@ import {
   removeDataFolder,
   setLanguage,
   setWindowSize,
-  showSourceLocations,
   welcomeStep as step,
   useLocalChatModel,
 } from "./app";
@@ -209,7 +209,7 @@ test("a first run opens on the credit paper with no model set up: its Citations 
   await setLanguage(window, "zh-CN");
   await expect(addOwn).toHaveText("添加你的文档");
   await pointAndClick(window, addOwn);
-  await expect(ways.getByRole("menuitem")).toHaveText(["添加文件…", "添加同步文件夹…"]);
+  await expect(ways.getByRole("menuitem")).toHaveText(["添加文件…", "添加关联文件夹…"]);
   await window.keyboard.press("Escape");
 
   await setLanguage(window, "en");
@@ -217,10 +217,9 @@ test("a first run opens on the credit paper with no model set up: its Citations 
     /Northwind Retail · (Q3 2026 results|Senior facilities agreement \(excerpt\))/,
     /Northwind Retail · (Q3 2026 results|Senior facilities agreement \(excerpt\))/,
   ]);
-  await showSourceLocations(window);
-  await expect(linkedFolderRow(window, "Examples").getByTestId("example-chip")).toBeVisible({
-    timeout: 30_000,
-  });
+  // The example’s Linked folder is no Linked folder of the User’s: on day one the section
+  // waits for one of their own (#1942).
+  await expect(window.getByTestId("linked-folders-section")).toHaveCount(0);
 });
 
 test("removing the examples deletes the example Mind, its Documents and the copies of their files, and they aren't made again", async () => {
@@ -257,7 +256,7 @@ test("removing the examples deletes the example Mind, its Documents and the copi
   await again.app.close();
 });
 
-test("with only the example Documents, the footer doesn't ask for a model to tag them; a Document of one's own without a model does", async () => {
+test("the footer asks for a model to tag only once a Document of the User's own carries a Tag (#1942)", async () => {
   const own = join(sources, "Harbour notes.md");
   await writeFile(own, "# Harbour notes\n\nThe harbour master publishes the tide tables.\n");
   const { app, window } = await launchApp(dataDir, { examples: true });
@@ -274,10 +273,21 @@ test("with only the example Documents, the footer doesn't ask for a model to tag
   }
   await expect(notice).toHaveCount(0);
 
-  // A Document of one's own, with no model: the notice, as always.
+  // A Document of one's own with no model, and no Tag anywhere: nothing names Tags yet.
   await window.getByTestId("add-documents-input").setInputFiles([own]);
   const added = items.filter({ hasText: "Harbour notes" });
   await expect(added).toHaveAttribute("data-tagging", "waiting-for-provider");
+  await expect(notice).toHaveCount(0);
+
+  // A Tag of the User's own: the notice comes.
+  await window.evaluate(async () => {
+    const bridge = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
+    const [document] = (await bridge.listDocuments()).filter(
+      (each) => each.name === "Harbour notes",
+    );
+    const tag = await bridge.createTag({ name: "Harbour", description: "" });
+    if (document) await bridge.addTagToDocuments([document.id], tag.id);
+  });
   await expect(notice).toBeVisible();
   await expect(notice).toContainText("No AI model for Tags");
   await expect(notice.getByTestId("tagging-waiting-setup")).toHaveText("Choose…");
@@ -383,7 +393,7 @@ test("the steps card's first step offers Add files… and Link a folder… at on
   const files = step(window, "files");
   await expect(files).toHaveAttribute("data-state", "open");
   const offered = files.locator('button:not([data-testid="first-open-step-do"])');
-  await expect(offered).toHaveText(["Add files…", "Link a folder…"]);
+  await expect(offered).toHaveText([addFilesLabel("en")]);
   await expect(window.getByTestId("mind-editor").locator("h1")).toHaveText(
     "Draft: credit committee paper",
   );
@@ -391,7 +401,7 @@ test("the steps card's first step offers Add files… and Link a folder… at on
 
   await setLanguage(window, "zh-CN");
   await setWindowSize(app, window, 900, 760);
-  await expect(offered).toHaveText(["添加文件…", "添加同步文件夹…"]);
+  await expect(offered).toHaveText([addFilesLabel("zh-CN")]);
   await expectPlainWords(firstScreen);
   const card = await pane.getByTestId("first-open-steps").boundingBox();
   const buttons = await offered.last().boundingBox();
@@ -725,8 +735,8 @@ test("finishing the steps with no model asks for one in the card, never says You
   await expect(window.getByTestId("tab-list")).toHaveCount(0);
   await expect(window.getByTestId("assistant")).toBeHidden();
   await expect(window.getByTestId("ask-pill")).toBeVisible();
-  await expect(sidebar.getByTestId("sidebar-status")).toHaveCount(1);
-  await expect(sidebar.getByTestId("tagging-waiting")).toContainText("No AI model for Tags");
+  // Day one names no Tags: the card asks for the model, and the footer says nothing (#1942).
+  await expect(sidebar.getByTestId("tagging-waiting")).toHaveCount(0);
 
   await pointAndClick(window, steps.getByTestId("first-open-choose-model"));
   const setup = window.getByTestId("model-setup");
@@ -790,6 +800,13 @@ test("on the quiet first open the tagging question still shows, with Allow, in t
   await window.getByTestId("add-documents-input").setInputFiles([invoice]);
   const item = window.getByTestId("document-list-item").filter({ hasText: "Invoice 41" });
   await expect(item).toHaveAttribute("data-tagging", "waiting-for-provider");
+  // A Tag of the User's own: only now is Tags named, so only now is the sending asked about (#1942).
+  await window.evaluate(async () => {
+    const core = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
+    const [document] = (await core.listDocuments()).filter((each) => each.name === "Invoice 41");
+    const tag = await core.createTag({ name: "Invoices", description: "" });
+    if (document) await core.addTagToDocuments([document.id], tag.id);
+  });
   const question = window.getByTestId("sidebar").getByTestId("tagging-waiting");
   await expect(question).toContainText("Tags need your OK");
   await expect(window.getByTestId("tab-list")).toHaveCount(0);

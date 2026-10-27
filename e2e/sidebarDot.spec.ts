@@ -6,6 +6,7 @@ import {
   acceptPlainTextKeys,
   createDataFolder,
   launchApp,
+  makeTagOnDocument,
   removeDataFolder,
   setLanguage,
   setWindowSize,
@@ -129,6 +130,8 @@ test("a hidden sidebar's dot holds at 900 px in Chinese when Tagging waits for a
   const toggle = window.getByTestId("sidebar-toggle");
   await addNote(window, "Harbour notes", "Harbour notes. The tide tables.");
   await expect.poll(() => taggingOf(window, "Harbour notes")).toBe("waiting-for-provider");
+  // A Tag of the User's own: only then is Tags named, and its model asked for (#1942).
+  await makeTagOnDocument(window, "Harbour notes");
   await expect(toggle).not.toHaveAttribute("data-needs-you");
   await expect(toggle).toHaveAttribute("aria-expanded", "true");
 

@@ -17,7 +17,7 @@
  */
 import { execFile } from "node:child_process";
 import { resolve } from "node:path";
-import { app, BrowserWindow } from "electron";
+import { app, BrowserWindow, autoUpdater as nativeUpdater } from "electron";
 import type { Core, ExternalService, Language, PrivacySettings, Settings } from "../core";
 import { translate } from "../shared/i18n";
 import { systemBrowser } from "./platform";
@@ -37,14 +37,12 @@ interface SettingsSource {
 }
 
 let installing = false;
+let quittingToInstall = false;
 let reopening = false;
-let updaterOnQuit: { autoInstallOnAppQuit: boolean } | undefined;
 
 export function canReopenAfterUpdate(): boolean {
-  if (installing) return false;
+  if (installing || quittingToInstall) return false;
   reopening = true;
-  // An ordinary AppImage install does not run the app afterwards (#1448).
-  if (updaterOnQuit) updaterOnQuit.autoInstallOnAppQuit = false;
   return true;
 }
 
@@ -64,68 +62,140 @@ export function registerUpdateCheck(core: Pick<Core, "networkTraffic" | "getPriv
 export function startAutoUpdates(
   core: SettingsSource,
   settleQuit: () => Promise<boolean>,
-  installFailed: (error: unknown, language: Language) => void,
+  installFailed: (error: unknown, language: Language, reopens: boolean) => void,
+  installStarted: (reopens: boolean) => void,
+  prepareInstall: (targetVersion: string, reopens: boolean) => void,
 ): void {
   if (!app.isPackaged) return;
-  checkForUpdates(core, settleQuit, installFailed).catch((error: unknown) => {
-    // Offline, rate-limited, or no release yet: the next start tries again.
-    console.warn("The update check failed:", error);
+  let preparedReopens: boolean | undefined;
+  const prepare = (version: string, reopens: boolean): boolean => {
+    if (preparedReopens !== undefined) return false;
+    prepareInstall(version, reopens);
+    quittingToInstall = true;
+    preparedReopens = reopens;
+    return true;
+  };
+  const beginInstall = (reopens: boolean) => {
+    if (installing) return;
+    installing = true;
+    installStarted(reopens);
+  };
+  nativeUpdater.on("before-quit-for-update", () => {
+    if (preparedReopens !== undefined) beginInstall(preparedReopens);
   });
+  checkForUpdates(core, settleQuit, installFailed, beginInstall, prepare).catch(
+    (error: unknown) => {
+      // Offline, rate-limited, or no release yet: the next start tries again.
+      console.warn("The update check failed:", error);
+    },
+  );
 }
 
 async function checkForUpdates(
   core: SettingsSource,
   settleQuit: () => Promise<boolean>,
-  installFailed: (error: unknown, language: Language) => void,
+  installFailed: (error: unknown, language: Language, reopens: boolean) => void,
+  beginInstall: (reopens: boolean) => void,
+  prepare: (version: string, reopens: boolean) => boolean,
 ): Promise<void> {
   if (!(await core.getPrivacySettings()).automaticUpdateChecks) return;
+  const { language } = await core.getSettings();
   const { autoUpdater } = await import("./autoUpdater");
-  updaterOnQuit = autoUpdater;
+  let downloaded: { version: string; language: Language } | undefined;
+  let failureHandled = false;
+  const failed = (error: unknown, language: Language, reopens: boolean) => {
+    if (failureHandled) return;
+    failureHandled = true;
+    beginInstall(reopens);
+    installFailed(error, language, reopens);
+  };
+  app.on("quit", () => {
+    const update = downloaded;
+    if (!update) return;
+    const reopens = reopening;
+    try {
+      if (prepare(update.version, reopens)) {
+        beginInstall(reopens);
+        autoUpdater.once("error", (error: unknown) => failed(error, update.language, reopens));
+      }
+    } catch (error) {
+      failed(error, update.language, reopens);
+    }
+  });
   const installable = await canInstallUpdates();
   autoUpdater.autoDownload = installable;
-  autoUpdater.autoInstallOnAppQuit = installable && !reopening;
+  const preparing = process.platform === "darwin" && installable ? nativePreparation() : null;
+  const onDownloaded = (info: { version: string }) => {
+    downloaded = { version: info.version, language };
+  };
+  if (installable) autoUpdater.on("update-downloaded", onDownloaded);
+  try {
+    // Null when the updater is inactive, e.g. on Linux outside an AppImage and a .deb.
+    const result = await autoUpdater.checkForUpdates();
+    if (!result?.isUpdateAvailable) return;
+    const { version } = result.updateInfo;
 
-  // Null when the updater is inactive, e.g. on Linux outside an AppImage and a .deb.
-  const result = await autoUpdater.checkForUpdates();
-  if (!result?.isUpdateAvailable) return;
-  const { version } = result.updateInfo;
-
-  if (!installable) {
-    const { language } = await core.getSettings();
-    if (await ask(language, "available", version)) {
-      await systemBrowser.open(`${RELEASES_PAGE}/tag/v${version}`);
+    if (!installable) {
+      if (await ask(language, "available", version)) {
+        await systemBrowser.open(`${RELEASES_PAGE}/tag/v${version}`);
+      }
+      return;
     }
-    return;
-  }
 
-  await result.downloadPromise;
-  const { language } = await core.getSettings();
-  if (await ask(language, "ready", version)) {
-    await restartToInstall(
-      {
-        quitAndInstall() {
-          installing = true;
-          let failureHandled = false;
-          const failed = (error: unknown) => {
-            if (failureHandled) return;
-            failureHandled = true;
-            autoUpdater.autoInstallOnAppQuit = false;
-            installFailed(error, language);
-          };
-          autoUpdater.once("error", failed);
-          try {
-            autoUpdater.quitAndInstall();
-          } catch (error) {
-            autoUpdater.removeListener("error", failed);
-            if (failureHandled) throw error;
-            failed(error);
-          }
+    await Promise.all([
+      result.downloadPromise,
+      preparing?.result.then((failure) => {
+        if (failure) {
+          throw failure.error;
+        }
+      }),
+    ]);
+    const targetVersion = downloaded?.version;
+    if (!targetVersion)
+      throw new Error("The update download completed without its target version.");
+    if (await ask(language, "ready", targetVersion)) {
+      await restartToInstall(
+        {
+          quitAndInstall() {
+            const onError = (error: unknown) => failed(error, language, true);
+            try {
+              prepare(targetVersion, true);
+              if (process.platform !== "darwin") beginInstall(true);
+              autoUpdater.once("error", onError);
+              autoUpdater.quitAndInstall();
+            } catch (error) {
+              autoUpdater.removeListener("error", onError);
+              failed(error, language, true);
+            }
+          },
         },
-      },
-      settleQuit,
-      app,
-    );
+        settleQuit,
+        app,
+      );
+    }
+  } finally {
+    autoUpdater.removeListener("update-downloaded", onDownloaded);
+    preparing?.close();
   }
+}
+
+function nativePreparation() {
+  const prepared = Promise.withResolvers<{ error: unknown } | null>();
+  const close = () => {
+    nativeUpdater.removeListener("update-downloaded", downloaded);
+    nativeUpdater.removeListener("error", failed);
+  };
+  const downloaded = () => {
+    close();
+    prepared.resolve(null);
+  };
+  const failed = (error: unknown) => {
+    close();
+    prepared.resolve({ error });
+  };
+  nativeUpdater.once("update-downloaded", downloaded);
+  nativeUpdater.once("error", failed);
+  return { result: prepared.promise, close };
 }
 
 /**

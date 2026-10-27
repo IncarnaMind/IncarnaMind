@@ -56,9 +56,12 @@ const LANGUAGES = {
     notFound: /Quote not found/,
     contradicted: /Contradicted/,
     cantCheck: /Can’t check/,
-    marks: ["Supported", "Unsupported", "Contradicted", "Supported"].map(
-      (state) => `Sentence check: ${state}`,
-    ),
+    marks: [
+      "Supported",
+      "Needs a look · Unsupported",
+      "Needs a look · Contradicted",
+      "Supported",
+    ].map((state) => `Sentence check: ${state}`),
     health: { found: "3 Citations found", notFound: "2 Citations not found" },
   },
   "zh-CN": {
@@ -66,7 +69,9 @@ const LANGUAGES = {
     notFound: /未在.*找到引文/,
     contradicted: /与文档矛盾/,
     cantCheck: /无法核对/,
-    marks: ["有依据", "无依据", "与文档矛盾", "有依据"].map((state) => `句子核对：${state}`),
+    marks: ["有依据", "需要留意：无依据", "需要留意：与文档矛盾", "有依据"].map(
+      (state) => `句子核对：${state}`,
+    ),
     health: { found: "3 处引用已找到", notFound: "2 处引用未找到" },
   },
 } as const;

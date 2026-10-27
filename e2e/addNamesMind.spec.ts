@@ -8,6 +8,7 @@ import {
   assistantAnswers,
   center,
   useLocalChatModel as connectLocalChatModel,
+  coreOf,
   createDataFolder,
   dismissChatSetup,
   focusRingShows,
@@ -27,7 +28,7 @@ import {
 /**
  * Under an Answer, Write as a note comes first and names what it does; Add to note names the
  * Mind it adds to when the Mind is the User's and empty, or the Answer is a long one with
- * Citations, and the ▾ keeps the other Minds and New Mind. One tip says so on the first Answer
+ * Citations, and the ▾ keeps the other Minds and New note. One tip says so on the first Answer
  * with Citations, at most twice on a device.
  */
 const WORDS = {
@@ -41,7 +42,7 @@ const WORDS = {
     write: "Write as a note",
     plain: "Add to note",
     added: (mind: string) => `Added to “${mind}”`,
-    tip: "Add it, and its Citations come too.",
+    tip: "Write this as a note",
   },
   "zh-CN": {
     mind: "仅用键盘",
@@ -53,7 +54,7 @@ const WORDS = {
     write: "写成笔记",
     plain: "添加到笔记",
     added: (mind: string) => `已添加到“${mind}”`,
-    tip: "添加后，引用会一起保留。",
+    tip: "把这条写成笔记",
   },
 } as const;
 const LANGUAGES = ["en", "zh-CN"] as const;
@@ -70,8 +71,8 @@ test.afterEach(async () => {
   await removeDataFolder(sources);
 });
 
-async function start(language: Language) {
-  const { app, window } = await launchApp(dataDir, { fakeChat: true, home: sources });
+async function start(language: Language, examples = false) {
+  const { app, window } = await launchApp(dataDir, { fakeChat: true, home: sources, examples });
   await setWindowSize(app, window, 1440, 900);
   await dismissChatSetup(window);
   await connectLocalChatModel(window);
@@ -138,7 +139,7 @@ for (const language of LANGUAGES) {
     const editor = editorOf(window);
     await expect(editor).toHaveText("");
 
-    // The other Minds and New Mind stay behind the ▾.
+    // The other Minds and New note stay behind the ▾.
     await pointAndClick(window, answer.getByTestId("answer-add-to"));
     await expect(window.getByTestId("add-to-picker")).toBeVisible();
     await window.keyboard.press("Escape");
@@ -250,7 +251,6 @@ for (const language of LANGUAGES) {
     await pointAndClick(window, answer.getByTestId("answer-add"));
     await expect(window.getByTestId("add-to-picker")).toBeVisible();
     await window.keyboard.press("Escape");
-    await expect(window.getByTestId("tip")).toHaveCount(0);
     await app.close();
   });
 
@@ -309,12 +309,21 @@ for (const language of LANGUAGES) {
     await app.close();
   });
 
-  test(`the tip shows under the first Answer with Citations; ✕ closes it and it never shows again (${language})`, async () => {
-    const { app, window } = await start(language);
-    await mindWithText(window, w.mind, w.typed);
+  test(`the tip shows under the first own Answer with no own note; ✕ closes it and it never shows again (${language})`, async () => {
+    const { app, window } = await start(language, true);
+    await window.getByTestId("first-open-ready").click();
+    await expect(assistantAnswers(window).last()).toHaveAttribute("data-status", "done");
+    await expect(window.getByTestId("tip")).toHaveCount(0);
     const answer = await askInAssistant(window, w.short);
     const tip = window.getByTestId("tip");
     await expect(tip).toHaveText(w.tip);
+    for (const width of [900, 1600]) {
+      await setWindowSize(app, window, width, 800);
+      await expect(tip).toBeVisible();
+      const box = await center(tip);
+      expect(box.x + box.width).toBeLessThanOrEqual(width);
+    }
+    await setWindowSize(app, window, 1440, 900);
     const actions = await center(answer.getByTestId("answer-actions"));
     const shown = await center(tip);
     expect(shown.y).toBeGreaterThanOrEqual(actions.y + actions.height - 1);
@@ -340,7 +349,6 @@ for (const language of LANGUAGES) {
 
   test(`the line for the tip is kept while the Answer is written, so nothing moves when the tip comes (${language})`, async () => {
     const { app, window } = await start(language);
-    await mindWithText(window, w.mind, w.typed);
     await window.keyboard.press("ControlOrMeta+j");
     await expect(window.getByTestId("composer-input")).toBeFocused();
     await window.keyboard.type(`${w.short} slowly`);
@@ -364,14 +372,21 @@ for (const language of LANGUAGES) {
 
   test(`the tip shows at most twice on a device, and an Answer already written gets none after a reload (${language})`, async () => {
     const { app, window } = await start(language);
-    await mindWithText(window, w.mind, w.typed);
+    await (await coreOf(window)).evaluate((core) =>
+      core.updateSettings({ device: { tips: { "add-answer": 1 } } }),
+    );
     await askInAssistant(window, w.short);
     await expect(window.getByTestId("tip")).toHaveCount(1);
+    expect(
+      await (await coreOf(window)).evaluate(
+        async (core) => (await core.getSettings()).device.tips["add-answer"],
+      ),
+    ).toBe(2);
 
     await reload(window);
     await expect(window.getByTestId("tip")).toHaveCount(0);
     await askInAssistant(window, w.short);
-    await expect(window.getByTestId("tip")).toHaveCount(1);
+    await expect(window.getByTestId("tip")).toHaveCount(0);
 
     await reload(window);
     await askInAssistant(window, w.short);
@@ -380,21 +395,16 @@ for (const language of LANGUAGES) {
     await app.close();
   });
 
-  test(`using the button closes the tip, and it never shows again (${language})`, async () => {
+  test(`Write this as a note performs the existing new-note action by keyboard and closes the tip (${language})`, async () => {
     const { app, window } = await start(language);
-    await emptyMind(window, w.mind);
     const answer = await askInAssistant(window, w.short);
-    await expect(window.getByTestId("tip")).toHaveCount(1);
-    const before = await placeOf(window, answer);
-    await pointAt(window, answer.getByTestId("assistant-answer-text"));
-    await pointAndClick(window, answer.getByTestId("answer-add"));
-    await expect(answer.getByTestId("answer-added")).toContainText(w.added(w.mind));
+    const write = window.getByTestId("tip-write-note");
+    await expect(write).toHaveText(w.tip);
+    await write.focus();
+    await window.keyboard.press("Enter");
+    await expect(window.getByTestId("mind-editor")).toContainText(/answer this/i);
     await expect(window.getByTestId("tip")).toHaveCount(0);
-    expect(await placeOf(window, answer), "adding moves nothing").toEqual(before);
-    await pointAndClick(window, answer.getByTestId("answer-added-undo"));
-    await expect(answer.getByTestId("answer-add")).toBeVisible();
-    expect(await placeOf(window, answer), "Undo moves nothing").toEqual(before);
-
+    await expect(answer).toHaveAttribute("data-status", "done");
     await reload(window);
     await askInAssistant(window, w.short);
     await expect(window.getByTestId("tip")).toHaveCount(0);

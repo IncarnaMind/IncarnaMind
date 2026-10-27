@@ -11,7 +11,7 @@ import { takeExportMenuRequest, useExportMenuRequests } from "../../exportMenuRe
 import { FORMAT_LABELS, useExports } from "../../exports";
 import { useMindNoteStates } from "../../home";
 import { useLanguage, useT } from "../../i18n";
-import { showCheckCard, startCheckThisMind } from "../../mindCheck";
+import { showCheckCard, startCheck } from "../../mindCheck";
 import { noteStateParts } from "../../noteState";
 import { useAppStore } from "../../store";
 import {
@@ -93,7 +93,7 @@ export function ExportMenu({ mindId }: { mindId: string }) {
   // Where the note stands (D266), read only while its menu is open.
   const mind = useAppStore((state) => state.minds.find((each) => each.id === mindId) ?? null);
   const states = useMindNoteStates(menu.open && mind ? [mind] : []);
-  const noteState = mind ? (states.get(mind.id) ?? null) : null;
+  const noteState = mind ? (states.get(mind.id)?.state ?? null) : null;
   const running = useChecks((state) => state.running[mindId] !== undefined);
   // The state's own line, never a block on the export (D266): a run in flight opens the card at
   // its progress, not checked starts a Check, and needs a look opens the card at its marks.
@@ -112,7 +112,7 @@ export function ExportMenu({ mindId }: { mindId: string }) {
         : {
             label: t("export.checkFirst"),
             run: () => {
-              startCheckThisMind(mindId).catch(useAppStore.getState().reportError);
+              startCheck(mindId).catch(useAppStore.getState().reportError);
             },
           };
 

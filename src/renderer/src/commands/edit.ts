@@ -57,7 +57,10 @@ export const editCommands: readonly Command[] = [
       placeOf(ctx) !== null || undoReady(useUndo.getState()) ? true : { reason: "undo.nothing" },
     run(ctx) {
       const place = placeOf(ctx);
-      if (place === "note") noteHere(document.activeElement)?.commands.undo();
+      if (place === "note") {
+        if (noteHere(document.activeElement)?.commands.undo()) return;
+        return useUndo.getState().undo();
+      }
       // A field's own undo, the system Edit menu's editing command, which only execCommand reaches.
       else if (place === "field") document.execCommand("undo");
       else return useUndo.getState().undo();
@@ -73,8 +76,10 @@ export const editCommands: readonly Command[] = [
       placeOf(ctx) !== null || nextToRedo(useUndo.getState()) ? true : { reason: "redo.nothing" },
     run(ctx) {
       const place = placeOf(ctx);
-      if (place === "note") noteHere(document.activeElement)?.commands.redo();
-      else if (place === "field") document.execCommand("redo");
+      if (place === "note") {
+        if (noteHere(document.activeElement)?.commands.redo()) return;
+        return useUndo.getState().redo();
+      } else if (place === "field") document.execCommand("redo");
       else return useUndo.getState().redo();
     },
   },

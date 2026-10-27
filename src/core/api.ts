@@ -205,8 +205,13 @@ export interface CreateMindInput {
  *   it (#1608): `found` in the `claimCheck` mark's `unsupported` reason, which
  *   an older version's editor would strip, so its card would say Not found.
  *   Older content is version 29 content as it is.
+ * - 30: a comparison table's columns have a `label` of their own, beside
+ *   their Question (#1833), and room for their `width` and whether they are
+ *   `hidden`. An older version's editor writes the columns back without
+ *   these when it changes one, so it opens these Minds read-only. Older
+ *   content is version 30 content as it is.
  */
-export const CONTENT_SCHEMA_VERSION = 29;
+export const CONTENT_SCHEMA_VERSION = 30;
 
 /**
  * The key, in the Mind's settings map (`MIND_SETTINGS_FIELD`), of the content
@@ -457,7 +462,12 @@ export type ProposalRequest =
       reason?: string;
     })
   | (ProposalMaker & { source: "answer"; answerId: string })
-  | (ProposalMaker & { source: "answer-added"; requested?: RequestedChange })
+  | (ProposalMaker & {
+      source: "answer-added";
+      requested?: RequestedChange;
+      action?: EditAction;
+      instruction?: string;
+    })
   | (ProposalMaker & { source: "comparison-table"; tableId: string })
   | (ProposalMaker & { source: "research"; taskId: string })
   | WordChangeRequest;
@@ -634,11 +644,17 @@ export const COMPARISON_ROW_NODE = "comparisonRow";
  */
 export const COMPARISON_CELL_NODE = "comparisonCell";
 
-/** A comparison table's column: its Question. */
+/** A comparison table's column: its Question, and its own heading when it has one. */
 export interface ComparisonQuestion {
   /** A random UUID: what each row's cell for this column names. */
   id: string;
   text: string;
+  /** Its heading, which starts as its Question shortened; absent: the Question shortened. */
+  label?: string;
+  /** Its width in the table; absent: the table's own. */
+  width?: number;
+  /** Whether the table draws it; absent: it does. */
+  hidden?: boolean;
 }
 
 /** Attributes of a comparison table's Block, as stored in the Mind's Yjs document. */
@@ -1750,8 +1766,8 @@ export interface RecheckCitationInput {
 /**
  * A Citation checked again against its Document's current version: the
  * attributes to store on its node in place of the old ones. The quote is
- * looked for in the cited Units first, then in any Unit (or two consecutive
- * ones) of the current version, so `pageFrom`, `pageTo` and `location` may change.
+ * checked in its cited Units in the current version. A quote elsewhere never
+ * changes the Citation's Unit bounds; a whole-Document Citation stays whole.
  */
 export interface CitationRecheck {
   check: Exclude<CitationCheck, "checking">;
@@ -2260,6 +2276,8 @@ export interface GettingStarted {
   askedOwn: boolean;
   /** The User asked the first open's ready Question (`askReadyQuestion`). */
   askedReady: boolean;
+  /** An own note was exported successfully on this device. */
+  exported: boolean;
   /** The User hid the checklist. */
   hidden: boolean;
   /** The first-run card was shown on this device: an empty note keeps no second guide after that (#1940). */
@@ -2806,6 +2824,12 @@ export interface Document {
   path: string;
   /** Where the file is: see `DocumentFileStatus`. */
   fileStatus: DocumentFileStatus;
+  /**
+   * Its file is IncarnaMind's own, inside the data folder: a saved web page's
+   * snapshot, or a Meeting's Transcript. It is not a file the User keeps on
+   * this computer, so it has no path to show and no app to open it in (#763).
+   */
+  keptByApp: boolean;
   /** The Linked folder the file is in, or null for a file added on its own ("Other Documents"). */
   linkedFolderId: string | null;
   /** In bytes. */
@@ -4424,6 +4448,13 @@ export interface CostSummary {
  */
 export type RunStop = { reason: "cost-cap" } | { reason: "plan-limit"; resetsAt: string | null };
 
+/**
+ * Why a full watch of a Mind ended before it finished: a stop a Run gives way
+ * to, or the User stopping it. A cancelled watch is never a complete one: the
+ * next Check sweeps every cited sentence again (#1941).
+ */
+export type WatchStop = RunStop | { reason: "cancelled" };
+
 /** What Compare Documents makes a comparison table of (#98). */
 export interface CompareDocumentsInput {
   mindId: string;
@@ -4446,6 +4477,15 @@ export interface CompareDocumentsInput {
 export interface ComparisonTableRef {
   mindId: string;
   tableId: string;
+}
+
+/**
+ * A comparison table to fill: the whole table, or some of its columns alone,
+ * so a column just added or reworded never writes its neighbours again.
+ */
+export interface ComparisonFillRequest extends ComparisonTableRef {
+  /** The columns to fill, by their Questions' ids; absent: every cell to fill in the table. */
+  questionIds?: readonly string[];
 }
 
 /**
@@ -5124,8 +5164,8 @@ export type LimitRelation = "at most" | "at least";
 /**
  * How a check worked out a figure the sentence states but the Documents don't
  * (#707): the figure, calculated from numbers they state (ADR-0021), and the
- * number the sentence writes for it. They agree to the sentence's rounding,
- * and the sentence is supported, or they don't, and it is contradicted.
+ * number the sentence writes for it. They agree to the sentence's rounding;
+ * agreement settles only that number, never the whole sentence by itself.
  */
 export interface ClaimCalculation {
   figure: CalculatedFigure;
@@ -5379,11 +5419,25 @@ export type CheckContradictionsResult =
  * Folder started (#112), kept in the Mind's settings so its line can show
  * what it found and cost (`src/shared/contradictionWatch.ts`).
  */
-export interface ContradictionWatchRun extends ContradictionCheckOutcome {
-  /** When it finished. ISO 8601, UTC. */
+export interface ContradictionWatchRun {
+  /** The cited sentences checked: a contradicted one has its mark, the others none. */
+  claims: number;
+  /** Of them, those the model gave a verdict for. */
+  checked: number;
+  contradicted: number;
+  /** What its requests billed per token cost; null when none was priced. */
+  cost: Money | null;
+  /** The monthly cap or a plan's limit stopped it, or the User stopped it: the claims after it weren't checked. */
+  stop: WatchStop | null;
+  /** The verdicts came from a model too small to judge reliably (#680). */
+  smallModel: boolean;
+  /** When it ended. ISO 8601, UTC. */
   at: string;
-  /** The Document whose new version started it, by name. */
-  documentName: string;
+  /**
+   * The Document whose new version started it, by name; null when a Document
+   * joining the Folder, the Mind joining it, or an on-demand check started it.
+   */
+  documentName: string | null;
 }
 
 /**
@@ -5579,7 +5633,8 @@ export interface AnswerDelta extends AnswerPlace {
  * that answered with structured output is asked once more for the quotes of
  * its Citations that the check didn't find (ADR-0007); "checking-figures", it
  * is asked once more for the calculated figures it gave that couldn't be
- * worked out (ADR-0021).
+ * worked out (ADR-0021); "checking-claims", the quick model is checking the
+ * reply's claims of changes against what the Tools did.
  */
 export type AnswerPhase =
   | "waiting-for-consent"
@@ -5587,7 +5642,8 @@ export type AnswerPhase =
   | "searching"
   | "writing"
   | "checking-quotes"
-  | "checking-figures";
+  | "checking-figures"
+  | "checking-claims";
 
 /** An Answer being written moved to another phase. */
 export interface AnswerPhaseEvent extends AnswerPlace {
@@ -5701,6 +5757,36 @@ export interface AnswerToolCallEvent extends AnswerPlace {
   call: AnswerToolCall;
 }
 
+export interface ApplyAskedChangesInput {
+  answerId: string;
+  mindId: string;
+  requests: readonly string[];
+}
+
+export interface AskedChangeTransition {
+  /** The clocks after Undo or Redo, for matching updates still arriving. */
+  vector: Uint8Array;
+  /** The content after Undo or Redo, which also changes when a deletion advances no clock. */
+  fingerprint: string;
+  /** The complete Undo or Redo as one Yjs update, for the renderer to apply before judging staleness. */
+  update: Uint8Array;
+}
+
+export interface AskedChangeApplication {
+  /** Identifies this application's in-session Undo in the core. */
+  undoId: string;
+  /** The original text with the turn's Proposals still marked, for Review. */
+  reviewBefore: Uint8Array;
+  /** The version after acceptance; Review is offered only while the editor is still at it. */
+  afterVector: Uint8Array;
+  /** The content after acceptance, including deletions that advance no clock. */
+  afterFingerprint: string;
+  /** The Proposal ids actually accepted; stale ones were left waiting. */
+  accepted: readonly string[];
+  requests: readonly string[];
+  held: boolean;
+}
+
 /**
  * The model gave the record for a Citation marker in the Answer: the marker
  * becomes this Citation, "checking" until the Answer finishes.
@@ -5717,8 +5803,8 @@ export interface RejectedRecord {
   /** Null when it wasn't a number. */
   marker: number | null;
   passage: string;
-  /** "marker": no marker number of 1 or more. "passage": it named no Passage the model was given. */
-  reason: "marker" | "passage";
+  /** "marker": invalid marker. "passage": unknown Passage. "quote-context": more than one place in its cited Units. */
+  reason: "marker" | "passage" | "quote-context";
 }
 
 /** An Answer is complete ("done") or the User stopped it ("stopped"), keeping what was written. */
@@ -5729,7 +5815,7 @@ export interface AnswerFinished extends AnswerPlace {
   citations: Citation[];
   /** Markers the model wrote with no valid record: removed, leaving their sentences uncited. */
   droppedMarkers: number;
-  /** Records the model gave for no marker in the text, or naming no Passage it was given: dropped. */
+  /** Records with an invalid marker, unknown Passage or ambiguous quote: dropped. */
   droppedRecords: number;
   /**
    * The records among those that the core couldn't take, as the model gave
@@ -8528,8 +8614,8 @@ export type EngineSwitchReason = "behind" | "failed" | "user" | "cap";
  * - "live": lines arrive a few seconds behind the Meeting.
  * - "behind": live text fell behind, or couldn't go on: the meeting bar says
  *   "Recording…", and the rest is transcribed once the Meeting stops.
- * - "finishing": stopped; what is left is being transcribed and saved.
- * - "saved": saved as a WebVTT file in the Output location (`savedPath`).
+ * - "finishing": stopped; what is left is being transcribed.
+ * - "saved": finished, and kept in the Library as a Document (`savedPath` is its own file, inside the data folder).
  * - "empty": stopped with nothing said that could be transcribed: no file is saved.
  * - "failed": it couldn't be finished; `problem` says why.
  */
@@ -8547,7 +8633,7 @@ export type TranscriptState =
  * What stops a Transcript, each with one thing to do (`retryTranscript`):
  * - "download": the speech-to-text model couldn't be downloaded.
  * - "engine": it couldn't start, or stopped again and again.
- * - "save": the WebVTT file couldn't be saved, or no Output location was chosen.
+ * - "save": the Transcript couldn't be written to the data folder.
  * - "speakers": saved, but the speaker pass (#138) couldn't run: its lines keep the labels of
  *   where they came from. Trying again runs the pass again while the audio is kept.
  */
@@ -8583,10 +8669,8 @@ export interface MeetingTranscript {
     atMs: number;
     reason: "dropped" | "refused" | "cap" | "local-mode";
   } | null;
-  /** The WebVTT file in the Output location, once saved. */
+  /** Its own file in the data folder, once saved: kept for the Library, never shown as a path (#763). */
   savedPath: string | null;
-  /** Its save took the default Output location, none being chosen yet (`SavedFile.defaulted`). */
-  savedDefaulted: boolean;
   /** Saved, its speakers are being told apart after the call (#138): their labels may still change. */
   separating: boolean;
   problem: TranscriptProblem | null;
@@ -9137,6 +9221,14 @@ export interface CoreApi {
    * Block's origin. Restoring what it points into makes it lead there again.
    */
   resolveReference(reference: ArtifactReference): Promise<ReferenceTarget>;
+  /** Applies a turn's asked changes without its editor, or null when none remain. */
+  applyAskedChanges(input: ApplyAskedChangesInput): Promise<AskedChangeApplication | null>;
+  /** Takes back a core-applied change if nothing in its Mind followed it; returns the resulting state, or null when refused. */
+  undoAskedChanges(undoId: string): Promise<AskedChangeTransition | null>;
+  /** Does a core-applied change again after its Undo, with the same result contract. */
+  redoAskedChanges(undoId: string): Promise<AskedChangeTransition | null>;
+  /** Lets go of a core-applied change's in-session Review and Undo records. */
+  releaseAskedChanges(undoId: string): Promise<void>;
   /**
    * "Add to note" (#201) into a Mind that isn't open in the editor: Blocks at the
    * end of its note (in place of its empty last line), each Citation in them
@@ -9462,6 +9554,11 @@ export interface CoreApi {
   /** An example Mind and its Documents, if made (see `Examples`); the credit paper by default. */
   getExamples(group?: ExampleGroup): Promise<Examples>;
   /**
+   * Whether a Document is one of the examples' (see `Examples`): read with them,
+   * and left out of the User's own Folders, Tags and search (#1942).
+   */
+  isExampleDocument(documentId: string): Promise<boolean>;
+  /**
    * On a first run (no Mind yet, examples never offered before), makes the
    * examples, once. Returns them, or null when nothing was made.
    */
@@ -9665,10 +9762,12 @@ export interface CoreApi {
   compareDocuments(input: CompareDocumentsInput): Promise<ComparisonResult>;
   /**
    * Fills a comparison table's cells that have no Answer (`cellToFill`): a
-   * column the editor just added, or cells a fill left (a quit, the monthly
-   * cap, a failure). A fill already going takes them up once its cells are done.
+   * column the editor just added or reworded, or cells a fill left (a quit,
+   * the monthly cap, a failure). Given `questionIds`, it fills those columns
+   * alone, so the others' Answers and problems stay as they are. A fill
+   * already going takes them up once its cells are done.
    */
-  fillComparisonTable(input: ComparisonTableRef): Promise<ComparisonResult>;
+  fillComparisonTable(input: ComparisonFillRequest): Promise<ComparisonResult>;
   /** Stops filling a comparison table: cells being written stay as they were. */
   stopComparisonTable(input: ComparisonTableRef): Promise<void>;
   /** The comparison tables whose cells are being filled now. */
@@ -10442,6 +10541,12 @@ export interface CoreApi {
    */
   getTranscriptionSpeed(): Promise<{ keepsUp: boolean | null }>;
   /**
+   * The speech-to-text model on this computer and its download, or null where this copy can't
+   * transcribe. The first Record says its size and offers "Download and start" only while it
+   * isn't here (#763).
+   */
+  getTranscriptionModel(): Promise<TranscriptionModelStatus | null>;
+  /**
    * Tries the Meeting's Transcript again after a problem (`MeetingTranscript.problem`):
    * downloads or starts the speech-to-text model, or saves the WebVTT file again.
    */
@@ -10783,6 +10888,10 @@ const methods: Record<CoreApiMethod, true> = {
   deleteConversation: true,
   resolveReference: true,
   addToNote: true,
+  applyAskedChanges: true,
+  undoAskedChanges: true,
+  redoAskedChanges: true,
+  releaseAskedChanges: true,
   undoAddToNote: true,
   listNoteConversations: true,
   getSettings: true,
@@ -10983,6 +11092,7 @@ const methods: Record<CoreApiMethod, true> = {
   listConnectors: true,
   addConnector: true,
   getExamples: true,
+  isExampleDocument: true,
   offerExamples: true,
   createExamples: true,
   removeExamples: true,
@@ -11057,6 +11167,7 @@ const methods: Record<CoreApiMethod, true> = {
   setTranscriptionKey: true,
   removeTranscriptionKey: true,
   getTranscriptionSpeed: true,
+  getTranscriptionModel: true,
   retryTranscript: true,
   fillMeetingNotes: true,
   undoMeetingFill: true,

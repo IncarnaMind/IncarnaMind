@@ -4,6 +4,7 @@ import * as Y from "yjs";
 import type { Core } from "../../src/core";
 import { EDIT_INSTRUCTIONS } from "../../src/core/edits/prompt";
 import { waitingProblemOf } from "../../src/renderer/src/changeProblems";
+import { waitsForUser } from "../../src/shared/askedChanges";
 import { pendingProposals, proposalRequestOf, resolveProposals } from "../../src/shared/proposals";
 import { askAssistant, changesIn, lastResult, mindCalls } from "../helpers/assistant";
 import { answerEnded } from "../helpers/citations";
@@ -11,6 +12,7 @@ import { createTempDataFolder, startCore } from "../helpers/core";
 import { connectToMind, type MindClient } from "../helpers/mindClient";
 import { heading, note, shownWithChanges, writeMind } from "../helpers/minds";
 import {
+  claimCheckReply,
   type ModelCall,
   type ScriptedReply,
   scriptedModel,
@@ -286,6 +288,413 @@ describe("The assistant revises its own changes still waiting", { timeout: 30_00
     ]);
     expect(waitingProblemOf(second)).toBeNull();
   });
+  const sameTurnSummary = (...finals: string[]) => {
+    let revisions = 0;
+    return scriptedModel((call): ScriptedReply => {
+      const edits = call.results.filter((each) => each.tool === "edit_mind").length;
+      const passage = editPassage(call);
+      if (passage !== null) {
+        if (passage.includes("really")) {
+          return { text: passage.replace(/\b(?:very|really) /g, "") };
+        }
+        const final = finals[Math.min(revisions, Math.max(0, finals.length - 1))] ?? "";
+        revisions += 1;
+        return { text: final };
+      }
+      if (edits === 0) {
+        return {
+          calls: [
+            { tool: "edit_mind", input: { part: "Summary", instruction: "Make it plainer" } },
+          ],
+        };
+      }
+      if (edits <= finals.length) {
+        return {
+          calls: [{ tool: "edit_mind", input: { part: "Summary", instruction: "Shorten it" } }],
+        };
+      }
+      return { text: "Shortened the summary in “Q3 review”." };
+    });
+  };
+
+  // protects=a second edit of the same text in one turn revises the first, rather than refusing the turn's own change as waiting for the User; fails_when=the second is refused, or the final text isn't the second rewrite; no_claim=how the window groups the turn into one Undo step.
+  test("a second edit in the same turn revises the first", async () => {
+    const model = sameTurnSummary(
+      "## Summary\n\nThe quarter was good, and sales were quite strong.",
+    );
+    const { core, mind, client } = await setUp(model);
+
+    const answer = await askAssistant(core, {
+      text: "make the summary plainer, then shorter",
+      mindId: mind.id,
+    });
+
+    const edits = mindCalls(answer).filter((call) => call.tool === "edit_mind");
+    expect(edits).toHaveLength(2);
+    expect(edits[1]).toMatchObject({
+      status: "done",
+      mindChange: { revised: true, replacedOwn: { paragraphs: 1, tables: 0, charts: 0 } },
+    });
+    expect(lastResult(model)).toContain("Revised your own text");
+    expect(lastResult(model)).not.toContain("waiting for the User");
+    await client.settled();
+    expect(shownWithChanges(client)).toEqual([
+      "Summary",
+      "The quarter was [-very -]good, and sales were [-really-]{+quite+} strong.",
+    ]);
+  });
+
+  // Value: protects=cumulative removal of original User text still waits during same-turn revision; fails_when=insert-only replacements hide earlier deletions; why_new=CodeRabbit's small-edit-then-large-revision path; seam=public Tool result and shared hold measure; no_claim=held Apply/Discard UI (existing destructive-edit e2e)
+  test("a same-turn revision that removes most of the original text waits", async () => {
+    const model = sameTurnSummary("## Summary\n\nThe quarter was good.");
+    const { core, mind, client } = await setUp(model);
+
+    const answer = await askAssistant(core, {
+      text: "make the summary plainer, then shorter",
+      mindId: mind.id,
+    });
+
+    const edits = mindCalls(answer).filter((call) => call.tool === "edit_mind");
+    expect(edits).toHaveLength(2);
+    expect(lastResult(model)).toContain("so it waits there for them");
+    await client.settled();
+    expect(
+      waitsForUser(
+        client.doc,
+        new Set(edits.flatMap((call) => (call.mindChange ? [call.mindChange.request] : []))),
+      ),
+    ).toBe(true);
+    expect(shownWithChanges(client)).toEqual([
+      "Summary",
+      "[-The quarter was very good, and sales were really strong.-]{+The quarter was good.+}",
+    ]);
+  });
+
+  // Value: protects=removal stays cumulative across repeated replacements; fails_when=a third revision loses the original-text counts kept by the second; why_new=the first replacement moves text into revision history; seam=three public edit_mind calls; no_claim=real-model wording (scripted edits)
+  test("a third same-turn revision keeps the original-text hold", async () => {
+    const model = sameTurnSummary(
+      "## Summary\n\nThe quarter was great, and sales were strong.",
+      "## Summary\n\nThe quarter was good.",
+    );
+    const { core, mind, client } = await setUp(model);
+
+    const answer = await askAssistant(core, {
+      text: "make the summary plainer, then shorter, then shorter again",
+      mindId: mind.id,
+    });
+
+    const edits = mindCalls(answer).filter((call) => call.tool === "edit_mind");
+    expect(edits).toHaveLength(3);
+    expect(lastResult(model)).toContain("so it waits there for them");
+    await client.settled();
+    expect(
+      waitsForUser(
+        client.doc,
+        new Set(edits.flatMap((call) => (call.mindChange ? [call.mindChange.request] : []))),
+      ),
+    ).toBe(true);
+    expect(shownWithChanges(client)).toEqual([
+      "Summary",
+      "[-The quarter was very good, and sales were really strong.-]{+The quarter was good.+}",
+    ]);
+  });
+
+  // Value: protects=an empty destructive revision keeps a Proposal to reject; fails_when=the original disappears with no decision path; why_new=delete-only revisions cannot rely on insert Blocks; seam=public Tool result and resolveProposals rejection; no_claim=the Apply path (covered by destructive-edit e2e)
+  test("an empty same-turn revision holds and rejects back to the original", async () => {
+    const model = sameTurnSummary("<why>Removed it.</why>");
+    const { core, mind, client } = await setUp(model);
+
+    const answer = await askAssistant(core, {
+      text: "make the summary plainer, then remove it",
+      mindId: mind.id,
+    });
+
+    const edits = mindCalls(answer).filter((call) => call.tool === "edit_mind");
+    const request = edits[1]?.mindChange?.request;
+    if (!request) throw new Error("The empty revision was not recorded.");
+    expect(lastResult(model)).toContain("so it waits there for them");
+    await client.settled();
+    expect(waitsForUser(client.doc, new Set([request]))).toBe(true);
+
+    resolveProposals(client.blocks, (ref) => ref.request === request, "reject");
+    await client.settled();
+    expect(shownWithChanges(client)).toEqual([
+      "Summary",
+      "The quarter was very good, and sales were really strong.",
+    ]);
+  });
+
+  // Value: protects=a mixed original and inserted range is refused rather than losing User text; fails_when=the second revision applies or deletes the first version; why_new=inserted Block ownership and placement cannot be reconstructed safely; seam=small edit plus insertion, then another revision; no_claim=ordinary inserted-text revision (covered by create/revise tests)
+  test("a same-turn inserted paragraph beside original text is not revised", async () => {
+    let revisions = 0;
+    const model = scriptedModel((call): ScriptedReply => {
+      const passage = editPassage(call);
+      if (passage !== null) {
+        revisions += 1;
+        return {
+          text:
+            revisions === 1
+              ? `${passage.replace(/\b(?:very|really) /g, "")}\n\nAdded sentence.`
+              : "## Summary\n\nThe quarter was good.",
+        };
+      }
+      const edits = call.results.filter((each) => each.tool === "edit_mind").length;
+      if (edits < 2) {
+        return {
+          calls: [{ tool: "edit_mind", input: { part: "Summary", instruction: "Change it" } }],
+        };
+      }
+      return { text: "Changed the summary." };
+    });
+    const { core, mind, client } = await setUp(model);
+
+    const answer = await askAssistant(core, {
+      text: "edit the summary and add a sentence, then shorten it",
+      mindId: mind.id,
+    });
+
+    const edits = mindCalls(answer).filter((call) => call.tool === "edit_mind");
+    expect(edits).toHaveLength(2);
+    expect(edits[1]).toMatchObject({ status: "failed", mindProblem: { kind: "content-not-own" } });
+    expect(lastResult(model)).toContain("they are not waiting for review");
+    expect(lastResult(model)).not.toContain("accept or reject");
+    await client.settled();
+    expect(
+      waitsForUser(
+        client.doc,
+        new Set(edits.flatMap((call) => (call.mindChange ? [call.mindChange.request] : []))),
+      ),
+    ).toBe(false);
+    expect(shownWithChanges(client)).toContain(
+      "The quarter was [-very -]good, and sales were [-really -]strong.",
+    );
+    expect(shownWithChanges(client)).toContain("+ Added sentence.");
+  });
+
+  // Value: protects=independent revision chains in one Answer accumulate their removals; fails_when=only the largest chain counts and two destructive edits auto-apply; why_new=review found cross-chain undercounting; seam=four public edit_mind calls over three original paragraphs; no_claim=other turns or other Minds
+  test("independent same-turn revisions add their original-text removals", async () => {
+    const longA = `${"a".repeat(99)}x`;
+    const longB = `${"b".repeat(99)}x`;
+    const longC = "c".repeat(100);
+    let rewrites = 0;
+    const model = scriptedModel((call): ScriptedReply => {
+      const passage = editPassage(call);
+      if (passage !== null) {
+        rewrites += 1;
+        return { text: rewrites <= 2 ? passage.replace("x", "") : "new" };
+      }
+      const edits = call.results.filter((each) => each.tool === "edit_mind").length;
+      if (edits < 4) {
+        return {
+          calls: [
+            {
+              tool: "edit_mind",
+              input: { part: edits % 2 === 0 ? "A" : "B", instruction: "Change it" },
+            },
+          ],
+        };
+      }
+      return { text: "Changed A and B." };
+    });
+    const { core, mind, client } = await setUp(model);
+    writeMind(client, [
+      heading(2, "A"),
+      note(longA),
+      heading(2, "B"),
+      note(longB),
+      heading(2, "C"),
+      note(longC),
+    ]);
+    await client.settled();
+
+    const answer = await askAssistant(core, { text: "change A and B", mindId: mind.id });
+
+    const edits = mindCalls(answer).filter((call) => call.tool === "edit_mind");
+    expect(edits).toHaveLength(4);
+    expect(lastResult(model)).toContain("so it waits there for them");
+    await client.settled();
+    expect(
+      waitsForUser(
+        client.doc,
+        new Set(edits.flatMap((call) => (call.mindChange ? [call.mindChange.request] : []))),
+      ),
+    ).toBe(true);
+    expect(shownWithChanges(client)).toContain(longC);
+  });
+
+  // Value: protects=translation remains exempt across same-turn replacements; fails_when=revision metadata loses the translation instruction; why_new=the original-text count is intentionally high for translation; seam=two public translation edit_mind calls; no_claim=translation quality (scripted text)
+  test("same-turn translation revisions do not wait for the User", async () => {
+    let revisions = 0;
+    const model = scriptedModel((call): ScriptedReply => {
+      const passage = editPassage(call);
+      if (passage !== null) {
+        revisions += 1;
+        return {
+          text: revisions === 1 ? "## 摘要\n\n季度表现很好，销售强劲。" : "## 摘要\n\n季度很好。",
+        };
+      }
+      const edits = call.results.filter((each) => each.tool === "edit_mind").length;
+      if (edits < 2) {
+        return {
+          calls: [
+            {
+              tool: "edit_mind",
+              input: { part: "Summary", instruction: "Translate the summary into Chinese" },
+            },
+          ],
+        };
+      }
+      return { text: "Translated the summary in “Q3 review”." };
+    });
+    const { core, mind, client } = await setUp(model);
+
+    const answer = await askAssistant(core, { text: "translate the summary", mindId: mind.id });
+
+    const edits = mindCalls(answer).filter((call) => call.tool === "edit_mind");
+    expect(edits).toHaveLength(2);
+    expect(lastResult(model)).not.toContain("so it waits there for them");
+    await client.settled();
+    expect(
+      waitsForUser(
+        client.doc,
+        new Set(edits.flatMap((call) => (call.mindChange ? [call.mindChange.request] : []))),
+      ),
+    ).toBe(false);
+    expect(shownWithChanges(client)).toEqual([
+      "[-Summary-]{+摘要+}",
+      "[-The quarter was very good, and sales were really strong.-]{+季度很好。+}",
+    ]);
+  });
+
+  // Value: protects=content-based translation revisions keep the exemption; fails_when=the content caller omits translation metadata; why_new=content has no instruction field, so the language change identifies it; seam=instruction followed by content edit_mind; no_claim=translation quality (scripted text)
+  test("content-based same-turn translation revisions do not wait", async () => {
+    const model = scriptedModel((call): ScriptedReply => {
+      const passage = editPassage(call);
+      if (passage !== null) return { text: "## 摘要\n\n季度表现很好，销售强劲。" };
+      const edits = call.results.filter((each) => each.tool === "edit_mind").length;
+      if (edits === 0) {
+        return {
+          calls: [
+            {
+              tool: "edit_mind",
+              input: { part: "Summary", instruction: "Translate the summary into Chinese" },
+            },
+          ],
+        };
+      }
+      if (edits === 1) {
+        return {
+          calls: [
+            {
+              tool: "edit_mind",
+              input: { part: "Summary", content: "## 摘要\n\n季度很好。" },
+            },
+          ],
+        };
+      }
+      return { text: "Translated the summary in “Q3 review”." };
+    });
+    const { core, mind, client } = await setUp(model);
+
+    const answer = await askAssistant(core, { text: "translate the summary", mindId: mind.id });
+
+    const edits = mindCalls(answer).filter((call) => call.tool === "edit_mind");
+    expect(edits).toHaveLength(2);
+    expect(lastResult(model)).not.toContain("so it waits there for them");
+    await client.settled();
+    expect(
+      waitsForUser(
+        client.doc,
+        new Set(edits.flatMap((call) => (call.mindChange ? [call.mindChange.request] : []))),
+      ),
+    ).toBe(false);
+    expect(shownWithChanges(client)).toEqual([
+      "[-Summary-]{+摘要+}",
+      "[-The quarter was very good, and sales were really strong.-]{+季度很好。+}",
+    ]);
+  });
+
+  // Value: protects=short source and target text keep the content translation exemption; fails_when=detectLanguage cannot name the target and the previous intent is ignored; why_new=short translations may not meet language thresholds; seam=Chinese instruction then short English content; no_claim=language detection beyond this fallback
+  test("short content translations keep the previous intent", async () => {
+    const model = scriptedModel((call): ScriptedReply => {
+      const passage = editPassage(call);
+      if (passage !== null) return { text: "## Summary\n\nGood." };
+      const edits = call.results.filter((each) => each.tool === "edit_mind").length;
+      if (edits === 0) {
+        return {
+          calls: [
+            {
+              tool: "edit_mind",
+              input: { part: "摘要", instruction: "Translate into English" },
+            },
+          ],
+        };
+      }
+      if (edits === 1) {
+        return {
+          calls: [{ tool: "edit_mind", input: { part: "摘要", content: "## Summary\n\nFine." } }],
+        };
+      }
+      return { text: "Translated the summary." };
+    });
+    const { core, mind, client } = await setUp(model);
+    writeMind(client, [heading(2, "摘要"), note("猫。")]);
+    await client.settled();
+
+    const answer = await askAssistant(core, { text: "translate the summary", mindId: mind.id });
+
+    const edits = mindCalls(answer).filter((call) => call.tool === "edit_mind");
+    expect(edits).toHaveLength(2);
+    expect(lastResult(model)).not.toContain("so it waits there for them");
+    await client.settled();
+    expect(
+      waitsForUser(
+        client.doc,
+        new Set(edits.flatMap((call) => (call.mindChange ? [call.mindChange.request] : []))),
+      ),
+    ).toBe(false);
+  });
+
+  // Value: protects=a current-turn Proposal authorizes only its own stretch, not untouched neighboring text; fails_when=a later whole-Mind revision replaces the untouched Block; why_new=the existing mixed-range case used an earlier Answer; seam=none; no_claim=safe same-turn revision when every Block has a current-turn Proposal (covered above)
+  test("a current-turn Proposal does not make the untouched rest of the Mind revisable", async () => {
+    const model = scriptedModel((call): ScriptedReply => {
+      const passage = editPassage(call);
+      if (passage !== null)
+        return { text: passage.includes("Summary") ? "Rewritten summary" : "Everything replaced" };
+      const edits = call.results.filter((each) => each.tool === "edit_mind").length;
+      if (edits === 0) {
+        return {
+          calls: [
+            { tool: "edit_mind", input: { part: "Summary", instruction: "Rewrite the summary" } },
+          ],
+        };
+      }
+      if (edits === 1) {
+        return { calls: [{ tool: "edit_mind", input: { instruction: "Replace everything" } }] };
+      }
+      return { text: "Done." };
+    });
+    const { core, mind, client } = await setUp(model);
+    writeMind(client, [
+      heading(2, "Summary"),
+      note("The quarter was good."),
+      note("Do not change this."),
+    ]);
+    await client.settled();
+
+    const answer = await askAssistant(core, {
+      text: "Rewrite the summary, then replace everything",
+      mindId: mind.id,
+    });
+
+    const edits = mindCalls(answer).filter((call) => call.tool === "edit_mind");
+    expect(edits).toHaveLength(2);
+    expect(edits[0]).toMatchObject({ status: "done" });
+    expect(edits[1]).toMatchObject({ status: "failed", mindProblem: { kind: "waiting" } });
+    await client.settled();
+    expect(shownWithChanges(client).at(-1)).toBe("Do not change this.");
+    expect(shownWithChanges(client)).not.toContain("Everything replaced");
+  });
 });
 
 describe("Changes it can't revise", { timeout: 30_000 }, () => {
@@ -369,11 +778,14 @@ describe("A reply that claims a change no call made", { timeout: 30_000 }, () =>
   // protects=a reply claiming a change no call made is asked for once more with the record, and the honest second reply is what the User reads, unflagged; fails_when=the claim stands, or the model isn't asked again; no_claim=that a real model corrects itself.
   test("is asked for once more, and the honest reply stands", async () => {
     let note = "";
-    const model = scriptedModel((call): ScriptedReply => {
-      if (!call.prompt.includes(ASKED_AGAIN)) return { text: CLAIM };
-      note = asked(call);
-      return { text: "I haven't changed “Q3 review” yet: say if you'd like a risks section." };
-    });
+    const model = scriptedModel(
+      (call): ScriptedReply => {
+        if (!call.prompt.includes(ASKED_AGAIN)) return { text: CLAIM };
+        note = asked(call);
+        return { text: "I haven't changed “Q3 review” yet: say if you'd like a risks section." };
+      },
+      { generate: (call) => claimCheckReply(call, [{ sentence: CLAIM, kind: "added" }]) },
+    );
     const { core, mind, client } = await setUp(model);
 
     const answer = await askAssistant(core, { text: "add risks", mindId: mind.id });
@@ -391,16 +803,24 @@ describe("A reply that claims a change no call made", { timeout: 30_000 }, () =>
 
   // protects=asked again, the model may make the change it claimed, and then nothing is flagged; fails_when=the change isn't made, or the reply is still flagged; no_claim=none beyond protects.
   test("asked once more, it may make the change, and nothing is flagged", async () => {
-    const model = scriptedModel((call): ScriptedReply => {
-      if (!call.prompt.includes(ASKED_AGAIN)) return { text: CLAIM };
-      return called(call, "add_to_mind")
-        ? { text: "Added a risks section to “Q3 review”." }
-        : {
-            calls: [
-              { tool: "add_to_mind", input: { content: "## Risks\n\nThe supplier is late." } },
-            ],
-          };
-    });
+    const model = scriptedModel(
+      (call): ScriptedReply => {
+        if (!call.prompt.includes(ASKED_AGAIN)) return { text: CLAIM };
+        return called(call, "add_to_mind")
+          ? { text: "Added a risks section to “Q3 review”." }
+          : {
+              calls: [
+                { tool: "add_to_mind", input: { content: "## Risks\n\nThe supplier is late." } },
+              ],
+            };
+      },
+      {
+        generate: (call) =>
+          claimCheckReply(call, (prompt) =>
+            prompt.includes('"tool": "add_to_mind"') ? [] : [{ sentence: CLAIM, kind: "added" }],
+          ),
+      },
+    );
     const { core, mind, client } = await setUp(model);
 
     const answer = await askAssistant(core, { text: "add risks", mindId: mind.id });
@@ -413,7 +833,9 @@ describe("A reply that claims a change no call made", { timeout: 30_000 }, () =>
 
   // protects=a reply that still claims a change no call made is shown flagged, for the line under it (#1559); fails_when=it is shown as if the change were made, or is lost; no_claim=how the line reads.
   test("still claiming it, the reply is flagged", async () => {
-    const model = scriptedModel((): ScriptedReply => ({ text: CLAIM }));
+    const model = scriptedModel((): ScriptedReply => ({ text: CLAIM }), {
+      generate: (call) => claimCheckReply(call, [{ sentence: CLAIM, kind: "added" }]),
+    });
     const { core, mind } = await setUp(model);
 
     const answer = await askAssistant(core, { text: "add risks", mindId: mind.id });
@@ -453,39 +875,46 @@ describe("The owner's four turns", { timeout: 30_000 }, () => {
   // protects=the owner's conversation (write a summary page, make it longer, no citations?, write a summary of the 2 papers) leaves one summary in one page, revised in place each time, each turn knowing what the last really did, and the false claim of turn 3 never stands; fails_when=a second summary is written, a turn's record is missing or wrong, the false claim is shown, or the counts disagree; no_claim=what a real model chooses, which the everyday-requests evaluation checks.
   test("one page, one summary, each turn told what the last did, and no false claim", async () => {
     const prompts: Record<string, string> = {};
-    const model = scriptedModel((call): ScriptedReply => {
-      const passage = editPassage(call);
-      if (passage !== null) return { text: `${passage} It also compares how they are trained.` };
-      const question = asked(call);
-      if (question.endsWith("write a summary page")) {
-        return called(call, "create_mind")
-          ? { text: "It covers both papers." }
-          : { calls: [{ tool: "create_mind", input: { title: PAGE, content: SUMMARY_PAGE } }] };
-      }
-      if (question.endsWith("make the summary section longer")) {
-        prompts.second = call.prompt;
+    const model = scriptedModel(
+      (call): ScriptedReply => {
+        const passage = editPassage(call);
+        if (passage !== null) return { text: `${passage} It also compares how they are trained.` };
+        const question = asked(call);
+        if (question.endsWith("write a summary page")) {
+          return called(call, "create_mind")
+            ? { text: "It covers both papers." }
+            : { calls: [{ tool: "create_mind", input: { title: PAGE, content: SUMMARY_PAGE } }] };
+        }
+        if (question.endsWith("make the summary section longer")) {
+          prompts.second = call.prompt;
+          return called(call, "edit_mind")
+            ? { text: "It now says how each is trained." }
+            : {
+                calls: [
+                  {
+                    tool: "edit_mind",
+                    input: { mind: PAGE, part: "Summary", instruction: "Make it longer" },
+                  },
+                ],
+              };
+        }
+        if (question.endsWith("no citations?")) {
+          prompts.third = call.prompt;
+          return { text: FALSE_CLAIM };
+        }
+        if (call.prompt.includes("but no Tool did that")) return { text: HONEST };
         return called(call, "edit_mind")
-          ? { text: "It now says how each is trained." }
+          ? { text: "" }
           : {
               calls: [
-                {
-                  tool: "edit_mind",
-                  input: { mind: PAGE, part: "Summary", instruction: "Make it longer" },
-                },
+                { tool: "edit_mind", input: { mind: PAGE, part: "Summary", content: RETOLD } },
               ],
             };
-      }
-      if (question.endsWith("no citations?")) {
-        prompts.third = call.prompt;
-        return { text: FALSE_CLAIM };
-      }
-      if (call.prompt.includes("but no Tool did that")) return { text: HONEST };
-      return called(call, "edit_mind")
-        ? { text: "" }
-        : {
-            calls: [{ tool: "edit_mind", input: { mind: PAGE, part: "Summary", content: RETOLD } }],
-          };
-    });
+      },
+      {
+        generate: (call) => claimCheckReply(call, [{ sentence: FALSE_CLAIM, kind: "changed" }]),
+      },
+    );
     const { core, mind } = await setUp(model);
     const turn = (text: string, conversationId?: string) =>
       askAssistant(core, { text, mindId: mind.id, ...(conversationId && { conversationId }) });
@@ -703,13 +1132,14 @@ describe("Asking again for a reply that claims a change", { timeout: 30_000 }, (
     return deltas;
   };
 
-  // protects=the sentence that claims a change waits until it is checked: the User never sees it before the honest reply replaces it, while the sentences before it show as they come; fails_when=the claim streams out first; no_claim=none beyond protects.
+  // protects=the sentence that may claim a change waits until it is checked: the User never sees it before the honest reply replaces it, while the sentences before it show as they come; fails_when=the claim streams out first; no_claim=none beyond protects.
   test("the claim is held back until checked, and never shows", async () => {
     const model = scriptedModel(
       (call): ScriptedReply =>
         call.prompt.includes(ASKED_AGAIN)
           ? { text: "No section was added. Say if you'd like one." }
           : { text: `The supplier is late. ${CLAIM}` },
+      { generate: (call) => claimCheckReply(call, [{ sentence: CLAIM, kind: "added" }]) },
     );
     const { core, mind } = await setUp(model);
     const deltas = shownDeltas(core);
@@ -719,6 +1149,7 @@ describe("Asking again for a reply that claims a change", { timeout: 30_000 }, (
     expect(deltas.join("")).not.toContain("added a risks section");
     expect(deltas.join("")).toMatch(/^The supplier is late\. No section was added\./);
     expect(answer.text).toBe("No section was added. Say if you'd like one.");
+    expect(answer.steps?.unbackedClaims).toBeUndefined();
   });
 
   // protects=when the request asking again fails, the first reply comes back, flagged; fails_when=the Answer fails, shows nothing, or shows the claim unflagged; no_claim=none beyond protects.
@@ -728,6 +1159,7 @@ describe("Asking again for a reply that claims a change", { timeout: 30_000 }, (
         call.prompt.includes(ASKED_AGAIN)
           ? { error: { status: 400, message: "The request was malformed." } }
           : { text: CLAIM },
+      { generate: (call) => claimCheckReply(call, [{ sentence: CLAIM, kind: "added" }]) },
     );
     const { core, mind } = await setUp(model);
 
@@ -745,6 +1177,7 @@ describe("Asking again for a reply that claims a change", { timeout: 30_000 }, (
         call.prompt.includes(ASKED_AGAIN)
           ? { error: { status: 400, message: "tools are not supported by this model" } }
           : { text: CLAIM },
+      { generate: (call) => claimCheckReply(call, [{ sentence: CLAIM, kind: "added" }]) },
     );
     const { core, mind } = await setUp(model);
 
@@ -760,14 +1193,17 @@ describe("Asking again for a reply that claims a change", { timeout: 30_000 }, (
     const reached = new Promise<void>((resolve) => {
       retrying = resolve;
     });
-    const model = scriptedModel((call): ScriptedReply => {
-      if (!call.prompt.includes(ASKED_AGAIN)) return { text: CLAIM };
-      retrying();
-      return {
-        text: "No section was added yet. Say if you'd like one.",
-        pause: { after: 30, until: new Promise(() => undefined) },
-      };
-    });
+    const model = scriptedModel(
+      (call): ScriptedReply => {
+        if (!call.prompt.includes(ASKED_AGAIN)) return { text: CLAIM };
+        retrying();
+        return {
+          text: "No section was added yet. Say if you'd like one.",
+          pause: { after: 30, until: new Promise(() => undefined) },
+        };
+      },
+      { generate: (call) => claimCheckReply(call, [{ sentence: CLAIM, kind: "added" }]) },
+    );
     const { core, mind } = await setUp(model);
     const asked = await core.askInConversation({ text: "add risks", mindId: mind.id });
     if (!asked.asked) throw new Error("Not asked.");

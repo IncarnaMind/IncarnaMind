@@ -99,7 +99,7 @@ test("a contract imported from Word shows the file's look, and Look › Plain Mi
   const menu = window.getByTestId("group-menu-items");
   await expect(menu).toContainText("外观");
   await expect(window.getByTestId("look-word")).toHaveText("Word 文件原样");
-  await expect(window.getByTestId("look-plain")).toHaveText("普通 Mind");
+  await expect(window.getByTestId("look-plain")).toHaveText("普通笔记");
   if (SCREENSHOTS) {
     await motionSettled(window);
     await window.screenshot({ path: join(SCREENSHOTS, "word-look-menu-zh.png") });
@@ -409,11 +409,11 @@ test("⌘K switches the look both ways and opens the original at the caret, in E
   // Only the look not shown is offered.
   await window.keyboard.press("ControlOrMeta+k");
   await window.keyboard.type("> look:");
-  await expect(actions).toHaveText(["Look: Plain Mind"]);
+  await expect(actions).toHaveText(["Look: Plain note"]);
   await window.keyboard.press("Escape");
   await expect(palette).toBeHidden();
 
-  await runFromPalette("look: plain", "Look: Plain Mind");
+  await runFromPalette("look: plain", "Look: Plain note");
   await expect(clause).toHaveCSS("text-align", "start");
   await runFromPalette("look: the word", "Look: the Word file’s look");
   await expect(clause).toHaveCSS("text-align", "justify");
@@ -429,7 +429,7 @@ test("⌘K switches the look both ways and opens the original at the caret, in E
 
   await setLanguage(window, "zh-CN");
   await pointAndClick(window, clause);
-  await runFromPalette("外观", "外观：普通 Mind");
+  await runFromPalette("外观", "外观：普通笔记");
   await expect(clause).toHaveCSS("text-align", "start");
   await runFromPalette("外观", "外观：Word 文件原样");
   await expect(clause).toHaveCSS("text-align", "justify");

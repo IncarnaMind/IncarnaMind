@@ -84,7 +84,7 @@ test("the chip, its menu, Settings → Models and the steps show a model's name 
       "title",
       "gpt-6.1-sol",
     );
-    await expect(menu).toContainText("Default for new Minds: GPT-6 Luna");
+    await expect(menu).toContainText("Default for new notes: GPT-6 Luna");
     await screenshot(window, "model-names-menu-en");
 
     // Search finds a model by its id (not in its name) and by its name (not in its id).
@@ -155,7 +155,7 @@ test("the chip, its menu, Settings → Models and the steps show a model's name 
     await pointAndClick(window, chip);
     await expect(options.first()).toBeVisible();
     await expect.poll(namesShown).toEqual(["GPT-6 Astra", "GPT-6 Luna", "GPT-6.1 Sol"]);
-    await expect(menu).toContainText("新 Mind 的默认模型：GPT-6 Luna");
+    await expect(menu).toContainText("新笔记的默认模型：GPT-6 Luna");
     await expect(menu.getByTestId("composer-model-search")).toHaveAttribute(
       "placeholder",
       "搜索模型",

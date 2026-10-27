@@ -47,6 +47,7 @@ const documentOf = (id: string): Document => ({
   contentHash: "",
   path: `/${id}.pdf`,
   fileStatus: "available",
+  keptByApp: false,
   linkedFolderId: null,
   size: 0,
   pageCount: null,
@@ -116,9 +117,9 @@ describe("a selection of Documents", () => {
     expect(ask && menuLabelOf(ask.command, ctx, english)).toBe("Ask about these 3 Documents");
     expect(ask && menuLabelOf(ask.command, ctx, chinese)).toBe("就这 3 个文档提问");
     expect(start && labelOf(start.command, ctx, english)).toBe(
-      "Start a Mind from these 3 Documents",
+      "Start a note from these 3 Documents",
     );
-    expect(start && labelOf(start.command, ctx, chinese)).toBe("用这 3 个文档新建 Mind");
+    expect(start && labelOf(start.command, ctx, chinese)).toBe("用这 3 个文档新建笔记");
   });
 
   test("offers Delete with the count", () => {
