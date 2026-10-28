@@ -51,14 +51,15 @@ async function openCard(window: Page, chip: Locator): Promise<Locator> {
 const WORDS = {
   en: {
     action: "Checked by me",
-    mine: /^Checked by you · \d{1,2}:\d{2}/,
+    // The time as the system writes it: "14:02", "2:02 pm", "上午6:27".
+    mine: /^Checked by you · .*\d{1,2}:\d{2}/,
     changed: "Checked by you before it changed · Check again",
     count: "1 checked by you",
     countChanged: "1 changed since you checked",
   },
   "zh-CN": {
     action: "我已核对",
-    mine: /^由你核对 · \d{1,2}:\d{2}/,
+    mine: /^由你核对 · .*\d{1,2}:\d{2}/,
     changed: "核对后已改动 · 重新核对",
     count: "由你核对 1 项",
     countChanged: "核对后已改动 1 项",
