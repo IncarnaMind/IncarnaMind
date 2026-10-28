@@ -81,6 +81,25 @@ export function requestedFigures(
 }
 
 /** The sentence a check Run is asked about. */
+/** An Unsupported verdict as a check writes it, with the Figures line its requested figures need. */
+export function unsupportedReply(call: ModelCall): string {
+  const figures = requestedFigures(call);
+  if (figures.length === 0) return "Verdict: unsupported";
+  const items = figures.map(({ id }) => ({
+    id,
+    verdict: "unsupported",
+    scope: "same",
+    topic: "not found",
+    roles: "same",
+    says: null,
+    reading: null,
+    relation: "equals",
+    source: null,
+    calculation: null,
+  }));
+  return `Verdict: unsupported\nFigures: ${JSON.stringify({ items, remainder: null })}`;
+}
+
 export const sentenceOf = (call: ModelCall) => {
   const text = call.options.prompt
     .filter((message) => message.role === "user")

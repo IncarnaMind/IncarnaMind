@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { expect, test } from "vitest";
 import { documentFigureContext } from "../../src/core/answers/calculations";
 import { createClaimCheck } from "../../src/core/answers/checks/claimCheck";
@@ -7,6 +8,7 @@ import type { CheckFigure } from "../../src/core/api";
 import type { CitationSource } from "../../src/core/documents";
 import { resolveCapabilities } from "../../src/core/providers/capabilities";
 import type { PreparedChatModel } from "../../src/core/providers/chat";
+import { MAX_CHART_VALUES } from "../../src/shared/charts";
 import { readFigures } from "../../src/shared/figures";
 import type { UnitText } from "../../src/shared/units";
 import { type ModelCall, scriptedModel } from "../helpers/models";
@@ -51,6 +53,22 @@ test.each([
 ])("$name item set is rejected", ({ items }) =>
   expect(readFigureReply(reply(items), figures, claim)).toBeNull(),
 );
+
+test("a chart's largest reply, for 500 values, is read whole", () => {
+  const many = Array.from({ length: MAX_CHART_VALUES }, (_, index) => ({
+    ...(figures[0] as CheckFigure),
+    id: JSON.stringify(["chart", randomUUID(), randomUUID(), index]),
+  }));
+  const items = many.map(({ id }) => ({
+    ...item(id),
+    verdict: "unsupported",
+    topic: "not found",
+    source: null,
+  }));
+  const text = reply(items);
+  expect(text.length).toBeGreaterThan(100_000);
+  expect(readFigureReply(text, many, claim)?.items).toHaveLength(MAX_CHART_VALUES);
+});
 
 test("missing remainder remains missing rather than explicitly empty", () => {
   expect(
@@ -641,7 +659,7 @@ test("saved formulas recheck exact UTF-16 spans without another calculate call",
     reason: "no-evidence",
   });
   const shortcut = await checkWith({ figures: [changed], body, text: reply([item()]) });
-  expect(shortcut.result.figures?.[0]?.sourceInput).not.toBeNull();
+  expect(shortcut.result.figures?.[0]?.sourceInput).toBeNull();
   expect(shortcut.result.figures?.[0]?.result).toMatchObject({
     verdict: "not-checked",
     reason: "no-evidence",
@@ -665,6 +683,41 @@ test("saved formulas recheck exact UTF-16 spans without another calculate call",
     reason: "no-evidence",
   });
   expect(retained.result.figures?.[0]?.sourceInput).toBeNull();
+});
+
+test("a saved calculation's verdict and evidence both come from working it out again, whatever source the model names", async () => {
+  const body = "📊 Revenue was £20. Another figure was £999.";
+  const first = await checkWith({
+    figures: [target("f1")],
+    body,
+    calculations: [
+      {
+        marker: 1,
+        label: "Revenue",
+        formula: "source",
+        stated: "£20",
+        relation: "equals",
+        inputs: [{ name: "source", label: "Revenue", citation: 1, position: 1 }],
+      },
+    ],
+    text: reply([{ ...item(), source: null, calculation: 1 }]),
+  });
+  const judgment = first.result.figures?.[0]?.result;
+  const figure = judgment && "calculation" in judgment ? judgment.calculation?.figure : null;
+  if (!figure) throw new Error("No real calculated fixture receipt");
+  const saved = { ...target("f1"), calculated: { id: "f1", figure, analysisId: null } };
+  const { result } = await checkWith({
+    figures: [saved],
+    body,
+    quotes: [body, "Another figure was £999."],
+    text: reply([
+      { ...item(), source: { citation: 2, number: "£999", reading: null, unitQuote: null } },
+    ]),
+  });
+  const row = result.figures?.[0];
+  expect(row?.sourceInput).toBeNull();
+  expect(row?.result.verdict).toBe("supported");
+  expect(row?.result.verdict === "not-checked" ? null : row?.result.evidence?.quote).toBe(body);
 });
 
 test("asked to record a quote its Figures line names, the model's next step must call cite", async () => {
@@ -728,6 +781,27 @@ test("a verdict with no Figures line is asked for it once, and the reply that ha
     verdict: "not-checked",
     reason: "malformed",
   });
+});
+
+test("a Figures line naming a calculation the check never made is asked again, and the reply with its source binds", async () => {
+  const { result, calls } = await checkWith({
+    figures: [target("f1")],
+    text: reply([{ ...item(), source: null, calculation: 1 }]),
+    askedAgain: { note: "wasn't worked out in this check", text: reply([item()]) },
+  });
+  expect(calls.filter((call) => call.prompt.includes("wasn't worked out"))).toHaveLength(1);
+  expect(result.figures?.[0]?.result.verdict).toBe("supported");
+});
+
+test("a Figures line that leaves out its remainder is asked for it once, and the reply that has it binds", async () => {
+  const noRemainder = `Verdict: supported\nFigures: ${JSON.stringify({ items: [item()] })}`;
+  const { result, calls } = await checkWith({
+    figures: [target("f1")],
+    text: noRemainder,
+    askedAgain: { note: "gives no remainder", text: reply([item()]) },
+  });
+  expect(calls.filter((call) => call.prompt.includes("gives no remainder"))).toHaveLength(1);
+  expect(result.figures?.[0]?.result.verdict).toBe("supported");
 });
 
 const SEGMENTS = "All figures in £m\nSegment\tQ3 2026\tQ3 2025\nClothing\t300\t310";

@@ -6,7 +6,14 @@ import * as Y from "yjs";
 import { createElement } from "../../src/core/answers/blocks";
 import { figuresInMind } from "../../src/core/answers/checks/figureOccurrences";
 import { markedSentences, markSentence } from "../../src/core/answers/checks/sentences";
-import { type Citation, type ClaimCheckAttributes, MIND_CONTENT_FIELD } from "../../src/core/api";
+import {
+  CALCULATED_FIGURE_NODE,
+  type Citation,
+  type ClaimCheckAttributes,
+  MIND_CONTENT_FIELD,
+  MIND_FIGURE_RUNS_FIELD,
+  type RetainedFigureAnalysis,
+} from "../../src/core/api";
 import { figureSchedule } from "../../src/core/figureSchedule";
 import { claimSpans } from "../../src/renderer/src/editor/claimChecks";
 import {
@@ -21,7 +28,10 @@ import {
 import { noteExtensions } from "../../src/renderer/src/editor/noteSchema";
 import { registerMindEditor } from "../../src/renderer/src/editor/openEditors";
 import type { NodeJSON } from "../../src/shared/blockJson";
+import { calculatedFigureNode } from "../../src/shared/calculatedFigures";
 import { emptyFigureFinding } from "../../src/shared/figureChecks";
+import { installFigureRuns } from "../../src/shared/figureRuns";
+import { FORMULA_VERSION } from "../../src/shared/formula";
 import { fingerprintOfMind } from "../../src/shared/mindState";
 
 vi.mock("../../src/renderer/src/store", () => ({
@@ -327,4 +337,147 @@ test("with the note not open in an editor, the schedule changes its copy, with a
   expect(markedSentences(blocks)[0]?.check).toEqual(before);
   await undoable?.redo?.();
   expect(markedSentences(blocks)[0]?.check?.figures?.[0]?.kept).toBe(true);
+});
+
+const sourceInput = (chars: string, value: number) => ({
+  name: "revenue",
+  label: "Revenue",
+  citation,
+  number: {
+    at: 8,
+    chars,
+    value,
+    unit: { kind: "plain" as const },
+    decimals: 0,
+    scale: 1,
+    scaleWord: null,
+    approximate: false,
+    reading: null,
+  },
+  cell: null,
+  unitStatement: null,
+});
+
+/** The note's first sentence's check, its first figure contradicted by `Revenue 8`. */
+function contradictFirst(blocks: Y.XmlFragment): void {
+  const parent = markedSentences(blocks)[0];
+  const first = parent?.check.figures?.[0];
+  if (!parent || !first) throw new Error("No first figure");
+  markSentence(parent.element, parent.from, parent.to, {
+    ...parent.check,
+    figures: [
+      { ...first, state: "contradicted", sourceInput: sourceInput("8", 8) },
+      ...(parent.check.figures?.slice(1) ?? []),
+    ],
+  });
+}
+
+test("Change to source points the figure's own Citation at its source, and keeps the words' marks", () => {
+  const old: Citation = {
+    ...citation,
+    documentId: "old",
+    documentName: "Old",
+    quote: "Revenue 10",
+  };
+  const { blocks, editor, read, edit } = setup(
+    [
+      {
+        type: "paragraph",
+        attrs: { id: "p" },
+        content: [
+          { type: "text", text: "Revenue ", marks: [{ type: "bold" }] },
+          { type: "text", text: "10", marks: [{ type: "bold" }] },
+          { type: "citation", attrs: { ...old } },
+          { type: "text", text: " and profit 2, but uncertain." },
+        ],
+      },
+    ],
+    false,
+  );
+  const paragraph = blocks.get(0);
+  if (!(paragraph instanceof Y.XmlElement)) throw new Error("No paragraph");
+  const figures = figuresInMind(blocks).map((figure) => ({
+    ...basis(),
+    ...emptyFigureFinding(figure),
+    state: "supported" as const,
+  }));
+  markSentence(paragraph, 0, words.length + 1, { ...basis(), figures, remainder: basis() });
+  contradictFirst(blocks);
+  const schedule = read();
+  const row = schedule.rows[0];
+  if (!row) throw new Error("No row");
+  edit((note) => changeFiguresToSource(note, schedule, [row.id]));
+  const cited: Record<string, unknown>[] = [];
+  const bold: string[] = [];
+  editor.state.doc.descendants((node) => {
+    if (node.type.name === "citation") cited.push(node.attrs);
+    if (node.isText && node.marks.some((mark) => mark.type.name === "bold"))
+      bold.push(node.text ?? "");
+  });
+  expect(cited).toHaveLength(1);
+  expect(cited[0]).toMatchObject({ documentId: "source", quote: "Revenue 8" });
+  expect(bold.join("")).toBe("Revenue 8");
+});
+
+test("with the note not open, a change and its Undo take an Analysis figure's run away and back", async () => {
+  const run: RetainedFigureAnalysis = {
+    id: "run",
+    title: "Revenue",
+    language: "python",
+    code: "result('revenue', 10)",
+    inputs: [],
+    versions: null,
+    codeSha256: "a".repeat(64),
+    ranAt: "2026-10-27T00:00:00.000Z",
+    values: [{ kind: "figure", name: "revenue", label: "Revenue", unit: null, value: 10 }],
+  };
+  const figure = calculatedFigureNode(
+    {
+      label: "Revenue",
+      formula: "",
+      inputs: [],
+      value: 10,
+      unit: { kind: "plain" },
+      approximate: false,
+      shown: "10",
+      show: { language: "en", as: "number", decimals: 0, scale: null },
+      literals: [],
+      engine: FORMULA_VERSION,
+      written: null,
+      analysis: { analysis: 1, result: "revenue" },
+    },
+    "figure",
+    "run",
+  );
+  const { blocks, doc } = setup(
+    [
+      {
+        type: "paragraph",
+        attrs: { id: "p" },
+        content: [
+          { type: "text", text: "Revenue " },
+          figure,
+          { type: "text", text: " and profit 2, but uncertain." },
+        ],
+      },
+    ],
+    false,
+  );
+  installFigureRuns(doc, [run]);
+  const runs = doc.getMap(MIND_FIGURE_RUNS_FIELD);
+  const kept = runs.toJSON();
+  expect(runs.size).toBeGreaterThan(0);
+  // As Change to source does, the figure's place takes its source's words.
+  const undoable = editNote("a note no editor shows", doc, ({ state }) => {
+    let at = -1;
+    state.doc.descendants((node, pos) => {
+      if (node.type.name === CALCULATED_FIGURE_NODE) at = pos;
+    });
+    return { tr: state.tr.insertText("8", at, at + 1), said: () => "" };
+  });
+  expect(figuresInMind(blocks).some((each) => each.calculated)).toBe(false);
+  expect(runs.size).toBe(0);
+  await undoable?.undo();
+  expect(runs.toJSON()).toEqual(kept);
+  expect(figuresInMind(blocks).some((each) => each.calculated?.figure.analysis)).toBe(true);
 });

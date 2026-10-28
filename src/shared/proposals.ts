@@ -465,6 +465,23 @@ export function waitingChanges(
   return pendingProposals(blocks).filter(belongs).length;
 }
 
+/**
+ * What an applied row still says waits: the changes a Mind counts as waiting, less the ones its
+ * apply took, and whether the Mind's copy has the apply yet — it counts the taken ones as waiting
+ * until the update that applied them arrives (#1325, #1358).
+ */
+export function appliedWaiting(
+  pending: readonly string[],
+  accepted: readonly string[] | undefined,
+): { count: number; settled: boolean } {
+  if (!accepted) return { count: pending.length, settled: true };
+  const taken = new Set(accepted);
+  return {
+    count: pending.filter((id) => !taken.has(id)).length,
+    settled: !pending.some((id) => taken.has(id)),
+  };
+}
+
 const TEXT_BLOCKS: ReadonlySet<string> = new Set(["paragraph", "heading"]);
 
 /**

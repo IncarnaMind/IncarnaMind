@@ -1,5 +1,5 @@
 import type React from "react";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { Citation, FigureSchedule, FigureScheduleRow } from "../../../../core/api";
 import { formatDateTime } from "../../../../shared/dates";
 import {
@@ -65,9 +65,14 @@ export function FigureScheduleView(props: FigureScheduleViewProps) {
     }),
   );
   const lines = schedule ? scheduleLines(schedule, filter, statusSort, shownExpanded) : [];
-  const allLines = schedule
-    ? scheduleLines(schedule, "all", false, new Set(schedule.rows.map((row) => row.id)))
-    : [];
+  // Kept while the schedule is the same, so the outline effect below runs only when it changes.
+  const allLines = useMemo(
+    () =>
+      schedule
+        ? scheduleLines(schedule, "all", false, new Set(schedule.rows.map((row) => row.id)))
+        : [],
+    [schedule],
+  );
   useSelectionOrder("figures", () => lines.map((line) => lineRef(mindId, line)));
   const selectedIds = new Set(selected.map((ref) => ref.id));
   const parentIds = schedule ? selectedFigures(schedule, selectedIds) : [];
@@ -408,8 +413,8 @@ export function FigureScheduleView(props: FigureScheduleViewProps) {
                   expanded={shownExpanded.has(line.parent.id)}
                   chosen={
                     parentIds.includes(line.parent.id) && parentIds.length > 1
-                      ? parentIds
-                      : [line.parent.id]
+                      ? (schedule?.rows.filter((row) => parentIds.includes(row.id)) ?? [])
+                      : [line.parent]
                   }
                   props={props}
                   onCurrent={setCurrent}

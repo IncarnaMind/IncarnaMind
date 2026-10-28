@@ -329,12 +329,12 @@ function report(
       each.removed.map((taken) => `- ${each.id}, ${each.model}: “${taken}”`),
     ),
     "",
-    `Rewritten after the guard, not by it: ${results.reduce((total, each) => total + each.rewritten.length, 0)} sentences of what the calls gave are no longer in the Mind as written, rewritten by the model's edit_mind or by the app's own check of the sentences written:`,
+    `Rewritten after the guard, not by it: ${results.reduce((total, each) => total + each.rewritten.length, 0)} sentences of what the calls gave are no longer in the Mind as written, changed by the model's edit_mind or by the app's own check of the sentences written. ${results.reduce((total, each) => total + each.rewritten.filter(({ cut }) => cut).length, 0)} of them only have words taken out, as the check's cut does; the rest are reworded:`,
     "",
     ...results.flatMap((each) =>
       each.rewritten.map(
-        ({ given, now }) =>
-          `- ${each.id}, ${each.model}: given “${given}”; the Mind holds “${now ?? "nothing like it"}”`,
+        ({ given, now, cut }) =>
+          `- ${each.id}, ${each.model}, ${cut ? "words taken out" : "reworded"}: given “${given}”; the Mind holds “${now ?? "nothing like it"}”`,
       ),
     ),
     "",

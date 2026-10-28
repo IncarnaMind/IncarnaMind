@@ -26,7 +26,8 @@ test.each([
   ["8.1%", 0.08149, true],
   ["8.1%", 0.0815, false],
   ["about 130", 130.4, true],
-  ["about 130", 131, false],
+  ["about 130", 131, true],
+  ["about 130", 136, false],
   ["三分之一", 1 / 3, true],
   ["三分之一", 0.3333, false],
 ] as const)(

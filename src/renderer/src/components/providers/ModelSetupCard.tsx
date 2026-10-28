@@ -7,6 +7,7 @@ import { useLanguage, useT } from "../../i18n";
 import { turnOffLocalMode } from "../../localMode";
 import { giveUpWaiting, useModelSetup } from "../../modelSetup";
 import { useAppStore } from "../../store";
+import { OnThisComputer } from "../OnThisComputer";
 import { ProblemLine } from "../ProblemLine";
 import { buttonStyle, hintClass } from "../ui";
 import { ChatGptMark } from "./ChatGptMark";
@@ -45,7 +46,7 @@ function ChooseAnAi() {
   const [initialKey, setInitialKey] = useState("");
   const [others, setOthers] = useState(false);
   const [providers, setProviders] = useState<ChatProvider[]>([]);
-  const ollama = useOllama(() => undefined);
+  const ollama = useOllama(() => undefined, undefined, { localModeUnasked: true });
   const sign = useContinueWithChatGpt({ onSignedIn: () => undefined });
   const keyField = useRef<HTMLInputElement>(null);
   useEffect(() => {
@@ -225,6 +226,15 @@ function LocalWay({ ollama, running }: { ollama: OllamaState; running: boolean }
       </span>
       <OllamaProgress ollama={ollama} />
       <OllamaAction ollama={ollama} />
+      {/* One line in every state, so nothing under it moves when the line below changes. */}
+      <p data-testid="setup-local-keeps" className="min-h-[18px] text-[12px] leading-[18px]">
+        {/* With a cloud service set up and Local mode off, the click leaves Local mode as it is. */}
+        {ollama.status?.running && ollama.keepLocal.checked ? (
+          <OnThisComputer>{t("setup.way.local.keeps")}</OnThisComputer>
+        ) : (
+          <span className="text-ink-meta">{t("setup.way.local.line")}</span>
+        )}
+      </p>
     </div>
   );
 }

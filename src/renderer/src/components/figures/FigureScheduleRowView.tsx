@@ -1,5 +1,5 @@
 import { type ReactNode, useRef } from "react";
-import type { Citation } from "../../../../core/api";
+import type { Citation, FigureScheduleRow } from "../../../../core/api";
 import {
   figurePlaceText,
   footingNotes,
@@ -11,6 +11,8 @@ import {
   type ScheduleGlyph,
   type ScheduleLine,
   sourceValueText,
+  toCheckAgain,
+  toKeep,
 } from "../../../../shared/figureSchedule";
 import { sourceParts } from "../../../../shared/sources";
 import { useLanguage, useT } from "../../i18n";
@@ -66,7 +68,7 @@ export function FigureScheduleRowView({
   expandable: boolean;
   expanded: boolean;
   /** The figures an action on this row acts on: the selection when it holds this row. */
-  chosen: readonly string[];
+  chosen: readonly FigureScheduleRow[];
   props: FigureScheduleViewProps;
   onCurrent(id: string): void;
   onToggle(): void;
@@ -125,16 +127,20 @@ export function FigureScheduleRowView({
       {keys && <span className="text-ink-meta">{keys}</span>}
     </button>
   );
-  const several = chosen.length > 1;
   const looked = parent.shown.state;
   const totals = parent.footing.map((axis) => axis.axis);
+  // Each item shows for, counts and acts on the same rows: the chosen ones it applies to.
+  const checks = toCheckAgain(chosen).map((row) => row.id);
+  const keeps = toKeep(chosen).map((row) => row.id);
   const acts: ReactNode[] = kid
     ? []
     : [
-        (looked === "not-checked" || looked === "needs-recheck" || looked === "kept") &&
+        checks.length > 0 &&
           action(
-            several ? t("figures.checkCount", { count: chosen.length }) : t("claim.checkAgain"),
-            () => props.onCheckAgain([...chosen]),
+            checks.length > 1
+              ? t("figures.checkCount", { count: checks.length })
+              : t("claim.checkAgain"),
+            () => props.onCheckAgain(checks),
           ),
         looked === "contradicted" &&
           parent.sourceInput &&
@@ -148,10 +154,12 @@ export function FigureScheduleRowView({
           action(t("claim.addAsCitation"), () => props.onAddCitation(parent.id)),
         !parent.calculated &&
           action(t("figures.chooseCitation"), () => props.onChooseCitation(parent.id)),
-        looked !== "kept" &&
+        keeps.length > 0 &&
           action(
-            several ? t("figures.keepCount", { count: chosen.length }) : t("claim.keepAsView"),
-            () => props.onKeep([...chosen]),
+            keeps.length > 1
+              ? t("figures.keepCount", { count: keeps.length })
+              : t("claim.keepAsView"),
+            () => props.onKeep(keeps),
           ),
         parent.place.table &&
           action(t(totals.length > 0 ? "figures.notTotal" : "figures.total"), () =>

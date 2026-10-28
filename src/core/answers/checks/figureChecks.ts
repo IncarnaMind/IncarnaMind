@@ -49,6 +49,9 @@ export interface FigureReply {
 
 const FIGURES = /^\s*Figures:\s*(.*)$/i;
 const MAX_REPLY_CHARACTERS = 100_000;
+// An item's own words (says, covered, uncovered) may each run to 2,000 characters, so the reply
+// may grow with the figures it answers for: a 500-value chart's shortest reply is over 100,000.
+const ITEM_CHARACTERS = 8_000;
 /** A one-based count or marker, read as `calculate` reads its inputs' ("3", "[^3]", {"marker":3}). */
 const counted = (value: unknown): number | null => {
   const read = whole(isRecord(value) ? value.marker : value);
@@ -92,7 +95,7 @@ export function readFigureReply(
   figures: readonly CheckFigure[],
   claim: string,
 ): FigureReply | null {
-  if (reply.length > MAX_REPLY_CHARACTERS) return null;
+  if (reply.length > MAX_REPLY_CHARACTERS + figures.length * ITEM_CHARACTERS) return null;
   // The protocol's line is the JSON one: a model also writes "Figures: …" as prose before it.
   const line = reply
     .split(/\r?\n/)
@@ -420,7 +423,16 @@ export async function checkFigureReply(options: FigureCheckOptions): Promise<Cla
     let sourceInput: FigureInput | null = null;
     let calculation: CalculatedFigure | null = null;
     let costs: ReadonlySet<string> = new Set();
-    if (item.source) {
+    // A saved calculation is checked by working it out again from its own inputs: a source or a
+    // calculation the model names beside it would give the verdict one number and the card another.
+    const replayed = target.calculated !== null && !target.calculated.figure.analysis;
+    if (replayed) {
+      calculation = replay(target, calculations);
+      if (!calculation) {
+        rows.push({ ...finding(target), result: unavailable() });
+        continue;
+      }
+    } else if (item.source) {
       const input = readFigureSource(calculations, target, item.source);
       if (
         "input" in input &&
@@ -455,14 +467,10 @@ export async function checkFigureReply(options: FigureCheckOptions): Promise<Cla
       continue;
     }
     target = framed;
-    const base = { ...finding(target), source: cited ?? sourceInput?.citation ?? null };
-    if (target.calculated && !target.calculated.figure.analysis) {
-      calculation = replay(target, calculations);
-      if (!calculation) {
-        rows.push({ ...base, sourceInput, result: unavailable() });
-        continue;
-      }
-    }
+    const base = {
+      ...finding(target),
+      source: replayed ? null : (cited ?? sourceInput?.citation ?? null),
+    };
     const evidence = sourceInput?.citation ?? calculation?.inputs[0]?.citation ?? null;
     const inputs = sourceInput ? [sourceInput] : (calculation?.inputs ?? []);
     const known = options.facts();

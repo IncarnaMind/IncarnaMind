@@ -445,6 +445,48 @@ describe("an Analysis an Answer runs", () => {
     ]);
   });
 
+  test("a follow-up that writes the last Answer into a Note brings that Answer's Analysis run with its figure", async () => {
+    const model = scriptedModel((call) => {
+      const searches = call.results.filter((result) => result.tool === "search_documents");
+      if (call.prompt.includes("Put that in the note")) {
+        if (!call.results.some((result) => result.tool === "add_to_mind"))
+          return { calls: [{ tool: "add_to_mind", input: { answer: true } }] };
+        return { text: "Added." };
+      }
+      if (searches.length === 0)
+        return { calls: [{ tool: "search_documents", input: { query: "revenue" } }] };
+      if (!call.results.some((result) => result.tool === "run_analysis"))
+        return { calls: [salesRun()(searches.flatMap((each) => shownPassages(each.text)))] };
+      return { text: "Revenue came to [=1] in total." };
+    });
+    const { core } = await setUp(model, totalOf);
+    const mind = await core.createMind({ title: "Revenue" });
+    const first = await askAssistant(core, {
+      text: "What was the total revenue?",
+      mindId: mind.id,
+    });
+    expect(first.analyses).toHaveLength(1);
+    const added = await askAssistant(core, {
+      text: "Put that in the note",
+      mindId: mind.id,
+      conversationId: first.conversationId,
+    });
+    expect(added.analyses).toHaveLength(0);
+
+    const reader = await connectToMind(core, mind.id);
+    const blocks = reader.blocks
+      .toArray()
+      .flatMap((node) => (node instanceof Y.XmlElement ? [nodeOf(node)] : []));
+    expect(calculatedFiguresIn(blocks)).toHaveLength(1);
+    expect(figureRunsFor(reader.doc, blocks)).toEqual([
+      expect.objectContaining({
+        values: [
+          { kind: "figure", name: "total", label: "Total revenue", unit: "USD", value: 350.5 },
+        ],
+      }),
+    ]);
+  });
+
   test("an Analysis call survives the unchanged Mind editor schema's serialization", async () => {
     const model = analysingModel({
       query: "revenue",

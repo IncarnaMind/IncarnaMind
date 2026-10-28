@@ -1,5 +1,5 @@
 import type { FigureScheduleRow } from "../../../core/api";
-import { lineRef } from "../../../shared/figureSchedule";
+import { lineRef, toCheckAgain, toKeep } from "../../../shared/figureSchedule";
 import { figureScheduleHandle } from "../components/figures/figureScheduleHandle";
 import { figureHandle } from "../editor/figureHandle";
 import type { Command, CommandContext } from "./registry";
@@ -46,38 +46,34 @@ function chosenFigures(ctx: CommandContext): FigureScheduleRow[] {
   return rows.filter((row) => chosen.has(lineRef(mindId, { id: row.id, parent: row }).id));
 }
 
-const ids = (ctx: CommandContext) => chosenFigures(ctx).map((row) => row.id);
-
-/** What a row's menu does to the figures chosen in the schedule, from ⌘K too. */
+/** What a row's menu does to the figures chosen in the schedule, from ⌘K too, on the same rows. */
 export const figureScheduleCommands: readonly Command[] = [
   {
     id: "figures.checkChosen",
     label: (ctx, t) => {
-      const count = chosenFigures(ctx).length;
+      const count = toCheckAgain(chosenFigures(ctx)).length;
       return count > 1 ? t("figures.checkCount", { count }) : t("claim.checkAgain");
     },
     group: "main",
     reversible: true,
     appliesTo: ["check"],
-    when: (ctx) =>
-      chosenFigures(ctx).some(
-        (row) =>
-          row.shown.state === "not-checked" ||
-          row.shown.state === "needs-recheck" ||
-          row.shown.state === "kept",
+    when: (ctx) => toCheckAgain(chosenFigures(ctx)).length > 0,
+    run: (ctx) =>
+      figureScheduleHandle.current?.checkAgain(
+        toCheckAgain(chosenFigures(ctx)).map((row) => row.id),
       ),
-    run: (ctx) => figureScheduleHandle.current?.checkAgain(ids(ctx)),
   },
   {
     id: "figures.keepChosen",
     label: (ctx, t) => {
-      const count = chosenFigures(ctx).length;
+      const count = toKeep(chosenFigures(ctx)).length;
       return count > 1 ? t("figures.keepCount", { count }) : t("claim.keepAsView");
     },
     group: "edit",
     reversible: true,
     appliesTo: ["check"],
-    when: (ctx) => chosenFigures(ctx).some((row) => row.shown.state !== "kept"),
-    run: (ctx) => figureScheduleHandle.current?.keep(ids(ctx)),
+    when: (ctx) => toKeep(chosenFigures(ctx)).length > 0,
+    run: (ctx) =>
+      figureScheduleHandle.current?.keep(toKeep(chosenFigures(ctx)).map((row) => row.id)),
   },
 ];

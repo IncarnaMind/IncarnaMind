@@ -5,6 +5,8 @@ import {
   type Citation,
   type FigureInput,
 } from "../../src/core/api";
+import { hasText } from "../../src/shared/answerBlocks";
+import type { NodeJSON } from "../../src/shared/blockJson";
 import {
   calculatedFigureNode,
   MAX_INPUTS_PER_FIGURE,
@@ -338,4 +340,11 @@ test("an unnamed note added from an Answer is named with its figure's shown text
       },
     ]),
   ).toBe(`Revenue grew ${shown} on the year.`);
+});
+
+test("an Answer of only a calculated figure has something to read, and an empty one hasn't", () => {
+  const paragraph = (content: NodeJSON[]): NodeJSON => ({ type: "paragraph", content });
+  expect(hasText([paragraph([calculatedFigureNode(figure(), "figure-1")])])).toBe(true);
+  expect(hasText([paragraph([{ type: "text", text: "  " }])])).toBe(false);
+  expect(hasText([paragraph([{ type: CALCULATED_FIGURE_NODE, attrs: {} }])])).toBe(false);
 });

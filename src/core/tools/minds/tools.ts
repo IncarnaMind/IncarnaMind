@@ -74,6 +74,7 @@ import {
   CHART_NODE,
   type ChartProblem,
   CITATION_NODE,
+  type ConversationAnswer,
   type EditAction,
   type EditWithAiResult,
   type Effect,
@@ -213,9 +214,15 @@ export interface MindToolsOptions {
    * The conversation's last Answer before this one, as Add to note puts it
    * in a Mind, with its Citations, the Answer its Blocks link back to, and
    * the Folder of its Question's Search scope, where a Mind made of it goes:
-   * what `answer: true` writes. Null: there is none.
+   * what `answer: true` writes, and the Analysis runs its calculated figures were
+   * worked out by. Null: there is none.
    */
-  lastAnswer: { blocks: NodeJSON[]; origin: BlockOrigin; folderId: string | null } | null;
+  lastAnswer: {
+    blocks: NodeJSON[];
+    origin: BlockOrigin;
+    folderId: string | null;
+    answer: Pick<ConversationAnswer, "id" | "analyses">;
+  } | null;
   /** The language the Answer is written in, which the model is told to ask the User in. */
   language: Language;
   /**

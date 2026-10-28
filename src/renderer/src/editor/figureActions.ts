@@ -13,9 +13,11 @@ import {
   type FigureSchedule,
   type FigureScheduleRow,
   MIND_CONTENT_FIELD,
+  MIND_FIGURE_RUNS_FIELD,
 } from "../../../core/api";
 import { chartCheckText, readChart } from "../../../shared/charts";
 import { emptyFigureFinding } from "../../../shared/figureChecks";
+import { pruneFigureRuns } from "../../../shared/figureRuns";
 import { FORMULA_VERSION, showResult } from "../../../shared/formula";
 import { mindScopeOf } from "../../../shared/mindScope";
 import { fingerprintOfMind } from "../../../shared/mindState";
@@ -74,9 +76,12 @@ export function editNote(
   const made = change({ state, doc: copy });
   if (!made?.tr.docChanged) return null;
   const origin = { figureSchedule: mindId };
-  const steps = new Y.UndoManager(blocks, { trackedOrigins: new Set([origin]) });
+  // A figure an Analysis run backs takes its run with it, in the same step its Undo brings back.
+  const runs = copy.getMap(MIND_FIGURE_RUNS_FIELD);
+  const steps = new Y.UndoManager([blocks, runs], { trackedOrigins: new Set([origin]) });
   copy.transact(() => {
     updateYFragment(copy, blocks, made.tr.doc, { mapping: new Map(), isOMark: new Map() });
+    pruneFigureRuns(copy);
   }, origin);
   const undoable: Undoable = {
     said: made.said,
@@ -321,8 +326,13 @@ export function changeFiguresToSource(
       tr.setNodeMarkup(at.from, undefined, { ...node.attrs, data });
     } else {
       const type = note.state.schema.nodes[CITATION_NODE];
-      if (type)
-        tr.replaceWith(at.from, at.to, [note.state.schema.text(shown), type.create(citation)]);
+      if (!type) continue;
+      // The figure's own Citation, right after it, now cites its source: one Citation, not two.
+      const after = tr.doc.nodeAt(at.to);
+      if (after?.type === type) tr.setNodeMarkup(at.to, undefined, { ...after.attrs, ...citation });
+      else tr.insert(at.to, type.create(citation));
+      // Typed over, the figure keeps the marks of the words around it.
+      tr.insertText(shown, at.from, at.to);
     }
   }
   const [only] = changes;
