@@ -101,7 +101,11 @@ for (const width of [1440, 900]) {
     await window.keyboard.press("Enter");
     const answer = window.getByTestId("assistant-answer").last();
     await expect(answer).toBeVisible();
-    await expect(answer.getByTestId("claim-mark")).toHaveAttribute("data-check", "supported");
+    await expect(answer).toContainText("Checking uncited figures and quoted facts against Documents…");
+    await expect(answer.locator('[data-testid="claim-mark"][data-check="supported"]')).toHaveAttribute(
+      "data-check",
+      "supported",
+    );
     const stop = window.getByTestId("composer").getByTestId("composer-stop");
     await expect(stop).toBeVisible();
     await pointAndClick(window, stop);

@@ -479,6 +479,7 @@ export function liveStep({
   }
   if (phase === "checking-figures") return { kind: "checking-figures" };
   if (phase === "checking-claims") return { kind: "checking-claims" };
+  if (phase === "checking-uncited") return { kind: "checking-uncited" };
   const running = answer.toolCalls.filter(
     (call) => call.status === "running" && !isCalculated(call),
   );

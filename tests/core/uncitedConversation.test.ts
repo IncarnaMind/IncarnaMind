@@ -123,7 +123,7 @@ describe("Uncited figures in a conversation Answer", () => {
     if (!asked.asked) throw new Error("The Question wasn't asked.");
     await vi.waitFor(async () => {
       const answer = answerOf(await core.getConversation(asked.conversation.id), asked.answerId);
-      expect(answer.claimChecks).toHaveLength(1);
+      expect(answer.claimChecks?.filter((check) => check.state !== "checking")).toHaveLength(1);
     });
 
     await core.stopConversationAnswer({
@@ -176,8 +176,15 @@ describe("Uncited figures in a conversation Answer", () => {
     waiting[1]?.();
     await vi.waitFor(async () => {
       const answer = answerOf(await core.getConversation(asked.conversation.id), asked.answerId);
-      expect(answer.claimChecks).toHaveLength(1);
-      expect(answer.claimChecks?.[0]?.state).toBe("unsupported");
+      expect(answer.claimChecks).toHaveLength(2);
+      expect(answer.claimChecks?.map((check) => check.state)).toEqual(["checking", "unsupported"]);
+      const marked = answerBlocks(answer).map(
+        (block) =>
+          block.content
+            ?.flatMap((node) => node.marks ?? [])
+            .find((mark) => mark.type === CLAIM_CHECK_MARK)?.attrs?.state,
+      );
+      expect(marked).toEqual(["checking", "unsupported"]);
     });
     waiting[0]?.();
     expect(await ended(asked.answerId)).toBe("finished");
@@ -288,7 +295,7 @@ describe("Uncited figures in a conversation Answer", () => {
     if (!first.asked) throw new Error("The Question wasn't asked.");
     await vi.waitFor(async () => {
       const answer = answerOf(await core.getConversation(first.conversation.id), first.answerId);
-      expect(answer.claimChecks).toHaveLength(1);
+      expect(answer.claimChecks?.filter((check) => check.state !== "checking")).toHaveLength(1);
     });
     const provider = (await core.listChatProviders())[0];
     if (!provider) throw new Error("No chat provider.");
@@ -341,7 +348,7 @@ describe("Uncited figures in a conversation Answer", () => {
     if (!first.asked) throw new Error("The Question wasn't asked.");
     await vi.waitFor(async () => {
       const answer = answerOf(await core.getConversation(first.conversation.id), first.answerId);
-      expect(answer.claimChecks).toHaveLength(1);
+      expect(answer.claimChecks?.filter((check) => check.state !== "checking")).toHaveLength(1);
     });
 
     const again = await core.regenerateConversationAnswer({
@@ -386,7 +393,7 @@ describe("Uncited figures in a conversation Answer", () => {
     if (!first.asked) throw new Error("The Question wasn't asked.");
     await vi.waitFor(async () => {
       const answer = answerOf(await core.getConversation(first.conversation.id), first.answerId);
-      expect(answer.claimChecks).toHaveLength(1);
+      expect(answer.claimChecks?.filter((check) => check.state !== "checking")).toHaveLength(1);
     });
 
     const again = await core.regenerateConversationAnswer({

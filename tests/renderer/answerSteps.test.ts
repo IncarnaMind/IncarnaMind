@@ -864,6 +864,16 @@ describe("the live step", () => {
     });
   });
 
+  test("uncited background checks have their own phase in English and Chinese", () => {
+    expect(live({ text: "Revenue was $1,200 million." }, { phase: "checking-uncited" })).toEqual({
+      kind: "checking-uncited",
+    });
+    expect(en("answer.phase.checking-uncited")).toBe(
+      "Checking uncited figures and quoted facts against Documents…",
+    );
+    expect(zh("answer.phase.checking-uncited")).toBe("正在对照文档核对未引用的数字和引述…");
+  });
+
   test("figures being recorded are no running call; their retry is checking figures", () => {
     const calculating: AnswerToolCall = {
       id: "calculated-figures",

@@ -1586,6 +1586,18 @@ export function createAnswers(options: AnswersOptions) {
       ) {
         background = new AbortController();
         const scope = options.uncitedScope(place.mindId, documentIds);
+        const storeCheck = (check: ClaimCheckAttributes, position: number) => {
+          if (superseded || active.get(answerId)?.finish !== finish) return;
+          claimCheckPlaces.set(check.id, position);
+          const at = claimChecks.findIndex((each) => each.id === check.id);
+          if (at < 0) claimChecks.push(check);
+          else claimChecks[at] = check;
+          claimChecks.sort(
+            (a, b) => (claimCheckPlaces.get(a.id) ?? 0) - (claimCheckPlaces.get(b.id) ?? 0),
+          );
+          const turn = options.conversations.writeClaimChecks(answerId, claimChecks);
+          if (turn) options.conversations.publish(turn);
+        };
         void options
           .uncited({
             answerId,
@@ -1599,13 +1611,14 @@ export function createAnswers(options: AnswersOptions) {
             checking: () => {
               if (!superseded && active.get(answerId)?.finish === finish) onChecking?.();
             },
-            publish: (check, position) => {
+            placeholder: storeCheck,
+            publish: storeCheck,
+            discard: (id) => {
               if (superseded || active.get(answerId)?.finish !== finish) return;
-              claimCheckPlaces.set(check.id, position);
-              claimChecks.push(check);
-              claimChecks.sort(
-                (a, b) => (claimCheckPlaces.get(a.id) ?? 0) - (claimCheckPlaces.get(b.id) ?? 0),
-              );
+              const at = claimChecks.findIndex((each) => each.id === id);
+              if (at < 0 || claimChecks[at]?.state !== "checking") return;
+              claimChecks.splice(at, 1);
+              claimCheckPlaces.delete(id);
               const turn = options.conversations.writeClaimChecks(answerId, claimChecks);
               if (turn) options.conversations.publish(turn);
             },

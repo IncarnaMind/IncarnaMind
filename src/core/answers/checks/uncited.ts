@@ -45,7 +45,9 @@ export interface UncitedCheckInput {
   usage: AnswerUsage;
   signal: AbortSignal;
   checking(): void;
+  placeholder?(check: ClaimCheckAttributes, position: number): void;
   publish(check: ClaimCheckAttributes, position: number): void;
+  discard?(id: string): void;
 }
 
 /** The uncited sentences with a figure or quoted fact that the claim finder may take (#1445). */
@@ -141,27 +143,34 @@ export function createUncitedCheck(options: UncitedCheckOptions) {
       input.usage.cachedInputTokens += usage.cachedInputTokens ?? 0;
       input.usage.cacheWriteTokens += usage.cacheWriteTokens ?? 0;
     });
-    const markOf = (sentence: Sentence): ClaimCheckAttributes => ({
-      id: randomUUID(),
-      request,
-      action: "check-against-documents",
-      state: "checking",
-      reason: null,
-      detail: null,
-      providerId: prepared.provider.id,
-      modelId: prepared.modelId,
-      text: sentence.text,
-      evidence: null,
-      says: null,
-      unsupported: null,
-      calculation: null,
-      citedCaseUnchecked: false,
-      citedCaseFound: false,
-      scope: input.scope.marked,
-      versions: [],
-      excluded: [],
-      checkedAt: startedAt,
-    });
+    const marks = new Map<Sentence, ClaimCheckAttributes>();
+    const markOf = (sentence: Sentence): ClaimCheckAttributes => {
+      const existing = marks.get(sentence);
+      if (existing) return existing;
+      const created: ClaimCheckAttributes = {
+        id: randomUUID(),
+        request,
+        action: "check-against-documents",
+        state: "checking",
+        reason: null,
+        detail: null,
+        providerId: prepared.provider.id,
+        modelId: prepared.modelId,
+        text: sentence.text,
+        evidence: null,
+        says: null,
+        unsupported: null,
+        calculation: null,
+        citedCaseUnchecked: false,
+        citedCaseFound: false,
+        scope: input.scope.marked,
+        versions: [],
+        excluded: [],
+        checkedAt: startedAt,
+      };
+      marks.set(sentence, created);
+      return created;
+    };
     const failed = (sentence: Sentence, reason: ClaimCheckFailure, detail: string | null) => {
       const at = options.now().toISOString();
       console.warn(
@@ -185,43 +194,50 @@ export function createUncitedCheck(options: UncitedCheckOptions) {
       return;
     }
     const sentences = candidates.filter((_, index) => found.claims.has(index));
-    await runItems(
-      sentences.slice(0, SENTENCES_CHECKED_AT_MOST),
-      async (sentence) => {
-        const result = await checkWithin(sentence, input, used);
-        const failure = runFailureOf(result);
-        if (failure) throw new RunItemError(failure);
-        return result;
-      },
-      {
-        concurrency: claimsAtOnce(prepared),
-        signal: input.signal,
-        onOutcome(sentence, outcome) {
-          if (input.signal.aborted || outcome.status === "stopped") return;
-          if (outcome.status === "not-checked") {
-            failed(sentence, outcome.stop.reason, null);
-            return;
-          }
-          if (outcome.status === "failed") {
-            const { reason, detail } = claimFailureOf(outcome.error);
-            failed(sentence, reason, detail);
-            return;
-          }
-          const at = options.now().toISOString();
-          if (outcome.value.verdict === "not-checked") {
-            failed(sentence, outcome.value.reason, outcome.value.detail);
-            return;
-          }
-          input.publish(
-            options.withResult(markOf(sentence), outcome.value, at),
-            positions.get(sentence) ?? 0,
-          );
+    for (const sentence of sentences) {
+      input.placeholder?.(markOf(sentence), positions.get(sentence) ?? 0);
+    }
+    try {
+      await runItems(
+        sentences.slice(0, SENTENCES_CHECKED_AT_MOST),
+        async (sentence) => {
+          const result = await checkWithin(sentence, input, used);
+          const failure = runFailureOf(result);
+          if (failure) throw new RunItemError(failure);
+          return result;
         },
-      },
-    );
-    if (input.signal.aborted) return;
-    for (const sentence of sentences.slice(SENTENCES_CHECKED_AT_MOST)) {
-      failed(sentence, "too-many", null);
+        {
+          concurrency: claimsAtOnce(prepared),
+          signal: input.signal,
+          onOutcome(sentence, outcome) {
+            if (input.signal.aborted || outcome.status === "stopped") return;
+            if (outcome.status === "not-checked") {
+              failed(sentence, outcome.stop.reason, null);
+              return;
+            }
+            if (outcome.status === "failed") {
+              const { reason, detail } = claimFailureOf(outcome.error);
+              failed(sentence, reason, detail);
+              return;
+            }
+            const at = options.now().toISOString();
+            if (outcome.value.verdict === "not-checked") {
+              failed(sentence, outcome.value.reason, outcome.value.detail);
+              return;
+            }
+            input.publish(
+              options.withResult(markOf(sentence), outcome.value, at),
+              positions.get(sentence) ?? 0,
+            );
+          },
+        },
+      );
+      if (input.signal.aborted) return;
+      for (const sentence of sentences.slice(SENTENCES_CHECKED_AT_MOST)) {
+        failed(sentence, "too-many", null);
+      }
+    } finally {
+      for (const sentence of sentences) input.discard?.(markOf(sentence).id);
     }
   };
 }
