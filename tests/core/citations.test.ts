@@ -229,7 +229,7 @@ describe("Answers cite Passages", { timeout: 30_000 }, () => {
     );
     expect(system).toMatch(/The User has added 1 Document /);
     expect(system).toContain(
-      "Row-specific numbers need the labelled row+revision, no bare values.",
+      "Revision worksheets need every item row and its revision, no bare values.",
     );
     // Short: it is sent with every Question.
     expect(system.length).toBeLessThan(5000);

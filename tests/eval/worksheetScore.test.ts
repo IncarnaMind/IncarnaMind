@@ -108,6 +108,16 @@ describe("revision worksheet row/role/revision scoring", () => {
     expect(score.weak).toEqual([]);
   });
 
+  test("accepts an A-labelled comparison", () => {
+    const score = scoreWorksheet(
+      run("Total [=3]\nSuperseded comparison [=6]", current, [
+        figure("Total kg", 3, [BEADS, WEIGHTS]),
+        figure("A total", 6, ["Glass beads 0.125 2 0.250", "TOTAL 0.400 kg"], 1),
+      ]),
+    );
+    expect(score.weak).toEqual([]);
+  });
+
   test("flags the false only-policy/limit conclusion", () => {
     const score = scoreWorksheet(run("Only the policy code and the load limit changed.", []));
     expect(score.falseOnly).toBe(true);

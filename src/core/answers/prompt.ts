@@ -438,7 +438,7 @@ export function notCitedNote(passages: string): string {
   return `A Passage marked cite="never" is from the User's own working file. Read it to understand the Question, but never cite it, never offer it as support for or agreement with another Document, and rest nothing on it: a record naming it is refused. Where only such a Passage states something, say in one sentence that only the User's own working file says it, with no marker.`;
 }
 
-const ROW_CONTEXT = "Row-specific numbers need the labelled row+revision, no bare values.";
+const ROW_CONTEXT = "Revision worksheets need every item row and its revision, no bare values.";
 
 const RECORD = `the Passage's id, where the quote is, and a short quote copied exactly from the Passage, without its marks. Where: the page, slide, section, or rows or lines the quote is in, or two in a row, written as the Passage names them (its pages or location, and marks where each new one starts, like [p. 4], [slide 4], [§ 2.1 Sensitivity], [Revenue, rows 2–41] or [lines 51–100]; name rows or lines more narrowly when you can, e.g. "Revenue, rows 12–14"). ${ROW_CONTEXT}`;
 

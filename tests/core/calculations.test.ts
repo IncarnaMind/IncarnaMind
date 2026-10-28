@@ -297,7 +297,7 @@ describe("The calculate Tool", { timeout: 60_000 }, () => {
     const tool = model.doStreamCalls[0]?.tools?.find((each) => each.name === "calculate");
     if (tool?.type !== "function") throw new Error("The calculate Tool is not a function tool.");
     expect(tool.description).toContain(
-      "Row-specific numbers need the labelled row+revision, no bare values.",
+      "Revision worksheets need every item row and its revision, no bare values.",
     );
     // The model is told what each came to, with the numbers it read, in one line each.
     expect(told(model, "calculate")).toEqual([
