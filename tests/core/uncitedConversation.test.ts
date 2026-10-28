@@ -74,6 +74,36 @@ describe("Uncited figures in a conversation Answer", () => {
     expect(marked).toBe(true);
   });
 
+  test("a small local model's warning survives persistence", async () => {
+    const model = modelWith(CLAIM, { [CLAIM]: { verdict: "supported", quote: QUOTE } });
+    const { core } = await setUpWithDocuments(model, [REPORT], {
+      ollamaModels: {
+        describe: async () => ({
+          digest: null,
+          capabilities: ["completion", "tools"],
+          contextLength: 32_768,
+          parameters: 4_500_000_000,
+          support: "tools",
+          chat: true,
+          remote: false,
+          settings: { numCtx: 32_768, outputTokens: 8_192, keepAlive: "5m", think: false },
+        }),
+        loaded: async () => null,
+        running: async () => true,
+      },
+    });
+    const ended = answerEndings(core);
+    const asked = await core.askInConversation({ text: "What was revenue?" });
+    if (!asked.asked) throw new Error("The Question wasn't asked.");
+
+    const outcome = await ended(asked.answerId);
+    const answer = answerOf(await core.getConversation(asked.conversation.id), asked.answerId);
+    expect(answer.errorMessage).toBeNull();
+    expect(outcome).toBe("finished");
+    expect(answer.claimChecks).toHaveLength(1);
+    expect(answer.steps?.smallModel).toBe(true);
+  });
+
   test("Stop after one background result keeps it and never checks the next", async () => {
     let release = () => {};
     const paused = new Promise<void>((resolve) => {

@@ -249,6 +249,7 @@ function storedSteps(value: string | null): AnswerSteps | null {
     notCitedAfterAsking,
     firstWordMs,
     careful,
+    smallModel,
     unbackedClaims,
     unrunTools,
     calculateUnavailable,
@@ -290,6 +291,7 @@ function storedSteps(value: string | null): AnswerSteps | null {
     ...(notCitedAfterAsking === true && { notCitedAfterAsking }),
     ...(typeof firstWordMs === "number" && firstWordMs >= 0 && { firstWordMs }),
     ...(careful === true && { careful }),
+    ...(smallModel === true && { smallModel }),
     ...(claimed.length > 0 && { unbackedClaims: claimed }),
     ...(unrun.length > 0 && {
       unrunTools: unrun,
