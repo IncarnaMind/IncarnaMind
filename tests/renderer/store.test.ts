@@ -1052,6 +1052,15 @@ describe("making a Folder", () => {
     expect(noteNow()).toBe("Kept the Folder “Untitled Folder”: you’ve filed things in it since.");
   });
 
+  test("a Folder only Organize has suggested into goes, and says nothing about being kept", async () => {
+    await useAppStore.getState().createFolder();
+    // A suggestion waiting in To review is Organize's, not something the User filed here.
+    withNewFolder(made.name, [{ ...assignment("later", "pending", "n"), suggested: true }]);
+    await useUndo.getState().undo();
+    expect(method("deleteLibraryGroup")).toHaveBeenCalledWith("n");
+    expect(noteNow()).toBeNull();
+  });
+
   test("the line says how many went in, in English and in Chinese", async () => {
     useAppStore.setState({ documents: [doc("a"), doc("b"), doc("c")] });
     method("moveToFolder").mockResolvedValue({

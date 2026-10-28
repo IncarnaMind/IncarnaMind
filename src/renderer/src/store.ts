@@ -668,7 +668,8 @@ export const useAppStore = create<AppState>()((set, get) => {
       core.listConversations(),
     ]);
     return (
-      library.assignments.some((each) => each.groupId === folderId) ||
+      // A Suggested Folder still in To review is Organize's, not something the User filed here.
+      library.assignments.some((each) => each.groupId === folderId && !each.suggested) ||
       minds.some((each) => each.folderId === folderId) ||
       conversations.some((each) => each.folderId === folderId)
     );
