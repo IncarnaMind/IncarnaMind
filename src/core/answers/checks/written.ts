@@ -12,7 +12,9 @@
  *   with Edit with AI's own request (`cut-unsupported`); the Citations stay on
  *   what is left, each word keeps its own formatting, and the sentence shows
  *   it needs a check again, as after the card's cut. A cut that would lose
- *   every Citation, or add one, isn't used.
+ *   every Citation, add one or leave no claim isn't used, nor one that does
+ *   more than take words out (#1397), nor one its Citations don't support once
+ *   cut: the sentence then lands as written, marked.
  * - A sentence the check covered, supported included, lands with its check's
  *   mark, so Check this Mind doesn't find it again later and the count that
  *   must close after a write counts it once (#1909).
@@ -244,9 +246,10 @@ function lettersOf(
   return { text, marks };
 }
 
-// A run of letters or digits, one Chinese, Japanese or Korean character, a run of spaces, or one mark.
-const TOKEN =
-  /[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Hangul}]|[\p{L}\p{N}]+|\s+|[^\s]/gu;
+// One Chinese, Japanese or Korean character, a run of letters or digits, or one mark.
+const WORD = String.raw`[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Hangul}]|[\p{L}\p{N}]+|[^\s]`;
+
+const TOKEN = new RegExp(`${WORD}|\\s+`, "gu");
 
 /**
  * The cut's words as text nodes, each word with the marks it had in the
@@ -271,7 +274,112 @@ function wordsWithMarks(words: string, letters: ReturnType<typeof lettersOf>): N
   return nodes;
 }
 
-/** Null when the cut keeps no Citation, adds or repeats one, or says nothing. */
+const PIECE = new RegExp(`\\[\\d{1,3}\\]|${WORD}`, "gu");
+
+const CITATION_PIECE = /^\[\d{1,3}\]$/;
+
+const STOP = /^[.!?。！？]$/u;
+
+const TRAILING_MARK = /^[,;:，；：、]$/u;
+
+const capitalised = (word: string) => `${word.charAt(0).toLocaleUpperCase()}${word.slice(1)}`;
+
+/**
+ * Whether each Citation still follows some of the words it was written after,
+ * those since the Citation before it, so none comes to back another part's
+ * words: a Citation goes only when all its words go too. Citations side by
+ * side share the words before them.
+ */
+function citationsKeepTheirWords(pieces: readonly string[], kept: ReadonlySet<number>): boolean {
+  let ownKept = false;
+  let afterCitation = false;
+  for (const [at, piece] of pieces.entries()) {
+    if (CITATION_PIECE.test(piece)) {
+      if (kept.has(at) !== ownKept) return false;
+      afterCitation = true;
+      continue;
+    }
+    if (afterCitation) {
+      ownKept = false;
+      afterCitation = false;
+    }
+    if (kept.has(at) && /[\p{L}\p{N}]/u.test(piece)) ownKept = true;
+  }
+  return true;
+}
+
+/** The sentence's own full stop, looking back past any Citations written after it, or -1. */
+function stopOf(pieces: readonly RegExpExecArray[]): number {
+  let at = pieces.length - 1;
+  while (at >= 0 && CITATION_PIECE.test(pieces[at]?.[0] ?? "")) at--;
+  return at >= 0 && STOP.test(pieces[at]?.[0] ?? "") ? at : -1;
+}
+
+/**
+ * The passage with only what the cut left out taken out (#1397): each word,
+ * mark and marker it keeps, and the spaces between them, as the passage has
+ * them; where words went, a space if the cut has one there; and its own full
+ * stop, in its place. Null when the cut rewords, reorders or adds anything,
+ * keeps a Citation but none of its words, or takes nothing out.
+ */
+function takenOut(passage: string, cut: string): string | null {
+  const pieces = [...passage.matchAll(PIECE)];
+  const keptAt = new Set<number>();
+  const spaced = new Set<number>();
+  let last = -1;
+  let cutAt = 0;
+  for (const wanted of cut.matchAll(PIECE)) {
+    const [text] = wanted;
+    // With the first words gone, the sentence may start with the next one's capital.
+    const fits = (piece: string) => piece === text || (last < 0 && capitalised(piece) === text);
+    let at = last + 1;
+    while (at < pieces.length && !fits(pieces[at]?.[0] ?? "")) at++;
+    const piece = pieces[at];
+    if (!piece) return null;
+    if (last >= 0 && at > last + 1 && /\s/u.test(cut.slice(cutAt, wanted.index))) spaced.add(at);
+    last = at;
+    keptAt.add(at);
+    cutAt = wanted.index + text.length;
+  }
+  if (keptAt.size === 0) return null;
+  const stop = stopOf(pieces);
+  if (stop >= 0 && !keptAt.has(stop)) {
+    keptAt.add(stop);
+    const before = [...keptAt].filter((at) => at < stop).sort((a, b) => b - a)[0];
+    // The stop takes the place of a comma or colon the cut kept before it.
+    if (before !== undefined && TRAILING_MARK.test(pieces[before]?.[0] ?? ""))
+      keptAt.delete(before);
+  }
+  if (keptAt.size === pieces.length) return null;
+  if (
+    !citationsKeepTheirWords(
+      pieces.map(([piece]) => piece),
+      keptAt,
+    )
+  )
+    return null;
+  let kept = "";
+  let previous = -1;
+  for (const at of [...keptAt].sort((a, b) => a - b)) {
+    const piece = pieces[at];
+    if (!piece) return null;
+    const after = pieces[previous];
+    if (after) {
+      kept +=
+        at === previous + 1
+          ? passage.slice(after.index + after[0].length, piece.index)
+          : spaced.has(at)
+            ? " "
+            : "";
+    }
+    // A sentence whose first words went starts with the next word's capital.
+    kept += previous < 0 && at > 0 ? capitalised(piece[0]) : piece[0];
+    previous = at;
+  }
+  return kept;
+}
+
+/** Null when the cut keeps no Citation, adds or repeats one, or leaves no claim of its own (a label, as in "Crime:"). */
 function cutNodes(
   cut: string,
   sentence: readonly number[],
@@ -291,8 +399,7 @@ function cutNodes(
     last = at + match[0].length;
   }
   nodes.push(...wordsWithMarks(cut.slice(last), letters));
-  const said = cut.replace(MARKER, "").trim();
-  return used.size === 0 || !/[\p{L}\p{N}]/u.test(said) ? null : nodes;
+  return used.size === 0 || !isClaim(cut.replace(MARKER, "")) ? null : nodes;
 }
 
 interface Landing {
@@ -427,9 +534,11 @@ const notChecked = (
 export function createWrittenCheck(options: WrittenCheckOptions) {
   async function cutOf(
     blocks: readonly NodeJSON[],
+    mindId: string,
     sentence: Sentence,
     uncovered: string,
     prepared: PreparedChatModel,
+    scope: CheckScope,
     signal: AbortSignal,
   ): Promise<NodeJSON[] | null> {
     const content = paragraphAt(blocks, sentence.path)?.content ?? [];
@@ -446,11 +555,26 @@ export function createWrittenCheck(options: WrittenCheckOptions) {
       },
       signal,
     );
-    if (cut === null || cut.replace(/\s+/g, " ") === marked.passage.replace(/\s+/g, " ")) {
-      return null;
-    }
+    const kept = cut === null ? null : takenOut(marked.passage, cut);
+    if (kept === null) return null;
     const letters = lettersOf(content, sentence.from, sentence.to);
-    return cutNodes(cut.trim(), numbers, marked.citations, letters);
+    const nodes = cutNodes(kept, numbers, marked.citations, letters);
+    if (!nodes) return null;
+    // Words a cut takes out must not change what the sentence says, so the cut is checked once, as it would land.
+    const cited = [...kept.matchAll(MARKER)].flatMap((match) => {
+      const node = marked.citations.get(Number(match[1]));
+      const quote = node ? quoteOf(node) : null;
+      return quote ? [quote] : [];
+    });
+    const checked = await checkWithin(
+      { ...sentence, text: kept.replace(MARKER, INLINE_NODE), cited },
+      mindId,
+      scope,
+      prepared,
+      signal,
+    );
+    recordJudged(options.recordAiUse, mindId, prepared, checked, options.now().toISOString());
+    return checked.verdict === "supported" ? nodes : null;
   }
 
   /** One sentence's check, given up on once it takes longer than the time limit. */
@@ -517,7 +641,9 @@ export function createWrittenCheck(options: WrittenCheckOptions) {
           result.verdict === "unsupported" && result.unsupported?.covered
             ? result.unsupported.uncovered
             : null;
-        const nodes = uncovered ? await cutOf(blocks, sentence, uncovered, prepared, signal) : null;
+        const nodes = uncovered
+          ? await cutOf(blocks, mindId, sentence, uncovered, prepared, scope, signal)
+          : null;
         return { result, uncovered, nodes };
       },
       { concurrency: claimsAtOnce(prepared), signal },

@@ -77,7 +77,11 @@ export function sayWhenOrganized(
         also: {
           label: (t) => t("library.review.review"),
           testId: "undo-review",
-          run: () => useAppStore.getState().openLibrary("review"),
+          // The line has done its job once To review is open.
+          run: () => {
+            useUndo.getState().dismiss();
+            useAppStore.getState().openLibrary("review");
+          },
         },
       }),
       undo: async () => {

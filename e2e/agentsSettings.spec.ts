@@ -419,6 +419,8 @@ test("Disconnect takes away the settings file Connect made, and the agent stays 
     const page = await openSettings(window, "agents");
     await page.getByTestId("agents-enabled").click();
     const list = page.getByTestId("agents-list");
+    // The list is drawn when the core answers, not with the click.
+    await expect(list.getByTestId("agent-client").first()).toBeVisible();
     const order = () =>
       list
         .getByTestId("agent-client")
