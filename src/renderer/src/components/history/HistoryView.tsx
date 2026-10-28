@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { CheckpointList, MindComparison } from "../../../../core/api";
 import { mindName } from "../../../../shared/naming";
 import { core } from "../../core";
@@ -14,8 +14,9 @@ import { UndoLineAt } from "../UndoLine";
 import { buttonStyle, iconButtonClass } from "../ui";
 import { useModal } from "../useModal";
 import { ComparedRows } from "./ComparedRows";
-import { HISTORY_UNDO_PLACE, VersionName } from "./VersionName";
+import { VersionName } from "./VersionName";
 import { VersionPicker } from "./VersionPicker";
+import { HISTORY_UNDO_PLACE } from "./versionNames";
 
 /** How long the Mind stays unchanged before a comparison with now is made again. */
 const REFRESH_MS = 300;
@@ -48,6 +49,24 @@ function History({ mindId, onClose }: { mindId: string; onClose(): void }) {
   const [problem, setProblem] = useState<string | null>(null);
   const [restoring, setRestoring] = useState(false);
   const [naming, setNaming] = useState(false);
+  /** What had the focus when naming began, and the name's own button: where Enter and Esc go back to. */
+  const namingFrom = useRef<HTMLElement | null>(null);
+  const nameButton = useRef<HTMLButtonElement>(null);
+  const startNaming = () => {
+    const active = document.activeElement;
+    namingFrom.current = active instanceof HTMLElement ? active : null;
+    setNaming(true);
+  };
+  const wasNaming = useRef(false);
+  useLayoutEffect(() => {
+    // The field went with the focus in it (Enter or Esc), not by a click elsewhere, which keeps it.
+    const lost = document.activeElement === null || document.activeElement === document.body;
+    if (wasNaming.current && !naming && lost) {
+      const from = namingFrom.current;
+      (from?.isConnected ? from : nameButton.current)?.focus();
+    }
+    wasNaming.current = naming;
+  }, [naming]);
   /** Set when a new pair of versions is chosen, so their first change is scrolled to once. */
   const scrollPending = useRef(true);
 
@@ -184,7 +203,7 @@ function History({ mindId, onClose }: { mindId: string; onClose(): void }) {
               setNaming(false);
               setLeft(id);
             }}
-            onRename={leftCheckpoint ? () => setNaming(true) : undefined}
+            onRename={leftCheckpoint ? startNaming : undefined}
             disabled={list !== null && checkpoints.length === 0}
           />
         </div>
@@ -236,7 +255,8 @@ function History({ mindId, onClose }: { mindId: string; onClose(): void }) {
               mindId={mindId}
               checkpoint={leftCheckpoint}
               naming={naming}
-              onNaming={setNaming}
+              button={nameButton}
+              onNaming={(next) => (next ? startNaming() : setNaming(false))}
               onNamed={(named) =>
                 setList(
                   (shown) =>

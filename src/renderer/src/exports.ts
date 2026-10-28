@@ -103,6 +103,8 @@ export type ExportResult = { tableId?: string } & (
       kept: ("header" | "footer")[];
       /** The Documents whose entries are too thin to cite, marked so in the file. */
       needsDetails: string[];
+      /** Whether History kept the Note as it was sent (#1933): false says it couldn't. */
+      sentKept: boolean;
       /** The first save, which took Documents › IncarnaMind: the line says where. */
       defaulted: boolean;
       /** The Citations in the file, and the Documents they cite. */
@@ -293,6 +295,7 @@ function savedResult(
       tracked: "trackedChanges" in saved ? saved.trackedChanges : 0,
       kept: "word" in saved ? (saved.word?.keptFurniture ?? []) : [],
       needsDetails: "needsDetails" in saved ? saved.needsDetails : [],
+      sentKept: "sentKept" in saved ? saved.sentKept : true,
       defaulted: saved.file.defaulted,
       citations: "citations" in saved ? saved.citations : 0,
       citedDocuments: "citedDocuments" in saved ? saved.citedDocuments : 0,

@@ -8,14 +8,14 @@ import {
   figureSignOffBasis,
   signOffsOf,
 } from "../../src/shared/signOffs";
-import { createTempDataFolder, startCore } from "../helpers/core";
+import { createTempDataFolder, queryDatabase, startCore } from "../helpers/core";
 import { connectToMind } from "../helpers/mindClient";
 import { note, readMind, writeMind } from "../helpers/minds";
 
 /*
  * The User's own "Checked by me" through the core (#1933): a figure's mark rests on what it was
  * checked against, the version kept as the Note was sent is the one the file holds, and a
- * restore never changes the marks. Cases from Codex2's review of #2144, in English and Chinese.
+ * restore never changes the marks. In English and Chinese.
  */
 
 for (const language of ["en", "zh-CN"] as const) {
@@ -254,3 +254,24 @@ for (const language of ["en", "zh-CN"] as const) {
     expect(identities.has(held[0]?.target.id ?? "")).toBe(true);
   });
 }
+
+// protects=when History can't keep the Note as it was sent, the file is still saved and the result says so, so the User learns it where it happened (#1933); fails_when=the save reports nothing wrong; no_claim=why storage refused.
+test("a sent version History couldn't keep is said with the saved file", async () => {
+  const dataDir = await createTempDataFolder();
+  const core = startCore(dataDir);
+  await core.setOutputLocation(await createTempDataFolder());
+  const mind = await core.createMind({ title: "Sent content" });
+  const client = await connectToMind(core, mind.id);
+  writeMind(client, [note("Approved revenue is ten.")]);
+  await client.settled();
+  queryDatabase(
+    dataDir,
+    `CREATE TRIGGER refuse_sent BEFORE INSERT ON mind_checkpoints WHEN NEW.reason = 'export'
+     BEGIN SELECT RAISE(ABORT, 'storage refused the write'); END`,
+  );
+
+  const sent = await core.saveMindExport(mind.id, { format: "docx" });
+
+  expect(sent).toMatchObject({ status: "saved", sentKept: false });
+  expect((await core.listCheckpoints(mind.id)).checkpoints).toEqual([]);
+});

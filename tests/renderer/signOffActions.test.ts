@@ -14,8 +14,9 @@ import { boundEditor, headlessEditor } from "../helpers/editor";
 import { connectToMind } from "../helpers/mindClient";
 import { writeMind } from "../helpers/minds";
 
+const store = vi.hoisted(() => ({ documents: [] as { id: string; contentHash: string }[] }));
 vi.mock("../../src/renderer/src/store", () => ({
-  useAppStore: { getState: () => ({ documents: [], settings: null }) },
+  useAppStore: { getState: () => ({ documents: store.documents, settings: null }) },
 }));
 
 /*
@@ -93,6 +94,45 @@ describe("Checked by me on a Citation", () => {
     expect(now()).toMatchObject({ state: "checked" });
     toggleCitationSignOff(editor, citationAt(editor).pos, signer);
     expect(signOffsOf(doc)).toEqual([]);
+  });
+
+  // protects=a mark made now is checked now: a Citation kept at its Document's first version while a newer one is current reads checked once the User marks it, and changed only when a version newer than that comes (#1933), in English and Chinese; fails_when=the fresh mark reads changed; no_claim=Keep citing the old version itself.
+  test.each([
+    ["en", "Spring tides come at new moon"],
+    ["zh-CN", "大潮出现在新月时"],
+  ])("a fresh mark on a Citation of an older version is checked (%s)", async (_, words) => {
+    const core = startCore(await createTempDataFolder());
+    const mind = await core.createMind({ title: "Tides" });
+    const client = await connectToMind(core, mind.id);
+    writeMind(client, [
+      {
+        type: "paragraph",
+        attrs: { id: "p1" },
+        content: [{ type: "text", text: words }, cited(), { type: "text", text: "." }],
+      },
+    ]);
+    await client.settled();
+    const editor = boundEditor(client);
+    const doc = noteDocOf(editor);
+    if (!doc) throw new Error("The editor isn't bound to the Note.");
+    store.documents = [{ id: "document-1", contentHash: "v2" }];
+    try {
+      toggleCitationSignOff(editor, citationAt(editor).pos, signer);
+      const { pos } = citationAt(editor);
+      const shown = (versions: Map<string, string>) =>
+        citationSignOff(
+          signOffsOf(doc),
+          editor.state.doc,
+          pos,
+          (editor.state.doc.nodeAt(pos)?.attrs ?? {}) as CitationAttributes,
+          versions,
+          "person-1",
+        )?.state;
+      expect(shown(new Map([["document-1", "v2"]]))).toBe("checked");
+      expect(shown(new Map([["document-1", "v3"]]))).toBe("changed");
+    } finally {
+      store.documents = [];
+    }
   });
 
   // protects=a marked Citation copied and pasted beside itself is a Citation of its own, with no id, so the mark never moves to the copy; one cut and pasted, or dragged, keeps its id and the mark (#1933); fails_when=a copy shares the id; no_claim=pastes from other apps.

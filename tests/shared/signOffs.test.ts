@@ -121,7 +121,7 @@ describe("The User's own check marks", () => {
     ).toBe(0);
   });
 
-  // protects=once an edit gives a figure a new id, the mark kept on it is the User's own, as on its own id, never another person's newer one (Codex2's review of #2144); fails_when=the other person's mark is shown as the User's; no_claim=sharing itself.
+  // protects=once an edit gives a figure a new id, the mark kept on it is the User's own, as on its own id, never another person's newer one (#1933); fails_when=the other person's mark is shown as the User's; no_claim=sharing itself.
   test("an edited figure keeps the User's own mark before another person's newer one", () => {
     const before = textFigure("p1", "Revenue rose 5%.", 13, "5%");
     const after = textFigure("p1", "Group revenue rose 5%.", 19, "5%");

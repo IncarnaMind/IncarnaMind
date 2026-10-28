@@ -18,12 +18,14 @@ import {
   checkedByMe,
   citationSignOffBasis,
   figureSignOffBasis,
+  figureSignOffSources,
   removeSignOff,
   type SignOffRecord,
   signOffNow,
   signOffOn,
   signOffShown,
   signOffsOf,
+  versionsOf,
 } from "../../../shared/signOffs";
 import { translateNow } from "../i18n";
 import type { WordsInLine } from "../lineNames";
@@ -165,7 +167,17 @@ export function useSignOffCounts(editor: Editor): { checked: number; changed: nu
   });
 }
 
-const markBy = (target: SignOffTarget, contentHash: string, signer: Signer): SignOffRecord => ({
+/** The live Documents' versions now, by id. */
+const liveVersions = () =>
+  new Map(useAppStore.getState().documents.map((each) => [each.id, each.contentHash]));
+
+/** A mark made now: on what it rests on now, and its sources' versions now. */
+const markBy = (
+  target: SignOffTarget,
+  contentHash: string,
+  sources: readonly { documentId?: string | null }[],
+  signer: Signer,
+): SignOffRecord => ({
   id: crypto.randomUUID(),
   target,
   at: new Date().toISOString(),
@@ -173,6 +185,7 @@ const markBy = (target: SignOffTarget, contentHash: string, signer: Signer): Sig
   deletedAt: null,
   name: signer.name,
   personId: signer.personId,
+  versions: versionsOf(sources, liveVersions()),
 });
 
 /** Makes `change` to the Note's marks one step of the note's Undo, with its line. */
@@ -229,15 +242,12 @@ export function toggleCitationSignOff(editor: Editor, pos: number, signer: Signe
   const node = editor.state.doc.nodeAt(pos);
   if (!doc || node?.type.name !== CITATION_NODE) return;
   const attributes = node.attrs as CitationAttributes;
-  const versions = new Map(
-    useAppStore.getState().documents.map((each) => [each.id, each.contentHash]),
-  );
   const now = citationSignOff(
     signOffsOf(doc),
     editor.state.doc,
     pos,
     attributes,
-    versions,
+    liveVersions(),
     signer.personId,
   );
   const id = typeof attributes.id === "string" ? attributes.id : crypto.randomUUID();
@@ -250,22 +260,24 @@ export function toggleCitationSignOff(editor: Editor, pos: number, signer: Signe
       if (attributes.id !== id)
         editor.view.dispatch(editor.state.tr.setNodeMarkup(pos, undefined, { ...attributes, id }));
       removeSignOff(note, target, new Date().toISOString(), signer.personId);
-      if (!off) addSignOff(note, markBy(target, basis, signer));
+      if (!off) addSignOff(note, markBy(target, basis, [attributes], signer));
     },
     (t) => t(off ? "signOff.removed" : "signOff.added"),
   );
 }
 
-/** A figure to mark: its id, what its mark rests on now, and the mark it has. */
+/** A figure to mark: its id, what its mark rests on now, the Citations it rests on, and its mark. */
 export interface FigureMark {
   id: string;
   basis: string;
+  sources: readonly { documentId?: string | null }[];
   now: SignOffNow | null;
 }
 
 export const figureMarkOf = (row: FigureScheduleRow): FigureMark => ({
   id: row.id,
   basis: figureSignOffBasis(row),
+  sources: figureSignOffSources(row),
   now: row.signOff,
 });
 
@@ -297,7 +309,10 @@ export function setFigureSignOffs(
       for (const figure of chosen) {
         if (figure.now?.mine) removeSignOff(marks, figure.now.target, at, signer.personId);
         if (!off)
-          addSignOff(marks, markBy({ kind: "figure", id: figure.id }, figure.basis, signer));
+          addSignOff(
+            marks,
+            markBy({ kind: "figure", id: figure.id }, figure.basis, figure.sources, signer),
+          );
       }
     },
     (t) =>

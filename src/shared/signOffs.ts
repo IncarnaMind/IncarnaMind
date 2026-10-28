@@ -35,6 +35,8 @@ export interface SignOffRecord {
   name?: string;
   /** The person, the same on every device they use. */
   personId?: string;
+  /** Each source Document's version when they checked it, by id: a newer one since changes it. */
+  versions?: Readonly<Record<string, string>>;
 }
 
 /** How a person's mark on an item shows now. */
@@ -67,8 +69,24 @@ export function readSignOff(value: unknown): SignOffRecord | null {
     deletedAt: value.deletedAt,
     ...(text(value.name) && { name: value.name }),
     ...(text(value.personId) && { personId: value.personId }),
+    ...(isVersions(value.versions) && { versions: value.versions }),
   };
 }
+
+const isVersions = (value: unknown): value is Record<string, string> =>
+  isRecord(value) && Object.values(value).every(text);
+
+/** The source Documents' versions now, for a mark made now: what a newer one is newer than. */
+export const versionsOf = (
+  sources: readonly { documentId?: string | null }[],
+  versions: ReadonlyMap<string, string>,
+): Record<string, string> =>
+  Object.fromEntries(
+    sources.flatMap(({ documentId }) => {
+      const now = typeof documentId === "string" ? versions.get(documentId) : undefined;
+      return documentId && now ? [[documentId, now] as const] : [];
+    }),
+  );
 
 const keyOf = (target: SignOffTarget) => `${target.kind}:${target.id}`;
 
@@ -209,7 +227,8 @@ export const figureSignOffSources = (
 
 /**
  * How a sign-off shows: checked while what it rests on is as it was, else changed. `versions`
- * are each live Document's version now; a source quoted at an older one has changed too.
+ * are each live Document's version now: one newer than when the person checked it changes it
+ * (than the version quoted, where the mark kept none), and one not known yet doesn't.
  */
 export function signOffShown(
   record: SignOffRecord,
@@ -217,13 +236,11 @@ export function signOffShown(
   sources: readonly { documentId?: string | null; contentHash?: string | null }[],
   versions: ReadonlyMap<string, string> | null,
 ): SignOffShown {
-  const newer = sources.some(
-    ({ documentId, contentHash }) =>
-      versions !== null &&
-      typeof documentId === "string" &&
-      versions.has(documentId) &&
-      versions.get(documentId) !== contentHash,
-  );
+  const newer = sources.some(({ documentId, contentHash }) => {
+    const now = typeof documentId === "string" ? versions?.get(documentId) : undefined;
+    if (!documentId || now === undefined) return false;
+    return now !== (record.versions?.[documentId] ?? contentHash);
+  });
   return record.contentHash === basisNow && !newer
     ? { state: "checked", record }
     : { state: "changed", record };

@@ -8362,10 +8362,16 @@ export interface MindExport extends MindExportPreview {
 /** What `saveMindExport` did. */
 export type SavedMindExport =
   /** Saved, with what it holds, so the result line can say how many quotes weren't found. */
-  | ({ status: "saved"; file: SavedFile; word: WordExportReport | null } & Omit<
-      MindExportPreview,
-      "fileName" | "fromWord" | "theirChanges"
-    > &
+  | ({
+      status: "saved";
+      file: SavedFile;
+      word: WordExportReport | null;
+      /**
+       * For Word and PDF, whether History kept the Note as it was sent (#1933); false when it
+       * couldn't, which the result line says. True for the other formats.
+       */
+      sentKept: boolean;
+    } & Omit<MindExportPreview, "fileName" | "fromWord" | "theirChanges"> &
       Pick<
         MindExport,
         | "sentenceChecks"

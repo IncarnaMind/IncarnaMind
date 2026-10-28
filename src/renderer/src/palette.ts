@@ -35,6 +35,7 @@ import {
 } from "./commands/registry";
 import { useComposer } from "./composer";
 import { conversationLabel, openConversation } from "./conversations";
+import { figureHandle } from "./editor/figureHandle";
 import { noteHolding } from "./editor/noteKeymap";
 import { cursorAtBlock } from "./editor/notePlace";
 import { type FindableKind, type FoundObject, findable } from "./finding";
@@ -83,6 +84,7 @@ function acting(
       "mind.moveTo": moveTo,
       "document.moveTo": moveTo,
       ...citationHandle.current?.here(),
+      ...figureHandle.current?.here(),
       ...here,
     },
   };

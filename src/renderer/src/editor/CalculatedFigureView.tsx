@@ -13,6 +13,7 @@ import { checkedByMe } from "../../../shared/signOffs";
 import { useMindFormatting } from "../citationFormatting";
 import { useStyleCatalogue } from "../citationStylePicker";
 import { registerMenu } from "../commands/menus";
+import type { CommandContext } from "../commands/registry";
 import { ObjectMenu, useObjectMenu } from "../components/ObjectMenu";
 import { copyText } from "../copied";
 import { useT } from "../i18n";
@@ -119,6 +120,7 @@ export function CalculatedFigureView({
     copyFormula,
     convertToText: () => edit(true),
     remove: () => edit(false),
+    here: () => hereRef.current,
   };
   const latest = useRef(actions);
   latest.current = actions;
@@ -131,6 +133,7 @@ export function CalculatedFigureView({
       copyFormula: () => latest.current.copyFormula(),
       convertToText: () => latest.current.convertToText(),
       remove: () => latest.current.remove(),
+      here: () => hereRef.current,
     };
     figureHandle.current = active;
     return () => {
@@ -169,6 +172,8 @@ export function CalculatedFigureView({
       "figure.remove": actions.remove,
     }),
   };
+  const hereRef = useRef<CommandContext["here"]>(here);
+  hereRef.current = here;
   if (!attributes)
     return (
       <NodeViewWrapper as="span" contentEditable={false}>

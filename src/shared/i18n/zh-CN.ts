@@ -5688,6 +5688,7 @@ export const zhCN = {
   "history.reason.restore": "恢复版本前",
   "history.reason.export.docx": "已导出 Word · {file}",
   "history.reason.export.pdf": "已导出 PDF · {file}",
+  "export.sentNotKept": "历史记录未能保存这次导出的版本。",
   "history.name.add": "为此版本命名",
   "history.name.label": "此版本的名称",
   "history.named": "已将此版本命名为“{name}”",

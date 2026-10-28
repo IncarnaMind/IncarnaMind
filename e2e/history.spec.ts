@@ -243,6 +243,8 @@ for (const language of ["en", "zh-CN"] as const) {
     await window.keyboard.press("Enter");
     const named = language === "en" ? "Filed draft" : "已提交的草稿";
     await expect(name).toHaveText(named);
+    // Enter keeps the focus on the name it saved, never on the page behind.
+    await expect(name).toBeFocused();
     await expect(picker).toContainText(named);
     await screenshot(window, `history-named-${language}`);
     await expect(history.getByTestId("undo-line-here").getByTestId("undo-message")).toHaveText(
@@ -258,6 +260,8 @@ for (const language of ["en", "zh-CN"] as const) {
     await expect(field).toBeFocused();
     await window.keyboard.press("Escape");
     await expect(name).toHaveText(t("history.name.add"));
+    // Esc goes back to where naming began: the picker.
+    await expect(picker).toBeFocused();
     await expect(history).toBeVisible();
   });
 }

@@ -1,11 +1,8 @@
+import type { RefObject } from "react";
 import type { Checkpoint } from "../../../../core/api";
-import { core } from "../../core";
 import { useT } from "../../i18n";
-import { useUndo } from "../../undo";
 import { InlineName } from "../InlineName";
-
-/** Where History shows the line of a name it gave, so ⌘Z there takes it back (`UndoLineAt`). */
-export const HISTORY_UNDO_PLACE = "history";
+import { renameVersion } from "./versionNames";
 
 /**
  * The chosen version's name, typed where it is shown (#1933): its name, or "Name this version",
@@ -15,31 +12,20 @@ export function VersionName({
   mindId,
   checkpoint,
   naming,
+  button,
   onNaming,
   onNamed,
 }: {
   mindId: string;
   checkpoint: Checkpoint;
   naming: boolean;
+  button: RefObject<HTMLButtonElement | null>;
   onNaming(naming: boolean): void;
   /** The version with its new name, shown at once while History reads its versions again. */
   onNamed(checkpoint: Checkpoint): void;
 }) {
   const t = useT();
-  const rename = async (name: string | null) => {
-    const before = checkpoint.name;
-    onNamed(await core.renameCheckpoint(mindId, checkpoint.id, name));
-    useUndo.getState().push({
-      said: (say) => (name ? say("history.named", { name }) : say("history.unnamed")),
-      shownAt: HISTORY_UNDO_PLACE,
-      undo: async () => {
-        await core.renameCheckpoint(mindId, checkpoint.id, before);
-      },
-      redo: async () => {
-        await core.renameCheckpoint(mindId, checkpoint.id, name);
-      },
-    });
-  };
+  const rename = (name: string | null) => renameVersion(mindId, checkpoint, name, onNamed);
   if (naming)
     return (
       <InlineName
@@ -59,6 +45,7 @@ export function VersionName({
     );
   return (
     <button
+      ref={button}
       type="button"
       data-testid="history-name"
       data-named={checkpoint.name !== null || undefined}

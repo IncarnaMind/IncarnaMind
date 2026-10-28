@@ -4754,15 +4754,21 @@ export function createCore(adapters: CoreAdapters): Core {
       );
       if (saved.status !== "saved") return saved;
       // Sent as Word or PDF (#1933): History keeps the Note as it went, with the file's name.
+      let sentKept = true;
       if (read && (options.format === "docx" || options.format === "pdf")) {
         try {
           checkpoints.sent(mindId, saved.file.name, read);
         } catch (error) {
-          console.error("export: the Note as it was sent couldn't be kept in History", error);
+          // The file is saved all the same: the result line says History couldn't keep it.
+          sentKept = false;
+          console.error(
+            `export: History couldn't keep Mind ${mindId} as it was sent as ${saved.file.name}`,
+            error,
+          );
         }
       }
       await rememberExportChoices(counts, null);
-      return { ...saved, ...counts, word };
+      return { ...saved, ...counts, word, sentKept };
     },
     saveCheckRecord: async (mindId) => {
       const saved: { format: CheckRecordFormat; file: SavedFile }[] = [];

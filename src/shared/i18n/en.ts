@@ -5974,6 +5974,7 @@ export const en = {
   "history.reason.restore": "before restoring a version",
   "history.reason.export.docx": "sent as Word · {file}",
   "history.reason.export.pdf": "sent as PDF · {file}",
+  "export.sentNotKept": "History couldn’t keep this version as it was sent.",
   "history.name.add": "Name this version",
   "history.name.label": "Name of this version",
   "history.named": "Named the version “{name}”",
