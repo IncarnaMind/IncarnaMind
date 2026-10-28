@@ -16,6 +16,7 @@ import {
   setWindowSize,
   useLocalChatModel,
   useOutputLocation,
+  WORD_KEY,
 } from "./app";
 
 /*
@@ -1290,7 +1291,8 @@ test("a column moves by menu, keys and drag, and hides and shows from the table'
 
   // The same from the heading's own keys, and from ⌘K.
   await headingAt(table, 0).focus();
-  await window.keyboard.press("Alt+Shift+ArrowRight");
+  // ⌥⇧→ on macOS, Ctrl+Shift+→ elsewhere, as the heading binds them.
+  await window.keyboard.press(`${WORD_KEY}+Shift+ArrowRight`);
   await expect(window.getByTestId("undo-message")).toContainText("Moved “Termination notice”");
   await expect.poll(orderOf).toEqual(["Liability cap", "Termination notice"]);
   await window.getByTestId("mind-editor").first().focus();
