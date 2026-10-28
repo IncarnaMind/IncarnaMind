@@ -4625,6 +4625,11 @@ export interface ComparisonFilling extends ComparisonTableRef {
   filling: boolean;
 }
 
+/** A comparison table whose structure the core is writing ("comparison.structure"). */
+export interface ComparisonStructureWriting extends ComparisonTableRef {
+  writing: boolean;
+}
+
 /**
  * Where a Task (CONTEXT.md, #126) is:
  * - "running": doing its steps, or waiting for its turn behind an Answer or a
@@ -10995,6 +11000,8 @@ export interface CoreEvents {
   "answer.failed": AnswerFailed;
   /** A comparison table's cells started or stopped being filled. */
   "comparison.filling": ComparisonFilling;
+  /** A column of a comparison table is being written: every window holds its edits until it lands. */
+  "comparison.structure": ComparisonStructureWriting;
   /** A Task started, moved on, waits for the User, paused, resumed or finished. */
   "task.changed": Task;
   /** A Task's notification was clicked: the window opens its Mind, with its row in the tray. */

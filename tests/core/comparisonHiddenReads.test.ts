@@ -7,6 +7,7 @@ import { describe, expect, test } from "vitest";
 import * as Y from "yjs";
 import { createElement, type NodeJSON } from "../../src/core/answers/blocks";
 import { readMind } from "../../src/core/answers/context";
+import { compareVersions } from "../../src/core/checkpoints/compare";
 import { blocksText } from "../../src/core/exports/comparisonSheet";
 import { type Footnote, readBlock, readBlocks, reviewReading } from "../../src/core/mindText";
 
@@ -112,5 +113,38 @@ describe("A comparison table's reader, when cells and Questions are stored in an
     const text = blocksText(blocks);
     expect(text).toContain("the notice\tthe cap");
     expect(text).not.toContain("the cap\tthe notice");
+  });
+});
+
+describe("A checkpoint comparison of a table with a hidden column", () => {
+  const version = (hidden: boolean): Y.XmlFragment => {
+    const doc = new Y.Doc();
+    const fragment = doc.getXmlFragment("content");
+    fragment.push([
+      createElement({
+        type: "comparisonTable",
+        attrs: {
+          id: "table-1",
+          questions: [
+            { id: "q1", text: "Notice" },
+            { id: "q2", text: "Liability cap", ...(hidden && { hidden: true }) },
+          ],
+        },
+        content: [
+          {
+            type: "comparisonRow",
+            attrs: { documentId: "doc", documentName: "Acme" },
+            content: [answer("q1", "90 days"), answer("q2", "12 months")],
+          },
+        ],
+      }),
+    ]);
+    return fragment;
+  };
+
+  test("hiding a column changes nothing the comparison reads", () => {
+    const comparison = compareVersions(version(false), version(true));
+    expect(comparison.rows.every((row) => !row.changed)).toBe(true);
+    expect(JSON.stringify(comparison.rows)).toContain("12 months");
   });
 });

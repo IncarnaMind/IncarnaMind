@@ -15,6 +15,7 @@ import type {
 import { MAX_COMPARISON_DOCUMENTS } from "../../shared/comparisons";
 import { leftOutOfEvidence } from "../../shared/evidence";
 import { startingChecks } from "./compareScope";
+import { useComparisonColumns } from "./comparisonColumnState";
 import { core } from "./core";
 import { currentMindIdOf } from "./layoutSlice";
 import type { ObjectRef } from "./objects";
@@ -246,6 +247,11 @@ const setFilling = (tableId: string, filling: boolean) =>
   });
 
 core.on("comparison.filling", ({ tableId, filling }) => setFilling(tableId, filling));
+
+// A column change is written by the core: every window holds the table's edits until it lands.
+core.on("comparison.structure", ({ tableId, writing }) =>
+  useComparisonColumns.getState().setBusy(tableId, writing),
+);
 
 let fillingAsked = false;
 

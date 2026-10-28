@@ -169,7 +169,10 @@ export interface ComparisonsOptions {
   /** Saves a Checkpoint of the Mind as it is before the table goes in (#113). */
   checkpoint(mindId: string): void;
   tasks: ComparisonTasks;
-  emit<E extends "comparison.filling">(event: E, payload: CoreEvents[E]): void;
+  emit<E extends "comparison.filling" | "comparison.structure">(
+    event: E,
+    payload: CoreEvents[E],
+  ): void;
   reportError(error: unknown): void;
 }
 
@@ -1053,9 +1056,19 @@ export function createComparisons(options: ComparisonsOptions) {
     });
   }
 
-  function queued<T>(tableId: string, run: () => T): Promise<T> {
+  function queued<T>(mindId: string, tableId: string, run: () => T): Promise<T> {
     const earlier = structureQueues.get(tableId) ?? Promise.resolve();
-    const next = earlier.then(run, run);
+    const perform = async () => {
+      // Every window's changes already on their way reach the core first, before a cell is copied.
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      options.emit("comparison.structure", { mindId, tableId, writing: true });
+      try {
+        return run();
+      } finally {
+        options.emit("comparison.structure", { mindId, tableId, writing: false });
+      }
+    };
+    const next = earlier.then(perform, perform);
     structureQueues.set(
       tableId,
       next.then(
@@ -1080,7 +1093,7 @@ export function createComparisons(options: ComparisonsOptions) {
   async function editColumn(raw: unknown): Promise<ComparisonColumnEdited> {
     const input = parseEdit(raw);
     const mindId = options.requireMind(input.mindId);
-    return queued(input.tableId, () =>
+    return queued(mindId, input.tableId, () =>
       withTable(mindId, input.tableId, (table) => {
         const questions = questionsOf(table);
         const index = questions.findIndex((question) => question.id === input.questionId);
@@ -1156,7 +1169,7 @@ export function createComparisons(options: ComparisonsOptions) {
   async function insertColumn(raw: unknown): Promise<ComparisonColumnAdded> {
     const input = parseInsert(raw);
     const mindId = options.requireMind(input.mindId);
-    return queued(input.tableId, () =>
+    return queued(mindId, input.tableId, () =>
       withTable(mindId, input.tableId, (table) => {
         const questions = questionsOf(table);
         const beside = questions.findIndex((question) => question.id === input.questionId);
@@ -1194,7 +1207,7 @@ export function createComparisons(options: ComparisonsOptions) {
   async function duplicateColumn(raw: unknown): Promise<ComparisonColumnAdded> {
     const input = parseDuplicate(raw);
     const mindId = options.requireMind(input.mindId);
-    return queued(input.tableId, () =>
+    return queued(mindId, input.tableId, () =>
       withTable(mindId, input.tableId, (table) => {
         const questions = questionsOf(table);
         const index = questions.findIndex((question) => question.id === input.questionId);
@@ -1246,7 +1259,7 @@ export function createComparisons(options: ComparisonsOptions) {
   async function removeColumn(raw: unknown): Promise<ComparisonColumnRemoved> {
     const input = parseRemove(raw);
     const mindId = options.requireMind(input.mindId);
-    return queued(input.tableId, () =>
+    return queued(mindId, input.tableId, () =>
       withTable(mindId, input.tableId, (table) => {
         const questions = questionsOf(table);
         const index = questions.findIndex((question) => question.id === input.questionId);
@@ -1284,7 +1297,7 @@ export function createComparisons(options: ComparisonsOptions) {
   async function resizeColumn(raw: unknown): Promise<ComparisonColumnWidthSet | null> {
     const input = parseWidth(raw);
     const mindId = options.requireMind(input.mindId);
-    return queued(input.tableId, () =>
+    return queued(mindId, input.tableId, () =>
       withTable(mindId, input.tableId, (table) => {
         const questions = questionsOf(table);
         const index = questions.findIndex((question) => question.id === input.questionId);
@@ -1312,7 +1325,7 @@ export function createComparisons(options: ComparisonsOptions) {
   async function setHidden(raw: unknown): Promise<ComparisonColumnHiddenSet | null> {
     const input = parseHidden(raw);
     const mindId = options.requireMind(input.mindId);
-    return queued(input.tableId, () =>
+    return queued(mindId, input.tableId, () =>
       withTable(mindId, input.tableId, (table) => {
         const questions = questionsOf(table);
         const index = questions.findIndex((question) => question.id === input.questionId);
@@ -1351,7 +1364,7 @@ export function createComparisons(options: ComparisonsOptions) {
   async function moveColumn(raw: unknown): Promise<ComparisonColumnMoveResult> {
     const input = parseColumnMove(raw);
     const mindId = options.requireMind(input.mindId);
-    return queued(input.tableId, () =>
+    return queued(mindId, input.tableId, () =>
       withTable(mindId, input.tableId, (table) => {
         const from = questionsOf(table).findIndex((question) => question.id === input.questionId);
         const moved = moveIn(table, input.questionId, input.to);
@@ -1371,7 +1384,7 @@ export function createComparisons(options: ComparisonsOptions) {
   async function undoStructure(raw: unknown): Promise<ComparisonStructureUndoResult> {
     const ref = parseRef(raw, "undoComparisonStructure");
     const mindId = options.requireMind(ref.mindId);
-    return queued(ref.tableId, () => {
+    return queued(mindId, ref.tableId, () => {
       const step = structureUndo.at(-1);
       if (!step || step.mindId !== mindId || step.tableId !== ref.tableId) {
         return { moved: false };
@@ -1386,7 +1399,7 @@ export function createComparisons(options: ComparisonsOptions) {
   async function redoStructure(raw: unknown): Promise<ComparisonStructureUndoResult> {
     const ref = parseRef(raw, "redoComparisonStructure");
     const mindId = options.requireMind(ref.mindId);
-    return queued(ref.tableId, () => {
+    return queued(mindId, ref.tableId, () => {
       const step = structureRedo.at(-1);
       if (!step || step.mindId !== mindId || step.tableId !== ref.tableId) {
         return { moved: false };
