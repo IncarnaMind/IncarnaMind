@@ -335,6 +335,45 @@ describe("Automatic picks the model that tags", () => {
   });
 });
 
+describe("The hand-picked list holds the saved choice", () => {
+  const saved = [
+    { name: "a role model", modelId: "claude-haiku-5-5" },
+    { name: "a model that is no role", modelId: "claude-sonnet-5-5" },
+    { name: "a model the User added", modelId: "claude-added-by-the-user" },
+  ];
+  for (const { name, modelId } of saved) {
+    for (const chatDefault of ["the same", "another"] as const) {
+      test(`${name}, with ${chatDefault} chat default: listed while its provider is saved, gone with it`, async () => {
+        const { core } = await start();
+        const anthropic = await core.saveChatProvider({
+          kind: "anthropic",
+          apiKey: "key",
+          modelId,
+        });
+        const library = (await core.getLibrary()).settings;
+        await core.saveLibrarySettings({
+          ...library,
+          classifier: { kind: "chat", choice: { providerId: anthropic.id, modelId } },
+        });
+        if (chatDefault === "another") {
+          await core.saveChatProvider({ kind: "openai", apiKey: "key", modelId: "gpt-6-luna" });
+        }
+        const listed = async () =>
+          (await core.getTaggingModels()).options.filter(
+            (option) =>
+              option.classifier.kind === "chat" &&
+              option.classifier.choice.providerId === anthropic.id &&
+              option.classifier.choice.modelId === modelId,
+          );
+        expect(await listed()).toMatchObject([{ provider: { en: "Anthropic" }, group: "keys" }]);
+
+        await core.deleteChatProvider(anthropic.id);
+        expect(await listed()).toEqual([]);
+      });
+    }
+  }
+});
+
 describe("Which model each quick call uses", () => {
   test("an Answer's search query and its translation go to the quick-tasks model; the Answer to its own", async () => {
     const { core, calls, answers, specs } = await start();
