@@ -22,6 +22,7 @@ async function fixture({
   decidingSource,
   judgement,
   strict,
+  says = "The accounts support the sentence. [^1]",
 }: {
   repair?: boolean;
   claim?: string;
@@ -36,6 +37,7 @@ async function fixture({
   decidingSource?: { name: string; contents: string; quote: string };
   judgement?: "same" | "conflict" | "neither";
   strict?: "same" | "conflict" | "neither";
+  says?: string | null;
 } = {}) {
   const calls: ModelCall[] = [];
   const comparisons: string[] = [];
@@ -119,7 +121,7 @@ async function fixture({
         text: [
           `Verdict: ${verdict}`,
           `Topic: ${topic}`,
-          "The accounts support the sentence. [^1]",
+          ...(says ? [says] : []),
           ...(required?.map((number) => `Calculation: ${number}`) ?? []),
         ].join("\n"),
       };
@@ -307,6 +309,21 @@ describe("a check cannot substitute a model verdict for derived arithmetic", () 
       expect(result.verdict).toBe("not-checked");
     },
   );
+
+  test("one valid receipt cannot turn an adverse verdict into Supported with another quantity unresolved", async () => {
+    const { result } = await fixture({
+      source: `${SOURCE} Finance costs are 300. Revenue is 100.`,
+      claim: "Net debt is 6.0x adjusted EBITDA and finance costs are 8.0x revenue.",
+      stated: "6.0x",
+      required: ["6.0x"],
+      verdict: "unsupported",
+      topic: "not found",
+      says: null,
+      repair: true,
+      as: "times",
+    });
+    expect(result.verdict).toBe("not-checked");
+  });
 
   test("an unrelated bare amount cannot stand in for a calculated multiple", async () => {
     const { result, verdicts } = await fixture({

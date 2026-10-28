@@ -395,10 +395,8 @@ export function createClaimCheck(deps: ClaimCheckDependencies) {
       documentFigureContext(
         scoped.pageTexts(citation.documentId, citation.contentHash, null, null),
       );
-    const requiresCalculation = (text: string): boolean => {
-      if (!calculating || readsAsRefusal(text)) return false;
-      const verdict = readVerdict(text);
-      if (!verdict) return false;
+    const requiresCalculation = (verdict: ReadVerdict | null): boolean => {
+      if (!calculating || !verdict) return false;
       if (
         attempts === 0 &&
         session.shownPassages().some((passage) => passage.text.includes(request.claim.trim()))
@@ -460,7 +458,7 @@ export function createClaimCheck(deps: ClaimCheckDependencies) {
         {
           name: "calculate-first",
           check: (text) =>
-            attempts === 0 && requiresCalculation(text)
+            attempts === 0 && requiresCalculation(readsAsRefusal(text) ? null : readVerdict(text))
               ? {
                   claims: [],
                   note: "The numerical check is incomplete. If the Documents let you work out the claim's quantity or comparison, call calculate with the cited inputs, formula and stated quantity before giving a verdict. Never calculate in your head. If a Document states the claim directly, record its deciding quote and write Calculation: none. Otherwise name each required quantity on a Calculation: line; if its inputs cannot be found, say that it could not be calculated.",
@@ -494,17 +492,6 @@ export function createClaimCheck(deps: ClaimCheckDependencies) {
         ...facts(),
       };
     }
-    const byCalculation: ClaimCheckResult | null = worked
-      ? {
-          verdict: "supported",
-          evidence: worked.evidence,
-          says: null,
-          unsupported: null,
-          calculation: worked.calculation,
-          ...citedCase(worked.evidence),
-          ...facts(),
-        }
-      : null;
     if (!finished || reply.trim() === "") return notChecked("empty");
     // Claude Haiku 5.5 may write the verdict lines in the turn that calls `cite` after its search,
     // with no marker, and only the sentence after it: the Answer sets that turn aside as a
@@ -519,9 +506,20 @@ export function createClaimCheck(deps: ClaimCheckDependencies) {
       (withVerdict === undefined ? null : readVerdict(`${withVerdict}\n\n${reply}`));
     if (!verdict) return notChecked(refused ? "refused" : "malformed");
     if (searches === 0) return notChecked("unread");
-    const finalReply =
-      readVerdict(reply) || withVerdict === undefined ? reply : `${withVerdict}\n\n${reply}`;
-    if (requiresCalculation(finalReply)) return notChecked("no-evidence");
+    if (requiresCalculation(verdict)) return notChecked("no-evidence");
+    const byCalculation: ClaimCheckResult | null = worked
+      ? requiresCalculation({ ...verdict, verdict: "supported" })
+        ? notChecked("no-evidence")
+        : {
+            verdict: "supported",
+            evidence: worked.evidence,
+            says: null,
+            unsupported: null,
+            calculation: worked.calculation,
+            ...citedCase(worked.evidence),
+            ...facts(),
+          }
+      : null;
     /** Unsupported, with the nearest line when it states another value for the same thing (#770). */
     const unsupported = async (
       why: UnsupportedReason = { reason: null, covered: null, uncovered: null },
