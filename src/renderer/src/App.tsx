@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { GAP, isSide, RAIL, SIDE_MIN, shownDock } from "./assistantPlace";
 import { useEditMenu } from "./commands/edit";
 import { sidebarHandle, useHandle } from "./commands/handles";
@@ -136,11 +136,16 @@ function useSidebarControl(userHidden: boolean, beforeSlide: (shows: boolean) =>
 function useSidebarPeek(hidden: boolean, beforeSlide: (shows: boolean) => void) {
   const [pointer, setPointer] = useState(false);
   const [focus, setFocus] = useState(false);
-  useEffect(() => {
-    if (!hidden) {
-      setPointer(false);
-      setFocus(false);
-    }
+  // A peek is the pointer or the keyboard reaching the hidden sidebar: what either was doing while
+  // it showed belongs to what the User is leaving. On macOS the button that hides it sits in its
+  // header, so pressing it by keyboard puts the focus in the panel; kept, that peek would hold the
+  // focus there, and the sidebar would stay over the content it was hidden from.
+  const wasHidden = useRef(hidden);
+  useLayoutEffect(() => {
+    if (wasHidden.current === hidden) return;
+    wasHidden.current = hidden;
+    setPointer(false);
+    setFocus(false);
   }, [hidden]);
   const peeking = hidden && (pointer || focus);
   const hold = (by: { pointer?: boolean; focus?: boolean }) => {
