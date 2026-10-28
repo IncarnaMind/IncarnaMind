@@ -782,6 +782,16 @@ test("a verdict with no Figures line is asked for it once, and the reply that ha
   });
 });
 
+test("a Figures line naming a calculation the check never made is asked again, and the reply with its source binds", async () => {
+  const { result, calls } = await checkWith({
+    figures: [target("f1")],
+    text: reply([{ ...item(), source: null, calculation: 1 }]),
+    askedAgain: { note: "wasn't worked out in this check", text: reply([item()]) },
+  });
+  expect(calls.filter((call) => call.prompt.includes("wasn't worked out"))).toHaveLength(1);
+  expect(result.figures?.[0]?.result.verdict).toBe("supported");
+});
+
 test("a Figures line that leaves out its remainder is asked for it once, and the reply that has it binds", async () => {
   const noRemainder = `Verdict: supported\nFigures: ${JSON.stringify({ items: [item()] })}`;
   const { result, calls } = await checkWith({

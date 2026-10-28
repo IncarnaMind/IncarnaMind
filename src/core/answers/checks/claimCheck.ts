@@ -202,7 +202,7 @@ const figureSourcesNote = (problems: readonly string[], unrecorded: readonly num
  */
 function figuresReplied(
   request: ClaimCheckRequest,
-  calculations: Pick<CalculationSession, "number">,
+  calculations: Pick<CalculationSession, "number" | "figure">,
   searched: () => boolean,
   recorded: (marker: number) => boolean,
 ): TurnCheck[] {
@@ -228,6 +228,10 @@ function figuresReplied(
         const problems = read.items.flatMap((item) => {
           const target = figures.find((figure) => figure.id === item.id);
           if (!target) return [];
+          if (!item.source && item.calculation !== null && !calculations.figure(item.calculation))
+            return [
+              `${target.reading.chars}: calculation [=${item.calculation}] wasn't worked out in this check; call calculate for it, or give its source.`,
+            ];
           if (!item.source)
             return item.calculation === null && item.verdict !== "unsupported" && !target.calculated
               ? [
