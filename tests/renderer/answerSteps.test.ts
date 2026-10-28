@@ -158,7 +158,7 @@ describe("an Answer's steps", () => {
     expect(documentReadText(zh, read)).toBe("读取了“Filing”第 12–13 页");
     expect(documentReadText(en, read, true)).toBe("Reading pages 12–13 of “Filing”…");
     expect(documentReadText(en, { ...read, resultCount: 0 })).toBe(
-      "No Passages read from “Filing”",
+      "No passages read from “Filing”",
     );
     expect(documentReadText(zh, { ...read, resultCount: 0 })).toBe("未读取到“Filing”的内容");
   });
