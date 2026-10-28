@@ -1637,7 +1637,15 @@ export const CASES: readonly EverydayCase[] = [
     mind: null,
     request:
       "In Northmart's Q2 2026 10-Q, what was the consolidated comparable-sales change? Answer with the figure and cite it.",
-    expected: { ...ANSWER, answerWith: /6\.2%/, noDocumentAbsence: /comparable|同店/ },
+    expected: {
+      ...ANSWER,
+      answerWith: /declin\w*[^.!?\n]{0,20}6\.2%/i,
+      answerEvidence: {
+        document: /Northmart Q2 2026 10-Q/,
+        quote: /like-for-like sales declined 6\.2%/i,
+      },
+      noDocumentAbsence: /comparable|同店/,
+    },
   },
   {
     id: "filing-comparable-zh",
@@ -1645,7 +1653,15 @@ export const CASES: readonly EverydayCase[] = [
     library: "filings",
     mind: null,
     request: "北域零售2026年第二季度季报中，集团同店销售额变化了多少？请给出数字并注明出处。",
-    expected: { ...ANSWER, answerWith: /6\.2%/, noDocumentAbsence: /comparable|同店/ },
+    expected: {
+      ...ANSWER,
+      answerWith: /下降[^。！？\n]{0,12}6\.2%/,
+      answerEvidence: {
+        document: /北域零售 2026年第二季度季报/,
+        quote: /同店销售额下降 6\.2%/,
+      },
+      noDocumentAbsence: /comparable|同店/,
+    },
   },
   {
     id: "filing-margin-en",
@@ -1654,7 +1670,15 @@ export const CASES: readonly EverydayCase[] = [
     mind: null,
     request:
       "What operating margin did Harbour Hotels report for 2026? Give the percentage and cite the release.",
-    expected: { ...ANSWER, answerWith: /38\.2%/, noDocumentAbsence: /margin|利润率/ },
+    expected: {
+      ...ANSWER,
+      answerWith: /38\.2%/,
+      answerEvidence: {
+        document: /Harbour Hotels 2026 annual release/,
+        quote: /Operating profitability reached 38\.2%/,
+      },
+      noDocumentAbsence: /margin|利润率/,
+    },
   },
   {
     id: "filing-margin-zh",
@@ -1662,7 +1686,15 @@ export const CASES: readonly EverydayCase[] = [
     library: "filings",
     mind: null,
     request: "港湾酒店2026年度业绩公告中的经营利润率是多少？请给出百分比并注明出处。",
-    expected: { ...ANSWER, answerWith: /38\.2%/, noDocumentAbsence: /margin|利润率/ },
+    expected: {
+      ...ANSWER,
+      answerWith: /38\.2%/,
+      answerEvidence: {
+        document: /港湾酒店 2026年度业绩公告/,
+        quote: /经营利润率达到 38\.2%/,
+      },
+      noDocumentAbsence: /margin|利润率/,
+    },
   },
   {
     id: "filing-recast-en",
@@ -1674,6 +1706,10 @@ export const CASES: readonly EverydayCase[] = [
     expected: {
       ...ANSWER,
       answerWith: /\$423 million/,
+      answerEvidence: {
+        document: /Delta Manufacturing 8-K 2026/,
+        quote: /Restated second-quarter sales: \$423 million/,
+      },
       noDocumentAbsence: /recast|重述|revenue|销售额/,
     },
   },
@@ -1686,6 +1722,10 @@ export const CASES: readonly EverydayCase[] = [
     expected: {
       ...ANSWER,
       answerWith: /4\.23 亿元/,
+      answerEvidence: {
+        document: /三角洲制造 8-K 2026/,
+        quote: /重述第二季度销售额：4\.23 亿元/,
+      },
       noDocumentAbsence: /recast|重述|revenue|销售额/,
     },
   },

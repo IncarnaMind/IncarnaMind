@@ -96,6 +96,8 @@ export interface Expected {
   figure?: RegExp;
   /** The reply states this figure or fact; used with a Citation requirement when the Documents state it directly. */
   answerWith?: RegExp;
+  /** A Citation of the named Document whose exact quote supports the requested figure or fact. */
+  answerEvidence?: { document: RegExp; quote: RegExp };
   /** It may report a search miss, never that the Document lacks the fact this expression names. */
   noDocumentAbsence?: RegExp;
   /** The information really is absent: the reply reports a search miss and invents nothing. */
@@ -122,7 +124,7 @@ export interface RequestOutcome {
   expected: Expected;
   answer: Pick<ConversationAnswer, "text" | "toolCalls" | "steps"> & {
     citations: readonly (Pick<MarkedCitation, "documentId" | "marker"> &
-      Partial<Pick<MarkedCitation, "documentName" | "pageFrom" | "pageTo" | "check">>)[];
+      Partial<Pick<MarkedCitation, "documentName" | "pageFrom" | "pageTo" | "check" | "quote">>)[];
     figures?: readonly Pick<MarkedFigure, "shown">[];
   };
   verdict: ClaimVerdict;
@@ -177,8 +179,10 @@ export type RequestFailure =
   | { kind: "wrong-language"; wanted: "en" | "zh-CN"; share: number }
   | { kind: "no-figure"; wanted: string; shown: string[] }
   | { kind: "missing-answer-text"; wanted: string }
+  | { kind: "wrong-answer-citation" }
   | { kind: "document-absence" }
   | { kind: "no-search-miss" }
+  | { kind: "invented-answer" }
   | { kind: "gave-up"; said: string }
   | { kind: "term"; want: string; found: string[] }
   | { kind: "other-documents"; documents: string[] }
@@ -468,16 +472,18 @@ export function rewrittenLater(outcome: RequestOutcome): { given: string; now: s
 
 const DOCUMENT_ABSENCE = [
   /\b(?:documents?|reports?|releases?|filings?|papers?|10-q|8-k)\b[^.!?\n]{0,50}\b(?:do(?:es)?n't|do(?:es)? not|never)\s+(?:\w+\s+){0,3}(?:state|mention|report|give|disclose|contain|include|record)\b/i,
-  /(?:文档|报告|公告|文件)[^。！？!?\n]{0,12}(?:未|没有|并未|不曾)(?:披露|提及|说明|记载|给出|包含|列出)/,
+  /\b(?:documents?|reports?|releases?|filings?|papers?|10-q|8-k)\b[^.!?\n]{0,50}\b(?:contains?|includes?|records?|reports?|gives?|discloses?)\s+(?:\w+\s+){0,2}no\b/i,
+  /(?:文档|报告|公告|文件)[^。！？!?\n]{0,12}(?:(?:未|没有|并未|不曾)(?:披露|提及|说明|记载|给出|包含|列出)|不含|不包含|未包含|没有包含)/,
 ];
 
+function clausesOf(text: string): string[] {
+  return text.split(/[\n。！？!?，；;]+|\.(?!\d)/);
+}
+
 function statesDocumentAbsence(text: string, about: RegExp): boolean {
-  return text
-    .split(/[\n。！？!?，；;]+|\.(?!\d)/)
-    .some(
-      (sentence) =>
-        about.test(sentence) && DOCUMENT_ABSENCE.some((phrase) => phrase.test(sentence)),
-    );
+  return clausesOf(text).some(
+    (sentence) => about.test(sentence) && DOCUMENT_ABSENCE.some((phrase) => phrase.test(sentence)),
+  );
 }
 
 /** The ways one request failed its guards; none when it passed. */
@@ -574,7 +580,30 @@ export function requestFailures(outcome: RequestOutcome): RequestFailure[] {
   if (expected.answerWith && !expected.answerWith.test(answer.text)) {
     failures.push({ kind: "missing-answer-text", wanted: expected.answerWith.source });
   }
-  if (expected.searchMiss && !declines(answer.text)) failures.push({ kind: "no-search-miss" });
+  if (
+    expected.answerEvidence &&
+    !answer.citations.some(
+      (citation) =>
+        expected.answerEvidence?.document.test(citation.documentName ?? "") &&
+        expected.answerEvidence.quote.test(citation.quote ?? ""),
+    )
+  ) {
+    failures.push({ kind: "wrong-answer-citation" });
+  }
+  if (expected.searchMiss) {
+    if (!declines(answer.text)) failures.push({ kind: "no-search-miss" });
+    const invented = clausesOf(answer.text).some((sentence) => {
+      if (!sentence.trim() || declines(sentence)) return false;
+      if (
+        expected.noDocumentAbsence &&
+        statesDocumentAbsence(sentence, expected.noDocumentAbsence)
+      ) {
+        return false;
+      }
+      return /\d/.test(sentence) || (expected.noDocumentAbsence?.test(sentence) ?? false);
+    });
+    if (invented) failures.push({ kind: "invented-answer" });
+  }
   if (
     expected.noDocumentAbsence &&
     statesDocumentAbsence(answer.text, expected.noDocumentAbsence)
@@ -709,10 +738,14 @@ export function failureLine(failure: RequestFailure): string {
       return `has no Calculated figure matching /${failure.wanted}/ (figures: ${failure.shown.length > 0 ? failure.shown.join(", ") : "none"})`;
     case "missing-answer-text":
       return `doesn't state the expected figure or fact /${failure.wanted}/`;
+    case "wrong-answer-citation":
+      return "doesn't cite the requested figure in its own Document";
     case "document-absence":
       return "states that the Document itself lacks the answer, rather than reporting only the search miss";
     case "no-search-miss":
       return "invents an answer instead of reporting that it wasn't found";
+    case "invented-answer":
+      return "adds an asserted answer after reporting the search miss";
     case "gave-up":
       return `says it couldn't calculate what its Citations give: “${failure.said}”`;
     case "term":

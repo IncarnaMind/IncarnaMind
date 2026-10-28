@@ -157,6 +157,27 @@ describe("an Answer's steps", () => {
     expect(documentReadText(en, read)).toBe("Read pages 12–13 of “Filing”");
     expect(documentReadText(zh, read)).toBe("读取了“Filing”第 12–13 页");
     expect(documentReadText(en, read, true)).toBe("Reading pages 12–13 of “Filing”…");
+    expect(documentReadText(en, { ...read, resultCount: 0 })).toBe(
+      "No Passages read from “Filing”",
+    );
+    expect(documentReadText(zh, { ...read, resultCount: 0 })).toBe("未读取到“Filing”的内容");
+  });
+
+  test("a failed Document read is its own row, not a failed search", () => {
+    const failed: AnswerToolCall = {
+      id: "r1",
+      tool: "read_document",
+      source: "documents",
+      input: { document: "Filing", pages: "2" },
+      status: "failed",
+      resultCount: null,
+      error: { kind: "provider", message: "The read failed." },
+    };
+
+    expect(stepRows(input({ toolCalls: [failed] }))).toContainEqual({
+      kind: "failed-read",
+      call: failed,
+    });
   });
 
   // protects=an Answer that searched only the web folds to that, its calls each a row in order, and a web search beside a Document search counts as one more scope; fails_when=it folds to the Mind it was asked from, groups the web calls with searches, or drops one; no_claim=how the rows are worded.

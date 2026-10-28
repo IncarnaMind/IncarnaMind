@@ -626,6 +626,12 @@ function StepItem({
           <FailedSearch call={row.call} scope={scope} onRegenerate={onRegenerate} />
         </Step>
       );
+    case "failed-read":
+      return (
+        <Step kind={row.kind} icon={<CloseLineIcon />}>
+          <FailedRead call={row.call} onRegenerate={onRegenerate} />
+        </Step>
+      );
     case "call":
       return (
         <li
@@ -870,6 +876,21 @@ function SourceRow({ source }: { source: StepSource }) {
       <span className="answer-step-source-name">{name}</span>
       {where && <span className="answer-step-detail answer-step-source-where">{where}</span>}
     </button>
+  );
+}
+
+/** A Document read that failed: its own words, never a search's settings. */
+function FailedRead({ call, onRegenerate }: { call: AnswerToolCall; onRegenerate(): void }) {
+  const t = useT();
+  return (
+    <ProblemLine
+      testId="answer-step-failed"
+      title={call.error?.message}
+      action={{ label: t("answer.error.retry"), onClick: onRegenerate }}
+      className="answer-step-problem"
+    >
+      {t("steps.failed.readDocument", { document: field(call, "document") })}
+    </ProblemLine>
   );
 }
 

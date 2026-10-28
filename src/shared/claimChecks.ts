@@ -23,6 +23,7 @@ import {
   type UnsupportedReason,
 } from "../core/api";
 import type { MessageKey } from "./i18n";
+import { parseLocation } from "./locations";
 import { folderScope, hasSearchScope, sameScope, storedSearchScope } from "./searchScope";
 import { comparableSentence, isClaim } from "./sentences";
 
@@ -97,7 +98,10 @@ function readDocumentsOf(value: unknown): ClaimReadDocument[] {
             documentId,
             documentName,
             contentHash,
-            locations: each.locations as ClaimReadDocument["locations"],
+            locations: each.locations.flatMap((location) => {
+              const parsed = parseLocation(location);
+              return parsed ? [parsed] : [];
+            }),
           },
         ]
       : [];

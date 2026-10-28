@@ -119,6 +119,7 @@ import {
   withPassageNotes,
 } from "./prompt";
 import { retryQuotes } from "./quoteRetry";
+import { formatDocumentPages, readDocumentPages } from "./readDocumentPages";
 import { heldBackFrom, TOOL_TEXT_TAGS, takeToolText } from "./toolText";
 import { claimsOf, createNudges, settleReply, type TurnCheck } from "./turnChecks";
 import { citeUnmarked } from "./unmarkedQuotes";
@@ -1580,13 +1581,17 @@ export function documentTools(
               },
               required: ["document"],
             },
-            shownInput: ({ document, pages, passage, before, after }) => ({
-              document: String(document ?? ""),
-              ...(typeof pages === "string" && pages !== "" && { pages }),
-              ...(typeof passage === "string" && passage !== "" && { passage }),
-              ...(typeof before === "number" && { before }),
-              ...(typeof after === "number" && { after }),
-            }),
+            shownInput: ({ document, pages, passage, before, after }) => {
+              const effective = typeof pages === "string" ? readDocumentPages(pages) : null;
+              return {
+                document: String(document ?? ""),
+                ...(typeof pages === "string" &&
+                  pages !== "" && { pages: effective ? formatDocumentPages(effective) : pages }),
+                ...(typeof passage === "string" && passage !== "" && { passage }),
+                ...(typeof before === "number" && { before }),
+                ...(typeof after === "number" && { after }),
+              };
+            },
             effects: () => [{ action: "read", scope: { kind: "documents" } }],
             untrustedResult: true,
             async call(

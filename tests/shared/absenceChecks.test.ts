@@ -1,6 +1,6 @@
 import { describe, expect, test } from "vitest";
 import type { ClaimCheckAttributes } from "../../src/core/api";
-import { addedCouldChange, claimCheckShown } from "../../src/shared/claimChecks";
+import { addedCouldChange, claimCheckShown, readClaimCheck } from "../../src/shared/claimChecks";
 
 const ABSENCE: ClaimCheckAttributes = {
   id: "c1",
@@ -42,6 +42,22 @@ describe("An absence check's lifetime", () => {
         scope: null,
       }),
     ).toEqual({ state: "needs-recheck", why: "document-removed" });
+  });
+
+  test("a stored whole read keeps only valid Locations", () => {
+    const parsed = readClaimCheck({
+      ...ABSENCE,
+      readDocuments: [
+        {
+          documentId: "lease",
+          documentName: "Lease",
+          contentHash: "v1",
+          locations: [null, { kind: "page", from: 1, to: 1 }],
+        },
+      ],
+    });
+
+    expect(parsed?.readDocuments?.[0]?.locations).toEqual([{ kind: "page", from: 1, to: 1 }]);
   });
 
   test("a Document added to the scope can change a Supported absence", () => {

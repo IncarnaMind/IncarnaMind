@@ -742,8 +742,13 @@ export interface DocumentsForAnswers
   passage(passageId: string): WindowedPassage | null;
   /** The live Passages of a live Document at positions `from` to `to`, in reading order. */
   passagesBetween(documentId: string, from: number, to: number): WindowedPassage[];
-  /** The live Passages of a live Document's current version covering pages `from` to `to`. */
-  passagesCovering(documentId: string, from: number | null, to: number | null): WindowedPassage[];
+  /** Live Passages covering pages `from` to `to`, or intersecting them when `overlapping`. */
+  passagesCovering(
+    documentId: string,
+    from: number | null,
+    to: number | null,
+    overlapping?: boolean,
+  ): WindowedPassage[];
   /** Words the User selected to ask about, checked where they were selected (`recheckWhereSelected`). */
   recheckWhereSelected(quote: AskedQuote): CitedSelection;
   /** The languages the Documents to search are in, the most common first, with how many are in each. */
@@ -788,7 +793,8 @@ function inScope(
     documentDate: (documentId) => documents.documentDate(documentId),
     passage: (passageId) => documents.passage(passageId),
     passagesBetween: (documentId, from, to) => documents.passagesBetween(documentId, from, to),
-    passagesCovering: (documentId, from, to) => documents.passagesCovering(documentId, from, to),
+    passagesCovering: (documentId, from, to, overlapping) =>
+      documents.passagesCovering(documentId, from, to, overlapping),
     documentNamed: (name) => {
       const key = (text: string) => text.replace(/\s+/g, " ").trim().toLocaleLowerCase();
       const wanted = key(name.replace(/\s*\(“[^”]*”\)\s*$/, ""));

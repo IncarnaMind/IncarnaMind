@@ -58,6 +58,7 @@ describe("The filing evaluation", () => {
       expect(each.library).toBe("filings");
       expect(each.expected.cite).toBe(true);
       expect(each.expected.answerWith).toBeInstanceOf(RegExp);
+      expect(each.expected.answerEvidence).toBeDefined();
       expect(each.expected.noDocumentAbsence).toBeInstanceOf(RegExp);
     }
     for (const each of cases.filter((each) => each.id.startsWith("filing-absent-"))) {
@@ -65,5 +66,15 @@ describe("The filing evaluation", () => {
       expect(each.expected.searchMiss).toBe(true);
       expect(each.expected.noDocumentAbsence).toBeInstanceOf(RegExp);
     }
+  });
+
+  test("the comparable-sales guard requires a decline, not an increase", () => {
+    const english = CASES.find((each) => each.id === "filing-comparable-en");
+    const chinese = CASES.find((each) => each.id === "filing-comparable-zh");
+
+    expect(english?.expected.answerWith?.test("Comparable sales declined 6.2%.")).toBe(true);
+    expect(english?.expected.answerWith?.test("Comparable sales increased 6.2%.")).toBe(false);
+    expect(chinese?.expected.answerWith?.test("集团同店销售额下降 6.2%。")).toBe(true);
+    expect(chinese?.expected.answerWith?.test("集团同店销售额上升 6.2%。")).toBe(false);
   });
 });

@@ -2167,8 +2167,9 @@ export function createDocuments(options: DocumentsOptions) {
       documentId: string,
       from: number | null,
       to: number | null,
+      overlapping = false,
     ): (WindowedPassage & { id: string })[] {
-      return passagesCovering(db, documentId, from, to);
+      return passagesCovering(db, documentId, from, to, overlapping);
     },
 
     /**

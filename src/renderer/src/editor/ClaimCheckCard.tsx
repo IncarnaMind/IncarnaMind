@@ -556,7 +556,7 @@ function ClaimCard({
       const places = document.locations.map((location) => formatLocation(location, t)).join(", ");
       return places ? `${name} (${places})` : name;
     })
-    .join("; ");
+    .join(t("claim.readDocuments.separator"));
   const savedPage = evidence
     ? documents.find((each) => each.id === evidence.documentId)?.web
     : undefined;

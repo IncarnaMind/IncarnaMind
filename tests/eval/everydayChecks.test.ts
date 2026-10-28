@@ -822,7 +822,16 @@ describe("The judge of claims", () => {
 });
 
 describe("The filing guards", () => {
-  const filingOutcome = (text: string) =>
+  const filingOutcome = (
+    text: string,
+    citations = [
+      {
+        ...citation("tutorial", 1),
+        documentName: "Harbour Hotels 2026 annual release",
+        quote: "Operating profitability reached 38.2%",
+      },
+    ],
+  ) =>
     requestFailures(
       outcome({
         expected: {
@@ -830,14 +839,13 @@ describe("The filing guards", () => {
           cite: true,
           coverAll: false,
           answerWith: /38\.2%/,
+          answerEvidence: {
+            document: /Harbour Hotels 2026 annual release/,
+            quote: /Operating profitability reached 38\.2%/,
+          },
           noDocumentAbsence: /margin|利润率/,
         },
-        answer: {
-          text,
-          citations: [citation("tutorial", 1)],
-          toolCalls: [],
-          steps: null,
-        },
+        answer: { text, citations, toolCalls: [], steps: null },
         citedInMinds: [],
       }),
     );
@@ -854,6 +862,24 @@ describe("The filing guards", () => {
     expect(filingOutcome("报告未披露 38.2% 的营业利润率。").map((failure) => failure.kind)).toEqual(
       ["document-absence"],
     );
+  });
+
+  test("rejects absence after the verb and a Citation to another Document", () => {
+    expect(
+      filingOutcome(
+        "The release contains no operating margin. Operating margin was 38.2% [^1].",
+      ).map((failure) => failure.kind),
+    ).toEqual(["document-absence"]);
+    expect(
+      filingOutcome("报告不包含经营利润率。经营利润率为 38.2% [^1]。").map(
+        (failure) => failure.kind,
+      ),
+    ).toEqual(["document-absence"]);
+    expect(
+      filingOutcome("Operating margin was 38.2% [^1].", [
+        { ...citation("other", 1), documentName: "Another filing", quote: "Operating margin" },
+      ]).map((failure) => failure.kind),
+    ).toEqual(["wrong-answer-citation"]);
   });
 
   test("allows a search-miss statement without treating it as a whole-Document absence", () => {
@@ -897,6 +923,12 @@ describe("The filing guards", () => {
       "no-search-miss",
       "document-absence",
     ]);
-    expect(missing("The cash conversion cycle was 42 days.")).toEqual(["no-search-miss"]);
+    expect(missing("The cash conversion cycle was 42 days.")).toEqual([
+      "no-search-miss",
+      "invented-answer",
+    ]);
+    expect(missing("I didn't find the cash conversion cycle in the 10-Q. It was 42 days.")).toEqual(
+      ["invented-answer"],
+    );
   });
 });

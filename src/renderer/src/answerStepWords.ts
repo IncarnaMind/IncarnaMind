@@ -16,6 +16,9 @@ export function documentReadText(t: Translate, call: AnswerToolCall, live = fals
     return typeof value === "string" ? value : "";
   };
   const params = { document: field("document"), pages: field("pages"), passage: field("passage") };
+  if (call.status === "done" && call.resultCount === 0) {
+    return t("steps.readDocument.none", params);
+  }
   const shape = params.pages ? "pages" : params.passage ? "around" : "opening";
   if (live) {
     if (shape === "pages") return t("steps.live.readDocument.pages", params);

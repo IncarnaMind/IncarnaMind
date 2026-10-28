@@ -91,6 +91,7 @@ import type {
   UnfoundQuote,
 } from "./engine";
 import { NOT_CITED_ATTRIBUTE } from "./prompt";
+import { readDocumentPages } from "./readDocumentPages";
 
 const SEARCHED_ALREADY =
   "You already searched for this, and have its Passages: answer with them, or search for something different.";
@@ -101,17 +102,6 @@ const sameSearch = (query: string) =>
     .toLowerCase()
     .replace(/[^\p{L}\p{N}]+/gu, " ")
     .trim();
-
-function readPages(pages: string): { from: number; to: number } | null {
-  const match = /^(\d+)(?:\s*[-–]\s*(\d+))?$/.exec(pages.trim());
-  if (!match) return null;
-  const from = Number(match[1]);
-  const to = Number(match[2] ?? match[1]);
-  if (!Number.isSafeInteger(from) || !Number.isSafeInteger(to) || from < 1 || to < from) {
-    return null;
-  }
-  return { from, to };
-}
 
 const FIX_THESE = "Fix these with another cite call:";
 
@@ -375,8 +365,13 @@ export interface AnswerDocuments {
   passage?(passageId: string): WindowedPassage | null;
   /** Live Passages at positions `from` to `to`, when Document reads are offered. */
   passagesBetween?(documentId: string, from: number, to: number): WindowedPassage[];
-  /** Live Passages covering pages `from` to `to`, when Document reads are offered. */
-  passagesCovering?(documentId: string, from: number | null, to: number | null): WindowedPassage[];
+  /** Live Passages covering pages `from` to `to`, or intersecting them when `overlapping`. */
+  passagesCovering?(
+    documentId: string,
+    from: number | null,
+    to: number | null,
+    overlapping?: boolean,
+  ): WindowedPassage[];
 }
 
 /** What re-checking a Citation against the current version needs from Documents. */
@@ -1694,16 +1689,15 @@ export function createCitationSession(
                   anchor.position + after,
                 ) ?? [];
             } else if (request.pages !== undefined) {
-              const pages = readPages(request.pages);
+              const pages = readDocumentPages(request.pages);
               if (!pages) {
                 return {
                   text: `Pages must be one page or a range, such as "16" or "15-17".`,
                   passageCount: 0,
                 };
               }
-              const to = Math.min(pages.to, pages.from + 2);
-              limited = to < pages.to;
-              found = documents.passagesCovering?.(documentId, pages.from, to) ?? [];
+              limited = pages.limited;
+              found = documents.passagesCovering?.(documentId, pages.from, pages.to, true) ?? [];
             } else {
               found = documents.passagesBetween?.(documentId, 0, after) ?? [];
             }

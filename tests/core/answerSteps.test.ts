@@ -391,6 +391,47 @@ describe("A Document read", { timeout: 60_000 }, () => {
     core.close();
   });
 
+  test("a page-range read overlaps one-page Passages and records its capped range", async () => {
+    let readText = "";
+    const model = scriptedModel((call) => {
+      if (call.results.length === 0) {
+        return { calls: [{ tool: "read_document", input: { document: "Filing", pages: "1-40" } }] };
+      }
+      readText = call.results.find((result) => result.tool === "read_document")?.text ?? "";
+      return { text: "Read the first three pages." };
+    });
+    const { core } = await setUp(model, "ollama");
+    const sources = await createSourceFolder();
+    const filing = buildPdf(
+      Array.from({ length: 4 }, (_, index) => ({
+        lines: [
+          `Page ${index + 1}`,
+          ...Array.from(
+            { length: 40 },
+            (_, line) =>
+              `note${line} ${Array.from({ length: 15 }, (_, word) => `word${word}`).join(" ")}`,
+          ),
+        ],
+      })),
+    );
+    await addAndProcess(core, [await writeSourceFile(sources, "Filing.pdf", filing)]);
+
+    const { answer } = await ask(core, "Read the filing's first pages.");
+
+    const read = answer.toolCalls.find((call) => call.tool === "read_document");
+    expect(read).toMatchObject({
+      status: "done",
+      input: { document: "Filing", pages: "1–3" },
+    });
+    expect(read?.resultCount).toBeGreaterThan(3);
+    expect(readText).toContain("Only the first 3 requested pages are shown.");
+    expect(readText).toContain('pages="1"');
+    expect(readText).toContain('pages="2"');
+    expect(readText).toContain('pages="3"');
+    expect(readText).not.toContain('pages="4"');
+    core.close();
+  });
+
   test("a search miss without a read says I didn't find and has no Citation", async () => {
     const model = scriptedModel((call) =>
       call.results.length === 0

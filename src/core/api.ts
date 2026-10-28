@@ -210,8 +210,12 @@ export interface CreateMindInput {
  *   `hidden`. An older version's editor writes the columns back without
  *   these when it changes one, so it opens these Minds read-only. Older
  *   content is version 30 content as it is.
+ * - 31: `readDocuments` on a `claimCheck` mark (#1443): the whole Documents
+ *   read to decide an absence sentence, which an older editor would strip,
+ *   losing both the card's Locations and the dependency that makes a changed
+ *   Document need a re-check. Older content is version 31 content as it is.
  */
-export const CONTENT_SCHEMA_VERSION = 30;
+export const CONTENT_SCHEMA_VERSION = 31;
 
 /**
  * The key, in the Mind's settings map (`MIND_SETTINGS_FIELD`), of the content

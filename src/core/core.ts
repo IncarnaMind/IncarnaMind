@@ -1488,7 +1488,8 @@ export function createCore(adapters: CoreAdapters): Core {
       searchableHasSheets: (documentIds) => documents.searchableHasSheets(documentIds ?? undefined),
       passage: (passageId) => documents.passage(passageId),
       passagesBetween: (documentId, from, to) => documents.passagesBetween(documentId, from, to),
-      passagesCovering: (documentId, from, to) => documents.passagesCovering(documentId, from, to),
+      passagesCovering: (documentId, from, to, overlapping) =>
+        documents.passagesCovering(documentId, from, to, overlapping),
       recheckWhereSelected: (quote) => recheckWhereSelected(documents, quote),
       searchableLanguages: (documentIds) => documents.searchableLanguages(documentIds ?? undefined),
       unread: (documentIds) => findUnreadDocuments(documents.unread(documentIds ?? undefined)),
