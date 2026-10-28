@@ -24,7 +24,7 @@
 
 import { generateText } from "ai";
 import { type CaseCitation, caseCitations, isOpinionOf } from "../../../shared/caseCitations";
-import type { FigureContext, FigureUnit } from "../../../shared/figures";
+import type { FigureContext } from "../../../shared/figures";
 import { type MessageKey, type MessageParams, translate } from "../../../shared/i18n";
 import { sentenceSpans } from "../../../shared/sentences";
 import type {
@@ -96,7 +96,7 @@ import {
   STRICT_INSTRUCTIONS,
 } from "./prompt";
 import { searchAgain } from "./searchAgain";
-import { unitNotStated } from "./units";
+import { type BoundNumber, unitNotStated } from "./units";
 
 export interface ClaimCheckDependencies {
   /** The interface language: what a check's sentence is written in. */
@@ -413,7 +413,7 @@ export function createClaimCheck(deps: ClaimCheckDependencies) {
     const unstatedUnit = (
       citations: readonly Citation[],
       claim = request.claim,
-      bound?: readonly { chars: string; unit: FigureUnit }[],
+      bound?: readonly BoundNumber[],
     ): UnsupportedReason | null => {
       const checked = citations.map((citation) => {
         const text = (from: number | null, to: number | null) =>

@@ -59,12 +59,20 @@ interface Read {
  * a percent where they give only percentage points; points where they give only a percent; or
  * another scale of the same written number. Null when it gives none. A figure they don't state,
  * or state with another currency or unit, is the model's to judge, unless `bound` names the
- * numbers it was compared with: then their units are what the Citations give it, equal or not.
+ * numbers it was compared with: then their units and scales are what the Citations give it,
+ * equal or not.
  */
+/** A number a figure was compared with: as its quote writes it, in its unit and scale. */
+export interface BoundNumber {
+  chars: string;
+  unit: FigureUnit;
+  scale: number;
+}
+
 export function unitNotStated(
   claim: string,
   citations: readonly CheckedText[],
-  bound?: readonly { chars: string; unit: FigureUnit }[],
+  bound?: readonly BoundNumber[],
 ): UnitNotStated | null {
   const own = documentFigureContext([{ text: claim }]);
   if (citations.length === 0 || !readFigures(claim, own).some(hasUnit)) return null;
@@ -110,7 +118,8 @@ export function unitNotStated(
     if (
       !isShare(figure.unit) &&
       sameWritten.length > 0 &&
-      sameWritten.every(({ scale }) => scale !== figure.scale)
+      sameWritten.every(({ scale }) => scale !== figure.scale) &&
+      !bound?.some(({ scale }) => scale === figure.scale)
     ) {
       const stated = sameWritten.some(({ text, context }) =>
         readStatedUnits(text.document(), context).some(

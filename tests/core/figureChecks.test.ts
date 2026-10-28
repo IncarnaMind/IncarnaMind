@@ -1001,6 +1001,15 @@ test.each([
     verdict: "supported",
   },
   {
+    body: "项目\t2024年\t2025年\t单位\n成本\t70\t78\t万元",
+    quote: "成本\t70\t78\t万元",
+    figure: () => target("f1", "70万元", "成本 2024年", "zh-CN"),
+    number: "70",
+    unitQuote: null as string | null,
+    said: "supported",
+    verdict: "supported",
+  },
+  {
     body: "Item\t2024\t2025\tUnit\nCost\t70\t78\tthousand tonnes",
     quote: "Cost\t70\t78\tthousand tonnes",
     figure: () => target("f1", "70 thousand tonnes", "Cost 2024"),

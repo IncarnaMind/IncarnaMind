@@ -1,5 +1,5 @@
 import { aggregateFigureResults } from "../../../shared/figureChecks";
-import { type FigureUnit, readFigures } from "../../../shared/figures";
+import { readFigures } from "../../../shared/figures";
 import { evaluateFormula, sameNumber, showResult } from "../../../shared/formula";
 import { escapedInStrings } from "../../../shared/jsonText";
 import type {
@@ -18,6 +18,7 @@ import { isRecord } from "../../errors";
 import { type CalculationSession, documentFigureContext, whole } from "../calculations";
 import { agreesAtShownPrecision } from "./calculated";
 import { type ReadVerdict, readsAsRefusal, readVerdict } from "./prompt";
+import type { BoundNumber } from "./units";
 
 export interface FigureReplyItem extends ReadVerdict {
   id: string;
@@ -261,7 +262,7 @@ export interface FigureCheckOptions {
   unitReason(
     figure: string,
     citations: readonly Citation[],
-    bound: readonly { chars: string; unit: FigureUnit }[],
+    bound: readonly BoundNumber[],
   ): UnsupportedReason | null;
   signal: AbortSignal;
 }
@@ -538,6 +539,7 @@ export async function checkFigureReply(options: FigureCheckOptions): Promise<Cla
         // An exchange rate names the currency it converts into.
         unit:
           number.unit.kind === "rate" ? { kind: "currency", code: number.unit.of } : number.unit,
+        scale: number.scale,
       })),
     );
     if (bare || unit) {
