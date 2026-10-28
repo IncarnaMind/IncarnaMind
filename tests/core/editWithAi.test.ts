@@ -390,6 +390,39 @@ describe("Edit with AI", () => {
     },
   );
 
+  // protects=a rewrite that cites a marked Citation twice writes one Citation that is it and one copy with an id of its own, so the mark stays on one (#1933), in English and Chinese, streamed or not; fails_when=the two share the id, or neither has it; no_claim=where the model puts the markers.
+  test.each([
+    {
+      language: "en",
+      before: "Spring tides happen at new moon and at full moon ",
+      twice: "[1] Spring tides occur at new and full moon [1].",
+    },
+    {
+      language: "zh-CN",
+      before: "大潮出现在新月和满月前后",
+      twice: "[1] 大潮在新月和满月时出现 [1]。",
+    },
+  ])(
+    "a rewrite that cites a marked Citation twice writes it once and a copy ($language)",
+    async ({ before, twice }) => {
+      const { core, mind, client, tides } = await setUp(editingModel(() => twice));
+      const marked = citation(tides);
+      marked.attrs = { ...marked.attrs, id: "marked-citation" };
+      const note = paragraph(text(before), marked, text("."));
+      writeMind(client, [note]);
+      await client.settled();
+
+      await core.editWithAi(wholeParagraph(client, mind.id, note.attrs.id, "improve"));
+      await resolveChanges(client, "accept");
+
+      const ids = citationIdsOf(client);
+      expect(ids).toHaveLength(2);
+      expect(ids.filter((id) => id === "marked-citation")).toHaveLength(1);
+      expect(new Set(ids).size).toBe(2);
+      expect(ids.every((id) => typeof id === "string")).toBe(true);
+    },
+  );
+
   // protects=an older Citation, written before Citations had ids, that the assistant's rewrite moves goes by the id the versions kept before give it, so a mark made on it after the rewrite finds it when one of them is restored (#1933); fails_when=the moved Citation has no id, or the restored one another; no_claim=Citations written since, which have their own.
   test("an older Citation the assistant's rewrite moves keeps its identity through a restore", async () => {
     const { core, mind, client, tides } = await setUp(

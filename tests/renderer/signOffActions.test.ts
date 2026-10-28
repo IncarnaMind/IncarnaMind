@@ -5,9 +5,11 @@ import { prosemirrorToYXmlFragment } from "@tiptap/y-tiptap";
 import { describe, expect, onTestFinished, test, vi } from "vitest";
 import * as Y from "yjs";
 import { CITATION_NODE, type CitationAttributes, MIND_CONTENT_FIELD } from "../../src/core/api";
+import { setProposal } from "../../src/core/proposals/write";
 import { citationCopiesKey } from "../../src/renderer/src/editor/citationSchema";
 import { undoStackOf } from "../../src/renderer/src/editor/editorUndo";
 import { noteExtensions } from "../../src/renderer/src/editor/noteSchema";
+import { resolveInEditor } from "../../src/renderer/src/editor/proposalReview";
 import {
   citationSignOff,
   noteDocOf,
@@ -248,31 +250,79 @@ describe("Checked by me on a Citation", () => {
     expect(citationAt(editor).id).toBe(written);
   });
 
-  // protects=an older Citation, written before Citations had ids, gets its element's id on the Note's first edit here, so deleted and brought back with ⌘Z, then marked, it is still found by a version kept before (#1933), in English and Chinese; fails_when=the restored Citation lacks the mark's id; no_claim=a Note opened and never edited, which gets no ids.
+  // protects=an older Citation, written before Citations had ids, keeps the identity the versions kept before give it when the Note's very first edit here deletes it, changes it in place (Keep citing the old version) or only edits beside it: brought back with ⌘Z or changed, then marked, it is found by a version from before (#1933), in English and Chinese; fails_when=the Citation the mark names isn't the one the restore brings back; no_claim=a Note opened and never edited, which gets no ids.
+  test.each([
+    ["deleted", "en", "Spring tides come at new moon"],
+    ["changed in place", "en", "Spring tides come at new moon"],
+    ["edited beside", "en", "Spring tides come at new moon"],
+    ["deleted", "zh-CN", "大潮出现在新月时"],
+    ["changed in place", "zh-CN", "大潮出现在新月时"],
+    ["edited beside", "zh-CN", "大潮出现在新月时"],
+  ] as const)(
+    "an older Citation keeps its identity when the Note's first edit is: %s (%s)",
+    async (first, _, words) => {
+      const { core, mind, client, editor, doc } = await noteWith(words, true);
+      expect(citationAt(editor).id ?? null).toBeNull();
+      const kept = await core.saveCheckpoint(mind.id, "accept");
+
+      const { pos } = citationAt(editor);
+      if (first === "deleted") {
+        editor.commands.deleteRange({ from: pos, to: pos + 1 });
+        undoStackOf(editor)?.stopCapturing();
+        editor.commands.undo();
+      } else if (first === "changed in place") {
+        const node = editor.state.doc.nodeAt(pos);
+        editor.view.dispatch(
+          editor.state.tr.setNodeMarkup(pos, undefined, {
+            ...node?.attrs,
+            contentHash: "v2",
+            keptOver: "v1",
+          }),
+        );
+      } else editor.view.dispatch(editor.state.tr.insertText("So: ", 1));
+      await client.settled();
+
+      toggleCitationSignOff(editor, citationAt(editor).pos, signer);
+      const marked = signOffsOf(doc)[0]?.target.id;
+      expect(typeof marked).toBe("string");
+      await core.restoreCheckpoint(mind.id, kept.id);
+      await client.settled();
+      expect(citationAt(editor).id).toBe(marked);
+    },
+  );
+
+  // protects=an older Citation the assistant's waiting change takes out, accepted in the editor and brought back with ⌘Z before the Note was edited here, keeps the identity the versions kept before give it, so a mark made on it is found by them (#1933), in English and Chinese; fails_when=the Citation the mark names isn't the one the restore brings back; no_claim=the changes card, which decides through the same helper.
   test.each([
     ["en", "Spring tides come at new moon"],
     ["zh-CN", "大潮出现在新月时"],
-  ])("an older Citation deleted and brought back with Undo keeps its id (%s)", async (_, words) => {
-    const { core, mind, client, editor, doc } = await noteWith(words, true);
-    expect(citationAt(editor).id ?? null).toBeNull();
-    const kept = await core.saveCheckpoint(mind.id, "accept");
+  ])(
+    "an older Citation the assistant's accepted deletion took out keeps its identity through Undo (%s)",
+    async (_, words) => {
+      const { core, mind, client, editor, doc } = await noteWith(words, true);
+      const kept = await core.saveCheckpoint(mind.id, "accept");
+      client.doc.transact(() => {
+        for (const block of client.blocks.toArray()) {
+          if (!(block instanceof Y.XmlElement)) continue;
+          for (const node of block.createTreeWalker((each) => each instanceof Y.XmlElement))
+            if (node instanceof Y.XmlElement && node.nodeName === CITATION_NODE)
+              setProposal(node, { id: "change-1", request: "request-1", kind: "delete" });
+        }
+      }, "core");
+      await client.settled();
 
-    editor.view.dispatch(editor.state.tr.insertText("So: ", 1));
-    const older = citationAt(editor).id;
-    expect(typeof older).toBe("string");
-    undoStackOf(editor)?.stopCapturing();
-    const { pos } = citationAt(editor);
-    editor.commands.deleteRange({ from: pos, to: pos + 1 });
-    undoStackOf(editor)?.stopCapturing();
-    editor.commands.undo();
-    await client.settled();
+      resolveInEditor(editor, "all", "accept");
+      expect(() => citationAt(editor)).toThrow();
+      editor.commands.undo();
+      await client.settled();
 
-    toggleCitationSignOff(editor, citationAt(editor).pos, signer);
-    expect(signOffsOf(doc)[0]?.target.id).toBe(older);
-    await core.restoreCheckpoint(mind.id, kept.id);
-    await client.settled();
-    expect(citationAt(editor).id).toBe(older);
-  });
+      toggleCitationSignOff(editor, citationAt(editor).pos, signer);
+      const marked = signOffsOf(doc)[0]?.target.id;
+      expect(typeof marked).toBe("string");
+      await core.restoreCheckpoint(mind.id, kept.id);
+      await client.settled();
+      expect(citationAt(editor).id).toBe(marked);
+    },
+  );
 
   // protects=a Citation cut and pasted elsewhere keeps its id, so a version kept before the move still finds the mark made after it, and a copy pasted beside it gets an id of its own (#1933); fails_when=the moved Citation loses its id, or the copy shares it; no_claim=pastes from other apps.
   test("a Citation cut and pasted keeps its id; a copy pasted beside it gets its own", async () => {

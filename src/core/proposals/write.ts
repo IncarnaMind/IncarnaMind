@@ -52,6 +52,7 @@ import {
   FOOTNOTE_NODE,
   GENERATED_MARK,
   type LeftOutPart,
+  MIND_CONTENT_FIELD,
   PROPOSAL_ATTRIBUTE,
   PROPOSAL_DELETE_MARK,
   PROPOSAL_INSERT_MARK,
@@ -109,6 +110,8 @@ interface InlineNode {
   attributes: Attributes;
   /** What it holds, copied where it moves to: a footnote's text. */
   source?: Y.XmlElement;
+  /** For a Citation the new text cites again: the id of the selection's Citation it is (#1933). */
+  cites?: string;
 }
 
 /** The part of one paragraph or heading the selection covers. */
@@ -205,6 +208,8 @@ export interface Selection {
   segments: Segment[];
   /** The Citations in it, in order: marker n is `citations[n - 1]`. */
   citations: Attributes[];
+  /** Their elements, in the same order. */
+  citedElements: Y.XmlElement[];
   /** The User's footnotes in it, in order: marker "[^n]" is `footnotes[n - 1]`. */
   footnotes: Y.XmlElement[];
   /** The selected text as the editor reads it: an inline node as U+FFFC, a line per paragraph. */
@@ -319,6 +324,7 @@ export function readSelection(blocks: Y.XmlFragment, from: TextPlace, to: TextPl
     return { ok: false, reason: "has-proposals" };
 
   const citations: Attributes[] = [];
+  const citedElements: Y.XmlElement[] = [];
   const footnotes: Y.XmlElement[] = [];
   const segments: Segment[] = [];
   const plain: string[] = [];
@@ -332,6 +338,7 @@ export function readSelection(blocks: Y.XmlFragment, from: TextPlace, to: TextPl
       // One written before Citations had ids goes by its element's, which the versions kept before share.
       const id = attributes[BLOCK_ID_ATTRIBUTE] ?? citationElementId(node);
       citations.push(id ? { ...attributes, [BLOCK_ID_ATTRIBUTE]: id } : attributes);
+      citedElements.push(node);
       return { key: keyOf.citation(citations.length), shown: `[${citations.length}]` };
     }
     if (name === FOOTNOTE_NODE) {
@@ -392,6 +399,7 @@ export function readSelection(blocks: Y.XmlFragment, from: TextPlace, to: TextPl
     selection: {
       segments,
       citations,
+      citedElements,
       footnotes,
       plain: plain.join("\n"),
       text: text
@@ -648,23 +656,20 @@ function newParagraphs(
       ),
     ),
   );
-  // A Citation the new text cites again is the same Citation, so its id goes with it (#1933);
-  // cited a second time, it is a copy, which gets an id of its own.
-  const cited = new Set<number>();
+  // Written with an id of its own; which one is the selection's Citation is settled once the
+  // changes are written (`settleCitedIds`).
   const citationNode = (n: number): NewToken | null => {
     const was = selection.citations[n - 1];
     const now = fresh.get(n) ?? was;
     if (!now) return null;
     const { [BLOCK_ID_ATTRIBUTE]: _, ...attributes } = now;
-    const id = was?.[BLOCK_ID_ATTRIBUTE];
-    const first = !cited.has(n);
-    cited.add(n);
+    const cites = was?.[BLOCK_ID_ATTRIBUTE];
     return {
       key: `${keyOf.citation(n)}${fresh.has(n) ? "*" : ""}`,
       node: {
         name: CITATION_NODE,
-        attributes:
-          first && id !== undefined ? { ...attributes, [BLOCK_ID_ATTRIBUTE]: id } : attributes,
+        attributes,
+        ...(typeof cites === "string" && { cites }),
       },
     };
   };
@@ -893,7 +898,54 @@ function elementOf(node: InlineNode, newId: () => string): Y.XmlElement {
     copy.setAttribute(BLOCK_ID_ATTRIBUTE, newId());
     return copy;
   }
-  return createElement({ type: node.name, attrs: withoutProposalAttribute(node.attributes) });
+  const element = createElement({
+    type: node.name,
+    attrs: withoutProposalAttribute(node.attributes),
+  });
+  if (node.cites) citing.set(element, node.cites);
+  return element;
+}
+
+/** The selection's Citation each Citation a rewrite wrote stands for, by its id (#1933). */
+const citing = new WeakMap<Y.XmlElement, string>();
+
+/** Whether the rewrite takes the element out: it, or a Block it is in, is a change that removes it. */
+function takenOut(element: Y.XmlElement): boolean {
+  if (element._item?.deleted) return true;
+  for (let at: unknown = element; at instanceof Y.XmlElement; at = at.parent) {
+    if (readProposalAttribute(at.getAttribute(PROPOSAL_ATTRIBUTE))?.kind === "delete") return true;
+  }
+  return false;
+}
+
+/**
+ * Each of the selection's Citations goes by its id in one place only (#1933): where it was, while
+ * the rewrite keeps it there, else the first Citation the new text writes for it, which moved
+ * it. Every other Citation written for it is a copy, with an id of its own.
+ */
+function settleCitedIds(selection: Selection, blocks: Y.XmlFragment, newId: () => string): void {
+  const written = new Map<string, Y.XmlElement[]>();
+  for (const block of blocks.toArray()) {
+    if (!(block instanceof Y.XmlElement)) continue;
+    for (const node of block.createTreeWalker(
+      (each) => each instanceof Y.XmlElement && each.nodeName === CITATION_NODE,
+    )) {
+      const cites = node instanceof Y.XmlElement ? citing.get(node) : undefined;
+      if (node instanceof Y.XmlElement && cites)
+        written.set(cites, [...(written.get(cites) ?? []), node]);
+    }
+  }
+  for (const [index, original] of selection.citedElements.entries()) {
+    const id = selection.citations[index]?.[BLOCK_ID_ATTRIBUTE];
+    if (typeof id !== "string") continue;
+    const moved = takenOut(original);
+    for (const [at, copy] of (written.get(id) ?? []).entries()) {
+      const own = copy.getAttribute(BLOCK_ID_ATTRIBUTE);
+      if (moved && at === 0) {
+        if (own !== id) copy.setAttribute(BLOCK_ID_ATTRIBUTE, id);
+      } else if (own === id) copy.setAttribute(BLOCK_ID_ATTRIBUTE, newId());
+    }
+  }
 }
 
 /** An inline node the Proposal adds. */
@@ -1707,6 +1759,8 @@ export function createRewriteStream(
   const wrote = (write: () => void): boolean => {
     const before = proposals.length;
     write();
+    const blocks = segments[0]?.element.doc?.getXmlFragment(MIND_CONTENT_FIELD);
+    if (blocks) settleCitedIds(selection, blocks, newId);
     return proposals.length > before;
   };
 

@@ -4,20 +4,22 @@
  * document so it goes and syncs with the Note and Undo takes it back. A record is never
  * deleted: removing it sets `deletedAt`, and a change to what it checked shows it as changed.
  */
-import type * as Y from "yjs";
+import * as Y from "yjs";
 import {
   type CalculatedFigureAttributes,
   type CheckFigure,
+  CITATION_NODE,
   type Citation,
   type CitationAttributes,
   type FigureFinding,
   type FigureInput,
   MIND_SIGN_OFFS_FIELD,
+  PROPOSAL_ATTRIBUTE,
   type SignOffNow,
   type SignOffTarget,
 } from "../core/api";
 import { isRecord } from "../core/errors";
-import { targetHash } from "./proposals";
+import { readProposalAttribute, targetHash } from "./proposals";
 import { comparableSentence } from "./sentences";
 
 export type { SignOffTarget };
@@ -112,6 +114,44 @@ export const citationElementId = (element: Y.XmlElement): string | null => {
   const id = element._item?.id;
   return id ? `${id.client}-${id.clock}` : null;
 };
+
+/**
+ * Gives each Citation written before Citations had ids the one it goes by (`citationElementId`),
+ * in a transaction no Undo tracks, before a change made on the Note's Yjs document can take it
+ * out, so Undo brings it back with it (#1933). The assistant's waiting text is left as it wrote it.
+ */
+const CITATION_ID = "id" satisfies keyof CitationAttributes;
+
+export function nameOlderCitations(blocks: Y.XmlFragment): void {
+  const older: Y.XmlElement[] = [];
+  const waiting = (element: Y.XmlElement) => {
+    for (let at: unknown = element; at instanceof Y.XmlElement; at = at.parent)
+      if (readProposalAttribute(at.getAttribute(PROPOSAL_ATTRIBUTE))?.kind === "insert")
+        return true;
+    return false;
+  };
+  for (const block of blocks.toArray()) {
+    if (!(block instanceof Y.XmlElement)) continue;
+    for (const node of block.createTreeWalker(
+      (each) => each instanceof Y.XmlElement && each.nodeName === CITATION_NODE,
+    ))
+      if (
+        node instanceof Y.XmlElement &&
+        typeof node.getAttribute(CITATION_ID) !== "string" &&
+        !waiting(node)
+      )
+        older.push(node);
+  }
+  if (older.length === 0 || !blocks.doc) return;
+  blocks.doc.transact(() => {
+    for (const citation of older) {
+      const id = citationElementId(citation);
+      if (id) citation.setAttribute(CITATION_ID, id);
+    }
+  }, NAMING_OLDER);
+}
+
+const NAMING_OLDER = { namingOlderCitations: true };
 
 /** Writes a person's sign-off; call it inside the transaction that also makes any id it needs. */
 export function addSignOff(doc: Y.Doc, record: SignOffRecord): void {
