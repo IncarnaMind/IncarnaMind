@@ -196,16 +196,16 @@ export function ComparisonColumnHeading({
     };
     const onUp = () => {
       remove();
-      delete document.documentElement.dataset.comparisonColumnDrag;
+      delete document.documentElement.dataset.comparisonColumnResize;
       onWidthPreview?.(question.id, null);
       if (Math.round(width) !== Math.round(startWidth)) onWidthCommit?.(question.id, width);
     };
     const cancel = () => {
       remove();
-      delete document.documentElement.dataset.comparisonColumnDrag;
+      delete document.documentElement.dataset.comparisonColumnResize;
       onWidthPreview?.(question.id, null);
     };
-    document.documentElement.dataset.comparisonColumnDrag = "true";
+    document.documentElement.dataset.comparisonColumnResize = "true";
     window.addEventListener("pointermove", onMove);
     window.addEventListener("pointerup", onUp);
     window.addEventListener("pointercancel", cancel);
