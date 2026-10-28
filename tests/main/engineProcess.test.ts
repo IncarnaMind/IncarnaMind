@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { engineEnvironment } from "../../src/main/engineProcess";
+import { engineEnvironment } from "../../src/main/engineEnvironment";
 
 interface Fork {
   path: string;

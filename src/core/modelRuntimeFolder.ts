@@ -10,7 +10,7 @@ import type { Database } from "./storage";
 const ADDED_AFTER_EARLIER_BUILDS = 110;
 
 /** Far longer than a first start takes to apply every migration, far shorter than any upgrade. */
-const FIRST_START_MS = 10 * 60_000;
+const FIRST_START_MS = 2 * 60_000;
 
 export function createModelRuntimeFolderNotice(
   db: Database,

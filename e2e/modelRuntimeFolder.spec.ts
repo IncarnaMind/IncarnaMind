@@ -49,7 +49,7 @@ async function installedEarlier(): Promise<void> {
 }
 
 const LINE_EN =
-  "Microsoft’s model runtime keeps usage data in a folder on this computer, and earlier versions of IncarnaMind added to it. It is safe to delete.";
+  "Microsoft’s model runtime keeps usage data in a folder on this computer, and earlier versions of IncarnaMind may have added to it. It is safe to delete.";
 
 test("Privacy says where Microsoft's model runtime keeps usage data an earlier version added to, and shows the folder", async () => {
   const path = await putRuntimeFolder();
@@ -72,7 +72,7 @@ test("Privacy says where Microsoft's model runtime keeps usage data an earlier v
 
   await setLanguage(window, "zh-CN");
   await expect(line).toContainText(
-    "Microsoft 的模型运行库在这台电脑上的一个文件夹里保存了使用数据，早期版本的 IncarnaMind 也写入过。可以放心删除。",
+    "Microsoft 的模型运行库在这台电脑上的一个文件夹里保存了使用数据，早期版本的 IncarnaMind 可能也写入过。可以放心删除。",
   );
   await expect(show).toHaveText(process.platform === "darwin" ? "在访达中显示" : "在文件夹中显示");
 

@@ -2536,7 +2536,7 @@ export const zhCN = {
   "privacy.traffic.remote-connectors.tip":
     "连接你的远程连接器的服务器以列出工具，并连接它们指定的登录服务。发送给工具的内容属于上面的连接器数据流。",
   "privacy.runtimeFolder":
-    "Microsoft 的模型运行库在这台电脑上的一个文件夹里保存了使用数据，早期版本的 IncarnaMind 也写入过。可以放心删除。",
+    "Microsoft 的模型运行库在这台电脑上的一个文件夹里保存了使用数据，早期版本的 IncarnaMind 可能也写入过。可以放心删除。",
   "privacy.skills.title": "技能脚本",
   "privacy.skills.body":
     "技能脚本在这台电脑上运行，可发送它读取的内容。每个脚本运行前都会询问，除非你设为“始终允许”。",
