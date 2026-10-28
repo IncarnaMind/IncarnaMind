@@ -390,6 +390,11 @@ export function createClaimCheck(deps: ClaimCheckDependencies) {
       if (!calculating || readsAsRefusal(text)) return false;
       const verdict = readVerdict(text);
       if (!verdict) return false;
+      if (
+        attempts === 0 &&
+        session.shownPassages().some((passage) => passage.text.includes(request.claim.trim()))
+      )
+        return false;
       session.check();
       const checked = calculated(request.claim, figures, stated, figureContext);
       const citations = [

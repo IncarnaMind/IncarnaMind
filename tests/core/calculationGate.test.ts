@@ -15,6 +15,7 @@ async function fixture({
   required,
   verdict = "supported",
   topic = "found",
+  cite = true,
 }: {
   repair?: boolean;
   claim?: string;
@@ -23,6 +24,7 @@ async function fixture({
   required?: readonly string[];
   verdict?: "supported" | "unsupported";
   topic?: "found" | "not found";
+  cite?: boolean;
 } = {}) {
   const calls: ModelCall[] = [];
   let verdicts = 0;
@@ -38,7 +40,7 @@ async function fixture({
         passage.text.includes(source),
       );
       if (!passage) throw new Error("Synthetic source was not searched.");
-      if (!call.results.some((result) => result.tool === "cite"))
+      if (cite && !call.results.some((result) => result.tool === "cite"))
         return {
           calls: [
             {
@@ -80,7 +82,7 @@ async function fixture({
         ].join("\n"),
       };
     },
-    { generate: checkGenerate({ [claim]: { judgement: "conflict" } }) },
+    { generate: checkGenerate({ [claim]: { judgement: claim === CLAIM ? "conflict" : "same" } }) },
   );
   const { core } = await setUpWithDocuments(model, [
     { ...DOCUMENT, contents: `# Invented accounts\n\n${source}\n` },
@@ -157,6 +159,21 @@ describe("a check cannot substitute a model verdict for derived arithmetic", () 
     });
     expect(result.verdict).toBe("not-checked");
     expect(verdicts()).toBe(2);
+  });
+
+  test("a directly stated sentence is not asked for arithmetic when the model omits cite", async () => {
+    const { verdicts, calls } = await fixture({
+      claim: "Net debt is 600.",
+      verdict: "unsupported",
+      required: ["none"],
+      cite: false,
+    });
+    expect(verdicts()).toBe(1);
+    expect(
+      calls.some((call) =>
+        JSON.stringify(call.options.prompt).includes("The numerical check is incomplete"),
+      ),
+    ).toBe(false);
   });
 
   test("a directly quoted quantity needs no extra request", async () => {
