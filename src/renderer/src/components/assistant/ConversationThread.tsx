@@ -369,7 +369,7 @@ function useNextScope(mindId: string | null): ScopeChip[] {
   const citedSource = useCitedSource();
   const scopeMindId = mindId ?? citedSource?.mindId ?? null;
   const mind = useAppStore((state) => state.minds.find((each) => each.id === scopeMindId));
-  // Only the scope: a keystroke in the composer makes the draft new, and the whole thread must not draw again for it.
+  // Only the scope: a keystroke in the composer makes the draft new, and the whole Conversation must not draw again for it.
   const draftScope = useComposer((state) => state.drafts[scopeMindId ?? NO_MIND]?.scope ?? null);
   const folders = useAppStore((state) => state.folders);
   const groups = useAppStore((state) => state.library?.groups);
