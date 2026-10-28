@@ -1,6 +1,13 @@
 import type { JSONContent } from "@tiptap/core";
+import type { MockLanguageModelV4 } from "ai/test";
 import { describe, expect, test } from "vitest";
-import type { ClaimCheckAttributes, Document, RecordCiteResult } from "../../src/core";
+import type {
+  ClaimCheckAttributes,
+  CoreAdapters,
+  Document,
+  RecordCiteResult,
+} from "../../src/core";
+import { TranslatableError } from "../../src/core/errors";
 import { claimSpans } from "../../src/renderer/src/editor/claimChecks";
 import { claimCheckShown } from "../../src/shared/claimChecks";
 import {
@@ -8,16 +15,22 @@ import {
   recordCiteSettingsOf,
   writeRecordCiteChoice,
 } from "../../src/shared/recordCiteChoices";
-import { checkingModel, type Plan } from "../helpers/checks";
+import { checkGenerate, checkingModel, checkReply, type Plan } from "../helpers/checks";
 import { setUpWithDocuments } from "../helpers/citations";
 import type { MindClient } from "../helpers/mindClient";
 import { editMind, readMind, writeMind } from "../helpers/minds";
+import { scriptedModel } from "../helpers/models";
 import { buildPdf } from "../helpers/pdf";
 
 const CLAIM = "Ex. 7 at 1 proves the record fact.";
 const REPEATED = "Ex. 7 at 1 and Ex. 7 at 1 together prove the record fact.";
 
-async function setUp(claim = CLAIM, morePlans: Record<string, Plan> = {}) {
+async function setUp(
+  claim = CLAIM,
+  morePlans: Record<string, Plan> = {},
+  overrides: Partial<CoreAdapters> = {},
+  customModel?: MockLanguageModelV4,
+) {
   const plans: Record<string, Plan> = {
     [claim]: {
       verdict: "supported",
@@ -27,23 +40,27 @@ async function setUp(claim = CLAIM, morePlans: Record<string, Plan> = {}) {
     },
     ...morePlans,
   };
-  const model = checkingModel(plans);
-  const setup = await setUpWithDocuments(model, [
-    {
-      name: "Ex. 7 first.pdf",
-      contents: buildPdf([
-        { lines: ["record fact", "First copy"] },
-        { lines: ["Second page", "First next"] },
-      ]),
-    },
-    {
-      name: "Ex. 7 second.pdf",
-      contents: buildPdf([
-        { lines: ["record fact", "Second copy"] },
-        { lines: ["Second page", "Second next"] },
-      ]),
-    },
-  ]);
+  const model = customModel ?? checkingModel(plans);
+  const setup = await setUpWithDocuments(
+    model,
+    [
+      {
+        name: "Ex. 7 first.pdf",
+        contents: buildPdf([
+          { lines: ["record fact", "First copy"] },
+          { lines: ["Second page", "First next"] },
+        ]),
+      },
+      {
+        name: "Ex. 7 second.pdf",
+        contents: buildPdf([
+          { lines: ["record fact", "Second copy"] },
+          { lines: ["Second page", "Second next"] },
+        ]),
+      },
+    ],
+    overrides,
+  );
   const block: JSONContent & { attrs: { id: string } } = {
     type: "paragraph",
     attrs: { id: "record-cite-choice" },
@@ -79,6 +96,22 @@ async function storedCheck(client: MindClient): Promise<ClaimCheckAttributes> {
   return check;
 }
 
+async function storeCloudCheck(setup: Setup, provider: { id: string }) {
+  editMind(setup.client, (blocks) =>
+    blocks.map((block) => ({
+      ...block,
+      content: (block.content ?? []).map((node) => ({
+        ...node,
+        marks: (node.marks ?? []).map((mark) => ({
+          ...mark,
+          attrs: { ...mark.attrs, providerId: provider.id, modelId: "claude-haiku-5-5" },
+        })),
+      })),
+    })),
+  );
+  await setup.client.settled();
+}
+
 function oneCite(check: ClaimCheckAttributes, index = 0): RecordCiteResult {
   const cites = check.recordCites ?? [];
   const cite = cites[index];
@@ -109,7 +142,7 @@ async function chooseSecond(setup: Setup) {
 }
 
 async function setUpTime() {
-  const claim = "12:20 proves the record fact.";
+  const claim = "Meeting Tr. at 12:20 proves the record fact.";
   const model = checkingModel({
     [claim]: {
       verdict: "supported",
@@ -120,11 +153,11 @@ async function setUpTime() {
   });
   const setup = await setUpWithDocuments(model, [
     {
-      name: "First transcript.vtt",
+      name: "Meeting first.vtt",
       contents: "WEBVTT\n\n00:12:20.000 --> 00:12:25.000\nrecord fact First copy\n",
     },
     {
-      name: "Second transcript.vtt",
+      name: "Meeting second.vtt",
       contents: "WEBVTT\n\n00:12:20.000 --> 00:12:25.000\nrecord fact Second copy\n",
     },
   ]);
@@ -174,8 +207,10 @@ describe("record-cite choices through the core", () => {
       passage: expect.stringContaining("Second copy"),
     });
     expect(readRecordCiteChoices(recordCiteSettingsOf(setup.client.doc))).toMatchObject({
-      previous: { documentId: setup.second.id },
-      choices: { "ex 7": { documentId: setup.second.id } },
+      previous: null,
+      choices: {
+        "ex 7": { documentId: setup.second.id, contentHash: setup.second.contentHash },
+      },
     });
 
     await setup.check();
@@ -225,8 +260,8 @@ describe("record-cite choices through the core", () => {
 
     await choose(setup, second, setup.second, Promise.resolve(updated));
     expect(
-      readRecordCiteChoices(recordCiteSettingsOf(setup.client.doc)).previous?.place?.citeFrom,
-    ).toBe(second.from);
+      readRecordCiteChoices(recordCiteSettingsOf(setup.client.doc)).choices["ex 7"],
+    ).toMatchObject({ documentId: setup.second.id, contentHash: setup.second.contentHash });
   });
 
   test("a deleted chosen Document asks again instead of silently using the survivor", async () => {
@@ -253,6 +288,7 @@ describe("record-cite choices through the core", () => {
     await chooseSecond(setup);
     writeRecordCiteChoice(recordCiteSettingsOf(setup.client.doc), "ex 7", {
       documentId: setup.second.id,
+      contentHash: setup.second.contentHash,
       location: {
         kind: "page",
         from: 1,
@@ -270,6 +306,142 @@ describe("record-cite choices through the core", () => {
     expect(invalidated.candidates?.map((candidate) => candidate.id)).toEqual(
       expect.arrayContaining([setup.first.id, setup.second.id]),
     );
+  });
+
+  test("a changed Document hash invalidates its saved choice", async () => {
+    const setup = await setUp();
+    await setup.check();
+    await chooseSecond(setup);
+    writeRecordCiteChoice(recordCiteSettingsOf(setup.client.doc), "ex 7", {
+      documentId: setup.second.id,
+      contentHash: "an-older-version",
+      location: oneCite(await storedCheck(setup.client)).location as NonNullable<
+        RecordCiteResult["location"]
+      >,
+    });
+    await setup.client.settled();
+
+    await setup.check();
+
+    expect(oneCite(await storedCheck(setup.client)).outcome).toBe("choose");
+  });
+
+  test("a Document deleted before confirmation returns an explicit error and writes nothing", async () => {
+    const setup = await setUp();
+    await setup.check();
+    const stored = await storedCheck(setup.client);
+    const generateCalls = setup.model.doGenerateCalls.length;
+    await setup.core.deleteDocument(setup.second.id);
+
+    await expect(
+      choose(setup, oneCite(stored), setup.second, Promise.resolve(stored)),
+    ).rejects.toMatchObject({ wording: { key: "error.recordCite.documentGone" } });
+    expect(setup.model.doGenerateCalls).toHaveLength(generateCalls);
+    expect(readRecordCiteChoices(recordCiteSettingsOf(setup.client.doc))).toEqual({
+      previous: null,
+      choices: {},
+    });
+  });
+
+  test("Local mode keeps its own error and writes no source choice", async () => {
+    const setup = await setUp();
+    const saved = await setup.core.saveChatProvider({
+      kind: "anthropic",
+      apiKey: "sk-test",
+      modelId: "claude-haiku-5-5",
+    });
+    if (saved.service) await setup.core.allowDataFlow("checks", saved.service.id);
+    await setup.check();
+    await setup.core.setLocalOnly(true);
+    await storeCloudCheck(setup, saved);
+
+    await expect(chooseSecond(setup)).rejects.toMatchObject({
+      wording: { key: "error.check.localMode" },
+    });
+    expect(readRecordCiteChoices(recordCiteSettingsOf(setup.client.doc))).toEqual({
+      previous: null,
+      choices: {},
+    });
+  });
+
+  test("declined consent keeps its own error and writes no source choice", async () => {
+    const setup = await setUp();
+    const saved = await setup.core.saveChatProvider({
+      kind: "anthropic",
+      apiKey: "sk-test",
+      modelId: "claude-haiku-5-5",
+    });
+    if (saved.service) await setup.core.allowDataFlow("checks", saved.service.id);
+    await setup.check();
+    if (saved.service) await setup.core.revokeConsent("checks", saved.service.id);
+    await storeCloudCheck(setup, saved);
+    const stop = setup.core.on("consent.requested", (request) => {
+      void setup.core.respondToConsent(request.requestId, false);
+    });
+
+    await expect(chooseSecond(setup)).rejects.toMatchObject({
+      wording: { key: "error.check.declined" },
+    });
+    stop();
+    expect(readRecordCiteChoices(recordCiteSettingsOf(setup.client.doc))).toEqual({
+      previous: null,
+      choices: {},
+    });
+  });
+
+  test("a provider failure keeps its translated wording and writes no source choice", async () => {
+    const plans: Record<string, Plan> = {
+      [CLAIM]: {
+        verdict: "supported",
+        quote: "record fact",
+        says: "The exhibit proves the record fact.",
+        judgement: "same",
+      },
+    };
+    const model = scriptedModel((call) => checkReply(call, plans), {
+      generate: (call) => {
+        if (call.system.includes("exact Passage a record cite names")) {
+          throw new TranslatableError({ key: "claim.reason.rate-limit" });
+        }
+        return checkGenerate(plans)(call);
+      },
+    });
+    const setup = await setUp(CLAIM, {}, {}, model);
+    await setup.check();
+
+    await expect(chooseSecond(setup)).rejects.toMatchObject({
+      wording: { key: "claim.reason.rate-limit" },
+    });
+    expect(readRecordCiteChoices(recordCiteSettingsOf(setup.client.doc))).toEqual({
+      previous: null,
+      choices: {},
+    });
+  });
+
+  test("one unreadable auxiliary reply leaves the overall sentence verdict intact", async () => {
+    const plans: Record<string, Plan> = {
+      [CLAIM]: {
+        verdict: "supported",
+        quote: "record fact",
+        says: "The exhibit proves the record fact.",
+        judgement: "same",
+      },
+    };
+    const model = scriptedModel((call) => checkReply(call, plans), {
+      generate: (call) =>
+        call.system.includes("exact Passage a record cite names")
+          ? { text: "unreadable" }
+          : checkGenerate(plans)(call),
+    });
+    const setup = await setUp(CLAIM, {}, {}, model);
+
+    const result = await setup.core.checkClaim({
+      claim: CLAIM,
+      scope: { folderIds: [], tagIds: [], documentIds: [setup.first.id] },
+    });
+
+    expect(result.verdict).toBe("supported");
+    expect(result.recordCites?.[0]).toMatchObject({ outcome: "not-checked", reason: "malformed" });
   });
 
   test("a direct check without a Note returns candidates without persisting a choice", async () => {
@@ -456,14 +628,14 @@ describe("record-cite choices through the core", () => {
     ).toMatchObject({ state: "needs-recheck", why: "document-removed" });
   });
 
-  test("a timestamp source choice is remembered by its stable time key", async () => {
+  test("a recording source choice is remembered by its stable source alias", async () => {
     const setup = await setUpTime();
     await setup.check();
     expect(oneCite(await storedCheck(setup.client)).outcome).toBe("choose");
 
     await chooseSecond(setup);
     expect(
-      readRecordCiteChoices(recordCiteSettingsOf(setup.client.doc)).choices["time:740000:740000"],
+      readRecordCiteChoices(recordCiteSettingsOf(setup.client.doc)).choices.meeting,
     ).toMatchObject({ documentId: setup.second.id });
 
     await setup.check();

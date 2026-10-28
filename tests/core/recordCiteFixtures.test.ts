@@ -272,7 +272,7 @@ describe("ten resolving fixtures of every accepted record-cite shape", () => {
       });
       expect(result).toMatchObject({
         raw: fixture.raw,
-        outcome: "supported",
+        outcome: "found",
         documentId: document.id,
         contentHash: document.contentHash,
         location: expectedLocation(fixture, document),
@@ -302,7 +302,7 @@ describe("ten resolving fixtures of every accepted record-cite shape", () => {
       });
       expect(results[1]).toMatchObject({
         raw: fixture.raw,
-        outcome: "supported",
+        outcome: "found",
         documentId: document.id,
         location:
           fixture.kind === "id" && fixture.location?.kind === "page"

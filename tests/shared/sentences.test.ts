@@ -54,6 +54,45 @@ describe("The sentences of a paragraph", () => {
     expect(sentences(`${before} ${cited}`)).toEqual([before, cited]);
   });
 
+  test.each([
+    "Smith Dep. 45:3–12",
+    "Compl. ¶ 14",
+    "Smith Decl. ¶¶ 3–5",
+    "Pl.'s Ex. 7, p. 3",
+    "Dep. Tr. 45:3–12",
+  ])("a record cite stays in one sentence: %s", (raw) => {
+    expect(sentences(`See ${raw}. Next sentence stays apart.`)).toEqual([
+      `See ${raw}.`,
+      "Next sentence stays apart.",
+    ]);
+  });
+
+  test("a parenthesized record cite stays in its English or Chinese sentence", () => {
+    expect(
+      sentences("The witness denied it (Smith Dep. 45:3–12). Next sentence stays apart."),
+    ).toEqual(["The witness denied it (Smith Dep. 45:3–12).", "Next sentence stays apart."]);
+    expect(sentences("笔录确认证人否认了这一点 (Smith Dep. 45:3–12)。下一句仍然独立。")).toEqual([
+      "笔录确认证人否认了这一点 (Smith Dep. 45:3–12)。",
+      "下一句仍然独立。",
+    ]);
+  });
+
+  test("a record cite starts after the sentence before it", () => {
+    expect(sentences("The testimony ended. Smith Dep. 45:3–12 is the cited passage.")).toEqual([
+      "The testimony ended.",
+      "Smith Dep. 45:3–12 is the cited passage.",
+    ]);
+  });
+
+  test.each(["Dep.", "Compl.", "Decl.", "p.", "Tr."])(
+    "an incomplete record abbreviation does not join sentences: %s",
+    (abbreviation) => {
+      expect(
+        sentences(`The note ends with ${abbreviation} Next sentence remains separate.`),
+      ).toEqual([`The note ends with ${abbreviation}`, "Next sentence remains separate."]);
+    },
+  );
+
   test("Chinese sentences end at 。！？", () => {
     expect(sentences("今天的潮水很高。明天会更高！真的吗？")).toEqual([
       "今天的潮水很高。",

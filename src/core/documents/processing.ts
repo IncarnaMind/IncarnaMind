@@ -54,10 +54,11 @@ import { unreadMessage } from "./unreadMessage";
  * print, from its page labels or its headers and footers). 12: #1819 (a
  * scanned page's quarter-turn is normalized before it is read). 13: #740 (a
  * workbook records the hidden sheets and rows past the limit it left out).
- * 14: #1818 (PDF form fields are included in the pages' text). 15: #1709
- * (explicit deposition layouts keep their printed page and line anchors).
+ * 14: #1818 (PDF form fields are included in the pages' text). 15: #2110
+ * (CJK line wrapping). 16: #1709 (explicit deposition layouts keep their
+ * printed page and line anchors).
  */
-export const PROCESSING_VERSION = 15;
+export const PROCESSING_VERSION = 16;
 
 /**
  * Per kind, the oldest version whose Passages and Units are still what this
@@ -73,11 +74,12 @@ export const PROCESSING_VERSION = 15;
  * orientation `SCAN_CURRENT_SINCE` reads again; version 13 only workbooks',
  * which record the hidden sheets and rows past the limit they left out, their
  * Units as they were; version 14 only PDFs', whose pages include form fields;
- * version 15 only PDFs', whose explicit deposition layouts gain printed-line
- * anchors while their text and Passages stay as they were.
+ * version 15 only PDFs', whose CJK line wrapping is normalized; version 16
+ * only PDFs', whose explicit deposition layouts gain printed-line anchors
+ * while their text and Passages stay as they were.
  */
 export const CURRENT_SINCE: Readonly<Record<DocumentKind, number>> = {
-  pdf: 15,
+  pdf: 16,
   text: 5,
   markdown: 5,
   docx: 7,

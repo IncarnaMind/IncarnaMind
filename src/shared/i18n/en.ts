@@ -1333,6 +1333,7 @@ export const en = {
   "viewer.docx.comment": "Comment by {author}",
 
   "location.page": "p. {range}",
+  "location.pageLines.across": "p. {fromPage}, line {fromLine}–p. {toPage}, line {toLine}",
   "location.pages": "pp. {range}",
   "location.page.withPdf.one": "{printed} · page {range} of the PDF",
   "location.page.withPdf.other": "{printed} · pages {range} of the PDF",
@@ -4360,6 +4361,8 @@ export const en = {
   "error.recordCite.spanInvalid": "The cite’s position is invalid. Check the sentence again.",
   "error.recordCite.notFound":
     "That record cite is no longer in the check. Check the sentence again.",
+  "error.recordCite.documentGone":
+    "That Document is no longer available. Check the cite again to choose a current Document.",
   "error.recordCite.modelNotReady":
     "The model needed to check this cite is not ready. Choose a model and try again.",
   "error.recordCite.unresolved":

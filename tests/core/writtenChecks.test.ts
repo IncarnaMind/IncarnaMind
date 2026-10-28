@@ -822,7 +822,7 @@ describe("What the assistant writes is checked before it lands", { timeout: 30_0
     );
     expect(next).toHaveLength(2);
     for (const { check } of next) {
-      expect(check.recordCites?.[0]).toMatchObject({ raw: "Id. at 2", outcome: "not-found" });
+      expect(check.recordCites?.[0]).toMatchObject({ raw: "Id. at 2", outcome: "supported" });
     }
   });
 
@@ -848,7 +848,7 @@ describe("What the assistant writes is checked before it lands", { timeout: 30_0
     const { core, client } = await write({
       into: true,
       record: RECORD_FILE,
-      content: `> ${RECORD_SOURCE} [^1].\n> PL-000123.\n> ${RECORD_NEXT} [^2].`,
+      content: `> ${RECORD_SOURCE} [^1].\n> PL-999999.\n> ${RECORD_NEXT} [^2].`,
     });
 
     const next = (await marksIn(core, client)).find(({ sentence }) =>

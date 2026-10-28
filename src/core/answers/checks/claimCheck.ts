@@ -28,9 +28,9 @@ import type { LiveDocument } from "../../../shared/citations";
 import type { FigureContext } from "../../../shared/figures";
 import { type MessageKey, type MessageParams, translate } from "../../../shared/i18n";
 import type {
-  RecordCiteChoice,
   RecordCiteChoices,
   RecordCitePlace,
+  RecordCiteSentence,
 } from "../../../shared/recordCiteChoices";
 import { sentenceSpans } from "../../../shared/sentences";
 import type {
@@ -39,6 +39,7 @@ import type {
   ClaimCalculation,
   ClaimCheckFailure,
   ClaimCheckResult,
+  DocumentTextMatch,
   LeftOutDocument,
   LimitRelation,
   PassageSearchResult,
@@ -53,8 +54,10 @@ import type { Language } from "../../language";
 import { calculates, givesStructuredOutput } from "../../providers/capabilities";
 import type { PreparedChatModel } from "../../providers/chat";
 import { classifyProviderError } from "../../providers/providerErrors";
+import { recordDocuments } from "../../recordCites/documents";
 import { scanRecordCites } from "../../recordCites/parser";
-import { type RecordCiteDocument, resolveRecordCites } from "../../recordCites/resolver";
+import { deriveRecordCiteHistory } from "../../recordCites/previous";
+import { resolveRecordCites } from "../../recordCites/resolver";
 import {
   answerLanguage,
   type CalculationSession,
@@ -102,12 +105,10 @@ export interface ClaimCheckDependencies {
   evidence: Pick<Evidence, "search">;
   documents: Pick<AnswerDocuments, "citationSource" | "pageTexts" | "documentDate"> & {
     names?(): readonly LiveDocument[];
-    recordChoices?(
-      mindId: string | undefined,
-      place?: RecordCitePlace,
-      claim?: string,
-    ): RecordCiteChoices;
-    recordPrevious?(mindId: string, choice: RecordCiteChoice | null): void;
+    searchText?(query: string, options: { limit: number }): DocumentTextMatch[];
+    batesMatch?(documentId: string, prefix: string, identifier: string): boolean;
+    recordChoices?(mindId: string | undefined): RecordCiteChoices;
+    recordSentences?(mindId: string | undefined): readonly RecordCiteSentence[];
     searchableCount(documentIds: readonly string[] | null): number;
     searchableLanguages(documentIds: readonly string[] | null): DocumentLanguage[];
     savedBySearch(documentId: string): boolean;
@@ -128,8 +129,8 @@ export interface ClaimCheckRequest {
   place?: RecordCitePlace;
   /** The exact Note sentence when the overall claim is normalized for another check. */
   recordClaim?: string;
-  /** Whether this check may replace the Note's previous record referent. */
-  recordHistory?: boolean;
+  /** Current or proposed Note text used to derive earlier record referents. */
+  recordSentences?: readonly RecordCiteSentence[];
   /** Names the Mind, for a provider's prompt cache. */
   cacheKey?: string;
   signal: AbortSignal;
@@ -189,21 +190,6 @@ export function recordJudged(
 const SEARCH_FIRST =
   "You gave a verdict without searching the User's Documents. Search them with search_documents first, then give your verdict from what you find.";
 
-function recordDocuments(deps: ClaimCheckDependencies, scope: EvidenceScope): RecordCiteDocument[] {
-  const allowed = scope.documentIds === null ? null : new Set(scope.documentIds);
-  return (deps.documents.names?.() ?? [])
-    .filter(
-      (document) =>
-        (allowed === null || allowed.has(document.id)) && !scope.excluded.has(document.id),
-    )
-    .map((document) => ({
-      id: document.id,
-      name: document.name ?? document.title ?? "",
-      contentHash: document.contentHash,
-      units: deps.documents.pageTexts(document.id, document.contentHash, null, null),
-    }));
-}
-
 function recordOccurrences(claim: string, hasPrevious: boolean) {
   return scanRecordCites(claim, { hasPrevious }).map((occurrence) => ({
     ...occurrence.result,
@@ -222,14 +208,27 @@ async function withRecordCites(
   const recordClaim = request.recordClaim ?? request.claim;
   const occurrences = recordOccurrences(recordClaim, true);
   if (occurrences.length === 0) return result;
-  const choices = deps.documents.recordChoices?.(request.mindId, request.place, recordClaim) ?? {
+  const choices = deps.documents.recordChoices?.(request.mindId) ?? {
     previous: null,
     choices: {},
   };
+  const documents = recordDocuments(deps.documents, request.scope);
+  const recordSentences = request.recordSentences
+    ? [...(deps.documents.recordSentences?.(request.mindId) ?? []), ...request.recordSentences]
+    : (deps.documents.recordSentences?.(request.mindId) ?? []);
+  const derived = deriveRecordCiteHistory(
+    recordSentences,
+    request.place,
+    recordClaim,
+    documents,
+    choices.choices,
+    mapDeposition,
+  );
   const resolved = resolveRecordCites({
     cites: occurrences,
-    documents: recordDocuments(deps, request.scope),
-    choices,
+    documents,
+    choices: { ...choices, previous: derived.previous },
+    history: derived.history,
     resolveDeposition: mapDeposition,
   });
   const judged = await judgeResolvedRecordCites(
@@ -239,30 +238,9 @@ async function withRecordCites(
     request.signal,
     deps.language(),
   );
-  if ("failed" in judged) return { ...result, verdict: "not-checked", ...failureOf(judged.failed) };
   const versions = new Map(result.versions.map((version) => [version.documentId, version]));
   for (const version of recordCiteVersions(judged.recordCites)) {
     if (!versions.has(version.documentId)) versions.set(version.documentId, version);
-  }
-  const previous = judged.recordCites.at(-1);
-  if (request.mindId && judged.recordCites.length > 0 && request.recordHistory !== false) {
-    deps.documents.recordPrevious?.(
-      request.mindId,
-      previous?.documentId && previous.location
-        ? {
-            documentId: previous.documentId,
-            location: previous.location,
-            raw: previous.raw,
-            claim: recordClaim,
-            ...(request.place && {
-              place: {
-                ...request.place,
-                ...(typeof previous.from === "number" && { citeFrom: previous.from }),
-              },
-            }),
-          }
-        : null,
-    );
   }
   return { ...result, recordCites: judged.recordCites, versions: [...versions.values()] };
 }

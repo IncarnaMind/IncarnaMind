@@ -163,7 +163,7 @@ export const ACCEPTED_RECORD_CITE_FIXTURES: readonly AcceptedRecordCiteFixture[]
       "ECF docket entry",
       `ECF No. ${41 + index} at ${5 + index}`,
       "docket",
-      `ecf no ${41 + index}`,
+      `dkt ${41 + index}`,
       page(5 + index),
     ),
   ),
@@ -208,9 +208,9 @@ export const ACCEPTED_RECORD_CITE_FIXTURES: readonly AcceptedRecordCiteFixture[]
     const from = (14 + index) * 60 + 20 + index;
     return directFixture(
       "transcript time",
-      `${14 + index}:${20 + index}`,
+      `Recording Tr. at ${14 + index}:${20 + index}`,
       "time",
-      null,
+      "recording",
       timeLocation(from),
     );
   }),
@@ -219,9 +219,9 @@ export const ACCEPTED_RECORD_CITE_FIXTURES: readonly AcceptedRecordCiteFixture[]
     const to = 3750 + index;
     return directFixture(
       "transcript time range",
-      `${index % 2 === 0 ? "at " : ""}1:02:${padded(20 + index, 2)}–1:02:${padded(30 + index, 2)}`,
+      `Recording Transcript at 1:02:${padded(20 + index, 2)}–1:02:${padded(30 + index, 2)}`,
       "time",
-      null,
+      "recording",
       timeLocation(from, to),
     );
   }),

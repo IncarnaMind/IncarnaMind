@@ -6,7 +6,7 @@ import { parseLocation } from "./locations";
 export interface RecordCitePlace {
   blockId: string;
   from: number;
-  /** The record item's UTF-16 start within its sentence, when this is a saved referent. */
+  /** The record item's UTF-16 start within its sentence, when locating it in Note history. */
   citeFrom?: number;
 }
 
@@ -17,11 +17,8 @@ export interface RecordCiteSentence {
 
 export interface RecordCiteChoice {
   documentId: string;
+  contentHash: string;
   location: CitationLocation;
-  /** The exact record item and sentence, for `Id.`/`supra` only. */
-  raw?: string;
-  claim?: string;
-  place?: RecordCitePlace;
 }
 
 export interface RecordCiteChoices {
@@ -29,61 +26,29 @@ export interface RecordCiteChoices {
   choices: Record<string, RecordCiteChoice>;
 }
 
-const KEY = "recordCites";
+const KEY_PREFIX = "recordCites:";
 
 function choiceOf(value: unknown): RecordCiteChoice | null {
   if (typeof value !== "object" || value === null) return null;
-  const { documentId, location } = value as { documentId?: unknown; location?: unknown };
+  const { documentId, contentHash, location } = value as {
+    documentId?: unknown;
+    contentHash?: unknown;
+    location?: unknown;
+  };
   if (typeof documentId !== "string" || documentId === "") return null;
+  if (typeof contentHash !== "string" || contentHash === "") return null;
   const parsed = parseLocation(location);
-  if (!parsed) return null;
-  const candidate = value as {
-    raw?: unknown;
-    claim?: unknown;
-    place?: { blockId?: unknown; from?: unknown; citeFrom?: unknown };
-  };
-  const place = candidate.place;
-  const blockId = place?.blockId;
-  const from = place?.from;
-  const citeFrom = place?.citeFrom;
-  const validPlace =
-    typeof blockId === "string" &&
-    blockId !== "" &&
-    typeof from === "number" &&
-    Number.isInteger(from) &&
-    from >= 0 &&
-    (citeFrom === undefined ||
-      (typeof citeFrom === "number" && Number.isInteger(citeFrom) && citeFrom >= 0));
-  return {
-    documentId,
-    location: parsed,
-    ...(typeof candidate.raw === "string" && { raw: candidate.raw }),
-    ...(typeof candidate.claim === "string" && { claim: candidate.claim }),
-    ...(validPlace
-      ? {
-          place: {
-            blockId,
-            from,
-            ...(typeof citeFrom === "number" && { citeFrom }),
-          },
-        }
-      : {}),
-  };
+  return parsed ? { documentId, contentHash, location: parsed } : null;
 }
 
 export function readRecordCiteChoices(settings: Y.Map<unknown>): RecordCiteChoices {
-  const stored = settings.get(KEY);
-  if (typeof stored !== "object" || stored === null) return { previous: null, choices: {} };
-  const previous = choiceOf((stored as { previous?: unknown }).previous);
   const choices: Record<string, RecordCiteChoice> = {};
-  const aliases = (stored as { choices?: unknown }).choices;
-  if (typeof aliases === "object" && aliases !== null) {
-    for (const [alias, value] of Object.entries(aliases)) {
-      const choice = choiceOf(value);
-      if (choice) choices[alias] = choice;
-    }
-  }
-  return { previous, choices };
+  settings.forEach((value, key) => {
+    if (!key.startsWith(KEY_PREFIX)) return;
+    const choice = choiceOf(value);
+    if (choice) choices[key.slice(KEY_PREFIX.length)] = choice;
+  });
+  return { previous: null, choices };
 }
 
 export function writeRecordCiteChoice(
@@ -91,18 +56,9 @@ export function writeRecordCiteChoice(
   alias: string,
   choice: RecordCiteChoice | null,
 ): void {
-  const current = readRecordCiteChoices(settings);
-  if (choice) current.choices[alias] = choice;
-  else delete current.choices[alias];
-  settings.set(KEY, { previous: current.previous, choices: current.choices });
-}
-
-export function writePreviousRecordCite(
-  settings: Y.Map<unknown>,
-  choice: RecordCiteChoice | null,
-): void {
-  const current = readRecordCiteChoices(settings);
-  settings.set(KEY, { previous: choice, choices: current.choices });
+  const key = `${KEY_PREFIX}${alias}`;
+  if (choice) settings.set(key, choice);
+  else settings.delete(key);
 }
 
 export const recordCiteSettingsOf = (doc: Y.Doc): Y.Map<unknown> => doc.getMap(MIND_SETTINGS_FIELD);

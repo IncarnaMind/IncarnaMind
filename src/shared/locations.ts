@@ -175,6 +175,14 @@ export function formatLocation(location: CitationLocation, t: Translate, speaker
   switch (location.kind) {
     case "page": {
       const { from, to } = location.printed ?? location;
+      if (location.lines && from !== to) {
+        return t("location.pageLines.across", {
+          fromPage: from,
+          fromLine: location.lines.from,
+          toPage: to,
+          toLine: location.lines.to,
+        });
+      }
       const page = t("location.page", { range: span(from, to) });
       return location.lines
         ? `${page} · ${t(location.lines.to !== location.lines.from ? "location.lines.other" : "location.lines.one", { range: span(location.lines.from, location.lines.to) })}`
@@ -259,6 +267,7 @@ export const englishLocation = (location: CitationLocation, speaker = true): str
           from: location.from,
           to: location.to,
           ...(location.lines ? { lines: location.lines } : {}),
+          ...(location.lines && location.printed ? { printed: location.printed } : {}),
         }
       : location,
     english,

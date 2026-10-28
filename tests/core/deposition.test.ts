@@ -91,18 +91,33 @@ describe("Printed deposition source anchors (#1709)", () => {
     expect(twice[0]).toBe(once[0]);
   });
 
-  test("layout-order fallback applies only inside an explicit Page N region", () => {
+  test("an explicit Page N region without printed line labels has no invented line map", () => {
     const labelled = pdfPage(1, "Page 45\nQ. First?\nYes.\nA. Last.");
     const oldKept = pdfPage(2, "Q. Not a new layout\n2 Not inherited");
     const mapped = addDepositionAnchors([labelled, oldKept]);
 
     expect(mapped[1]).toBe(oldKept);
-    expect(found(mapped, cite(45, 1, 45, 3)).units.map((unit) => unit.text)).toEqual([
-      "Q. First?",
-      "Yes.",
-      "A. Last.",
+    expect(depositionAnchors(mapped[0]).map((anchor) => anchor.target)).toEqual([
+      "deposition:page:45",
     ]);
-    expect(resolveDeposition(mapped, cite(45, 4))).toEqual({ status: "not-found" });
+    expect(resolveDeposition(mapped, cite(45, 1))).toEqual({ status: "not-found" });
+  });
+
+  test("a header above margin line 1 does not shift the labelled content rows", () => {
+    const unit = pdfPage(
+      2,
+      "Page 45\nDeposition caption\n1\nQ. First?\n2\nA. Second.\n3\nQ. Third?",
+    );
+    const result = found([unit], cite(45, 2, 45, 3));
+    expect(result.units.map((each) => each.text)).toEqual(["A. Second.", "Q. Third?"]);
+  });
+
+  test("one ambiguous margin label invalidates the whole region", () => {
+    const unit = pdfPage(
+      2,
+      "Page 45\n1 Q. First\nCaption\n2\nQ. Could be before\nA. Could be after\n3 Q. Otherwise valid",
+    );
+    expect(resolveDeposition([unit], cite(45, 2))).toEqual({ status: "not-found" });
   });
 
   test("margin labels pair with their source rows", () => {
@@ -112,6 +127,12 @@ describe("Printed deposition source anchors (#1709)", () => {
       "Q. From the margin?",
       "A. From the next row.",
     ]);
+  });
+
+  test("content-first margin labels pair with the previous row", () => {
+    const unit = pdfPage(2, "Page 45\nQ. First?\n1\nA. Second.\n2");
+    const result = found([unit], cite(45, 1, 45, 2));
+    expect(result.units.map((each) => each.text)).toEqual(["Q. First?", "A. Second."]);
   });
 
   test("out-of-order labelled rows resolve in printed-line order", () => {

@@ -2,7 +2,6 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { test } from "vitest";
 import type { ClaimCheckResult, Core } from "../../src/core";
-import { waitForProcessing } from "../../tests/helpers/documents";
 import { commitOf } from "../lib/commit";
 import { chatProviderOf, readConfig } from "../lib/config";
 import { createWorkerEmbedder } from "../lib/embedder";
@@ -10,7 +9,7 @@ import { openLibrary } from "../lib/library";
 import { createLog } from "../lib/log";
 import { createWorkerCrossEncoder } from "../lib/rerank";
 import { watchRequests } from "../repeats/requests";
-import { type RecordCiteRunReport, writeRecordCiteReport } from "./report";
+import { matchedRecordCites, type RecordCiteRunReport, writeRecordCiteReport } from "./report";
 import { type RecordCaseResult, scoreRecordCase } from "./score";
 import { loadRecordCiteSet } from "./set";
 
@@ -34,16 +33,19 @@ test("public record-cite evaluation", async () => {
   const set = await loadRecordCiteSet(root);
   const only = process.env.INCARNAMIND_EVAL_RECORD_CITES_CASES?.split(",").map((id) => id.trim());
   const cases = set.cases.filter((test) => !only || only.includes(test.id));
-  const regency = set.documents.find((document) => document.key === "regency-ecf-41");
-  const robinson = set.documents.find((document) => document.key === "robinson-ecf-41");
-  if (!regency || !robinson) throw new Error("The public record Documents are missing.");
+  const wanted = new Set(cases.flatMap((test) => test.documents));
+  const documents = set.documents.filter((document) => wanted.has(document.key));
+  if (documents.length !== wanted.size) throw new Error("A case names an unknown record Document.");
   const watch = watchRequests(cases.map((test) => test.claim));
   const library = await openLibrary({
     name: "record-cites",
     embedder: createWorkerEmbedder(),
     modelCache: join(config.cacheDir, "models"),
     reranker: createWorkerCrossEncoder(),
-    documents: [{ key: regency.key, path: join(root, regency.path) }],
+    documents: documents.map((document) => ({
+      key: document.key,
+      path: join(root, document.path),
+    })),
     embeddings: false,
     keep: config.keepData,
     chatModels: watch.chatModels,
@@ -56,24 +58,21 @@ test("public record-cite evaluation", async () => {
     });
     await core.saveChatProvider(chatProviderOf(chat));
     const ids = new Map([...library.documents].map(([key, document]) => [document.id, key]));
-    let addedRobinson = false;
     const results: RecordCaseResult[] = [];
     for (const test of cases) {
-      if (!addedRobinson && test.cites.some((cite) => cite.outcome === "choose")) {
-        const added = await core.addDocuments([join(root, robinson.path)]);
-        const processed = await waitForProcessing(
-          core,
-          added.documents.map((document) => document.id),
-        );
-        for (const document of processed) ids.set(document.id, robinson.key);
-        addedRobinson = true;
-        log("Added the second ECF No. 41 for the ambiguity case");
-      }
+      const documentIds = test.documents.map((key) => {
+        const document = library.documents.get(key);
+        if (!document) throw new Error(`${test.id} names an unavailable record Document.`);
+        return document.id;
+      });
       await core.updateSettings({ user: { language: test.language } });
       let result: ClaimCheckResult | null = null;
       let failure: string | null = null;
       try {
-        result = await core.checkClaim({ claim: test.claim });
+        result = await core.checkClaim({
+          claim: test.claim,
+          scope: { folderIds: [], tagIds: [], documentIds },
+        });
         if (result.verdict === "not-checked") {
           failure = [result.reason, result.detail].filter(Boolean).join(": ");
         }
@@ -99,7 +98,7 @@ test("public record-cite evaluation", async () => {
         pipeline: "the app's public core checkClaim, with record-cite resolution and judgement",
       },
       set: {
-        documents: addedRobinson ? 2 : 1,
+        documents: documents.length,
         cases: results.length,
         cites: results.reduce((total, entry) => total + entry.test.cites.length, 0),
       },
@@ -115,7 +114,7 @@ test("public record-cite evaluation", async () => {
     };
     const dir = await writeRecordCiteReport(report, config.resultsDir);
     log(
-      `${report.set.cites - report.misses.length} of ${report.set.cites} cite results match; ${report.misses.length} misses; report ${dir}`,
+      `${matchedRecordCites(report)} of ${report.set.cites} cite results match; ${report.misses.length} misses; report ${dir}`,
     );
   } finally {
     await library.close();

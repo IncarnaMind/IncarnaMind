@@ -137,9 +137,14 @@ function recordCitesOf(value: unknown): RecordCiteResult[] | undefined {
   return value.flatMap((each) => {
     if (!isRecord(each)) return [];
     const raw = text(each.raw);
-    const outcome = ["supported", "partly", "choose", "not-found"].find(
-      (known) => known === each.outcome,
-    );
+    const outcome = [
+      "supported",
+      "partly",
+      "unsupported",
+      "choose",
+      "not-found",
+      "not-checked",
+    ].find((known) => known === each.outcome);
     if (!raw || !outcome) return [];
     const location = each.location === undefined ? undefined : parseLocation(each.location);
     if (each.location !== undefined && location === null) return [];
@@ -149,6 +154,14 @@ function recordCitesOf(value: unknown): RecordCiteResult[] | undefined {
       {
         raw,
         outcome: outcome as RecordCiteResult["outcome"],
+        ...(FAILURES.find((reason) => reason === each.reason)
+          ? { reason: each.reason as ClaimCheckFailure }
+          : {}),
+        ...(each.detail === null
+          ? { detail: null }
+          : text(each.detail) !== null
+            ? { detail: each.detail as string }
+            : {}),
         ...(typeof each.from === "number" && Number.isInteger(each.from) && each.from >= 0
           ? { from: each.from }
           : {}),

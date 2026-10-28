@@ -210,12 +210,12 @@ export interface CreateMindInput {
  *   `hidden`. An older version's editor writes the columns back without
  *   these when it changes one, so it opens these Minds read-only. Older
  *   content is version 30 content as it is.
- * - 32: the individual record cites in a sentence's check (#1709): their raw
+ * - 33: the individual record cites in a sentence's check (#1709): their raw
  *   text, outcome, resolved Document/version/Location, passage and any
  *   candidates or nearby suggestion, which an older editor would drop. Older
- *   content is version 32 content as it is.
+ *   content is version 33 content as it is.
  */
-export const CONTENT_SCHEMA_VERSION = 32;
+export const CONTENT_SCHEMA_VERSION = 33;
 
 /**
  * The key, in the Mind's settings map (`MIND_SETTINGS_FIELD`), of the content
@@ -5231,7 +5231,10 @@ export interface RecordCiteResult {
   raw: string;
   from?: number;
   to?: number;
-  outcome: "supported" | "partly" | "choose" | "not-found";
+  outcome: "supported" | "partly" | "unsupported" | "choose" | "not-found" | "not-checked";
+  /** For "not-checked": why this cite's auxiliary judgement could not be read. */
+  reason?: ClaimCheckFailure;
+  detail?: string | null;
   documentId?: string;
   documentName?: string;
   contentHash?: string;

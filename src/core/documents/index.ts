@@ -1296,6 +1296,23 @@ export function createDocuments(options: DocumentsOptions) {
       .map(toUnitText);
   }
 
+  /** Whether a Document may hold a Bates identifier; exact Unit validation still decides it. */
+  function batesMatch(documentId: string, prefix: string, identifier: string): boolean {
+    if (keywordSearch(db, `${prefix}-${identifier}`, 1, [documentId]).length > 0) return true;
+    const like = `%${prefix}%${identifier}%`;
+    return (
+      db.get(
+        `SELECT 1 FROM document_pages dp
+         JOIN documents d ON d.id = dp.document_id
+         WHERE dp.document_id = ? AND dp.content_hash = d.content_hash
+           AND dp.deleted_at IS NULL AND d.deleted_at IS NULL
+           AND (dp.text LIKE ? OR dp.label LIKE ?)
+         LIMIT 1`,
+        [documentId, like, like],
+      ) !== undefined
+    );
+  }
+
   /**
    * The text kept of Documents unlinked with their Linked folder (see
    * `CoreApi.listKeptCitationTexts`): by Document and version, in that order.
@@ -2749,6 +2766,8 @@ export function createDocuments(options: DocumentsOptions) {
         similar.length > 0 ? keywordOnlyPassages(db, lists[0] ?? [], model.id) : undefined;
       return passagesBySeq(db, fuseRankings(lists, limit, keywordOnly));
     },
+
+    batesMatch,
 
     /** See `CoreApi.searchDocumentText`. */
     searchText(query: unknown, options?: unknown): DocumentTextMatch[] {

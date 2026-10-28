@@ -44,7 +44,6 @@ import type { BackgroundQueue } from "../../backgroundQueue";
 import type { EvidenceScope } from "../../documents/evidence";
 import type { MindContent } from "../../mindContent";
 import type { PreparedChatModel } from "../../providers/chat";
-import { scanRecordCites } from "../../recordCites/parser";
 import { currentTask } from "../../runs/current";
 import { RunItemError, runItems } from "../../runs/stop";
 import { type ClaimCheckRequest, recordJudged, runFailureOf } from "./claimCheck";
@@ -267,9 +266,6 @@ export function createContradictionWatch(options: WatchOptions) {
     const runId = randomUUID();
     let checked = 0;
     let contradicted = 0;
-    const hasRecordCites = ready.claims.some(
-      (claim) => scanRecordCites(claim.text, { hasPrevious: true }).length > 0,
-    );
     const { stop } = await runItems(
       ready.claims,
       (claim) =>
@@ -290,7 +286,7 @@ export function createContradictionWatch(options: WatchOptions) {
           return result;
         }),
       {
-        concurrency: hasRecordCites ? 1 : claimsAtOnce(prepared),
+        concurrency: claimsAtOnce(prepared),
         signal,
         onOutcome(claim, outcome) {
           if (outcome.status !== "done" || signal.aborted) return;

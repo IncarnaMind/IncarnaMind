@@ -1,6 +1,6 @@
 import { describe, expect, test } from "vitest";
 import { resolveDeposition } from "../../src/core/documents/deposition";
-import { parseRecordCite } from "../../src/core/recordCites/parser";
+import { parseRecordCite, scanRecordCites } from "../../src/core/recordCites/parser";
 import type { RecordCiteDocument } from "../../src/core/recordCites/resolver";
 import { resolveChosenRecordCite, resolveRecordCites } from "../../src/core/recordCites/resolver";
 
@@ -23,10 +23,10 @@ describe("record-cite source resolution", () => {
 
     expect(
       resolveRecordCites({ cites: [parseRecordCite("Ex. 7 at 3")], documents: [source], choices }),
-    ).toEqual([
+    ).toMatchObject([
       {
         raw: "Ex. 7 at 3",
-        outcome: "supported",
+        outcome: "found",
         documentId: "exhibit-7",
         documentName: "Exhibit 7.pdf",
         contentHash: "hash-exhibit-7",
@@ -64,7 +64,7 @@ describe("record-cite source resolution", () => {
       }),
     ).toMatchObject([
       {
-        outcome: "supported",
+        outcome: "found",
         documentId: "ecf-41",
         location: { kind: "page", from: 2, to: 2, printed: { from: "5", to: "5" } },
         pageFrom: 2,
@@ -80,7 +80,7 @@ describe("record-cite source resolution", () => {
       resolveRecordCites({ cites: [parseRecordCite("Ex. 7 at 3")], documents: [source], choices }),
     ).toMatchObject([
       {
-        outcome: "supported",
+        outcome: "found",
         location: { kind: "page", from: 3, to: 3, printed: { from: "3", to: "3" } },
         passage: "Ordinary page",
       },
@@ -130,6 +130,7 @@ describe("record-cite source resolution", () => {
           choices: {
             "  EX   7 ": {
               documentId: "chosen",
+              contentHash: "hash-chosen",
               location: {
                 kind: "page",
                 from: 6,
@@ -142,7 +143,7 @@ describe("record-cite source resolution", () => {
       }),
     ).toMatchObject([
       {
-        outcome: "supported",
+        outcome: "found",
         documentId: "chosen",
         location: { kind: "page", from: 6, to: 6, printed: { from: "3", to: "3" } },
         passage: "Chosen",
@@ -160,6 +161,7 @@ describe("record-cite source resolution", () => {
         choices: {
           "ex 7": {
             documentId: "deleted",
+            contentHash: "deleted-hash",
             location: { kind: "page", from: 9, to: 9 },
           },
         },
@@ -184,6 +186,7 @@ describe("record-cite source resolution", () => {
         choices: {
           "ex 7": {
             documentId: "deleted",
+            contentHash: "deleted-hash",
             location: { kind: "page", from: 9, to: 9 },
           },
         },
@@ -203,6 +206,7 @@ describe("record-cite source resolution", () => {
         choices: {
           "ex 7": {
             documentId: "exhibit-7",
+            contentHash: "hash-exhibit-7",
             location: {
               kind: "page",
               from: 4,
@@ -236,7 +240,7 @@ describe("record-cite source resolution", () => {
       }),
     ).toMatchObject([
       {
-        outcome: "supported",
+        outcome: "found",
         documentId: "production",
         location: { kind: "page", from: 7, to: 7, printed: { from: "PL 000123", to: "PL 000123" } },
         pageFrom: 7,
@@ -282,7 +286,7 @@ describe("record-cite source resolution", () => {
       }),
     ).toMatchObject([
       {
-        outcome: "supported",
+        outcome: "found",
         documentId: "def-production",
         pageFrom: 8,
         pageTo: 12,
@@ -332,7 +336,7 @@ describe("record-cite source resolution", () => {
       }),
     ).toMatchObject([
       {
-        outcome: "supported",
+        outcome: "found",
         documentId: "complaint",
         location: { kind: "section", heading: null, paragraphs: { from: 14, to: 14 } },
         pageFrom: 5,
@@ -360,7 +364,7 @@ describe("record-cite source resolution", () => {
       }),
     ).toMatchObject([
       {
-        outcome: "supported",
+        outcome: "found",
         documentId: "smith-declaration",
         location: { kind: "section", heading: null, paragraphs: { from: 3, to: 5 } },
         pageFrom: 2,
@@ -426,7 +430,7 @@ describe("record-cite source resolution", () => {
 
     expect(
       resolveRecordCites({
-        cites: [parseRecordCite("12:20")],
+        cites: [parseRecordCite("Recording Tr. at 12:20")],
         documents: [
           { ...document([{ page: 1, text: "12:20 is only page text" }]), id: "not-a-recording" },
           source,
@@ -435,8 +439,8 @@ describe("record-cite source resolution", () => {
       }),
     ).toEqual([
       {
-        raw: "12:20",
-        outcome: "supported",
+        raw: "Recording Tr. at 12:20",
+        outcome: "found",
         documentId: "recording",
         documentName: "Recording.vtt",
         contentHash: "hash-exhibit-7",
@@ -468,13 +472,13 @@ describe("record-cite source resolution", () => {
 
     expect(
       resolveRecordCites({
-        cites: [parseRecordCite("12:20–12:35")],
+        cites: [parseRecordCite("Recording Tr. at 12:20–12:35")],
         documents: [source],
         choices,
       }),
     ).toMatchObject([
       {
-        outcome: "supported",
+        outcome: "found",
         location: { kind: "time", from: 740_000, to: 755_000 },
         passage: "First\nSecond",
       },
@@ -503,7 +507,7 @@ describe("record-cite source resolution", () => {
 
     expect(results[1]).toMatchObject({
       raw: "Id. at 46",
-      outcome: "supported",
+      outcome: "found",
       documentId: "smith-deposition",
       location: {
         kind: "page",
@@ -535,10 +539,10 @@ describe("record-cite source resolution", () => {
     });
 
     expect(results.map((result) => [result.outcome, result.pageFrom, result.passage])).toEqual([
-      ["supported", 4, "Three"],
-      ["supported", 4, "Three"],
-      ["supported", 9, "Seven"],
-      ["supported", 9, "Seven"],
+      ["found", 4, "Three"],
+      ["found", 4, "Three"],
+      ["found", 9, "Seven"],
+      ["found", 9, "Seven"],
     ]);
     expect(results[2]).toMatchObject({
       documentId: "exhibit-7",
@@ -575,6 +579,7 @@ describe("record-cite source resolution", () => {
         choices: {
           previous: {
             documentId: "exhibit-7",
+            contentHash: "hash-exhibit-7",
             location: {
               kind: "page",
               from: 4,
@@ -586,7 +591,7 @@ describe("record-cite source resolution", () => {
         },
       }),
     ).toMatchObject([
-      { outcome: "supported", documentId: "exhibit-7", pageFrom: 4, passage: "Previous" },
+      { outcome: "found", documentId: "exhibit-7", pageFrom: 4, passage: "Previous" },
     ]);
   });
 
@@ -629,7 +634,7 @@ describe("record-cite source resolution", () => {
     expect(result).toMatchObject([
       {
         raw: "Smith Dep. 45:3–46:2",
-        outcome: "supported",
+        outcome: "found",
         documentId: "smith-deposition",
         documentName: "Smith Deposition.pdf",
         contentHash: "hash-exhibit-7",
@@ -716,8 +721,9 @@ describe("record-cite source resolution", () => {
         choices: {
           previous: null,
           choices: {
-            pl: {
+            "bates:PL:000123:000123": {
               documentId: "chosen-production",
+              contentHash: "hash-chosen-production",
               location: {
                 kind: "page",
                 from: 11,
@@ -730,7 +736,7 @@ describe("record-cite source resolution", () => {
       }),
     ).toMatchObject([
       {
-        outcome: "supported",
+        outcome: "found",
         documentId: "chosen-production",
         contentHash: "hash-chosen-production",
         pageFrom: 11,
@@ -760,6 +766,7 @@ describe("record-cite source resolution", () => {
           choices: {
             compl: {
               documentId: "chosen-complaint",
+              contentHash: "hash-exhibit-7",
               location: { kind: "section", heading: null, paragraphs: { from: 14, to: 14 } },
             },
           },
@@ -767,7 +774,7 @@ describe("record-cite source resolution", () => {
       }),
     ).toMatchObject([
       {
-        outcome: "supported",
+        outcome: "found",
         documentId: "chosen-complaint",
         pageFrom: 8,
         passage: "¶ 14 Chosen",
@@ -792,7 +799,13 @@ describe("record-cite source resolution", () => {
         documents: [source],
         choices: {
           previous: null,
-          choices: { "smith dep": { documentId: "smith-deposition", location: savedLocation } },
+          choices: {
+            "smith dep": {
+              documentId: "smith-deposition",
+              contentHash: "hash-exhibit-7",
+              location: savedLocation,
+            },
+          },
         },
         resolveDeposition: (_units, location) => {
           calls.push(location.from);
@@ -805,7 +818,7 @@ describe("record-cite source resolution", () => {
       }),
     ).toMatchObject([
       {
-        outcome: "supported",
+        outcome: "found",
         documentId: "smith-deposition",
         location: savedLocation,
         passage: "Saved exact lines",
@@ -824,12 +837,151 @@ describe("record-cite source resolution", () => {
 
     expect(resolveChosenRecordCite(parseRecordCite("Dkt. 41 at 5"), renamed)).toMatchObject({
       raw: "Dkt. 41 at 5",
-      outcome: "supported",
+      outcome: "found",
       documentId: "chosen-docket",
       documentName: "Duplicate filing.pdf",
       pageFrom: 5,
       passage: "Chosen filing",
     });
+  });
+
+  test("named supra returns to the named earlier Document, not the latest one", () => {
+    const smith = {
+      ...document([{ page: 1, kind: "page" as const, text: "Page 45\n3 Smith answer" }]),
+      id: "smith",
+      name: "Smith Deposition.pdf",
+    };
+    const exhibit = {
+      ...document([{ page: 3, label: { printed: "3" }, text: "Exhibit answer" }]),
+      id: "other-exhibit",
+    };
+    const occurrences = scanRecordCites("Smith Dep. 45:3; Ex. 7 at 3; Smith, supra");
+    const results = resolveRecordCites({
+      cites: occurrences.map((occurrence) => ({
+        ...occurrence.result,
+        raw: occurrence.raw,
+        from: occurrence.from,
+        to: occurrence.to,
+      })),
+      documents: [smith, exhibit],
+      choices,
+      resolveDeposition,
+    });
+
+    expect(results[2]).toMatchObject({
+      raw: "Smith, supra",
+      outcome: "found",
+      documentId: "smith",
+      passage: "Smith answer",
+    });
+  });
+
+  test("keeps amended and defendant prefixes in actual Document selection", () => {
+    const amended = {
+      ...document([{ page: 4, text: "¶ 14 Amended" }]),
+      id: "amended",
+      name: "Amended Complaint.pdf",
+    };
+    const complaint = {
+      ...document([{ page: 4, text: "¶ 14 Original" }]),
+      id: "original",
+      name: "Complaint.pdf",
+    };
+    expect(
+      resolveRecordCites({
+        cites: [parseRecordCite("Am. Compl. ¶ 14")],
+        documents: [complaint, amended],
+        choices,
+      })[0],
+    ).toMatchObject({ outcome: "found", documentId: "amended" });
+
+    const defendant = {
+      ...document([{ page: 3, label: { printed: "3" }, text: "Defendant exhibit" }]),
+      id: "defendant",
+      name: "Defendant's Exhibit 7.pdf",
+    };
+    expect(
+      resolveRecordCites({
+        cites: [parseRecordCite("Def.'s Ex. 7 at 3")],
+        documents: [
+          document([{ page: 3, label: { printed: "3" }, text: "Plain exhibit" }]),
+          defendant,
+        ],
+        choices,
+      })[0],
+    ).toMatchObject({ outcome: "found", documentId: "defendant" });
+  });
+
+  test("maps a line-qualified Id. to exact rows and refuses a non-deposition referent", () => {
+    const smith = {
+      ...document([
+        { page: 1, kind: "page" as const, text: "Page 45\n3 First answer" },
+        { page: 2, kind: "page" as const, text: "Page 46\n1 Next question\n2 Exact answer" },
+      ]),
+      id: "smith",
+      name: "Smith Deposition.pdf",
+    };
+    const results = resolveRecordCites({
+      cites: scanRecordCites("Smith Dep. 45:3; Id. at 46:2").map((occurrence) => ({
+        ...occurrence.result,
+        raw: occurrence.raw,
+        from: occurrence.from,
+        to: occurrence.to,
+      })),
+      documents: [smith],
+      choices,
+      resolveDeposition,
+    });
+    expect(results[1]).toMatchObject({
+      raw: "Id. at 46:2",
+      outcome: "found",
+      passage: "Exact answer",
+      location: { lines: { from: 2, to: 2 } },
+    });
+
+    const exhibit = document([{ page: 46, label: { printed: "46" }, text: "Whole exhibit" }]);
+    expect(
+      resolveRecordCites({
+        cites: scanRecordCites("Ex. 7 at 3; Id. at 46:2").map((occurrence) => ({
+          ...occurrence.result,
+          raw: occurrence.raw,
+          from: occurrence.from,
+          to: occurrence.to,
+        })),
+        documents: [exhibit],
+        choices,
+        resolveDeposition,
+      })[1],
+    ).toMatchObject({ raw: "Id. at 46:2", outcome: "not-found" });
+  });
+
+  test("a saved choice with an old content hash is not used", () => {
+    const source = document([{ page: 4, label: { printed: "3" }, text: "Current" }]);
+    const result = resolveRecordCites({
+      cites: [parseRecordCite("Ex. 7 at 3")],
+      documents: [source],
+      choices: {
+        previous: null,
+        choices: {
+          "ex 7": {
+            documentId: "exhibit-7",
+            contentHash: "old-hash",
+            location: { kind: "page", from: 4, to: 4, printed: { from: "3", to: "3" } },
+          },
+        },
+      },
+    });
+    expect(result[0]).toMatchObject({ outcome: "choose" });
+  });
+
+  test("an enormous Bates range is not-found instead of throwing before its size guard", () => {
+    expect(
+      resolveRecordCites({
+        cites: [parseRecordCite("DEF 0001–999999999999")],
+        documents: [document([{ page: 1, text: "DEF 0001" }])],
+        choices,
+      })[0],
+    ).toMatchObject({ outcome: "not-found" });
   });
 
   test("turns parser failures into not-found results", () => {

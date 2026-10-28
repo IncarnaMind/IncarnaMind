@@ -25,14 +25,17 @@ export interface RecordCiteRunReport {
 const row = (cells: readonly string[]) =>
   `| ${cells.map((cell) => cell.replace(/\|/g, "\\|").replace(/\n/g, " ")).join(" | ")} |`;
 
+export const matchedRecordCites = (report: Pick<RecordCiteRunReport, "set" | "misses">) =>
+  report.set.cites - report.misses.filter((miss) => miss.expected !== null).length;
+
 export function markdownRecordCiteReport(report: RecordCiteRunReport): string {
-  const matched = report.set.cites - report.misses.length;
+  const matched = matchedRecordCites(report);
   return [
     "# Public record-cite evaluation (#1709)",
     "",
     `Run ${report.run.startedAt} at ${report.run.commit}, ${Math.round(report.run.seconds)} s, with ${report.run.model}. ${report.run.pipeline}.`,
     "",
-    `Set: ${report.set.documents} public court Documents, ${report.set.cases} claims, ${report.set.cites} expected cite results. Matched ${matched} of ${report.set.cites}.`,
+    `Set: ${report.set.documents} record Documents, ${report.set.cases} claims, ${report.set.cites} expected cite results. Matched ${matched} of ${report.set.cites}.`,
     "",
     `Model: ${report.usage.requests} requests, ${report.usage.inputTokens} input and ${report.usage.outputTokens} output tokens, ${report.usage.requestSeconds.toFixed(1)} s of requests, $${report.usage.spentUsd.toFixed(4)} at the core's count.`,
     "",

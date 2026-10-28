@@ -21,7 +21,7 @@ const supported: ClaimCheckResult = {
 test.each([
   { kind: "direct record cites", second: "Dkt. 41 at 2 states another deadline." },
   { kind: "Id./supra references", second: "Id. at 2 states another deadline." },
-])("a cloud run resolves $kind in reading order", async ({ second }) => {
+])("a cloud run starts $kind without waiting for stored referents", async ({ second }) => {
   const first = "ECF No. 41 at 3 states the deadline.";
   const calls: string[] = [];
   let release: (() => void) | undefined;
@@ -58,7 +58,7 @@ test.each([
   );
 
   await nextTurn();
-  expect(calls).toEqual([first]);
+  expect(calls).toEqual([first, second]);
   if (!release) throw new Error("The first check did not start.");
   release();
   await run;

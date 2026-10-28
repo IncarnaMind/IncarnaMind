@@ -116,9 +116,13 @@ export function RecordCiteResults({
               ? t("claim.state.supported")
               : cite.outcome === "partly"
                 ? t("claim.recordCites.partly")
-                : cite.outcome === "choose"
-                  ? t("claim.recordCites.choose")
-                  : t("claim.recordCites.not-found");
+                : cite.outcome === "unsupported"
+                  ? t("aiStatement.sentences.unsupported")
+                  : cite.outcome === "not-checked"
+                    ? t("aiStatement.sentences.notChecked")
+                    : cite.outcome === "choose"
+                      ? t("claim.recordCites.choose")
+                      : t("claim.recordCites.not-found");
           const busy = pending === base;
           return (
             <article
@@ -165,6 +169,11 @@ export function RecordCiteResults({
                       : t("claim.recordCites.doesNotCover", {
                           uncovered: cite.uncovered ?? "",
                         })}
+                </p>
+              )}
+              {cite.outcome === "not-checked" && (
+                <p data-testid="record-cite-not-checked" className="record-cite-detail">
+                  {t(`claim.reason.${cite.reason ?? "failed"}`, { detail: cite.detail ?? "" })}
                 </p>
               )}
               {cite.passage && (

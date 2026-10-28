@@ -37,6 +37,70 @@ function unchecked(text: string): ClaimCheckAttributes {
   };
 }
 
+test.each([
+  ["The witness denied it (Smith Dep. 45:3–12).", "The next sentence stays separate."],
+  ["笔录确认证人否认了这一点 (Smith Dep. 45:3–12)。", "下一句仍然独立。"],
+])("a real Note keeps %s and its record cite whole", async (claim, next) => {
+  const model = checkingModel({
+    [claim]: { verdict: "supported", quote: "The witness denied it", judgement: "same" },
+    [next]: { verdict: "supported", quote: "The witness denied it", judgement: "same" },
+  });
+  const setup = await setUpWithDocuments(model, [
+    {
+      name: "Smith Deposition.pdf",
+      contents: buildPdf([
+        {
+          lines: [
+            "Page 45",
+            "1 Q. First question?",
+            "2 A. First answer.",
+            "3 The witness denied it",
+            ...Array.from({ length: 9 }, (_, index) => `${index + 4} Later line ${index + 4}`),
+          ],
+        },
+      ]),
+    },
+  ]);
+  const document = setup.documents[0];
+  if (!document) throw new Error("The deposition Document is missing.");
+  const folder = await setup.core.createLibraryGroup({ name: "Record", description: "" });
+  await setup.core.moveToFolder({ documentIds: [document.id], folderId: folder.id });
+  const mind = await setup.core.createMind({ title: "Real Note", folderId: folder.id });
+  const client = await connectToMind(setup.core, mind.id);
+  const text = `${claim} ${next}`;
+  writeMind(client, [
+    { type: "paragraph", attrs: { id: "real-note" }, content: [{ type: "text", text }] },
+  ]);
+  await client.settled();
+
+  const result = await setup.core.checkSentences({
+    requestId: "real-note-record-cite",
+    mindId: mind.id,
+    action: "check-against-documents",
+    from: { blockId: "real-note", offset: 0 },
+    to: { blockId: "real-note", offset: text.length },
+  });
+
+  expect(result).toMatchObject({ kind: "checked", sentences: 2 });
+  await client.settled();
+  const checks = claimSpans(readMind(client)).map((span) => span.check);
+  expect(checks.map((check) => check.text)).toEqual([claim, next]);
+  const cite = checks[0]?.recordCites?.[0];
+  expect(cite).toMatchObject({
+    raw: "Smith Dep. 45:3–12",
+    outcome: "supported",
+    documentId: document.id,
+    location: {
+      kind: "page",
+      from: 1,
+      to: 1,
+      printed: { from: "45", to: "45" },
+      lines: { from: 3, to: 12 },
+    },
+  });
+  expect(checks[0]?.text.slice(cite?.from ?? 0, cite?.to ?? 0)).toBe("Smith Dep. 45:3–12");
+});
+
 test("Check this Note puts an earlier recheck before a later fresh Id.", async () => {
   const model = checkingModel({
     [SOURCE]: { verdict: "unsupported", judgement: "same" },
@@ -94,8 +158,18 @@ test("Check this Note puts an earlier recheck before a later fresh Id.", async (
 
 test("contradiction watch restores Id. from the original cited sentence", async () => {
   const model = checkingModel({
-    [withCitation(SOURCE)]: { verdict: "unsupported", judgement: "same" },
-    [withCitation(NEXT)]: { verdict: "unsupported", judgement: "same" },
+    [withCitation(SOURCE)]: {
+      verdict: "contradicted",
+      quote: "Other fact",
+      says: "The other Document states another deadline.",
+      judgement: "conflict",
+    },
+    [withCitation(NEXT)]: {
+      verdict: "contradicted",
+      quote: "Other fact",
+      says: "The other Document states another deadline.",
+      judgement: "conflict",
+    },
   });
   const setup = await setUpWithDocuments(model, [
     {
@@ -141,13 +215,15 @@ test("contradiction watch restores Id. from the original cited sentence", async 
   ]);
   await client.settled();
 
-  await setup.core.checkContradictions({ requestId: "watch-record-history", mindId: mind.id });
+  const result = await setup.core.checkContradictions({
+    requestId: "watch-record-history",
+    mindId: mind.id,
+  });
+  await client.settled();
 
-  expect(readRecordCiteChoices(recordCiteSettingsOf(client.doc)).previous).toMatchObject({
-    raw: "Id. at 2",
-    claim: withCitation(NEXT),
-    documentId: document.id,
-    location: { kind: "page", from: 2, to: 2 },
-    place: { blockId: "watch-next", from: 0, citeFrom: 0 },
+  expect(result).toMatchObject({ kind: "checked", claims: 2, checked: 2 });
+  expect(readRecordCiteChoices(recordCiteSettingsOf(client.doc))).toEqual({
+    previous: null,
+    choices: {},
   });
 });

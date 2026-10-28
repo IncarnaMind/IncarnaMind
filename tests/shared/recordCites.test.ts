@@ -65,6 +65,8 @@ describe("record-cite results in a claim-check mark", () => {
         uncovered: "Another",
       },
       resolved,
+      { ...resolved, outcome: "unsupported" },
+      { ...resolved, outcome: "not-checked", reason: "malformed", detail: null },
       { raw: "Ex. 7 at 3", outcome: "choose", candidates: [{ id: "doc-2", name: "Exhibit 7" }] },
     ];
     expect(readClaimCheck(attributes(cites))?.recordCites).toEqual(cites);
@@ -94,7 +96,7 @@ describe("record-cite results in a claim-check mark", () => {
   test("retains recording and paragraph evidence and invalidates it when deleted", () => {
     const check = attributes([
       {
-        raw: "12:20",
+        raw: "Recording Tr. at 12:20",
         outcome: "supported",
         documentId: "transcript",
         documentName: "Transcript",

@@ -16,6 +16,7 @@ const SHAPES: Readonly<Record<Result, string>> = {
   unsupported: BANG,
   notFound: BANG,
   "not-found": BANG,
+  "not-checked": BANG,
   contradicted: '<path d="M6 9.5h12M6 14.5h12M15 5l-6 14"/>',
   "cant-check": '<path d="M7 12h10"/>',
   notChecked: '<circle cx="12" cy="12" r="6.5"/>',

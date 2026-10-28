@@ -231,6 +231,10 @@ _Avoid_: toast, snackbar, notification
 
 ### Checks
 
+**Record cite**:
+A reference in legal writing to a Document in the record and the exact place it names: a deposition page and lines, exhibit page, docket page, Bates identifier, legal paragraph or recording time, including `Id.` and `supra`. A record-cite check reads that exact Passage and gives the cite its own result, independently of the sentence's overall result.
+_Avoid_: legal citation (a Citation is the general object in a Note), source
+
 **Citation check**:
 The test of whether a Citation's quote is found in the text at its Location, and of whether the words its sentence puts in quotation marks (at least 4 words, or 6 characters in Chinese or Japanese) are found in the text at the Locations the sentence cites. Its only failing result is quote not found.
 _Avoid_: validation, verification

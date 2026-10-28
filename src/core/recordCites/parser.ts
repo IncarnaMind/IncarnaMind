@@ -1,5 +1,7 @@
+import { citedCases } from "../../shared/caseCitations";
 import { parseClockTime } from "../../shared/clock";
 import type { CitationLocation } from "../api";
+import { recordCiteAlias } from "./alias";
 
 export type RecordCiteKind =
   | "deposition"
@@ -66,13 +68,6 @@ interface RecordCiteShape {
 
 const group = (match: RegExpExecArray, index: number) => match[index] ?? "";
 
-const normalizeAlias = (source: string) =>
-  source
-    .trim()
-    .replace(/[.’]/g, (mark) => (mark === "’" ? "'" : ""))
-    .replace(/\s+/g, " ")
-    .toLocaleLowerCase();
-
 const positiveInteger = (written: string) => {
   const value = Number(written);
   return Number.isSafeInteger(value) && value >= 1 ? value : null;
@@ -101,22 +96,23 @@ const previous = (
   kind: "id" | "supra",
   location: CitationLocation | null,
   options: RecordCiteParseOptions,
+  sourceAlias: string | null = null,
 ): Draft | RecordCiteParseFailureReason =>
   options.hasPrevious
-    ? { kind, sourceAlias: null, location, bates: null, reference: "previous" }
+    ? { kind, sourceAlias, location, bates: null, reference: "previous" }
     : "no-earlier-referent";
 
 const readDeposition: ReadShape = (match) => {
   const fromPage = positiveInteger(group(match, 3));
   const fromLine = positiveInteger(group(match, 4));
   const toPage = group(match, 5) ? positiveInteger(group(match, 5)) : fromPage;
-  const toLine = positiveInteger(group(match, 6));
+  const toLine = group(match, 6) ? positiveInteger(group(match, 6)) : fromLine;
   if (fromPage === null || fromLine === null || toPage === null || toLine === null) {
     return "out-of-range";
   }
   if (toPage < fromPage || (toPage === fromPage && toLine < fromLine)) return "out-of-range";
   const source = `${group(match, 1)}${group(match, 1) ? " " : ""}${group(match, 2)}`;
-  return direct("deposition", normalizeAlias(source), {
+  return direct("deposition", recordCiteAlias(source), {
     kind: "page",
     from: fromPage,
     to: toPage,
@@ -129,7 +125,7 @@ const readExhibit: ReadShape = (match) => {
   const page = positiveInteger(group(match, 3));
   if (page === null) return "out-of-range";
   const source = `${group(match, 1)}${group(match, 1) ? " " : ""}Ex. ${group(match, 2)}`;
-  return direct("exhibit", normalizeAlias(source), pageLocation(page));
+  return direct("exhibit", recordCiteAlias(source), pageLocation(page));
 };
 
 const readDocket: ReadShape = (match) => {
@@ -137,7 +133,7 @@ const readDocket: ReadShape = (match) => {
   if (page === null) return "out-of-range";
   return direct(
     "docket",
-    normalizeAlias(`${group(match, 1)} ${group(match, 2)}`),
+    recordCiteAlias(`${group(match, 1)} ${group(match, 2)}`),
     pageLocation(page),
   );
 };
@@ -150,7 +146,7 @@ const batesRange = (prefix: string, from: string, to: string): Draft | "out-of-r
   }
   return {
     kind: "bates",
-    sourceAlias: normalizeAlias(prefix),
+    sourceAlias: recordCiteAlias(prefix),
     location: null,
     bates: { prefix: prefix.toUpperCase(), from, to },
     reference: null,
@@ -160,7 +156,7 @@ const batesRange = (prefix: string, from: string, to: string): Draft | "out-of-r
 const readParagraph: ReadShape = (match) => {
   const paragraphs = positiveRange(group(match, 3), group(match, 4) || group(match, 3));
   if (paragraphs === "out-of-range") return paragraphs;
-  return direct("paragraph", normalizeAlias(group(match, 1)), {
+  return direct("paragraph", recordCiteAlias(group(match, 1)), {
     kind: "section",
     heading: null,
     paragraphs,
@@ -168,10 +164,10 @@ const readParagraph: ReadShape = (match) => {
 };
 
 const readTime: ReadShape = (match) => {
-  const start = parseClockTime(group(match, 1));
-  const end = group(match, 2) ? parseClockTime(group(match, 2)) : start;
+  const start = parseClockTime(group(match, 2));
+  const end = group(match, 3) ? parseClockTime(group(match, 3)) : start;
   if (start === null || end === null) return "out-of-range";
-  return direct("time", null, {
+  return direct("time", recordCiteAlias(group(match, 1)), {
     kind: "time",
     from: Math.min(start, end),
     to: Math.max(start, end),
@@ -185,7 +181,7 @@ const SHAPES: readonly RecordCiteShape[] = [
     scanName: (match) => group(match, 1),
   },
   {
-    pattern: /^(?:(pl\.['’]s) )?ex\.? (\d+),? (?:at|p\.?) (\d+)$/i,
+    pattern: /^(?:((?:pl|def)\.['’]s) )?ex\.? (\d+),? (?:at|p\.?) (\d+)$/i,
     read: readExhibit,
   },
   {
@@ -197,29 +193,53 @@ const SHAPES: readonly RecordCiteShape[] = [
     read: (match) => batesRange(group(match, 1), group(match, 2), group(match, 2)),
   },
   {
-    pattern: /^([A-Z]+) (\d{4,}) *[-–—] *(\d{4,})$/,
+    pattern: /^(?!FY\b|ISO\b)([A-Z]+) (\d{4,}) *[-–—] *(\d{4,})$/,
     read: (match) => batesRange(group(match, 1), group(match, 2), group(match, 3)),
   },
   {
-    pattern: /^(compl\.?|.+? decl\.?) ¶(¶?) (\d+)(?: *[-–—] *(\d+))?$/i,
+    pattern: /^((?:am\.? )?compl\.?|.+? decl\.?) ¶(¶?) (\d+)(?: *[-–—] *(\d+))?$/i,
     read: readParagraph,
     scanName: (match) => group(match, 1).replace(/ decl\.?$/i, ""),
   },
   {
-    pattern: /^(?:at )?(\d{1,2}(?::\d{2}){1,2})(?: *[-–—] *(\d{1,2}(?::\d{2}){1,2}))?$/i,
+    pattern:
+      /^(.+?) (?:tr\.?|transcript) at (\d{1,2}(?::\d{2}){1,2})(?: *[-–—] *(\d{1,2}(?::\d{2}){1,2}))?$/i,
     read: readTime,
+    scanName: (match) => group(match, 1),
   },
   {
-    pattern: /^[Ii]d\.(?: at (\d+))?$/,
+    pattern:
+      /^[Ii]d\.(?: at (?:(\d+)(?: *: *(\d+)(?: *[-–—] *(?:(\d+) *: *)?(\d+))?)?))?(?! *[-–—:])$/,
     read: (match, options) => {
-      const page = group(match, 1) ? positiveInteger(group(match, 1)) : null;
-      if (group(match, 1) && page === null) return "out-of-range";
-      return previous("id", page === null ? null : pageLocation(page), options);
+      if (!group(match, 1)) return previous("id", null, options);
+      const fromPage = positiveInteger(group(match, 1));
+      if (fromPage === null) return "out-of-range";
+      if (!group(match, 2)) return previous("id", pageLocation(fromPage), options);
+      const fromLine = positiveInteger(group(match, 2));
+      const toPage = group(match, 3) ? positiveInteger(group(match, 3)) : fromPage;
+      const toLine = group(match, 4) ? positiveInteger(group(match, 4)) : fromLine;
+      if (fromLine === null || toPage === null || toLine === null) return "out-of-range";
+      if (toPage < fromPage || (toPage === fromPage && toLine < fromLine)) {
+        return "out-of-range";
+      }
+      return previous(
+        "id",
+        {
+          kind: "page",
+          from: fromPage,
+          to: toPage,
+          printed: { from: group(match, 1), to: group(match, 3) || group(match, 1) },
+          lines: { from: fromLine, to: toLine },
+        },
+        options,
+      );
     },
   },
   {
-    pattern: /^supra\.?$/i,
-    read: (_match, options) => previous("supra", null, options),
+    pattern: /^(?:(.+?), )?supra\.?$/i,
+    read: (match, options) =>
+      previous("supra", null, options, group(match, 1) ? recordCiteAlias(group(match, 1)) : null),
+    scanName: (match) => group(match, 1),
   },
 ];
 
@@ -294,20 +314,46 @@ export function scanRecordCites(
       if (!insideWord(text, from, to)) candidates.push({ from, to, shape: shapeIndex });
     }
   }
-  candidates.sort((a, b) => a.from - b.from || b.to - a.to || a.shape - b.shape);
+  const events = [
+    ...candidates.map((candidate) => ({ ...candidate, decision: false })),
+    ...citedCases(text).map((candidate) => ({ ...candidate, shape: -1, decision: true })),
+  ].sort(
+    (a, b) =>
+      a.from - b.from ||
+      Number(b.decision) - Number(a.decision) ||
+      b.to - a.to ||
+      a.shape - b.shape,
+  );
 
   const occurrences: RecordCiteOccurrence[] = [];
   let occupiedTo = -1;
   let lastResolvable: number | null = options.hasPrevious ? -1 : null;
-  for (const candidate of candidates) {
+  let caseBoundary = false;
+  for (const candidate of events) {
+    if (candidate.decision) {
+      lastResolvable = null;
+      caseBoundary = true;
+      continue;
+    }
     if (candidate.from < occupiedTo) continue;
     const raw = text.slice(candidate.from, candidate.to);
     const result = parseRecordCite(raw, { hasPrevious: lastResolvable !== null });
+    occupiedTo = candidate.to;
+    if (
+      caseBoundary &&
+      result.status === "error" &&
+      result.reason === "no-earlier-referent" &&
+      /^(?:id|supra)\b/i.test(raw)
+    ) {
+      continue;
+    }
     const referent =
       result.status === "parsed" && result.reference === "previous" ? lastResolvable : null;
     occurrences.push({ raw, from: candidate.from, to: candidate.to, result, referent });
-    occupiedTo = candidate.to;
-    if (result.status === "parsed") lastResolvable = occurrences.length - 1;
+    if (result.status === "parsed") {
+      lastResolvable = occurrences.length - 1;
+      if (result.reference === null) caseBoundary = false;
+    }
   }
   return occurrences;
 }

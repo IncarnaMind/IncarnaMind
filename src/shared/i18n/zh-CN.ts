@@ -1285,6 +1285,7 @@ export const zhCN = {
   "viewer.docx.comment": "{author} 的批注",
 
   "location.page": "第 {range} 页",
+  "location.pageLines.across": "第 {fromPage} 页第 {fromLine} 行至第 {toPage} 页第 {toLine} 行",
   "location.pages": "第 {range} 页",
   "location.page.withPdf.one": "{printed} · PDF 第 {range} 页",
   "location.page.withPdf.other": "{printed} · PDF 第 {range} 页",
@@ -4153,6 +4154,7 @@ export const zhCN = {
   "error.recordCite.choiceInvalid": "所选文档的信息不完整，请重新选择。",
   "error.recordCite.spanInvalid": "引用的位置无效，请重新核对这句话。",
   "error.recordCite.notFound": "这次核对中找不到该记录引用，请重新核对这句话。",
+  "error.recordCite.documentGone": "所选文档已不可用。请重新核对引用，再选择当前文档。",
   "error.recordCite.modelNotReady": "无法使用当前模型核对此引用，请选择模型后重试。",
   "error.recordCite.unresolved": "无法确定引用来源，请选择其他文档或检查该引用。",
   "error.tagging.noModel": "先选择分类模型。",

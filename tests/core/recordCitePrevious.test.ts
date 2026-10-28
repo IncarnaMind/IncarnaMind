@@ -1,139 +1,164 @@
 import { describe, expect, test } from "vitest";
-import { hasImmediateRecordCitePrevious } from "../../src/core/recordCites/previous";
-import type { RecordCiteChoice, RecordCiteSentence } from "../../src/shared/recordCiteChoices";
+import { scanRecordCites } from "../../src/core/recordCites/parser";
+import { deriveRecordCiteHistory } from "../../src/core/recordCites/previous";
+import type { RecordCiteDocument } from "../../src/core/recordCites/resolver";
+import { resolveRecordCites } from "../../src/core/recordCites/resolver";
+import type { RecordCiteSentence } from "../../src/shared/recordCiteChoices";
 
 const sentence = (blockId: string, text: string): RecordCiteSentence => ({
   place: { blockId, from: 0 },
   text,
 });
 
-const previousFor = (blockId: string, claim: string, raw: string): RecordCiteChoice => ({
-  documentId: "document",
-  location: { kind: "page", from: 3, to: 3 },
-  raw,
-  claim,
-  place: { blockId, from: 0, citeFrom: claim.indexOf(raw) },
+const source = (id: string, name: string, page: number): RecordCiteDocument => ({
+  id,
+  name,
+  contentHash: `${id}-hash`,
+  units: [{ page, kind: "page", label: { printed: String(page) }, text: `${name} passage` }],
 });
 
+const ecf = source("ecf", "ECF No. 41.pdf", 3);
+const exhibit = source("exhibit", "Exhibit 7.pdf", 3);
+const docket = source("docket", "Dkt. 41.pdf", 2);
+const documents = [ecf, exhibit];
 const current = { blockId: "next", from: 0 };
+const currentClaim = "Id. at 4 states more.";
 
-describe("the immediately preceding record item", () => {
-  test("must be the last cite within its own sentence", () => {
-    const text = "ECF No. 41 at 3 and Ex. 7 at 3 state the record.";
-    const sentences = [sentence("before", text), sentence("next", "Id. at 4 states more.")];
-    expect(
-      hasImmediateRecordCitePrevious(
-        sentences,
-        previousFor("before", text, "ECF No. 41 at 3"),
-        current,
-      ),
-    ).toBe(false);
-    expect(
-      hasImmediateRecordCitePrevious(sentences, previousFor("before", text, "Ex. 7 at 3"), current),
-    ).toBe(true);
-  });
+const previousOf = (sentences: RecordCiteSentence[], claim = currentClaim) =>
+  deriveRecordCiteHistory(sentences, current, claim, documents, {}).previous?.documentId;
 
-  test("a replacement at the same offset cannot impersonate the saved cite", () => {
-    const before = "Ex. 7 at 3 states the deadline.";
+describe("the immediately preceding record item derived from Note text", () => {
+  test("is the last resolved cite within its own sentence", () => {
     const sentences = [
-      sentence("before", "Dkt. 41 at 2 states the deadline."),
-      sentence("next", "Id. at 4 states more."),
+      sentence("before", "ECF No. 41 at 3 and Ex. 7 at 3 state the record."),
+      sentence("next", currentClaim),
     ];
-    expect(
-      hasImmediateRecordCitePrevious(
-        sentences,
-        previousFor("before", before, "Ex. 7 at 3"),
-        current,
-      ),
-    ).toBe(false);
+    expect(previousOf(sentences)).toBe("exhibit");
   });
 
-  test("a cite appended after the saved item invalidates it without a recheck", () => {
-    const before = "Ex. 7 at 3 states it.";
+  test("an appended unresolved or ambiguous cite clears it without a recheck", () => {
     const sentences = [
       sentence("before", "Ex. 7 at 3 states it, and Dkt. 41 at 2 adds more."),
-      sentence("next", "Id. at 4 states more."),
+      sentence("next", currentClaim),
     ];
+    expect(previousOf(sentences)).toBeUndefined();
     expect(
-      hasImmediateRecordCitePrevious(
-        sentences,
-        previousFor("before", before, "Ex. 7 at 3"),
+      deriveRecordCiteHistory(
+        [sentence("ambiguous", "Dkt. 41 at 2 is ambiguous."), sentence("next", currentClaim)],
         current,
-      ),
-    ).toBe(false);
+        currentClaim,
+        [source("ecf-copy", "ECF No. 41.pdf", 2), docket],
+        {},
+      ).previous,
+    ).toBeNull();
   });
 
-  test("a proposed write supplies reading order, and an intervening cite clears it", () => {
-    const source = "ECF No. 41 at 3 states the deadline.";
-    const first = sentence("new-a", source);
-    const second = sentence("new-b", "Id. at 2 states another deadline.");
-    const previous = previousFor("new-a", source, "ECF No. 41 at 3");
-    const next = { blockId: "new-b", from: 0 };
-    expect(hasImmediateRecordCitePrevious([first, second], previous, next)).toBe(true);
-    expect(
-      hasImmediateRecordCitePrevious(
-        [first, sentence("ambiguous", "Dkt. 41 at 2 is ambiguous."), second],
-        previous,
-        next,
-      ),
-    ).toBe(false);
+  test("a proposed write supplies reading order even before the first check succeeds", () => {
+    const sentences = [
+      sentence("new-a", "ECF No. 41 at 3 states the deadline."),
+      sentence("new-b", currentClaim),
+    ];
+    expect(previousOf(sentences)).toBe("ecf");
   });
 
   test("a newly assigned proposed Block id falls back to the exact current claim", () => {
-    const source = "ECF No. 41 at 3 states the deadline.";
-    const nextText = "Id. at 2 states another deadline.";
-    const sentences = [sentence("assigned-a", source), sentence("assigned-b", nextText)];
-    expect(
-      hasImmediateRecordCitePrevious(
-        sentences,
-        previousFor("assigned-a", source, "ECF No. 41 at 3"),
-        { blockId: "proposed-container", from: 0 },
-        nextText,
-      ),
-    ).toBe(true);
+    const sentences = [
+      sentence("assigned-a", "ECF No. 41 at 3 states the deadline."),
+      sentence("assigned-b", currentClaim),
+    ];
+    expect(previousOf(sentences)).toBe("ecf");
   });
 
   test("duplicate proposed claims never borrow an occurrence's position", () => {
-    const source = "ECF No. 41 at 3 states the deadline.";
     const repeated = "Id. at 2 states another deadline.";
-    const first = sentence("source", source);
-    const second = sentence("repeat-a", repeated);
-    const third = sentence("repeat-b", repeated);
-    const sentences = [first, second, third];
-    const proposed = { blockId: "proposed-container", from: 0 };
+    const sentences = [
+      sentence("source", "ECF No. 41 at 3 states the deadline."),
+      sentence("repeat-a", repeated),
+      sentence("repeat-b", repeated),
+    ];
     expect(
-      hasImmediateRecordCitePrevious(
+      deriveRecordCiteHistory(
         sentences,
-        previousFor("source", source, "ECF No. 41 at 3"),
-        proposed,
+        { blockId: "proposed-container", from: 0 },
         repeated,
-      ),
-    ).toBe(false);
-    expect(
-      hasImmediateRecordCitePrevious(
-        sentences,
-        previousFor("repeat-a", repeated, "Id. at 2"),
-        proposed,
-        repeated,
-      ),
-    ).toBe(false);
+        documents,
+        {},
+      ).previous,
+    ).toBeNull();
   });
 
   test("an item cannot refer to itself or a later source", () => {
-    const source = "Ex. 7 at 3 states it.";
-    const sentences = [sentence("first", "Id. at 2 has no source."), sentence("next", source)];
-    expect(
-      hasImmediateRecordCitePrevious(
-        sentences,
-        previousFor("first", "Id. at 2 has no source.", "Id. at 2"),
-        { blockId: "first", from: 0 },
-      ),
-    ).toBe(false);
-    expect(
-      hasImmediateRecordCitePrevious(sentences, previousFor("next", source, "Ex. 7 at 3"), {
-        blockId: "first",
-        from: 0,
-      }),
-    ).toBe(false);
+    const sentences = [
+      sentence("first", "Id. at 2 has no source."),
+      sentence("next", "Ex. 7 at 3 states it."),
+    ];
+    expect(previousOf(sentences, "Id. at 2 has no source.")).toBeUndefined();
+  });
+
+  test("named supra keeps its source across intervening cite-bearing sentences", () => {
+    const raw = "ECF No. 41, supra";
+    const derived = deriveRecordCiteHistory(
+      [
+        sentence("smith", "ECF No. 41 at 3 states it."),
+        sentence("exhibit", "Ex. 7 at 3 states something else."),
+        sentence("next", raw),
+      ],
+      current,
+      raw,
+      documents,
+      {},
+    );
+    const result = resolveRecordCites({
+      cites: scanRecordCites(raw, { hasPrevious: true }).map((occurrence) => ({
+        ...occurrence.result,
+        raw: occurrence.raw,
+        from: occurrence.from,
+        to: occurrence.to,
+      })),
+      documents,
+      choices: { previous: derived.previous, choices: {} },
+      history: derived.history,
+    });
+    expect(result[0]).toMatchObject({ outcome: "found", documentId: "ecf" });
+  });
+
+  test("an unresolved item clears Id. but not named supra history", () => {
+    const raw = "ECF No. 41, supra";
+    const derived = deriveRecordCiteHistory(
+      [
+        sentence("source", "ECF No. 41 at 3 states it."),
+        sentence("unresolved", "Dkt. 99 at 2 cannot be placed."),
+        sentence("next", raw),
+      ],
+      current,
+      raw,
+      documents,
+      {},
+    );
+    expect(derived.previous).toBeNull();
+    expect(derived.history.map((item) => item.document.id)).toEqual(["ecf"]);
+    const resolve = (text: string) =>
+      resolveRecordCites({
+        cites: scanRecordCites(text, { hasPrevious: true }).map((occurrence) => ({
+          ...occurrence.result,
+          raw: occurrence.raw,
+          from: occurrence.from,
+          to: occurrence.to,
+        })),
+        documents,
+        choices: { previous: derived.previous, choices: {} },
+        history: derived.history,
+      });
+    expect(resolve(raw)[0]).toMatchObject({ outcome: "found", documentId: "ecf" });
+    expect(resolve("Id. at 3")[0]).toMatchObject({ outcome: "not-found" });
+  });
+
+  test("a case citation ends the record chain", () => {
+    const sentences = [
+      sentence("source", "ECF No. 41 at 3 states the deadline."),
+      sentence("case", "Hallmark v. Rio Grande, 512 S.W.3d 101 (Tex. 2017)."),
+      sentence("next", currentClaim),
+    ];
+    expect(previousOf(sentences)).toBeUndefined();
   });
 });

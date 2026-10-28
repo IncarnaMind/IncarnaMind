@@ -109,17 +109,26 @@ function candidates(rows: readonly TextRow[]): Candidate[] {
 function sourceRows(region: TextRegion): SourceRow[] {
   const parsed = candidates(region.content);
   const hasLabels = parsed.some((each) => each.inline !== null || each.margin !== null);
-  if (!hasLabels) {
-    return parsed.map((each, index) => ({ line: index + 1, start: each.start, end: each.end }));
-  }
+  if (!hasLabels) return [];
 
   const rows = parsed.flatMap((each) =>
     each.inline === null ? [] : [{ line: each.inline, start: each.start, end: each.end }],
   );
-  const hasInline = parsed.some((each) => each.inline !== null);
-  const direction =
-    !hasInline && parsed[0]?.margin !== null ? "next" : !hasInline ? "previous" : null;
+  let valid = true;
   const used = new Set<Candidate>();
+  const open = (candidate: Candidate | undefined) =>
+    candidate && candidate.inline === null && candidate.margin === null ? candidate : null;
+  const margins = parsed.flatMap((each, index) => (each.margin === null ? [] : [index]));
+  const firstMargin = margins[0];
+  const lastMargin = margins.at(-1);
+  const firstContent = open(parsed[(firstMargin ?? -1) - 1]);
+  const beforeFirst =
+    firstContent && /^[QA][.)]\s/.test(firstContent.row.text) ? firstContent : null;
+  const afterFirst = open(parsed[(firstMargin ?? -1) + 1]);
+  const beforeLast = open(parsed[(lastMargin ?? -1) - 1]);
+  const afterLast = open(parsed[(lastMargin ?? -1) + 1]);
+  const direction =
+    afterFirst && !beforeFirst ? "next" : beforeLast && !afterLast ? "previous" : null;
   parsed.forEach((each, index) => {
     if (each.margin === null) return;
     const before = parsed[index - 1];
@@ -130,21 +139,19 @@ function sourceRows(region: TextRegion): SourceRow[] {
         : null;
     const previous = eligible(before);
     const next = eligible(after);
-    const content =
-      direction === "next"
-        ? next
-        : direction === "previous"
-          ? previous
-          : next && !previous
-            ? next
-            : previous && !next
-              ? previous
-              : null;
-    if (!content) return;
+    const content = direction === "next" ? next : direction === "previous" ? previous : null;
+    if (!content) {
+      valid = false;
+      return;
+    }
     used.add(content);
     rows.push({ line: each.margin, start: content.start, end: content.end });
   });
-  return rows;
+  const firstLabel = parsed.findIndex((each) => each.inline !== null || each.margin !== null);
+  const unpaired = parsed
+    .slice(firstLabel + 1)
+    .some((each) => each.inline === null && each.margin === null && !used.has(each));
+  return valid && !unpaired ? rows : [];
 }
 
 function regionsFromText(unit: UnitText): Region[] {

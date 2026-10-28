@@ -6,6 +6,7 @@
  * are the core's `TextPlace` offsets.
  */
 
+import { scanRecordCites } from "../core/recordCites/parser";
 import { citedCases } from "./caseCitations";
 
 /** An inline node in a paragraph's text. */
@@ -39,6 +40,7 @@ const COMPANY_ABBREVIATION = /(?:^|\s)(?:inc|ltd|co|corp)\.$/iu;
  */
 export function sentenceSpans(text: string): SentenceSpan[] {
   const decisions = citedCases(text);
+  const unbrokenCitations: SentenceSpan[] = [...decisions, ...scanRecordCites(text)];
   const spans: SentenceSpan[] = [];
   for (const { segment, index } of segmenter.segment(text)) {
     let from = index;
@@ -56,7 +58,10 @@ export function sentenceSpans(text: string): SentenceSpan[] {
       ABBREVIATION.test(before) &&
       !(startsDecision && COMPANY_ABBREVIATION.test(before));
     if (previous && joined && from < to) previous.to = to;
-    else if (previous && decisions.some((each) => each.from < previous.to && each.to > from)) {
+    else if (
+      previous &&
+      unbrokenCitations.some((each) => each.from < previous.to && each.to > from)
+    ) {
       previous.to = to;
     } else if (from < to && hasWords(text.slice(from, to))) spans.push({ from, to });
     else if (previous && from < to) previous.to = to;

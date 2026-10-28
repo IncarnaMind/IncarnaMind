@@ -64,10 +64,17 @@ describe("record-cite variants", () => {
     });
   });
 
+  test("keeps a year-like Bates range when its prefix is a record identifier", () => {
+    expect(parseRecordCite("DEF 2019-2020")).toMatchObject({
+      status: "parsed",
+      bates: { prefix: "DEF", from: "2019", to: "2020" },
+    });
+  });
+
   test.each([
     ["  sMiTh   dEp.   45 : 3 – 12  ", "smith dep", depositionLocation(45, 45, 3, 12)],
     ["  pL.’s   eX. 7, P. 3  ", "pl's ex 7", page(3)],
-    ["  EcF nO. 41 At 5  ", "ecf no 41", page(5)],
+    ["  EcF nO. 41 At 5  ", "dkt 41", page(5)],
     ["  cOmPl. ¶ 14  ", "compl", paragraphLocation(14)],
   ])("normalizes whitespace and case in %s", (raw, sourceAlias, location) => {
     const result = parseRecordCite(raw);
@@ -110,10 +117,52 @@ describe("record-cite variants", () => {
     expect(result.status === "parsed" && result.location).not.toHaveProperty("lines");
   });
 
-  test("keeps the existing transcript-time range normalization", () => {
-    expect(parseRecordCite("14:26–12:20")).toMatchObject({
+  test("keeps the source-qualified transcript-time range normalization", () => {
+    expect(parseRecordCite("Recording Tr. at 14:26–12:20")).toMatchObject({
       status: "parsed",
+      sourceAlias: "recording",
       location: { kind: "time", from: 740_000, to: 866_000 },
+    });
+  });
+
+  test.each([
+    ["Id. at 47:5", 47, 5, 47, 5],
+    ["Id. at 47:5–9", 47, 5, 47, 9],
+    ["Id. at 47:5–48:2", 47, 5, 48, 2],
+  ])("carries exact lines in %s", (raw, fromPage, fromLine, toPage, toLine) => {
+    expect(parseRecordCite(raw, previous)).toMatchObject({
+      status: "parsed",
+      location: {
+        kind: "page",
+        from: fromPage,
+        to: toPage,
+        printed: { from: String(fromPage), to: String(toPage) },
+        lines: { from: fromLine, to: toLine },
+      },
+    });
+  });
+
+  test("defaults one deposition line's end to its start", () => {
+    expect(parseRecordCite("Smith Dep. 45:3")).toMatchObject({
+      status: "parsed",
+      location: depositionLocation(45, 45, 3, 3),
+    });
+  });
+
+  test.each([
+    ["Am. Compl. ¶ 14", "am compl", paragraphLocation(14)],
+    ["Def.'s Ex. 7 at 3", "def's ex 7", page(3)],
+    ["Def.’s Ex. 7, p. 3", "def's ex 7", page(3)],
+  ])("keeps the legal prefix in %s", (raw, sourceAlias, location) => {
+    expect(parseRecordCite(raw)).toMatchObject({ status: "parsed", sourceAlias, location });
+  });
+
+  test("keeps a named supra's source alias", () => {
+    expect(parseRecordCite("Smith, supra", previous)).toMatchObject({
+      status: "parsed",
+      kind: "supra",
+      sourceAlias: "smith",
+      reference: "previous",
     });
   });
 
@@ -143,6 +192,8 @@ describe("invalid record cites", () => {
     "Id. at",
     "supra at 7",
     "12:3",
+    "14:60",
+    "1:60:00",
   ])("returns malformed for %s", (raw) => {
     expect(parseRecordCite(raw, previous)).toEqual({ status: "error", raw, reason: "malformed" });
   });
@@ -158,8 +209,10 @@ describe("invalid record cites", () => {
     "Compl. ¶ 0",
     "Smith Decl. ¶¶ 5–3",
     "DEF 0049–0045",
-    "14:60",
-    "1:60:00",
+    "Recording Tr. at 14:60",
+    "Recording Tr. at 1:60:00",
+    "Id. at 47:0",
+    "Id. at 47:5–4",
   ])("returns out-of-range for %s", (raw) => {
     expect(parseRecordCite(raw, previous)).toEqual({
       status: "error",
@@ -178,12 +231,17 @@ describe("invalid record cites", () => {
 });
 
 describe("record-cite scanning", () => {
-  test.each(["ID.", "COVID-19", "pages 10-12", "PL-123", "pl-000123"])(
-    "ignores %s rather than inventing a record cite",
-    (text) => {
-      expect(scanRecordCites(text)).toEqual([]);
-    },
-  );
+  test.each([
+    "ID.",
+    "COVID-19",
+    "pages 10-12",
+    "PL-123",
+    "pl-000123",
+    "FY 2023-2024",
+    "ISO 9001-2015",
+  ])("ignores %s rather than inventing a record cite", (text) => {
+    expect(scanRecordCites(text)).toEqual([]);
+  });
 
   test("keeps repeated raw cites as separate occurrences with their own ranges", () => {
     const raw = "Smith Dep. 45:3–12";
@@ -213,7 +271,7 @@ describe("record-cite scanning", () => {
       "ECF No. 41 at 5",
       "Compl. ¶ 14",
       "DEF 0045–0049",
-      "14:26",
+      "Recording Tr. at 14:26",
     ];
     const occurrences = scanRecordCites(`${raws.join(", ")}.`);
 
@@ -271,15 +329,20 @@ describe("record-cite scanning", () => {
     expect(occurrences[6]?.result).toMatchObject({ status: "parsed", reference: "previous" });
   });
 
-  test("does not mistake deposition page lines for a nested recording time", () => {
+  test("does not mistake deposition page lines or ordinary clock prose for a recording cite", () => {
     const raw = "Smith Dep. 14:26–15:02";
-    const occurrences = scanRecordCites(`See ${raw} and 14:26–15:02.`);
+    expect(scanRecordCites(`See ${raw} and 14:26–15:02.`).map((each) => each.raw)).toEqual([raw]);
+    expect(scanRecordCites("The board met at 10:30.")).toEqual([]);
+    expect(scanRecordCites("董事会于 10:30 开会。")).toEqual([]);
+  });
 
-    expect(occurrences.map((occurrence) => occurrence.raw)).toEqual([raw, "14:26–15:02"]);
-    expect(occurrences.map((occurrence) => occurrence.result)).toMatchObject([
-      { status: "parsed", kind: "deposition" },
-      { status: "parsed", kind: "time" },
+  test("ends a record Id. chain at a case citation and lets a direct cite start another", () => {
+    const decision = "Hallmark v. Rio Grande, 512 S.W.3d 101 (Tex. 2017)";
+    expect(scanRecordCites(`Smith Dep. 45:3–4; ${decision}; Id.`).map((each) => each.raw)).toEqual([
+      "Smith Dep. 45:3–4",
     ]);
+    const restarted = scanRecordCites(`${decision}; Smith Dep. 45:3–4; Id.`);
+    expect(restarted.map((each) => each.raw)).toEqual(["Smith Dep. 45:3–4", "Id."]);
   });
 
   test("excludes a citation signal from a generic deposition transcript", () => {

@@ -5,8 +5,8 @@ import {
   judgeResolvedRecordCites,
   recordCiteVersions,
 } from "../../src/core/answers/checks/recordCites";
-import type { RecordCiteResult } from "../../src/core/api";
 import type { PreparedChatModel } from "../../src/core/providers/chat";
+import type { ResolvableRecordCiteResult } from "../../src/core/recordCites/resolver";
 
 vi.mock("ai", async (importOriginal) => {
   const actual = await importOriginal<typeof import("ai")>();
@@ -49,21 +49,21 @@ describe("support judgement for one exact record-cite passage", () => {
     expect(generateText).toHaveBeenCalledTimes(2);
   });
 
-  test("Not found does not widen to another source", async () => {
+  test("Unsupported does not widen to another source", async () => {
     vi.mocked(generateText)
       .mockResolvedValueOnce({ text: "conflict" } as never)
       .mockResolvedValueOnce({ text: "No parts" } as never);
     expect(
       await judgeRecordCite(model, "The claim", "Only page 5", new AbortController().signal, "en"),
-    ).toEqual({ outcome: "not-found" });
+    ).toEqual({ outcome: "unsupported" });
     expect(vi.mocked(generateText).mock.calls[1]?.[0]?.prompt).toContain("Only page 5");
   });
 
-  test("a cited topic without one complete supporting assertion is Not found in one request", async () => {
+  test("a cited topic without one complete supporting assertion is Unsupported in one request", async () => {
     vi.mocked(generateText).mockResolvedValue({ text: "neither" } as never);
     expect(
       await judgeRecordCite(model, "The claim", "Only page 2", new AbortController().signal, "en"),
-    ).toEqual({ outcome: "not-found" });
+    ).toEqual({ outcome: "unsupported" });
     expect(generateText).toHaveBeenCalledTimes(1);
     expect(vi.mocked(generateText).mock.calls[0]?.[0]?.instructions).toContain(
       "complete independent assertion",
@@ -81,17 +81,21 @@ describe("support judgement for one exact record-cite passage", () => {
         "en",
       ),
     ).toEqual({
-      failed: { kind: "unknown", message: "The check gave no verdict." },
+      failed: {
+        kind: "unknown",
+        message: "The check gave no verdict.",
+        wording: { key: "claim.reason.malformed" },
+      },
     });
   });
 
   test("raw record citations are not judged as factual assertions", async () => {
     const claim = "The deadline continued until June 8 (ECF No. 41 at 3; Id. at 2).";
-    const cite = (raw: string, passage: string): RecordCiteResult => ({
+    const cite = (raw: string, passage: string): ResolvableRecordCiteResult => ({
       raw,
       from: claim.indexOf(raw),
       to: claim.indexOf(raw) + raw.length,
-      outcome: "supported",
+      outcome: "found",
       passage,
     });
     vi.mocked(generateText).mockResolvedValue({ text: "same" } as never);
@@ -114,10 +118,10 @@ describe("support judgement for one exact record-cite passage", () => {
   });
 
   test("a resolved not-found keeps a supported nearby suggestion, and choices need no model", async () => {
-    const results: RecordCiteResult[] = [
+    const results: ResolvableRecordCiteResult[] = [
       {
         raw: "Smith Dep. 45:3",
-        outcome: "supported",
+        outcome: "found",
         documentId: "doc-1",
         documentName: "Smith Deposition",
         contentHash: "hash-1",
@@ -146,16 +150,18 @@ describe("support judgement for one exact record-cite passage", () => {
         "en",
       ),
     ).toEqual({
-      recordCites: [{ ...results[0], outcome: "not-found" }, results[1]],
+      recordCites: [{ ...results[0], outcome: "unsupported" }, results[1]],
     });
     expect(generateText).toHaveBeenCalledTimes(2);
-    expect(recordCiteVersions(results)).toEqual([{ documentId: "doc-1", contentHash: "hash-1" }]);
+    expect(
+      recordCiteVersions(results.map((result) => ({ ...result, outcome: "supported" as const }))),
+    ).toEqual([{ documentId: "doc-1", contentHash: "hash-1" }]);
   });
 
   test("a supported cited passage does not show its nearby candidate", async () => {
-    const result: RecordCiteResult = {
+    const result: ResolvableRecordCiteResult = {
       raw: "Ex. 7 at 3",
-      outcome: "supported",
+      outcome: "found",
       documentId: "doc-1",
       location: { kind: "page", from: 3, to: 3 },
       pageFrom: 3,
@@ -181,5 +187,112 @@ describe("support judgement for one exact record-cite passage", () => {
     expect(judged).toMatchObject({ recordCites: [{ outcome: "supported" }] });
     expect("recordCites" in judged && judged.recordCites[0]?.nearby).toBeUndefined();
     expect(generateText).toHaveBeenCalledTimes(1);
+  });
+
+  test("one unreadable cite is Not checked while later cites keep their outcomes", async () => {
+    const results = ["First", "Second", "Third"].map(
+      (raw): ResolvableRecordCiteResult => ({
+        raw,
+        outcome: "found",
+        passage: `${raw} passage`,
+        nearby: {
+          location: { kind: "page", from: 1, to: 1 },
+          pageFrom: 1,
+          pageTo: 1,
+          passage: "Unverified nearby text",
+        },
+      }),
+    );
+    vi.mocked(generateText)
+      .mockResolvedValueOnce({ text: "same" } as never)
+      .mockResolvedValueOnce({ text: "unreadable" } as never)
+      .mockResolvedValueOnce({ text: "same" } as never);
+
+    const judged = await judgeResolvedRecordCites(
+      results,
+      model,
+      "The claim",
+      new AbortController().signal,
+      "en",
+    );
+
+    expect(judged.recordCites.map((result) => result.outcome)).toEqual([
+      "supported",
+      "not-checked",
+      "supported",
+    ]);
+    expect(judged.recordCites[1]).toMatchObject({ reason: "malformed" });
+    expect(judged.recordCites[1]?.nearby).toBeUndefined();
+    expect(judged.failure).toMatchObject({ wording: { key: "claim.reason.malformed" } });
+    expect(generateText).toHaveBeenCalledTimes(3);
+  });
+
+  test("nearby candidates are tried until one supports the claim", async () => {
+    const result: ResolvableRecordCiteResult = {
+      raw: "Smith Dep. 45:3",
+      outcome: "found",
+      passage: "Wrong cited lines",
+      nearbyCandidates: [
+        {
+          location: { kind: "page", from: 45, to: 45, lines: { from: 4, to: 4 } },
+          pageFrom: 45,
+          pageTo: 45,
+          passage: "Unrelated later lines",
+        },
+        {
+          location: { kind: "page", from: 45, to: 45, lines: { from: 2, to: 2 } },
+          pageFrom: 45,
+          pageTo: 45,
+          passage: "Supporting earlier lines",
+        },
+      ],
+    };
+    vi.mocked(generateText)
+      .mockResolvedValueOnce({ text: "neither" } as never)
+      .mockResolvedValueOnce({ text: "neither" } as never)
+      .mockResolvedValueOnce({ text: "same" } as never);
+
+    const judged = await judgeResolvedRecordCites(
+      [result],
+      model,
+      "The claim",
+      new AbortController().signal,
+      "en",
+    );
+
+    expect(judged.recordCites[0]).toMatchObject({
+      outcome: "unsupported",
+      nearby: { passage: "Supporting earlier lines" },
+    });
+    expect(judged.recordCites[0]).not.toHaveProperty("nearbyCandidates");
+  });
+
+  test("an unreadable optional nearby reply only omits the suggestion", async () => {
+    const result: ResolvableRecordCiteResult = {
+      raw: "Smith Dep. 45:3",
+      outcome: "found",
+      passage: "Wrong cited lines",
+      nearby: {
+        location: { kind: "page", from: 45, to: 45, lines: { from: 4, to: 4 } },
+        pageFrom: 45,
+        pageTo: 45,
+        passage: "Unreadable nearby reply",
+      },
+    };
+    vi.mocked(generateText)
+      .mockResolvedValueOnce({ text: "neither" } as never)
+      .mockResolvedValueOnce({ text: "unreadable" } as never);
+
+    const judged = await judgeResolvedRecordCites(
+      [result],
+      model,
+      "The claim",
+      new AbortController().signal,
+      "en",
+    );
+
+    expect(judged.recordCites[0]).toMatchObject({ outcome: "unsupported" });
+    expect(judged.recordCites[0]?.nearby).toBeUndefined();
+    expect(judged.failure).toBeUndefined();
   });
 });

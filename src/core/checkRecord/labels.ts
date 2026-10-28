@@ -40,6 +40,10 @@ export function recordCiteResultLabel(
       return t(SENTENCE_RESULT_LABELS.supported);
     case "not-found":
       return t(SENTENCE_RESULT_LABELS.notFound);
+    case "unsupported":
+      return t(SENTENCE_RESULT_LABELS.unsupported);
+    case "not-checked":
+      return t(SENTENCE_RESULT_LABELS.notChecked);
     case "partly":
       return recordCiteTranslatorFor(language)("recordCites.result.partly");
     case "choose":

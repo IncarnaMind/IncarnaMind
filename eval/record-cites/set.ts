@@ -1,11 +1,15 @@
 import { createHash } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
-import type { CitationLocation, RecordCiteResult } from "../../src/core";
+import type { CitationLocation, DocumentKind, RecordCiteResult } from "../../src/core";
 import { resolveDeposition } from "../../src/core/documents/deposition";
 import { processFile } from "../../src/core/documents/processing";
 import { scanRecordCites } from "../../src/core/recordCites/parser";
-import { type RecordCiteDocument, resolveRecordCites } from "../../src/core/recordCites/resolver";
+import {
+  type RecordCiteDocument,
+  type ResolvableRecordCiteResult,
+  resolveRecordCites,
+} from "../../src/core/recordCites/resolver";
 import { normaliseText } from "../../src/shared/text";
 
 export const RECORD_CITE_SET = "eval/record-cites/set.json";
@@ -16,12 +20,15 @@ export interface RecordSetDocument {
   title: string;
   publisher: string;
   path: string;
-  pages: number;
-  source: string;
-  fileSource: string;
+  kind: DocumentKind;
+  units: number;
+  source?: string;
+  fileSource?: string;
   licence: string;
   basis: string;
-  retrieved: string;
+  retrieved?: string;
+  created?: string;
+  generated?: boolean;
   sha256: string;
 }
 
@@ -45,6 +52,7 @@ export interface RecordSetCase {
   id: string;
   language: "en" | "zh-CN";
   claim: string;
+  documents: string[];
   cites: ExpectedRecordCite[];
   checked: string;
 }
@@ -83,7 +91,7 @@ export const includesText = (text: string | undefined, expected: string | undefi
 
 function compareResolved(
   expected: ExpectedRecordCite,
-  actual: RecordCiteResult | undefined,
+  actual: ResolvableRecordCiteResult | undefined,
   keyOf: (id: string | undefined) => string | undefined,
 ): string[] {
   if (!actual) return [`${expected.raw}: no result`];
@@ -98,8 +106,7 @@ function compareResolved(
       );
     }
   } else if (expected.document) {
-    if (actual.outcome !== "supported")
-      failures.push(`resolution ${actual.outcome} instead of supported`);
+    if (actual.outcome !== "found") failures.push(`resolution ${actual.outcome} instead of found`);
     if (keyOf(actual.documentId) !== expected.document) {
       failures.push(
         `Document ${keyOf(actual.documentId) ?? "missing"} instead of ${expected.document}`,
@@ -139,11 +146,17 @@ export async function checkRecordCiteSet(root: string): Promise<RecordSetReport>
   for (const document of set.documents) {
     if (ids.has(document.key)) fail(`${document.key}: duplicate Document key`);
     ids.add(document.key);
-    if (!document.source.startsWith("https://") || !document.fileSource.startsWith("https://")) {
+    if (
+      !document.generated &&
+      (!document.source?.startsWith("https://") || !document.fileSource?.startsWith("https://"))
+    ) {
       fail(`${document.key}: missing public https source`);
     }
-    if (!document.licence || !document.basis || !document.retrieved) {
-      fail(`${document.key}: missing licence, basis or retrieval date`);
+    if (document.generated && (document.kind !== "transcript" || !document.created)) {
+      fail(`${document.key}: generated test-only material must be a dated Transcript`);
+    }
+    if (!document.licence || !document.basis || (!document.generated && !document.retrieved)) {
+      fail(`${document.key}: missing licence, basis or source date`);
     }
     const bytes = await readFile(join(root, document.path));
     if (sha256(bytes) !== document.sha256) fail(`${document.key}: SHA-256 differs from the file`);
@@ -154,15 +167,15 @@ export async function checkRecordCiteSet(root: string): Promise<RecordSetReport>
     const processed = await processFile({
       task: "process",
       documentId: document.key,
-      kind: "pdf",
+      kind: document.kind,
       file: join(root, document.path),
     });
     if (processed.outcome !== "ready") {
       fail(`${document.key}: processing ${processed.outcome}`);
       continue;
     }
-    if (processed.pages.length !== document.pages) {
-      fail(`${document.key}: ${processed.pages.length} pages instead of ${document.pages}`);
+    if (processed.pages.length !== document.units) {
+      fail(`${document.key}: ${processed.pages.length} Units instead of ${document.units}`);
     }
     documents.push({
       id: document.key,
@@ -193,9 +206,19 @@ export async function checkRecordCiteSet(root: string): Promise<RecordSetReport>
         fail(`${test.id}: ${occurrence.raw} is out of raw order`);
       }
     });
-    const available = test.cites.some((cite) => cite.outcome === "choose")
-      ? documents
-      : documents.filter((document) => document.id === "regency-ecf-41");
+    const requested = Array.isArray(test.documents) ? test.documents : [];
+    if (requested.length === 0) fail(`${test.id}: no available Documents`);
+    if (new Set(requested).size !== requested.length) {
+      fail(`${test.id}: duplicate available Document key`);
+    }
+    const available = requested.flatMap((key) => {
+      if (!ids.has(key)) {
+        fail(`${test.id}: unknown Document ${key}`);
+        return [];
+      }
+      const document = documents.find((each) => each.id === key);
+      return document ? [document] : [];
+    });
     const resolved = resolveRecordCites({
       cites: occurrences.map((occurrence) => ({
         ...occurrence.result,

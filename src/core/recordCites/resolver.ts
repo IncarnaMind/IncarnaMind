@@ -2,6 +2,7 @@ import { joinUnits } from "../../shared/locations";
 import type { RecordCiteChoice, RecordCiteChoices } from "../../shared/recordCiteChoices";
 import { anchorsOf, cutUnit, parseCueTarget, type UnitText } from "../../shared/units";
 import type { CitationLocation, RecordCiteResult } from "../api";
+import { recordCiteAlias, recordCiteAliasMatches } from "./alias";
 import type { ParsedRecordCite, RecordCiteParseResult } from "./parser";
 
 export interface RecordCiteDocument {
@@ -9,7 +10,13 @@ export interface RecordCiteDocument {
   name: string;
   contentHash: string;
   units: readonly UnitText[];
+  batesMatch?(prefix: string, identifier: string): boolean;
 }
+
+export type ResolvableRecordCiteResult = Omit<RecordCiteResult, "outcome"> & {
+  outcome: RecordCiteResult["outcome"] | "found";
+  nearbyCandidates?: NonNullable<RecordCiteResult["nearby"]>[];
+};
 
 export type RecordCiteInput = RecordCiteParseResult & {
   from?: number;
@@ -22,6 +29,7 @@ export interface RecordCiteResolution {
   pageTo?: number;
   passage: string;
   nearby?: RecordCiteResult["nearby"];
+  nearbyCandidates?: NonNullable<RecordCiteResult["nearby"]>[];
 }
 
 export type DepositionMapperResult =
@@ -38,10 +46,16 @@ export type ResolveDeposition = (
   location: Extract<CitationLocation, { kind: "page" }>,
 ) => DepositionMapperResult;
 
+export interface RecordCiteHistoryItem {
+  document: RecordCiteDocument;
+  location: CitationLocation;
+}
+
 export interface ResolveRecordCitesInput {
   cites: readonly RecordCiteInput[];
   documents: readonly RecordCiteDocument[];
   choices: RecordCiteChoices;
+  history?: readonly RecordCiteHistoryItem[];
   resolveDeposition?: ResolveDeposition;
 }
 
@@ -56,45 +70,16 @@ interface DocumentMatch {
 }
 
 interface CiteOutcome {
-  result: RecordCiteResult;
+  result: ResolvableRecordCiteResult;
   resolved: DocumentMatch | null;
 }
 
-const WORD_ALIASES: Record<string, string> = {
-  deposition: "dep",
-  transcript: "tr",
-  exhibit: "ex",
-  declaration: "decl",
-  complaint: "compl",
-  plaintiff: "pl",
-  docket: "dkt",
-};
-
-const normalize = (value: string) =>
-  value
-    .trim()
-    .replace(/\.[a-z0-9]{1,10}$/i, "")
-    .replace(/[.’]/g, (mark) => (mark === "’" ? "'" : ""))
-    .replace(/\b(?:ecf|dkt)(?:\s+no)?\b/gi, "dkt")
-    .replace(
-      /\b(deposition|transcript|exhibit|declaration|complaint|plaintiff|docket)\b/gi,
-      (word) => WORD_ALIASES[word.toLocaleLowerCase()] ?? word,
-    )
-    .replace(/\s+/g, " ")
-    .toLocaleLowerCase();
-
 export function recordCiteChoiceAlias(cite: ParsedRecordCite): string | null {
-  if (cite.sourceAlias) return normalize(cite.sourceAlias);
-  if (cite.kind === "time" && cite.location?.kind === "time") {
-    return `time:${cite.location.from}:${cite.location.to}`;
+  if (cite.bates) {
+    return recordCiteAlias(`bates:${cite.bates.prefix}:${cite.bates.from}:${cite.bates.to}`);
   }
-  return null;
+  return cite.sourceAlias ? recordCiteAlias(cite.sourceAlias) : null;
 }
-
-const aliasMatches = (document: RecordCiteDocument, alias: string) => {
-  const name = normalize(document.name);
-  return name === alias || name.startsWith(`${alias} `);
-};
 
 const citeFields = (cite: RecordCiteInput) => ({
   raw: cite.raw,
@@ -120,9 +105,9 @@ const resolved = (
   cite: RecordCiteInput,
   document: RecordCiteDocument,
   resolution: RecordCiteResolution,
-): RecordCiteResult => ({
+): ResolvableRecordCiteResult => ({
   ...citeFields(cite),
-  outcome: "supported",
+  outcome: "found",
   documentId: document.id,
   documentName: document.name,
   contentHash: document.contentHash,
@@ -303,13 +288,35 @@ const nearbyDeposition = (
   document: RecordCiteDocument,
   location: PageLocation,
   resolveDeposition: ResolveDeposition | undefined,
-): Nearby | undefined => {
-  const page = Number(location.printed?.to);
+): Nearby[] => {
+  const firstPage = Number(location.printed?.from);
+  const lastPage = Number(location.printed?.to);
+  const firstLine = location.lines?.from;
   const lastLine = location.lines?.to;
-  if (!Number.isSafeInteger(page) || page < 1 || lastLine === undefined) return undefined;
-  for (const [candidatePage, firstLine] of [
-    [page, lastLine + 1],
-    [page + 1, 1],
+  if (
+    !Number.isSafeInteger(firstPage) ||
+    !Number.isSafeInteger(lastPage) ||
+    firstPage < 1 ||
+    lastPage < 1 ||
+    firstLine === undefined ||
+    lastLine === undefined
+  ) {
+    return [];
+  }
+  const candidates: Nearby[] = [];
+  const add = (resolution: RecordCiteResolution | null) => {
+    const nearby = resolution ? asNearby(resolution) : undefined;
+    if (
+      nearby &&
+      !sameExactLocation(nearby.location, location) &&
+      !candidates.some((each) => sameExactLocation(each.location, nearby.location))
+    ) {
+      candidates.push(nearby);
+    }
+  };
+  for (const [candidatePage, fromLine] of [
+    [lastPage, lastLine + 1],
+    [lastPage + 1, 1],
   ] as const) {
     for (let count = 10; count >= 1; count--) {
       const mapped = mapDeposition(
@@ -319,15 +326,69 @@ const nearbyDeposition = (
           from: location.from,
           to: location.to,
           printed: { from: String(candidatePage), to: String(candidatePage) },
-          lines: { from: firstLine, to: firstLine + count - 1 },
+          lines: { from: fromLine, to: fromLine + count - 1 },
         },
         resolveDeposition,
       );
-      const nearby = mapped ? asNearby(mapped) : undefined;
-      if (nearby) return nearby;
+      if (mapped) {
+        add(mapped);
+        break;
+      }
     }
   }
-  return undefined;
+  for (let count = 10; count >= 1; count--) {
+    const fromLine = Math.max(1, firstLine - count);
+    if (fromLine >= firstLine) break;
+    const mapped = mapDeposition(
+      document,
+      {
+        kind: "page",
+        from: location.from,
+        to: location.to,
+        printed: { from: String(firstPage), to: String(firstPage) },
+        lines: { from: fromLine, to: firstLine - 1 },
+      },
+      resolveDeposition,
+    );
+    if (mapped) {
+      add(mapped);
+      break;
+    }
+  }
+  if (firstLine === 1 && firstPage > 1) {
+    const whole = mapDeposition(
+      document,
+      {
+        kind: "page",
+        from: location.from,
+        to: location.to,
+        printed: { from: String(firstPage - 1), to: String(firstPage - 1) },
+      },
+      resolveDeposition,
+    );
+    const previousLast = whole?.location.kind === "page" ? whole.location.lines?.to : undefined;
+    if (previousLast !== undefined) {
+      for (let count = 10; count >= 1; count--) {
+        const fromLine = Math.max(1, previousLast - count + 1);
+        const mapped = mapDeposition(
+          document,
+          {
+            kind: "page",
+            from: location.from,
+            to: location.to,
+            printed: { from: String(firstPage - 1), to: String(firstPage - 1) },
+            lines: { from: fromLine, to: previousLast },
+          },
+          resolveDeposition,
+        );
+        if (mapped) {
+          add(mapped);
+          break;
+        }
+      }
+    }
+  }
+  return candidates;
 };
 
 const withNearby = (
@@ -335,31 +396,38 @@ const withNearby = (
   resolution: RecordCiteResolution,
   resolveDeposition: ResolveDeposition | undefined,
 ): RecordCiteResolution => {
-  const nearby =
+  const candidates =
     resolution.location.kind === "page" && resolution.location.lines
       ? nearbyDeposition(document, resolution.location, resolveDeposition)
-      : undefined;
-  if (nearby && !sameExactLocation(nearby.location, resolution.location)) {
-    return { ...resolution, nearby };
-  }
-  if (resolution.pageTo === undefined) return resolution;
-  const [unit] = pageUnits(document, [resolution.pageTo + 1]) ?? [];
-  if (!unit || unit.page === null) return resolution;
-  const printed = unit.label?.printed ?? String(unit.page);
-  return {
-    ...resolution,
-    nearby: {
-      location: {
-        kind: "page",
-        from: unit.page,
-        to: unit.page,
-        printed: { from: printed, to: printed },
+      : [];
+  const physical = [resolution.pageTo, resolution.pageFrom].flatMap((page, index) => {
+    if (page === undefined) return [];
+    const direction = index === 0 ? 1 : -1;
+    const [unit] = pageUnits(document, [page + direction]) ?? [];
+    if (!unit || unit.page === null) return [];
+    const printed = unit.label?.printed ?? String(unit.page);
+    return [
+      {
+        location: {
+          kind: "page" as const,
+          from: unit.page,
+          to: unit.page,
+          printed: { from: printed, to: printed },
+        },
+        pageFrom: unit.page,
+        pageTo: unit.page,
+        passage: wholePages([unit]),
       },
-      pageFrom: unit.page,
-      pageTo: unit.page,
-      passage: wholePages([unit]),
-    },
-  };
+    ];
+  });
+  const nearbyCandidates = [...candidates, ...physical].filter(
+    (candidate, index, all) =>
+      !sameExactLocation(candidate.location, resolution.location) &&
+      all.findIndex((each) => sameExactLocation(each.location, candidate.location)) === index,
+  );
+  return nearbyCandidates.length === 0
+    ? resolution
+    : { ...resolution, nearby: nearbyCandidates[0], nearbyCandidates };
 };
 
 const resolveTime = (
@@ -503,10 +571,17 @@ const resolveBates = (
   const last = Number(range.to);
   const count = last - first + 1;
   if (!Number.isSafeInteger(first) || !Number.isSafeInteger(last) || count < 1) return null;
+  const identifier = (value: number) => String(value).padStart(range.from.length, "0");
+  const batesMatch = document.batesMatch;
+  if (
+    batesMatch &&
+    (!batesMatch(range.prefix, identifier(first)) || !batesMatch(range.prefix, identifier(last)))
+  ) {
+    return null;
+  }
   if (count > document.units.length) return null;
-  const identifiers = Array.from({ length: count }, (_, index) =>
-    String(first + index).padStart(range.from.length, "0"),
-  );
+  const identifiers = Array.from({ length: count }, (_, index) => identifier(first + index));
+  if (batesMatch && identifiers.some((each) => !batesMatch(range.prefix, each))) return null;
   const matches = identifiers.map((identifier) => {
     const units = document.units.filter(
       (unit) => (unit.kind ?? "page") === "page" && hasBates(unit, range.prefix, identifier),
@@ -645,7 +720,7 @@ const resolveRequested = (
 };
 
 const choiceFor = (choices: RecordCiteChoices, alias: string) => {
-  const matches = Object.entries(choices.choices).filter(([key]) => normalize(key) === alias);
+  const matches = Object.entries(choices.choices).filter(([key]) => recordCiteAlias(key) === alias);
   if (matches.length === 0) return undefined;
   return matches.length === 1 ? (matches[0]?.[1] ?? null) : null;
 };
@@ -656,10 +731,10 @@ const chosenDocument = (documents: readonly RecordCiteDocument[], id: string) =>
 };
 
 const sourceCandidates = (cite: ParsedInput, documents: readonly RecordCiteDocument[]) => {
-  if (cite.kind === "bates" || cite.kind === "time") return documents;
-  if (!cite.sourceAlias) return [];
-  const alias = normalize(cite.sourceAlias);
-  return documents.filter((document) => aliasMatches(document, alias));
+  if (cite.kind === "bates") return documents;
+  const alias = cite.sourceAlias;
+  if (!alias) return [];
+  return documents.filter((document) => recordCiteAliasMatches(document.name, alias));
 };
 
 const matchingDocuments = (
@@ -683,6 +758,15 @@ const resolveDirect = (
   const candidates = sourceCandidates(cite, documents);
   if (saved !== undefined) {
     const document = saved ? chosenDocument(documents, saved.documentId) : undefined;
+    if (document && saved && document.contentHash !== saved.contentHash) {
+      const possible = matchingDocuments(cite, candidates, resolveDeposition).map(
+        (match) => match.document,
+      );
+      return {
+        result: possible.length === 0 ? notFound(cite) : choose(cite, uniqueDocuments(possible)),
+        resolved: null,
+      };
+    }
     if (saved && document && cite.kind === "bates") {
       const resolution = resolveRequested(cite, document, resolveDeposition);
       if (resolution) return fromMatches(cite, [{ document, resolution }]);
@@ -715,7 +799,7 @@ const restorePrevious = (
 ): DocumentMatch | null => {
   if (!choice) return null;
   const document = chosenDocument(documents, choice.documentId);
-  if (!document) return null;
+  if (!document || document.contentHash !== choice.contentHash) return null;
   const resolution = resolveSavedLocation(document, choice.location, resolveDeposition);
   return resolution ? { document, resolution } : null;
 };
@@ -725,36 +809,48 @@ export function resolveChosenRecordCite(
   cite: RecordCiteInput,
   document: RecordCiteDocument,
   resolveDeposition?: ResolveDeposition,
-): RecordCiteResult {
+): ResolvableRecordCiteResult {
   if (cite.status === "error" || cite.reference) return notFound(cite);
   const resolution = resolveRequested(cite, document, resolveDeposition);
   return resolution ? resolved(cite, document, resolution) : notFound(cite);
 }
 
 /**
- * Resolves record-cite identity and exact text only. A resolved cite is marked "supported";
- * the claim checker remains responsible for supported/partly support decisions.
+ * Resolves record-cite identity and exact text only. A resolved cite is marked "found";
+ * the claim checker remains responsible for supported/partly/unsupported decisions.
  */
 export function resolveRecordCites({
   cites,
   documents,
   choices,
+  history: earlier = [],
   resolveDeposition,
-}: ResolveRecordCitesInput): RecordCiteResult[] {
-  const results: RecordCiteResult[] = [];
+}: ResolveRecordCitesInput): ResolvableRecordCiteResult[] {
+  const results: ResolvableRecordCiteResult[] = [];
+  const history = earlier.flatMap((item) => {
+    const resolution = resolveSavedLocation(item.document, item.location, resolveDeposition);
+    return resolution ? [{ document: item.document, resolution }] : [];
+  });
   let previous = restorePrevious(documents, choices.previous, resolveDeposition);
+  if (previous && history.length === 0) history.push(previous);
   for (const cite of cites) {
     let outcome: CiteOutcome;
     if (cite.status === "error") {
       outcome = { result: notFound(cite), resolved: null };
     } else if (cite.reference === "previous") {
-      if (!previous) {
+      const named = cite.sourceAlias;
+      const referent = named
+        ? [...history].reverse().find((match) => recordCiteAliasMatches(match.document.name, named))
+        : previous;
+      if (!referent) {
         outcome = { result: notFound(cite), resolved: null };
       } else if (cite.kind === "id" && cite.location?.kind === "page") {
+        const previousIsDeposition =
+          referent.resolution.location.kind === "page" && referent.resolution.location.lines;
         const resolution =
-          previous.resolution.location.kind === "page" && previous.resolution.location.lines
+          cite.location.lines || previousIsDeposition
             ? mapDeposition(
-                previous.document,
+                referent.document,
                 {
                   ...cite.location,
                   printed: {
@@ -764,23 +860,24 @@ export function resolveRecordCites({
                 },
                 resolveDeposition,
               )
-            : resolvePage(previous.document, cite.location);
+            : resolvePage(referent.document, cite.location);
         outcome = resolution
           ? fromMatches(cite, [
               {
-                document: previous.document,
-                resolution: withNearby(previous.document, resolution, resolveDeposition),
+                document: referent.document,
+                resolution: withNearby(referent.document, resolution, resolveDeposition),
               },
             ])
           : { result: notFound(cite), resolved: null };
       } else {
-        outcome = fromMatches(cite, [previous]);
+        outcome = fromMatches(cite, [referent]);
       }
     } else {
       outcome = resolveDirect(cite, documents, choices, resolveDeposition);
     }
     results.push(outcome.result);
     previous = outcome.resolved;
+    if (outcome.resolved) history.push(outcome.resolved);
   }
   return results;
 }
