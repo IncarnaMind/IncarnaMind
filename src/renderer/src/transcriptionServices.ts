@@ -12,8 +12,8 @@ import { useAppStore } from "./store";
 interface TranscriptionServicesState {
   /** The cloud services that can transcribe meeting audio (#141); empty until loaded. */
   services: TranscriptionServiceStatus[];
-  /** Reads the list again; what went wrong, in words, when it couldn't be read, else null. */
-  load(): Promise<string | null>;
+  /** Reads the list again. A read that fails drops the list and rejects with why. */
+  load(): Promise<void>;
   /** Keeps a service's own key once it accepts it; what went wrong, in words, otherwise. */
   setKey(route: CloudTranscriptionRoute, apiKey: string): Promise<string | null>;
   removeKey(route: CloudTranscriptionRoute): Promise<string | null>;
@@ -30,23 +30,31 @@ export const useTranscriptionServices = create<TranscriptionServicesState>()((se
   };
   return {
     services: [],
-    load: () => attempt(() => core.listTranscriptionServices()),
+    async load() {
+      try {
+        set({ services: await core.listTranscriptionServices() });
+      } catch (error) {
+        set({ services: [] });
+        throw error;
+      }
+    },
     setKey: (route, apiKey) => attempt(() => core.setTranscriptionKey({ route, apiKey })),
     removeKey: (route) => attempt(() => core.removeTranscriptionKey(route)),
   };
 });
 
 /** The services, listed again when a view that offers them opens: a key may have come or gone. */
-export function useTranscriptionServicesList(): TranscriptionServiceStatus[] {
+export function useTranscriptionServicesList(reads = true): TranscriptionServiceStatus[] {
   const services = useTranscriptionServices((state) => state.services);
   useEffect(() => {
-    void useTranscriptionServices
+    if (!reads) return;
+    useTranscriptionServices
       .getState()
       .load()
-      .then((problem) => {
-        if (problem) console.error("The transcription services couldn't be listed.", problem);
-      });
-  }, []);
+      .catch((error: unknown) =>
+        console.error("The transcription services couldn't be listed.", error),
+      );
+  }, [reads]);
   return services;
 }
 

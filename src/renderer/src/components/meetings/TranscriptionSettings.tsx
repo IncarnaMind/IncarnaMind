@@ -65,10 +65,10 @@ export function TranscriptionRouteLine({ id }: { id?: string }) {
  * service is chosen, what choosing one sends, so the choice is the consent (ADR-0022); after,
  * where the audio goes. Nothing while no service has a key, as nothing else is offered.
  */
-export function TranscriptionRouteConsent() {
+export function TranscriptionRouteConsent({ listed = false }: { listed?: boolean }) {
   const t = useT();
   const route = useAppStore((state) => state.settings?.device.transcriptionRoute) ?? "local";
-  const services = useTranscriptionServicesList();
+  const services = useTranscriptionServicesList(!listed);
   const service = services.find((each) => each.route === route);
   if (!service && !services.some((each) => each.hasKey)) return null;
   return (

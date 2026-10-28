@@ -4,10 +4,12 @@ import { continueSetup } from "../../conversations";
 import { useLanguage, useT } from "../../i18n";
 import { giveUpWaiting } from "../../modelSetup";
 import { useAppStore } from "../../store";
-import { useTranscriptionServicesList } from "../../transcriptionServices";
+import { useTranscriptionServices } from "../../transcriptionServices";
+import { useRead } from "../../useRead";
 import { CheckLineIcon } from "../lineIcons";
 import { ROUTE_LABELS, TranscriptionRouteSelect } from "../meetings/TranscriptionRouteSelect";
 import { TranscriptionRouteConsent } from "../meetings/TranscriptionSettings";
+import { ReadProblem } from "../ReadProblem";
 import { STEP_BUTTON_CLASS, StepNumber } from "../StepNumber";
 import { buttonStyle, fieldClass, hintClass } from "../ui";
 import { CHATGPT_RECIPIENT } from "./ChatGptSignIn";
@@ -224,7 +226,12 @@ function TranscriptionStep({ onDone }: { onDone(choice: string): void }) {
   const saved = useAppStore((state) => state.settings?.device.transcriptionRoute) ?? null;
   const updateSettings = useAppStore((state) => state.updateSettings);
   const openSettings = useAppStore((state) => state.openSettings);
-  const services = useTranscriptionServicesList();
+  // Opened again, the step reads the list again: a key may have come or gone. A read that fails
+  // drops the list, and the step says so in place instead of drawing rows from it.
+  const read = useRead("The transcription services", () =>
+    useTranscriptionServices.getState().load(),
+  );
+  const services = useTranscriptionServices((state) => state.services);
   const cloudy = services.filter((service) => service.hasKey);
   const [picked, setPicked] = useState<TranscriptionRoute | null>(null);
   const route = localOnly ? "local" : (picked ?? saved ?? "local");
@@ -235,6 +242,25 @@ function TranscriptionStep({ onDone }: { onDone(choice: string): void }) {
     await updateSettings({ device: { transcriptionRoute: route } });
     onDone(t(ROUTE_LABELS[route]));
   };
+  if (read.state === "failed") {
+    return (
+      <>
+        <ReadProblem
+          words={t("setup.services.failed")}
+          read={read}
+          testId="setup-transcription-problem"
+        />
+        <button
+          type="button"
+          data-testid="setup-transcription-later"
+          onClick={() => onDone(t("setup.step.laterRecord"))}
+          className={linkClass}
+        >
+          {t("setup.step.laterRecord")}
+        </button>
+      </>
+    );
+  }
   return (
     <>
       <TranscriptionRouteSelect
@@ -243,6 +269,7 @@ function TranscriptionStep({ onDone }: { onDone(choice: string): void }) {
         className={`${fieldClass} scroll-mt-12`}
         localOnly={localOnly}
         saveOnChange={false}
+        listed
         focusOnShow
         testId="setup-transcription"
         onChosen={setPicked}
@@ -253,7 +280,7 @@ function TranscriptionStep({ onDone }: { onDone(choice: string): void }) {
           : t("setup.step.transcription.line")}
       </p>
       {/* Before a cloud route is chosen, what choosing one sends (ADR-0022). */}
-      {!localOnly && <TranscriptionRouteConsent />}
+      {!localOnly && <TranscriptionRouteConsent listed />}
       <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
         <button
           type="button"
@@ -290,7 +317,7 @@ function TranscriptionStep({ onDone }: { onDone(choice: string): void }) {
 /** What sorts Tags and Folders and names meeting hints, the best the keys reach picked first. */
 function SortingStep({ onDone }: { onDone(choice: string): void }) {
   const t = useT();
-  const { options, current, choose, known, loading } = useSorting();
+  const { options, current, choose, known, loading, read } = useSorting();
   const [picked, setPicked] = useState<SortingOptionLike | null>(null);
   const chosen = picked ?? current;
   const shown = chosen ?? (loading ? known : null);
@@ -298,6 +325,21 @@ function SortingStep({ onDone }: { onDone(choice: string): void }) {
     if (chosen && !(await choose(chosen))) return;
     onDone(chosen?.label ?? t("setup.step.skipped"));
   };
+  if (read.state === "failed") {
+    return (
+      <>
+        <ReadProblem words={t("setup.sorting.failed")} read={read} testId="setup-sorting-problem" />
+        <button
+          type="button"
+          data-testid="setup-sorting-skip"
+          onClick={() => onDone(t("setup.step.skipped"))}
+          className={linkClass}
+        >
+          {t("setup.step.skip")}
+        </button>
+      </>
+    );
+  }
   return (
     <>
       <SortingSelect

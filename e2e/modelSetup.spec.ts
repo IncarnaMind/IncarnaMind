@@ -372,6 +372,33 @@ function servicesRead(app: ElectronApplication): Promise<number> {
   );
 }
 
+/** While on, every call of the core's `channel` fails, as a core that can't answer would. */
+function failReads(app: ElectronApplication, channel: string, on: boolean): Promise<void> {
+  return app.evaluate(
+    ({ ipcMain }, { name, failing }) => {
+      const store = globalThis as unknown as { failingReads?: Record<string, boolean> };
+      const failures = store.failingReads ?? {};
+      store.failingReads = failures;
+      if (!(name in failures)) {
+        const handlers = (
+          ipcMain as unknown as {
+            _invokeHandlers: Map<string, (event: unknown, ...args: unknown[]) => unknown>;
+          }
+        )._invokeHandlers;
+        const original = handlers.get(name);
+        if (!original) throw new Error(`The ${name} handler is unavailable.`);
+        ipcMain.removeHandler(name);
+        ipcMain.handle(name, (event, ...args) => {
+          if (failures[name]) throw new Error(`${name} is temporarily unavailable.`);
+          return original(event, ...args);
+        });
+      }
+      failures[name] = failing;
+    },
+    { name: channel, failing: on },
+  );
+}
+
 const OPENAI_KEY = "sk-proj-a-test-key-for-first-run";
 
 for (const language of ["en", "zh-CN"] as const) {
@@ -705,8 +732,8 @@ for (const language of ["en", "zh-CN"] as const) {
       // the consent line a key of this service brings and no Add a key, and nothing moves as the
       // reads the steps make by themselves land.
       await recordSteps(window);
-      await pointAndClick(window, card.getByTestId("setup-services-retry"));
-      await expect(card.getByTestId("setup-services-retry")).toBeDisabled();
+      await pointAndClick(window, card.getByTestId("setup-services-problem-retry"));
+      await expect(card.getByTestId("setup-services-problem-retry")).toBeDisabled();
       await releaseServices(app);
       await expect(card.getByTestId("setup-step-transcription")).toBeVisible();
       await expect(card.getByTestId("meetings-route-consent")).toBeVisible();
@@ -751,7 +778,7 @@ for (const language of ["en", "zh-CN"] as const) {
       await field.press("Enter");
 
       // The problem replaces the key field the focus was in: it takes the focus.
-      const retry = card.getByTestId("setup-services-retry");
+      const retry = card.getByTestId("setup-services-problem-retry");
       await expect(retry).toBeVisible({ timeout: 15_000 });
       await expect(retry).toBeFocused();
 
@@ -913,6 +940,147 @@ for (const language of ["en", "zh-CN"] as const) {
         // nothing about a choice whose model is gone.
         await removeAnthropic(window);
         await expect.poll(() => sortingWords(settings)).toBe("");
+      } finally {
+        await app.close();
+      }
+    });
+  }
+}
+
+for (const language of ["en", "zh-CN"] as const) {
+  test(`step 2 reads the transcription services again when it opens, and a read that fails says so in place and drops the list (${language})`, async () => {
+    const { app, window } = await launchApp(dataDir, { fakeChat: true });
+    try {
+      await setWindowSize(app, window, 1280, 800);
+      await acceptPlainTextKeys(window);
+      await setLanguage(window, language);
+      const card = await askFirstQuestion(window);
+      const field = card.getByTestId("setup-key");
+      await field.fill(OPENAI_KEY);
+      await field.press("Enter");
+      await expect(card.getByTestId("setup-transcription")).toBeVisible({ timeout: 15_000 });
+      await expect(card.getByTestId("meetings-route-consent")).toBeVisible();
+
+      // Step 3 opens, and step 2 is opened again while the core can't list the services: the step
+      // says so in place, with Try again, and draws nothing from the list it had.
+      await pointAndClick(window, card.getByTestId("setup-step-sorting-open"));
+      await failReads(app, "core:listTranscriptionServices", true);
+      await pointAndClick(window, card.getByTestId("setup-step-transcription-open"));
+      const problem = card.getByTestId("setup-transcription-problem");
+      await expect(problem).toContainText(translate(language, "setup.services.failed"));
+      const retry = card.getByTestId("setup-transcription-problem-retry");
+      await expect(retry).toBeFocused();
+      await expect(card.getByTestId("setup-transcription")).toHaveCount(0);
+      await expect(card.getByTestId("meetings-route-consent")).toHaveCount(0);
+      await expect(card.getByTestId("setup-transcription-use")).toHaveCount(0);
+
+      // Try again reads it, and the step is drawn from what was read.
+      await failReads(app, "core:listTranscriptionServices", false);
+      await window.keyboard.press("Enter");
+      await expect(card.getByTestId("setup-transcription")).toBeVisible();
+      await expect(card.getByTestId("meetings-route-consent")).toBeVisible();
+      await expect(problem).toHaveCount(0);
+    } finally {
+      await app.close();
+    }
+  });
+}
+
+// What step 3 and Settings › Models read to say what sorts: the models that can, and the saved providers.
+// Settings › Models reads the saved providers for the whole page and draws nothing until it has
+// them, saying a failure as a notice of its own, so only a read again reaches this row.
+const SORTING_READS = [
+  { channel: "core:getTaggingModels", name: "the models that can sort", atFirst: true },
+  { channel: "core:listChatProviders", name: "the saved providers", atFirst: false },
+] as const;
+
+for (const language of ["en", "zh-CN"] as const) {
+  for (const { channel, name, atFirst } of SORTING_READS) {
+    test(`step 3 says in place when ${name} can't be read, at first and on a read again, and draws nothing from stale data (${language})`, async () => {
+      const { app, window } = await launchApp(dataDir, { fakeChat: true });
+      try {
+        await setWindowSize(app, window, 1280, 800);
+        await acceptPlainTextKeys(window);
+        await setLanguage(window, language);
+        const card = await askFirstQuestion(window);
+        const field = card.getByTestId("setup-key");
+        await field.fill(ANTHROPIC_KEY);
+        await field.press("Enter");
+        await expect(card.getByTestId("setup-ready-title")).toBeVisible({ timeout: 15_000 });
+        const problem = card.getByTestId("setup-sorting-problem");
+        const retry = card.getByTestId("setup-sorting-problem-retry");
+        const words = translate(language, "setup.sorting.failed");
+
+        // At first: the read fails as step 3 opens. Try again reads it, and the step is drawn.
+        await failReads(app, channel, true);
+        await pointAndClick(window, card.getByTestId("setup-step-sorting-open"));
+        await expect(problem).toContainText(words);
+        await expect(retry).toBeFocused();
+        await expect(card.getByTestId("models-sorting")).toHaveCount(0);
+        await expect(card.getByTestId("models-sorting-line")).toHaveCount(0);
+        await expect(card.getByTestId("setup-sorting-use")).toHaveCount(0);
+        await failReads(app, channel, false);
+        await window.keyboard.press("Enter");
+        await expect(card.getByTestId("models-sorting")).toBeEnabled();
+        await expect(card.getByTestId("setup-sorting-use")).toBeVisible();
+        await expect(problem).toHaveCount(0);
+
+        // Read again: another model becomes the default while the core can't answer. The step
+        // had its choice drawn from the first read, and now says the read failed instead.
+        await failReads(app, channel, true);
+        await saveOpenAiAsDefault(window);
+        await expect(problem).toContainText(words);
+        await expect(card.getByTestId("models-sorting")).toHaveCount(0);
+        await expect(card.getByTestId("setup-sorting-use")).toHaveCount(0);
+        await failReads(app, channel, false);
+        await pointAndClick(window, retry);
+        await expect(card.getByTestId("models-sorting")).toBeEnabled();
+        await expect(problem).toHaveCount(0);
+      } finally {
+        await app.close();
+      }
+    });
+
+    test(`Settings › Models says in place when ${name} can't be read, ${atFirst ? "at first and " : ""}on a read again (${language})`, async () => {
+      const { app, window } = await launchApp(dataDir, { fakeChat: true });
+      try {
+        await setWindowSize(app, window, 1280, 800);
+        await acceptPlainTextKeys(window);
+        await window.evaluate(async () => {
+          const core = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
+          await core.saveChatProvider({
+            kind: "anthropic",
+            apiKey: "sk-ant-test-a",
+            modelId: "claude-haiku-5-5",
+          });
+        });
+        await dismissChatSetup(window);
+        const problem = window.getByTestId("models-sorting-problem");
+        const words = translate(language, "setup.sorting.failed");
+
+        // At first: Settings opens while the core can't answer.
+        // The button that opens Settings is named in English until the language is changed inside it.
+        if (atFirst) await failReads(app, channel, true);
+        const settings = await openSettings(window, "models");
+        await setLanguage(window, language);
+        if (atFirst) {
+          await expect(problem).toContainText(words);
+          await expect(settings.getByTestId("models-sorting")).toHaveCount(0);
+          await expect(settings.getByTestId("models-sorting-line")).toHaveCount(0);
+          await failReads(app, channel, false);
+          await pointAndClick(window, settings.getByTestId("models-sorting-problem-retry"));
+        }
+        await expect(settings.getByTestId("models-sorting")).toBeEnabled();
+        await expect(problem).toHaveCount(0);
+
+        // Read again: another model becomes the default while the core can't answer.
+        await failReads(app, channel, true);
+        await saveOpenAiAsDefault(window);
+        await expect(problem).toContainText(words);
+        await expect(settings.getByTestId("models-sorting")).toHaveCount(0);
+        await failReads(app, channel, false);
+        await pointAndClick(window, settings.getByTestId("models-sorting-problem-retry"));
+        await expect(settings.getByTestId("models-sorting")).toBeEnabled();
       } finally {
         await app.close();
       }

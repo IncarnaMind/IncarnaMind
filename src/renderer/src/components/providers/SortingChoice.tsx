@@ -11,6 +11,7 @@ import { core } from "../../core";
 import { useLanguage, useT } from "../../i18n";
 import { useModelNames } from "../../modelNames";
 import { useAppStore } from "../../store";
+import { useRead } from "../../useRead";
 import { fieldClass } from "../ui";
 import { useJevSettings } from "./useJevSettings";
 
@@ -102,42 +103,22 @@ export function sortingOptions(
 }
 
 /**
- * The models sorting may use now: read until Ollama and the providers answer, and `failed` when
- * they couldn't, so a line says the model it opened with only while the list is still coming.
+ * The models sorting may use now and the saved providers, read together, as one read: a line
+ * says the model it opened with only while it is loading, and a read that fails says so.
  */
-export function useSortingModels(): {
-  models: TaggingModels | null;
-  /** The saved providers, read with the list: where a saved choice goes is told by its provider. */
-  providers: ChatProvider[] | null;
-  failed: boolean;
-} {
+export function useSortingModels() {
   const chatModel = useAppStore((state) => state.settings?.user.chatModel ?? null);
   const readiness = useAppStore((state) => state.chatReadiness);
-  const [models, setModels] = useState<TaggingModels | null>(null);
-  const [providers, setProviders] = useState<ChatProvider[] | null>(null);
-  const [failed, setFailed] = useState(false);
   // biome-ignore lint/correctness/useExhaustiveDependencies: listed again whenever these change.
   useEffect(() => {
     // The line that says what sorts names the User's model: its group is where the name is.
     useAnswers.getState().loadModels();
-    let current = true;
-    setFailed(false);
-    core.listChatProviders().then(
-      (saved) => current && setProviders(saved),
-      (error: unknown) => console.error("The saved chat providers couldn't be listed.", error),
-    );
-    core.getTaggingModels().then(
-      (listed) => current && setModels(listed),
-      (error: unknown) => {
-        console.error("The models that sort couldn't be listed.", error);
-        if (current) setFailed(true);
-      },
-    );
-    return () => {
-      current = false;
-    };
   }, [chatModel, readiness]);
-  return { models, providers, failed };
+  return useRead(
+    "The models that can sort",
+    () => Promise.all([core.getTaggingModels(), core.listChatProviders()]),
+    [chatModel, readiness],
+  );
 }
 
 /**
@@ -148,7 +129,9 @@ export function useSorting() {
   const t = useT();
   const language = useLanguage();
   const nameOf = useModelNames();
-  const { models, providers, failed } = useSortingModels();
+  const read = useSortingModels();
+  const models = read.state === "ready" ? read.data[0] : null;
+  const providers = read.state === "ready" ? read.data[1] : null;
   const [jev] = useJevSettings();
   const chatModel = useAppStore((state) => state.settings?.user.chatModel ?? null);
   const readiness = useAppStore((state) => state.chatReadiness);
@@ -257,7 +240,8 @@ export function useSorting() {
     current,
     choose,
     known,
-    loading: models === null && !failed,
+    loading: read.state === "loading",
+    read,
     library,
   };
 }

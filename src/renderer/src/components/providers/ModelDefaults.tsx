@@ -11,6 +11,7 @@ import { useModelNames } from "../../modelNames";
 import { useAppStore } from "../../store";
 import { TranscriptionRouteSelect } from "../meetings/TranscriptionRouteSelect";
 import { TranscriptionRouteConsent } from "../meetings/TranscriptionSettings";
+import { ReadProblem } from "../ReadProblem";
 import { fieldClass, hintClass, ruledListClass, sectionTitleClass } from "../ui";
 import { ModelHealthLine } from "./ModelHealthLine";
 import { providerName } from "./ProviderPage";
@@ -125,20 +126,30 @@ function TranscriptionRow({ id }: { id: string }) {
 
 function SortingRow({ id }: { id: string }) {
   const t = useT();
-  const { options, current, choose } = useSorting();
+  const { options, current, choose, read } = useSorting();
   return (
     <div data-testid="model-default-row-sorting" className="flex flex-col gap-0.5 py-2">
       <label htmlFor={id} className="text-ui font-semibold text-ink">
         {t("models.defaults.sorting")}
       </label>
-      <SortingSelect
-        id={id}
-        className={rowSelectClass}
-        options={options}
-        current={current}
-        onChange={(option) => void choose(option)}
-      />
-      <SortingLine option={current} />
+      {read.state === "failed" ? (
+        <ReadProblem
+          words={t("setup.sorting.failed")}
+          read={read}
+          testId="models-sorting-problem"
+        />
+      ) : (
+        <>
+          <SortingSelect
+            id={id}
+            className={rowSelectClass}
+            options={options}
+            current={current}
+            onChange={(option) => void choose(option)}
+          />
+          <SortingLine option={current} />
+        </>
+      )}
     </div>
   );
 }

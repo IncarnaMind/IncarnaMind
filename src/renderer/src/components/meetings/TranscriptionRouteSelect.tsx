@@ -26,6 +26,7 @@ export function TranscriptionRouteSelect({
   localOnly = false,
   testId = "meetings-route",
   saveOnChange = true,
+  listed = false,
   onChosen,
   onBlur,
   onEscape,
@@ -42,6 +43,8 @@ export function TranscriptionRouteSelect({
   testId?: string;
   /** The setup card's step saves when its Use this is pressed, so its choice is its consent there. */
   saveOnChange?: boolean;
+  /** The caller reads the services and shows a failure; this reads none of its own. */
+  listed?: boolean;
   onChosen?(chosen: TranscriptionRoute): void;
   onBlur?(): void;
   onEscape?(): void;
@@ -56,7 +59,7 @@ export function TranscriptionRouteSelect({
   useEffect(() => {
     if (focusOnShow) field.current?.focus();
   }, [focusOnShow]);
-  const services = useTranscriptionServicesList();
+  const services = useTranscriptionServicesList(!listed);
   // Local mode offers only this computer, whatever was chosen before it came on.
   const shown = localOnly ? "local" : value;
   const offered = TRANSCRIPTION_ROUTES.filter(

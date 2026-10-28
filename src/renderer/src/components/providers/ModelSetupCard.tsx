@@ -8,8 +8,10 @@ import { turnOffLocalMode } from "../../localMode";
 import { giveUpWaiting, useModelSetup } from "../../modelSetup";
 import { useAppStore } from "../../store";
 import { useTranscriptionServices } from "../../transcriptionServices";
+import { useRead } from "../../useRead";
 import { OnThisComputer } from "../OnThisComputer";
 import { ProblemLine } from "../ProblemLine";
+import { ReadProblem } from "../ReadProblem";
 import { buttonStyle, hintClass } from "../ui";
 import { ChatGptMark } from "./ChatGptMark";
 import {
@@ -37,94 +39,24 @@ const CLAUDE_DOWNLOAD = "https://claude.ai/download";
  */
 export function ModelSetupCard() {
   const ready = useModelSetup((state) => state.ready);
+  const t = useT();
   // Step 2's rows depend on whether a cloud service has a key, so the steps open only on a list
   // that was read, and never redraw as a later read lands (#2147).
-  const services = useServicesRead(ready);
-  if (!ready || services.state === "reading") return <ChooseAnAi />;
-  return services.state === "read" ? (
-    <SetupSteps />
-  ) : (
-    <ServicesProblem
-      problem={services.problem}
-      retrying={services.retrying}
-      retry={services.retry}
-    />
+  const services = useRead(
+    "The transcription services",
+    () => useTranscriptionServices.getState().load(),
+    [],
+    ready,
   );
-}
-
-type ServicesRead =
-  | { state: "reading" }
-  | { state: "read" }
-  | { state: "failed"; problem: string; retrying: boolean; retry(): void };
-
-function useServicesRead(wanted: boolean): ServicesRead {
-  const [read, setRead] = useState<{ ok: true } | { ok: false; problem: string } | null>(null);
-  const [attempt, setAttempt] = useState(0);
-  const [retrying, setRetrying] = useState(false);
-  // biome-ignore lint/correctness/useExhaustiveDependencies: read again whenever the User asks.
-  useEffect(() => {
-    if (!wanted) {
-      setRead(null);
-      return;
-    }
-    let current = true;
-    setRetrying(true);
-    void useTranscriptionServices
-      .getState()
-      .load()
-      .then((problem) => {
-        if (!current) return;
-        setRead(problem === null ? { ok: true } : { ok: false, problem });
-        setRetrying(false);
-      });
-    return () => {
-      current = false;
-    };
-  }, [wanted, attempt]);
-  if (read === null) return { state: "reading" };
-  if (read.ok) return { state: "read" };
-  return {
-    state: "failed",
-    problem: read.problem,
-    retrying,
-    retry: () => setAttempt((count) => count + 1),
-  };
-}
-
-function ServicesProblem({
-  problem,
-  retrying,
-  retry,
-}: {
-  problem: string;
-  retrying: boolean;
-  retry(): void;
-}) {
-  const t = useT();
-  const box = useRef<HTMLDivElement>(null);
-  // The problem replaces the field the focus was in, and a retry disables its own button: either
-  // leaves the focus on the page, so Try again takes it, unless the User has moved on.
-  useEffect(() => {
-    const active = document.activeElement;
-    if (retrying || (active && active !== document.body && !box.current?.contains(active))) return;
-    box.current?.querySelector("button")?.focus();
-  }, [retrying]);
+  if (!ready || services.state === "loading") return <ChooseAnAi />;
+  if (services.state === "ready") return <SetupSteps />;
   return (
     <SetupCard>
-      <div ref={box}>
-        <ProblemLine
-          testId="setup-services-problem"
-          title={problem}
-          action={{
-            label: t("setup.services.tryAgain"),
-            testId: "setup-services-retry",
-            disabled: retrying,
-            onClick: retry,
-          }}
-        >
-          {t("setup.services.failed")}
-        </ProblemLine>
-      </div>
+      <ReadProblem
+        words={t("setup.services.failed")}
+        read={services}
+        testId="setup-services-problem"
+      />
     </SetupCard>
   );
 }
