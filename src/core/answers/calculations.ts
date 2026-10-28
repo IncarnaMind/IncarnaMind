@@ -196,6 +196,22 @@ const writtenNumber = (reading: Reading) => reading.value / reading.scale;
  * unit cell beside the number ("31000 | 万元"), which a quote of the number alone leaves out
  * (#1798). Null when they read it as the quote does, or read its digits more than one way.
  */
+/** The one cell of a quoted row that is only a unit ("收入	100	120	万元"): it states the unit of each number in its row. */
+function rowUnitCell(quote: string, context: FigureContext): string | null {
+  const units = new Set(
+    quote
+      .split("\n")
+      .flatMap((line) => (line.includes("\t") ? line.split("\t") : []))
+      .map((cell) => cell.trim())
+      .filter((cell) => {
+        if (!cell || /\d/.test(cell)) return false;
+        const [only, ...more] = readStatedUnits(cell, context, true);
+        return only?.chars === cell && more.length === 0;
+      }),
+  );
+  return units.size === 1 ? ([...units][0] ?? null) : null;
+}
+
 export function readOnItsLine(
   lines: string,
   figure: Figure,
@@ -726,26 +742,33 @@ export function createCalculationSession(options: CalculationSessionOptions) {
         null;
       if (applies) stated = { quoted: unit, stated: applies };
     } else if (!ownUnit) {
-      const page = quoted.units.map((each) => each.text).join("\n");
-      const found: Stated[] = [];
-      const lines = quotedLines(quoted);
-      const row = onLine(lines);
-      if (row) found.push({ statement: lines, reading: row });
       // A heading's "(£)" changes no value but gives bare digits their currency, as a unitQuote's would.
       const changes = (each: Reading) =>
         each.value !== base.value || each.unit.kind !== base.unit.kind;
-      const same = (a: Reading, b: Reading) =>
-        a.value === b.value && JSON.stringify(a.unit) === JSON.stringify(b.unit);
-      for (const statement of readStatedUnits(page, context)) {
-        for (const each of statedReading(quote, figure.start, quoteContext, statement.chars)) {
-          if (!changes(each)) continue;
-          if (!found.some((other) => same(other.reading, each)))
-            found.push({ statement: statement.chars, reading: each });
+      const inRow = rowUnitCell(quote, context);
+      const ofRow = inRow
+        ? statedReading(quote, figure.start, quoteContext, inRow).find(changes)
+        : undefined;
+      if (ofRow) stated = { quoted, stated: ofRow };
+      else {
+        const page = quoted.units.map((each) => each.text).join("\n");
+        const found: Stated[] = [];
+        const lines = quotedLines(quoted);
+        const row = onLine(lines);
+        if (row) found.push({ statement: lines, reading: row });
+        const same = (a: Reading, b: Reading) =>
+          a.value === b.value && JSON.stringify(a.unit) === JSON.stringify(b.unit);
+        for (const statement of readStatedUnits(page, context)) {
+          for (const each of statedReading(quote, figure.start, quoteContext, statement.chars)) {
+            if (!changes(each)) continue;
+            if (!found.some((other) => same(other.reading, each)))
+              found.push({ statement: statement.chars, reading: each });
+          }
         }
+        if (found.length > 1)
+          return `${figure.chars} has no unit, and ${whereOf(quoted)} states more than one (${found.map((each) => `"${each.statement}"`).join(", ")}); give the line that applies to it as unitQuote.`;
+        candidate = found[0] ?? null;
       }
-      if (found.length > 1)
-        return `${figure.chars} has no unit, and ${whereOf(quoted)} states more than one (${found.map((each) => `"${each.statement}"`).join(", ")}); give the line that applies to it as unitQuote.`;
-      candidate = found[0] ?? null;
     }
 
     let rate: ReadInput["rate"] = null;
