@@ -27,6 +27,7 @@ import { chipsOf } from "../tagEditing";
 import { DocumentLineIcon, FolderLineIcon } from "./lineIcons";
 import { TagDot } from "./TagColour";
 import { buttonClass } from "./ui";
+import { useFocusReturn } from "./useFocusReturn";
 import { useTaggingService } from "./useTaggingService";
 
 const WIDTH_PX = 340;
@@ -93,6 +94,7 @@ function Panel() {
       : undefined,
   );
   const panel = useRef<HTMLDivElement>(null);
+  const focus = useFocusReturn();
   const row = rowOf(from);
   useExitToward(panel, () => row ?? from);
 
@@ -100,10 +102,11 @@ function Panel() {
   useLayoutEffect(() => {
     const element = panel.current;
     if (!element) return;
+    focus.remember();
     element.showPopover();
     enterFrom(element, row, place(element, row));
     element.focus();
-  }, []);
+  }, [focus]);
 
   // What it was about is gone (deleted, unlinked): nothing left to show.
   const gone = !item && !linked && !group;
@@ -130,8 +133,7 @@ function Panel() {
       onToggle={(event) => {
         if (event.newState !== "closed") return;
         useInfo.getState().close();
-        // Back to what it was opened from, unless the click that closed it went somewhere to focus.
-        if (from?.isConnected && !document.activeElement?.closest("[data-surface]")) from.focus();
+        focus.giveBack(panel.current, from);
       }}
       style={{ width: WIDTH_PX }}
       className={panelClass}

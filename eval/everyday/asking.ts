@@ -154,8 +154,8 @@ export interface CaseResult {
   page: string;
   /** What the guard took out: sentences of the reply, by Add to note, and Blocks of what the calls gave to write into Minds. */
   removed: string[];
-  /** Sentences of what the calls gave that the model's edit_mind or the app's own check rewrote after the guard, and what the Mind holds now. */
-  rewritten: { given: string; now: string | null }[];
+  /** Sentences of what the calls gave that the model's edit_mind or the app's own check changed after the guard, what the Mind holds now, and whether it only took words out. */
+  rewritten: ReturnType<typeof rewrittenLater>;
   /** Calls that copied the last Answer into a Mind (`answer: true`). */
   copies: number;
   pointersLeft: number;
@@ -260,7 +260,7 @@ async function answerOf(
 async function askExample(core: Core, language: "en" | "zh-CN") {
   await core.updateSettings({ user: { language } });
   const { mindId } = await core.createExamples();
-  const asked = await vi.waitFor(() => core.askReadyQuestion(), {
+  const asked = await vi.waitFor(() => core.askExampleReadyQuestion(), {
     timeout: 2 * 60_000,
     interval: 500,
   });

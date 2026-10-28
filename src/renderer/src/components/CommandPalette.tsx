@@ -50,6 +50,7 @@ import {
 import { Marked } from "./Marked";
 import { ProblemMark } from "./ProblemLine";
 import { errorTextClass } from "./ui";
+import { useFocusReturn } from "./useFocusReturn";
 import { useBackdropClose } from "./useModal";
 
 /** How long typing pauses before the words inside are searched for. */
@@ -131,6 +132,7 @@ function Palette() {
   const dialog = useRef<HTMLDialogElement>(null);
   const field = useRef<HTMLInputElement>(null);
   const list = useRef<HTMLDivElement>(null);
+  const focus = useFocusReturn();
   const [query, setQuery] = useState("");
   const [activeKey, setActiveKey] = useState<string | null>(null);
   const context = usePalette((state) => state.context);
@@ -151,9 +153,10 @@ function Palette() {
   useLayoutEffect(() => {
     const element = dialog.current;
     if (!element) return;
+    focus.remember();
     element.showModal();
     field.current?.focus();
-  }, []);
+  }, [focus]);
 
   const { text, words, actionsOnly } = useMemo(() => readQuery(query), [query]);
   const searching = !actionsOnly && searchesWords(text);
@@ -202,6 +205,7 @@ function Palette() {
     if (!element?.open) return;
     exit(element, {});
     element.close();
+    focus.giveBack(element);
     // Now, not on the dialog's close event a task later: ⌘K pressed meanwhile opens it again.
     usePalette.getState().hide();
   };
