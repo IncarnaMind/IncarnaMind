@@ -133,7 +133,7 @@ describe("The assistant revises its own changes still waiting", { timeout: 30_00
     });
 
     expect(seen.record).toContain(
-      "- create_mind: made the Mind “Tide notes” and proposed 2 changes, waiting for the User",
+      "- create_mind: made the Note “Tide notes” and proposed 2 changes, waiting for the User",
     );
     expect(seen.read).toContain("## [waiting change, adds: Summary]");
     expect(seen.read).toContain("[waiting change, adds: The paper is about spring tides.]");
@@ -147,7 +147,7 @@ describe("The assistant revises its own changes still waiting", { timeout: 30_00
     expect(pendingProposals(page.blocks)).toHaveLength(revised?.proposals ?? -1);
     expect(waitingFrom(page, made?.request ?? "")).toBe(0);
     expect(lastResult(model)).toMatch(
-      /^Revised your own text in “Tide notes”.*applies in the Mind at once/,
+      /^Revised your own text in “Tide notes”.*applies in the Note at once/,
     );
     expect(second.steps?.unbackedClaims).toBeUndefined();
   });
@@ -793,7 +793,7 @@ describe("A reply that claims a change no call made", { timeout: 30_000 }, () =>
     expect(model.doStreamCalls).toHaveLength(2);
     expect(note).toContain("<tool-record>");
     expect(note).toContain("- No Tool was called.");
-    expect(note).toContain("Your reply says you added text to a Mind, but no Tool did that.");
+    expect(note).toContain("Your reply says you added text to a Note, but no Tool did that.");
     expect(answer.text).toBe(
       "I haven't changed “Q3 review” yet: say if you'd like a risks section.",
     );
@@ -962,7 +962,7 @@ describe("The owner's four turns", { timeout: 30_000 }, () => {
     const fourth = await turn("write a summary about these 2 papers", first.conversationId);
 
     expect(prompts.second).toContain(
-      `- create_mind: made the Mind “${PAGE}” and proposed 2 changes, waiting for the User`,
+      `- create_mind: made the Note “${PAGE}” and proposed 2 changes, waiting for the User`,
     );
     expect(prompts.third).toContain(
       `- edit_mind “${PAGE}” (section “Summary”): revised your own waiting text in place, and proposed 2 changes, waiting for the User`,
@@ -1299,7 +1299,7 @@ describe("The assistant's own text already in the Mind (#1061)", { timeout: 30_0
       expect(proposalRequestOf(client.doc, change?.request ?? "")).toMatchObject({
         requested: "edit",
       });
-      expect(lastResult(model)).toContain("applies in the Mind at once");
+      expect(lastResult(model)).toContain("applies in the Note at once");
       expect(lastResult(model)).toContain("don't repeat the new text");
       expect(shownWithChanges(client).slice(-2)).toEqual([
         "The quarter was very good, and sales were really strong.",

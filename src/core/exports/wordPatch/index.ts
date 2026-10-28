@@ -115,7 +115,7 @@ export async function exportWordPatch(input: WordPatchInput): Promise<WordPatchR
   await writer.text(pkg.part);
 
   const doc = input.blocks.doc;
-  if (!doc || !wordFileOf(doc)) throw new Error("This Mind wasn't imported from a Word file.");
+  if (!doc || !wordFileOf(doc)) throw new Error("This Note wasn't imported from a Word file.");
   const reading = input.readOptions.review;
   const yOf = new Map<NodeJSON, Y.XmlElement>();
   const current = input.blocks

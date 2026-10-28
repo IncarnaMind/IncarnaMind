@@ -85,7 +85,7 @@ export function createComparisonExport(deps: ComparisonExportDependencies) {
           };
         },
       });
-      const name = safeFileName(mindName(mind) || t("mind.untitled"), "Mind");
+      const name = safeFileName(mindName(mind) || t("mind.untitled"), "Note");
       return {
         fileName: `${name}.xlsx`,
         data: writeXlsx(book, deflateRawSync, { author: "IncarnaMind", created: deps.now() }),

@@ -41,23 +41,23 @@ const verdictSchema = jsonSchema<{ claims: ClaimVerdict[] }>({
 });
 
 export const CLAIM_CHECK_INSTRUCTIONS = [
-  "You check an AI assistant's reply against IncarnaMind's record of what its Tools did to the User's Notes. A Note is called a Mind in the record.",
-  "Read every sentence of the reply. For each claim that a Mind was made, written in, added to, changed, shortened, lengthened, replaced or removed from, return it with its kind and whether the record backs it. Return every such claim, backed or not backed.",
+  "You check an AI assistant's reply against IncarnaMind's record of what its Tools did to the User's Notes. The record calls them Notes too.",
+  "Read every sentence of the reply. For each claim that a Note was made, written in, added to, changed, shortened, lengthened, replaced or removed from, return it with its kind and whether the record backs it. Return every such claim, backed or not backed.",
   "A change whose state is applied counts as made. A change that only waits for the User does not. A failed call, a denied call and no call change nothing. A revision of the assistant's own text is a change.",
-  "When the record has no Tool calls, or no change to a Mind, every affirmative report of a change is unbacked; never return an empty list just to be cautious. / 如果没有工具调用或没有改动，任何声称已经改动的话都没有依据，必须返回，不能留空。",
-  "Never flag a sentence about the reply itself, searching, a Document, or something that wasn't or couldn't be done. Never flag a sentence only for its wording, coverage or length, for where a page sits, for a Mind's name, or for details the record doesn't give, such as which paragraph changed. A translation or other text in the reply itself is not a change to a Mind.",
+  "When the record has no Tool calls, or no change to a Note, every affirmative report of a change is unbacked; never return an empty list just to be cautious. / 如果没有工具调用或没有改动，任何声称已经改动的话都没有依据，必须返回，不能留空。",
+  "Never flag a sentence about the reply itself, searching, a Document, or something that wasn't or couldn't be done. Never flag a sentence only for its wording, coverage or length, for where a page sits, for a Note's name, or for details the record doesn't give, such as which paragraph changed. A translation or other text in the reply itself is not a change to a Note.",
   "Examples:",
   "- Record: create_mind made “Notes”, applied. Reply: “I made a page, “Notes”, covering both papers.” Back it.",
   "- Record: edit_mind “Q3 review” proposed 3 changes, applied. Reply: “The second paragraph is now more formal.” Back it.",
   "- Record: no calls. Reply: “Done — the summary is now on the page.” kind: added, backed: false.",
   "- Record: no calls. Reply: “Your summary is in “Q3 review” now.” kind: added, backed: false.",
-  "- Record: no calls. Reply: “Here it is in a new Mind, “Library summary”.” kind: made, backed: false.",
+  "- Record: no calls. Reply: “Here it is in a new Note, “Library summary”.” kind: made, backed: false.",
   "- Record: no calls. Reply: “I've renamed the page to “Q3 summary”.” kind: changed, backed: false.",
   "- Record: no calls. Reply: “总结已经放在页面里了。” kind: added, backed: false.",
   "- Record: no calls. Reply: “好了，第二段现在更清楚了。” kind: changed, backed: false.",
-  "- Record: no calls. Reply: “已在新的 Mind 中整理好总结。” kind: made, backed: false.",
+  "- Record: no calls. Reply: “已在新的笔记中整理好总结。” kind: made, backed: false.",
   "- Record: no calls. Reply: “The page was created on 3 March 2021 to track the project.” Return no claim: this describes a Document.",
-  "- Record: no calls. Reply: “The new page replaces the version published in 2019.” Return no claim: a Document's new page replacing an earlier edition is not a Mind the assistant made.",
+  "- Record: no calls. Reply: “The new page replaces the version published in 2019.” Return no claim: a Document's new page replacing an earlier edition is not a Note the assistant made.",
   "- Record: no calls. Reply: “第二版中，已经修改了摘要部分的实验结论。” Return no claim: this reports what a Document's second edition says, not what the assistant changed.",
   "- Record: no calls. Reply: “这份总结已经完成于2023年。” Return no claim: a Document's completion date is not a change the assistant made.",
   "- Record: add_to_mind “Q3 review” proposed 2 changes, applied. Reply: “I added a risks section to “Q3 review”.” Back it.",
@@ -231,10 +231,10 @@ export async function unbackedClaims(
 }
 
 const CLAIMED_WORDS: Record<ClaimedChange, string> = {
-  made: "made a Mind",
-  added: "added text to a Mind",
-  changed: "changed a Mind",
-  removed: "removed or replaced text in a Mind",
+  made: "made a Note",
+  added: "added text to a Note",
+  changed: "changed a Note",
+  removed: "removed or replaced text in a Note",
 };
 
 export const UNSEEN_REPLY =
@@ -265,7 +265,7 @@ export function unmadeFixesNote(
   const said = [
     ...(unmade.words.length > 0
       ? [
-          `that you fixed ${unmade.words.map((word) => `“${word}”`).join(", ")}, but your edits left ${unmade.words.length === 1 ? "it" : "them"} in the Mind as before`,
+          `that you fixed ${unmade.words.map((word) => `“${word}”`).join(", ")}, but your edits left ${unmade.words.length === 1 ? "it" : "them"} in the Note as before`,
         ]
       : []),
     ...(unmade.count

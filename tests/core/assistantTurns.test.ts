@@ -257,7 +257,7 @@ describe("A claim needs its command (#1559)", { timeout: 30_000 }, () => {
     const answer = await askAssistant(core, { text: "Fix the typos in this", mindId: trip.id });
 
     expect(notes.at(-1)).toContain("that you fixed “compleatly”, but your edits left it");
-    expect(notes.at(-1)).toContain("proposed 1 change, applied in the Mind at once");
+    expect(notes.at(-1)).toContain("proposed 1 change, applied in the Note at once");
     expect(notes.at(-1)).not.toContain("waiting for the User");
     expect(answer.text).toBe("Fixed “visted” in “Trip notes”.");
     expect(answer.steps?.unbackedClaims).toBeUndefined();
@@ -446,8 +446,8 @@ describe("How each change is tagged, and what the model is told", { timeout: 30_
     await askAssistant(core, { text: "rewrite my summary", mindId: mind.id });
 
     const [told] = read[0] ?? [];
-    expect(told).toContain(applies ? "applies in the Mind at once" : "it waits there for them");
-    expect(told).not.toContain(applies ? "waits there for them" : "applies in the Mind at once");
+    expect(told).toContain(applies ? "applies in the Note at once" : "it waits there for them");
+    expect(told).not.toContain(applies ? "waits there for them" : "applies in the Note at once");
   });
 
   // protects=a change the assistant makes in a second Mind is tagged as the first is, so it applies and the panel names that Mind with Open and Undo; fails_when=the second Mind's change waits, untagged; no_claim=which Mind a real model changes first.

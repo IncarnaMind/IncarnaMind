@@ -148,7 +148,7 @@ export function report(
     ...rows.map((row) => {
       const own = results.filter((result) => result.id === row.id && result.model === row.model);
       const fates = own.flatMap((each) => each.calls).filter((line) => MIND_WRITES.test(line));
-      const applied = fates.filter((line) => line.includes("applied in the Mind at once")).length;
+      const applied = fates.filter((line) => line.includes("applied in the Note at once")).length;
       return `| ${row.id} | ${row.language} | ${row.model} | ${row.passed} of ${row.runs}${row.under ? " **under the bar**" : ""} | ${median(own.map((each) => each.answeredSeconds)).toFixed(0)} | ${thousands(average(own.map((each) => each.chat.inputTokens)))} / ${thousands(average(own.map((each) => each.chat.outputTokens)))} | ${applied} / ${fates.length - applied} |`;
     }),
     "",

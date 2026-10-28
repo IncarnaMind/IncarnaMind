@@ -321,7 +321,7 @@ export function createExports(deps: ExportsDependencies) {
       format === "source-pack"
         ? numberCitations(blocks, style.form, attributesOf).map((each) => each.footnote)
         : footnotesIn(blocks);
-    const fileStem = safeFileName(name || translate(language, "mind.untitled"), "Mind");
+    const fileStem = safeFileName(name || translate(language, "mind.untitled"), "Note");
     const listedPlace: CitationPlace | null =
       (format === "docx" || format === "pdf") && style.form === "numbered" && footnotes.length > 0
         ? (options.citationPlace ?? "footnotes")
@@ -697,7 +697,7 @@ export function createExports(deps: ExportsDependencies) {
     word: NonNullable<Prepared["word"]>,
     thin: ThinEntries,
   ): Promise<MindExport> {
-    if (word.importing) throw new Error("This Mind is still being imported from its Word file.");
+    if (word.importing) throw new Error("This Note is still being imported from its Word file.");
     const { language, style, documents } = prepared;
     // A copy of the Mind as it is now: typing while the file is written doesn't change it.
     const state = deps.read(prepared.mindId, (blocks) =>

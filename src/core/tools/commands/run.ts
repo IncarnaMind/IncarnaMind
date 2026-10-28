@@ -394,7 +394,7 @@ function moveTo(command: "document.moveTo" | "mind.moveTo"): Checker {
             move = await core.moveToFolder({ ...moving, folderId: folder.id });
           },
         },
-        said: `Moved ${plural(changed.length, kind === "document" ? "Document" : "Mind")} to the Folder “${folder.name}”${made ? ", which this made" : ""}.${already > 0 ? ` ${plural(already, "was", "were")} in it already.` : ""}`,
+        said: `Moved ${plural(changed.length, kind === "document" ? "Document" : "Note")} to the Folder “${folder.name}”${made ? ", which this made" : ""}.${already > 0 ? ` ${plural(already, "was", "were")} in it already.` : ""}`,
       };
     });
   };
@@ -455,7 +455,7 @@ const CHECKERS: Readonly<Record<AssistantCommandId, Checker>> = {
             await core.renameMind(mind.id, renamed.title);
           },
         },
-        said: `Renamed the Mind “${mindName(mind)}” to “${mindName(renamed)}”.`,
+        said: `Renamed the Note “${mindName(mind)}” to “${mindName(renamed)}”.`,
       };
     });
   },
@@ -549,7 +549,7 @@ const CHECKERS: Readonly<Record<AssistantCommandId, Checker>> = {
           },
           redo: remove,
         },
-        said: `Moved ${plural(minds.length, "Mind")} to Recently deleted, where the User can restore them for ${RECENTLY_DELETED_DAYS} days.`,
+        said: `Moved ${plural(minds.length, "Note")} to Recently deleted, where the User can restore them for ${RECENTLY_DELETED_DAYS} days.`,
       };
     });
   },

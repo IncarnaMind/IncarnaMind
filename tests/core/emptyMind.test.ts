@@ -54,7 +54,7 @@ describe("An empty, unnamed Mind is the open Mind", { timeout: 30_000 }, () => {
       expect(answer.text).not.toContain(NO_MIND);
       const [first] = calls;
       expect(first?.prompt).toContain(`<mind name="${each.untitled}">`);
-      expect(first?.system).toContain("The Mind in <mind> is open and still empty");
+      expect(first?.system).toContain("The Note in <mind> is open and still empty");
       const client = await connectToMind(core, mind.id);
       await client.settled();
       expect(readMind(client).textContent).toContain(SUMMARY);

@@ -75,7 +75,7 @@ function parseItem(value: unknown): TabItem {
       return { kind: "document", documentId: value.documentId };
     }
   }
-  throw new InvalidInputError("A tab shows a Mind, the Library, Home or a Document.");
+  throw new InvalidInputError("A tab shows a Note, the Library, Home or a Document.");
 }
 
 function parseCitation(value: unknown): TabCitation {

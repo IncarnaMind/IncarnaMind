@@ -359,7 +359,7 @@ describe("The assistant changes Minds as Proposals", { timeout: 30_000 }, () => 
     const other = await setUp(none);
     const unfocused = await ask(other.core, { text: "Shorten the summary" });
     expect(mindCalls(unfocused)[0]?.status).toBe("failed");
-    expect(lastResult(none)).toContain("No Mind is open beside the assistant");
+    expect(lastResult(none)).toContain("No Note is open beside the assistant");
     expect(pendingProposals(other.client.blocks)).toEqual([]);
     expect(await checkpointsOf(other.core, other.mind.id)).toHaveLength(0);
   });
@@ -1080,7 +1080,7 @@ describe("A name that fits several places asks which one", { timeout: 30_000 }, 
     expect(lastResult(model)).toContain(
       '"There are 2 headings called “Notes”: number 1 and number 2. Which one?"',
     );
-    expect(lastResult(model)).toContain("select the one they mean in the Mind");
+    expect(lastResult(model)).toContain("select the one they mean in the Note");
     await expectUntouched(set, ["Notes", "Note one.", "Notes", "Note two."]);
   });
 

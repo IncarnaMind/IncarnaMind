@@ -552,7 +552,7 @@ describe("What the assistant writes is checked before it lands", { timeout: 30_0
     });
     expect(calls.some((call) => CUT.test(call.prompt))).toBe(false);
     expect(lastResult(model)).toContain(
-      "1 sentence is still not supported by its Citations, and marked so in the Mind",
+      "1 sentence is still not supported by its Citations, and marked so in the Note",
     );
     await resolveChanges(client, "accept");
     expect(claimSpans(readMind(client))).toHaveLength(1);
@@ -571,7 +571,7 @@ describe("What the assistant writes is checked before it lands", { timeout: 30_0
     expect(mark?.check).toMatchObject({ state: "not-checked", reason: "failed" });
     expect(change?.selfCheck).toMatchObject({ cited: 1, sent: 1, failed: 1 });
     expect(lastResult(model)).toContain(
-      "1 sentence couldn't be checked, and is marked so in the Mind: say so.",
+      "1 sentence couldn't be checked, and is marked so in the Note: say so.",
     );
   });
 

@@ -214,8 +214,8 @@ connectors: the Connectors' Tools|connectors|You can call Tools from the User's 
 sources: find_sources|sources|You can also call find_sources|- Name what it found by title
 web: search_web and read_web_page|web|You can also search the web with search_web|- Use only what read_web_page gives|- Read the few pages most likely
 minds: the turn's rule|minds|You work beside the User's page|- A piece of writing to keep|- A change to their text|- A question, an explanation, an opinion|- Unsure: if the request|After a write or an edit, reply
-minds: the Minds' Tools|minds|The write command is create_mind|- A line "The User's Minds:"|- A <tool-record> is|- The Mind to change is|- In <mind> and read_mind|- edit_mind's rewrite reads|- A chart (|- To put your last Answer|- If a Tool says nothing was changed|- What you write into a Mind follows|- Your reply after a write or an edit|The Mind in <mind> is the User's working copy|The Mind in <mind> is an example|- The Mind in <mind> is open and still empty
-minds: no Tools to change a Mind|reply|You can't change the User's Minds
+minds: the Minds' Tools|minds|The write command is create_mind|- A line "The User's Notes:"|- A <tool-record> is|- The Note to change is|- In <mind> and read_mind|- edit_mind's rewrite reads|- A chart (|- To put your last Answer|- If a Tool says nothing was changed|- What you write into a Note follows|- Your reply after a write or an edit|The Note in <mind> is the User's working copy|The Note in <mind> is an example|The Note in <mind> is open and still empty
+minds: no Tools to change a Note|reply|You can't change the User's Notes
 commands: the app's commands|commands|You can also do in the app|- First find what to act on with list_commands|- Renaming by date:|- Say only what the calls returned
 documents: what a command isn't|reply|- A Question about the Documents isn't a command
 this document and short answers|reply|A line "On screen now: …"|- "This document", "this contract"|- When the User asks for it short
