@@ -11,7 +11,7 @@ import { shownPassages } from "../helpers/citations";
 import { createTempDataFolder, startCore } from "../helpers/core";
 import { addAndProcess, writeSourceFile } from "../helpers/documents";
 import { connectToMind, type MindClient, typeInto } from "../helpers/mindClient";
-import { readMind, resolveChanges, shownWithChanges, writeMind } from "../helpers/minds";
+import { editMind, readMind, resolveChanges, shownWithChanges, writeMind } from "../helpers/minds";
 import {
   type ModelCall,
   type ScriptedReply,
@@ -52,6 +52,19 @@ const PLANS: Record<string, Plan> = {
   [asChecked(FAILING)]: { reply: { error: { status: 500, message: "The service broke." } } },
   [asChecked(RECORD_SOURCE)]: { verdict: "unsupported", judgement: "same" },
   [asChecked(RECORD_NEXT)]: { verdict: "unsupported", judgement: "same" },
+  [`${RECORD_SOURCE}.`]: { verdict: "unsupported", judgement: "same" },
+  [`${RECORD_NEXT}.`]: { verdict: "unsupported", judgement: "same" },
+};
+
+const RECORD_FILE: NonNullable<Writing["record"]> = {
+  name: "ECF No. 41.pdf",
+  contents: buildPdf([
+    { lines: ["Introduction"] },
+    { lines: ["Second page", "Another deadline"] },
+    { lines: ["Trial briefs", "Trial briefs are due September 2"] },
+  ]),
+  quote: "Trial briefs are due September 2",
+  query: "Trial briefs",
 };
 
 const CUT = /<task action="cut-unsupported">/;
@@ -169,9 +182,10 @@ async function write(
   onStart?: (started: {
     core: Core;
     client: MindClient;
+    mindId: string;
     service: string | undefined;
     calls: readonly ModelCall[];
-  }) => void,
+  }) => void | Promise<void>,
 ) {
   const calls: ModelCall[] = [];
   let started: Core | null = null;
@@ -182,7 +196,7 @@ async function write(
     writing.record,
   );
   started = core;
-  onStart?.({ core, client, service, calls });
+  await onStart?.({ core, client, mindId, service, calls });
   const answer = await askAssistant(
     core,
     {
@@ -482,20 +496,62 @@ describe("What the assistant writes is checked before it lands", { timeout: 30_0
   test("a nested proposed write resolves Id. against its own preceding sentence", async () => {
     const { core, change, client } = await write({
       into: true,
-      record: {
-        name: "ECF No. 41.pdf",
-        contents: buildPdf([
-          { lines: ["Introduction"] },
-          { lines: ["Second page", "Another deadline"] },
-          { lines: ["Trial briefs", "Trial briefs are due September 2"] },
-        ]),
-        quote: "Trial briefs are due September 2",
-        query: "Trial briefs",
-      },
+      record: RECORD_FILE,
       content: `> ${RECORD_SOURCE} [^1].\n> ${RECORD_NEXT} [^2].`,
     });
 
     expect(change?.selfCheck).toMatchObject({ cited: 2, sent: 2, checked: 2, failed: 0 });
+    const next = (await marksIn(core, client)).find(({ sentence }) =>
+      sentence.includes(RECORD_NEXT),
+    );
+    expect(next?.check.recordCites?.[0]).toMatchObject({
+      raw: "Id. at 2",
+      outcome: "supported",
+      location: { kind: "page", from: 2, to: 2 },
+    });
+  });
+
+  test("an uncited unresolved cite between proposed sentences clears Id.'s referent", async () => {
+    const { core, client } = await write({
+      into: true,
+      record: RECORD_FILE,
+      content: `> ${RECORD_SOURCE} [^1].\n> PL-000123.\n> ${RECORD_NEXT} [^2].`,
+    });
+
+    const next = (await marksIn(core, client)).find(({ sentence }) =>
+      sentence.includes(RECORD_NEXT),
+    );
+    expect(next?.check.recordCites?.[0]).toMatchObject({ raw: "Id. at 2", outcome: "not-found" });
+  });
+
+  test("a proposed Id. resolves against a record item already in the Note", async () => {
+    const { core, client } = await write(
+      {
+        into: true,
+        record: RECORD_FILE,
+        content: `> ${RECORD_NEXT} [^1].`,
+      },
+      async ({ core, client, mindId }) => {
+        const text = `${RECORD_SOURCE}.`;
+        editMind(client, (blocks) => [
+          ...blocks,
+          {
+            type: "paragraph",
+            attrs: { id: "existing-record-source" },
+            content: [{ type: "text", text }],
+          },
+        ]);
+        await client.settled();
+        await core.checkSentences({
+          requestId: "existing-record-source",
+          mindId,
+          action: "check-against-documents",
+          from: { blockId: "existing-record-source", offset: 0 },
+          to: { blockId: "existing-record-source", offset: text.length },
+        });
+      },
+    );
+
     const next = (await marksIn(core, client)).find(({ sentence }) =>
       sentence.includes(RECORD_NEXT),
     );

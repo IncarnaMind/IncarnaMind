@@ -5,6 +5,7 @@ import { core } from "../core";
 interface DocumentName {
   id: string;
   name: string;
+  path?: string;
 }
 
 export interface RecordCiteCandidateOption {
@@ -30,12 +31,15 @@ export function recordCiteCandidateOptions(
   t: Translate,
 ): RecordCiteCandidateOption[] {
   const location = cite.location ? formatLocation(cite.location, t) : "";
-  return (cite.candidates ?? []).map((candidate) => ({
-    id: candidate.id,
-    label: documents.find((document) => document.id === candidate.id)?.name ?? candidate.name,
-    ...(candidate.detail || location ? { detail: candidate.detail ?? location } : {}),
-    data: { "data-document-id": candidate.id },
-  }));
+  return (cite.candidates ?? []).map((candidate) => {
+    const current = documents.find((document) => document.id === candidate.id);
+    return {
+      id: candidate.id,
+      label: current?.name ?? candidate.name,
+      ...(current?.path || location ? { detail: current?.path ?? location } : {}),
+      data: { "data-document-id": candidate.id },
+    };
+  });
 }
 
 export async function chooseRecordCite(

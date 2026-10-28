@@ -18,6 +18,23 @@ export interface RecordCiteJudgement {
   uncovered?: string;
 }
 
+export function recordClaimFacts(
+  claim: string,
+  results: readonly Pick<RecordCiteResult, "from" | "to">[],
+): string {
+  const ranges = results
+    .flatMap(({ from, to }) =>
+      typeof from === "number" && typeof to === "number" ? [{ from, to }] : [],
+    )
+    .sort((left, right) => right.from - left.from);
+  let text = claim;
+  for (const range of ranges) text = `${text.slice(0, range.from)}${text.slice(range.to)}`;
+  return text
+    .replace(/\s+/g, " ")
+    .replace(/\([\s;]*\)/g, "")
+    .trim();
+}
+
 export async function judgeRecordCite(
   model: PreparedChatModel,
   claim: string,
@@ -46,8 +63,10 @@ export async function judgeResolvedRecordCites(
   claim: string,
   signal: AbortSignal,
   language: Language,
+  allResults: readonly RecordCiteResult[] = results,
 ): Promise<{ recordCites: RecordCiteResult[] } | { failed: ProviderError }> {
   const recordCites: RecordCiteResult[] = [];
+  const facts = recordClaimFacts(claim, allResults);
   for (const result of results) {
     if (result.outcome !== "supported") {
       recordCites.push(result);
@@ -57,12 +76,12 @@ export async function judgeResolvedRecordCites(
       recordCites.push({ ...result, outcome: "not-found" });
       continue;
     }
-    const judgement = await judgeRecordCite(model, claim, result.passage, signal, language);
+    const judgement = await judgeRecordCite(model, facts, result.passage, signal, language);
     if ("failed" in judgement) return judgement;
     const judged = { ...result, ...judgement };
     if (judgement.outcome !== "not-found") delete judged.nearby;
     if (judgement.outcome === "not-found" && result.nearby) {
-      const nearby = await judgeRecordCite(model, claim, result.nearby.passage, signal, language);
+      const nearby = await judgeRecordCite(model, facts, result.nearby.passage, signal, language);
       if ("failed" in nearby) return nearby;
       if (nearby.outcome === "not-found") delete judged.nearby;
     }

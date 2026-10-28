@@ -168,6 +168,24 @@ export function selectedSentences(
     : { ok: false, reason: "nothing" };
 }
 
+/** Every sentence in reading order, including uncited sentences and changes still waiting. */
+export function everyRecordSentence(blocks: Y.XmlFragment): SelectedSentence[] {
+  return textBlocks(blocks).flatMap(({ element }) => {
+    const blockId = element.getAttribute(BLOCK_ID_ATTRIBUTE);
+    if (element.nodeName !== "paragraph" || typeof blockId !== "string") return [];
+    const text = textOf(element);
+    return sentenceSpans(text).map((span) => ({
+      element,
+      blockId,
+      from: span.from,
+      to: span.to,
+      text: text.slice(span.from, span.to),
+      context: text,
+      cited: citedIn(element, span.from, span.to),
+    }));
+  });
+}
+
 /** Every sentence of the Mind's paragraphs, in order, but those holding a change still waiting. */
 export function everySentence(blocks: Y.XmlFragment): SelectedSentence[] {
   return textBlocks(blocks).flatMap(({ element, busy }) => {

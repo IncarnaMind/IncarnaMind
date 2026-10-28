@@ -18,9 +18,11 @@ const supported: ClaimCheckResult = {
   recordCites: [],
 };
 
-test("a cloud run resolves Id./supra claims in reading order", async () => {
+test.each([
+  { kind: "direct record cites", second: "Dkt. 41 at 2 states another deadline." },
+  { kind: "Id./supra references", second: "Id. at 2 states another deadline." },
+])("a cloud run resolves $kind in reading order", async ({ second }) => {
   const first = "ECF No. 41 at 3 states the deadline.";
-  const second = "Id. at 2 states another deadline.";
   const calls: string[] = [];
   let release: (() => void) | undefined;
   const waiting = new Promise<void>((resolve) => {

@@ -161,8 +161,8 @@ describe("record-cite choices through the core", () => {
     expect(candidates).toHaveLength(2);
     expect(candidates).toEqual(
       expect.arrayContaining([
-        { id: setup.first.id, name: "Ex. 7 first", detail: setup.first.path },
-        { id: setup.second.id, name: "Ex. 7 second", detail: setup.second.path },
+        { id: setup.first.id, name: "Ex. 7 first" },
+        { id: setup.second.id, name: "Ex. 7 second" },
       ]),
     );
 

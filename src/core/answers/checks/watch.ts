@@ -267,10 +267,8 @@ export function createContradictionWatch(options: WatchOptions) {
     const runId = randomUUID();
     let checked = 0;
     let contradicted = 0;
-    const hasPreviousReference = ready.claims.some((claim) =>
-      scanRecordCites(claim.text, { hasPrevious: true }).some(
-        (occurrence) => occurrence.result.status === "parsed" && occurrence.result.reference,
-      ),
+    const hasRecordCites = ready.claims.some(
+      (claim) => scanRecordCites(claim.text, { hasPrevious: true }).length > 0,
     );
     const { stop } = await runItems(
       ready.claims,
@@ -291,7 +289,7 @@ export function createContradictionWatch(options: WatchOptions) {
           return result;
         }),
       {
-        concurrency: hasPreviousReference ? 1 : claimsAtOnce(prepared),
+        concurrency: hasRecordCites ? 1 : claimsAtOnce(prepared),
         signal,
         onOutcome(claim, outcome) {
           if (outcome.status !== "done" || signal.aborted) return;

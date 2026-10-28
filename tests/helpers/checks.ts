@@ -2,7 +2,9 @@
  * A scripted model that checks claims (#96, #97) as its plans say, and names
  * a verified document's claims: those it has a plan for.
  */
+import { recordClaimFacts } from "../../src/core/answers/checks/recordCites";
 import { SEARCH_AGAIN } from "../../src/core/answers/checks/searchAgain";
+import { scanRecordCites } from "../../src/core/recordCites/parser";
 import { shownPassages } from "./citations";
 import {
   type GenerateCall,
@@ -131,14 +133,20 @@ export function checkReply(call: ModelCall, plans: Record<string, Plan>): Script
 export const checkGenerate =
   (plans: Record<string, Plan>, evidence: string = JSON.stringify({ passage: null })) =>
   (call: GenerateCall): GeneratedReply => {
+    const sentence = SENTENCE.exec(call.prompt)?.[1] ?? "";
+    const plan =
+      plans[sentence] ??
+      Object.entries(plans).find(
+        ([claim]) =>
+          recordClaimFacts(claim, scanRecordCites(claim, { hasPrevious: true })) === sentence,
+      )?.[1];
     if (call.system.startsWith("You sort the sentences")) {
       return { text: JSON.stringify({ claims: plannedNumbers(call.prompt, plans) }) };
     }
     if (call.system.startsWith("A sentence the User wrote says more")) {
-      return { text: plans[SENTENCE.exec(call.prompt)?.[1] ?? ""]?.part ?? "" };
+      return { text: plan?.part ?? "" };
     }
     if (call.system.startsWith("Compare a sentence")) {
-      const plan = plans[SENTENCE.exec(call.prompt)?.[1] ?? ""];
       if (plan?.strict && isStrict(call)) return plan.strict;
       return { text: plan?.judgement ?? "conflict" };
     }

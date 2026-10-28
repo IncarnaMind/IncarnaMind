@@ -18,7 +18,9 @@ export interface RecordCiteSentence {
 export interface RecordCiteChoice {
   documentId: string;
   location: CitationLocation;
-  /** The record item's position in the Note, for `Id.`/`supra` only. */
+  /** The exact record item and sentence, for `Id.`/`supra` only. */
+  raw?: string;
+  claim?: string;
   place?: RecordCitePlace;
 }
 
@@ -36,6 +38,8 @@ function choiceOf(value: unknown): RecordCiteChoice | null {
   const parsed = parseLocation(location);
   if (!parsed) return null;
   const candidate = value as {
+    raw?: unknown;
+    claim?: unknown;
     place?: { blockId?: unknown; from?: unknown; citeFrom?: unknown };
   };
   const place = candidate.place;
@@ -53,6 +57,8 @@ function choiceOf(value: unknown): RecordCiteChoice | null {
   return {
     documentId,
     location: parsed,
+    ...(typeof candidate.raw === "string" && { raw: candidate.raw }),
+    ...(typeof candidate.claim === "string" && { claim: candidate.claim }),
     ...(validPlace
       ? {
           place: {

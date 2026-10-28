@@ -113,26 +113,6 @@ describe("record-cite source resolution", () => {
     ]);
   });
 
-  test("keeps a candidate's source detail beside its stable id", () => {
-    const first = { ...document([{ page: 3, text: "First" }]), detail: "/cases/first/ECF 41.pdf" };
-    const second = {
-      ...document([{ page: 3, text: "Second" }]),
-      id: "second",
-      detail: "/cases/second/ECF 41.pdf",
-    };
-
-    expect(
-      resolveRecordCites({
-        cites: [parseRecordCite("Ex. 7 at 3")],
-        documents: [first, second],
-        choices,
-      })[0]?.candidates,
-    ).toEqual([
-      { id: "exhibit-7", name: "Exhibit 7.pdf", detail: "/cases/first/ECF 41.pdf" },
-      { id: "second", name: "Exhibit 7.pdf", detail: "/cases/second/ECF 41.pdf" },
-    ]);
-  });
-
   test("uses a saved choice by normalized alias and exact physical Location", () => {
     const first = document([{ page: 4, label: { printed: "3" }, text: "First" }]);
     const second = {

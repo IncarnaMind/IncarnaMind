@@ -31,7 +31,6 @@ import type {
   RecordCiteChoice,
   RecordCiteChoices,
   RecordCitePlace,
-  RecordCiteSentence,
 } from "../../../shared/recordCiteChoices";
 import { sentenceSpans } from "../../../shared/sentences";
 import type {
@@ -102,11 +101,11 @@ export interface ClaimCheckDependencies {
   engine: AnswerEngine;
   evidence: Pick<Evidence, "search">;
   documents: Pick<AnswerDocuments, "citationSource" | "pageTexts" | "documentDate"> & {
-    names?(): readonly (LiveDocument & { path?: string })[];
+    names?(): readonly LiveDocument[];
     recordChoices?(
       mindId: string | undefined,
       place?: RecordCitePlace,
-      sentences?: readonly RecordCiteSentence[],
+      claim?: string,
     ): RecordCiteChoices;
     recordPrevious?(mindId: string, choice: RecordCiteChoice | null): void;
     searchableCount(documentIds: readonly string[] | null): number;
@@ -127,8 +126,6 @@ export interface ClaimCheckRequest {
   mindId?: string;
   /** This claim's position in the Note, for `Id.`/`supra`; absent for a direct check. */
   place?: RecordCitePlace;
-  /** The proposed sentences in reading order, when they are not in the Note yet. */
-  recordSentences?: readonly RecordCiteSentence[];
   /** Names the Mind, for a provider's prompt cache. */
   cacheKey?: string;
   signal: AbortSignal;
@@ -199,7 +196,6 @@ function recordDocuments(deps: ClaimCheckDependencies, scope: EvidenceScope): Re
       id: document.id,
       name: document.name ?? document.title ?? "",
       contentHash: document.contentHash,
-      ...(document.path && { detail: document.path }),
       units: deps.documents.pageTexts(document.id, document.contentHash, null, null),
     }));
 }
@@ -219,11 +215,7 @@ async function withRecordCites(
   deps: ClaimCheckDependencies,
 ): Promise<ClaimCheckResult> {
   if (result.verdict === "not-checked") return result;
-  const choices = deps.documents.recordChoices?.(
-    request.mindId,
-    request.place,
-    request.recordSentences,
-  ) ?? {
+  const choices = deps.documents.recordChoices?.(request.mindId, request.place, request.claim) ?? {
     previous: null,
     choices: {},
   };
@@ -253,6 +245,8 @@ async function withRecordCites(
         ? {
             documentId: previous.documentId,
             location: previous.location,
+            raw: previous.raw,
+            claim: request.claim,
             ...(request.place && {
               place: {
                 ...request.place,

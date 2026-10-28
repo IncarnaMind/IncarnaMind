@@ -8,8 +8,6 @@ export interface RecordCiteDocument {
   id: string;
   name: string;
   contentHash: string;
-  /** A local path or other source detail that distinguishes duplicate names. */
-  detail?: string;
   units: readonly UnitText[];
 }
 
@@ -115,7 +113,7 @@ const choose = (
 ): RecordCiteResult => ({
   ...citeFields(cite),
   outcome: "choose",
-  candidates: documents.map(({ id, name, detail }) => ({ id, name, ...(detail && { detail }) })),
+  candidates: documents.map(({ id, name }) => ({ id, name })),
 });
 
 const resolved = (

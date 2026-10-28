@@ -82,10 +82,8 @@ export async function runChecks(
     });
 
   let checked = 0;
-  const hasPreviousReference = run.queued.some((claim) =>
-    scanRecordCites(claim.claim, { hasPrevious: true }).some(
-      (occurrence) => occurrence.result.status === "parsed" && occurrence.result.reference,
-    ),
+  const hasRecordCites = run.queued.some(
+    (claim) => scanRecordCites(claim.claim, { hasPrevious: true }).length > 0,
   );
   const { stop } = await runItems(
     run.queued,
@@ -107,7 +105,7 @@ export async function runChecks(
       return result;
     },
     {
-      concurrency: hasPreviousReference ? 1 : claimsAtOnce(prepared),
+      concurrency: hasRecordCites ? 1 : claimsAtOnce(prepared),
       signal,
       onOutcome(claim, outcome) {
         if (outcome.status === "done") {

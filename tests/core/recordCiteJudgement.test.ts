@@ -85,6 +85,34 @@ describe("support judgement for one exact record-cite passage", () => {
     });
   });
 
+  test("raw record citations are not judged as factual assertions", async () => {
+    const claim = "The deadline continued until June 8 (ECF No. 41 at 3; Id. at 2).";
+    const cite = (raw: string, passage: string): RecordCiteResult => ({
+      raw,
+      from: claim.indexOf(raw),
+      to: claim.indexOf(raw) + raw.length,
+      outcome: "supported",
+      passage,
+    });
+    vi.mocked(generateText).mockResolvedValue({ text: "same" } as never);
+
+    const judged = await judgeResolvedRecordCites(
+      [cite("ECF No. 41 at 3", "Page 3"), cite("Id. at 2", "Page 2")],
+      model,
+      claim,
+      new AbortController().signal,
+      "en",
+    );
+
+    expect(judged).toMatchObject({
+      recordCites: [{ outcome: "supported" }, { outcome: "supported" }],
+    });
+    const prompt = vi.mocked(generateText).mock.calls[1]?.[0]?.prompt;
+    expect(prompt).toContain("The deadline continued until June 8");
+    expect(prompt).not.toContain("ECF No. 41 at 3");
+    expect(prompt).not.toContain("Id. at 2");
+  });
+
   test("a resolved not-found keeps a supported nearby suggestion, and choices need no model", async () => {
     const results: RecordCiteResult[] = [
       {

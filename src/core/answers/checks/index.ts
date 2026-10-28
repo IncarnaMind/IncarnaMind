@@ -30,6 +30,7 @@ import { type LiveDocument, withShownName } from "../../../shared/citations";
 import { restsOn } from "../../../shared/claimChecks";
 import { mindScopeIn } from "../../../shared/mindScope";
 import {
+  type RecordCiteChoice,
   type RecordCitePlace,
   type RecordCiteSentence,
   readRecordCiteChoices,
@@ -94,7 +95,7 @@ import { type ClaimCheckDependencies, createClaimCheck, recordJudged } from "./c
 import { createMindCheck, type MindCheckOptions } from "./mindCheck";
 import { judgeResolvedRecordCites } from "./recordCites";
 import {
-  everySentence,
+  everyRecordSentence,
   markedSentences,
   markSentence,
   selectedSentences,
@@ -162,7 +163,7 @@ export interface ChecksOptions
   documents: ClaimCheckDependencies["documents"] &
     MindCheckOptions["documents"] & {
       /** Every live Document's names: what the Citations a sentence already has are named by. */
-      names(): readonly (LiveDocument & { path?: string })[];
+      names(): readonly LiveDocument[];
     };
   engine: AnswerEngine;
   retention: Pick<VersionRetention, "retain">;
@@ -330,37 +331,56 @@ function chooseInput(value: unknown): ChooseRecordCiteSourceInput {
 
 export function createChecks(options: ChecksOptions) {
   const { content, chat } = options;
+  const noteRecordSentences = (mindId: string) =>
+    content.read(mindId, (blocks): RecordCiteSentence[] =>
+      everyRecordSentence(blocks).map((sentence) => ({
+        place: { blockId: sentence.blockId, from: sentence.from },
+        text: sentence.text,
+      })),
+    );
   const previousIsImmediate = (
     mindId: string,
-    previous: RecordCitePlace | undefined,
+    previous: RecordCiteChoice | null | undefined,
     current: RecordCitePlace | undefined,
-    proposed?: readonly RecordCiteSentence[],
-  ) => {
-    const sentences =
-      proposed ??
-      content.read(mindId, (blocks): RecordCiteSentence[] =>
-        everySentence(blocks).map((sentence) => ({
-          place: { blockId: sentence.blockId, from: sentence.from },
-          text: sentence.text,
-        })),
-      );
-    return hasImmediateRecordCitePrevious(sentences, previous, current);
-  };
+    currentClaim?: string,
+  ) => hasImmediateRecordCitePrevious(noteRecordSentences(mindId), previous, current, currentClaim);
   /** The requests running, by id: how to stop each, and its Mind. */
   const running = new Map<string, { controller: AbortController; mindId: string }>();
   const claimCheck = createClaimCheck({
     ...options,
     documents: {
       ...options.documents,
-      recordChoices: (mindId, place, sentences) => {
+      recordChoices: (mindId, place, claim) => {
         if (!mindId) return { previous: null, choices: {} };
         const stored = content.readSettings(mindId, readRecordCiteChoices);
-        return previousIsImmediate(mindId, stored.previous?.place, place, sentences)
+        return previousIsImmediate(mindId, stored.previous, place, claim)
           ? stored
           : { ...stored, previous: null };
       },
-      recordPrevious: (mindId, choice) =>
-        content.editSettings(mindId, (settings) => writePreviousRecordCite(settings, choice)),
+      recordPrevious: (mindId, choice) => {
+        let canonical = choice;
+        if (choice?.place) {
+          const positioned = choice.place;
+          const sentences = noteRecordSentences(mindId);
+          const current =
+            sentences.find(
+              (sentence) =>
+                sentence.place.blockId === positioned.blockId &&
+                sentence.place.from === positioned.from,
+            ) ?? sentences.find((sentence) => sentence.text === choice.claim);
+          if (current) {
+            canonical = {
+              ...choice,
+              place: {
+                ...positioned,
+                blockId: current.place.blockId,
+                from: current.place.from,
+              },
+            };
+          }
+        }
+        content.editSettings(mindId, (settings) => writePreviousRecordCite(settings, canonical));
+      },
     },
   });
 
@@ -376,7 +396,6 @@ export function createChecks(options: ChecksOptions) {
         id: document.id,
         name: document.name ?? document.title ?? "",
         contentHash: document.contentHash,
-        ...(document.path && { detail: document.path }),
         units: options.documents.pageTexts(document.id, document.contentHash, null, null),
       }));
   };
@@ -863,6 +882,7 @@ export function createChecks(options: ChecksOptions) {
         stored.check.text,
         new AbortController().signal,
         options.language(),
+        stored.check.recordCites ?? [resolved],
       );
       if ("failed" in judged) throw new Error(judged.failed.message);
       const final = judged.recordCites[0];
@@ -881,6 +901,8 @@ export function createChecks(options: ChecksOptions) {
           writePreviousRecordCite(settings, {
             documentId: document.id,
             location: final.location as NonNullable<RecordCiteResult["location"]>,
+            raw: cite.raw,
+            claim: stored.check.text,
             place: { blockId, from: stored.from, citeFrom: cite.from },
           });
       });

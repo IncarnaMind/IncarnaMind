@@ -182,15 +182,10 @@ describe("record cites on a sentence check", () => {
     );
   });
 
-  test("a duplicate-name candidate shows its source detail instead of only a page", () => {
+  test("a duplicate-name candidate shows its current local path without storing it in the cite", () => {
     const options = ui.recordCiteCandidateOptions(
-      {
-        ...CHOOSE_CITE,
-        candidates: [
-          { id: "duplicate-a", name: "Duplicate filing", detail: "/cases/a/ECF 41.pdf" },
-        ],
-      },
-      [],
+      { ...CHOOSE_CITE, candidates: [{ id: "duplicate-a", name: "Duplicate filing" }] },
+      [{ id: "duplicate-a", name: "Duplicate filing", path: "/cases/a/ECF 41.pdf" }],
       (key, params) => translate("en", key, params),
     );
 
