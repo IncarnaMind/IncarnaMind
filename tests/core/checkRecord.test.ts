@@ -504,7 +504,7 @@ describe("The check record as CSV", () => {
 });
 
 describe("A person's own check in the check record", () => {
-  // protects=a Citation the User marked Checked by me is listed with their name and when, apart from IncarnaMind's result, and as changed once its sentence changes (D280, #1933); fails_when=the column is empty, says "you", or still says checked after the edit; no_claim=the PDF's layout.
+  // protects=a Citation the User marked Checked by me is listed with their name and when, apart from IncarnaMind's result, and as changed once its sentence changes (#1933); fails_when=the column is empty, says "you", or still says checked after the edit; no_claim=the PDF's layout.
   test("lists who checked a Citation and when, beside IncarnaMind's result, and that it changed since", async () => {
     const setup = await setUp();
     const { client, tides } = setup;
@@ -542,7 +542,7 @@ describe("A person's own check in the check record", () => {
 });
 
 describe("#1933's acceptance: ten Citations, six marked, one edited, then sent", () => {
-  // protects=#1933's acceptance criterion as D280 has it: of six Citations the User marked, the one whose sentence was edited shows as changed since, the record lists IncarnaMind's result for all ten and five checked by the person, and History keeps the Note as it was sent; fails_when=a count or the sent version is wrong; no_claim=the Word file's contents.
+  // protects=#1933's acceptance criterion, with the edited mark kept as changed: of six Citations the User marked, the one whose sentence was edited shows as changed since, the record lists IncarnaMind's result for all ten and five checked by the person, and History keeps the Note as it was sent; fails_when=a count or the sent version is wrong; no_claim=the Word file's contents.
   test("the record lists five checked by the person, one changed since, every result, and History the export", async () => {
     const setup = await setUp();
     const { core, client, tides, mind, out } = setup;

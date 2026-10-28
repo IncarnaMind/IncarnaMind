@@ -49,7 +49,7 @@ function citationAt(editor: Editor): { pos: number; id: unknown } {
 }
 
 describe("Checked by me on a Citation", () => {
-  // protects=marking a Citation gives it an id and writes the mark in one step, which the note's Undo takes back whole, and marking it again takes the mark off (D280); fails_when=Undo leaves the mark, or the id without it; no_claim=the card's words, which the smoke spec covers.
+  // protects=marking a Citation gives it an id and writes the mark in one step, which the note's Undo takes back whole, and marking it again takes the mark off (#1933); fails_when=Undo leaves the mark, or the id without it; no_claim=the card's words, which the smoke spec covers.
   test("marks it, and the note's Undo takes the mark back with the id it gave it", async () => {
     const core = startCore(await createTempDataFolder());
     const mind = await core.createMind({ title: "Tides" });

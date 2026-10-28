@@ -830,7 +830,7 @@ test.each([
   },
 );
 
-// protects=a figure the User marked Checked by me shows their mark on its row, and as changed once its sentence's words change, while the mark itself is kept (D280, #1933); fails_when=the row has no mark, still says checked after the edit, or the mark goes; no_claim=a Document's newer version, which signOffs.test covers.
+// protects=a figure the User marked Checked by me shows their mark on its row, and as changed once its sentence's words change, while the mark itself is kept (#1933); fails_when=the row has no mark, still says checked after the edit, or the mark goes; no_claim=a Document's newer version, which signOffs.test covers.
 test("a figure's own check shows on its row, and as changed once its sentence changes", () => {
   const blocks = note(paragraph("p", "Revenue rose 5% in the year."));
   const doc = blocks.doc;

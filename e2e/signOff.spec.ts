@@ -15,7 +15,7 @@ import {
 } from "./app";
 
 /*
- * The User's own "Checked by me" (D280, #1933): a Citation's card and menu mark it as checked by
+ * The User's own "Checked by me" (#1933): a Citation's card and menu mark it as checked by
  * the User, with their name and the time, apart from the app's check; Undo takes it back; an
  * edit to its sentence keeps the mark as changed, with Check again; the badge's card counts the
  * User's checks on a line of their own.

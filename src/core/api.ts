@@ -332,7 +332,7 @@ export const MIND_FIGURE_RUNS_FIELD = "figureRuns";
 
 /**
  * The name of the Y.Map, beside a Mind's Blocks, that holds the User's own "Checked by me"
- * marks (D280, #1933), by record id: what a person checked, apart from the app's check, so the
+ * marks (#1933), by record id: what a person checked, apart from the app's check, so the
  * marks go and sync with the Note. See src/shared/signOffs.ts.
  */
 export const MIND_SIGN_OFFS_FIELD = "signOffs";
@@ -343,7 +343,7 @@ export interface SignOffTarget {
   id: string;
 }
 
-/** A person's own "Checked by me" on an item (D280), as it shows now: never a check result. */
+/** A person's own "Checked by me" on an item (#1933), as it shows now: never a check result. */
 export interface SignOffNow {
   /** Changed: what they checked changed since, so it no longer counts as checked. */
   state: "checked" | "changed";

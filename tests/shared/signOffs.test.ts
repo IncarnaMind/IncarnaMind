@@ -30,7 +30,7 @@ const textFigure = (block: string, sentence: string, from: number, chars: string
   JSON.stringify(["text", block, sentence, from, from + chars.length, chars]);
 
 describe("The User's own check marks", () => {
-  // protects=taking a mark off keeps it with the time it was taken off, so the record is never lost (D280, #1933); fails_when=the record is deleted or still stands; no_claim=how the card shows it.
+  // protects=taking a mark off keeps it with the time it was taken off, so the record is never lost (#1933); fails_when=the record is deleted or still stands; no_claim=how the card shows it.
   test("a mark taken off is kept with when, and no longer stands", () => {
     const doc = new Y.Doc();
     const mark = record();
@@ -45,7 +45,7 @@ describe("The User's own check marks", () => {
     });
   });
 
-  // protects=each person takes off only their own mark, so the User's Undo or toggle never removes a colleague's once Notes are shared (D280); fails_when=another person's mark is taken off with the User's; no_claim=sharing itself.
+  // protects=each person takes off only their own mark, so the User's Undo or toggle never removes a colleague's once Notes are shared (#1933); fails_when=another person's mark is taken off with the User's; no_claim=sharing itself.
   test("taking a mark off leaves another person's on the same item", () => {
     const doc = new Y.Doc();
     const mine = record({ personId: "p1" });
@@ -68,7 +68,7 @@ describe("The User's own check marks", () => {
     expect(readSignOff({ ...record(), ...broken })).toBeNull();
   });
 
-  // protects=a Citation's mark shows as changed once its sentence's words, its quote or its Document's version change, and stays checked through spacing and its own marker (D280); fails_when=an edit leaves it checked, or a re-render of the same words shows it changed; no_claim=the card's words.
+  // protects=a Citation's mark shows as changed once its sentence's words, its quote or its Document's version change, and stays checked through spacing and its own marker (#1933); fails_when=an edit leaves it checked, or a re-render of the same words shows it changed; no_claim=the card's words.
   test("a Citation's mark is checked until its words, quote or version change", () => {
     const cited = { documentId: "d1", contentHash: "v1", quote: "Revenue rose 5%." };
     const sentence = `Revenue rose 5% in 2025.${INLINE_NODE}`;
@@ -83,7 +83,7 @@ describe("The User's own check marks", () => {
     expect(shown(sentence, cited, new Map([["d1", "v2"]]))).toBe("changed");
   });
 
-  // protects=a figure's mark follows it when an edit of its sentence gives it a new id, and shows changed there; a mark goes to one figure only, never to a figure the User didn't check (D280); fails_when=the mark vanishes after an edit, or lands on a second figure with the same words; no_claim=chart rows moving.
+  // protects=a figure's mark follows it when an edit of its sentence gives it a new id, and shows changed there; a mark goes to one figure only, never to a figure the User didn't check (#1933); fails_when=the mark vanishes after an edit, or lands on a second figure with the same words; no_claim=chart rows moving.
   test("a figure's mark stays on it after its sentence changes, and on no other figure", () => {
     const checked = textFigure("b1", "old", 13, "5%");
     const mark = record({
@@ -105,7 +105,7 @@ describe("The User's own check marks", () => {
     expect(both.has(twin)).toBe(false);
   });
 
-  // protects=a figure whose own value is edited in place keeps its mark as changed; a chart value keeps its row and series' mark (D280); fails_when=the mark is lost on a value edit; no_claim=a figure moved to another Block.
+  // protects=a figure whose own value is edited in place keeps its mark as changed; a chart value keeps its row and series' mark (#1933); fails_when=the mark is lost on a value edit; no_claim=a figure moved to another Block.
   test("a figure edited in place, or a chart value changed, keeps its mark as changed", () => {
     const before = textFigure("b1", "old", 13, "5%");
     const after = textFigure("b1", "new", 13, "6%");
@@ -121,7 +121,7 @@ describe("The User's own check marks", () => {
     ).toBe(0);
   });
 
-  // protects=a mark made before the User had a person id, or with theirs, is theirs; another person's isn't (D280: another person's mark shows their name); fails_when=a shared Note shows someone else's mark as the User's; no_claim=sharing itself.
+  // protects=a mark made before the User had a person id, or with theirs, is theirs; another person's isn't (another person's mark shows their name); fails_when=a shared Note shows someone else's mark as the User's; no_claim=sharing itself.
   test("a mark is the User's own by their person id", () => {
     expect(isMine(record({ personId: "p1" }), "p1")).toBe(true);
     expect(isMine(record({ personId: undefined }), "p1")).toBe(true);

@@ -268,7 +268,7 @@ describe("Saving a Checkpoint", () => {
 });
 
 describe("Naming a version and keeping one as it was sent (#1933)", () => {
-  // protects=any version can be named and its name taken off, a named idle one is never thinned, and one that isn't the Mind's says it's gone (D280); fails_when=the name is lost, a named version thins, or a bad id renames another; no_claim=the field in History, which the smoke spec covers.
+  // protects=any version can be named and its name taken off, a named idle one is never thinned, and one that isn't the Mind's says it's gone (#1933); fails_when=the name is lost, a named version thins, or a bad id renames another; no_claim=the field in History, which the smoke spec covers.
   test("a version keeps the name the User gave it, and a named one is kept for good", async () => {
     const clock = manualClock("2026-10-06T08:05:00.000Z");
     const core = startCore(await createTempDataFolder(), { now: clock.now });
@@ -297,7 +297,7 @@ describe("Naming a version and keeping one as it was sent (#1933)", () => {
     );
   });
 
-  // protects=saving the Note as Word or PDF keeps a version of it as it went, with the file's name, even when the same text was saved before, and a Markdown export keeps none (D280); fails_when=no version is kept, or one is folded into an earlier one; no_claim=how History words it.
+  // protects=saving the Note as Word or PDF keeps a version of it as it went, with the file's name, even when the same text was saved before, and a Markdown export keeps none (#1933); fails_when=no version is kept, or one is folded into an earlier one; no_claim=how History words it.
   test("sending the Note as Word or PDF keeps a version with the file's name; Markdown doesn't", async () => {
     const core = startCore(await createTempDataFolder(), { printer: fakePrinter().printer });
     await core.setOutputLocation(await createTempDataFolder());

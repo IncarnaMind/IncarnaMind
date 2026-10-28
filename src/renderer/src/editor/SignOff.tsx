@@ -5,7 +5,7 @@ import { CheckIcon } from "../components/icons";
 import { useLanguage, useT } from "../i18n";
 
 /**
- * What a card says of a person's own check (D280, #1933): who checked it and when, or that it
+ * What a card says of a person's own check (#1933): who checked it and when, or that it
  * changed since, with Check again. It is the person's check, never the app's result.
  */
 export function SignOffLine({

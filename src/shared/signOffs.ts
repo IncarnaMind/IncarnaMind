@@ -1,5 +1,5 @@
 /**
- * The User's own "Checked by me" (D280, #1933): one record per item a person checked, a
+ * The User's own "Checked by me" (#1933): one record per item a person checked, a
  * Citation, a figure or a comparison cell, kept apart from the app's check, in the Note's own
  * document so it goes and syncs with the Note and Undo takes it back. A record is never
  * deleted: removing it sets `deletedAt`, and a change to what it checked shows it as changed.
