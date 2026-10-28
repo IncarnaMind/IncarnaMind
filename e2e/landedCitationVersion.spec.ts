@@ -7,6 +7,8 @@ import { formatDate } from "../src/shared/dates";
 import {
   addToNote,
   askInAssistant,
+  checkCard,
+  useLocalChatModel as connectLocalChatModel,
   createDataFolder,
   dismissChatSetup,
   expectReadyDocuments,
@@ -17,12 +19,12 @@ import {
   motionSettled,
   newMind,
   openDocumentAt,
+  placeAssistant,
   pointAndClick,
   pointAt,
   removeDataFolder,
   setLanguage,
   setWindowSize,
-  useLocalChatModel,
 } from "./app";
 
 /*
@@ -51,6 +53,8 @@ const LANGUAGES = {
     update: "Update the sentence…",
     keep: "Keep citing the old version",
     kept: "Kept citing the old version",
+    changedSource: "1 Citation changed its source",
+    changedNotice: "The Document changed after this was cited.",
   },
   "zh-CN": {
     recheck: "需重新核对",
@@ -59,6 +63,8 @@ const LANGUAGES = {
     update: "更新这句话…",
     keep: "继续引用旧版本",
     kept: "已继续引用旧版本",
+    changedSource: "1 处引用的来源有更新",
+    changedNotice: "此文档在被引用后有改动。",
   },
 } as const;
 
@@ -98,6 +104,36 @@ const storedCitation = (editor: Locator) =>
     return { contentHash, quote, keptOver: keptOver ?? null };
   });
 
+/** A Note holding a Citation of a Document that changed before the Answer was added: needs re-check. */
+async function noteWithChangedSource(
+  language: "en" | "zh-CN",
+  size: [number, number],
+  files: { library: string; file: string },
+) {
+  await mkdir(files.library, { recursive: true });
+  await writeFile(files.file, amendment(OLD));
+  const { app, window } = await launchApp(dataDir, { fakeChat: true });
+  await setWindowSize(app, window, size[0], size[1]);
+  await dismissChatSetup(window);
+  await connectLocalChatModel(window);
+  await setLanguage(window, language);
+  await linkFolderFromSidebar(app, window, files.library);
+  await expectReadyDocuments(window, 1);
+  await newMind(window);
+  const editor = window.getByTestId("mind-editor");
+  await pointAndClick(window, editor);
+  const answer = await askInAssistant(window, QUESTION);
+  await expect(answer.getByTestId("citation-chip")).toHaveAttribute("data-check", "found");
+  const cited = await contentHashOf(window, files.file);
+  await writeFile(files.file, amendment(NEW));
+  await utimes(files.file, CHANGED, CHANGED);
+  await expect.poll(() => contentHashOf(window, files.file), { timeout: 15_000 }).not.toBe(cited);
+  await addToNote(window, answer);
+  const chip = editor.getByTestId("citation-chip");
+  await expect(chip).toHaveAttribute("data-recheck", "true");
+  return { app, window, editor, chip };
+}
+
 for (const language of ["en", "zh-CN"] as const) {
   const words = LANGUAGES[language];
 
@@ -110,7 +146,7 @@ for (const language of ["en", "zh-CN"] as const) {
     const { app, window } = await launchApp(dataDir, { fakeChat: true });
     await setWindowSize(app, window, 1440, 900);
     await dismissChatSetup(window);
-    await useLocalChatModel(window);
+    await connectLocalChatModel(window);
     await setLanguage(window, language);
     try {
       await linkFolderFromSidebar(app, window, library);
@@ -249,6 +285,73 @@ for (const language of ["en", "zh-CN"] as const) {
     }
   });
 
+  test(`the check card counts the Citations whose source changed, and a sentence's card shows it (${language})`, async () => {
+    test.setTimeout(180_000);
+    const library = join(sources, "Library");
+    const { app, window, editor } = await noteWithChangedSource(language, [1440, 900], {
+      library,
+      file: join(library, "Amendment.md"),
+    });
+    try {
+      const card = await checkCard(window);
+      const row = card.getByTestId("health-changedSource");
+      await expect(row).toHaveAttribute("data-count", "1");
+      await expect(row).toContainText(words.changedSource);
+      // The row goes to the Citation: the cursor lands just after its marker.
+      await pointAndClick(window, row);
+      await expect(editor).toBeFocused();
+      await window.keyboard.press("Escape");
+
+      // Checked, the sentence's own card says the Document changed after it was cited.
+      await pointAndClick(window, (await checkCard(window)).getByTestId("badge-check-mind"));
+      await pointAndClick(
+        window,
+        card.getByTestId("mind-check-ask").getByTestId("mind-check-check"),
+      );
+      const mark = window.getByTestId("claim-mark").first();
+      await expect(mark).toBeVisible();
+      await window.mouse.move(0, 0);
+      await pointAt(window, mark);
+      const claimCard = window.getByTestId("claim-card");
+      await expect(claimCard).toBeVisible();
+      await expect(claimCard.getByTestId("citation-changed-notice")).toContainText(
+        words.changedNotice,
+      );
+    } finally {
+      await app.close();
+    }
+  });
+
+  test(`Update the sentence… in a window of one group keeps the Note in front, the new words one tab away (${language})`, async () => {
+    test.setTimeout(180_000);
+    const library = join(sources, "Library");
+    const { app, window, editor, chip } = await noteWithChangedSource(language, [1100, 760], {
+      library,
+      file: join(library, "Amendment.md"),
+    });
+    try {
+      await placeAssistant(window, { dock: "right" });
+      await expect(window.getByTestId("tab-groups")).toHaveAttribute("data-merged", "true");
+      const card = window.getByTestId("citation-card");
+      await window.mouse.move(0, 0);
+      await pointAt(window, chip);
+      await expect(card).toBeVisible();
+      await pointAndClick(window, card.getByTestId("citation-update"));
+      await expect(chip).not.toHaveAttribute("data-recheck", "true");
+
+      // The Note stays in front, its sentence follows the new words, and the page is a tab away.
+      await expect(editor).toBeVisible();
+      await expect(editor).toContainText("forty-five (45)");
+      await expect(window.getByTestId("viewer")).toHaveCount(0);
+      const tabs = window.getByRole("tab");
+      await expect(tabs).toHaveCount(2);
+      await pointAndClick(window, tabs.filter({ hasText: "Amendment" }));
+      await expect(window.getByTestId("viewer").locator("[data-quote-highlight]")).toHaveText(NEW);
+    } finally {
+      await app.close();
+    }
+  });
+
   test(`Update the sentence… keeps the Note in view beside the new words when the Document was open first (${language})`, async () => {
     test.setTimeout(180_000);
     const library = join(sources, "Library");
@@ -258,7 +361,7 @@ for (const language of ["en", "zh-CN"] as const) {
     const { app, window } = await launchApp(dataDir, { fakeChat: true });
     await setWindowSize(app, window, 2560, 1440);
     await dismissChatSetup(window);
-    await useLocalChatModel(window);
+    await connectLocalChatModel(window);
     await setLanguage(window, language);
     try {
       await linkFolderFromSidebar(app, window, library);
