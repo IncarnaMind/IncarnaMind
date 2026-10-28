@@ -34,6 +34,7 @@ import {
 } from "../../../shared/locations";
 import { useAnswers } from "../answers";
 import { type MindFormatting, useMindFormatting } from "../citationFormatting";
+import { updateSentenceToNewWords } from "../citationUpdate";
 import { useCitationRecheck } from "../citationVersion";
 import { citationHandle } from "../commands/handles";
 import { type CommandContext, commands } from "../commands/registry";
@@ -287,6 +288,7 @@ export function CitationView({
     offerEditorUndo(editor, (t) => t("citation.updated"));
     const moved = { ...attributes, ...newVersion, documentId };
     const label = moved.location ? formatLocation(moved.location, t) : null;
+    // The Note stays in front, in a window of one group too: the new words are one tab away.
     openCitedPlace(moved, {
       check: moved.check,
       withQuote: true,
@@ -294,12 +296,15 @@ export function CitationView({
       label,
       from: place?.groupId,
       keep: true,
+      stay: true,
     });
-    if (groupsMerged()) return;
     const at = getPos();
     const sentence = at === undefined ? null : sentenceAround(editor.state.doc, at);
     const chain = editor.chain().focus();
     (sentence ? chain.setTextSelection(sentence) : chain).run();
+    if (sentence && mindId && moved.quote) {
+      void updateSentenceToNewWords(editor, mindId, sentence, moved.quote);
+    }
   };
   const openFromCardRef = useRef(openFromCard);
   openFromCardRef.current = openFromCard;

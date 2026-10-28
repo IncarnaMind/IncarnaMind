@@ -44,6 +44,8 @@ export function openCited(
     label?: string | null;
     from?: string;
     keep?: boolean;
+    /** The Document opens without coming to the front, even where the window shows one group. */
+    stay?: boolean;
     /** Where to open it, when that isn't where the Citation points: its quote moved in the new version. */
     place?: { pageFrom: number | null; pageTo: number | null };
   },
@@ -76,7 +78,12 @@ export function openCited(
         ...(citation.pageTo !== null && { pageTo: citation.pageTo }),
       },
     },
-    { as: "citation", ...(how.from && { from: how.from }), ...(how.keep && { keep: true }) },
+    {
+      as: "citation",
+      ...(how.from && { from: how.from }),
+      ...(how.keep && { keep: true }),
+      ...(how.stay && { stay: true }),
+    },
   );
   useComposer.setState({ citedSource: source });
 }

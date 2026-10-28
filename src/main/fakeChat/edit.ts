@@ -13,7 +13,8 @@
  * section" (重写这一节) writes its heading and each paragraph anew (#1028).
  * Cut the unsupported part gives a sentence `PARTLY` lists its cut words,
  * with the passage's markers, and takes the part named out of any other
- * (#1111). The
+ * (#1111). A Citation updated to its Document's new version (#99) asks for the
+ * sentence to agree with the words it now cites: it becomes those words, with its markers. The
  * new text streams in word by word, slowly when the instruction or the passage
  * says "slowly", or not at all until it is stopped when it says "forever", then
  * a line saying why (#202).
@@ -147,6 +148,9 @@ function editedText(action: string, passage: string, asked: string): string {
       if (/rewrite the section|重写这一节/i.test(asked)) return rewrittenSection(passage);
       if (/\btable\b|表格/i.test(asked)) return withTable(passage);
       if (SHORTEN.test(asked)) return passage.replace(FILLER, "");
+      const updated =
+        /^The source this sentence cites now says: “([\s\S]*?)”\. Rewrite the sentence/.exec(asked);
+      if (updated?.[1]) return `${updated[1]}${/(?:\s*\[\d+\])+\s*$/.exec(passage)?.[0] ?? ""}`;
       return `${passage} (edited)`;
     }
   }

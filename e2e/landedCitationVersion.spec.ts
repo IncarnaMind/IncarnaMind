@@ -16,6 +16,7 @@ import {
   menuCommands,
   motionSettled,
   newMind,
+  openDocumentAt,
   pointAndClick,
   pointAt,
   removeDataFolder,
@@ -48,7 +49,6 @@ const LANGUAGES = {
     changedOn: (date: string) => `This Document changed on ${date}.`,
     words: "The cited words changed in the new version:",
     update: "Update the sentence…",
-    updated: "Now citing the new version",
     keep: "Keep citing the old version",
     kept: "Kept citing the old version",
   },
@@ -57,7 +57,6 @@ const LANGUAGES = {
     changedOn: (date: string) => `此文档已于 ${date} 更新。`,
     words: "引文在新版本中有改动：",
     update: "更新这句话…",
-    updated: "已改为引用新版本",
     keep: "继续引用旧版本",
     kept: "已继续引用旧版本",
   },
@@ -97,13 +96,6 @@ const storedCitation = (editor: Locator) =>
     });
     const { contentHash, quote, keptOver } = (found ?? {}) as Record<string, unknown>;
     return { contentHash, quote, keptOver: keptOver ?? null };
-  });
-
-/** The text the Mind's editor has selected. */
-const selectedText = (editor: Locator) =>
-  editor.evaluate((dom) => {
-    const { state } = (dom as unknown as { editor: Editor }).editor;
-    return state.doc.textBetween(state.selection.from, state.selection.to, " ", "[1]");
   });
 
 for (const language of ["en", "zh-CN"] as const) {
@@ -231,7 +223,6 @@ for (const language of ["en", "zh-CN"] as const) {
       await expect(card).toHaveCount(0);
       await expect(chip).not.toHaveAttribute("data-recheck", "true");
       await expect(chip).toHaveAttribute("data-check", "found");
-      await expect(undoLine).toContainText(words.updated);
       expect(await storedCitation(editor)).toEqual({
         contentHash: current,
         quote: NEW,
@@ -239,8 +230,12 @@ for (const language of ["en", "zh-CN"] as const) {
       });
       const viewer = window.getByTestId("viewer");
       await expect(viewer.locator("[data-quote-highlight]")).toHaveText(NEW);
-      await expect.poll(() => selectedText(editor)).toContain("[1]");
+      // The sentence is asked to follow the new words (Edit with AI), and is one step of Undo of its own.
+      await expect(editor).toContainText("forty-five (45)");
       await screenshot(window, `6-updated-${language}`);
+      await undo();
+      await expect(editor).not.toContainText("forty-five (45)");
+      await expect(chip).not.toHaveAttribute("data-recheck", "true");
       await undo();
       await expect(chip).toHaveAttribute("data-recheck", "true");
       expect(await storedCitation(editor)).toEqual({
@@ -249,6 +244,60 @@ for (const language of ["en", "zh-CN"] as const) {
         keptOver: null,
       });
       await screenshot(window, `7-updated-undone-${language}`);
+    } finally {
+      await app.close();
+    }
+  });
+
+  test(`Update the sentence… keeps the Note in view beside the new words when the Document was open first (${language})`, async () => {
+    test.setTimeout(180_000);
+    const library = join(sources, "Library");
+    await mkdir(library, { recursive: true });
+    const file = join(library, "Amendment.md");
+    await writeFile(file, amendment(OLD));
+    const { app, window } = await launchApp(dataDir, { fakeChat: true });
+    await setWindowSize(app, window, 2560, 1440);
+    await dismissChatSetup(window);
+    await useLocalChatModel(window);
+    await setLanguage(window, language);
+    try {
+      await linkFolderFromSidebar(app, window, library);
+      await expectReadyDocuments(window, 1);
+      const documentId = await window.evaluate(async (wanted) => {
+        const bridge = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
+        return (await bridge.listDocuments()).find((each) => each.path === wanted)?.id;
+      }, file);
+      if (documentId === undefined) throw new Error("The Document isn't indexed.");
+      await openDocumentAt(window, { documentId });
+      await expect(window.getByTestId("viewer")).toBeVisible();
+      const editor = window.getByTestId("mind-editor");
+      const answer = await askInAssistant(window, QUESTION);
+      await expect(answer.getByTestId("citation-chip")).toHaveAttribute("data-check", "found");
+      const cited = await contentHashOf(window, file);
+      await writeFile(file, amendment(NEW));
+      await utimes(file, CHANGED, CHANGED);
+      await expect.poll(() => contentHashOf(window, file), { timeout: 15_000 }).not.toBe(cited);
+      await pointAt(window, answer.getByTestId("assistant-answer-text"));
+      await pointAndClick(window, answer.getByTestId("answer-write-note"));
+      await expect(editor).toBeVisible();
+      const chip = editor.getByTestId("citation-chip");
+      await expect(chip).toHaveAttribute("data-recheck", "true");
+
+      const card = window.getByTestId("citation-card");
+      await window.mouse.move(0, 0);
+      await pointAt(window, chip);
+      await expect(card).toBeVisible();
+      await pointAndClick(window, card.getByTestId("citation-update"));
+      await expect(chip).not.toHaveAttribute("data-recheck", "true");
+
+      // The Note and the new words are both in view, side by side, and the sentence is selected.
+      const viewer = window.getByTestId("viewer");
+      await expect(viewer.locator("[data-quote-highlight]")).toHaveText(NEW);
+      await expect(editor).toBeVisible();
+      await expect(viewer).toBeVisible();
+      const [note, source] = await Promise.all([editor.boundingBox(), viewer.boundingBox()]);
+      expect(note && source && note.x + note.width <= source.x + 1).toBe(true);
+      await expect(editor).toContainText("forty-five (45)");
     } finally {
       await app.close();
     }
