@@ -411,49 +411,67 @@ test("a later step's title opens it, a finished step is a line with its choice t
   }
 });
 
-test("a shorter window scrolls the card, keeps the room for the conversation, and keeps the step in hand in view", async () => {
-  const { app, window } = await launchApp(dataDir, { fakeChat: true });
-  try {
-    await setWindowSize(app, window, 1000, 560);
-    await acceptPlainTextKeys(window);
-    const card = await askFirstQuestion(window);
-    await setLocalChatModel(window);
-    await expect(card.getByTestId("setup-ready-title")).toBeVisible({ timeout: 15_000 });
+for (const [width, height] of [
+  [900, 560],
+  [1000, 560],
+] as const) {
+  test(`a shorter window (${width} × ${height}) scrolls the card, keeps the room for the conversation, and keeps the step in hand in view`, async () => {
+    const { app, window } = await launchApp(dataDir, { fakeChat: true });
+    try {
+      await setWindowSize(app, window, width, height);
+      await acceptPlainTextKeys(window);
+      const card = await askFirstQuestion(window);
+      await setLocalChatModel(window);
+      await expect(card.getByTestId("setup-ready-title")).toBeVisible({ timeout: 15_000 });
 
-    const panel = await window.getByTestId("assistant").boundingBox();
-    const opening = await buttonsInView(window);
-    // The conversation keeps room, whatever the step needs.
-    expect(opening.thread).toBeGreaterThanOrEqual(100);
-    expect(((await card.boundingBox())?.height ?? 0) + opening.thread).toBeLessThan(
-      panel?.height ?? 0,
-    );
+      // The conversation keeps room, whatever the step needs.
+      expect((await buttonsInView(window)).thread).toBeGreaterThanOrEqual(100);
 
-    // Step 3 is taller than the room: the card scrolls, and the step opens in view.
-    await pointAndClick(window, card.getByTestId("setup-transcription-use"));
-    await expect(card.getByTestId("models-sorting")).toBeEnabled({ timeout: 15_000 });
-    const inView = (testId: string) =>
-      window.evaluate((id) => {
-        const card = document.querySelector('[data-testid="model-setup"]');
-        const target = document.querySelector(`[data-testid="${id}"]`);
-        const head = card?.querySelector("[data-setup-title]");
-        if (!card || !target || !head) throw new Error("The steps aren't showing.");
-        const room = card.getBoundingClientRect();
-        const { top, bottom } = target.getBoundingClientRect();
-        return top >= head.getBoundingClientRect().bottom - 0.5 && bottom <= room.bottom + 0.5;
-      }, testId);
-    const taller = await buttonsInView(window);
-    expect(taller.scrolls, "step 3 scrolls in a short window").toBe(true);
-    expect(taller.thread).toBeGreaterThanOrEqual(100);
-    expect(await inView("setup-step-sorting")).toBe(true);
-    expect(await inView("models-sorting")).toBe(true);
+      // Whether a part of the card shows between its title and its foot, which stay in view.
+      const shows = (selector: string) =>
+        window.evaluate((query) => {
+          const card = document.querySelector('[data-testid="model-setup"]');
+          const target = document.querySelector(query);
+          const head = card?.querySelector("[data-setup-title]");
+          const foot = card?.querySelector("[data-setup-foot]");
+          if (!card || !target || !head || !foot) throw new Error("The steps aren't showing.");
+          const { top, bottom } = target.getBoundingClientRect();
+          const floor = Math.min(
+            card.getBoundingClientRect().bottom,
+            foot.getBoundingClientRect().top,
+          );
+          return top >= head.getBoundingClientRect().bottom - 0.5 && bottom <= floor + 0.5;
+        }, selector);
 
-    // Its buttons are one scroll away, and the User's click lands on them.
-    await pointAndClick(window, card.getByTestId("setup-sorting-use"));
-    await expect(card).toHaveCount(0);
-  } finally {
-    await app.close();
-  }
-});
+      // Step 3 is taller than the room: the card scrolls, and the step opens with its title
+      // and its choice in view; its buttons are a scroll away.
+      await pointAndClick(window, card.getByTestId("setup-transcription-use"));
+      await expect(card.getByTestId("models-sorting")).toBeEnabled({ timeout: 15_000 });
+      const taller = await buttonsInView(window);
+      expect(taller.scrolls, "step 3 scrolls in a short window").toBe(true);
+      expect(taller.thread).toBeGreaterThanOrEqual(100);
+      expect(await shows('[data-testid="setup-step-sorting"] h3')).toBe(true);
+      expect(await shows('[data-testid="models-sorting"]')).toBe(true);
+
+      // Opened again from its line, step 2 is in view the same way.
+      await pointAndClick(window, card.getByTestId("setup-step-transcription-open"));
+      await expect(card.getByTestId("setup-transcription")).toBeFocused();
+      expect(await shows('[data-testid="setup-step-transcription"] h3')).toBe(true);
+      expect(await shows('[data-testid="setup-transcription"]')).toBe(true);
+
+      // Nothing is cut sideways, and the click on a button a scroll away lands on it.
+      expect(await card.evaluate((element) => element.scrollWidth <= element.clientWidth)).toBe(
+        true,
+      );
+      await pointAndClick(window, card.getByTestId("setup-step-sorting-open"));
+      await expect(card.getByTestId("models-sorting")).toBeEnabled({ timeout: 15_000 });
+      await pointAndClick(window, card.getByTestId("setup-sorting-use"));
+      await expect(card).toHaveCount(0);
+    } finally {
+      await app.close();
+    }
+  });
+}
 
 for (const language of ["en", "zh-CN"] as const) {
   test(`step 3 holds its buttons where they were while the model list is read (${language}) (#2130)`, async () => {

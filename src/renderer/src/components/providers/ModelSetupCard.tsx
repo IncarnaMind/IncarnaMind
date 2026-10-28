@@ -37,7 +37,8 @@ const CLAUDE_DOWNLOAD = "https://claude.ai/download";
  */
 export function ModelSetupCard() {
   const ready = useModelSetup((state) => state.ready);
-  // Step 2's rows depend on whether a cloud service has a key, so the steps open with the list read, not redrawn as it lands (#2147).
+  // Step 2's rows depend on whether a cloud service has a key, so the steps open with the list
+  // read, not redrawn as it lands (#2147).
   const listed = useServicesListed(ready);
   return ready && listed ? <SetupSteps /> : <ChooseAnAi />;
 }

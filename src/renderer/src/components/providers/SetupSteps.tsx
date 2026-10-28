@@ -135,9 +135,15 @@ function Step({
   const t = useT();
   const item = useRef<HTMLLIElement>(null);
   const wasOpen = useRef(open);
-  // In a short card the step is brought into view as it opens, not when its list arrives and the focus follows.
+  // In a short card the step opens under the card's sticky title at once, not later when its
+  // list arrives and the focus follows.
   useLayoutEffect(() => {
-    if (open && !wasOpen.current) item.current?.scrollIntoView({ block: "nearest" });
+    const card = item.current?.closest("section");
+    const head = card?.querySelector("[data-setup-title]");
+    if (open && !wasOpen.current && item.current && card && head) {
+      card.scrollTop +=
+        item.current.getBoundingClientRect().top - head.getBoundingClientRect().bottom;
+    }
     wasOpen.current = open;
   }, [open]);
   const done = choice !== null;
