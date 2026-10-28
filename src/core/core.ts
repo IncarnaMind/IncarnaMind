@@ -2044,6 +2044,7 @@ export function createCore(adapters: CoreAdapters): Core {
         versions: new Map(documents.list().map((document) => [document.id, document.contentHash])),
         folderId: mind.folderId,
         scope,
+        personId: settings.get().user.personId,
       });
     });
   }

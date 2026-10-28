@@ -218,8 +218,12 @@ export interface CreateMindInput {
  *   and the figures within their sentence's Check (#439, #1932). Older
  *   editors would discard those nodes and check attributes, so they open
  *   these Notes read-only. Existing content needs no conversion.
+ * - 32: a Citation has an `id` of its own once the User marks it checked by
+ *   them (#1933), and the Note holds those marks (`MIND_SIGN_OFFS_FIELD`). An
+ *   older editor would strip the ids and leave the marks on nothing, so it
+ *   opens these Notes read-only. Existing content needs no conversion.
  */
-export const CONTENT_SCHEMA_VERSION = 31;
+export const CONTENT_SCHEMA_VERSION = 32;
 
 /**
  * The key, in the Mind's settings map (`MIND_SETTINGS_FIELD`), of the content
@@ -324,6 +328,33 @@ export const MIND_CONTENT_FIELD = "blocks";
 export const MIND_SETTINGS_FIELD = "settings";
 
 export const MIND_FIGURE_RUNS_FIELD = "figureRuns";
+
+/**
+ * The name of the Y.Map, beside a Mind's Blocks, that holds the User's own "Checked by me"
+ * marks (D280, #1933), by record id: what a person checked, apart from the app's check, so the
+ * marks go and sync with the Note. See src/shared/signOffs.ts.
+ */
+export const MIND_SIGN_OFFS_FIELD = "signOffs";
+
+/** What a person checked (#1933): a Citation by its own id, a figure by its id, a comparison cell. */
+export interface SignOffTarget {
+  kind: "citation" | "figure" | "cell";
+  id: string;
+}
+
+/** A person's own "Checked by me" on an item (D280), as it shows now: never a check result. */
+export interface SignOffNow {
+  /** Changed: what they checked changed since, so it no longer counts as checked. */
+  state: "checked" | "changed";
+  /** When they checked it (ISO 8601, UTC). */
+  at: string;
+  /** Their name as it was when they checked it. */
+  name: string | null;
+  /** The User's own, not another person's. */
+  mine: boolean;
+  /** What the mark was made on: for a figure an edit gave a new id, its id before. */
+  target: SignOffTarget;
+}
 
 /**
  * The name of the Y.Map, beside a Mind's Blocks, that says where Blocks came
@@ -1978,6 +2009,11 @@ export interface CitationAttributes {
    * version, #99): while it is the current one, the Citation doesn't ask to be checked again.
    */
   keptOver?: string | null;
+  /**
+   * Its own id, given once the User marks it checked by them (#1933), so the mark stays on it
+   * as the text around it changes. A copy pasted elsewhere has none.
+   */
+  id?: string | null;
 }
 
 /** A Citation, as the Answer event stream reports it. */
@@ -2264,6 +2300,11 @@ export interface UserSettings {
    * (#107), or null: the name the computer knows them by (`Settings.author`).
    */
   authorName: string | null;
+  /**
+   * The person, by a random id made once for them and kept with their settings, so their
+   * "Checked by me" marks (#1933) are theirs on every device. Null until it is first needed.
+   */
+  personId: string | null;
   /** The monthly cap on models billed per token: off (null) by default. */
   monthlyCap: MonthlyCap | null;
   /**
@@ -5332,6 +5373,8 @@ export interface FigureScheduleRow extends FigureFinding {
   model: ChatModelChoice | null;
   /** A Citation already follows the figure in the note, so Add as Citation has nothing to add. */
   cited: boolean;
+  /** The User's own check of it (#1933), apart from IncarnaMind's. */
+  signOff: SignOffNow | null;
   place: {
     heading: string | null;
     paragraph: number;

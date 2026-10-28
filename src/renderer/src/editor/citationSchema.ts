@@ -86,6 +86,9 @@ export const Citation = Node.create<CitationOptions>({
       },
       // Only Keep citing the old version sets it (#99), so a Citation without one stores nothing.
       keptOver: { ...dataAttribute("keptOver"), default: undefined },
+      // Only "Checked by me" gives it (#1933). It isn't written into the HTML a copy carries,
+      // so a pasted copy has none and the User's mark stays with the Citation they checked.
+      id: { default: undefined, parseHTML: () => undefined, renderHTML: () => ({}) },
     };
     return attributes;
   },

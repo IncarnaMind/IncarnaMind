@@ -107,6 +107,7 @@ function row(
     checkedAt: "2026-10-27T12:00:00.000Z",
     model: null,
     cited: false,
+    signOff: null,
     place: { heading: "Results", paragraph: 1 },
     ...changes,
   };

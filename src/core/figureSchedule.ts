@@ -13,6 +13,14 @@ import { type FootingEntry, figureFooting } from "../shared/figureFooting";
 import { calculatedFiguresIn, figureRunsFor } from "../shared/figureRuns";
 import { type Figure, readFigures } from "../shared/figures";
 import { englishLocation } from "../shared/locations";
+import {
+  figureSignOffBasis,
+  figureSignOffSources,
+  figureSignOffs,
+  signOffNow,
+  signOffShown,
+  signOffsOf,
+} from "../shared/signOffs";
 import { anchorsOf, columnName, parseCellRef, type UnitText } from "../shared/units";
 import { sheetRows } from "./analysis/ranges";
 import { nodeOf } from "./answers/blocks";
@@ -50,6 +58,8 @@ export interface FigureScheduleInput extends Omit<ClaimCheckNow, "text"> {
   name: string;
   basis: string;
   blocks: Y.XmlFragment;
+  /** The User, whose own check marks are theirs (#1933); null before they make one. */
+  personId?: string | null;
 }
 
 export function augmentFigureFooting(
@@ -630,6 +640,11 @@ export function figureSchedule(input: FigureScheduleInput): FigureSchedule {
     states.set(occurrence.id, { owner, child, now, current });
   }
   const footings = tableFooting(occurrences, findings, layout);
+  const signOffs = figureSignOffs(
+    blocks.doc ? signOffsOf(blocks.doc) : [],
+    occurrences.map((occurrence) => occurrence.id),
+    input.personId ?? null,
+  );
   const rows = occurrences.map((occurrence, index): FigureScheduleRow => {
     const state = states.get(occurrence.id);
     const existing = findings.get(occurrence.id) ?? emptyFinding(occurrence);
@@ -713,10 +728,22 @@ export function figureSchedule(input: FigureScheduleInput): FigureSchedule {
               node instanceof Y.XmlElement &&
               node.nodeName === CITATION_NODE,
           );
+    const signOff = signOffs.get(occurrence.id);
     return {
       ...finding,
       number: index + 1,
       cited,
+      signOff: signOff
+        ? signOffNow(
+            signOffShown(
+              signOff,
+              figureSignOffBasis(occurrence),
+              figureSignOffSources(finding),
+              input.versions,
+            ),
+            input.personId ?? null,
+          )
+        : null,
       sentence: occurrence.sentence,
       shown,
       reason,
