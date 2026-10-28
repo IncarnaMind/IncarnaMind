@@ -1292,10 +1292,10 @@ describe("A limit the figure stays within, and a cost printed in brackets (#1908
       unsupported: {
         covered: "the amount, 528.9",
         uncovered: "the currency, unit or scale in £528.9m",
-        quoted: { check: "found" },
       },
       calculation: { agrees: true },
     });
+    if (result.verdict === "unsupported") expect(result.unsupported?.quoted).toBeUndefined();
   });
 
   test("an unstated scale is named in Chinese", async () => {

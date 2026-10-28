@@ -308,6 +308,7 @@ export function createClaimCheck(deps: ClaimCheckDependencies) {
             .map((unit) => unit.text)
             .join("\n");
         return {
+          citation,
           cited: () =>
             citation.pageFrom === null ? citation.quote : text(citation.pageFrom, citation.pageTo),
           document: () => text(null, null),
@@ -318,12 +319,31 @@ export function createClaimCheck(deps: ClaimCheckDependencies) {
       const t = (key: MessageKey, params?: MessageParams) =>
         translate(deps.language(), key, params);
       const { amount } = found;
+      const candidates = checked
+        .filter((text) => found.texts.includes(text))
+        .map(({ citation }) => citation);
+      const unique = new Map(
+        candidates.map((citation) => [
+          JSON.stringify([
+            citation.documentId,
+            citation.contentHash,
+            citation.passageId,
+            citation.pageFrom,
+            citation.pageTo,
+            citation.location,
+            citation.quote,
+          ]),
+          citation,
+        ]),
+      );
+      const single = unique.size === 1 ? (unique.values().next().value ?? null) : null;
       const quote =
-        citations.find((citation) =>
-          readFigures(citation.quote, { ...figureContext(citation), midLine: true }).some(
-            (figure) => figure.chars === amount,
-          ),
-        ) ?? null;
+        single &&
+        readFigures(single.quote, { ...figureContext(single), midLine: true }).some(
+          (figure) => figure.chars === amount,
+        )
+          ? single
+          : null;
       const problem = (why: UnsupportedReason) => ({ why, quote });
       if (found.kind === "scale") {
         return problem({
@@ -523,7 +543,7 @@ export function createClaimCheck(deps: ClaimCheckDependencies) {
     /** Unsupported, with the nearest line when it states another value for the same thing (#770). */
     const unsupported = async (
       why: UnsupportedReason = { reason: null, covered: null, uncovered: null },
-      found: Citation | null = null,
+      found?: Citation | null,
       judgedNearest?: Citation | null,
     ): Promise<ClaimCheckResult> => {
       const nearest =
@@ -542,10 +562,12 @@ export function createClaimCheck(deps: ClaimCheckDependencies) {
         opinions.missing ||
         workingsSayingIt().length > 0
           ? null
-          : (found ??
-            decidingCitation(session.finalCitation) ??
-            // Only the card's quote rests on it: the verdict stands without.
-            notFailed(await askForEvidence(request, verdict, session, signal, why.covered)));
+          : found === null
+            ? null
+            : (found ??
+              decidingCitation(session.finalCitation) ??
+              // Only the card's quote rests on it: the verdict stands without.
+              notFailed(await askForEvidence(request, verdict, session, signal, why.covered)));
       if (signal.aborted) return notChecked("stopped");
       const left = facts();
       return {
@@ -589,7 +611,7 @@ export function createClaimCheck(deps: ClaimCheckDependencies) {
     ]);
     const unit = unitProblem?.why ?? null;
     if (unit && (verdict.verdict !== "contradicted" || onlyCalculation))
-      return unsupported(unit, unitProblem?.quote ?? evidence, null);
+      return unsupported(unit, unitProblem?.quote ?? null, null);
     // An unsupported reply with no topic or part named can be missing only the derived figure.
     // Only a reason or part about that figure alone is settled; a found topic or any independent
     // reason or part stays unsupported.
@@ -660,7 +682,7 @@ export function createClaimCheck(deps: ClaimCheckDependencies) {
       // The judgements disagree with the check: the card shows the part the quote states
       // (DESIGN.md › Checks).
       const inDoubt = async (): Promise<ClaimCheckResult> => {
-        if (unit) return unsupported(unit, unitProblem?.quote ?? evidence, null);
+        if (unit) return unsupported(unit, unitProblem?.quote ?? null, null);
         if (byCalculation) return byCalculation;
         if (verdict.topic === "not found") return unsupported();
         const part = await parts(evidence);
@@ -677,7 +699,7 @@ export function createClaimCheck(deps: ClaimCheckDependencies) {
       // The Passage is about something else: what is nearest may still say something different.
       if (judged === "neither") {
         return unit
-          ? unsupported(unit, unitProblem?.quote ?? evidence, null)
+          ? unsupported(unit, unitProblem?.quote ?? null, null)
           : (byCalculation ?? unsupported(verdict.topic === "not found" ? undefined : UNBACKED));
       }
       // Never Supported: in one word it called the parties the other way round the same (#1668).

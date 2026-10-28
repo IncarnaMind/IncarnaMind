@@ -240,6 +240,29 @@ describe("a check cannot substitute a model verdict for derived arithmetic", () 
       expect(result.unsupported?.quoted?.quote).toContain("600");
   });
 
+  test.each(["600", "600.0"])(
+    "an ambiguous amount (%s) in a unit warning does not quote another company",
+    async (amount) => {
+      const { result, calls } = await fixture({
+        claim: "Net debt is £600 and 6.0x adjusted EBITDA.",
+        stated: "6.0x",
+        repair: true,
+        as: "times",
+        directInputs: true,
+        decidingSource: {
+          name: "Other company.md",
+          contents: `# Other company\n\nThe other company has a balance of ${amount}.`,
+          quote: `The other company has a balance of ${amount}.`,
+        },
+      });
+      expect(result.verdict).toBe("unsupported");
+      if (result.verdict === "unsupported") expect(result.unsupported?.quoted).toBeUndefined();
+      expect(
+        calls.flatMap((call) => call.results).some((result) => result.tool === "calculate"),
+      ).toBe(true);
+    },
+  );
+
   test("a quantity starting after a citation is not mistaken for a pinpoint page", async () => {
     const { result, verdicts } = await fixture({
       claim: "Under [2024] UKSC 5, 60 of the appeals succeeded.",
@@ -248,9 +271,37 @@ describe("a check cannot substitute a model verdict for derived arithmetic", () 
     expect(verdicts()).toBe(2);
   });
 
+  test("a parenthetical clause after a citation does not hide an uncalculated quantity", async () => {
+    const { result, verdicts } = await fixture({
+      claim: "Under [2024] UKSC 5, 60, representing all successful appeals, were upheld.",
+    });
+    expect(result.verdict).toBe("not-checked");
+    expect(verdicts()).toBe(2);
+  });
+
   test("a closed citation pinpoint needs no arithmetic", async () => {
-    const { verdicts } = await fixture({ claim: "See [2024] UKSC 5, 60.", verdict: "unsupported" });
+    const { result, verdicts } = await fixture({
+      claim: "See [2024] UKSC 5, 60.",
+      verdict: "unsupported",
+    });
+    expect(result.verdict).toBe("unsupported");
     expect(verdicts()).toBe(1);
+  });
+
+  test("a US citation with a pinpoint needs no arithmetic for the legal proposition", async () => {
+    const { result, verdicts, calls } = await fixture({
+      claim:
+        "Brown v. Board of Education, 347 U.S. 483, 495 (1954) held that segregation was unlawful.",
+      source: "Segregation was unlawful.",
+    });
+    expect(result.verdict).toBe("supported");
+    expect(verdicts()).toBe(1);
+    expect(calls.some((call) => call.prompt.includes("The numerical check is incomplete"))).toBe(
+      false,
+    );
+    expect(
+      calls.flatMap((call) => call.results).some((result) => result.tool === "calculate"),
+    ).toBe(false);
   });
 
   test.each([
