@@ -26,4 +26,4 @@ export function StepNumber({ number, state }: { number: number; state: StepState
 }
 
 export const STEP_BUTTON_CLASS =
-  "group -mx-1.5 -my-0.5 flex min-w-0 items-center gap-2.5 rounded-md px-1.5 py-0.5 text-left hover:bg-chip";
+  "group -mx-1.5 -my-0.5 flex min-w-0 gap-2.5 rounded-md px-1.5 py-0.5 text-left hover:bg-chip";

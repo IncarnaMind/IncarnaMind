@@ -20,6 +20,8 @@ export interface SortingOption {
   decisionModel: boolean;
   /** The User's AI model, as the line that says what sorts names it. */
   modelName?: string;
+  /** A saved choice whose destination isn't known yet: nothing is said about it, and it can't be used. */
+  unresolved?: boolean;
 }
 
 const providerOf = (option: TaggingModels["options"][number], language: Language) =>
@@ -172,6 +174,18 @@ export function useSorting() {
     saved.kind !== "automatic" &&
     !options.some((each) => sortingKey(each.classifier) === sortingKey(saved))
   ) {
+    // Where a saved choice goes comes from what is stored (its provider, or the Jev settings), so
+    // the list still being read never makes a cloud choice look local. undefined: not known yet.
+    const goes =
+      saved.kind === "chat"
+        ? readiness?.ready && readiness.provider.id === saved.choice.providerId
+          ? (readiness.provider.service?.name ?? null)
+          : undefined
+        : saved.kind === "jev"
+          ? jev === null
+            ? undefined
+            : (jev.service?.name ?? null)
+          : null;
     options.unshift({
       classifier: saved,
       label:
@@ -182,9 +196,9 @@ export function useSorting() {
             : saved.kind === "auto"
               ? t("tagging.decision.auto")
               : saved.modelId,
-      provider:
-        saved.kind === "jev" ? (jev === null ? "TypeSafe" : (jev.service?.name ?? null)) : null,
+      provider: goes ?? null,
       decisionModel: saved.kind !== "chat",
+      ...(goes === undefined && { unresolved: true }),
       ...(saved.kind === "chat" && {
         modelName: nameOf(saved.choice.modelId, saved.choice.providerId).name,
       }),
@@ -319,9 +333,12 @@ export function SortingLine({
       </>
     );
   };
+  const unresolved = option?.unresolved === true;
   const holding =
     holds !== null &&
-    (option === null || sortingKey(holds.classifier) !== sortingKey(option.classifier));
+    (option === null ||
+      unresolved ||
+      sortingKey(holds.classifier) !== sortingKey(option.classifier));
   return (
     <div data-testid="models-sorting-line" className="grid">
       {holding && (
@@ -329,7 +346,9 @@ export function SortingLine({
           {rows(holds)}
         </div>
       )}
-      <div className="col-start-1 row-start-1 flex flex-col gap-1">{rows(option)}</div>
+      <div className="col-start-1 row-start-1 flex flex-col gap-1">
+        {unresolved ? null : rows(option)}
+      </div>
     </div>
   );
 }

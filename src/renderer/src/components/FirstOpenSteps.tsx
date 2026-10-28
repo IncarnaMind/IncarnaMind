@@ -102,7 +102,7 @@ function Step({
           aria-label={action}
           title={action}
           onClick={onDo}
-          className={STEP_BUTTON_CLASS}
+          className={`${STEP_BUTTON_CLASS} items-center`}
         >
           <StepNumber number={number} state={state} />
           <span className={`${tone} group-hover:text-ink`}>

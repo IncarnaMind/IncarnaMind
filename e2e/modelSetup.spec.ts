@@ -252,7 +252,101 @@ function buttonsInView(window: Page): Promise<{
   });
 }
 
+/** How a finished step's line lays out its title and choice: whole, and either side by side or one under the other. */
+function foldedLine(window: Page, step: "transcription" | "sorting") {
+  return window.evaluate((testId) => {
+    const button = document.querySelector(`[data-testid="setup-step-${testId}-open"]`);
+    const title = button?.querySelector(`[data-testid="setup-step-${testId}-title"]`);
+    const choice = button?.querySelector(`[data-testid="setup-step-${testId}-choice"]`);
+    if (!button || !title || !choice) throw new Error("The step isn't a folded line.");
+    const edge = button.getBoundingClientRect();
+    const head = title.getBoundingClientRect();
+    const tail = choice.getBoundingClientRect();
+    const below = tail.top > head.top + head.height / 2;
+    return {
+      cut: title.scrollWidth > title.clientWidth || head.right > edge.right + 0.5,
+      title: title.textContent ?? "",
+      below,
+      // Under the title it starts where the title's text does; beside it, one space after it.
+      offset: below ? tail.left - head.left : tail.left - head.right,
+    };
+  }, step);
+}
+
+/** Whether the "·" of a line of text and a link sits on the line where the text before it ends. */
+function separatorFollowsText(window: Page, testId: string) {
+  return window.evaluate((id) => {
+    const text = document.querySelector(`[data-testid="${id}"] p`)?.firstChild;
+    const dot = document.querySelector(`[data-testid="${id}"] [aria-hidden="true"]`);
+    if (!text || !dot) throw new Error("The line isn't showing.");
+    const range = document.createRange();
+    range.selectNodeContents(text);
+    const lines = [...range.getClientRects()];
+    const last = lines[lines.length - 1];
+    return last ? Math.abs(dot.getBoundingClientRect().top - last.top) < 3 : false;
+  }, testId);
+}
+
+/** Notes the sorting step's line, its use button and the card's box at every change the page makes, from now on. */
+function watchSortingStep(window: Page): Promise<void> {
+  return window.evaluate(() => {
+    const seen: unknown[] = [];
+    (globalThis as unknown as { sortingSteps: unknown[] }).sortingSteps = seen;
+    const note = () => {
+      const card = document.querySelector('[data-testid="model-setup"]');
+      const line = card?.querySelector('[data-testid="models-sorting-line"]');
+      const use = card?.querySelector('[data-testid="setup-sorting-use"]');
+      if (!card || !line) return;
+      const { top, height } = card.getBoundingClientRect();
+      seen.push({
+        line: line.textContent ?? "",
+        usable: use !== null && !use?.hasAttribute("disabled"),
+        top,
+        height,
+      });
+    };
+    new MutationObserver(note).observe(document.body, {
+      subtree: true,
+      childList: true,
+      characterData: true,
+      attributes: true,
+    });
+  });
+}
+
+function sortingStepsSeen(
+  window: Page,
+): Promise<{ line: string; usable: boolean; top: number; height: number }[]> {
+  return window.evaluate(
+    () =>
+      (
+        globalThis as unknown as {
+          sortingSteps: { line: string; usable: boolean; top: number; height: number }[];
+        }
+      ).sortingSteps,
+  );
+}
+
 const OPENAI_KEY = "sk-proj-a-test-key-for-first-run";
+
+for (const language of ["en", "zh-CN"] as const) {
+  test(`the line naming where the questions go never starts with its separator at 1280 × 800 (${language})`, async () => {
+    const { app, window } = await launchApp(dataDir, { fakeChat: true });
+    try {
+      await setWindowSize(app, window, 1280, 800);
+      await acceptPlainTextKeys(window);
+      await setLanguage(window, language);
+      const card = await askFirstQuestion(window);
+      const field = card.getByTestId("setup-key");
+      await field.fill(ANTHROPIC_KEY);
+      await field.press("Enter");
+      await expect(card.getByTestId("setup-ready-sends")).toBeVisible({ timeout: 15_000 });
+      expect(await separatorFollowsText(window, "setup-ready-sends")).toBe(true);
+    } finally {
+      await app.close();
+    }
+  });
+}
 
 for (const language of ["en", "zh-CN"] as const) {
   test(`the card holds its place and every button of the step in hand shows at 1280 × 800, before the Answer and as it grows (${language}) (#2147)`, async () => {
@@ -324,6 +418,14 @@ for (const language of ["en", "zh-CN"] as const) {
       await pointAndClick(window, card.getByTestId("setup-transcription-use"));
       await expect(card.getByTestId("setup-step-sorting")).toHaveAttribute("data-open", "true");
       await expect(card.getByTestId("models-sorting")).toBeEnabled({ timeout: 15_000 });
+      // Step 2 is a line with its choice: its title whole, the choice beside it where one line
+      // holds both (Chinese) and under it, aligned with its text, where one doesn't.
+      const folded = await foldedLine(window, "transcription");
+      expect(folded.cut, "the folded title is cut").toBe(false);
+      expect(folded.title).toContain(translate(language, "setup.step.transcription"));
+      if (folded.below) expect(Math.abs(folded.offset)).toBeLessThan(1.5);
+      else expect(folded.offset).toBeLessThan(8);
+      if (language === "zh-CN") expect(folded.below, "the Chinese line wraps").toBe(false);
       const sorting = await buttonsInView(window);
       expect(sorting.outside, "buttons outside the card in step 3").toEqual([]);
       expect(sorting.scrolls, "the card scrolls in step 3").toBe(false);
@@ -389,7 +491,11 @@ test("a later step's title opens it, a finished step is a line with its choice t
     const line = card.getByTestId("setup-step-transcription-open");
     await expect(line).toContainText("Meeting transcription");
     await expect(line).toContainText("On this computer");
-    expect((await line.boundingBox())?.height ?? 0).toBeLessThan(28);
+    const folded = await foldedLine(window, "transcription");
+    expect(folded.cut, "the folded title is cut").toBe(false);
+    expect(folded.title).toContain("Meeting transcription");
+    if (folded.below) expect(Math.abs(folded.offset)).toBeLessThan(1.5);
+    else expect(folded.offset).toBeLessThan(8);
 
     // Clicking the line opens it again, with what was chosen kept.
     await pointAndClick(window, line);
@@ -523,6 +629,89 @@ for (const language of ["en", "zh-CN"] as const) {
     } finally {
       await app.close();
       server.server.close();
+    }
+  });
+}
+
+for (const language of ["en", "zh-CN"] as const) {
+  test(`a saved cloud choice, folded and reopened while the model list is read, says where it goes in every state it passes through, and nothing moves when the list lands (${language})`, async () => {
+    const { app, window } = await launchApp(dataDir, { fakeChat: true });
+    try {
+      await setWindowSize(app, window, 1280, 800);
+      await acceptPlainTextKeys(window);
+      await setLanguage(window, language);
+      const card = await askFirstQuestion(window);
+      const field = card.getByTestId("setup-key");
+      await field.fill(ANTHROPIC_KEY);
+      await field.press("Enter");
+      await expect(card.getByTestId("setup-ready-title")).toBeVisible({ timeout: 15_000 });
+
+      // Step 3 first: its choice, the AI model that works, is saved and the step folds to a line.
+      await pointAndClick(window, card.getByTestId("setup-step-sorting-open"));
+      await expect(card.getByTestId("models-sorting")).toBeEnabled({ timeout: 15_000 });
+      await pointAndClick(window, card.getByTestId("setup-sorting-use"));
+      await expect(card.getByTestId("setup-step-sorting")).toHaveAttribute("data-done", "true");
+      await expect.poll(async () => (await bridge(window).library()).classifier.kind).toBe("chat");
+
+      // Opened again, the step is built before its list is read. Every state it passes through,
+      // from that first one to the list landing, says what the saved choice is: it goes to
+      // Anthropic, which the sends row says, and it can be used.
+      await watchSortingStep(window);
+      await pointAndClick(window, card.getByTestId("setup-step-sorting-open"));
+      const picked = card.getByTestId("models-sorting").locator("option:checked");
+      await expect(picked).toHaveText(translate(language, "models.sorting.chat"), {
+        timeout: 15_000,
+      });
+      const seen = await sortingStepsSeen(window);
+      const model = "Claude Haiku 5.5";
+      expect(seen.length, "no state of the reopened step was seen").toBeGreaterThan(1);
+      for (const state of seen) {
+        expect(state.line).toContain(translate(language, "setup.sorting.chat", { model }));
+        expect(state.line).toContain(
+          translate(language, "setup.sorting.sends", { service: "Anthropic" }),
+        );
+        expect(state.line).not.toContain(translate(language, "setup.sorting.chatHere", { model }));
+        expect(state.usable).toBe(true);
+        expect(state.top).toBeCloseTo(seen[0]?.top ?? 0, 0);
+        expect(state.height).toBeCloseTo(seen[0]?.height ?? 0, 0);
+      }
+    } finally {
+      await app.close();
+    }
+  });
+
+  test(`a saved cloud service, folded and reopened in step 2, still says where the audio goes (${language})`, async () => {
+    const { app, window } = await launchApp(dataDir, { fakeChat: true });
+    try {
+      await setWindowSize(app, window, 1280, 800);
+      await acceptPlainTextKeys(window);
+      await setLanguage(window, language);
+      await newMind(window);
+      await window.evaluate(async () => {
+        const core = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
+        await core.setTranscriptionKey({ route: "soniox", apiKey: "soniox-a-test-key" });
+      });
+      const card = await askFirstQuestion(window);
+      await setLocalChatModel(window);
+      await expect(card.getByTestId("setup-ready-title")).toBeVisible({ timeout: 15_000 });
+      await card.getByTestId("setup-transcription").selectOption("soniox");
+      await pointAndClick(window, card.getByTestId("setup-transcription-use"));
+      await expect(card.getByTestId("setup-step-transcription")).toHaveAttribute(
+        "data-done",
+        "true",
+      );
+      await expect
+        .poll(async () => (await bridge(window).settings()).device.transcriptionRoute)
+        .toBe("soniox");
+
+      await pointAndClick(window, card.getByTestId("setup-step-transcription-open"));
+      await expect(card.getByTestId("setup-transcription")).toHaveValue("soniox");
+      await expect(card.getByTestId("setup-transcription-line")).toHaveText(
+        translate(language, "meetings.route.cloudLine", { service: "Soniox" }),
+      );
+      await expect(card.getByTestId("setup-transcription-use")).toBeEnabled();
+    } finally {
+      await app.close();
     }
   });
 }

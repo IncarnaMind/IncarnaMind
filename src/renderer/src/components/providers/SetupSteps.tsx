@@ -177,14 +177,26 @@ function Step({
             onClick={onOpen}
             className={STEP_BUTTON_CLASS}
           >
-            {mark}
+            <span className="mt-px flex">{mark}</span>
             {done && <span className="sr-only">{t("gettingStarted.done")}</span>}
-            <span className="min-w-0 truncate text-ink-meta group-hover:text-ink">{title}</span>
-            {done && (
-              <span className="-ml-1 max-w-full shrink-0 truncate text-ink-secondary group-hover:text-ink">
-                · {choice}
+            {/* Where one line can't hold both, the choice goes under the title, aligned with its text. */}
+            <span className="min-w-0 text-ink-meta group-hover:text-ink">
+              <span data-testid={`setup-step-${testId}-title`} className="inline-block max-w-full">
+                {title}
+                {done && "\u00a0·"}
               </span>
-            )}
+              {done && (
+                <>
+                  {" "}
+                  <span
+                    data-testid={`setup-step-${testId}-choice`}
+                    className="inline-block max-w-full text-ink-secondary [overflow-wrap:anywhere] group-hover:text-ink"
+                  >
+                    {choice}
+                  </span>
+                </>
+              )}
+            </span>
           </button>
         )}
       </h3>
@@ -209,6 +221,8 @@ function TranscriptionStep({ onDone }: { onDone(choice: string): void }) {
   const [picked, setPicked] = useState<TranscriptionRoute | null>(null);
   const route = localOnly ? "local" : (picked ?? saved ?? "local");
   const service = services.find((each) => each.route === route);
+  // The saved route says where the audio goes, whether or not the list has named its service.
+  const cloud = route === "local" ? null : t(ROUTE_LABELS[route]);
   const use = async () => {
     await updateSettings({ device: { transcriptionRoute: route } });
     onDone(t(ROUTE_LABELS[route]));
@@ -226,8 +240,8 @@ function TranscriptionStep({ onDone }: { onDone(choice: string): void }) {
         onChosen={setPicked}
       />
       <p data-testid="setup-transcription-line" className={hintClass}>
-        {service
-          ? t("meetings.route.cloudLine", { service: service.name })
+        {cloud
+          ? t("meetings.route.cloudLine", { service: cloud })
           : t("setup.step.transcription.line")}
       </p>
       {/* Before a cloud route is chosen, what choosing one sends (ADR-0022). */}
@@ -236,6 +250,7 @@ function TranscriptionStep({ onDone }: { onDone(choice: string): void }) {
         <button
           type="button"
           data-testid="setup-transcription-use"
+          disabled={cloud !== null && !service}
           onClick={() => void use()}
           className={buttonStyle("primary", "sm")}
         >
@@ -290,7 +305,7 @@ function SortingStep({ onDone }: { onDone(choice: string): void }) {
         <button
           type="button"
           data-testid="setup-sorting-use"
-          disabled={chosen === null}
+          disabled={chosen === null || chosen.unresolved === true}
           onClick={() => void use()}
           className={buttonStyle("primary", "sm")}
         >
