@@ -121,6 +121,27 @@ describe("The User's own check marks", () => {
     ).toBe(0);
   });
 
+  // protects=once an edit gives a figure a new id, the mark kept on it is the User's own, as on its own id, never another person's newer one (Codex2's review of #2144); fails_when=the other person's mark is shown as the User's; no_claim=sharing itself.
+  test("an edited figure keeps the User's own mark before another person's newer one", () => {
+    const before = textFigure("p1", "Revenue rose 5%.", 13, "5%");
+    const after = textFigure("p1", "Group revenue rose 5%.", 19, "5%");
+    const mine = record({
+      id: "mine",
+      personId: "A",
+      at: "2026-10-28T08:00:00Z",
+      target: { kind: "figure", id: before },
+    });
+    const theirs = record({
+      id: "theirs",
+      personId: "B",
+      at: "2026-10-28T09:00:00Z",
+      target: { kind: "figure", id: before },
+    });
+
+    expect(figureSignOffs([mine, theirs], [before], "A").get(before)).toBe(mine);
+    expect(figureSignOffs([mine, theirs], [after], "A").get(after)).toBe(mine);
+  });
+
   // protects=a mark made before the User had a person id, or with theirs, is theirs; another person's isn't (another person's mark shows their name); fails_when=a shared Note shows someone else's mark as the User's; no_claim=sharing itself.
   test("a mark is the User's own by their person id", () => {
     expect(isMine(record({ personId: "p1" }), "p1")).toBe(true);

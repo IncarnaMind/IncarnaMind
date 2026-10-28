@@ -28,13 +28,7 @@ import { Popover } from "./Popover";
 import { useCitationPeek } from "./peek";
 import { focusQuietly, isQuietFocus } from "./quietFocus";
 import { StyledRuns } from "./StyledRuns";
-import {
-  calculatedFigureSignOff,
-  currentSigner,
-  setFigureSignOffs,
-  useDocumentVersions,
-  usePersonId,
-} from "./signOffActions";
+import { calculatedFigureSignOff, currentSigner, setFigureSignOffs } from "./signOffActions";
 import "./calculatedFigure.css";
 
 registerMenu("check", [
@@ -144,21 +138,16 @@ export function CalculatedFigureView({
     };
   }, [open, attributes]);
   // The User's own "Checked by me" on the figure (#1933), in a Note they can change.
-  const { records } = useContext(SignOffsContext);
-  const personId = usePersonId();
-  const versions = useDocumentVersions();
-  const signOff = useMemo(
-    () => (attributes ? calculatedFigureSignOff(records, attributes, versions, personId) : null),
-    [records, attributes, versions, personId],
-  );
-  const canSignOff = mindId !== null && editor.isEditable;
+  const { rows } = useContext(SignOffsContext);
+  const signOff = attributes ? calculatedFigureSignOff(rows, attributes.id) : null;
+  const canSignOff = mindId !== null && editor.isEditable && signOff !== null;
   const toggleSignOff = () => {
     const signer = currentSigner();
     if (!signOff || !mindId || !signer) return;
     try {
       setFigureSignOffs(
         { mindId, basis: null, copy: null },
-        [signOff.mark],
+        [signOff],
         checkedByMe(signOff.now),
         signer,
       );

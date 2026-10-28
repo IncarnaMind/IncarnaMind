@@ -4732,6 +4732,9 @@ export function createCore(adapters: CoreAdapters): Core {
       return exported;
     },
     saveMindExport: async (mindId, options) => {
+      // The export reads the Note before its first await, so this is the text the file holds,
+      // whatever the User writes while it is made.
+      const read = typeof mindId === "string" ? content.storedState(mindId) : null;
       const {
         fileName,
         fromWord: _,
@@ -4751,9 +4754,9 @@ export function createCore(adapters: CoreAdapters): Core {
       );
       if (saved.status !== "saved") return saved;
       // Sent as Word or PDF (#1933): History keeps the Note as it went, with the file's name.
-      if (options.format === "docx" || options.format === "pdf") {
+      if (read && (options.format === "docx" || options.format === "pdf")) {
         try {
-          checkpoints.sent(mindId, saved.file.name);
+          checkpoints.sent(mindId, saved.file.name, read);
         } catch (error) {
           console.error("export: the Note as it was sent couldn't be kept in History", error);
         }

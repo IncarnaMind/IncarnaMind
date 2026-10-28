@@ -28,6 +28,8 @@ import {
   type Checkpoint,
   type CheckpointList,
   type CheckpointReason,
+  CITATION_NODE,
+  type CitationAttributes,
   CONTENT_SCHEMA_VERSION,
   MIND_CONTENT_FIELD,
   type MindComparison,
@@ -114,6 +116,55 @@ function citedIn(doc: Y.Doc): RetainVersion[] {
   );
 }
 
+const CITATION_ID = "id" satisfies keyof CitationAttributes;
+
+/** Each Citation's place: its Block, what it quotes, and which of those in its Block it is. */
+function citationPlaces(blocks: Y.XmlFragment): { element: Y.XmlElement; key: string }[] {
+  const found: { element: Y.XmlElement; key: string }[] = [];
+  for (const block of blocks.toArray()) {
+    if (!(block instanceof Y.XmlElement)) continue;
+    const blockId = block.getAttribute(BLOCK_ID_ATTRIBUTE);
+    const seen = new Map<string, number>();
+    const walker = block.createTreeWalker(
+      (node) => node instanceof Y.XmlElement && node.nodeName === CITATION_NODE,
+    );
+    for (const node of walker) {
+      if (!(node instanceof Y.XmlElement)) continue;
+      const quoted = JSON.stringify([
+        blockId,
+        node.getAttribute("passageId") ?? node.getAttribute("documentId"),
+        node.getAttribute("quote"),
+      ]);
+      const nth = seen.get(quoted) ?? 0;
+      seen.set(quoted, nth + 1);
+      found.push({ element: node, key: `${quoted}#${nth}` });
+    }
+  }
+  return found;
+}
+
+/** The ids Citations have now, by place: what a person's "Checked by me" names them by (#1933). */
+function citationIds(blocks: Y.XmlFragment): Map<string, string> {
+  return new Map(
+    citationPlaces(blocks).flatMap(({ element, key }) => {
+      const id = element.getAttribute(CITATION_ID);
+      return typeof id === "string" ? [[key, id] as const] : [];
+    }),
+  );
+}
+
+/**
+ * A restore never changes the User's marks: a Citation it brings back from before it was marked
+ * regains the id its mark names, where the same Citation is in the same place.
+ */
+function giveCitationIds(blocks: Y.XmlFragment, ids: ReadonlyMap<string, string>): void {
+  for (const { element, key } of citationPlaces(blocks)) {
+    const id = ids.get(key);
+    if (id && typeof element.getAttribute(CITATION_ID) !== "string")
+      element.setAttribute(CITATION_ID, id);
+  }
+}
+
 export function createCheckpoints(options: CheckpointsOptions) {
   const { db, content, retention } = options;
   const idleTimers = new Map<string, ReturnType<typeof setTimeout>>();
@@ -164,16 +215,20 @@ export function createCheckpoints(options: CheckpointsOptions) {
   const sameState = (saved: Uint8Array, snapshot: Y.Snapshot) =>
     saved.byteLength > 0 && Y.equalSnapshots(Y.decodeSnapshot(saved), snapshot);
 
-  /** Saves the Mind as it is: `file` for one saved as the Note was sent, which is always its own. */
+  /**
+   * Saves the Mind as it is, or for one sent as `file`, as it was when it was read for sending
+   * (`sentState`): a sent one is always its own.
+   */
   const save = (
     mindInput: unknown,
     reasonInput: unknown,
-    file: string | null = null,
+    sent: { file: string; state: Uint8Array } | null = null,
   ): Checkpoint => {
     const reason = parseReason(reasonInput);
     const mindId = options.requireMind(mindInput);
     options.rebuildFigureRetention(mindId);
-    const state = content.storedState(mindId);
+    const state = sent?.state ?? content.storedState(mindId);
+    const file = sent?.file ?? null;
     const doc = docOf(state);
     try {
       const snapshot = Y.snapshot(doc);
@@ -220,9 +275,9 @@ export function createCheckpoints(options: CheckpointsOptions) {
   return {
     save,
 
-    /** The Note was sent as `file`: a Checkpoint of it as it went, kept for good. */
-    sent(mindId: string, file: string): Checkpoint {
-      return save(mindId, "export", file);
+    /** The Note was sent as `file`, as `state` held it: a Checkpoint of it as it went, kept for good. */
+    sent(mindId: string, file: string, state: Uint8Array): Checkpoint {
+      return save(mindId, "export", { file, state });
     },
 
     rename(mindInput: unknown, checkpointInput: unknown, nameInput: unknown): Checkpoint {
@@ -299,8 +354,10 @@ export function createCheckpoints(options: CheckpointsOptions) {
             .getXmlFragment(MIND_CONTENT_FIELD)
             .toArray()
             .flatMap((node) => (node instanceof Y.XmlHook ? [] : [node.clone()]));
+          const ids = citationIds(blocks);
           blocks.delete(0, blocks.length);
           blocks.insert(0, restored);
+          giveCitationIds(blocks, ids);
           // As History showed it: without the changes still waiting in it then, but someone's
           // from the Word file it was imported from, which stay theirs to resolve (#108).
           resolveProposals(blocks, (change) => !change.id.startsWith(WORD_CHANGE_ID), "reject");

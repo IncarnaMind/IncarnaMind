@@ -6,6 +6,7 @@
  */
 import type * as Y from "yjs";
 import {
+  type CheckFigure,
   type Citation,
   type CitationAttributes,
   type FigureFinding,
@@ -111,14 +112,19 @@ export function removeSignOff(
 }
 
 /** The mark on `target` to show: the User's own, else the newest of another person's. */
-export function signOffOn(
+export const signOffOn = (
   records: readonly SignOffRecord[],
   target: SignOffTarget,
   personId: string | null,
-): SignOffRecord | null {
-  const on = records.filter((record) => keyOf(record.target) === keyOf(target));
-  return on.findLast((record) => isMine(record, personId)) ?? on.at(-1) ?? null;
-}
+): SignOffRecord | null =>
+  shownOf(
+    records.filter((record) => keyOf(record.target) === keyOf(target)),
+    personId,
+  );
+
+/** Of the marks on one item, the one to show: the User's own, else the newest of another person's. */
+const shownOf = (on: readonly SignOffRecord[], personId: string | null): SignOffRecord | null =>
+  on.findLast((record) => isMine(record, personId)) ?? on.at(-1) ?? null;
 
 /** What a sign-off rests on, as one hash: the sentence's words and what each source says now. */
 export function signOffBasis(parts: {
@@ -157,17 +163,33 @@ export const citationSignOffBasis = (
   });
 
 /**
- * A figure's: its id, which holds its sentence's words and its own (#1932), and what it shows.
+ * A figure's: what its check reads it against (its sentence's words and, in a table, its row's and
+ * column's headings and units), what it shows, and for a calculated one its formula and inputs.
  * Its sources' versions are compared as it shows (`signOffShown`).
  */
 export const figureSignOffBasis = (figure: {
   id: string;
   reading: { chars: string };
-  calculated: { figure: { shown: string } } | null;
+  calculated: CheckFigure["calculated"];
+  context?: string;
 }): string =>
   signOffBasis({
-    sentence: "",
-    item: JSON.stringify([figure.id, figure.calculated?.figure.shown ?? figure.reading.chars]),
+    sentence: figure.context ?? "",
+    item: JSON.stringify([
+      figure.id,
+      figure.calculated?.figure.shown ?? figure.reading.chars,
+      figure.calculated && [
+        figure.calculated.figure.formula,
+        figure.calculated.figure.inputs.map((input) => [
+          input.name,
+          input.label,
+          input.number.chars,
+          input.citation.documentId,
+          input.citation.contentHash,
+          input.citation.quote,
+        ]),
+      ],
+    ]),
     sources: [],
   });
 
@@ -274,8 +296,9 @@ export function figureSignOffs(
       if (found.has(id)) continue;
       const kin = figureKins(id)[level];
       if (kin === undefined) continue;
-      const record = left.findLast(
-        (each) => !used.has(each) && figureKins(each.target.id)[level] === kin,
+      const record = shownOf(
+        left.filter((each) => !used.has(each) && figureKins(each.target.id)[level] === kin),
+        personId,
       );
       if (!record) continue;
       found.set(id, record);

@@ -5,7 +5,6 @@ import { ySyncPluginKey } from "@tiptap/y-tiptap";
 import { useContext, useEffect, useMemo, useState } from "react";
 import * as Y from "yjs";
 import {
-  type CalculatedFigureAttributes,
   CITATION_NODE,
   type CitationAttributes,
   type FigureScheduleRow,
@@ -19,7 +18,6 @@ import {
   checkedByMe,
   citationSignOffBasis,
   figureSignOffBasis,
-  figureSignOffSources,
   removeSignOff,
   type SignOffRecord,
   signOffNow,
@@ -116,31 +114,16 @@ export function citationSignOff(
     : null;
 }
 
-/** The mark on a calculated figure as it shows now: it rests on its result and its inputs. */
+/**
+ * A calculated figure's mark, as its row in the Note's schedule has it: the core reads what the
+ * figure was checked against. Null until the schedule is of the text as it is.
+ */
 export function calculatedFigureSignOff(
-  records: readonly SignOffRecord[],
-  figure: CalculatedFigureAttributes,
-  versions: ReadonlyMap<string, string>,
-  personId: string | null,
-): { mark: FigureMark; now: SignOffNow | null } {
-  const basis = figureSignOffBasis({
-    id: figure.id,
-    reading: { chars: figure.figure.shown },
-    calculated: figure,
-  });
-  const record = signOffOn(records, { kind: "figure", id: figure.id }, personId);
-  const now = record
-    ? signOffNow(
-        signOffShown(
-          record,
-          basis,
-          figureSignOffSources({ source: null, sourceInput: null, calculated: figure }),
-          versions,
-        ),
-        personId,
-      )
-    : null;
-  return { mark: { id: figure.id, basis, now }, now };
+  rows: readonly FigureScheduleRow[] | null,
+  figureId: string,
+): FigureMark | null {
+  const row = rows?.find((each) => each.id === figureId);
+  return row ? figureMarkOf(row) : null;
 }
 
 /** How many of the Note's items the User checked, and how many changed since they did. */
