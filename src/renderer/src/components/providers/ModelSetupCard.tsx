@@ -101,20 +101,30 @@ function ServicesProblem({
   retry(): void;
 }) {
   const t = useT();
+  const box = useRef<HTMLDivElement>(null);
+  // The problem replaces the field the focus was in, and a retry disables its own button: either
+  // leaves the focus on the page, so Try again takes it, unless the User has moved on.
+  useEffect(() => {
+    const active = document.activeElement;
+    if (retrying || (active && active !== document.body && !box.current?.contains(active))) return;
+    box.current?.querySelector("button")?.focus();
+  }, [retrying]);
   return (
     <SetupCard>
-      <ProblemLine
-        testId="setup-services-problem"
-        title={problem}
-        action={{
-          label: t("setup.services.tryAgain"),
-          testId: "setup-services-retry",
-          disabled: retrying,
-          onClick: retry,
-        }}
-      >
-        {t("setup.services.failed")}
-      </ProblemLine>
+      <div ref={box}>
+        <ProblemLine
+          testId="setup-services-problem"
+          title={problem}
+          action={{
+            label: t("setup.services.tryAgain"),
+            testId: "setup-services-retry",
+            disabled: retrying,
+            onClick: retry,
+          }}
+        >
+          {t("setup.services.failed")}
+        </ProblemLine>
+      </div>
     </SetupCard>
   );
 }

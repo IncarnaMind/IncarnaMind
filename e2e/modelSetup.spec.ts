@@ -334,9 +334,9 @@ function sortingStepsSeen(
   );
 }
 
-/** The first read of the transcription services fails and the reads after it wait for `releaseServices`. */
-function failThenHoldServices(app: ElectronApplication): Promise<void> {
-  return app.evaluate(({ ipcMain }) => {
+/** The first `failures` reads of the transcription services fail and the reads after them wait for `releaseServices`. */
+function failThenHoldServices(app: ElectronApplication, failures = 1): Promise<void> {
+  return app.evaluate(({ ipcMain }, failing) => {
     const channel = "core:listTranscriptionServices";
     const handlers = (
       ipcMain as unknown as {
@@ -353,11 +353,11 @@ function failThenHoldServices(app: ElectronApplication): Promise<void> {
     ipcMain.removeHandler(channel);
     ipcMain.handle(channel, async (event, ...args) => {
       held.reads += 1;
-      if (held.reads === 1) throw new Error("The transcription services are unavailable.");
+      if (held.reads <= failing) throw new Error("The transcription services are unavailable.");
       await released;
       return original(event, ...args);
     });
-  });
+  }, failures);
 }
 
 function releaseServices(app: ElectronApplication): Promise<void> {
@@ -728,6 +728,39 @@ for (const language of ["en", "zh-CN"] as const) {
       for (const index of [0, 1]) {
         expect(spread(frames, (frame) => buttonOf(frame, index))).toBeLessThan(0.5);
       }
+    } finally {
+      await app.evaluate(() =>
+        (globalThis as unknown as { heldServices?: { release(): void } }).heldServices?.release(),
+      );
+      await app.close();
+    }
+  });
+}
+
+for (const language of ["en", "zh-CN"] as const) {
+  test(`when the read of the transcription services fails, the focus goes to Try again, and stays there as a retry fails again (${language})`, async () => {
+    const { app, window } = await launchApp(dataDir, { fakeChat: true });
+    try {
+      await setWindowSize(app, window, 1280, 800);
+      await acceptPlainTextKeys(window);
+      await setLanguage(window, language);
+      const card = await askFirstQuestion(window);
+      await failThenHoldServices(app, 2);
+      const field = card.getByTestId("setup-key");
+      await field.fill(OPENAI_KEY);
+      await field.press("Enter");
+
+      // The problem replaces the key field the focus was in: it takes the focus.
+      const retry = card.getByTestId("setup-services-retry");
+      await expect(retry).toBeVisible({ timeout: 15_000 });
+      await expect(retry).toBeFocused();
+
+      // Enter retries, the second read fails too, and the focus is on Try again again.
+      await window.keyboard.press("Enter");
+      await expect.poll(() => servicesRead(app)).toBeGreaterThanOrEqual(2);
+      await expect(retry).toBeEnabled();
+      await expect(retry).toBeFocused();
+      await expect(card.getByTestId("setup-step-transcription")).toHaveCount(0);
     } finally {
       await app.evaluate(() =>
         (globalThis as unknown as { heldServices?: { release(): void } }).heldServices?.release(),
