@@ -162,26 +162,34 @@ test("probe: a table that widens as it is written", async () => {
       name,
     );
 
-  const film = async (on: boolean) => {
-    if (on) {
-      cdp.on("Page.screencastFrame", ({ sessionId }: { sessionId: number }) => {
-        void cdp.send("Page.screencastFrameAck", { sessionId }).catch(() => undefined);
-      });
-      await cdp.send("Page.startScreencast", { format: "jpeg", quality: 70, everyNthFrame: 1 });
-    } else {
+  let filming = false;
+  const film = async (mode: "full" | "off" | "small") => {
+    if (filming) {
+      filming = false;
       await cdp.send("Page.stopScreencast").catch(() => undefined);
     }
+    if (mode === "off") return;
+    cdp.on("Page.screencastFrame", ({ sessionId }: { sessionId: number }) => {
+      void cdp.send("Page.screencastFrameAck", { sessionId }).catch(() => undefined);
+    });
+    await cdp.send("Page.startScreencast", {
+      format: "jpeg",
+      quality: 70,
+      everyNthFrame: 1,
+      ...(mode === "small" ? { maxWidth: 720, maxHeight: 380 } : {}),
+    });
+    filming = true;
   };
 
-  for (const phase of ["A-film", "B-nofilm"] as const) {
-    await film(phase === "A-film");
+  for (const phase of ["A-film", "B-nofilm", "C-smallfilm"] as const) {
+    await film(phase === "A-film" ? "full" : phase === "B-nofilm" ? "off" : "small");
     await mark(`${phase}:start`);
     const wide = await askInAssistant(window, "What do tides do, narrow then wide");
     await expect(wide.locator("table tr")).toHaveCount(8);
     await expect(wide.getByTestId("answer-open-table")).toBeVisible();
     await mark(`${phase}:done`);
   }
-  await film(false);
+  await film("off");
 
   const probe = await window.evaluate(() => (globalThis as unknown as { probe: Probe }).probe);
   const windowOf = (name: string) => {
@@ -201,7 +209,7 @@ test("probe: a table that widens as it is written", async () => {
       gap: Math.round(frame.at - probe.frames[index].at),
     }))
     .filter((each) => each.gap > 120);
-  const summary = ["A-film", "B-nofilm"].map((name) => {
+  const summary = ["A-film", "B-nofilm", "C-smallfilm"].map((name) => {
     const events = probe.events.filter((each) => inPhase(name, each.startTime));
     const slowest = [...events].sort((a, b) => b.duration - a.duration)[0];
     const tasks = probe.tasks.filter((each) => inPhase(name, each.startTime));
