@@ -99,6 +99,12 @@ function useSidebarControl(userHidden: boolean, beforeSlide: (shows: boolean) =>
   const setHidden = useCallback(
     (next: boolean) => {
       if (next === state.current.hidden) return;
+      // Hiding what holds the focus takes it to the button that shows it again, however the
+      // sidebar is hidden: the button, the shortcut, the View menu, or the divider dragged shut.
+      if (next && !refocus.current) {
+        const active = document.activeElement;
+        refocus.current = active instanceof HTMLElement && active.closest("#sidebar") !== null;
+      }
       beforeSlide(!next);
       // Updated here before the core confirms, so the sidebar answers at once.
       previewLayout({ sidebarHidden: next });
@@ -110,10 +116,6 @@ function useSidebarControl(userHidden: boolean, beforeSlide: (shows: boolean) =>
     const active = document.activeElement;
     // Keep the focus where it was: on the button the User used, which may move, or in the page.
     refocus.current = active instanceof HTMLElement && active.dataset.testid === "sidebar-toggle";
-    if (!state.current.hidden && active instanceof HTMLElement && active.closest("#sidebar")) {
-      // Hiding what holds the focus: it goes to the button that shows it again.
-      refocus.current = true;
-    }
     setHidden(!state.current.hidden);
   }, [setHidden]);
   const takeRefocus = useCallback(() => {
