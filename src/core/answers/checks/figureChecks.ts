@@ -411,7 +411,16 @@ export async function checkFigureReply(options: FigureCheckOptions): Promise<Cla
     let sourceInput: FigureInput | null = null;
     let calculation: CalculatedFigure | null = null;
     let costs: ReadonlySet<string> = new Set();
-    if (item.source) {
+    // A saved calculation is checked by working it out again from its own inputs: a source or a
+    // calculation the model names beside it would give the verdict one number and the card another.
+    const replayed = target.calculated !== null && !target.calculated.figure.analysis;
+    if (replayed) {
+      calculation = replay(target, calculations);
+      if (!calculation) {
+        rows.push({ ...finding(target), result: unavailable() });
+        continue;
+      }
+    } else if (item.source) {
       const input = readFigureSource(calculations, target, item.source);
       if (
         "input" in input &&
@@ -446,14 +455,10 @@ export async function checkFigureReply(options: FigureCheckOptions): Promise<Cla
       continue;
     }
     target = framed;
-    const base = { ...finding(target), source: cited ?? sourceInput?.citation ?? null };
-    if (target.calculated && !target.calculated.figure.analysis) {
-      calculation = replay(target, calculations);
-      if (!calculation) {
-        rows.push({ ...base, sourceInput, result: unavailable() });
-        continue;
-      }
-    }
+    const base = {
+      ...finding(target),
+      source: replayed ? null : (cited ?? sourceInput?.citation ?? null),
+    };
     const evidence = sourceInput?.citation ?? calculation?.inputs[0]?.citation ?? null;
     const inputs = sourceInput ? [sourceInput] : (calculation?.inputs ?? []);
     const known = options.facts();

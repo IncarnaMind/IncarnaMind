@@ -640,7 +640,7 @@ test("saved formulas recheck exact UTF-16 spans without another calculate call",
     reason: "no-evidence",
   });
   const shortcut = await checkWith({ figures: [changed], body, text: reply([item()]) });
-  expect(shortcut.result.figures?.[0]?.sourceInput).not.toBeNull();
+  expect(shortcut.result.figures?.[0]?.sourceInput).toBeNull();
   expect(shortcut.result.figures?.[0]?.result).toMatchObject({
     verdict: "not-checked",
     reason: "no-evidence",
@@ -664,6 +664,41 @@ test("saved formulas recheck exact UTF-16 spans without another calculate call",
     reason: "no-evidence",
   });
   expect(retained.result.figures?.[0]?.sourceInput).toBeNull();
+});
+
+test("a saved calculation's verdict and evidence both come from working it out again, whatever source the model names", async () => {
+  const body = "📊 Revenue was £20. Another figure was £999.";
+  const first = await checkWith({
+    figures: [target("f1")],
+    body,
+    calculations: [
+      {
+        marker: 1,
+        label: "Revenue",
+        formula: "source",
+        stated: "£20",
+        relation: "equals",
+        inputs: [{ name: "source", label: "Revenue", citation: 1, position: 1 }],
+      },
+    ],
+    text: reply([{ ...item(), source: null, calculation: 1 }]),
+  });
+  const judgment = first.result.figures?.[0]?.result;
+  const figure = judgment && "calculation" in judgment ? judgment.calculation?.figure : null;
+  if (!figure) throw new Error("No real calculated fixture receipt");
+  const saved = { ...target("f1"), calculated: { id: "f1", figure, analysisId: null } };
+  const { result } = await checkWith({
+    figures: [saved],
+    body,
+    quotes: [body, "Another figure was £999."],
+    text: reply([
+      { ...item(), source: { citation: 2, number: "£999", reading: null, unitQuote: null } },
+    ]),
+  });
+  const row = result.figures?.[0];
+  expect(row?.sourceInput).toBeNull();
+  expect(row?.result.verdict).toBe("supported");
+  expect(row?.result.verdict === "not-checked" ? null : row?.result.evidence?.quote).toBe(body);
 });
 
 test("asked to record a quote its Figures line names, the model's next step must call cite", async () => {
