@@ -112,7 +112,7 @@ describe("revision worksheet row/role/revision scoring", () => {
     const score = scoreWorksheet(
       run("Total [=3]\nSuperseded comparison [=6]", current, [
         figure("Total kg", 3, [BEADS, WEIGHTS]),
-        figure("A total", 6, ["Glass beads 0.125 2 0.250", "TOTAL 0.400 kg"], 1),
+        figure("Rev A total", 6, ["Glass beads 0.125 2 0.250", "TOTAL 0.400 kg"], 1),
       ]),
     );
     expect(score.weak).toEqual([]);

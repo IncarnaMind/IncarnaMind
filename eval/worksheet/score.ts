@@ -91,7 +91,7 @@ export function scoreWorksheet(run: WorksheetRun): WorksheetScore {
   for (const input of figureInputs) {
     if (Object.values(EXPECTED).some((quote) => fullRow(input, quote))) continue;
     if (metadata(input.quote)) continue;
-    if (input.pageFrom === 1 && /^(?:a|revision a)\b|superseded|已被替代|已替代/i.test(input.label))
+    if (input.pageFrom === 1 && /^(?:a|rev a|revision a)\b|superseded|已被替代|已替代/i.test(input.label))
       continue;
     weak.push({ figure: input.figure, page: input.pageFrom, quote: input.quote });
   }
