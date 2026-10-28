@@ -31,7 +31,7 @@ const DESCRIPTIONS_ZH = [
 
 const LISTED =
   /^(?:Its name|Their names, newest first|The names of the \d+ added most recently):\n((?:- .+\n?)+)/m;
-const namesIn = (system: string): string[] => {
+export const namesIn = (system: string): string[] => {
   const list = LISTED.exec(system)?.[1] ?? "";
   return [...list.matchAll(/^- (.+)$/gm)]
     .map((match) => match[1]?.trim() ?? "")
