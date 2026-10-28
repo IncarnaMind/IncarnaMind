@@ -18,7 +18,7 @@ import { sentencesOf } from "./claimStream";
 import type { ChangeStates, MindNames } from "./toolRecord";
 
 const CALCULATION_TOOL =
-  /\b(?:calculat(?:ion|e|ing|or)|comput(?:ation|e|ing)|math|maths|arithmetic)\s+(?:tool|function)s?\b|\b(?:the|a|my|IncarnaMind['’]s)\s+calculator\b|\bIncarnaMind['’]s\s+calculations?\b(?!\s+(?:tool|function)s?\b)/gi;
+  /\b(?:calculat(?:ion|e|ing|or)|comput(?:ation|e|ing)|math|maths|arithmetic)\s+(?:tool|function)s?\b|\b(?:the|a|my|IncarnaMind['’]s)\s+calculator\b|\bIncarnaMind['’]s\s+calculations?\b(?!\s+(?:tool|function)s?\b)|\bcalculate\b/gi;
 // A Tool named is a claim only when it is said to have done something, or was used for a result.
 const ACT =
   /\b(?:confirm(?:s|ed)?|show(?:s|ed)?|give(?:s|n)?|gave|got|return(?:s|ed)?|produce[sd]?|yield(?:s|ed)?|calculate[sd]|compute[sd]|verif(?:y|ies|ied)|check(?:s|ed)|found|output(?:s|ted)?|results?|says|reports?|reported|agrees?|match(?:es|ed)?)\b|=/i;
