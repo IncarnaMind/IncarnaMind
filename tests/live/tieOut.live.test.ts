@@ -3,9 +3,9 @@
  * wrong, 3 rounded to their own shown precision and 2 totals that don't add up, checked
  * by the one Check against an invented set of accounts and its results announcement, in
  * English and in Chinese. Every wrong figure and every total that is off must need a
- * look, every rounded figure stay Supported with "Rounded from …", and the rest stay
- * Supported. Runs only with INCARNAMIND_LIVE_ANTHROPIC_KEY, so `npx vitest run` makes no
- * request without one.
+ * look and every rounded figure stay Supported with "Rounded from …", or the run fails; any
+ * other figure that isn't Supported is listed in the report as a miss. Runs only with
+ * INCARNAMIND_LIVE_ANTHROPIC_KEY, so `npx vitest run` makes no request without one.
  *
  * - INCARNAMIND_LIVE_ANTHROPIC_MODEL: the model (Claude Haiku 5.5 when unset).
  * - INCARNAMIND_LIVE_RUNS: how many times the whole memo is tied out (1 when unset).
@@ -583,6 +583,12 @@ for (const language of LANGUAGES) {
         expect(schedule.rows.map((row) => row.reading.chars)).toEqual(
           truth.map(([chars]) => chars),
         );
+        // #1932's bar: every wrong figure and every total off needs a look, and every rounded
+        // figure shows "Rounded from …" while Supported. A run that reads nothing fails it.
+        const missed = JSON.stringify(misses);
+        expect(counts.wrongFound, missed).toBe(counts.wrong);
+        expect(counts.totalsFound, missed).toBe(counts.totalsOff);
+        expect(counts.roundedShown, missed).toBe(counts.rounded);
       }
     },
   );
