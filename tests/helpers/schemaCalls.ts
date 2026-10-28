@@ -38,7 +38,9 @@ export const FIGURE = {
 /** The Answer's text when the retries are asked: one Citation without a record, one figure. */
 const ANSWER = `${QUOTE} [^1]. Gross margin rose [=1].`;
 
-const documents: AnswerTools = {
+const WINDOW = { tokens: 8_192, outputTokens: 1_024 };
+
+export const documents: AnswerTools = {
   documentCount: 1,
   async searchDocuments() {
     return {
@@ -102,22 +104,27 @@ export async function callEverySchema(model: ChatLanguageModel): Promise<AnswerE
     maxRetries: 0,
   });
 
-  const window = { tokens: 8_192, outputTokens: 1_024 };
+  const window = WINDOW;
   const request = { model, documents, signal };
   await finish(retryQuotes(request, ANSWER, undefined, createWindowBudget(window)));
   await finish(citeUnmarked(request, ANSWER, undefined, createWindowBudget(window)));
   await finish(retryFigures(request, ANSWER, undefined, createWindowBudget(window)));
+  return answerByStructuredOutput(model, documents);
+}
+
+/** An Answer written as one JSON object, for a model that can't call Tools. */
+export function answerByStructuredOutput(model: ChatLanguageModel, tools: AnswerTools = documents) {
   return finish(
     createAiSdkAnswerEngine().generate({
       instructions: () => "Answer from the Passages.",
       messages: [{ role: "user", content: "When are spring tides?" }],
       question: "When are spring tides?",
       model,
-      documents,
+      documents: tools,
       tools: [],
       support: "structured-output",
-      window,
-      signal,
+      window: WINDOW,
+      signal: new AbortController().signal,
     }),
   );
 }

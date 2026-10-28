@@ -11,7 +11,14 @@ import { afterEach, describe, expect, test, vi } from "vitest";
 import { isRecord } from "../../src/core/errors";
 import { createAiSdkChatModel } from "../../src/core/providers/models";
 import { strictSchema } from "../../src/core/providers/strictSchema";
-import { callEverySchema, FIGURE, QUOTE, SCHEMA_CALLS } from "../helpers/schemaCalls";
+import {
+  answerByStructuredOutput,
+  callEverySchema,
+  documents,
+  FIGURE,
+  QUOTE,
+  SCHEMA_CALLS,
+} from "../helpers/schemaCalls";
 import { type Reply, stubOpenAI } from "../helpers/stubOpenAI";
 
 afterEach(() => vi.unstubAllGlobals());
@@ -199,6 +206,69 @@ describe("Every reply schema the app sends to an API that enforces strict mode",
     ).toEqual(
       Object.fromEntries(Object.entries(SCHEMA_CALLS).map(([file, names]) => [file, names.length])),
     );
+  });
+});
+
+describe("An Answer by structured output, in the strict form OpenAI replies in", () => {
+  test("reads null where a property was optional as absent", async () => {
+    const [input] = FIGURE.inputs;
+    const reply = {
+      answer: `${QUOTE} [^1]. Gross margin rose [=1].`,
+      citations: [
+        { marker: 1, passage: "P1", location: null, pageFrom: null, pageTo: null, quote: QUOTE },
+      ],
+      calculations: [
+        {
+          ...FIGURE,
+          as: null,
+          decimals: null,
+          scale: null,
+          inputs: [
+            {
+              ...input,
+              passage: null,
+              location: null,
+              quote: null,
+              position: null,
+              unitQuote: null,
+              reading: null,
+              rate: null,
+            },
+          ],
+        },
+      ],
+    };
+    stubOpenAI(() => ({ text: JSON.stringify(reply) }));
+    const cited: unknown[] = [];
+    const calculated: unknown[] = [];
+    const model = createAiSdkChatModel({
+      kind: "openai",
+      baseUrl: null,
+      apiKey: "sk-test",
+      modelId: "gpt-6-luna",
+    });
+
+    const events = await answerByStructuredOutput(model, {
+      ...documents,
+      cite: (records) => {
+        cited.push(...records);
+        return "Recorded.";
+      },
+      calculate: (figures) => {
+        calculated.push(...figures);
+        return "";
+      },
+    });
+
+    expect(events.at(-1)).toEqual({ type: "finished" });
+    expect(cited[0]).toEqual({
+      marker: 1,
+      passage: "P1",
+      pageFrom: null,
+      pageTo: null,
+      quote: QUOTE,
+    });
+    expect(calculated[0]).toEqual(reply.calculations[0]);
   });
 });
 
