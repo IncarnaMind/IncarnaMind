@@ -31,7 +31,8 @@ import { translate } from "../src/shared/i18n";
 import { defaultHelpKeys, HELP_SHORTCUTS, type HelpKeys } from "../src/shared/meetingHelp";
 import type { TestHooks } from "../src/shared/testHooks";
 import { type FakeOpenAIServer, signInAt } from "../tests/helpers/fakeOpenAI";
-import { APP_ARGS, homeEnv, KEYCHAIN_ARGS } from "../tests/helpers/home";
+import { APP_ARGS, KEYCHAIN_ARGS } from "../tests/helpers/home";
+import { assertPackagedMain, lifecycleHomeEnv, mainExecutable } from "./lifecycle";
 
 const appDir = resolve(__dirname, "..");
 
@@ -43,12 +44,19 @@ if (displays.length > 0 && Number.isInteger(workerIndex)) {
   process.env.DISPLAY = displays[workerIndex % displays.length];
 }
 
+// Set by the named-specs workflow (docs/agents/testing.md): every test keeps its app's trace,
+// video and window picture, not only a failed one. Playwright's own settings leave an Electron
+// app out, so the launch opts in.
+const KEEP_ARTIFACTS = process.env.INCARNAMIND_KEEP_ARTIFACTS === "1";
+
 /**
  * The apps this test launched that are still open, by the data folder each
  * runs on: `removeDataFolder` closes them, keeping a picture of the window if
  * the test failed.
  */
 const openApps = new Map<ElectronApplication, string>();
+// Playwright’s Windows handle is a shell; cache the main PID before it can stop answering (#2022).
+const mainProcessIds = new WeakMap<ElectronApplication, number>();
 
 export interface RunningApp {
   app: ElectronApplication;
@@ -201,17 +209,6 @@ export interface LaunchOptions {
    * of the app as the User runs it.
    */
   realEngines?: boolean;
-  /**
-   * The first Word export asks whether to mark the text IncarnaMind wrote. Without this, a launch
-   * answers it "Mark it" if nobody has, so a test that exports to Word is not stopped by it;
-   * with it, the app is left asking.
-   */
-  askToMarkAiText?: boolean;
-  /**
-   * The first Word or PDF export of a Mind with Citations asks where they go. Without this, a
-   * launch answers it "Footnotes" if nobody has; with it, the app is left asking.
-   */
-  askCitationPlace?: boolean;
 }
 
 /**
@@ -279,8 +276,6 @@ export async function launchApp(
     sandboxed = false,
     sandboxNotice,
     realEngines = false,
-    askToMarkAiText = false,
-    askCitationPlace = false,
   }: LaunchOptions = {},
 ): Promise<RunningApp> {
   const env: Record<string, string> = {};
@@ -334,7 +329,7 @@ export async function launchApp(
     if (usageData.testerBuild) env.INCARNAMIND_TEST_TESTER_BUILD = "1";
   }
   const appHome = home ?? (await mkdtemp(join(tmpdir(), "incarnamind-home-")));
-  Object.assign(env, homeEnv(appHome));
+  Object.assign(env, lifecycleHomeEnv(appHome));
   if (referenceLookup) env.INCARNAMIND_TEST_REFERENCE_LOOKUP = referenceLookup;
   if (sources) env.INCARNAMIND_TEST_SOURCES = sources;
   if (connectorDirectory) env.INCARNAMIND_TEST_CONNECTOR_DIRECTORY = connectorDirectory;
@@ -362,21 +357,30 @@ export async function launchApp(
   }
   if (transcriber) env.INCARNAMIND_TEST_TRANSCRIBER_OPTIONS = JSON.stringify(transcriber);
 
+  const packaged = process.env.INCARNAMIND_PACKAGED_APP !== undefined;
   const app = await electron.launch({
+    ...(packaged && { executablePath: mainExecutable() }),
     args: [
       ...KEYCHAIN_ARGS,
       ...(sandboxNotice === "switch" ? ["--no-sandbox"] : []),
-      appDir,
+      ...(packaged ? [] : [appDir]),
       ...APP_ARGS,
     ],
     env,
     chromiumSandbox: sandboxed || sandboxNotice === "environment" || sandboxNotice === "on",
+    ...(KEEP_ARTIFACTS && {
+      recordVideo: { dir: test.info().outputPath("video", basename(dataDir)) },
+    }),
   });
+  if (KEEP_ARTIFACTS) await keepOnClose(app, dataDir);
   openApps.set(app, dataDir);
   app.on("close", () => {
     openApps.delete(app);
+    mainProcessIds.delete(app);
     if (!home) void rm(appHome, { recursive: true, force: true, maxRetries: 3 });
   });
+  mainProcessIds.set(app, await app.evaluate(() => process.pid));
+  await assertPackagedMain(app);
   const window = await app.firstWindow();
   await window.getByTestId("plus-menu").waitFor();
   await waitUntilLive(app, window);
@@ -386,7 +390,6 @@ export async function launchApp(
       message: `the window is ${WINDOW_SIZE.width} × ${WINDOW_SIZE.height}: is the screen too short for it?`,
     });
   }
-  await answerExportQuestions(window, !askToMarkAiText, !askCitationPlace);
   return { app, window };
 }
 
@@ -428,32 +431,6 @@ async function waitUntilLive(app: ElectronApplication, window: Page): Promise<vo
   } finally {
     clearTimeout(timer);
   }
-}
-
-async function answerExportQuestions(
-  window: Page,
-  markAiText: boolean,
-  citationPlace: boolean,
-): Promise<void> {
-  await window.evaluate(
-    async ([mark, place]) => {
-      const bridge = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
-      const { exportOptions } = (await bridge.getSettings()).user;
-      const docx =
-        mark && exportOptions.docx.markAiText === null
-          ? { ...exportOptions.docx, markAiText: "mark" as const }
-          : exportOptions.docx;
-      const citations =
-        place && exportOptions.citationPlace === undefined
-          ? { citationPlace: "footnotes" as const }
-          : {};
-      if (docx === exportOptions.docx && Object.keys(citations).length === 0) return;
-      await bridge.updateSettings({
-        user: { exportOptions: { ...exportOptions, docx, ...citations } },
-      });
-    },
-    [markAiText, citationPlace],
-  );
 }
 
 /**
@@ -632,9 +609,12 @@ export const notificationsShown = (app: ElectronApplication) =>
 
 /** Force-quits the app as a crash would: its process killed, nothing saved on the way out. */
 export async function forceQuit(app: ElectronApplication): Promise<void> {
-  const exited = new Promise<void>((resolve) => app.process().once("exit", () => resolve()));
-  app.process().kill("SIGKILL");
-  await exited;
+  const pid = mainProcessIds.get(app);
+  if (!openApps.has(app) || pid === undefined)
+    throw new Error("The app was not launched by this test or has already closed.");
+  const closed = new Promise<void>((resolve) => app.once("close", () => resolve()));
+  process.kill(pid, "SIGKILL");
+  await closed;
 }
 
 /** Chooses an editing command, as the application menu has it now. */
@@ -656,7 +636,7 @@ export const editItem = (app: ElectronApplication, id: "edit.undo" | "edit.redo"
   }, id);
 
 /**
- * "New Mind" from the sidebar header's "+" menu, the one place to add: a Mind
+ * "New note" from the sidebar header's "+" menu, the one place to add: a Mind
  * in no Folder. Returns once its first line has the cursor: keys a test
  * presses a millisecond apart can outrun the editor while frames are busy.
  * That line starts as an empty title; unless `title`, Backspace makes
@@ -801,6 +781,38 @@ export async function tagDocument(window: Page, documentName: string, tagName: s
   ).toBeAttached();
 }
 
+/**
+ * Makes a Tag and puts it on a Document of the User's own (the first one, or one by name): the
+ * footer names Tags only once one exists (#1942).
+ */
+export async function makeTagOnDocument(
+  window: Page,
+  documentName?: string,
+  tagName = "Files",
+): Promise<void> {
+  await expect
+    .poll(() =>
+      window.evaluate(
+        async () =>
+          (await (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind.listDocuments())
+            .length,
+      ),
+    )
+    .toBeGreaterThan(0);
+  await window.evaluate(
+    async (wanted: { document?: string; tag: string }) => {
+      const core = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
+      const documents = await core.listDocuments();
+      const named = wanted.document;
+      const document = named ? documents.find((each) => each.name.startsWith(named)) : documents[0];
+      if (!document) throw new Error("No Document to tag.");
+      const tag = await core.createTag({ name: wanted.tag, description: "" });
+      await core.addTagToDocuments([document.id], tag.id);
+    },
+    { document: documentName, tag: tagName },
+  );
+}
+
 /** Manage Tags, from ⌘K, in the interface's language. */
 export async function openManageTags(window: Page, language: "en" | "zh-CN" = "en"): Promise<void> {
   const label = translate(language, "tags.menu.manage");
@@ -844,14 +856,38 @@ export async function ollamaListing(models: string[], { delayMs = 0 }: { delayMs
 }
 
 /**
- * Continue on the setup card, once a key or sign-in works and the card says what each job uses:
- * the Question that waited is asked then, and the composer takes the card's place.
+ * Steps 2 and 3 of the setup card, once a key or sign-in works (#1922): each is one click, and
+ * the composer takes the card's place. The Question that waited is asked as step 1 works.
  */
 export async function continueSetup(window: Page): Promise<void> {
-  const next = window.getByTestId("setup-continue");
-  await expect(next).toBeVisible();
-  await pointAndClick(window, next);
-  await expect(window.getByTestId("model-setup")).toBeHidden();
+  const card = window.getByTestId("model-setup");
+  await expect(card.getByTestId("setup-ready-title")).toBeVisible({ timeout: 15_000 });
+  const transcription = card.getByTestId("setup-transcription-use");
+  if (await transcription.isVisible()) await pointAndClick(window, transcription);
+  const sorting = card.getByTestId("setup-sorting-use");
+  await expect(sorting).toBeVisible();
+  await expect(sorting).toBeEnabled();
+  await pointAndClick(window, sorting);
+  await expect(card).toBeHidden();
+}
+
+/**
+ * Opens the key form where a key's own form names no service we list (#1922): the field says so,
+ * and its way on picks the service.
+ */
+export async function openServiceList(
+  window: Page,
+  card: Locator,
+  key = "sk-unknown",
+): Promise<void> {
+  const field = card.getByTestId("setup-key");
+  await field.fill(key);
+  await field.press("Enter");
+  await pointAndClick(window, card.getByTestId("setup-key-choose-service"));
+  const form = card.getByTestId("provider-form");
+  await expect(form).toBeVisible();
+  // The key only reached the list: the form starts as it would from Settings.
+  await form.locator('input[type="password"]').fill("");
 }
 
 /**
@@ -939,13 +975,17 @@ export async function addProviderPage(settings: Locator, catalogId: string): Pro
   return page;
 }
 
-/** In Settings › Models, opens Advanced while it's folded (#1570). Returns the Tagging section in it. */
+/**
+ * In Settings › Models, opens Advanced (#1570). Returns the Tagging section in it. It may already
+ * be open, as it is once first run has chosen what sorts (#1922).
+ */
 export async function openAdvancedModels(settings: Locator): Promise<Locator> {
   const advanced = settings.getByTestId("models-advanced");
   const toggle = advanced.getByTestId("models-advanced-toggle");
   await expect(toggle).toBeVisible();
-  await expect(advanced).not.toHaveAttribute("open");
-  await toggle.click();
+  if (!(await advanced.evaluate((element) => element.hasAttribute("open")))) {
+    await toggle.click();
+  }
   await expect(advanced).toHaveAttribute("open", "");
   const tagging = advanced.getByTestId("tagging-settings");
   await expect(tagging).toBeVisible();
@@ -968,8 +1008,7 @@ export async function recordMeeting(window: Page): Promise<Locator> {
   const plus = window.getByTestId("plus-menu");
   await plus.hover();
   await plus.click();
-  await window.getByTestId("plus-more").click();
-  await window.getByRole("menuitem", { name: "Record a meeting" }).click();
+  await window.getByTestId("plus-record-meeting").click();
   const start = window.getByTestId("meeting-start");
   await expect(start).toBeVisible();
   return start;
@@ -980,8 +1019,7 @@ export async function recordMeetingNow(window: Page): Promise<Locator> {
   const plus = window.getByTestId("plus-menu");
   await plus.hover();
   await plus.click();
-  await window.getByTestId("plus-more").click();
-  await window.getByRole("menuitem", { name: "Record a meeting" }).click();
+  await window.getByTestId("plus-record-meeting").click();
   const bar = window.getByTestId("meeting-bar");
   await expect(bar).toHaveAttribute("data-status", "recording");
   return bar;
@@ -1289,8 +1327,7 @@ export async function previewLink(
   if (button) await button.click();
   else {
     await window.getByTestId("plus-menu").click();
-    await window.getByTestId("plus-more").click();
-    await window.getByTestId("plus-link-folder").click();
+    await window.getByTestId("plus-add-documents").click();
   }
   const dialog = window.getByTestId("link-folder-dialog");
   await expect(dialog).toBeVisible();
@@ -1538,7 +1575,7 @@ async function resizeContent(
  */
 async function keepWhatTheAppWasDoing(app: ElectronApplication): Promise<string> {
   const info = test.info();
-  const pid = app.process().pid;
+  const pid = mainProcessIds.get(app);
   let sampled = false;
   // The failure being reported can already have used most of the test's time: the sample may
   // take no more than what is left, or the report itself would never be made.
@@ -2045,7 +2082,7 @@ export async function checkCard(window: Page, scope: Page | Locator = window): P
       }).toPass();
     } else {
       const chinese = (await window.evaluate(() => document.documentElement.lang)) === "zh-CN";
-      const command = chinese ? "句子和引用" : "Sentences and Citations";
+      const command = chinese ? "说法和引用" : "Claims and Citations";
       await window.keyboard.press("ControlOrMeta+k");
       await expect(window.getByTestId("palette-search")).toBeFocused();
       await window.keyboard.type(command);
@@ -2829,6 +2866,33 @@ export async function stubClipboard(window: Page) {
 /** A fresh, empty data folder. Remove it with `removeDataFolder`. */
 export const createDataFolder = () => mkdtemp(join(tmpdir(), "incarnamind-smoke-"));
 
+/**
+ * Makes closing the app, by the test or by `removeDataFolder`, first keep its window as it is
+ * and its trace with the test's results; the video is finished by the close itself.
+ */
+async function keepOnClose(app: ElectronApplication, dataDir: string): Promise<void> {
+  await app.context().tracing.start({ screenshots: true, snapshots: true });
+  const close = app.close.bind(app);
+  let kept = false;
+  app.close = async () => {
+    if (!kept) {
+      kept = true;
+      const info = test.info();
+      const window = app.windows()[0];
+      if (window) {
+        const path = info.outputPath(`app-window-${basename(dataDir)}.png`);
+        const shot = await window.screenshot({ path }).catch(() => undefined);
+        if (shot) await info.attach("app-window", { path, contentType: "image/png" });
+      }
+      await app
+        .context()
+        .tracing.stop({ path: info.outputPath(`trace-${basename(dataDir)}.zip`) })
+        .catch((error: unknown) => console.warn(`The app's trace was not kept: ${error}`));
+    }
+    return close();
+  };
+}
+
 /** Closes an app, and kills it if it hasn't quit in 10 s, so one stuck app can't hold up the worker. */
 async function closeOrKill(app: ElectronApplication): Promise<void> {
   const quit = app.close().catch(() => undefined);
@@ -2836,8 +2900,11 @@ async function closeOrKill(app: ElectronApplication): Promise<void> {
   const stuck = new Promise<"stuck">((resolve) => {
     timer = setTimeout(() => resolve("stuck"), 10_000);
   });
-  if ((await Promise.race([quit, stuck])) === "stuck") app.process().kill("SIGKILL");
-  clearTimeout(timer);
+  try {
+    if ((await Promise.race([quit, stuck])) === "stuck") await forceQuit(app);
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 /**
@@ -2851,14 +2918,14 @@ export async function removeDataFolder(dataDir: string): Promise<void> {
   const info = test.info();
   for (const [app, folder] of [...openApps]) {
     if (folder !== dataDir) continue;
-    openApps.delete(app);
     const window = app.windows()[0];
-    if (info.status !== info.expectedStatus && window) {
+    if (!KEEP_ARTIFACTS && info.status !== info.expectedStatus && window) {
       const path = info.outputPath("app-window.png");
       const shot = await window.screenshot({ path }).catch(() => undefined);
       if (shot) await info.attach("app-window", { path, contentType: "image/png" });
     }
     await closeOrKill(app);
+    openApps.delete(app);
   }
   // The app's log goes with a failed test's traces: what happened on CI's machine is gone after.
   const log = join(dataDir, "logs", "incarnamind.log");
@@ -2930,11 +2997,13 @@ export async function menuCommands(menu: Locator): Promise<string[]> {
   );
 }
 
-/** Clicks the empty foot of the sidebar's tree, so the focus isn't in text and ⌘Z goes to the app's changes. */
+/** Clicks the empty top padding of the sidebar's tree, so the focus isn't in text and ⌘Z goes to the app's changes. */
 export async function leaveText(window: Page): Promise<void> {
   const box = await window.getByTestId("sidebar-tree").boundingBox();
   if (!box) throw new Error("The sidebar isn't showing.");
-  await window.mouse.move(box.x + box.width / 2, box.y + box.height - 8, { steps: 8 });
+  // The top padding: the foot moves as the footer's lines come and go, and a click meant to
+  // leave the text must never land on a row or the undo line.
+  await window.mouse.move(box.x + box.width / 2, box.y + 4, { steps: 8 });
   await window.mouse.down();
   await window.mouse.up();
 }
@@ -2980,16 +3049,20 @@ export async function fontsDrawing(window: Page, selector: string) {
   }
 }
 
+/** What the local decision server says when it refuses a Document: the reason a row shows. */
+export const DECISION_FAILURE = "The model stopped answering";
+
 /**
  * A local decision server like Ollama's `/v1/systemone` (no model): a Folder chosen by what the
  * Document says (`folderFor`: Finance for an invoice, Reports otherwise), Invoice in the review
  * band for an invoice, Report likely for a report, nothing else. `requests` counts what it was asked;
- * `delayMs` holds each answer back, for a test that does something else while Organize works.
+ * `delayMs` holds each answer back, for a test that does something else while Organize works;
+ * `failFor` refuses those Documents, as a model that stops answering does.
  */
 export async function decisionServer(
   folderFor: (text: string) => string = (text) =>
     text.includes("invoice") ? "Finance" : "Reports",
-  { delayMs = 0 }: { delayMs?: number } = {},
+  { delayMs = 0, failFor }: { delayMs?: number; failFor?: (text: string) => boolean } = {},
 ): Promise<{ server: Server; readonly requests: number }> {
   let requests = 0;
   const server = createServer(async (request, response) => {
@@ -3004,6 +3077,11 @@ export async function decisionServer(
     requests++;
     if (delayMs > 0) await new Promise((resolve) => setTimeout(resolve, delayMs));
     const text = JSON.stringify(body.state).toLowerCase();
+    if (failFor?.(text)) {
+      response.statusCode = 400;
+      response.end(JSON.stringify({ detail: DECISION_FAILURE }));
+      return;
+    }
     const answers = Object.fromEntries(
       Object.entries(
         body.questions as Record<
@@ -3041,3 +3119,20 @@ export async function decisionServer(
     },
   };
 }
+
+/**
+ * What the one way in says on this machine: macOS takes files and a folder in
+ * one sheet; Windows and Linux offer files, so the words say files (#1942).
+ */
+export const addFilesLabel = (language: "en" | "zh-CN") =>
+  process.platform === "darwin"
+    ? language === "en"
+      ? "Add files or a folder…"
+      : "添加文件或文件夹…"
+    : language === "en"
+      ? "Add files…"
+      : "添加文件…";
+
+/** Its label's message key, for the menus and ⌘K that show it. */
+export const addFilesLabelKey =
+  process.platform === "darwin" ? "documents.add.filesOrFolder" : "startGuide.documents.addFiles";

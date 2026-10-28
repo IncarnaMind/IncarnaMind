@@ -33,9 +33,15 @@
  * Word export reads them too, for review (`ReadOptions.review`, #107).
  */
 import * as Y from "yjs";
+import { originOf } from "../shared/blockOrigins";
 import { type ChartAttributes, chartSources, chosenSeries, readChart } from "../shared/charts";
 import { type RecheckReason, readClaimCheck } from "../shared/claimChecks";
-import { cellProblemMessage, comparisonCellOf, comparisonQuestionsOf } from "../shared/comparisons";
+import {
+  cellProblemMessage,
+  comparisonCellOf,
+  comparisonNameOf,
+  comparisonQuestionsOf,
+} from "../shared/comparisons";
 import { type MessageKey, type MessageParams, translate } from "../shared/i18n";
 import { citationLocation } from "../shared/locations";
 import type { TableAlign } from "../shared/markdownTables";
@@ -56,6 +62,7 @@ import type { ScopeKind } from "../shared/searchScope";
 import { readWordAtom, wordAtomText } from "../shared/wordFiles";
 import {
   ANSWER_BLOCK,
+  BLOCK_ID_ATTRIBUTE,
   CHART_NODE,
   CITATION_NODE,
   type CitedWork,
@@ -441,6 +448,34 @@ export function firstLineOf(blocks: Y.XmlFragment): string {
   return "";
 }
 
+/**
+ * What a Mind's export file is called (#1945): the words of its first Block that has any, as it
+ * reads, and the Question that made them when an Answer wrote them — a sentence from an Answer
+ * says less about the note than the Question did. A heading is a title, so it names the file
+ * itself. Neither is cut here: a file name is cut only where a file name can't hold it.
+ */
+export function namedLineOf(blocks: Y.XmlFragment): { line: string; question: string } {
+  for (const block of blocks.toArray()) {
+    if (
+      !(block instanceof Y.XmlElement) ||
+      block.nodeName === ANSWER_BLOCK ||
+      block.nodeName === COMPARISON_TABLE_NODE
+    ) {
+      continue;
+    }
+    const line = firstText(block).trim();
+    if (line === "") continue;
+    const id = block.getAttribute(BLOCK_ID_ATTRIBUTE);
+    const doc = blocks.doc;
+    const question =
+      block.nodeName === "heading" || typeof id !== "string" || doc === null
+        ? ""
+        : (originOf(doc, id)?.question.trim() ?? "");
+    return { line, question };
+  }
+  return { line: "", question: "" };
+}
+
 /** How many Question Blocks the Mind has. */
 export function countQuestions(blocks: Y.XmlFragment): number {
   return blocks
@@ -715,7 +750,7 @@ function readComparison(table: Y.XmlElement, options: ReadOptions): TableCell[][
   return [
     [
       cell(words(say("comparison.document")), true),
-      ...questions.map((question) => cell(words(question.text), true)),
+      ...questions.map((question) => cell(words(comparisonNameOf(question)), true)),
     ],
     ...rows.map((row) => [
       cell(words(row.name)),

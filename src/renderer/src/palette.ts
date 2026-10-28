@@ -45,6 +45,7 @@ import { refKey } from "./selectionModel";
 import { moveFromPalette } from "./sidebarMoves";
 import { useAppStore } from "./store";
 import { findTab } from "./tabs";
+import { taskAt } from "./taskFocus";
 
 const NOTHING: CommandContext = { selection: [], focus: null, surface: "palette" };
 
@@ -76,6 +77,7 @@ function acting(
     ...NOTHING,
     ...on,
     place: placeAt(active),
+    task: taskAt(active),
     here: { "mind.moveTo": moveTo, "document.moveTo": moveTo, ...here },
   };
 }

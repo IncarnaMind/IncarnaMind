@@ -7,10 +7,17 @@ import type { Editor } from "@tiptap/core";
 
 const open = new Map<string, Editor[]>();
 const waiting = new Map<string, ((editor: Editor) => void)[]>();
+const opened = new Set<(mindId: string, editor: Editor) => void>();
+
+export function onMindEditorOpen(listener: (mindId: string, editor: Editor) => void): () => void {
+  opened.add(listener);
+  return () => opened.delete(listener);
+}
 
 export function registerMindEditor(mindId: string, editor: Editor): () => void {
   open.set(mindId, [...(open.get(mindId) ?? []), editor]);
   for (const resolve of waiting.get(mindId) ?? []) resolve(editor);
+  for (const listener of opened) listener(mindId, editor);
   waiting.delete(mindId);
   return () => {
     const left = (open.get(mindId) ?? []).filter((each) => each !== editor);

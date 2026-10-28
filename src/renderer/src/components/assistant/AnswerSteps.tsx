@@ -349,6 +349,8 @@ function liveText(
       return checkingWords(t, step.count);
     case "checking-figures":
       return t("answer.phase.checking-figures");
+    case "checking-claims":
+      return t("answer.phase.checking-claims");
   }
 }
 
@@ -643,6 +645,16 @@ function StepItem({
         >
           <SkillRow name={row.name} use={row.use} reads={row.reads} />
         </li>
+      );
+    case "asked-again":
+      return (
+        <Step kind={row.kind} icon={<SparkLineIcon />}>
+          {row.tools.map((tool) => (
+            <p key={tool} data-testid="answer-asked-again" className="answer-step-title">
+              {t(tool === "search" ? "steps.askedAgain.search" : "steps.askedAgain.calculate")}
+            </p>
+          ))}
+        </Step>
       );
     case "calculated":
       return (

@@ -5,9 +5,9 @@ import { type MessageKey, type MessageParams, translate } from "../../src/shared
 
 /*
  * The lines under an Answer whose writes were checked before they landed
- * (#1111, #1909): "1 sentence couldn't be checked · Check again" and
- * "Checked 12 of 20 sentences · Check the rest", counting every claim the
- * write holds, cited or not.
+ * (#1111, #1909): "1 sentence couldn't be checked · Check" and "Checked 12 of
+ * 20 sentences · Check", one action for everything left, counting every claim
+ * the write holds, cited or not.
  */
 
 let calls = 0;
@@ -59,7 +59,7 @@ describe("What a write's check left to do", () => {
     ).toHaveLength(1);
   });
 
-  // protects=the lines say how many couldn't be checked and why, with the action that can help, and the left line counts what no check covers, not what was sent; fails_when=a failure overstates the count, a left or limited run offers Check again, or a plan's limit hides when it resumes; no_claim=design's final words beyond these.
+  // protects=the lines say how many couldn't be checked and why, with the action that can help, and the left line counts what no check covers, not what was sent; fails_when=a failure overstates the count, a left or limited run offers a second action's name, or a plan's limit hides when it resumes; no_claim=design's final words beyond these.
   test("the lines say how many couldn't be checked and why, and the left line says what is left", () => {
     const words = (language: "en" | "zh-CN", check: Parameters<typeof selfCheckLines>[0]) =>
       selfCheckLines(
@@ -80,13 +80,13 @@ describe("What a write's check left to do", () => {
         kind: "failed",
         text: "2 sentences couldn’t be checked",
         details: [],
-        action: { label: "Check again", does: "check" },
+        action: { label: "Check", does: "check" },
       },
       {
         kind: "left",
         text: "Checked 10 sentences",
         details: [],
-        action: { label: "Check the rest", does: "check" },
+        action: { label: "Check", does: "check" },
       },
     ]);
     // The write's own live left, by the one count: the card's unit, 10 then 0 (#1909).
@@ -103,7 +103,7 @@ describe("What a write's check left to do", () => {
         kind: "left",
         text: "Checked 10 sentences · 10 claims not checked yet",
         details: [],
-        action: { label: "Check the rest", does: "check" },
+        action: { label: "Check", does: "check" },
       },
     ]);
     expect(live(0)).toEqual([
@@ -151,8 +151,8 @@ describe("What a write's check left to do", () => {
     expect(words("zh-CN", limited)[0]?.details[0]).toMatch(/ 恢复$/);
   });
 
-  // protects=sentences the User's own choice kept from being sent (sending turned off, Local mode) say so, each with its one form and no Check again, the others failed still offering it; fails_when=the line reads as a plain failure, offers Check again, or counts sentences that failed otherwise as blocked; no_claim=the words beyond the approved copy.
-  test("sentences kept from being sent say why in both languages, with no Check again", () => {
+  // protects=sentences the User's own choice kept from being sent (sending turned off, Local mode) say so, each with its one form and no Check, the others failed still offering it; fails_when=the line reads as a plain failure, offers Check, or counts sentences that failed otherwise as blocked; no_claim=the words beyond the approved copy.
+  test("sentences kept from being sent say why in both languages, with no Check", () => {
     const lines = (
       language: "en" | "zh-CN",
       selfCheck: Omit<Parameters<typeof selfCheckLines>[0], "mindId">,
@@ -205,7 +205,7 @@ describe("What a write's check left to do", () => {
       lines("zh-CN", { ...write, failed: 1, blocked: { reason: "local-mode", count: 1 } })[0]?.text,
     ).toBe("1 句未能核对：所有内容都留在这台电脑上");
 
-    // Some failed for another reason: those still offer Check again, and are counted alone.
+    // Some failed for another reason: those still offer Check, and are counted alone.
     expect(
       lines("en", { ...write, failed: 3, blocked: { reason: "consent-revoked", count: 2 } }),
     ).toEqual([
@@ -217,7 +217,7 @@ describe("What a write's check left to do", () => {
       {
         kind: "failed",
         text: "1 sentence couldn’t be checked",
-        action: { label: "Check again", does: "check" },
+        action: { label: "Check", does: "check" },
       },
     ]);
     // A cap or a plan's limit that stopped the run is the line, as before.

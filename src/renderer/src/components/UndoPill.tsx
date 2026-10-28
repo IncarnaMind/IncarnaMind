@@ -2,7 +2,7 @@ import { type RefObject, useContext, useLayoutEffect, useRef } from "react";
 import { visibleGroupsOf } from "../layoutSlice";
 import { useFade } from "../motion";
 import { useAppStore } from "../store";
-import { type UndoLineState, useUndo } from "../undo";
+import { lineShownAt, type UndoLineState, useUndo } from "../undo";
 import {
   bandsUnderPill,
   type PageUnderPill,
@@ -21,7 +21,7 @@ import { UndoLineBody } from "./UndoLine";
  */
 export function UndoPill() {
   const sidebar = useContext(SidebarControlContext);
-  const line = useUndo((state) => state.line);
+  const line = useUndo((state) => (lineShownAt(state) === null ? state.line : null));
   const place = useRef<HTMLDivElement>(null);
   const merged = useGroupsMerged();
   // Every page on screen, by the tab in front of it: a page brought forward is when to measure again.
@@ -32,7 +32,7 @@ export function UndoPill() {
           .join("|")
       : "",
   );
-  const shown = showsUndoPill(sidebar) && line !== null && !line.change?.shownAt;
+  const shown = showsUndoPill(sidebar) && line !== null;
   usePillBands(place, shown, shown && line ? line.id : null, onScreen);
   if (!showsUndoPill(sidebar)) return null;
   return (
@@ -43,7 +43,7 @@ export function UndoPill() {
       data-testid="undo-pill-place"
       className="undo-pill-place"
     >
-      {line && !line.change?.shownAt && <Pill key={line.id} line={line} />}
+      {line && <Pill key={line.id} line={line} />}
     </div>
   );
 }

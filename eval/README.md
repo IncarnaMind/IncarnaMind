@@ -489,6 +489,7 @@ The check now ignores letter case, reads "[^3]" as "[3]", and finds a quote with
   - `citations.ts`: asks Questions, reads Answers, and scores Citations.
   - `timing.ts`, `timingReport.ts` and `handed.ts`: where an Answer's time went, how the reports show it, and whether searches handed the model what the Question needs.
   - `report.ts`: the reports and the summary.
+  - `notes.ts`: what an Answer left in a Mind, for the reports and the Skills.
   - `dumps.ts`: writes a set's dump (see Offline scoring); `commit.ts`: the commit a run was made at.
 - **Evaluation set:**
   - `retrieval/questions.json`: the Questions.
@@ -504,6 +505,7 @@ The check now ignores letter case, reads "[^3]" as "[3]", and finds a quote with
   - `tests/eval/smallModelCitations.test.ts` shows, without a model, the ways a small model's Citations of the gating set's long PDFs aren't found (#67): records written by hand, through the core's citation session, over the stored text of their pages.
   - `tests/eval/formatSet.test.ts` checks the every-format set against the stored text; `tests/eval/formatScoring.test.ts`, its figures and reports; `tests/eval/formatCitations.test.ts`, the Citation check on every Location kind.
   - `tests/eval/checkSet.test.ts` checks the checks evaluation's labels against the stored text; `tests/eval/checkScoring.test.ts`, its scoring; `tests/eval/checkPipeline.test.ts`, its pipeline through a core with a scripted model.
+  - `tests/eval/skillCases.test.ts` checks the finance and law Skills' case table: six Skills, each in both languages, with its invented Documents.
 
 ## The checks evaluation
 
@@ -532,3 +534,7 @@ The check before building the Library's grouping (#51) found that clustering Doc
 ## Reports from a cited Mind
 
 `npm run eval:reports` turns a Mind whose Notes cite two sample papers (6 Citations, in English and in Chinese, and 20) into a report with the built-in Skill "mind-to-report" forced, on a real chat model, in the Answer and in a new Mind (#1800). Each run counts the claims kept with a working Citation that opens the Mind's Location (and how many are its very record), the claims kept with none (a model judges that), every source or id left as text in the report and its Markdown export, and how often the app had to make an id written as text its Citation. `INCARNAMIND_EVAL_REPORTS` lists case ids (`reports/cases.ts`), `INCARNAMIND_EVAL_REPORTS_RUNS` sets the runs of each (10). About $0.003 a run on Claude Haiku 5.5 and $0.08 on Sonnet 5.5.
+
+## The finance and law Skills
+
+`npm run eval:skills` forces each built-in finance and law Skill in turn — covenant summary, CIM red flags, earnings review, credit memo outline, deposition summary and chronology — on a real chat model, over invented English and Chinese Documents in `skills/documents/` (#1938). Every run must write a note rather than answer in the panel; the note must state its case's facts; every Citation in it must be found by the app's own check; and no marker may stand without its Citation. `INCARNAMIND_EVAL_SKILLS` lists case ids (`skills/cases.ts`). Each run's note and verdicts go into `eval/results/<start time>-skills/report.md`.

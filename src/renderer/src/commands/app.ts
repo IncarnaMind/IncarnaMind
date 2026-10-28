@@ -13,7 +13,7 @@ import { useFindSources } from "../findSources";
 import { useHistory } from "../history";
 import { translateNow } from "../i18n";
 import { startSkillFromMind } from "../makeSkill";
-import { showCheckCard, startCheckThisMind, startMindCheck } from "../mindCheck";
+import { showCheckCard, startCheck, startMindCheck } from "../mindCheck";
 import { useMindTools } from "../mindTools";
 import { forgetNewMindKeys, holdNewMindKeys } from "../newMindKeys";
 import { citationStepOpen } from "../nudges";
@@ -38,7 +38,13 @@ import { feedbackCommands } from "./feedback";
 import { fileCommands } from "./fileInfo";
 import { footnoteCommands } from "./footnotes";
 import { formatCommands } from "./format";
-import { citationHandle, findHandle, readMindHandle, sidebarHandle } from "./handles";
+import {
+  citationHandle,
+  findHandle,
+  homeNextHandle,
+  readMindHandle,
+  sidebarHandle,
+} from "./handles";
 import { languageCommands } from "./language";
 import { libraryCommands } from "./library";
 import { linkCommands } from "./links";
@@ -287,6 +293,15 @@ const appCommands: readonly Command[] = [
     },
   },
   {
+    id: "home.nextStep",
+    label: (_ctx, t) => homeNextHandle.current?.label ?? t("home.next.command"),
+    group: "main",
+    top: 9,
+    reversible: true,
+    when: () => homeNextHandle.current !== null && !homeNextHandle.current.busy,
+    run: () => homeNextHandle.current?.run(),
+  },
+  {
     id: "mind.check",
     label: "mindCheck.command",
     purpose: "mindCheck.command.purpose",
@@ -298,7 +313,7 @@ const appCommands: readonly Command[] = [
     when: (ctx) => onlyOne(ctx) && mindShown(ctx) !== null,
     run: (ctx) => {
       const mindId = mindShown(ctx);
-      if (mindId) return startCheckThisMind(mindId);
+      if (mindId) return startCheck(mindId);
     },
   },
   {

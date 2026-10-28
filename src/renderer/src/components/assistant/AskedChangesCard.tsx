@@ -1,7 +1,9 @@
+import { appliedWaiting } from "../../../../shared/proposals";
 import {
   type AskedOutcome,
   reviewAsked,
   undoAsked,
+  useAcceptedChanges,
   useAskedFacts,
   useAskedReview,
   useAskedState,
@@ -11,7 +13,7 @@ import type { ChangedMind } from "../../changedMinds";
 import { appliedFact, changeFact, keptText, leftText } from "../../changeFacts";
 import { shortcutLabel } from "../../commands/keymap";
 import { useT } from "../../i18n";
-import { showChanges, type Waiting } from "../../mindChanges";
+import { showChanges, type WaitingRow } from "../../mindChanges";
 import { PencilLineIcon } from "../lineIcons";
 import { useReadMindId } from "./readMind";
 
@@ -36,13 +38,13 @@ export function AskedChangesCard({
   answerId: string;
   rows: readonly ChangedMind[];
   outcomes: Readonly<Record<string, AskedOutcome>>;
-  waiting: readonly Waiting[];
+  waiting: readonly WaitingRow[];
   nameOf(row: ChangedMind): string;
 }) {
   const t = useT();
   const applied = rows.filter((row) => outcomes[row.mindId] !== undefined);
   const also = rows.flatMap((row, index) => {
-    const count = waiting[index];
+    const count = waiting[index]?.count;
     return outcomes[row.mindId] === undefined && typeof count === "number" && count > 0
       ? [{ row, count }]
       : [];
@@ -91,16 +93,23 @@ function AskedRow({
   answerId: string;
   row: ChangedMind;
   outcome: AskedOutcome | undefined;
-  waiting: Waiting | undefined;
+  waiting: WaitingRow | undefined;
   name: string;
 }) {
   const t = useT();
   const facts = useAskedFacts(answerId, row.mindId) ?? row;
-  // Applied, what still waits there is what the User didn't ask for.
+  const accepted = useAcceptedChanges(answerId, row.mindId);
+  const settled =
+    typeof waiting?.count === "number" ? appliedWaiting(waiting.pending, accepted) : null;
   const left =
-    outcome === "held" || (outcome === "applied" && typeof waiting === "number" && waiting > 0)
-      ? leftText(t, row, waiting)
-      : null;
+    outcome === "held"
+      ? leftText(t, row, waiting?.count ?? null)
+      : outcome === "applied" && settled !== null && settled.count > 0
+        ? leftText(t, row, settled.count)
+        : null;
+  // The count keeps its room from the first frame of the applied row; it shows once the Mind's copy
+  // has the apply, so it neither shows what was taken nor moves anything when it appears (#1325).
+  const shown = outcome === "held" || settled === null || settled.settled;
   const kept = keptText(t, row);
   return (
     <div className="mind-changes-head">
@@ -112,7 +121,10 @@ function AskedRow({
         {left && (
           <>
             {" "}
-            <span data-testid="mind-changes-left" className="mind-changes-count whitespace-nowrap">
+            <span
+              data-testid="mind-changes-left"
+              className={`mind-changes-count whitespace-nowrap${shown ? "" : " invisible"}`}
+            >
               {left}
             </span>
           </>
@@ -123,20 +135,8 @@ function AskedRow({
             {kept}
           </span>
         )}
-        {outcome === "applied" && <AppliedActions answerId={answerId} row={row} name={name} />}
-        {outcome === "opening" && (
-          <>
-            <Dot />
-            <button
-              type="button"
-              data-testid="mind-changes-open"
-              aria-label={`${t("mindChanges.open")} ${name}`}
-              onClick={() => showChanges(row)}
-              className="mind-changes-review"
-            >
-              {t("mindChanges.open")}
-            </button>
-          </>
+        {(outcome === "applied" || outcome === "undone") && (
+          <AppliedActions answerId={answerId} row={row} name={name} />
         )}
         {outcome === "held" && (
           <>

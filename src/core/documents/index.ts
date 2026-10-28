@@ -84,7 +84,7 @@ import {
 } from "./files";
 import { isPackageKind, packageSizeError } from "./formats/zip";
 import { keywordText } from "./keywords";
-import { createLibrary, FORGET_FILE_IDENTITY, type LibraryHooks } from "./library";
+import { createLibrary, type LibraryHooks } from "./library";
 import type { PageText } from "./passages";
 import {
   CURRENT_SINCE,
@@ -167,6 +167,7 @@ interface DocumentRow {
   path: string;
   linked_folder_id: string | null;
   file_status: string;
+  source_kind: string;
   creation_date: string | null;
   title: string | null;
   own_file: string | null;
@@ -208,8 +209,8 @@ const toUnitText = (row: UnitRow): PageText => ({
 const COLUMNS = `id, content_hash, name, kind, size, page_count, status,
   failure_reason, failure_message, unread_parts, folder_id, tagging_status, tagging_error_kind,
   tagging_error_message, tagging_error_resets_at, embedding_model, path, linked_folder_id, file_status,
-  creation_date, title, own_file, counted_as_evidence, not_cited, processing_version, file_mtime_ms,
-  created_at, updated_at`;
+  source_kind, creation_date, title, own_file, counted_as_evidence, not_cited, processing_version,
+  file_mtime_ms, created_at, updated_at`;
 
 /** What IncarnaMind wrote the file as (#80), from its stored kind; a kind a newer version wrote counts as an export. */
 const ownFileOf = (row: Pick<DocumentRow, "own_file" | "counted_as_evidence">): OwnFile | null =>
@@ -331,6 +332,15 @@ function parseSearchOptions(options: unknown): {
 }
 
 /** A search's `limit`, checked: a whole number from 1 to 200, 20 when not given. */
+/** Documents a text search leaves out, as the core asks (the examples', see #1942). */
+function excludedIds(value: unknown): string[] {
+  if (value === undefined) return [];
+  if (!Array.isArray(value) || !value.every((id) => typeof id === "string" && id !== "")) {
+    throw new InvalidInputError({ key: "error.search.options" });
+  }
+  return value as string[];
+}
+
 function searchLimit(limit: unknown = DEFAULT_SEARCH_LIMIT): number {
   if (
     typeof limit !== "number" ||
@@ -548,6 +558,7 @@ export function createDocuments(options: DocumentsOptions) {
       contentHash: row.content_hash,
       path: row.path,
       fileStatus: row.file_status as DocumentFileStatus,
+      keptByApp: row.source_kind === "data-folder",
       linkedFolderId: row.linked_folder_id,
       size: row.size,
       pageCount: row.page_count,
@@ -2406,30 +2417,11 @@ export function createDocuments(options: DocumentsOptions) {
     /** Looks at a file again now, as when it is opened: a new version is processed. */
     check: (path: string) => library.check([path]),
 
+    /** As `check`, and resolves only once the file has been read: for a file just written. */
+    checkNow: (path: string) => library.check([path], true),
+
     /** Tells the windows a Document changed besides its processing, such as a web page's look. */
     announce,
-
-    /**
-     * Points a Document added on its own at a copy IncarnaMind just saved of
-     * its file, elsewhere: a Transcript saved at Stop to the Output location
-     * (#136). It keeps its id, Folder, Tags and Citations; a copy that differs
-     * is a new version.
-     */
-    async moveFile(id: string, path: string): Promise<void> {
-      const row = find(id);
-      if (!row) return;
-      // Out of the data folder, it is a file of its own (ADR-0020); the check finds the
-      // Linked folder it is in, if the Output location is inside one.
-      db.run(
-        `UPDATE documents SET path = ?, source_kind = 'file', relative_path = NULL,
-           file_status = 'available', file_mtime_ms = NULL, ${FORGET_FILE_IDENTITY}, updated_at = ?
-         WHERE id = ? AND deleted_at IS NULL`,
-        [path, now(), id],
-      );
-      library.documentsChanged(null);
-      announce(id);
-      await library.check([path]);
-    },
 
     list,
     names,
@@ -2800,7 +2792,12 @@ export function createDocuments(options: DocumentsOptions) {
       if (options !== undefined && !isRecord(options)) {
         throw new InvalidInputError({ key: "error.search.options" });
       }
-      return textSearch(db, query, searchLimit(options?.limit));
+      return textSearch(
+        db,
+        query,
+        searchLimit(options?.limit),
+        excludedIds(options?.excludeDocumentIds),
+      );
     },
 
     /** Linked folders (see ./library). */

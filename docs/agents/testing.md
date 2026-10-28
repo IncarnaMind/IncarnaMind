@@ -14,7 +14,11 @@ CI (`.github/workflows/ci.yml`) runs three checks on every pull request (`pull_r
 
 `main` should stay green. A pull request merges once its sign-off check passes and its CI checks are green, or each red one is a known flaky spec named with its issue; the full suite also runs on `main` every night. If a night goes red, fixing it comes before new work.
 
-Every night, and by hand from the Actions tab, the Electron smoke test (macOS) in `.github/workflows/nightly.yml` runs the same suite on macOS, in four shards (`Smoke shard N/4 (macOS)`), with the specs only macOS has, such as the traffic lights in the title bar. A failing night is fixed before new work, like a red `main`.
+Every night, and by hand from the Actions tab, the Electron smoke test (macOS) in `.github/workflows/nightly.yml` runs the same suite on macOS, in eight shards (`Smoke shard N/8 (macOS)`), with the specs only macOS has, such as the traffic lights in the title bar. A failing night is fixed before new work, like a red `main`.
+
+Startup and update changes also run **Packaged startup, quit and updates (Windows)**. This job builds the main once, then packages it twice in `dist/lifecycle-old` and `dist/lifecycle-updated` with the real old and target versions in `tests/fixtures/lifecycle-versions.json`. It verifies both `app.asar` files contain the identical built main before driving the executables, SQLite ownership and quit guard through `singleInstance.spec.ts`, `startupProgress.spec.ts` and the lifecycle specs. These test artifacts alone use `e2e/lifecycleMain.cjs` to load the requested fixtures before the unchanged built main, without depending on packaged Electron’s command-line preload support. The job selects that entry with `extraMetadata.main`; release builds keep `out/main/index.js`. Local update tests use two temporary app directories with those real package versions and the same built main. Temporary HOME, USERPROFILE, application-data and XDG folders isolate every launch. Process inventory and cleanup require the run's exact tag and cover both owned executable folders. The packaged identity, underlying main path and saved data are checked; installers and native dialogs remain controlled fixtures.
+
+The deterministic Windows mapped-SHM probe is an expected failure for [#2067](https://github.com/IncarnaMind/IncarnaMind/issues/2067). Check it on each Electron update: an unexpected pass signals that the released runtime may contain the upstream SQLite fix and the marker can be removed after verification. Ordinary crash handover stays a normal test; a recurrence without the mapping helper must capture extended code `1546` before it is classified as that bug.
 
 Every night too, `.github/workflows/nightly-real-model.yml` asks real models, since the scripted one can't tell whether an AI feature works: the live tests (`tests/live`) and the everyday requests (`eval/everyday`) on Claude Haiku 5.5, a live test of Kimi International, and the everyday requests in Chinese on Kimi K2.6 (Kimi sees only the evaluation's own public and made-up Documents). It runs once a night on one runner and writes `summary.md` to the `nightly-real-model` artifact: a result for every case, which key it used, and what it spent, counted from every request's tokens at the catalog's prices. A failing night is fixed like a red `main`.
 
@@ -27,7 +31,7 @@ The packages CI installs (the Noto CJK fonts, ffmpeg, LibreOffice) come from a c
 
 1. Merge `main` into your branch to resolve a conflict or to pick up something you need.
 2. Run the light checks on your computer: `npm run typecheck`, `npm run lint`, and the unit test files that cover what you changed (`npx vitest run <files>`). The whole unit suite and the smoke suite run on CI, on GitHub's machines, so they don't load yours.
-3. Find the smoke specs that touch what you changed (search `e2e/` for the test ids, labels and strings you changed or removed) and update them. Run one locally only when you need to see the UI or record it; otherwise CI runs them.
+3. Find the smoke specs that touch what you changed (search `e2e/` for the test ids, labels and strings you changed or removed) and update them. Run them on a clean machine (below) rather than on yours; run one locally only when you need to see the UI or record it.
 4. When you change or remove UI, update or remove the tests that used it in the same pull request. A test still looking for something your change removed is broken by your change.
 5. Try the edge cases below that apply to your change, by test or by hand, and say in the pull request which you tried and which don't apply.
 
@@ -36,6 +40,20 @@ The packages CI installs (the Noto CJK fonts, ffmpeg, LibreOffice) come from a c
 - Watch the checks until they finish: `gh pr checks <number> --watch`. Don't report the work as done, or ask for a merge, while a check is red or still running.
 - When a check fails, read why: `gh run view <run id> --log-failed`, and for the smoke test, the failing shard's log and the Playwright traces uploaded as its `smoke-test-results-linux-N` artifact (`smoke-test-results-macos-N` from the nightly run). Fix it in this pull request, whether or not your change caused it, and say which in the pull request.
 - "Flaky" is a claim that needs evidence: it failed, then passed on a rerun with nothing changed, and you can say what timing it depends on. Then fix the test. Don't hide it with more retries, longer timeouts or a skip.
+
+## Run the specs you changed on a clean machine
+
+Playwright on your own computer loads it, and several runs at once overload the owner's. Some failures also show only on macOS or Windows (the traffic lights, full screen, a shortcut). `.github/workflows/specs.yml` runs the specs you name on a clean GitHub-hosted machine, Linux, macOS or Windows, set up as the smoke test is. It is apart from `ci.yml`, so it never runs or blocks a required check.
+
+```sh
+git push
+node scripts/run-specs.mjs --os macos --repeat 3 e2e/undoPill.spec.ts e2e/scans.spec.ts:144
+```
+
+- **When.** By default for UI specs, instead of running them yourself. Always, on that system, for a behaviour only macOS or only Windows has (a spec that skips elsewhere with `test.skip(process.platform ...)`). Run locally only to look at the UI by hand or to record a flow.
+- **Inputs.** `specs`: the paths of specs under `e2e/`, each `path` or `path:line`. `os`: `linux` (the default), `macos` or `windows`. `repeat`: 1 to 10, passed as `--repeat-each`; use it to tell a flaky spec from a broken one. `grep`: passed as `--grep`. The helper takes them as flags; by hand they are Actions › Run named specs › Run workflow. Anything else, such as a path outside `e2e/`, is refused with a message, by the helper before it dispatches and by the workflow before it installs anything, and no input reaches a shell as code.
+- **What you get.** The helper runs the pushed commit of your branch (it stops if the branch isn't pushed), asks GitHub once a minute at most, and prints pass, fail or skip for each spec. A spec that skips on that system (a macOS-only one on Linux) shows as skip, not pass. On a failure it downloads the results to `test-results/specs-<os>-<run>/`; a later Playwright run on your computer clears `test-results/`, so read them first. Every test's trace, video and window picture is kept, passed or not (`INCARNAMIND_KEEP_ARTIFACTS`, read in `e2e/app.ts`), in the `specs-<os>-<run id>` artifact for 7 days: `npx playwright show-trace <trace-….zip>`. The recording slows the app a little, so a feel check's time that fails only here is worth one run in CI before you chase it.
+- **Limits.** One run for each branch and system at a time: a new dispatch cancels the one still going. macOS runners are few and the Nightly shares them, so ask for macOS only for what needs it. A run stops after 45 minutes. A green run here doesn't replace the pull request's checks.
 
 ## Tests that pass on any machine
 
@@ -96,7 +114,7 @@ Three checks hold every object and command to `docs/agents/interaction.md`, read
 
 - `tests/renderer/conformance.test.ts`: every kind in `OBJECT_KINDS` has a registered menu, in the order of rule 5; every command has English and Chinese labels, a group, `reversible` set, and a shortcut or a ⌘K entry.
 - `tests/renderer/conformanceStatic.test.ts`: no "Back to…" label, no confirmation of a delete that no irreversible command stands behind, no right-click listener outside `useObjectMenu`, no `draggable` outside the drag layer.
-- `e2e/conformance.spec.ts`: for each kind, on the built app with a slid mouse: right-click and ⋯ open one menu, rename in place, and every reversible command from the menu followed by ⌘Z puts the core back, read through the bridge. A command that only makes a Mind is the exception: it says nothing and leaves nothing for ⌘Z, and the check takes the Mind back by deleting it.
+- `e2e/conformance.spec.ts`: for each kind, on the built app with a slid mouse: right-click and ⋯ open one menu, rename in place, and every reversible command from the menu followed by ⌘Z puts the core back, read through the bridge. A command that only makes a Note is the exception: it says nothing and leaves nothing for ⌘Z, and the check takes the Note back by deleting it.
 
 A new kind of object needs a menu (`registerMenu`) and a stage in the e2e (how to make one and show it); the type-check fails until it has one. A reversible command that changes the core returns an `Undoable`. What `main` doesn't do yet is listed with its issue (`NO_MENU_YET`, `NO_UNDO_YET`, the known lists in the static test), never skipped: a fix takes its line out, and a stale line fails.
 
@@ -125,7 +143,7 @@ Settings → Agents sets IncarnaMind up in a few first-class agents (`src/core/a
 
 The owner signs in with ChatGPT once, in a test profile; agents then use that sign-in for checks by hand on the owner's ChatGPT plan, without signing in themselves and without ever seeing a token.
 
-- **What it is.** A folder outside every checkout and data folder, `~/.incarnamind-chatgpt-profile`. A development build (`npm run dev`) or a test build started with `INCARNAMIND_CHATGPT_PROFILE` set to it keeps the ChatGPT sign-in there instead of in its data folder: encrypted by the system's keychain (`safeStorage`) like every secret, in a file only the owner's account can read. Everything else (Minds, Documents, settings) stays in the run's own temporary data folder. Release builds ignore the variable, and the smoke tests clear it.
+- **What it is.** A folder outside every checkout and data folder, `~/.incarnamind-chatgpt-profile`. A development build (`npm run dev`) or a test build started with `INCARNAMIND_CHATGPT_PROFILE` set to it keeps the ChatGPT sign-in there instead of in its data folder: encrypted by the system's keychain (`safeStorage`) like every secret, in a file only the owner's account can read. Everything else (Notes, Documents, settings) stays in the run's own temporary data folder. Release builds ignore the variable, and the smoke tests clear it.
 - **Several agents at once.** The tokens rotate when they are refreshed; a lock file in the folder makes processes take turns, so one refreshes and the others use its result.
 
 **The owner's one-time sign-in** (and again if it ever ends, e.g. after 30 days without use):
@@ -162,7 +180,7 @@ HOME="$TEMP_HOME" npm run dev
 
 Most bugs a User meets sit at the edges, not on the path the feature was built for. Try each case that applies to your change, with an automated test where it can be one. The audit's fixtures (`e2e/audit/fixtures.ts`) already write many of these files.
 
-- **Empty, one and many.** Nothing at all (an empty Mind, Folder, Library or field), a single item, and a lot: 2,000 Documents, a 300-page PDF, a 50,000-cell sheet, a Mind of about 300 Blocks.
+- **Empty, one and many.** Nothing at all (an empty Note, Folder, Library or field), a single item, and a lot: 2,000 Documents, a 300-page PDF, a 50,000-cell sheet, a Note of about 300 Blocks.
 - **Words.** Chinese, Chinese mixed with English, a very long name, emoji and unusual characters, and typing through a Chinese input method while it is still composing.
 - **Broken input.** A damaged, empty, password-protected or oversized file; a scanned PDF with no text layer; a format IncarnaMind doesn't read; a file that disappears while it's being read.
 - **No network and no consent.** Offline, the consent prompt declined, and Local mode.

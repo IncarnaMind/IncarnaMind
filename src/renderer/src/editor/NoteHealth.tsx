@@ -1,19 +1,21 @@
 import type { Editor } from "@tiptap/core";
 import { TextSelection } from "@tiptap/pm/state";
 import { useEditorState } from "@tiptap/react";
-import { useEffect, useState } from "react";
+import { useEffect, useId, useState } from "react";
 import type * as Y from "yjs";
 import type { CitationAttributes } from "../../../core/api";
 import { citationState } from "../../../shared/citations";
 import {
   acceptAndCheck,
+  type CheckProblem,
   checkSentences,
   dismissCheckProblem,
   setCheckCardOpen,
   setOpenClaim,
   useChecks,
 } from "../checks";
-import { ProblemLine } from "../components/ProblemLine";
+import { MetaLine } from "../components/MetaLine";
+import { type ProblemAction, ProblemLine } from "../components/ProblemLine";
 import {
   ReadinessExplanation,
   readinessAction,
@@ -34,9 +36,10 @@ import { AnswerError } from "./AnswerView";
 import { useCardPlace } from "./checkPlace";
 import { coverageOf, keptSpans, sameCoverage, shownClaims } from "./claimChecks";
 import {
-  everythingChecked,
   type NoteHealth as Health,
   type HealthPart,
+  type HealthSummary,
+  healthSummary,
   noteHealth,
 } from "./healthCounts";
 import { CheckMarkIcon, ClaimMarkIcon } from "./icons";
@@ -48,6 +51,8 @@ import { COUNT_IDLE_MS } from "./WordCount";
 const NO_HEALTH: Health = {
   found: [],
   notFound: [],
+  lookClaims: [],
+  lookNotFound: [],
   unsupported: [],
   contradicted: [],
   toCheck: [],
@@ -58,6 +63,7 @@ const NO_HEALTH: Health = {
   tableCells: [],
   noCitation: [],
   checkable: 0,
+  supported: 0,
   checkedAt: null,
 };
 
@@ -92,6 +98,10 @@ export function partLabel(
       return count === 1 ? t("health.notFound.one") : t("health.notFound", params);
     case "unsupported":
       return count === 1 ? t("health.needLook.one") : t("health.needLook", params);
+    case "contradicted":
+      return count === 1 ? t("health.contradicted.one") : t("health.contradicted", params);
+    case "noCitation":
+      return count === 1 ? t("health.noCitation.one") : t("health.noCitation", params);
     case "toCheck":
       return t(count === 1 ? "health.toCheck.one" : "health.toCheck", params);
     case "notChecked":
@@ -100,6 +110,48 @@ export function partLabel(
     default:
       return t(`health.${part}`, params);
   }
+}
+
+/** The summary's parts: what a check found, and what is left of it, in D276's words. */
+function summaryParts(
+  summary: HealthSummary,
+  t: ReturnType<typeof useT>,
+  format: (value: number) => string,
+): string[] {
+  const shown = (value: number) => format(value);
+  const parts: string[] = [];
+  if (summary.supported > 0) {
+    parts.push(
+      t(summary.supported === 1 ? "health.supported.one" : "health.supported", {
+        count: shown(summary.supported),
+      }),
+    );
+  }
+  const look = summary.look.claims;
+  if (look > 0) {
+    const reasons = (["contradicted", "unsupported", "notFound"] as const)
+      .filter((reason) => summary.look[reason] > 0)
+      .map((reason) => {
+        const count = summary.look[reason];
+        return t(
+          count === 1 ? `health.look.reason.${reason}.one` : `health.look.reason.${reason}`,
+          { count: shown(count) },
+        );
+      });
+    parts.push(
+      t(look === 1 ? "health.look.one" : "health.look", {
+        count: shown(look),
+        reasons: reasons.join(t("health.look.separator")),
+      }),
+    );
+  }
+  if (summary.toCheck > 0) {
+    parts.push(partLabel(t, "toCheck", summary.toCheck, shown(summary.toCheck)));
+  }
+  if (summary.noCitation > 0) {
+    parts.push(partLabel(t, "noCitation", summary.noCitation, shown(summary.noCitation)));
+  }
+  return parts;
 }
 
 /** Each part's small mark, as the margin draws its state; none for sentences with no Citation. */
@@ -245,6 +297,18 @@ export function HealthCard({
   };
 
   const rows = ROWS.filter((part) => health[part].length > 0);
+  const summary = healthSummary(health, {
+    running: running !== undefined,
+    problem: problem !== undefined,
+    unread: state?.unreadMatters === true ? state.unread : 0,
+  });
+  // The summary's line keeps its place from the moment a run starts here, empty until its
+  // result lands, so the card keeps one height as a check's results arrive (#1312, #1941).
+  const summarySpace =
+    summary === null &&
+    problem === undefined &&
+    health.checkable > 0 &&
+    (running !== undefined || ranHere || health.checking.length > 0);
   const close = {
     label: t("checks.close"),
     testId: "checks-problem-close",
@@ -304,14 +368,19 @@ export function HealthCard({
           {t("health.tableCells", { count: format(health.tableCells.length) })}
         </p>
       )}
-      {everythingChecked(health, {
-        running: running !== undefined,
-        problem: problem !== undefined,
-      }) && (
-        <p data-testid="health-all-checked" className="mind-health-line mind-health-note">
+      {summary?.kind === "all" && (
+        <p data-testid="health-all-checked" className="mind-health-summary">
           {t("health.allChecked")}
         </p>
       )}
+      {summary?.kind === "left" && (
+        <MetaLine
+          data-testid="health-summary"
+          className="mind-health-summary"
+          parts={summaryParts(summary.summary, t, format)}
+        />
+      )}
+      {summarySpace && <p aria-hidden="true" className="mind-health-summary" />}
       {/* One line of note, in one place, from the moment the check starts: the sentence it is
           on, then when it was checked. Rows above it never move as the run ends (#1312). It
           stays once a run has started here: a run ends a moment before its record reaches the
@@ -459,35 +528,21 @@ export function HealthCard({
           onOpenSettings={openSettings}
         />
       )}
+      {!running && problem?.kind === "failed" && (
+        <FailedCheckProblem mindId={mindId} problem={problem} close={close} />
+      )}
       {!running &&
         problem &&
         problem.kind !== "not-ready" &&
         problem.kind !== "local-mode" &&
         problem.kind !== "no-documents" &&
         problem.kind !== "waiting" &&
-        problem.kind !== "find-failed" && (
-          <ProblemLine
-            testId="checks-problem"
-            className="mind-health-line"
-            action={
-              problem.kind === "failed" && problem.retry
-                ? {
-                    label: t("checks.tryAgain"),
-                    testId: "checks-try-again",
-                    onClick: () => {
-                      dismissCheckProblem(mindId);
-                      problem.retry?.();
-                    },
-                  }
-                : close
-            }
-            also={problem.kind === "failed" && problem.retry ? close : undefined}
-          >
+        problem.kind !== "find-failed" &&
+        problem.kind !== "failed" && (
+          <ProblemLine testId="checks-problem" className="mind-health-line" action={close}>
             {problem.kind === "only-cited"
               ? t("checks.problem.only-cited.folder", { folder: folderName ?? "" })
-              : problem.kind === "failed"
-                ? t("checks.problem.failed", { message: errorMessage(problem.error, t) })
-                : t(`checks.problem.${problem.kind}`)}
+              : t(`checks.problem.${problem.kind}`)}
           </ProblemLine>
         )}
       <UnreadFilesLine
@@ -496,5 +551,70 @@ export function HealthCard({
         className="mind-unread"
       />
     </>
+  );
+}
+
+/** A check that failed: what it said under Details, and Try again where it can run again. */
+function FailedCheckProblem({
+  mindId,
+  problem,
+  close,
+}: {
+  mindId: string;
+  problem: Extract<CheckProblem, { kind: "failed" }>;
+  close: ProblemAction;
+}) {
+  const t = useT();
+  const [open, setOpen] = useState(false);
+  const panel = useId();
+  const cause = errorMessage(problem.error, t);
+  return (
+    <ProblemLine
+      testId="checks-problem"
+      title={cause}
+      className="mind-health-line"
+      action={
+        problem.retry
+          ? {
+              label: t("checks.tryAgain"),
+              testId: "checks-try-again",
+              onClick: () => {
+                dismissCheckProblem(mindId);
+                problem.retry?.();
+              },
+            }
+          : close
+      }
+      also={problem.retry ? close : undefined}
+      disclosure={
+        cause === ""
+          ? undefined
+          : {
+              toggle: (
+                <button
+                  type="button"
+                  data-testid="checks-problem-details"
+                  aria-expanded={open}
+                  aria-controls={panel}
+                  onClick={() => setOpen(!open)}
+                  className="rounded-sm font-semibold text-accent underline-offset-2 hover:underline"
+                >
+                  {t("details.label")}
+                </button>
+              ),
+              panel: open ? (
+                <p
+                  id={panel}
+                  data-testid="checks-problem-details-text"
+                  className="mt-1 break-words"
+                >
+                  {cause}
+                </p>
+              ) : null,
+            }
+      }
+    >
+      {t("checks.problem.failed")}
+    </ProblemLine>
   );
 }

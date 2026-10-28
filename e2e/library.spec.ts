@@ -513,6 +513,47 @@ test("Undo of an Organize that began with no model leaves the Documents unfiled 
   }
 });
 
+test("Organize's undo line says what it suggested once the run ends, in English and Chinese (#1391)", async () => {
+  const paths: string[] = [];
+  for (const name of ["Membrane one", "Membrane two", "Membrane three"]) {
+    const path = join(sources, `${name}.txt`);
+    await writeFile(path, `Research report about membrane separation, ${name}.`);
+    paths.push(path);
+  }
+  const { app, window } = await launchApp(dataDir, { fakeChat: true });
+  try {
+    await dismissChatSetup(window);
+    await makeFolders(window, [{ name: "Research", description: "Research papers and reports" }]);
+    await addDocuments(window, paths);
+    await connectLocalChatModel(window, "main-chat");
+    await window.getByTestId("open-library").click();
+    const library = window.getByTestId("library");
+    const research = section(library, "Research");
+    const suggested = research.getByTestId("library-suggested");
+    const line = window.getByTestId("undo-line");
+
+    // Organize asks for its model, runs, and says what it suggested, in English.
+    await pointAndClick(window, organize(library));
+    await pointAndClick(window, library.getByTestId("library-organize-use"));
+    await expect(suggested).toHaveCount(3);
+    await expect(line).toContainText("Organize suggested a Folder for 3 Documents");
+
+    // Undone and organized again, with the model already chosen, it says it in the language the interface is in.
+    await leaveText(window);
+    await window.keyboard.press("ControlOrMeta+z");
+    await expect(section(library, "Not in a Folder").getByTestId("library-document")).toHaveCount(
+      3,
+    );
+    await setLanguage(window, "zh-CN");
+    await expect(organize(library)).toHaveText("整理");
+    await pointAndClick(window, organize(library));
+    await expect(suggested).toHaveCount(3);
+    await expect(line).toContainText("已为 3 个文档推荐文件夹");
+  } finally {
+    await app.close();
+  }
+});
+
 test("onboarding offers starter folders, and Organize with no model chosen opens its settings, in Chinese", async () => {
   const { app, window } = await launchApp(dataDir, { examples: true });
   try {
@@ -528,13 +569,13 @@ test("onboarding offers starter folders, and Organize with no model chosen opens
     await window.getByTestId("library").getByRole("button", { name: "添加所选文件夹" }).click();
     await expect(sidebarFolder(window, "研究论文").getByTestId("folder-row")).toBeVisible();
     await pointAndClick(window, organize(window.getByTestId("library")));
-    await expect(window.getByTestId("library-organize-needs-model")).toContainText(
-      "“整理”需要 AI 模型",
+    const needs = window.getByTestId("library-organize-needs-model");
+    await expect(needs).toContainText(
+      "整理需要一个 AI 模型。它会把文档名称和摘录，以及文件夹和标签的名称与描述，发送给你设置的模型。",
     );
-    await pointAndClick(window, window.getByTestId("library-organize-set-up"));
-    await expect(window.getByTestId("settings-page-title")).toHaveText("模型");
-    await expect(window.getByTestId("tagging-settings")).toContainText("自动打标签");
-    await window.getByTestId("settings-close").click();
+    await expect(needs.getByTestId("library-organize-key")).toBeVisible();
+    await needs.getByTestId("library-organize-dismiss").click();
+    await expect(needs).toHaveCount(0);
   } finally {
     await app.close();
   }
@@ -809,7 +850,7 @@ test("organized folders remain separate from source locations and follow changes
     });
     await expect(rowOf(section(library, "Finance"), "Membrane separation")).toHaveCount(1);
     expect(await readFile(path, "utf8")).toBe(revised);
-    await expect(window.getByTestId("sidebar-status")).not.toContainText("No AI model for Tags");
+    await expect(window.getByTestId("sidebar-status")).not.toContainText("Tags need an AI model");
     await window.setViewportSize({ width: 1000, height: 760 });
     // The viewer opens beside the Library: at 1,000px, with the assistant at the bottom (#253).
     await placeAssistant(window, { dock: "bottom" });
@@ -940,7 +981,11 @@ test("a bulk Organize leaves the Library's sections, filters and sidebar as the 
       await expect(section(library, name)).toHaveAttribute("data-count", String(total));
       if (name === "Not in a Folder")
         await expect(notInAFolder).toHaveAttribute("data-count", String(total));
-      else await expect(folderRow(name).getByTestId("browse-count")).toHaveText(String(total));
+      else
+        await expect(folderRow(name).getByTestId("browse-count")).toHaveText(
+          // Every Document Organize filed here waits for the User: the count says how many.
+          `${total} · ${total} suggested`,
+        );
     }
     // Closed, a Folder lists nothing; Not in a Folder lists its first few, then "Show N more".
     await expect(folders.getByTestId("document-list-item")).toHaveCount(5);

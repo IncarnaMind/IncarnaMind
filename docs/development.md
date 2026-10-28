@@ -72,6 +72,6 @@ with rustup on the `PATH` (it installs the pinned toolchain) to try the change. 
 
 [`CONTEXT.md`](../CONTEXT.md) is the glossary, and [`docs/adr/`](adr/) records the decisions behind the design, from the local-first Electron app (ADR-0004, ADR-0006) to SQLite storage (ADR-0008) and retrieval (ADR-0009).
 
-In short: the React UI in the renderer talks over a typed bridge to the core, a TypeScript module in the Electron main process with no Electron imports. The core keeps each Mind as a Yjs document and everything else in SQLite, in the data folder. Documents are indexed in place from Linked folders, never copied (ADR-0010). Answers come from a tool-calling loop (ADR-0007), through the AI SDK.
+In short: the React UI in the renderer talks over a typed bridge to the core, a TypeScript module in the Electron main process with no Electron imports. The core keeps each Note as a Yjs document and everything else in SQLite, in the data folder. Documents are indexed in place from Linked folders, never copied (ADR-0010). Answers come from a tool-calling loop (ADR-0007), through the AI SDK.
 
 Code lives in `src/`: `core` (app logic), `main` (Electron main process), `preload` (the typed bridge to the UI), `renderer` (React UI) and `shared` (i18n dictionaries, bridge names and the text normaliser).

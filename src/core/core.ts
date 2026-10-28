@@ -6,7 +6,7 @@ import * as Y from "yjs";
 import { cleanApiKey } from "../shared/apiKey";
 import { isCitationStyleId, withRecentStyle } from "../shared/citationStyles";
 import type { DrawnPage } from "../shared/citedPage";
-import { hasCitationPlace, optionsFor } from "../shared/exportOptions";
+import { optionsFor } from "../shared/exportOptions";
 import { translate } from "../shared/i18n";
 import { organizeModelOf, supportsLibraryImages } from "../shared/libraryModels";
 import { holdsOnlyItsTitle } from "../shared/madeMind";
@@ -36,6 +36,7 @@ import {
 import { mindName } from "../shared/naming";
 import { paperFor } from "../shared/printDocument";
 import { resolveProposals, restoreRevised } from "../shared/proposals";
+import { readyQuestionOf } from "../shared/readyQuestion";
 import { isPaperOrBook } from "../shared/references";
 import { RESEARCH_TASK } from "../shared/research";
 import { hasSearchScope, holdsText, mindSearchScope, type ScopeKind } from "../shared/searchScope";
@@ -49,10 +50,13 @@ import { createAgentSetup, skillInstalled } from "./agents/setup";
 import { createAiUse } from "./aiUse";
 import { createAiUseStatement } from "./aiUseStatement";
 import { createAiSdkAnswerEngine, createAnswers } from "./answers";
+import { createAskedChanges } from "./answers/applyAsked";
 import { createChecks } from "./answers/checks";
 import { AFTER_NEW_VERSION_MS, CLAIM_TIME_LIMIT_MS } from "./answers/checks/watch";
 import {
   citeSelection,
+  locateQuote,
+  matchingOf,
   recheckCitation,
   recheckKept,
   recheckWhereSelected,
@@ -85,15 +89,18 @@ import {
   type EmbeddingSettings,
   type ExportMindOptions,
   type ExternalService,
+  type MarkAiTextChoice,
   type Meeting,
   type MeetingHelpKind,
   type Mind,
   type MindCitationStyle,
   type MindContentSnapshot,
+  type MindExportPreview,
   type NetworkTrafficId,
   NOT_IN_A_FOLDER_ID,
   type OwnFileKind,
   type ProviderError,
+  type ReadyQuestion,
   type SavedExport,
   type SavedFile,
   type ScannedQuoteInput,
@@ -147,7 +154,7 @@ import { createWebPages } from "./documents/web";
 import { createEdits, editText } from "./edits";
 import { BUILT_IN_EMBEDDING_MODEL, createEmbeddingModel } from "./embedding";
 import { createActiveEmbedding } from "./embedding/active";
-import { createModelSources, MODEL_COPIES } from "./embedding/modelSources";
+import { createModelSources, MODEL_COPIES, modelCopyUrl } from "./embedding/modelSources";
 import {
   FileWriteCancelledError,
   InvalidInputError,
@@ -163,10 +170,8 @@ import { type AnyEventListener, createEventHub } from "./events";
 import { createExamples } from "./examples";
 import { createLocalExecutor } from "./execution";
 import { createExports, type ExportsDependencies } from "./exports";
-import { citationPlaceQuestion } from "./exports/citationPlaceQuestion";
 import { createComparisonExport } from "./exports/comparisonExport";
 import { exportLabels } from "./exports/labels";
-import { markAiTextQuestion } from "./exports/markAiTextQuestion";
 import { renderMarkdown } from "./exports/markdown";
 import { setTextOnlyDocuments, textOnlyDocuments } from "./exports/sharedPictures";
 import { createFileLock } from "./fileLock";
@@ -215,6 +220,7 @@ import { nativePageSetup } from "./pageSetup";
 import { createPrivacy, type NetworkTrafficRegistry } from "./privacy";
 import { KeyCharacterError, storedApiKey } from "./providers/apiKey";
 import { readsImages } from "./providers/capabilities";
+import { retrievesFirst, writesThenCites } from "./providers/catalog/answerPaths";
 import { CHAT_FLOW_SENDS, createChat, type PreparedChatModel } from "./providers/chat";
 import { CHATGPT_PLAN_ENDPOINTS, createChatGptPlan } from "./providers/chatgpt/plan";
 import { createClaudeAccount } from "./providers/claudeAccount/account";
@@ -471,7 +477,9 @@ export function createCore(adapters: CoreAdapters): Core {
 
   const db = openDatabase(join(dataDir, DATABASE_FILE));
   try {
+    adapters.log?.info("core.startup.databaseOpened");
     migrate(db);
+    adapters.log?.info("core.startup.storageReady");
   } catch (error) {
     db.close();
     throw error;
@@ -1399,74 +1407,45 @@ export function createCore(adapters: CoreAdapters): Core {
     },
     outputFolder: async () => outputs.settings().location,
     exportMind: async (mindId, format, folder, approved, marking) => {
-      let options = optionsFor(format, settings.get().user.exportOptions);
+      const options = optionsFor(format, settings.get().user.exportOptions);
+      let written = options;
       let settled: MarkingSettled | null = null;
+      let oneOff: MarkAiTextChoice | null = null;
       if (format === "docx") {
-        const { docx } = settings.get().user.exportOptions;
-        if (docx.markAiText === null) {
-          const ask = markAiTextQuestion(settings.get().language);
-          const asked =
-            marking.named === null && marking.asking ? await marking.asking(ask.question) : null;
-          const choice = marking.named ?? ask.choiceOf(asked);
-          if (choice === null) {
-            throw new InvalidInputError({
-              key: marking.asking
-                ? "error.commands.markAiTextClosed"
-                : "error.commands.markAiTextAsk",
-            });
-          }
-          const preferences = settings.get().user.exportOptions;
-          await api?.updateSettings({
-            user: {
-              exportOptions: { ...preferences, docx: { ...preferences.docx, markAiText: choice } },
-            },
-          });
-          settled = { choice, how: "kept" };
-          options = optionsFor(format, settings.get().user.exportOptions);
-        } else if (marking.named !== null && marking.named !== docx.markAiText && options) {
-          options = { ...options, markAiText: marking.named === "mark" };
-          settled = { choice: marking.named, how: "this-file" };
-        } else {
-          settled = { choice: docx.markAiText, how: "earlier" };
-        }
+        const saved = settings.get().user.exportOptions.docx.markAiText;
+        const choice = marking.named ?? saved ?? "mark";
+        written = { ...options, markAiText: choice === "mark" };
+        // A marking the request names settles its own file only, whatever the saved choice says.
+        oneOff = marking.named;
+        settled = {
+          choice,
+          how: oneOff !== null ? "this-file" : saved === null ? "default" : "earlier",
+        };
       }
-      if (!options) throw new InvalidInputError({ key: "error.commands.markAiTextAsk" });
-      if (
-        hasCitationPlace(format) &&
-        settings.get().user.exportOptions.citationPlace === undefined
-      ) {
-        const { numbered, citations, citedDocuments } = mindExports.preview(mindId, { format });
-        if (numbered && citations > 0 && marking.asking) {
-          const ask = citationPlaceQuestion(settings.get().language, {
-            citations,
-            documents: citedDocuments,
-          });
-          const choice = ask.choiceOf(await marking.asking(ask.question));
-          if (choice === null)
-            throw new InvalidInputError({ key: "error.commands.citationPlaceClosed" });
-          const preferences = settings.get().user.exportOptions;
-          await api?.updateSettings({
-            user: { exportOptions: { ...preferences, citationPlace: choice } },
-          });
-          options = { ...options, citationPlace: choice };
-        }
-      }
-      const { fileName, data, word } = await mindExports.export(mindId, options);
+      const exported = await mindExports.export(mindId, written);
       // The window shows first what a Word file can't keep (#105); the assistant can't.
-      if (word && word.notKept.length > 0) {
+      if (exported.word && exported.word.notKept.length > 0) {
         throw new InvalidInputError({ key: "error.commands.wordLoses" });
       }
       const file = await outputs.save({
-        name: fileName,
-        data,
-        ownFile: ownFileOf(options),
+        name: exported.fileName,
+        data: exported.data,
+        ownFile: ownFileOf(written),
         ...(folder !== null && { folder, approved }),
       });
-      recordExport(options);
+      await rememberExportChoices(exported, oneOff);
+      recordExport(written);
       return { file, marking: settled };
     },
   };
 
+  const askedChanges = createAskedChanges(content, {
+    now,
+    requireMind: (mindId) => writableMind(mindId).id,
+    recordAiUse: (inputs) => void aiUse.record(inputs),
+    reportError: (mindId, error) =>
+      console.error(`AI use recording failed for Mind ${mindId}:`, error),
+  });
   const answers = createAnswers({
     content,
     events,
@@ -1486,6 +1465,10 @@ export function createCore(adapters: CoreAdapters): Core {
     defaultModel: () => settings.get().user.chatModel,
     readiness: async (choice) => chat.readiness(await chat.answeringModel(choice)),
     prepareModel: (choice, thinking) => chat.prepareModel(choice, "chat", thinking),
+    writesThenCites: ({ provider, modelId }, flow) =>
+      writesThenCites({ catalogId: provider.catalogId, modelId }, flow, adapters.answerPaths),
+    retrievesFirst: ({ provider, modelId }, flow) =>
+      retrievesFirst({ catalogId: provider.catalogId, modelId }, flow, adapters.answerPaths),
     async prepareQuickModel(answers, prepared) {
       const quick = chat.quickTasksModel(answers);
       // An Answer on this computer keeps its small calls there too.
@@ -1497,6 +1480,7 @@ export function createCore(adapters: CoreAdapters): Core {
     },
     documents: {
       searchableCount: (documentIds) => documents.searchableCount(documentIds ?? undefined),
+      libraryCount: () => documents.ids({}).length,
       names: () => documents.names(),
       searchableNames: (documentIds, limit) =>
         documents.searchableNames(documentIds ?? undefined, limit),
@@ -1691,6 +1675,7 @@ export function createCore(adapters: CoreAdapters): Core {
       start: (kind, mindId, input) => tasks.start(kind, mindId, input),
       unfinished: () => tasks.unfinished(),
       isLive: (taskId) => tasks.isLive(taskId),
+      updateInput: (taskId, input) => tasks.updateInput(taskId, input),
       resume: (taskId) => tasks.resume(taskId),
       stop: (taskId) => tasks.stop(taskId),
     },
@@ -1725,7 +1710,7 @@ export function createCore(adapters: CoreAdapters): Core {
     );
   const notifyTask = ({ task, what }: TaskNotice) => {
     const notifications = adapters.notifications;
-    if (!notifications) return;
+    if (!notifications || !settings.get().user.taskNotifications) return;
     const language = settings.get().language;
     const name = taskName(task.kind);
     const title = translate(
@@ -1758,6 +1743,9 @@ export function createCore(adapters: CoreAdapters): Core {
     mindName: (mindId) => (mindExists(mindId) ? mindName(minds.get(mindId)) || null : null),
     folderOfMind: (mindId) => (mindExists(mindId) ? minds.get(mindId).folderId : null),
     createMind: (title, folderId) => makeMind({ title, kind: DEFAULT_MIND_KIND, folderId }).id,
+    moveMind: (mindId, folderId) => {
+      if (minds.move([mindId], folderId).some((item) => item.from !== folderId)) mindsChanged();
+    },
     documents: {
       webPagesSince: (ids, since) =>
         documents
@@ -2162,6 +2150,38 @@ export function createCore(adapters: CoreAdapters): Core {
   });
   const ownFileOf = (options: ExportMindOptions): OwnFileKind =>
     options.format === "source-pack" ? "source-pack" : "export";
+  /**
+   * Keeps where Citations went and whether a Word file marks AI text, the first time an export
+   * settles them, so Export options and the next file say the choice rather than the default
+   * again (#1945). A request that named the marking for its own file leaves the saved choice as
+   * it was.
+   */
+  async function rememberExportChoices(
+    exported: Pick<MindExportPreview, "markAiText" | "citationPlace">,
+    named: MarkAiTextChoice | null,
+  ): Promise<void> {
+    const preferences = settings.get().user.exportOptions;
+    const markAiText =
+      named === null && exported.markAiText !== null && preferences.docx.markAiText === null
+        ? exported.markAiText
+          ? "mark"
+          : "leave"
+        : null;
+    const citationPlace =
+      exported.citationPlace !== null && preferences.citationPlace === undefined
+        ? exported.citationPlace
+        : null;
+    if (markAiText === null && citationPlace === null) return;
+    await api?.updateSettings({
+      user: {
+        exportOptions: {
+          ...preferences,
+          ...(citationPlace !== null && { citationPlace }),
+          docx: { ...preferences.docx, ...(markAiText !== null && { markAiText }) },
+        },
+      },
+    });
+  }
   /** Usage data: which format, and whether Questions went with it. */
   const recordExport = (options: ExportMindOptions) =>
     usageData.record({
@@ -2410,6 +2430,8 @@ export function createCore(adapters: CoreAdapters): Core {
     timers: paceTimers,
   });
   const automaticClassifiers = new Map<string, ReturnType<typeof automaticGroupClassifier>>();
+  // Set below, once the examples are made: Organize leaves the example's Documents alone (#1942).
+  let isExampleDocument: (documentId: string) => boolean = () => false;
   const library = createLibrary({
     db,
     tags,
@@ -2417,6 +2439,7 @@ export function createCore(adapters: CoreAdapters): Core {
     now,
     settings,
     background,
+    isExampleDocument: (documentId) => isExampleDocument(documentId),
     changed: () => {
       events.emit("library.changed", null);
       batches.libraryChanged();
@@ -2561,7 +2584,6 @@ export function createCore(adapters: CoreAdapters): Core {
     },
   });
   libraryDocumentChanged = (id) => library.documentChanged(id);
-  library.start();
 
   // Reference records (#286): read from files as they're processed, edited by the User, and
   // filled by Look up, which sends a DOI or an arXiv id only, with consent, never in local mode.
@@ -2857,26 +2879,28 @@ export function createCore(adapters: CoreAdapters): Core {
     },
     listed: () => transcriber !== undefined && transcriptionSource.files.length > 0,
   });
-  // Any built-in model may come from these instead, and the probe asks ModelScope (#1578).
+  // Any built-in model may come from these instead, and the probe asks hf-mirror.com until our
+  // ModelScope copy exists (#1578).
+  const modelScopeCopy = modelCopyUrl(modelCopies.modelscope);
+  const r2Copy = modelCopyUrl(modelCopies.r2);
   const otherSources: { id: NetworkTrafficId; service: ExternalService }[] = [
-    {
-      id: "model-source-modelscope",
-      service: {
-        id: modelCopies.modelscope
-          ? new URL(modelCopies.modelscope.url).origin
-          : "https://www.modelscope.cn",
-        name: "ModelScope",
-      },
-    },
+    ...(modelScopeCopy
+      ? [
+          {
+            id: "model-source-modelscope" as const,
+            service: { id: new URL(modelScopeCopy).origin, name: "ModelScope" },
+          },
+        ]
+      : []),
     {
       id: "model-source-hf-mirror",
       service: { id: "https://hf-mirror.com", name: "hf-mirror.com" },
     },
-    ...(modelCopies.r2
+    ...(r2Copy
       ? [
           {
             id: "model-source-copy" as const,
-            service: { id: new URL(modelCopies.r2.url).origin, name: "IncarnaMind" },
+            service: { id: new URL(r2Copy).origin, name: "IncarnaMind" },
           },
         ]
       : []),
@@ -3045,10 +3069,34 @@ export function createCore(adapters: CoreAdapters): Core {
       conversations.addCitedUnits(wanted, cited);
       return cited.length > 0;
     },
-    recheck: (input) => recheckCitation(documents, input),
+    cite: (input) => {
+      const hash = documents.currentVersion(input.documentId);
+      const units = hash ? documents.pageTexts(input.documentId, hash, null, null) : [];
+      const at = locateQuote(units, input.quote, matchingOf(units));
+      const checked = recheckCitation(documents, {
+        ...input,
+        pageFrom: at?.pageFrom ?? null,
+        pageTo: at?.pageTo ?? null,
+      });
+      return at || checked.check !== "found"
+        ? checked
+        : { ...checked, check: "not-found", checkReason: "quote-not-on-pages" };
+    },
     changed: (value) => events.emit("examples.changed", value),
   });
   events.on("document.status", () => examples.documentChanged());
+  isExampleDocument = (documentId) => examples.made().documentIds.includes(documentId);
+  const readyQuestionNow = (): ReadyQuestion | null => {
+    const exampleDocuments = new Set(examples.made().documentIds);
+    return readyQuestionOf({
+      own: documents.list().filter((each) => !exampleDocuments.has(each.id)),
+      example: examples.exampleReady(),
+      language: settings.get().language,
+    });
+  };
+  // Started here, not with the rest of the Library, so a Document an earlier version filed as an
+  // example's is never worked on again (#1942).
+  library.start();
   // A new version of a Document in a Folder: its Minds' cited claims are checked for contradictions (#112).
   checks.startWatching();
   events.on("document.status", (document) => checks.documentChanged(document));
@@ -3137,7 +3185,10 @@ export function createCore(adapters: CoreAdapters): Core {
         add: (id, name, file) => documents.addSnapshot(id, name, file, () => {}, "transcript"),
         file: (documentId, folderId) => library.assign(documentId, folderId),
         check: (path) => documents.check(path),
-        moveFile: (id, path) => documents.moveFile(id, path),
+        checkNow: async (documentId, path) => {
+          await documents.checkNow(path);
+          if (documentId) await processed(documentId);
+        },
         find: (id) => {
           try {
             return documents.get(id);
@@ -3146,7 +3197,6 @@ export function createCore(adapters: CoreAdapters): Core {
           }
         },
       },
-      saveFile: (file) => outputs.save(file),
       name: (meetingId) => {
         const meeting = listMeetings?.().find((each) => each.id === meetingId);
         const mind = meeting ? minds.get(meeting.mindId) : null;
@@ -3179,11 +3229,19 @@ export function createCore(adapters: CoreAdapters): Core {
       },
       health: captureHealth,
       memo: (meetingId) => isMemo(db, meetingId),
+      purgedPaths: () =>
+        db
+          .all<{ path: string }>(
+            `SELECT path FROM documents
+             WHERE kind = 'transcript' AND source_kind = 'data-folder' AND purged_at IS NOT NULL`,
+          )
+          .map((row) => row.path),
       saved: (meetingId) => transcriptSaved(meetingId),
       changed: meetingsChanged,
       log: adapters.log ?? silentLogger,
     });
 
+  transcripts?.dropPurged();
   // Meetings (#135): while audio is being captured, background model work holds back.
   const meetings = createMeetings({
     db,
@@ -3284,8 +3342,8 @@ export function createCore(adapters: CoreAdapters): Core {
     }
     return result;
   };
-  /** Resolves once a Document's newest version has its Passages, or after `ms` with the last version's. */
-  const extracted = (documentId: string, ms: number) =>
+  /** Resolves once a Document is no longer queued or being read; `ms` null waits as long as it takes. */
+  const settled = (documentId: string, ms: number | null) =>
     new Promise<void>((resolve) => {
       const busy = (status: DocumentStatus | null) =>
         status === "queued" || status === "extracting";
@@ -3300,15 +3358,19 @@ export function createCore(adapters: CoreAdapters): Core {
         return;
       }
       const done = () => {
-        clearTimeout(timer);
+        if (timer !== null) clearTimeout(timer);
         stop();
         resolve();
       };
-      const timer = setTimeout(done, ms);
+      const timer = ms === null ? null : setTimeout(done, ms);
       const stop = events.on("document.status", (document) => {
         if (document.id === documentId && !busy(document.status)) done();
       });
     });
+  /** Resolves once a Document's newest version has its Passages, or after `ms` with the last version's. */
+  const extracted = (documentId: string, ms: number) => settled(documentId, ms);
+  /** Resolves once a Document's newest version is read: its Passages are then the file's text. */
+  const processed = (documentId: string) => settled(documentId, null);
   // After Stop, the notes filled in from the Transcript (#142), on the Answers route.
   const meetingFill = createMeetingFill({
     content,
@@ -3602,7 +3664,7 @@ export function createCore(adapters: CoreAdapters): Core {
     restoreCheckpoint: async (mindId, checkpointId) => checkpoints.restore(mindId, checkpointId),
     askInConversation: async (input) =>
       answers.askInConversation(conversations.parseQuestion(input)),
-    askReadyQuestion: async () => {
+    askExampleReadyQuestion: async () => {
       const ready = examples.readyAnswer();
       if (!ready) {
         throw new InvalidInputError({ key: "error.examples.reading" });
@@ -3677,7 +3739,17 @@ export function createCore(adapters: CoreAdapters): Core {
       }
       return found;
     },
-    searchDocumentText: async (query, options) => documents.searchText(query, options),
+    // The Library lists the examples until the User has a Document of their own (#1942), so a first
+    // search looks in them; from the first Document of the User's own on, they are left out before
+    // the search's limit, so they never take one of its places.
+    searchDocumentText: async (query, options) => {
+      const example = examples.made().documentIds;
+      const own = documents.list().some((each) => !example.includes(each.id));
+      return documents.searchText(query, {
+        ...options,
+        ...(own ? { excludeDocumentIds: example } : {}),
+      });
+    },
     renameConversation: async (conversationId, title) => {
       const conversation = conversations.rename(conversationId, title);
       conversationsChanged();
@@ -3701,6 +3773,10 @@ export function createCore(adapters: CoreAdapters): Core {
         ? { status: "available", reference, name: found.name }
         : { status: "deleted", reference, name: found.name, deletedAt: found.deletedAt };
     },
+    applyAskedChanges: async (input) => askedChanges.apply(input),
+    undoAskedChanges: async (undoId) => askedChanges.undo(undoId),
+    redoAskedChanges: async (undoId) => askedChanges.redo(undoId),
+    releaseAskedChanges: async (undoId) => askedChanges.release(undoId),
     addToNote: (input) => noteAdding.add(input),
     undoAddToNote: async (input) => noteAdding.undo(input),
     listNoteConversations: async () => noteConversations.list(),
@@ -3895,6 +3971,8 @@ export function createCore(adapters: CoreAdapters): Core {
     listUnmatchedReferences: async () => referenceImport.unmatched(),
     addReferenceFile: (recordId, path) => referenceImport.addFile(recordId, path),
     getExamples: async (group) => examples.status(group),
+    readyQuestion: async () => readyQuestionNow(),
+    isExampleDocument: async (documentId) => isExampleDocument(documentId),
     offerExamples: async () => examples.offer(minds.list().length > 0),
     createExamples: async (group) => examples.create(group),
     removeExamples: async (group) => examples.remove(group),
@@ -4301,6 +4379,7 @@ export function createCore(adapters: CoreAdapters): Core {
         wordImports.dropPurged(),
         documents.dropPurged(),
       ]);
+      transcripts?.dropPurged();
     },
     acceptAssignments: async (ids) => library.accept(ids),
     rejectAssignments: async (ids) => library.reject(ids),
@@ -4321,7 +4400,16 @@ export function createCore(adapters: CoreAdapters): Core {
         conversations: conversations.move(conversationIds, folderId),
       }));
       // Said once it is saved, so a move that rolled back says nothing.
-      if (move.minds.some((item) => item.from !== folderId)) mindsChanged();
+      const joined = move.minds.filter((item) => item.from !== folderId);
+      if (joined.length > 0) mindsChanged();
+      if (folderId !== null) {
+        // A Note or a Document that joined a Folder changes what its other Notes are checked
+        // against; a Document leaving one cannot add a contradiction, so it starts nothing.
+        for (const item of joined) checks.mindJoinedFolder(item.id);
+        if (move.documents.some((item) => item.from !== folderId)) {
+          checks.folderContentsChanged(folderId);
+        }
+      }
       if (move.conversations.some((item) => item.from !== folderId)) conversationsChanged();
       library.moved(move.documents.map((item) => item.id));
       return move;
@@ -4546,8 +4634,6 @@ export function createCore(adapters: CoreAdapters): Core {
         fileName,
         fromWord: _,
         theirChanges: _waiting,
-        citedDocuments: _cited,
-        numbered: _numbered,
         data,
         word,
         ...counts
@@ -4561,7 +4647,9 @@ export function createCore(adapters: CoreAdapters): Core {
         () => recordExport(options),
         ownFileOf(options),
       );
-      return saved.status === "saved" ? { ...saved, ...counts, word } : saved;
+      if (saved.status !== "saved") return saved;
+      await rememberExportChoices(counts, null);
+      return { ...saved, ...counts, word };
     },
     saveCheckRecord: async (mindId) => {
       const saved: { format: CheckRecordFormat; file: SavedFile }[] = [];
@@ -4689,6 +4777,7 @@ export function createCore(adapters: CoreAdapters): Core {
     retryTranscript: async (meetingId) => meetings.retryTranscript(meetingId),
     listTranscriptionServices: () => cloudTranscription.list(),
     setTranscriptionKey: (input) => cloudTranscription.setKey(input),
+    getTranscriptionModel: async () => transcriptionModel?.status() ?? null,
     getTranscriptionSpeed: async () => {
       const speed = settings.readDeviceValue(TRANSCRIPTION_SPEED);
       const ratio =

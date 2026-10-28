@@ -125,9 +125,16 @@ export function withReloaded(
   return { ...draftsFrom(left), ...now };
 }
 
+export interface CitedSource {
+  mindId: string;
+  documentId: string;
+}
+
 interface ComposerState {
   /** By Mind id: switching tabs keeps what was typed in each Mind's composer. */
   drafts: Readonly<Record<string, Draft>>;
+  /** The Note whose Citation opened a Document, and that Document. */
+  citedSource: CitedSource | null;
   /**
    * The composer is to take the focus, e.g. for ⌘J or a Skill chosen in the
    * note's slash menu: it does once it is on screen (the assistant unfolds for
@@ -156,6 +163,7 @@ interface ComposerState {
 /** The composer's drafts, in this window (DESIGN.md, Composer). */
 export const useComposer = create<ComposerState>()((set, get) => ({
   drafts: {},
+  citedSource: null,
   focusWanted: false,
   seat: null,
   draft: (mindId) => get().drafts[mindId] ?? EMPTY_DRAFT,

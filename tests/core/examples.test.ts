@@ -1,4 +1,4 @@
-import { access, readdir, readFile } from "node:fs/promises";
+import { access, readdir, readFile, writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import type { Node as ProseMirrorNode } from "@tiptap/pm/model";
 import { describe, expect, test, vi } from "vitest";
@@ -16,8 +16,10 @@ import { EXAMPLE_SETS } from "../../src/core/exampleSets";
 import type { Language } from "../../src/core/language";
 import { openDatabase } from "../../src/core/storage";
 import { createTempDataFolder, startCore } from "../helpers/core";
+import { waitForDocuments, waitForProcessing } from "../helpers/documents";
 import { appendParagraph, connectToMind } from "../helpers/mindClient";
 import { readMind } from "../helpers/minds";
+import { buildPdf } from "../helpers/pdf";
 
 /** The example Documents the app ships. */
 const EXAMPLES = resolve(__dirname, "../../resources/examples");
@@ -172,7 +174,7 @@ describe("the example Mind", { timeout: 30_000 }, () => {
     const { core } = await startWithExamples();
     const made = await core.offerExamples();
     const mindId = made?.mindId as string;
-    expect(made?.ready).toBe("What does the facilities agreement say about the leverage limit?");
+    expect((await core.readyQuestion())?.question).toBe("What leverage does the agreement allow?");
     const answerEvents = vi.fn();
     core.on("answer.started", answerEvents);
     core.on("answer.finished", answerEvents);
@@ -184,14 +186,14 @@ describe("the example Mind", { timeout: 30_000 }, () => {
       { timeout: 20_000, interval: 100 },
     );
 
-    const asked = await core.askReadyQuestion();
+    const asked = await core.askExampleReadyQuestion();
 
     const { conversation, messages } = await core.getConversation(asked.conversationId);
     expect(conversation.askedFrom.map((each) => each.mindId)).toEqual([mindId]);
     const [question, answer] = messages;
     expect(question).toMatchObject({
       kind: "question",
-      text: "What does the facilities agreement say about the leverage limit?",
+      text: "What leverage does the agreement allow?",
       askedFrom: expect.objectContaining({ mindId }),
     });
     expect(answer).toMatchObject({
@@ -219,10 +221,45 @@ describe("the example Mind", { timeout: 30_000 }, () => {
     expect(answerEvents).not.toHaveBeenCalled();
   });
 
+  test.each(["en", "zh-CN"] as const)(
+    "%s: the ready Answer does not place a repeated source quote at its first occurrence",
+    async (language) => {
+      const { core } = await startWithExamples(language);
+      await core.offerExamples();
+      const listed = await waitForDocuments(core, (documents) => {
+        expect(documents).toHaveLength(2);
+      });
+      const documents = await waitForProcessing(
+        core,
+        listed.map((document) => document.id),
+      );
+      expect(documents.map((document) => document.status)).toEqual(["ready", "ready"]);
+      const quote = EXAMPLE_SETS.credit[language].ready?.quotes[0];
+      const document = documents.find((document) => document.name === quote?.document);
+      if (!document || !quote) throw new Error("The ready Answer's Document is missing.");
+      await writeFile(
+        document.path,
+        buildPdf([{ printed: [{ text: quote.quote }, { text: quote.quote }] }]),
+      );
+      await core.reconcileDocuments();
+      await waitForProcessing(core, [document.id]);
+
+      const asked = await core.askExampleReadyQuestion();
+      const { messages } = await core.getConversation(asked.conversationId);
+      const answer = messages.find((message) => message.id === asked.answerId);
+      expect(answer?.kind === "answer" && answer.citations[0]).toMatchObject({
+        check: "not-found",
+        pageFrom: null,
+        pageTo: null,
+      });
+      core.close();
+    },
+  );
+
   test("there is no ready Question without the credit paper", async () => {
     const core = startCore(await createTempDataFolder());
-    expect((await core.getExamples()).ready).toBeNull();
-    await expect(core.askReadyQuestion()).rejects.toThrow(
+    expect(await core.readyQuestion()).toBeNull();
+    await expect(core.askExampleReadyQuestion()).rejects.toThrow(
       "The example’s Documents are still being read. Try again in a moment.",
     );
     expect(await core.listConversations()).toEqual([]);
@@ -246,7 +283,6 @@ describe("the example Mind", { timeout: 30_000 }, () => {
       linkedFolderId: null,
       answerId: null,
       more: expect.any(Array),
-      ready: null,
     });
     expect(await core.listMinds()).toEqual([]);
     expect(await core.listLinkedFolders()).toEqual([]);
@@ -394,7 +430,7 @@ describe("the example Mind", { timeout: 30_000 }, () => {
       },
       { timeout: 20_000, interval: 100 },
     );
-    const asked = await core.askReadyQuestion();
+    const asked = await core.askExampleReadyQuestion();
     const cited = async () => {
       const { messages } = await core.getConversation(asked.conversationId);
       const answer = messages.find((each) => each.kind === "answer");
@@ -511,7 +547,6 @@ describe("the example Mind", { timeout: 30_000 }, () => {
       linkedFolderId: made.linkedFolderId,
       answerId: null,
       more: expect.any(Array),
-      ready: null,
     });
 
     const again = await core.createExamples();
@@ -544,7 +579,6 @@ describe("the example Mind", { timeout: 30_000 }, () => {
       linkedFolderId: made?.linkedFolderId,
       answerId: made?.answerId,
       more: expect.arrayContaining(["papers", "contracts", "meetings"]),
-      ready: null,
     });
     // Offered already: nothing is made while it is there, and a change of language leaves it be.
     expect(await again.offerExamples()).toBeNull();
@@ -561,7 +595,6 @@ describe("the example Mind", { timeout: 30_000 }, () => {
       linkedFolderId: null,
       answerId: null,
       more: expect.any(Array),
-      ready: null,
     });
     expect(await again.listMinds()).toEqual([]);
     expect(await again.listLinkedFolders()).toEqual([]);
@@ -591,7 +624,6 @@ describe("the example Mind", { timeout: 30_000 }, () => {
       linkedFolderId: null,
       answerId: null,
       more: expect.any(Array),
-      ready: null,
     });
   });
 });
@@ -720,7 +752,7 @@ describe("the example Mind follows the interface language (#709)", { timeout: 60
     const made = await core.createExamples();
     await foundIn(core, made.mindId as string, "Net debt to EBITDA");
 
-    const { conversationId } = await core.askReadyQuestion();
+    const { conversationId } = await core.askExampleReadyQuestion();
     const cited = await core.listDocuments({ linkedFolderId: made.linkedFolderId as string });
     expect(cited).toHaveLength(2);
 
@@ -757,7 +789,7 @@ describe("the example Mind follows the interface language (#709)", { timeout: 60
     const { core, dataDir } = await startWithExamples("zh-CN");
     const made = await core.createExamples();
     await foundIn(core, made.mindId as string, set.quotes[0]?.quote.slice(0, 6) ?? "");
-    await core.askReadyQuestion();
+    await core.askExampleReadyQuestion();
     const cited = await core.listDocuments({ linkedFolderId: made.linkedFolderId as string });
     expect(cited).toHaveLength(2);
 
@@ -765,8 +797,8 @@ describe("the example Mind follows the interface language (#709)", { timeout: 60
       expect((await current.listMinds()).map((mind) => mind.title)).toEqual([set.title]);
       expect(await current.getExamples()).toMatchObject({
         linkedFolderId: made.linkedFolderId,
-        ready: set.ready?.question,
       });
+      expect((await current.readyQuestion())?.question).toBe(set.ready?.question);
       const stillThere = (await current.listDocuments()).map((each) => each.id);
       for (const document of cited) expect(stillThere).toContain(document.id);
       await expect(access(join(dataDir, set.folder))).resolves.toBeUndefined();
@@ -784,7 +816,7 @@ describe("the example Mind follows the interface language (#709)", { timeout: 60
     const { core } = await startWithExamples("en");
     const made = await core.createExamples();
     await foundIn(core, made.mindId as string, "Net debt to EBITDA");
-    const { conversationId } = await core.askReadyQuestion();
+    const { conversationId } = await core.askExampleReadyQuestion();
     const cited = await core.listDocuments({ linkedFolderId: made.linkedFolderId as string });
     await core.deleteConversation(conversationId);
 
@@ -937,8 +969,8 @@ describe("the example Minds of each group", { timeout: 90_000 }, () => {
 
         // The first open's ready Question quotes the same Documents, every Citation found.
         if (set.ready) {
-          expect(made.ready).toBe(set.ready.question);
-          const asked = await core.askReadyQuestion();
+          expect((await core.readyQuestion())?.question).toBe(set.ready.question);
+          const asked = await core.askExampleReadyQuestion();
           const { messages } = await core.getConversation(asked.conversationId);
           const answer = messages.find((each) => each.kind === "answer");
           expect(
@@ -950,7 +982,7 @@ describe("the example Minds of each group", { timeout: 90_000 }, () => {
               })),
           ).toEqual(set.ready.quotes.map((quote) => ({ ...quote, check: "found" })));
         } else {
-          expect(made.ready).toBeNull();
+          expect(await core.readyQuestion()).toBeNull();
         }
       });
     }

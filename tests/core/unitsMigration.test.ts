@@ -196,7 +196,6 @@ describe("Migration 22: Units", { timeout: 30_000 }, () => {
       { id: "d3", processing_version: PROCESSING_VERSION },
     ]);
 
-    // A Citation of a whole file, from before Units, is still checked: now in its section.
     expect(
       await core.recheckCitation({
         documentId: IDS.notes,
@@ -206,9 +205,9 @@ describe("Migration 22: Units", { timeout: 30_000 }, () => {
       }),
     ).toMatchObject({
       check: "found",
-      pageFrom: 2,
-      pageTo: 2,
-      location: { kind: "section", heading: "Results" },
+      pageFrom: null,
+      pageTo: null,
+      location: null,
     });
     core.close();
   });

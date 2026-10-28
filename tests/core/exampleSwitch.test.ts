@@ -15,6 +15,7 @@ const documentOf = (linkedFolderId: string, name: string): Document => ({
   contentHash: randomUUID(),
   path: `/examples/${name}.pdf`,
   fileStatus: "available",
+  keptByApp: false,
   linkedFolderId,
   size: 1000,
   pageCount: 1,
@@ -125,7 +126,7 @@ async function exampleOverFakes() {
     checksRelyOn: () => false,
     citationsRelyOn: (documentIds, exceptMindId) =>
       documentIds.some((id) => cited.has(id) && cited.get(id) !== exceptMindId),
-    recheck: () => {
+    cite: () => {
       throw new Error("No Document has been read.");
     },
     changed: (value) => {
@@ -170,13 +171,13 @@ test("an example whose Documents a Conversation Citation uses keeps its language
   cite(documents);
 
   await switchTo("zh-CN");
-  expect(examples.status().ready).toBe(EXAMPLE_SETS.credit.en.ready?.question);
+  expect(examples.exampleReady()).toBe(EXAMPLE_SETS.credit.en.ready?.question);
 
   // Once the Citation is gone, the next change of language swaps the example as usual.
   uncite();
   await switchTo("en");
   await switchTo("zh-CN");
-  expect(examples.status().ready).toBe(EXAMPLE_SETS.credit["zh-CN"].ready?.question);
+  expect(examples.exampleReady()).toBe(EXAMPLE_SETS.credit["zh-CN"].ready?.question);
 });
 
 // protects=an untouched example is swapped while only its own Mind's Citations quote its Documents, and kept while a Citation in another Mind does; fails_when=the example's own Mind is not left out, so its Answer's Citations keep it from following the language, or a Citation in another Mind is not counted; no_claim=what the Citation's card shows.
@@ -189,10 +190,10 @@ test("an example's own Mind doesn't keep it from following the language, another
   cite(documents, mindId);
 
   await switchTo("zh-CN");
-  expect(examples.status().ready).toBe(EXAMPLE_SETS.credit["zh-CN"].ready?.question);
+  expect(examples.exampleReady()).toBe(EXAMPLE_SETS.credit["zh-CN"].ready?.question);
 
   uncite();
   cite(examples.documentsOf(mindId) ?? [], randomUUID());
   await switchTo("en");
-  expect(examples.status().ready).toBe(EXAMPLE_SETS.credit["zh-CN"].ready?.question);
+  expect(examples.exampleReady()).toBe(EXAMPLE_SETS.credit["zh-CN"].ready?.question);
 });

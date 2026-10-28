@@ -1,5 +1,7 @@
 import { expect, type Locator, test } from "@playwright/test";
+import { translate } from "../src/shared/i18n";
 import {
+  addFilesLabel,
   createDataFolder,
   dismissChatSetup,
   launchApp,
@@ -841,14 +843,19 @@ test("as the window narrows the columns give way, Added first, then Format, then
   }
 });
 
-test("an empty Library offers one Add Documents, its ways in, and a place to drop files", async () => {
+test("an empty Library says No Documents yet, with its two ways in beside one Add Documents", async () => {
   const { app, window } = await launchApp(dataDir);
   try {
     await dismissChatSetup(window);
     await window.getByTestId("open-library").click();
     const library = window.getByTestId("library");
+    const empty = library.getByTestId("library-empty");
     await expect(library.getByTestId("library-count")).toHaveText("0");
-    await expect(library.getByTestId("library-empty")).toContainText("Drop files or a folder here");
+    await expect(empty.getByText("No Documents yet", { exact: true })).toBeVisible();
+    await expect(empty.getByTestId("library-empty-add-files")).toHaveText(addFilesLabel("en"));
+    await expect(empty.getByTestId("library-empty-link-folder")).toHaveText(
+      translate("en", "startGuide.documents.linkFolder"),
+    );
     await expect(library.getByTestId("library-bar")).toHaveCount(0);
     await expect(library.getByRole("button", { name: /Add Documents/ })).toHaveCount(1);
     await pointAndClick(window, library.getByTestId("library-add-documents"));
@@ -856,7 +863,7 @@ test("an empty Library offers one Add Documents, its ways in, and a place to dro
       window.getByTestId("library-add-documents-items").getByRole("menuitem"),
     ).toHaveText([
       /^Files…(⌘O|Ctrl\+O)$/,
-      "A folder that stays in sync…",
+      "A folder on this computer…",
       "A web page…",
       "Find sources…",
       "Connect an app…",
@@ -864,7 +871,11 @@ test("an empty Library offers one Add Documents, its ways in, and a place to dro
     ]);
     await window.keyboard.press("Escape");
     await setLanguage(window, "zh-CN");
-    await expect(library.getByTestId("library-empty")).toContainText("将文件或文件夹拖到这里");
+    await expect(empty.getByText("还没有文档", { exact: true })).toBeVisible();
+    await expect(empty.getByTestId("library-empty-add-files")).toHaveText(addFilesLabel("zh-CN"));
+    await expect(empty.getByTestId("library-empty-link-folder")).toHaveText(
+      translate("zh-CN", "startGuide.documents.linkFolder"),
+    );
   } finally {
     await app.close();
   }

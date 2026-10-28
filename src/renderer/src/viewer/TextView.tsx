@@ -11,6 +11,7 @@ import type { Document } from "../../../core/api";
 import { decodeText } from "../../../core/documents/decode";
 import { lineUnits, markdownUnits, type SourceUnit } from "../../../core/documents/formats/text";
 import { findQuote, type TextRange } from "../../../shared/quoteMatch";
+import { DocumentFix } from "../components/DocumentFix";
 import { useT } from "../i18n";
 import type { ViewerTarget } from "../store";
 import { type CitedArea, useCitedArea, useCitedAreaFailure } from "./citedArea";
@@ -40,8 +41,8 @@ const NO_HIGHLIGHT: readonly TextRange[] = [];
  * text as written. Plain text is set in the Mind's serif, or in a monospaced
  * font when it looks like code. Opened at a Citation, it highlights the quote
  * in the cited section (Markdown) or lines (TXT), each part of a quote with
- * an ellipsis, and scrolls to it; a quote not found there is looked for in
- * the whole file. Without a quote, it opens at the cited Unit, or the top. A
+ * an ellipsis, and scrolls to it. Only a target without a place searches the
+ * whole file. Without a quote, it opens at the cited Unit, or the top. A
  * Markdown file's headings form an outline.
  */
 export function TextView({ document, target }: { document: Document; target: ViewerTarget }) {
@@ -49,7 +50,9 @@ export function TextView({ document, target }: { document: Document; target: Vie
   const [loaded, setLoaded] = useState<Loaded>({ kind: "loading" });
   const [outlineOpen, setOutlineOpen] = useState(false);
   const [source, setSource] = useState(false);
+  const [attempt, setAttempt] = useState(0);
 
+  // biome-ignore lint/correctness/useExhaustiveDependencies: the file is read again at the User's Retry, or when its version changes.
   useEffect(() => {
     const controller = new AbortController();
     loadDocumentBytes(document.id, controller.signal).then(
@@ -65,7 +68,7 @@ export function TextView({ document, target }: { document: Document; target: Vie
       },
     );
     return () => controller.abort();
-  }, [document.id]);
+  }, [document.id, document.contentHash, attempt]);
 
   useCitedAreaFailure(
     loaded.kind === "missing"
@@ -81,6 +84,7 @@ export function TextView({ document, target }: { document: Document; target: Vie
     [loaded, markdown],
   );
   const outline = useMemo(() => (markdown ? headingsOf(units) : []), [markdown, units]);
+  const reload = () => setAttempt((count) => count + 1);
 
   return (
     <>
@@ -110,9 +114,19 @@ export function TextView({ document, target }: { document: Document; target: Vie
       ) : loaded.kind === "missing" ? (
         <FileGone quote={target.quote} />
       ) : loaded.kind === "failed" ? (
-        <ViewerMessage tone="error">
-          {loaded.message ? t("viewer.failed", { message: loaded.message }) : t("viewer.notText")}
-        </ViewerMessage>
+        <DocumentFix
+          document={document}
+          view
+          message={loaded.message}
+          reload={reload}
+          fallback={
+            <ViewerMessage tone="error">
+              {loaded.message
+                ? t("viewer.failed", { message: loaded.message })
+                : t("viewer.notText")}
+            </ViewerMessage>
+          }
+        />
       ) : (
         <MarkdownDocumentContext.Provider value={document.id}>
           <TextContent
@@ -194,11 +208,11 @@ function TextContent({
     return first && last ? { start: first.start, end: last.end, first } : null;
   }, [units, target.pageFrom, target.pageTo]);
 
-  // The quote: in the cited Units first, then anywhere in the file.
   const highlight = useMemo(() => {
     const quote = target.quote;
     if (!quote) return NO_HIGHLIGHT;
-    if (cited) {
+    if (target.pageFrom !== undefined) {
+      if (!cited) return NO_HIGHLIGHT;
       const inside = findQuote(text.slice(cited.start, cited.end), quote);
       if (inside) {
         return inside.map((range) => ({
@@ -206,9 +220,10 @@ function TextContent({
           end: range.end + cited.start,
         }));
       }
+      return NO_HIGHLIGHT;
     }
     return findQuote(text, quote) ?? NO_HIGHLIGHT;
-  }, [text, target.quote, cited]);
+  }, [text, target.quote, target.pageFrom, cited]);
   const blocks = useMemo(() => (markdown ? parseMarkdown(text) : null), [text, markdown]);
   const code = useMemo(() => !markdown && looksLikeCode(text), [text, markdown]);
   const citedHeading = useMemo(() => {
