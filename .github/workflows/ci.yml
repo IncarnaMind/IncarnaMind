@@ -70,7 +70,7 @@ jobs:
               heavy=false
             fi
             # Only a change to what the packaged real-engine checks cover runs them.
-            if [ -z "$files" ] || echo "$files" | grep -qE '^(src/core/(transcription|meetings)/|src/core/documents/(extract|processing)\.ts$|src/core/documents/scan/|src/core/embedding/download\.ts$|src/main/(meetings/|engine(Process|Environment)\.ts$|(embedder|reranker|scanReader)(Process)?\.ts$)|src/main/transcriber(Process)?\.ts$|src/main/speaker(Process|Separator)\.ts$|src/(preload|shared)/capture\.ts$|src/renderer/capture(/|\.html$)|build/entitlements\.mac\.plist$|electron-builder\.yml$|electron\.vite\.config\.ts$|package(-lock)?\.json$|e2e/app\.ts$|e2e/packaged/|tests/helpers/pdf\.ts$|tests/fixtures/(speech|scans|rotated-scans)/|\.github/(actions/packaged-transcription/|workflows/ci\.yml$))'; then
+            if [ -z "$files" ] || echo "$files" | grep -qE '^(src/core/(transcription|meetings)/|src/core/documents/(extract|processing)\.ts$|src/core/documents/scan/|src/core/embedding/download\.ts$|src/main/(meetings/|engine(Process|Environment)\.ts$|(embedder|reranker|scanReader)(Process)?\.ts$)|src/main/transcriber(Process)?\.ts$|src/main/speaker(Process|Separator)\.ts$|src/(preload|shared)/capture\.ts$|src/renderer/capture(/|\.html$)|build/entitlements\.mac\.plist$|electron-builder\.yml$|electron\.vite\.config\.ts$|package(-lock)?\.json$|scripts/(afterPack|check-package)\.mjs$|e2e/app\.ts$|e2e/packaged/|tests/helpers/pdf\.ts$|tests/fixtures/(speech|scans|rotated-scans)/|\.github/(actions/packaged-(transcription|speech-windows)/|workflows/ci\.yml$))'; then
               packaged=true
             fi
           fi
@@ -234,6 +234,30 @@ jobs:
           CSC_IDENTITY_AUTO_DISCOVERY: "false"
         run: npm run dist:dir -- -c.mac.identity=- -c.mac.notarize=false
       - uses: ./.github/actions/packaged-transcription
+
+  # The packaged Windows app transcribes a meeting with the speech engine on the app's own ONNX
+  # Runtime library, which keeps its usage events out of Windows' diagnostic data (#2152). Runs
+  # on the same changes as the macOS job; the nightly run always does. Not a required check.
+  packaged-speech-windows:
+    name: Packaged app's speech engine (Windows)
+    needs: changes
+    if: needs.changes.outputs.packaged == 'true'
+    runs-on: windows-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - run: npm ci
+      - name: Package the app
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: "false"
+        run: npm run dist:dir
+      - name: Check the package
+        run: npm run check:package
+      - uses: ./.github/actions/packaged-speech-windows
 
   packaged-agents:
     name: Packaged agent connection (${{ matrix.os }})
