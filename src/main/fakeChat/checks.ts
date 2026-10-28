@@ -87,7 +87,10 @@ export function checkReply(prompt: Prompt, tools: readonly string[]): Reply {
   const asked = /<figures>\n([\s\S]*?)\n<\/figures>/.exec(first)?.[1];
   // A table cell's own words are its number: what it is comes from its row's label.
   const labels = asked
-    ? (JSON.parse(asked) as AskedFigure[]).flatMap((figure) => (figure.label ? [figure.label] : []))
+    ? (JSON.parse(asked) as AskedFigure[]).flatMap((figure) => {
+        const row = rowOf(figure);
+        return row ? [row] : [];
+      })
     : [];
   if (searched === undefined)
     return { tool: "search_documents", input: { query: [sentence, ...labels].join(" ") } };
@@ -168,6 +171,9 @@ interface AskedFigure {
   ambiguities?: { kind: string }[];
 }
 
+// A cell's label is its row, then its column ("Groceries · Q3 2026"): the row names its line.
+const rowOf = (figure: AskedFigure) => figure.label?.split(" · ")[0];
+
 /** A line of a Passage that states its figures' scale or currency: "All figures in £m", "单位：百万元". */
 const UNIT_LINE = /^(?:all figures in|figures in)\b|^单位[:：]/i;
 
@@ -193,7 +199,8 @@ function figuresReply(
   >();
   const bound = figures.map((figure) => {
     if (figure.saved) return { figure, line: null };
-    const about = figure.label ? `${figure.label} ${figure.context ?? ""}` : sentence;
+    const row = rowOf(figure);
+    const about = row ? `${row} ${figure.context ?? ""}` : sentence;
     let best: {
       record: Record<string, unknown>;
       quote: string;
