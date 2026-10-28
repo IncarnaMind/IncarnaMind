@@ -957,7 +957,7 @@ describe("The filing guards", () => {
   });
 
   test("a true absence accepts a search miss but not an invented figure or a Document-level claim", () => {
-    const missing = (text: string) =>
+    const missing = (text: string, citations: ReturnType<typeof citation>[] = []) =>
       requestFailures(
         outcome({
           expected: {
@@ -967,7 +967,7 @@ describe("The filing guards", () => {
             searchMiss: true,
             noDocumentAbsence: /cash conversion|现金转换周期/,
           },
-          answer: { text, citations: [], toolCalls: [], steps: null },
+          answer: { text, citations, toolCalls: [], steps: null },
           citedInMinds: [],
         }),
       ).map((failure) => failure.kind);
@@ -983,5 +983,15 @@ describe("The filing guards", () => {
     expect(missing("I didn't find the cash conversion cycle in the 10-Q. It was 42 days.")).toEqual(
       ["invented-answer"],
     );
+    expect(
+      missing("I didn't find the cash conversion cycle. The closest is a 6.2% sales decline[^1].", [
+        citation("northmart", 1),
+      ]),
+    ).toEqual([]);
+    expect(
+      missing(
+        "I didn't find the cash conversion cycle. I searched the Q2 2026 10-Q and nothing matched.",
+      ),
+    ).toEqual([]);
   });
 });

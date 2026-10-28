@@ -511,6 +511,10 @@ function clausesOf(text: string): string[] {
   return text.split(/[\n。！？!?，；;]+|\.(?!\d)/);
 }
 
+const ASSERTED_ANSWER =
+  /(?:\b(?:was|were|is|are|equals?)\b[^.!?\n]{0,40}\d|[为是][^。！？!?\n]{0,20}\d|\b\d+(?:\.\d+)?\s*(?:days?|%|million|billion)\b|\d+(?:\.\d+)?\s*(?:元|亿元|天))/i;
+const ASSERTED_COPULA = /\b(?:was|were|is|are)\b|[为是]/i;
+
 function statesDocumentAbsence(text: string, about: RegExp): boolean {
   return clausesOf(text).some(
     (sentence) => about.test(sentence) && DOCUMENT_ABSENCE.some((phrase) => phrase.test(sentence)),
@@ -624,14 +628,17 @@ export function requestFailures(outcome: RequestOutcome): RequestFailure[] {
   if (expected.searchMiss) {
     if (!declines(answer.text)) failures.push({ kind: "no-search-miss" });
     const invented = clausesOf(answer.text).some((sentence) => {
-      if (!sentence.trim() || declines(sentence)) return false;
+      if (!sentence.trim() || declines(sentence) || /\[\^\d+\]/.test(sentence)) return false;
       if (
         expected.noDocumentAbsence &&
         statesDocumentAbsence(sentence, expected.noDocumentAbsence)
       ) {
         return false;
       }
-      return /\d/.test(sentence) || (expected.noDocumentAbsence?.test(sentence) ?? false);
+      return (
+        ASSERTED_ANSWER.test(sentence) ||
+        ((expected.noDocumentAbsence?.test(sentence) ?? false) && ASSERTED_COPULA.test(sentence))
+      );
     });
     if (invented) failures.push({ kind: "invented-answer" });
   }
