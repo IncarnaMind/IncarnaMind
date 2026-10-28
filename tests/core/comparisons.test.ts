@@ -997,6 +997,110 @@ describe("Compare Documents", () => {
     ]);
   });
 
+  test("a column hidden while its cells wait for their turn stays waiting when a cost cap stops the fill", async () => {
+    let release = () => {};
+    const held = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const reachedCite = new Set<string>();
+    const model = cellModel((call, asked) => {
+      if (call.results.some((result) => result.tool === "cite")) {
+        reachedCite.add(`${asked.document}|${asked.question}`);
+      }
+      return null;
+    }, held);
+    const files = [
+      ...SUPPLIERS,
+      {
+        name: "Orrin.txt",
+        contents: "Orrin Terms.\nTermination notice: 45 days.\nLiability cap: 6 months of fees.",
+      },
+      {
+        name: "Pell.txt",
+        contents: "Pell Order.\nTermination notice: 60 days.\nLiability cap: 3 months of fees.",
+      },
+      {
+        name: "Quill.txt",
+        contents:
+          "Quill Agreement.\nTermination notice: 20 days.\nLiability cap: one month of fees.",
+      },
+      {
+        name: "Rook.txt",
+        contents: "Rook MSA.\nTermination notice: 15 days.\nLiability cap: two months of fees.",
+      },
+      {
+        name: "Sable.txt",
+        contents:
+          "Sable Contract.\nTermination notice: 25 days.\nLiability cap: four months of fees.",
+      },
+    ];
+    const { core, client, mind, documents } = await cloudSetUp(model, undefined, files);
+    const questions = [
+      { id: "q-notice", text: "Termination notice" },
+      { id: "q-liability", text: "Liability cap" },
+    ];
+    client.doc.transact(() =>
+      client.doc
+        .getXmlFragment(MIND_CONTENT_FIELD)
+        .push([createElement(waitingTable(documents, questions))]),
+    );
+    await client.settled();
+    const tableId = "held-table";
+    expect(await core.fillComparisonTable({ mindId: mind.id, tableId })).toEqual({
+      started: true,
+      tableId,
+    });
+    // The first four cells are the first two Documents' two cells each. Once each has called its
+    // last time, the cap set next is met by the cells still queued, not these.
+    await vi.waitFor(() =>
+      expect(
+        [
+          "Corvane|Termination notice",
+          "Corvane|Liability cap",
+          "Halvard|Termination notice",
+          "Halvard|Liability cap",
+        ].every((cell) => reachedCite.has(cell)),
+      ).toBe(true),
+    );
+    client.doc.transact(() => {
+      const table = client.doc
+        .getXmlFragment(MIND_CONTENT_FIELD)
+        .toArray()
+        .find(
+          (element) => element instanceof Y.XmlElement && element.nodeName === "comparisonTable",
+        );
+      if (!(table instanceof Y.XmlElement)) return;
+      const next = comparisonQuestionsOf(table.getAttributes()).map((question) =>
+        question.id === "q-liability" ? { ...question, hidden: true } : question,
+      );
+      table.setAttribute("questions", next as never);
+    });
+    await client.settled();
+    await core.updateSettings({ user: { monthlyCap: { amount: 0.000001, currency: "USD" } } });
+    release();
+    await fillEnded(core, tableId);
+    await client.settled();
+    const cells = tableIn(client).rows.map((row) =>
+      row.cells.map((cell) => [cell.status, cell.problem]),
+    );
+    expect(cells.slice(0, 2)).toEqual([
+      [
+        ["done", null],
+        ["done", null],
+      ],
+      [
+        ["done", null],
+        ["done", null],
+      ],
+    ]);
+    for (const row of cells.slice(2)) {
+      expect(row).toEqual([
+        ["failed", "cost-cap"],
+        ["waiting", null],
+      ]);
+    }
+  });
+
   test("a plan's limit mid-run stops the fill: the cells left say they weren't checked", async () => {
     const model = cellModel((call, asked) =>
       call.results.length === 0 && asked.document === "Halvard"

@@ -285,7 +285,7 @@ describe("A comparison table exported to Excel", () => {
     ]);
     expect(table.at("B2").text).toBe("90 days");
     // The file leaves the column out and says nothing about it; the app is told the count.
-    expect(table.at("A3").text).toBeUndefined();
+    expect(table.at("C2").text).toBeUndefined();
     expect(saved.hiddenColumns).toBe(1);
     expect(table.width(1)).toBeGreaterThan(table.width(0));
   });

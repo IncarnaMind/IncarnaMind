@@ -428,6 +428,17 @@ export function createComparisons(options: ComparisonsOptions) {
     });
   }
 
+  function cellShown(fill: Fill, tableId: string, cell: Pick<Cell, "questionId">): boolean {
+    return content.read(fill.mindId, (all) => {
+      const table = tableIn(all, tableId);
+      return table
+        ? comparisonQuestionsOf(table.getAttributes()).some(
+            (question) => question.id === cell.questionId && question.hidden !== true,
+          )
+        : false;
+    });
+  }
+
   /** Writes a cell's outcome as it comes. A stopped cell stays as it was: filling again writes it. */
   function record(fill: Fill, tableId: string, cell: Cell, outcome: ItemOutcome<Written>): void {
     let patch: CellPatch;
@@ -463,6 +474,8 @@ export function createComparisons(options: ComparisonsOptions) {
         };
         break;
       case "not-checked":
+        // A column hidden while its cell waited is out of the work, not failed: Show offers it again.
+        if (!cellShown(fill, tableId, cell)) return;
         patch = {
           status: "failed",
           problem: outcome.stop.reason,
@@ -502,17 +515,11 @@ export function createComparisons(options: ComparisonsOptions) {
    */
   async function write(fill: Fill, tableId: string, cell: Cell): Promise<Written> {
     // Hidden since its batch was listed: its turn never comes, so it waits for Show.
-    const shown = content.read(fill.mindId, (all) => {
-      const table = tableIn(all, tableId);
-      return table
-        ? comparisonQuestionsOf(table.getAttributes()).some(
-            (question) => question.id === cell.questionId && question.hidden !== true,
-          )
-        : false;
-    });
-    if (!shown) return { kind: "left-out" };
+    if (!cellShown(fill, tableId, cell)) return { kind: "left-out" };
     const turn = await fill.task.turn(fill.local);
     try {
+      // It can be hidden while it waits for its turn, too.
+      if (!cellShown(fill, tableId, cell)) return { kind: "left-out" };
       const written = await writeCell(
         fill,
         tableId,
