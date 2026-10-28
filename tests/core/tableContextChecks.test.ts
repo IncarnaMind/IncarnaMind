@@ -310,7 +310,7 @@ describe("A sentence's check reads the Passage its Citation quotes", () => {
     },
   } as const;
 
-  // protects=a cited row of a summary sheet reaches the check with its sheet's name and heading row, as the Passage it quotes reads, and the check can cite it there without a search finding it first (#1459); fails_when=the check sees only the bare row "North 6496265", or only what its own search finds, the month rows; no_claim=how well a real model judges it (tests/live/summaryRowCheck.live.test.ts).
+  // protects=a cited row of a summary sheet reaches the check with its sheet's name and heading row, as the Passage it quotes reads, and the check can cite it there without a search finding it first, or being sent back to search (#1459); fails_when=the check sees only the bare row "North 6496265", or only what its own search finds, the month rows; no_claim=how well a real model judges it (tests/live/summaryRowCheck.live.test.ts).
   test.each(["en", "zh-CN"] as const)(
     "%s: a summary row's year and region reach the check",
     async (language) => {
@@ -382,6 +382,8 @@ describe("A sentence's check reads the Passage its Citation quotes", () => {
       expect(prompt).toContain(`location="${words.sheet}`);
       expect(prompt).toContain(words.head.join("\t"));
       expect(prompt).toContain("6496265");
+      // The quoted Passage is shown from the scope, so a verdict on it isn't sent back to search.
+      expect(checks.some((call) => promptOf(call).includes("without searching"))).toBe(false);
     },
   );
 

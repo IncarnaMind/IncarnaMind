@@ -362,6 +362,8 @@ export function createClaimCheck(deps: ClaimCheckDependencies) {
             })),
           )
         : null;
+    // The Passages a Citation quotes are shown from the scope, so a verdict on them has looked.
+    const looked = () => searches > 0 || citedShown !== null;
     const { model } = request;
     const calculating = model.support === "tools" && calculates(model.capabilities);
     const figures = createCalculationSession({
@@ -540,13 +542,13 @@ export function createClaimCheck(deps: ClaimCheckDependencies) {
         {
           name: "search-first",
           check: (text) =>
-            searches === 0 && readVerdict(text) ? { claims: [], note: SEARCH_FIRST } : null,
+            !looked() && readVerdict(text) ? { claims: [], note: SEARCH_FIRST } : null,
         },
         searchAgain(() => searches),
         ...figuresReplied(
           request,
           figures,
-          () => searches > 0,
+          looked,
           (marker) => session.tools.hasRecord?.(marker) ?? false,
         ),
       ],
@@ -563,7 +565,7 @@ export function createClaimCheck(deps: ClaimCheckDependencies) {
     if (request.figures?.length) {
       if (!finished || reply.trim() === "") return notChecked("empty");
       if (readsAsRefusal(reply)) return notChecked("refused");
-      if (searches === 0) return notChecked("unread");
+      if (!looked()) return notChecked("unread");
       // A saved figure is worked out again from its own inputs, wherever the model searched.
       const saved = new Map(
         request.figures
@@ -670,7 +672,7 @@ export function createClaimCheck(deps: ClaimCheckDependencies) {
       readVerdict(reply) ??
       (withVerdict === undefined ? null : readVerdict(`${withVerdict}\n\n${reply}`));
     if (!verdict) return notChecked(refused ? "refused" : "malformed");
-    if (searches === 0) return notChecked("unread");
+    if (!looked()) return notChecked("unread");
     /** Unsupported, with the nearest line when it states another value for the same thing (#770). */
     const unsupported = async (
       why: UnsupportedReason = { reason: null, covered: null, uncovered: null },
