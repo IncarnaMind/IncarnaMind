@@ -26,10 +26,14 @@ import * as Y from "yjs";
 import {
   cellToFill,
   comparisonCellOf,
+  comparisonLabelOf,
   comparisonQuestionsOf,
+  MAX_COMPARISON_COLUMN_WIDTH,
   MAX_COMPARISON_DOCUMENTS,
+  MAX_COMPARISON_LABEL,
   MAX_COMPARISON_QUESTIONS,
   MAX_COMPARISON_TEXT,
+  MIN_COMPARISON_COLUMN_WIDTH,
 } from "../../shared/comparisons";
 import { recordProposalRequest, targetHash } from "../../shared/proposals";
 import type { CellAnswer } from "../answers";
@@ -49,10 +53,22 @@ import {
   COMPARISON_ROW_NODE,
   COMPARISON_TABLE_NODE,
   type ComparisonCellAttributes,
+  type ComparisonColumnAdded,
+  type ComparisonColumnDuplicateRequest,
+  type ComparisonColumnEdited,
+  type ComparisonColumnEditRequest,
+  type ComparisonColumnHiddenRequest,
+  type ComparisonColumnHiddenSet,
+  type ComparisonColumnInsertRequest,
   type ComparisonColumnMove,
   type ComparisonColumnMoveResult,
+  type ComparisonColumnRemoved,
+  type ComparisonColumnRemoveRequest,
+  type ComparisonColumnWidthRequest,
+  type ComparisonColumnWidthSet,
   type ComparisonProblem,
   type ComparisonResult,
+  type ComparisonStructureUndoResult,
   type ComparisonTableRef,
   type CoreEvents,
   PROPOSAL_ATTRIBUTE,
@@ -240,6 +256,71 @@ function parseColumnMove(input: unknown): ComparisonColumnMove {
     throw new InvalidInputError({ key: "error.comparison.columnIds" });
   }
   return { ...ref, questionId, to: to as number };
+}
+
+function parseColumnId(input: unknown, what: string): ComparisonTableRef & { questionId: string } {
+  const ref = parseRef(input, what);
+  const questionId = isRecord(input) ? input.questionId : undefined;
+  if (typeof questionId !== "string" || questionId === "") {
+    throw new InvalidInputError(`${what} needs a column.`);
+  }
+  return { ...ref, questionId };
+}
+
+function parseEdit(input: unknown): ComparisonColumnEditRequest {
+  const base = parseColumnId(input, "editComparisonColumn");
+  if (!isRecord(input) || typeof input.text !== "string" || typeof input.label !== "string") {
+    throw new InvalidInputError("editComparisonColumn needs a Question and a label.");
+  }
+  return { ...base, text: input.text, label: input.label };
+}
+
+function parseInsert(input: unknown): ComparisonColumnInsertRequest {
+  const base = parseColumnId(input, "insertComparisonColumn");
+  const side = isRecord(input) ? input.side : undefined;
+  const text = isRecord(input) ? input.text : undefined;
+  const label = isRecord(input) ? input.label : undefined;
+  if ((side !== "left" && side !== "right") || typeof text !== "string") {
+    throw new InvalidInputError("insertComparisonColumn needs a side and a Question.");
+  }
+  return { ...base, side, text, ...(typeof label === "string" && { label }) };
+}
+
+function parseWidth(input: unknown): ComparisonColumnWidthRequest {
+  const base = parseColumnId(input, "resizeComparisonColumn");
+  const width = isRecord(input) ? input.width : undefined;
+  if (typeof width !== "number" || !Number.isFinite(width)) {
+    throw new InvalidInputError("resizeComparisonColumn needs a width.");
+  }
+  return { ...base, width };
+}
+
+function parseHidden(input: unknown): ComparisonColumnHiddenRequest {
+  const base = parseColumnId(input, "setComparisonColumnHidden");
+  const hidden = isRecord(input) ? input.hidden : undefined;
+  if (typeof hidden !== "boolean") {
+    throw new InvalidInputError("setComparisonColumnHidden needs whether to hide it.");
+  }
+  return { ...base, hidden };
+}
+
+function parseDuplicate(input: unknown): ComparisonColumnDuplicateRequest {
+  return parseColumnId(input, "duplicateComparisonColumn");
+}
+
+function parseRemove(input: unknown): ComparisonColumnRemoveRequest {
+  return parseColumnId(input, "removeComparisonColumn");
+}
+
+/** A column's label, as one short line; empty is no label, which the heading derives. */
+function labelLine(value: string): string {
+  return value.replace(/\s+/g, " ").trim().slice(0, MAX_COMPARISON_LABEL);
+}
+
+function withLabel<T extends { label?: string }>(question: T, label: string): T {
+  if (label) return { ...question, label };
+  const { label: _gone, ...rest } = question;
+  return rest as T;
 }
 
 function parseFillRef(input: unknown): ComparisonTableRef & { questionIds: string[] | null } {
@@ -820,6 +901,118 @@ export function createComparisons(options: ComparisonsOptions) {
     describeSteps: describeCells,
   };
 
+  type ColumnQuestion = ReturnType<typeof comparisonQuestionsOf>[number];
+
+  /** One column of a table as a change needs it: its Question and a copy of each row's cell. */
+  interface AddressedColumn {
+    question: ColumnQuestion;
+    cells: Map<string, Y.XmlElement>;
+  }
+
+  /** One structure change, undone and done again on the table it changed. */
+  interface StructureStep {
+    mindId: string;
+    tableId: string;
+    undo(table: Y.XmlElement): void;
+    redo(table: Y.XmlElement): void;
+  }
+
+  const structureUndo: StructureStep[] = [];
+  const structureRedo: StructureStep[] = [];
+  /** Structure commands of a table run one after another, in the order the window asked. */
+  const structureQueues = new Map<string, Promise<unknown>>();
+
+  const rowsOf = (table: Y.XmlElement) =>
+    elements(table).filter((row) => row.nodeName === COMPARISON_ROW_NODE);
+  const documentIdOf = (row: Y.XmlElement) => String(row.getAttribute("documentId") ?? "");
+  const questionsOf = (table: Y.XmlElement) => comparisonQuestionsOf(table.getAttributes());
+  const setQuestions = (table: Y.XmlElement, questions: readonly ColumnQuestion[]) =>
+    table.setAttribute("questions", questions as never);
+
+  function cellOf(row: Y.XmlElement, questionId: string): Y.XmlElement | null {
+    return (
+      elements(row).find(
+        (cell) =>
+          cell.nodeName === COMPARISON_CELL_NODE &&
+          String(cell.getAttribute("questionId") ?? "") === questionId,
+      ) ?? null
+    );
+  }
+
+  function captureColumn(table: Y.XmlElement, index: number): AddressedColumn | null {
+    const question = questionsOf(table)[index];
+    if (!question) return null;
+    const cells = new Map<string, Y.XmlElement>();
+    for (const row of rowsOf(table)) {
+      const cell = cellOf(row, question.id);
+      if (cell) cells.set(documentIdOf(row), cell.clone());
+    }
+    return { question: { ...question }, cells };
+  }
+
+  function waitingColumn(question: ColumnQuestion): AddressedColumn {
+    return { question, cells: new Map() };
+  }
+
+  function insertColumnAt(table: Y.XmlElement, index: number, column: AddressedColumn): void {
+    const questions = questionsOf(table);
+    const at = Math.max(0, Math.min(index, questions.length));
+    const next = [...questions];
+    next.splice(at, 0, column.question);
+    setQuestions(table, next);
+    for (const row of rowsOf(table)) {
+      const cell =
+        column.cells.get(documentIdOf(row)) ?? createElement(cellJSON(column.question.id));
+      row.insert(Math.min(at, row.length), [cell]);
+    }
+  }
+
+  function replaceColumnAt(table: Y.XmlElement, index: number, column: AddressedColumn): void {
+    const questions = questionsOf(table);
+    const current = questions[index];
+    if (!current) {
+      insertColumnAt(table, index, column);
+      return;
+    }
+    const next = [...questions];
+    next[index] = column.question;
+    setQuestions(table, next);
+    for (const row of rowsOf(table)) {
+      const existing = cellOf(row, current.id) ?? cellOf(row, column.question.id);
+      const at = existing ? row.toArray().indexOf(existing) : index;
+      if (existing && at >= 0) row.delete(at, 1);
+      const cell =
+        column.cells.get(documentIdOf(row)) ?? createElement(cellJSON(column.question.id));
+      row.insert(Math.min(at < 0 ? index : at, row.length), [cell]);
+    }
+  }
+
+  function removeColumnById(table: Y.XmlElement, questionId: string): number {
+    const questions = questionsOf(table);
+    const at = questions.findIndex((question) => question.id === questionId);
+    if (at < 0) return -1;
+    setQuestions(
+      table,
+      questions.filter((question) => question.id !== questionId),
+    );
+    for (const row of rowsOf(table)) {
+      const cell = cellOf(row, questionId);
+      if (!cell) continue;
+      const index = row.toArray().indexOf(cell);
+      if (index >= 0) row.delete(index, 1);
+    }
+    return at;
+  }
+
+  function setQuestion(table: Y.XmlElement, questionId: string, question: ColumnQuestion): void {
+    const questions = questionsOf(table);
+    const index = questions.findIndex((each) => each.id === questionId);
+    if (index < 0) return;
+    const next = [...questions];
+    next[index] = question;
+    setQuestions(table, next);
+  }
+
   /**
    * A column moved to `to`: the Questions' order and every row's cells in it,
    * copied into that order in one transaction, so no reader ever sees a half
@@ -827,35 +1020,381 @@ export function createComparisons(options: ComparisonsOptions) {
    * it included; fills write their cells by questionId, so they keep writing
    * into them wherever the move put them.
    */
-  function moveColumn(raw: unknown): ComparisonColumnMoveResult {
+  function moveIn(table: Y.XmlElement, questionId: string, to: number): ComparisonColumnMoveResult {
+    const questions = questionsOf(table);
+    const from = questions.findIndex((question) => question.id === questionId);
+    if (from < 0) return { index: -1, moved: false };
+    const at = Math.min(Math.max(to, 0), questions.length - 1);
+    if (at === from) return { index: from, moved: false };
+    const next = questions.filter((_question, index) => index !== from);
+    next.splice(at, 0, questions[from] as ColumnQuestion);
+    for (const row of rowsOf(table)) {
+      const cells = new Map(
+        elements(row)
+          .filter((cell) => cell.nodeName === COMPARISON_CELL_NODE)
+          .map((cell) => [String(cell.getAttribute("questionId") ?? ""), cell]),
+      );
+      const ordered = next.flatMap((question) => {
+        const cell = cells.get(question.id);
+        return cell ? [cell.clone()] : [];
+      });
+      row.delete(0, row.length);
+      row.insert(0, ordered);
+    }
+    setQuestions(table, next);
+    return { index: at, moved: true };
+  }
+
+  function withTable<T>(mindId: string, tableId: string, change: (table: Y.XmlElement) => T): T {
+    return content.edit(mindId, (all) => {
+      const table = tableIn(all, tableId);
+      if (!table) throw new NotFoundError({ key: "error.comparison.notFound" });
+      return change(table);
+    });
+  }
+
+  function queued<T>(tableId: string, run: () => T): Promise<T> {
+    const earlier = structureQueues.get(tableId) ?? Promise.resolve();
+    const next = earlier.then(run, run);
+    structureQueues.set(
+      tableId,
+      next.then(
+        () => undefined,
+        () => undefined,
+      ),
+    );
+    return next;
+  }
+
+  function remember(step: StructureStep): void {
+    structureUndo.push(step);
+    structureRedo.length = 0;
+  }
+
+  /**
+   * A column's label and Question (#1833): a new Question gives it new cells,
+   * so a fill still writing for the old one can no longer land, and Undo puts
+   * the old Question and its Answers back. Everything else about the column,
+   * its width and its hidden flag, stays.
+   */
+  async function editColumn(raw: unknown): Promise<ComparisonColumnEdited> {
+    const input = parseEdit(raw);
+    const mindId = options.requireMind(input.mindId);
+    return queued(input.tableId, () =>
+      withTable(mindId, input.tableId, (table) => {
+        const questions = questionsOf(table);
+        const index = questions.findIndex((question) => question.id === input.questionId);
+        const old = questions[index];
+        if (!old)
+          return { changed: false, refilled: false, questionId: input.questionId, label: "" };
+        const text = oneLine(input.text, "A Question", "error.comparison.questionTooLong");
+        if (!text) throw new InvalidInputError({ key: "error.comparison.noQuestion" });
+        const label = labelLine(input.label);
+        if (text === old.text && label === (old.label ?? "")) {
+          return {
+            changed: false,
+            refilled: false,
+            questionId: input.questionId,
+            label: comparisonLabelOf(old),
+          };
+        }
+        if (text === old.text) {
+          const next = withLabel({ ...old }, label);
+          setQuestion(table, input.questionId, next);
+          remember({
+            mindId,
+            tableId: input.tableId,
+            undo: (current) => setQuestion(current, input.questionId, old),
+            redo: (current) => setQuestion(current, input.questionId, next),
+          });
+          return {
+            changed: true,
+            refilled: false,
+            questionId: input.questionId,
+            label: comparisonLabelOf(next),
+          };
+        }
+        const newQuestionId = randomUUID();
+        const question: ColumnQuestion = {
+          id: newQuestionId,
+          text,
+          ...(label && { label }),
+          ...(old.width !== undefined && { width: old.width }),
+          ...(old.hidden !== undefined && { hidden: old.hidden }),
+        };
+        const removed = captureColumn(table, index);
+        if (!removed)
+          return { changed: false, refilled: false, questionId: input.questionId, label: "" };
+        let state = waitingColumn(question);
+        replaceColumnAt(table, index, state);
+        remember({
+          mindId,
+          tableId: input.tableId,
+          undo: (current) => {
+            const at = questionsOf(current).findIndex((each) => each.id === newQuestionId);
+            if (at < 0) return;
+            state = captureColumn(current, at) ?? state;
+            replaceColumnAt(current, at, removed);
+          },
+          redo: (current) => {
+            const at = questionsOf(current).findIndex((each) => each.id === old.id);
+            if (at < 0) return;
+            replaceColumnAt(current, at, state);
+          },
+        });
+        return {
+          changed: true,
+          refilled: true,
+          questionId: newQuestionId,
+          label: comparisonLabelOf(question),
+        };
+      }),
+    );
+  }
+
+  /** A column added beside another, with a waiting cell in every row; Undo takes it out whole. */
+  async function insertColumn(raw: unknown): Promise<ComparisonColumnAdded> {
+    const input = parseInsert(raw);
+    const mindId = options.requireMind(input.mindId);
+    return queued(input.tableId, () =>
+      withTable(mindId, input.tableId, (table) => {
+        const questions = questionsOf(table);
+        const beside = questions.findIndex((question) => question.id === input.questionId);
+        if (beside < 0) throw new NotFoundError({ key: "error.comparison.notFound" });
+        if (questions.length >= MAX_COMPARISON_QUESTIONS) {
+          throw new InvalidInputError({
+            key: "error.comparison.tooManyQuestions",
+            values: { max: MAX_COMPARISON_QUESTIONS },
+          });
+        }
+        const text = oneLine(input.text, "A Question", "error.comparison.questionTooLong");
+        if (!text) throw new InvalidInputError({ key: "error.comparison.noQuestion" });
+        const label = labelLine(input.label ?? "");
+        const question: ColumnQuestion = { id: randomUUID(), text, ...(label && { label }) };
+        const at = input.side === "left" ? beside : beside + 1;
+        let state = waitingColumn(question);
+        insertColumnAt(table, at, state);
+        remember({
+          mindId,
+          tableId: input.tableId,
+          undo: (current) => {
+            const index = questionsOf(current).findIndex((each) => each.id === question.id);
+            if (index < 0) return;
+            state = captureColumn(current, index) ?? state;
+            removeColumnById(current, question.id);
+          },
+          redo: (current) => insertColumnAt(current, at, state),
+        });
+        return { questionId: question.id, label: comparisonLabelOf(question), fill: true };
+      }),
+    );
+  }
+
+  /** A column copied beside itself, its Answers included; Undo takes the copy out whole. */
+  async function duplicateColumn(raw: unknown): Promise<ComparisonColumnAdded> {
+    const input = parseDuplicate(raw);
+    const mindId = options.requireMind(input.mindId);
+    return queued(input.tableId, () =>
+      withTable(mindId, input.tableId, (table) => {
+        const questions = questionsOf(table);
+        const index = questions.findIndex((question) => question.id === input.questionId);
+        const source = questions[index];
+        if (!source) throw new NotFoundError({ key: "error.comparison.notFound" });
+        if (questions.length >= MAX_COMPARISON_QUESTIONS) {
+          throw new InvalidInputError({
+            key: "error.comparison.tooManyQuestions",
+            values: { max: MAX_COMPARISON_QUESTIONS },
+          });
+        }
+        const question: ColumnQuestion = { ...source, id: randomUUID() };
+        const cells = new Map<string, Y.XmlElement>();
+        let fill = false;
+        for (const row of rowsOf(table)) {
+          const cell = cellOf(row, source.id);
+          const state = cell ? comparisonCellOf(cell.getAttributes()) : null;
+          const copy =
+            cell && state && (state.status === "done" || state.status === "failed")
+              ? (() => {
+                  const each = cell.clone();
+                  each.setAttribute("questionId", question.id);
+                  return each;
+                })()
+              : createElement(cellJSON(question.id));
+          if (cellToFill(comparisonCellOf(copy.getAttributes()))) fill = true;
+          cells.set(documentIdOf(row), copy);
+        }
+        const at = index + 1;
+        let state = { question, cells };
+        insertColumnAt(table, at, state);
+        remember({
+          mindId,
+          tableId: input.tableId,
+          undo: (current) => {
+            const found = questionsOf(current).findIndex((each) => each.id === question.id);
+            if (found < 0) return;
+            state = captureColumn(current, found) ?? state;
+            removeColumnById(current, question.id);
+          },
+          redo: (current) => insertColumnAt(current, at, state),
+        });
+        return { questionId: question.id, label: comparisonLabelOf(question), fill };
+      }),
+    );
+  }
+
+  /** A column and its cells taken out whole; Undo puts them back with their Answers and problems. */
+  async function removeColumn(raw: unknown): Promise<ComparisonColumnRemoved> {
+    const input = parseRemove(raw);
+    const mindId = options.requireMind(input.mindId);
+    return queued(input.tableId, () =>
+      withTable(mindId, input.tableId, (table) => {
+        const questions = questionsOf(table);
+        const index = questions.findIndex((question) => question.id === input.questionId);
+        const removed = questions[index];
+        if (!removed) throw new NotFoundError({ key: "error.comparison.notFound" });
+        if (questions.length <= 1) throw new InvalidInputError("A table keeps a column.");
+        const column = captureColumn(table, index);
+        if (!column) throw new NotFoundError({ key: "error.comparison.notFound" });
+        removeColumnById(table, removed.id);
+        const after = questions.slice(index + 1).find((question) => question.hidden !== true);
+        const before = questions
+          .slice(0, index)
+          .reverse()
+          .find((question) => question.hidden !== true);
+        let state = column;
+        remember({
+          mindId,
+          tableId: input.tableId,
+          undo: (current) => insertColumnAt(current, index, state),
+          redo: (current) => {
+            const at = questionsOf(current).findIndex((each) => each.id === removed.id);
+            if (at >= 0) state = captureColumn(current, at) ?? state;
+            removeColumnById(current, removed.id);
+          },
+        });
+        return {
+          label: comparisonLabelOf(removed),
+          focusId: after?.id ?? before?.id ?? null,
+        };
+      }),
+    );
+  }
+
+  /** A column's width within the table's bounds; Undo puts the old width back. */
+  async function resizeColumn(raw: unknown): Promise<ComparisonColumnWidthSet | null> {
+    const input = parseWidth(raw);
+    const mindId = options.requireMind(input.mindId);
+    return queued(input.tableId, () =>
+      withTable(mindId, input.tableId, (table) => {
+        const questions = questionsOf(table);
+        const index = questions.findIndex((question) => question.id === input.questionId);
+        const old = questions[index];
+        if (!old) throw new NotFoundError({ key: "error.comparison.notFound" });
+        const width = Math.min(
+          MAX_COMPARISON_COLUMN_WIDTH,
+          Math.max(MIN_COMPARISON_COLUMN_WIDTH, Math.round(input.width)),
+        );
+        if (old.width === width) return null;
+        const next = { ...old, width };
+        setQuestion(table, input.questionId, next);
+        remember({
+          mindId,
+          tableId: input.tableId,
+          undo: (current) => setQuestion(current, input.questionId, old),
+          redo: (current) => setQuestion(current, input.questionId, next),
+        });
+        return { label: comparisonLabelOf(old), width };
+      }),
+    );
+  }
+
+  /** A column hidden from the table, or shown again: hiding deletes nothing. */
+  async function setHidden(raw: unknown): Promise<ComparisonColumnHiddenSet | null> {
+    const input = parseHidden(raw);
+    const mindId = options.requireMind(input.mindId);
+    return queued(input.tableId, () =>
+      withTable(mindId, input.tableId, (table) => {
+        const questions = questionsOf(table);
+        const index = questions.findIndex((question) => question.id === input.questionId);
+        const old = questions[index];
+        if (!old) throw new NotFoundError({ key: "error.comparison.notFound" });
+        if ((old.hidden === true) === input.hidden) return null;
+        const next: ColumnQuestion = input.hidden
+          ? { ...old, hidden: true }
+          : (() => {
+              const { hidden: _hidden, ...shown } = old;
+              return shown;
+            })();
+        setQuestion(table, input.questionId, next);
+        const shownList = questions.map((question, at) => (at === index ? next : question));
+        const after = shownList.slice(index + 1).find((question) => question.hidden !== true);
+        const before = shownList
+          .slice(0, index)
+          .reverse()
+          .find((question) => question.hidden !== true);
+        remember({
+          mindId,
+          tableId: input.tableId,
+          undo: (current) => setQuestion(current, input.questionId, old),
+          redo: (current) => setQuestion(current, input.questionId, next),
+        });
+        return {
+          label: comparisonLabelOf(old),
+          questionId: input.questionId,
+          hidden: input.hidden,
+          focusId: input.hidden ? (after?.id ?? before?.id ?? null) : input.questionId,
+        };
+      }),
+    );
+  }
+
+  async function moveColumn(raw: unknown): Promise<ComparisonColumnMoveResult> {
     const input = parseColumnMove(raw);
     const mindId = options.requireMind(input.mindId);
-    return content.edit(mindId, (all) => {
-      const table = tableIn(all, input.tableId);
-      if (!table) throw new NotFoundError({ key: "error.comparison.notFound" });
-      const questions = comparisonQuestionsOf(table.getAttributes());
-      const from = questions.findIndex((question) => question.id === input.questionId);
-      if (from < 0) return { index: -1, moved: false };
-      const to = Math.min(Math.max(input.to, 0), questions.length - 1);
-      if (to === from) return { index: from, moved: false };
-      const next = questions.filter((_question, at) => at !== from);
-      next.splice(to, 0, questions[from] as (typeof questions)[number]);
-      for (const row of elements(table)) {
-        if (row.nodeName !== COMPARISON_ROW_NODE) continue;
-        const cells = new Map(
-          elements(row)
-            .filter((cell) => cell.nodeName === COMPARISON_CELL_NODE)
-            .map((cell) => [String(cell.getAttribute("questionId") ?? ""), cell]),
-        );
-        const ordered = next.flatMap((question) => {
-          const cell = cells.get(question.id);
-          return cell ? [cell.clone()] : [];
-        });
-        row.delete(0, row.length);
-        row.insert(0, ordered);
+    return queued(input.tableId, () =>
+      withTable(mindId, input.tableId, (table) => {
+        const from = questionsOf(table).findIndex((question) => question.id === input.questionId);
+        const moved = moveIn(table, input.questionId, input.to);
+        if (moved.moved && from >= 0) {
+          remember({
+            mindId,
+            tableId: input.tableId,
+            undo: (current) => moveIn(current, input.questionId, from),
+            redo: (current) => moveIn(current, input.questionId, moved.index),
+          });
+        }
+        return moved;
+      }),
+    );
+  }
+
+  async function undoStructure(raw: unknown): Promise<ComparisonStructureUndoResult> {
+    const ref = parseRef(raw, "undoComparisonStructure");
+    const mindId = options.requireMind(ref.mindId);
+    return queued(ref.tableId, () => {
+      const step = structureUndo.at(-1);
+      if (!step || step.mindId !== mindId || step.tableId !== ref.tableId) {
+        return { moved: false };
       }
-      table.setAttribute("questions", next as never);
-      return { index: to, moved: true };
+      withTable(mindId, ref.tableId, (table) => step.undo(table));
+      structureUndo.pop();
+      structureRedo.push(step);
+      return { moved: true };
+    });
+  }
+
+  async function redoStructure(raw: unknown): Promise<ComparisonStructureUndoResult> {
+    const ref = parseRef(raw, "redoComparisonStructure");
+    const mindId = options.requireMind(ref.mindId);
+    return queued(ref.tableId, () => {
+      const step = structureRedo.at(-1);
+      if (!step || step.mindId !== mindId || step.tableId !== ref.tableId) {
+        return { moved: false };
+      }
+      withTable(mindId, ref.tableId, (table) => step.redo(table));
+      structureRedo.pop();
+      structureUndo.push(step);
+      return { moved: true };
     });
   }
 
@@ -989,9 +1528,15 @@ export function createComparisons(options: ComparisonsOptions) {
       return { started: true, tableId: ref.tableId };
     },
 
-    moveColumn(input: unknown): ComparisonColumnMoveResult {
-      return moveColumn(input);
-    },
+    moveColumn: (input: unknown) => moveColumn(input),
+    editColumn: (input: unknown) => editColumn(input),
+    insertColumn: (input: unknown) => insertColumn(input),
+    duplicateColumn: (input: unknown) => duplicateColumn(input),
+    removeColumn: (input: unknown) => removeColumn(input),
+    resizeColumn: (input: unknown) => resizeColumn(input),
+    hideColumn: (input: unknown) => setHidden(input),
+    undoStructure: (input: unknown) => undoStructure(input),
+    redoStructure: (input: unknown) => redoStructure(input),
 
     async stop(input: unknown): Promise<void> {
       const ref = parseRef(input, "stopComparisonTable");

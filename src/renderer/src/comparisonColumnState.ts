@@ -29,10 +29,13 @@ interface ComparisonColumnState {
   stale: Readonly<Record<string, string>>;
   /** The column whose head takes the focus once it is drawn. */
   focus: { tableId: string; questionId: string } | null;
+  /** Tables whose structure the core is writing now: their note takes no local edits until it lands. */
+  busy: ReadonlySet<string>;
   openField(field: ComparisonColumnField): void;
   closeField(): void;
   focusColumn(tableId: string, questionId: string | null): void;
   clearFocus(tableId: string, questionId: string): void;
+  setBusy(tableId: string, busy: boolean): void;
   rememberStale(key: string, words: string): void;
   forgetStale(key: string): void;
 }
@@ -44,6 +47,7 @@ export const useComparisonColumns = create<ComparisonColumnState>()((set) => ({
   field: null,
   stale: {},
   focus: null,
+  busy: new Set(),
   openField: (field) => set({ field }),
   closeField: () => set({ field: null }),
   focusColumn: (tableId, questionId) => set({ focus: questionId ? { tableId, questionId } : null }),
@@ -53,6 +57,14 @@ export const useComparisonColumns = create<ComparisonColumnState>()((set) => ({
         ? { focus: null }
         : {},
     ),
+  setBusy: (tableId, busy) =>
+    set((state) => {
+      if (state.busy.has(tableId) === busy) return {};
+      const next = new Set(state.busy);
+      if (busy) next.add(tableId);
+      else next.delete(tableId);
+      return { busy: next };
+    }),
   rememberStale: (key, words) => set((state) => ({ stale: { ...state.stale, [key]: words } })),
   forgetStale: (key) =>
     set((state) => {

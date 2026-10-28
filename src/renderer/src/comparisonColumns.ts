@@ -1,30 +1,32 @@
 /**
  * A comparison table's columns (#1833): the field open in a heading to edit a
- * column or insert one beside it, and the commands that change a table, each
- * one change of the note, with its undo line and the fill that follows.
+ * column or insert one beside it, and the commands that change a table. The
+ * core is the one writer of a table's structure, so every command asks it,
+ * and one undo stack in the window takes them back and does them again
+ * through the core; the fill each one asks for follows.
  */
-import { comparisonLabelOf, MAX_COMPARISON_QUESTIONS } from "../../shared/comparisons";
-import { type ComparisonColumnHandle, useComparisonColumns } from "./comparisonColumnState";
+import { MAX_COMPARISON_QUESTIONS } from "../../shared/comparisons";
+import {
+  type ComparisonColumnHandle,
+  staleAnswerKey,
+  useComparisonColumns,
+} from "./comparisonColumnState";
 import { fillComparisonTable } from "./comparisons";
 import { core } from "./core";
 import {
   comparisonColumnHere,
   comparisonColumnStep,
-  duplicateComparisonColumn,
-  editComparisonColumn,
-  insertComparisonColumnBeside,
-  questionLine,
-  removeComparisonColumn,
-  setComparisonColumnHidden,
-  setComparisonColumnWidth,
+  lastComparisonColumn,
 } from "./editor/comparisonColumnCommands";
-import { offerMoveUndo } from "./editor/comparisonMoveUndo";
-import { offerEditorUndo } from "./editor/editorUndo";
+import { offerStructureUndo, type StructureChange } from "./editor/comparisonStructureUndo";
 import { flushMindUpdates } from "./mindCopies";
 import { useAppStore } from "./store";
 
 export type { ComparisonColumnField, ComparisonColumnHandle } from "./comparisonColumnState";
 export { comparisonColumnHandles, useComparisonColumns } from "./comparisonColumnState";
+
+const focus = (handle: ComparisonColumnHandle, questionId: string | null) =>
+  useComparisonColumns.getState().focusColumn(handle.tableId, questionId);
 
 const fill = (handle: ComparisonColumnHandle, questionIds: readonly string[]) =>
   void fillComparisonTable({
@@ -32,6 +34,45 @@ const fill = (handle: ComparisonColumnHandle, questionIds: readonly string[]) =>
     tableId: handle.tableId,
     questionIds,
   });
+
+/**
+ * Asks the core for one structure change, with the table taking no local
+ * edits while it is written: a local write can't cross the core's change.
+ */
+async function structure<T>(
+  handle: ComparisonColumnHandle,
+  ask: () => Promise<T>,
+): Promise<T | null> {
+  await flushMindUpdates(handle.mindId);
+  useComparisonColumns.getState().setBusy(handle.tableId, true);
+  try {
+    return await ask();
+  } catch (error) {
+    useAppStore.getState().reportError(error);
+    return null;
+  } finally {
+    useComparisonColumns.getState().setBusy(handle.tableId, false);
+  }
+}
+
+function answersOf(
+  handle: ComparisonColumnHandle,
+  questionId: string,
+): { documentId: string; words: string }[] {
+  const answers: { documentId: string; words: string }[] = [];
+  const table = handle.editor.state.doc;
+  table.descendants((node) => {
+    if (node.type.name !== "comparisonRow") return true;
+    node.forEach((cell) => {
+      if (cell.type.name !== "comparisonCell") return;
+      if (cell.attrs.questionId !== questionId) return;
+      const words = cell.textBetween(0, cell.content.size, "\n", " ").trim();
+      if (words) answers.push({ documentId: String(node.attrs.documentId ?? ""), words });
+    });
+    return false;
+  });
+  return answers;
+}
 
 /** The heading opens the label and Question in place. */
 export function startColumnEdit(handle: ComparisonColumnHandle, questionId: string): void {
@@ -59,65 +100,148 @@ export function closeColumnField(): void {
 }
 
 /** Saves a column's label and Question: a new Question refills that column alone. */
-export function saveColumnEdit(
+export async function saveColumnEdit(
   handle: ComparisonColumnHandle,
   questionId: string,
   { text, label }: { text: string; label: string },
-): void {
-  const done = editComparisonColumn(handle.editor, handle.tableId, questionId, { text, label });
+): Promise<void> {
+  const answers = answersOf(handle, questionId);
   closeColumnField();
-  if (!done?.changed) {
+  const edited = await structure(handle, () =>
+    core.editComparisonColumn({
+      mindId: handle.mindId,
+      tableId: handle.tableId,
+      questionId,
+      text,
+      label,
+    }),
+  );
+  if (!edited?.changed) {
     // Saved nothing, or nothing changed: the field closes and the heading takes the focus back.
-    useComparisonColumns.getState().focusColumn(handle.tableId, questionId);
+    focus(handle, questionId);
     return;
   }
-  offerEditorUndo(handle.editor, (t) => t("comparison.column.edited", { label: done.label }));
-  useComparisonColumns.getState().focusColumn(handle.tableId, done.questionId);
-  if (done.refilled) fill(handle, [done.questionId]);
+  if (edited.refilled) {
+    for (const answer of answers) {
+      useComparisonColumns
+        .getState()
+        .rememberStale(
+          staleAnswerKey(handle.tableId, answer.documentId, edited.questionId),
+          answer.words,
+        );
+    }
+  }
+  offerStructureUndo(handle.editor, {
+    mindId: handle.mindId,
+    tableId: handle.tableId,
+    said: (t) => t("comparison.column.edited", { label: edited.label }),
+  } satisfies StructureChange);
+  focus(handle, edited.questionId);
+  if (edited.refilled) fill(handle, [edited.questionId]);
+}
+
+/** "+ Question": a column after the table's last one, with a waiting cell in every row. */
+export async function addColumn(handle: ComparisonColumnHandle, text: string): Promise<void> {
+  const last = lastComparisonColumn(handle.editor, handle.tableId);
+  if (!last) return;
+  const added = await structure(handle, () =>
+    core.insertComparisonColumn({
+      mindId: handle.mindId,
+      tableId: handle.tableId,
+      questionId: last,
+      side: "right",
+      text,
+    }),
+  );
+  if (!added) return;
+  offerStructureUndo(handle.editor, {
+    mindId: handle.mindId,
+    tableId: handle.tableId,
+    said: (t) => t("comparison.column.inserted", { label: added.label }),
+  } satisfies StructureChange);
+  focus(handle, added.questionId);
+  if (added.fill) fill(handle, [added.questionId]);
 }
 
 /** Saves the column an insert asked for, beside the one it was opened on. */
-export function saveColumnInsert(
+export async function saveColumnInsert(
   handle: ComparisonColumnHandle,
   questionId: string,
   side: "left" | "right",
   text: string,
-): void {
-  const id = insertComparisonColumnBeside(handle.editor, handle.tableId, questionId, side, text);
+): Promise<void> {
   closeColumnField();
-  if (!id) {
+  const added = await structure(handle, () =>
+    core.insertComparisonColumn({
+      mindId: handle.mindId,
+      tableId: handle.tableId,
+      questionId,
+      side,
+      text,
+    }),
+  );
+  if (!added) {
     // No column was added: the heading the field was opened on takes the focus back.
-    useComparisonColumns.getState().focusColumn(handle.tableId, questionId);
+    focus(handle, questionId);
     return;
   }
-  const label = comparisonLabelOf({ text: questionLine(text) });
-  offerEditorUndo(handle.editor, (t) => t("comparison.column.inserted", { label }));
-  useComparisonColumns.getState().focusColumn(handle.tableId, id);
-  fill(handle, [id]);
+  offerStructureUndo(handle.editor, {
+    mindId: handle.mindId,
+    tableId: handle.tableId,
+    said: (t) => t("comparison.column.inserted", { label: added.label }),
+  } satisfies StructureChange);
+  focus(handle, added.questionId);
+  if (added.fill) fill(handle, [added.questionId]);
 }
 
 /** A column copied beside itself: its Answers come along, so no model is asked for them again. */
-export function duplicateColumn(handle: ComparisonColumnHandle, questionId: string): void {
-  const done = duplicateComparisonColumn(handle.editor, handle.tableId, questionId);
-  if (!done) return;
-  offerEditorUndo(handle.editor, (t) => t("comparison.column.duplicated", { label: done.label }));
-  useComparisonColumns.getState().focusColumn(handle.tableId, done.questionId);
-  if (done.fill) fill(handle, [done.questionId]);
+export async function duplicateColumn(
+  handle: ComparisonColumnHandle,
+  questionId: string,
+): Promise<void> {
+  const added = await structure(handle, () =>
+    core.duplicateComparisonColumn({
+      mindId: handle.mindId,
+      tableId: handle.tableId,
+      questionId,
+    }),
+  );
+  if (!added) return;
+  offerStructureUndo(handle.editor, {
+    mindId: handle.mindId,
+    tableId: handle.tableId,
+    said: (t) => t("comparison.column.duplicated", { label: added.label }),
+  } satisfies StructureChange);
+  focus(handle, added.questionId);
+  if (added.fill) fill(handle, [added.questionId]);
 }
 
 /** Removes a column whole; the last column can't be removed, so it isn't offered. */
-export function removeColumn(handle: ComparisonColumnHandle, questionId: string): void {
-  const done = removeComparisonColumn(handle.editor, handle.tableId, questionId);
-  if (!done) return;
-  offerEditorUndo(handle.editor, (t) => t("comparison.column.removed", { label: done.label }));
-  useComparisonColumns.getState().focusColumn(handle.tableId, done.focusId);
+export async function removeColumn(
+  handle: ComparisonColumnHandle,
+  questionId: string,
+): Promise<void> {
+  const removed = await structure(handle, () =>
+    core.removeComparisonColumn({
+      mindId: handle.mindId,
+      tableId: handle.tableId,
+      questionId,
+    }),
+  );
+  if (!removed) return;
+  offerStructureUndo(handle.editor, {
+    mindId: handle.mindId,
+    tableId: handle.tableId,
+    questionId,
+    said: (t) => t("comparison.column.removed", { label: removed.label }),
+  } satisfies StructureChange);
+  focus(handle, removed.focusId);
 }
 
 /**
- * A column moved to `to`, its Answers with it: the core writes the Questions'
- * order and every row's cells in one change, after what the User typed in the
- * note has reached it, so a cell is copied as they left it. Undo and Redo ask
- * the core to move it back or forward.
+ * A column moved to `to`, its Answers with it. The core writes the Questions'
+ * order and every row's cells in one change; Undo and Redo ask the core to
+ * move it back or forward.
  */
 export async function moveColumn(
   handle: ComparisonColumnHandle,
@@ -126,28 +250,23 @@ export async function moveColumn(
 ): Promise<void> {
   const here = comparisonColumnHere(handle.editor, handle.tableId, questionId);
   if (!here || here.index === to) return;
-  await flushMindUpdates(handle.mindId);
-  let moved: { index: number; moved: boolean };
-  try {
-    moved = await core.moveComparisonColumn({
+  const moved = await structure(handle, () =>
+    core.moveComparisonColumn({
       mindId: handle.mindId,
       tableId: handle.tableId,
       questionId,
       to,
-    });
-  } catch (error) {
-    useAppStore.getState().reportError(error);
-    return;
-  }
-  if (moved.moved) {
-    offerMoveUndo(handle.editor, handle, {
+    }),
+  );
+  if (moved?.moved) {
+    offerStructureUndo(handle.editor, {
+      mindId: handle.mindId,
+      tableId: handle.tableId,
       questionId,
-      label: here.label,
-      from: here.index,
-      to: moved.index,
-    });
+      said: (t) => t("comparison.column.moved", { label: here.label }),
+    } satisfies StructureChange);
   }
-  useComparisonColumns.getState().focusColumn(handle.tableId, questionId);
+  focus(handle, questionId);
 }
 
 /** A column moved one visible column left or right, past hidden ones. */
@@ -162,26 +281,54 @@ export async function stepColumn(
 }
 
 /** A column made wider or narrower; dragging says it once, when the pointer lets go. */
-export function resizeColumn(
+export async function resizeColumn(
   handle: ComparisonColumnHandle,
   questionId: string,
   width: number,
-): void {
-  const done = setComparisonColumnWidth(handle.editor, handle.tableId, questionId, width);
-  if (!done) return;
-  offerEditorUndo(handle.editor, (t) => t("comparison.column.resized", { label: done.label }));
+): Promise<void> {
+  const resized = await structure(handle, () =>
+    core.resizeComparisonColumn({
+      mindId: handle.mindId,
+      tableId: handle.tableId,
+      questionId,
+      width,
+    }),
+  );
+  if (!resized) return;
+  offerStructureUndo(handle.editor, {
+    mindId: handle.mindId,
+    tableId: handle.tableId,
+    questionId,
+    said: (t) => t("comparison.column.resized", { label: resized.label }),
+  } satisfies StructureChange);
 }
 
 /** A column hidden from the table, its cells and Answers kept with the Note. */
-export function hideColumn(handle: ComparisonColumnHandle, questionId: string): void {
-  const done = setComparisonColumnHidden(handle.editor, handle.tableId, questionId, true);
-  if (!done) return;
-  offerEditorUndo(handle.editor, (t) => t("comparison.column.hid", { label: done.label }));
-  if (done.focusId) {
-    useComparisonColumns.getState().focusColumn(handle.tableId, done.focusId);
+export async function hideColumn(
+  handle: ComparisonColumnHandle,
+  questionId: string,
+): Promise<void> {
+  const hidden = await structure(handle, () =>
+    core.setComparisonColumnHidden({
+      mindId: handle.mindId,
+      tableId: handle.tableId,
+      questionId,
+      hidden: true,
+    }),
+  );
+  if (!hidden) return;
+  offerStructureUndo(handle.editor, {
+    mindId: handle.mindId,
+    tableId: handle.tableId,
+    questionId,
+    said: (t) => t("comparison.column.hid", { label: hidden.label }),
+  } satisfies StructureChange);
+  if (hidden.focusId) {
+    focus(handle, hidden.focusId);
     return;
   }
   // Nothing is left to take the focus: the table's hidden-columns button shows what went.
+  if (typeof requestAnimationFrame !== "function" || typeof document === "undefined") return;
   requestAnimationFrame(() =>
     document
       .querySelector<HTMLElement>(
@@ -192,11 +339,26 @@ export function hideColumn(handle: ComparisonColumnHandle, questionId: string): 
 }
 
 /** A hidden column shown again, in its own place. */
-export function showColumn(handle: ComparisonColumnHandle, questionId: string): void {
-  const done = setComparisonColumnHidden(handle.editor, handle.tableId, questionId, false);
-  if (!done) return;
-  offerEditorUndo(handle.editor, (t) => t("comparison.column.shown", { label: done.label }));
-  useComparisonColumns.getState().focusColumn(handle.tableId, done.focusId);
+export async function showColumn(
+  handle: ComparisonColumnHandle,
+  questionId: string,
+): Promise<void> {
+  const shown = await structure(handle, () =>
+    core.setComparisonColumnHidden({
+      mindId: handle.mindId,
+      tableId: handle.tableId,
+      questionId,
+      hidden: false,
+    }),
+  );
+  if (!shown) return;
+  offerStructureUndo(handle.editor, {
+    mindId: handle.mindId,
+    tableId: handle.tableId,
+    questionId,
+    said: (t) => t("comparison.column.shown", { label: shown.label }),
+  } satisfies StructureChange);
+  focus(handle, shown.focusId);
 }
 
 export const canInsertColumn = (count: number): boolean => count < MAX_COMPARISON_QUESTIONS;

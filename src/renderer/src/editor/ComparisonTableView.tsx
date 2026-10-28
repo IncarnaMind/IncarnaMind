@@ -11,7 +11,7 @@ import {
 } from "../../../shared/comparisons";
 import { mindName } from "../../../shared/naming";
 import { readProposalAttribute } from "../../../shared/proposals";
-import { moveColumn, resizeColumn, showColumn } from "../comparisonColumns";
+import { addColumn, moveColumn, resizeColumn, showColumn } from "../comparisonColumns";
 import { fittedColumnWidth } from "../comparisonColumnWidth";
 import {
   expandComparisonTable,
@@ -37,7 +37,6 @@ import {
   ComparisonColumnHeading,
 } from "./ComparisonColumnHeading";
 import { ComparisonHiddenColumnsMenu } from "./ComparisonHiddenColumnsMenu";
-import { addComparisonColumn } from "./comparisonCommands";
 import { CollapseIcon, ExpandIcon, TableIcon } from "./icons";
 import { useMindId } from "./mindContext";
 
@@ -168,10 +167,16 @@ export function ComparisonTableView({ node, editor }: ReactNodeViewProps) {
     const element = wrapper.current;
     if (!element) return;
     const hiddenNow = new Set(hiddenKey === "" ? [] : hiddenKey.split("\n"));
+    let applied = "";
     const apply = () => {
-      for (const cell of element.querySelectorAll<HTMLElement>(
+      const cells = element.querySelectorAll<HTMLElement>(
         ".comparison-row-cells > .comparison-cell[data-question-id]",
-      )) {
+      );
+      // A keystroke elsewhere in the note changes no cell's column: one signature keeps this off it.
+      const signature = `${hiddenKey}\n${lastShown ?? ""}\n${cells.length}`;
+      if (signature === applied) return;
+      applied = signature;
+      for (const cell of cells) {
         const questionId = cell.dataset.questionId ?? "";
         cell.hidden = hiddenNow.has(questionId);
         if (questionId === lastShown) cell.dataset.lastShown = "true";
@@ -204,8 +209,7 @@ export function ComparisonTableView({ node, editor }: ReactNodeViewProps) {
 
   const addQuestion = (text: string) => {
     setAdding(false);
-    const id = addComparisonColumn(editor, tableId, text);
-    if (id) void fillComparisonTable({ ...ref, questionIds: [id] });
+    void addColumn(handle, text);
   };
 
   const moveTo = (questionId: string, slot: number) => {
@@ -219,7 +223,7 @@ export function ComparisonTableView({ node, editor }: ReactNodeViewProps) {
   const fit = (questionId: string) => {
     const table = wrapper.current;
     const width = table ? fittedColumnWidth(table, questionId) : null;
-    if (width !== null) resizeColumn(handle, questionId, width);
+    if (width !== null) void resizeColumn(handle, questionId, width);
   };
 
   const dropOf = (index: number): ColumnDrop => {
@@ -331,7 +335,7 @@ export function ComparisonTableView({ node, editor }: ReactNodeViewProps) {
           {editable && hidden.length > 0 && (
             <ComparisonHiddenColumnsMenu
               hidden={hidden}
-              onShow={(questionId) => showColumn(handle, questionId)}
+              onShow={(questionId) => void showColumn(handle, questionId)}
             />
           )}
           {addButton("head")}
@@ -436,7 +440,7 @@ export function ComparisonTableView({ node, editor }: ReactNodeViewProps) {
                 onWidthPreview={(questionId, width) =>
                   setResizing(width === null ? null : { questionId, width })
                 }
-                onWidthCommit={(questionId, width) => resizeColumn(handle, questionId, width)}
+                onWidthCommit={(questionId, width) => void resizeColumn(handle, questionId, width)}
                 onFit={fit}
                 onDragStart={(questionId) => setDrag({ questionId, slot: null })}
                 onDragOver={(slot) => setDrag((state) => (state ? { ...state, slot } : state))}

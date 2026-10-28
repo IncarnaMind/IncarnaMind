@@ -1530,6 +1530,164 @@ test("a column moves by menu, keys and drag, and hides and shows from the table'
   await window.keyboard.press("Escape");
 });
 
+for (const language of ["en", "zh-CN"] as const) {
+  test(`a column change and a move, each taken back through the core (${language})`, async () => {
+    test.setTimeout(240_000);
+    const { app, window } = await launchApp(dataDir, { fakeChat: true });
+    await dismissChatSetup(window);
+    await setLanguage(window, language);
+    await setWindowSize(app, window, 1600, 860);
+    await useLocalChatModel(window);
+    const table = await filledSuppliersTable(window);
+    // A third column, so a remove and a move both have somewhere to land.
+    await pointAndClick(window, table.getByTestId("comparison-add-question").first());
+    await window.keyboard.type("Governing law");
+    await window.keyboard.press("Enter");
+    await expect(table.getByTestId("comparison-question")).toHaveCount(3, { timeout: 30_000 });
+    await expect(table.getByTestId("comparison-progress")).toHaveCount(0, { timeout: 30_000 });
+    await table
+      .getByTestId("comparison-accept-all")
+      .click({ trial: true })
+      .catch(() => undefined);
+
+    const state = async () => {
+      const headings = await table.getByTestId("comparison-question").evaluateAll((all) =>
+        all
+          .map((each) => ({
+            x: each.getBoundingClientRect().x,
+            text: (each as HTMLElement).innerText.trim(),
+          }))
+          .sort((left, right) => left.x - right.x)
+          .map((each) => each.text),
+      );
+      const rows = await table.getByTestId("comparison-row").count();
+      const answers: string[][] = [];
+      for (let row = 0; row < rows; row++) answers.push(await visualAnswersIn(table, row));
+      return { headings, answers };
+    };
+    const undo = async () => {
+      await window.getByTestId("mind-editor").first().focus();
+      await window.keyboard.press("ControlOrMeta+z");
+    };
+    const menu = async (column: number, item: string) => {
+      await headingAt(table, column).focus();
+      await pointAndClick(window, headingAt(table, column).getByTestId("comparison-column-menu"));
+      await pointAndClick(
+        window,
+        headingAt(table, column).locator('[role="menu"]').getByTestId(item),
+      );
+    };
+    const base = await state();
+
+    // Hide, then move: ⌘Z twice shows the column again and puts the order back.
+    await menu(0, "comparison.column.hide");
+    await expect(table.getByTestId("comparison-question")).toHaveCount(2);
+    await menu(0, "comparison.column.moveRight");
+    await undo();
+    await undo();
+    await expect.poll(state).toEqual(base);
+
+    // Remove, then move: ⌘Z twice puts the column and its cells back whole.
+    await menu(0, "comparison.column.remove");
+    await expect(table.getByTestId("comparison-question")).toHaveCount(2);
+    await menu(0, "comparison.column.moveRight");
+    await undo();
+    await undo();
+    await expect.poll(state).toEqual(base);
+
+    // Reword, then move: ⌘Z twice brings the old Question and its Answers back.
+    const fields = await editColumn(window, headingAt(table, 0));
+    await fields.question.fill("Ending the agreement");
+    await window.keyboard.press("Enter");
+    await expect(headingAt(table, 0)).toHaveText("Ending the agreement");
+    await expect(table.getByTestId("comparison-progress")).toHaveCount(0, { timeout: 30_000 });
+    await menu(0, "comparison.column.moveRight");
+    await undo();
+    await undo();
+    await expect.poll(state).toEqual(base);
+
+    // Insert, then move: the first Undo takes back the move, the second the column.
+    await menu(0, "comparison.column.insertLeft");
+    await window.keyboard.type("Extra term");
+    await window.keyboard.press("Enter");
+    await expect(table.getByTestId("comparison-question")).toHaveCount(4, { timeout: 30_000 });
+    await expect(table.getByTestId("comparison-progress")).toHaveCount(0, { timeout: 30_000 });
+    await menu(0, "comparison.column.moveRight");
+    await undo();
+    await expect(table.getByTestId("comparison-question")).toHaveCount(4);
+    await undo();
+    await expect.poll(state).toEqual(base);
+
+    // Duplicate, then move: both taken back.
+    await menu(0, "comparison.column.duplicate");
+    await expect(table.getByTestId("comparison-question")).toHaveCount(4, { timeout: 30_000 });
+    await menu(1, "comparison.column.moveRight");
+    await undo();
+    await undo();
+    await expect.poll(state).toEqual(base);
+
+    // Resize, then move: the first Undo takes back the move, the second the width.
+    const widthBefore = (await headingAt(table, 0).boundingBox())?.width ?? 0;
+    await pointAt(window, headingAt(table, 0).getByTestId("comparison-column-resize"));
+    await headingAt(table, 0).getByTestId("comparison-column-resize").dblclick();
+    await expect(window.getByTestId("undo-message")).toContainText(
+      language === "en" ? "Resized" : "已调整",
+    );
+    await expect
+      .poll(async () => (await headingAt(table, 0).boundingBox())?.width ?? 0)
+      .not.toBe(widthBefore);
+    await menu(0, "comparison.column.moveRight");
+    await undo();
+    await undo();
+    await expect.poll(state).toEqual(base);
+
+    // Move, then hide: ⌘Z shows the column, ⌘Z again moves it back.
+    await menu(0, "comparison.column.moveRight");
+    await menu(1, "comparison.column.hide");
+    await undo();
+    await expect(table.getByTestId("comparison-question")).toHaveCount(3);
+    await undo();
+    await expect.poll(state).toEqual(base);
+  });
+}
+
+test("⌘K shows hidden columns even when every column is hidden, in English and Chinese", async () => {
+  test.setTimeout(120_000);
+  const { app, window } = await launchApp(dataDir, { fakeChat: true });
+  await dismissChatSetup(window);
+  await setWindowSize(app, window, 1600, 860);
+  await useLocalChatModel(window);
+  const table = await filledSuppliersTable(window);
+  for (const column of [1, 0]) {
+    await headingAt(table, column).focus();
+    await pointAndClick(window, headingAt(table, column).getByTestId("comparison-column-menu"));
+    await pointAndClick(
+      window,
+      headingAt(table, column).locator('[role="menu"]').getByTestId("comparison.column.hide"),
+    );
+    await expect(table.getByTestId("comparison-question")).toHaveCount(column);
+  }
+  await expect(table.getByTestId("comparison-question")).toHaveCount(0);
+
+  for (const language of ["en", "zh-CN"] as const) {
+    await setLanguage(window, language);
+    await window.getByTestId("mind-editor").first().focus();
+    await window.keyboard.press("ControlOrMeta+k");
+    await window.keyboard.type(language === "en" ? "show hidden" : "显示隐藏的列");
+    await expect(
+      window.getByTestId("palette").locator('[data-key="command:comparison.column.showHidden"]'),
+    ).toBeVisible();
+    await window.keyboard.press("Escape");
+  }
+
+  // The picker shows one column at a time; both come back.
+  for (const count of [1, 2]) {
+    await pointAndClick(window, table.getByTestId("comparison-hidden-menu"));
+    await window.keyboard.press("Enter");
+    await expect(table.getByTestId("comparison-question")).toHaveCount(count);
+  }
+});
+
 test("Show steps through the table's cells that need a look in the order the columns are drawn, after a move", async () => {
   test.setTimeout(180_000);
   const { app, window } = await launchApp(dataDir, { fakeChat: true });

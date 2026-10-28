@@ -206,7 +206,7 @@ export function ComparisonColumnHeading({
     }
     if (event.key === "Delete" && count > 1) {
       event.preventDefault();
-      removeColumn(handle, question.id);
+      void removeColumn(handle, question.id);
       return;
     }
     const moving = isMac ? event.altKey : event.ctrlKey;
@@ -252,13 +252,13 @@ export function ComparisonColumnHeading({
       {inserting ? (
         <ColumnQuestionField
           testId="comparison-insert-question"
-          onDone={(text) => saveColumnInsert(handle, question.id, open.side, text)}
+          onDone={(text) => void saveColumnInsert(handle, question.id, open.side, text)}
           onCancel={close}
         />
       ) : editing ? (
         <ColumnFields
           question={question}
-          onDone={(next) => saveColumnEdit(handle, question.id, next)}
+          onDone={(next) => void saveColumnEdit(handle, question.id, next)}
           onCancel={close}
         />
       ) : (

@@ -69,7 +69,7 @@ const exportText = (): string => {
   return blocksText(blocks);
 };
 
-describe("A comparison table's hidden columns for its readers", () => {
+describe("A comparison table's cells and its Questions", () => {
   test("the assistant and the check record read them; an export leaves them out silently", () => {
     const assistant = readMind(content(), "Shortlist", null).section().text;
     expect(assistant).toContain("Liability cap");
@@ -79,5 +79,38 @@ describe("A comparison table's hidden columns for its readers", () => {
     expect(exportText()).not.toContain("Liability cap");
     expect(exportText()).not.toContain("12 months");
     expect(exportText()).not.toContain("Left out");
+  });
+});
+
+describe("A comparison table's reader, when cells and Questions are stored in another order", () => {
+  test("each Answer is read under its own Question, by id", () => {
+    const swapped: NodeJSON = {
+      type: "comparisonTable",
+      attrs: {
+        id: "table-1",
+        questions: [
+          { id: "q1", text: "Notice" },
+          { id: "q2", text: "Cap" },
+        ],
+      },
+      content: [
+        {
+          type: "comparisonRow",
+          attrs: { documentId: "doc", documentName: "Acme" },
+          content: [answer("q2", "the cap"), answer("q1", "the notice")],
+        },
+      ],
+    };
+    const doc = new Y.Doc();
+    const fragment = doc.getXmlFragment("content");
+    fragment.push([createElement(swapped)]);
+    const blocks = readBlocks(fragment, {
+      includeQuestions: false,
+      footnote,
+      trimBeforeCitation: true,
+    });
+    const text = blocksText(blocks);
+    expect(text).toContain("the notice\tthe cap");
+    expect(text).not.toContain("the cap\tthe notice");
   });
 });

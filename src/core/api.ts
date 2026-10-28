@@ -4520,6 +4520,83 @@ export interface ComparisonColumnMoveResult {
   moved: boolean;
 }
 
+/** A column's label and Question, edited on the Mind's own content by the core. */
+export interface ComparisonColumnEditRequest extends ComparisonTableRef {
+  questionId: string;
+  text: string;
+  label: string;
+}
+
+/** What editing a column did: a new Question gives it new cells, to fill. */
+export interface ComparisonColumnEdited {
+  changed: boolean;
+  refilled: boolean;
+  questionId: string;
+  label: string;
+}
+
+/** A column put beside another. */
+export interface ComparisonColumnInsertRequest extends ComparisonTableRef {
+  /** The column it goes beside. */
+  questionId: string;
+  side: "left" | "right";
+  text: string;
+  label?: string;
+}
+
+/** A column copied beside itself. */
+export interface ComparisonColumnDuplicateRequest extends ComparisonTableRef {
+  questionId: string;
+}
+
+/** What a new or copied column left for the window: whether to fill it. */
+export interface ComparisonColumnAdded {
+  questionId: string;
+  label: string;
+  /** The questions beside it are short enough to fill: a copy with every Answer has none to fill. */
+  fill: boolean;
+}
+
+/** A column taken out whole. */
+export interface ComparisonColumnRemoveRequest extends ComparisonTableRef {
+  questionId: string;
+}
+
+/** What removing a column left: the column to focus. */
+export interface ComparisonColumnRemoved {
+  label: string;
+  focusId: string | null;
+}
+
+/** A column's width in pixels, within the table's bounds. */
+export interface ComparisonColumnWidthRequest extends ComparisonTableRef {
+  questionId: string;
+  width: number;
+}
+
+export interface ComparisonColumnWidthSet {
+  label: string;
+  width: number;
+}
+
+/** A column hidden from the table, or shown again. */
+export interface ComparisonColumnHiddenRequest extends ComparisonTableRef {
+  questionId: string;
+  hidden: boolean;
+}
+
+export interface ComparisonColumnHiddenSet {
+  label: string;
+  questionId: string;
+  hidden: boolean;
+  focusId: string | null;
+}
+
+/** Taking back, or doing again, the last structure change of a table. */
+export interface ComparisonStructureUndoResult {
+  moved: boolean;
+}
+
 /**
  * What asking for a comparison table, or for its cells to be filled, did: it
  * is in the Mind (a change to accept, the first time) and its cells are being
@@ -9856,6 +9933,28 @@ export interface CoreApi {
    * going on keeps writing into its cells.
    */
   moveComparisonColumn(input: ComparisonColumnMove): Promise<ComparisonColumnMoveResult>;
+  /** A column's label and Question: a new Question gives it new cells, which the window fills. */
+  editComparisonColumn(input: ComparisonColumnEditRequest): Promise<ComparisonColumnEdited>;
+  /** A column added beside another, with a waiting cell in every row. */
+  insertComparisonColumn(input: ComparisonColumnInsertRequest): Promise<ComparisonColumnAdded>;
+  /** A column copied beside itself, its Answers included. */
+  duplicateComparisonColumn(
+    input: ComparisonColumnDuplicateRequest,
+  ): Promise<ComparisonColumnAdded>;
+  /** A column and its cells taken out whole. */
+  removeComparisonColumn(input: ComparisonColumnRemoveRequest): Promise<ComparisonColumnRemoved>;
+  /** A column's width, within the table's bounds; nothing changes when it is the same. */
+  resizeComparisonColumn(
+    input: ComparisonColumnWidthRequest,
+  ): Promise<ComparisonColumnWidthSet | null>;
+  /** A column hidden from the table, or shown again; hiding deletes nothing. */
+  setComparisonColumnHidden(
+    input: ComparisonColumnHiddenRequest,
+  ): Promise<ComparisonColumnHiddenSet | null>;
+  /** Takes back the last structure change of the table, as the window's Undo asks. */
+  undoComparisonStructure(input: ComparisonTableRef): Promise<ComparisonStructureUndoResult>;
+  /** Does again the structure change the last Undo took back. */
+  redoComparisonStructure(input: ComparisonTableRef): Promise<ComparisonStructureUndoResult>;
   /** Stops filling a comparison table: cells being written stay as they were. */
   stopComparisonTable(input: ComparisonTableRef): Promise<void>;
   /** The comparison tables whose cells are being filled now. */
@@ -11063,6 +11162,14 @@ const methods: Record<CoreApiMethod, true> = {
   compareDocuments: true,
   fillComparisonTable: true,
   moveComparisonColumn: true,
+  editComparisonColumn: true,
+  insertComparisonColumn: true,
+  duplicateComparisonColumn: true,
+  removeComparisonColumn: true,
+  resizeComparisonColumn: true,
+  setComparisonColumnHidden: true,
+  undoComparisonStructure: true,
+  redoComparisonStructure: true,
   stopComparisonTable: true,
   listFillingComparisons: true,
   listTasks: true,

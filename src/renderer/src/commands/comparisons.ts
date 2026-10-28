@@ -78,9 +78,18 @@ const addEnabled = (ctx: CommandContext) => {
   return canInsertColumn(here.questions.length) ? true : insertReason;
 };
 
-/** Whether the table has a column hidden to show again. */
-const hasHidden = (ctx: CommandContext) =>
-  columnHere(ctx)?.questions.some((question) => question.hidden === true) ?? false;
+/** The table whose columns are hidden, as Export resolves one: it needs no heading to be focused. */
+function hiddenTable(): { mindId: string; tableId: string } | null {
+  const table = tableToExport();
+  const note = noteHandle.current;
+  if (!table || note?.mindId !== table.mindId || note.editor.isDestroyed) return null;
+  const pos = comparisonTableAt(note.editor, table.tableId);
+  const node = pos === null ? null : note.editor.state.doc.nodeAt(pos);
+  const hidden = node
+    ? comparisonQuestionsOf(node.attrs).some((question) => question.hidden === true)
+    : false;
+  return hidden ? table : null;
+}
 
 const moveEnabled = (direction: -1 | 1) => (ctx: CommandContext) => {
   const here = columnHere(ctx);
@@ -195,17 +204,18 @@ export const comparisonCommands: readonly Command[] = [
     id: "comparison.column.showHidden",
     label: "comparison.column.showHidden",
     group: "edit",
-    appliesTo: ["comparisonColumn"],
     reversible: true,
-    when: hasHidden,
+    // Any table with a hidden column, even one with every column hidden: Export's way of resolving it.
+    when: () => hiddenTable() !== null,
     // The table's own ⋯ is the picker: it lists each hidden column, and every way to show one.
-    run: (ctx) =>
-      actColumn(ctx, ({ handle }) => {
-        const button = document.querySelector<HTMLButtonElement>(
-          `.comparison-table[data-comparison-table="${CSS.escape(handle.tableId)}"] [data-testid="comparison-hidden-menu"]`,
-        );
-        requestAnimationFrame(() => button?.click());
-      }),
+    run: () => {
+      const table = hiddenTable();
+      if (!table) return;
+      const button = document.querySelector<HTMLButtonElement>(
+        `.comparison-table[data-comparison-table="${CSS.escape(table.tableId)}"] [data-testid="comparison-hidden-menu"]`,
+      );
+      requestAnimationFrame(() => button?.click());
+    },
   },
   {
     id: "comparison.column.fit",
