@@ -25,6 +25,11 @@ export function recordCiteDocumentName(
   return current ?? cite.documentName;
 }
 
+const pathDetail = (path: string) => {
+  const parts = path.split(/[\\/]/).filter(Boolean);
+  return parts.length > 2 ? `…/${parts.slice(-2).join("/")}` : path;
+};
+
 export function recordCiteCandidateOptions(
   cite: RecordCiteResult,
   documents: readonly DocumentName[],
@@ -36,7 +41,9 @@ export function recordCiteCandidateOptions(
     return {
       id: candidate.id,
       label: current?.name ?? candidate.name,
-      ...(current?.path || location ? { detail: current?.path ?? location } : {}),
+      ...(current?.path || location
+        ? { detail: current?.path ? pathDetail(current.path) : location }
+        : {}),
       data: { "data-document-id": candidate.id },
     };
   });

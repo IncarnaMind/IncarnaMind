@@ -32,7 +32,7 @@ export function hasImmediateRecordCitePrevious(
   const now =
     positioned >= 0 || currentClaim === undefined
       ? positioned
-      : sentences.findIndex((sentence) => sentence.text === currentClaim);
+      : sentences.findIndex((sentence, index) => index > before && sentence.text === currentClaim);
   if (before < 0 || now < 0 || before >= now) return false;
   const earlier = sentences[before];
   if (!earlier || earlier.text !== previous.claim) return false;

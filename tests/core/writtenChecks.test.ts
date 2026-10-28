@@ -809,6 +809,23 @@ describe("What the assistant writes is checked before it lands", { timeout: 30_0
     });
   });
 
+  test("identical proposed Id. sentences each use the preceding occurrence", async () => {
+    const { core, change, client } = await write({
+      into: true,
+      record: RECORD_FILE,
+      content: `> ${RECORD_SOURCE} [^1].\n> ${RECORD_NEXT} [^2].\n> ${RECORD_NEXT} [^2].`,
+    });
+
+    expect(change?.selfCheck).toMatchObject({ cited: 3, sent: 3, checked: 3, failed: 0 });
+    const next = (await marksIn(core, client)).filter(({ sentence }) =>
+      sentence.includes(RECORD_NEXT),
+    );
+    expect(next).toHaveLength(2);
+    for (const { check } of next) {
+      expect(check.recordCites?.[0]).toMatchObject({ raw: "Id. at 2", outcome: "supported" });
+    }
+  });
+
   test("a cut's validation preserves the referent for the next written sentence", async () => {
     const { core, client } = await write({
       into: true,

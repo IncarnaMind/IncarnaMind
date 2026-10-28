@@ -384,7 +384,7 @@ test("the narrow Chinese card keeps raw English cites and picker keyboard focus 
   const options = picker.getByTestId("record-cite-source-option");
   await expect(options.nth(0)).toHaveAttribute("data-document-id", duplicateA.id);
   await expect(options.nth(1)).toHaveAttribute("data-document-id", duplicateB.id);
-  await expect(options.nth(0)).toContainText(duplicateA.path);
+  await expect(options.nth(0)).toContainText("…/a/Duplicate filing.pdf");
   await screenshot(window, "record-cites-picker-narrow-zh");
   await window.keyboard.press("Escape");
   await expect(choose).toBeFocused();

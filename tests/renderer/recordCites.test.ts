@@ -189,7 +189,7 @@ describe("record cites on a sentence check", () => {
       (key, params) => translate("en", key, params),
     );
 
-    expect(options[0]?.detail).toBe("/cases/a/ECF 41.pdf");
+    expect(options[0]?.detail).toBe("…/a/ECF 41.pdf");
   });
 
   test("a current Document name is found by stable id only, never by matching saved content", () => {

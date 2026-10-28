@@ -93,6 +93,32 @@ describe("the immediately preceding record item", () => {
     ).toBe(true);
   });
 
+  test("duplicate proposed sentences advance past the current referent", () => {
+    const source = "ECF No. 41 at 3 states the deadline.";
+    const repeated = "Id. at 2 states another deadline.";
+    const first = sentence("source", source);
+    const second = sentence("repeat-a", repeated);
+    const third = sentence("repeat-b", repeated);
+    const sentences = [first, second, third];
+    const proposed = { blockId: "proposed-container", from: 0 };
+    expect(
+      hasImmediateRecordCitePrevious(
+        sentences,
+        previousFor("source", source, "ECF No. 41 at 3"),
+        proposed,
+        repeated,
+      ),
+    ).toBe(true);
+    expect(
+      hasImmediateRecordCitePrevious(
+        sentences,
+        previousFor("repeat-a", repeated, "Id. at 2"),
+        proposed,
+        repeated,
+      ),
+    ).toBe(true);
+  });
+
   test("an item cannot refer to itself or a later source", () => {
     const source = "Ex. 7 at 3 states it.";
     const sentences = [sentence("first", "Id. at 2 has no source."), sentence("next", source)];
