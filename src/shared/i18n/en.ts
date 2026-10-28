@@ -4344,6 +4344,14 @@ export const en = {
   "error.check.localMode": "Not checked: “Keep everything on this computer” is on.",
   "error.check.declined":
     "You declined sending the claim to the model’s service, so nothing was sent.",
+  "error.recordCite.choiceInvalid": "The source choice is incomplete. Choose a Document again.",
+  "error.recordCite.spanInvalid": "The cite’s position is invalid. Check the sentence again.",
+  "error.recordCite.notFound":
+    "That record cite is no longer in the check. Check the sentence again.",
+  "error.recordCite.modelNotReady":
+    "The model needed to check this cite is not ready. Choose a model and try again.",
+  "error.recordCite.unresolved":
+    "The source could not be resolved. Choose another Document or check the cite.",
   "error.tagging.noModel": "Choose a classification model.",
   "error.tagging.place": "Choose where to tag with AI: a Folder, or Not in a Folder.",
   "error.tagging.cloudPaused": "Cloud tagging paused: “Keep everything on this computer” is on.",

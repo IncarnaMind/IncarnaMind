@@ -300,8 +300,7 @@ const stopped = (check: ClaimCheckAttributes): ClaimCheckAttributes =>
   check.state === "checking" ? { ...check, state: "not-checked", reason: "stopped" } : check;
 
 function chooseInput(value: unknown): ChooseRecordCiteSourceInput {
-  if (!isRecord(value))
-    throw new InvalidInputError("A record-cite source choice expects an object.");
+  if (!isRecord(value)) throw new InvalidInputError({ key: "error.recordCite.choiceInvalid" });
   const { mindId, checkId, raw, documentId, from, to } = value;
   if (
     typeof mindId !== "string" ||
@@ -313,12 +312,12 @@ function chooseInput(value: unknown): ChooseRecordCiteSourceInput {
     typeof documentId !== "string" ||
     !documentId
   )
-    throw new InvalidInputError("A record-cite source choice is incomplete.");
+    throw new InvalidInputError({ key: "error.recordCite.choiceInvalid" });
   if (
     (from !== undefined && (typeof from !== "number" || !Number.isInteger(from) || from < 0)) ||
     (to !== undefined && (typeof to !== "number" || !Number.isInteger(to) || to < 0))
   )
-    throw new InvalidInputError("A record-cite span must be non-negative integers.");
+    throw new InvalidInputError({ key: "error.recordCite.spanInvalid" });
   return {
     mindId,
     checkId,
@@ -842,15 +841,14 @@ export function createChecks(options: ChecksOptions) {
       const stored = content.read(input.mindId, (blocks) =>
         markedSentences(blocks).find(({ check }) => check.id === input.checkId),
       );
-      if (!stored) throw new InvalidInputError("The record cite to resolve was not found.");
+      if (!stored) throw new InvalidInputError({ key: "error.recordCite.notFound" });
       const existing = (stored.check.recordCites ?? []).filter(
         (cite) =>
           cite.raw === input.raw &&
           (input.from === undefined || cite.from === input.from) &&
           (input.to === undefined || cite.to === input.to),
       );
-      if (existing.length !== 1)
-        throw new InvalidInputError("The record cite to resolve was not found.");
+      if (existing.length !== 1) throw new InvalidInputError({ key: "error.recordCite.notFound" });
       const cite = existing[0] as RecordCiteResult;
       const wanted =
         stored.check.scope.chosen ??
@@ -880,8 +878,7 @@ export function createChecks(options: ChecksOptions) {
           ? { providerId: stored.check.providerId, modelId: stored.check.modelId }
           : options.defaultModel(),
       );
-      if (!ready.ok)
-        throw new InvalidInputError("The model needed to check this cite is not ready.");
+      if (!ready.ok) throw new InvalidInputError({ key: "error.recordCite.modelNotReady" });
       const judged = await judgeResolvedRecordCites(
         [resolved],
         ready.prepared,
@@ -892,7 +889,7 @@ export function createChecks(options: ChecksOptions) {
       );
       if ("failed" in judged) throw new Error(judged.failed.message);
       const final = judged.recordCites[0];
-      if (!final?.location) throw new InvalidInputError("The source could not be resolved.");
+      if (!final?.location) throw new InvalidInputError({ key: "error.recordCite.unresolved" });
       const alias = parsed.status === "parsed" ? recordCiteChoiceAlias(parsed) : null;
       const blockId = stored.element.getAttribute(BLOCK_ID_ATTRIBUTE);
       const last = scanRecordCites(stored.check.text, { hasPrevious: true }).at(-1);
