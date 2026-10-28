@@ -1,4 +1,4 @@
-import { mkdir, writeFile } from "node:fs/promises";
+import { mkdir, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { describe, expect, test } from "vitest";
 import { DATABASE_FILE, type Document } from "../../src/core";
@@ -365,6 +365,50 @@ describe("Re-processing", { timeout: 30_000 }, () => {
     const byName = await second.searchPassages("annual report", { mode: "keyword" });
     expect(new Set(byName.map((passage) => passage.documentId))).toEqual(new Set([report.id]));
     expect(byName.map((passage) => passage.position)).toEqual([0, 1, 2]);
+    second.close();
+  });
+
+  test("a Document whose old version can't be read loses the name from its rows, so it isn't counted twice (#2042)", async () => {
+    const dataDir = await createTempDataFolder();
+    const sources = await createSourceFolder();
+    const entries = Array.from(
+      { length: 60 },
+      (_, line) => `Entry ${line} notes ordinary weather and quiet coastal traffic.`,
+    ).join("\n");
+    const first = startCore(dataDir);
+    const path = await writeSourceFile(sources, "Annual Report.md", entries);
+    const [report] = (await addAndProcess(first, [path])) as [Document];
+    first.close();
+    const passages = () =>
+      queryDatabase<{ seq: number }>(
+        dataDir,
+        "SELECT seq FROM passages WHERE document_id = ? AND deleted_at IS NULL",
+        [report.id],
+      );
+    const before = passages();
+    const matching = (word: string) =>
+      queryDatabase(dataDir, "SELECT rowid FROM passages_fts WHERE passages_fts MATCH ?", [
+        `"${word}"`,
+      ]).length;
+    const names = (word: string) =>
+      queryDatabase(
+        dataDir,
+        "SELECT document_id FROM document_names_fts WHERE document_names_fts MATCH ?",
+        [`"${word}"`],
+      ).length;
+
+    // As the pipeline before it left the data, then its file gone: its next read fails.
+    asNameWithEveryPassage(dataDir);
+    expect(matching("report")).toBe(before.length);
+    await rm(path);
+
+    const second = startCore(dataDir);
+    await waitForProcessing(second, [report.id]);
+    // The last good version's Passages are kept, and their rows no longer hold the name: with
+    // a name row too, a word of the name would count twice for this Document.
+    expect(passages()).toEqual(before);
+    expect(matching("report")).toBe(0);
+    expect(names("report")).toBe(1);
     second.close();
   });
 

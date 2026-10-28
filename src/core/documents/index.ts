@@ -936,6 +936,11 @@ export function createDocuments(options: DocumentsOptions) {
       const row = find(job.documentId);
       if (row?.status !== "extracting") return undefined;
       indexName(row.id, row.name);
+      // A version that can't be read keeps the rows of its last good one, which still hold the
+      // name from an older pipeline; its name match would then count twice (#2042).
+      if (result.outcome !== "ready" && row.processing_version < NAME_INDEX_CURRENT_SINCE) {
+        reindexPassages(row.id);
+      }
       const at = now();
       if (result.outcome === "file-unreadable") {
         const status = indexedStatus(row) ?? "queued";
