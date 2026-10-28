@@ -298,7 +298,7 @@ test("an Other agent's Details show the command, arguments and environment, each
     await dialog.getByTestId("connect-agent-allow").click();
 
     const row = page.getByTestId("agent-pairing").filter({ hasText: "Other agent" });
-    await expect(row.getByTestId("agent-setup-done")).toContainText("Details for technical users");
+    await expect(row.getByTestId("agent-setup-done")).toContainText("Details shows each part");
     const all = JSON.parse(await copied(window)) as {
       mcpServers: { incarnamind: { command: string; args: string[]; env: Record<string, string> } };
     };
@@ -419,6 +419,8 @@ test("Disconnect takes away the settings file Connect made, and the agent stays 
     const page = await openSettings(window, "agents");
     await page.getByTestId("agents-enabled").click();
     const list = page.getByTestId("agents-list");
+    // The list is drawn when the core answers, not with the click.
+    await expect(list.getByTestId("agent-client").first()).toBeVisible();
     const order = () =>
       list
         .getByTestId("agent-client")

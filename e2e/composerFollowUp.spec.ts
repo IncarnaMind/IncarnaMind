@@ -28,14 +28,14 @@ test.afterEach(async () => {
 
 const WORDS = {
   en: {
-    first: "Ask, or say what to change…",
+    first: "Ask, or say ‘write a note on…’",
     followUp: "Ask a follow-up…",
     spring: "When do spring tides happen?",
     springFind: "spring tides",
     neap: "Why are neap tides weaker?",
   },
   "zh-CN": {
-    first: "提问，或说明要修改的内容…",
+    first: "提问，或说“写一篇关于……的笔记”",
     followUp: "追问…",
     spring: "大潮什么时候出现？",
     springFind: "大潮",

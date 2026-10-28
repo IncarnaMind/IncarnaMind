@@ -5,10 +5,12 @@ import type { CoreBridge } from "../src/core/api";
 import { translate } from "../src/shared/i18n";
 import type { MessageKey, MessageParams } from "../src/shared/i18n/types";
 import {
+  addFilesLabelKey,
   useLocalChatModel as connectLocalChatModel,
   createDataFolder,
   dragOnto,
   launchApp,
+  leaveText,
   pointAt,
   removeDataFolder,
   setLanguage,
@@ -145,15 +147,6 @@ async function expectCountsOfCore(window: Page): Promise<void> {
   }
 }
 
-/** Clicks the empty foot of the sidebar's tree, where ⌘Z goes to the app's changes. */
-async function leaveText(window: Page): Promise<void> {
-  const box = await window.getByTestId("sidebar-tree").boundingBox();
-  if (!box) throw new Error("The sidebar isn't showing.");
-  await window.mouse.move(box.x + box.width / 2, box.y + box.height - 8, { steps: 8 });
-  await window.mouse.down();
-  await window.mouse.up();
-}
-
 async function undo(window: Page): Promise<void> {
   await leaveText(window);
   await window.keyboard.press("ControlOrMeta+z");
@@ -214,7 +207,13 @@ for (const [language, width] of [
         await expect(sidebar.getByTestId(section)).toHaveCount(0);
       }
       await expect(sidebar.getByRole("button", { name: t("assistant.newChat") })).toHaveCount(0);
-      await expect(sidebar.getByTestId("sidebar-sections")).toHaveText("");
+      // Nothing to list yet: it says so, with the two ways to add the first Document (#763).
+      const empty = sidebar.getByTestId("documents-empty");
+      await expect(empty.getByText(t("library.none"), { exact: true })).toBeVisible();
+      await expect(empty.getByTestId("documents-empty-add-files")).toHaveText(t(addFilesLabelKey));
+      await expect(empty.getByTestId("documents-empty-link-folder")).toHaveText(
+        t("startGuide.documents.linkFolder"),
+      );
       const left = (await sidebar.boundingBox())?.x ?? 0;
       for (const row of [
         sidebar.getByTestId("sidebar-home"),
@@ -227,11 +226,26 @@ for (const [language, width] of [
       }
       await screenshot(window, `one-tree-fresh-${language}-${width}`);
 
+      // The invite line is the tree's empty state, and the first section takes its place without
+      // moving the tree or the Library row above it (#2142).
+      const boxOf = async (target: Locator) => {
+        const box = await target.boundingBox();
+        if (!box) throw new Error("The sidebar's tree isn't in the window.");
+        return box;
+      };
+      const treeBox = await boxOf(sidebar.getByTestId("sidebar-sections"));
+      const libraryBox = await boxOf(sidebar.getByTestId("open-library"));
+
       // A Mind: it is listed under "Not in a Folder", though there are no Folders yet.
       await makeMind(window, "Shortlist");
       const minds = notInAFolder(window);
       await expect(minds.getByTestId("not-in-a-folder-title")).toHaveText(t("library.unsorted"));
       await expect(minds.getByTestId("mind-list-item")).toHaveText("Shortlist");
+      await expect(empty).toHaveCount(0);
+      const treeAfter = await boxOf(sidebar.getByTestId("sidebar-sections"));
+      expect(treeAfter.y).toBeCloseTo(treeBox.y, 0);
+      const libraryAfter = await boxOf(sidebar.getByTestId("open-library"));
+      expect(libraryAfter.y).toBeCloseTo(libraryBox.y, 0);
 
       // A Folder: the Folders section comes, and the heading stays as it was.
       await makeFolder(window, "Finance");
@@ -586,27 +600,28 @@ for (const [language, width] of [
 
 const NEW_MENU_ROWS: readonly MessageKey[] = [
   "menu.newMind",
-  "sidebar.plus.addDocuments",
+  addFilesLabelKey,
   "menu.newFolder",
+  "meetings.record",
   "sidebar.plus.more",
 ];
 const MORE_ROWS: readonly MessageKey[] = [
   "wordImport.command",
-  "meetings.record",
+  "memos.record.menu",
   "command.compareDocuments",
   "verify.command",
   "folder.fromStarters",
   "sidebar.plus.addWebPage",
   "sidebar.plus.findSources",
-  "sidebar.plus.linkFolder",
 ];
 const IN_PALETTE: readonly MessageKey[] = [
   "menu.newMind",
-  "sidebar.plus.addDocuments",
+  addFilesLabelKey,
   "menu.newFolder",
   "sidebar.plus.linkFolder",
   "wordImport.command",
   "meetings.record",
+  "memos.record",
   "command.compareDocuments",
   "verify.command",
   "library.chooseStarters",
@@ -618,7 +633,7 @@ for (const [language, width] of [
   ["en", 1440],
   ["zh-CN", 900],
 ] as const) {
-  test(`the New menu's four rows and what is under More open by mouse and keyboard, and each is in ⌘K too (${language}, ${width}px)`, async () => {
+  test(`the New menu's five rows and what is under More open by mouse and keyboard, and each is in ⌘K too (${language}, ${width}px)`, async () => {
     const t = (key: MessageKey) => translate(language, key);
     const { app, window } = await launchApp(dataDir);
     try {
@@ -628,7 +643,7 @@ for (const [language, width] of [
       const rows = window.getByTestId("plus-menu-items").getByRole("menuitem");
       const more = window.getByTestId("plus-more-menu").getByRole("menuitem");
 
-      // By mouse: four rows in order, and More lists the rest.
+      // By mouse: five rows in order, and More lists the rest.
       await pointAt(window, plus);
       await window.mouse.down();
       await window.mouse.up();
@@ -636,9 +651,8 @@ for (const [language, width] of [
       for (const [index, key] of NEW_MENU_ROWS.entries()) {
         await expect(rows.nth(index)).toContainText(t(key));
       }
-      await expect(window.getByTestId("plus-add-documents")).toContainText(
-        process.platform === "darwin" ? "⌘O" : "Ctrl+O",
-      );
+      // The one way in has no key of its own (⌘O still opens the file picker): ⌘K finds it.
+      await expect(window.getByTestId("plus-add-documents")).not.toContainText("⌘O");
       await pointAt(window, window.getByTestId("plus-more"));
       await expect(more).toHaveCount(MORE_ROWS.length);
       for (const [index, key] of MORE_ROWS.entries()) {

@@ -8,6 +8,9 @@
  * label ending in a colon names the section the rows under it are in. Pure.
  */
 
+import type { QuarterTurn } from "../../shared/units";
+import { turnQuad } from "./scan/rotation";
+
 /** Text that sits together on a row: a word, or words set close enough to read as one. */
 export interface Fragment {
   text: string;
@@ -151,20 +154,24 @@ function fragmentsOf(placed: readonly { x: number; right: number; str: string; s
 
 /**
  * A scanned page's rows, from its Unit: its text a row a line, each recognized line a fragment
- * with its box (`Anchor.quad`, in fractions of the page), its height the unit of its gaps.
+ * with its box (`Anchor.quad`, in displayed-page fractions, turned back by `turn`), its height
+ * the unit of its gaps.
  */
 export function scannedRows(
   text: string,
   anchors: readonly { start: number; end: number; quad?: number[] }[],
+  turn: QuarterTurn = 0,
 ): Row[] {
   const rows: Row[] = [];
+  const readingQuad = (quad: readonly number[] | undefined) =>
+    quad ? turnQuad(quad, turn, { width: 1, height: 1 }) : undefined;
   let at = 0;
   for (const line of text.split("\n")) {
     const end = at + line.length;
     const fragments = anchors
       .filter((anchor) => anchor.quad && anchor.start >= at && anchor.end <= end)
       .map((anchor) => {
-        const quad = anchor.quad ?? [];
+        const quad = readingQuad(anchor.quad) ?? [];
         const xs = quad.filter((_, index) => index % 2 === 0);
         const ys = quad.filter((_, index) => index % 2 === 1);
         return {
@@ -178,7 +185,7 @@ export function scannedRows(
       .sort((a, b) => a.left - b.left);
     const tops = anchors
       .filter((anchor) => anchor.quad && anchor.start >= at && anchor.end <= end)
-      .flatMap((anchor) => (anchor.quad ?? []).filter((_, index) => index % 2 === 1));
+      .flatMap((anchor) => (readingQuad(anchor.quad) ?? []).filter((_, index) => index % 2 === 1));
     rows.push({ fragments, y: tops.length > 0 ? Math.min(...tops) : (rows.at(-1)?.y ?? 0) });
     at = end + 1;
   }

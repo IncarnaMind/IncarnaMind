@@ -7,6 +7,7 @@ import { mkdir, mkdtemp, rm, symlink, unlink } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
+  type AnswerPathsOverride,
   type AnswerSearchTuning,
   type ChatModelFactory,
   type Core,
@@ -93,8 +94,12 @@ export interface LibraryOptions {
   answerSearch?: Pick<AnswerSearchTuning, "rerankDepth" | "maxPassages">;
   /** Time each step of the Answers asked (see ./timing); nothing sent to the model changes. */
   recordTimings?: boolean;
+  /** Which models take the faster Answer paths, instead of the lists beside the catalog. */
+  answerPaths?: AnswerPathsOverride;
   /** How outside agents reach this core (#351): where its socket is and the shim they start. */
   agents?: CoreAdapters["agents"];
+  /** The host sandbox for evaluation of Analysis Answers; absent: no Analysis Tool. */
+  analysisRuntime?: CoreAdapters["analysisRuntime"];
   /** Wraps the chat model factory the core asks with, for a run that watches or stands in for its requests. */
   chatModels?: (inner: ChatModelFactory) => ChatModelFactory;
 }
@@ -272,6 +277,7 @@ export async function openLibrary(options: LibraryOptions): Promise<Library> {
     ...(options.textRecognizer && { textRecognizer: options.textRecognizer }),
     ...(options.ollamaModels && { ollamaModels: options.ollamaModels }),
     ...(options.agents && { agents: options.agents }),
+    ...(options.analysisRuntime && { analysisRuntime: options.analysisRuntime }),
     // The core reranks by default: with the real built-in model when asked for, as in the app
     // (Answers' searches); otherwise a fake, with nothing to download.
     ...(options.reranker
@@ -290,6 +296,7 @@ export async function openLibrary(options: LibraryOptions): Promise<Library> {
     ...(answerSearch && { answerSearch }),
     ...(chatModels && { createChatModel: chatModels }),
     ...(timings && { answerEngine: timings.engine }),
+    ...(options.answerPaths && { answerPaths: options.answerPaths }),
   });
   const close = async () => {
     core.close();

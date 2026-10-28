@@ -20,7 +20,7 @@ import {
 /*
  * A cited Mind turned into a report keeps its Citations (#1800): the scripted model reads the
  * Mind, keeps each of its Citations by the id it reads it with, and the report's Answer shows
- * them checked; New Mind under it carries them, and its Markdown export has their footnotes,
+ * them checked; New note under it carries them, and its Markdown export has their footnotes,
  * with no id or bracketed source anywhere.
  */
 
@@ -62,7 +62,7 @@ test("a cited Mind made a report in the Answer keeps its Citations, in a new Min
   await expect(text.getByTestId("citation").first()).toHaveAttribute("data-check", "found");
   await expect(text).not.toContainText(/C\d|\[Tides/);
 
-  await pointAndClick(window, report.getByTestId("answer-new-mind"));
+  await pointAndClick(window, report.getByTestId("answer-write-note"));
   await expect(window.getByTestId("mind-tab")).toHaveCount(2);
   await expect(editor.getByTestId("citation").first()).toHaveAttribute("data-check", "found");
   await expect(editor).not.toContainText(/C\d|\[Tides/);

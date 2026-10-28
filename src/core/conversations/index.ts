@@ -25,6 +25,7 @@ import {
 } from "../answers/citedVersions";
 import { usualWait } from "../answers/usualWait";
 import type {
+  AnswerAnalysis,
   AnswerCoverage,
   AnswerPhase,
   AnswerStatus,
@@ -35,12 +36,14 @@ import type {
   ChatModelChoice,
   CitationSupport,
   ClaimedChange,
+  ClaimedTool,
   Conversation,
   ConversationAnswer,
   ConversationContent,
   ConversationMatch,
   ConversationMessage,
   ConversationQuestion,
+  FigureInput,
   MarkedCitation,
   MarkedFigure,
   MindFocus,
@@ -51,7 +54,7 @@ import type {
   SearchScope,
   ThirdPartySource,
 } from "../api";
-import { CLAIMED_CHANGES, MOST_ASKED_QUOTES } from "../api";
+import { CLAIMED_CHANGES, CLAIMED_TOOLS, MOST_ASKED_QUOTES } from "../api";
 import { InvalidInputError, isRecord, NotFoundError } from "../errors";
 import { isSignInRouteProblem } from "../providers/signInRoutes";
 import { parseSearchScope } from "../scope";
@@ -75,6 +78,8 @@ export interface QuestionInput {
   scope: SearchScope | null;
   model: ChatModelChoice | null;
   forcedSkill: string | null;
+  /** Asked with "Analyse data…": its Answer may run an Analysis whatever its scope holds (#447). */
+  analyse: boolean;
 }
 
 /** What an Answer records of the Mind it read (#544): which, its version, and whether only part of it. */
@@ -85,6 +90,7 @@ export interface AnswerWrite {
   text: string;
   citations: MarkedCitation[];
   figures: MarkedFigure[];
+  analyses: AnswerAnalysis[];
   toolCalls: AnswerToolCall[];
   support: CitationSupport | null;
   /** Where the third-party text its Run had read came from (#78); null: none. */
@@ -131,6 +137,7 @@ interface MessageRow {
   provider_id: string | null;
   model_id: string | null;
   forced_skill: string | null;
+  analyse: number;
   status: string | null;
   error_kind: string | null;
   error_message: string | null;
@@ -138,6 +145,7 @@ interface MessageRow {
   citation_support: string | null;
   citations: string;
   figures: string;
+  analyses: string;
   tool_calls: string;
   text_origin: string | null;
   steps: string | null;
@@ -211,6 +219,7 @@ const PHASES: Record<AnswerPhase, true> = {
   writing: true,
   "checking-quotes": true,
   "checking-figures": true,
+  "checking-claims": true,
 };
 
 const timeOrNull = (value: unknown): string | null =>
@@ -234,9 +243,13 @@ function storedSteps(value: string | null): AnswerSteps | null {
     reasoning,
     readShare,
     citedAfterChecking,
+    notCitedAfterAsking,
     firstWordMs,
     careful,
     unbackedClaims,
+    unrunTools,
+    calculateUnavailable,
+    askedAgainFor,
     example,
     coverage,
     writtenFrom,
@@ -249,6 +262,8 @@ function storedSteps(value: string | null): AnswerSteps | null {
         CLAIMED_CHANGES.some((claim) => claim === each),
       )
     : [];
+  const unrun = claimedTools(unrunTools);
+  const askedAbout = claimedTools(askedAgainFor);
   return {
     sentAt: timeOrNull(parsed.sentAt),
     finishedAt: timeOrNull(parsed.finishedAt),
@@ -269,9 +284,15 @@ function storedSteps(value: string | null): AnswerSteps | null {
     ...(typeof citedAfterChecking === "number" &&
       Number.isInteger(citedAfterChecking) &&
       citedAfterChecking > 0 && { citedAfterChecking }),
+    ...(notCitedAfterAsking === true && { notCitedAfterAsking }),
     ...(typeof firstWordMs === "number" && firstWordMs >= 0 && { firstWordMs }),
     ...(careful === true && { careful }),
     ...(claimed.length > 0 && { unbackedClaims: claimed }),
+    ...(unrun.length > 0 && {
+      unrunTools: unrun,
+      ...(calculateUnavailable === true && { calculateUnavailable }),
+    }),
+    ...(askedAbout.length > 0 && { askedAgainFor: askedAbout }),
     ...(example === true && { example }),
     ...(textBehind === true && { textBehind }),
     ...(storedCoverage(coverage) ?? {}),
@@ -297,6 +318,11 @@ function storedSteps(value: string | null): AnswerSteps | null {
       }),
   };
 }
+
+const claimedTools = (value: unknown): ClaimedTool[] =>
+  Array.isArray(value)
+    ? value.filter((each): each is ClaimedTool => CLAIMED_TOOLS.some((tool) => tool === each))
+    : [];
 
 const isCount = (value: unknown): value is number =>
   typeof value === "number" && Number.isInteger(value) && value > 0;
@@ -452,6 +478,7 @@ function toQuestion(row: MessageRow): ConversationQuestion {
     scope: storedScope(row.scope),
     model: modelOf(row),
     forcedSkill: row.forced_skill,
+    analyse: row.analyse === 1,
     quotes: storedList<unknown>(row.quotes ?? "[]").flatMap((each) => parseQuote(each) ?? []),
     createdAt: row.created_at,
   };
@@ -467,6 +494,7 @@ function toAnswer(row: MessageRow): ConversationAnswer {
     text: row.text,
     citations: storedList<MarkedCitation>(row.citations),
     figures: storedList<MarkedFigure>(row.figures),
+    analyses: storedList<AnswerAnalysis>(row.analyses),
     model: modelOf(row),
     status,
     errorKind:
@@ -635,6 +663,7 @@ export function createConversations(db: Database, now: () => string) {
       scope?: SearchScope | null;
       model: ChatModelChoice | null;
       forcedSkill?: string | null;
+      analyse?: boolean;
       quotes?: readonly AskedQuote[];
       status?: AnswerStatus;
       read?: AnswerRead | null;
@@ -644,10 +673,10 @@ export function createConversations(db: Database, now: () => string) {
     const id = randomUUID();
     db.run(
       `INSERT INTO conversation_messages (id, conversation_id, position, kind, question_id, text,
-         asked_from_mind_id, focus, scope, provider_id, model_id, forced_skill, quotes, status,
+         asked_from_mind_id, focus, scope, provider_id, model_id, forced_skill, analyse, quotes, status,
          read_mind_id, read_mind_version, read_partial, created_at, updated_at)
        VALUES (?, ?, (SELECT coalesce(max(position), 0) + 1 FROM conversation_messages
-                      WHERE conversation_id = ?), ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                      WHERE conversation_id = ?), ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         id,
         conversationId,
@@ -661,6 +690,7 @@ export function createConversations(db: Database, now: () => string) {
         fields.model?.providerId ?? null,
         fields.model?.modelId ?? null,
         fields.forcedSkill ?? null,
+        fields.analyse ? 1 : 0,
         fields.quotes?.length ? JSON.stringify(fields.quotes) : null,
         fields.status ?? null,
         ...readColumns(fields.read ?? null),
@@ -700,19 +730,27 @@ export function createConversations(db: Database, now: () => string) {
    * deleted permanently: its own, and those its calculated figures' inputs read.
    */
   function eachCitation(add: (citation: CitationFields) => void): void {
-    const rows = db.all<{ citations: string; figures: string }>(
-      `SELECT msg.citations, msg.figures FROM conversation_messages msg
+    const rows = db.all<{ citations: string; figures: string; analyses: string }>(
+      `SELECT msg.citations, msg.figures, msg.analyses FROM conversation_messages msg
        JOIN conversations c ON c.id = msg.conversation_id
        WHERE msg.kind = 'answer' AND msg.deleted_at IS NULL AND c.purged_at IS NULL
-         AND (msg.citations <> '[]' OR msg.figures <> '[]')`,
+         AND (msg.citations <> '[]' OR msg.figures <> '[]' OR msg.analyses <> '[]')`,
     );
+    const addInput = (input: FigureInput) => {
+      const unit = input.unitStatement?.citation;
+      if (isRecord(input.citation)) add(input.citation);
+      if (isRecord(unit)) add(unit);
+    };
     for (const row of rows) {
       for (const citation of storedList<CitationFields>(row.citations)) add(citation);
       for (const figure of storedList<MarkedFigure>(row.figures)) {
-        for (const input of Array.isArray(figure.inputs) ? figure.inputs : []) {
-          const unit = input.unitStatement?.citation;
-          if (isRecord(input.citation)) add(input.citation);
-          if (isRecord(unit)) add(unit);
+        for (const input of Array.isArray(figure.inputs) ? figure.inputs : []) addInput(input);
+      }
+      // An Analysis's ranges and numbers keep the versions they were read from, to run it again.
+      for (const analysis of storedList<AnswerAnalysis>(row.analyses)) {
+        for (const input of Array.isArray(analysis.inputs) ? analysis.inputs : []) {
+          if (input.kind === "range" && isRecord(input.citation)) add(input.citation);
+          else if (input.kind === "figure" && isRecord(input.input)) addInput(input.input);
         }
       }
     }
@@ -790,7 +828,7 @@ export function createConversations(db: Database, now: () => string) {
      */
     parseQuestion(input: unknown): QuestionInput {
       if (!isRecord(input)) throw new InvalidInputError("askInConversation expects an object.");
-      const { text, conversationId, mindId, model, forcedSkill, focus } = input;
+      const { text, conversationId, mindId, model, forcedSkill, focus, analyse } = input;
       if (typeof text !== "string" || text.trim() === "") {
         throw new InvalidInputError({ key: "error.question.empty" });
       }
@@ -820,6 +858,9 @@ export function createConversations(db: Database, now: () => string) {
       ) {
         throw new InvalidInputError("A forced Skill must be a Skill's name.");
       }
+      if (analyse !== undefined && typeof analyse !== "boolean") {
+        throw new InvalidInputError({ key: "error.question.analyseChoice" });
+      }
       return {
         conversationId:
           conversationId === undefined || conversationId === null
@@ -833,6 +874,7 @@ export function createConversations(db: Database, now: () => string) {
         scope: parseSearchScope(input.scope),
         model: model ?? null,
         forcedSkill: typeof forcedSkill === "string" ? forcedSkill : null,
+        analyse: analyse === true,
       };
     },
 
@@ -881,6 +923,7 @@ export function createConversations(db: Database, now: () => string) {
             scope: input.scope,
             model: input.model,
             forcedSkill: input.forcedSkill,
+            analyse: input.analyse,
             quotes: input.quotes,
           },
           at,
@@ -1067,7 +1110,7 @@ export function createConversations(db: Database, now: () => string) {
         if (!answer || !question)
           throw new NotFoundError({ key: "error.answer.notInConversation" });
         db.run(
-          `UPDATE conversation_messages SET text = '', citations = '[]', figures = '[]', tool_calls = '[]',
+          `UPDATE conversation_messages SET text = '', citations = '[]', figures = '[]', analyses = '[]', tool_calls = '[]',
              status = 'streaming', error_kind = NULL, error_message = NULL,
              error_sign_in_route = NULL, citation_support = NULL, text_origin = NULL, steps = NULL, provider_id = ?,
              model_id = ?, read_mind_id = ?, read_mind_version = ?, read_partial = ?,
@@ -1096,8 +1139,8 @@ export function createConversations(db: Database, now: () => string) {
       const { outcome } = write;
       db.transaction(() => {
         db.run(
-          `UPDATE conversation_messages SET text = ?, citations = ?, figures = ?, tool_calls = ?,
-             citation_support = ?, text_origin = ?, read_mind_id = ?, read_mind_version = ?,
+          `UPDATE conversation_messages SET text = ?, citations = ?, figures = ?, analyses = ?,
+             tool_calls = ?, citation_support = ?, text_origin = ?, read_mind_id = ?, read_mind_version = ?,
              read_partial = ?, steps = ?, status = ?, error_kind = ?, error_message = ?,
              error_sign_in_route = ?, updated_at = ?
            WHERE id = ?`,
@@ -1105,6 +1148,7 @@ export function createConversations(db: Database, now: () => string) {
             write.text,
             JSON.stringify(write.citations),
             JSON.stringify(write.figures),
+            JSON.stringify(write.analyses),
             JSON.stringify(write.toolCalls),
             write.support,
             write.textOrigin,

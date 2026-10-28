@@ -1,5 +1,6 @@
 import { describe, expect, test } from "vitest";
 import { addNamesItsMind, LONG_ANSWER_SENTENCES } from "../../src/renderer/src/answerAdd";
+import { BRIDGE_KEY } from "../../src/shared/bridge";
 
 const CITED = [{}];
 const sentences = (count: number, mark = "[^1]") =>
@@ -39,5 +40,61 @@ describe("Add to note naming its Mind", () => {
     expect(addNamesItsMind({ text: "第一句[^1]。第二句。第三句。", citations: CITED }, false)).toBe(
       false,
     );
+  });
+});
+
+describe("Add to note and a Tool its reply says ran", () => {
+  // The renderer's modules read the bridge off `window` and the system language off `navigator`.
+  const noop = () => noop;
+  Object.defineProperty(globalThis, "window", {
+    value: { [BRIDGE_KEY]: new Proxy({}, { get: () => noop }) },
+    configurable: true,
+  });
+  Object.defineProperty(globalThis, "navigator", {
+    value: { languages: ["en"] },
+    configurable: true,
+  });
+
+  test("keeps the line about a Tool that didn't run, after the Answer", async () => {
+    const { notesToAdd } = await import("../../src/renderer/src/answerEditors");
+    const { translate } = await import("../../src/shared/i18n");
+    const answer = {
+      id: "answer-1",
+      questionId: "question-1",
+      conversationId: "conversation-1",
+      text: "The calculation tool confirmed 3.26x.",
+      citations: [],
+      figures: [],
+      steps: { unrunTools: ["calculate"], calculateUnavailable: true },
+    } as unknown as import("../../src/core/api").ConversationAnswer;
+
+    const blocks = notesToAdd(answer);
+
+    expect(blocks).toHaveLength(2);
+    expect(blocks.at(-1)).toEqual({
+      type: "paragraph",
+      content: [
+        {
+          type: "text",
+          text: translate("en", "answer.notCalculated.unavailable"),
+          marks: [{ type: "italic" }],
+        },
+      ],
+    });
+  });
+
+  test("adds nothing when its reply claims no Tool", async () => {
+    const { notesToAdd } = await import("../../src/renderer/src/answerEditors");
+    const answer = {
+      id: "answer-2",
+      questionId: "question-2",
+      conversationId: "conversation-1",
+      text: "Cedar's leverage is 3.26x.",
+      citations: [],
+      figures: [],
+      steps: {},
+    } as unknown as import("../../src/core/api").ConversationAnswer;
+
+    expect(notesToAdd(answer)).toHaveLength(1);
   });
 });

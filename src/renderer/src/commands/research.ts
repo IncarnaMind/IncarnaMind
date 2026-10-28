@@ -1,13 +1,22 @@
-import { useComposer } from "../composer";
+import { NO_MIND, useComposer } from "../composer";
 import { togglePlanView } from "../research";
-import { aimAt, tellableIn } from "../taskTell";
+import { taskNow } from "../taskFocus";
+import { aimAt, tellable, tellableIn } from "../taskTell";
 import { focusComposer } from "./assistant";
-import type { Command } from "./registry";
+import type { Command, CommandContext } from "./registry";
 
-/** The running Task of the Mind the composer reads that takes messages, if any. */
-const toldTask = () => {
+/** The Task the composer would tell: the one in focus while it reads messages, else the Mind's newest. */
+const toldTask = (ctx: CommandContext) => {
+  const focused = taskNow(ctx);
+  if (focused !== undefined && tellable(focused)) return focused;
   const { seat } = useComposer.getState();
   return seat ? tellableIn(seat.mindId)[0] : undefined;
+};
+
+/** The Task in focus with a plan to show: a Research Task, running or done. */
+const plannedTask = (ctx: CommandContext) => {
+  const task = taskNow(ctx);
+  return task?.actions.includes("plan") ? task : undefined;
 };
 
 export const researchCommands: readonly Command[] = [
@@ -17,13 +26,12 @@ export const researchCommands: readonly Command[] = [
     label: "research.command",
     keywords: ["research.command.keywords"],
     group: "main",
-    // It only marks the composer; the Task starts from the plan card.
+    // It only marks the composer; the Task starts from the plan card, writing into a new Mind
+    // when no Mind is in focus.
     reversible: true,
-    enabled: () => (useComposer.getState().seat ? true : { reason: "research.needsMind" }),
     run: () => {
       const { seat, update } = useComposer.getState();
-      if (!seat) return;
-      update(seat.mindId, { research: true, skill: null });
+      update(seat?.mindId ?? NO_MIND, { research: true, skill: null, analyse: false });
       focusComposer();
     },
   },
@@ -35,22 +43,23 @@ export const researchCommands: readonly Command[] = [
     group: "main",
     // It only aims the composer; Esc goes back to asking.
     reversible: true,
-    when: () => toldTask() !== undefined,
-    run: () => {
-      const task = toldTask();
+    when: (ctx) => toldTask(ctx) !== undefined,
+    run: (ctx) => {
+      const task = toldTask(ctx);
       if (task) aimAt(task);
     },
   },
   {
-    // Plan, as in a running Research's progress: its plan in the tray, or put away.
+    // Plan, as in a Research Task's progress: its plan in the tray, or put away. Done, the
+    // steps it ran stay in reach.
     id: "research.plan",
     label: "command.researchPlan",
     keywords: ["command.researchPlan.keywords"],
     group: "open",
     reversible: true,
-    when: () => toldTask() !== undefined,
-    run: () => {
-      const task = toldTask();
+    when: (ctx) => plannedTask(ctx) !== undefined,
+    run: (ctx) => {
+      const task = plannedTask(ctx);
       if (task) togglePlanView(task);
     },
   },

@@ -8,6 +8,7 @@ import {
   type Skill,
   type SkillImportPreview,
 } from "../../src/core";
+import { BUILT_IN_SKILL_NAMES } from "../../src/core/usageEvents";
 import { createTempDataFolder } from "./core";
 
 /** The repository's root. */
@@ -16,8 +17,8 @@ export const REPO_ROOT = fileURLToPath(new URL("../..", import.meta.url));
 /** The built-in Skills the app ships, in the repository. */
 export const BUILT_IN_SKILLS_DIR = join(REPO_ROOT, BUILT_IN_SKILLS_SOURCE);
 
-/** The names of the built-in Skills, in name order. */
-export const BUILT_IN_SKILL_NAMES = ["literature-review", "mind-to-report", "summarise-document"];
+/** The names of the built-in Skills, in name order (the core's list). */
+export { BUILT_IN_SKILL_NAMES };
 
 /**
  * A copy of the built-in Skills in a temporary folder, deleted when the test

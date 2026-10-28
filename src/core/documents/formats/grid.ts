@@ -57,6 +57,12 @@ export interface Workbook {
   sheets: Sheet[];
   /** Rows were left out because the file is over `MAX_ROWS` rows or `MAX_CELLS` cells. */
   truncated: boolean;
+  /** Hidden and very hidden sheets left out, by name, in the file's order (#740). */
+  hiddenSheets: string[];
+  /** Sheets with rows left out at the reading limit: the first row not read, from 1 (#740). */
+  rowsCut: { sheet: string; from: number }[];
+  /** Sheets after the limit was reached, from which nothing was read (#740). */
+  sheetsNotRead: string[];
   /** The workbook's styles, when the sheet preview asked for them. */
   layout?: WorkbookLayout;
 }

@@ -1,4 +1,12 @@
-import { type ReactNode, type ToggleEvent, useEffect, useId, useRef, useState } from "react";
+import {
+  type ReactNode,
+  type ToggleEvent,
+  useEffect,
+  useId,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { createPortal } from "react-dom";
 import { useShallow } from "zustand/react/shallow";
 import type { DocumentStatus, EmbeddingModelError } from "../../../core/api";
@@ -14,6 +22,8 @@ import { saidInLine } from "../lineNames";
 import { useCapturing, useMeetings } from "../meetings";
 import { downloadProgress } from "../modelDownload";
 import { enterFrom, exitToward } from "../motion";
+import { organizeStateOf } from "../organizeOutcome";
+import { ownsATag, useOwnDocuments } from "../ownDocuments";
 import { rerankingModelStatus } from "../rerankStatus";
 import { openSandboxHelp, useRunsWithoutSandbox } from "../sandbox";
 import { useSettled } from "../settling";
@@ -116,8 +126,11 @@ interface Status {
  */
 export function SidebarStatus({ problemsOnly = false }: { problemsOnly?: boolean }) {
   const statuses = useStatuses();
+  // The quiet first open draws none of these rows, so their time starts when it ends.
   const shown = useSettled(
-    statuses.filter((status) => !isProblem(status)).map((status) => status.testId),
+    problemsOnly
+      ? []
+      : statuses.filter((status) => !isProblem(status)).map((status) => status.testId),
   );
   // A status the work has left stays its last 500 ms as it was.
   const seen = useRef(new Map<string, Status>());
@@ -400,6 +413,16 @@ function useStatuses(): Status[] {
   const model = useAppStore((state) => state.embeddingModel);
   const embedding = useAppStore((state) => state.embedding);
   const library = useAppStore((state) => state.library);
+  // Organize never works on an example's Documents, so its counts are the User's own alone: an
+  // assignment an earlier version left against an example would otherwise progress for ever (#1942).
+  const ownDocuments = useOwnDocuments();
+  const liveStates = useMemo(() => {
+    const held = new Map((library?.assignments ?? []).map((item) => [item.documentId, item]));
+    return ownDocuments.map((doc) => {
+      const item = held.get(doc.id);
+      return { item, state: organizeStateOf(doc, item) };
+    });
+  }, [ownDocuments, library]);
   const organizing = organizes(library);
   const organizesNew = organizesNewDocuments(library);
   const capturing = useCapturing();
@@ -471,6 +494,10 @@ function useStatuses(): Status[] {
           }
         }
       }
+      // Before a Document of the User's own carries a Tag, the Tags' own progress isn't shown
+      // (#1942). Everything the User can act on stays: a missing consent, a refused key, a rate
+      // limit, a plan's limit and a failure are problems where they happened, Tag or no Tag.
+      if (!ownsATag(state)) tagging = 0;
       return {
         processing,
         scansReading,
@@ -521,13 +548,11 @@ function useStatuses(): Status[] {
   const sandboxNoticeDismissed = useAppStore(
     (state) => state.settings?.device.sandboxNoticeDismissed === true,
   );
+  // The first Tag a Document of the User's own carries: until then, no model is asked for Tags.
+  const tagsShown = useAppStore((state) => ownsATag(state));
   const taggingWaits = counts.waitingForTagger > 0;
   const tagging = !organizesNew && counts.tagging > 0;
-  const organizingNow =
-    organizing &&
-    !!library?.assignments.some(
-      (item) => item.status === "pending" || item.status === "classifying",
-    );
+  const organizingNow = organizing && liveStates.some(({ state }) => state.run === "working");
   const taggingService = useTaggingService("tagging", taggingWaits || tagging);
   const organizingService = useTaggingService("classification", organizingNow);
   const taggingNeedsOk =
@@ -550,10 +575,12 @@ function useStatuses(): Status[] {
   );
   const stoppedPlaces = useAppStore(
     useShallow((state) =>
-      stoppedDocumentPlaces(
-        state.documents.filter((each) => isOwnDocument(each, allExamples(state))),
-        state.library,
-      ),
+      ownsATag(state)
+        ? stoppedDocumentPlaces(
+            state.documents.filter((each) => isOwnDocument(each, allExamples(state))),
+            state.library,
+          )
+        : [],
     ),
   );
   // A scan without text goes to Organize as pictures of its pages.
@@ -858,7 +885,7 @@ function useStatuses(): Status[] {
             .catch((error: unknown) => useAppStore.getState().reportError(error)),
       },
     });
-  } else if (taggingWaits) {
+  } else if (tagsShown && taggingWaits) {
     statuses.push({
       testId: "tagging-waiting",
       tone: "waiting",
@@ -980,16 +1007,15 @@ function useStatuses(): Status[] {
   }
 
   if (organizing && library) {
-    const pending = library.assignments.filter(
-      (item) => item.status === "pending" || item.status === "classifying",
-    ).length;
-    const attention = library.assignments.filter(
-      (item) =>
-        (item.status === "waiting" &&
-          item.error?.kind !== "rate-limit" &&
-          item.error?.kind !== "auth" &&
-          item.error?.kind !== "plan-limit") ||
-        item.status === "failed",
+    const pending = liveStates.filter(({ state }) => state.run === "working").length;
+    const attention = liveStates.filter(
+      ({ item, state }) =>
+        !state.manual &&
+        (state.run === "failed" ||
+          (state.run === "waiting" &&
+            item?.error?.kind !== "rate-limit" &&
+            item?.error?.kind !== "auth" &&
+            item?.error?.kind !== "plan-limit")),
     ).length;
     if (attention)
       statuses.push({

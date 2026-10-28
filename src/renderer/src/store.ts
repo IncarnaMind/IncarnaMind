@@ -21,6 +21,7 @@ import type {
   LinkedFolderPreview,
   Mind,
   PrivacySettings,
+  ReadyQuestion,
   RerankSettings,
   RestoreRef,
   SearchScope,
@@ -33,6 +34,7 @@ import { EXAMPLE_GROUPS } from "../../core/api";
 import { resolveLanguage } from "../../core/language";
 import type { UiUsageEvent } from "../../core/usageEvents";
 import { displayName } from "../../shared/documentNames";
+import { isSearchable } from "../../shared/documentStatus";
 import type { DocumentLocation } from "../../shared/documentViewer";
 import { type MessageKey, type MessageParams, translate } from "../../shared/i18n";
 import { mindName } from "../../shared/naming";
@@ -46,9 +48,9 @@ import {
   renamed,
   retagged,
 } from "./changes";
+import { useComposer } from "./composer";
 import { core, files } from "./core";
 import { LIBRARY_DELETED } from "./deletedItems";
-import { isSearchable } from "./documentStatus";
 import { applyAssignments, applyDocumentChanges, createDocumentUpdates } from "./documentUpdates";
 import { describeError, errorMessage } from "./errors";
 import { languageNow } from "./i18n";
@@ -81,6 +83,7 @@ import {
 } from "./moves";
 import { untitledFolderName } from "./newFolder";
 import { useNotices } from "./notices";
+import { stepsShownOf } from "./nudges";
 import type { ObjectRef } from "./objects";
 import { useRequests } from "./requests";
 import { resolveSettingsPage, type SettingsPage, type SettingsTarget } from "./settingsPages";
@@ -200,6 +203,12 @@ export interface AppState extends LayoutSlice {
   /** The first-run example Mind and its Documents (onboarding). Null until loaded. */
   examples: Examples | null;
   otherExamples: Examples[];
+  /**
+   * The first open's ready Question (see `ReadyQuestion`), as the core reads it: about the
+   * User's own Document, or the example's while they have none. Set once loaded, then follows
+   * the Documents, the examples and the interface language.
+   */
+  readyQuestion: ReadyQuestion | null;
   ownAnswerArrived: boolean;
   askedOwnAtLaunch: boolean;
   usageNotice: "auto" | "kept" | "answered";
@@ -219,7 +228,8 @@ export interface AppState extends LayoutSlice {
    * Creates a Mind, in `folderId` if given, else where `filingFolder` says (#1362), and opens it
    * in a new tab after the shown one, in the focused group or `groupId`, with its title focused,
    * or with a Question started in it (with a Search scope, if given). It says nothing and leaves
-   * nothing to undo: ⌘Z stays the editor's own, and Delete takes the Mind back.
+   * nothing to undo: ⌘Z stays the editor's own, and Delete takes the Mind back. Resolves to its
+   * id once it is shown, or null if it wasn't made or the core refused its tab.
    */
   createMind(options?: {
     startQuestion?: boolean;
@@ -233,7 +243,7 @@ export interface AppState extends LayoutSlice {
     groupId?: string;
     /** Runs once it is made and shown, with its id. */
     made?(mindId: string): void;
-  }): Promise<void>;
+  }): Promise<string | null>;
   /**
    * Moves Minds and Documents into a Folder, or out of every Folder (null):
    * shown at once, then as the core has it, with "Moved … · Undo" (and ⌘Z).
@@ -259,8 +269,8 @@ export interface AppState extends LayoutSlice {
   deleteFolder(folderId: string): Promise<void>;
   /** Deletes the Minds, Documents and Folders given, together, with one Undo. */
   deleteSelection(items: readonly ObjectRef[]): Promise<void>;
-  /** Lists a Mind just made and opens it in a new tab after the shown one, in the focused group or `groupId`. */
-  showNewMind(mind: Mind, groupId?: string): Promise<void>;
+  /** Lists a Mind just made and opens it in a new tab after the shown one, in the focused group or `groupId`; false if the core refused it. */
+  showNewMind(mind: Mind, groupId?: string): Promise<boolean>;
   /** Called once the new Mind's text has the focus. */
   bodyFocused(): void;
   /** Starts a Question at the end of the open Mind, or of a new Mind if none is open. */
@@ -278,7 +288,7 @@ export interface AppState extends LayoutSlice {
    * "Start a Mind from this Folder": a new Mind titled as the Library's
    * sheet, whose first Block is a Question with the bridge's Search scope.
    */
-  startMindFrom(bridge: LibraryBridge): Promise<void>;
+  startMindFrom(bridge: LibraryBridge): Promise<string | null>;
   /** Opens the first-run example Mind, making the examples again if they were removed. */
   openExamples(): Promise<void>;
   /** Makes the first-run example again and opens it, with Undo. */
@@ -342,6 +352,11 @@ export interface AppState extends LayoutSlice {
   addPaths(paths: readonly string[]): Promise<void>;
   /** "Add Documents": the system's open dialog (see `FilesBridge.pickDocuments`), then the files picked are added. */
   pickDocuments(): Promise<void>;
+  /**
+   * "Add files or a folder…" (#1942): the system's open dialog, then the files
+   * picked are added and a folder picked is offered to be read where it is.
+   */
+  pickDocumentsOrFolder(): Promise<void>;
   /** While that dialog is open: the buttons that open it wait, so it isn't opened twice. */
   pickingDocuments: boolean;
   /**
@@ -914,6 +929,7 @@ export const useAppStore = create<AppState>()((set, get) => {
     skills: [],
     examples: null,
     otherExamples: [],
+    readyQuestion: null,
     ownAnswerArrived: false,
     askedOwnAtLaunch: false,
     usageNotice: "auto",
@@ -940,6 +956,7 @@ export const useAppStore = create<AppState>()((set, get) => {
           linkedFolders,
           keptCitationTexts,
           examples,
+          readyQuestion,
           otherExamples,
           connectors,
           rerank,
@@ -957,6 +974,7 @@ export const useAppStore = create<AppState>()((set, get) => {
           readList("linkedFolders", core.listLinkedFolders(), readAt),
           readList("keptCitationTexts", core.listKeptCitationTexts(), readAt),
           core.getExamples(),
+          core.readyQuestion(),
           Promise.all(OTHER_EXAMPLE_GROUPS.map((group) => core.getExamples(group))),
           core.listConnectors(),
           readList("rerank", core.getRerankSettings(), readAt),
@@ -992,6 +1010,7 @@ export const useAppStore = create<AppState>()((set, get) => {
           ...fresh,
           documents,
           examples,
+          readyQuestion,
           otherExamples: otherExamples.filter(isMade),
           askedOwnAtLaunch: settings.device.gettingStarted.askedOwn,
           status: { kind: "ready" },
@@ -1007,6 +1026,7 @@ export const useAppStore = create<AppState>()((set, get) => {
     },
 
     createMind: async (options) => {
+      let made: string | null = null;
       await attempt(async () => {
         const { layout, minds } = get();
         const inFront = minds.find((each) => each.id === currentMindIdOf(layout));
@@ -1024,19 +1044,27 @@ export const useAppStore = create<AppState>()((set, get) => {
             ? { questionToStart: { mindId: mind.id, scope: options.scope ?? null } }
             : { bodyToFocus: mind.id },
         );
-        await get().showNewMind(mind, options?.groupId);
+        if (!(await get().showNewMind(mind, options?.groupId))) {
+          // The core refused the tab: no editor comes to take the focus it was given.
+          if (get().bodyToFocus === mind.id) get().bodyFocused();
+          return;
+        }
+        made = mind.id;
         options?.made?.(mind.id);
       });
+      return made;
     },
 
     showNewMind: async (mind, groupId) => {
       // The "minds.changed" event may have listed it already.
       set((state) => ({ minds: [mind, ...state.minds.filter((each) => each.id !== mind.id)] }));
-      await get().changeLayout({
-        type: "open",
-        item: { kind: "mind", mindId: mind.id },
-        where: { in: "group", ...(groupId && { groupId }) },
-      });
+      return (
+        (await get().changeLayout({
+          type: "open",
+          item: { kind: "mind", mindId: mind.id },
+          where: { in: "group", ...(groupId && { groupId }) },
+        })) !== null
+      );
     },
 
     bodyFocused: () => set({ bodyToFocus: null }),
@@ -1057,7 +1085,10 @@ export const useAppStore = create<AppState>()((set, get) => {
         openMindId: currentMindIdOf(layout),
         exampleMindIds: exampleMindIds(get()),
       });
-      if (!mindId) return get().createMind({ startQuestion: true, scope });
+      if (!mindId) {
+        await get().createMind({ startQuestion: true, scope });
+        return;
+      }
       get().openMind(mindId);
       set({ questionToStart: { mindId, scope } });
     },
@@ -1268,7 +1299,7 @@ export const useAppStore = create<AppState>()((set, get) => {
     updateGettingStarted(patch) {
       const { settings } = get();
       const current = settings?.device.gettingStarted;
-      if (!settings || !current?.started) return;
+      if (!settings || !current) return;
       const next = { ...current, ...patch };
       if (
         Object.entries(next).every(([key, value]) => current[key as keyof GettingStarted] === value)
@@ -1277,7 +1308,7 @@ export const useAppStore = create<AppState>()((set, get) => {
       }
       // At once, so ticks made together don't undo each other; the core's event confirms it.
       set({ settings: { ...settings, device: { ...settings.device, gettingStarted: next } } });
-      core.updateSettings({ device: { gettingStarted: next } }).catch(() => undefined);
+      core.updateSettings({ device: { gettingStarted: next } }).catch(get().reportError);
     },
 
     openMind(id, options) {
@@ -1362,6 +1393,8 @@ export const useAppStore = create<AppState>()((set, get) => {
     },
 
     openDocument(location, how = { as: "list" }) {
+      // Direct navigation ends Citation-source scope; openCited records its source after this call.
+      useComposer.setState({ citedSource: null });
       const { documentId, ...place } = location;
       const item = { kind: "document", documentId } as const;
       const at = Object.keys(place).length > 0 ? { place } : {};
@@ -1437,6 +1470,18 @@ export const useAppStore = create<AppState>()((set, get) => {
         try {
           const paths = await files.pickDocuments();
           if (paths.length > 0) await addByPath(paths, [], []);
+        } finally {
+          set({ pickingDocuments: false });
+        }
+      }),
+
+    pickDocumentsOrFolder: () =>
+      attempt(async () => {
+        if (get().pickingDocuments) return;
+        set({ pickingDocuments: true });
+        try {
+          const { files: paths, folders } = await files.pickDocumentsOrFolder();
+          if (paths.length > 0 || folders.length > 0) await addByPath(paths, folders, []);
         } finally {
           set({ pickingDocuments: false });
         }
@@ -1843,6 +1888,22 @@ core.on("document.status", (changed) => {
 
 // The examples made, opened again or removed: their Mind and Linked folder show "Example".
 core.on("examples.changed", (examples) => useAppStore.setState(withExamples(examples)));
+
+// The ready Question is about the User's own Documents, or the example while they have none: the
+// core reads it again when either, or the interface language, changes, while its card shows it.
+useAppStore.subscribe((state, before) => {
+  if (
+    stepsShownOf(state.settings?.device?.gettingStarted) &&
+    (state.documents !== before.documents ||
+      state.examples !== before.examples ||
+      state.settings?.language !== before.settings?.language)
+  ) {
+    core.readyQuestion().then(
+      (readyQuestion) => useAppStore.setState({ readyQuestion }),
+      (error: unknown) => console.error("Couldn't read the first open's ready Question.", error),
+    );
+  }
+});
 
 // Privacy choices change on the Privacy page, in the usage data card, or with local mode.
 core.on("privacy.changed", (privacy) => {

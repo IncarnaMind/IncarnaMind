@@ -137,6 +137,24 @@ describe("Asking during a call", { timeout: 60_000 }, () => {
     expect(firstCall.system).toContain("never guess");
   });
 
+  test("a Question from a voice memo's Mind never listens to its live speech", async () => {
+    const calls: ModelCall[] = [];
+    const { core, record } = await transcribingCore(await createTempDataFolder(), {
+      model: listeningModel(calls),
+    });
+    await core.saveChatProvider({ kind: "ollama", modelId: "local-model" });
+    const memo = await core.recordMemo();
+    record(10 * SECOND, ["microphone"]);
+    await until(core, memo.id, (transcript) => transcript.lines >= 4);
+
+    await ask(core, { mindId: memo.mindId, text: "What did I say about the payment provider?" });
+
+    const [firstCall] = calls;
+    if (!firstCall) throw new Error("The model wasn't asked.");
+    expect(userText(firstCall)).not.toContain("<live-transcript>");
+    expect(firstCall.system).not.toContain("being recorded");
+  });
+
   test("a Question that isn't a button is not told the live text is behind, whatever the Transcript's state (#1366)", async () => {
     const calls: ModelCall[] = [];
     const dataDir = await createTempDataFolder();
