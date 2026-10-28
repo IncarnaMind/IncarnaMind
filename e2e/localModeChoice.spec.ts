@@ -263,6 +263,10 @@ for (const [name, locale] of [
     await setWindowSize(app, window, 900, 700);
     if (zh) await language(window, "zh-CN");
     const setup = await openLocalWay(window);
+    // The local way is settled — its line says what the click keeps — before the keyboard acts.
+    await expect(setup.getByTestId("setup-local-keeps")).toHaveText(
+      zh ? "所有内容都留在这台电脑上" : "Keeps everything on this computer",
+    );
     await window.keyboard.press("ControlOrMeta+Backslash");
     await expect(window.getByTestId("sidebar-panel")).toHaveAttribute("data-hidden", "true");
 
