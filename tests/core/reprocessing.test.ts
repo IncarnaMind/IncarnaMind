@@ -1,7 +1,7 @@
 import { mkdir, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { describe, expect, test } from "vitest";
-import { DATABASE_FILE, type Document } from "../../src/core";
+import { type Core, DATABASE_FILE, type Document } from "../../src/core";
 import { keywordText } from "../../src/core/documents/keywords";
 import { NAME_INDEX_CURRENT_SINCE, PROCESSING_VERSION } from "../../src/core/documents/processing";
 import { createFakeEmbedder } from "../../src/core/embedding/fake";
@@ -59,6 +59,26 @@ function asVersion5(dataDir: string, current: readonly string[] = []): void {
           `${unfoldedKeywords(name)} ${unfoldedKeywords(text)}`,
         ]);
       }
+      // The ones left current are what this version builds: their own words, and a name row.
+      for (const id of current) {
+        const row = db.get<{ name: string }>("SELECT name FROM documents WHERE id = ?", [id]);
+        if (!row) continue;
+        db.run("DELETE FROM document_names_fts WHERE document_id = ?", [id]);
+        const name = keywordText(row.name);
+        if (name !== "") {
+          db.run("INSERT INTO document_names_fts (document_id, text) VALUES (?, ?)", [id, name]);
+        }
+        for (const { seq, text } of db.all<{ seq: number; text: string }>(
+          "SELECT seq, text FROM passages WHERE document_id = ? AND deleted_at IS NULL",
+          [id],
+        )) {
+          db.run("DELETE FROM passages_fts WHERE rowid = ?", [BigInt(seq)]);
+          db.run("INSERT INTO passages_fts (rowid, text) VALUES (?, ?)", [
+            BigInt(seq),
+            keywordText(text),
+          ]);
+        }
+      }
     });
   } finally {
     db.close();
@@ -82,9 +102,10 @@ function asNameWithEveryPassage(dataDir: string): void {
       );
       for (const { seq, text, name } of passages) {
         db.run("DELETE FROM passages_fts WHERE rowid = ?", [BigInt(seq)]);
+        const keywords = keywordText(name);
         db.run("INSERT INTO passages_fts (rowid, text) VALUES (?, ?)", [
           BigInt(seq),
-          `${keywordText(name)} ${keywordText(text)}`,
+          keywords ? `${keywords} ${keywordText(text)}` : keywordText(text),
         ]);
       }
     });
@@ -309,7 +330,7 @@ describe("Re-processing", { timeout: 30_000 }, () => {
     third.close();
   });
 
-  test("a Document whose index holds its name with every Passage is processed again, its Passages and vectors kept (#2042)", async () => {
+  test("a Document whose index holds its name with every Passage is rewritten where it is, without reading its file (#2042)", async () => {
     const dataDir = await createTempDataFolder();
     const sources = await createSourceFolder();
     const embedder = createControlledEmbedder();
@@ -352,7 +373,11 @@ describe("Re-processing", { timeout: 30_000 }, () => {
     const embeddedBefore = embedder.texts.length;
 
     const second = startCore(dataDir, { embedder });
-    await waitForProcessing(second, [report.id]);
+    const statuses: string[] = [];
+    second.on("document.status", (document) => statuses.push(document.status));
+    // Nothing is queued and nothing is read: the rows are rewritten where they are.
+    expect((await second.listDocuments()).map((document) => document.status)).toEqual(["ready"]);
+    expect(statuses).toEqual([]);
     expect(matching("report")).toBe(0);
     expect(names("report")).toBe(1);
     // Its Passages are the ones it had, and their vectors were kept: nothing to embed again.
@@ -368,7 +393,7 @@ describe("Re-processing", { timeout: 30_000 }, () => {
     second.close();
   });
 
-  test("a Document whose old version can't be read loses the name from its rows, so it isn't counted twice (#2042)", async () => {
+  test("a Document queued when its old version can't be read loses the name from its kept rows (#2042)", async () => {
     const dataDir = await createTempDataFolder();
     const sources = await createSourceFolder();
     const entries = Array.from(
@@ -397,8 +422,15 @@ describe("Re-processing", { timeout: 30_000 }, () => {
         [`"${word}"`],
       ).length;
 
-    // As the pipeline before it left the data, then its file gone: its next read fails.
+    // As the pipeline before it left the data, still queued by a quit when its file went: its
+    // next read fails, and the name in the kept rows has to go without one.
     asNameWithEveryPassage(dataDir);
+    const db = openDatabase(join(dataDir, DATABASE_FILE));
+    try {
+      db.run("UPDATE documents SET status = 'queued' WHERE id = ?", [report.id]);
+    } finally {
+      db.close();
+    }
     expect(matching("report")).toBe(before.length);
     await rm(path);
 
@@ -409,6 +441,65 @@ describe("Re-processing", { timeout: 30_000 }, () => {
     expect(passages()).toEqual(before);
     expect(matching("report")).toBe(0);
     expect(names("report")).toBe(1);
+    second.close();
+  });
+
+  test("the keyword search an upgraded data folder gives equals a fresh index's, a renamed Document and a name with no words included (#2042)", async () => {
+    const dataDir = await createTempDataFolder();
+    const sources = await createSourceFolder();
+    const entries = Array.from(
+      { length: 60 },
+      (_, line) => `Entry ${line} notes ordinary weather and quiet coastal traffic.`,
+    ).join("\n");
+    const first = startCore(dataDir);
+    const [, minutes] = (await addAndProcess(first, [
+      await writeSourceFile(sources, "Annual Report.md", entries),
+      await writeSourceFile(sources, "Weekly Notes.md", "Rainfall rose through the year.\n"),
+    ])) as [Document, Document];
+    // Renamed before this version: the old index holds the new name in every row.
+    first.renameDocument(minutes.id, "Quarterly Log");
+    // A name with no words at all: its rows never held a name.
+    await addAndProcess(first, [
+      await writeSourceFile(sources, "!!!.md", "Coastal traffic only.\n"),
+    ]);
+    first.close();
+
+    const queries = ["annual report", "report", "quarterly log", "rainfall", "coastal traffic"];
+    const searched = async (core: Core) => {
+      const found: Record<string, string[]> = {};
+      for (const query of queries) {
+        found[query] = (await core.searchPassages(query, { mode: "keyword", limit: 50 })).map(
+          (passage) => passage.passageId,
+        );
+      }
+      return found;
+    };
+    // What this version's own processing built: the index the upgrade has to match.
+    const freshCore = startCore(dataDir);
+    const fresh = await searched(freshCore);
+    freshCore.close();
+    expect(fresh["quarterly log"]?.length).toBeGreaterThan(0);
+    expect(fresh["annual report"]?.length).toBeGreaterThan(0);
+
+    // As the pipeline before it left the data, then read again by this version.
+    asNameWithEveryPassage(dataDir);
+    const second = startCore(dataDir);
+    const statuses: string[] = [];
+    second.on("document.status", (document) => statuses.push(document.status));
+    expect((await second.listDocuments()).map((document) => document.status)).toEqual(
+      Array(3).fill("ready"),
+    );
+    expect(statuses).toEqual([]);
+    expect(await searched(second)).toEqual(fresh);
+    // The renamed Document's old name is in no row any more; its new one is the name row's.
+    expect(await second.searchPassages("weekly", { mode: "keyword" })).toEqual([]);
+    expect(
+      queryDatabase<{ document_id: string }>(
+        dataDir,
+        "SELECT document_id FROM document_names_fts WHERE document_names_fts MATCH ?",
+        ['"quarterly"'],
+      ),
+    ).toEqual([{ document_id: minutes.id }]);
     second.close();
   });
 

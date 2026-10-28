@@ -1495,12 +1495,12 @@ export function createDocuments(options: DocumentsOptions) {
   };
 
   // Documents processed by an older pipeline are processed again, through the usual
-  // statuses: those whose kind it changed for (see `CURRENT_SINCE`), those with Han
+  // statuses: those whose kind it changed for (see `CURRENT_SINCE`), and those with Han
   // characters in their text or name, whose keyword index now folds them (see
-  // `HAN_CURRENT_SINCE`), and those with a Passage, whose rows still hold their
-  // Document's name (see `NAME_INDEX_CURRENT_SINCE`). The others are already what this
-  // pipeline builds: their version says so, so their text isn't looked through again at
-  // the next start.
+  // `HAN_CURRENT_SINCE`). The others are already what this pipeline builds, so their text
+  // isn't looked through again at the next start; the one thing left is their Document's
+  // name, which this version moved out of each Passage's keyword row (see
+  // `NAME_INDEX_CURRENT_SINCE`), and that is rewritten in place below.
   db.transaction(() => {
     db.run(
       `UPDATE documents SET status = 'queued', updated_at = ?
@@ -1517,15 +1517,6 @@ export function createDocuments(options: DocumentsOptions) {
                                      WHERE p.document_id = documents.id
                                        AND p.deleted_at IS NULL AND p.text GLOB ?))`,
       [now(), BigInt(HAN_CURRENT_SINCE), HAS_HAN, HAS_HAN],
-    );
-    // Every Passage's row loses the name, so a Document with one has one to rebuild.
-    db.run(
-      `UPDATE documents SET status = 'queued', updated_at = ?
-       WHERE deleted_at IS NULL AND processing_version < ?
-         AND status IN ('ready', 'embedding', 'waiting-for-model')
-         AND EXISTS (SELECT 1 FROM passages p
-                     WHERE p.document_id = documents.id AND p.deleted_at IS NULL)`,
-      [now(), BigInt(NAME_INDEX_CURRENT_SINCE)],
     );
     // A workbook with no text to search can still have left sheets unread (#740): one read
     // before that was recorded is read again, once, unlike a ready workbook above.
@@ -1560,6 +1551,25 @@ export function createDocuments(options: DocumentsOptions) {
                AND wp.deleted_at IS NULL)`,
         [now(), BigInt(PICTURES_CURRENT_SINCE)],
       );
+    }
+    // A Document the rules above left alone is current but for its name, which an older
+    // version wrote into every Passage's row: the row is that Document's name and the
+    // Passage's own words, so the Passage's own words alone are what it becomes, and the
+    // Document's name gets the one row of its own index. Nothing is queued or read.
+    for (const document of db.all<{ id: string; name: string }>(
+      `SELECT id, name FROM documents
+       WHERE deleted_at IS NULL AND processing_version < ?
+         AND status IN ('ready', 'embedding', 'waiting-for-model')
+         AND EXISTS (SELECT 1 FROM passages p
+                     WHERE p.document_id = documents.id AND p.deleted_at IS NULL)`,
+      [BigInt(NAME_INDEX_CURRENT_SINCE)],
+    )) {
+      indexName(document.id, document.name);
+      reindexPassages(document.id);
+      db.run("UPDATE documents SET processing_version = ? WHERE id = ?", [
+        BigInt(NAME_INDEX_CURRENT_SINCE),
+        document.id,
+      ]);
     }
     db.run(
       `UPDATE documents SET processing_version = ?
