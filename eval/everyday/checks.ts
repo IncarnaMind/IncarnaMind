@@ -524,7 +524,7 @@ const DOCUMENT_ABSENCE = [
 
 const ABSENCE_WORDING = [
   /\b(?:lack(?:s|ed|ing)?|missing|absent|unavailable)\b/i,
-  /\bwithout\b/i,
+  /\bwithout\s+(?!\w+ing\b)(?:an?\s+|the\s+)?\w+/i,
   /缺少|缺失|不存在/,
 ];
 

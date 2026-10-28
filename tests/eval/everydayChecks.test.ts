@@ -950,6 +950,17 @@ describe("The filing guards", () => {
     ).toEqual(["document-absence"]);
   });
 
+  test("does not read excluding an item as a missing Document", () => {
+    expect(
+      filingOutcome("Operating margin was 38.2% without including other income [^1].").map(
+        (failure) => failure.kind,
+      ),
+    ).toEqual([]);
+    expect(
+      filingOutcome("经营利润率为 38.2%（不含其他收入）[^1]。").map((failure) => failure.kind),
+    ).toEqual([]);
+  });
+
   test("rejects absence after the verb and a Citation to another Document", () => {
     expect(
       filingOutcome(
