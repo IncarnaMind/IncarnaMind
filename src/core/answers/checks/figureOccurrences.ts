@@ -70,6 +70,15 @@ function tableContext(element: Y.XmlElement, grids: Map<Y.XmlElement, SourceGrid
   ].join("\n");
   const rowLabel = grid[rowIndex]?.[0]?.text ?? "";
   const rowText = (grid[rowIndex] ?? []).map((slot) => slot?.text ?? "").join(" | ");
+  // A row that only names a group ("Revenue:", its other cells empty) heads the rows below it, so
+  // a "Total" under it is that group's.
+  const section =
+    grid
+      .slice(0, rowIndex)
+      .reverse()
+      .find(
+        ([first, ...rest]) => first?.text && !first.header && rest.every((slot) => !slot?.text),
+      )?.[0]?.text ?? "";
   const before = table.prevSibling;
   const caption =
     before instanceof Y.XmlElement && before.nodeName !== "table" ? plainText(before) : "";
@@ -82,7 +91,7 @@ function tableContext(element: Y.XmlElement, grids: Map<Y.XmlElement, SourceGrid
       columnLabel,
       header: cell.nodeName === "tableHeader",
     },
-    header: [columnLabel, rowText, caption].filter(Boolean).join("\n"),
+    header: [columnLabel, section, rowText, caption].filter(Boolean).join("\n"),
   };
 }
 
