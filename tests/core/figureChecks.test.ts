@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { expect, test } from "vitest";
 import { documentFigureContext } from "../../src/core/answers/calculations";
 import { createClaimCheck } from "../../src/core/answers/checks/claimCheck";
@@ -7,6 +8,7 @@ import type { CheckFigure } from "../../src/core/api";
 import type { CitationSource } from "../../src/core/documents";
 import { resolveCapabilities } from "../../src/core/providers/capabilities";
 import type { PreparedChatModel } from "../../src/core/providers/chat";
+import { MAX_CHART_VALUES } from "../../src/shared/charts";
 import { readFigures } from "../../src/shared/figures";
 import type { UnitText } from "../../src/shared/units";
 import { type ModelCall, scriptedModel } from "../helpers/models";
@@ -51,6 +53,22 @@ test.each([
 ])("$name item set is rejected", ({ items }) =>
   expect(readFigureReply(reply(items), figures, claim)).toBeNull(),
 );
+
+test("a chart's largest reply, for 500 values, is read whole", () => {
+  const many = Array.from({ length: MAX_CHART_VALUES }, (_, index) => ({
+    ...(figures[0] as CheckFigure),
+    id: JSON.stringify(["chart", randomUUID(), randomUUID(), index]),
+  }));
+  const items = many.map(({ id }) => ({
+    ...item(id),
+    verdict: "unsupported",
+    topic: "not found",
+    source: null,
+  }));
+  const text = reply(items);
+  expect(text.length).toBeGreaterThan(100_000);
+  expect(readFigureReply(text, many, claim)?.items).toHaveLength(MAX_CHART_VALUES);
+});
 
 test("missing remainder remains missing rather than explicitly empty", () => {
   expect(

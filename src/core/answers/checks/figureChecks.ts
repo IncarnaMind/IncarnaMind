@@ -48,6 +48,9 @@ export interface FigureReply {
 
 const FIGURES = /^\s*Figures:\s*(.*)$/i;
 const MAX_REPLY_CHARACTERS = 100_000;
+// An item's own words (says, covered, uncovered) may each run to 2,000 characters, so the reply
+// may grow with the figures it answers for: a 500-value chart's shortest reply is over 100,000.
+const ITEM_CHARACTERS = 8_000;
 /** A one-based count or marker, read as `calculate` reads its inputs' ("3", "[^3]", {"marker":3}). */
 const counted = (value: unknown): number | null => {
   const read = whole(isRecord(value) ? value.marker : value);
@@ -91,7 +94,7 @@ export function readFigureReply(
   figures: readonly CheckFigure[],
   claim: string,
 ): FigureReply | null {
-  if (reply.length > MAX_REPLY_CHARACTERS) return null;
+  if (reply.length > MAX_REPLY_CHARACTERS + figures.length * ITEM_CHARACTERS) return null;
   // The protocol's line is the JSON one: a model also writes "Figures: …" as prose before it.
   const line = reply
     .split(/\r?\n/)
