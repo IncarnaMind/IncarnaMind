@@ -1,9 +1,4 @@
-import type {
-  ChatModelChoice,
-  ExternalService,
-  ProviderError,
-  TaggingState,
-} from "../api";
+import type { ChatModelChoice, ExternalService, ProviderError, TaggingState } from "../api";
 
 /** An in-app folder. The legacy Group API name keeps saved assignments compatible. */
 export interface LibraryGroup {
