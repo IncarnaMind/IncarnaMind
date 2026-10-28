@@ -894,6 +894,39 @@ export function createChecks(options: ChecksOptions) {
       const blockId = stored.element.getAttribute(BLOCK_ID_ATTRIBUTE);
       const last = scanRecordCites(stored.check.text, { hasPrevious: true }).at(-1);
       const isLast = last?.raw === cite.raw && last.from === cite.from && last.to === cite.to;
+      let valid = true;
+      let found = false;
+      const updated = content.edit(input.mindId, (blocks) =>
+        updateCheck(blocks, input.checkId, (check) => {
+          if (check.text !== stored.check.text) {
+            valid = false;
+            return check;
+          }
+          const recordCites = (check.recordCites ?? []).map((each) => {
+            if (each.raw !== cite.raw || each.from !== cite.from || each.to !== cite.to) {
+              return each;
+            }
+            found = true;
+            return final;
+          });
+          return {
+            ...check,
+            recordCites,
+            versions:
+              final.documentId &&
+              final.contentHash &&
+              !check.versions.some((version) => version.documentId === final.documentId)
+                ? [
+                    ...check.versions,
+                    { documentId: final.documentId, contentHash: final.contentHash },
+                  ]
+                : check.versions,
+          };
+        }),
+      );
+      if (!valid || !found || !updated) {
+        throw new InvalidInputError({ key: "error.recordCite.notFound" });
+      }
       content.editSettings(input.mindId, (settings) => {
         if (alias)
           writeRecordCiteChoice(settings, alias, {
@@ -909,23 +942,6 @@ export function createChecks(options: ChecksOptions) {
             place: { blockId, from: stored.from, citeFrom: cite.from },
           });
       });
-      content.edit(input.mindId, (blocks) =>
-        updateCheck(blocks, input.checkId, (check) => ({
-          ...check,
-          recordCites: (check.recordCites ?? []).map((each) =>
-            each.raw === cite.raw && each.from === cite.from && each.to === cite.to ? final : each,
-          ),
-          versions:
-            final.documentId &&
-            final.contentHash &&
-            !check.versions.some((version) => version.documentId === final.documentId)
-              ? [
-                  ...check.versions,
-                  { documentId: final.documentId, contentHash: final.contentHash },
-                ]
-              : check.versions,
-        })),
-      );
       retainEvidence(input.mindId);
       return { cite: final };
     },

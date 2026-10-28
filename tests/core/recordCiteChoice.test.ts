@@ -188,6 +188,21 @@ describe("record-cite choices through the core", () => {
     });
   });
 
+  test("a check removed during source preparation leaves no saved choice", async () => {
+    const setup = await setUp();
+    await setup.check();
+    const stored = await storedCheck(setup.client);
+    const pending = choose(setup, oneCite(stored), setup.second, Promise.resolve(stored));
+    editMind(setup.client, () => []);
+    await setup.client.settled();
+
+    await expect(pending).rejects.toMatchObject({ wording: { key: "error.recordCite.notFound" } });
+    expect(readRecordCiteChoices(recordCiteSettingsOf(setup.client.doc))).toEqual({
+      previous: null,
+      choices: {},
+    });
+  });
+
   test("choosing one of two identical raws re-checks only that occurrence", async () => {
     const setup = await setUp(REPEATED);
     await setup.check();
