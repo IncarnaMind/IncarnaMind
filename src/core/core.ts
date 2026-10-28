@@ -317,6 +317,14 @@ export interface Core extends CoreApi, CoreEventSource {
    */
   openDocumentImage(documentId: string, path: string): Promise<DocumentImage>;
   /**
+   * Rewrites the keyword rows of Documents an older version indexed, one
+   * Document per transaction, on the Document-processing worker and never on
+   * this thread (#2042). The host calls it once the first window is up, so a
+   * start never waits for it; a Document that another upgrade rule reads is
+   * left to that read. Calling it again while it runs does nothing.
+   */
+  upgradeKeywordIndex(): void;
+  /**
    * The number a workbook's cell stores when its shown text isn't that
    * number written plainly (0.04213 for "4.2%"), from the Document's
    * current version; null when it shows its number plainly, isn't a number,
@@ -3739,6 +3747,7 @@ export function createCore(adapters: CoreAdapters): Core {
       }
       return found;
     },
+    upgradeKeywordIndex: () => documents.upgradeKeywordIndex(),
     // The Library lists the examples until the User has a Document of their own (#1942), so a first
     // search looks in them; from the first Document of the User's own on, they are left out before
     // the search's limit, so they never take one of its places.

@@ -1,6 +1,6 @@
 import { mkdir, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { describe, expect, test } from "vitest";
+import { describe, expect, test, vi } from "vitest";
 import { type Core, DATABASE_FILE, type Document } from "../../src/core";
 import { keywordText } from "../../src/core/documents/keywords";
 import { NAME_INDEX_CURRENT_SINCE, PROCESSING_VERSION } from "../../src/core/documents/processing";
@@ -330,7 +330,7 @@ describe("Re-processing", { timeout: 30_000 }, () => {
     third.close();
   });
 
-  test("a Document whose index holds its name with every Passage is rewritten where it is, without reading its file (#2042)", async () => {
+  test("a Document whose index holds its name with every Passage is rewritten in the background, without reading its file (#2042)", async () => {
     const dataDir = await createTempDataFolder();
     const sources = await createSourceFolder();
     const embedder = createControlledEmbedder();
@@ -375,12 +375,19 @@ describe("Re-processing", { timeout: 30_000 }, () => {
     const second = startCore(dataDir, { embedder });
     const statuses: string[] = [];
     second.on("document.status", (document) => statuses.push(document.status));
-    // Nothing is queued and nothing is read: the rows are rewritten where they are.
+    // The start doesn't wait for the rewrite: its index is as the older version left it,
+    // and the rewrite runs afterwards, on the worker (#2042).
+    expect(matching("report")).toBe(before.length);
+    expect(names("report")).toBe(0);
+    expect(queryDatabase(dataDir, "SELECT processing_version FROM documents")).toEqual([
+      { processing_version: NAME_INDEX_CURRENT_SINCE - 1 },
+    ]);
+    second.upgradeKeywordIndex();
+    await vi.waitFor(() => expect(matching("report")).toBe(0), { timeout: 30_000 });
+    expect(names("report")).toBe(1);
+    // Nothing was queued and nothing was read, and its Passages and vectors were kept.
     expect((await second.listDocuments()).map((document) => document.status)).toEqual(["ready"]);
     expect(statuses).toEqual([]);
-    expect(matching("report")).toBe(0);
-    expect(names("report")).toBe(1);
-    // Its Passages are the ones it had, and their vectors were kept: nothing to embed again.
     expect(live()).toEqual(before);
     expect(embedder.texts.length).toBe(embeddedBefore);
     expect(queryDatabase(dataDir, "SELECT processing_version FROM documents")).toEqual([
@@ -444,6 +451,38 @@ describe("Re-processing", { timeout: 30_000 }, () => {
     second.close();
   });
 
+  test("the start doesn't wait for the keyword rewrite, which runs when the host asks, after the first window (#2042)", async () => {
+    const dataDir = await createTempDataFolder();
+    const sources = await createSourceFolder();
+    const first = startCore(dataDir);
+    const [report] = (await addAndProcess(first, [
+      await writeSourceFile(sources, "Annual Report.md", "Ordinary weather over the coast."),
+    ])) as [Document];
+    first.close();
+    asNameWithEveryPassage(dataDir);
+    const version = () =>
+      queryDatabase<{ processing_version: number }>(
+        dataDir,
+        "SELECT processing_version FROM documents WHERE id = ?",
+        [report.id],
+      );
+    const holdsTheName = () =>
+      queryDatabase<{ rowid: number }>(
+        dataDir,
+        "SELECT rowid FROM passages_fts WHERE passages_fts MATCH ?",
+        ['"report"'],
+      ).length;
+
+    // The core is ready, as it is when the first window shows, with the older index in place.
+    const second = startCore(dataDir);
+    expect(holdsTheName()).toBe(1);
+    expect(version()).toEqual([{ processing_version: NAME_INDEX_CURRENT_SINCE - 1 }]);
+    second.upgradeKeywordIndex();
+    await vi.waitFor(() => expect(holdsTheName()).toBe(0), { timeout: 30_000 });
+    expect(version()).toEqual([{ processing_version: PROCESSING_VERSION }]);
+    second.close();
+  });
+
   test("the keyword search an upgraded data folder gives equals a fresh index's, a renamed Document and a name with no words included (#2042)", async () => {
     const dataDir = await createTempDataFolder();
     const sources = await createSourceFolder();
@@ -481,11 +520,19 @@ describe("Re-processing", { timeout: 30_000 }, () => {
     expect(fresh["quarterly log"]?.length).toBeGreaterThan(0);
     expect(fresh["annual report"]?.length).toBeGreaterThan(0);
 
-    // As the pipeline before it left the data, then read again by this version.
+    // As the pipeline before it left the data, then rewritten by this version, in the background.
     asNameWithEveryPassage(dataDir);
     const second = startCore(dataDir);
     const statuses: string[] = [];
     second.on("document.status", (document) => statuses.push(document.status));
+    second.upgradeKeywordIndex();
+    await vi.waitFor(
+      () =>
+        expect(queryDatabase(dataDir, "SELECT processing_version FROM documents")).toEqual(
+          Array(3).fill({ processing_version: PROCESSING_VERSION }),
+        ),
+      { timeout: 30_000 },
+    );
     expect((await second.listDocuments()).map((document) => document.status)).toEqual(
       Array(3).fill("ready"),
     );

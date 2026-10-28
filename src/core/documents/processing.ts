@@ -187,7 +187,21 @@ export interface MetadataJob {
   firstUnit: string | null;
 }
 
-export type WorkerJob = ProcessingJob | MetadataJob;
+/**
+ * A job that rebuilds the keyword rows of a Document's stored Passages, with no
+ * file read: an upgrade from the version before this one repairs the index, and
+ * the words are segmented here rather than on the core's thread (#2042).
+ */
+export interface KeywordsJob {
+  task: "keywords";
+  documentId: string;
+  /** The version indexed: nothing is written if the Document has another by then. */
+  contentHash: string;
+  /** The live Passages, in reading order, with the text the words are made from. */
+  passages: { seq: number; text: string }[];
+}
+
+export type WorkerJob = ProcessingJob | MetadataJob | KeywordsJob;
 
 /** A Passage as the worker hands it over. */
 export interface ProcessedPassage extends BuiltPassage {
@@ -266,7 +280,14 @@ export type MetadataResult =
   | FileUnreadable
   | Crashed;
 
-export type WorkerResult = ProcessingResult | MetadataResult;
+/** Each of a Document's Passages, and the words its keyword row holds (#2042). */
+export interface KeywordsResult {
+  outcome: "keywords";
+  documentId: string;
+  passages: { seq: number; keywords: string }[];
+}
+
+export type WorkerResult = ProcessingResult | MetadataResult | KeywordsResult;
 
 /**
  * How a job reads scanned pages: the text recognition model, which the core
@@ -313,13 +334,20 @@ export type WorkerResponse =
   | { id: number; request: number; page: number; file: Uint8Array }
   | { id: number; log: { event: string; fields: LogFields } };
 
-/** Runs a job of either kind. Never throws. */
+/** Runs a job of any kind. Never throws. */
 /** `password`: what opens the job's PDF when it is locked (#763), never kept with the job. */
 export function runJob(
   job: WorkerJob,
   channel: ReadingChannel | null = null,
   password?: string,
 ): Promise<WorkerResult> {
+  if (job.task === "keywords") {
+    return Promise.resolve({
+      outcome: "keywords",
+      documentId: job.documentId,
+      passages: job.passages.map(({ seq, text }) => ({ seq, keywords: keywordText(text) })),
+    } satisfies KeywordsResult);
+  }
   return job.task === "process" ? processFile(job, channel, password) : readMetadata(job, password);
 }
 

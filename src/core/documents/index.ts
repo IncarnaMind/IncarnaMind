@@ -89,6 +89,7 @@ import type { PageText } from "./passages";
 import {
   CURRENT_SINCE,
   HAN_CURRENT_SINCE,
+  type KeywordsJob,
   METADATA_VERSION,
   NAME_INDEX_CURRENT_SINCE,
   PICTURES_CURRENT_SINCE,
@@ -98,6 +99,7 @@ import {
   type ProcessingResult,
   SCAN_CURRENT_SINCE,
   type ScanJob,
+  type WorkerResult,
 } from "./processing";
 import { createProcessor } from "./processor";
 import { createReadingMeter, type ReadingMeterOptions } from "./readingSpeed";
@@ -1075,6 +1077,89 @@ export function createDocuments(options: DocumentsOptions) {
   // Set below, once the library exists: works out whether an unreadable file is gone.
   let checkFile = (_path: string) => {};
 
+  /**
+   * Sends the next stale Document's keyword job; called after each one answers.
+   * Null while none is under way (#2042).
+   */
+  let keywordUpgradeNext: (() => void) | null = null;
+
+  /**
+   * Rewrites the keyword rows of the Documents an older version indexed, one
+   * Document per job and per transaction, after the first window: the worker
+   * segments each Passage's stored text off the core's thread, and the name row,
+   * the rows and the version are written together, so no word of a name is ever
+   * counted twice (#2042).
+   */
+  function upgradeKeywordIndex(): void {
+    if (keywordUpgradeNext) return;
+    const stale = db.all<{ id: string }>(
+      `SELECT id FROM documents d
+       WHERE d.deleted_at IS NULL AND d.processing_version < ?
+         AND d.status IN ('ready', 'embedding', 'waiting-for-model')
+         AND EXISTS (SELECT 1 FROM passages p
+                     WHERE p.document_id = d.id AND p.deleted_at IS NULL)
+       ORDER BY d.created_at, d.rowid`,
+      [BigInt(NAME_INDEX_CURRENT_SINCE)],
+    );
+    const queue = stale.map((row) => row.id);
+    const next = () => {
+      for (;;) {
+        const id = queue.shift();
+        if (id === undefined) {
+          keywordUpgradeNext = null;
+          return;
+        }
+        const row = find(id);
+        if (!row || row.processing_version >= NAME_INDEX_CURRENT_SINCE) continue;
+        const passages = db.all<{ seq: number; text: string }>(
+          `SELECT seq, text FROM passages
+           WHERE document_id = ? AND deleted_at IS NULL ORDER BY position`,
+          [id],
+        );
+        if (passages.length === 0) continue;
+        processor.enqueue({
+          task: "keywords",
+          documentId: id,
+          contentHash: row.content_hash ?? "",
+          passages,
+        });
+        return;
+      }
+    };
+    keywordUpgradeNext = next;
+    next();
+  }
+
+  /** Writes one Document's upgraded keyword rows, or drops a result it is too late for. */
+  function writeKeywordUpgrade(job: KeywordsJob, result: WorkerResult): void {
+    if (result.outcome !== "keywords" || result.documentId !== job.documentId) return;
+    const row = find(job.documentId);
+    if (!row || row.processing_version >= NAME_INDEX_CURRENT_SINCE) return;
+    if ((row.content_hash ?? "") !== job.contentHash) return;
+    const live = new Set(
+      db
+        .all<{ seq: number }>(
+          "SELECT seq FROM passages WHERE document_id = ? AND deleted_at IS NULL",
+          [job.documentId],
+        )
+        .map((each) => each.seq),
+    );
+    db.transaction(() => {
+      const found = find(job.documentId);
+      if (!found) return;
+      indexName(found.id, found.name);
+      for (const { seq, keywords } of result.passages) {
+        if (!live.has(seq)) continue;
+        db.run("DELETE FROM passages_fts WHERE rowid = ?", [BigInt(seq)]);
+        db.run("INSERT INTO passages_fts (rowid, text) VALUES (?, ?)", [BigInt(seq), keywords]);
+      }
+      db.run("UPDATE documents SET processing_version = ? WHERE id = ?", [
+        BigInt(NAME_INDEX_CURRENT_SINCE),
+        found.id,
+      ]);
+    });
+  }
+
   const processor = createProcessor({
     scansAtOnce: options.scansAtOnce,
     onStart(job, warm) {
@@ -1122,6 +1207,13 @@ export function createDocuments(options: DocumentsOptions) {
     },
     isUnavailable: (error) => error instanceof TextRecognitionUnavailableError,
     password: async (job) => options.pdfPassword?.(job.documentId),
+    onKeywords(job, result) {
+      try {
+        writeKeywordUpgrade(job, result);
+      } finally {
+        keywordUpgradeNext?.();
+      }
+    },
     onResult(job, result) {
       const scanned = scanProgress.delete(job.documentId);
       const recorded = record(job, result);
@@ -1552,29 +1644,15 @@ export function createDocuments(options: DocumentsOptions) {
         [now(), BigInt(PICTURES_CURRENT_SINCE)],
       );
     }
-    // A Document the rules above left alone is current but for its name, which an older
-    // version wrote into every Passage's row: the row is that Document's name and the
-    // Passage's own words, so the Passage's own words alone are what it becomes, and the
-    // Document's name gets the one row of its own index. Nothing is queued or read.
-    for (const document of db.all<{ id: string; name: string }>(
-      `SELECT id, name FROM documents
-       WHERE deleted_at IS NULL AND processing_version < ?
-         AND status IN ('ready', 'embedding', 'waiting-for-model')
-         AND EXISTS (SELECT 1 FROM passages p
-                     WHERE p.document_id = documents.id AND p.deleted_at IS NULL)`,
-      [BigInt(NAME_INDEX_CURRENT_SINCE)],
-    )) {
-      indexName(document.id, document.name);
-      reindexPassages(document.id);
-      db.run("UPDATE documents SET processing_version = ? WHERE id = ?", [
-        BigInt(NAME_INDEX_CURRENT_SINCE),
-        document.id,
-      ]);
-    }
+    // A Document with a Passage stays as of the version before this one until its keyword
+    // rows are rewritten: that runs in the background once the first window is up, one
+    // Document per transaction, so the start never waits for it (#2042).
     db.run(
       `UPDATE documents SET processing_version = ?
        WHERE deleted_at IS NULL AND processing_version < ?
-         AND status IN ('ready', 'embedding', 'waiting-for-model')`,
+         AND status IN ('ready', 'embedding', 'waiting-for-model')
+         AND NOT EXISTS (SELECT 1 FROM passages p
+                         WHERE p.document_id = documents.id AND p.deleted_at IS NULL)`,
       [BigInt(PROCESSING_VERSION), BigInt(PROCESSING_VERSION)],
     );
   });
@@ -2452,6 +2530,7 @@ export function createDocuments(options: DocumentsOptions) {
     names,
     ids,
     hasDocumentOutside,
+    upgradeKeywordIndex,
 
     /** The live Documents (of these, or all of them) that failed, have no text or were read in part: the few `findUnreadDocuments` looks at. */
     unread(documentIds?: readonly string[]): Document[] {
