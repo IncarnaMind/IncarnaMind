@@ -106,6 +106,7 @@
     },
     {
       "includes": ["src/main/**", "!src/main/engineProcess.ts"],
+      "plugins": ["./biome/noUtilityProcess.grit"],
       "linter": {
         "rules": {
           "style": {
