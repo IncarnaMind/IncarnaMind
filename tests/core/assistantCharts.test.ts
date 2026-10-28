@@ -195,13 +195,17 @@ function writeThenCite(content: string) {
   return scriptedModel((call): ScriptedReply => {
     const search = call.results.find((each) => each.tool === "search_documents");
     if (!search) return { calls: [{ tool: "search_documents", input: { query: "revenue" } }] };
-    if (called(call, "add_to_mind")) return { text: "" };
-    return {
-      calls: [
-        { tool: "add_to_mind", input: { chart: { kind: "bar", title: "Revenue" }, content } },
-        { tool: "cite", input: { citations: citationsIn(search) } },
-      ],
+    const add = {
+      tool: "add_to_mind",
+      input: { chart: { kind: "bar", title: "Revenue" }, content },
     };
+    const adds = call.results.filter((each) => each.tool === "add_to_mind");
+    // Told its table has no Citation (#1415), it writes it again as it was.
+    if (adds.length === 1 && adds[0]?.text.includes("content has no Citation")) {
+      return { calls: [add] };
+    }
+    if (adds.length > 0) return { text: "" };
+    return { calls: [add, { tool: "cite", input: { citations: citationsIn(search) } }] };
   });
 }
 
@@ -282,7 +286,52 @@ describe("A chart only draws what is cited", { timeout: 60_000 }, () => {
     await client.settled();
 
     expect(blocksOf(readMind(client)).types).toEqual(["paragraph", "table"]);
-    expect(changesIn(answer)[0]?.chartNotDrawn).toBe("uncited");
+    expect(changesIn(answer)[0]).toMatchObject({ chartNotDrawn: "uncited", uncited: true });
+  });
+});
+
+describe("A chart waiting for cite, the rest of its text revised", { timeout: 60_000 }, () => {
+  // protects=a new Mind's chart that waits for cite is still drawn after its table once a later call of the same Answer revised another section of that text, and its card counts it; fails_when=the chart is dropped, or drawn away from its table; no_claim=how often a real model revises its own text.
+  test("is drawn after its table", async () => {
+    const content = `## Revenue\n\n${TABLE}\n\n## Outlook\n\nSales should keep growing.`;
+    const model = scriptedModel((call): ScriptedReply => {
+      const search = call.results.find((each) => each.tool === "search_documents");
+      if (!search) return { calls: [{ tool: "search_documents", input: { query: "revenue" } }] };
+      if (!called(call, "create_mind")) {
+        const chart = { kind: "bar", title: "Revenue" };
+        return {
+          calls: [
+            { tool: "create_mind", input: { title: "Revenue notes", chart, content } },
+            { tool: "cite", input: { citations: citationsIn(search) } },
+          ],
+        };
+      }
+      if (!called(call, "edit_mind")) {
+        const outlook = "## Outlook\n\nSales should keep growing next year.";
+        return {
+          calls: [
+            {
+              tool: "edit_mind",
+              input: { mind: "Revenue notes", part: "Outlook", content: outlook },
+            },
+          ],
+        };
+      }
+      return { text: "" };
+    });
+    const { core, mind } = await setUp(model);
+
+    const answer = await askAssistant(core, {
+      text: "make a note charting revenue",
+      mindId: mind.id,
+    });
+    const [made] = changesIn(answer);
+    const page = await connectToMind(core, made?.mindId ?? "");
+
+    const { types } = blocksOf(readMind(page));
+    expect(types[types.indexOf("table") + 1]).toBe("chart");
+    expect(made).toMatchObject({ created: true, tables: 1, charts: 1 });
+    expect(made?.chartNotDrawn).toBeUndefined();
   });
 });
 

@@ -89,6 +89,31 @@ describe("“These documents” in the assistant", { timeout: 60_000 }, () => {
     expect(system).toContain(
       "None of the User's own Documents can be searched yet (the examples IncarnaMind made aren't theirs)",
     );
+    // The Library holds the examples' two: saying it holds none would be a count it contradicts.
+    expect(system).toContain(
+      "The User's Library holds 2 Documents in all: never say it holds fewer than 2.",
+    );
     expect(system).not.toContain("limited this Question");
+  });
+
+  // protects=the model is told the Library's whole count, and that the examples' Documents are left out of its one (#1333); fails_when=the count is its scope's alone, so a reply says the Library holds one; no_claim=how a real model words its reply (the e2e and the hand test).
+  test("carry the Library's count, which the examples' Documents add to (#1333)", async () => {
+    const { core, sent } = await setUp();
+    const mine = await core.createMind({ title: "Reading group" });
+    expect(await core.listDocuments()).toHaveLength(3);
+
+    await askAssistant(core, { text: "Summarise the two main documents.", mindId: mine.id });
+
+    const told = sent();
+    expect(told).toContain(
+      "The User's Library holds 3 Documents, and this Answer can use 1 of them",
+    );
+    expect(told).toContain(
+      "Documents of an example IncarnaMind made are in the Library too, and aren't the User's own work: leave them out.",
+    );
+    expect(told).toContain("Never say the Library holds fewer Documents than 3.");
+    expect(told).toContain(
+      "When the Question names more Documents than this Answer can use, say in one sentence which you used and why, or ask which ones in one line.",
+    );
   });
 });

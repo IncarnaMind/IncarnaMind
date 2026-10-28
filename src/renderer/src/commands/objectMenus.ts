@@ -11,6 +11,7 @@ const EXPORTS = ["mind.exportMenu", "mind.aiUseStatement", "mind.checkRecord"] a
 registerMenu("mind", [
   "mind.open",
   "mind.openTab",
+  "mind.openChat",
   "mind.outline",
   ...EXPORTS,
   "mind.history",
@@ -75,7 +76,6 @@ registerMixedMenu(["selection.moveTo", "selection.delete"]);
 
 registerMenu("linkedFolder", [
   "linkedFolder.pause",
-  "linkedFolder.layout",
   "folder.sort",
   "linkedFolder.download",
   "linkedFolder.reveal",
@@ -91,6 +91,7 @@ registerMenu("deleted", ["deleted.restore", "deleted.deletePermanently"]);
 registerMenu(
   "tab",
   [
+    "mind.openChat",
     "mind.outline",
     "mind.look.word",
     "mind.look.plain",
@@ -110,6 +111,8 @@ registerMenu(
     "tab.split",
     "tab.keep",
     "tab.pin",
+    "tab.moveEarlier",
+    "tab.moveLater",
     "tab.moveLeft",
     "tab.moveRight",
     "tab.rename",
@@ -124,7 +127,22 @@ registerMenu("tab", ["mind.delete"], 2);
 
 registerMenu("answer", ["answer.copy", "answer.regenerate", "block.delete"]);
 
-registerMenu("citation", ["citation.open", "citation.remove"]);
+registerMenu("check", ["check.findSources"]);
+
+registerMenu("citation", [
+  "citation.open",
+  "citation.update",
+  "citation.keepOld",
+  "citation.remove",
+]);
+
+registerMenu("comparisonColumn", [
+  "comparison.column.edit",
+  "comparison.column.insertLeft",
+  "comparison.column.insertRight",
+  "comparison.column.duplicate",
+  "comparison.column.remove",
+]);
 
 registerMenu("chart", [
   "chart.table",

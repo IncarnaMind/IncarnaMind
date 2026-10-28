@@ -5,6 +5,7 @@ import type { Editor } from "@tiptap/core";
 import type { CoreBridge } from "../src/core/api";
 import {
   addDocuments,
+  checkCard,
   clickEndOf,
   createDataFolder,
   dismissChatSetup,
@@ -194,7 +195,11 @@ for (const language of ["en", "zh-CN"] as const) {
     // No Citation: its own card, with nothing of a Citation's part to cut (e2e/notFoundCard.spec.ts).
     await openCard(marks.nth(1));
     await expect(card.getByTestId("claim-nothing")).toHaveText(words.nothing);
-    await expect(card.getByTestId("claim-find-sources")).toBeVisible();
+    // Find sources waits in the card's ⋯: the Mind cites no paper or book.
+    await expect(card.getByTestId("claim-find-sources")).toHaveCount(0);
+    await pointAndClick(window, card.getByTestId("check-menu"));
+    await expect(card.getByTestId("check.findSources")).toBeVisible();
+    await window.keyboard.press("Escape");
     await expect(card.getByTestId("claim-remove")).toBeVisible();
     await expect(card.getByTestId("claim-cut")).toHaveCount(0);
     await expect(card.getByTestId("claim-cut-sentence")).toBeVisible();
@@ -219,8 +224,10 @@ for (const language of ["en", "zh-CN"] as const) {
       for (const gone of [
         "claim-cut-sentence",
         "claim-find-sources",
+        "check.findSources",
         "claim-search-web",
         "claim-remove",
+        "check-menu",
       ]) {
         await expect(card.getByTestId(gone)).toHaveCount(0);
       }
@@ -340,10 +347,17 @@ test("a sentence past the most one write checks says why, in English and Chinese
   );
   const marks = window.getByTestId("claim-mark");
   const card = window.getByTestId("claim-card");
+  /** Opens the card of the claim not checked yet from the badge's row for them (#1941). */
+  const openCardFor = async () => {
+    await pointAndClick(window, (await checkCard(window)).getByTestId("health-toCheck"));
+    await expect(card).toBeVisible();
+    await motionSettled(window);
+  };
   await expect(marks).toHaveCount(2);
-  // A sentence the write left unchecked has its grey ring in the margin, and its Citation that
+  // A sentence the write left unchecked has no mark on the page, and its Citation that
   // isn't found has its own state on its marker: the two never disagree.
   await expect(marks.last()).toHaveAttribute("data-check", "not-checked");
+  await expect(marks.last()).toBeHidden();
   const marker = editor.getByTestId("citation-chip");
   await expect(marker).toHaveAttribute("data-check", "not-found");
   await expect(marker.locator(".citation-marker-icon")).toBeVisible();
@@ -357,7 +371,7 @@ test("a sentence past the most one write checks says why, in English and Chinese
   ] as const) {
     await setLanguage(window, language);
     await motionSettled(window);
-    await pointAndClick(window, marks.first());
+    await openCardFor();
     await expect(card.getByTestId("claim-reason")).toContainText(reason);
     await expect(card.getByTestId("claim-check-now")).toHaveText(now);
     await expect(card.getByTestId("claim-check-again")).toHaveCount(0);
@@ -365,7 +379,7 @@ test("a sentence past the most one write checks says why, in English and Chinese
   }
 
   await motionSettled(window);
-  await pointAndClick(window, marks.first());
+  await openCardFor();
   await pointAndClick(window, card.getByTestId("claim-check-now"));
   await expect(marks.first()).not.toHaveAttribute("data-claim", "past-1");
   await expect(marks.first()).toHaveAttribute("data-check", "unsupported");

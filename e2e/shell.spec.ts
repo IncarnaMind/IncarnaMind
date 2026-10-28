@@ -374,11 +374,6 @@ test("Linked folder and Document rows stay 28px, on the shared text edge, throug
   await expectRowsAligned(window);
   await screenshot(window, "linked-folders-missing", sidebar());
 
-  // Papers as one list: its row says so, and stays on its line.
-  await (await openLinkedFolderMenu(papers)).getByTestId("linkedFolder.layout").click();
-  await expect(papers).toHaveAttribute("data-layout", "flat");
-  await expectRowsAligned(window);
-  await screenshot(window, "linked-folders-flat", sidebar());
   await running.app.close();
 
   // Drive unplugged while the app was closed: it and its Documents are unavailable.
@@ -427,8 +422,17 @@ test("the status footer doesn't move the tree when tagging starts or stops", asy
   await (await coreOf(window)).evaluate(async (core, file) => core.addDocuments([file]), paper);
   const item = window.getByTestId("document-list-item");
   await expect(item).toHaveAttribute("data-tagging", "waiting-for-provider");
+  // Tags are named only once a Tag exists (#1942), so the User gives this one one first.
+  await (await coreOf(window)).evaluate(async (core) => {
+    const [document] = (await core.listDocuments()).filter((each) =>
+      each.name.startsWith("Report"),
+    );
+    const tag = await core.createTag({ name: "Reports", description: "" });
+    if (document) await core.addTagToDocuments([document.id], tag.id);
+  });
   await expect(status.getByTestId("tagging-waiting")).toBeVisible();
   await screenshot(window, "sidebar-tagging-waits", window.getByTestId("sidebar"));
+  // The plain words keep the row one 28px line (#763), so the footer keeps its height.
   expect(await layout()).toEqual(before);
 
   // A chat model: tagging starts, then stops. Nothing above the footer moves.

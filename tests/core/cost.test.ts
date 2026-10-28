@@ -643,10 +643,11 @@ describe("A Question beside a long Mind (#564)", () => {
       const client = await connectToMind(core, mind.id);
       writeMind(client, [note(text)]);
       await client.settled();
+      const before = rows(dataDir).length;
       const asked = await core.askInConversation({ text: "Summarise my notes", mindId: mind.id });
       if (!asked.asked) throw new Error("Not asked.");
       await answerEnded(core, asked.answerId);
-      return rows(dataDir).at(-1)?.reserved ?? 0;
+      return rows(dataDir)[before]?.reserved ?? 0;
     };
 
     const short = await reservedBeside("Spring tides come at new and full moon.");
@@ -995,7 +996,7 @@ describe("The estimate before a large run", () => {
 
 describe("The estimate before a check run (#973)", () => {
   const AT = new Date("2026-10-12T09:00:00.000Z");
-  /** A real Check this Mind run's calls, as Anthropic reported them (see the fixture's "about"). */
+  /** A real Check this note run's calls, as Anthropic reported them (see the fixture's "about"). */
   const recordedRun = async (): Promise<{ checked: number; calls: Counted[] }> =>
     JSON.parse(
       await readFile(join(import.meta.dirname, "../fixtures/cost/recorded-checks.json"), "utf8"),

@@ -151,13 +151,15 @@ export function startCore(dataDir: string, overrides: TestAdapters = {}): Core {
     },
     ...rest,
     // A home and a Documents folder of its own, so a test never reads or writes the User's.
-    paths: {
-      dataDir,
-      home: join(dataDir, "home"),
-      documents: join(dataDir, "Documents"),
-      citationStyles: CITATION_STYLES,
-      ...paths,
-    },
+    paths: Object.defineProperties(
+      {
+        dataDir,
+        home: join(dataDir, "home"),
+        documents: join(dataDir, "Documents"),
+        citationStyles: CITATION_STYLES,
+      },
+      Object.getOwnPropertyDescriptors(paths ?? {}),
+    ),
     // Linked folders settle and retry quickly in tests.
     linkedFolders: { settleMs: 30, retryMs: 300, ...overrides.linkedFolders },
   });

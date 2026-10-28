@@ -6,6 +6,7 @@ import {
   addDocuments,
   askInAssistant,
   assistantAnswers,
+  coreOf,
   createDataFolder,
   dismissChatSetup,
   launchApp,
@@ -207,3 +208,60 @@ test("on first run, with the examples there, an Answer from the User's own Mind 
   await expect(chips.first()).toHaveAttribute("aria-label", /Store notes/);
   await expect(answer).not.toContainText("Northwind");
 });
+
+/** The example's title in each language, once made (and swapped when the language changes). */
+const EXAMPLE_TITLE = {
+  en: "Draft: credit committee paper",
+  "zh-CN": "授信委员会报告（草稿）",
+} as const;
+
+for (const [language, question, asks, count] of [
+  [
+    "en",
+    "Summarise the two main documents.",
+    "Which two Documents do you mean?",
+    "Your Library has 3",
+  ],
+  ["zh-CN", "总结两份主要文档。", "你指的是哪两份文档？", "资料库里有 3 份"],
+] as const) {
+  // protects=with three Documents in the Library, two of them the example's and one the User's, “the two main documents” asks which two in one line and says the Library's whole count (#1333); fails_when=the reply asks for two among a count the Library contradicts, or says the Library holds one; no_claim=how a real model words it (the hand test on Claude Haiku 5.5).
+  test(`in ${language === "en" ? "English" : "Chinese"}, “the two main documents” is asked for, and the Library's count is its own (#1333)`, async () => {
+    const { app, window } = await launchApp(dataDir, { fakeChat: true, examples: true });
+    await dismissChatSetup(window);
+    await useLocalChatModel(window);
+    await setLanguage(window, language);
+    await setWindowSize(app, window, 1440, 900);
+    // The example was made in the language the app started in: wait for the one this run reads.
+    await expect(window.getByTestId("mind-editor").locator("h1")).toHaveText(
+      EXAMPLE_TITLE[language],
+      { timeout: 30_000 },
+    );
+    const name = language === "en" ? "Harbour lease" : "海港租约";
+    const path = join(files, `${name}.md`);
+    await writeFile(path, `# ${name}\n\nThe rent is 1,450 pounds a month.\n`);
+    // The example's Documents are listed too, so the helper's count doesn't hold.
+    await window.getByTestId("add-documents-input").setInputFiles([path]);
+    await expect(
+      window.getByTestId("document-list-item").filter({ hasText: name }),
+    ).toHaveAttribute("data-status", "ready", { timeout: 30_000 });
+    // Three Documents in the Library: the two the example made, and this one.
+    await expect
+      .poll(async () =>
+        (await coreOf(window)).evaluate(async (core) => (await core.listDocuments()).length),
+      )
+      .toBe(3);
+    await newMind(window);
+
+    const answer = await askInAssistant(window, question);
+
+    const said = answer.getByTestId("assistant-answer-text");
+    await expect(said).toContainText(asks);
+    await expect(said).toContainText(count);
+    await expect(said).toContainText(name);
+    await expect(said).not.toContainText(/only one Document/i);
+    await expect(said).not.toContainText("只有一份文档");
+    if (SCREENSHOTS) {
+      await window.screenshot({ path: join(SCREENSHOTS, `library-count-${language}.png`) });
+    }
+  });
+}

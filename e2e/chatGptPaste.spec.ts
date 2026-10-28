@@ -116,7 +116,7 @@ test("first run, in Chinese: an earlier sign-in's address is refused, and the ad
     await interceptOpenExternal(app);
     await setLanguage(window, "zh-CN");
     await acceptPlainTextKeys(window);
-    // The first own Question waits while the setup card offers the ways, ChatGPT after the key.
+    // The first own Question waits while the setup card offers the key first, then the ways.
     await newMind(window);
     await window.getByTestId("mind-editor").click();
     await window.keyboard.press("ControlOrMeta+j");

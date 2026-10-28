@@ -2,6 +2,8 @@
 
 **Amended 2026-10-08:** At the User’s request, the Library again offers in-app Folders (previously called Groups) and Tags. These only update index metadata: originals remain at their source paths. The sidebar separates Folders from Source locations, avoiding two kinds of folder in one tree. This supersedes the removal of in-app organisation described below; indexing, watching, citations and read-only source handling are unchanged.
 
+**Amended 2026-10-26 (#2004): the first save doesn't ask. It goes to the Output location, Documents › IncarnaMind until the User picks another, and says where; it asks only when the default can't be made or written to (CONTEXT.md, Output location; `src/core/outputFiles.ts`).**
+
 Documents stay where the User keeps them. IncarnaMind indexes each file at its own path and never copies it into the data folder. The User adds Linked folders (a papers folder, Zotero's storage folder) and IncarnaMind keeps them in sync: new files become Documents, changed files are indexed again, and removed files are marked missing. A single file added on its own is indexed at its path too. Each folder inside a Linked folder is a Folder in the sidebar; in-app Folders that the User filed Documents into by hand are gone, and Tags remain for grouping across folders.
 
 What the index keeps is enough for Citations without the file:

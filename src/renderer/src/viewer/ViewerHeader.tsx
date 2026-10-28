@@ -13,6 +13,7 @@ import { DocumentTagChips } from "../components/TagChips";
 import { files } from "../core";
 import { errorMessage } from "../errors";
 import { useLeftOutOfEvidence } from "../evidence";
+import { userFile } from "../fileInfo";
 import { useGap, useLanguage, useT } from "../i18n";
 import { type Said, saidInLine } from "../lineNames";
 import { useAppStore, type ViewerTarget } from "../store";
@@ -54,6 +55,7 @@ export function ViewerHeader({
   leading,
   children,
   openable = true,
+  onRetry,
 }: {
   leading?: ReactNode;
   children?: ReactNode;
@@ -62,6 +64,7 @@ export function ViewerHeader({
    * open. Nor is there while the Document says its file is missing or out of reach.
    */
   openable?: boolean;
+  onRetry?: () => void;
 }) {
   const t = useT();
   const language = useLanguage();
@@ -197,23 +200,26 @@ ${sourceOf(document)}`
             {t("webPages.fetched", { date: pageDate(document.web.fetchedAt, language) })}
           </span>
         )}
-        {document && (document.web || (openable && document.fileStatus === "available")) && (
-          <button
-            type="button"
-            data-testid="viewer-open-externally"
-            aria-label={t(document.web ? "webPages.openLive" : "documents.copy.open")}
-            title={document.web ? document.web.address : t("documents.copy.open")}
-            onClick={openExternally}
-            className="viewer-icon-button"
-          >
-            <OpenExternallyIcon className="size-4" />
-          </button>
-        )}
+        {document &&
+          (document.web ||
+            (userFile(document) && openable && document.fileStatus === "available")) && (
+            <button
+              type="button"
+              data-testid="viewer-open-externally"
+              aria-label={t(document.web ? "webPages.openLive" : "documents.copy.open")}
+              title={document.web ? document.web.address : t("documents.copy.open")}
+              onClick={openExternally}
+              className="viewer-icon-button"
+            >
+              <OpenExternallyIcon className="size-4" />
+            </button>
+          )}
         {document && (
           <ObjectMenu
             target={{ kind: "document", id: document.id }}
             label={t("documents.more", { name: displayName(document) })}
             here={{
+              ...(onRetry && { "document.retry": onRetry }),
               "document.rename": rename.start,
               "document.moveTo": () => moveDocumentsBeside(header.current, [document.id]),
             }}

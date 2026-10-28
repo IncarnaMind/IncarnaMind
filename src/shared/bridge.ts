@@ -74,6 +74,13 @@ export interface FilesBridge {
    */
   pickDocuments(): Promise<string[]>;
   /**
+   * Shows the system's open dialog for Documents to add, or one folder to read
+   * where it is (#1942), as a sheet on the window, starting in the folder last
+   * picked from. A file and a folder can't be chosen in one sheet on Windows and
+   * Linux, where only files are offered: a folder is dropped on the window there.
+   */
+  pickDocumentsOrFolder(): Promise<{ files: string[]; folders: string[] }>;
+  /**
    * Shows the system's open dialog for a reference file to import (CSL JSON,
    * BibTeX or RIS: see `CoreApi.importReferences`), as a sheet on the window,
    * starting in the folder last picked from (else Downloads). Resolves with
@@ -108,6 +115,8 @@ export interface FilesBridge {
   setSidebarHidden(hidden: boolean): void;
   /** Tells the Edit menu where Undo and Redo go now, and what they would take back or do again. */
   setEditMenu(state: EditMenuState): void;
+  /** Pastes where the focus is, as Edit › Paste does, for a menu's Paste: the page can't read the clipboard. */
+  paste(): void;
   /** The Mind File › Export names: its name, or null when no Mind is open, which disables the item. */
   setExportMenu(mindName: string | null): void;
   /** Whether the examples are removed: Help › Show the examples again appears only then. */
@@ -195,6 +204,7 @@ export const FILES_CHANNELS = {
   showDocumentInFolder: "files:showDocumentInFolder",
   pickLinkedFolder: "files:pickLinkedFolder",
   pickDocuments: "files:pickDocuments",
+  pickDocumentsOrFolder: "files:pickDocumentsOrFolder",
   pickReferenceFile: "files:pickReferenceFile",
   pickWordFile: "files:pickWordFile",
   pickPdfFile: "files:pickPdfFile",
@@ -205,6 +215,8 @@ export const FILES_CHANNELS = {
   sidebarHidden: "app:sidebarHidden",
   /** From the page: where the Edit menu's Undo and Redo go now (`EditMenuState`). */
   editMenu: "app:editMenu",
+  /** From the page: paste where the focus is (`paste`). */
+  paste: "app:paste",
   exportMenu: "app:exportMenu",
   examplesRemoved: "app:examplesRemoved",
   /** From the main process: a command chosen in the application menu. */

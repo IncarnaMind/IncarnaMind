@@ -37,6 +37,8 @@ jobs:
     outputs:
       heavy: ${{ steps.diff.outputs.heavy }}
       packaged: ${{ steps.diff.outputs.packaged }}
+      startup: ${{ steps.diff.outputs.startup }}
+      agents: ${{ steps.diff.outputs.agents }}
     steps:
       - uses: actions/checkout@v7
         with:
@@ -50,54 +52,171 @@ jobs:
         run: |
           heavy=true
           packaged=false
+          startup=true
+          agents=true
           if [ "$EVENT" = pull_request ] && [ "$DRAFT" = true ]; then
             heavy=false
+            startup=false
+            agents=false
           elif [ "$EVENT" = pull_request ]; then
             files="$(git diff --name-only "$BASE...$HEAD")" || files=""
             echo "$files"
+            if [ -n "$files" ] && ! echo "$files" | grep -qE '^(src/main/|src/core/core\.ts$|src/core/storage/|src/shared/i18n/|e2e/|tests/main/|tests/helpers/(home|lifecycleProcesses\.test)\.ts$|tests/fixtures/lifecycle-versions\.json$|scripts/check-(lifecycle-packages|startup-control-package)\.mjs$|electron-builder\.yml$|electron\.vite\.config\.ts$|package(-lock)?\.json$|\.github/workflows/ci\.yml$)'; then
+              startup=false
+            fi
             # Nothing listed (the diff failed, or is empty) runs everything.
             if [ -n "$files" ] && ! echo "$files" | grep -qvE '^([^/]+\.md|docs/(.+))$' \
                && ! echo "$files" | grep -qx 'docs/privacy.md'; then
               heavy=false
             fi
-            # Only a change to what the packaged transcription check covers runs it.
-            if [ -z "$files" ] || echo "$files" | grep -qE '^(src/core/(transcription|meetings)/|src/core/embedding/download\.ts$|src/main/meetings/|src/main/transcriber(Process)?\.ts$|src/main/speaker(Process|Separator)\.ts$|src/(preload|shared)/capture\.ts$|src/renderer/capture(/|\.html$)|build/entitlements\.mac\.plist$|electron-builder\.yml$|electron\.vite\.config\.ts$|package(-lock)?\.json$|e2e/app\.ts$|e2e/packaged/|tests/fixtures/speech/|\.github/(actions/packaged-transcription/|workflows/ci\.yml$))'; then
+            # Only a change to what the packaged real-engine checks cover runs them.
+            if [ -z "$files" ] || echo "$files" | grep -qE '^(src/core/(transcription|meetings)/|src/core/documents/(extract|processing)\.ts$|src/core/documents/scan/|src/core/embedding/download\.ts$|src/main/(meetings/|scanReader(Process)?\.ts$)|src/main/transcriber(Process)?\.ts$|src/main/speaker(Process|Separator)\.ts$|src/(preload|shared)/capture\.ts$|src/renderer/capture(/|\.html$)|build/entitlements\.mac\.plist$|electron-builder\.yml$|electron\.vite\.config\.ts$|package(-lock)?\.json$|e2e/app\.ts$|e2e/packaged/|tests/helpers/pdf\.ts$|tests/fixtures/(speech|scans|rotated-scans)/|\.github/(actions/packaged-transcription/|workflows/ci\.yml$))'; then
               packaged=true
             fi
           fi
           echo "heavy=$heavy" | tee -a "$GITHUB_OUTPUT"
+          if [ "$EVENT" = pull_request ] && [ "$DRAFT" != true ]; then
+            agents=false
+            if [ -z "$files" ] || echo "$files" | grep -qE '^(src/core/agents/|src/core/(core|api)\.ts$|src/shared/agent(Connection|Socket|Names)\.ts$|src/main/(agentShim|platform)\.ts$|src/renderer/src/components/(agents/|providers/(ModelSetupCard|PlansSettings)\.tsx$)|e2e/(agents.*\.spec\.ts$|agentConnection\.spec\.ts$|packaged/(agentConnection\.packaged|app)\.ts$)|tests/helpers/agentClients\.ts$|docs/(agents(\.zh-CN)?|claude-code|codex|cursor)\.md$|electron(-builder\.yml|\.vite\.config\.ts)$|package(-lock)?\.json$|\.github/workflows/ci\.yml$)'; then
+              agents=true
+            fi
+          fi
           echo "packaged=$packaged" | tee -a "$GITHUB_OUTPUT"
+          echo "agents=$agents" | tee -a "$GITHUB_OUTPUT"
+          echo "startup=$startup" | tee -a "$GITHUB_OUTPUT"
 
-  check:
-    name: Typecheck, lint and unit tests
+  startup-windows:
+    name: Packaged startup, quit and updates (Windows)
     needs: changes
+    if: needs.changes.outputs.heavy == 'true' && needs.changes.outputs.startup == 'true'
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - run: npm ci
+      - name: Verify the tagged process inventory
+        run: node node_modules/vitest/vitest.mjs run tests/helpers/lifecycleProcesses.test.ts --maxWorkers=1
+      - name: Package the main process and renderer
+        id: startup_package
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: "false"
+        run: |
+          node node_modules/electron-vite/bin/electron-vite.js build --mode test
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          Copy-Item e2e/lifecycleMain.cjs out/main/lifecycle.cjs
+          $versions = Get-Content tests/fixtures/lifecycle-versions.json | ConvertFrom-Json
+          npx electron-builder --win --x64 --dir --publish never "--config.directories.output=dist/lifecycle-old" "--config.extraMetadata.main=./out/main/lifecycle.cjs" "--config.extraMetadata.version=$($versions.old)"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          npx electron-builder --win --x64 --dir --publish never "--config.directories.output=dist/lifecycle-updated" "--config.extraMetadata.main=./out/main/lifecycle.cjs" "--config.extraMetadata.version=$($versions.updated)"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          node scripts/check-lifecycle-packages.mjs dist/lifecycle-old/win-unpacked/resources/app.asar dist/lifecycle-updated/win-unpacked/resources/app.asar
+      - name: Exercise the packaged startup and update lifecycle
+        run: |
+          $env:INCARNAMIND_PACKAGED_APP = Join-Path $pwd "dist/lifecycle-old/win-unpacked/IncarnaMind.exe"
+          $env:INCARNAMIND_PACKAGED_UPDATED_APP = Join-Path $pwd "dist/lifecycle-updated/win-unpacked/IncarnaMind.exe"
+          node node_modules/@playwright/test/cli.js test singleInstance.spec.ts startupProgress.spec.ts Lifecycle.spec.ts --workers=1 --retries=0
+      - name: Check out the exact main control
+        id: startup_control_checkout
+        if: always() && github.event_name == 'pull_request' && steps.startup_package.outcome == 'success'
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.pull_request.base.sha }}
+          path: startup-main-control
+          persist-credentials: false
+      - name: Build and verify the independent main control
+        id: startup_control
+        if: always() && github.event_name == 'pull_request' && steps.startup_control_checkout.outcome == 'success'
+        working-directory: startup-main-control
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: "false"
+          STARTUP_CONTROL_SHA: ${{ github.event.pull_request.base.sha }}
+        run: |
+          $report = Join-Path $env:GITHUB_WORKSPACE "test-results/startup-comparison"
+          New-Item -ItemType Directory -Force $report | Out-Null
+          npm ci 2>&1 | Tee-Object (Join-Path $report "main-npm-ci.log")
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          node node_modules/electron-vite/bin/electron-vite.js build --mode test 2>&1 | Tee-Object (Join-Path $report "main-build.log")
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          Copy-Item (Join-Path $env:GITHUB_WORKSPACE "e2e/lifecycleMain.cjs") out/main/lifecycle.cjs
+          npx electron-builder --win --x64 --dir --publish never "--config.directories.output=dist/startup-main-control" "--config.extraMetadata.main=./out/main/lifecycle.cjs" 2>&1 | Tee-Object (Join-Path $report "main-package.log")
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          node (Join-Path $env:GITHUB_WORKSPACE "scripts/check-startup-control-package.mjs") $pwd $env:STARTUP_CONTROL_SHA $report
+      - name: Compare initial pages on main (first, ten starts)
+        if: always() && github.event_name == 'pull_request' && steps.startup_control.outcome == 'success'
+        run: |
+          $env:INCARNAMIND_PACKAGED_APP = Join-Path $pwd "startup-main-control/dist/startup-main-control/win-unpacked/IncarnaMind.exe"
+          Remove-Item Env:INCARNAMIND_PACKAGED_UPDATED_APP -ErrorAction SilentlyContinue
+          node node_modules/@playwright/test/cli.js test startupProgress.spec.ts --grep "a fresh initial launch reaches its native page" --repeat-each=5 --workers=1 --retries=0 --max-failures=1 --output=test-results/startup-main-control 2>&1 | Tee-Object test-results/startup-comparison/main-tests.log
+          exit $LASTEXITCODE
+      - name: Compare initial pages on the pull request (second, ten starts)
+        if: always() && github.event_name == 'pull_request' && steps.startup_control.outcome == 'success'
+        run: |
+          $env:INCARNAMIND_PACKAGED_APP = Join-Path $pwd "dist/lifecycle-old/win-unpacked/IncarnaMind.exe"
+          Remove-Item Env:INCARNAMIND_PACKAGED_UPDATED_APP -ErrorAction SilentlyContinue
+          node node_modules/@playwright/test/cli.js test startupProgress.spec.ts --grep "a fresh initial launch reaches its native page" --repeat-each=5 --workers=1 --retries=0 --max-failures=1 --output=test-results/startup-pr-control 2>&1 | Tee-Object test-results/startup-comparison/pr-tests.log
+          exit $LASTEXITCODE
+      - if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: startup-windows-results
+          path: test-results/
+          retention-days: 7
+
+  # The unit tests are cut into shards that run at once: as one job they took about 13 minutes.
+  # Vitest deals the files out evenly by a hash of their paths. Typecheck and lint run once, in
+  # the first shard.
+  unit:
+    name: Unit tests shard ${{ matrix.shard }}/3
+    needs: changes
+    if: needs.changes.outputs.heavy == 'true'
     runs-on: ubuntu-latest
     env:
       # The unit tests drive the core in plain Node; they don't need the Electron binary.
       ELECTRON_SKIP_BINARY_DOWNLOAD: "1"
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3]
     steps:
-      - if: needs.changes.outputs.heavy == 'true'
-        uses: actions/checkout@v7
-      - if: needs.changes.outputs.heavy == 'true'
-        uses: actions/setup-node@v7
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
         with:
           node-version-file: .nvmrc
           cache: npm
-      - if: needs.changes.outputs.heavy == 'true'
-        run: npm ci
-      - if: needs.changes.outputs.heavy == 'true'
+      - run: npm ci
+      - if: matrix.shard == 1
         run: npm run typecheck
-      - if: needs.changes.outputs.heavy == 'true'
+      - if: matrix.shard == 1
         run: npm run lint
-      - if: needs.changes.outputs.heavy == 'true'
-        run: npm test
+      - run: npm test -- --shard=${{ matrix.shard }}/3
 
-  # The packaged app, as the User installs it, transcribes a meeting with its real speech engine
-  # and model (#1239): #1233 broke transcription only there, while every test passed on the fake
-  # transcriber. macOS runners are few, so a pull request runs it only when it changes what the
-  # check covers; the nightly run and the release always do. Not a required check.
+  # The check keeps its name, so whatever reads it keeps working while the shards change.
+  check:
+    name: Typecheck, lint and unit tests
+    if: always()
+    needs: [changes, unit]
+    runs-on: ubuntu-latest
+    steps:
+      # Skipped shards (a change to documents only) count as passed; a failed or cancelled one never does.
+      - name: Every shard passed
+        run: |
+          test "${{ needs.changes.result }}" = success
+          if [ "${{ needs.changes.outputs.heavy }}" = true ]; then
+            test "${{ needs.unit.result }}" = success
+          else
+            test "${{ needs.unit.result }}" = skipped
+          fi
+
+  # The packaged app, as the User installs it, reads scans with its real OCR (#1819) and transcribes
+  # a meeting with its real speech engine and model (#1239): engine failures can appear only there,
+  # while every test passes on the fakes. macOS runners are few, so a pull request runs these only
+  # when it changes what they cover; the nightly run and the release always do. Not a required check.
   packaged-transcription:
-    name: Packaged app transcribes a meeting (macOS)
+    name: Packaged app's real engines (macOS)
     needs: changes
     if: needs.changes.outputs.packaged == 'true'
     runs-on: macos-latest
@@ -115,6 +234,49 @@ jobs:
           CSC_IDENTITY_AUTO_DISCOVERY: "false"
         run: npm run dist:dir -- -c.mac.identity=- -c.mac.notarize=false
       - uses: ./.github/actions/packaged-transcription
+
+  packaged-agents:
+    name: Packaged agent connection (${{ matrix.os }})
+    needs: changes
+    if: needs.changes.outputs.agents == 'true'
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, ubuntu-latest]
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - run: npm ci
+      - name: Package the app
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: "false"
+        run: npm run dist:dir
+      - name: Choose the packaged executable
+        shell: bash
+        run: |
+          node -e 'const fs=require("node:fs"), path=require("node:path"); const app=process.platform==="win32"?"dist/win-unpacked/IncarnaMind.exe":"dist/linux-unpacked/incarnamind"; fs.appendFileSync(process.env.GITHUB_ENV,"INCARNAMIND_PACKAGED_APP="+path.resolve(app)+"\n");'
+      - name: Let the Linux sandbox start
+        if: runner.os == 'Linux'
+        run: |
+          sudo chown root:root dist/linux-unpacked/chrome-sandbox
+          sudo chmod 4755 dist/linux-unpacked/chrome-sandbox
+      - name: Check the packaged connection on Linux
+        if: runner.os == 'Linux'
+        run: xvfb-run -a npm run test:packaged -- agentConnection.packaged.ts
+      - name: Check the packaged connection on Windows
+        if: runner.os == 'Windows'
+        run: npm run test:packaged -- agentConnection.packaged.ts
+      - uses: actions/upload-artifact@v7
+        if: failure()
+        with:
+          name: packaged-agent-${{ runner.os }}
+          path: test-results/
+          retention-days: 7
 
   # The Word corpus (eval/word/README.md): every file, its export back into itself after an
   # edit, its export for review and its export with someone's changes resolved open in LibreOffice
@@ -195,18 +357,18 @@ jobs:
   # (scripts/smoke-shard.mjs and e2e/durations.json): as one job it took about 20 minutes, and
   # pull requests merge one at a time, each up to date with main, so that time sets the pace.
   smoke-shard:
-    name: Smoke shard ${{ matrix.shard }}/8 (Linux)
+    name: Smoke shard ${{ matrix.shard }}/10 (Linux)
     # A pull request merges only when it is up to date with main and this passed, so the merge
     # commit's tree is the one already tested. Running it again on main tests nothing new.
     needs: changes
     if: needs.changes.outputs.heavy == 'true' && contains(fromJSON('["pull_request","merge_group","schedule","workflow_dispatch"]'), github.event_name)
     runs-on: ubuntu-latest
-    # A shard's specs take about 20 minutes; the rest is for a slow package mirror.
+    # A shard's specs take about 10 minutes; the rest is for a slow package mirror.
     timeout-minutes: 45
     strategy:
       fail-fast: false
       matrix:
-        shard: [1, 2, 3, 4, 5, 6, 7, 8]
+        shard: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-node@v7
@@ -245,16 +407,24 @@ jobs:
         with:
           package: ffmpeg
       # The app needs a display: a virtual one, bigger than the window the specs set
-      # (e2e/app.ts), at full colour depth. xvfb-run's own default is 640 × 480 at 8 bits.
+      # (e2e/app.ts), at full colour depth. Each of the two workers has its own: windows on one
+      # display take the keyboard focus from each other and share its clipboard.
       - name: Run the specs
         shell: bash
-        run: xvfb-run --auto-servernum --server-args="-screen 0 1920x1080x24" npm run test:smoke -- $(node scripts/smoke-shard.mjs ${{ matrix.shard }} 8) 2>&1 | tee smoke.log
+        run: |
+          trap 'kill $(jobs -p) 2>/dev/null || true' EXIT
+          for number in 98 99; do
+            Xvfb ":$number" -screen 0 1920x1080x24 -nolisten tcp >/dev/null 2>&1 &
+            for _ in $(seq 100); do [ -S "/tmp/.X11-unix/X$number" ] && break; sleep 0.2; done
+            test -S "/tmp/.X11-unix/X$number"
+          done
+          DISPLAY=:98 INCARNAMIND_DISPLAYS=:98,:99 npm run test:smoke -- --workers=2 $(node scripts/smoke-shard.mjs ${{ matrix.shard }} 10) 2>&1 | tee smoke.log
       # A night's failures show on the run's page without opening a log.
       - name: List the failed specs in the summary
         if: failure()
         run: |
           {
-            echo "### Failed specs, shard ${{ matrix.shard }}/8"
+            echo "### Failed specs, shard ${{ matrix.shard }}/10"
             echo '```'
             grep -E '^\s+✘' smoke.log || echo "none: the shard stopped before its specs finished (a limit or a crash)"
             echo '```'

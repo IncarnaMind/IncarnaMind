@@ -219,5 +219,3 @@ export function createSkillDrafts(options: SkillDraftsOptions) {
     },
   };
 }
-
-export type SkillDrafts = ReturnType<typeof createSkillDrafts>;

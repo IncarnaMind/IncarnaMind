@@ -1,5 +1,5 @@
 /**
- * Check this Mind (#737): every sentence of a Mind that makes a claim,
+ * Check this note (#737): every sentence of a Mind that makes a claim,
  * checked in one run; then only what changed. Headings, questions and the
  * User's own opinions are left out, as the model names the claims.
  */
@@ -8,7 +8,11 @@ import { describe, expect, test } from "vitest";
 import * as Y from "yjs";
 import type { CheckMindInput, Core } from "../../src/core";
 import { updateCheck } from "../../src/core/answers/checks/sentences";
-import { MIND_SETTINGS_FIELD } from "../../src/core/api";
+import {
+  CLAIM_CHECK_MARK,
+  type ClaimCheckAttributes,
+  MIND_SETTINGS_FIELD,
+} from "../../src/core/api";
 import { claimSpans } from "../../src/renderer/src/editor/claimChecks";
 import { claimCheckShown } from "../../src/shared/claimChecks";
 import { mindCheckOf, writeMindCheck } from "../../src/shared/mindCheck";
@@ -153,7 +157,67 @@ async function shownChecks(core: Core, client: MindClient, folderId: string | nu
   }));
 }
 
-describe("Check this Mind", () => {
+// protects=a check sends six claims at once to a model on a service and one at a time to a model on this computer (#1618); fails_when=the number changes, or a model on this computer is sent several at once; no_claim=a real provider's rate limits, which the run's backoff answers.
+test.each([
+  [6, "a model on a service", true],
+  [1, "a model on this computer", false],
+] as const)("Check this note sends %i claims at once to %s", async (atOnce, _, onService) => {
+  const sentences = Array.from(
+    { length: 9 },
+    (_, index) => `Spring tide ${index + 1} comes at new moon.`,
+  );
+  const plans: Record<string, Plan> = Object.fromEntries(
+    sentences.map((sentence) => [sentence, { verdict: "supported", quote: MOON }]),
+  );
+  const running = new Set<string>();
+  let most = 0;
+  const model = scriptedModel(
+    (call) => {
+      if (!isCheckRun(call)) return { text: "" };
+      const sentence = sentenceOf(call);
+      if (call.results.length === 0) {
+        running.add(sentence);
+        most = Math.max(most, running.size);
+      }
+      const reply = checkReply(call, plans);
+      if ("text" in reply && reply.text?.startsWith("Verdict")) running.delete(sentence);
+      return reply;
+    },
+    { generate: checkGenerate(plans) },
+  );
+  const core = startCore(await createTempDataFolder(), {
+    createChatModel: scriptedModels(model).createChatModel,
+  });
+  if (onService) {
+    core.on("consent.requested", (asked) => void core.respondToConsent(asked.requestId, true));
+    const provider = await core.saveChatProvider({
+      kind: "anthropic",
+      apiKey: "sk-ant-test",
+      modelId: "claude-haiku-5-5",
+    });
+    if (provider.service) await core.allowDataFlow("checks", provider.service.id);
+  } else await core.saveChatProvider({ kind: "ollama", modelId: "local-model" });
+  const sources = await createTempDataFolder();
+  await addAndProcess(core, [await writeSourceFile(sources, TIDES.name, TIDES.contents)]);
+  const mind = await core.createMind({ title: "Tide notes" });
+  const client = await connectToMind(core, mind.id);
+  writeMind(
+    client,
+    sentences.map((sentence, index) => ({
+      type: "paragraph",
+      attrs: { id: `tide-${index + 1}` },
+      content: [text(sentence)],
+    })),
+  );
+  await client.settled();
+
+  const result = await core.checkMind(request(mind.id, "all"));
+
+  expect(result).toMatchObject({ kind: "checked", sentences: 9 });
+  expect(most).toBe(atOnce);
+});
+
+describe("Check this note", () => {
   test("the model it names is the one in use: an older Mind follows a new last pick, its own pick wins, and a removed provider falls back", async () => {
     const { core, client, mindId } = await setUp();
     const named = async () => {
@@ -235,6 +299,73 @@ describe("Check this Mind", () => {
       kind: "unchanged",
       since: "2026-10-02T14:20:00.000Z",
     });
+  });
+
+  test("a short sentence with a shown check counts and is checked, though it makes no claim (#1909)", async () => {
+    const { core, client, mindId, folderId, checks } = await setUp();
+    await core.checkMind(request(mindId, "all"));
+    const runsBefore = runsIn(checks).length;
+
+    const mark = (id: string, state: ClaimCheckAttributes["state"], text: string) => {
+      const check: ClaimCheckAttributes = {
+        id,
+        request: "old",
+        action: "check-against-documents",
+        state,
+        reason: null,
+        detail: null,
+        providerId: null,
+        modelId: null,
+        text,
+        evidence: null,
+        says: null,
+        unsupported: null,
+        calculation: null,
+        citedCaseUnchecked: false,
+        citedCaseFound: false,
+        scope: { folderId, widened: false },
+        versions: [],
+        excluded: [],
+        checkedAt: "2026-10-02T13:00:00.000Z",
+      };
+      return { type: "text" as const, text, marks: [{ type: CLAIM_CHECK_MARK, attrs: check }] };
+    };
+    // "100" failed its check; "200" was checked as "100" and no longer holds. Neither makes a claim.
+    editMind(client, (blocks) => [
+      ...blocks,
+      {
+        type: "paragraph",
+        attrs: { id: "failed" },
+        content: [mark("failed", "not-checked", "100")],
+      },
+      {
+        type: "paragraph",
+        attrs: { id: "stale" },
+        content: [{ ...mark("stale", "supported", "100"), text: "200" }],
+      },
+    ]);
+    await client.settled();
+
+    expect(await core.planMindCheck(mindId, "changed")).toMatchObject({
+      kind: "ready",
+      sentences: 2,
+      findsClaims: false,
+    });
+    expect(await core.checkMind(request(mindId, "changed", "short"))).toMatchObject({
+      kind: "checked",
+      sentences: 2,
+    });
+    expect(runsIn(checks).length).toBe(runsBefore + 2);
+    expect(
+      (await shownChecks(core, client, folderId))
+        .map(({ sentence, shown }) => [sentence, shown.state])
+        .filter(([sentence]) => sentence === "100" || sentence === "200"),
+    ).toEqual([
+      ["100", "unsupported"],
+      ["200", "unsupported"],
+    ]);
+    // Nothing is left: the count reaches 0.
+    expect(await core.planMindCheck(mindId, "changed")).toMatchObject({ kind: "unchanged" });
   });
 
   test("Check again after two claims are edited checks those two only, without naming the claims again", async () => {
@@ -438,7 +569,7 @@ describe("Check this Mind", () => {
     expect(estimate.tokens / (run?.tokens ?? 0)).toBeLessThan(1.5);
   });
 
-  // protects=Check this Mind with nothing changed sends nothing and says since when (#1669); fails_when=it plans a check of every sentence again, dates itself by the newest check, or an edit taken back still counts as a change; no_claim=the card's words.
+  // protects=Check this note with nothing changed sends nothing and says since when (#1669); fails_when=it plans a check of every sentence again, dates itself by the newest check, or an edit taken back still counts as a change; no_claim=the card's words.
   test("when nothing changed the plan says since the oldest check that holds; an edit taken back holds the checks again", async () => {
     const { core, client, mindId, checks, finds, clock } = await setUp();
     expect(await core.planMindCheck(mindId, "changed")).toMatchObject({
@@ -591,7 +722,7 @@ describe("Check this Mind", () => {
   });
 });
 
-describe("A sentence gets the same verdict in Check this Mind as checked alone", () => {
+describe("A sentence gets the same verdict in Check this note as checked alone", () => {
   // The engine's MAX_STEPS: the model calls one check's Run may make.
   const STEPS = 10;
   const LOAN = "The Northgate Bank term loan stood at £214,480.00 at 31 March 2026.";

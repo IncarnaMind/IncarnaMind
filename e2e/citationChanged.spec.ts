@@ -24,7 +24,8 @@ import {
  * A Citation made before its Document changed (#99, first slice): its card and
  * the viewer that opens from it say the Document changed after it was cited,
  * and look for its quote in the new version without presenting the new text as
- * the old. Where the text at the Location is unchanged, it says so, and is
+ * the old; where the words at its place changed, the card shows them as they
+ * changed. Where the text at the Location is unchanged, it says so, and is
  * never silent about the change.
  */
 
@@ -149,7 +150,7 @@ const storedVersions = (answer: Locator) =>
     return versions;
   });
 
-test("a Citation's card and viewer say its Document changed, and its quote is looked for in the new version", async () => {
+test("a Citation's card and viewer say its Document changed, and its quote is checked at its stored place", async () => {
   const library = join(sources, "Library");
   await mkdir(library, { recursive: true });
   const note = join(library, "Versioned note.md");
@@ -176,6 +177,7 @@ test("a Citation's card and viewer say its Document changed, and its quote is lo
     const changed = window.getByTestId("citation-changed");
     const changedQuote = window.getByTestId("citation-changed-quote");
     const changedDate = window.getByTestId("citation-changed-date");
+    const changedWords = window.getByTestId("citation-changed-words");
     const hideCard = async () => {
       await window.keyboard.press("Escape");
       await expect(card).toHaveCount(0);
@@ -213,11 +215,12 @@ test("a Citation's card and viewer say its Document changed, and its quote is lo
     await expect(viewer.locator("[data-quote-highlight]")).toHaveCount(0);
     await screenshot(window, "viewer-after-en");
 
-    // The card says the same, names the day, and its Open says it too.
+    // The card names the day and shows the cited words as they changed; its Open says the quote is gone.
     await showCard();
     await expect(changedDate).toHaveText("This Document changed on 21 Oct 2026.");
-    await expect(changed).toContainText("The Document changed after this was cited.");
-    await expect(changedQuote).toHaveText("Its quote is no longer in the new version.");
+    await expect(changed).toContainText("The cited words changed in the new version:");
+    await expect(changedWords.locator("del")).toHaveText(["A", "80,000"]);
+    await expect(changedWords.locator("ins")).toHaveText(["B", "65,000"]);
     await screenshot(window, "card-after-en");
     await card.getByTestId("citation-open").click();
     await expect(card).toHaveCount(0);
@@ -228,28 +231,28 @@ test("a Citation's card and viewer say its Document changed, and its quote is lo
     await expect(notice).toContainText("此文档在被引用后有改动。新版本中已找不到这条引文。");
     await showCard();
     await expect(changedDate).toHaveText("此文档已于 2026年10月21日 更新。");
-    await expect(changed).toContainText("此文档在被引用后有改动。");
-    await expect(changedQuote).toHaveText("新版本中已找不到这条引文。");
+    await expect(changed).toContainText("引文在新版本中有改动：");
+    await expect(changedWords.locator("ins")).toHaveText(["B", "65,000"]);
     await screenshot(window, "card-after-zh");
     await hideCard();
     await screenshot(window, "viewer-after-zh");
     await setLanguage(window, "en");
     await showCard();
 
-    // The quoted line, unchanged, now under another heading: found, and the card says where.
     const versionC = await writeVersion(window, note, VERSION_C, CHANGED_C, versionB);
     await showCard();
-    await expect(changed).toContainText("The Document changed after this was cited.");
-    await expect(changedQuote).toHaveText("Its quote is now at § Budget.");
+    await expect(changedDate).toHaveText("This Document changed on 22 Oct 2026.");
+    await expect(changedWords.locator("ins")).toHaveText(["B", "65,000"]);
+    await expect(changedQuote).toHaveCount(0);
     await card.getByTestId("citation-open").click();
-    await expect(notice).toContainText("Its quote is now at § Budget.");
+    await expect(notice).toContainText("Its quote is no longer in the new version.");
     const washed = viewer.locator("[data-quote-highlight]");
-    await expect(washed).toHaveText("Version A: the approved refurbishment budget is GBP 80,000.");
+    await expect(washed).toHaveCount(0);
 
     // The card holds at a narrow window.
     await setWindowSize(app, window, 980, 820);
     await showCard();
-    await expect(changedQuote).toHaveText("Its quote is now at § Budget.");
+    await expect(changedWords.locator("ins")).toHaveText(["B", "65,000"]);
     await screenshot(window, "card-narrow-en");
     // A merged window shows the Mind's group: bring the Document's tab to the front.
     await window.getByRole("tab", { name: "Versioned note" }).click();

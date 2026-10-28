@@ -1,6 +1,12 @@
 import { describe, expect, test } from "vitest";
 import type { Task } from "../../src/core/api";
-import { chipOf, interleave, taskGroups, threadTasks } from "../../src/renderer/src/taskGroups";
+import {
+  chipOf,
+  interleave,
+  taskGroups,
+  taskInFocus,
+  threadTasks,
+} from "../../src/renderer/src/taskGroups";
 import { resultLine, stepLine } from "../../src/renderer/src/taskText";
 import { translate } from "../../src/shared/i18n";
 
@@ -72,6 +78,45 @@ describe("the Tasks chip", () => {
     expect(stepLine(running, zh, "zh-CN")).toBe("正在填写第 3 个单元格，共 6 个");
     expect(resultLine(done, zh)).toBe("9 个单元格");
     expect(translate("zh-CN", "tasks.chip.running", { count: 1 })).toBe("1 个进行中");
+  });
+});
+
+describe("the Task in focus", () => {
+  const at = (time: string) => `2026-10-12T${time}:00.000Z`;
+  const older = task("older", { startedAt: at("09:00") });
+  const newer = task("newer", { startedAt: at("10:00") });
+  const elsewhere = task("elsewhere", { mindId: "other", startedAt: at("11:00") });
+
+  test("is the Task whose block or row holds the focus, done or not", () => {
+    // The focused one is not the first: it still wins.
+    expect(taskInFocus([newer, older], "mind", "older")?.id).toBe("older");
+    expect(taskInFocus([older, newer], "mind", "newer")?.id).toBe("newer");
+    // A done Task holding the focus is never swapped for one still going: a command would act on it.
+    expect(taskInFocus([older, done], "mind", "done")?.id).toBe("done");
+    expect(taskInFocus([done, newer], "mind", "done")?.id).toBe("done");
+    expect(taskInFocus([stopped, elsewhere], "other", "stopped")?.id).toBe("stopped");
+  });
+
+  test("else it is the newest unfinished Task of the Mind in focus, wherever it sits in the list", () => {
+    expect(taskInFocus([older, newer, elsewhere], "mind", null)?.id).toBe("newer");
+    expect(taskInFocus([elsewhere, newer, older], "mind", null)?.id).toBe("newer");
+    // The Mind in focus decides, not the newest Task of every Mind.
+    expect(taskInFocus([older, elsewhere], "other", null)?.id).toBe("elsewhere");
+  });
+
+  test("a paused Task and one that needs the User are in focus too, while the chip can be hidden", () => {
+    // Paused by the User, the chip hides; a limit pauses it "needs you", and the chip shows.
+    expect(chipOf([pausedByUser])).toBeNull();
+    expect(taskInFocus([pausedByUser], "mind", null)?.id).toBe("paused");
+    expect(chipOf([capped])).not.toBeNull();
+    expect(taskInFocus([capped], "mind", null)?.id).toBe("capped");
+    expect(taskInFocus([asking], "mind", null)?.id).toBe("asking");
+  });
+
+  test("no Mind in focus and no Task holding it leaves none", () => {
+    expect(taskInFocus([running, elsewhere], null, null)).toBeUndefined();
+    expect(taskInFocus([], "mind", null)).toBeUndefined();
+    expect(taskInFocus([done, stopped], "mind", null)).toBeUndefined();
   });
 });
 

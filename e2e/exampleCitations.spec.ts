@@ -32,7 +32,7 @@ async function askReady(window: Page): Promise<Locator> {
   for (const chip of await checks.all()) {
     await expect(chip).toHaveAttribute("data-check", "found", { timeout: 30_000 });
   }
-  await markSteps(window, { mistakeSeen: true });
+  await markSteps(window, { indexed: true });
   await pointAndClick(window, step(window, "question").getByTestId("first-open-ready"));
   const answer = assistantAnswers(window).last();
   await expect(answer).toHaveAttribute("data-status", "done");
@@ -106,7 +106,7 @@ test("an English Conversation's Citations open their original pages after the in
 
   const again = await launchApp(dataDir, { examples: true });
   await setWindowSize(again.app, again.window, 1440, 900);
-  const reopened = await openFromPalette(again.window, "facilities agreement");
+  const reopened = await openFromPalette(again.window, "leverage");
   await expect(reopened.getByTestId("citation-chip")).toHaveCount(2);
   await expectCitedPage(
     again.window,
@@ -176,7 +176,7 @@ test("a Citation copied from the example's Answer into a Mind opens its original
   const { app, window } = await launchApp(dataDir, { examples: true });
   await setWindowSize(app, window, 1440, 900);
   const answer = await askReady(window);
-  await pointAndClick(window, answer.getByTestId("answer-new-mind"));
+  await pointAndClick(window, answer.getByTestId("answer-write-note"));
   const copy = frontMind(window).getByTestId("mind-editor");
   await expect(copy.getByTestId("citation-chip")).toHaveCount(2);
   await expect(copy.getByTestId("citation-chip").first()).toHaveAttribute("data-check", "found");

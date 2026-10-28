@@ -1,6 +1,6 @@
 /**
  * Checks claims already marked "checking", for Verify (#97) and Check this
- * Mind (#737): a cloud model three at a time, one on this computer one at a
+ * Mind (#737): a cloud model six at a time, one on this computer one at a
  * time, each result written onto its mark as it comes. The monthly cap or a
  * plan's limit stops the run, and the claims left say why they weren't checked.
  */
@@ -17,7 +17,13 @@ import { RunItemError, runItems } from "../../runs/stop";
 import { type ClaimCheckRequest, recordJudged, runFailureOf } from "./claimCheck";
 import { updateCheck } from "./sentences";
 
-const CLOUD_CLAIMS_AT_ONCE = 3;
+// Six checked 12 sentences in about half the time three took on Claude and Kimi, with no rate-limit
+// answer; eight saved little more (#1618).
+const CLOUD_CLAIMS_AT_ONCE = 6;
+
+/** How many claims a check sends to `prepared` at once; a model on this computer takes one at a time. */
+export const claimsAtOnce = (prepared: PreparedChatModel): number =>
+  prepared.provider.service ? CLOUD_CLAIMS_AT_ONCE : 1;
 
 /** A claim marked "checking", and what its check sends. */
 export interface QueuedClaim {
@@ -89,7 +95,7 @@ export async function runChecks(
       return result;
     },
     {
-      concurrency: prepared.provider.service ? CLOUD_CLAIMS_AT_ONCE : 1,
+      concurrency: claimsAtOnce(prepared),
       signal,
       onOutcome(claim, outcome) {
         if (outcome.status === "done") {

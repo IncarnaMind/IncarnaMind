@@ -6,9 +6,13 @@ import {
   blocksUpdate,
   createDataFolder,
   dismissChatSetup,
+  emit,
+  frontMind,
   launchApp,
   type MindChild,
+  markSteps,
   mindNode,
+  newMind,
   pointAndClick,
   removeDataFolder,
   setLanguage,
@@ -50,17 +54,24 @@ const MINDS = {
     ]),
     paragraph("The quarter was good. Sales rose and the margin held."),
   ],
+  "a nested list": () => [
+    mindNode("bulletList", { id: randomUUID() }, [
+      mindNode("listItem", {}, [paragraph("A nested list paragraph")]),
+    ]),
+    paragraph("The quarter was good. Sales rose and the margin held."),
+  ],
 } as const;
 
-async function mindOf(window: Page, kind: keyof typeof MINDS): Promise<void> {
+async function mindOf(window: Page, kind: keyof typeof MINDS): Promise<string> {
   const blocks = MINDS[kind]();
   const update = Array.from(blocksUpdate([...blocks]));
-  await window.evaluate(
+  const mindId = await window.evaluate(
     async ([change]) => {
       const core = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
       const mind = await core.createMind({ title: "Q3 review" });
       await core.applyMindUpdate(mind.id, new Uint8Array(change ?? []));
       await core.closeMind(mind.id);
+      return mind.id;
     },
     [update] as const,
   );
@@ -69,6 +80,7 @@ async function mindOf(window: Page, kind: keyof typeof MINDS): Promise<void> {
     window.getByTestId("mind-list-item").filter({ hasText: "Q3 review" }),
   );
   await expect(window.locator('[data-testid="mind-editor"]:visible')).toBeVisible();
+  return mindId;
 }
 
 interface Frame {
@@ -76,6 +88,8 @@ interface Frame {
   first: number;
   writing: [number, number] | null;
   line: [number, number] | null;
+  writingVisible: boolean;
+  lineVisible: boolean;
 }
 
 /** Every frame from now on: where the text starts, and where the two lines are, if shown. */
@@ -88,6 +102,10 @@ const sampleFrames = (window: Page) =>
       const box = element?.getBoundingClientRect();
       return box ? [box.top, box.bottom] : null;
     };
+    const visible = (element: Element | null) =>
+      element !== null &&
+      element.getClientRects().length > 0 &&
+      getComputedStyle(element).visibility === "visible";
     const sample = () => {
       const editor = [...document.querySelectorAll('[data-testid="mind-editor"]')].find(
         (each) => each.getClientRects().length > 0,
@@ -98,12 +116,16 @@ const sampleFrames = (window: Page) =>
           !each.matches('[data-testid="mind-writing"], [data-testid="applied-line"]') &&
           !each.className.includes("ProseMirror-widget"),
       );
+      const writing = editor?.querySelector('[data-testid="mind-writing"]') ?? null;
+      const line = editor?.querySelector('[data-testid="applied-line"]') ?? null;
       if (editor && (first || real)) {
         holder.frames.push({
           editor: editor.getBoundingClientRect().top,
           first: (real ?? first)?.getBoundingClientRect().top ?? 0,
-          writing: span(editor.querySelector('[data-testid="mind-writing"]')),
-          line: span(editor.querySelector('[data-testid="applied-line"]')),
+          writing: span(writing),
+          line: span(line),
+          writingVisible: visible(writing),
+          lineVisible: visible(line),
         });
       }
       if (holder.sampling) requestAnimationFrame(sample);
@@ -179,3 +201,201 @@ test("the bar of changes waiting never shows for what the User's own Question is
   ).toBe(0);
   await app.close();
 });
+
+test("the first-run guide keeps the band's padding, so a Writing line shows above its first line and over no text", async () => {
+  const { app, window } = await launchApp(dataDir, { examples: true, fakeChat: true });
+  await setWindowSize(app, window, 900, 800);
+  await dismissChatSetup(window);
+  const exampleId = await frontMind(window).getAttribute("data-mind-id");
+  if (!exampleId) throw new Error("No Mind is in front.");
+  const exampleTab = window.locator(`[data-testid="mind-tab"][data-mind-id="${exampleId}"]`);
+  await newMind(window);
+  await pointAndClick(window, exampleTab.getByTestId("tab-close"));
+  await markSteps(window, { seen: false });
+  await expect(window.getByTestId("start-guide")).toBeVisible();
+  const editor = window.locator('[data-testid="mind-editor"]:visible');
+  const mindId = await frontMind(window).getAttribute("data-mind-id");
+  if (!mindId) throw new Error("No Mind is in front.");
+
+  await emit(app, "mind.writing", { mindId, place: { after: null } });
+  const writing = editor.getByTestId("mind-writing");
+  await expect(writing).toBeVisible();
+
+  expect(
+    await editor.evaluate((element) => ({
+      paddingTop: getComputedStyle(element).paddingTop,
+      minHeight: getComputedStyle(element).minHeight,
+    })),
+  ).toEqual({ paddingTop: "26px", minHeight: "0px" });
+  const band = await writing.boundingBox();
+  const editorBox = await editor.boundingBox();
+  const first = await editor.locator(":scope > p").first().boundingBox();
+  if (!band || !editorBox || !first)
+    throw new Error("The writing line, the editor or the guide's first line has no box.");
+  expect(band.y).toBeGreaterThanOrEqual(editorBox.y - 1);
+  expect(band.y + band.height).toBeLessThanOrEqual(first.y + 1);
+  await expect(window.getByTestId("start-guide")).toBeVisible();
+  await app.close();
+});
+
+for (const [kind, label, selector, nestedText] of [
+  ["a nested list", "list", "li p", "A nested list paragraph"],
+  ["a table first", "table", "td p", "Q3"],
+] as const) {
+  test(`Writing over or after a nested ${label} paragraph uses the top-level Block edge in the page band without moving following text`, async () => {
+    const { app, window } = await launchApp(dataDir, { fakeChat: true });
+    await setWindowSize(app, window, 900, 800);
+    await dismissChatSetup(window);
+    await useLocalChatModel(window);
+    const mindId = await mindOf(window, kind);
+    const editor = window.locator('[data-testid="mind-editor"]:visible');
+    const nested = editor.locator(selector).filter({ hasText: nestedText });
+    await expect(nested).toHaveCount(1);
+    const nestedId = await nested.getAttribute("data-id");
+    if (!nestedId) throw new Error(`The nested ${label} paragraph has no Block id.`);
+    const following = editor.locator(":scope > p");
+    await expect(following).toHaveCount(1);
+    const followingTops = () =>
+      following.evaluateAll((all) =>
+        all.map((each) => Math.round(each.getBoundingClientRect().top)),
+      );
+    const writing = editor.getByTestId("mind-writing");
+
+    for (const place of ["over", "after"] as const) {
+      const before = await followingTops();
+      await emit(app, "mind.writing", {
+        mindId,
+        place: place === "over" ? { over: nestedId } : { after: nestedId },
+      });
+      await expect(writing).toBeVisible();
+      expect(await followingTops()).toEqual(before);
+      const placement = await writing.evaluate((line, text) => {
+        const editor = line.closest('[data-testid="mind-editor"]');
+        const nested = [...(editor?.querySelectorAll("p") ?? [])].find(
+          (each) => each.textContent === text,
+        );
+        if (!editor || !nested) return { relation: "missing", inBand: false };
+        let top: Element = nested;
+        while (top.parentElement && top.parentElement !== editor) top = top.parentElement;
+        const band = line.getBoundingClientRect();
+        const relation =
+          line.parentElement !== editor
+            ? "nested"
+            : line.nextElementSibling === top
+              ? "before"
+              : line.previousElementSibling === top
+                ? "after"
+                : "top-level";
+        return {
+          relation,
+          inBand:
+            band.top >= editor.getBoundingClientRect().top - 1 &&
+            band.bottom <= top.getBoundingClientRect().top + 1,
+        };
+      }, nestedText);
+      expect(placement).toEqual({ relation: place === "over" ? "before" : "after", inBand: true });
+      await emit(app, "mind.writing", { mindId, place: null });
+      await expect(writing).toBeHidden();
+      expect(await followingTops()).toEqual(before);
+    }
+    await app.close();
+  });
+}
+
+test("Writing and the applied line are never visible together, and the applied line returns after Writing ends", async () => {
+  test.setTimeout(90_000);
+  const { app, window } = await launchApp(dataDir, { fakeChat: true });
+  await setWindowSize(app, window, 900, 800);
+  await dismissChatSetup(window);
+  await useLocalChatModel(window);
+  await mindOf(window, "a heading first");
+  const editor = window.locator('[data-testid="mind-editor"]:visible');
+  const line = editor.getByTestId("applied-line");
+
+  await askInAssistant(window, "Add a section on the risks");
+  await expect(line).toBeVisible();
+  await sampleFrames(window);
+  await expect
+    .poll(() => window.evaluate(() => (globalThis as unknown as { frames: Frame[] }).frames.length))
+    .toBeGreaterThan(0);
+  await askInAssistant(window, "make it longer slowly");
+  await expect(line).toBeVisible();
+  await expect
+    .poll(() =>
+      window.evaluate(() => {
+        const frames = (globalThis as unknown as { frames: Frame[] }).frames;
+        const lastWriting = frames.findLastIndex((frame) => frame.writingVisible);
+        return (
+          lastWriting >= 0 &&
+          frames.slice(lastWriting + 1).some((frame) => frame.lineVisible && !frame.writingVisible)
+        );
+      }),
+    )
+    .toBe(true);
+  const frames = await stopSampling(window);
+
+  expect(frames[0]).toMatchObject({ writingVisible: false, lineVisible: true });
+  expect(frames.some((frame) => frame.writingVisible && !frame.lineVisible)).toBe(true);
+  expect(frames.every((frame) => !(frame.writingVisible && frame.lineVisible))).toBe(true);
+  const lastWriting = frames.findLastIndex((frame) => frame.writingVisible);
+  expect(
+    frames.slice(lastWriting + 1).some((frame) => frame.lineVisible && !frame.writingVisible),
+  ).toBe(true);
+  await app.close();
+});
+
+for (const [language, longCount] of [
+  [
+    "en",
+    "Changed 1,234,567,890 paragraphs and added 2,345,678,901 tables and 3,456,789,012 charts",
+  ],
+  ["zh-CN", "修改了 1,234,567,890 个段落，添加了 2,345,678,901 个表格和 3,456,789,012 个图表"],
+] as const) {
+  test(`at 900px in ${language}, a long change count stays on one line with Undo and Review changes inside the band`, async () => {
+    test.setTimeout(90_000);
+    const { app, window } = await launchApp(dataDir, { fakeChat: true });
+    await setWindowSize(app, window, 900, 800);
+    await dismissChatSetup(window);
+    await useLocalChatModel(window);
+    await setLanguage(window, language);
+    await mindOf(window, "a heading first");
+    await askInAssistant(window, "Add a section on the risks");
+    const editor = window.locator('[data-testid="mind-editor"]:visible');
+    const line = editor.getByTestId("applied-line");
+    const count = line.getByTestId("applied-count");
+    await expect(line).toBeVisible();
+    await count.evaluate((element, text) => {
+      element.textContent = text;
+    }, longCount);
+    await expect(count).toHaveText(longCount);
+
+    expect(
+      await count.evaluate((element) => {
+        const range = document.createRange();
+        range.selectNodeContents(element);
+        const tops = [...range.getClientRects()].map((rect) => Math.round(rect.top));
+        return { lines: new Set(tops).size, whiteSpace: getComputedStyle(element).whiteSpace };
+      }),
+    ).toEqual({ lines: 1, whiteSpace: "nowrap" });
+    expect(await count.evaluate((element) => element.scrollWidth > element.clientWidth)).toBe(true);
+    expect(await line.evaluate((element) => element.scrollWidth <= element.clientWidth + 1)).toBe(
+      true,
+    );
+    const band = await line.boundingBox();
+    if (!band) throw new Error("The applied line has no box.");
+    for (const action of ["applied-undo", "applied-review"] as const) {
+      const button = line.getByTestId(action);
+      await expect(button).toBeVisible();
+      const box = await button.boundingBox();
+      if (!box) throw new Error(`${action} has no box.`);
+      expect(box.x).toBeGreaterThanOrEqual(band.x);
+      expect(box.y).toBeGreaterThanOrEqual(band.y);
+      expect(box.x + box.width).toBeLessThanOrEqual(band.x + band.width + 1);
+      expect(box.y + box.height).toBeLessThanOrEqual(band.y + band.height + 1);
+    }
+    expect(
+      await window.evaluate(() => document.documentElement.scrollWidth <= globalThis.innerWidth),
+    ).toBe(true);
+    await app.close();
+  });
+}

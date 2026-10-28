@@ -9,7 +9,7 @@
  * file there before it hands the file's path to the shell adapter; only
  * this side touches dialogs.
  */
-import { mkdir } from "node:fs/promises";
+import { mkdir, stat } from "node:fs/promises";
 import { basename } from "node:path";
 import {
   app,
@@ -21,6 +21,7 @@ import {
   shell,
 } from "electron";
 import type { Core } from "../core";
+import { addFilesTitleByPlatform } from "../shared/addFilesAction";
 import { FILES_CHANNELS } from "../shared/bridge";
 import { type MessageKey, translate } from "../shared/i18n";
 import { sandboxOff } from "./analysisPaths";
@@ -181,14 +182,22 @@ export function serveFileActions(
     },
   );
 
-  // A sheet on the window that starts in a folder on this computer (see pickerFolders.ts),
-  // instead of the web file input, which starts wherever macOS last was, often iCloud.
-  handle(FILES_CHANNELS.pickDocuments, async (event): Promise<string[]> => {
+  /**
+   * The one sheet for Documents, opened on the window, from the folder last
+   * picked from (see pickerFolders.ts) rather than the web file input, which
+   * starts wherever macOS last was, often iCloud. `titleKey` and `properties`
+   * are the caller's, since a picker that takes a folder too differs there.
+   */
+  const pickDocumentsSheet = async (
+    event: IpcMainInvokeEvent,
+    titleKey: MessageKey,
+    properties: OpenDialogOptions["properties"],
+  ): Promise<string[]> => {
     refuseUnknown(event);
     const { language } = await core.getSettings();
     const openOptions: OpenDialogOptions = {
-      title: translate(language, "documents.pick.title"),
-      properties: ["openFile", "multiSelections"],
+      title: translate(language, titleKey),
+      properties,
       filters: [
         { name: translate(language, "documents.pick.filter"), extensions: DOCUMENT_EXTENSIONS },
       ],
@@ -201,7 +210,35 @@ export function serveFileActions(
     if (canceled) return [];
     if (filePaths[0]) rememberPick(dataDir, "documents", filePaths[0]);
     return filePaths;
+  };
+
+  handle(FILES_CHANNELS.pickDocumentsOrFolder, async (event) => {
+    const mac = process.platform === "darwin";
+    const picked = await pickDocumentsSheet(
+      event,
+      // The sheet's own title says what this platform's sheet takes, as its button does.
+      addFilesTitleByPlatform(mac),
+      // Windows and Linux show a folder chooser when both are asked for, so only files are offered there.
+      mac ? ["openFile", "openDirectory", "multiSelections"] : ["openFile", "multiSelections"],
+    );
+    const folders: string[] = [];
+    const files: string[] = [];
+    for (const path of picked) {
+      // A path that can't be looked at goes on as a file, so adding it says why in the window.
+      const isFolder = await stat(path).then(
+        (found) => found.isDirectory(),
+        () => false,
+      );
+      (isFolder ? folders : files).push(path);
+    }
+    return { files, folders };
   });
+
+  handle(
+    FILES_CHANNELS.pickDocuments,
+    (event): Promise<string[]> =>
+      pickDocumentsSheet(event, "documents.pick.title", ["openFile", "multiSelections"]),
+  );
 
   // The core reads the file and sends nothing; this is only the User choosing it (#287).
   handle(FILES_CHANNELS.pickReferenceFile, async (event): Promise<string | null> => {
@@ -287,6 +324,10 @@ export function serveFileActions(
 
   ipcMain.on(FILES_CHANNELS.editMenu, (event, state: unknown) => {
     if (trusted(event) && isEditMenuState(state)) setEditMenu(state);
+  });
+
+  ipcMain.on(FILES_CHANNELS.paste, (event) => {
+    if (trusted(event)) event.sender.paste();
   });
 
   ipcMain.on(FILES_CHANNELS.examplesRemoved, (event, removed: unknown) => {

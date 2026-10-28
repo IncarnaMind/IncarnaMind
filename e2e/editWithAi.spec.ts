@@ -309,7 +309,7 @@ test("⌘J with text selected says what to change in the selection menu's field,
   await expect(line.getByTestId("applied-count")).toHaveText("修改了 1 个段落");
 
   // Translate… asks for the language beside it. A text the model gives back as it was (the
-  // scripted model only capitalises) says so in the composer, and changes nothing.
+  // scripted model only capitalises) says so where its Undo line would land, and changes nothing.
   await selectWords(window, note, "潮水每天规律地涨落两次。");
   await pointAndClick(window, window.getByTestId("selection-action-translate"));
   const languages = window.getByTestId("selection-choices-translate");
@@ -318,7 +318,7 @@ test("⌘J with text selected says what to change in the selection menu's field,
   const problem = window.getByTestId("edit-problem");
   await expect(problem).toContainText("没有要修改的地方");
   await expect(line).toHaveCount(0);
-  await pointAndClick(window, problem.getByTestId("edit-problem-close"));
+  await pointAndClick(window, problem.getByTestId("menu-edit-close"));
   await expect(problem).toHaveCount(0);
 });
 

@@ -1,22 +1,26 @@
 /**
- * What the checks of an Answer's writes left to do (#1111), from its calls:
- * the lines under it, and the sentences their Check again and Check the rest
- * check. Only data.
+ * What the checks of an Answer's writes left to do (#1111, #1909), from its
+ * calls: the lines under it, and the one Check their action runs. The written
+ * check reads the sentences with Citations; the claims with none are left to
+ * the one count and the one Check. Only data.
  */
 import type { AnswerToolCall, MindChange } from "../../core/api";
 import type { Language } from "../../core/language";
 import { formatResetTime } from "./cost";
-import type { ShownClaim } from "./editor/claimChecks";
 import type { Translate } from "./objects";
 
 export type SelfCheck = NonNullable<MindChange["selfCheck"]> & { mindId: string };
 
-/** Each write's check, in the order of the calls, with something left to check: a failure, or sentences past the most one write checks. */
+/** How many sentences the write holds that a check reads; a check recorded before #1909 kept only the cited ones. */
+export const checkableOf = (check: NonNullable<MindChange["selfCheck"]>): number =>
+  check.checkable ?? check.cited;
+
+/** Each write's check, in the order of the calls, with something left to check: a failure, or sentences the write did not check (with no Citation, or past the most one check sends). */
 export const selfChecksOf = (toolCalls: readonly AnswerToolCall[]): SelfCheck[] =>
   toolCalls.flatMap((call) => {
     const change = call.mindChange;
     const check = change?.selfCheck;
-    return change && check && (check.failed > 0 || check.sent < check.cited)
+    return change && check && (check.failed > 0 || check.sent < checkableOf(check))
       ? [{ mindId: change.mindId, ...check }]
       : [];
   });
@@ -29,7 +33,7 @@ export const selfChecksOf = (toolCalls: readonly AnswerToolCall[]): SelfCheck[] 
  * Local mode): checking again can't succeed.
  */
 export interface SelfCheckLine {
-  kind: "failed" | "cost-cap" | "plan-limit" | "consent-revoked" | "local-mode" | "capped";
+  kind: "failed" | "cost-cap" | "plan-limit" | "consent-revoked" | "local-mode" | "left";
   text: string;
   details: string[];
   action: { label: string; does: "check" | "change-cap" } | null;
@@ -45,6 +49,8 @@ export function selfCheckLines(
   t: Translate,
   language: Language,
   now = new Date(),
+  /** The claims this write still has to check now, live from its Mind; null: not known (nothing is re-shown from the record). */
+  left?: number | null,
 ): SelfCheckLine[] {
   const { failed, stop, blocked } = check;
   const lines: SelfCheckLine[] = [];
@@ -82,26 +88,22 @@ export function selfCheckLines(
         kind: "failed",
         text: rest === 1 ? t("selfCheck.failed.one") : t("selfCheck.failed", { count: rest }),
         details: [],
-        action: { label: t("claim.checkAgain"), does: "check" },
+        action: { label: t("mindCheck.command"), does: "check" },
       });
     }
   }
-  if (check.sent < check.cited) {
+  const checkable = checkableOf(check);
+  if (check.sent < checkable) {
+    const remaining = left ?? null;
     lines.push({
-      kind: "capped",
-      text: t("selfCheck.capped", { checked: check.checked, count: check.cited }),
+      kind: "left",
+      text:
+        remaining === null
+          ? t("selfCheck.checkedOnly", { checked: check.checked })
+          : t("selfCheck.left", { checked: check.checked, left: remaining }),
       details: [],
-      action: { label: t("selfCheck.checkRest"), does: "check" },
+      action: remaining === 0 ? null : { label: t("mindCheck.command"), does: "check" },
     });
   }
   return lines;
 }
-
-/** The sentences a write's check left not checked, as they are now: one edited since needs its own check again. */
-export const leftToCheck = (
-  claims: readonly ShownClaim[],
-  request: string,
-): { from: number; to: number }[] =>
-  claims
-    .filter((claim) => claim.check.request === request && claim.shown.state === "not-checked")
-    .map((claim) => ({ from: claim.sentence.from, to: claim.sentence.to }));

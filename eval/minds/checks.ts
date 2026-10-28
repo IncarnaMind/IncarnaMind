@@ -14,7 +14,9 @@ export type MindsFailure =
   | { kind: "unnamed"; name: string }
   | { kind: "accept"; why: string }
   | { kind: "reject"; why: string }
-  | { kind: "undo"; why: string };
+  | { kind: "undo"; why: string }
+  /** The Minds it names have a close namesake, and the assistant didn't ask which (#1865). */
+  | { kind: "not-asked" };
 
 const squash = (text: string) => text.normalize("NFKC").replace(/\s+/g, " ").trim();
 const plain = (text: string) => squash(text).toLowerCase();
@@ -351,5 +353,7 @@ export function failureLine(failure: MindsFailure): string {
       return `Reject all: ${failure.why}`;
     case "undo":
       return failure.why;
+    case "not-asked":
+      return "it didn't ask which Mind";
   }
 }

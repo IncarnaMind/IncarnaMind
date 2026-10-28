@@ -6,18 +6,23 @@ import { claudeSignInOffered } from "../claudeSignIn";
 import { startContradictionCheck } from "../contradictions";
 import { blockMenuOpeners } from "../editor/blockMenuOpeners";
 import { originOf } from "../editor/blockOrigins";
+import { goToCitation } from "../editor/citationMark";
 import { blockAt, noteHolding } from "../editor/noteKeymap";
 import { openOrigin } from "../editor/originActions";
 import { useFindSources } from "../findSources";
 import { useHistory } from "../history";
+import { translateNow } from "../i18n";
 import { startSkillFromMind } from "../makeSkill";
-import { showCheckCard, startCheckThisMind, startMindCheck } from "../mindCheck";
+import { showCheckCard, startCheck, startMindCheck } from "../mindCheck";
 import { useMindTools } from "../mindTools";
+import { forgetNewMindKeys, holdNewMindKeys } from "../newMindKeys";
+import { citationStepOpen } from "../nudges";
 import { useReferenceImport } from "../referenceImport";
 import { useAppStore } from "../store";
 import { verifyDocument } from "../verify";
 import { useWordImport } from "../wordImport";
 import { addDocumentCommands } from "./addDocuments";
+import { analysisCommands } from "./analysis";
 import { answerTableCommands } from "./answerTables";
 import { assistantCommands } from "./assistant";
 import { bibliographyCommands } from "./bibliography";
@@ -33,7 +38,13 @@ import { feedbackCommands } from "./feedback";
 import { fileCommands } from "./fileInfo";
 import { footnoteCommands } from "./footnotes";
 import { formatCommands } from "./format";
-import { citationHandle, findHandle, readMindHandle, sidebarHandle } from "./handles";
+import {
+  citationHandle,
+  findHandle,
+  homeNextHandle,
+  readMindHandle,
+  sidebarHandle,
+} from "./handles";
 import { languageCommands } from "./language";
 import { libraryCommands } from "./library";
 import { linkCommands } from "./links";
@@ -103,7 +114,10 @@ const appCommands: readonly Command[] = [
     group: "main",
     top: 20,
     reversible: true,
-    run: () => useAppStore.getState().createMind({ titled: true }),
+    run: async () => {
+      holdNewMindKeys(translateNow("mind.opening"));
+      if ((await useAppStore.getState().createMind({ titled: true })) === null) forgetNewMindKeys();
+    },
   },
   {
     id: "home.open",
@@ -111,6 +125,14 @@ const appCommands: readonly Command[] = [
     group: "open",
     reversible: true,
     run: () => useAppStore.getState().openHome(),
+  },
+  {
+    id: "firstOpen.checkCitation",
+    label: "firstOpen.step.citation.title",
+    group: "open",
+    reversible: true,
+    when: () => citationStepOpen(useAppStore.getState().settings?.device.gettingStarted),
+    run: () => goToCitation(),
   },
   {
     id: "word.import",
@@ -159,6 +181,7 @@ const appCommands: readonly Command[] = [
   ...evidenceCommands,
   ...comparisonCommands,
   ...researchCommands,
+  ...analysisCommands,
   ...exportCommands,
   ...taskCommands,
   ...wordLookCommands,
@@ -220,6 +243,20 @@ const appCommands: readonly Command[] = [
     when: (ctx) => ctx.here?.["citation.open"] !== undefined || citationHandle.current !== null,
     run: (ctx) => (ctx.here?.["citation.open"] ?? citationHandle.current?.open)?.(),
   },
+  // A Citation that needs re-check (#99), while its card shows or from its menu: the note's ⌘Z takes each back.
+  ...(["update", "keepOld"] as const).map(
+    (choice): Command => ({
+      id: `citation.${choice}`,
+      label: `citation.${choice}`,
+      group: "main",
+      reversible: true,
+      when: (ctx) =>
+        ctx.here?.[`citation.${choice}`] !== undefined ||
+        (citationHandle.current?.choices()[choice] ?? null) !== null,
+      run: (ctx) =>
+        (ctx.here?.[`citation.${choice}`] ?? citationHandle.current?.choices()[choice])?.(),
+    }),
+  ),
   {
     // The Mind in front's citation style (#289): the same picker as its References' button.
     id: "mind.citationStyle",
@@ -256,6 +293,15 @@ const appCommands: readonly Command[] = [
     },
   },
   {
+    id: "home.nextStep",
+    label: (_ctx, t) => homeNextHandle.current?.label ?? t("home.next.command"),
+    group: "main",
+    top: 9,
+    reversible: true,
+    when: () => homeNextHandle.current !== null && !homeNextHandle.current.busy,
+    run: () => homeNextHandle.current?.run(),
+  },
+  {
     id: "mind.check",
     label: "mindCheck.command",
     purpose: "mindCheck.command.purpose",
@@ -267,7 +313,7 @@ const appCommands: readonly Command[] = [
     when: (ctx) => onlyOne(ctx) && mindShown(ctx) !== null,
     run: (ctx) => {
       const mindId = mindShown(ctx);
-      if (mindId) return startCheckThisMind(mindId);
+      if (mindId) return startCheck(mindId);
     },
   },
   {

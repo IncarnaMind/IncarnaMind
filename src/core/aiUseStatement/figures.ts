@@ -14,7 +14,7 @@ import { mindScopeOf } from "../../shared/mindScope";
 import { readProposalAttribute } from "../../shared/proposals";
 import { comparableSentence } from "../../shared/sentences";
 import { toolCallsOf } from "../../shared/toolCalls";
-import { checkUnreadOf } from "../../shared/unreadFiles";
+import { checkUnreadOf, unreadFileNamesOf } from "../../shared/unreadFiles";
 import { countFor, countText, firstWords } from "../../shared/wordCount";
 import { isEdited, textAttribute } from "../answers/blocks";
 import { checkedSentences } from "../answers/checks/sentences";
@@ -25,6 +25,7 @@ import {
   BLOCK_ID_ATTRIBUTE,
   type CitationAttributes,
   type KeptCitationText,
+  MIND_SETTINGS_FIELD,
   PROPOSAL_ATTRIBUTE,
   QUESTION_BLOCK,
   type UnreadFile,
@@ -95,6 +96,7 @@ export interface CitationCounts {
 export interface SentenceCounts {
   supported: number;
   unsupported: number;
+  notFound: number;
   contradicted: number;
   needsRecheck: number;
   notChecked: number;
@@ -125,6 +127,8 @@ export interface AiUseFigures {
   sentences: SentenceCounts;
   checked: CheckedSentence[];
   unread: UnreadFile[];
+  /** Whether the statement names them: the Mind's own choice, off until the User ticks it. */
+  unreadNames: boolean;
 }
 
 export interface FigureSources {
@@ -312,6 +316,7 @@ export function readFigures(sources: FigureSources): AiUseFigures {
   const sentences: SentenceCounts = {
     supported: 0,
     unsupported: 0,
+    notFound: 0,
     contradicted: 0,
     needsRecheck: 0,
     notChecked: 0,
@@ -319,7 +324,7 @@ export function readFigures(sources: FigureSources): AiUseFigures {
   const versions = new Map(documents.map((document) => [document.id, document.contentHash]));
   const checked: CheckedSentence[] = [];
   const requests: string[] = [];
-  for (const { check, sentence } of checkedSentences(fragment)) {
+  for (const { check, sentence, cited } of checkedSentences(fragment)) {
     requests.push(check.request);
     const shown = claimCheckShown(check, {
       text: sentence,
@@ -327,7 +332,7 @@ export function readFigures(sources: FigureSources): AiUseFigures {
       folderId: sources.folderId,
       scope: fragment.doc ? mindScopeOf(fragment.doc) : null,
     });
-    const result = sentenceResultOf(shown);
+    const result = sentenceResultOf(shown, check, cited.length);
     if (!result) continue;
     sentences[result === "changed" ? "needsRecheck" : result]++;
     const quoted = firstWords(comparableSentence(sentence), SENTENCE_WORDS);
@@ -361,5 +366,6 @@ export function readFigures(sources: FigureSources): AiUseFigures {
     sentences,
     checked,
     unread: fragment.doc ? checkUnreadOf(fragment.doc, requests) : [],
+    unreadNames: fragment.doc ? unreadFileNamesOf(fragment.doc.getMap(MIND_SETTINGS_FIELD)) : false,
   };
 }

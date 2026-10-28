@@ -3,16 +3,19 @@ import type { Editor } from "@tiptap/core";
 import { ySyncPluginKey } from "@tiptap/y-tiptap";
 import { type KeyboardEvent, type ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import type * as Y from "yjs";
+import { formatDateTime } from "../../../shared/dates";
 import type { Verification } from "../../../shared/verification";
 import { setCheckCardOpen, stopCheck, useChecks } from "../checks";
 import { useTabPlace } from "../components/tabs/tabItems";
 import { buttonStyle } from "../components/ui";
-import { startContradictionCheck, useContradictions } from "../contradictions";
+import { useContradictions } from "../contradictions";
 import { useLanguage, useT } from "../i18n";
 import { frontTabOfMind } from "../layoutSlice";
-import { startCheckThisMind, useMindCheck, useMindCheckRun } from "../mindCheck";
+import { startCheck, useMindCheck, useMindCheckRun } from "../mindCheck";
 import { useFade } from "../motion";
+import { type NoteState, noteStateOf, noteStateParts } from "../noteState";
 import { useAppStore } from "../store";
+import { useCheckUnread } from "../unreadFiles";
 import { useGroupsMerged } from "../useWindowWidth";
 import { checkClaims, stopVerify } from "../verify";
 import { useWatchAddedDocuments } from "./AddedDocumentsLine";
@@ -20,11 +23,9 @@ import { type Badge, type BadgeInput, badgeOf } from "./badgeState";
 import { ContradictionAsk, ContradictionLine } from "./ContradictionLine";
 import { checkTitle, useCheckThisMindPlan } from "./changedSentences";
 import { useCardPlace } from "./checkPlace";
-import { shownClaims } from "./claimChecks";
-import { HEALTH_PARTS } from "./healthCounts";
 import { CheckMarkIcon, ClaimMarkIcon } from "./icons";
-import { MindCheckAsk, MindUnchanged, useMindCheckProgress } from "./MindCheckLine";
-import { HealthCard, PartMark, useHealth } from "./NoteHealth";
+import { MindCheckAsk, MindUnchanged, RunningText } from "./MindCheckLine";
+import { HealthCard, PartMark, partLabel, useHealth } from "./NoteHealth";
 import { Popover } from "./Popover";
 import { useVerifyState, VerifyCard, verifyDone } from "./VerifyLine";
 
@@ -60,7 +61,7 @@ function useJustChecked<Run>(
 }
 
 /**
- * The check badge at the bottom right of a Mind's page (#909; the boards
+ * The check badge at the bottom right of a Note's page (#909; the boards
  * Page-Clean-Badge-*): the margin marks' counts, and the claims no check
  * has looked at, "≠ 1 · ! 1 · 3 to check"; "Checking 12 of 24 · Stop" while
  * a check runs; "✓ 24 checked" after a check the User started, until they
@@ -97,56 +98,43 @@ function MindBadge({
   const skippedKeys = checkedAll?.skipped.join(" ") ?? "";
   const skipped = useMemo(() => new Set(skippedKeys.split(" ").filter(Boolean)), [skippedKeys]);
   const health = useHealth(editor, skipped);
+  const unread = useCheckUnread(editor, doc);
+  const narrowUnread = useCheckUnread(editor, doc, { narrowerThanAll: true });
   useWatchAddedDocuments(editor, mindId);
   const running = useChecks((state) => state.running[mindId]);
   const problem = useChecks((state) => state.problems[mindId] !== undefined);
   const askingMind = useMindCheck((state) => state.asking[mindId] !== undefined);
   const askingContradictions = useContradictions((state) => state.asking[mindId] !== undefined);
-  const checked = useJustChecked(editor, running?.requestId ?? null, (finished) =>
-    problem || editor.isDestroyed
-      ? 0
-      : shownClaims(editor.state).filter((each) => each.check.request === finished).length,
-  );
+  const state = noteStateOf(health, unread.length, narrowUnread.length);
   const input: BadgeInput = {
-    marks: Object.fromEntries(HEALTH_PARTS.map((part) => [part, health[part].length])),
-    toCheck: health.unchecked.length,
+    marks: {
+      contradicted: health.contradicted.length,
+      unsupported: health.unsupported.length,
+      notFound: health.notFound.length,
+    },
+    checkable: health.checkable,
+    toCheck: health.toCheck.length,
     running: running !== undefined,
     asking: askingMind || askingContradictions,
     problem,
-    checked: running ? null : checked,
+    checked: null,
     quiet,
   };
   return (
     <BadgeFrame
       mindId={mindId}
       badge={badgeOf(input)}
+      state={running ? null : state}
       ask={input.asking || problem}
       running={running && <RunningText editor={editor} mindId={mindId} />}
       onStop={() => stopCheck(mindId)}
     >
       <p className="check-card-title">{t("health.label")}</p>
-      <HealthCard editor={editor} doc={doc} mindId={mindId} health={health} />
+      <HealthCard editor={editor} doc={doc} mindId={mindId} health={health} state={state} />
       <ContradictionLine doc={doc} mindId={mindId} />
       <div className="check-card-sep" />
       <CheckActions doc={doc} mindId={mindId} askingMind={askingMind} />
     </BadgeFrame>
-  );
-}
-
-function RunningText({ editor, mindId }: { editor: Editor; mindId: string }) {
-  const t = useT();
-  const language = useLanguage();
-  const running = useChecks((state) => state.running[mindId]);
-  const progress = useMindCheckProgress(editor, running?.requestId ?? null);
-  if (!running) return null;
-  if (running.action !== "whole-mind") return <>{t(`checks.running.${running.action}`)}</>;
-  const format = (value: number) => new Intl.NumberFormat(language).format(value);
-  return (
-    <span data-testid="badge-progress" className="tabular-nums">
-      {progress.total === 0
-        ? t("verify.finding")
-        : t("badge.checking", { done: format(progress.done), total: format(progress.total) })}
-    </span>
   );
 }
 
@@ -176,20 +164,11 @@ function CheckActions({
           type="button"
           data-testid="badge-check-mind"
           disabled={running}
-          title={planned === null ? undefined : checkTitle(t, planned.plan)}
+          title={planned === null ? undefined : checkTitle(t, planned)}
           className={buttonStyle("primary", "sm")}
-          onClick={() => void startCheckThisMind(mindId)}
+          onClick={() => void startCheck(mindId)}
         >
           {t("mindCheck.command")}
-        </button>
-        <button
-          type="button"
-          data-testid="badge-check-contradictions"
-          disabled={running}
-          className="check-card-link"
-          onClick={() => void startContradictionCheck(mindId)}
-        >
-          {t("contradictions.command")}
         </button>
       </div>
     </>
@@ -224,8 +203,8 @@ function VerifyBadge({
       contradicted: rows.contradicted.length,
       unsupported: rows.unsupported.length,
       notChecked: rows.notChecked.length,
-      recheck: rows.recheck.length,
     },
+    checkable: state.total,
     toCheck,
     running: state.running !== null,
     asking: state.asking,
@@ -237,6 +216,7 @@ function VerifyBadge({
     <BadgeFrame
       mindId={mindId}
       badge={badgeOf(input)}
+      state={null}
       ask={input.asking || input.problem}
       running={
         state.running === "finding" ? (
@@ -281,6 +261,7 @@ function VerifyBadge({
 function BadgeFrame({
   mindId,
   badge,
+  state,
   ask,
   running,
   onStop,
@@ -289,6 +270,8 @@ function BadgeFrame({
 }: {
   mindId: string;
   badge: Badge | null;
+  /** A Mind's resting state (D266); null for a Verify run, which shows its own marks. */
+  state: NoteState | null;
   ask: boolean;
   running: ReactNode;
   onStop(): void;
@@ -311,22 +294,28 @@ function BadgeFrame({
   useEffect(() => () => setCheckCardOpen(place, false), [place]);
   const close = (refocus: boolean) => {
     // Closed from inside, the card would leave the focus nowhere: it goes back to the badge.
-    if (refocus && document.activeElement?.closest(".check-card")) anchor?.focus();
+    if (refocus && document.activeElement?.closest(".check-card")) {
+      (anchor?.querySelector("button") ?? anchor)?.focus();
+    }
     setCheckCardOpen(place, false);
   };
+  // The card is placed from this box's right edge, and the badge in it keeps one width while
+  // the card is open: a card placed from the badge's own text moved with every change of it,
+  // and the pill resized under it as a check ended (#1312).
   return (
-    <div className="check-badge-place">
+    <div ref={setAnchor} className="check-badge-place">
       {badge ? (
         <BadgePill
           badge={badge}
+          state={state}
           open={open}
           running={running}
+          stable={badge.running || badge.checked !== null || open}
           onToggle={() => setCheckCardOpen(place, !open)}
           onStop={onStop}
-          anchorRef={setAnchor}
         />
       ) : (
-        <span ref={setAnchor} className="check-badge-anchor" />
+        <span className="check-badge-anchor" />
       )}
       {open && anchor && (
         <Popover
@@ -378,20 +367,41 @@ const placing = () => [
   }),
 ];
 
+/** The state's mark, as the margin draws the worst thing it found (D266). */
+function StateMark({ state }: { state: NoteState }) {
+  switch (state.mark) {
+    case "checked":
+      return <CheckMarkIcon check="found" className="mind-health-icon" />;
+    case "contradicted":
+      return <ClaimMarkIcon state="contradicted" className="mind-health-icon" />;
+    case "unsupported":
+      return <ClaimMarkIcon state="unsupported" className="mind-health-icon" />;
+    case "notFound":
+      return <CheckMarkIcon check="not-found" className="mind-health-icon" />;
+    case "recheck":
+      return <ClaimMarkIcon state="needs-recheck" className="mind-health-icon" />;
+    case "notChecked":
+      return <ClaimMarkIcon state="not-checked" className="mind-health-icon" />;
+  }
+}
+
 function BadgePill({
   badge,
+  state,
   open,
   running,
+  stable,
   onToggle,
   onStop,
-  anchorRef,
 }: {
   badge: Badge;
+  state: NoteState | null;
   open: boolean;
   running: ReactNode;
+  /** It keeps one width: a run is on, or its card, placed from it, is open. */
+  stable: boolean;
   onToggle(): void;
   onStop(): void;
-  anchorRef(element: HTMLElement | null): void;
 }) {
   const t = useT();
   const language = useLanguage();
@@ -399,17 +409,12 @@ function BadgePill({
   useFade(ref);
   const format = (value: number) => new Intl.NumberFormat(language).format(value);
   const parts: ReactNode[] = [];
-  const said = [
-    ...badge.marks.map(({ part, count }) =>
-      part === "notFound"
-        ? count === 1
-          ? t("health.notFound.one")
-          : t("health.notFound", { count: format(count) })
-        : t(`health.${part}`, { count: format(count) }),
-    ),
+  const resting = state === null ? null : noteStateParts(state, t, language);
+  const said = resting ?? [
+    ...badge.marks.map(({ part, count }) => partLabel(t, part, count, format(count))),
     ...(badge.toCheck > 0
       ? [
-          t(badge.toCheck === 1 ? "health.unchecked.one" : "health.unchecked", {
+          t(badge.toCheck === 1 ? "health.toCheck.one" : "health.toCheck", {
             count: format(badge.toCheck),
           }),
         ]
@@ -428,6 +433,29 @@ function BadgePill({
       <span key="running" className="check-badge-running">
         <span className="check-badge-dot" aria-hidden="true" />
         {running}
+      </span>,
+    );
+  } else if (state && resting) {
+    parts.push(
+      <span key="state" className="check-badge-mark" data-part={state.mark} data-tone={state.tone}>
+        <StateMark state={state} />
+        <span className="check-badge-words">{resting[0]}</span>
+        {state.kind === "needs-look" && (
+          <span className="check-badge-short">
+            {format(state.look > 0 ? state.look : state.unread)}
+          </span>
+        )}
+        {state.kind === "checked" && state.checkedAt !== null && (
+          <span className="check-badge-short">{formatDateTime(state.checkedAt, language)}</span>
+        )}
+        {resting.slice(1).map((part) => (
+          <span key={part} className="check-badge-more">
+            <span className="check-badge-sep" aria-hidden="true">
+              ·
+            </span>
+            <span className="check-badge-unread">{part}</span>
+          </span>
+        ))}
       </span>,
     );
   } else {
@@ -465,9 +493,15 @@ function BadgePill({
     }
   }
   return (
-    <div ref={ref} className="check-badge" data-testid="check-badge">
+    <div
+      ref={ref}
+      className="check-badge"
+      data-testid="check-badge"
+      data-state={state?.kind}
+      data-tone={state?.tone}
+      data-stable={stable ? "" : undefined}
+    >
       <button
-        ref={anchorRef}
         type="button"
         data-testid="check-badge-open"
         className="check-badge-open"

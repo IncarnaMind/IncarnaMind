@@ -23,11 +23,12 @@ import { AskedQuoteLines } from "../../editor/AskedQuotes";
 import { useT } from "../../i18n";
 import { isLive, useMeetings } from "../../meetings";
 import { useModelSetup } from "../../modelSetup";
+import { useCitedSource } from "../../openCited";
 import { togglePlanView, useResearch } from "../../research";
 import { type ScopeChip, scopeChips } from "../../scope";
 import { useFolderHoldsDocuments } from "../../scopeDocuments";
 import { skillTitle } from "../../skills";
-import { useAppStore } from "../../store";
+import { exampleMindIds, useAppStore } from "../../store";
 import { interleave, type ThreadStart, threadTasks } from "../../taskGroups";
 import { loadTasks, useTasks } from "../../tasks";
 import { aimAt } from "../../taskTell";
@@ -77,16 +78,28 @@ export function ConversationThread({ focusedMindId }: { focusedMindId: string | 
   const shownTask = useTasks((state) => state.shown);
   const thread = useThreadStart(conversation ?? null);
   const tasks = threadTasks(Object.values(allTasks), focusedMindId, thread, shownTask);
-  const plan = useResearch((state) => (focusedMindId ? state.plans[focusedMindId] : undefined));
+  // A plan made with no Mind in focus is the composer's own until Start makes its Mind.
+  const plan = useResearch((state) => state.plans[focusedMindId ?? NO_MIND]);
   const focusedMind = useAppStore((state) => state.minds.find((mind) => mind.id === focusedMindId));
+  const examples = useAppStore((state) => state.examples);
+  const otherExamples = useAppStore((state) => state.otherExamples);
   const focusedMindName = focusedMindId
     ? (focusedMind && mindName(focusedMind)) || t("mind.untitled")
     : null;
+  // The example is never a target of Add to note (#1940): a note of the User's own is.
+  const addTarget =
+    focusedMindId !== null && !exampleMindIds({ examples, otherExamples }).includes(focusedMindId)
+      ? focusedMindName
+      : null;
   const mindEmpty = useReadMindEmpty(focusedMindId);
   const nextScope = useNextScope(focusedMindId);
-  // While the Mind's meeting records, the assistant listens to its live transcript (#144).
+  // While the Mind's meeting records, the assistant listens to its live transcript (#144). A
+  // voice memo has no call to ask about (#1568).
   const listening = useMeetings((state) =>
-    state.meetings.some((meeting) => meeting.mindId === focusedMindId && isLive(meeting)),
+    state.meetings.some(
+      (meeting) =>
+        meeting.mindId === focusedMindId && isLive(meeting) && meeting.kind === "meeting",
+    ),
   );
   const reads =
     listening && focusedMindName
@@ -130,10 +143,12 @@ export function ConversationThread({ focusedMindId }: { focusedMindId: string | 
   const add = (answer: ConversationAnswer, target: AddTarget, blocks = notesToAdd(answer)) =>
     void addAnswer({ answer, conversation, blocks }, target, focusedMindId === null);
   const keeping: AnswerKeeping = {
-    focusedMindName,
+    focusedMindName: addTarget,
     mindEmpty,
     add(answer) {
-      if (focusedMindId) add(answer, { kind: "mind", mindId: focusedMindId });
+      if (focusedMindId && addTarget !== null) {
+        add(answer, { kind: "mind", mindId: focusedMindId });
+      }
     },
     pick(answer, anchor) {
       setPicking({ answer, anchor, blocks: notesToAdd(answer) });
@@ -272,7 +287,7 @@ export function ConversationThread({ focusedMindId }: { focusedMindId: string | 
       {picking && (
         <AddToMindPicker
           anchor={picking.anchor}
-          focusedMindId={focusedMindId}
+          focusedMindId={addTarget === null ? null : focusedMindId}
           atCursor={readMindHandle.current?.cursorInMind() ?? false}
           newFolderId={conversation?.folderId ?? null}
           onChoose={(target) => {
@@ -351,16 +366,19 @@ function QuestionBubble({
 
 /** What the next Question searches: the Search scope of the composer of the Mind in focus, or of the composer with none. */
 function useNextScope(mindId: string | null): ScopeChip[] {
-  const mind = useAppStore((state) => state.minds.find((each) => each.id === mindId));
-  const draft = useComposer((state) => state.drafts[mindId ?? NO_MIND]);
+  const citedSource = useCitedSource();
+  const scopeMindId = mindId ?? citedSource?.mindId ?? null;
+  const mind = useAppStore((state) => state.minds.find((each) => each.id === scopeMindId));
+  // Only the scope: a keystroke in the composer makes the draft new, and the whole Conversation must not draw again for it.
+  const draftScope = useComposer((state) => state.drafts[scopeMindId ?? NO_MIND]?.scope ?? null);
   const folders = useAppStore((state) => state.folders);
   const groups = useAppStore((state) => state.library?.groups);
   const deletedGroups = useAppStore((state) => state.library?.deletedGroups);
   const tags = useAppStore((state) => state.tags);
   const documents = useAppStore((state) => state.documents);
   const folderHolds = useFolderHoldsDocuments(mind?.folderId ?? null);
-  if (mindId !== null && !mind) return [];
-  const scope = mindSearchScope(draft?.scope ?? null, mind?.folderId ?? null, folderHolds);
+  if (scopeMindId !== null && !mind) return [];
+  const scope = mindSearchScope(draftScope, mind?.folderId ?? null, folderHolds);
   return scopeChips({ folders, groups, deletedGroups, tags, documents }, scope);
 }
 

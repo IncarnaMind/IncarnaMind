@@ -115,6 +115,7 @@ interface ReadCell {
   problem: string | null;
   message: string | null;
   text: string;
+  citations: number;
 }
 
 function cellsOf(client: MindClient): ReadCell[][] {
@@ -126,7 +127,17 @@ function cellsOf(client: MindClient): ReadCell[][] {
       row.forEach((cell) => {
         const { status, problem, message } = comparisonCellOf(cell.attrs);
         const text = cell.textBetween(0, cell.content.size, " ", " ");
-        cells.push({ status, problem, message, text: text.replace(/\s+/g, " ").trim() });
+        let citations = 0;
+        cell.descendants((node) => {
+          if (node.type.name === "citation") citations++;
+        });
+        cells.push({
+          status,
+          problem,
+          message,
+          text: text.replace(/\s+/g, " ").trim(),
+          citations,
+        });
       });
       rows.push(cells);
     });
@@ -280,7 +291,8 @@ describe.each(CASES.filter((item) => LANGUAGES.includes(item.language)))(
                   : (first.problem ?? "failed");
               count(`${name}:${outcome}`);
               const message = first.message ? ` [${first.message}]` : "";
-              report.push(`- ${name} · Q1 · ${outcome}: "${first.text}"${message}`);
+              const cited = `${first.citations} Citation${first.citations === 1 ? "" : "s"}`;
+              report.push(`- ${name} · Q1 · ${outcome}: "${first.text}" (${cited})${message}`);
             }
             if (second) {
               count(`${name}:q2:${second.status === "done" ? "answered" : second.problem}`);

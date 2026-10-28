@@ -13,7 +13,7 @@ import { readFile, stat } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import type { TextUnit } from "../../shared/units";
 import type { LogFields, PagePicture, PictureRead, RecognizedLine } from "../adapters";
-import type { DocumentFailureReason, DocumentKind } from "../api";
+import type { DocumentFailureReason, DocumentKind, UnreadParts } from "../api";
 import {
   type FileMetadata,
   type FileReference,
@@ -29,6 +29,7 @@ import { isPackageKind, packageSizeError } from "./formats/zip";
 import { keywordText } from "./keywords";
 import { type BuiltPassage, buildPassages } from "./passages";
 import { documentTitle } from "./title";
+import { unreadMessage } from "./unreadMessage";
 
 /**
  * The version of this pipeline: text extraction, Passage building, text
@@ -49,9 +50,12 @@ import { documentTitle } from "./title";
  * are read from their pictures; see `SCAN_CURRENT_SINCE`). 10: #756 (a saved
  * web page's pictures are read, their text in its section; see
  * `PICTURES_CURRENT_SINCE`). 11: #901 (a PDF's pages keep the name they
- * print, from its page labels or its headers and footers).
+ * print, from its page labels or its headers and footers). 12: #1819 (a
+ * scanned page's quarter-turn is normalized before it is read). 13: #740 (a
+ * workbook records the hidden sheets and rows past the limit it left out).
+ * 14: #1818 (PDF form fields are included in the pages' text).
  */
-export const PROCESSING_VERSION = 11;
+export const PROCESSING_VERSION = 14;
 
 /**
  * Per kind, the oldest version whose Passages and Units are still what this
@@ -63,15 +67,18 @@ export const PROCESSING_VERSION = 11;
  * only PDFs' scanned pages, which `SCAN_CURRENT_SINCE` reads again; version
  * 10 only web pages with saved pictures, which `PICTURES_CURRENT_SINCE` reads;
  * version 11 only PDFs', whose pages gain their printed names and whose
- * Passages come out as they were.
+ * Passages come out as they were; version 12 only PDFs' scanned pages, whose
+ * orientation `SCAN_CURRENT_SINCE` reads again; version 13 only workbooks',
+ * which record the hidden sheets and rows past the limit they left out, their
+ * Units as they were; version 14 only PDFs', whose pages include form fields.
  */
 export const CURRENT_SINCE: Readonly<Record<DocumentKind, number>> = {
-  pdf: 11,
+  pdf: 14,
   text: 5,
   markdown: 5,
   docx: 7,
   pptx: 5,
-  xlsx: 8,
+  xlsx: 13,
   csv: 5,
   web: 7,
   transcript: 7,
@@ -92,14 +99,15 @@ export const HAN_CURRENT_SINCE = 6;
 /**
  * For a PDF with a page that has little or no text (a scan, maybe), or a
  * page read from its picture, the oldest version that reads such pages as
- * this one would: since version 9 they are read from their pictures (#397).
+ * this one would: since version 9 they are read from their pictures (#397),
+ * and since version 12 a quarter-turned page is normalized first (#1819).
  * Such a PDF processed by an older version is processed again at startup;
  * its pages of text come out as they were. When how pages are read changes
  * (`TextRecognitionModelDefinition.reader`), bump this with the processing
  * version: the pages read before are read again, except those a Citation
  * quotes, which are kept as they were read (see `ScanJob.keep`).
  */
-export const SCAN_CURRENT_SINCE = 9;
+export const SCAN_CURRENT_SINCE = 12;
 
 /**
  * For a web page saved with its pictures, the oldest version that reads
@@ -183,10 +191,12 @@ type Processed =
        * as the Passages were built from it (see ./boilerplate), with its label and anchors.
        */
       pages: TextUnit[];
-      /** Scanned pages that couldn't be read, and why; null when every one was. */
-      unread: { pages: number[]; message: string } | null;
+      /** PDF pages with unread content, and why; null when all could be read. */
+      unread: { pages: number[]; message: string; forms?: true } | null;
+      /** What of it wasn't read when the rest was (#740); null when all was. */
+      parts: UnreadParts | null;
     }
-  | { outcome: "no-text"; pageCount: number | null }
+  | { outcome: "no-text"; pageCount: number | null; parts: UnreadParts | null }
   | { outcome: "failed"; reason: DocumentFailureReason; message: string };
 
 /** The file couldn't be read: it is gone (`gone`), or can't be read now. */
@@ -503,7 +513,7 @@ async function processBytes(
     const extracted = await extractText(kind, bytes, reading, password, readPicture);
     const firstPages = extracted.units.slice(0, REFERENCE_PAGES).map((unit) => unit.text);
     const pages = kind === "pdf" ? stripBoilerplate(extracted.units) : extracted.units;
-    const { pageCount, unread } = extracted;
+    const { pageCount, unread, parts } = extracted;
     const passages = buildPassages(pages).map((passage) => ({
       ...passage,
       keywords: keywordText(passage.text),
@@ -511,11 +521,18 @@ async function processBytes(
     if (passages.length === 0) {
       // A scan none of whose pages could be read: it has text to find, once they can be.
       const processed: Processed = unread
-        ? { outcome: "failed", reason: "pages-unread", message: unreadMessage(unread) }
-        : { outcome: "no-text", pageCount };
+        ? {
+            outcome: "failed",
+            reason: unread.forms ? "forms-unread" : "pages-unread",
+            message: unreadMessage(unread),
+          }
+        : { outcome: "no-text", pageCount, parts };
       return { processed, firstPages };
     }
-    return { processed: { outcome: "ready", pageCount, passages, pages, unread }, firstPages };
+    return {
+      processed: { outcome: "ready", pageCount, passages, pages, unread, parts },
+      firstPages,
+    };
   } catch (error) {
     const processed: Processed =
       error instanceof ExtractionError
@@ -526,7 +543,3 @@ async function processBytes(
 }
 
 const messageOf = (error: unknown) => (error instanceof Error ? error.message : String(error));
-
-/** The technical detail of scanned pages that couldn't be read, in English, for logs and tooltips. */
-export const unreadMessage = (unread: { pages: number[]; message: string }) =>
-  `Scanned ${unread.pages.length === 1 ? "page" : "pages"} ${unread.pages.join(", ")} couldn't be read${unread.message ? `: ${unread.message}` : "."}`;

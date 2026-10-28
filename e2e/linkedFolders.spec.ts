@@ -22,8 +22,10 @@ import {
   openLinkedFolderMenu,
   pathsOpened,
   pathsShown,
+  pointAndClick,
   previewLink,
   removeDataFolder,
+  setLanguage,
   setWindowSize,
   showSourceLocations,
   useLocalChatModel,
@@ -33,7 +35,7 @@ import {
  * Linked folders in the sidebar (ADR-0010): "Add folder…" previews what
  * linking takes before anything is read, the folder's row says how it is
  * (indexing, paused, unavailable, online-only files, nothing in it), its
- * menu pauses, re-lays out, shows and unlinks it (its Citations still
+ * menu pauses, shows and unlinks it (its Citations still
  * check), and its Documents say when their file is missing or can't be
  * reached. Set INCARNAMIND_SCREENSHOTS
  * to a folder to also save screenshots of each there.
@@ -195,7 +197,7 @@ test("Add folder… shows what linking would take, then the folder's row shows i
   await expect(dialog.getByTestId("link-folder-online-only")).toContainText(
     "2 online-only files are skipped for now",
   );
-  await expect(dialog.getByTestId("link-folder-layout-tree")).toBeChecked();
+  await expect(dialog.getByTestId("link-folder-layout-tree")).toHaveCount(0);
   await expect(dialog.getByTestId("link-folder-merge")).toHaveCount(0);
   await screenshot(window, "link-dialog");
   // Nothing is linked before the User says so.
@@ -234,7 +236,6 @@ test("Add folder… shows what linking would take, then the folder's row shows i
     "Download and read 2 online-only files",
   );
   await expect(menu.getByTestId("linkedFolder.pause")).toHaveText("Pause reading");
-  await expect(menu.getByTestId("linkedFolder.layout")).toHaveText("Show as a flat list");
   await screenshot(window, "row-menu");
   // Show in Finder (Explorer, the file manager) shows the folder itself, never anything else.
   await menu.getByTestId("linkedFolder.reveal").click();
@@ -281,9 +282,8 @@ test("pausing a Linked folder holds its indexing until it is resumed", async () 
   await app.close();
 });
 
-test("a Linked folder's layout, Folders or a flat list, is chosen when linking and from its menu", async () => {
-  // Zotero's storage: a folder per item, one file in each. For twenty or more, linking
-  // suggests a flat list.
+test("a Linked folder of one-file folders is a flat list, each row naming its folder", async () => {
+  // Zotero's storage: a folder per item, one file in each. Twenty or more link as a flat list.
   const storage = join(sources, "storage");
   await writeTree(
     storage,
@@ -292,33 +292,154 @@ test("a Linked folder's layout, Folders or a flat list, is chosen when linking a
   const { app, window } = await launchApp(dataDir);
   await dismissChatSetup(window);
   const dialog = await previewLink(app, window, storage);
-  await expect(dialog.getByTestId("link-folder-layout-flat")).toBeChecked();
-  await expect(dialog.getByText("Suggested")).toHaveCount(1);
-  // The User prefers its folders, as on disk.
-  await dialog.getByTestId("link-folder-layout-tree").check();
   await confirmLink(dialog);
   await showSourceLocations(window);
 
-  const row = linkedFolderRow(window, "storage");
   const documents = linkedRows(window);
-  // All 20 in Not in a Folder, which lists the first five, then "Show 15 more".
+  // All 20 in Not in a Folder, which lists the first five, then "Show 15 more"; each names its folder.
   const loose = window.getByTestId("not-in-a-folder");
-  await expect(row).toHaveAttribute("data-layout", "tree");
   await expect(loose).toHaveAttribute("data-count", "20");
   await expect(documents.first()).toHaveAttribute("data-depth", "0");
-
-  // A flat list, from its menu; its row stays one row, and its files where they were.
-  let menu = await openLinkedFolderMenu(row);
-  await menu.getByTestId("linkedFolder.layout").click();
-  await expect(row).toHaveAttribute("data-layout", "flat");
-  await expect(loose).toHaveAttribute("data-count", "20");
+  await expect(documents.first().getByTestId("row-place")).toHaveText(/^KEY10\d\d$/);
   await screenshot(window.getByTestId("sidebar"), "row-flat");
+  const menu = await openLinkedFolderMenu(linkedFolderRow(window, "storage"));
+  await expect(menu.getByTestId("linkedFolder.layout")).toHaveCount(0);
+  await app.close();
+});
 
-  // And back.
-  menu = await openLinkedFolderMenu(row);
-  await expect(menu.getByTestId("linkedFolder.layout")).toHaveText("Show as folders");
-  await menu.getByTestId("linkedFolder.layout").click();
-  await expect(row).toHaveAttribute("data-layout", "tree");
+// protects=two Documents with one name show which folder each is in, in the sidebar, the Library and ⌘K, and a Linked folder's row opens the Library on its own Documents (#1507); fails_when=the rows read the same, or the row only focuses; no_claim=the folders as on disk, which are Source locations' (#1250).
+test("two files with one name show where each is, and a Linked folder's row opens the Library on its Documents", async () => {
+  const awkward = join(sources, "awkward");
+  await writeTree(awkward, [
+    "same-name/2025/Annual-Report.md",
+    "same-name/2025/notes.md",
+    "same-name/2026/Annual-Report.md",
+    "same-name/2026/notes.md",
+  ]);
+  const other = join(sources, "Other");
+  await writeTree(other, ["Budget.md"]);
+  const { app, window } = await launchApp(dataDir);
+  await dismissChatSetup(window);
+  await linkFolderFromSidebar(app, window, awkward);
+  await linkFolderFromSidebar(app, window, other);
+  await showSourceLocations(window);
+  await expect(linkedRows(window)).toHaveCount(5, { timeout: 30_000 });
+
+  const reports = linkedRows(window).filter({ hasText: "Annual-Report" });
+  await expect(reports).toHaveCount(2);
+  await expect
+    .poll(async () => (await reports.getByTestId("row-place").allInnerTexts()).sort())
+    .toEqual(["2025", "2026"]);
+  await expect(
+    linkedRows(window).filter({ hasText: "Budget" }).getByTestId("row-place"),
+  ).toHaveCount(0);
+  await screenshot(window.getByTestId("sidebar"), "same-name-rows");
+
+  await linkedFolderRow(window, "awkward").getByTestId("linked-folder-open").click();
+  const library = window.getByTestId("library-document");
+  await expect(library).toHaveCount(4);
+  await expect(library.filter({ hasText: "Budget" })).toHaveCount(0);
+  await expect
+    .poll(async () =>
+      (
+        await library
+          .filter({ hasText: "notes" })
+          .getByTestId("library-document-place")
+          .allInnerTexts()
+      ).sort(),
+    )
+    .toEqual(["2025", "2026"]);
+  for (const language of ["en", "zh-CN"] as const) {
+    await setLanguage(window, language);
+    for (const width of [900, 1600]) {
+      await setWindowSize(app, window, width, 760);
+      await expect
+        .poll(() =>
+          library
+            .getByTestId("library-document-place")
+            .evaluateAll((places) => places.map((place) => place.scrollWidth <= place.clientWidth)),
+        )
+        .toEqual([true, true, true, true]);
+    }
+  }
+  await setLanguage(window, "en");
+  await screenshot(window, "same-name-library");
+
+  const twins = await window.evaluate(async () => {
+    const api = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
+    const documents = await api.listDocuments();
+    const idAt = (place: string) =>
+      documents.find((document) => document.path.replace(/\\/g, "/").endsWith(place))?.id ?? "";
+    return {
+      report2025: idAt("same-name/2025/Annual-Report.md"),
+      report2026: idAt("same-name/2026/Annual-Report.md"),
+    };
+  });
+
+  await pointAndClick(
+    window,
+    window.locator(
+      `[data-testid="library-document"][data-document-id="${twins.report2026}"] [data-row-main]`,
+    ),
+  );
+  await expect(
+    window.locator(`[data-testid="document-tab"][data-document-id="${twins.report2026}"]`),
+  ).toHaveCount(1);
+
+  await window.keyboard.press("ControlOrMeta+k");
+  await window.getByTestId("palette-search").fill("Annual-Report");
+  const found = window.getByTestId("palette").getByTestId("palette-item");
+  await expect(found.filter({ hasText: "Annual-Report · 2025" })).toHaveCount(1);
+  await expect(found.filter({ hasText: "Annual-Report · 2026" })).toHaveCount(1);
+  await pointAndClick(
+    window,
+    window.locator(`[data-testid="palette"] [data-key="document:${twins.report2026}"]`),
+  );
+  await expect(
+    window.locator(`[data-testid="document-tab"][data-document-id="${twins.report2026}"]`),
+  ).toHaveCount(1);
+  await app.close();
+});
+
+// protects=at 900, 1,100 and 1,600 px a short name in a folder with a long name stays whole, in the sidebar and the Library, and the place is cut instead, with the place in the Library row's tooltip (#1507); fails_when=the name shows "会…" while its place keeps the room, or the tooltip leaves the place out; no_claim=names longer than the row, which are cut as before.
+test("a long place gives way before the name, in the sidebar and the Library", async () => {
+  const minutes = join(sources, "纪要");
+  await writeTree(minutes, [
+    "二〇二五年第三季度董事会与审计委员会联席会议资料汇编/会议纪要.md",
+    "二〇二六年第一季度董事会与薪酬委员会联席会议资料汇编/会议纪要.md",
+  ]);
+  const { app, window } = await launchApp(dataDir);
+  await dismissChatSetup(window);
+  await setWindowSize(app, window, 1100, 760);
+  await linkFolderFromSidebar(app, window, minutes);
+  await showSourceLocations(window);
+  const rows = linkedRows(window);
+  await expect(rows).toHaveCount(2, { timeout: 30_000 });
+  const whole = (name: Locator) =>
+    name.evaluateAll((all) => all.map((each) => each.scrollWidth <= each.clientWidth));
+  const cut = (place: Locator) =>
+    place.evaluateAll((all) => all.map((each) => each.scrollWidth > each.clientWidth));
+  for (const width of [900, 1100, 1600]) {
+    await setWindowSize(app, window, width, 760);
+    expect(await whole(rows.getByTestId("row-text"))).toEqual([true, true]);
+    expect(await cut(rows.getByTestId("row-place"))).toEqual([true, true]);
+  }
+  await setWindowSize(app, window, 1100, 760);
+  await screenshot(window.getByTestId("sidebar"), "long-place-rows");
+
+  await linkedFolderRow(window, "纪要").getByTestId("linked-folder-open").click();
+  const library = window.getByTestId("library-document");
+  await expect(library).toHaveCount(2);
+  for (const width of [900, 1100, 1600]) {
+    await setWindowSize(app, window, width, 760);
+    expect(await whole(library.getByTestId("library-document-name"))).toEqual([true, true]);
+    await expect(library.first().locator("[data-row-main]")).toHaveAttribute(
+      "title",
+      /^会议纪要 · 二〇二\S+汇编\n/,
+    );
+  }
+  await setWindowSize(app, window, 1100, 760);
+  await screenshot(window, "long-place-library");
   await app.close();
 });
 
@@ -328,10 +449,8 @@ test("a small library of one-file folders keeps its folders", async () => {
   const { app, window } = await launchApp(dataDir);
   await dismissChatSetup(window);
   const dialog = await previewLink(app, window, library);
-  await expect(dialog.getByTestId("link-folder-layout-tree")).toBeChecked();
   await confirmLink(dialog);
   await showSourceLocations(window);
-  await expect(linkedFolderRow(window, "Reading")).toHaveAttribute("data-layout", "tree");
   await expect
     .poll(() =>
       window.evaluate(
@@ -342,6 +461,10 @@ test("a small library of one-file folders keeps its folders", async () => {
       ),
     )
     .toBe(3);
+  // Each row names its folder too, until Source locations show the folders as on disk (#1250).
+  await expect
+    .poll(async () => (await linkedRows(window).getByTestId("row-place").allTextContents()).sort())
+    .toEqual(["Week 1", "Week 2", "Week 3"]);
   await app.close();
 });
 
@@ -655,9 +778,11 @@ test("an empty Linked folder says so, in its section, which comes with it", asyn
   const { app, window } = await launchApp(dataDir);
   await dismissChatSetup(window);
 
-  // An empty sidebar says nothing: no section waits for its first item.
+  // An empty sidebar: no section waits for its first item, and it says what to do next (#763).
   await expect(window.getByTestId("linked-folders-section")).toHaveCount(0);
-  await expect(window.getByTestId("sidebar-sections")).toHaveText("");
+  await expect(
+    window.getByTestId("documents-empty").getByText("No Documents yet", { exact: true }),
+  ).toBeVisible();
 
   // The + menu's More › Link a folder….
   const dialog = await previewLink(app, window, empty);
@@ -694,8 +819,7 @@ test("linking a folder that overlaps a Linked folder says what happens: they mer
   // A folder inside it is linked already: the dialog says so, and only closes.
   await interceptOpenDialog(app, join(papers, "2026", "Drafts"));
   await window.getByTestId("plus-menu").click();
-  await window.getByTestId("plus-more").click();
-  await window.getByTestId("plus-link-folder").click();
+  await window.getByTestId("plus-add-documents").click();
   const dialog = window.getByTestId("link-folder-dialog");
   await expect(dialog.getByRole("heading")).toHaveText("Already in IncarnaMind");
   await expect(dialog.getByTestId("link-folder-inside")).toContainText(

@@ -391,7 +391,84 @@ describe("exporting a Mind", () => {
       questions: 1,
       fromWord: false,
       theirChanges: 0,
+      unreadFiles: 0,
+      unreadFileNames: false,
+      citationPlace: "footnotes",
+      markAiText: false,
     });
+  });
+
+  test("to .docx: to-dos start with ☐ or ☒ at the text edge, a nested one 24px in, and bullets and numbers keep Word's indents", async () => {
+    const { core, mind, client } = await setUp();
+    const task = (checked: boolean, ...content: JSONContent[]): JSONContent => ({
+      type: "taskItem",
+      attrs: { checked },
+      content,
+    });
+    writeMind(client, [
+      paragraph(text("Before.")),
+      {
+        type: "taskList",
+        content: [
+          task(
+            false,
+            paragraph(text("核查清单项")),
+            {
+              type: "taskList",
+              content: [
+                task(true, paragraph(text("已核对")), {
+                  type: "taskList",
+                  content: [task(false, paragraph(text("Deeper")))],
+                }),
+              ],
+            },
+            { type: "bulletList", content: [item(paragraph(text("Supporting note")))] },
+          ),
+          task(true, paragraph()),
+        ],
+      },
+      { type: "bulletList", content: [item(paragraph(text("Ordinary bullet")))] },
+      {
+        type: "bulletList",
+        content: [
+          item(paragraph(text("Parent bullet")), {
+            type: "taskList",
+            content: [task(false, paragraph(text("Under bullet")))],
+          }),
+        ],
+      },
+    ]);
+    await client.settled();
+    const { document } = docxParts(await core.exportMind(mind.id, { format: "docx" }));
+    const written = [...document.matchAll(/<w:p>(.*?)<\/w:p>/g)].map((found) => ({
+      text: textOf(found[0]),
+      indent: /<w:ind w:left="(\d+)"(?: w:hanging="(\d+)")?\/>/.exec(found[0])?.slice(1, 3),
+      listed: found[0].includes("<w:numPr>"),
+    }));
+    expect(written).toEqual([
+      { text: "Before.", indent: undefined, listed: false },
+      { text: "☐\t核查清单项", indent: ["420", "420"], listed: false },
+      { text: "☒\t已核对", indent: ["780", "420"], listed: false },
+      { text: "☐\tDeeper", indent: ["1140", "420"], listed: false },
+      { text: "Supporting note", indent: ["1140", "360"], listed: true },
+      { text: "☒\t", indent: ["420", "420"], listed: false },
+      { text: "Ordinary bullet", indent: ["720", "360"], listed: true },
+      { text: "Parent bullet", indent: ["720", "360"], listed: true },
+      { text: "☐\tUnder bullet", indent: ["1140", "420"], listed: false },
+    ]);
+    const todos = [...document.matchAll(/<w:p>.*?<\/w:p>/g)]
+      .map((found) => found[0])
+      .filter((each) => /<w:t xml:space="preserve">[☐☒]<\/w:t>/.test(each));
+    expect(todos).toHaveLength(5);
+    for (const xml of todos) {
+      expect(xml).toContain("<w:r><w:tab/></w:r>");
+      // Word's schema has no bare <w:tab/> under <w:p>: every tab sits in a run.
+      const children = xml
+        .replace(/^<w:p>/, "")
+        .replace(/<\/w:p>$/, "")
+        .replace(/^<w:pPr>.*?<\/w:pPr>/, "");
+      expect(children.replace(/<w:r>.*?<\/w:r>/g, "")).toBe("");
+    }
   });
 
   test("to .docx: headings, lists, code and math, the Question left out, and each Citation a Word footnote", async () => {
@@ -613,7 +690,7 @@ describe("exporting a Mind", () => {
     expect(exported).toMatchObject({ fileName: "A Note.md", citations: 0, questions: 1 });
   });
 
-  describe("the file is named as the app shows the Mind", () => {
+  describe("the file is named after the note (#1945)", () => {
     const nameOf = async (title: string, blocks: JSONContent[], format: "markdown" | "docx") => {
       const { core, mind, client } = await setUp(title);
       writeMind(client, blocks);
@@ -638,16 +715,16 @@ describe("exporting a Mind", () => {
       expect(await nameOf("", [], "markdown")).toBe("Untitled.md");
     });
 
-    test("the first line is cleaned for a file name and cut", async () => {
+    test("the first line is cleaned for a file name, and cut only where a file name can't hold it", async () => {
       expect(await nameOf("", [note("Tides: spring/neap?")], "docx")).toBe(
         "Tides spring neap.docx",
       );
       const long = await nameOf("", [note("tide ".repeat(40))], "markdown");
-      expect(long.length).toBeLessThanOrEqual(64);
-      expect(long.endsWith(" tide.md")).toBe(true);
+      expect(long.length).toBeLessThanOrEqual(122);
+      expect(long.endsWith("tide.md")).toBe(true);
     });
 
-    test("a long first line ends at a clause, never on 'plus' or half a sentence (#769)", async () => {
+    test("a whole sentence names the file as it reads, without the mark it ends on", async () => {
       expect(
         await nameOf(
           "",
@@ -658,7 +735,9 @@ describe("exporting a Mind", () => {
           ],
           "docx",
         ),
-      ).toBe("The employee gets 27 days of paid holiday per year.docx");
+      ).toBe(
+        "The employee gets 27 days of paid holiday per year, plus bank holidays and the notice period after probation.docx",
+      );
       expect(
         await nameOf(
           "",
@@ -670,7 +749,7 @@ describe("exporting a Mind", () => {
           "docx",
         ),
       ).toBe(
-        "员工每年享有二十七天带薪年假，另外还享有法定节假日，试用期结束后双方需要提前一个月书面通知对方，否则视为违约.docx",
+        "员工每年享有二十七天带薪年假，另外还享有法定节假日，试用期结束后双方需要提前一个月书面通知对方，否则视为违约，需要承担相应的赔偿责任并支付违约金.docx",
       );
     });
 
@@ -681,7 +760,7 @@ describe("exporting a Mind", () => {
       expect(name.length).toBeLessThanOrEqual(123);
     });
 
-    test("a Mind of Notes added from an Answer is named by their first line, never by the instruction that gave them (#1174)", async () => {
+    test("a heading an Answer wrote names the file, not the instruction that gave it (#1174, #1945)", async () => {
       const { core, mind } = await setUp("");
       await core.addToNote({
         mindId: mind.id,

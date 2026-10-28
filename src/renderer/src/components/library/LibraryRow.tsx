@@ -3,6 +3,7 @@ import type { Document, ReferenceField, ReferenceRecord } from "../../../../core
 import { displayName, sourceOf } from "../../../../shared/documentNames";
 import { missingDetails, needsCheck } from "../../../../shared/references";
 import { commands } from "../../commands/registry";
+import { nameWithPlace, useDocumentPlace } from "../../documentPlaces";
 import { useDraggedRef, useDragSource } from "../../dragDrop";
 import { useLanguage, useT } from "../../i18n";
 import { FORMAT_LABELS } from "../../libraryFilters";
@@ -18,6 +19,7 @@ import { isDeleteKey, isMoveToKey, isTagsKey, TREE_ROW } from "../../treeKeys";
 import { typesText } from "../../undo";
 import { useRename } from "../../useRename";
 import { CiteAsPanel } from "../CiteAsPanel";
+import { DocumentFix } from "../DocumentFix";
 import { DocumentStatusLabel, NotCitedLabel } from "../DocumentsSection";
 import { InlineName } from "../InlineName";
 import { LibrarySelectBox } from "../LibrarySelection";
@@ -27,7 +29,6 @@ import { ObjectMenu, useObjectMenu } from "../ObjectMenu";
 import { draggedRowClass, rowActionButtonClass } from "../sidebarRows";
 import { ReviewRing } from "../TagColour";
 import { useTabPlace } from "../tabs/tabItems";
-import { DocumentFix } from "./DocumentFix";
 import { documentsToMove, useDocumentMove } from "./DocumentMoveTo";
 import {
   moveFromReview,
@@ -142,6 +143,7 @@ export const LibraryRow = memo(function LibraryRow({
   suggestedIn,
   review = false,
   notSorted,
+  sortFailed,
   match,
   path,
 }: {
@@ -151,6 +153,8 @@ export const LibraryRow = memo(function LibraryRow({
   review?: boolean;
   /** Why Organize couldn't sort it, if it couldn't. */
   notSorted: string | null;
+  /** Why a Suggested Folder's latest run failed, if it did. */
+  sortFailed: string | null;
   /** How it matches the search, while there is one. */
   match: SearchMatch | null;
   /** Its Folder, shown under it while searching. */
@@ -160,6 +164,7 @@ export const LibraryRow = memo(function LibraryRow({
   const language = useLanguage();
   const place = useTabPlace();
   const name = displayName(doc);
+  const where = useDocumentPlace(doc.id);
   const source = sourceOf(doc);
   const format = t(FORMAT_LABELS[doc.kind]);
   const added = addedLabel(doc.createdAt, new Date(), language);
@@ -198,9 +203,11 @@ export const LibraryRow = memo(function LibraryRow({
   const onKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
     objectMenu.rowProps.onKeyDown(event);
     if (event.defaultPrevented || typesText(event.target)) return;
-    // Enter accepts in To review (#241), where it opens everywhere else.
+    // Enter accepts a Folder To review suggested (#241); elsewhere, and on a Document it couldn't
+    // sort, it opens, as it does on every other row.
     if (
       review &&
+      suggestedIn !== null &&
       event.key === "Enter" &&
       !(event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) &&
       event.target instanceof Element &&
@@ -281,18 +288,31 @@ export const LibraryRow = memo(function LibraryRow({
                   type="button"
                   {...TREE_ROW}
                   data-row-main=""
-                  title={[name, ...(name === source ? [] : [source]), `${format} · ${added}`].join(
-                    "\n",
-                  )}
+                  title={[
+                    nameWithPlace(name, where),
+                    ...(name === source ? [] : [source]),
+                    `${format} · ${added}`,
+                  ].join("\n")}
                   className="flex min-w-0 items-center gap-2 text-left focus-visible:outline-0"
                 >
                   <DocumentLineIcon kind={doc.kind} className="size-4 shrink-0 text-ink-meta" />
-                  <span
-                    data-testid="library-document-name"
-                    data-fit-name=""
-                    className="min-w-0 truncate text-ui text-ink"
-                  >
-                    {match ? <Marked text={name} ranges={match.ranges} /> : name}
+                  <span className="flex min-w-0 items-center gap-2">
+                    <span
+                      data-testid="library-document-name"
+                      data-fit-name=""
+                      className="max-w-full shrink-0 truncate text-ui text-ink"
+                    >
+                      {match ? <Marked text={name} ranges={match.ranges} /> : name}
+                    </span>
+                    {where && (
+                      <span
+                        data-testid="library-document-place"
+                        data-fit-name=""
+                        className="min-w-0 truncate text-[12px] text-ink-meta"
+                      >
+                        {where}
+                      </span>
+                    )}
                   </span>
                 </button>
               )}
@@ -311,9 +331,9 @@ export const LibraryRow = memo(function LibraryRow({
                   <span
                     data-testid="library-not-sorted"
                     title={t("library.notSorted.title", { reason: notSorted })}
-                    className="shrink-0 text-label font-semibold text-ink-meta"
+                    className="min-w-0 max-w-60 shrink truncate text-label font-semibold text-ink-meta"
                   >
-                    {t("library.notSorted")}
+                    {t("library.notSorted.reason", { reason: notSorted })}
                   </span>
                 )}
                 {suggestedIn !== null && !review && (
@@ -341,7 +361,7 @@ export const LibraryRow = memo(function LibraryRow({
                 />
               )}
             </div>
-            <DocumentFix doc={doc} />
+            <DocumentFix document={doc} />
             {line && (
               <p
                 data-testid="library-found-text"
@@ -405,6 +425,15 @@ export const LibraryRow = memo(function LibraryRow({
           />
         </span>
       </div>
+      {sortFailed !== null && (
+        <p
+          data-testid="library-sort-failed"
+          title={t("library.sortAgain.reason", { reason: sortFailed })}
+          className="truncate pr-1.5 pb-1.5 pl-14 text-label font-semibold leading-5 text-ink-meta"
+        >
+          {t("library.sortAgain.reason", { reason: sortFailed })}
+        </p>
+      )}
       {citing && doc.reference && (
         <div id={citePanelId} data-cite-panel="" className="min-w-0 pr-1.5 pb-3 pl-14">
           <CiteAsPanel

@@ -5,15 +5,21 @@ import { typesText } from "../../undo";
 import { AddDocumentsMenu } from "../AddDocumentsMenu";
 import { SearchIcon } from "../icons";
 import { CloseLineIcon } from "../lineIcons";
+import { quietButtonClass } from "./LibrarySection";
 
 /**
  * The page's head: "Library" and how many Documents it holds, as the
- * sidebar says, the one primary "Add Documents ▾", and under them the wide
- * search field, which `/` focuses from anywhere on the page but a field, and
- * ↓ leaves for the first row; Enter asks about it when nothing matches.
+ * sidebar says, how sorting ended ("All sorted", or what Organize couldn't
+ * sort with the way to look at it), the one primary "Add Documents ▾", and
+ * under them the wide search field, which `/` focuses from anywhere on the
+ * page but a field, and ↓ leaves for the first row; Enter asks about it when
+ * nothing matches.
  */
 export function LibraryHeader({
   count,
+  notSorted,
+  sorted,
+  onReview,
   search,
   onSearch,
   onDown,
@@ -21,6 +27,11 @@ export function LibraryHeader({
   field,
 }: {
   count: number;
+  /** How many Documents Organize couldn't sort. */
+  notSorted: number;
+  /** Every Document is through Organize and nothing waits: nothing is left to look at. */
+  sorted: boolean;
+  onReview(): void;
   search: string;
   onSearch(search: string): void;
   /** ↓ in the search field. */
@@ -50,7 +61,7 @@ export function LibraryHeader({
       <div className="flex min-w-0 items-center gap-3">
         <h1
           data-testid="library-heading"
-          className="flex min-w-0 flex-1 items-baseline gap-2 font-serif text-heading font-semibold text-ink"
+          className="flex min-w-0 shrink-0 items-baseline gap-2 font-serif text-heading font-semibold text-ink"
         >
           <span className="truncate">{t("library.title")}</span>
           <span
@@ -60,6 +71,34 @@ export function LibraryHeader({
             {formatCount(count, language)}
           </span>
         </h1>
+        {notSorted > 0 ? (
+          <span
+            data-testid="library-not-sorted-line"
+            className="flex min-w-0 shrink items-center gap-1 text-[13px] text-ink-meta"
+          >
+            <span data-testid="library-not-sorted-count" className="truncate">
+              {t("library.notSorted.count", { count: formatCount(notSorted, language) })}
+            </span>
+            <span aria-hidden="true" className="shrink-0">
+              ·
+            </span>
+            <button
+              type="button"
+              data-testid="library-review-not-sorted"
+              onClick={onReview}
+              className={`${quietButtonClass} shrink-0`}
+            >
+              {t("library.review")}
+            </button>
+          </span>
+        ) : (
+          sorted && (
+            <span data-testid="library-sorted" className="shrink-0 text-[13px] text-ink-meta">
+              {t("library.sorted.all")}
+            </span>
+          )
+        )}
+        <span className="min-w-0 flex-1" />
         <AddDocumentsMenu />
       </div>
       <label

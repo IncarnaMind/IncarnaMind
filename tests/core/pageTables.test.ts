@@ -5,8 +5,11 @@
  * in columns. The real PDFs are in tests/eval/tableSet.test.ts.
  */
 import { describe, expect, test } from "vitest";
+import { documentBlocks } from "../../src/core/answers/checks/verifyTables";
 import { textLayerParts } from "../../src/core/documents/extract";
+import { anchorsBack } from "../../src/core/documents/scan/rotation";
 import { findTables, scannedRows } from "../../src/core/documents/tables";
+import type { Anchor } from "../../src/shared/units";
 
 const SIZE = 10;
 const CHARACTER = 5;
@@ -247,36 +250,46 @@ describe("tables on a page", () => {
     expect(textLayerParts(references)).toBeNull();
   });
 
-  test("a scanned page's lines make a table the same way, from their boxes", () => {
-    const rows = [
-      ["Item", "Closing"],
-      ["Cash", "3,820"],
-      ["Receivables", "2,610"],
-    ];
-    let text = "";
-    const anchors: { start: number; end: number; quad: number[] }[] = [];
-    rows.forEach((row, index) => {
-      if (index > 0) text += "\n";
-      row.forEach((cell, column) => {
-        if (column > 0) text += "\t";
-        const left = column === 0 ? 0.1 : 0.5;
-        const top = 0.2 + index * 0.03;
-        anchors.push({
-          start: text.length,
-          end: text.length + cell.length,
-          quad: [left, top, left + 0.1, top, left + 0.1, top + 0.02, left, top + 0.02],
+  test.each([0, 90, 180, 270] as const)(
+    "a scanned page's lines make a table from their displayed boxes at %i degrees",
+    (turn) => {
+      const rows = [
+        ["Item", "Closing"],
+        ["Cash", "3,820"],
+        ["Receivables", "2,610"],
+      ];
+      let text = "";
+      const anchors: Anchor[] = [];
+      rows.forEach((row, index) => {
+        if (index > 0) text += "\n";
+        row.forEach((cell, column) => {
+          if (column > 0) text += "\t";
+          const left = column === 0 ? 0.1 : 0.5;
+          const top = 0.2 + index * 0.03;
+          anchors.push({
+            start: text.length,
+            end: text.length + cell.length,
+            target: `line${anchors.length + 1}`,
+            quad: [left, top, left + 0.1, top, left + 0.1, top + 0.02, left, top + 0.02],
+          });
+          text += cell;
         });
-        text += cell;
       });
-    });
-    const [found] = findTables(scannedRows(text, anchors));
-    expect(found?.grid).toEqual({
-      headings: ["Item", "Closing"],
-      rows: [
-        { cells: ["Cash", "3,820"], section: false },
-        { cells: ["Receivables", "2,610"], section: false },
-      ],
-      numeric: [false, true],
-    });
-  });
+      const displayed = anchorsBack(anchors, turn);
+      const [found] = findTables(scannedRows(text, displayed, turn));
+      expect(found?.grid).toEqual({
+        headings: ["Item", "Closing"],
+        rows: [
+          { cells: ["Cash", "3,820"], section: false },
+          { cells: ["Receivables", "2,610"], section: false },
+        ],
+        numeric: [false, true],
+      });
+      const label = { scan: { reader: "PP-OCRv5 mobile/2", turn } } as const;
+      const blocks = documentBlocks([{ page: 1, text, kind: "page", label }], new Map(), [
+        { page: 1, text, label, anchors: displayed },
+      ]);
+      expect(blocks.map((block) => block.node.type)).toEqual(["table"]);
+    },
+  );
 });

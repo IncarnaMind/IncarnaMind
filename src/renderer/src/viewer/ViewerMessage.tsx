@@ -1,5 +1,5 @@
 import { type ReactNode, useContext, useState } from "react";
-import { ProblemLine } from "../components/ProblemLine";
+import { type ProblemAction, ProblemLine } from "../components/ProblemLine";
 import { errorMessage } from "../errors";
 import { useT } from "../i18n";
 import { saidInLine } from "../lineNames";
@@ -14,15 +14,22 @@ export function ViewerMessage({
   children,
   testId,
   tone = "muted",
+  action,
+  also,
 }: {
   children: ReactNode;
   testId?: string;
   tone?: "muted" | "error";
+  action?: ProblemAction | undefined;
+  /** A second choice, after the first, as ProblemLine's. */
+  also?: ProblemAction | undefined;
 }) {
   if (tone === "error") {
     return (
       <div data-testid={testId} className="min-h-0 flex-1 overflow-y-auto px-4 py-3">
-        <ProblemLine testId="viewer-problem">{children}</ProblemLine>
+        <ProblemLine testId="viewer-problem" action={action} also={also}>
+          {children}
+        </ProblemLine>
       </div>
     );
   }

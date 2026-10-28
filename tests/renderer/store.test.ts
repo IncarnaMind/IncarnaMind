@@ -596,8 +596,19 @@ describe("making a Mind", () => {
 
   test("a Mind the core can't make is a problem, with no step to undo", async () => {
     method("createMind").mockRejectedValue(new Error("The disk is full."));
-    expect(await useAppStore.getState().createMind()).toBeUndefined();
+    expect(await useAppStore.getState().createMind()).toBeNull();
     expect(useUndo.getState().done).toEqual([]);
+    const { useNotices } = await import("../../src/renderer/src/notices");
+    for (const notice of useNotices.getState().errors)
+      useNotices.getState().dismissError(notice.id);
+  });
+
+  test("a Mind whose tab the core refuses is not shown, and asks for no focus", async () => {
+    method("changeLayout").mockRejectedValue(new Error("The layout was refused."));
+    const before = useAppStore.getState().layout;
+    expect(await useAppStore.getState().createMind({ titled: true })).toBeNull();
+    expect(useAppStore.getState().bodyToFocus).toBeNull();
+    expect(useAppStore.getState().layout).toBe(before);
     const { useNotices } = await import("../../src/renderer/src/notices");
     for (const notice of useNotices.getState().errors)
       useNotices.getState().dismissError(notice.id);
@@ -629,7 +640,6 @@ describe("Get started's Add your Documents", () => {
       linkedFolderId,
       answerId: "a",
       more: [],
-      ready: null,
     }) satisfies CoreEvents["examples.changed"];
   const ticked = () => useAppStore.getState().settings?.device.gettingStarted.indexed;
 
@@ -735,28 +745,12 @@ describe("changing a Linked folder", () => {
     expect(named(change)).toBe("Resume reading");
   });
 
-  test("a layout is undone by the one it had and done again by the new one", async () => {
-    method("setLinkedFolderLayout").mockResolvedValue({ ...linked, layout: "flat" });
-    const change = await useAppStore.getState().setLinkedFolderLayout("l", "flat");
-    expect(said(change)).toBe("Showing “Papers” as a flat list");
-    expect(named(change)).toBe("Show as a flat list");
-    await useUndo.getState().undo();
-    expect(method("setLinkedFolderLayout")).toHaveBeenLastCalledWith("l", "tree");
-    await useUndo.getState().redo();
-    expect(method("setLinkedFolderLayout")).toHaveBeenLastCalledWith("l", "flat");
-    expect(await useAppStore.getState().setLinkedFolderLayout("l", "flat")).toBeUndefined();
-  });
-
   test("the lines in Chinese", async () => {
     useAppStore.setState({ settings: { language: "zh-CN" } as never });
     method("setLinkedFolderPaused").mockResolvedValue({ ...linked, status: "paused" });
     await useAppStore.getState().setLinkedFolderPaused("l", true);
     expect(said(top())).toBe("已暂停读取“Papers”");
     expect(named(top())).toBe("暂停读取");
-    method("setLinkedFolderLayout").mockResolvedValue({ ...linked, layout: "flat" });
-    await useAppStore.getState().setLinkedFolderLayout("l", "flat");
-    expect(said(top())).toBe("已将“Papers”显示为平铺列表");
-    expect(named(top())).toBe("显示为平铺列表");
   });
 });
 
@@ -1311,7 +1305,6 @@ describe("Get started's Ask a question", () => {
         linkedFolderId: "f",
         answerId: "example",
         more: [],
-        ready: null,
       } satisfies CoreEvents["examples.changed"],
       otherExamples: [],
       settings: {
@@ -1343,6 +1336,25 @@ describe("Get started's Ask a question", () => {
   test("a later failed Answer doesn't take the tick back", () => {
     finished("own", "done");
     emit("answer.failed", { answerId: "again" } as CoreEvents["answer.failed"]);
+    expect(asked()).toBe(true);
+  });
+
+  test("the first own Answer is recorded even when this device has no first-run checklist", () => {
+    const state = useAppStore.getState();
+    const settings = state.settings;
+    if (!settings) throw new Error("Settings have not loaded.");
+    useAppStore.setState({
+      settings: {
+        ...settings,
+        device: {
+          ...settings.device,
+          gettingStarted: { ...settings.device.gettingStarted, started: false },
+        },
+      },
+    });
+    finished("example", "done");
+    expect(asked()).toBe(false);
+    finished("own", "done");
     expect(asked()).toBe(true);
   });
 });

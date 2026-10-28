@@ -4,11 +4,14 @@ import { type ElectronApplication, expect, type Locator, type Page, test } from 
 import type { CoreBridge } from "../src/core/api";
 import { buildPdf } from "../tests/helpers/pdf";
 import {
+  addFilesLabel,
   askInAssistant,
   assistantAnswers,
   confirmLink,
+  coreOf,
   createDataFolder,
   dismissChatSetup,
+  useLocalChatModel as enableLocalModel,
   expectReadyDocuments,
   gettingStarted,
   interceptOpenDialog,
@@ -16,15 +19,14 @@ import {
   nameMind,
   newMind,
   openPageMenu,
+  paletteFound,
   pointAndClick,
-  previewLink,
   removeDataFolder,
   setLanguage,
   setSidebarWidth,
   setWindowSize,
   slideSelect,
   welcomeStep as step,
-  useLocalChatModel,
 } from "./app";
 
 let dataDir: string;
@@ -45,23 +47,29 @@ async function markSteps(window: Page, done: Record<string, boolean>): Promise<v
   }, done);
 }
 
-const NONE = { mistakeSeen: false, askedOwn: false, askedReady: false, indexed: false };
+const NONE = {
+  citationChecked: false,
+  mistakeSeen: false,
+  askedOwn: false,
+  askedReady: false,
+  indexed: false,
+};
 
 const STATES = [
   { name: "Welcome", done: NONE, steps: ["open", "later", "later"] },
   {
     name: "first step done",
-    done: { ...NONE, mistakeSeen: true },
+    done: { ...NONE, indexed: true },
     steps: ["done", "open", "later"],
   },
   {
     name: "second step done",
-    done: { ...NONE, mistakeSeen: true, askedReady: true },
+    done: { ...NONE, indexed: true, askedReady: true },
     steps: ["done", "done", "open"],
   },
   {
     name: "all done, no model",
-    done: { ...NONE, mistakeSeen: true, askedReady: true, indexed: true },
+    done: { ...NONE, indexed: true, askedReady: true, citationChecked: true },
     steps: ["done", "done", "done"],
   },
 ];
@@ -71,6 +79,14 @@ async function measure(window: Page) {
   const title = await window.getByTestId("mind-editor").locator("h1").boundingBox();
   if (!card || !title) throw new Error("The first screen isn't laid out.");
   return { card: Math.round(card.height), title: Math.round(title.y) };
+}
+
+/** The example follows the interface's language once it is switched (#709): its Mind says so. */
+async function expectExampleIn(window: Page, language: "en" | "zh-CN"): Promise<void> {
+  await expect(window.getByTestId("mind-editor").locator("h1")).toHaveText(
+    language === "en" ? "Draft: credit committee paper" : "授信委员会报告（草稿）",
+    { timeout: 30_000 },
+  );
 }
 
 async function showState(window: Page, { done, steps }: (typeof STATES)[number]): Promise<void> {
@@ -98,14 +114,427 @@ async function expectOneHeight(window: Page, where: string) {
   return reference;
 }
 
+const HARBOURS = buildPdf([
+  { lines: ["Harbour times", "Harbours publish the times of high water every 12 months."] },
+]);
+const OWN_QUESTION = "When do harbours publish the times of high water?";
+
+for (const language of ["en", "zh-CN"] as const) {
+  for (const width of [900, 1600]) {
+    test(`a fresh profile adds its own file, asks and checks a Citation in the card's order, at ${width} px in ${language} (#1944)`, async () => {
+      const sources = await createDataFolder();
+      const harbours = join(sources, "Harbours.pdf");
+      await writeFile(harbours, HARBOURS);
+      const { app, window } = await launchApp(dataDir, { examples: true, fakeChat: true });
+      try {
+        await setWindowSize(app, window, width, 900);
+        await setLanguage(window, language);
+        await enableLocalModel(window);
+        const card = window.getByTestId("first-open-steps");
+        const sidebar = window.getByTestId("sidebar");
+        const height = async () => Math.round((await card.boundingBox())?.height ?? 0);
+        const expectOne = (heights: readonly number[], where: string) => {
+          for (const each of heights) {
+            expect(Math.abs(each - (heights[0] ?? 0)), where).toBeLessThanOrEqual(1);
+          }
+        };
+
+        // 1 Add your files, from the card's title with the keyboard.
+        await expect(step(window, "files")).toHaveAttribute("data-state", "open");
+        await expect(step(window, "question")).toHaveAttribute("data-state", "later");
+        await expect(step(window, "citation")).toHaveAttribute("data-state", "later");
+        const before = [await height()];
+        await interceptOpenDialog(app, harbours);
+        const addTitle = step(window, "files").getByTestId("first-open-step-do");
+        await addTitle.focus();
+        await window.keyboard.press("Enter");
+        await expect(step(window, "files")).toHaveAttribute("data-state", "done", {
+          timeout: 30_000,
+        });
+        await expect(step(window, "question")).toHaveAttribute("data-state", "open");
+        before.push(await height());
+        expectOne(before, `${language} ${width} px, up to step 2`);
+
+        // The example folds to one row, and Undo takes that back.
+        await expect(window.getByTestId("example-open")).toBeVisible();
+        await expect(sidebar.getByTestId("document-list-item")).toHaveCount(1);
+        await window.keyboard.press("ControlOrMeta+z");
+        await expect(window.getByTestId("example-open")).toHaveCount(0);
+        await expect(sidebar.getByTestId("document-list-item")).toHaveCount(0);
+
+        // Back in, then 2 Ask, from the card's title with the keyboard.
+        await window.getByTestId("add-documents-input").setInputFiles([harbours]);
+        await expect(step(window, "question")).toHaveAttribute("data-state", "open");
+        await expect(window.getByTestId("example-open")).toBeVisible();
+        const askTitle = step(window, "question").getByTestId("first-open-step-do");
+        await askTitle.focus();
+        await window.keyboard.press("Enter");
+        await expect(window.getByTestId("composer-input")).toBeFocused();
+        await window.keyboard.type(OWN_QUESTION);
+        await window.keyboard.press("Enter");
+        await expect(step(window, "question")).toHaveAttribute("data-state", "done", {
+          timeout: 30_000,
+        });
+        await expect(step(window, "citation")).toHaveAttribute("data-state", "open");
+        // The assistant opens beside the page: at its narrower width the card sets its height again (#1277).
+        const beside = [await height()];
+        const answer = assistantAnswers(window).last();
+        await expect(answer).toHaveAttribute("data-status", "done");
+        const citation = answer.getByTestId("citation").first();
+        await expect(citation).toHaveAttribute("data-check", "found", { timeout: 30_000 });
+        await expect(citation.getByTestId("citation-chip")).toHaveAttribute(
+          "aria-label",
+          /Harbours/,
+        );
+
+        // 3 Check a Citation, from ⌘K with the keyboard.
+        await window.keyboard.press("ControlOrMeta+k");
+        await expect(window.getByTestId("palette-search")).toBeFocused();
+        await window.keyboard.type(language === "en" ? "Check a Citation" : "核对一条引用");
+        await expect(paletteFound(window).first()).toHaveAttribute(
+          "data-key",
+          "command:firstOpen.checkCitation",
+        );
+        await window.keyboard.press("Enter");
+        const chip = answer.getByTestId("citation-chip").first();
+        await expect(chip).toBeFocused();
+        await window.keyboard.press("Enter");
+        await expect(window.getByTestId("citation-card")).toBeVisible();
+        await expect(step(window, "citation")).toHaveAttribute("data-state", "done");
+        // Opening the cited page narrows the page, which sets the card's height again (#1277).
+        if ((await window.getByTestId("viewer-title").count()) === 0) {
+          beside.push(await height());
+        }
+        expectOne(beside, `${language} ${width} px, step 3`);
+        await expect(card).toContainText(language === "en" ? "You’re set up." : "准备好了。");
+        await window.keyboard.press("Escape");
+
+        // ⌘K reaches what the steps teach.
+        await window.keyboard.press("ControlOrMeta+k");
+        await expect(window.getByTestId("palette-search")).toBeFocused();
+        await window.keyboard.type("Add Documents");
+        await expect(paletteFound(window).first()).toHaveAttribute(
+          "data-key",
+          "command:documents.add",
+        );
+        await expect(paletteFound(window).first()).toContainText(
+          language === "en" ? "Add Documents" : "添加文档",
+        );
+        await window.keyboard.press("Escape");
+        await window.keyboard.press("ControlOrMeta+k");
+        await window.keyboard.type("Ask a Question");
+        await expect(paletteFound(window).first()).toHaveAttribute(
+          "data-key",
+          "command:composer.focus",
+        );
+        await expect(paletteFound(window).first()).toContainText(
+          language === "en" ? "Ask a Question" : "提问",
+        );
+        await window.keyboard.press("Escape");
+        // With the steps done, the route is gone again.
+        await window.keyboard.press("ControlOrMeta+k");
+        await window.keyboard.type(language === "en" ? "Check a Citation" : "核对一条引用");
+        await expect(
+          paletteFound(window).filter({
+            hasText: language === "en" ? "Check a Citation" : "核对一条引用",
+          }),
+        ).toHaveCount(0);
+        await window.keyboard.press("Escape");
+      } finally {
+        await app.close();
+        await removeDataFolder(sources);
+      }
+    });
+  }
+}
+
+test("the example's Documents stay reachable when its Mind is deleted after the User added files (#1944)", async () => {
+  const sources = await createDataFolder();
+  const notes = join(sources, "Harbour notes.md");
+  await writeFile(notes, "# Harbour notes\n\nThe harbour master publishes the tide tables.\n");
+  const { app, window } = await launchApp(dataDir, { examples: true, fakeChat: true });
+  try {
+    await setWindowSize(app, window, 1440, 900);
+    await window.getByTestId("add-documents-input").setInputFiles([notes]);
+    await expect(window.getByTestId("example-open")).toBeVisible({ timeout: 20_000 });
+    const sidebar = window.getByTestId("sidebar");
+    await expect(sidebar.getByTestId("document-list-item")).toHaveCount(1);
+
+    await window.evaluate(async () => {
+      const bridge = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
+      const { mindId } = await bridge.getExamples();
+      if (mindId) await bridge.deleteMind(mindId);
+    });
+    // The one row goes with its Mind: its Documents and its Linked folder row stay reachable.
+    await expect(window.getByTestId("example-open")).toHaveCount(0);
+    await expect(sidebar.getByTestId("document-list-item")).toHaveCount(3);
+    await expect(window.getByTestId("linked-folders-section")).toBeVisible();
+  } finally {
+    await app.close();
+    await removeDataFolder(sources);
+  }
+});
+
+test("the Example row's ⋯, a right-click and Shift+F10 open the examples' menu (#1944)", async () => {
+  const sources = await createDataFolder();
+  const notes = join(sources, "Harbour notes.md");
+  await writeFile(notes, "# Harbour notes\n\nThe harbour master publishes the tide tables.\n");
+  const { app, window } = await launchApp(dataDir, { examples: true, fakeChat: true });
+  try {
+    await setWindowSize(app, window, 1440, 900);
+    await window.getByTestId("add-documents-input").setInputFiles([notes]);
+    const row = window.getByTestId("example-row");
+    await expect(row).toBeVisible({ timeout: 20_000 });
+    const menu = window.getByTestId("examples-actions");
+
+    await row.hover();
+    await pointAndClick(window, row.getByTestId("examples-menu"));
+    await expect(menu).toBeVisible();
+    await expect(menu.getByTestId("example-more-link")).toHaveCount(3);
+    await expect(menu.getByTestId("examples-remove")).toBeVisible();
+    await window.keyboard.press("Escape");
+    await expect(menu).toBeHidden();
+
+    const box = await row.boundingBox();
+    if (!box) throw new Error("The Example row isn't laid out.");
+    const [x, y] = [box.x + box.width / 2, box.y + box.height / 2];
+    await window.mouse.move(x, y, { steps: 4 });
+    await window.mouse.click(x, y, { button: "right" });
+    await expect(menu).toBeVisible();
+    await window.keyboard.press("Escape");
+    await expect(menu).toBeHidden();
+
+    await row.getByTestId("example-open").focus();
+    await window.keyboard.press("Shift+F10");
+    await expect(menu).toBeVisible();
+    await expect(menu.getByTestId("example-more-link")).toHaveCount(3);
+    await window.keyboard.press("Escape");
+    await expect(menu).toBeHidden();
+  } finally {
+    await app.close();
+    await removeDataFolder(sources);
+  }
+});
+
+test("hiding the guide takes its red mark's ring and its ⌘K route away (#1944)", async () => {
+  const { app, window } = await launchApp(dataDir, { examples: true, fakeChat: true });
+  await setWindowSize(app, window, 1440, 900);
+  await markSteps(window, { ...NONE, indexed: true, askedReady: true });
+  const mark = window.getByTestId("mind-pane").getByTestId("claim-mark");
+  await expect(mark).toHaveAttribute("data-guided");
+
+  await pointAndClick(window, window.getByTestId("first-open-hide"));
+  await expect(window.getByTestId("first-open-steps")).toHaveCount(0);
+  await expect(mark).not.toHaveAttribute("data-guided");
+  await window.keyboard.press("ControlOrMeta+k");
+  await expect(window.getByTestId("palette-search")).toBeFocused();
+  await window.keyboard.type("Check a Citation");
+  await expect(paletteFound(window).filter({ hasText: "Check a Citation" })).toHaveCount(0);
+  await window.keyboard.press("Escape");
+  await app.close();
+});
+
+/** A file name longer than the Ask line can show: the Question about it is cut. */
+const LONG_NAME =
+  "Protocol for the joint harbour authority quarterly tide-table review and its winter dredging schedule";
+/** Pages enough that reading the file takes a moment the test can see the card in. */
+const SLOW = buildPdf(
+  Array.from({ length: 800 }, (_none, page) => ({
+    lines: [
+      `Harbour times, page ${page + 1}`,
+      "Harbours publish the times of high water every 12 months.",
+      "The tide tables follow the winter dredging.",
+    ],
+  })),
+);
+
+/** The User's own Documents in the core: one still being read, and one a Question can be made from. */
+async function ownDocuments(window: Page): Promise<{ reading: boolean; ready: boolean }> {
+  const core = await coreOf(window);
+  return core.evaluate(async (each) => {
+    const own = [];
+    for (const document of await each.listDocuments())
+      if (!(await each.isExampleDocument(document.id))) own.push(document);
+    return {
+      reading: own.some(
+        (document) => document.status === "queued" || document.status === "extracting",
+      ),
+      ready: own.some((document) =>
+        ["ready", "embedding", "waiting-for-model"].includes(document.status),
+      ),
+    };
+  });
+}
+
+for (const language of ["en", "zh-CN"] as const) {
+  for (const width of [900, 1600]) {
+    test(`the Ask line holds one height as their file is read, fails, becomes the Question, or a long one (${language}, ${width}px)`, async () => {
+      test.setTimeout(180_000);
+      const sources = await createDataFolder();
+      const slow = join(sources, "Harbour times.pdf");
+      await writeFile(slow, SLOW);
+      const damaged = join(sources, "damaged.pdf");
+      await writeFile(damaged, "%PDF-1.4 this is not a PDF");
+      const long = join(sources, `${LONG_NAME}.md`);
+      await writeFile(long, "# Protocol\n\nThe harbour master publishes the tide tables.\n");
+
+      // Their file being read, then ready, then a Question too long for the line.
+      let ready = 0;
+      const first = await createDataFolder();
+      const a = await launchApp(first, { examples: true, fakeChat: true });
+      try {
+        await setWindowSize(a.app, a.window, width, 900);
+        await setLanguage(a.window, language);
+        await expectReadyDocuments(a.window, 2);
+        const card = a.window.getByTestId("first-open-steps");
+        const height = async () => Math.round((await card.boundingBox())?.height ?? 0);
+
+        // The reading line can be on screen for only a frame or two: record it as the card's text
+        // changes, then wait for the record, rather than read the text once and hope to catch it.
+        const readingLine =
+          language === "en" ? "Reading “Harbour times”…" : "正在读取“Harbour times”…";
+        await a.window.evaluate((expected) => {
+          const seen = { text: false };
+          (globalThis as unknown as { cardReadingLine?: typeof seen }).cardReadingLine = seen;
+          const scan = () => {
+            const card = document.querySelector('[data-testid="first-open-steps"]');
+            if (card?.parentElement?.textContent?.includes(expected)) seen.text = true;
+          };
+          new MutationObserver(scan).observe(document.body, {
+            subtree: true,
+            childList: true,
+            characterData: true,
+          });
+          scan();
+        }, readingLine);
+
+        await interceptOpenDialog(a.app, slow);
+        await pointAndClick(a.window, step(a.window, "files").getByTestId("first-open-add-files"));
+        await expect.poll(async () => (await ownDocuments(a.window)).reading).toBe(true);
+        const reading = await height();
+        // The Ask step's line, in the states laid out unseen, says the file is reading.
+        await expect
+          .poll(() =>
+            a.window.evaluate(
+              () =>
+                (globalThis as unknown as { cardReadingLine?: { text: boolean } }).cardReadingLine
+                  ?.text ?? false,
+            ),
+          )
+          .toBe(true);
+
+        await expect
+          .poll(async () => (await ownDocuments(a.window)).ready, { timeout: 90_000 })
+          .toBe(true);
+        const button = step(a.window, "question").getByTestId("first-open-ready");
+        await expect(button).toBeVisible({ timeout: 90_000 });
+        ready = await height();
+        expect(ready, `${language} ${width}px, reading to ready`).toBe(reading);
+
+        await a.window.getByTestId("add-documents-input").setInputFiles([long]);
+        await expect(button).toHaveAttribute("title", new RegExp(LONG_NAME.slice(0, 24)));
+        const cut = await height();
+        expect(cut, `${language} ${width}px, a long Question`).toBe(reading);
+        // The whole Question stays the line's name and its tooltip, and the line cuts it.
+        expect(await button.getAttribute("aria-label")).toContain(LONG_NAME);
+        const wholeLabel = (await button.getAttribute("title")) ?? "";
+        const shownLabel = await button.innerText();
+        expect(shownLabel.endsWith("…"), `${language} ${width}px, cut`).toBe(true);
+        expect(wholeLabel.startsWith(shownLabel.slice(0, -1))).toBe(true);
+        if (language === "en")
+          // English cuts at a word's end, so what follows the shown text starts a word.
+          expect(
+            wholeLabel.slice(shownLabel.length - 1),
+            `${language} ${width}px, a word's end`,
+          ).toMatch(/^\s/u);
+      } finally {
+        await a.app.close();
+        await removeDataFolder(first);
+      }
+
+      // A file that could not be read: the Ask line shows the unread-files line, at one height.
+      const second = await createDataFolder();
+      const b = await launchApp(second, { examples: true, fakeChat: true });
+      try {
+        await setWindowSize(b.app, b.window, width, 900);
+        await setLanguage(b.window, language);
+        await expectReadyDocuments(b.window, 2);
+        await interceptOpenDialog(b.app, damaged);
+        await pointAndClick(b.window, step(b.window, "files").getByTestId("first-open-add-files"));
+        // Step 2 stays closed with no Document of theirs read; the Ask step's line, laid out
+        // unseen, says what the failure means for the Question.
+        const failedCard = b.window.getByTestId("first-open-steps");
+        await expect
+          .poll(
+            async () =>
+              (
+                await failedCard.evaluate((element) => element.parentElement?.textContent ?? "")
+              ).includes(language === "en" ? "1 file couldn’t be read" : "1 个文件未能读取"),
+            { timeout: 30_000 },
+          )
+          .toBe(true);
+        const failed = Math.round((await failedCard.boundingBox())?.height ?? 0);
+        expect(failed, `${language} ${width}px, failed to ready`).toBe(ready);
+      } finally {
+        await b.app.close();
+        await removeDataFolder(second);
+        await removeDataFolder(sources);
+      }
+    });
+  }
+}
+
+test("a Chinese Question longer than the line cuts at a character, whole in its name (#2084)", async () => {
+  const sources = await createDataFolder();
+  const name = "港口简报与冬季疏浚计划联合评审会议纪要（第二季度）";
+  const file = join(sources, `${name}.md`);
+  await writeFile(file, "# 港口简报\n\n港口每月发布一次潮汐表，并在冬季疏浚之后更新。\n");
+  const { app, window } = await launchApp(dataDir, { examples: true, fakeChat: true });
+  try {
+    await setWindowSize(app, window, 900, 900);
+    await setLanguage(window, "zh-CN");
+    await window.getByTestId("add-documents-input").setInputFiles([file]);
+    const button = step(window, "question").getByTestId("first-open-ready");
+    const whole = `提问：“${name}”讲了什么？`;
+    await expect(button).toHaveAttribute("title", whole, { timeout: 30_000 });
+    const shown = await button.innerText();
+    // A character cut, as Chinese reads: the line ends inside the name, not only at a space.
+    expect(shown.endsWith("…")).toBe(true);
+    expect(whole.startsWith(shown.slice(0, -1))).toBe(true);
+    expect(whole.charAt(shown.length - 1)).not.toBe(" ");
+  } finally {
+    await app.close();
+    await removeDataFolder(sources);
+  }
+});
+
+test("the English example's Question shows whole on one line at 900 px (#2084)", async () => {
+  const { app, window } = await launchApp(dataDir, { examples: true, fakeChat: true });
+  try {
+    await setWindowSize(app, window, 900, 900);
+    await setLanguage(window, "en");
+    await expectReadyDocuments(window, 2);
+    await markSteps(window, { indexed: true });
+    const button = step(window, "question").getByTestId("first-open-ready");
+    const whole = "Ask: “What leverage does the agreement allow?”";
+    await expect(button).toHaveAttribute("aria-label", whole, { timeout: 30_000 });
+    await expect(button).toHaveText(whole);
+  } finally {
+    await app.close();
+  }
+});
+
 test("the Welcome card keeps one height through every step, so the page's text never moves (#1195)", async () => {
   const { app, window } = await launchApp(dataDir, { examples: true, fakeChat: true });
   await expect(window.getByTestId("first-open-steps")).toBeVisible();
+  // The example, and its ready Question, are there before the first height is taken.
+  await expectReadyDocuments(window, 2);
 
   const heights = new Map<string, Awaited<ReturnType<typeof measure>>>();
   for (const language of ["en", "zh-CN"] as const) {
     await setLanguage(window, language);
-    for (const width of [900, 1100, 1440]) {
+    await expectExampleIn(window, language);
+    for (const width of [900, 1100, 1440, 1600]) {
       await setWindowSize(app, window, width, 900);
       heights.set(
         `${language} ${width}`,
@@ -114,10 +543,13 @@ test("the Welcome card keeps one height through every step, so the page's text n
     }
   }
 
-  await useLocalChatModel(window);
+  await enableLocalModel(window);
   for (const language of ["en", "zh-CN"] as const) {
     await setLanguage(window, language);
-    for (const width of [900, 1100, 1440]) {
+    // The ready Question is the example's while there is no file of their own, and the card is
+    // measured in the example's language.
+    await expectExampleIn(window, language);
+    for (const width of [900, 1100, 1440, 1600]) {
       await setWindowSize(app, window, width, 900);
       await expect(window.getByTestId("first-open-next").first()).toBeVisible();
       expect(await measure(window), `${language} at ${width} px, all done, set up`).toEqual(
@@ -128,15 +560,15 @@ test("the Welcome card keeps one height through every step, so the page's text n
   await app.close();
 });
 
-test("a file that couldn't be read says so in step 3 without changing the card's height or moving its buttons, at every width in English and Chinese (#1457)", async () => {
+test("a file that couldn't be read says so in step 1 without changing the card's height or moving its buttons, at every width in English and Chinese (#1457)", async () => {
   const sources = await createDataFolder();
   const damaged = join(sources, "damaged.pdf");
   await writeFile(damaged, "%PDF-1.4 this is not a PDF");
   const { app, window } = await launchApp(dataDir, { examples: true, fakeChat: true });
   try {
-    await markSteps(window, { ...NONE, mistakeSeen: true, askedReady: true });
     const files = window.locator('[data-testid="first-open-step"][data-step="files"]');
     await expect(files).toHaveAttribute("data-state", "open");
+    await expectReadyDocuments(window, 2);
     const add = files.getByTestId("first-open-add-files");
     const places = async () => ({
       ...(await measure(window)),
@@ -148,6 +580,7 @@ test("a file that couldn't be read says so in step 3 without changing the card's
     const before: Record<string, Awaited<ReturnType<typeof places>>> = {};
     for (const { language, width, name } of views) {
       await setLanguage(window, language);
+      await expectExampleIn(window, language);
       await setWindowSize(app, window, width, 900);
       before[name] = await places();
     }
@@ -158,6 +591,7 @@ test("a file that couldn't be read says so in step 3 without changing the card's
     await expect(unread).toBeVisible({ timeout: 30_000 });
     for (const { language, width, name } of views) {
       await setLanguage(window, language);
+      await expectExampleIn(window, language);
       await setWindowSize(app, window, width, 900);
       await expect(unread).toBeVisible();
       expect(await places(), `${name}, the line shown`).toEqual(before[name]);
@@ -196,23 +630,25 @@ test("asking the ready Question opens the assistant, and the page stays still as
     await setWindowSize(app, window, width, 900);
     await expect(window.getByTestId("first-open-steps")).toBeVisible();
     const before = await measure(window);
-
-    await pointAndClick(window, window.getByTestId("claim-mark"));
-    await expect(window.getByTestId("claim-card")).toBeVisible();
-    await window.keyboard.press("Escape");
-    await expect(window.getByTestId("first-open-step").first()).toHaveAttribute(
-      "data-state",
-      "done",
-    );
+    // The ready Question waits for the example's Documents to be read.
+    await expect(
+      window
+        .getByTestId("mind-pane")
+        .getByTestId("mind-editor")
+        .getByTestId("citation-chip")
+        .nth(1),
+    ).toHaveAttribute("data-check", "found", { timeout: 30_000 });
+    await markSteps(window, { indexed: true });
+    await expect(window.getByTestId("first-open-ready")).toBeVisible();
     expect(await measure(window), `${width} px, step 1 done`).toEqual(before);
 
     await pointAndClick(window, window.getByTestId("first-open-ready"));
     await expect(window.getByTestId("assistant")).toBeVisible();
-    await expect(window.getByTestId("first-open-add-files")).toBeVisible();
+    await expect(window.getByTestId("first-open-example")).toBeVisible();
     // The page is narrower now, so the card is as tall as its tallest state at this width.
     const beside = await measure(window);
 
-    await markSteps(window, { indexed: true });
+    await markSteps(window, { citationChecked: true });
     await expect(window.getByTestId("first-open-choose-model")).toBeVisible();
     expect(await measure(window), `${width} px, assistant open, all done`).toEqual(beside);
     await app.close();
@@ -322,14 +758,14 @@ const pickersShown = (app: ElectronApplication) =>
 
 const TITLES = {
   en: {
-    citation: "See a mistake it caught",
-    question: "Ask a question",
-    files: "Add your own files",
+    citation: "Check a Citation",
+    question: "Ask",
+    files: "Add your files",
   },
-  "zh-CN": { citation: "看看它查出的错误", question: "提一个问题", files: "添加你自己的文件" },
+  "zh-CN": { citation: "核对一条引用", question: "提问", files: "添加你的文件" },
 } as const;
 
-test("Ask a question and Add your own files do their step on a click, Enter or Space at any time, and doing it alone ticks nothing (#1489)", async () => {
+test("Ask a question and Add your files do their step on a click, Enter or Space at any time, and doing it alone ticks nothing (#1489)", async () => {
   const { app, window } = await launchApp(dataDir, { examples: true, fakeChat: true });
   await setWindowSize(app, window, 900, 900);
   await cancelFilePicker(app);
@@ -340,7 +776,7 @@ test("Ask a question and Add your own files do their step on a click, Enter or S
     const question = step(window, "question");
     const files = step(window, "files");
     await expect(question).toHaveAttribute("data-state", "later");
-    await expect(files).toHaveAttribute("data-state", "later");
+    await expect(files).toHaveAttribute("data-state", "open");
     const ask = question.getByTestId("first-open-step-do");
     const add = files.getByTestId("first-open-step-do");
     await expect(ask).toHaveAccessibleName(TITLES[language].question);
@@ -380,7 +816,7 @@ test("Ask a question and Add your own files do their step on a click, Enter or S
 });
 
 for (const language of ["en", "zh-CN"] as const) {
-  test(`Add files… and Link a folder… are under step 3 from the start, each works before steps 1 and 2, and what is added ticks step 3 alone, in ${language} (#1574)`, async () => {
+  test(`Add files or a folder… is under step 1 from the start, and what is added ticks step 1 alone, in ${language} (#1574)`, async () => {
     const sources = await createDataFolder();
     const notes = join(sources, "Harbour notes.md");
     await writeFile(notes, "# Harbour notes\n\nThe harbour master publishes the tide tables.\n");
@@ -390,43 +826,36 @@ for (const language of ["en", "zh-CN"] as const) {
       await setLanguage(window, language);
       const card = window.getByTestId("first-open-steps");
       const files = step(window, "files");
-      await expect(step(window, "citation")).toHaveAttribute("data-state", "open");
-      await expect(files).toHaveAttribute("data-state", "later");
+      await expect(files).toHaveAttribute("data-state", "open");
+      await expect(step(window, "question")).toHaveAttribute("data-state", "later");
 
       const add = files.getByTestId("first-open-add-files");
-      const link = files.getByTestId("first-open-link-folder");
-      await expect(add).toHaveText(language === "en" ? "Add files…" : "添加文件…");
-      await expect(link).toHaveText(language === "en" ? "Link a folder…" : "添加同步文件夹…");
+      await expect(add).toHaveText(addFilesLabel(language));
       await expect(files).toContainText(
         language === "en"
           ? "Your files stay where they are. IncarnaMind reads them on this computer."
           : "你的文件留在原处，IncarnaMind 在这台电脑上读取它们。",
       );
-      const [cardBox, title, addBox, linkBox] = await Promise.all([
+      const [cardBox, title, addBox] = await Promise.all([
         card.boundingBox(),
         files.getByTestId("first-open-step-do").boundingBox(),
         add.boundingBox(),
-        link.boundingBox(),
       ]);
-      if (!cardBox || !title || !addBox || !linkBox) throw new Error("Step 3 isn't laid out.");
-      expect(addBox.y, "the buttons sit under the title").toBeGreaterThan(title.y + title.height);
-      expect(linkBox.x + linkBox.width, "and inside the card").toBeLessThanOrEqual(
+      if (!cardBox || !title || !addBox) throw new Error("Step 1 isn't laid out.");
+      expect(addBox.y, "the button sits under the title").toBeGreaterThan(title.y + title.height);
+      expect(addBox.x + addBox.width, "and inside the card").toBeLessThanOrEqual(
         cardBox.x + cardBox.width,
       );
-      expect(linkBox.y + linkBox.height).toBeLessThanOrEqual(cardBox.y + cardBox.height);
-
-      const dialog = await previewLink(app, window, sources, link);
-      await window.keyboard.press("Escape");
-      await expect(dialog).toBeHidden();
+      expect(addBox.y + addBox.height).toBeLessThanOrEqual(cardBox.y + cardBox.height);
       expect(await gettingStarted(window)).toMatchObject({ indexed: false });
 
       await interceptOpenDialog(app, notes);
       await pointAndClick(window, add);
       await expect(files).toHaveAttribute("data-state", "done", { timeout: 20_000 });
-      await expect(step(window, "citation")).toHaveAttribute("data-state", "open");
-      await expect(step(window, "question")).toHaveAttribute("data-state", "later");
+      await expect(step(window, "question")).toHaveAttribute("data-state", "open");
+      await expect(step(window, "citation")).toHaveAttribute("data-state", "later");
       expect(await gettingStarted(window)).toMatchObject({
-        mistakeSeen: false,
+        citationChecked: false,
         askedOwn: false,
         askedReady: false,
         indexed: true,
@@ -438,7 +867,7 @@ for (const language of ["en", "zh-CN"] as const) {
   });
 }
 
-test("a folder linked before steps 1 and 2 ticks step 3 alone (#1574)", async () => {
+test("a folder linked on the first step ticks step 1 alone (#1574)", async () => {
   const sources = await createDataFolder();
   await writeFile(
     join(sources, "Harbour notes.md"),
@@ -448,20 +877,20 @@ test("a folder linked before steps 1 and 2 ticks step 3 alone (#1574)", async ()
   try {
     await setWindowSize(app, window, 1440, 900);
     const files = step(window, "files");
-    await expect(files).toHaveAttribute("data-state", "later");
-    await confirmLink(
-      await previewLink(app, window, sources, files.getByTestId("first-open-link-folder")),
-    );
+    await expect(files).toHaveAttribute("data-state", "open");
+    await interceptOpenDialog(app, sources);
+    await pointAndClick(window, files.getByTestId("first-open-add-files"));
+    await confirmLink(window.getByTestId("link-folder-dialog"));
     await expect(files).toHaveAttribute("data-state", "done", { timeout: 20_000 });
-    await expect(step(window, "citation")).toHaveAttribute("data-state", "open");
-    await expect(step(window, "question")).toHaveAttribute("data-state", "later");
+    await expect(step(window, "question")).toHaveAttribute("data-state", "open");
+    await expect(step(window, "citation")).toHaveAttribute("data-state", "later");
   } finally {
     await app.close();
     await removeDataFolder(sources);
   }
 });
 
-test("a file dropped on the window, or added from the + menu or ⌘O, before steps 1 and 2 ticks step 3 and leaves them open (#1574)", async () => {
+test("a file dropped on the window, or added from the + menu or ⌘O, ticks step 1 and leaves the others open (#1574)", async () => {
   const sources = await createDataFolder();
   const dropped = join(sources, "Dropped notes.md");
   const opened = join(sources, "Opened notes.md");
@@ -474,18 +903,19 @@ test("a file dropped on the window, or added from the + menu or ⌘O, before ste
     await expect(step(window, "files")).toHaveAttribute("data-state", "done", {
       timeout: 20_000,
     });
-    expect(await gettingStarted(window)).toMatchObject({ mistakeSeen: false, askedOwn: false });
-    await expect(step(window, "citation")).toHaveAttribute("data-state", "open");
+    expect(await gettingStarted(window)).toMatchObject({ citationChecked: false, askedOwn: false });
+    await expect(step(window, "question")).toHaveAttribute("data-state", "open");
+    await expect(step(window, "citation")).toHaveAttribute("data-state", "later");
 
     await markSteps(window, NONE);
-    await expect(step(window, "files")).toHaveAttribute("data-state", "later");
+    await expect(step(window, "files")).toHaveAttribute("data-state", "open");
     await interceptOpenDialog(app, opened);
     await window.keyboard.press("ControlOrMeta+o");
     await expect
       .poll(async () => (await gettingStarted(window)).indexed, { timeout: 20_000 })
       .toBe(true);
-    await expect(step(window, "citation")).toHaveAttribute("data-state", "open");
-    await expect(step(window, "question")).toHaveAttribute("data-state", "later");
+    await expect(step(window, "question")).toHaveAttribute("data-state", "open");
+    await expect(step(window, "citation")).toHaveAttribute("data-state", "later");
   } finally {
     await app.close();
     await removeDataFolder(sources);
@@ -493,24 +923,24 @@ test("a file dropped on the window, or added from the + menu or ⌘O, before ste
 });
 
 const BUTTON_STATES = [
-  { name: "start", done: NONE, citation: "open", question: "later", files: "later" },
+  { name: "start", done: NONE, citation: "later", question: "later", files: "open" },
   {
     name: "first step done",
-    done: { ...NONE, mistakeSeen: true },
-    citation: "done",
+    done: { ...NONE, indexed: true },
+    citation: "later",
     question: "open",
-    files: "later",
+    files: "done",
   },
   {
     name: "second step done",
-    done: { ...NONE, mistakeSeen: true, askedReady: true },
-    citation: "done",
+    done: { ...NONE, indexed: true, askedReady: true },
+    citation: "open",
     question: "done",
-    files: "open",
+    files: "done",
   },
   {
     name: "all done",
-    done: { ...NONE, mistakeSeen: true, askedReady: true, indexed: true },
+    done: { ...NONE, indexed: true, askedReady: true, citationChecked: true },
     citation: "done",
     question: "done",
     files: "done",
@@ -594,74 +1024,67 @@ test("a step's title looks like a button in every state, open, later and done: a
 });
 
 for (const language of ["en", "zh-CN"] as const) {
-  test(`See a mistake it caught goes to the red ≠ and focuses it without opening its card or ticking; opening it ticks, and the title goes there again, in ${language} (#1489)`, async () => {
+  test(`or see it on the example goes to the red ≠ and focuses it without opening its card or ticking, and checking a Citation ticks step 3, in ${language} (#1489)`, async () => {
     const { app, window } = await launchApp(dataDir, { examples: true, fakeChat: true });
     await setWindowSize(app, window, 1440, 600);
     await setLanguage(window, language);
+    await markSteps(window, { ...NONE, indexed: true, askedReady: true });
     const mark = window.getByTestId("mind-pane").getByTestId("claim-mark");
     await expect(mark).toHaveAttribute("data-check", "contradicted");
     const card = window.getByTestId("first-open-steps");
-    const title = step(window, "citation").getByTestId("first-open-step-do");
+    const citation = step(window, "citation");
+    await expect(citation).toHaveAttribute("data-state", "open");
+    const link = citation.getByTestId("first-open-example");
+    await expect(link).toHaveText(
+      language === "en" ? "or see it on the example" : "或在示例里看看",
+    );
     const height = async () => Math.round((await card.boundingBox())?.height ?? 0);
     const before = await height();
-    const scrolled = () =>
-      window
-        .getByTestId("mind-pane")
-        .evaluate((element) => element.closest(".mind-scroller")?.scrollTop ?? 0);
-    const away = () =>
-      window.getByTestId("mind-pane").evaluate((element) => {
-        element.closest(".mind-scroller")?.scrollTo({ top: 0 });
-      });
     const inView = () =>
       mark.evaluate((element) => {
         const box = element.getBoundingClientRect();
         return box.top >= 0 && box.bottom <= globalThis.innerHeight;
       });
 
-    await away();
+    await window.getByTestId("mind-pane").evaluate((element) => {
+      element.closest(".mind-scroller")?.scrollTo({ top: 0 });
+    });
     expect(await inView()).toBe(false);
-    await pointAndClick(window, title);
+    // The card opens a moment after a focus: run the page's clock past it, so "it stays closed" is checked.
+    await window.clock.install();
+    await pointAndClick(window, link);
+    await window.clock.runFor(600);
     await expect.poll(inView).toBe(true);
     await expect(mark).toBeFocused();
     expect(await mark.evaluate((element) => element.matches(":focus-visible"))).toBe(true);
-    // The card opens a moment after a focus; waiting that out is the only way to see it never does.
-    await window.evaluate(() => new Promise((resolve) => setTimeout(resolve, 600)));
     await expect(mark).toHaveAttribute("aria-expanded", "false");
     await expect(window.getByTestId("claim-card")).toHaveCount(0);
-    await expect(step(window, "citation")).toHaveAttribute("data-state", "open");
+    await window.clock.resume();
+    await expect(citation).toHaveAttribute("data-state", "open");
     expect(await gettingStarted(window)).toMatchObject({ mistakeSeen: false });
     expect(await height()).toBe(before);
 
-    // With the ≠ already in view, going there again leaves the page where it is.
-    const settled = await scrolled();
-    expect(settled).toBeGreaterThan(0);
-    await title.evaluate((element) => element.focus({ preventScroll: true }));
-    await window.keyboard.press("Space");
-    await expect(mark).toBeFocused();
-    expect(await scrolled()).toBe(settled);
-
+    // The example's red ≠ is a claim the check caught; a Citation checked is what ticks step 3.
     await window.keyboard.press("Enter");
     await expect(window.getByTestId("claim-card")).toBeVisible();
-    await expect(step(window, "citation")).toHaveAttribute("data-state", "done");
     expect(await gettingStarted(window)).toMatchObject({ mistakeSeen: true });
+    await expect(citation).toHaveAttribute("data-state", "open");
     await window.keyboard.press("Escape");
 
-    await away();
-    expect(await inView()).toBe(false);
-    await title.focus();
-    await window.keyboard.press("Space");
-    await expect.poll(inView).toBe(true);
-    await expect(mark).toBeFocused();
-    await window.evaluate(() => new Promise((resolve) => setTimeout(resolve, 600)));
-    await expect(window.getByTestId("claim-card")).toHaveCount(0);
-    expect(await height()).toBe(before);
+    const chip = window.getByTestId("mind-pane").getByTestId("citation-chip").first();
+    await expect(chip).toHaveAttribute("data-check", "found", { timeout: 20_000 });
+    await pointAndClick(window, chip);
+    await expect(window.getByTestId("citation-card")).toBeVisible();
+    await expect(citation).toHaveAttribute("data-state", "done");
+    expect(await gettingStarted(window)).toMatchObject({ citationChecked: true });
     await app.close();
   });
 }
 
-test("See a mistake it caught leaves the page where it is when the red ≠ is already in view (#1489)", async () => {
+test("or see it on the example leaves the page where it is when the red ≠ is already in view (#1489)", async () => {
   const { app, window } = await launchApp(dataDir, { examples: true, fakeChat: true });
   await setWindowSize(app, window, 1440, 900);
+  await markSteps(window, { ...NONE, indexed: true, askedReady: true });
   const mark = window.getByTestId("mind-pane").getByTestId("claim-mark");
   await expect(mark).toHaveAttribute("data-check", "contradicted");
   const scroller = window
@@ -672,19 +1095,56 @@ test("See a mistake it caught leaves the page where it is when the red ≠ is al
       (element) => element.getBoundingClientRect().bottom <= globalThis.innerHeight,
     ),
   ).toBe(true);
-  await pointAndClick(window, step(window, "citation").getByTestId("first-open-step-do"));
+  await pointAndClick(window, step(window, "citation").getByTestId("first-open-example"));
   await expect(mark).toBeFocused();
   expect(await scroller.evaluate((element) => element.scrollTop)).toBe(0);
   await app.close();
 });
 
 for (const language of ["en", "zh-CN"] as const) {
-  test(`Ask a question ticks when the Answer arrives, never when the Question is only asked or its Answer fails, in ${language} (#1489)`, async () => {
+  test(`Check a Citation goes to the page's first Citation and focuses it without opening its card; Enter opens it and ticks, in ${language} (#1489)`, async () => {
     const { app, window } = await launchApp(dataDir, { examples: true, fakeChat: true });
     await setWindowSize(app, window, 1440, 900);
     await setLanguage(window, language);
-    await useLocalChatModel(window);
-    await markSteps(window, { mistakeSeen: true });
+    await markSteps(window, { ...NONE, indexed: true, askedReady: true });
+    const citation = step(window, "citation");
+    await expect(citation).toHaveAttribute("data-state", "open");
+    const chip = window
+      .getByTestId("mind-pane")
+      .getByTestId("mind-editor")
+      .getByTestId("citation-chip")
+      .first();
+    await expect(chip).toHaveAttribute("data-check", "found", { timeout: 20_000 });
+
+    // The card opens a moment after a focus: run the page's clock past it, so "it stays closed" is checked.
+    await window.clock.install();
+    await pointAndClick(window, citation.getByTestId("first-open-step-do"));
+    await window.clock.runFor(600);
+    await expect(chip).toBeFocused();
+    expect(await chip.evaluate((element) => element.matches(":focus-visible"))).toBe(true);
+    await expect(window.getByTestId("citation-card")).toHaveCount(0);
+    await window.clock.resume();
+    await expect(citation).toHaveAttribute("data-state", "open");
+    expect(await gettingStarted(window)).toMatchObject({ citationChecked: false });
+
+    await window.keyboard.press("Enter");
+    await expect(window.getByTestId("citation-card")).toBeVisible();
+    await expect(citation).toHaveAttribute("data-state", "done");
+    await expect(citation).toContainText(
+      language === "en" ? "Checked a Citation" : "已核对一条引用",
+    );
+    expect(await gettingStarted(window)).toMatchObject({ citationChecked: true });
+    await app.close();
+  });
+}
+
+for (const language of ["en", "zh-CN"] as const) {
+  test(`Ask ticks when the Answer arrives, never when the Question is only asked or its Answer fails, in ${language} (#1489)`, async () => {
+    const { app, window } = await launchApp(dataDir, { examples: true, fakeChat: true });
+    await setWindowSize(app, window, 1440, 900);
+    await setLanguage(window, language);
+    await enableLocalModel(window);
+    await markSteps(window, { indexed: true });
     const question = step(window, "question");
     await expect(question).toHaveAttribute("data-state", "open");
 
@@ -712,32 +1172,37 @@ const TIDES = buildPdf([
 ]);
 
 for (const language of ["en", "zh-CN"] as const) {
-  test(`Saw a mistake it caught ticks only when the example's red ≠ is opened, not an ordinary Citation, in ${language} (#1489)`, async () => {
+  test(`Check a Citation ticks when a Citation's card opens, not when the example's red ≠ does, in ${language} (#1489)`, async () => {
     const { app, window } = await launchApp(dataDir, { examples: true, fakeChat: true });
     await setWindowSize(app, window, 1440, 900);
     await setLanguage(window, language);
+    await markSteps(window, { ...NONE, indexed: true, askedReady: true });
     const mind = window.getByTestId("mind-pane");
     const chip = mind.getByTestId("mind-editor").getByTestId("citation-chip").first();
     await expect(chip).toHaveAttribute("data-check", "found", { timeout: 20_000 });
     const mark = mind.getByTestId("claim-mark");
     await expect(mark).toHaveAttribute("data-check", "contradicted");
-
-    await pointAndClick(window, chip);
-    await expect(window.getByTestId("citation-card")).toBeVisible();
-    await window.keyboard.press("Escape");
-    expect(await gettingStarted(window)).toMatchObject({ mistakeSeen: false });
-    await expect(step(window, "citation")).toHaveAttribute("data-state", "open");
     await expect(mark).toHaveAttribute("data-guided");
+    await expect(step(window, "citation")).toHaveAttribute("data-state", "open");
 
     await pointAndClick(window, mark);
     await expect(window.getByTestId("claim-card")).toBeVisible();
+    await window.keyboard.press("Escape");
+    expect(await gettingStarted(window)).toMatchObject({
+      mistakeSeen: true,
+      citationChecked: false,
+    });
+    await expect(step(window, "citation")).toHaveAttribute("data-state", "open");
+
+    await pointAndClick(window, chip);
+    await expect(window.getByTestId("citation-card")).toBeVisible();
     await expect(step(window, "citation")).toHaveAttribute("data-state", "done");
-    expect(await gettingStarted(window)).toMatchObject({ mistakeSeen: true });
+    expect(await gettingStarted(window)).toMatchObject({ citationChecked: true });
     await app.close();
   });
 }
 
-test("a red ≠ opened in a Mind of the User's own ticks Saw a mistake it caught too (#1489)", async () => {
+test("a red ≠ opened in a Mind of the User's own still records it (#1489)", async () => {
   test.setTimeout(150_000);
   const sources = await createDataFolder();
   await writeFile(join(sources, "Tides.pdf"), TIDES);
@@ -747,7 +1212,7 @@ test("a red ≠ opened in a Mind of the User's own ticks Saw a mistake it caught
     home: sources,
   });
   await setWindowSize(app, window, 1440, 900);
-  await useLocalChatModel(window);
+  await enableLocalModel(window);
   await window.getByTestId("add-documents-input").setInputFiles([join(sources, "Tides.pdf")]);
   await expectReadyDocuments(window, 3);
   await newMind(window);

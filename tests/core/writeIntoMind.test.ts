@@ -1,15 +1,35 @@
+import { getSchema } from "@tiptap/core";
 import type { Node as ProseMirrorNode } from "@tiptap/pm/model";
 import { describe, expect, test } from "vitest";
 import * as Y from "yjs";
-import { type Core, GENERATED_MARK } from "../../src/core";
+import { decideAll } from "../../eval/minds/state";
+import {
+  type Core,
+  GENERATED_MARK,
+  MIND_ORIGINS_FIELD,
+  MIND_REPLACED_ORIGINS_FIELD,
+} from "../../src/core";
+import { EDIT_INSTRUCTIONS } from "../../src/core/edits/prompt";
+import { changedMinds } from "../../src/renderer/src/changedMinds";
+import { writeAccepted } from "../../src/renderer/src/editor/arrivedChanges";
+import { noteExtensions } from "../../src/renderer/src/editor/noteSchema";
+import { resolveInEditor } from "../../src/renderer/src/editor/proposalReview";
 import { askedFor } from "../../src/shared/askedChanges";
+import { allOrigins } from "../../src/shared/blockOrigins";
 import { readChart } from "../../src/shared/charts";
 import { pendingProposals, proposalRequestOf } from "../../src/shared/proposals";
 import { askAssistant, changesIn, lastResult, mindCalls } from "../helpers/assistant";
 import { answerEnded, setUpWithDocuments, shownPassages } from "../helpers/citations";
-import { connectToMind } from "../helpers/mindClient";
+import { startCore } from "../helpers/core";
+import { boundEditor } from "../helpers/editor";
+import { connectToMind, type MindClient } from "../helpers/mindClient";
 import { note, readMind, resolveChanges, shownWithChanges, writeMind } from "../helpers/minds";
-import { type ModelCall, type ScriptedReply, scriptedModel } from "../helpers/models";
+import {
+  type ModelCall,
+  type ScriptedReply,
+  scriptedModel,
+  scriptedModels,
+} from "../helpers/models";
 
 /**
  * A request to write something goes into a Mind, and "make it a document"
@@ -197,7 +217,7 @@ function summaryOfShown(call: ModelCall): ScriptedReply {
 
 /** Two of the seven leases in a Folder, and a Mind there whose scope that Folder is. */
 async function inAFolderOfTwo(model: ReturnType<typeof scriptedModel>, { empty = false } = {}) {
-  const { core, documents } = await setUpWithDocuments(model, LEASES);
+  const { core, documents, dataDir } = await setUpWithDocuments(model, LEASES);
   const folder = await core.createLibraryGroup({ name: "Two leases", description: "" });
   await core.moveToFolder({
     documentIds: documents.slice(0, 2).map((document) => document.id),
@@ -208,7 +228,7 @@ async function inAFolderOfTwo(model: ReturnType<typeof scriptedModel>, { empty =
   if (!empty) writeMind(client, [note("Notes on the leases.")]);
   await client.settled();
   const scope = { folderIds: [folder.id], tagIds: [], documentIds: [] };
-  return { core, mind, folder, scope, client };
+  return { core, mind, folder, scope, client, dataDir };
 }
 
 describe("A request to write from part of the Documents (#1149)", { timeout: 60_000 }, () => {
@@ -324,6 +344,57 @@ async function useAll(core: Core, answer: Awaited<ReturnType<typeof askAssistant
   if (rewritten?.kind !== "answer") throw new Error("No Answer.");
   return rewritten;
 }
+
+/**
+ * Searches, then writes the rents into a Mind with no Citation; told it has none (#1415), it
+ * writes it again as it was.
+ */
+function uncitedSummary(call: ModelCall): ScriptedReply {
+  if (!called(call, "search_documents")) {
+    return { calls: [{ tool: "search_documents", input: { query: "monthly rent" } }] };
+  }
+  const writes = call.results.filter((each) => each.tool === "create_mind");
+  const refused = writes.length === 1 && writes[0]?.text.includes("content has no Citation");
+  if (writes.length > 0 && !refused) return { text: "Done." };
+  return {
+    calls: [{ tool: "create_mind", input: { title: "Summary", content: QUOTES.join("\n\n") } }],
+  };
+}
+
+describe("Use all of a summary with no Citation (#1415)", { timeout: 60_000 }, () => {
+  // protects=Use all writes an accepted uncited summary again in place through the same check as a new write: refused once, then, written again as it was, marked uncited, so the line under the Answer stays; fails_when=the rewrite in place is taken unchecked or unmarked, or makes a second Mind; no_claim=the line's words (tests/renderer/changeProblems.test.ts).
+  test("refused once, and written again as it was, marked uncited", async () => {
+    const model = scriptedModel(uncitedSummary);
+    const { core, mind, scope } = await inAFolderOfTwo(model);
+    const first = await askAssistant(core, {
+      text: "Based on my files, write a summary",
+      mindId: mind.id,
+      scope,
+    });
+    const writes = (answer: Awaited<ReturnType<typeof askAssistant>>) =>
+      mindCalls(answer).map((call) => [call.status, call.mindProblem?.kind ?? null]);
+    expect(writes(first)).toEqual([
+      ["failed", "uncited"],
+      ["done", null],
+    ]);
+    const made = changesIn(first)[0];
+    expect(made).toMatchObject({ created: true, uncited: true });
+    const summary = await connectToMind(core, made?.mindId ?? "");
+    await resolveChanges(summary, "accept");
+
+    const rewritten = await useAll(core, first);
+
+    expect(writes(rewritten)).toEqual([
+      ["failed", "uncited"],
+      ["done", null],
+    ]);
+    expect(changesIn(rewritten)).toEqual([
+      expect.objectContaining({ mindId: made?.mindId, created: false, uncited: true }),
+    ]);
+    const summaries = (await core.listMinds()).filter((each) => each.title === "Summary");
+    expect(summaries.map((each) => each.id)).toEqual([made?.mindId]);
+  });
+});
 
 describe("Use all, where the text went (#1171 review)", { timeout: 60_000 }, () => {
   // protects=in an empty Mind, a request to write fills it, and Use all writes that same text again from every Document in its place, as one asked change, with no new Mind; rejected, it leaves the 2-Document text; fails_when=Use all makes a new Mind, or Undo leaves an empty Mind; no_claim=the window's own Undo step.
@@ -465,5 +536,184 @@ describe("Use all of a chart asked for", { timeout: 60_000 }, () => {
     await resolveChanges(client, "accept");
 
     expect(chartRows(readMind(client))).toEqual([LEASES.map((_, index) => `Unit ${index + 1}`)]);
+  });
+});
+
+describe("Use all after Reject all of a later rewrite (#1950)", { timeout: 60_000 }, () => {
+  /** Each Block's origin, as the Answer it names. */
+  const originsIn = (client: MindClient) =>
+    Object.fromEntries(
+      [...allOrigins(client.doc)].map(([blockId, origin]) => [
+        blockId,
+        JSON.stringify(origin.from),
+      ]),
+    );
+  const seen = (client: MindClient) => ({
+    text: shownWithChanges(client),
+    origins: originsIn(client),
+  });
+  /** The units the Mind's rents are of, in order: each once when nothing is written twice. */
+  const units = (client: MindClient) =>
+    shownWithChanges(client).flatMap((line) => /unit (\d)/.exec(line)?.[1] ?? []);
+
+  /**
+   * A summary from 2 of 7 leases written into an empty Mind and accepted, then a later Answer in
+   * the conversation rewrites it, with new text as `content` or with an `instruction`.
+   */
+  async function rewritten(how: "content" | "instruction") {
+    let later = false;
+    const model = scriptedModel((call): ScriptedReply => {
+      if (call.system === EDIT_INSTRUCTIONS) {
+        const passage = /<passage>\n([\s\S]*?)\n<\/passage>/.exec(call.prompt)?.[1] ?? "";
+        return { text: `${passage} Both are due on the first.\n<why>Longer.</why>` };
+      }
+      if (!later) return summaryOfShown(call);
+      if (called(call, "edit_mind")) return { text: "Done." };
+      const input =
+        how === "content"
+          ? { mind: "Lease notes", content: "The rent for unit 1 is 1000 euros a month." }
+          : { mind: "Lease notes", instruction: "Say when the rents are due" };
+      return { calls: [{ tool: "edit_mind", input }] };
+    });
+    const set = await inAFolderOfTwo(model, { empty: true });
+    const { core, mind, scope, client } = set;
+    const first = await askAssistant(core, {
+      text: "Based on my files, write a summary",
+      mindId: mind.id,
+      scope,
+    });
+    await resolveChanges(client, "accept");
+    await client.settled();
+    const before = seen(client);
+    later = true;
+    const second = await askAssistant(core, {
+      text: "Rewrite the summary",
+      mindId: mind.id,
+      conversationId: first.conversationId,
+    });
+    later = false;
+    await client.settled();
+    const after = seen(client);
+    expect(after.text).not.toEqual(before.text);
+    return { ...set, model, first, second, before, after };
+  }
+
+  // protects=Reject all of a later Answer that rewrote the earlier Answer's accepted text, from the card, the Mind's bar (as ⌘K) or the review pane, puts back each Block's origin with its text, so Use all on the earlier Answer writes its text once; fails_when=a Block keeps the later Answer's origin and Use all writes its paragraph a second time; no_claim=what the rewrite says.
+  test.each([
+    ["content", "the card"],
+    ["content", "the Mind's bar"],
+    ["content", "the review pane"],
+    ["instruction", "the card"],
+    ["instruction", "the Mind's bar"],
+    ["instruction", "the review pane"],
+  ] as const)(
+    "rewritten with %s, Reject all on %s, then Use all writes the text once",
+    async (how, where) => {
+      const { core, client, first, second, before } = await rewritten(how);
+
+      if (where === "the card") await decideAll(core, changedMinds(second), "reject");
+      else {
+        const listed = new Set(pendingProposals(client.blocks).map((each) => each.id));
+        resolveInEditor(boundEditor(client), where === "the Mind's bar" ? "all" : listed, "reject");
+      }
+      await client.settled();
+
+      expect(seen(client)).toEqual(before);
+      await useAll(core, first);
+      await client.settled();
+      expect(units(client)).toEqual(LEASES.map((_, index) => String(index + 1)));
+    },
+  );
+
+  // protects=Undo of the Reject gives the rewrite back with its origins, and Redo takes them back again, in the Mind and on the card; fails_when=the text comes back with the earlier origins, or Redo leaves the later Answer's; no_claim=none beyond protects.
+  test("Undo and Redo of the Reject bring text and origins back exactly", async () => {
+    const { core, mind, client, second, before, after } = await rewritten("content");
+    const editor = boundEditor(client);
+
+    resolveInEditor(editor, "all", "reject");
+    expect(seen(client)).toEqual(before);
+    editor.commands.undo();
+    expect(seen(client)).toEqual(after);
+    editor.commands.redo();
+    expect(seen(client)).toEqual(before);
+    editor.commands.undo();
+    await client.settled();
+
+    const card = await decideAll(core, changedMinds(second), "reject");
+    expect(seen(await connectToMind(core, mind.id))).toEqual(before);
+    await card.undo();
+    expect(seen(await connectToMind(core, mind.id))).toEqual(after);
+  });
+
+  // protects=Accept all keeps the origins the rewrite replaced, and Undo of the Accept followed by a Reject, on the Mind's bar and on the card, still puts them back; fails_when=the earlier Answer's text is written twice after Undo of an Accept and a Reject; no_claim=none beyond protects.
+  test("Undo of Accept all, then Reject all, puts the origins back", async () => {
+    const { core, mind, client, first, second, before, after } = await rewritten("content");
+    const kept = () => client.doc.getMap(MIND_REPLACED_ORIGINS_FIELD).size;
+    const editor = boundEditor(client);
+
+    resolveInEditor(editor, "all", "accept");
+    expect(kept()).toBe(1);
+    expect(seen(client).origins).toEqual(after.origins);
+    editor.commands.undo();
+    resolveInEditor(editor, "all", "reject");
+    expect(seen(client)).toEqual(before);
+    editor.commands.undo();
+    await client.settled();
+
+    const card = await decideAll(core, changedMinds(second), "accept");
+    await card.undo();
+    await decideAll(core, changedMinds(second), "reject");
+    const page = await connectToMind(core, mind.id);
+    expect(seen(page)).toEqual(before);
+    await useAll(core, first);
+    await page.settled();
+    expect(units(page)).toEqual(LEASES.map((_, index) => String(index + 1)));
+  });
+
+  // protects=a version restored from History, saved before the rewrite was accepted, brings it back waiting and takes it out again, the earlier origins with the text, so Use all writes the text once; fails_when=the kept origins went with the Accept and the earlier Answer's text is written twice; no_claim=History's own window.
+  test("restoring a version saved before Accept all puts the origins back", async () => {
+    const { core, mind, first, second, before } = await rewritten("content");
+    const checkpoint = await core.saveCheckpoint(mind.id, "accept");
+    await decideAll(core, changedMinds(second), "accept");
+
+    await core.restoreCheckpoint(mind.id, checkpoint.id);
+    const page = await connectToMind(core, mind.id);
+
+    expect(seen(page)).toEqual(before);
+    await useAll(core, first);
+    await page.settled();
+    expect(units(page)).toEqual(LEASES.map((_, index) => String(index + 1)));
+  });
+
+  // protects=the origins a rewrite replaced are kept with the Mind, so Reject all after a restart still puts them back and Use all writes the text once; fails_when=after a restart the Block keeps the later Answer's origin; no_claim=none beyond protects.
+  test("after a restart, Reject all still puts the origins back", async () => {
+    const { core, dataDir, mind, model, first, second, before } = await rewritten("content");
+    core.close();
+    const again = startCore(dataDir, { createChatModel: scriptedModels(model).createChatModel });
+    await again.saveChatProvider({ kind: "ollama", modelId: "local-model" });
+
+    await decideAll(again, changedMinds(second), "reject");
+    const client = await connectToMind(again, mind.id);
+
+    expect(seen(client)).toEqual(before);
+    await useAll(again, first);
+    await client.settled();
+    expect(units(client)).toEqual(LEASES.map((_, index) => String(index + 1)));
+  });
+
+  // protects=applied at once as the User asked, the rewrite keeps its own origins, and its Undo gives the earlier ones back; fails_when=setting the changes aside to apply them leaves the earlier Answer's origins on the rewrite, or Undo keeps the later Answer's; no_claim=the window's own step.
+  test("applied at once, the rewrite keeps its origins, and Undo gives the earlier ones back", async () => {
+    const { client, second, before, after } = await rewritten("content");
+    const applying = {};
+    const steps = new Y.UndoManager([client.blocks, client.doc.getMap(MIND_ORIGINS_FIELD)], {
+      trackedOrigins: new Set([applying]),
+    });
+    const asked = new Set(changedMinds(second)[0]?.requests);
+
+    writeAccepted(client.doc, asked, {}, applying, getSchema(noteExtensions()));
+    expect(seen(client).origins).toEqual(after.origins);
+    steps.undo();
+
+    expect(seen(client).origins).toEqual(before.origins);
   });
 });

@@ -8,15 +8,17 @@ import type {
   DocumentGroupAssignment,
   DocumentTextMatch,
   LibraryGroup,
+  LinkedFolder,
   TextRange,
 } from "../../core/api";
 import type { Language } from "../../core/language";
 import { formatShortDate } from "../../shared/dates";
-import { displayName } from "../../shared/documentNames";
+import { displayName, fileNameOf } from "../../shared/documentNames";
 import type { MessageKey, MessageParams } from "../../shared/i18n";
 import { modelName } from "../../shared/modelName";
 import { type LibraryFacet, type LibraryStatus, libraryStatus } from "./libraryFilters";
 import { joinRanges, matchName } from "./matcher";
+import { organizeStateOf } from "./organizeOutcome";
 
 type Translate = (key: MessageKey, params?: MessageParams) => string;
 
@@ -232,17 +234,16 @@ export const addedLabel = (iso: string, now: Date, language: Language): string =
   formatShortDate(iso, language, { now });
 
 /** Where Organize is with a Document, in a word, for Get info. */
-export function organizeState(assignment: DocumentGroupAssignment | undefined): MessageKey {
-  if (assignment?.status === "pending" || assignment?.status === "classifying") {
-    return "library.working";
-  }
-  if (assignment?.status === "waiting" || assignment?.status === "failed") {
-    return "library.needsAttention";
-  }
-  if (assignment?.source === "user") return "library.manual";
-  if (assignment?.status === "classified") {
-    return assignment.suggested ? "library.suggested" : "library.saved";
-  }
+export function organizeState(
+  document: Pick<Document, "tagging"> | undefined,
+  assignment: DocumentGroupAssignment | undefined,
+): MessageKey {
+  const state = organizeStateOf(document, assignment);
+  if (state.run === "working") return "library.working";
+  if (state.manual) return "library.manual";
+  if (state.run === "waiting" || state.run === "failed") return "library.needsAttention";
+  if (state.suggested) return "library.suggested";
+  if (state.run === "done" || state.run === "stopped") return "library.saved";
   return "library.notClassified";
 }
 
@@ -266,6 +267,68 @@ export function organizeModel(
   ]
     .filter(Boolean)
     .join(" · ");
+}
+
+/** The Source location option for the Documents added on their own (CONTEXT.md: Other Documents). */
+export const OTHER_DOCUMENTS = "other";
+
+/** What the Library asks for to show one Linked folder's Documents: its row's click (#1507). */
+export const sourceRequest = (linkedFolderId: string) => `source:${linkedFolderId}`;
+
+function sourceNames(
+  linkedFolders: readonly Pick<LinkedFolder, "id" | "path">[],
+): Map<string, string> {
+  const names = new Map<string, string>();
+  const byName = new Map<string, Pick<LinkedFolder, "id" | "path">[]>();
+  for (const linked of linkedFolders) {
+    const name = fileNameOf(linked.path);
+    const group = byName.get(name);
+    if (group) group.push(linked);
+    else byName.set(name, [linked]);
+  }
+  const foldersOf = (path: string) => path.split(/[\\/]/).filter(Boolean).slice(0, -1);
+  for (const [name, group] of byName) {
+    const only = group[0];
+    if (group.length === 1 && only) {
+      names.set(only.id, name);
+      continue;
+    }
+    const places = group.map((linked) => foldersOf(linked.path));
+    let deepest = 0;
+    for (const place of places) deepest = Math.max(deepest, place.length);
+    const label = (place: string[], upTo: number) => place.slice(-upTo).join(" / ");
+    let depth = 1;
+    while (
+      depth < deepest &&
+      new Set(places.map((place) => label(place, depth))).size < group.length
+    )
+      depth++;
+    group.forEach((linked, at) => {
+      const place = label(places[at] ?? [], depth);
+      names.set(linked.id, place ? `${place} / ${name}` : name);
+    });
+  }
+  return names;
+}
+
+/** By Source location (#1507): each Linked folder, by its folder's name, then Other Documents. */
+export function sourceFacet(
+  linkedFolders: readonly Pick<LinkedFolder, "id" | "path">[],
+): LibraryFacet<Document> {
+  const names = sourceNames(linkedFolders);
+  const order = [...linkedFolders.map((linked) => linked.id), OTHER_DOCUMENTS];
+  return {
+    id: "source",
+    title: "library.filter.source",
+    values: (document) => [
+      document.linkedFolderId !== null && names.has(document.linkedFolderId)
+        ? document.linkedFolderId
+        : OTHER_DOCUMENTS,
+    ],
+    label: (value, t) =>
+      value === OTHER_DOCUMENTS ? t("info.from.own") : (names.get(value) ?? value),
+    compare: (a, b) => order.indexOf(a) - order.indexOf(b),
+  };
 }
 
 /** By Folder: the Folders in the order given, then Not in a Folder. */

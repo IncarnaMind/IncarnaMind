@@ -76,6 +76,13 @@ export interface ChangePlace {
    * paragraph's text, as the positions before its old words went with them.
    */
   paragraph?: string;
+  /**
+   * How many characters it wrote, for a change inside a paragraph: 0 for one
+   * that only took words out. y-tiptap gives no position at 1 or less, so a
+   * change at the Note's first Block has no start of its own; its end and this
+   * say where its words begin (#1411).
+   */
+  writtenSize?: number;
 }
 
 /** One change an applied edit made, and what it wrote: Restore original puts the old words back only over those, as they were (#1795). */
@@ -252,11 +259,12 @@ interface Place {
   to: number;
 }
 
-function anchoredPlace(state: EditorState, change: ChangePlace): Place | null {
-  if (change.paragraph) {
-    const found = blockAt(state.doc, change.paragraph);
-    return found ? { from: found.pos + 1, to: found.pos + found.node.nodeSize - 1 } : null;
-  }
+interface Ends {
+  from: number | null;
+  to: number | null;
+}
+
+function endsOf(state: EditorState, change: ChangePlace): Ends | null {
   const binding = ySyncPluginKey.getState(state)?.binding;
   if (!binding) return null;
   const at = (relative: unknown): number | null =>
@@ -265,9 +273,25 @@ function anchoredPlace(state: EditorState, change: ChangePlace): Place | null {
   const inside = at(change.to);
   const end = inside === null || inside > state.doc.content.size ? null : state.doc.resolve(inside);
   const to = change.block !== "added" ? inside : end && end.depth > 0 ? end.after() : null;
-  return from === null || to === null || to < from || to > state.doc.content.size
-    ? null
-    : { from, to };
+  return { from, to };
+}
+
+function anchoredPlace(state: EditorState, change: ChangePlace): Place | null {
+  if (change.paragraph) {
+    const found = blockAt(state.doc, change.paragraph);
+    return found ? { from: found.pos + 1, to: found.pos + found.node.nodeSize - 1 } : null;
+  }
+  const ends = endsOf(state, change);
+  if (!ends) return null;
+  const { from, to } = ends;
+  if (to === null || to > state.doc.content.size) return null;
+  // y-tiptap gives no position at 1 or less, so only a start at the Note's first Block is missing one; its end and the size it wrote say where its words begin.
+  const written = change.block === null ? change.writtenSize : undefined;
+  const start = from ?? (written === undefined ? null : to - written);
+  if (start === null || start < 0 || to < start) return null;
+  // That start is counted, not held: words taken out since would carry it into the paragraph before.
+  if (from === null && !state.doc.resolve(start).sameParent(state.doc.resolve(to))) return null;
+  return { from: start, to };
 }
 
 const textOf = (removed: Fragment) => removed.textBetween(0, removed.size, "\n", "￼");
@@ -575,7 +599,7 @@ function mainLine(line: AppliedLine, options: Options, blocks: ChangedBlocks): H
   }
   if (line.kind === "applied") {
     const what = text(
-      "min-w-0 font-semibold",
+      "applied-count min-w-0 font-semibold",
       line.facts ? changeFact(t, line.facts, null) : appliedText(t, line.blocks),
       "applied-count",
     );
@@ -605,7 +629,7 @@ function mainLine(line: AppliedLine, options: Options, blocks: ChangedBlocks): H
     return lineElement("applied-line", "applied-line", [
       sparkle(),
       text(
-        "min-w-0 font-semibold",
+        "applied-count min-w-0 font-semibold",
         reviewText(t, blocks, line.byAssistant === true),
         "applied-count",
       ),
@@ -617,7 +641,7 @@ function mainLine(line: AppliedLine, options: Options, blocks: ChangedBlocks): H
   }
   return lineElement("applied-line", "applied-line", [
     sparkle(),
-    text("min-w-0", t(line.asked ? "edit.held.own" : "edit.held"), "applied-count"),
+    text("applied-count min-w-0", t(line.asked ? "edit.held.own" : "edit.held"), "applied-count"),
     dot(),
     button("apply", t("edit.held.apply")),
     dot(),

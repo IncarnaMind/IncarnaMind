@@ -24,7 +24,10 @@
  * Mind, or the empty one it is asked from, so what it was written from shows (#1149).
  * "Make a bar chart of revenue by quarter" (画一个各季度收入的柱状图; "line chart",
  * 折线图) searches, cites each quarter's revenue, and adds them as a table with its
- * chart (#1091); "Make a bar chart of rent by lease" does the same with each unit's
+ * chart (#1091); "Make a bar chart of margin and leverage by quarter"
+ * (各季度毛利率和净负债的柱状图; "line chart", 折线图) writes a table of a percent
+ * column beside a column of times, which a chart draws as one chart per unit
+ * (#1392); "Make a bar chart of rent by lease" does the same with each unit's
  * monthly rent, so Use all can draw it again from every lease.
  * "Write a short summary of this agreement" (为这份协议写一份简短摘要) calls
  * add_to_mind with it, for the Mind in focus. "Write a short summary of this document"
@@ -38,6 +41,8 @@
  * report longer" (把潮汐报告写长一点) gives edit_mind its whole new text, four paragraphs changed and
  * one added, as a model does (#1488). "Write the packing list" makes a bulleted list, and "Update
  * the packing list" gives its new text, one item changed, one left out and one added.
+ * "Summarise my leases without citing" (不加引用地总结我的租约) searches, then writes a summary
+ * with no Citation into a new Mind, and again as it was once told it has none (#1415).
  */
 
 import { answerReply, CITED_ANSWER } from "./answers";
@@ -99,6 +104,7 @@ export function mindRead(prompt: Prompt): string | null {
 const SUMMARY_PAGE =
   /\bwrite a summary page\b|写一个总结页面|\bwrite a summary of my documents\b|根据我现有的文件帮我写一份summary/i;
 const LONGER = /\blonger\b|长一点|更长/i;
+const LONGER_TWICE = /\bmake it longer twice\b/i;
 const RETELL = /\bretell the summary\b|重述总结/i;
 const RETOLD = [
   "## Summary",
@@ -107,8 +113,14 @@ const RETOLD = [
   "Both follow the Moon's cycle.",
 ].join("\n\n");
 const REVENUE_CHART = /\bchart of revenue by quarter\b|各季度收入的(?:柱状图|折线图)/i;
-const QUARTER_REVENUE = /Revenue in (Q\d) was (€\d+ million)/g;
+const QUARTER_REVENUE = /Revenue in (Q\d+) was (€\d+ million)/g;
+const MIXED_UNITS_CHART =
+  /\bchart of (?:gross )?margin and leverage by quarter\b|各季度毛利率和净负债的(?:柱状图|折线图)/i;
+const QUARTER_MARGIN = /Gross margin in (Q\d) was ([\d.]+%)/g;
+const QUARTER_LEVERAGE = /Net debt to EBITDA in (Q\d) was ([\d.]+ times)/g;
 const RENT_CHART = /\bchart of rent by lease\b/i;
+/** A table whose every cell is a claim, for the one check count (#1909). */
+const CHECK_TABLE = /\brevenue table for checking\b|核对用的收入表格/iu;
 const UNIT_RENT = /The monthly rent for (unit \d+) is (€[\d,]+)/g;
 const LEASES_SUMMARY = /\bwrite a summary of my leases\b|根据我的租约写一份总结/i;
 const BRIEF_SUMMARY = /\bbrief summary\b|简要总结/i;
@@ -210,6 +222,7 @@ const firstSentence = (result: string) => /^[^.。]*[.。]?/u.exec(result)?.[0] 
  */
 /** "Say you added the risks" (说你加了风险部分): a reply that claims a write no call made (#1559). */
 const CLAIMS_A_WRITE = /^say you added the risks|^说你加了风险部分/i;
+const UNCITED_SUMMARY = /\bsummari[sz]e my leases without citing\b|不加引用地总结我的租约/i;
 
 export function mindsReply(prompt: Prompt, asked: string, names: readonly string[]): Reply | null {
   if (!names.includes("edit_mind")) return null;
@@ -230,6 +243,12 @@ export function mindsReply(prompt: Prompt, asked: string, names: readonly string
   }
   // Asked "slowly", only its pace changes.
   const question = asked.replace(/\s+slowly$/i, "");
+  if (LONGER_TWICE.test(question)) {
+    const edits = toolResults(prompt, "edit_mind").length;
+    if (edits < 2)
+      return { tool: "edit_mind", input: { part: "Summary", instruction: "make it longer" } };
+    return { text: "Made the summary in “Summary” longer twice." };
+  }
   const paragraphs = paragraphsReply(prompt, question);
   if (paragraphs) return paragraphs;
   const both = ADD_AND_NEW.exec(question);
@@ -254,8 +273,11 @@ export function mindsReply(prompt: Prompt, asked: string, names: readonly string
       return { tool: "add_to_mind", input: { content: "## Risks\n\nThe supplier is late." } };
     return { text: firstSentence(added) };
   }
+  if (UNCITED_SUMMARY.test(question)) return uncitedSummary(prompt, question);
   if (REVENUE_CHART.test(question)) return revenueChart(prompt, question);
+  if (MIXED_UNITS_CHART.test(question)) return mixedUnitsChart(prompt, question);
   if (RENT_CHART.test(question)) return tableChart(prompt, RENT);
+  if (CHECK_TABLE.test(question)) return checkTable(prompt, question);
   if (LEASES_SUMMARY.test(question)) {
     const made = lastResult(prompt, "create_mind") ?? lastResult(prompt, "add_to_mind");
     if (made !== undefined) return { text: firstSentence(made) };
@@ -361,6 +383,28 @@ export function mindsReply(prompt: Prompt, asked: string, names: readonly string
   return { tool: "create_mind", input: { title, content } };
 }
 
+function uncitedSummary(prompt: Prompt, question: string): Reply {
+  if (lastResult(prompt, "search_documents") === undefined) {
+    return { tool: "search_documents", input: { query: "monthly rent" } };
+  }
+  const made = lastResult(prompt, "create_mind");
+  if (made !== undefined && !made.includes("content has no Citation")) {
+    return { text: firstSentence(made) };
+  }
+  return /\p{Script=Han}/u.test(question)
+    ? {
+        tool: "create_mind",
+        input: { title: "租约总结", content: "## 总结\n\n租约规定了每月的租金。" },
+      }
+    : {
+        tool: "create_mind",
+        input: {
+          title: "Lease summary",
+          content: "## Summary\n\nThe leases set the monthly rent.",
+        },
+      };
+}
+
 interface ChartedFigures {
   query: string;
   pattern: RegExp;
@@ -377,6 +421,48 @@ const RENT: ChartedFigures = {
   kind: "bar",
 };
 
+/** A table of the Document's revenue lines, each cell a claim that cites the line (#1909). */
+function checkTable(prompt: Prompt, question: string): Reply {
+  const added = lastResult(prompt, "add_to_mind");
+  if (added !== undefined) return { text: firstSentence(added) };
+  const [searched] = toolResults(prompt, "search_documents");
+  if (searched === undefined) {
+    return { tool: "search_documents", input: { query: "revenue by quarter" } };
+  }
+  const found = passagesIn(searched)
+    .flatMap((passage) =>
+      [...passage.text.matchAll(QUARTER_REVENUE)].map((match) => ({
+        passage: passage.id,
+        label: match[1] ?? "",
+        figure: match[2] ?? "",
+        quote: match[0],
+      })),
+    )
+    .sort((a, b) => a.label.localeCompare(b.label, undefined, { numeric: true }));
+  if (toolResults(prompt, "cite").length === 0) {
+    return {
+      tool: "cite",
+      input: {
+        citations: found.map((each, index) => ({
+          marker: index + 1,
+          passage: each.passage,
+          quote: each.quote,
+        })),
+      },
+    };
+  }
+  const chinese = /\p{Script=Han}/u.test(question);
+  const table = [
+    chinese ? "| 季度 | 收入 |" : "| Quarter | Revenue |",
+    "|---|---|",
+    ...found.map(
+      (each, index) =>
+        `| ${each.label} | Revenue in ${each.label} was ${each.figure} [^${index + 1}] |`,
+    ),
+  ].join("\n");
+  return { tool: "add_to_mind", input: { content: table } };
+}
+
 function revenueChart(prompt: Prompt, question: string): Reply {
   const chinese = /\p{Script=Han}/u.test(question);
   return tableChart(prompt, {
@@ -386,6 +472,89 @@ function revenueChart(prompt: Prompt, question: string): Reply {
     title: chinese ? "各季度收入" : "Revenue by quarter",
     kind: /\bline chart\b|折线图/i.test(question) ? "line" : "bar",
   });
+}
+
+interface QuarterFigure {
+  figure: string;
+  quote: string;
+  passage: string;
+}
+
+/**
+ * "Make a bar chart of margin and leverage by quarter" ("line chart", 折线图):
+ * a table of one percent column beside one column of times, the two units a
+ * chart draws as two charts (#1392).
+ */
+function mixedUnitsChart(prompt: Prompt, question: string): Reply {
+  const added = lastResult(prompt, "add_to_mind");
+  if (added !== undefined) return { text: firstSentence(added) };
+  const [searched] = toolResults(prompt, "search_documents");
+  if (searched === undefined) {
+    return { tool: "search_documents", input: { query: "gross margin net debt EBITDA" } };
+  }
+  const quarters = new Map<
+    string,
+    { margin: QuarterFigure | null; leverage: QuarterFigure | null }
+  >();
+  for (const passage of passagesIn(searched)) {
+    const at = (quarter: string) => {
+      const known = quarters.get(quarter);
+      if (known) return known;
+      const made: { margin: QuarterFigure | null; leverage: QuarterFigure | null } = {
+        margin: null,
+        leverage: null,
+      };
+      quarters.set(quarter, made);
+      return made;
+    };
+    for (const match of passage.text.matchAll(QUARTER_MARGIN)) {
+      const [, quarter = "", figure = ""] = match;
+      at(quarter).margin = { figure, quote: match[0], passage: passage.id };
+    }
+    for (const match of passage.text.matchAll(QUARTER_LEVERAGE)) {
+      const [, quarter = "", figure = ""] = match;
+      at(quarter).leverage = { figure, quote: match[0], passage: passage.id };
+    }
+  }
+  const rows = [...quarters.entries()]
+    .filter(([, figures]) => figures.margin !== null && figures.leverage !== null)
+    .sort(([a], [b]) => a.localeCompare(b));
+  if (rows.length === 0) return { text: "I couldn't find margin and leverage figures by quarter." };
+  const cells = rows.flatMap(([, figures]) => [figures.margin, figures.leverage]);
+  if (toolResults(prompt, "cite").length === 0) {
+    return {
+      tool: "cite",
+      input: {
+        citations: cells.map((cell, index) => ({
+          marker: index + 1,
+          passage: cell?.passage ?? "",
+          quote: cell?.quote ?? "",
+        })),
+      },
+    };
+  }
+  const chinese = /\p{Script=Han}/u.test(question);
+  const header = chinese
+    ? "| 季度 | 毛利率 | 净负债 / EBITDA |"
+    : "| Quarter | Gross margin | Net debt / EBITDA |";
+  const table = [
+    header,
+    "|---|---|---|",
+    ...rows.map(
+      ([quarter, figures], index) =>
+        `| ${quarter} | ${figures.margin?.figure} [^${index * 2 + 1}] | ${figures.leverage?.figure} [^${index * 2 + 2}] |`,
+    ),
+  ].join("\n");
+  return {
+    tool: "add_to_mind",
+    input: {
+      chart: {
+        kind: /\bline chart\b|折线图/i.test(question) ? "line" : "bar",
+        title: chinese ? "各季度毛利率与净负债" : "Margin and leverage by quarter",
+      },
+      content: table,
+    },
+  };
 }
 
 function tableChart(prompt: Prompt, figures: ChartedFigures): Reply {

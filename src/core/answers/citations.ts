@@ -29,6 +29,7 @@
 import { markersIn, shownRanges } from "../../shared/answerBlocks";
 import { citationNode, type NodeJSON } from "../../shared/blockJson";
 import { parseQuotedWords } from "../../shared/citations";
+import { FIGURE_MARKER } from "../../shared/figureMarkers";
 import {
   englishPlace,
   joinUnits,
@@ -53,6 +54,7 @@ import { foldRadicals, nameKey } from "../../shared/text";
 import { sameRun } from "../../shared/units";
 import {
   type AskedQuote,
+  type ChangedQuote,
   type Citation,
   type CitationCheck,
   type CitationCheckReason,
@@ -60,6 +62,7 @@ import {
   type CitedSelection,
   MAX_CITED_PAGES,
   type QuotedWords,
+  type RecheckCitationInput,
   type RejectedRecord,
   type SelectedPart,
 } from "../api";
@@ -68,6 +71,7 @@ import { BOILERPLATE_PARAMETERS } from "../documents/boilerplate";
 import type { PageText } from "../documents/passages";
 import type { WindowedPassage } from "../documents/search";
 import { writtenInCjk } from "../documents/textLanguage";
+import { diffSteps, splitWords } from "../proposals/diff";
 import { closestWords } from "./closestWords";
 import {
   type ContextCitation,
@@ -98,6 +102,9 @@ const sameSearch = (query: string) =>
     .trim();
 
 const FIX_THESE = "Fix these with another cite call:";
+
+/** What `cite` tells the model once it has taken every record. */
+export const WRITE_NOW = " Write the Answer now if you haven't yet; don't repeat it.";
 
 /** Whether what `cite` told the model asks it to fix records, which the Tool loop must not end before. */
 export const asksForFixes = (told: string): boolean => told.includes(FIX_THESE);
@@ -150,7 +157,7 @@ export function cleanQuote(raw: string): string {
 }
 
 /** How a Document's text is matched: whether it lost its f-ligatures (see `lostLigatures`). */
-type Matching = Pick<MatchOptions, "lostLigatures">;
+export type Matching = Pick<MatchOptions, "lostLigatures">;
 
 /** How quotes are matched in a Document's text, from all of it (its Units, as stored). */
 export const matchingOf = (units: readonly PageText[]): Matching => ({
@@ -242,27 +249,34 @@ function locatedAmong(
   return locateQuote(among, quote, matching);
 }
 
-/** The first Unit, or two consecutive Units of one run, among `units` whose text holds the quote. */
+/** The unique place of a quote in one Unit, or two consecutive Units of one run. */
 export function locateQuote(
   units: readonly PageText[],
   quote: string,
   matching: Matching = {},
 ): PageRange | null {
-  if (!quote) return null;
-  for (const unit of units) {
-    if (unit.page !== null && quoteInUnits([unit], quote, matching)) {
-      return { pageFrom: unit.page, pageTo: unit.page };
-    }
-  }
-  for (let index = 0; index + 1 < units.length; index++) {
-    const first = units[index] as PageText;
-    const second = units[index + 1] as PageText;
-    if (first.page === null || second.page !== first.page + 1 || !sameRun(first, second)) continue;
-    if (quoteInUnits([first, second], quote, matching)) {
-      return { pageFrom: first.page, pageTo: second.page };
-    }
-  }
-  return null;
+  const ranges = quoteInUnits(units, quote, { ...matching, unique: true });
+  if (!ranges) return null;
+  const { starts } = joinUnits(units);
+  const covered = units.filter((unit, index) => {
+    const start = starts[index] ?? 0;
+    return ranges.some((range) => range.start < start + unit.text.length && range.end > start);
+  });
+  const [first, second] = covered;
+  if (!first || first.page === null || covered.length > 2) return null;
+  if (second && (second.page !== first.page + 1 || !sameRun(first, second))) return null;
+  return { pageFrom: first.page, pageTo: second?.page ?? first.page };
+}
+
+export function quotePlaceProblem(
+  quote: string,
+  units: readonly PageText[],
+  matching: Matching = {},
+): string | null {
+  return quoteInUnits(units, quote, matching) &&
+    !quoteInUnits(units, quote, { ...matching, unique: true })
+    ? "the quote occurs more than once in its cited Units; quote enough surrounding words to identify one place."
+    : null;
 }
 
 /**
@@ -372,7 +386,7 @@ const removedFrom = (range: PageRange): CitationRecheck => ({
 const FOUND: CheckResult = { check: "found", checkReason: null };
 const NOT_ON_PAGES: CheckResult = { check: "not-found", checkReason: "quote-not-on-pages" };
 
-function currentVersion(documents: RecheckDocuments, documentId: string, contentHash: string) {
+function versionOf(documents: RecheckDocuments, documentId: string, contentHash: string) {
   const units = documents.pageTexts(documentId, contentHash, null, null);
   const matching = matchingOf(units);
   const passageFor = (range: PageRange, quote: string): string | null => {
@@ -402,57 +416,222 @@ function currentVersion(documents: RecheckDocuments, documentId: string, content
       contentHash,
       passageId: passageFor(range, quote),
       ...range,
-      location: locationOf(
-        covered,
-        check.check === "found" ? (found ?? quoteInUnits(covered, quote, matching)) : null,
-      ),
+      location:
+        range.pageFrom === null || range.pageTo === null
+          ? null
+          : locationOf(
+              covered,
+              check.check === "found" ? (found ?? quoteInUnits(covered, quote, matching)) : null,
+            ),
     };
   };
   return { units, matching, inRange, result };
 }
 
+type Rechecked = Pick<RecheckCitationInput, "documentId" | "quote" | "pageFrom" | "pageTo">;
+
 /**
  * Checks a Citation again against its Document's current version (see
- * `CoreApi.recheckCitation`): in the cited Units first, then in each Unit,
- * and each two consecutive Units of one run, of the current version, in
- * order. The Passage given is one of the current version that holds the
- * Units, preferably one whose text holds the quote too.
+ * `CoreApi.recheckCitation`): at its cited Units, without relocating it.
+ * The Passage given is one of the current version that holds the
+ * Units, preferably one whose text holds the quote too. Given the version it
+ * quotes, once the Document has a newer one: its check in that version too,
+ * and its words as they changed when the current one doesn't hold them.
  */
 export function recheckCitation(
   documents: RecheckDocuments,
-  input: { documentId: string; quote: string; pageFrom: number | null; pageTo: number | null },
+  input: Rechecked & { contentHash?: string | null },
 ): CitationRecheck {
+  const now = recheckInCurrent(documents, input);
+  const quoted = input.contentHash ?? "";
+  if (quoted === "" || now.contentHash === null || now.contentHash === quoted) return now;
+  return {
+    ...now,
+    inQuotedVersion: checkInVersion(documents, input, quoted),
+    changed:
+      now.check === "not-found" ? changedQuote(documents, input, quoted, now.contentHash) : null,
+  };
+}
+
+function checkInVersion(
+  documents: RecheckDocuments,
+  input: Rechecked,
+  contentHash: string,
+): CheckResult | null {
+  const version = versionOf(documents, input.documentId, contentHash);
+  // That version's text is no longer kept: the check made when it was cited stands.
+  if (version.units.length === 0) return null;
+  const range = { pageFrom: input.pageFrom, pageTo: input.pageTo };
+  return checkCitation({
+    quote: cleanQuote(input.quote),
+    range,
+    passage: range,
+    documentDeleted: false,
+    pages: version.inRange(range),
+    lostLigatures: version.matching.lostLigatures ?? false,
+  });
+}
+
+const holdsWord = (token: string) => /[\p{L}\p{N}]/u.test(token);
+const wordCount = (text: string) => splitWords(text).filter(holdsWord).length;
+
+/** At least this share of a quote's words stays at its place for the words there now to be its words, changed. */
+const LEAST_KEPT = 0.5;
+
+function changedQuote(
+  documents: RecheckDocuments,
+  input: Rechecked,
+  version: string,
+  current: string,
+): ChangedQuote | null {
+  const before = versionOf(documents, input.documentId, version);
+  const cited = before.inRange(input);
+  const found = quoteInUnits(cited, cleanQuote(input.quote), before.matching);
+  const start = found?.[0]?.start;
+  const end = found?.at(-1)?.end;
+  if (start === undefined || end === undefined) return null;
+  const { pageFrom, pageTo } = input;
+  // A Unit either side, in both versions: a page added before the quote moves its words on one.
+  const near = (units: readonly PageText[]) =>
+    units.filter(
+      (unit) =>
+        pageFrom === null ||
+        pageTo === null ||
+        (unit.page !== null && unit.page >= pageFrom - 1 && unit.page <= pageTo + 1),
+    );
+  const around = near(before.units);
+  const old = joinUnits(around);
+  const offset = old.starts[cited[0] ? around.indexOf(cited[0]) : 0] ?? 0;
+  const after = joinUnits(near(versionOf(documents, input.documentId, current).units));
+  const parts = changedParts(old.text, after.text, offset + start, offset + end);
+  if (!parts.some((part) => part.kind !== "same")) return null;
+  const kept = parts.filter((part) => part.kind === "same").map((part) => part.text);
+  const quoted = old.text.slice(offset + start, offset + end);
+  if (wordCount(kept.join("")) < wordCount(quoted) * LEAST_KEPT) return null;
+  const words = parts
+    .filter((part) => part.kind !== "removed")
+    .map((part) => part.text)
+    .join("")
+    .replace(/\s+/gu, " ")
+    .trim();
+  const now = words === "" ? null : recheckInCurrent(documents, { ...input, quote: words });
+  return now?.check === "found" ? { parts, now: { ...now, quote: words } } : null;
+}
+
+type Segment = { same: string } | { removed: string; added: string };
+
+function changedParts(
+  oldText: string,
+  newText: string,
+  start: number,
+  end: number,
+): ChangedQuote["parts"] {
+  const a = splitWords(oldText);
+  const b = splitWords(newText);
+  const steps = diffSteps(a, b);
+  const segments: Segment[] = [];
+  const keep = (text: string) => {
+    const last = segments.at(-1);
+    if (last && "same" in last) last.same += text;
+    else if (text !== "") segments.push({ same: text });
+  };
+  const inQuote = (token: string, at: number) =>
+    token.slice(Math.max(0, start - at), Math.max(0, Math.min(token.length, end - at)));
+  let x = 0;
+  let i = 0;
+  let j = 0;
+  for (let step = 0; step < steps.length; ) {
+    if (steps[step] === "equal") {
+      const token = a[i++] ?? "";
+      j++;
+      keep(inQuote(token, x));
+      x += token.length;
+      step++;
+      continue;
+    }
+    const from = x;
+    let removed = "";
+    let added = "";
+    for (; step < steps.length && steps[step] !== "equal"; step++) {
+      if (steps[step] === "insert") {
+        added += b[j++] ?? "";
+        continue;
+      }
+      const token = a[i++] ?? "";
+      removed += inQuote(token, x);
+      x += token.length;
+    }
+    // Words put in where nothing was taken out belong to the quote only inside it.
+    const touches = from === x ? start < from && from < end : from < end && x > start;
+    if (touches) segments.push({ removed, added });
+  }
+  // Changes with only spaces and marks kept between them read as one: "sixty (60)" became
+  // "forty-five (45)", not "sixty" became "forty-five" and "60" became "45".
+  const joined: Segment[] = [];
+  for (const [index, segment] of segments.entries()) {
+    const before = joined.at(-1);
+    const next = segments[index + 1];
+    const between = "same" in segment && next && "removed" in next && !holdsWord(segment.same);
+    const change = "same" in segment ? { removed: segment.same, added: segment.same } : segment;
+    if (before && "removed" in before && (between || "removed" in segment)) {
+      joined[joined.length - 1] = {
+        removed: before.removed + change.removed,
+        added: before.added + change.added,
+      };
+    } else joined.push(segment);
+  }
+  // A bracket or quotation mark against a change goes with it: "(60)", not "(60" and ")".
+  for (const [index, segment] of joined.entries()) {
+    const before = joined[index - 1];
+    const after = joined[index + 1];
+    if (!("removed" in segment)) continue;
+    const lead =
+      before && "same" in before ? (/[\p{Ps}\p{Pi}"]+$/u.exec(before.same)?.[0] ?? "") : "";
+    const tail = after && "same" in after ? (/^[\p{Pe}\p{Pf}"]+/u.exec(after.same)?.[0] ?? "") : "";
+    if (before && "same" in before)
+      before.same = before.same.slice(0, before.same.length - lead.length);
+    if (after && "same" in after) after.same = after.same.slice(tail.length);
+    segment.removed = lead + segment.removed + tail;
+    segment.added = lead + segment.added + tail;
+  }
+  const first = joined[0];
+  const last = joined.at(-1);
+  if (first && "same" in first) first.same = first.same.trimStart();
+  if (last && "same" in last) last.same = last.same.trimEnd();
+  return joined.flatMap((segment): ChangedQuote["parts"] =>
+    "same" in segment
+      ? segment.same === ""
+        ? []
+        : [{ kind: "same", text: segment.same }]
+      : [
+          ...(segment.removed ? [{ kind: "removed" as const, text: segment.removed }] : []),
+          ...(segment.added ? [{ kind: "added" as const, text: segment.added }] : []),
+        ],
+  );
+}
+
+function recheckInCurrent(documents: RecheckDocuments, input: Rechecked): CitationRecheck {
   const cited = { pageFrom: input.pageFrom, pageTo: input.pageTo };
   const contentHash = documents.currentVersion(input.documentId);
   if (contentHash === null) return removedFrom(cited);
   const quote = cleanQuote(input.quote);
-  const version = currentVersion(documents, input.documentId, contentHash);
+  const version = versionOf(documents, input.documentId, contentHash);
   const { units, matching, inRange } = version;
   const result = (check: CheckResult, range: PageRange) => version.result(check, range, quote);
   if (units.every((unit) => unit.text.trim() === "")) {
     return result({ check: "cant-check", checkReason: "no-text" }, cited);
   }
-  // A whole TXT or Markdown file stored before Units is checked as one text.
-  if (units.length === 1 && units[0]?.kind === "text") {
-    const whole = { pageFrom: null, pageTo: null };
-    return quote !== "" && quoteInUnits(units, quote, matching)
-      ? result({ check: "found", checkReason: null }, whole)
-      : result({ check: "not-found", checkReason: "quote-not-on-pages" }, whole);
+  const range = inRange(cited);
+  const [first, second] = range;
+  const whole = cited.pageFrom === null || cited.pageTo === null;
+  if (
+    range.length > 0 &&
+    (whole || (range.length <= MAX_CITED_PAGES && (!first || !second || sameRun(first, second)))) &&
+    quote !== "" &&
+    quoteInUnits(range, quote, matching)
+  ) {
+    return result({ check: "found", checkReason: null }, cited);
   }
-  if (cited.pageFrom !== null && cited.pageTo !== null) {
-    const range = inRange(cited);
-    const [first, second] = range;
-    if (
-      range.length > 0 &&
-      range.length <= MAX_CITED_PAGES &&
-      (!first || !second || sameRun(first, second)) &&
-      quoteInUnits(range, quote, matching)
-    ) {
-      return result({ check: "found", checkReason: null }, cited);
-    }
-  }
-  const located = locateQuote(units, quote, matching);
-  if (located) return result({ check: "found", checkReason: null }, located);
   return result({ check: "not-found", checkReason: "quote-not-on-pages" }, cited);
 }
 
@@ -570,7 +749,7 @@ export function citeSelection(
     known.length > 0 ? { pageFrom: Math.min(...known), pageTo: Math.max(...known) } : nowhere;
   const contentHash = documents.currentVersion(input.documentId);
   if (contentHash === null) return { ...removedFrom(selected), quote: all };
-  const version = currentVersion(documents, input.documentId, contentHash);
+  const version = versionOf(documents, input.documentId, contentHash);
   const { units, matching, inRange } = version;
   const refused = (check: CheckResult, range: PageRange, quote = all): CitedSelection => ({
     ...version.result(check, range, quote),
@@ -691,7 +870,7 @@ export function recheckWhereSelected(
   const contentHash = documents.currentVersion(input.documentId);
   if (contentHash === null) return { ...removedFrom(cited), quote: "" };
   const quote = cleanQuote(input.quote);
-  const version = currentVersion(documents, input.documentId, contentHash);
+  const version = versionOf(documents, input.documentId, contentHash);
   const covered = version.inRange(cited);
   const wanted = JSON.stringify(parseLocation(input.location));
   const options = { ...version.matching, numbers: numbersIn(covered) };
@@ -714,14 +893,16 @@ export function recheckWhereSelected(
  * version and it said otherwise (not found yet, or found in an older
  * version), else null. A quote the current version doesn't hold leaves the
  * Citation as it was: its check stands for the version it quotes, whose text
- * is kept.
+ * is kept. So does the User's choice to keep citing the old version
+ * (`keptOver`, ADR-0017's amendment).
  */
 export function recheckKept(
   documents: RecheckDocuments,
   attributes: Record<string, unknown>,
 ): Record<string, unknown> | null {
-  const { documentId, quote } = attributes;
+  const { documentId, quote, keptOver } = attributes;
   if (typeof documentId !== "string" || documentId === "") return null;
+  if (typeof keptOver === "string" && keptOver !== "") return null;
   const page = (value: unknown) =>
     typeof value === "number" && Number.isInteger(value) && value >= 1 ? value : null;
   const now = recheckCitation(documents, {
@@ -895,6 +1076,10 @@ export type QuoteInput = Omit<CitationRecordInput, "marker">;
 export interface Quoted {
   /** The Passage's id, as the model was given it: "P3". */
   passage: string;
+  /** The Passage's own text, as it was built: where a quote of it was taken from. */
+  passageText: string;
+  /** How the check matches the quote in its Units. */
+  matching: Matching;
   /** Its Citation, "checking". */
   citation: Citation;
   /** The stored text of the Units it cites, of the version it quotes. */
@@ -941,6 +1126,8 @@ export function createCitationSession(
   /** Each Passage's text as the model was given it, by its short id. */
   const shownTexts = new Map<string, string>();
   const records = new Map<number, Accepted>();
+  /** Markers whose last record from a `cite` call was refused or came back with a problem to fix. */
+  const toFix = new Set<number>();
   /** Records naming no Passage the model was given, or no marker: as given, and why. */
   const rejected: RejectedRecord[] = [];
   const searched = new Set<string>();
@@ -1082,6 +1269,20 @@ export function createCitationSession(
       };
     }
     const taken = takeQuote(input, marker, options);
+    if (taken.ok && !taken.record.kept) {
+      const problem = quotePlaceProblem(
+        taken.record.quote,
+        citedText(taken.record),
+        matchingFor(taken.source),
+      );
+      if (problem) {
+        return {
+          ok: false,
+          rejected: { marker, passage: given, reason: "quote-context" },
+          problem: `[^${marker}]: ${problem}`,
+        };
+      }
+    }
     return taken.ok
       ? taken
       : {
@@ -1216,6 +1417,7 @@ export function createCitationSession(
       if (!taken.ok) {
         rejected.push(taken.rejected);
         problems.push(taken.problem);
+        if (!options.structured && taken.rejected.marker !== null) toFix.add(taken.rejected.marker);
         continue;
       }
       const { record, source, passageUnits } = taken;
@@ -1225,14 +1427,15 @@ export function createCitationSession(
       events.onRecord(marker, toCitation(record, null));
       // Tell the model now what the check will find, so it can fix the record.
       const problem = record.kept ? null : recordProblem(record, source, passageUnits);
-      if (problem) problems.push(`[^${marker}]: ${problem}`);
+      if (problem) {
+        problems.push(`[^${marker}]: ${problem}`);
+        if (!options.structured) toFix.add(marker);
+      } else toFix.delete(marker);
     }
     const done = recorded.length
       ? `Recorded ${recorded.map((marker) => `[^${marker}]`).join(", ")}.`
       : "Nothing was recorded.";
-    const fix = problems.length
-      ? ` ${FIX_THESE}\n- ${problems.join("\n- ")}`
-      : " Write the Answer now if you haven't yet; don't repeat it.";
+    const fix = problems.length ? ` ${FIX_THESE}\n- ${problems.join("\n- ")}` : WRITE_NOW;
     return `${done}${fix}`;
   }
 
@@ -1264,6 +1467,8 @@ export function createCitationSession(
   /** A record as a calculated figure's input reads it. */
   const quotedOf = (record: Accepted): Quoted => ({
     passage: record.handle,
+    passageText: record.source.text,
+    matching: matchingFor(record.source),
     citation: toCitation(record, null),
     units: citedText(record),
     check: () => check(record),
@@ -1398,6 +1603,15 @@ export function createCitationSession(
 
     hasRecord: (marker) => records.has(marker),
 
+    owed(text, figured) {
+      const unrecorded = markersIn(text).filter((marker) => !records.has(marker));
+      const figures = [...text.matchAll(FIGURE_MARKER)].map((match) => Number(match[1]));
+      return {
+        citations: [...new Set([...toFix, ...unrecorded])].sort((a, b) => a - b),
+        figures: figured ? [...new Set(figures)].filter((marker) => !figured(marker)) : [],
+      };
+    },
+
     shownPassages: () =>
       [...handleOf.values()].flatMap((id) => {
         const text = shownTexts.get(id);
@@ -1440,6 +1654,7 @@ export function createCitationSession(
       );
       if (!taken.ok || !taken.record.quote || check(taken.record).check !== "found") return false;
       records.set(marker, taken.record);
+      toFix.delete(marker);
       events.onRecord(marker, toCitation(taken.record, null));
       return true;
     },
@@ -1477,23 +1692,10 @@ export function createCitationSession(
 
   /** Quotes for calculated figures' inputs (./calculations). */
   const quotes = {
-    /**
-     * The quote of the record taken for a marker; null when none was. A quote
-     * that isn't where the record says is read where it is in its Passage, as
-     * structured output's records are (see `CiteOptions`): the record itself
-     * stays as it was.
-     */
+    /** An input keeps its recorded Location: moving it could substitute another revision (#1979). */
     recorded(marker: number): Quoted | null {
       const record = records.get(marker);
       if (!record) return null;
-      if (check(record).check === "not-found") {
-        const placed = takeQuote(
-          { passage: record.handle, ...record.given, quote: record.quote },
-          0,
-          { structured: true },
-        );
-        if (placed.ok && check(placed.record).check === "found") return quotedOf(placed.record);
-      }
       return quotedOf(record);
     },
 

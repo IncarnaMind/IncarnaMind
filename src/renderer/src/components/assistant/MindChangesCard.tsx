@@ -22,7 +22,7 @@ function factText(t: Translate, row: ChangedMind, name: string, waiting: Waiting
 }
 
 /**
- * The card under the reply of an Answer that changed Minds (#202, D148):
+ * The card under the reply of an Answer that changed Minds (#202):
  * what its calls did, from their record rather than the reply's words.
  * "2 Minds changed · Review", a row for each Mind ("Edited: Q3 review · 4
  * waiting") with Open, then Accept all · Reject all while changes wait. For
@@ -64,7 +64,7 @@ export function MindChangesCard({
     );
   }
   const counted = (index: number) => {
-    const count = waiting[index];
+    const count = waiting[index]?.count;
     return typeof count === "number" ? count : 0;
   };
   const total = rows.reduce((sum, _, index) => sum + counted(index), 0);
@@ -72,9 +72,9 @@ export function MindChangesCard({
   const [only] = rows;
   const head =
     rows.length === 1 && only
-      ? factText(t, only, nameOf(only), waiting[0] ?? null)
+      ? factText(t, only, nameOf(only), waiting[0]?.count ?? null)
       : t("mindChanges.minds", { count: rows.length });
-  const headLeft = rows.length === 1 && only ? leftText(t, only, waiting[0] ?? null) : null;
+  const headLeft = rows.length === 1 && only ? leftText(t, only, waiting[0]?.count ?? null) : null;
   const headKept = rows.length === 1 && only ? keptText(t, only) : null;
 
   return (
@@ -127,7 +127,7 @@ export function MindChangesCard({
       </div>
       {rows.length > 1 &&
         rows.map((row, index) => {
-          const count = waiting[index] ?? null;
+          const count = waiting[index]?.count ?? null;
           const name = nameOf(row);
           // Its name first, so a narrow panel cuts the verb rather than the name; the fact is on hover.
           const label =

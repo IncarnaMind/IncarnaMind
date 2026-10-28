@@ -5,13 +5,14 @@ import type { Editor } from "@tiptap/core";
 import type { CoreBridge } from "../src/core/api";
 import {
   acceptPlainTextKeys,
-  addToNote,
+  addFilesLabel,
   assistantAnswers,
   continueSetup,
   createDataFolder,
   dismissChatSetup,
   examplesMenu,
   expectReadyDocuments,
+  frontMind,
   gettingStarted,
   interceptOpenDialog,
   launchApp,
@@ -24,7 +25,6 @@ import {
   removeDataFolder,
   setLanguage,
   setWindowSize,
-  showSourceLocations,
   welcomeStep as step,
   useLocalChatModel,
 } from "./app";
@@ -124,9 +124,10 @@ test("a first run opens on the credit paper with no model set up: its Citations 
   await expect(mark).toHaveCount(1);
   await expect(mark).toHaveAttribute("data-check", "contradicted");
 
-  // Step 1 rings the red mark; its card says what the results say, and quotes them where they say it.
-  await expect(step(window, "citation")).toHaveAttribute("data-state", "open");
-  await expect(mark).toHaveAttribute("data-guided");
+  // The example's red ≠: its card says what the results say, and quotes them where they say it.
+  await expect(step(window, "files")).toHaveAttribute("data-state", "open");
+  await expect(step(window, "citation")).toHaveAttribute("data-state", "later");
+  await expect(mark).not.toHaveAttribute("data-guided");
   await pointAndClick(window, mark);
   const card = window.getByTestId("claim-card");
   await expect(card.getByTestId("claim-badge")).toHaveAttribute("data-check", "contradicted");
@@ -139,14 +140,9 @@ test("a first run opens on the credit paper with no model set up: its Citations 
   await expect(card.getByTestId("claim-quote")).toHaveText(
     "Group gross margin was 38.6%, down from 40.3% a year earlier, with online the main drag.",
   );
-  await expect(step(window, "citation")).toHaveAttribute("data-state", "done");
-  await expect(step(window, "citation")).toContainText("Saw a mistake it caught");
-  await expect(step(window, "citation").locator("span").last()).toHaveCSS(
-    "text-decoration-line",
-    "none",
-  );
-  await expect(mark).not.toHaveAttribute("data-guided");
-  await expect(step(window, "question")).toHaveAttribute("data-state", "open");
+  // A claim the check caught is not a Citation checked: the steps don't tick.
+  await expect(step(window, "citation")).toHaveAttribute("data-state", "later");
+  await expect(step(window, "question")).toHaveAttribute("data-state", "later");
   await window.keyboard.press("Escape");
 
   // A Citation opens the results at the page it quotes, the quote highlighted.
@@ -162,19 +158,31 @@ test("a first run opens on the credit paper with no model set up: its Citations 
     .poll(async () => (await highlight.allTextContents()).join(""))
     .toContain("Net debt to EBITDA was 3.1 times");
   await window.keyboard.press("Escape");
+  await expect(step(window, "citation")).toHaveAttribute("data-state", "done");
 
   // Step 2's ready Question brings the assistant with its Answer, written in advance with no
   // model, its Citations found, and ticks the step.
+  await markSteps(window, { indexed: true });
+  await expect(step(window, "files")).toHaveAttribute("data-state", "done");
+  await expect(step(window, "question")).toHaveAttribute("data-state", "open");
   const assistant = window.getByTestId("assistant");
   await expect(assistant).toBeHidden();
   const ready = step(window, "question").getByTestId("first-open-ready");
-  await expect(ready).toHaveText(
-    "Ask: “What does the facilities agreement say about the leverage limit?”",
-  );
+  // The whole Question is the line's name and its tooltip; a narrower line would cut it at a
+  // word's end, and clicking asks it whole.
+  const askLabel = "Ask: “What leverage does the agreement allow?”";
+  await expect(ready).toHaveAttribute("aria-label", askLabel);
+  await expect(ready).toHaveAttribute("title", askLabel);
+  const shownAsk = await ready.innerText();
+  if (shownAsk !== askLabel) {
+    expect(shownAsk.endsWith("…"), "cut").toBe(true);
+    expect(askLabel.startsWith(shownAsk.slice(0, -1))).toBe(true);
+    expect(askLabel.slice(shownAsk.length - 1), "a word's end").toMatch(/^\s/u);
+  }
   await pointAndClick(window, ready);
   await expect(assistant).toBeVisible();
   await expect(assistant.getByTestId("assistant-question")).toContainText(
-    "What does the facilities agreement say about the leverage limit?",
+    "What leverage does the agreement allow?",
   );
   const readyAnswer = assistantAnswers(window).last();
   await expect(readyAnswer).toHaveAttribute("data-status", "done");
@@ -186,7 +194,11 @@ test("a first run opens on the credit paper with no model set up: its Citations 
   for (const chip of await chips.all()) await expect(chip).toHaveAttribute("data-check", "found");
   await expect(step(window, "question")).toHaveAttribute("data-state", "done");
   await expect(step(window, "question")).toContainText("Asked a question");
-  await expect(step(window, "files")).toHaveAttribute("data-state", "open");
+  // All three are done, and there is no model: the card asks for one (#1027).
+  await expect(step(window, "citation")).toHaveAttribute("data-state", "done");
+  await expect(pane.getByTestId("first-open-steps")).toContainText(
+    "Choose an AI model to ask about your own files.",
+  );
   await expect(window.getByTestId("chat-setup")).toHaveCount(0);
 
   await leaveFirstOpen(window);
@@ -205,7 +217,7 @@ test("a first run opens on the credit paper with no model set up: its Citations 
   await setLanguage(window, "zh-CN");
   await expect(addOwn).toHaveText("添加你的文档");
   await pointAndClick(window, addOwn);
-  await expect(ways.getByRole("menuitem")).toHaveText(["添加文件…", "添加同步文件夹…"]);
+  await expect(ways.getByRole("menuitem")).toHaveText(["添加文件…", "添加关联文件夹…"]);
   await window.keyboard.press("Escape");
 
   await setLanguage(window, "en");
@@ -213,10 +225,9 @@ test("a first run opens on the credit paper with no model set up: its Citations 
     /Northwind Retail · (Q3 2026 results|Senior facilities agreement \(excerpt\))/,
     /Northwind Retail · (Q3 2026 results|Senior facilities agreement \(excerpt\))/,
   ]);
-  await showSourceLocations(window);
-  await expect(linkedFolderRow(window, "Examples").getByTestId("example-chip")).toBeVisible({
-    timeout: 30_000,
-  });
+  // The example’s Linked folder is no Linked folder of the User’s: on day one the section
+  // waits for one of their own (#1942).
+  await expect(window.getByTestId("linked-folders-section")).toHaveCount(0);
 });
 
 test("removing the examples deletes the example Mind, its Documents and the copies of their files, and they aren't made again", async () => {
@@ -253,7 +264,7 @@ test("removing the examples deletes the example Mind, its Documents and the copi
   await again.app.close();
 });
 
-test("with only the example Documents, the footer doesn't ask for a model to tag them; a Document of one's own without a model does", async () => {
+test("the footer asks for a model to tag only once a Document of the User's own carries a Tag (#1942)", async () => {
   const own = join(sources, "Harbour notes.md");
   await writeFile(own, "# Harbour notes\n\nThe harbour master publishes the tide tables.\n");
   const { app, window } = await launchApp(dataDir, { examples: true });
@@ -270,12 +281,25 @@ test("with only the example Documents, the footer doesn't ask for a model to tag
   }
   await expect(notice).toHaveCount(0);
 
-  // A Document of one's own, with no model: the notice, as always.
+  // A Document of one's own with no model, and no Tag anywhere: nothing names Tags yet.
   await window.getByTestId("add-documents-input").setInputFiles([own]);
   const added = items.filter({ hasText: "Harbour notes" });
   await expect(added).toHaveAttribute("data-tagging", "waiting-for-provider");
+  await expect(notice).toHaveCount(0);
+
+  // A Tag of the User's own: the notice comes.
+  await window.evaluate(async () => {
+    const bridge = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
+    const [document] = (await bridge.listDocuments()).filter(
+      (each) => each.name === "Harbour notes",
+    );
+    const tag = await bridge.createTag({ name: "Harbour", description: "" });
+    if (document) await bridge.addTagToDocuments([document.id], tag.id);
+  });
   await expect(notice).toBeVisible();
-  await expect(notice).toContainText("No AI model for Tags");
+  await expect(notice).toContainText("Tags need an AI model");
+  // One 28px line, never wrapping: the whole sentence is on hover (#763).
+  await expect(notice).toHaveAttribute("title", "Tags come once you choose an AI model.");
   await expect(notice.getByTestId("tagging-waiting-setup")).toHaveText("Choose…");
   await setLanguage(window, "zh-CN");
   await expect(notice).toContainText("打标签需要 AI 模型");
@@ -285,20 +309,22 @@ test("with only the example Documents, the footer doesn't ask for a model to tag
   await app.close();
 });
 
-test("an empty Mind of one's own shows the three steps, the example's steps tick as Documents are added and a Question is asked, and it says what to try next once all are done", async () => {
+test("an empty Mind of one's own shows no second start guide, the example's steps tick as Documents are added and a Question is asked, and it says what to try next once all are done", async () => {
   await writeFile(
     join(sources, "Harbour notes.md"),
     "# Harbour notes\n\nThe harbour master publishes the tide tables every January.\n",
   );
   const { window } = await launchApp(dataDir, { examples: true, fakeChat: true });
-  await expect(step(window, "citation")).toHaveAttribute("data-state", "open");
+  await expect(step(window, "files")).toHaveAttribute("data-state", "open");
 
   await newMind(window);
   await dismissChatSetup(window);
-  const guide = window.getByTestId("start-guide");
-  await expect(guide).toBeVisible();
-  await expect(guide.getByTestId("start-step")).toHaveCount(3);
-  await expect(guide).toContainText("without checked Citations.");
+  // The first-run card has been seen: an empty note of one's own shows no second guide (#1940).
+  await expect(window.getByTestId("first-open-steps")).toBeHidden();
+  const editor = frontMind(window).getByTestId("mind-editor");
+  await expect(window.getByTestId("start-guide")).toHaveCount(0);
+  await expect(editor).not.toContainText("Start in three steps");
+  await expect(editor).not.toContainText("Connect an app…");
 
   await window
     .getByTestId("add-documents-input")
@@ -322,12 +348,14 @@ test("an empty Mind of one's own shows the three steps, the example's steps tick
   });
   await expect.poll(() => gettingStarted(window)).toMatchObject({ askedOwn: true });
   await expect(window.getByTestId("mind-editor").getByTestId("question")).toHaveCount(0);
-  await expect(guide).toBeVisible();
+  await expect(window.getByTestId("start-guide")).toHaveCount(0);
 
-  await pointAndClick(
-    window,
-    window.getByTestId("mind-list-item").filter({ has: window.getByTestId("example-chip") }),
-  );
+  // The examples fold to one row once a Document of one's own is there (#1944).
+  // Tagging finishes in the background and adds the Tags section above it: wait, so the row holds still.
+  await expect(window.getByTestId("sidebar").getByTestId("sidebar-tags")).toBeVisible({
+    timeout: 30_000,
+  });
+  await pointAndClick(window, window.getByTestId("example-open"));
   const checks = window
     .getByTestId("mind-pane")
     .getByTestId("mind-editor")
@@ -335,22 +363,22 @@ test("an empty Mind of one's own shows the three steps, the example's steps tick
   await expect(checks.nth(0)).toHaveAttribute("data-check", "found", { timeout: 20_000 });
   await expect(step(window, "files")).toHaveAttribute("data-state", "done");
   await pointAndClick(window, checks.nth(0));
-  await expect(step(window, "citation")).toHaveAttribute("data-state", "open");
+  await expect(step(window, "citation")).toHaveAttribute("data-state", "done");
   await window.keyboard.press("Escape");
   await pointAndClick(window, window.getByTestId("mind-pane").getByTestId("claim-mark"));
   const steps = window.getByTestId("first-open-steps");
   await expect(steps).toContainText("You’re set up.");
   await expect(steps.locator('[data-testid="first-open-step"][data-state="done"]')).toHaveText([
-    /Saw a mistake it caught/,
-    /Asked a question/,
     /Added your files/,
+    /Asked a question/,
+    /Checked a Citation/,
   ]);
   await expect(steps.getByTestId("first-open-next").first()).toBeVisible();
   await pointAndClick(window, steps.getByTestId("first-open-hide"));
   await expect(steps).toHaveCount(0);
 });
 
-test("the steps card's last step offers Add files… and Link a folder… at once, and the first screens and the start guide speak plainly, in English and Chinese (#766)", async () => {
+test("the steps card's first step offers Add files… and Link a folder… at once, and the first screens and the start guide speak plainly, in English and Chinese (#766)", async () => {
   const notes = join(sources, "Harbour notes.md");
   await writeFile(notes, "# Harbour notes\n\nThe harbour master publishes the tide tables.\n");
   const { app, window } = await launchApp(dataDir, { examples: true });
@@ -367,7 +395,7 @@ test("the steps card's last step offers Add files… and Link a folder… at onc
 
   await pointAndClick(window, checks.nth(0));
   await window.keyboard.press("Escape");
-  await expect(step(window, "citation")).toHaveAttribute("data-state", "open");
+  await expect(step(window, "citation")).toHaveAttribute("data-state", "done");
   await pointAndClick(window, pane.getByTestId("claim-mark"));
   await window.keyboard.press("Escape");
   await expect(step(window, "citation")).toHaveAttribute("data-state", "done");
@@ -375,7 +403,7 @@ test("the steps card's last step offers Add files… and Link a folder… at onc
   const files = step(window, "files");
   await expect(files).toHaveAttribute("data-state", "open");
   const offered = files.locator('button:not([data-testid="first-open-step-do"])');
-  await expect(offered).toHaveText(["Add files…", "Link a folder…"]);
+  await expect(offered).toHaveText([addFilesLabel("en")]);
   await expect(window.getByTestId("mind-editor").locator("h1")).toHaveText(
     "Draft: credit committee paper",
   );
@@ -383,7 +411,7 @@ test("the steps card's last step offers Add files… and Link a folder… at onc
 
   await setLanguage(window, "zh-CN");
   await setWindowSize(app, window, 900, 760);
-  await expect(offered).toHaveText(["添加文件…", "添加同步文件夹…"]);
+  await expect(offered).toHaveText([addFilesLabel("zh-CN")]);
   await expectPlainWords(firstScreen);
   const card = await pane.getByTestId("first-open-steps").boundingBox();
   const buttons = await offered.last().boundingBox();
@@ -392,12 +420,10 @@ test("the steps card's last step offers Add files… and Link a folder… at onc
   );
   await newMind(window);
   await dismissChatSetup(window);
-  const guide = window.getByTestId("start-guide");
-  await expect(guide).toContainText("向你的文档提问。");
-  await expectPlainWords([guide]);
+  // The first-run card has been seen: an empty note of one's own shows no guide (#1940).
+  await expect(window.getByTestId("start-guide")).toHaveCount(0);
   await setLanguage(window, "en");
-  await expect(guide).toContainText("and ask your Documents.");
-  await expectPlainWords([guide, window.getByTestId("sidebar")]);
+  await expectPlainWords([window.getByTestId("sidebar")]);
   await pointAndClick(
     window,
     window.getByTestId("mind-list-item").filter({ has: window.getByTestId("example-chip") }),
@@ -412,17 +438,17 @@ test("the steps card's last step offers Add files… and Link a folder… at onc
   });
   await expect(steps).not.toContainText("准备好了。");
   await pointAndClick(window, steps.getByTestId("first-open-choose-model"));
-  await expect(window.getByTestId("model-setup")).toContainText("选择你的 AI");
+  await expect(window.getByTestId("model-setup")).toContainText("设置你的 AI");
   await useLocalChatModel(window);
   await expect(steps).toContainText("准备好了。");
   await continueSetup(window);
 });
 
-test('"Ask a question" is ticked by an Answer that arrives, not by one that fails (#766)', async () => {
+test('"Ask" is ticked by an Answer that arrives, not by one that fails (#766)', async () => {
   const { app, window } = await launchApp(dataDir, { examples: true, fakeChat: true });
   await setWindowSize(app, window, 1440, 900);
   await useLocalChatModel(window);
-  await markSteps(window, { mistakeSeen: true });
+  await markSteps(window, { indexed: true });
   const asked = step(window, "question");
   await expect(asked).toHaveAttribute("data-state", "open");
 
@@ -461,10 +487,10 @@ test("in Chinese, the ready Question is the Chinese example's, answered with no 
     .getByTestId("citation-chip");
   await expect(checks).toHaveCount(2);
   await expect(checks.nth(1)).toHaveAttribute("data-check", "found", { timeout: 30_000 });
-  await markSteps(window, { mistakeSeen: true });
+  await markSteps(window, { indexed: true });
 
   const ready = step(window, "question").getByTestId("first-open-ready");
-  await expect(ready).toHaveText("提问：“贷款协议对杠杆率上限是怎么规定的？”");
+  await expect(ready).toHaveText("提问：贷款协议对杠杆率上限是怎么规定的？");
   await expect(step(window, "question")).toContainText("输入你自己的问题");
   const card = await window.getByTestId("first-open-steps").boundingBox();
   const button = await ready.boundingBox();
@@ -482,11 +508,150 @@ test("in Chinese, the ready Question is the Chinese example's, answered with no 
   await app.close();
 });
 
-test("Add files… with only a file it can't take says why in step 3, which stays open (#123)", async () => {
+const OWN_FILES = [
+  {
+    language: "en",
+    name: "Project brief.md",
+    text: "# Project brief\n\nThe project brief sets out the harbour plan.\n",
+    asks: "Ask: “What does ‘Project brief’ say?”",
+    question: "What does ‘Project brief’ say?",
+  },
+  {
+    language: "zh-CN",
+    name: "项目简报.md",
+    text: "# 项目简报\n\n项目简报写明了港口计划。\n",
+    asks: "提问：“项目简报”讲了什么？",
+    question: "“项目简报”讲了什么？",
+  },
+] as const;
+
+for (const { language, name, text, asks, question } of OWN_FILES) {
+  test(`a file added from step 1 is what the ready Question asks about, and its Answer cites it (${language}, #2084)`, async () => {
+    const file = join(sources, name);
+    await writeFile(file, text);
+    const { app, window } = await launchApp(dataDir, { examples: true, fakeChat: true });
+    await setWindowSize(app, window, 1440, 900);
+    await setLanguage(window, language);
+    await useLocalChatModel(window);
+    const files = step(window, "files");
+    await expect(files).toHaveAttribute("data-state", "open");
+    await interceptOpenDialog(app, file);
+    await pointAndClick(window, files.getByTestId("first-open-add-files"));
+
+    // Read, the file is the one step 2 offers a Question about.
+    const ready = step(window, "question").getByTestId("first-open-ready");
+    await expect(ready).toHaveText(asks, { timeout: 30_000 });
+    for (const width of [900, 1600]) {
+      await setWindowSize(app, window, width, 800);
+      const shown = await ready.boundingBox();
+      const card = await window.getByTestId("first-open-steps").boundingBox();
+      expect(shown && card && shown.x + shown.width <= card.x + card.width).toBe(true);
+    }
+    await setWindowSize(app, window, 1440, 900);
+    await pointAndClick(window, ready);
+
+    // Its Answer reads that file, and cites it: the example's Question was never asked.
+    await expect(window.getByTestId("assistant-question").last()).toContainText(question);
+    const answer = assistantAnswers(window).last();
+    await expect(answer).toHaveAttribute("data-status", "done", { timeout: 30_000 });
+    const chip = answer.getByTestId("citation-chip").first();
+    await expect(chip).toBeVisible();
+    await pointAndClick(window, chip);
+    await expect(
+      window.getByTestId("citation-card").getByText(name.replace(/\.md$/, ""), { exact: true }),
+    ).toBeVisible();
+    // The Answer that arrived is what ticks the step, not the click.
+    await expect(step(window, "question")).toHaveAttribute("data-state", "done");
+    await app.close();
+  });
+}
+
+test("the first own Question starts a fresh conversation, without the example's turns (#2084)", async () => {
+  const file = join(sources, "Harbour brief.md");
+  await writeFile(
+    file,
+    "# Harbour brief\n\nThe harbour master publishes the tide tables every spring.\n",
+  );
+  const { app, window } = await launchApp(dataDir, { examples: true, fakeChat: true });
+  await setWindowSize(app, window, 1440, 900);
+  await useLocalChatModel(window);
+  await expectReadyDocuments(window, 2);
+  await markSteps(window, { indexed: true });
+  // The example's Answer in an open conversation first.
+  await pointAndClick(window, step(window, "question").getByTestId("first-open-ready"));
+  await expect(assistantAnswers(window).last()).toHaveAttribute("data-status", "done", {
+    timeout: 30_000,
+  });
+  await expect(window.getByTestId("assistant-question")).toHaveCount(1);
+  await markSteps(window, { askedReady: false });
+
+  // Their own file makes the ready Question theirs; asking it leaves the example's turns behind.
+  await window.getByTestId("add-documents-input").setInputFiles([file]);
+  const ready = step(window, "question").getByTestId("first-open-ready");
+  await expect(ready).toHaveAttribute("title", /Harbour brief/, { timeout: 30_000 });
+  await pointAndClick(window, ready);
+  await expect(window.getByTestId("assistant-question")).toHaveCount(1);
+  await expect(window.getByTestId("assistant-question")).toContainText(
+    "What does ‘Harbour brief’ say?",
+  );
+  await expect(window.getByTestId("assistant-answer")).toHaveCount(1);
+  await expect(window.getByTestId("assistant-answer").getByTestId("answer-example")).toHaveCount(0);
+  await app.close();
+});
+
+test("a Question that can't be asked says why in the card's row, where it was clicked (#2084)", async () => {
+  const file = join(sources, "Harbour brief.md");
+  await writeFile(
+    file,
+    "# Harbour brief\n\nThe harbour master publishes the tide tables every spring.\n",
+  );
+  const { app, window } = await launchApp(dataDir, { examples: true, fakeChat: true });
+  await setWindowSize(app, window, 1440, 900);
+  await acceptPlainTextKeys(window);
+  // A model off this computer with local mode on: asking is refused before anything is sent.
+  await window.evaluate(async () => {
+    const bridge = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
+    await bridge.saveChatProvider({ kind: "openai", apiKey: "sk-test", modelId: "gpt-6-luna" });
+    await bridge.setLocalOnly(true);
+  });
+  await window.getByTestId("add-documents-input").setInputFiles([file]);
+  const ready = step(window, "question").getByTestId("first-open-ready");
+  await expect(ready).toHaveAttribute("title", /Harbour brief/, { timeout: 30_000 });
+  await pointAndClick(window, ready);
+  const card = window.getByTestId("first-open-steps");
+  await expect(card.getByTestId("first-open-ready-not-ready")).toBeVisible();
+  // The example Note's composer is the one on screen; it is not where this problem goes.
+  await expect(window.getByTestId("composer-not-ready")).toHaveCount(0);
+  await app.close();
+});
+
+test("while the ready Question's Answer streams, its button waits and asks once (#2084)", async () => {
+  // The scripted model answers a Question that says "slowly" slowly enough to see the button.
+  const file = join(sources, "Harbour times slowly.md");
+  await writeFile(
+    file,
+    "# Harbour times\n\nHarbours publish the times of high water every 12 months.\n",
+  );
+  const { app, window } = await launchApp(dataDir, { examples: true, fakeChat: true });
+  await setWindowSize(app, window, 1440, 900);
+  await useLocalChatModel(window);
+  await window.getByTestId("add-documents-input").setInputFiles([file]);
+  const ready = step(window, "question").getByTestId("first-open-ready");
+  await expect(ready).toHaveAttribute("title", /Harbour times slowly/, { timeout: 30_000 });
+  await pointAndClick(window, ready);
+  const answer = assistantAnswers(window).last();
+  await expect(answer).toHaveAttribute("data-status", "streaming");
+  await expect(ready).toBeDisabled();
+  await expect(answer).toHaveAttribute("data-status", "done", { timeout: 30_000 });
+  await expect(window.getByTestId("assistant-question")).toHaveCount(1);
+  await expect(step(window, "question")).toHaveAttribute("data-state", "done");
+  await app.close();
+});
+
+test("Add files… with only a file it can't take says why in step 1, which stays open (#123)", async () => {
   const picture = join(sources, "Picture.png");
   await writeFile(picture, "not a document");
   const { app, window } = await launchApp(dataDir, { examples: true });
-  await markSteps(window, { mistakeSeen: true, askedReady: true });
   const files = step(window, "files");
   await expect(files).toHaveAttribute("data-state", "open");
   await interceptOpenDialog(app, picture);
@@ -498,7 +663,7 @@ test("Add files… with only a file it can't take says why in step 3, which stay
   await app.close();
 });
 
-test("a damaged PDF as the only file of one's own leaves step 3 open, says which and why there, and never You're set up; a file it reads finishes it (#1457)", async () => {
+test("a damaged PDF as the only file of one's own leaves step 1 open, says which and why there, and never You're set up; a file it reads finishes it (#1457)", async () => {
   const damaged = join(sources, "damaged.pdf");
   await writeFile(damaged, "%PDF-1.4 this is not a PDF");
   const notes = join(sources, "Harbour notes.md");
@@ -506,7 +671,7 @@ test("a damaged PDF as the only file of one's own leaves step 3 open, says which
   const { app, window } = await launchApp(dataDir, { examples: true });
   await setWindowSize(app, window, 1440, 900);
   await useLocalChatModel(window);
-  await markSteps(window, { mistakeSeen: true, askedReady: true });
+  await markSteps(window, { askedReady: true, citationChecked: true });
   const steps = window.getByTestId("first-open-steps");
   const files = step(window, "files");
   await expect(files).toHaveAttribute("data-state", "open");
@@ -551,7 +716,7 @@ test("✕ ends the first open at any step, and so does Remove the examples or a 
   };
   const first = await launchApp(dataDir, { examples: true });
   const hide = first.window.getByTestId("first-open-hide");
-  await expect(step(first.window, "citation")).toHaveAttribute("data-state", "open");
+  await expect(step(first.window, "files")).toHaveAttribute("data-state", "open");
   await pointAndClick(first.window, hide);
   await expect(first.window.getByTestId("first-open-steps")).toHaveCount(0);
   await expect(first.window.getByTestId("tab-list")).toBeVisible();
@@ -596,7 +761,7 @@ test("a double-click on the ready Question asks it once, and Enter on it moves t
   await expect(pane.getByTestId("claim-mark")).toHaveAttribute("data-check", "contradicted", {
     timeout: 20_000,
   });
-  await markSteps(first.window, { mistakeSeen: true });
+  await markSteps(first.window, { indexed: true });
   await step(first.window, "question").getByTestId("first-open-ready").dblclick();
   await expect(assistantAnswers(first.window).last()).toHaveAttribute("data-status", "done");
   await expect
@@ -620,10 +785,10 @@ test("a double-click on the ready Question asks it once, and Enter on it moves t
     "contradicted",
     { timeout: 20_000 },
   );
-  await markSteps(second.window, { mistakeSeen: true });
+  await markSteps(second.window, { indexed: true });
   await step(second.window, "question").getByTestId("first-open-ready").focus();
   await second.window.keyboard.press("Enter");
-  await expect(step(second.window, "files").getByTestId("first-open-add-files")).toBeFocused();
+  await expect(step(second.window, "citation").getByTestId("first-open-step-do")).toBeFocused();
   await second.app.close();
   await removeDataFolder(keyboard);
 });
@@ -660,12 +825,12 @@ test("on a fresh install, a first checked Citation from the User's own file take
     );
     await step("Enter", () => window.keyboard.press("Enter"));
     const card = window.getByTestId("model-setup");
-    await step("Paste an API key", () => pointAndClick(window, card.getByTestId("setup-key")));
-    const form = card.getByTestId("provider-form");
-    await expect(form.getByLabel(/^API key/)).toBeFocused();
+    const field = card.getByTestId("setup-key");
+    await step("Paste an API key", () => pointAndClick(window, field));
+    await expect(field).toBeFocused();
     await step("paste the key", () => window.keyboard.insertText("sk-ant-a-key-from-the-company"));
-    await step("Use this key", () => pointAndClick(window, form.getByTestId("provider-use-key")));
-    await step("Continue", () => continueSetup(window));
+    await step("Enter", () => window.keyboard.press("Enter"));
+    await step("Use this", () => continueSetup(window));
 
     const citation = assistantAnswers(window).last().getByTestId("citation").first();
     await expect(citation).toHaveAttribute("data-check", "found", { timeout: 20_000 });
@@ -682,7 +847,7 @@ test("on a fresh install, a first checked Citation from the User's own file take
 test("the steps can be hidden once all are done, and stay hidden", async () => {
   const first = await launchApp(dataDir, { examples: true });
   await useLocalChatModel(first.window);
-  await markSteps(first.window, { mistakeSeen: true, askedOwn: true, indexed: true });
+  await markSteps(first.window, { citationChecked: true, askedOwn: true, indexed: true });
   const steps = first.window.getByTestId("first-open-steps");
   await expect(steps).toContainText("You’re set up.");
   await pointAndClick(first.window, steps.getByTestId("first-open-hide"));
@@ -706,7 +871,7 @@ test("finishing the steps with no model asks for one in the card, never says You
   await expect(pane.getByTestId("claim-mark")).toHaveAttribute("data-check", "contradicted", {
     timeout: 20_000,
   });
-  await markSteps(window, { mistakeSeen: true, askedReady: true });
+  await markSteps(window, { askedReady: true, citationChecked: true });
   await window.getByTestId("add-documents-input").setInputFiles([notes]);
 
   const steps = pane.getByTestId("first-open-steps");
@@ -720,13 +885,13 @@ test("finishing the steps with no model asks for one in the card, never says You
   await expect(window.getByTestId("tab-list")).toHaveCount(0);
   await expect(window.getByTestId("assistant")).toBeHidden();
   await expect(window.getByTestId("ask-pill")).toBeVisible();
-  await expect(sidebar.getByTestId("sidebar-status")).toHaveCount(1);
-  await expect(sidebar.getByTestId("tagging-waiting")).toContainText("No AI model for Tags");
+  // Day one names no Tags: the card asks for the model, and the footer says nothing (#1942).
+  await expect(sidebar.getByTestId("tagging-waiting")).toHaveCount(0);
 
   await pointAndClick(window, steps.getByTestId("first-open-choose-model"));
   const setup = window.getByTestId("model-setup");
   await expect(window.getByTestId("assistant")).toBeVisible();
-  await expect(setup.getByRole("heading", { level: 2 })).toHaveText("Choose your AI");
+  await expect(setup.getByRole("heading", { level: 2 })).toHaveText("Set up your AI");
   await useLocalChatModel(window);
   await expect(steps).toContainText("You’re set up.");
   await expect(steps.getByTestId("first-open-next").first()).toBeVisible();
@@ -740,27 +905,25 @@ test("by keyboard alone: Choose a model takes the focus into the setup, and a sa
   const { app, window } = await launchApp(dataDir, { examples: true, fakeChat: true });
   await setWindowSize(app, window, 1440, 900);
   await acceptPlainTextKeys(window);
-  await markSteps(window, { mistakeSeen: true, askedReady: true, indexed: true });
+  await markSteps(window, { citationChecked: true, askedReady: true, indexed: true });
   const choose = window.getByTestId("first-open-steps").getByTestId("first-open-choose-model");
   await choose.focus();
   await window.keyboard.press("Enter");
   const setup = window.getByTestId("model-setup");
-  await expect(setup.locator(":focus")).toHaveCount(1);
-  // The ChatGPT plan comes first where this computer can keep its sign-in; then the key.
-  const plan = setup.getByTestId("setup-chatgpt");
-  if (await plan.evaluate((button) => button === document.activeElement)) {
-    await window.keyboard.press("Tab");
-    // What goes to ChatGPT, behind Details, comes between the two.
-    await expect(setup.getByTestId("setup-chatgpt-sends-details")).toBeFocused();
-    await window.keyboard.press("Tab");
-  }
+  // The key field takes the focus as the card opens (#1922).
   await expect(setup.getByTestId("setup-key")).toBeFocused();
-  await window.keyboard.press("Enter");
-  await expect(setup.getByLabel(/^API key/)).toBeFocused();
   await window.keyboard.insertText("sk-ant-a-key-from-the-company");
   await window.keyboard.press("Enter");
-  // The card lists what each job uses, with Continue under the focus: Enter goes on.
-  await expect(setup.getByTestId("setup-continue")).toBeFocused();
+  // Steps 2 and 3 follow, each one key away: Tab to Use this, Enter, and on to the next step.
+  const transcription = setup.getByTestId("setup-transcription");
+  await expect(transcription).toBeFocused();
+  await window.keyboard.press("Tab");
+  await expect(setup.getByTestId("setup-transcription-use")).toBeFocused();
+  await window.keyboard.press("Enter");
+  const sorting = setup.getByTestId("models-sorting");
+  await expect(sorting).toBeFocused();
+  await window.keyboard.press("Tab");
+  await expect(setup.getByTestId("setup-sorting-use")).toBeFocused();
   await window.keyboard.press("Enter");
   await expect(setup).toHaveCount(0);
   await expect(window.getByTestId("first-open-steps")).toContainText("You’re set up.");
@@ -787,6 +950,13 @@ test("on the quiet first open the tagging question still shows, with Allow, in t
   await window.getByTestId("add-documents-input").setInputFiles([invoice]);
   const item = window.getByTestId("document-list-item").filter({ hasText: "Invoice 41" });
   await expect(item).toHaveAttribute("data-tagging", "waiting-for-provider");
+  // A Tag of the User's own: only now is Tags named, so only now is the sending asked about (#1942).
+  await window.evaluate(async () => {
+    const core = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
+    const [document] = (await core.listDocuments()).filter((each) => each.name === "Invoice 41");
+    const tag = await core.createTag({ name: "Invoices", description: "" });
+    if (document) await core.addTagToDocuments([document.id], tag.id);
+  });
   const question = window.getByTestId("sidebar").getByTestId("tagging-waiting");
   await expect(question).toContainText("Tags need your OK");
   await expect(window.getByTestId("tab-list")).toHaveCount(0);
@@ -823,7 +993,7 @@ test("scrolled to the end, the example's last line sits above the Ask pill, and 
   await app.close();
 });
 
-test("the hint at the end of a Mind focuses the composer when its link is clicked once the cursor is on its line, and is otherwise the line to write on", async () => {
+test("the hint at the end of a Mind focuses the composer when its link is clicked once the cursor is on its line, and is otherwise the line to write on; Add to note asks instead of filling the example", async () => {
   const { window } = await launchApp(dataDir, { examples: true, fakeChat: true });
   await leaveFirstOpen(window);
   const editor = window.getByTestId("mind-editor");
@@ -876,25 +1046,14 @@ test("the hint at the end of a Mind focuses the composer when its link is clicke
   await expect(answer).toHaveAttribute("data-status", "done", { timeout: 15_000 });
   await expect(editor.getByTestId("question")).toHaveCount(1);
   await expect(editor.locator('[data-origin="conversation"]')).toHaveCount(0);
-  // Added to the note, it goes on the hint's line: right after the example's Answer, before the Note.
-  await addToNote(window, answer);
-  const order = await editor
-    .locator(":scope > *")
-    .evaluateAll((all) =>
-      all.map((block) =>
-        block.matches(".node-question")
-          ? "question"
-          : block.matches(".node-answer")
-            ? "answer"
-            : block.matches('[data-origin="conversation"]')
-              ? "added"
-              : (block.textContent ?? "").trim(),
-      ),
-    );
-  const at = order.lastIndexOf("answer");
-  expect(order.slice(at - 1, at + 2)).toEqual(["question", "answer", "added"]);
-  expect(order.at(-1)).toBe("Online margin should recover once Leeds opens.");
-  expect(order.slice(at + 1, -1).every((block) => block === "added")).toBe(true);
+  // The example is never a target of Add to note (#1940): it asks which note, and nothing goes in.
+  await expect(answer.getByTestId("answer-add-label")).toHaveText("Add to note");
+  await pointAndClick(window, answer.getByTestId("answer-add"));
+  await expect(window.getByTestId("add-to-picker")).toBeVisible();
+  await window.keyboard.press("Escape");
+  await expect(window.getByTestId("add-to-picker")).toHaveCount(0);
+  await expect(editor.locator('[data-origin="conversation"]')).toHaveCount(0);
+  await expect(editor.getByTestId("question")).toHaveCount(1);
 });
 
 test("the Examples row's ⋯ offers the other examples in an order picked once per install; each opens in a new tab and is made once (#123)", async () => {

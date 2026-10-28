@@ -334,7 +334,7 @@ test("a Mind with one chart prints its picture, drawn at twice its size, its cap
   // In Chinese, the words are Chinese.
   await bridge(window).language("zh-CN");
   await exportFromMenu(window);
-  await expect(window.getByTestId("export-done")).toHaveText(
+  await expect(window.getByTestId("export-done")).toContainText(
     savedLine("Tides 潮汐 2.pdf", out, "zh-CN"),
     {
       timeout: 30_000,
@@ -440,6 +440,7 @@ test("Export options remembers the format and its options; Export and ⇧⌘E us
   await pointAndClick(window, exportButton);
   await expect(exportMenu.getByRole("menuitem")).toHaveText([
     /^Word \(\.docx\)(⇧⌘E|Ctrl\+Shift\+E)$/,
+    "Not checked since your last edit · Check first",
     "PDF",
     "More formats",
     /^Citation style/,
@@ -523,6 +524,7 @@ test("Export options remembers the format and its options; Export and ⇧⌘E us
   await expect(exportMenu.getByRole("menuitem")).toHaveText([
     /^PDF(⇧⌘E|Ctrl\+Shift\+E)$/,
     "Word（.docx）",
+    "上次编辑后未核对 · 先核对",
     "更多格式",
     /^引用格式/,
     "导出选项…",
@@ -550,7 +552,7 @@ test("Export options remembers the format and its options; Export and ⇧⌘E us
   await screenshot(window, "export-options-zh-narrow");
   await window.keyboard.press("Escape");
   await exportFromMenu(window);
-  await expect(result.getByTestId("export-done")).toHaveText(
+  await expect(result.getByTestId("export-done")).toContainText(
     savedLine("Tides 4.pdf", out, "zh-CN"),
     {
       timeout: 30_000,
