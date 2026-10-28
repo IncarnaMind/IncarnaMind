@@ -633,7 +633,7 @@ describe("The check record as CSV", () => {
       Uncovered: "",
       "Documents to choose from": "",
       "Nearby Location": "",
-      "Nearby passage": "",
+      "Passage nearby": "",
     });
     expect(rows[1]).toMatchObject({
       Location: "p. 3",
@@ -649,7 +649,7 @@ describe("The check record as CSV", () => {
     expect(rows[3]).toMatchObject({
       Location: "p. 6",
       "Nearby Location": "p. 47 · lines 5–9",
-      "Nearby passage": "The point appears nearby instead.",
+      "Passage nearby": "The point appears nearby instead.",
     });
     expect(rows[3]?.Passage).toBe(
       `'=HYPERLINK("https://example.invalid"), said "them",\nand more.`,
@@ -948,7 +948,7 @@ describe("The check record as PDF", () => {
     expect(body).toContain("Uncovered</span> The second part");
     expect(body).toContain("Documents to choose from</span> Tides, &lt;Candidate &amp; Co&gt;");
     expect(body).toContain("Nearby Location</span> p. 47 · lines 5–9");
-    expect(body).toContain("Nearby passage</span> “The point appears nearby instead.”");
+    expect(body).toContain("Passage nearby</span> “The point appears nearby instead.”");
     expect(body).toContain("p. 45 · lines 3–12");
     expect(body.match(/class="record-shape"/g)).toHaveLength(5);
     expect(body.match(/15 Oct 2026, 14:20 UTC/g)).toHaveLength(5);

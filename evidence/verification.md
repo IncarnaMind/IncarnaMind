@@ -10,7 +10,7 @@ Updated 2026-10-28. All issue acceptance criteria and the real-model hand checks
 - Shared resolving fixtures: 160 exact Document/Location/Passage cases, ten of every accepted shape, all green.
 - Fixed-passage judgement: Supported, Partly and Not found, retained/rejected nearby suggestions, raw-citation removal from the factual claim, and no nearby display for a Supported cited result.
 - History and concurrency: exact raw/claim/position validation, unique-only proposed-id fallback, direct-cite reading order, fresh-plus-recheck ordering, complete Note history including pending and uncited sentences, contradiction watch, nested writes and cut validation.
-- All affected suites: **798 tests** pass across parser, exact resolving fixtures, deposition, Check record, renderer record-cite retention, claim checks, scope, Mind checks, contradiction watch, written checks, public-core choices, DOCX and public-evaluation key/scoring.
+- All affected suites: **874 tests** pass across parser, exact resolving fixtures, deposition, Check record, renderer record-cite retention, claim checks, scope, Mind checks, contradiction watch, written checks, public-core choices, DOCX, public-evaluation key/scoring and the interface AI-use wording guard.
 - Full TypeScript typecheck and full Biome lint pass; only the repository's existing warnings remain.
 
 ## Public court records and real models

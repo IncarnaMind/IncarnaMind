@@ -737,7 +737,7 @@ export const en = {
   "checkRecord.recordCites.column.uncovered": "Uncovered",
   "checkRecord.recordCites.column.candidates": "Documents to choose from",
   "checkRecord.recordCites.column.nearbyLocation": "Nearby Location",
-  "checkRecord.recordCites.column.nearbyPassage": "Nearby passage",
+  "checkRecord.recordCites.column.nearbyPassage": "Passage nearby",
   "claim.addAsCitation": "Add as Citation",
   "claim.alreadyCited": "Already cited",
   "claim.alreadyCited.open": "Already cited: open citation {number}",
