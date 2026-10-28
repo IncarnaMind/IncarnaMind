@@ -212,6 +212,7 @@ import {
   parseMindId,
 } from "./minds";
 import { firstLineOf, readBlocks, textStart, theirChangesReading } from "./mindText";
+import { createModelRuntimeFolderNotice } from "./modelRuntimeFolder";
 import { createNoteAdding, insertBlocks } from "./noteAdding";
 import { createNoteConversations } from "./noteConversations";
 import { createOutputFiles } from "./outputFiles";
@@ -745,6 +746,12 @@ export function createCore(adapters: CoreAdapters): Core {
   });
   const privacy = createPrivacy({ settings, crashReporter: adapters.crashReporter, usageData });
   const privacyChanged = () => events.emit("privacy.changed", privacy.status());
+  const modelRuntimeFolder = createModelRuntimeFolderNotice(
+    db,
+    adapters.modelRuntimeFolder,
+    adapters.shell,
+    adapters.log,
+  );
   const platform = process.platform;
   const retention = createVersionRetention(db, now);
   const checkpoints = createCheckpoints({
@@ -4290,6 +4297,8 @@ export function createCore(adapters: CoreAdapters): Core {
 
     listNetworkTraffic: () => privacy.listTraffic(),
     getPrivacySettings: async () => privacy.status(),
+    getModelRuntimeFolder: () => modelRuntimeFolder.present(),
+    showModelRuntimeFolder: () => modelRuntimeFolder.show(),
     updatePrivacySettings: async (patch) => {
       const { changed, settings: updated } = privacy.update(patch);
       if (changed) privacyChanged();

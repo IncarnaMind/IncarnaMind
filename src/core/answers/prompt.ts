@@ -458,6 +458,14 @@ const CALCULATIONS =
   '- calculations: one for each number the Answer works out from numbers in Passages (a difference, sum, average, ratio, share, growth rate, a change in percentage points, a conversion between 万 and 亿 or millions and billions), with [=1] in the answer where the number goes, never the number itself: its marker; its inputs, each a name for the formula, a label with its year or period, the marker of the Citation whose quote holds the number, and the number as it is written there; and a formula over the names in Excel\'s syntax, such as (b - a) / a, with "as": "percent" for a growth rate or share. When a number\'s unit or scale is only in a table\'s heading ("单位：万元"), give that line as unitQuote. Inputs are read in base units with that scale applied: give "scale" ("亿", "billion") for the scale a figure is shown in, never a division by 10000 or 1000. An input keeps its sign as the Passage writes it: an amount in brackets, "(12,500)", is negative, so take a deduction written in brackets off a total by adding it, never by subtracting it.';
 
 /**
+ * For a model that answers without Tools and isn't offered `calculations` (#1796): asked to use
+ * "the calculation Tool", a small model said it had, and that the Tool confirmed its own wrong
+ * figures. In the Tool loop, a reply that says so is asked about instead (./claimedTools).
+ */
+const NO_CALCULATE =
+  "- IncarnaMind has no calculation Tool for this model: never say that a Tool, IncarnaMind or you calculated, checked or confirmed a figure. If the User asks for figures to be calculated or checked by a Tool, say in one sentence that this model can't use IncarnaMind's calculation Tool; a number you work out is your own working.";
+
+/**
  * A Citation the Question context shows keeps its record when the Answer keeps its claim
  * (#1800): models copied "[Tides, p. 3]" as text, which opens nothing.
  */
@@ -721,7 +729,7 @@ export function documentInstructions(
         ...(keeps ? [KEEP_CITATIONS("give a record in citations")] : []),
         UNBROKEN_QUOTE,
         QUOTATION_MARKS,
-        ...(calculate ? [CALCULATIONS] : []),
+        ...(calculate ? [CALCULATIONS] : [NO_CALCULATE]),
         notCovered(true),
         CITED_SAYS_ONLY_ITS_QUOTE,
         FIGURES_AS_STATED,
@@ -741,6 +749,7 @@ export function documentInstructions(
         notCovered(false),
         FIGURES_AS_STATED,
         readingRules(false),
+        NO_CALCULATE,
       ].join("\n");
   }
 }

@@ -7,7 +7,10 @@ import { useLanguage, useT } from "../../i18n";
 import { turnOffLocalMode } from "../../localMode";
 import { giveUpWaiting, useModelSetup } from "../../modelSetup";
 import { useAppStore } from "../../store";
+import { useTranscriptionServicesRead } from "../../transcriptionServices";
+import { OnThisComputer } from "../OnThisComputer";
 import { ProblemLine } from "../ProblemLine";
+import { ReadProblem } from "../ReadProblem";
 import { buttonStyle, hintClass } from "../ui";
 import { ChatGptMark } from "./ChatGptMark";
 import {
@@ -23,7 +26,7 @@ import { KeyEntry } from "./KeyEntry";
 import { OllamaAction, OllamaProgress, type Ollama as OllamaState, useOllama } from "./OllamaCard";
 import { ProviderForm } from "./ProviderForm";
 import { SendsLine } from "./SendsLine";
-import { SetupSteps } from "./SetupSteps";
+import { SetupCard, SetupSteps } from "./SetupSteps";
 
 const CLAUDE_DOWNLOAD = "https://claude.ai/download";
 
@@ -34,7 +37,22 @@ const CLAUDE_DOWNLOAD = "https://claude.ai/download";
  * is the consent for it (#718), so no dialog is added here.
  */
 export function ModelSetupCard() {
-  return useModelSetup((state) => state.ready) ? <SetupSteps /> : <ChooseAnAi />;
+  const ready = useModelSetup((state) => state.ready);
+  const t = useT();
+  // Step 2's rows depend on whether a cloud service has a key, so the steps open only on a list
+  // that was read, and never redraw as a later read lands (#2147).
+  const services = useTranscriptionServicesRead(ready, true);
+  if (!ready || services.state === "loading") return <ChooseAnAi />;
+  if (services.state === "ready") return <SetupSteps />;
+  return (
+    <SetupCard>
+      <ReadProblem
+        words={t("setup.services.failed")}
+        read={services}
+        testId="setup-services-problem"
+      />
+    </SetupCard>
+  );
 }
 
 function ChooseAnAi() {
@@ -45,7 +63,7 @@ function ChooseAnAi() {
   const [initialKey, setInitialKey] = useState("");
   const [others, setOthers] = useState(false);
   const [providers, setProviders] = useState<ChatProvider[]>([]);
-  const ollama = useOllama(() => undefined);
+  const ollama = useOllama(() => undefined, undefined, { localModeUnasked: true });
   const sign = useContinueWithChatGpt({ onSignedIn: () => undefined });
   const keyField = useRef<HTMLInputElement>(null);
   useEffect(() => {
@@ -225,6 +243,15 @@ function LocalWay({ ollama, running }: { ollama: OllamaState; running: boolean }
       </span>
       <OllamaProgress ollama={ollama} />
       <OllamaAction ollama={ollama} />
+      {/* One line in every state, so nothing under it moves when the line below changes. */}
+      <p data-testid="setup-local-keeps" className="min-h-[18px] text-[12px] leading-[18px]">
+        {/* With a cloud service set up and Local mode off, the click leaves Local mode as it is. */}
+        {ollama.status?.running && ollama.keepLocal.checked ? (
+          <OnThisComputer>{t("setup.way.local.keeps")}</OnThisComputer>
+        ) : (
+          <span className="text-ink-meta">{t("setup.way.local.line")}</span>
+        )}
+      </p>
     </div>
   );
 }

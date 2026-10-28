@@ -25,6 +25,7 @@ export type {
   LibrarySnapshot,
   TaggingClassifier,
   TaggingCost,
+  TaggingDestination,
   TaggingModelGroup,
   TaggingModelOption,
   TaggingModels,
@@ -2381,6 +2382,17 @@ export interface TranscriptionServiceStatus {
   hasKey: boolean;
   liveSpeakers: boolean;
   keyUrl: string | null;
+}
+
+/**
+ * The transcription services and the core's revision of what they say. The revision grows with
+ * every committed change (a key kept or forgotten, a provider saved or deleted). A list is
+ * stamped with the revision it began at, so of two answers the one to keep is the one with the
+ * higher revision, whichever was asked first.
+ */
+export interface TranscriptionServices {
+  revision: number;
+  services: TranscriptionServiceStatus[];
 }
 
 export interface SetTranscriptionKeyInput {
@@ -5730,6 +5742,15 @@ export interface AnswerSteps {
    * Absent: none.
    */
   unbackedClaims?: ClaimedChange[];
+  /**
+   * What its reply says a Tool did that none of its calls did (#1796): a figure calculated or
+   * checked, or a search. Absent: none.
+   */
+  unrunTools?: ClaimedTool[];
+  /** With `unrunTools`: its model isn't offered the calculation Tool. */
+  calculateUnavailable?: true;
+  /** Its first reply said so, and the model was asked once more with what its calls did. */
+  askedAgainFor?: ClaimedTool[];
   /** Written in advance for the example (`askExampleReadyQuestion`): no model wrote it, and nothing was searched. */
   example?: true;
   /** It covered only some of the Documents in scope, and offers the rest. Absent: all of them. */
@@ -5777,6 +5798,10 @@ export interface AnswerCoverage {
  */
 export const CLAIMED_CHANGES = ["made", "added", "changed", "removed"] as const;
 export type ClaimedChange = (typeof CLAIMED_CHANGES)[number];
+
+/** What an Answer's reply can say a Tool did (#1796): calculated or checked a figure, or searched. */
+export const CLAIMED_TOOLS = ["calculate", "search"] as const;
+export type ClaimedTool = (typeof CLAIMED_TOOLS)[number];
 
 /** A Tool call of an Answer started, or finished (see `call.status`). */
 export interface AnswerToolCallEvent extends AnswerPlace {
@@ -10134,6 +10159,14 @@ export interface CoreApi {
   listNetworkTraffic(): Promise<NetworkTraffic[]>;
   getPrivacySettings(): Promise<PrivacySettings>;
   /**
+   * The folder where Microsoft's model runtime keeps usage data, when it is there and this install
+   * is older than the build that stopped adding to it (#2145): its path, so Settings can say where
+   * it is. Null otherwise. Only whether the folder exists is looked at, never what is in it.
+   */
+  getModelRuntimeFolder(): Promise<string | null>;
+  /** Shows that folder in the file manager. Does nothing once it is gone. */
+  showModelRuntimeFolder(): Promise<void>;
+  /**
    * Changes the privacy choices on this device and returns them. Turning crash
    * reports on starts them; turning them off stops them at once. Refused if
    * this copy can't send crash reports.
@@ -10576,14 +10609,14 @@ export interface CoreApi {
   /** Deletes the Meeting's audio on this computer now; a recording goes on keeping what comes next. */
   deleteMeetingAudio(meetingId: string): Promise<Meeting>;
   /** The cloud services that can transcribe meeting audio (#141), and whether each has a key. */
-  listTranscriptionServices(): Promise<TranscriptionServiceStatus[]>;
+  listTranscriptionServices(): Promise<TranscriptionServices>;
   /**
    * Keeps a transcription service's own key (Soniox), in the keychain, once the service accepts
    * it. Throws `InvalidInputError` when it refuses the key.
    */
-  setTranscriptionKey(input: SetTranscriptionKeyInput): Promise<TranscriptionServiceStatus[]>;
+  setTranscriptionKey(input: SetTranscriptionKeyInput): Promise<TranscriptionServices>;
   /** Forgets a transcription service's own key; meeting audio is then transcribed on this computer. */
-  removeTranscriptionKey(route: CloudTranscriptionRoute): Promise<TranscriptionServiceStatus[]>;
+  removeTranscriptionKey(route: CloudTranscriptionRoute): Promise<TranscriptionServices>;
   /**
    * Whether this computer keeps up with live speech, as the last Meeting transcribed here
    * measured it; null before one has been. The speed probe (#462) will measure it sooner.
@@ -11091,6 +11124,8 @@ const methods: Record<CoreApiMethod, true> = {
   allowDataFlow: true,
   listNetworkTraffic: true,
   getPrivacySettings: true,
+  getModelRuntimeFolder: true,
+  showModelRuntimeFolder: true,
   updatePrivacySettings: true,
   recordUsage: true,
   resetUsageInstallId: true,

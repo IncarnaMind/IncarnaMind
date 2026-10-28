@@ -37,6 +37,7 @@ import type {
   CitationSupport,
   ClaimCheckAttributes,
   ClaimedChange,
+  ClaimedTool,
   Conversation,
   ConversationAnswer,
   ConversationContent,
@@ -54,7 +55,7 @@ import type {
   SearchScope,
   ThirdPartySource,
 } from "../api";
-import { CLAIMED_CHANGES, MOST_ASKED_QUOTES } from "../api";
+import { CLAIMED_CHANGES, CLAIMED_TOOLS, MOST_ASKED_QUOTES } from "../api";
 import { InvalidInputError, isRecord, NotFoundError } from "../errors";
 import { isSignInRouteProblem } from "../providers/signInRoutes";
 import { parseSearchScope } from "../scope";
@@ -249,6 +250,9 @@ function storedSteps(value: string | null): AnswerSteps | null {
     firstWordMs,
     careful,
     unbackedClaims,
+    unrunTools,
+    calculateUnavailable,
+    askedAgainFor,
     example,
     coverage,
     writtenFrom,
@@ -261,6 +265,8 @@ function storedSteps(value: string | null): AnswerSteps | null {
         CLAIMED_CHANGES.some((claim) => claim === each),
       )
     : [];
+  const unrun = claimedTools(unrunTools);
+  const askedAbout = claimedTools(askedAgainFor);
   return {
     sentAt: timeOrNull(parsed.sentAt),
     finishedAt: timeOrNull(parsed.finishedAt),
@@ -285,6 +291,11 @@ function storedSteps(value: string | null): AnswerSteps | null {
     ...(typeof firstWordMs === "number" && firstWordMs >= 0 && { firstWordMs }),
     ...(careful === true && { careful }),
     ...(claimed.length > 0 && { unbackedClaims: claimed }),
+    ...(unrun.length > 0 && {
+      unrunTools: unrun,
+      ...(calculateUnavailable === true && { calculateUnavailable }),
+    }),
+    ...(askedAbout.length > 0 && { askedAgainFor: askedAbout }),
     ...(example === true && { example }),
     ...(textBehind === true && { textBehind }),
     ...(storedCoverage(coverage) ?? {}),
@@ -310,6 +321,11 @@ function storedSteps(value: string | null): AnswerSteps | null {
       }),
   };
 }
+
+const claimedTools = (value: unknown): ClaimedTool[] =>
+  Array.isArray(value)
+    ? value.filter((each): each is ClaimedTool => CLAIMED_TOOLS.some((tool) => tool === each))
+    : [];
 
 const isCount = (value: unknown): value is number =>
   typeof value === "number" && Number.isInteger(value) && value > 0;

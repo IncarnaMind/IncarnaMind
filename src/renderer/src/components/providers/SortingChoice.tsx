@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef } from "react";
 import type { ChatModelChoice, TaggingClassifier, TaggingModels } from "../../../../core/api";
 import type { Language } from "../../../../core/language";
 import { useAnswers } from "../../answers";
@@ -6,6 +6,7 @@ import { core } from "../../core";
 import { useLanguage, useT } from "../../i18n";
 import { useModelNames } from "../../modelNames";
 import { useAppStore } from "../../store";
+import { useRead } from "../../useRead";
 import { fieldClass } from "../ui";
 import { useJevSettings } from "./useJevSettings";
 
@@ -20,6 +21,8 @@ export interface SortingOption {
   decisionModel: boolean;
   /** The User's AI model, as the line that says what sorts names it. */
   modelName?: string;
+  /** A saved choice whose destination isn't known yet: nothing is said about it, and it can't be used. */
+  unresolved?: boolean;
 }
 
 const providerOf = (option: TaggingModels["options"][number], language: Language) =>
@@ -94,25 +97,19 @@ export function sortingOptions(
     : [...(byKey ? [byKey] : []), ...(chatOption ? [chatOption] : []), ...decisions];
 }
 
-/** The models sorting may use now; null until Ollama and the providers have answered. */
-export function useSortingModels(): TaggingModels | null {
+/**
+ * What the core says can sort and where the saved choice goes, as one read: nothing is said of a
+ * saved choice until the core has answered, and a read that fails says so.
+ */
+export function useSortingModels() {
   const chatModel = useAppStore((state) => state.settings?.user.chatModel ?? null);
   const readiness = useAppStore((state) => state.chatReadiness);
-  const [models, setModels] = useState<TaggingModels | null>(null);
   // biome-ignore lint/correctness/useExhaustiveDependencies: listed again whenever these change.
   useEffect(() => {
     // The line that says what sorts names the User's model: its group is where the name is.
     useAnswers.getState().loadModels();
-    let current = true;
-    core.getTaggingModels().then(
-      (listed) => current && setModels(listed),
-      (error: unknown) => console.error("The models that sort couldn't be listed.", error),
-    );
-    return () => {
-      current = false;
-    };
   }, [chatModel, readiness]);
-  return models;
+  return useRead("The models that can sort", () => core.getTaggingModels(), [chatModel, readiness]);
 }
 
 /**
@@ -123,12 +120,30 @@ export function useSorting() {
   const t = useT();
   const language = useLanguage();
   const nameOf = useModelNames();
-  const models = useSortingModels();
+  const read = useSortingModels();
+  const models = read.state === "ready" ? read.data : null;
   const [jev] = useJevSettings();
   const chatModel = useAppStore((state) => state.settings?.user.chatModel ?? null);
+  const readiness = useAppStore((state) => state.chatReadiness);
   const localMode = useAppStore((state) => state.embedding?.localOnly === true);
   const library = useAppStore((state) => state.library);
   const saved = library?.settings.classifier ?? null;
+  // The model that works, which sorting will use unless the list says otherwise: its line holds
+  // the rows from the step's first paint, so the list landing changes only the words (#2130).
+  const known =
+    chatModel &&
+    readiness?.ready &&
+    readiness.provider.id === chatModel.providerId &&
+    readiness.modelId === chatModel.modelId
+      ? {
+          classifier: { kind: "chat" as const, choice: chatModel },
+          label: t("models.sorting.chat"),
+          provider:
+            readiness.provider.service?.name ?? t(`providers.kind.${readiness.provider.kind}`),
+          decisionModel: false,
+          modelName: nameOf(chatModel.modelId, chatModel.providerId).name,
+        }
+      : null;
   const options = models
     ? sortingOptions(models, {
         chatModel,
@@ -142,28 +157,38 @@ export function useSorting() {
         chatName: chatModel ? nameOf(chatModel.modelId, chatModel.providerId).name : "",
       })
     : [];
-  if (
-    saved &&
-    saved.kind !== "automatic" &&
-    !options.some((each) => sortingKey(each.classifier) === sortingKey(saved))
-  ) {
-    options.unshift({
+  if (saved && saved.kind !== "automatic") {
+    // Where the saved choice goes is what the core says for it, whichever model it names and
+    // whether or not the list offers it: the card works out nothing of its own. Until the core
+    // has said, or when it can't (what the choice names is gone), it is unresolved.
+    const answer =
+      models?.saved && sortingKey(models.saved.classifier) === sortingKey(saved)
+        ? models.saved.destination
+        : undefined;
+    const at = options.findIndex((each) => sortingKey(each.classifier) === sortingKey(saved));
+    const named =
+      saved.kind === "chat" ? nameOf(saved.choice.modelId, saved.choice.providerId).name : "";
+    const base: SortingOption = options[at] ?? {
       classifier: saved,
       label:
         saved.kind === "chat"
-          ? nameOf(saved.choice.modelId, saved.choice.providerId).name
+          ? named
           : saved.kind === "jev"
             ? "TypeSafe Jev"
             : saved.kind === "auto"
               ? t("tagging.decision.auto")
               : saved.modelId,
-      provider:
-        saved.kind === "jev" ? (jev === null ? "TypeSafe" : (jev.service?.name ?? null)) : null,
+      provider: null,
       decisionModel: saved.kind !== "chat",
-      ...(saved.kind === "chat" && {
-        modelName: nameOf(saved.choice.modelId, saved.choice.providerId).name,
-      }),
-    });
+      ...(saved.kind === "chat" && { modelName: named }),
+    };
+    const told: SortingOption = {
+      ...base,
+      provider: answer?.kind === "service" ? answer.service.name : null,
+      ...(answer?.kind === "here" || answer?.kind === "service" ? {} : { unresolved: true }),
+    };
+    if (at >= 0) options[at] = told;
+    else options.unshift(told);
   }
   const current =
     saved && saved.kind !== "automatic"
@@ -184,7 +209,15 @@ export function useSorting() {
       return false;
     }
   };
-  return { options, current, choose, loading: models === null, library };
+  return {
+    options,
+    current,
+    choose,
+    known,
+    loading: read.state === "loading",
+    read,
+    library,
+  };
 }
 
 /** The choice of what sorts, editable in place wherever it is shown. */
@@ -242,43 +275,70 @@ export function SortingSelect({
 /**
  * What the choice sends, in a line (ADR-0022): to its service for a decision model, or the
  * User's model's own line; and what meeting hints need, which the User's AI model can't do.
+ * `holds`: the option the line had before its list came. Its rows keep the block's height, so a
+ * shorter choice swaps its words in place and the buttons under it stay where they were (#2130).
  */
-export function SortingLine({ option }: { option: SortingOption | null }) {
+export function SortingLine({
+  option,
+  holds = null,
+  reading = false,
+}: {
+  option: SortingOption | null;
+  holds?: SortingOption | null;
+  /** The core hasn't answered: nothing is said, and the rows held hold the room. */
+  reading?: boolean;
+}) {
   const t = useT();
-  if (!option) {
-    return (
-      <p data-testid="models-sorting-line" className="text-[12px] leading-5 text-ink-meta">
-        {t("setup.sorting.none")}
-      </p>
-    );
-  }
-  if (option.decisionModel) {
-    return (
-      <div data-testid="models-sorting-line" className="flex flex-col gap-1">
-        <p className="text-[12px] leading-5 text-ink-meta">
-          {t(option.provider ? "setup.sorting.uses" : "setup.sorting.here")}
-        </p>
-        {option.provider && (
+  const rows = (each: SortingOption | null) => {
+    if (!each) {
+      return <p className="text-[12px] leading-5 text-ink-meta">{t("setup.sorting.none")}</p>;
+    }
+    if (each.decisionModel) {
+      return (
+        <>
           <p className="text-[12px] leading-5 text-ink-meta">
-            {t("setup.sorting.sends", { service: option.provider })}
+            {t(each.provider ? "setup.sorting.uses" : "setup.sorting.here")}
+          </p>
+          {each.provider && (
+            <p className="text-[12px] leading-5 text-ink-meta">
+              {t("setup.sorting.sends", { service: each.provider })}
+            </p>
+          )}
+        </>
+      );
+    }
+    return (
+      <>
+        <p className="text-[12px] leading-5 text-ink-meta">
+          {t(each.provider ? "setup.sorting.chat" : "setup.sorting.chatHere", {
+            model: each.modelName ?? "",
+          })}
+        </p>
+        <p className="text-[12px] leading-5 text-ink-meta">{t("setup.sorting.chat.hints")}</p>
+        {each.provider && (
+          <p className="text-[12px] leading-5 text-ink-meta">
+            {t("setup.sorting.sends", { service: each.provider })}
           </p>
         )}
-      </div>
+      </>
     );
-  }
+  };
+  const unresolved = reading || option?.unresolved === true;
+  const holding =
+    holds !== null &&
+    (option === null ||
+      unresolved ||
+      sortingKey(holds.classifier) !== sortingKey(option.classifier));
   return (
-    <div data-testid="models-sorting-line" className="flex flex-col gap-1">
-      <p className="text-[12px] leading-5 text-ink-meta">
-        {t(option.provider ? "setup.sorting.chat" : "setup.sorting.chatHere", {
-          model: option.modelName ?? "",
-        })}
-      </p>
-      <p className="text-[12px] leading-5 text-ink-meta">{t("setup.sorting.chat.hints")}</p>
-      {option.provider && (
-        <p className="text-[12px] leading-5 text-ink-meta">
-          {t("setup.sorting.sends", { service: option.provider })}
-        </p>
+    <div data-testid="models-sorting-line" className="grid">
+      {holding && (
+        <div aria-hidden="true" className="invisible col-start-1 row-start-1 flex flex-col gap-1">
+          {rows(holds)}
+        </div>
       )}
+      <div className="col-start-1 row-start-1 flex flex-col gap-1">
+        {unresolved ? null : rows(option)}
+      </div>
     </div>
   );
 }

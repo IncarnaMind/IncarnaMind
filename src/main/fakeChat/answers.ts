@@ -65,6 +65,7 @@ import {
   lastQuestion,
   lastUserText,
   type Prompt,
+  promptText,
   type Reply,
   type StreamPart,
   systemOf,
@@ -117,6 +118,14 @@ const THINKING_ALOUD = /边想边写/;
 const WORKING_NOTES = "等一下，可能还有一份相同的文件。再搜一次确认一下。".repeat(600);
 
 const WITHOUT_SEARCHING = /\bwithout searching\b|不用搜索/i;
+
+/** A Question whose reply says the calculation Tool confirmed a figure, with no `calculate` call (#1796). */
+const CLAIMS_CALCULATION = /\bclaims a calculation\b|声称已计算/i;
+const CLAIMS_CALCULATION_ZH = /声称已计算/;
+const claimAnswer = (said: string) =>
+  CLAIMS_CALCULATION_ZH.test(said)
+    ? "计算工具已确认：杠杆率为 3.26 倍。"
+    : "The calculation tool confirmed 3.26x.";
 
 const INTO_A_REPORT = /\binto a report\b|整理成报告/i;
 
@@ -619,6 +628,11 @@ function answerFrom(
     const reply = analysisReply(prompt, question, searches.at(-1) ?? "");
     if (reply) return reply;
   }
+  const claimed = prompt
+    .filter((message) => message.role === "user")
+    .map((message) => promptText([message]))
+    .find((text) => CLAIMS_CALCULATION.test(text));
+  if (claimed !== undefined) return { text: claimAnswer(claimed) };
   if (THINKING_ALOUD.test(question)) return { text: WORKING_NOTES };
   if (WITHOUT_CITING.test(question)) return { text: uncitedAnswer(question) };
   if (CITING_AS_TEXT.test(question)) {
