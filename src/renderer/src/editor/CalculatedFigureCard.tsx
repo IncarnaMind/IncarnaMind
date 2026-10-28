@@ -121,7 +121,7 @@ export function CalculatedFigureCard({
               : "figures.inline.savedNote",
         )}
       </p>
-      <SignOffLine now={signOff} onCheckAgain={onSignOff} />
+      <SignOffLine now={signOff} />
       <div className="calculated-figure-actions">
         {onSignOff && (
           <SignOffToggle

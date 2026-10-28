@@ -5511,7 +5511,7 @@
   }
   /*
    * The User's own "Checked by me" (#1933): a person's check, never the app's result, so it is
-   * drawn in ink, not in a check's colours. Changed since, it is quieter and offers Check again.
+   * drawn in ink, not in a check's colours. Changed since, it is quieter.
    */
   .sign-off-line {
     margin: 0;
@@ -5522,13 +5522,6 @@
 
     &[data-state="changed"] {
       color: var(--color-ink-meta);
-    }
-  }
-  .sign-off-again {
-    color: var(--color-accent-strong);
-
-    &:hover {
-      text-decoration: underline;
     }
   }
   .sign-off-toggle {

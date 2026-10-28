@@ -888,7 +888,6 @@ export const en = {
   "signOff.theirs": "Checked by {name} · {time}",
   "signOff.changed": "Checked by you before it changed",
   "signOff.changed.theirs": "Checked by {name} before it changed",
-  "signOff.checkAgain": "Check again",
   "signOff.added": "Marked as checked by you",
   "signOff.addedCount": "Marked {count} as checked by you",
   "signOff.removed": "No longer checked by you",

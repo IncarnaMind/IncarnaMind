@@ -17,8 +17,8 @@ import {
 /*
  * The User's own "Checked by me" (#1933): a Citation's card and menu mark it as checked by
  * the User, with their name and the time, apart from the app's check; Undo takes it back; an
- * edit to its sentence keeps the mark as changed, with Check again; the badge's card counts the
- * User's checks on a line of their own.
+ * edit to its sentence keeps the mark as changed, with the toggle unticked until ticked again;
+ * the badge's card counts the User's checks on a line of their own.
  */
 
 const SCREENSHOTS = process.env.INCARNAMIND_SCREENSHOTS;
@@ -53,14 +53,14 @@ const WORDS = {
     action: "Checked by me",
     // The time as the system writes it: "14:02", "2:02 pm", "上午6:27".
     mine: /^Checked by you · .*\d{1,2}:\d{2}/,
-    changed: "Checked by you before it changed · Check again",
+    changed: "Checked by you before it changed",
     count: "1 checked by you",
     countChanged: "1 changed since you checked",
   },
   "zh-CN": {
     action: "我已核对",
     mine: /^由你核对 · .*\d{1,2}:\d{2}/,
-    changed: "核对后已改动 · 重新核对",
+    changed: "核对后已改动",
     count: "由你核对 1 项",
     countChanged: "核对后已改动 1 项",
   },
@@ -134,9 +134,9 @@ for (const language of ["en", "zh-CN"] as const) {
       await screenshot(window, `sign-off-badge-card-${language}`);
       await window.keyboard.press("Escape");
 
-      // Check again marks it as checked by the User now.
+      // Ticking it again marks it as checked by the User now.
       const again = await openCard(window, chip);
-      await pointAndClick(window, again.getByTestId("sign-off-again"));
+      await pointAndClick(window, again.getByTestId("sign-off-toggle"));
       await expect(again.getByTestId("sign-off-line")).toHaveText(words.mine);
       await expect(again.getByTestId("sign-off-toggle")).toHaveAttribute("aria-pressed", "true");
 

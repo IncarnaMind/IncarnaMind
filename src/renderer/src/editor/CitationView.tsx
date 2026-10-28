@@ -796,7 +796,7 @@ function CitationCard({
       {state.check === "found" && !recheckAsked && (
         <p className="citation-card-note">{t("citation.meaning")}</p>
       )}
-      <SignOffLine now={signOff} onCheckAgain={onSignOff} />
+      <SignOffLine now={signOff} />
       <div className="citation-card-actions">
         {onUpdate && (
           <button

@@ -870,7 +870,6 @@ export const zhCN = {
   "signOff.theirs": "由 {name} 核对 · {time}",
   "signOff.changed": "核对后已改动",
   "signOff.changed.theirs": "{name} 核对后已改动",
-  "signOff.checkAgain": "重新核对",
   "signOff.added": "已标为由你核对",
   "signOff.addedCount": "已将 {count} 项标为由你核对",
   "signOff.removed": "已取消你的核对",
