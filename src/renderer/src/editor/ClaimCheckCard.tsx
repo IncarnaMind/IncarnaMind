@@ -10,7 +10,7 @@ import {
 } from "react";
 import { createPortal } from "react-dom";
 import type * as Y from "yjs";
-import type { ClaimCalculation } from "../../../core/api";
+import type { ClaimCalculation, ClaimCorrectionChoice } from "../../../core/api";
 import { shownDocumentName } from "../../../shared/citations";
 import {
   checkedScope,
@@ -42,6 +42,7 @@ import { ObjectMenu, useObjectMenu } from "../components/ObjectMenu";
 import { LineAction } from "../components/ProblemLine";
 import { rowActionButtonClass } from "../components/sidebarRows";
 import { askInAssistant } from "../conversations";
+import { applyCorrection, correctionFor } from "../correctionFixes";
 import { useFindSources } from "../findSources";
 import { translateNow, useLanguage, useT } from "../i18n";
 import { groupsMerged } from "../layoutSlice";
@@ -151,6 +152,7 @@ export function ClaimMark({
   const plus = decision.kind === "add";
   const added = useAddedDocuments((store) => store.byMind[mindId]?.[claim.check.id]?.length ?? 0);
   const heading = t(checkStateKey(editor, claim));
+  const correction = correctionFor(editor, claim);
 
   const hold = useCallback((source: string, on: boolean) => {
     if (on) askers.current.add(source);
@@ -298,6 +300,7 @@ export function ClaimMark({
               fixes={offersFixes(editor, claim)}
               notFound={offersNotFound(editor, claim)}
               keep={offersKeepAsView(editor, claim)}
+              correction={correction}
               editor={editor}
               decision={decision}
               added={added}
@@ -353,6 +356,10 @@ export function ClaimMark({
               onKeep={() => {
                 keepAsView(editor, claim);
                 done();
+              }}
+              onCorrect={() => {
+                applyCorrection(editor, mindId, claim);
+                done(true);
               }}
               use={offersUseFigure(editor, claim)}
               onUse={() => {
@@ -464,6 +471,7 @@ function ClaimCard({
   fixes,
   notFound,
   keep,
+  correction,
   editor,
   decision,
   added,
@@ -480,6 +488,7 @@ function ClaimCard({
   onCut,
   onCutSentence,
   onKeep,
+  onCorrect,
   use,
   onUse,
 }: {
@@ -492,6 +501,7 @@ function ClaimCard({
   fixes: boolean;
   notFound: boolean;
   keep: boolean;
+  correction: ClaimCorrectionChoice | null;
   editor: Editor;
   decision: CitationDecision;
   added: number;
@@ -508,6 +518,7 @@ function ClaimCard({
   onCut(): void;
   onCutSentence(): void;
   onKeep(): void;
+  onCorrect(): void;
   use: boolean;
   onUse(): void;
 }) {
@@ -593,6 +604,24 @@ function ClaimCard({
         {state === "contradicted" && check.says && (
           <p data-testid="claim-says" className="claim-card-says">
             {check.says}
+          </p>
+        )}
+        {correction && (check.correction?.choices.length ?? 0) > 1 && (
+          <p data-testid="claim-correction-conflict" className="claim-card-says">
+            {t("claim.correction.conflict", {
+              newerDocument:
+                shownDocumentName(
+                  check.correction?.choices[0]?.evidence ?? correction.evidence,
+                  documents,
+                ) ?? "",
+              newerWording: check.correction?.choices[0]?.wording ?? correction.wording,
+              olderDocument:
+                shownDocumentName(
+                  check.correction?.choices[1]?.evidence ?? correction.evidence,
+                  documents,
+                ) ?? "",
+              olderWording: check.correction?.choices[1]?.wording ?? correction.wording,
+            })}
           </p>
         )}
         {differs && (
@@ -805,6 +834,18 @@ function ClaimCard({
         );
       })}
       <div className="citation-card-actions">
+        {correction && (
+          <button
+            type="button"
+            data-testid="claim-correct"
+            className="citation-card-action citation-card-action--primary"
+            onClick={onCorrect}
+          >
+            {t(correction.wording.length > 40 ? "claim.correction.long" : "claim.correction", {
+              wording: correction.wording,
+            })}
+          </button>
+        )}
         {decision.kind === "add" && (
           <button
             type="button"
@@ -850,7 +891,7 @@ function ClaimCard({
             type="button"
             data-testid="claim-open"
             className={`citation-card-action ${
-              !use && (decision.kind === "none" || decision.kind === "already")
+              !correction && !use && (decision.kind === "none" || decision.kind === "already")
                 ? "citation-card-action--primary"
                 : ""
             }`}

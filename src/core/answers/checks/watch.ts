@@ -232,6 +232,7 @@ export function createContradictionWatch(options: WatchOptions) {
         modelId: prepared.modelId,
         text: sentence.text,
         evidence: null,
+        correction: null,
         says: null,
         unsupported: null,
         calculation: null,

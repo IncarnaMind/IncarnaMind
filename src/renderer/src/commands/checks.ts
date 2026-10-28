@@ -8,6 +8,7 @@ import {
   setOpenClaim,
   useChecks,
 } from "../checks";
+import { applyCorrection, correctionAt } from "../correctionFixes";
 import { type ShownClaim, shownClaims } from "../editor/claimChecks";
 import { selectionForEdit } from "../editor/editSelection";
 import { useFindSources } from "../findSources";
@@ -92,6 +93,7 @@ function withClaim(find: (editor: Editor) => ShownClaim | null) {
 const withUnsupported = () => withClaim(unsupportedAt);
 const withNotFound = () => withClaim(notFoundAt);
 const withContradicted = () => withClaim(contradictedAt);
+const withCorrection = () => withClaim(correctionAt);
 const withNothingBacking = () => withUnsupported() ?? withNotFound();
 const withKeepable = () => withNothingBacking() ?? withContradicted();
 
@@ -186,6 +188,17 @@ export const checkCommands: readonly Command[] = [
     run() {
       const at = withCuttable();
       if (at) cutSentence(at.editor, at.claim);
+    },
+  },
+  {
+    id: "check.correctContradiction",
+    label: "claim.correction.command",
+    group: "main",
+    reversible: true,
+    when: () => withCorrection() !== null,
+    run() {
+      const at = withCorrection();
+      if (at) applyCorrection(at.editor, at.mindId, at.claim);
     },
   },
   {

@@ -33,6 +33,7 @@ import type {
   ClaimCalculation,
   ClaimCheckFailure,
   ClaimCheckResult,
+  ClaimCorrection,
   LeftOutDocument,
   LimitRelation,
   PassageSearchResult,
@@ -74,6 +75,7 @@ import {
   evidencePrompt,
   NEAREST_INSTRUCTIONS,
   partInstructions,
+  type ReadCorrection,
   type ReadVerdict,
   readEvidence,
   readJudgement,
@@ -387,6 +389,7 @@ export function createClaimCheck(deps: ClaimCheckDependencies) {
       return {
         verdict: "contradicted",
         evidence: worked.evidence,
+        correction: null,
         says: null,
         unsupported: null,
         calculation: worked.calculation,
@@ -397,6 +400,7 @@ export function createClaimCheck(deps: ClaimCheckDependencies) {
     const byCalculation: ClaimCheckResult | null = worked && {
       verdict: "supported",
       evidence: worked.evidence,
+      correction: null,
       says: null,
       unsupported: null,
       calculation: worked.calculation,
@@ -447,6 +451,7 @@ export function createClaimCheck(deps: ClaimCheckDependencies) {
       return {
         verdict: "unsupported",
         evidence: nearest,
+        correction: null,
         says: null,
         unsupported: quoted ? { ...why, quoted } : why,
         calculation: worked?.calculation ?? null,
@@ -580,13 +585,24 @@ export function createClaimCheck(deps: ClaimCheckDependencies) {
       if (strictly === "neither") return inDoubt();
     }
     if (byCalculation && verdict.verdict !== "contradicted") return byCalculation;
+    const corrected =
+      verdict.verdict === "contradicted"
+        ? correctionFor(
+            request.claim,
+            verdict.correction,
+            session.finalCitation,
+            scoped.documentDate,
+          )
+        : null;
+    const deciding = corrected?.evidence ?? evidence;
     return {
       verdict: verdict.verdict,
-      evidence,
+      evidence: deciding,
+      correction: corrected?.correction ?? null,
       says: verdict.says,
       unsupported: null,
       calculation: worked?.calculation ?? null,
-      ...citedCase(evidence),
+      ...citedCase(deciding),
       ...facts(),
     };
   };
@@ -812,6 +828,50 @@ const NEAREST_MARKER = 98;
 
 /** The marker the record asked for once more is given: apart from any the model gave. */
 const EVIDENCE_MARKER = 99;
+
+function correctionFor(
+  claim: string,
+  read: ReadCorrection | undefined,
+  finalCitation: (marker: number) => Citation | null,
+  documentDate: AnswerDocuments["documentDate"],
+): { correction: ClaimCorrection; evidence: Citation } | null {
+  if (!read || read.from === "" || read.choices.length < 1 || read.choices.length > 2) return null;
+  const first = claim.indexOf(read.from);
+  if (first < 0 || first !== claim.lastIndexOf(read.from)) return null;
+  const markers = new Set<number>();
+  const wordings = new Set<string>();
+  const choices: ({ wording: string; marker: number } & { evidence: Citation })[] = [];
+  for (const choice of read.choices) {
+    if (
+      (choice.marker !== 1 && choice.marker !== 2) ||
+      markers.has(choice.marker) ||
+      choice.wording === "" ||
+      choice.wording === read.from ||
+      wordings.has(choice.wording)
+    )
+      return null;
+    const citation = finalCitation(choice.marker);
+    if (citation?.check !== "found") return null;
+    markers.add(choice.marker);
+    wordings.add(choice.wording);
+    choices.push({ ...choice, evidence: citation });
+  }
+  const sorted = choices.sort(
+    (a, b) =>
+      (documentDate(b.evidence.documentId)?.date ?? "").localeCompare(
+        documentDate(a.evidence.documentId)?.date ?? "",
+      ) || a.marker - b.marker,
+  );
+  const [newest] = sorted;
+  if (!newest) return null;
+  return {
+    correction: {
+      from: read.from,
+      choices: sorted.map(({ wording, evidence }) => ({ wording, evidence })),
+    },
+    evidence: newest.evidence,
+  };
+}
 
 function foundCitations(
   finalCitation: (marker: number) => Citation | null,

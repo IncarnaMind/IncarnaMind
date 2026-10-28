@@ -404,6 +404,7 @@ export function createMindCheck(options: MindCheckOptions) {
           modelId: ready.prepared.modelId,
           text: sentence.text,
           evidence: null,
+          correction: null,
           says: null,
           unsupported: null,
           calculation: null,

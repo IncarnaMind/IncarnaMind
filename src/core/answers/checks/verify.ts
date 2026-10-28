@@ -272,6 +272,7 @@ export function createVerify(options: VerifyOptions) {
           modelId: ready.prepared.modelId,
           text: sentence.text,
           evidence: null,
+          correction: null,
           says: null,
           unsupported: null,
           calculation: null,

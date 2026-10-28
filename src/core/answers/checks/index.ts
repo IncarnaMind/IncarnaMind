@@ -44,6 +44,7 @@ import {
   type ClaimCheckAttributes,
   type ClaimCheckResult,
   type ClaimCheckScope,
+  type ClaimCorrection,
   type ContradictionCheckPlan,
   claimCheckActions,
   type Document,
@@ -222,18 +223,29 @@ function parseClaim(input: unknown) {
 }
 
 /** A Citation as a mark stores it: the Passage that decides a claim, or that covers part of it. */
+const citationAttributes = (citation: CitationAttributes): CitationAttributes => ({
+  passageId: citation.passageId,
+  documentId: citation.documentId,
+  documentName: citation.documentName,
+  contentHash: citation.contentHash,
+  pageFrom: citation.pageFrom,
+  pageTo: citation.pageTo,
+  location: citation.location,
+  quote: citation.quote,
+  check: citation.check,
+  checkReason: citation.checkReason,
+});
+
 const evidenceOf = (citation: CitationAttributes | null): CitationAttributes | null =>
-  citation && {
-    passageId: citation.passageId,
-    documentId: citation.documentId,
-    documentName: citation.documentName,
-    contentHash: citation.contentHash,
-    pageFrom: citation.pageFrom,
-    pageTo: citation.pageTo,
-    location: citation.location,
-    quote: citation.quote,
-    check: citation.check,
-    checkReason: citation.checkReason,
+  citation && citationAttributes(citation);
+
+const correctionOf = (correction: ClaimCorrection | null): ClaimCorrection | null =>
+  correction && {
+    from: correction.from,
+    choices: correction.choices.map((choice) => ({
+      wording: choice.wording,
+      evidence: citationAttributes(choice.evidence),
+    })),
   };
 
 const withQuoted = ({ quoted, ...why }: UnsupportedReason): UnsupportedReason => {
@@ -257,6 +269,7 @@ function withResult(
         reason: null,
         detail: null,
         evidence: evidenceOf(result.evidence),
+        correction: correctionOf(result.correction),
         says: result.says,
         unsupported: result.unsupported && withQuoted(result.unsupported),
         calculation: result.calculation,
@@ -450,6 +463,7 @@ export function createChecks(options: ChecksOptions) {
           modelId: ready.prepared.modelId,
           text: sentence.text,
           evidence: null,
+          correction: null,
           says: null,
           unsupported: null,
           calculation: null,
@@ -670,6 +684,7 @@ export function createChecks(options: ChecksOptions) {
         return {
           verdict: "unsupported",
           evidence: null,
+          correction: null,
           says: null,
           unsupported: null,
           calculation: null,

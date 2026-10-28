@@ -210,8 +210,13 @@ export interface CreateMindInput {
  *   `hidden`. An older version's editor writes the columns back without
  *   these when it changes one, so it opens these Minds read-only. Older
  *   content is version 30 content as it is.
+ * - 31: reserved for #2103.
+ * - 32: a confirmed contradiction's correction (#1481): `correction` on the
+ *   `claimCheck` mark holds the exact old substring and up to two Document
+ *   wordings with their Citations, which an older version's editor would
+ *   strip. Older content is version 32 content as it is.
  */
-export const CONTENT_SCHEMA_VERSION = 30;
+export const CONTENT_SCHEMA_VERSION = 32;
 
 /**
  * The key, in the Mind's settings map (`MIND_SETTINGS_FIELD`), of the content
@@ -5183,6 +5188,18 @@ export interface ClaimCalculation {
   agrees: boolean;
 }
 
+/** One Document's wording that can replace the contradicted part of a sentence. */
+export interface ClaimCorrectionChoice {
+  wording: string;
+  evidence: CitationAttributes;
+}
+
+/** A confirmed contradiction's exact old substring and the Document wording choices for it. */
+export interface ClaimCorrection {
+  from: string;
+  choices: ClaimCorrectionChoice[];
+}
+
 /** A password-protected PDF Document, and the password to open it with (#763). */
 export interface UnlockDocumentInput {
   documentId: string;
@@ -5206,6 +5223,8 @@ export type ClaimCheckResult =
        * Documents say something different" (#770).
        */
       evidence: Citation | null;
+      /** A finally confirmed contradiction's exact replacement choices; null for every other result. */
+      correction: ClaimCorrection | null;
       /** For "supported" and "contradicted": what the Document says, in one plain sentence. */
       says: string | null;
       /** For "unsupported": why. Null for the other verdicts. */
@@ -5296,6 +5315,8 @@ export interface ClaimCheckAttributes {
   text: string;
   /** "supported" and "contradicted": the Passage that decides it, as a Citation found. */
   evidence: CitationAttributes | null;
+  /** A confirmed contradiction's correction; absent on checks made before corrections were kept. */
+  correction?: ClaimCorrection | null;
   /** "supported" and "contradicted": what the Document says, in one plain sentence. */
   says: string | null;
   /** "unsupported": why. */

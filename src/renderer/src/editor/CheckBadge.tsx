@@ -1,5 +1,6 @@
 import { flip, offset, shift, size } from "@floating-ui/dom";
 import type { Editor } from "@tiptap/core";
+import { useEditorState } from "@tiptap/react";
 import { ySyncPluginKey } from "@tiptap/y-tiptap";
 import { type KeyboardEvent, type ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import type * as Y from "yjs";
@@ -9,6 +10,7 @@ import { setCheckCardOpen, stopCheck, useChecks } from "../checks";
 import { useTabPlace } from "../components/tabs/tabItems";
 import { buttonStyle } from "../components/ui";
 import { useContradictions } from "../contradictions";
+import { correctableClaims, correctContradictions } from "../correctionFixes";
 import { useLanguage, useT } from "../i18n";
 import { frontTabOfMind } from "../layoutSlice";
 import { startCheck, useMindCheck, useMindCheckRun } from "../mindCheck";
@@ -133,16 +135,18 @@ function MindBadge({
       <HealthCard editor={editor} doc={doc} mindId={mindId} health={health} state={state} />
       <ContradictionLine doc={doc} mindId={mindId} />
       <div className="check-card-sep" />
-      <CheckActions doc={doc} mindId={mindId} askingMind={askingMind} />
+      <CheckActions editor={editor} doc={doc} mindId={mindId} askingMind={askingMind} />
     </BadgeFrame>
   );
 }
 
 function CheckActions({
+  editor,
   doc,
   mindId,
   askingMind,
 }: {
+  editor: Editor;
   doc: Y.Doc;
   mindId: string;
   askingMind: boolean;
@@ -152,6 +156,12 @@ function CheckActions({
   const planned = useCheckThisMindPlan(doc, mindId, running);
   const askingContradictions = useContradictions((state) => state.asking[mindId] !== undefined);
   const unchanged = useMindCheck((state) => state.unchanged[mindId]);
+  const place = useCardPlace(mindId);
+  const language = useLanguage();
+  const correctable = useEditorState({
+    editor,
+    selector: ({ editor: current }) => correctableClaims(current).length,
+  });
   if (askingMind) return <MindCheckAsk mindId={mindId} />;
   if (askingContradictions) return <ContradictionAsk doc={doc} mindId={mindId} />;
   return (
@@ -160,12 +170,31 @@ function CheckActions({
         <MindUnchanged mindId={mindId} since={planned.plan.since} />
       )}
       <div className="check-card-actions">
+        {correctable > 0 && (
+          <button
+            type="button"
+            data-testid="badge-correct-contradictions"
+            disabled={running}
+            className={buttonStyle("primary", "sm")}
+            onClick={() => {
+              if (correctContradictions(editor, mindId) === 0) return;
+              setCheckCardOpen(place, false);
+              requestAnimationFrame(() => {
+                if (!editor.isDestroyed) editor.view.focus();
+              });
+            }}
+          >
+            {t("claim.correction.badge", {
+              count: new Intl.NumberFormat(language).format(correctable),
+            })}
+          </button>
+        )}
         <button
           type="button"
           data-testid="badge-check-mind"
           disabled={running}
           title={planned === null ? undefined : checkTitle(t, planned)}
-          className={buttonStyle("primary", "sm")}
+          className={buttonStyle(correctable > 0 ? "secondary" : "primary", "sm")}
           onClick={() => void startCheck(mindId)}
         >
           {t("mindCheck.command")}

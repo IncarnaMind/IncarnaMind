@@ -870,6 +870,7 @@ describe("A figure the Documents don't state, worked out (#707)", () => {
       expect(result).toMatchObject({
         verdict,
         says: null,
+        correction: null,
         evidence: { documentId: board.id, check: "found" },
         calculation: { stated, figure: { shown } },
       });

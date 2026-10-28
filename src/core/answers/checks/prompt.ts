@@ -44,6 +44,7 @@ const reply = (language: Language) =>
     'Roles: who does it, for or to whom, and its own obligation or permission word copied as written (such as 须, 可, must, may; none when it has none), first as the sentence says it, then " / " and as the Passage says it, then same or differs ("Roles: the Tenant must repaint / the Tenant may repaint, differs"; "Roles: the deposit must be returned / the deposit may be returned, differs"; "Roles: the Landlord insures for the Tenant / the Tenant insures for the Landlord, differs"). "differs" only when the other party does it, the two parties are the other way round, or one says must where the other says may. Anything else is "same": another word for a party (Scope weighs that), a side with no such word, a condition one of them adds, or no party and no such word ("Roles: none, same").',
     `Then, for supported or contradicted, one plain sentence in ${LANGUAGE_NAMES[language]}, whatever language the Documents and the User's sentence are in, saying what the Document says, with the marker [^1] at its end. For contradicted, name the thing, and give the Document's value and the sentence's.`,
     `For unsupported, one plain sentence in ${LANGUAGE_NAMES[language]} saying what the Documents don't say.`,
+    'For contradicted only, add "Change 1: " and the exact old substring of the sentence that the Document contradicts, then "To 1: " and the Document\'s exact replacement wording, with [^1] at its end. When two Documents conflict, add "Change 2: " with that same old substring and "To 2: " with the second Document\'s wording, with [^2] at its end. Never add Change or To lines for supported or unsupported.',
     `Add two last lines, "Covered: " and "Not covered: ", only when a Passage states part of what this sentence itself says: the same subject and the same detail, the sentence saying more than the Passage (a wider group, an added condition, more days). "Covered: " is a short phrase in ${LANGUAGE_NAMES[language]} for that part ("the speed comparison"), "Not covered: " for the rest, as a phrase of the same kind ("memory and robustness"). A Passage about a neighbouring thing (the rent for a service charge, another period, site or person) states no part of the sentence: then write neither line.`,
     `For supported with a wider scope, the same two last lines: "Covered: " and what the Passage states for its own party, then "Not covered: " and the wider group. For supported with roles that differ, "Covered: " and what the Passage states, then "Not covered: " and what the sentence says otherwise.`,
     "Write nothing else.",
@@ -84,7 +85,7 @@ export function checkInstructions(
         ...RULES,
         "",
         "Search the Documents with search_documents for what the sentence claims, in the Documents' language. Search again with other words if the Passages don't decide it; three searches at most.",
-        `For supported or contradicted, before you reply call cite once with one record, marker 1: ${RECORD}.`,
+        `For supported, before you reply call cite once with one record, marker 1: ${RECORD}. For contradicted, before you reply call cite once with one record, or two records when two Documents conflict, each as above, markers 1 and 2 in the To lines' order.`,
         ...(calculate ? ["", CALCULATE] : []),
         "",
         REPLY,
@@ -97,7 +98,7 @@ export function checkInstructions(
         passages,
         "",
         'Reply with one JSON object: {"answer": "…", "citations": [{"marker": 1, "passage": "P1", "location": "…", "quote": "…"}]}.',
-        `- answer: your reply, in the form below. citations: for supported or contradicted, one record, marker 1: ${RECORD}. None for unsupported.`,
+        `- answer: your reply, in the form below. citations: for supported, one record, marker 1: ${RECORD}; for contradicted, one, or two when two Documents conflict, markers 1 and 2 in the To lines' order. None for unsupported.`,
         "",
         REPLY,
       ].join("\n");
@@ -303,8 +304,14 @@ export function readEvidence(
  * Passages state of the sentence and what they don't; null when there is no
  * verdict to read.
  */
+export interface ReadCorrection {
+  from: string;
+  choices: { wording: string; marker: number }[];
+}
+
 export interface ReadVerdict {
   verdict: ClaimVerdict;
+  correction?: ReadCorrection;
   says: string | null;
   covered: string | null;
   uncovered: string | null;
@@ -330,7 +337,9 @@ const NOT_COVERED = /^[\s>*_#`"'“”-]*(?:not covered|uncovered|未涵盖)[\s*
 const SCOPE = /^[\s>*_#`"'“”-]*(?:scope|范围)[\s*_]*[:：](.*)$/i;
 const TOPIC = /^[\s>*_#`"'“”-]*(?:topic|主题)[\s*_]*[:：][\s*_"'“”`]*(found|not found)\b/i;
 const ROLES = /^[\s>*_#`"'“”-]*(?:roles|角色)[\s*_]*[:：](.*)$/i;
-const FIELDS = [COVERED, NOT_COVERED, SCOPE, TOPIC, ROLES];
+const CHANGE = /^[\s>*_#`"'“”-]*change[\s*_]*(\d+)[\s*_]*[:：][\s*_]*(.*)$/i;
+const TO = /^[\s>*_#`"'“”-]*to[\s*_]*(\d+)[\s*_]*[:：][\s*_]*(.*)$/i;
+const FIELDS = [COVERED, NOT_COVERED, SCOPE, TOPIC, ROLES, CHANGE, TO];
 const MAX_PHRASE = 120;
 const MAX_REASON = 300;
 const PHRASE_EDGES = /^[\s"'“”‘’「」『』*_`]+|[\s"'“”‘’「」『』*_`.。;；:：,，]+$/gu;
@@ -401,6 +410,44 @@ const topicOf = (line: string | undefined): ReadVerdict["topic"] => {
   return words === "found" || words === "not found" ? words : null;
 };
 
+function readCorrection(
+  verdict: ClaimVerdict,
+  lines: readonly string[],
+): ReadCorrection | null | undefined {
+  if (verdict !== "contradicted") return undefined;
+  const changes = new Map<number, string>();
+  const destinations = new Map<number, string>();
+  let seen = false;
+  for (const line of lines) {
+    for (const [label, fields] of [
+      [CHANGE, changes],
+      [TO, destinations],
+    ] as const) {
+      const match = label.exec(line);
+      const marker = Number(match?.[1]);
+      if (!match) continue;
+      seen = true;
+      if ((marker !== 1 && marker !== 2) || fields.has(marker)) return null;
+      fields.set(marker, match[2]?.trim() ?? "");
+    }
+  }
+  if (!seen) return undefined;
+  if (
+    changes.size !== destinations.size ||
+    changes.size < 1 ||
+    !changes.has(1) ||
+    !destinations.has(1)
+  )
+    return null;
+  const from = changes.get(1) ?? "";
+  if (from === "" || (changes.has(2) && changes.get(2) !== from)) return null;
+  const choices = [...destinations].map(([marker, text]) => ({
+    marker,
+    wording: text.replace(MARKERS, "").trim(),
+  }));
+  return choices.some((choice) => choice.wording === "") ? null : { from, choices };
+}
+
 /** An unsupported verdict's reason is one sentence: a longer one isn't kept. */
 const withShortReason = (read: ReadVerdict | null): ReadVerdict | null =>
   read?.verdict === "unsupported" && (read.says?.length ?? 0) > MAX_REASON
@@ -441,8 +488,10 @@ export function readVerdict(reply: string): ReadVerdict | null {
     const phrase = (label: RegExp) =>
       phraseOf(fields.map((each) => label.exec(each)?.[1]).find(Boolean));
     const next = after.find((each) => !FIELDS.some((field) => field.test(each)));
+    const correction = readCorrection(verdict, fields);
     return withShortReason({
       verdict,
+      ...(correction && { correction }),
       says: cleanSays(rest || (next ?? "")),
       covered: phrase(COVERED),
       uncovered: phrase(NOT_COVERED),

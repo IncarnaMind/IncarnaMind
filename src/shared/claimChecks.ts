@@ -14,6 +14,7 @@ import {
   type ClaimCheckAttributes,
   type ClaimCheckFailure,
   type ClaimCheckScope,
+  type ClaimCorrection,
   type ClaimVerdict,
   claimCheckActions,
   type EvidenceExclusion,
@@ -110,6 +111,30 @@ function unsupportedOf(value: unknown): UnsupportedReason | null {
   };
 }
 
+function correctionOf(value: unknown): ClaimCorrection | null {
+  if (!isRecord(value)) return null;
+  const from = text(value.from);
+  if (
+    from === null ||
+    from.trim() === "" ||
+    !Array.isArray(value.choices) ||
+    value.choices.length < 1 ||
+    value.choices.length > 2
+  )
+    return null;
+  const wordings = new Set<string>();
+  const choices: ClaimCorrection["choices"] = [];
+  for (const each of value.choices) {
+    if (!isRecord(each) || !isRecord(each.evidence) || each.evidence.check !== "found") return null;
+    const wording = text(each.wording);
+    if (wording === null || wording.trim() === "" || wording === from || wordings.has(wording))
+      return null;
+    wordings.add(wording);
+    choices.push({ wording, evidence: each.evidence as unknown as CitationAttributes });
+  }
+  return { from, choices };
+}
+
 function scopeOf(value: unknown): ClaimCheckScope {
   if (!isRecord(value)) return { folderId: null, widened: false };
   const chosen = storedSearchScope(value.chosen);
@@ -149,6 +174,7 @@ export function readClaimCheck(value: unknown): ClaimCheckAttributes | null {
     modelId: text(value.modelId),
     text: text(value.text) ?? "",
     evidence: isRecord(value.evidence) ? (value.evidence as unknown as CitationAttributes) : null,
+    correction: correctionOf(value.correction),
     says: text(value.says),
     unsupported: unsupportedOf(value.unsupported),
     calculation: calculationOf(value.calculation),
@@ -242,13 +268,15 @@ export function saysNotFound(
 }
 
 /**
- * What a check's result rests on: its evidence, the Passage quoted for the part of an
- * unsupported sentence it covers, and the quotes a worked-out figure read its numbers from.
+ * What a check's result rests on: its evidence, every correction choice's evidence, the Passage
+ * quoted for the part of an unsupported sentence it covers, and the quotes a worked-out figure
+ * read its numbers from.
  */
 export function restsOn(check: ClaimCheckAttributes): (CitationAttributes | Citation)[] {
   const inputs = check.calculation?.figure.inputs ?? [];
   return [
     check.evidence,
+    ...(check.correction?.choices.map((choice) => choice.evidence) ?? []),
     check.unsupported?.quoted ?? null,
     ...inputs.flatMap((input) => [input.citation, input.unitStatement?.citation ?? null]),
   ].filter((each): each is CitationAttributes | Citation => each !== null);

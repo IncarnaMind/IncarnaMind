@@ -136,3 +136,10 @@ A comparison table's column has a short **label**, its heading, beside its Quest
 
 - **Content schema version 30** adds `label` to each column of a table's `questions`, with room for its `width` and whether it is `hidden`. An older version's editor writes the columns back as `{ id, text }` when it changes one, which would lose all three, so it opens these Minds read-only. Older content is version 30 content as it is.
 - **A heading shortens; a file doesn't.** The table's headings and the commands that name a column in the app read `label ?? shortened(text)`, because a heading has room for about 40 characters. The Excel and Word exports read `label ?? text`, so a Question longer than a heading, or one a label hasn't replaced, reaches a file whole. Either way a column has one name, its label when it has one.
+
+## Amendment: a confirmed contradiction carries its correction (2026-10-27, #1481)
+
+A contradicted sentence's `claimCheck` mark can hold a `correction`: the exact old substring in the sentence, and up to two choices of the Document's replacement wording, each with the Citation whose quote the check found. The core keeps one only after the existing contradiction confirmations, when the old substring occurs exactly once and every choice has nonempty, distinct wording and found evidence. Choices are newest Document first by the existing Document-date rule; the check's `evidence` is the first choice's, and every choice's version is retained with the result. Supported, unsupported, unconfirmed and calculated-only results have no correction.
+
+- **Content schema version 32** adds the attribute; #2103 owns version 31. An older version's editor would strip the correction and could no longer offer the same edit, so it opens these Minds read-only. Older content, including checks with no correction, is version 32 content as it is and needs no rewrite.
+- **No table, no migration.** The correction lives beside the check's existing evidence in the Mind's Yjs document; nothing outside it changes.
