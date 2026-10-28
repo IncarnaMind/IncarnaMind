@@ -50,7 +50,7 @@ import {
 import { DATED_TEXTS } from "./dated";
 import { citedClaims } from "./dates";
 import { type Decision, decisionInput, type Forcing, type Route } from "./decisions";
-import { judgeClaims, judgeToolClaims } from "./judge";
+import { judgeClaims, judgeDocumentAbsence, judgeToolClaims } from "./judge";
 import type { Asks, ReaskWatch } from "./reasks";
 import { checkCitedSentences, type SentenceSupport } from "./support";
 
@@ -150,6 +150,8 @@ export interface CaseResult {
   request: string;
   model: string;
   failures: RequestFailure[];
+  /** The sentences the judge found claiming the Documents lack the requested figure. */
+  absenceSentences?: readonly string[];
   /** Sentences the judge read as a passive check or calculation that no call ran (#1796): counted, not failed. */
   toolPassive?: string[];
   reply: string;
@@ -556,8 +558,12 @@ export async function runCase(
     answer.toolCalls,
     last ? { text: last.text, question: each.before?.at(-1) ?? "" } : null,
   );
+  const absenceSentences = each.expected.noDocumentAbsence
+    ? await judgeDocumentAbsence(judge, answer.text, each.expected.noDocumentAbsence)
+    : undefined;
   const outcome: RequestOutcome = {
     expected: each.expected,
+    absenceSentences,
     answer,
     verdict,
     toolVerdict,
@@ -583,6 +589,7 @@ export async function runCase(
     request: each.request,
     model,
     failures,
+    ...(absenceSentences && { absenceSentences }),
     ...(toolVerdict?.passive &&
       toolVerdict.passive.length > 0 && { toolPassive: toolVerdict.passive }),
     reply: answer.text,

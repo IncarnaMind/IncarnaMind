@@ -137,6 +137,8 @@ export interface RequestOutcome {
   verdict: ClaimVerdict;
   /** The sentences a model judged to claim a calculation or search that didn't run; null: not judged. */
   toolVerdict?: ClaimVerdict | null;
+  /** The sentences a model judged to say the Documents lack the requested figure. */
+  absenceSentences?: readonly string[];
   /** The model is offered `calculate` (`ModelFacts.calculates`). */
   calculates?: boolean;
   /** The Mind it was asked from, by id; null or absent: none was in focus. */
@@ -516,18 +518,6 @@ export function rewrittenLater(
   });
 }
 
-const DOCUMENT_ABSENCE = [
-  /\b(?:documents?|reports?|releases?|filings?|papers?|10-q|8-k)\b[^.!?\n]{0,50}\b(?:do(?:es)?n't|do(?:es)? not|never)\s+(?:\w+\s+){0,3}(?:state|mention|report|give|disclose|contain|include|record)\b/i,
-  /\b(?:documents?|reports?|releases?|filings?|papers?|10-q|8-k)\b[^.!?\n]{0,50}\b(?:contains?|includes?|records?|reports?|gives?|discloses?)\s+(?:\w+\s+){0,2}no\b/i,
-  /(?:文档|报告|公告|文件)[^。！？!?\n]{0,12}(?:(?:未|没有|并未|不曾)(?:披露|提及|说明|记载|给出|包含|列出)|不含|不包含|未包含|没有包含)/,
-];
-
-const ABSENCE_WORDING = [
-  /\b(?:lack(?:s|ed|ing)?|missing|absent|unavailable)\b/i,
-  /\bwithout\s+(?!\w+ing\b)(?:an?\s+|the\s+)?\w+/i,
-  /缺少|缺失|不存在/,
-];
-
 function clausesOf(text: string): string[] {
   return text.split(/[\n。！？!?，；;]+|\.(?!\d)/);
 }
@@ -535,14 +525,6 @@ function clausesOf(text: string): string[] {
 const ASSERTED_ANSWER =
   /(?:\b(?:was|were|is|are|equals?)\b[^.!?\n]{0,40}\d|[为是][^。！？!?\n]{0,20}\d|\b\d+(?:\.\d+)?\s*(?:days?|%|million|billion)\b|\d+(?:\.\d+)?\s*(?:元|亿元|天))/i;
 const ASSERTED_COPULA = /\b(?:was|were|is|are)\b|[为是]/i;
-
-function statesDocumentAbsence(text: string, about: RegExp): boolean {
-  return clausesOf(text).some(
-    (sentence) =>
-      about.test(sentence) &&
-      [...DOCUMENT_ABSENCE, ...ABSENCE_WORDING].some((phrase) => phrase.test(sentence)),
-  );
-}
 
 /** The ways one request failed its guards; none when it passed. */
 export function requestFailures(outcome: RequestOutcome): RequestFailure[] {
@@ -671,10 +653,7 @@ export function requestFailures(outcome: RequestOutcome): RequestFailure[] {
     if (!declines(answer.text) && !absenceRead) failures.push({ kind: "no-search-miss" });
     const invented = clausesOf(answer.text).some((sentence) => {
       if (!sentence.trim() || declines(sentence) || /\[\^\d+\]/.test(sentence)) return false;
-      if (
-        expected.noDocumentAbsence &&
-        statesDocumentAbsence(sentence, expected.noDocumentAbsence)
-      ) {
+      if (outcome.absenceSentences?.includes(sentence)) {
         return false;
       }
       return (
@@ -686,7 +665,7 @@ export function requestFailures(outcome: RequestOutcome): RequestFailure[] {
   }
   if (
     expected.noDocumentAbsence &&
-    statesDocumentAbsence(answer.text, expected.noDocumentAbsence) &&
+    (outcome.absenceSentences?.length ?? 0) > 0 &&
     (!expected.searchMiss || !absenceRead)
   ) {
     failures.push({ kind: "document-absence" });

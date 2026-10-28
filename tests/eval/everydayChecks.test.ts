@@ -885,9 +885,11 @@ describe("The filing guards", () => {
       },
     ],
     toolCalls: AnswerToolCall[] = [],
+    absenceSentences: readonly string[] = [],
   ) =>
     requestFailures(
       outcome({
+        absenceSentences,
         expected: {
           write: false,
           cite: true,
@@ -912,41 +914,36 @@ describe("The filing guards", () => {
     status: "done",
     resultCount: 3,
   };
+  const absent = (text: string) => filingOutcome(text, undefined, undefined, [text]);
 
   test("requires the expected figure and rejects a whole-Document absence claim in English and Chinese", () => {
     expect(
       filingOutcome("Operating margin was 38.2% [^1].").map((failure) => failure.kind),
     ).toEqual([]);
     expect(
-      filingOutcome("The release doesn't state the operating margin.").map(
-        (failure) => failure.kind,
-      ),
+      absent("The release doesn't state the operating margin.").map((failure) => failure.kind),
     ).toEqual(["missing-answer-text", "document-absence"]);
-    expect(filingOutcome("报告未披露 38.2% 的营业利润率。").map((failure) => failure.kind)).toEqual(
-      ["document-absence"],
-    );
+    expect(absent("报告未披露 38.2% 的营业利润率。").map((failure) => failure.kind)).toEqual([
+      "document-absence",
+    ]);
   });
 
   test("rejects other absence wordings even with the expected figure and Citation", () => {
     expect(
-      filingOutcome("The release lacks an operating margin. Operating margin was 38.2% [^1].").map(
+      absent("The release lacks an operating margin. Operating margin was 38.2% [^1].").map(
         (failure) => failure.kind,
       ),
     ).toEqual(["document-absence"]);
     expect(
-      filingOutcome("The operating margin is missing from the release. It was 38.2% [^1].").map(
+      absent("The operating margin is missing from the release. It was 38.2% [^1].").map(
         (failure) => failure.kind,
       ),
     ).toEqual(["document-absence"]);
     expect(
-      filingOutcome("业绩公告缺少经营利润率。经营利润率为 38.2% [^1]。").map(
-        (failure) => failure.kind,
-      ),
+      absent("业绩公告缺少经营利润率。经营利润率为 38.2% [^1]。").map((failure) => failure.kind),
     ).toEqual(["document-absence"]);
     expect(
-      filingOutcome("公告未包含经营利润率。经营利润率为 38.2% [^1]。").map(
-        (failure) => failure.kind,
-      ),
+      absent("公告未包含经营利润率。经营利润率为 38.2% [^1]。").map((failure) => failure.kind),
     ).toEqual(["document-absence"]);
   });
 
@@ -961,16 +958,55 @@ describe("The filing guards", () => {
     ).toEqual([]);
   });
 
+  test("uses judged absence sentences, not a without-shaped phrase", () => {
+    const absence = (text: string) => absent(text).map((failure) => failure.kind);
+    expect(
+      filingOutcome("Operating margin was 38.2% without other income [^1].").map(
+        (failure) => failure.kind,
+      ),
+    ).toEqual([]);
+    expect(
+      absence(
+        "The release is without operating margin information. Operating margin was 38.2% [^1].",
+      ),
+    ).toEqual(["document-absence"]);
+    expect(
+      absence(
+        "The release was published without specifying the operating margin. Operating margin was 38.2% [^1].",
+      ),
+    ).toEqual(["document-absence"]);
+    expect(
+      absence(
+        "The release is without the operating margin information. Operating margin was 38.2% [^1].",
+      ),
+    ).toEqual(["document-absence"]);
+    expect(
+      filingOutcome("Operating margin was 38.2% without including other income [^1].").map(
+        (failure) => failure.kind,
+      ),
+    ).toEqual([]);
+    expect(
+      filingOutcome("经营利润率为 38.2%（不含其他收入）[^1]。").map((failure) => failure.kind),
+    ).toEqual([]);
+    expect(absence("公告未披露经营利润率。经营利润率为 38.2% [^1]。")).toEqual([
+      "document-absence",
+    ]);
+    expect(absence("公告没有具体说明经营利润率。经营利润率为 38.2% [^1]。")).toEqual([
+      "document-absence",
+    ]);
+  });
+
   test("rejects absence after the verb and a Citation to another Document", () => {
     expect(
       filingOutcome(
         "The release contains no operating margin. Operating margin was 38.2% [^1].",
+        undefined,
+        undefined,
+        ["The release contains no operating margin."],
       ).map((failure) => failure.kind),
     ).toEqual(["document-absence"]);
     expect(
-      filingOutcome("报告不包含经营利润率。经营利润率为 38.2% [^1]。").map(
-        (failure) => failure.kind,
-      ),
+      absent("报告不包含经营利润率。经营利润率为 38.2% [^1]。").map((failure) => failure.kind),
     ).toEqual(["document-absence"]);
     expect(
       filingOutcome("Operating margin was 38.2% [^1].", [
@@ -1005,9 +1041,11 @@ describe("The filing guards", () => {
       text: string,
       citations: ReturnType<typeof citation>[] = [],
       toolCalls: AnswerToolCall[] = [],
+      absenceSentences: readonly string[] = [],
     ) =>
       requestFailures(
         outcome({
+          absenceSentences,
           expected: {
             write: false,
             cite: false,
@@ -1020,10 +1058,14 @@ describe("The filing guards", () => {
         }),
       ).map((failure) => failure.kind);
     expect(missing("I didn't find the cash conversion cycle in the 10-Q.")).toEqual([]);
-    expect(missing("The 10-Q doesn't state the cash conversion cycle.")).toEqual([
-      "no-search-miss",
-      "document-absence",
-    ]);
+    expect(
+      missing(
+        "The 10-Q doesn't state the cash conversion cycle.",
+        [],
+        [],
+        ["The 10-Q doesn't state the cash conversion cycle."],
+      ),
+    ).toEqual(["no-search-miss", "document-absence"]);
     expect(missing("The cash conversion cycle was 42 days.")).toEqual([
       "no-search-miss",
       "invented-answer",
@@ -1041,7 +1083,14 @@ describe("The filing guards", () => {
         "I didn't find the cash conversion cycle. I searched the Q2 2026 10-Q and nothing matched.",
       ),
     ).toEqual([]);
-    expect(missing("The 10-Q lacks a cash conversion cycle.", [], [READ])).toEqual([]);
-    expect(missing("季报缺少现金转换周期。", [], [READ])).toEqual([]);
+    expect(
+      missing(
+        "The 10-Q lacks a cash conversion cycle.",
+        [],
+        [READ],
+        ["The 10-Q lacks a cash conversion cycle."],
+      ),
+    ).toEqual([]);
+    expect(missing("季报缺少现金转换周期。", [], [READ], ["季报缺少现金转换周期。"])).toEqual([]);
   });
 });
