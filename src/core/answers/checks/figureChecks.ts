@@ -1,6 +1,6 @@
 import { aggregateFigureResults } from "../../../shared/figureChecks";
 import { type FigureUnit, readFigures } from "../../../shared/figures";
-import { evaluateFormula, showResult } from "../../../shared/formula";
+import { evaluateFormula, sameNumber, showResult } from "../../../shared/formula";
 import { escapedInStrings } from "../../../shared/jsonText";
 import type {
   CalculatedFigure,
@@ -352,6 +352,13 @@ function inSourceFrame(
 }
 
 /** A Figures line's source, read as `calculate` reads an input: its number, or why it can't be read. */
+/** Whether a source number equals the figure in any way the figure can be read. */
+export function givesItsOwnNumber(target: CheckFigure, input: FigureInput): boolean {
+  return [target.reading, ...target.reading.ambiguous.flatMap((each) => each.readings)].some(
+    (reading) => sameNumber(reading.value, input.number.value),
+  );
+}
+
 export function readFigureSource(
   calculations: Pick<CalculationSession, "number">,
   target: CheckFigure,
@@ -541,6 +548,12 @@ export async function checkFigureReply(options: FigureCheckOptions): Promise<Cla
         result:
           unit && judged.verdict === "unsupported" ? { ...judged, unsupported: unit } : judged,
       });
+      continue;
+    }
+    // The model found the Document giving something else, yet bound a number equal to the
+    // figure: another row's, or one in a unit the reader doesn't see. It is never Supported.
+    if (agrees && item.verdict === "contradicted") {
+      rows.push({ ...base, sourceInput, result: unavailable("unread") });
       continue;
     }
     const difference = target.reading.value - compared.value;

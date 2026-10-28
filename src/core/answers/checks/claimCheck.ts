@@ -71,6 +71,7 @@ import {
   checkFigureReply,
   figureJudgment,
   figureReplyText,
+  givesItsOwnNumber,
   readFigureReply,
   readFigureSource,
   uncheckedFigureResults,
@@ -239,7 +240,12 @@ function figuresReplied(
                 ]
               : [];
           const source = readFigureSource(calculations, target, item.source);
-          return "problem" in source ? [`${target.reading.chars}: ${source.problem}`] : [];
+          if ("problem" in source) return [`${target.reading.chars}: ${source.problem}`];
+          return item.verdict === "contradicted" && givesItsOwnNumber(target, source.input)
+            ? [
+                `${target.reading.chars}: you call it contradicted, but its source gives the same number, ${source.input.number.chars}; give as source the number the Document gives for its own subject, period, column and unit, or the verdict that number gives.`,
+              ]
+            : [];
         });
         const remainder = read.remainder?.citation;
         if (remainder && !recorded(remainder))

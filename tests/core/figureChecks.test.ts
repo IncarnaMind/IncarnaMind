@@ -970,6 +970,91 @@ test.each([
   },
 );
 
+const rowsOf = (body: string): UnitText[] => [
+  {
+    page: 1,
+    text: body,
+    kind: "rows",
+    label: { sheet: "Budget", from: 1, to: 3, rows: [1, 2, 3], column: 0 },
+  },
+];
+
+// A scale its source doesn't state ("million" over a row's "thousand tonnes") is the scale
+// guard's Unsupported, with its own words, as any scale the Documents never state is.
+test.each([
+  {
+    body: "项目\t2024年\t2025年\t单位\n收入\t100\t120\t万元",
+    quote: "收入\t100\t120\t万元",
+    figure: () => cell("f1", "100", "2024年\n收入 | 100 | 120\n单位：万元"),
+    number: "100",
+    said: "supported",
+    verdict: "supported",
+  },
+  {
+    body: "Item\t2024\t2025\tUnit\nCost\t70\t78\tthousand tonnes",
+    quote: "Cost\t70\t78\tthousand tonnes",
+    figure: () => target("f1", "70 thousand tonnes", "Cost 2024"),
+    number: "70",
+    said: "supported",
+    verdict: "supported",
+  },
+  {
+    body: "Item\t2024\t2025\tUnit\nCost\t70\t78\tthousand tonnes",
+    quote: "Cost\t70\t78\tthousand tonnes",
+    figure: () => target("f1", "78 million tonnes", "Cost 2025"),
+    number: "78",
+    said: "contradicted",
+    verdict: "unsupported",
+  },
+])(
+  "a quoted row's unit cell states the unit of each number in its row, with no unit line asked for: $number → $verdict",
+  async ({ body, quote, figure, number, said, verdict }) => {
+    const { result, calls } = await checkWith({
+      figures: [figure()],
+      body,
+      units: rowsOf(body),
+      quotes: [quote],
+      text: reply([
+        {
+          ...item(),
+          verdict: said,
+          source: { citation: 1, number, reading: null, unitQuote: null },
+        },
+      ]),
+    });
+    expect(calls.some((call) => call.prompt.includes("can't be read"))).toBe(false);
+    expect(result.figures?.[0]?.result.verdict).toBe(verdict);
+  },
+);
+
+test.each([
+  { again: "42", verdict: "contradicted" },
+  { again: "78", verdict: "not-checked" },
+])(
+  "a figure called contradicted with a source number equal to it is asked for its own row's number, and never Supported: $again",
+  async ({ again, verdict }) => {
+    const body = "Item\t2024\t2025\nCost\t70\t78\nProfit\t30\t42";
+    const given = (citation: number, number: string) => ({
+      ...item(),
+      verdict: "contradicted",
+      source: { citation, number, reading: null, unitQuote: null },
+    });
+    const { result, calls } = await checkWith({
+      figures: [target("f1", "78", "Profit 2025")],
+      body,
+      units: rowsOf(body),
+      quotes: ["Cost\t70\t78", "Profit\t30\t42"],
+      text: reply([given(1, "78")]),
+      askedAgain: {
+        note: "you call it contradicted",
+        text: reply([given(again === "42" ? 2 : 1, again)]),
+      },
+    });
+    expect(calls.some((call) => call.prompt.includes("you call it contradicted"))).toBe(true);
+    expect(result.figures?.[0]?.result.verdict).toBe(verdict);
+  },
+);
+
 test.each([
   { text: "I'm sorry, I can't help with that.", reason: "refused" },
   { text: "", reason: "empty" },
