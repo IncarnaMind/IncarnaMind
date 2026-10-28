@@ -45,7 +45,7 @@ export interface UncitedCheckInput {
   usage: AnswerUsage;
   signal: AbortSignal;
   checking(): void;
-  publish(check: ClaimCheckAttributes): void;
+  publish(check: ClaimCheckAttributes, position: number): void;
 }
 
 /** The uncited sentences with a figure or quoted fact that the claim finder may take (#1445). */
@@ -130,9 +130,10 @@ export function createUncitedCheck(options: UncitedCheckOptions) {
     const candidates = uncitedFacts(input.blocks);
     if (candidates.length === 0) return;
     const prepared = await options.prepare(input.prepared);
-    if (!prepared || input.searchable === 0) return;
+    if (!prepared || input.searchable === 0 || input.signal.aborted) return;
     input.checking();
     const request = randomUUID();
+    const positions = new Map(candidates.map((sentence, index) => [sentence, index]));
     const startedAt = options.now().toISOString();
     const used = measured(prepared, (usage) => {
       input.usage.inputTokens += usage.inputTokens ?? 0;
@@ -166,7 +167,10 @@ export function createUncitedCheck(options: UncitedCheckOptions) {
       console.warn(
         `An uncited sentence in Answer ${input.answerId} couldn't be checked: ${reason}${detail ? ` (${detail})` : ""}`,
       );
-      input.publish({ ...markOf(sentence), state: "not-checked", reason, detail, checkedAt: at });
+      input.publish(
+        { ...markOf(sentence), state: "not-checked", reason, detail, checkedAt: at },
+        positions.get(sentence) ?? 0,
+      );
     };
     const found = await claimsAmong(
       used,
@@ -208,7 +212,10 @@ export function createUncitedCheck(options: UncitedCheckOptions) {
             failed(sentence, outcome.value.reason, outcome.value.detail);
             return;
           }
-          input.publish(options.withResult(markOf(sentence), outcome.value, at));
+          input.publish(
+            options.withResult(markOf(sentence), outcome.value, at),
+            positions.get(sentence) ?? 0,
+          );
         },
       },
     );

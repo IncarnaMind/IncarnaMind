@@ -138,6 +138,98 @@ describe("Uncited figures in a conversation Answer", () => {
     release();
   });
 
+  test("identical sentences keep occurrence order when the second check finishes first", async () => {
+    const waiting: (() => void)[] = [];
+    const plans = {
+      [CLAIM]: { verdict: "supported" as const, quote: QUOTE, judgement: "conflict" as const },
+    };
+    const model = scriptedModel(
+      (call) => {
+        if (!isCheckRun(call)) return { text: `${CLAIM}\n\n${CLAIM}` };
+        if (!call.results.some((result) => result.tool === "cite") || waiting.length >= 2) {
+          return checkReply(call, plans);
+        }
+        let release = () => {};
+        const paused = new Promise<void>((resolve) => {
+          release = () => resolve();
+        });
+        waiting.push(release);
+        return {
+          text: `Verdict: ${waiting.length === 1 ? "contradicted" : "unsupported"}\nCovered: revenue\nNot covered: the amount`,
+          pause: { after: 0, until: paused },
+        };
+      },
+      { generate: checkGenerate(plans) },
+    );
+    const { core } = await setUpWithDocuments(model, [REPORT]);
+    const cloud = await core.saveChatProvider({
+      kind: "anthropic",
+      apiKey: "sk-test",
+      modelId: "claude-haiku-5-5",
+    });
+    if (cloud.service) await core.allowDataFlow("chat", cloud.service.id);
+    const ended = answerEndings(core);
+    const asked = await core.askInConversation({ text: "What was revenue?" });
+    if (!asked.asked) throw new Error("The Question wasn't asked.");
+    await vi.waitFor(() => expect(waiting).toHaveLength(2));
+
+    waiting[1]?.();
+    await vi.waitFor(async () => {
+      const answer = answerOf(await core.getConversation(asked.conversation.id), asked.answerId);
+      expect(answer.claimChecks).toHaveLength(1);
+      expect(answer.claimChecks?.[0]?.state).toBe("unsupported");
+    });
+    waiting[0]?.();
+    expect(await ended(asked.answerId)).toBe("finished");
+
+    const answer = answerOf(await core.getConversation(asked.conversation.id), asked.answerId);
+    expect(answer.claimChecks?.map((check) => check.state)).toEqual([
+      "contradicted",
+      "unsupported",
+    ]);
+    const marked = answerBlocks(answer).map(
+      (block) =>
+        block.content
+          ?.flatMap((node) => node.marks ?? [])
+          .find((mark) => mark.type === CLAIM_CHECK_MARK)?.attrs?.state,
+    );
+    expect(marked).toEqual(["contradicted", "unsupported"]);
+  });
+
+  test("a refused regeneration still finishes the superseded Answer", async () => {
+    let release = () => {};
+    const forever = new Promise<void>((resolve) => {
+      release = () => resolve();
+    });
+    const events: string[] = [];
+    const model = scriptedModel((call) => {
+      if (isCheckRun(call)) return checkReply(call, {});
+      return { text: CLAIM, pause: { after: 0, until: forever } };
+    });
+    const { core } = await setUpWithDocuments(model, [REPORT]);
+    core.on("answer.started", () => events.push("started"));
+    core.on("answer.finished", ({ status }) => events.push(status));
+    const first = await core.askInConversation({ text: "What was revenue?" });
+    if (!first.asked) throw new Error("The Question wasn't asked.");
+    const provider = (await core.listChatProviders())[0];
+    if (!provider) throw new Error("No chat provider.");
+    await core.deleteChatProvider(provider.id);
+
+    try {
+      const again = await core.regenerateConversationAnswer({
+        conversationId: first.conversation.id,
+        answerId: first.answerId,
+      });
+
+      expect(again).toMatchObject({ asked: false, reason: "not-ready" });
+      await vi.waitFor(() => expect(events).toEqual(["started", "stopped"]));
+      const answer = answerOf(await core.getConversation(first.conversation.id), first.answerId);
+      expect(answer.status).toBe("stopped");
+    } finally {
+      release();
+    }
+  });
+
   test("regenerating a streaming Answer emits no completion for the superseded generation", async () => {
     let release = () => {};
     const forever = new Promise<void>((resolve) => {
@@ -170,6 +262,49 @@ describe("Uncited figures in a conversation Answer", () => {
     release();
     expect(await ended(first.answerId)).toBe("finished");
     expect(events).toEqual(["started", "started", "done"]);
+  });
+
+  test("a refused regeneration finishes an Answer whose background check was running", async () => {
+    let release = () => {};
+    const paused = new Promise<void>((resolve) => {
+      release = () => resolve();
+    });
+    const events: string[] = [];
+    const plans = {
+      [CLAIM]: { verdict: "supported" as const, quote: QUOTE },
+      [OTHER]: {
+        verdict: "supported" as const,
+        reply: { text: "Verdict: supported", pause: { after: 0, until: paused } },
+      },
+    };
+    const model = scriptedModel(
+      (call) => (isCheckRun(call) ? checkReply(call, plans) : { text: `${CLAIM} ${OTHER}` }),
+      { generate: checkGenerate(plans) },
+    );
+    const { core } = await setUpWithDocuments(model, [REPORT]);
+    core.on("answer.started", () => events.push("started"));
+    core.on("answer.finished", ({ status }) => events.push(status));
+    const first = await core.askInConversation({ text: "What was revenue?" });
+    if (!first.asked) throw new Error("The Question wasn't asked.");
+    await vi.waitFor(async () => {
+      const answer = answerOf(await core.getConversation(first.conversation.id), first.answerId);
+      expect(answer.claimChecks).toHaveLength(1);
+    });
+    const provider = (await core.listChatProviders())[0];
+    if (!provider) throw new Error("No chat provider.");
+    await core.deleteChatProvider(provider.id);
+
+    try {
+      const again = await core.regenerateConversationAnswer({
+        conversationId: first.conversation.id,
+        answerId: first.answerId,
+      });
+
+      expect(again).toMatchObject({ asked: false, reason: "not-ready" });
+      await vi.waitFor(() => expect(events).toEqual(["started", "done"]));
+    } finally {
+      release();
+    }
   });
 
   test("regenerating while a background check runs still lets the new Answer stop", async () => {

@@ -44,3 +44,45 @@ test("a background check's evidence version survives the next start", async () =
   startCore(dataDir);
   expect(count()).toBeGreaterThan(0);
 });
+
+test("an Unsupported result's quoted evidence version survives the next start", async () => {
+  const plans = {
+    [CLAIM]: {
+      verdict: "unsupported" as const,
+      quote: QUOTE,
+      judgement: "same" as const,
+      says: "The report gives another figure.\nCovered: revenue\nNot covered: the claimed amount",
+    },
+  };
+  const model = scriptedModel(
+    (call) => (isCheckRun(call) ? checkReply(call, plans) : { text: CLAIM }),
+    { generate: checkGenerate(plans) },
+  );
+  const { core, dataDir, documents } = await setUpWithDocuments(model, [
+    { name: "Report.md", contents: QUOTE },
+  ]);
+  const document = documents[0];
+  if (!document) throw new Error("No Report.");
+  const ended = new Promise<void>((resolve) => core.on("answer.finished", () => resolve()));
+  const asked = await core.askInConversation({ text: "What was revenue?" });
+  if (!asked.asked) throw new Error("The Question wasn't asked.");
+  await ended;
+  const { messages } = await core.getConversation(asked.conversation.id);
+  const answer = messages.find((message) => message.kind === "answer");
+  if (answer?.kind !== "answer") throw new Error("No such Answer.");
+  expect(answer.claimChecks?.[0]?.evidence).toBeNull();
+  expect(answer.claimChecks?.[0]?.unsupported?.quoted?.contentHash).toBe(sha256(QUOTE));
+
+  await writeFile(document.path, V2);
+  await core.reconcileDocuments();
+  await waitForProcessing(core, [document.id]);
+  const count = () =>
+    queryDatabase<{ n: number }>(
+      dataDir,
+      "SELECT count(*) AS n FROM passages WHERE content_hash = ?",
+      [sha256(QUOTE)],
+    )[0]?.n;
+  core.close();
+  startCore(dataDir);
+  expect(count()).toBeGreaterThan(0);
+});

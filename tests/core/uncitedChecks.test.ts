@@ -12,7 +12,7 @@ import type { NodeJSON } from "../../src/core/answers/blocks";
 import { createUncitedCheck, uncitedFacts } from "../../src/core/answers/checks/uncited";
 import type { CheckScope } from "../../src/core/answers/checks/verify";
 import { resolveCapabilities } from "../../src/core/providers/capabilities";
-import { pageBlocks } from "../../src/shared/answerBlocks";
+import { answerBlocks, pageBlocks } from "../../src/shared/answerBlocks";
 import { withoutClaimCheckMarks } from "../../src/shared/claimCheckBlocks";
 import { checkingModel } from "../helpers/checks";
 import { createTempDataFolder, startCore } from "../helpers/core";
@@ -214,6 +214,46 @@ describe("The uncited background checker", () => {
     expect(published).toHaveLength(0);
   });
 
+  test("stopping while preparation waits never starts the checking phase", async () => {
+    const model = await prepared();
+    const controller = new AbortController();
+    const published: ClaimCheckAttributes[] = [];
+    let release = () => {};
+    const waiting = new Promise<void>((resolve) => {
+      release = () => resolve();
+    });
+    let phases = 0;
+    const running = createUncitedCheck({
+      prepare: async (answer) => {
+        await waiting;
+        return answer;
+      },
+      claimCheck: async () => result("supported"),
+      citedNow: (cited) => cited,
+      withResult,
+      claimTimeLimitMs: 1_000,
+      now: () => new Date("2026-01-01T00:00:00.000Z"),
+    })({
+      answerId: "answer",
+      mindId: null,
+      blocks: [paragraph(text(CLAIM))],
+      prepared: model,
+      scope,
+      searchable: 1,
+      usage: usage(),
+      signal: controller.signal,
+      checking: () => phases++,
+      publish: (check) => published.push(check),
+    });
+    controller.abort();
+    release();
+    await running;
+
+    expect(phases).toBe(0);
+    expect(published).toEqual([]);
+    expect(model.model.doGenerateCalls).toHaveLength(0);
+  });
+
   test("bounds checks and gives every remaining sentence a reason", async () => {
     const model = await prepared();
     const published: ClaimCheckAttributes[] = [];
@@ -349,6 +389,55 @@ describe("The uncited background checker", () => {
 
     expect(total.inputTokens).toBeGreaterThan(0);
     expect(total.outputTokens).toBeGreaterThan(0);
+  });
+});
+
+describe("Duplicate Answer sentences", () => {
+  test("each occurrence keeps its own check result", () => {
+    const checks = Array.from({ length: 13 }, (_, index) =>
+      withResult(
+        {
+          id: `check-${index}`,
+          request: "request",
+          action: "check-against-documents",
+          state: "checking",
+          reason: null,
+          detail: null,
+          providerId: "provider",
+          modelId: "model",
+          text: CLAIM,
+          evidence: null,
+          says: null,
+          unsupported: null,
+          calculation: null,
+          citedCaseUnchecked: false,
+          citedCaseFound: false,
+          scope: scope.marked,
+          versions: [],
+          excluded: [],
+          checkedAt: "2026-01-01T00:00:00.000Z",
+        },
+        index === 12
+          ? { verdict: "not-checked", reason: "too-many", detail: null, versions: [], excluded: [] }
+          : result("supported"),
+        "2026-01-01T00:00:00.000Z",
+      ),
+    );
+    const blocks = answerBlocks({
+      text: Array.from({ length: 13 }, () => CLAIM).join("\n\n"),
+      citations: [],
+      figures: [],
+      status: "done",
+      claimChecks: checks,
+    });
+
+    const ids = blocks.map(
+      (block) =>
+        block.content
+          ?.flatMap((node) => node.marks ?? [])
+          .find((mark) => mark.type === CLAIM_CHECK_MARK)?.attrs?.id,
+    );
+    expect(ids).toEqual(checks.map((check) => check.id));
   });
 });
 

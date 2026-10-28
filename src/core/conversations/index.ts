@@ -11,6 +11,7 @@
  * deleting it permanently is Recently deleted's (../recentlyDeleted).
  */
 import { randomUUID } from "node:crypto";
+import { restsOn } from "../../shared/claimChecks";
 import { withFigureText } from "../../shared/figureMarkers";
 import { parseLocation } from "../../shared/locations";
 import { conversationName, cutTitle } from "../../shared/naming";
@@ -760,7 +761,9 @@ export function createConversations(db: Database, now: () => string) {
     for (const row of rows) {
       for (const citation of storedList<CitationFields>(row.citations)) add(citation);
       for (const check of storedList<ClaimCheckAttributes>(row.claim_checks)) {
-        if (isRecord(check.evidence)) add(check.evidence);
+        for (const citation of restsOn(check)) {
+          if (isRecord(citation)) add(citation);
+        }
       }
       for (const figure of storedList<MarkedFigure>(row.figures)) {
         for (const input of Array.isArray(figure.inputs) ? figure.inputs : []) addInput(input);

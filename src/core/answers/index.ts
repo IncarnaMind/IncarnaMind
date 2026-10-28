@@ -332,8 +332,8 @@ interface Generation {
   home: AnswerHome;
   /** The model writing it. */
   model: ChatModelChoice;
-  /** Writes what has arrived with the final status, now. Later calls do nothing. */
-  finish(outcome: Outcome): void;
+  /** Writes the final status. Supersession returns the terminal event to use if no replacement starts. */
+  finish(outcome: Outcome): (() => void) | undefined;
   /** A Task's work (a comparison table's cell): its Task, not the Answer, holds background work back. */
   task: boolean;
 }
@@ -1065,6 +1065,7 @@ export function createAnswers(options: AnswersOptions) {
     const controller = new AbortController();
     let background: AbortController | null = null;
     let superseded = false;
+    let endSuperseded: (() => void) | undefined;
     let onChecking: (() => void) | undefined;
     let prepared: PreparedChatModel;
     /** What the model wrote: Markdown, with Citation markers. */
@@ -1131,6 +1132,7 @@ export function createAnswers(options: AnswersOptions) {
       cacheWriteTokens: 0,
     };
     const claimChecks: ClaimCheckAttributes[] = [];
+    const claimCheckPlaces = new Map<string, number>();
     let smallModel = false;
     const toolCalls: AnswerToolCall[] = [];
     // Its last Answer put in as it is ("make it a document") holds what that Answer covered.
@@ -1501,7 +1503,7 @@ export function createAnswers(options: AnswersOptions) {
       }
       if (finished) {
         background?.abort();
-        return;
+        return outcome.status !== "failed" && outcome.superseded ? endSuperseded : undefined;
       }
       finished = true;
       finishedAt = Date.now();
@@ -1552,8 +1554,7 @@ export function createAnswers(options: AnswersOptions) {
         announce("answer.failed", { ...place, answerId, error: outcome.error });
         return;
       }
-      const announceFinished = () => {
-        if (!settle() || superseded) return;
+      endSuperseded = () =>
         announce("answer.finished", {
           ...place,
           answerId,
@@ -1569,6 +1570,9 @@ export function createAnswers(options: AnswersOptions) {
           figureRetry,
           usage,
         });
+      const announceFinished = () => {
+        if (!settle() || superseded) return;
+        endSuperseded?.();
       };
       if (
         outcome.status === "done" &&
@@ -1592,10 +1596,16 @@ export function createAnswers(options: AnswersOptions) {
             searchable: scope.searchable,
             usage,
             signal: background.signal,
-            checking: () => onChecking?.(),
-            publish: (check) => {
+            checking: () => {
+              if (!superseded && active.get(answerId)?.finish === finish) onChecking?.();
+            },
+            publish: (check, position) => {
               if (superseded || active.get(answerId)?.finish !== finish) return;
+              claimCheckPlaces.set(check.id, position);
               claimChecks.push(check);
+              claimChecks.sort(
+                (a, b) => (claimCheckPlaces.get(a.id) ?? 0) - (claimCheckPlaces.get(b.id) ?? 0),
+              );
               const turn = options.conversations.writeClaimChecks(answerId, claimChecks);
               if (turn) options.conversations.publish(turn);
             },
@@ -1605,6 +1615,7 @@ export function createAnswers(options: AnswersOptions) {
         return;
       }
       announceFinished();
+      return outcome.superseded ? endSuperseded : undefined;
     };
 
     const writeSoon = () => {
@@ -3607,9 +3618,12 @@ export function createAnswers(options: AnswersOptions) {
       const everyDocument = isRecord(input) && input.clearScope === true;
       if (everyDocument) options.conversations.clearScope(asked.question.id);
       const { answerId, question, toolCalls, onScreen } = options.conversations.questionOf(input);
-      active.get(answerId)?.finish({ status: "stopped", superseded: true });
+      const endIfRefused = active.get(answerId)?.finish({ status: "stopped", superseded: true });
       const ready = await readyModel(question.model, question.forcedSkill);
-      if ("asked" in ready) return ready;
+      if ("asked" in ready) {
+        endIfRefused?.();
+        return ready;
+      }
       const changes = toolCalls.flatMap((call) => call.mindChange ?? []);
       // Written again, it proposes its changes again: those still waiting from before go.
       options.withdrawChanges?.(changes);

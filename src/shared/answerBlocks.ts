@@ -42,8 +42,12 @@ export function answerBlocks(
       ),
     ),
   );
+  const used = new Set<string>();
   for (const sentence of checkableSentences(generated)) {
-    const check = answer.claimChecks?.find((each) => each.text === sentence.text);
+    const check = answer.claimChecks?.find(
+      (each) => each.text === sentence.text && !used.has(each.id),
+    );
+    if (check) used.add(check.id);
     const paragraph = check && paragraphAt(generated, sentence.path);
     if (!check || !paragraph) continue;
     paragraph.content = withSentenceMark(
