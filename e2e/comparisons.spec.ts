@@ -1472,12 +1472,18 @@ test("a column's edge resizes it and the width and a hidden column stay with the
   await expect(reloaded.getByTestId("comparison-hidden-menu")).toBeVisible();
 
   // Excel leaves the hidden column out and says so, and keeps the width it was given.
+  let lastName = "";
   const exported = async () => {
     await pointAndClick(window, reloaded.getByTestId("comparison-export-excel"));
     const result = window.getByTestId("export-result");
     await expect(result).toHaveAttribute("data-state", "saved", { timeout: 20_000 });
+    // The line can still show the file saved a moment ago: wait for this export's own name.
+    await expect
+      .poll(async () => /“([^”]+\.xlsx)”/.exec(await result.innerText())?.[1] ?? "")
+      .not.toBe(lastName);
     const name = /“([^”]+\.xlsx)”/.exec(await result.innerText())?.[1];
     if (!name) throw new Error(`No file name in “${await result.innerText()}”.`);
+    lastName = name;
     const written = new Uint8Array(await readFile(join(sources, name)));
     return (await readWorkbook(written, undefined, {})).sheets[0];
   };
