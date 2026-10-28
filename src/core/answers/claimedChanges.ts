@@ -38,6 +38,7 @@ const verdictSchema = jsonSchema<{ claims: ClaimVerdict[] }>({
     },
   },
   required: ["claims"],
+  additionalProperties: false,
 });
 
 export const CLAIM_CHECK_INSTRUCTIONS = [
