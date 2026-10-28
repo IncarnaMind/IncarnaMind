@@ -82,6 +82,6 @@ export function needsCalculation({
       );
     })
   )
-    return verdict.verdict === "supported" || computed.length === 0;
+    return verdict.verdict === "supported" || (attempted && computed.length === 0);
   return false;
 }

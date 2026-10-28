@@ -53,7 +53,15 @@ async function fixture(
     malformedAt = 0,
     refuses = false,
     suffix,
-  }: { malformedAt?: number; refuses?: boolean; suffix?: string } = {},
+    verdict = "supported",
+    declare = true,
+  }: {
+    malformedAt?: number;
+    refuses?: boolean;
+    suffix?: string;
+    verdict?: "supported" | "unsupported" | "contradicted";
+    declare?: boolean;
+  } = {},
 ) {
   const calls: ModelCall[] = [];
   const wireInputs: string[] = [];
@@ -83,7 +91,7 @@ async function fixture(
       return {
         text: refuses
           ? "I cannot repair the calculation, so I cannot check this sentence."
-          : `Verdict: supported\nThe accounts support this sentence. [^1]\nCalculation: ${example.stated}`,
+          : `Verdict: ${verdict}\nThe accounts support this sentence. [^1]${declare ? `\nCalculation: ${example.stated}` : ""}`,
       };
     },
     { generate: checkGenerate({ [example.claim]: { judgement: "conflict" } }) },
@@ -225,6 +233,19 @@ describe.each(LANGUAGES)("a rejected calculation input ($language)", (example) =
     expect(calls).toHaveLength(4);
     expect(result.verdict).toBe("not-checked");
   });
+
+  test.each(["unsupported", "contradicted"] as const)(
+    "a failed attempt stays Not checked when the model says %s without a declaration",
+    async (verdict) => {
+      const { result, feedback } = await fixture(
+        example,
+        [brokenInput("unrecorded input", example.stated)],
+        { verdict, declare: false },
+      );
+      expect(feedback[0]?.text).not.toMatch(/^Recorded/);
+      expect(result.verdict).toBe("not-checked");
+    },
+  );
 
   test.each(FAILURES)(
     "does not use an earlier marker after a replacement has %s",

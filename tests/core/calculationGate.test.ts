@@ -1,4 +1,5 @@
 import { describe, expect, test } from "vitest";
+import { STRICT_INSTRUCTIONS } from "../../src/core/answers/checks/prompt";
 import { checkGenerate } from "../helpers/checks";
 import { setUpWithDocuments, shownPassages } from "../helpers/citations";
 import { type ModelCall, type ScriptedReply, scriptedModel } from "../helpers/models";
@@ -19,28 +20,39 @@ async function fixture({
   as,
   directInputs = false,
   decidingSource,
+  judgement,
+  strict,
 }: {
   repair?: boolean;
   claim?: string;
   source?: string;
   stated?: string;
   required?: readonly string[];
-  verdict?: "supported" | "unsupported";
+  verdict?: "supported" | "unsupported" | "contradicted";
   topic?: "found" | "not found";
   cite?: boolean;
   as?: "times";
   directInputs?: boolean;
   decidingSource?: { name: string; contents: string; quote: string };
+  judgement?: "same" | "conflict" | "neither";
+  strict?: "same" | "conflict" | "neither";
 } = {}) {
   const calls: ModelCall[] = [];
+  const comparisons: string[] = [];
   let verdicts = 0;
+  const generate = checkGenerate({
+    [claim]: {
+      judgement: judgement ?? (claim === CLAIM ? "conflict" : "same"),
+      ...(strict && { strict: { text: strict } }),
+    },
+  });
   const model = scriptedModel(
     (call): ScriptedReply => {
       calls.push(call);
       const searched = call.results.filter((result) => result.tool === "search_documents");
       if (searched.length === 0)
         return {
-          calls: [{ tool: "search_documents", input: { query: "net debt adjusted EBITDA" } }],
+          calls: [{ tool: "search_documents", input: { query: source } }],
         };
       const shown = searched.flatMap((result) => shownPassages(result.text));
       const passage = shown.find((passage) => passage.text.includes(source));
@@ -112,7 +124,12 @@ async function fixture({
         ].join("\n"),
       };
     },
-    { generate: checkGenerate({ [claim]: { judgement: claim === CLAIM ? "conflict" : "same" } }) },
+    {
+      generate: (call) => {
+        comparisons.push(call.system);
+        return generate(call);
+      },
+    },
   );
   const { core } = await setUpWithDocuments(model, [
     { ...DOCUMENT, contents: `# Invented accounts\n\n${source}\n` },
@@ -124,10 +141,54 @@ async function fixture({
     apiKey: "synthetic-test-key",
     modelId: "claude-haiku-5-5",
   });
-  return { result: await core.checkClaim({ claim }), calls, verdicts: () => verdicts };
+  return { result: await core.checkClaim({ claim }), calls, comparisons, verdicts: () => verdicts };
 }
 
 describe("a check cannot substitute a model verdict for derived arithmetic", () => {
+  test.each([
+    ["Harbours publish the times every 6 months.", "Harbours publish the times every 12 months."],
+    ["港口每6个月公布时间表。", "港口每12个月公布时间表。"],
+  ])("a directly contradicted figure keeps its evidence check: %s", async (claim, source) => {
+    const { result, verdicts, comparisons } = await fixture({
+      claim,
+      source,
+      verdict: "contradicted",
+      judgement: "conflict",
+    });
+    expect(result.verdict).toBe("contradicted");
+    expect(verdicts()).toBe(1);
+    expect(comparisons).toContain(STRICT_INSTRUCTIONS);
+  });
+
+  test.each(["The lighthouse was built in 1867.", "灯塔建于1867年。"])(
+    "an unrelated dated claim keeps its ordinary Unsupported result: %s",
+    async (claim) => {
+      const { result, calls } = await fixture({ claim, verdict: "unsupported" });
+      expect(result.verdict).toBe("unsupported");
+      expect(calls.some((call) => call.prompt.includes("The numerical check is incomplete"))).toBe(
+        false,
+      );
+    },
+  );
+
+  test.each([
+    ["The total is 30.", "The first amount is 10. The second amount is 20."],
+    ["总额为30。", "第一笔金额为10。第二笔金额为20。"],
+  ])("a derived total cannot bypass the strict contradiction look: %s", async (claim, source) => {
+    const { result, comparisons, calls } = await fixture({
+      claim,
+      source,
+      verdict: "contradicted",
+      judgement: "conflict",
+      strict: "neither",
+    });
+    expect(comparisons).toContain(STRICT_INSTRUCTIONS);
+    expect(result).toMatchObject({ verdict: "unsupported", calculation: null });
+    expect(
+      calls.flatMap((call) => call.results).some((result) => result.tool === "calculate"),
+    ).toBe(false);
+  });
+
   test("asks once and stays Not checked when the model still omits the calculation", async () => {
     const { result, verdicts } = await fixture();
     expect(result.verdict).toBe("not-checked");
