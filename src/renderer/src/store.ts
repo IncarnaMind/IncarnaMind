@@ -657,7 +657,22 @@ export const useAppStore = create<AppState>()((set, get) => {
     refuseIfDeleted(foldersMovedFrom(done), names);
     for (const back of undoMoves(done)) await move(back.items, back.folderId);
     for (const document of done.documents)
-      await core.restoreAssignment(document.id, document.previous);
+      await core.restoreAssignment(document.id, document.change.before, document.change.after);
+  };
+
+  /** Whether anything is in this Folder now: a Document, a Mind or a conversation. */
+  const folderOccupied = async (folderId: string) => {
+    const [library, minds, conversations] = await Promise.all([
+      core.getLibrary(),
+      core.listMinds(),
+      core.listConversations(),
+    ]);
+    return (
+      // A Suggested Folder still in To review is Organize's, not something the User filed here.
+      library.assignments.some((each) => each.groupId === folderId && !each.suggested) ||
+      minds.some((each) => each.folderId === folderId) ||
+      conversations.some((each) => each.folderId === folderId)
+    );
   };
 
   /**
@@ -696,20 +711,26 @@ export const useAppStore = create<AppState>()((set, get) => {
   }) => {
     const { folderId, going, named, names } = made;
     let { done } = made;
-    return (folderName: string): Undoable => ({
-      said: (t) => madeMessage(t, folderName, going, named),
-      name: (t) => t("undo.name.newFolder"),
-      undo: async () => {
-        if (done) await putBack(done, names);
-        await core.deleteLibraryGroup(folderId);
-        await get().refreshLibrary();
-      },
-      redo: async () => {
-        await core.restore([{ kind: "folder", id: folderId }]);
-        await get().refreshLibrary();
-        if (going) done = await move(going, folderId);
-      },
-    });
+    return (folderName: string): Undoable => {
+      let kept = false;
+      return {
+        said: (t) => madeMessage(t, folderName, going, named),
+        name: (t) => t("undo.name.newFolder"),
+        undoneNote: () => (kept ? (t) => t("commands.kept.folder", { name: folderName }) : null),
+        undo: async () => {
+          if (done) await putBack(done, names);
+          // What the User put in it since is theirs, so the Folder stays rather than goes with it (#1928).
+          kept = await folderOccupied(folderId);
+          if (!kept) await core.deleteLibraryGroup(folderId);
+          await get().refreshLibrary();
+        },
+        redo: async () => {
+          await core.restore([{ kind: "folder", id: folderId }]);
+          await get().refreshLibrary();
+          if (going) done = await move(going, folderId);
+        },
+      };
+    };
   };
 
   /**

@@ -4384,7 +4384,13 @@ export function createCore(adapters: CoreAdapters): Core {
       }
     },
     assignDocumentGroup: async (id, groupId) => library.assign(id, groupId),
-    restoreAssignment: async (id, previous) => library.restoreAssignment(id, previous),
+    restoreAssignment: async (id, before, after) => {
+      const change = library.restoreAssignment(id, before, after);
+      // A Document whose tagging goes back to pending has its turn again: the one it had was
+      // dropped while Organize held it (#1928).
+      if (change?.after.tagging?.status === "pending") tagger.resume();
+      return change;
+    },
     restore: async (refs) => recentlyDeleted.restore(refs),
     undoCommands: async (run) => commandSteps.undo(run),
     redoCommands: async (run) => commandSteps.redo(run),
