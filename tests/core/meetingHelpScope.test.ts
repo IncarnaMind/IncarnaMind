@@ -119,6 +119,36 @@ async function setup(language: "en" | "zh-CN", heard = true) {
 }
 
 for (const language of ["en", "zh-CN"] as const) {
+  for (const heard of [false, true]) {
+    test(`${language}: an ordinary recap ${heard ? "with speech" : "before speech"} leaves Library facts out on ask and retry`, async () => {
+      const { core, meeting, calls, fact, spoken } = await setup(language, heard);
+      const first = await answerOf(
+        core,
+        await core.askInConversation({
+          mindId: meeting.mindId,
+          text: translate(language, "meeting.ask.recap"),
+        }),
+      );
+      const retried = await answerOf(
+        core,
+        await core.regenerateConversationAnswer({
+          conversationId: first.conversationId,
+          answerId: first.id,
+        }),
+      );
+      for (const answer of [first, retried]) {
+        expect(answer.text).not.toContain(fact);
+        expect(answer.citations).toHaveLength(heard ? 1 : 0);
+        if (heard) {
+          expect(answer.citations[0]?.quote).toBe(spoken);
+          expect(answer.citations[0]?.check).toBe("found");
+        }
+      }
+      expect(calls.every((call) => call.prompt.includes("<live-transcript>"))).toBe(true);
+      expect(calls.some((call) => call.prompt.includes(fact))).toBe(false);
+    });
+  }
+
   for (const action of actions) {
     test(`${language}: ${action.kind} ${action.documents ? "may cite Documents for its task" : "cites only the call"}`, async () => {
       const { core, meeting, guide, calls, fact, spoken } = await setup(language);
