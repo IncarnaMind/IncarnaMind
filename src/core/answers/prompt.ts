@@ -458,6 +458,14 @@ const CALCULATIONS =
   '- calculations: one for each number the Answer works out from numbers in Passages (a difference, sum, average, ratio, share, growth rate, a change in percentage points, a conversion between 万 and 亿 or millions and billions), with [=1] in the answer where the number goes, never the number itself: its marker; its inputs, each a name for the formula, a label with its year or period, the marker of the Citation whose quote holds the number, and the number as it is written there; and a formula over the names in Excel\'s syntax, such as (b - a) / a, with "as": "percent" for a growth rate or share. When a number\'s unit or scale is only in a table\'s heading ("单位：万元"), give that line as unitQuote. Inputs are read in base units with that scale applied: give "scale" ("亿", "billion") for the scale a figure is shown in, never a division by 10000 or 1000. An input keeps its sign as the Passage writes it: an amount in brackets, "(12,500)", is negative, so take a deduction written in brackets off a total by adding it, never by subtracting it.';
 
 /**
+ * For a model that answers without Tools and isn't offered `calculations` (#1796): asked to use
+ * "the calculation Tool", a small model said it had, and that the Tool confirmed its own wrong
+ * figures. In the Tool loop, a reply that says so is asked about instead (./claimedTools).
+ */
+const NO_CALCULATE =
+  "- IncarnaMind has no calculation Tool for this model: never say that a Tool, IncarnaMind or you calculated, checked or confirmed a figure. If the User asks for figures to be calculated or checked by a Tool, say in one sentence that this model can't use IncarnaMind's calculation Tool; a number you work out is your own working.";
+
+/**
  * A Citation the Question context shows keeps its record when the Answer keeps its claim
  * (#1800): models copied "[Tides, p. 3]" as text, which opens nothing.
  */
@@ -532,6 +540,14 @@ export interface ListedDocuments {
   total: number;
   /** The names of the most recently added, newest first: at most `LISTED_DOCUMENTS`. */
   names: readonly string[];
+}
+
+/** The Library's own Documents, when this Answer can use fewer of them (#1333). */
+export interface LibraryDocuments {
+  /** How many live Documents the Library holds: every one it lists, searchable or not. */
+  total: number;
+  /** Some of them are an example IncarnaMind made's Documents, which this Answer leaves out. */
+  examples: boolean;
 }
 
 /** A Document name on one line of its own, and not too long. */
@@ -617,6 +633,31 @@ function documentNames({ total, names }: ListedDocuments): string {
   ].join("\n");
 }
 
+const EXAMPLES_LEFT_OUT =
+  "Documents of an example IncarnaMind made are in the Library too, and aren't the User's own work: leave them out.";
+
+/**
+ * The Library's own count, when it holds more Documents than this Answer can use (#1333):
+ * told only its scope's one, models said the Library held one.
+ */
+function libraryNote(library: number, scoped: boolean): string {
+  return `Never say the Library holds fewer Documents than ${library}. When the Question names more Documents than ${scoped ? "the Search scope" : "this Answer"} can use, say in one sentence which you used and why, or ask which ones in one line.`;
+}
+
+/** How many Documents the User has, the Library's whole count when it is more than `listed` (#1333). */
+function addedLine(listed: number, library: number, scoped: boolean): string {
+  const documents = `${listed} Document${listed === 1 ? "" : "s"}`;
+  const sentence =
+    library > listed
+      ? scoped
+        ? `The User limited this Question to ${documents} of the ${library} in their Library`
+        : `The User's Library holds ${library} Documents, and this Answer can use ${listed} of them`
+      : scoped
+        ? `The User limited this Question to ${documents} of theirs`
+        : `The User has added ${documents}`;
+  return `${sentence} (PDF, Word, PowerPoint, Excel, CSV, text and Markdown files).`;
+}
+
 /**
  * What to do with the User's Documents, for a way of citing. `passages`: what
  * the one search found, for a model that can't call Tools. `scoped`: the User
@@ -625,6 +666,7 @@ function documentNames({ total, names }: ListedDocuments): string {
  * `calculate` Tool (or `calculations` in its JSON), and steered to it. `keeps`: the
  * Question context shows Citations with ids, or a Mind read may. `writeFirst`: a model in the
  * Tool loop writes the Answer, then cites it; `minds`: it is offered the Tools that write into Minds.
+ * `library`: the Library's own count, when it holds more than `listed` (#1333).
  */
 export function documentInstructions(
   mode: CitationSupport | "no-documents",
@@ -633,9 +675,12 @@ export function documentInstructions(
   scoped = false,
   calculate = false,
   keeps = false,
-  { writeFirst = false, minds = false }: { writeFirst?: boolean; minds?: boolean } = {},
+  {
+    writeFirst = false,
+    minds = false,
+    library = { total: listed.total, examples: false },
+  }: { writeFirst?: boolean; minds?: boolean; library?: LibraryDocuments } = {},
 ): string {
-  const documents = `${listed.total} Document${listed.total === 1 ? "" : "s"}`;
   const dated = datedDocumentsNote(passages);
   const notes = [
     dated,
@@ -643,7 +688,11 @@ export function documentInstructions(
     notCitedNote(passages),
     bracketedAmountsNote(passages),
   ].filter(Boolean);
-  const added = `${scoped ? `The User limited this Question to ${documents} of theirs` : `The User has added ${documents}`} (PDF, Word, PowerPoint, Excel, CSV, text and Markdown files).`;
+  const added = addedLine(listed.total, library.total, scoped);
+  const rest = [
+    ...(library.examples ? [EXAMPLES_LEFT_OUT] : []),
+    ...(library.total > listed.total ? [libraryNote(library.total, scoped)] : []),
+  ];
   switch (mode) {
     case "no-documents":
       return "";
@@ -651,6 +700,7 @@ export function documentInstructions(
       return [
         `${added} Search them with search_documents whenever they may help; search again with other words if the Passages don't answer the Question.`,
         documentNames(listed),
+        ...rest,
         "",
         "Cite every claim you draw from a Passage:",
         ...(writeFirst ? writeThenCite(keeps, minds) : citeFirst(keeps)),
@@ -664,6 +714,7 @@ export function documentInstructions(
       return [
         added,
         documentNames(listed),
+        ...rest,
         "",
         "Passages found in the User's Documents for this Question:",
         passages,
@@ -678,7 +729,7 @@ export function documentInstructions(
         ...(keeps ? [KEEP_CITATIONS("give a record in citations")] : []),
         UNBROKEN_QUOTE,
         QUOTATION_MARKS,
-        ...(calculate ? [CALCULATIONS] : []),
+        ...(calculate ? [CALCULATIONS] : [NO_CALCULATE]),
         notCovered(true),
         CITED_SAYS_ONLY_ITS_QUOTE,
         FIGURES_AS_STATED,
@@ -688,6 +739,7 @@ export function documentInstructions(
       return [
         added,
         documentNames(listed),
+        ...rest,
         "",
         "Passages found in the User's Documents for this Question:",
         passages,
@@ -697,6 +749,7 @@ export function documentInstructions(
         notCovered(false),
         FIGURES_AS_STATED,
         readingRules(false),
+        NO_CALCULATE,
       ].join("\n");
   }
 }

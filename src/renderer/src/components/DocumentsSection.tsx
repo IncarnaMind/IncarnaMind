@@ -1,10 +1,11 @@
 import { type ChangeEvent, type KeyboardEvent, memo, type ReactNode, useMemo, useRef } from "react";
 import type { Document, DocumentStatus, Tag } from "../../../core/api";
 import { displayName, sourceOf } from "../../../shared/documentNames";
+import { isProcessing } from "../../../shared/documentStatus";
 import type { MessageKey } from "../../../shared/i18n";
 import { addFilesLabel } from "../addFilesAction";
 import { useDocumentPlace } from "../documentPlaces";
-import { documentStatusText, isProcessing } from "../documentStatus";
+import { documentStatusText } from "../documentStatus";
 import { useDraggedRef, useDragSource } from "../dragDrop";
 import { useFirstOpen } from "../firstOpen";
 import { useLanguage, useT } from "../i18n";
@@ -129,6 +130,13 @@ export function DocumentsSection() {
     return shown.length > 0 && !(onlyExamples && exampleMindId !== null);
   });
   const addDocuments = useAppStore((state) => state.addDocuments);
+  const treeIsEmpty = useAppStore(
+    (state) =>
+      state.documents.length === 0 &&
+      state.minds.length === 0 &&
+      (state.library?.groups.length ?? 0) === 0 &&
+      state.linkedFolders.length === 0,
+  );
   const picker = useRef<HTMLInputElement>(null);
   const tree = useRef<HTMLDivElement>(null);
   const treeKeys = useTreeKeyboard(tree);
@@ -230,7 +238,9 @@ export function DocumentsSection() {
           </div>
         </div>
       )}
-      <div ref={tree} data-testid="sidebar-sections" {...treeKeys}>
+      {/* flow-root keeps a section's top margin inside the tree, and the empty line shows only
+          while the tree lists nothing, so the first section to arrive moves neither (#2142). */}
+      <div ref={tree} data-testid="sidebar-sections" {...treeKeys} className="flow-root">
         <LibraryFolders
           documents={quiet ? NO_DOCUMENTS : shownDocuments}
           renderDocument={renderDocument}
@@ -238,7 +248,7 @@ export function DocumentsSection() {
           hideExamples={foldExamples}
           dayOne={dayOne}
         />
-        {!quiet && documents.length === 0 && (
+        {!quiet && treeIsEmpty && (
           <ProblemLine
             role="status"
             testId="documents-empty"

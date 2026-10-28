@@ -37,6 +37,7 @@ import { mindName } from "../shared/naming";
 import { paperFor } from "../shared/printDocument";
 import { resolveProposals, restoreRevised } from "../shared/proposals";
 import { readableQuoteText } from "../shared/readableQuote";
+import { readyQuestionOf } from "../shared/readyQuestion";
 import { isPaperOrBook } from "../shared/references";
 import { RESEARCH_TASK } from "../shared/research";
 import { hasSearchScope, holdsText, mindSearchScope, type ScopeKind } from "../shared/searchScope";
@@ -101,6 +102,7 @@ import {
   NOT_IN_A_FOLDER_ID,
   type OwnFileKind,
   type ProviderError,
+  type ReadyQuestion,
   type SavedExport,
   type SavedFile,
   type ScannedQuoteInput,
@@ -154,7 +156,7 @@ import { createWebPages } from "./documents/web";
 import { createEdits, editText } from "./edits";
 import { BUILT_IN_EMBEDDING_MODEL, createEmbeddingModel } from "./embedding";
 import { createActiveEmbedding } from "./embedding/active";
-import { createModelSources, MODEL_COPIES } from "./embedding/modelSources";
+import { createModelSources, MODEL_COPIES, modelCopyUrl } from "./embedding/modelSources";
 import {
   FileWriteCancelledError,
   InvalidInputError,
@@ -1480,6 +1482,7 @@ export function createCore(adapters: CoreAdapters): Core {
     },
     documents: {
       searchableCount: (documentIds) => documents.searchableCount(documentIds ?? undefined),
+      libraryCount: () => documents.ids({}).length,
       names: () => documents.names(),
       searchableNames: (documentIds, limit) =>
         documents.searchableNames(documentIds ?? undefined, limit),
@@ -1709,7 +1712,7 @@ export function createCore(adapters: CoreAdapters): Core {
     );
   const notifyTask = ({ task, what }: TaskNotice) => {
     const notifications = adapters.notifications;
-    if (!notifications) return;
+    if (!notifications || !settings.get().user.taskNotifications) return;
     const language = settings.get().language;
     const name = taskName(task.kind);
     const title = translate(
@@ -1742,6 +1745,9 @@ export function createCore(adapters: CoreAdapters): Core {
     mindName: (mindId) => (mindExists(mindId) ? mindName(minds.get(mindId)) || null : null),
     folderOfMind: (mindId) => (mindExists(mindId) ? minds.get(mindId).folderId : null),
     createMind: (title, folderId) => makeMind({ title, kind: DEFAULT_MIND_KIND, folderId }).id,
+    moveMind: (mindId, folderId) => {
+      if (minds.move([mindId], folderId).some((item) => item.from !== folderId)) mindsChanged();
+    },
     documents: {
       webPagesSince: (ids, since) =>
         documents
@@ -2886,26 +2892,28 @@ export function createCore(adapters: CoreAdapters): Core {
     },
     listed: () => transcriber !== undefined && transcriptionSource.files.length > 0,
   });
-  // Any built-in model may come from these instead, and the probe asks ModelScope (#1578).
+  // Any built-in model may come from these instead, and the probe asks hf-mirror.com until our
+  // ModelScope copy exists (#1578).
+  const modelScopeCopy = modelCopyUrl(modelCopies.modelscope);
+  const r2Copy = modelCopyUrl(modelCopies.r2);
   const otherSources: { id: NetworkTrafficId; service: ExternalService }[] = [
-    {
-      id: "model-source-modelscope",
-      service: {
-        id: modelCopies.modelscope
-          ? new URL(modelCopies.modelscope.url).origin
-          : "https://www.modelscope.cn",
-        name: "ModelScope",
-      },
-    },
+    ...(modelScopeCopy
+      ? [
+          {
+            id: "model-source-modelscope" as const,
+            service: { id: new URL(modelScopeCopy).origin, name: "ModelScope" },
+          },
+        ]
+      : []),
     {
       id: "model-source-hf-mirror",
       service: { id: "https://hf-mirror.com", name: "hf-mirror.com" },
     },
-    ...(modelCopies.r2
+    ...(r2Copy
       ? [
           {
             id: "model-source-copy" as const,
-            service: { id: new URL(modelCopies.r2.url).origin, name: "IncarnaMind" },
+            service: { id: new URL(r2Copy).origin, name: "IncarnaMind" },
           },
         ]
       : []),
@@ -3091,6 +3099,14 @@ export function createCore(adapters: CoreAdapters): Core {
   });
   events.on("document.status", () => examples.documentChanged());
   isExampleDocument = (documentId) => examples.made().documentIds.includes(documentId);
+  const readyQuestionNow = (): ReadyQuestion | null => {
+    const exampleDocuments = new Set(examples.made().documentIds);
+    return readyQuestionOf({
+      own: documents.list().filter((each) => !exampleDocuments.has(each.id)),
+      example: examples.exampleReady(),
+      language: settings.get().language,
+    });
+  };
   // Started here, not with the rest of the Library, so a Document an earlier version filed as an
   // example's is never worked on again (#1942).
   library.start();
@@ -3661,7 +3677,7 @@ export function createCore(adapters: CoreAdapters): Core {
     restoreCheckpoint: async (mindId, checkpointId) => checkpoints.restore(mindId, checkpointId),
     askInConversation: async (input) =>
       answers.askInConversation(conversations.parseQuestion(input)),
-    askReadyQuestion: async () => {
+    askExampleReadyQuestion: async () => {
       const ready = examples.readyAnswer();
       if (!ready) {
         throw new InvalidInputError({ key: "error.examples.reading" });
@@ -3968,6 +3984,7 @@ export function createCore(adapters: CoreAdapters): Core {
     listUnmatchedReferences: async () => referenceImport.unmatched(),
     addReferenceFile: (recordId, path) => referenceImport.addFile(recordId, path),
     getExamples: async (group) => examples.status(group),
+    readyQuestion: async () => readyQuestionNow(),
     isExampleDocument: async (documentId) => isExampleDocument(documentId),
     offerExamples: async () => examples.offer(minds.list().length > 0),
     createExamples: async (group) => examples.create(group),

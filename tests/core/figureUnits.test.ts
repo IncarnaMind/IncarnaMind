@@ -470,6 +470,12 @@ describe("What the assistant writes", { timeout: 30_000 }, () => {
         quote: STATED,
         says: STATED,
       },
+      // The cut, checked once as it would land.
+      [`The annual salary is 54,000 ${INLINE_NODE}.`]: {
+        verdict: "supported" as const,
+        quote: STATED,
+        says: STATED,
+      },
     };
     const model = scriptedModel((call) => {
       calls.push(call);

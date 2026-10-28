@@ -1171,6 +1171,8 @@ export interface MindChange {
   replacedOwn?: { paragraphs: number; tables: number; charts: number };
   /** How many Citations the text it wrote there holds. Absent: none, or it rewrote text keeping its own. */
   cited?: number;
+  /** It wrote new text there with no Citation at all, once its Answer had searched and found Passages (#1415). */
+  uncited?: true;
   /** How many of its text's markers had no Citation recorded, and were left out. Absent: none. */
   unrecorded?: number;
   /**
@@ -2247,6 +2249,12 @@ export interface UserSettings {
    */
   keepWebPageLook: boolean;
   /**
+   * The system's notifications when a Task needs the User or finishes, unless
+   * its Mind is on screen (DESIGN.md, Finding Tasks): on until they turn it
+   * off in Settings.
+   */
+  taskNotifications: boolean;
+  /**
    * The citation styles last chosen for a Mind, newest first, up to five
    * (`RECENT_CITATION_STYLES`): the picker's Recently used.
    */
@@ -2274,7 +2282,7 @@ export interface GettingStarted {
   indexed: boolean;
   /** The User asked a Question of their own, not the example's. */
   askedOwn: boolean;
-  /** The User asked the first open's ready Question (`askReadyQuestion`). */
+  /** The User asked the first open's ready Question (`readyQuestion`). */
   askedReady: boolean;
   /** An own note was exported successfully on this device. */
   exported: boolean;
@@ -3776,11 +3784,20 @@ export interface Examples {
   /** The example Answer, written in advance, while the example Mind exists. */
   answerId: string | null;
   more: ExampleGroup[];
+}
+
+/**
+ * The first open's ready Question: the one its card offers to ask in one click. One reader
+ * decides it (`readyQuestion`), for every place that shows it.
+ */
+export interface ReadyQuestion {
+  /** What to ask, in the interface's language. */
+  question: string;
   /**
-   * The first open's ready Question (#123), whose Answer is written in advance
-   * (`askReadyQuestion`): the credit paper's, while it exists; null otherwise.
+   * What its Answer reads, as the Question's Search scope: the User's own Document it is about,
+   * asked with a model. Null for the example's, whose Answer is written in advance.
    */
-  ready: string | null;
+  scope: SearchScope | null;
 }
 
 /**
@@ -4629,7 +4646,7 @@ export interface TaskMessage {
   text: string;
 }
 
-/** A Research Task's plan as it runs (Plan): each step with how far it is. */
+/** A Research Task's plan (Plan): each step with how far it is, or how it ended. */
 export interface ResearchPlanView {
   title: string;
   steps: { text: string; status: "waiting" | "running" | "done" | "failed" }[];
@@ -4646,8 +4663,8 @@ export interface ResearchSources {
 
 /** What to plan a Research Task for. */
 export interface PlanResearchInput {
-  /** The Mind the assistant reads, where the Task will be. */
-  mindId: string;
+  /** The Mind the assistant reads, where the Task will be; null with no Mind in focus. */
+  mindId: string | null;
   topic: string;
   /** Where it will look, as the plan card's toggles stand. */
   sources: ResearchSources;
@@ -4675,8 +4692,11 @@ export type ResearchTarget = { mindId: string } | { newMind: true };
 
 /** A Research Task to start, from its plan card. */
 export interface StartResearchInput {
-  /** The Mind the assistant reads: the Task shows in its thread. */
-  mindId: string;
+  /**
+   * The Mind the assistant reads: the Task shows in its thread. Null with no
+   * Mind in focus: the Task gets the new Mind its draft goes into.
+   */
+  mindId: string | null;
   topic: string;
   plan: ResearchPlan;
   sources: ResearchSources;
@@ -5690,6 +5710,11 @@ export interface AnswerSteps {
    */
   citedAfterChecking?: number;
   /**
+   * The model was asked once for the Citations its reply left out, and none came of it that
+   * could be checked (#1415). Absent: it wasn't asked, or Citations came of it.
+   */
+  notCitedAfterAsking?: true;
+  /**
    * How long, in ms, the Question was with the model before the Answer had
    * words: its text, or a Mind its Tool call began to change. Absent while
    * there are none, and for an Answer written before #899.
@@ -5703,7 +5728,16 @@ export interface AnswerSteps {
    * Absent: none.
    */
   unbackedClaims?: ClaimedChange[];
-  /** Written in advance for the example (`askReadyQuestion`): no model wrote it, and nothing was searched. */
+  /**
+   * What its reply says a Tool did that none of its calls did (#1796): a figure calculated or
+   * checked, or a search. Absent: none.
+   */
+  unrunTools?: ClaimedTool[];
+  /** With `unrunTools`: its model isn't offered the calculation Tool. */
+  calculateUnavailable?: true;
+  /** Its first reply said so, and the model was asked once more with what its calls did. */
+  askedAgainFor?: ClaimedTool[];
+  /** Written in advance for the example (`askExampleReadyQuestion`): no model wrote it, and nothing was searched. */
   example?: true;
   /** It covered only some of the Documents in scope, and offers the rest. Absent: all of them. */
   coverage?: AnswerCoverage;
@@ -5750,6 +5784,10 @@ export interface AnswerCoverage {
  */
 export const CLAIMED_CHANGES = ["made", "added", "changed", "removed"] as const;
 export type ClaimedChange = (typeof CLAIMED_CHANGES)[number];
+
+/** What an Answer's reply can say a Tool did (#1796): calculated or checked a figure, or searched. */
+export const CLAIMED_TOOLS = ["calculate", "search"] as const;
+export type ClaimedTool = (typeof CLAIMED_TOOLS)[number];
 
 /** A Tool call of an Answer started, or finished (see `call.status`). */
 export interface AnswerToolCallEvent extends AnswerPlace {
@@ -9158,13 +9196,11 @@ export interface CoreApi {
    */
   askInConversation(input: AskInConversationInput): Promise<ConversationAskResult>;
   /**
-   * Asks the first open's ready Question (`Examples.ready`, #123) in a new
-   * conversation, with its Answer written in advance and its Citations checked
-   * against the example Documents now: no model is asked, and no "answer.*"
-   * event is sent. Throws while the credit paper isn't made or its Documents
-   * aren't all read.
+   * Asks the example's ready Question, whose Answer is written in advance and needs no model, in
+   * a new conversation: whatever the User's own Documents are, as in a library that has some
+   * before the example is made. Throws while it isn't made or its Documents aren't all read.
    */
-  askReadyQuestion(): Promise<{ conversationId: string; answerId: string }>;
+  askExampleReadyQuestion(): Promise<{ conversationId: string; answerId: string }>;
   /**
    * Writes an Answer of a conversation again, in place, for its Question as it was asked,
    * reading the Mind it was asked from as that Mind is now.
@@ -9569,6 +9605,12 @@ export interface CoreApi {
 
   /** An example Mind and its Documents, if made (see `Examples`); the credit paper by default. */
   getExamples(group?: ExampleGroup): Promise<Examples>;
+  /**
+   * The first open's ready Question (see `ReadyQuestion`): about the most recently added of
+   * the User's own Documents that a search can answer from, and the example's only while they
+   * have none. Null while theirs are still being read, or when there is nothing to ask.
+   */
+  readyQuestion(): Promise<ReadyQuestion | null>;
   /**
    * Whether a Document is one of the examples' (see `Examples`): read with them,
    * and left out of the User's own Folders, Tags and search (#1942).
@@ -10888,7 +10930,7 @@ const methods: Record<CoreApiMethod, true> = {
   compareCheckpoints: true,
   restoreCheckpoint: true,
   askInConversation: true,
-  askReadyQuestion: true,
+  askExampleReadyQuestion: true,
   regenerateConversationAnswer: true,
   countScopeDocuments: true,
   stopConversationAnswer: true,
@@ -11108,6 +11150,7 @@ const methods: Record<CoreApiMethod, true> = {
   listConnectors: true,
   addConnector: true,
   getExamples: true,
+  readyQuestion: true,
   isExampleDocument: true,
   offerExamples: true,
   createExamples: true,
