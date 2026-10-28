@@ -100,13 +100,13 @@ test("a selected child Keep cannot leak the parent's verdict to a missing equal 
 });
 
 test.each(["supported", "unsupported", "contradicted"] as const)(
-  "a legacy whole-sentence %s result is not per-figure evidence",
+  "a legacy whole-sentence %s result is not per-figure evidence: its figures need re-check",
   (state) => {
     const blocks = note(paragraph("p", "Revenue £20."));
     const block = blocks.get(0);
     if (!(block instanceof Y.XmlElement)) throw new Error("Missing fixture");
     markSentence(block, 0, textOf(block).length, { ...basis(textOf(block)), state });
-    expect(project(blocks).rows[0]?.shown.state).toBe("not-checked");
+    expect(project(blocks).rows[0]?.shown).toEqual({ state: "needs-recheck", why: "figures" });
   },
 );
 

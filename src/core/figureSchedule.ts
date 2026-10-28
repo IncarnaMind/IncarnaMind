@@ -656,7 +656,7 @@ export function figureSchedule(input: FigureScheduleInput): FigureSchedule {
       const parent = state.owner.check;
       const legacy = claimCheckShown(
         { ...parent, figures: undefined },
-        { ...state.now, figured: true },
+        { ...state.now, figured: !parent.figures?.length },
       );
       if (
         legacy.state === "needs-recheck" ||
