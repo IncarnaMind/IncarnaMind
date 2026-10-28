@@ -24,7 +24,7 @@
 
 import { generateText } from "ai";
 import { type CaseCitation, caseCitations, isOpinionOf } from "../../../shared/caseCitations";
-import type { Figure, FigureContext } from "../../../shared/figures";
+import { type Figure, type FigureContext, readFigures } from "../../../shared/figures";
 import { type MessageKey, type MessageParams, translate } from "../../../shared/i18n";
 import { sentenceSpans } from "../../../shared/sentences";
 import type {
@@ -298,7 +298,9 @@ export function createClaimCheck(deps: ClaimCheckDependencies) {
       }),
     };
 
-    const unstatedUnit = (citations: readonly Citation[]): UnsupportedReason | null => {
+    const unstatedUnit = (
+      citations: readonly Citation[],
+    ): { why: UnsupportedReason; quote: Citation | null } | null => {
       const checked = citations.map((citation) => {
         const text = (from: number | null, to: number | null) =>
           scoped
@@ -316,24 +318,31 @@ export function createClaimCheck(deps: ClaimCheckDependencies) {
       const t = (key: MessageKey, params?: MessageParams) =>
         translate(deps.language(), key, params);
       const { amount } = found;
+      const quote =
+        citations.find((citation) =>
+          readFigures(citation.quote, { ...figureContext(citation), midLine: true }).some(
+            (figure) => figure.chars === amount,
+          ),
+        ) ?? null;
+      const problem = (why: UnsupportedReason) => ({ why, quote });
       if (found.kind === "scale") {
-        return {
+        return problem({
           found: true,
           reason: t("claim.unsupported.unit", { amount, figure: found.figure }),
           covered: t("claim.unsupported.currency.covered", { amount }),
           uncovered: t("claim.unsupported.scale.uncovered", { figure: found.figure }),
-        };
+        });
       }
       if (found.kind === "unit") {
         const reason = t("claim.unsupported.unit", { amount, figure: found.figure });
-        return { reason, covered: null, uncovered: null, found: true };
+        return problem({ reason, covered: null, uncovered: null, found: true });
       }
-      return {
+      return problem({
         found: true,
         reason: t("claim.unsupported.currency.reason", { amount }),
         covered: t("claim.unsupported.currency.covered", { amount }),
         uncovered: t("claim.unsupported.currency.uncovered", { currency: found.currency }),
-      };
+      });
     };
     const facts = () => ({
       versions: [...read].map(
@@ -573,15 +582,16 @@ export function createClaimCheck(deps: ClaimCheckDependencies) {
     if (signal.aborted) return notChecked("stopped");
     if (isFailed(evidence)) return failedCheck(evidence.failed);
     if (!evidence) return notChecked("no-evidence");
-    const unit = unstatedUnit([
+    const unitProblem = unstatedUnit([
       evidence,
       ...foundCitations(session.finalCitation, evidence),
       ...checked.flatMap(({ calculation }) =>
         calculation.figure.inputs.map((input) => input.citation),
       ),
     ]);
+    const unit = unitProblem?.why ?? null;
     if (unit && (verdict.verdict !== "contradicted" || onlyCalculation))
-      return unsupported(unit, evidence, null);
+      return unsupported(unit, unitProblem?.quote ?? evidence, null);
     // An unsupported reply with no topic or part named can be missing only the derived figure.
     // Only a reason or part about that figure alone is settled; a found topic or any independent
     // reason or part stays unsupported.
@@ -652,7 +662,7 @@ export function createClaimCheck(deps: ClaimCheckDependencies) {
       // The judgements disagree with the check: the card shows the part the quote states
       // (DESIGN.md › Checks).
       const inDoubt = async (): Promise<ClaimCheckResult> => {
-        if (unit) return unsupported(unit, evidence, null);
+        if (unit) return unsupported(unit, unitProblem?.quote ?? evidence, null);
         if (byCalculation) return byCalculation;
         if (verdict.topic === "not found") return unsupported();
         const part = await parts(evidence);
@@ -669,7 +679,7 @@ export function createClaimCheck(deps: ClaimCheckDependencies) {
       // The Passage is about something else: what is nearest may still say something different.
       if (judged === "neither") {
         return unit
-          ? unsupported(unit, evidence, null)
+          ? unsupported(unit, unitProblem?.quote ?? evidence, null)
           : (byCalculation ?? unsupported(verdict.topic === "not found" ? undefined : UNBACKED));
       }
       // Never Supported: in one word it called the parties the other way round the same (#1668).

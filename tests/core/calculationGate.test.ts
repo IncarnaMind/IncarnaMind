@@ -173,6 +173,8 @@ describe("a check cannot substitute a model verdict for derived arithmetic", () 
       },
     });
     expect(result.verdict).toBe(verdict);
+    if (result.verdict === "unsupported")
+      expect(result.unsupported?.quoted?.quote).toContain("600");
   });
 
   test.each([
