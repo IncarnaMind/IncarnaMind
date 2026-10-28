@@ -10,6 +10,8 @@ export interface WordListPlace {
   number: number;
   /** A numbered list's scheme, when it is written in one (#1419); absent, the default. */
   scheme?: NumberingScheme;
+  /** The level of its scheme it starts at, when that isn't its first level; absent, from 0. */
+  startLevel?: number;
 }
 
 export interface ListBuilder<Node> {
@@ -49,7 +51,10 @@ export function groupWordLists<Node>(
       open.length = depth;
     }
     if (open.length === depth) {
-      const created = build.list(list, depth === 0 && inScheme ? list.level : 0);
+      const created = build.list(
+        list,
+        depth === 0 && inScheme ? (list.startLevel ?? list.level) : 0,
+      );
       const parent = open[depth - 1];
       if (parent) build.nest(parent.list, created);
       else out.push(created);

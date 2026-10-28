@@ -217,7 +217,11 @@ export interface ListPlace {
   list: NodeJSON;
   ordered: boolean;
   depth: number;
-  /** Its items' level in Word's numbering: how deep, plus the level its outermost list starts at. */
+  /**
+   * The level of its scheme its items draw: the level the outermost numbered list it is in starts
+   * at, one more for each numbered list between. It is its depth, unless its numbering starts
+   * again under an unnumbered list (#1419).
+   */
   level: number;
   /** A numbered list's scheme, and the outermost numbered list it is in, whose numbering it shares. */
   numbered: { scheme: NumberingScheme; outer: NodeJSON } | null;
@@ -284,16 +288,17 @@ function collect(
     };
     if (LISTS.has(node.type)) {
       const ordered = node.type === "orderedList";
-      const depth = list ? list.depth + 1 : 0;
+      const startLevel = itemLevel(0, Number(node.attrs?.startLevel) || 0);
+      // Where its items sit in the file, which an outermost list that starts deeper does at its level.
+      const depth = list ? Math.min(list.depth + 1, 8) : startLevel;
       const outer = ordered && list?.numbered ? list.numbered : null;
       const scheme = node.attrs?.numbering;
       const place: ListPlace = {
         list: node,
         ordered,
         depth,
-        level: list
-          ? Math.min(list.level + 1, 8)
-          : itemLevel(0, Number(node.attrs?.startLevel) || 0),
+        // The scheme's level its items draw: on in the numbered list it is nested in, else at its start.
+        level: ordered && list?.numbered ? Math.min(list.level + 1, 8) : startLevel,
         numbered:
           outer ??
           (ordered

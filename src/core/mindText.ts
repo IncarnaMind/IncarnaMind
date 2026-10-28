@@ -555,9 +555,10 @@ function numberingOf(
   outer: OuterList | undefined,
 ): { scheme: NumberingScheme; level: number; numbers: number[] } {
   if (outer) {
+    const level = Math.min(outer.level, 8);
     const numbers = [...outer.numbers];
-    numbers[outer.level] = startOf(element) - 1;
-    return { scheme: outer.scheme, level: Math.min(outer.level, 8), numbers };
+    numbers[level] = startOf(element) - 1;
+    return { scheme: outer.scheme, level, numbers };
   }
   const scheme = element.getAttribute("numbering");
   const level = itemLevel(0, Number(element.getAttribute("startLevel")) || 0);
@@ -584,8 +585,11 @@ function lastNumbersBefore(element: Y.XmlElement): number[] | null {
         last.length = depth + 1;
         for (const inner of item.toArray()) {
           if (inner instanceof Y.XmlElement && inner.nodeName === "orderedList") {
-            last[depth + 1] = startOf(inner) - 1;
-            count(inner, Math.min(depth + 1, 8));
+            const next = Math.min(depth + 1, 8);
+            const own: number | undefined = last[depth];
+            last[next] = startOf(inner) - 1;
+            count(inner, next);
+            last[depth] = own ?? 0;
           }
         }
       }

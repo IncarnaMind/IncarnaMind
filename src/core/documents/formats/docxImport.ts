@@ -972,8 +972,11 @@ class Reader {
     into.push(...groupLists(items, (numId, used) => this.schemeOf(numId, used)));
   }
 
-  /** The scheme a numbered list is written in at the levels its items use; null, another numbering. */
-  private schemeOf(numId: string, used: readonly number[]): NumberingScheme | null {
+  /** The scheme a numbered list is written in at the levels its items use, and the level it starts at; null, another numbering. */
+  private schemeOf(
+    numId: string,
+    used: readonly number[],
+  ): { scheme: NumberingScheme; startLevel: number } | null {
     const num = this.numbering.nums.get(numId);
     const base = num ? this.numbering.abstracts.get(num.abstract) : undefined;
     const levels = new Map<number, { format: string; text: string }>();
@@ -1894,7 +1897,10 @@ function rowsOf(
 
 function groupLists(
   items: readonly Item[],
-  schemeOf: (numId: string, used: readonly number[]) => NumberingScheme | null,
+  schemeOf: (
+    numId: string,
+    used: readonly number[],
+  ) => { scheme: NumberingScheme; startLevel: number } | null,
 ): NodeJSON[] {
   const used = new Map<string, Set<number>>();
   for (const { list } of items) {
@@ -1907,16 +1913,19 @@ function groupLists(
     [...used].map(([numId, levels]) => [numId, schemeOf(numId, [...levels])]),
   );
   return groupWordLists(
-    items.map(({ node, list }) => ({
-      node,
-      list: list && {
-        listId: list.numId,
-        level: list.level,
-        ordered: list.ordered,
-        number: list.number,
-        ...(list.ordered && { scheme: schemes.get(list.numId) ?? undefined }),
-      },
-    })),
+    items.map(({ node, list }) => {
+      const scheme = list && schemes.get(list.numId);
+      return {
+        node,
+        list: list && {
+          listId: list.numId,
+          level: list.level,
+          ordered: list.ordered,
+          number: list.number,
+          ...(scheme && { scheme: scheme.scheme, startLevel: scheme.startLevel }),
+        },
+      };
+    }),
     {
       list: (place, startLevel) =>
         place.ordered

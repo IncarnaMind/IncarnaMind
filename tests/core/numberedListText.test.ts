@@ -26,6 +26,7 @@ const paragraph = (text: string): JSONContent => ({
   type: "paragraph",
   content: [{ type: "text", text }],
 });
+const bullet = (...items: JSONContent[]): JSONContent => ({ type: "bulletList", content: items });
 
 async function mindWith(blocks: JSONContent[]) {
   const dataDir = await createTempDataFolder();
@@ -61,6 +62,23 @@ describe("A numbered list's scheme as text", () => {
       "(a) Rent\n\n    (i) Monthly\n    (ii) In advance\n(b) Deposit",
       "(c) Repairs",
       "（一） 押金",
+    ]);
+  });
+
+  // protects=the assistant reads a numbered list under a bullet, or under a bullet in a numbered list, by the markers the editor draws — its own scheme's first level, a level in — and the list nested in it goes a level on; fails_when=it reads the outer list's scheme or level for it, or drops its depth; no_claim=the model's reading of the shapes.
+  test("the assistant reads a numbered list under a bullet as the editor draws it", async () => {
+    const { client } = await mindWith([
+      bullet(
+        item("Bullet", ordered({ numbering: "chinese" }, item("押金", ordered({}, item("租金"))))),
+      ),
+      bullet(item("Also", ordered({}, item("Rent", ordered({}, item("Monthly")))))),
+    ]);
+    const lists = client.blocks
+      .toArray()
+      .filter((each): each is Y.XmlElement => each instanceof Y.XmlElement);
+    expect(lists.map((list) => elementMarkdown(list))).toEqual([
+      "- Bullet\n\n  一、 押金\n\n     （一） 租金",
+      "- Also\n\n  1. Rent\n\n     a. Monthly",
     ]);
   });
 

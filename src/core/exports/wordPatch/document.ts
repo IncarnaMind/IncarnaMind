@@ -918,7 +918,7 @@ export class DocumentPatch {
     const numId = this.numIdOf(list);
     properties.set(
       "w:numPr",
-      `<w:numPr><w:ilvl w:val="${list.level}"/><w:numId w:val="${numId}"/></w:numPr>`,
+      `<w:numPr><w:ilvl w:val="${this.levelOf(list)}"/><w:numId w:val="${numId}"/></w:numPr>`,
     );
   }
 
@@ -929,25 +929,49 @@ export class DocumentPatch {
   private numIdOf(list: ListPlace): number {
     const known = this.lists.get(list.list);
     if (known !== undefined) return known;
-    for (const item of this.listItems.get(list.list) ?? []) {
-      const based = item.key ? this.based.get(item.key) : undefined;
-      if (!based?.counterpart.list || based.counterpart.list.ordered !== list.ordered) continue;
-      const numId = numIdIn(this.pPrOf(based.element));
-      if (numId !== null && numId !== "0") {
-        this.lists.set(list.list, Number(numId));
-        return Number(numId);
-      }
+    const own = this.imported(list);
+    if (own) {
+      this.lists.set(list.list, own.numId);
+      return own.numId;
     }
-    const outer = list.numbered ? this.lists.get(list.numbered.outer) : undefined;
+    const outerNode = list.numbered?.outer;
+    const outer = outerNode
+      ? (this.lists.get(outerNode) ??
+        this.imported({ ...list, list: outerNode, ordered: true })?.numId)
+      : undefined;
     if (outer !== undefined) {
       this.lists.set(list.list, outer);
+      if (outerNode) this.lists.set(outerNode, outer);
       return outer;
     }
     const start = Math.max(Math.trunc(Number(list.list.attrs?.start)) || 1, 0);
-    const numId = this.input.target.list(list.numbered?.scheme ?? "bullet", list.level, start);
+    const numId = this.input.target.list(
+      list.numbered?.scheme ?? "bullet",
+      list.depth,
+      start,
+      list.level,
+    );
     this.lists.set(list.list, numId);
-    if (list.numbered) this.lists.set(list.numbered.outer, numId);
+    if (outerNode) this.lists.set(outerNode, numId);
     return numId;
+  }
+
+  /** The level a list's items sit at in the file: its imported items' own, else how deep it is. */
+  private levelOf(list: ListPlace): number {
+    return this.imported(list)?.level ?? list.depth;
+  }
+
+  /** The numbering one of a list's imported items is written with, and its level there. */
+  private imported(place: ListPlace): { numId: number; level: number } | null {
+    for (const item of this.listItems.get(place.list) ?? []) {
+      const based = item.key ? this.based.get(item.key) : undefined;
+      if (!based?.counterpart.list || based.counterpart.list.ordered !== place.ordered) continue;
+      const pPr = this.pPrOf(based.element);
+      const numId = numIdIn(pPr);
+      if (numId !== null && numId !== "0")
+        return { numId: Number(numId), level: levelIn(pPr) ?? place.depth };
+    }
+    return null;
   }
 
   /** An imported item of the same list, the nearest before this one, else after: a new item takes its look. */
@@ -1439,6 +1463,12 @@ const isHeaderRow = (row: NodeJSON) =>
 /** The numId a paragraph's own numbering names, if it has any. */
 function numIdIn(pPr: string): string | null {
   return /<w:numId\b[^>]*\bw:val="([^"]*)"/.exec(pPr)?.[1] ?? null;
+}
+
+/** The level a paragraph's own numbering puts it at, if it names one. */
+function levelIn(pPr: string): number | null {
+  const value = /<w:ilvl\b[^>]*\bw:val="(\d+)"/.exec(pPr)?.[1];
+  return value === undefined ? null : Math.min(Number(value), 8);
 }
 
 /**

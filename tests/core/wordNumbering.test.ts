@@ -29,6 +29,7 @@ const paragraph = (text: string): JSONContent => ({
   type: "paragraph",
   content: [{ type: "text", text }],
 });
+const bullet = (...items: JSONContent[]): JSONContent => ({ type: "bulletList", content: items });
 
 /** Each level's number format and text, as the scheme writes it. */
 const WORD_LEVELS: Record<NumberingScheme, readonly [string, string][]> = {
@@ -81,6 +82,49 @@ function levelsOf(numbering: string, numId: string): [string, string][] {
     .slice(0, 3)
     .map((found) => [found[1] ?? "", found[2] ?? ""]);
 }
+
+/** A definition's number format and text at one level. */
+function levelAt(numbering: string, numId: string, at: number): [string, string] | null {
+  const abstract = new RegExp(`<w:num w:numId="${numId}"><w:abstractNumId w:val="(\\d+)"/>`).exec(
+    numbering,
+  )?.[1];
+  const definition = new RegExp(
+    `<w:abstractNum w:abstractNumId="${abstract}">([\\s\\S]*?)</w:abstractNum>`,
+  ).exec(numbering)?.[1];
+  const found = new RegExp(
+    `<w:lvl w:ilvl="${at}"><w:start w:val="1"/><w:numFmt w:val="(\\w+)"/><w:lvlText w:val="([^"]*)"/>`,
+  ).exec(definition ?? "");
+  return found ? [found[1] ?? "", found[2] ?? ""] : null;
+}
+
+/** The start a numbering instance's override gives a level, if it overrides one. */
+const startAt = (numbering: string, numId: string, at: number): number | null => {
+  const instance = new RegExp(`<w:num w:numId="${numId}">([\\s\\S]*?)</w:num>`).exec(numbering);
+  const found = new RegExp(`<w:lvlOverride w:ilvl="${at}"><w:startOverride w:val="(\\d+)"/>`).exec(
+    instance?.[1] ?? "",
+  );
+  return found ? Number(found[1]) : null;
+};
+
+/** Each list a document holds, with the lists nested in its items. */
+const nestedListsIn = (doc: ProseMirrorNode) => {
+  const found: { type: string; numbering: unknown; items: string[]; inside: string[] }[] = [];
+  doc.descendants((node) => {
+    if (node.type.name !== "orderedList" && node.type.name !== "bulletList") return true;
+    const items: string[] = [];
+    const inside: string[] = [];
+    node.forEach((item) => {
+      items.push(item.firstChild?.textContent ?? "");
+      item.forEach((child) => {
+        if (child.type.name === "orderedList" || child.type.name === "bulletList")
+          inside.push(child.type.name);
+      });
+    });
+    found.push({ type: node.type.name, numbering: node.attrs.numbering ?? null, items, inside });
+    return true;
+  });
+  return found;
+};
 
 /** Each numbered paragraph's level and numbering, with its text. */
 const numberedParagraphs = (document: string) =>
@@ -167,6 +211,100 @@ describe("Numbering schemes in Word", () => {
   );
 
   // protects=a list added in a scheme to a Mind imported from Word goes back into the original file as Word numbering in that scheme, its nested list in the same numbering, the rest of the file's numbering left as it was; fails_when=it goes back as plain "1." or as a numbering of its own a level; no_claim=a list of the file's own whose scheme the User changes, which keeps the file's numbering.
+  // protects=a numbered list under a bullet sits a level in, in its own scheme's first format, with a numbering of its own that starts at 1; fails_when=it is written flush with the bullet or as the level's own format ("a." for a "1." list); no_claim=how Word lays out a marker wider than its indent, which the LibreOffice check opens.
+  test.each(NUMBERING_SCHEMES)(
+    "a numbered list under a bullet sits a level in, in %s",
+    async (scheme) => {
+      const { core, mind, client } = await newMind();
+      const numbering = scheme === "default" ? null : scheme;
+      writeMind(client, [bullet(item("Bullet", ordered({ numbering }, item("A"), item("B"))))]);
+      await client.settled();
+
+      const files = unzip((await core.exportMind(mind.id, { format: "docx" })).data);
+      const numberingXml = part(files, "word/numbering.xml");
+      const paragraphs = numberedParagraphs(part(files, "word/document.xml"));
+      expect(paragraphs.map(({ level, text }) => [level, text])).toEqual([
+        [0, "Bullet"],
+        [1, "A"],
+        [1, "B"],
+      ]);
+      const listId = paragraphs[1]?.numId ?? "";
+      expect(listId).not.toBe(paragraphs[0]?.numId);
+      expect(levelAt(numberingXml, listId, 1)).toEqual(WORD_LEVELS[scheme][0]);
+      expect(startAt(numberingXml, listId, 1)).toBe(1);
+    },
+  );
+
+  // protects=a numbered list under a bullet in a numbered list sits two levels in, in its own scheme, a numbering of its own; fails_when=it sits at its first level, flush with the list's own items, or takes the outer list's numbering; no_claim=deeper shapes.
+  test("a numbered list under a bullet in a numbered list sits two levels in, in its own scheme", async () => {
+    const { core, mind, client } = await newMind();
+    writeMind(client, [
+      ordered(
+        { numbering: "clauses" },
+        item("One", bullet(item("Bullet", ordered({}, item("A"), item("B"))))),
+      ),
+    ]);
+    await client.settled();
+
+    const files = unzip((await core.exportMind(mind.id, { format: "docx" })).data);
+    const numberingXml = part(files, "word/numbering.xml");
+    const paragraphs = numberedParagraphs(part(files, "word/document.xml"));
+    expect(paragraphs.map(({ level, text }) => [level, text])).toEqual([
+      [0, "One"],
+      [1, "Bullet"],
+      [2, "A"],
+      [2, "B"],
+    ]);
+    const listId = paragraphs[2]?.numId ?? "";
+    expect(listId).not.toBe(paragraphs[0]?.numId);
+    expect(levelAt(numberingXml, listId, 2)).toEqual(WORD_LEVELS.default[0]);
+    expect(startAt(numberingXml, listId, 2)).toBe(1);
+  });
+
+  // protects=a numbered list under a bullet exports as Word numbering Word shows the same, and imports back nested in the same scheme; fails_when=the list comes back as a sibling of the bullet, or in another scheme; no_claim=a Word list of another numbering.
+  test("a numbered list under a bullet exports and imports back nested, in its scheme", async () => {
+    const { core, dataDir, mind, client } = await newMind();
+    writeMind(client, [
+      bullet(item("Bullet", ordered({ numbering: "clauses" }, item("A"), item("B")))),
+    ]);
+    await client.settled();
+
+    const exported = await core.exportMind(mind.id, { format: "docx" });
+    const { client: imported } = await importWordBytes(core, dataDir, Buffer.from(exported.data), {
+      origin: "own",
+      name: "nested.docx",
+    });
+    expect(nestedListsIn(readMind(imported))).toEqual([
+      { type: "bulletList", numbering: null, items: ["Bullet"], inside: ["orderedList"] },
+      { type: "orderedList", numbering: "clauses", items: ["A", "B"], inside: [] },
+    ]);
+  });
+
+  // protects=a numbered list under a bullet, added to a Word file, goes back into it a level in, in its scheme's first format; fails_when=it goes back flush with the bullet or as the level's own format; no_claim=the file's own lists.
+  test("a numbered list under a bullet, added to a Word file, goes back a level in in its scheme", async () => {
+    const { core, dataDir } = await newMind();
+    const { mindId, client } = await importWordBytes(
+      core,
+      dataDir,
+      wordFile({ body: wordParagraph(run("Terms of the lease.")) }),
+      { origin: "own" },
+    );
+    editMind(client, (blocks) => [
+      ...blocks,
+      bullet(item("Bullet", ordered({ numbering: "clauses" }, item("A")))),
+    ]);
+    await client.settled();
+
+    const files = unzip((await core.exportMind(mindId, { format: "docx" })).data);
+    const numbering = part(files, "word/numbering.xml");
+    const paragraphs = numberedParagraphs(part(files, "word/document.xml"));
+    expect(paragraphs.map(({ level, text }) => [level, text])).toEqual([
+      [0, "Bullet"],
+      [1, "A"],
+    ]);
+    expect(levelAt(numbering, paragraphs[1]?.numId ?? "", 1)).toEqual(WORD_LEVELS.clauses[0]);
+  });
+
   test("a list that starts deeper, added to a Word file, gets a definition of its own too", async () => {
     const { core, dataDir } = await newMind();
     const { mindId, client } = await importWordBytes(

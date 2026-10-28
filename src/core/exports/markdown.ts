@@ -146,9 +146,10 @@ class MarkdownWriter {
   }
 
   // Markdown has only "1." lists: a deeper one is indented a level three spaces, and says its
-  // level above it, since three spaces alone is a first-level list in other Markdown.
+  // level above it, since three spaces alone is a first-level list in other Markdown. A list in a
+  // table cell is no deeper: the cell is one line.
   private list(block: Extract<Block, { kind: "list" }>, context: Context): string {
-    const level = context.inList ? 0 : (block.numbering?.level ?? 0);
+    const level = context.inList || context.table ? 0 : (block.numbering?.level ?? 0);
     const written = this.listItems(block, { ...context, inList: true });
     if (level === 0) return written;
     const indent = "   ".repeat(level);

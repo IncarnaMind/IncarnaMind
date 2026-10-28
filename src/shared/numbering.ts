@@ -187,32 +187,41 @@ export function wordLevel(
   return { format, text: text.replace("%", `%${level + 1}`) };
 }
 
-// Word writes some formats under other names, and Chinese parentheses either way.
+// Word writes the Chinese counting format under another name too. Its traditional ideographs
+// (壹, 貳) are another counting, which the scheme doesn't draw.
 const SAME_FORMAT: Readonly<Record<string, WordNumberFormat>> = {
   chineseCountingThousand: "chineseCounting",
-  ideographTraditional: "chineseCounting",
 };
 const sameText = (text: string) => text.replace(/\(/g, "（").replace(/\)/g, "）");
 
 /**
- * The scheme a Word list is written in, from its levels' number formats and texts (`levels`, by
- * level from 0, those it has), or null: a list numbered any other way. The levels its items use
- * (`used`) must all match; Outline's levels must carry their parents' numbers.
+ * The scheme a Word list is written in, and the level of it the list starts at, from its levels'
+ * number formats and texts (`levels`, by level from 0, those it has), or null: a list numbered
+ * any other way. The levels its items use (`used`) must all match; Outline's levels must carry
+ * their parents' numbers. A list that starts its numbering a level in, under a bullet, draws the
+ * scheme's first format at that level (#1419).
  */
 export function schemeOfWordLevels(
   levels: ReadonlyMap<number, { format: string; text: string }>,
   used: readonly number[],
-): NumberingScheme | null {
-  const fits = (scheme: NumberingScheme) =>
+): { scheme: NumberingScheme; startLevel: number } | null {
+  const depth = Math.min(...used);
+  const fits = (scheme: NumberingScheme, startLevel: number) =>
     used.every((level) => {
+      if (level - depth + startLevel < 0) return false;
       const own = levels.get(level);
       if (!own) return false;
-      const wanted = wordLevel(scheme, level);
+      const wanted = wordLevel(scheme, level - depth + startLevel);
       const format = SAME_FORMAT[own.format] ?? own.format;
       const lenient = scheme === "chinese" ? sameText : (text: string) => text;
       return format === wanted.format && lenient(own.text.trim()) === lenient(wanted.text);
     });
-  return NUMBERING_SCHEMES.find(fits) ?? null;
+  // A scheme read at its own levels first, as most lists are written; else from its first level.
+  for (const startLevel of [depth, ...Array.from({ length: depth + 1 }, (_, at) => at)]) {
+    const scheme = NUMBERING_SCHEMES.find((each) => fits(each, startLevel));
+    if (scheme) return { scheme, startLevel };
+  }
+  return null;
 }
 
 const escaped = (text: string) => text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");

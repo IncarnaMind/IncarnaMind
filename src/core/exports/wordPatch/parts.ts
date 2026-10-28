@@ -230,15 +230,15 @@ export class DocumentNumbering {
     return new DocumentNumbering(pkg, document, relationships, name ?? "word/numbering.xml", part);
   }
 
-  /** A new list: its numId. Each numbered one starts at `start`. */
-  list(kind: ListKind, level: number, start: number): number {
+  /** A new list: its numId, its items at Word level `level` and drawn from `from` of its scheme. Each numbered one starts at `start`. */
+  list(kind: ListKind, level: number, start: number, from?: number): number {
     // A list that starts deeper gets a definition of its own, as in a new document (#1419).
     const alone = kind !== "bullet" && level > 0;
     let definition = alone ? undefined : this.own.get(kind);
     if (definition === undefined) {
       definition = this.nextDefinition++;
       if (!alone) this.own.set(kind, definition);
-      this.definitions.push(listDefinition(definition, kind));
+      this.definitions.push(listDefinition(definition, kind, level - (from ?? level)));
     }
     const numId = this.nextInstance++;
     this.instances.push(listInstance(numId, definition, { kind, level, start }));
@@ -474,8 +474,8 @@ export class PatchTarget implements DocxTarget {
     return { id: this.relationships.add(RELATIONSHIP_TYPES.image, `media/${name}`), name };
   }
 
-  list(kind: ListKind, level: number, start: number): number {
-    return this.numbering.list(kind, level, start);
+  list(kind: ListKind, level: number, start: number, from?: number): number {
+    return this.numbering.list(kind, level, start, from);
   }
 
   /** A note's bookmark, named so it can't resolve to one the file already has. */
