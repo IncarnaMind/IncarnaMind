@@ -2783,6 +2783,7 @@ export const zhCN = {
   "answer.phase.checking-quotes": "正在核对引文…",
   "answer.phase.checking-figures": "正在核对数字…",
   "answer.phase.checking-claims": "正在核对回答与实际改动…",
+  "answer.phase.checking-uncited": "正在对照文档核对未引用的数字和引述…",
   "answer.figures.calculated": "计算了 {count} 个数字",
   "answer.figures.calculated.one": "计算了 1 个数字",
   "answer.figures.uncalculated": "{count} 个数字未能计算",

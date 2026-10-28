@@ -1,6 +1,7 @@
 /// <reference types="electron-vite/node" />
 import { randomUUID } from "node:crypto";
 import { wrapLanguageModel } from "ai";
+import { SENTENCES_CHECKED_AT_MOST } from "../../../shared/claimChecks";
 import { readFigures } from "../../../shared/figures";
 import type {
   AnswerUsage,
@@ -15,7 +16,8 @@ import { RunItemError, runItems } from "../../runs/stop";
 import type { Timings } from "../../timing/timings";
 import type { NodeJSON } from "../blocks";
 import { quotedFactsIn } from "../quotedWords";
-import { type ClaimCheckRequest, runFailureOf } from "./claimCheck";
+import { type ClaimCheckRequest, claimFailureOf, runFailureOf } from "./claimCheck";
+import { claimsAmong } from "./findClaims";
 import { claimsAtOnce } from "./runChecks";
 import type { CheckScope } from "./verify";
 import { checkableSentences, type Sentence } from "./written";
@@ -46,15 +48,11 @@ export interface UncitedCheckInput {
   publish(check: ClaimCheckAttributes): void;
 }
 
-const ABSENCE =
-  /^(?:i|we)\b[\s\S]*\b(?:didn't|did not|couldn't|could not|can't|cannot)\s+(?:find|locate)|^(?:no|nothing)\b[\s\S]*\b(?:found|matches)|^(?:the\s+)?(?:documents?|library)\b[\s\S]*\b(?:don't|doesn't|do not|does not)\s+(?:say|state|mention|include|contain)|^(?:我|我们)?(?:没有|未能|无法|未)(?:找到|检索到|查找到)|^文档(?:中)?(?:没有|未)(?:提到|记载|包含)/iu;
-
-/** The uncited sentences that state a figure or quoted fact, never the assistant's own absence. */
+/** The uncited sentences with a figure or quoted fact that the claim finder may take (#1445). */
 export function uncitedFacts(blocks: readonly NodeJSON[]): Sentence[] {
   return checkableSentences(blocks).filter(
     (sentence) =>
       sentence.cited.length === 0 &&
-      !ABSENCE.test(sentence.text.trim()) &&
       (readFigures(sentence.text).length > 0 || quotedFactsIn(sentence.text).length > 0),
   );
 }
@@ -65,8 +63,7 @@ function measured(prepared: PreparedChatModel, add: (usage: TokenUsage) => void)
       heard: () => undefined,
       end: (_outcome, usage) => {
         if (!usage) return;
-        const full = usage as typeof usage & { cacheWriteTokens?: number };
-        add({ ...usage, cacheWriteTokens: full.cacheWriteTokens });
+        add(usage);
       },
     }),
     step: () => undefined,
@@ -130,8 +127,8 @@ export function createUncitedCheck(options: UncitedCheckOptions) {
   }
 
   return async function checkUncited(input: UncitedCheckInput): Promise<void> {
-    const sentences = uncitedFacts(input.blocks);
-    if (sentences.length === 0) return;
+    const candidates = uncitedFacts(input.blocks);
+    if (candidates.length === 0) return;
     const prepared = await options.prepare(input.prepared);
     if (!prepared || input.searchable === 0) return;
     input.checking();
@@ -166,23 +163,58 @@ export function createUncitedCheck(options: UncitedCheckOptions) {
     });
     const failed = (sentence: Sentence, reason: ClaimCheckFailure, detail: string | null) => {
       const at = options.now().toISOString();
+      console.warn(
+        `An uncited sentence in Answer ${input.answerId} couldn't be checked: ${reason}${detail ? ` (${detail})` : ""}`,
+      );
       input.publish({ ...markOf(sentence), state: "not-checked", reason, detail, checkedAt: at });
     };
+    const found = await claimsAmong(
+      used,
+      candidates.map((sentence) => sentence.text),
+      "uncited",
+      input.signal,
+    );
+    if (found.kind === "cancelled") return;
+    if (found.kind === "failed") {
+      const { reason, detail } = claimFailureOf(found.error);
+      for (const sentence of candidates) failed(sentence, reason, detail);
+      return;
+    }
+    const sentences = candidates.filter((_, index) => found.claims.has(index));
     await runItems(
-      sentences,
+      sentences.slice(0, SENTENCES_CHECKED_AT_MOST),
       async (sentence) => {
         const result = await checkWithin(sentence, input, used);
         const failure = runFailureOf(result);
         if (failure) throw new RunItemError(failure);
-        if (input.signal.aborted) return;
-        const at = options.now().toISOString();
-        if (result.verdict === "not-checked") {
-          failed(sentence, result.reason, result.detail);
-          return;
-        }
-        input.publish(options.withResult(markOf(sentence), result, at));
+        return result;
       },
-      { concurrency: claimsAtOnce(prepared), signal: input.signal },
+      {
+        concurrency: claimsAtOnce(prepared),
+        signal: input.signal,
+        onOutcome(sentence, outcome) {
+          if (input.signal.aborted || outcome.status === "stopped") return;
+          if (outcome.status === "not-checked") {
+            failed(sentence, outcome.stop.reason, null);
+            return;
+          }
+          if (outcome.status === "failed") {
+            const { reason, detail } = claimFailureOf(outcome.error);
+            failed(sentence, reason, detail);
+            return;
+          }
+          const at = options.now().toISOString();
+          if (outcome.value.verdict === "not-checked") {
+            failed(sentence, outcome.value.reason, outcome.value.detail);
+            return;
+          }
+          input.publish(options.withResult(markOf(sentence), outcome.value, at));
+        },
+      },
     );
+    if (input.signal.aborted) return;
+    for (const sentence of sentences.slice(SENTENCES_CHECKED_AT_MOST)) {
+      failed(sentence, "too-many", null);
+    }
   };
 }

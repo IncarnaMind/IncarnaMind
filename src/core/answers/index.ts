@@ -318,7 +318,9 @@ export { createAiSdkAnswerEngine } from "./engine";
  */
 const ANSWER_WRITE_INTERVAL_MS = 50;
 
-type Outcome = { status: "done" | "stopped" } | { status: "failed"; error: ProviderError };
+type Outcome =
+  | { status: "done" | "stopped"; superseded?: boolean }
+  | { status: "failed"; error: ProviderError };
 
 interface Generation {
   home: AnswerHome;
@@ -353,6 +355,7 @@ interface WrittenAnswer {
   figures(): MarkedFigure[];
   /** The Analyses it ran, in order (#447). */
   analyses: AnswerAnalysis[];
+  claimChecks: ClaimCheckAttributes[];
   /** An amount it writes at another scale than its Citations give it (see ./changedScale). */
   changedScale(): ChangedScale | null;
   toolCalls: AnswerToolCall[];
@@ -1055,6 +1058,7 @@ export function createAnswers(options: AnswersOptions) {
     };
     const controller = new AbortController();
     let background: AbortController | null = null;
+    let superseded = false;
     let onChecking: (() => void) | undefined;
     let prepared: PreparedChatModel;
     /** What the model wrote: Markdown, with Citation markers. */
@@ -1443,6 +1447,7 @@ export function createAnswers(options: AnswersOptions) {
               return found;
             },
             figures: () => placedFigures(text, final).figures,
+            claimChecks,
             analyses,
             changedScale: () => scaleChangeIn(text),
             toolCalls,
@@ -1459,7 +1464,17 @@ export function createAnswers(options: AnswersOptions) {
       }
     };
 
+    const settle = () => {
+      if (active.get(answerId)?.finish !== finish) return false;
+      active.delete(answerId);
+      writingChanged();
+      return true;
+    };
     const finish = (outcome: Outcome) => {
+      if (outcome.status !== "failed" && outcome.superseded) {
+        superseded = true;
+        settle();
+      }
       if (finished) {
         background?.abort();
         return;
@@ -1467,10 +1482,6 @@ export function createAnswers(options: AnswersOptions) {
       finished = true;
       finishedAt = Date.now();
       if (timer) clearTimeout(timer);
-      const settle = () => {
-        active.delete(answerId);
-        writingChanged();
-      };
       controller.abort();
       skills?.release();
       // A Tool call still running when the Answer stopped didn't finish; one still waiting for
@@ -1518,7 +1529,7 @@ export function createAnswers(options: AnswersOptions) {
         return;
       }
       const announceFinished = () => {
-        settle();
+        if (!settle() || superseded) return;
         announce("answer.finished", {
           ...place,
           answerId,
@@ -1538,6 +1549,9 @@ export function createAnswers(options: AnswersOptions) {
       if (
         outcome.status === "done" &&
         written &&
+        !help &&
+        input.task !== true &&
+        !outside &&
         typeof place.conversationId === "string" &&
         options.uncited &&
         options.uncitedScope
@@ -1556,6 +1570,7 @@ export function createAnswers(options: AnswersOptions) {
             signal: background.signal,
             checking: () => onChecking?.(),
             publish: (check) => {
+              if (superseded || active.get(answerId)?.finish !== finish) return;
               claimChecks.push(check);
               const turn = options.conversations.writeClaimChecks(answerId, claimChecks);
               if (turn) options.conversations.publish(turn);
@@ -1956,13 +1971,18 @@ export function createAnswers(options: AnswersOptions) {
       // loaded or it starts to answer), writing, or checking quotes (asking a local model once
       // more for the quotes the check didn't find).
       onChecking = () => {
-        activity = "checking-claims";
+        activity = "checking-uncited";
         showPhase();
       };
       let consenting = input.consentNeeded;
       let activity: Extract<
         AnswerPhase,
-        "searching" | "writing" | "checking-quotes" | "checking-figures" | "checking-claims"
+        | "searching"
+        | "writing"
+        | "checking-quotes"
+        | "checking-figures"
+        | "checking-claims"
+        | "checking-uncited"
       > = "writing";
       let loading = false;
       let responded = false;
@@ -3074,6 +3094,7 @@ export function createAnswers(options: AnswersOptions) {
         text: answer.markdown,
         citations: answer.citations(),
         figures: answer.figures(),
+        claimChecks: answer.claimChecks,
         analyses: answer.analyses,
         toolCalls: answer.toolCalls,
         support: answer.support,
@@ -3563,9 +3584,9 @@ export function createAnswers(options: AnswersOptions) {
       const everyDocument = isRecord(input) && input.clearScope === true;
       if (everyDocument) options.conversations.clearScope(asked.question.id);
       const { answerId, question, toolCalls, onScreen } = options.conversations.questionOf(input);
+      active.get(answerId)?.finish({ status: "stopped", superseded: true });
       const ready = await readyModel(question.model, question.forcedSkill);
       if ("asked" in ready) return ready;
-      active.get(answerId)?.finish({ status: "stopped" });
       const changes = toolCalls.flatMap((call) => call.mindChange ?? []);
       // Written again, it proposes its changes again: those still waiting from before go.
       options.withdrawChanges?.(changes);

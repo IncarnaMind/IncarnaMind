@@ -4,6 +4,7 @@ import {
   type AnswerUsage,
   CITATION_NODE,
   type Citation,
+  CLAIM_CHECK_MARK,
   type ClaimCheckAttributes,
   type ClaimCheckResult,
 } from "../../src/core";
@@ -11,8 +12,11 @@ import type { NodeJSON } from "../../src/core/answers/blocks";
 import { createUncitedCheck, uncitedFacts } from "../../src/core/answers/checks/uncited";
 import type { CheckScope } from "../../src/core/answers/checks/verify";
 import { resolveCapabilities } from "../../src/core/providers/capabilities";
+import { pageBlocks } from "../../src/shared/answerBlocks";
+import { withoutClaimCheckMarks } from "../../src/shared/claimCheckBlocks";
 import { checkingModel } from "../helpers/checks";
 import { createTempDataFolder, startCore } from "../helpers/core";
+import { scriptedModel } from "../helpers/models";
 
 const CLAIM = "Revenue was $1,200 million.";
 const QUOTE = "Revenue was $1,482.6 million.";
@@ -57,7 +61,7 @@ const usage = (): AnswerUsage => ({
 });
 
 describe("Uncited figures eligible for a background check", () => {
-  test("figures and quoted facts count; cited, plain and absence sentences don't", () => {
+  test("figures and quoted facts are candidates; cited and plain sentences are not", () => {
     const blocks = [
       paragraph(text(CLAIM)),
       paragraph(text("The report says “the exact words quoted”.")),
@@ -104,7 +108,7 @@ const withResult = (
 });
 
 describe("The uncited background checker", () => {
-  test("publishes on a small local model and starts only one checking phase", async () => {
+  test("publishes on a small local model, starts one phase and leaves absence reports out", async () => {
     const model = { ...(await prepared()), parameters: 4_500_000_000 };
     const published: ClaimCheckAttributes[] = [];
     let phases = 0;
@@ -118,7 +122,13 @@ describe("The uncited background checker", () => {
     })({
       answerId: "answer",
       mindId: null,
-      blocks: [paragraph(text(CLAIM))],
+      blocks: [
+        paragraph(text(CLAIM)),
+        paragraph(text("Unfortunately, I didn't find the $3.2 million figure in the Documents.")),
+        paragraph(text("I was unable to find the 2024 revenue figure.")),
+        paragraph(text("我在文档中没有找到2024年的营收数据（3.2亿元）。")),
+        paragraph(text("The Documents don't include any 2024 figures.")),
+      ],
       prepared: model,
       scope,
       searchable: 1,
@@ -155,10 +165,7 @@ describe("The uncited background checker", () => {
     })({
       answerId: "answer",
       mindId: null,
-      blocks: [
-        paragraph(text(CLAIM)),
-        paragraph(text("The report says “the exact words quoted”.")),
-      ],
+      blocks: Array.from({ length: 13 }, () => paragraph(text(CLAIM))),
       prepared: model,
       scope,
       searchable: 1,
@@ -207,6 +214,77 @@ describe("The uncited background checker", () => {
     expect(published).toHaveLength(0);
   });
 
+  test("bounds checks and gives every remaining sentence a reason", async () => {
+    const model = await prepared();
+    const published: ClaimCheckAttributes[] = [];
+    await createUncitedCheck({
+      prepare: async (answer) => answer,
+      claimCheck: async () => ({
+        verdict: "not-checked",
+        reason: "cost-cap",
+        detail: null,
+        versions: [],
+        excluded: [],
+      }),
+      citedNow: (cited) => cited,
+      withResult,
+      claimTimeLimitMs: 1_000,
+      now: () => new Date("2026-01-01T00:00:00.000Z"),
+    })({
+      answerId: "answer",
+      mindId: null,
+      blocks: Array.from({ length: 13 }, () => paragraph(text(CLAIM))),
+      prepared: model,
+      scope,
+      searchable: 1,
+      usage: usage(),
+      signal: new AbortController().signal,
+      checking: () => undefined,
+      publish: (check) => published.push(check),
+    });
+
+    expect(published).toHaveLength(13);
+    expect(published.slice(0, 12).every((check) => check.reason === "cost-cap")).toBe(true);
+    expect(published[12]?.reason).toBe("too-many");
+  });
+
+  test("a claim-finder failure leaves every candidate not checked", async () => {
+    const model = {
+      ...(await prepared()),
+      model: scriptedModel(() => ({ text: "No claims." }), {
+        generate: () => ({ text: "Not JSON." }),
+      }),
+    };
+    const published: ClaimCheckAttributes[] = [];
+    let calls = 0;
+    await createUncitedCheck({
+      prepare: async (answer) => answer,
+      claimCheck: async () => {
+        calls++;
+        return result("supported");
+      },
+      citedNow: (cited) => cited,
+      withResult,
+      claimTimeLimitMs: 1_000,
+      now: () => new Date("2026-01-01T00:00:00.000Z"),
+    })({
+      answerId: "answer",
+      mindId: null,
+      blocks: [paragraph(text(CLAIM))],
+      prepared: model,
+      scope,
+      searchable: 1,
+      usage: usage(),
+      signal: new AbortController().signal,
+      checking: () => undefined,
+      publish: (check) => published.push(check),
+    });
+
+    expect(calls).toBe(0);
+    expect(published).toHaveLength(1);
+    expect(published[0]).toMatchObject({ state: "not-checked", reason: "empty" });
+  });
+
   test("model calls through the checker join the Answer's total", async () => {
     const model = await prepared();
     const total = usage();
@@ -235,5 +313,58 @@ describe("The uncited background checker", () => {
 
     expect(total.inputTokens).toBeGreaterThan(0);
     expect(total.outputTokens).toBeGreaterThan(0);
+  });
+});
+
+describe("Adding an Answer to a Note", () => {
+  test("background claim marks are stripped rather than retained without evidence", () => {
+    const check = withResult(
+      {
+        id: "check",
+        request: "request",
+        action: "check-against-documents",
+        state: "checking",
+        reason: null,
+        detail: null,
+        providerId: "provider",
+        modelId: "model",
+        text: CLAIM,
+        evidence: null,
+        says: null,
+        unsupported: null,
+        calculation: null,
+        citedCaseUnchecked: false,
+        citedCaseFound: false,
+        scope: scope.marked,
+        versions: [],
+        excluded: [],
+        checkedAt: "2026-01-01T00:00:00.000Z",
+      },
+      result("contradicted"),
+      "2026-01-01T00:00:00.000Z",
+    );
+    const answer = { text: CLAIM, citations: [], figures: [], claimChecks: [check] };
+    const blocks = pageBlocks(answer, "What was revenue?");
+
+    expect(JSON.stringify(blocks)).not.toContain(CLAIM_CHECK_MARK);
+  });
+
+  test("selected Blocks drop only the claim marks", () => {
+    const marked: NodeJSON[] = [
+      {
+        type: "listItem",
+        content: [
+          paragraph({
+            type: "text",
+            text: CLAIM,
+            marks: [{ type: CLAIM_CHECK_MARK }, { type: "bold" }],
+          }),
+        ],
+      },
+    ];
+
+    const stripped = withoutClaimCheckMarks(marked);
+    expect(JSON.stringify(stripped)).not.toContain(CLAIM_CHECK_MARK);
+    expect(stripped[0]?.content?.[0]?.content?.[0]?.marks).toEqual([{ type: "bold" }]);
   });
 });

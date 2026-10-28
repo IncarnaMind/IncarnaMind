@@ -5675,7 +5675,8 @@ export type AnswerPhase =
   | "writing"
   | "checking-quotes"
   | "checking-figures"
-  | "checking-claims";
+  | "checking-claims"
+  | "checking-uncited";
 
 /** An Answer being written moved to another phase. */
 export interface AnswerPhaseEvent extends AnswerPlace {

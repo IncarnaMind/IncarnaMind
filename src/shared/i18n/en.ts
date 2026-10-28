@@ -2916,6 +2916,7 @@ export const en = {
   "answer.phase.checking-quotes": "Checking quotes…",
   "answer.phase.checking-figures": "Checking figures…",
   "answer.phase.checking-claims": "Checking the reply against what changed…",
+  "answer.phase.checking-uncited": "Checking uncited figures and quoted facts against Documents…",
   "answer.figures.calculated": "Calculated {count} figures",
   "answer.figures.calculated.one": "Calculated 1 figure",
   "answer.figures.uncalculated": "{count} figures couldn’t be calculated",

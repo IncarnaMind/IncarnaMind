@@ -12,6 +12,7 @@ import {
   CLAIM_BATCH,
   FIND_CLAIMS_INSTRUCTIONS,
   FIND_OWN_CLAIMS_INSTRUCTIONS,
+  FIND_UNCITED_CLAIMS_INSTRUCTIONS,
   findClaimsPrompt,
   readClaimNumbers,
 } from "./claims";
@@ -26,7 +27,7 @@ export type ClaimsFound =
 export async function claimsAmong(
   prepared: PreparedChatModel,
   texts: readonly string[],
-  whose: "someone-else" | "own",
+  whose: "someone-else" | "own" | "uncited",
   signal: AbortSignal,
 ): Promise<ClaimsFound> {
   const claims = new Set<number>();
@@ -40,7 +41,12 @@ export async function claimsAmong(
       try {
         const { text } = await generateText({
           model: prepared.model,
-          instructions: whose === "own" ? FIND_OWN_CLAIMS_INSTRUCTIONS : FIND_CLAIMS_INSTRUCTIONS,
+          instructions:
+            whose === "own"
+              ? FIND_OWN_CLAIMS_INSTRUCTIONS
+              : whose === "uncited"
+                ? FIND_UNCITED_CLAIMS_INSTRUCTIONS
+                : FIND_CLAIMS_INSTRUCTIONS,
           prompt: findClaimsPrompt(batch),
           temperature: answerTemperature(prepared.capabilities.facts.temperature),
           maxOutputTokens: 4_000,

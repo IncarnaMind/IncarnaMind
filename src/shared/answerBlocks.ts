@@ -66,7 +66,14 @@ export const pageBlocks = (
   answer: Pick<ConversationAnswer, "text" | "citations" | "figures">,
   question: string,
 ): NodeJSON[] =>
-  withoutFraming(answerBlocks({ ...answer, text: forPage(answer.text, question), status: "done" }));
+  withoutFraming(
+    answerBlocks({
+      ...answer,
+      text: forPage(answer.text, question),
+      status: "done",
+      claimChecks: [],
+    }),
+  );
 
 /** The Citation markers an Answer's text shows, in order, one for each place: a marker used twice is two. */
 export function markersIn(text: string): number[] {

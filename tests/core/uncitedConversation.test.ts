@@ -138,6 +138,95 @@ describe("Uncited figures in a conversation Answer", () => {
     release();
   });
 
+  test("regenerating a streaming Answer emits no completion for the superseded generation", async () => {
+    let release = () => {};
+    const forever = new Promise<void>((resolve) => {
+      release = () => resolve();
+    });
+    let answers = 0;
+    const events: string[] = [];
+    const model = scriptedModel(
+      (call) => {
+        if (isCheckRun(call)) return checkReply(call, {});
+        answers++;
+        if (answers === 1) return { text: CLAIM, pause: { after: 0, until: forever } };
+        return { text: "Second try." };
+      },
+      { generate: checkGenerate({}) },
+    );
+    const { core } = await setUpWithDocuments(model, [REPORT]);
+    const ended = answerEndings(core);
+    core.on("answer.started", () => events.push("started"));
+    core.on("answer.finished", ({ status }) => events.push(status));
+    const first = await core.askInConversation({ text: "What was revenue?" });
+    if (!first.asked) throw new Error("The Question wasn't asked.");
+
+    const again = await core.regenerateConversationAnswer({
+      conversationId: first.conversation.id,
+      answerId: first.answerId,
+    });
+
+    expect(again.asked).toBe(true);
+    release();
+    expect(await ended(first.answerId)).toBe("finished");
+    expect(events).toEqual(["started", "started", "done"]);
+  });
+
+  test("regenerating while a background check runs still lets the new Answer stop", async () => {
+    let release = () => {};
+    const paused = new Promise<void>((resolve) => {
+      release = () => resolve();
+    });
+    let never = () => {};
+    const forever = new Promise<void>((resolve) => {
+      never = () => resolve();
+    });
+    let answers = 0;
+    const events: string[] = [];
+    const plans = {
+      [CLAIM]: { verdict: "supported" as const, quote: QUOTE },
+      [OTHER]: {
+        verdict: "supported" as const,
+        reply: { text: "Verdict: supported", pause: { after: 0, until: paused } },
+      },
+    };
+    const model = scriptedModel(
+      (call) => {
+        if (isCheckRun(call)) return checkReply(call, plans);
+        answers++;
+        if (answers === 1) return { text: `${CLAIM} ${OTHER}` };
+        return { text: "Second try.", pause: { after: 0, until: forever } };
+      },
+      { generate: checkGenerate(plans) },
+    );
+    const { core } = await setUpWithDocuments(model, [REPORT]);
+    core.on("answer.started", () => events.push("started"));
+    core.on("answer.finished", ({ status }) => events.push(status));
+    const first = await core.askInConversation({ text: "What was revenue?" });
+    if (!first.asked) throw new Error("The Question wasn't asked.");
+    await vi.waitFor(async () => {
+      const answer = answerOf(await core.getConversation(first.conversation.id), first.answerId);
+      expect(answer.claimChecks).toHaveLength(1);
+    });
+
+    const again = await core.regenerateConversationAnswer({
+      conversationId: first.conversation.id,
+      answerId: first.answerId,
+    });
+    expect(again.asked).toBe(true);
+    await vi.waitFor(() => expect(events.filter((event) => event === "started")).toHaveLength(2));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    await core.stopConversationAnswer({
+      conversationId: first.conversation.id,
+      answerId: first.answerId,
+    });
+    const answer = answerOf(await core.getConversation(first.conversation.id), first.answerId);
+    expect(answer.status).toBe("stopped");
+    expect(events).toEqual(["started", "started", "stopped"]);
+    release();
+    never();
+  });
+
   test("regenerating clears the old background checks", async () => {
     let release = () => {};
     const paused = new Promise<void>((resolve) => {

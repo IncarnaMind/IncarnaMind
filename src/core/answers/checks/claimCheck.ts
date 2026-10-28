@@ -111,7 +111,10 @@ export interface ClaimCheckRequest {
 }
 
 /** Why a provider's failure left a claim not checked. */
-function failureOf(error: ProviderError): { reason: ClaimCheckFailure; detail: string | null } {
+export function claimFailureOf(error: ProviderError): {
+  reason: ClaimCheckFailure;
+  detail: string | null;
+} {
   switch (error.kind) {
     case "rate-limit":
       return { reason: "rate-limit", detail: null };
@@ -317,7 +320,7 @@ export function createClaimCheck(deps: ClaimCheckDependencies) {
       ...facts(),
     });
     const failedCheck = (error: ProviderError): ClaimCheckResult => {
-      const { reason, detail } = failureOf(error);
+      const { reason, detail } = claimFailureOf(error);
       return notChecked(reason, detail);
     };
 

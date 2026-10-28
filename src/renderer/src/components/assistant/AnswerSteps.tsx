@@ -351,6 +351,8 @@ function liveText(
       return t("answer.phase.checking-figures");
     case "checking-claims":
       return t("answer.phase.checking-claims");
+    case "checking-uncited":
+      return t("answer.phase.checking-uncited");
   }
 }
 

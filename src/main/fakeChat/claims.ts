@@ -9,7 +9,10 @@ const FIND_CLAIMS =
 export const findsClaims = (options: GenerateOptions): boolean =>
   FIND_CLAIMS.test(systemOf(options.prompt));
 
-/** The numbers of the listed sentences ("[3] …") that claim something: all but questions, thanks and opinions. */
+const ABSENCE_REPORT =
+  /(?:didn't|did not|couldn't|could not|can't|cannot|unable to)\s+(?:find|locate)|\bfound no\b|\bno\b[^\n]*\bfigures?\b|\b(?:don't|doesn't|do not|does not)\s+(?:say|state|mention|include|contain)|没有|未能|无法|未找到|找不到/iu;
+
+/** The numbers of the listed sentences ("[3] …") that claim something: all but questions, thanks, opinions and the assistant's own absence reports. */
 export function fakeClaims(options: GenerateOptions): string | null {
   if (!findsClaims(options)) return null;
   const claims = lastUserText(options.prompt)
@@ -17,6 +20,7 @@ export function fakeClaims(options: GenerateOptions): string | null {
     .flatMap((line) => {
       const listed = /^\[(\d+)\] (.*)$/.exec(line);
       return listed?.[2] === undefined ||
+        ABSENCE_REPORT.test(listed[2]) ||
         /[?？]$|thank|谢|\b(?:we|I) (?:think|believe)\b|我们认为|我认为/i.test(listed[2])
         ? []
         : [Number(listed[1])];

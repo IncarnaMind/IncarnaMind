@@ -141,12 +141,22 @@ export function withSentenceMark(
 
 export { withMark };
 
+export function withoutClaimCheckMarks(blocks: readonly NodeJSON[]): NodeJSON[] {
+  return blocks.map((node) => ({
+    ...node,
+    ...(node.content && { content: withoutClaimCheckMarks(node.content) }),
+    ...(node.marks && {
+      marks: node.marks.filter((mark) => mark.type !== CLAIM_CHECK_MARK),
+    }),
+  }));
+}
+
 export function paragraphAt(
   blocks: readonly NodeJSON[],
   path: readonly number[],
 ): NodeJSON | undefined {
   const [top, ...inner] = path;
-  let node = blocks[top as number];
+  let node = top === undefined ? undefined : blocks[top];
   for (const index of inner) node = node?.content?.[index];
   return node;
 }

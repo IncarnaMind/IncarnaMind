@@ -123,7 +123,8 @@ export type LiveStep =
   | { kind: "writing" }
   | { kind: "checking"; count: number }
   | { kind: "checking-figures" }
-  | { kind: "checking-claims" };
+  | { kind: "checking-claims" }
+  | { kind: "checking-uncited" };
 
 const isSearch = (call: AnswerToolCall) => call.source === "documents" && call.tool === SEARCH;
 export const isCalculated = (call: AnswerToolCall) =>

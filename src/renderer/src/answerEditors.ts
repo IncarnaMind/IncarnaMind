@@ -9,6 +9,7 @@ import type { Node as ProseMirrorNode, Slice } from "@tiptap/pm/model";
 import { type ConversationAnswer, NOTE_BLOCK_TYPES } from "../../core/api";
 import { pageBlocks } from "../../shared/answerBlocks";
 import type { NodeJSON } from "../../shared/blockJson";
+import { withoutClaimCheckMarks } from "../../shared/claimCheckBlocks";
 import { unrunToolNotes } from "../../shared/unrunTools";
 import { questionOf } from "./conversations";
 import { tablesOf } from "./editor/answerTables";
@@ -88,7 +89,7 @@ export function selectedNotes(answerId: string): NodeJSON[] | null {
   if (!editor || editor.isDestroyed) return null;
   const range = selectedRange(editor);
   if (!range) return null;
-  const notes = notesOf(editor.state.doc.slice(range.from, range.to, true));
+  const notes = withoutClaimCheckMarks(notesOf(editor.state.doc.slice(range.from, range.to, true)));
   return notes.length > 0 ? notes : null;
 }
 
@@ -104,8 +105,11 @@ export async function copyAnswer(answerId: string): Promise<boolean> {
   const range = selectedRange(editor) ?? { from: 0, to: doc.content.size };
   // The editor's own copy: its Citations as footnotes, and the text with markers and Sources.
   const { dom, text } = editor.view.serializeForClipboard(doc.slice(range.from, range.to));
-  // The run's mark is how the Answer is drawn, not part of it.
+  // The run's marks are how the Answer is drawn, not part of it.
   for (const run of dom.querySelectorAll(".citation-glue")) run.replaceWith(...run.childNodes);
+  for (const check of dom.querySelectorAll("[data-claim-check]")) {
+    check.replaceWith(...check.childNodes);
+  }
   try {
     await navigator.clipboard.write([
       new ClipboardItem({

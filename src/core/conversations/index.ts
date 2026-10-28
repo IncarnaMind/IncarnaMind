@@ -223,6 +223,7 @@ const PHASES: Record<AnswerPhase, true> = {
   "checking-quotes": true,
   "checking-figures": true,
   "checking-claims": true,
+  "checking-uncited": true,
 };
 
 const timeOrNull = (value: unknown): string | null =>
@@ -736,11 +737,16 @@ export function createConversations(db: Database, now: () => string) {
    * deleted permanently: its own, and those its calculated figures' inputs read.
    */
   function eachCitation(add: (citation: CitationFields) => void): void {
-    const rows = db.all<{ citations: string; figures: string; analyses: string }>(
-      `SELECT msg.citations, msg.figures, msg.analyses FROM conversation_messages msg
+    const rows = db.all<{
+      citations: string;
+      figures: string;
+      claim_checks: string;
+      analyses: string;
+    }>(
+      `SELECT msg.citations, msg.figures, msg.claim_checks, msg.analyses FROM conversation_messages msg
        JOIN conversations c ON c.id = msg.conversation_id
        WHERE msg.kind = 'answer' AND msg.deleted_at IS NULL AND c.purged_at IS NULL
-         AND (msg.citations <> '[]' OR msg.figures <> '[]' OR msg.analyses <> '[]')`,
+         AND (msg.citations <> '[]' OR msg.figures <> '[]' OR msg.claim_checks <> '[]' OR msg.analyses <> '[]')`,
     );
     const addInput = (input: FigureInput) => {
       const unit = input.unitStatement?.citation;
@@ -749,6 +755,9 @@ export function createConversations(db: Database, now: () => string) {
     };
     for (const row of rows) {
       for (const citation of storedList<CitationFields>(row.citations)) add(citation);
+      for (const check of storedList<ClaimCheckAttributes>(row.claim_checks)) {
+        if (isRecord(check.evidence)) add(check.evidence);
+      }
       for (const figure of storedList<MarkedFigure>(row.figures)) {
         for (const input of Array.isArray(figure.inputs) ? figure.inputs : []) addInput(input);
       }
