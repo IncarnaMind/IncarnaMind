@@ -36,6 +36,7 @@ const UNBACKED = "Neap tides are twice as strong";
 const FAILING = "The harbour floods at every spring tide";
 const RECORD_SOURCE = "ECF No. 41 at 3 states the deadline";
 const RECORD_NEXT = "Id. at 2 states another deadline";
+const RECORD_CUT = `${RECORD_SOURCE}, and the harbour floods`;
 const YEARLY = "Every year the harbour floods, and spring tides come at new and full moon";
 const OVERSTATED_ZH = "大潮出现在新月和满月时，并且每年都会淹没港口";
 const TWO_CITED =
@@ -112,6 +113,7 @@ const PLANS: Record<string, Plan> = {
   [`公司营收在所有地区增长${INLINE_NODE}。`]: { reply: { text: "Verdict: unsupported" } },
   [asChecked(RECORD_SOURCE)]: { verdict: "unsupported", judgement: "same" },
   [asChecked(RECORD_NEXT)]: { verdict: "unsupported", judgement: "same" },
+  [asChecked(RECORD_CUT)]: partly("the deadline", "the harbour floods"),
   [`${RECORD_SOURCE}.`]: { verdict: "unsupported", judgement: "same" },
   [`${RECORD_NEXT}.`]: { verdict: "unsupported", judgement: "same" },
 };
@@ -797,6 +799,24 @@ describe("What the assistant writes is checked before it lands", { timeout: 30_0
     });
 
     expect(change?.selfCheck).toMatchObject({ cited: 2, sent: 2, checked: 2, failed: 0 });
+    const next = (await marksIn(core, client)).find(({ sentence }) =>
+      sentence.includes(RECORD_NEXT),
+    );
+    expect(next?.check.recordCites?.[0]).toMatchObject({
+      raw: "Id. at 2",
+      outcome: "supported",
+      location: { kind: "page", from: 2, to: 2 },
+    });
+  });
+
+  test("a cut's validation preserves the referent for the next written sentence", async () => {
+    const { core, client } = await write({
+      into: true,
+      record: RECORD_FILE,
+      cut: `${RECORD_SOURCE} [1].`,
+      content: `> ${RECORD_CUT} [^1].\n> ${RECORD_NEXT} [^2].`,
+    });
+
     const next = (await marksIn(core, client)).find(({ sentence }) =>
       sentence.includes(RECORD_NEXT),
     );

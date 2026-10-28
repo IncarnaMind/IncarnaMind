@@ -276,6 +276,7 @@ export function createContradictionWatch(options: WatchOptions) {
         currentTask.run(runId, async () => {
           const result = await options.claimCheck({
             claim: comparableSentence(claim.text),
+            recordClaim: claim.text,
             context: claim.context,
             scope: claim.scope,
             model: prepared,
@@ -411,6 +412,7 @@ export function createContradictionWatch(options: WatchOptions) {
             const checking = currentTask.run(runId, () =>
               options.claimCheck({
                 claim: comparableSentence(claim.text),
+                recordClaim: claim.text,
                 context: claim.context,
                 scope: claim.scope,
                 model: prepared,

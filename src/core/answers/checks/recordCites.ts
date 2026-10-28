@@ -1,4 +1,5 @@
 import { generateText } from "ai";
+import { comparableSentence } from "../../../shared/sentences";
 import type { CheckedVersion, ProviderError, RecordCiteResult } from "../../api";
 import type { Language } from "../../language";
 import type { PreparedChatModel } from "../../providers/chat";
@@ -66,7 +67,7 @@ export async function judgeResolvedRecordCites(
   allResults: readonly RecordCiteResult[] = results,
 ): Promise<{ recordCites: RecordCiteResult[] } | { failed: ProviderError }> {
   const recordCites: RecordCiteResult[] = [];
-  const facts = recordClaimFacts(claim, allResults);
+  const facts = comparableSentence(recordClaimFacts(claim, allResults));
   for (const result of results) {
     if (result.outcome !== "supported") {
       recordCites.push(result);

@@ -542,6 +542,7 @@ export function createWrittenCheck(options: WrittenCheckOptions) {
     prepared: PreparedChatModel,
     scope: CheckScope,
     signal: AbortSignal,
+    place?: RecordCitePlace,
   ): Promise<NodeJSON[] | null> {
     const content = paragraphAt(blocks, sentence.path)?.content ?? [];
     const marked = asMarked(content, sentence.from, sentence.to);
@@ -574,6 +575,8 @@ export function createWrittenCheck(options: WrittenCheckOptions) {
       scope,
       prepared,
       signal,
+      place,
+      false,
     );
     recordJudged(options.recordAiUse, mindId, prepared, checked, options.now().toISOString());
     return checked.verdict === "supported" ? nodes : null;
@@ -587,6 +590,7 @@ export function createWrittenCheck(options: WrittenCheckOptions) {
     prepared: PreparedChatModel,
     signal: AbortSignal,
     place?: RecordCitePlace,
+    recordHistory?: boolean,
   ): Promise<ClaimCheckResult> {
     const timedOut = AbortSignal.timeout(options.claimTimeLimitMs);
     const ended = AbortSignal.any([signal, timedOut]);
@@ -603,6 +607,7 @@ export function createWrittenCheck(options: WrittenCheckOptions) {
         model: prepared,
         mindId,
         ...(place && { place }),
+        ...(recordHistory !== undefined && { recordHistory }),
         cacheKey: mindId,
         signal: ended,
       }),
@@ -666,7 +671,16 @@ export function createWrittenCheck(options: WrittenCheckOptions) {
             ? result.unsupported.uncovered
             : null;
         const nodes = uncovered
-          ? await cutOf(blocks, mindId, sentence, uncovered, prepared, scope, signal)
+          ? await cutOf(
+              blocks,
+              mindId,
+              sentence,
+              uncovered,
+              prepared,
+              scope,
+              signal,
+              placeOf(sentence, blocks, input.ids),
+            )
           : null;
         return { result, uncovered, nodes };
       },

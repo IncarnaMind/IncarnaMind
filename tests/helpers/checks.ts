@@ -5,6 +5,7 @@
 import { recordClaimFacts } from "../../src/core/answers/checks/recordCites";
 import { SEARCH_AGAIN } from "../../src/core/answers/checks/searchAgain";
 import { scanRecordCites } from "../../src/core/recordCites/parser";
+import { comparableSentence } from "../../src/shared/sentences";
 import { shownPassages } from "./citations";
 import {
   type GenerateCall,
@@ -138,7 +139,9 @@ export const checkGenerate =
       plans[sentence] ??
       Object.entries(plans).find(
         ([claim]) =>
-          recordClaimFacts(claim, scanRecordCites(claim, { hasPrevious: true })) === sentence,
+          comparableSentence(
+            recordClaimFacts(claim, scanRecordCites(claim, { hasPrevious: true })),
+          ) === sentence,
       )?.[1];
     if (call.system.startsWith("You sort the sentences")) {
       return { text: JSON.stringify({ claims: plannedNumbers(call.prompt, plans) }) };

@@ -126,6 +126,10 @@ export interface ClaimCheckRequest {
   mindId?: string;
   /** This claim's position in the Note, for `Id.`/`supra`; absent for a direct check. */
   place?: RecordCitePlace;
+  /** The exact Note sentence when the overall claim is normalized for another check. */
+  recordClaim?: string;
+  /** Whether this check may replace the Note's previous record referent. */
+  recordHistory?: boolean;
   /** Names the Mind, for a provider's prompt cache. */
   cacheKey?: string;
   signal: AbortSignal;
@@ -215,12 +219,13 @@ async function withRecordCites(
   deps: ClaimCheckDependencies,
 ): Promise<ClaimCheckResult> {
   if (result.verdict === "not-checked") return result;
-  const choices = deps.documents.recordChoices?.(request.mindId, request.place, request.claim) ?? {
+  const recordClaim = request.recordClaim ?? request.claim;
+  const choices = deps.documents.recordChoices?.(request.mindId, request.place, recordClaim) ?? {
     previous: null,
     choices: {},
   };
   const resolved = resolveRecordCites({
-    cites: recordOccurrences(request.claim, choices.previous !== null),
+    cites: recordOccurrences(recordClaim, choices.previous !== null),
     documents: recordDocuments(deps, request.scope),
     choices,
     resolveDeposition: mapDeposition,
@@ -228,7 +233,7 @@ async function withRecordCites(
   const judged = await judgeResolvedRecordCites(
     resolved,
     request.model,
-    request.claim,
+    recordClaim,
     request.signal,
     deps.language(),
   );
@@ -238,7 +243,7 @@ async function withRecordCites(
     if (!versions.has(version.documentId)) versions.set(version.documentId, version);
   }
   const previous = judged.recordCites.at(-1);
-  if (request.mindId && judged.recordCites.length > 0) {
+  if (request.mindId && judged.recordCites.length > 0 && request.recordHistory !== false) {
     deps.documents.recordPrevious?.(
       request.mindId,
       previous?.documentId && previous.location
@@ -246,7 +251,7 @@ async function withRecordCites(
             documentId: previous.documentId,
             location: previous.location,
             raw: previous.raw,
-            claim: request.claim,
+            claim: recordClaim,
             ...(request.place && {
               place: {
                 ...request.place,
