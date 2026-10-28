@@ -5,6 +5,7 @@
  * (ADR-0021), to the sentence's own rounding. A program decides, not the
  * model: a wrong derived number is what an analyst fears most.
  */
+import { citedCases } from "../../../shared/caseCitations";
 import {
   type Figure,
   type FigureContext,
@@ -14,6 +15,14 @@ import {
 import type { ResultUnit } from "../../../shared/formula";
 import type { CalculatedFigure, LimitRelation } from "../../api";
 import { documentFigureContext } from "../calculations";
+
+export function figuresInClaim(text: string, context: FigureContext): Figure[] {
+  const references = citedCases(text);
+  return readFigures(text, context).filter(
+    (figure) =>
+      !references.some((reference) => figure.start >= reference.from && figure.end <= reference.to),
+  );
+}
 
 /**
  * The number of `sentence` that `stated` names ("1.1x" in "Net debt to
@@ -32,7 +41,7 @@ export function statedFigure(
   const [named] = readFigures(stated, context);
   if (!named) return null;
   return (
-    readFigures(sentence, context).find(
+    figuresInClaim(sentence, context).find(
       (figure) =>
         figure.ambiguous.length === 0 &&
         figure.value === named.value &&

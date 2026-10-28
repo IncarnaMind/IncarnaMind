@@ -16,6 +16,7 @@ async function fixture({
   verdict = "supported",
   topic = "found",
   cite = true,
+  as,
 }: {
   repair?: boolean;
   claim?: string;
@@ -25,6 +26,7 @@ async function fixture({
   verdict?: "supported" | "unsupported";
   topic?: "found" | "not found";
   cite?: boolean;
+  as?: "times";
 } = {}) {
   const calls: ModelCall[] = [];
   let verdicts = 0;
@@ -62,6 +64,7 @@ async function fixture({
                     formula: "debt / ebitda",
                     stated,
                     relation: "equals",
+                    ...(as && { as }),
                     inputs: [
                       { name: "debt", label: "Net debt", citation: 1, position: 1 },
                       { name: "ebitda", label: "Adjusted EBITDA", citation: 1, position: 2 },
@@ -115,6 +118,28 @@ describe("a check cannot substitute a model verdict for derived arithmetic", () 
     expect(
       calls.flatMap((call) => call.results).some((result) => result.tool === "calculate"),
     ).toBe(true);
+  });
+
+  test.each([
+    "Under [2024] UKSC 5, net debt is 2.0x adjusted EBITDA.",
+    "根据 [2024] UKSC 5，净负债为调整后EBITDA的2.0倍。",
+  ])("a case reference does not hide the derived fact: %s", async (claim) => {
+    const { result, verdicts } = await fixture({ claim });
+    expect(result.verdict).toBe("not-checked");
+    expect(verdicts()).toBe(2);
+  });
+
+  test("a stated amount binds to its factual span, not the same number in a court reference", async () => {
+    const { result } = await fixture({
+      claim: "Under [2024] UKSC 5, net debt is 5.0x adjusted EBITDA.",
+      stated: "5",
+      repair: true,
+      as: "times",
+    });
+    expect(result).toMatchObject({
+      verdict: "contradicted",
+      calculation: { stated: "5.0x", agrees: false },
+    });
   });
 
   test("a declared calculation is still required when the reply says its topic was not found", async () => {

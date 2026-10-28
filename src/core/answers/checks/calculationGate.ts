@@ -1,7 +1,7 @@
 import { type Figure, readFigures, readingsOf, readStatedUnits } from "../../../shared/figures";
 import type { InputNumber } from "../../api";
 import { documentFigureContext } from "../calculations";
-import { statedFigure } from "./calculated";
+import { figuresInClaim, statedFigure } from "./calculated";
 import type { ReadVerdict } from "./prompt";
 
 export function needsCalculation({
@@ -23,7 +23,7 @@ export function needsCalculation({
 }): boolean {
   const context = documentFigureContext(citations.flatMap((citation) => citation.units));
   const own = documentFigureContext([{ text: claim }]);
-  const claimFigures = readFigures(claim, own.language ? own : { ...context, header: null });
+  const claimFigures = figuresInClaim(claim, own.language ? own : { ...context, header: null });
   if (claimFigures.length === 0 && !attempted) return false;
   if (
     verdict.verdict === "unsupported" &&
