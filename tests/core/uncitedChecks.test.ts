@@ -248,6 +248,42 @@ describe("The uncited background checker", () => {
     expect(published[12]?.reason).toBe("too-many");
   });
 
+  test.each([
+    { reason: "plan-limit", detail: null },
+    { reason: "failed", detail: "Provider unavailable" },
+  ] as const)("publishes a $reason outcome instead of dropping it", async ({ reason, detail }) => {
+    const model = await prepared();
+    const published: ClaimCheckAttributes[] = [];
+    await createUncitedCheck({
+      prepare: async (answer) => answer,
+      claimCheck: async () => ({
+        verdict: "not-checked",
+        reason,
+        detail,
+        versions: [],
+        excluded: [],
+      }),
+      citedNow: (cited) => cited,
+      withResult,
+      claimTimeLimitMs: 1_000,
+      now: () => new Date("2026-01-01T00:00:00.000Z"),
+    })({
+      answerId: "answer",
+      mindId: null,
+      blocks: [paragraph(text(CLAIM))],
+      prepared: model,
+      scope,
+      searchable: 1,
+      usage: usage(),
+      signal: new AbortController().signal,
+      checking: () => undefined,
+      publish: (check) => published.push(check),
+    });
+
+    expect(published).toHaveLength(1);
+    expect(published[0]).toMatchObject({ state: "not-checked", reason, detail });
+  });
+
   test("a claim-finder failure leaves every candidate not checked", async () => {
     const model = {
       ...(await prepared()),
