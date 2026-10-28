@@ -70,7 +70,8 @@ for (const language of ["en", "zh-CN"] as const) {
     const words = WORDS[language];
     const { app, window } = await launchApp(dataDir, { examples: true });
     try {
-      await setWindowSize(app, window, 1440, 900);
+      // A wide window in English, a narrow one in Chinese.
+      await setWindowSize(app, window, language === "en" ? 1600 : 900, 900);
       await setLanguage(window, language);
       await leaveFirstOpen(window);
       const chip = editor(window).getByTestId("citation-chip").first();
@@ -161,7 +162,8 @@ for (const language of ["en", "zh-CN"] as const) {
       translate(language, key, params);
     const { app, window } = await launchApp(dataDir, { examples: true });
     try {
-      await setWindowSize(app, window, 1440, 900);
+      // A wide window in English, a narrow one in Chinese.
+      await setWindowSize(app, window, language === "en" ? 1600 : 900, 900);
       await setLanguage(window, language);
       await leaveFirstOpen(window);
       await expect(editor(window).getByTestId("citation-chip").first()).toHaveAttribute(
@@ -196,12 +198,14 @@ for (const language of ["en", "zh-CN"] as const) {
       await pointAndClick(window, schedule.locator('[data-filter="all"]'));
       await expect(rows).toHaveCount(3);
 
-      // Two figures at once from ⌘K, then the same two taken off.
+      // Two figures at once from ⌘K.
       await pointAndClick(window, rowOf(1).locator("[data-tree-row]"));
       await pointAndClick(window, rowOf(2).locator("[data-tree-row]"), { modifiers: ["Shift"] });
       await runCommand(window, "figures.signOffChosen", t("signOff.markCount", { count: 2 }));
       await expect(checkedBy(1)).toHaveText(mine);
       await expect(checkedBy(2)).toHaveText(mine);
+      // A narrow window shows one tab at a time: the badge is on the note's.
+      if (language !== "en") await pointAndClick(window, window.getByRole("tab").first());
       await expect((await checkCard(window)).getByTestId("health-sign-offs")).toHaveText(
         t("signOff.count.mine", { count: 3 }),
       );

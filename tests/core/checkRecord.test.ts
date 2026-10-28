@@ -541,6 +541,66 @@ describe("A person's own check in the check record", () => {
   });
 });
 
+describe("#1933's acceptance: ten Citations, six marked, one edited, then sent", () => {
+  // protects=#1933's acceptance criterion as D280 has it: of six Citations the User marked, the one whose sentence was edited shows as changed since, the record lists IncarnaMind's result for all ten and five checked by the person, and History keeps the Note as it was sent; fails_when=a count or the sent version is wrong; no_claim=the Word file's contents.
+  test("the record lists five checked by the person, one changed since, every result, and History the export", async () => {
+    const setup = await setUp();
+    const { core, client, tides, mind, out } = setup;
+    const lines = Array.from({ length: 10 }, (_, index) => `Line ${index + 1} cites the tides`);
+    const write = (edited: number | null) =>
+      writeMind(
+        client,
+        lines.map((line, index) =>
+          paragraph(
+            `p${index}`,
+            text(index === edited ? `${line} again` : line),
+            {
+              ...citation(tides, "found"),
+              attrs: { ...citation(tides, "found").attrs, id: `c${index}` },
+            },
+            text("."),
+          ),
+        ),
+      );
+    write(null);
+    await client.settled();
+    for (const index of [0, 1, 2, 3, 4, 5]) {
+      addSignOff(client.doc, {
+        id: randomUUID(),
+        target: { kind: "citation", id: `c${index}` },
+        at: "2026-10-16T08:30:00.000Z",
+        contentHash: citationSignOffBasis(`${lines[index]}\uFFFC.`, {
+          documentId: tides.id,
+          contentHash: tides.contentHash,
+          quote: QUOTE,
+        }),
+        deletedAt: null,
+        name: "Ada Lovelace",
+        personId: "person-1",
+      });
+    }
+    await client.settled();
+    write(2);
+    await client.settled();
+    const sent = await core.saveMindExport(mind.id, { format: "docx" });
+    if (sent.status !== "saved") throw new Error(`Not saved: ${sent.status}`);
+
+    const rows = rowsOf(
+      readFileSync((await saveRecord({ core, mind, out }, "csv")).path, "utf8"),
+    ).filter((row) => row.Kind === "Citation");
+    expect(rows).toHaveLength(10);
+    expect(rows.every((row) => row.Result === "Quote found")).toBe(true);
+    const people = rows.map((row) => row["Checked by a person"]);
+    expect(
+      people.filter((each) => each === "Ada Lovelace · 2026-10-16T08:30:00.000Z"),
+    ).toHaveLength(5);
+    expect(people.filter((each) => each?.endsWith("changed since"))).toHaveLength(1);
+    expect(people.filter((each) => each === "")).toHaveLength(4);
+    const { checkpoints } = await core.listCheckpoints(mind.id);
+    expect(checkpoints.find((each) => each.reason === "export")?.file).toBe(sent.file.name);
+  });
+});
+
 describe("What the check record can't know", () => {
   const sentence = "Spring tides come at new moon.";
   async function checkedBy(setup: Setup, model: Model) {

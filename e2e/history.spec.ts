@@ -208,7 +208,7 @@ for (const language of ["en", "zh-CN"] as const) {
     const t = (key: Parameters<typeof translate>[1], params?: Parameters<typeof translate>[2]) =>
       translate(language, key, params);
     const { app, window } = await launchApp(dataDir, { fakeChat: true });
-    await setWindowSize(app, window, 1440, 900);
+    await setWindowSize(app, window, language === "en" ? 1600 : 900, 900);
     await dismissChatSetup(window);
     await useLocalChatModel(window);
     await useOutputLocation(window, await createDataFolder());
