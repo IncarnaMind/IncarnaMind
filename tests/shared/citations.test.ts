@@ -752,6 +752,22 @@ describe("A Citation whose Document changed after it was cited", () => {
     });
   });
 
+  test("a saved web page says it was fetched again, and that the page cited is no longer shown", () => {
+    expect(changedSourceNote(true, found, "failed", in_("en"), true)).toEqual({
+      notice:
+        "This page was fetched again after this was cited. The page you cited is no longer shown.",
+      quote: null,
+    });
+    expect(changedSourceNote(true, found, "failed", in_("zh-CN"), true)).toEqual({
+      notice: "此网页在被引用后重新抓取过，引用时的网页不再显示。",
+      quote: null,
+    });
+    // The words about how the quote stands in the new version are the same as for a file.
+    expect(changedSourceNote(true, found, rechecked({}), in_("en"), true)?.quote).toBe(
+      "The quote is still here.",
+    );
+  });
+
   test("names the day the version it now opens was made", () => {
     const document = {
       contentHash: "b",
