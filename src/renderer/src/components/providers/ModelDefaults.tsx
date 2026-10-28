@@ -9,6 +9,7 @@ import { core } from "../../core";
 import { useLanguage, useT } from "../../i18n";
 import { useModelNames } from "../../modelNames";
 import { useAppStore } from "../../store";
+import { type ServicesView, useTranscriptionServicesRead } from "../../transcriptionServices";
 import { TranscriptionRouteSelect } from "../meetings/TranscriptionRouteSelect";
 import { TranscriptionRouteConsent } from "../meetings/TranscriptionSettings";
 import { ReadProblem } from "../ReadProblem";
@@ -60,16 +61,18 @@ export function ModelDefaults({
   const t = useT();
   const id = useId();
   const roles = useModelRoles(groups);
+  // The one read of the Meetings choice: its row and the line under the list draw from it.
+  const services = useTranscriptionServicesRead();
 
   return (
     <section data-testid="model-defaults" className="flex flex-col gap-2">
       <h4 className={sectionTitleClass}>{t("models.defaults.title")}</h4>
       <div className={ruledListClass}>
         <YourAiRow id={`${id}-ai`} groups={groups} providers={providers} roles={roles} />
-        <TranscriptionRow id={`${id}-meetings`} />
+        <TranscriptionRow id={`${id}-meetings`} services={services} />
         <SortingRow id={`${id}-sorting`} />
       </div>
-      <TranscriptionRouteConsent />
+      <TranscriptionRouteConsent read={services} />
     </section>
   );
 }
@@ -111,7 +114,7 @@ function YourAiRow({
   );
 }
 
-function TranscriptionRow({ id }: { id: string }) {
+function TranscriptionRow({ id, services }: { id: string; services: ServicesView }) {
   const t = useT();
   const localOnly = useAppStore((state) => state.embedding?.localOnly === true);
   return (
@@ -123,7 +126,12 @@ function TranscriptionRow({ id }: { id: string }) {
       <label htmlFor={id} className="text-ui font-semibold text-ink">
         {t("models.defaults.transcription")}
       </label>
-      <TranscriptionRouteSelect id={id} className={rowSelectClass} localOnly={localOnly} />
+      <TranscriptionRouteSelect
+        id={id}
+        className={rowSelectClass}
+        localOnly={localOnly}
+        read={services}
+      />
     </div>
   );
 }

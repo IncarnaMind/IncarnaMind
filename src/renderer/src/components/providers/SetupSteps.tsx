@@ -266,7 +266,7 @@ function TranscriptionStep({ onDone }: { onDone(choice: string): void }) {
         className={`${fieldClass} scroll-mt-12`}
         localOnly={localOnly}
         saveOnChange={false}
-        listed
+        read={read}
         focusOnShow
         testId="setup-transcription"
         onChosen={setPicked}
@@ -277,7 +277,7 @@ function TranscriptionStep({ onDone }: { onDone(choice: string): void }) {
           : t("setup.step.transcription.line")}
       </p>
       {/* Before a cloud route is chosen, what choosing one sends (ADR-0022). */}
-      {!localOnly && <TranscriptionRouteConsent listed />}
+      {!localOnly && <TranscriptionRouteConsent read={read} />}
       <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
         <button
           type="button"

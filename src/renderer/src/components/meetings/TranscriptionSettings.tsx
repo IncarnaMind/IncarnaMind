@@ -6,10 +6,9 @@ import { errorMessage } from "../../errors";
 import { useLanguage, useT } from "../../i18n";
 import { useAppStore } from "../../store";
 import {
+  type ServicesView,
   serviceMeta,
   useTranscriptionServices,
-  useTranscriptionServicesList,
-  useTranscriptionServicesRead,
 } from "../../transcriptionServices";
 import { KeyCharacterLine } from "../KeyCharacterLine";
 import { ProblemLine } from "../ProblemLine";
@@ -30,12 +29,11 @@ import {
  * what choosing one sends, so the choice is the consent (ADR-0022); once chosen, where the audio
  * goes and what it costs, or that Local mode holds it back.
  */
-export function TranscriptionRouteLine({ id }: { id?: string }) {
+export function TranscriptionRouteLine({ id, read }: { id?: string; read: ServicesView }) {
   const t = useT();
   const language = useLanguage();
   const route = useAppStore((state) => state.settings?.device.transcriptionRoute) ?? "local";
   const localMode = useAppStore((state) => state.embedding?.localOnly === true);
-  const read = useTranscriptionServicesRead();
   // A list that couldn't be read says nothing of where the audio goes: the saved route stands.
   if (read.state === "failed") {
     return (
@@ -80,10 +78,9 @@ export function TranscriptionRouteLine({ id }: { id?: string }) {
  * service is chosen, what choosing one sends, so the choice is the consent (ADR-0022); after,
  * where the audio goes. Nothing while no service has a key, as nothing else is offered.
  */
-export function TranscriptionRouteConsent({ listed = false }: { listed?: boolean }) {
+export function TranscriptionRouteConsent({ read }: { read: ServicesView }) {
   const t = useT();
   const route = useAppStore((state) => state.settings?.device.transcriptionRoute) ?? "local";
-  const read = useTranscriptionServicesRead(!listed);
   if (read.state === "failed") {
     return (
       <div data-read-host>
@@ -108,8 +105,8 @@ export function TranscriptionRouteConsent({ listed = false }: { listed?: boolean
 }
 
 /** A transcription service's own key (Soniox's): pasted, checked with the service, kept in the keychain. */
-export function TranscriptionKeyRows() {
-  const services = useTranscriptionServicesList();
+export function TranscriptionKeyRows({ read }: { read: ServicesView }) {
+  const services = read.state === "ready" ? read.data : [];
   return (
     <>
       {services

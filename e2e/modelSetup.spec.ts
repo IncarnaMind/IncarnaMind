@@ -1355,7 +1355,7 @@ for (const language of ["en", "zh-CN"] as const) {
       await input.fill("soniox-wrong-key");
       await input.press("Enter");
       await expect(row.getByTestId("transcription-key-problem")).toBeVisible();
-      await expect.poll(() => controlReads(app, SERVICES, {})).toBeGreaterThanOrEqual(3);
+      await expect.poll(() => controlReads(app, SERVICES, {})).toBeGreaterThanOrEqual(2);
 
       // Every read ends: the failed save changed nothing, so the steps open.
       await closeSettingsDialog(window);
@@ -1378,9 +1378,11 @@ for (const language of ["en", "zh-CN"] as const) {
       await expect(first.getByTestId("transcription-key-soniox")).toBeVisible();
       await closeSettingsDialog(window);
 
-      // Meetings is opened again: two of its refresh reads are held, and Settings is closed.
+      // Meetings and Models are opened again: their two refresh reads are held, and Settings is
+      // closed.
       await controlReads(app, SERVICES, { hold: 2 });
       await settingsOnMeetings(window);
+      await showSettingsPage(window, "models");
       await expect.poll(() => controlReads(app, SERVICES, {})).toBe(2);
       await closeSettingsDialog(window);
 
@@ -1408,6 +1410,64 @@ for (const language of ["en", "zh-CN"] as const) {
       await window.keyboard.press("Enter");
       await expect(card.getByTestId("setup-step-transcription")).toBeVisible();
       await expect(problem).toHaveCount(0);
+    } finally {
+      await app.close();
+    }
+  });
+
+  test(`a view reads once for everything it shows, so its Try again brings back the line, the key rows and the alternatives together (${language})`, async () => {
+    const { app, window } = await launchApp(dataDir, { fakeChat: true });
+    try {
+      await setWindowSize(app, window, 1280, 800);
+      await acceptPlainTextKeys(window);
+      await setLanguage(window, language);
+      await saveOpenAiAsDefault(window);
+      await window.evaluate(async (apiKey) => {
+        const core = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
+        await core.setTranscriptionKey({ route: "soniox", apiKey });
+        await core.updateSettings({ device: { transcriptionRoute: "soniox" } });
+      }, OWN_KEY);
+      await dismissChatSetup(window);
+      const offered = (scope: Locator) =>
+        scope
+          .getByTestId("meetings-route")
+          .evaluate((select) => [...(select as HTMLSelectElement).options].map((o) => o.value));
+
+      // Every read of the list fails as Settings opens: Meetings says so once, and offers only the
+      // route that is saved, with no key rows.
+      await controlReads(app, SERVICES, { failing: true });
+      const dialog = await settingsOnMeetings(window);
+      const meetings = dialog.getByTestId("meetings-settings");
+      const problem = meetings.getByTestId("meetings-route-problem");
+      await expect(problem).toContainText(translate(language, "setup.services.failed"));
+      await expect(meetings.getByTestId("transcription-key-soniox")).toHaveCount(0);
+      await expect.poll(() => offered(meetings)).toEqual(["local", "soniox"]);
+      // Settings › Models reads for itself when it is first shown, and fails as well.
+      const models = (await showSettingsPage(window, "models")).getByTestId("model-defaults");
+      const modelsProblem = models.getByTestId("meetings-route-problem");
+      await expect(modelsProblem).toBeVisible();
+      await expect.poll(() => offered(models)).toEqual(["local", "soniox"]);
+      await showSettingsPage(window, "meetings");
+
+      // The core is back, and the one Try again brings back all of it.
+      await controlReads(app, SERVICES, { failing: false });
+      await pointAndClick(window, meetings.getByTestId("meetings-route-problem-retry"));
+      await expect(problem).toHaveCount(0);
+      await expect(meetings.getByTestId("meetings-route-line")).toContainText(
+        translate(language, "meetings.route.cloudLine", { service: "Soniox" }),
+      );
+      await expect(
+        meetings.getByTestId("transcription-key-soniox").getByTestId("transcription-key-saved"),
+      ).toBeVisible();
+      await expect.poll(() => offered(meetings)).toEqual(["local", "openai", "soniox"]);
+
+      // Settings › Models read for itself, so its failure stands until it is tried again.
+      await showSettingsPage(window, "models");
+      await expect(modelsProblem).toBeVisible();
+      await expect.poll(() => offered(models)).toEqual(["local", "soniox"]);
+      await pointAndClick(window, models.getByTestId("meetings-route-problem-retry"));
+      await expect(modelsProblem).toHaveCount(0);
+      await expect.poll(() => offered(models)).toEqual(["local", "openai", "soniox"]);
     } finally {
       await app.close();
     }
