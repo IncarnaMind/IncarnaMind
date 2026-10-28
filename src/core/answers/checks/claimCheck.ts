@@ -26,6 +26,7 @@ import { generateText } from "ai";
 import { type CaseCitation, caseCitations, isOpinionOf } from "../../../shared/caseCitations";
 import type { FigureContext } from "../../../shared/figures";
 import { type MessageKey, type MessageParams, translate } from "../../../shared/i18n";
+import { isPeriod } from "../../../shared/periods";
 import { sentenceSpans } from "../../../shared/sentences";
 import type {
   CheckedVersion,
@@ -842,6 +843,19 @@ const NEAREST_MARKER = 98;
 /** The marker the record asked for once more is given: apart from any the model gave. */
 const EVIDENCE_MARKER = 99;
 
+const namedPeriods = (text: string): string[] =>
+  (text.match(/[\p{L}\p{N}]+/gu) ?? [])
+    .filter(isPeriod)
+    .map((period) => period.normalize("NFKC").toLocaleLowerCase())
+    .sort();
+
+function keepsNamedPeriods(from: string, replacement: string): boolean {
+  const before = namedPeriods(from);
+  if (before.length === 0) return true;
+  const after = namedPeriods(replacement);
+  return before.length === after.length && before.every((period, index) => period === after[index]);
+}
+
 function correctionFor(
   claim: string,
   read: ReadCorrection | undefined,
@@ -860,6 +874,7 @@ function correctionFor(
       markers.has(choice.marker) ||
       choice.wording === "" ||
       choice.wording === read.from ||
+      !keepsNamedPeriods(read.from, choice.wording) ||
       wordings.has(choice.wording)
     )
       return null;

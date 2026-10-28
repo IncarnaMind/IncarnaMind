@@ -143,6 +143,76 @@ describe("A correction from the public core", () => {
     expect(result).toMatchObject({ verdict: "contradicted", correction: null });
   });
 
+  test("stays null when a replacement changes the claim's named period", async () => {
+    const claim = "Gross margin fell to 36.8% in Q2, mostly in online.";
+    const quote = "Gross margin fell to 38.6% in Q3, mostly in online.";
+    const result = await checkWith(
+      {
+        ...contradicted(
+          `The report gives another quarter.\nChange 1: 36.8% in Q2\nTo 1: 38.6% in Q3`,
+        ),
+        quote,
+      },
+      claim,
+      [{ name: "Q3 results.md", contents: quote }],
+    );
+    expect(result).toMatchObject({ verdict: "contradicted", correction: null });
+  });
+
+  test("stays null when a Chinese replacement changes the named period", async () => {
+    const claim = "第二季度毛利率降至36.8%。";
+    const quote = "第三季度毛利率降至38.6%。";
+    const result = await checkWith(
+      {
+        ...contradicted(`报告给出另一个季度。\nChange 1: 第二季度\nTo 1: 第三季度`),
+        quote,
+      },
+      claim,
+      [{ name: "第三季度业绩.md", contents: quote }],
+    );
+
+    expect(result).toMatchObject({ verdict: "contradicted", correction: null });
+  });
+
+  test("allows a long replacement that adds detail without changing a named period", async () => {
+    const claim = "The committee adopted the old strategy.";
+    const quote =
+      "The committee adopted the 2026 liquidity and capital preservation strategy after a full risk review.";
+    const result = await checkWith(
+      {
+        ...contradicted(
+          `The report gives the new strategy.\nChange 1: old strategy\nTo 1: ${quote}`,
+        ),
+        quote,
+      },
+      claim,
+      [{ name: "Committee.md", contents: quote }],
+    );
+
+    expect(result).toMatchObject({
+      verdict: "contradicted",
+      correction: { from: "old strategy", choices: [{ wording: quote }] },
+    });
+  });
+
+  test("keeps a replacement in the same named period", async () => {
+    const claim = "Gross margin fell to 36.8% in Q2, mostly in online.";
+    const quote = "Gross margin fell to 38.6% in Q2, mostly in online.";
+    const result = await checkWith(
+      {
+        ...contradicted(`The report gives another rate.\nChange 1: 36.8% in Q2\nTo 1: 38.6% in Q2`),
+        quote,
+      },
+      claim,
+      [{ name: "Q2 results.md", contents: quote }],
+    );
+
+    expect(result).toMatchObject({
+      verdict: "contradicted",
+      correction: { from: "36.8% in Q2", choices: [{ wording: "38.6% in Q2" }] },
+    });
+  });
+
   test("stays null when a second choice has no found Citation", async () => {
     const result = await checkWith(
       contradicted(
