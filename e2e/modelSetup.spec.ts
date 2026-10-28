@@ -1,7 +1,7 @@
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { expect, type Locator, type Page, test } from "@playwright/test";
+import { type ElectronApplication, expect, type Locator, type Page, test } from "@playwright/test";
 import type { CoreBridge } from "../src/core/api";
 import { translate } from "../src/shared/i18n";
 import { createFakeAnthropic } from "../tests/helpers/fakeAnthropic";
@@ -139,6 +139,9 @@ interface StepsFrame {
   later: Box;
   /** How tall the conversation above the card is, so a test can tell the Answer grew. */
   thread: number;
+  /** Whether step 2 shows its consent line for a cloud route, and its Add a key link. */
+  consent: boolean;
+  addKey: boolean;
   line: string;
   reading: boolean;
 }
@@ -162,6 +165,8 @@ function stepsFrame(window: Page): Promise<StepsFrame> {
       buttons: [...open.querySelectorAll("button")].map(box),
       later: box(later),
       thread: thread.scrollHeight,
+      consent: card.querySelector('[data-testid="meetings-route-consent"]') !== null,
+      addKey: card.querySelector('[data-testid="setup-transcription-add-key"]') !== null,
       line: open.querySelector('[data-testid="models-sorting-line"]')?.textContent ?? "",
       reading:
         open.querySelector('[data-testid="models-sorting"]')?.hasAttribute("disabled") ?? false,
@@ -192,6 +197,8 @@ async function recordSteps(window: Page): Promise<void> {
           buttons: [...open.querySelectorAll("button")].map(box),
           later: box(later),
           thread: thread.scrollHeight,
+          consent: card.querySelector('[data-testid="meetings-route-consent"]') !== null,
+          addKey: card.querySelector('[data-testid="setup-transcription-add-key"]') !== null,
         });
       }
       requestAnimationFrame(tick);
@@ -324,6 +331,44 @@ function sortingStepsSeen(
           sortingSteps: { line: string; usable: boolean; top: number; height: number }[];
         }
       ).sortingSteps,
+  );
+}
+
+/** The first read of the transcription services fails and the reads after it wait for `releaseServices`. */
+function failThenHoldServices(app: ElectronApplication): Promise<void> {
+  return app.evaluate(({ ipcMain }) => {
+    const channel = "core:listTranscriptionServices";
+    const handlers = (
+      ipcMain as unknown as {
+        _invokeHandlers: Map<string, (event: unknown, ...args: unknown[]) => unknown>;
+      }
+    )._invokeHandlers;
+    const original = handlers.get(channel);
+    if (!original) throw new Error("The services handler is unavailable.");
+    const held = { reads: 0, release: () => {} };
+    const released = new Promise<void>((done) => {
+      held.release = done;
+    });
+    Object.assign(globalThis, { heldServices: held });
+    ipcMain.removeHandler(channel);
+    ipcMain.handle(channel, async (event, ...args) => {
+      held.reads += 1;
+      if (held.reads === 1) throw new Error("The transcription services are unavailable.");
+      await released;
+      return original(event, ...args);
+    });
+  });
+}
+
+function releaseServices(app: ElectronApplication): Promise<void> {
+  return app.evaluate(() =>
+    (globalThis as unknown as { heldServices: { release(): void } }).heldServices.release(),
+  );
+}
+
+function servicesRead(app: ElectronApplication): Promise<number> {
+  return app.evaluate(
+    () => (globalThis as unknown as { heldServices: { reads: number } }).heldServices.reads,
   );
 }
 
@@ -629,6 +674,65 @@ for (const language of ["en", "zh-CN"] as const) {
     } finally {
       await app.close();
       server.server.close();
+    }
+  });
+}
+
+for (const language of ["en", "zh-CN"] as const) {
+  test(`a failed read of the transcription services is said in place with Try again, and the steps then open once, from a read list (${language})`, async () => {
+    const { app, window } = await launchApp(dataDir, { fakeChat: true });
+    try {
+      await setWindowSize(app, window, 1280, 800);
+      await acceptPlainTextKeys(window);
+      await setLanguage(window, language);
+      const card = await askFirstQuestion(window);
+      await failThenHoldServices(app);
+      const field = card.getByTestId("setup-key");
+      await field.fill(OPENAI_KEY);
+      await field.press("Enter");
+
+      // The model works, but its first read of the services failed: the steps don't open on a
+      // list that wasn't read. The card says so in place, with the way out.
+      const problem = card.getByTestId("setup-services-problem");
+      await expect(problem).toContainText(translate(language, "setup.services.failed"), {
+        timeout: 15_000,
+      });
+      await expect(card.getByTestId("setup-ready-title")).toBeVisible();
+      await expect(card.getByTestId("setup-step-transcription")).toHaveCount(0);
+      await expect(card.getByTestId("setup-transcription-add-key")).toHaveCount(0);
+
+      // Try again reads the list; held, it can't open the steps. Once it lands they open, with
+      // the consent line a key of this service brings and no Add a key, and nothing moves as the
+      // reads the steps make by themselves land.
+      await recordSteps(window);
+      await pointAndClick(window, card.getByTestId("setup-services-retry"));
+      await expect(card.getByTestId("setup-services-retry")).toBeDisabled();
+      await releaseServices(app);
+      await expect(card.getByTestId("setup-step-transcription")).toBeVisible();
+      await expect(card.getByTestId("meetings-route-consent")).toBeVisible();
+      await expect(card.getByTestId("setup-transcription-add-key")).toHaveCount(0);
+      await expect.poll(() => servicesRead(app)).toBeGreaterThanOrEqual(3);
+      // The reads the steps make as they open land in the frames that follow.
+      await window.evaluate(
+        () =>
+          new Promise<void>((done) => {
+            let frames = 0;
+            const next = () => (++frames >= 15 ? done() : requestAnimationFrame(next));
+            next();
+          }),
+      );
+      const frames = await stopRecording(window);
+      expect(frames.length).toBeGreaterThan(5);
+      expect(frames.every((frame) => frame.consent && !frame.addKey)).toBe(true);
+      expect(spread(frames, (frame) => frame.card)).toBeLessThan(0.5);
+      for (const index of [0, 1]) {
+        expect(spread(frames, (frame) => buttonOf(frame, index))).toBeLessThan(0.5);
+      }
+    } finally {
+      await app.evaluate(() =>
+        (globalThis as unknown as { heldServices?: { release(): void } }).heldServices?.release(),
+      );
+      await app.close();
     }
   });
 }

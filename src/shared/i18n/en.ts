@@ -2081,6 +2081,8 @@ export const en = {
   "setup.step.laterRecord": "Set up when I record",
   "setup.step.skip": "Skip",
   "setup.step.skipped": "Skipped",
+  "setup.services.failed": "Couldn't read the transcription services",
+  "setup.services.tryAgain": "Try again",
   "setup.step.addKey": "Add a key\u2026",
   "models.sorting.chat": "Use your AI model",
   "setup.sorting.uses": "Tags, Folders and meeting hints use this model",

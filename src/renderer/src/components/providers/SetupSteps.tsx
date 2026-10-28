@@ -39,12 +39,9 @@ const STEPS: readonly StepKey[] = ["transcription", "sorting"];
  * step is finished or opened, never as the Answer above it or a list below it grows (#2147).
  */
 export function SetupSteps() {
-  const t = useT();
-  const language = useLanguage();
-  const id = useId();
-  const readiness = useAppStore((state) => state.chatReadiness);
   const [open, setOpen] = useState<StepKey>("transcription");
   const [choices, setChoices] = useState<Partial<Record<StepKey, string>>>({});
+  const t = useT();
 
   useEffect(() => {
     if (STEPS.every((step) => choices[step] !== undefined)) continueSetup();
@@ -56,28 +53,8 @@ export function SetupSteps() {
     if (next) setOpen(next);
   };
 
-  // The model that works: the card opens on it, so its name and where it sends are on the first
-  // paint, and the row under the title doesn't push step 2 down a moment later (#2130).
-  const provider = readiness?.ready ? readiness.provider : null;
-  const name = provider ? providerName(provider, t, language) : null;
-  const recipient = provider && name ? recipientOf(provider, name) : null;
-
   return (
-    <section
-      data-testid="model-setup"
-      aria-labelledby={`${id}-title`}
-      className="setup-card flex min-h-0 max-h-[85vh] flex-col gap-2.5 overflow-y-auto px-4"
-    >
-      <h2
-        id={`${id}-title`}
-        data-setup-title
-        data-testid="setup-ready-title"
-        className="flex items-center gap-2 text-[15px] leading-6 font-semibold text-ink"
-      >
-        <CheckLineIcon className="size-4 shrink-0 text-ink" />
-        {name ? t("setup.ready", { name }) : t("setup.ready.generic")}
-      </h2>
-      {recipient && <SendsLine provider={recipient} testId="setup-ready-sends" />}
+    <SetupCard>
       <ol className="flex flex-col gap-3">
         <Step
           number={2}
@@ -100,6 +77,37 @@ export function SetupSteps() {
           <SortingStep onDone={(choice) => finish("sorting", choice)} />
         </Step>
       </ol>
+    </SetupCard>
+  );
+}
+
+export function SetupCard({ children }: { children: ReactNode }) {
+  const t = useT();
+  const language = useLanguage();
+  const id = useId();
+  const readiness = useAppStore((state) => state.chatReadiness);
+  // The model that works: the card opens on it, so its name and where it sends are on the first
+  // paint, and the row under the title doesn't push step 2 down a moment later (#2130).
+  const provider = readiness?.ready ? readiness.provider : null;
+  const name = provider ? providerName(provider, t, language) : null;
+  const recipient = provider && name ? recipientOf(provider, name) : null;
+  return (
+    <section
+      data-testid="model-setup"
+      aria-labelledby={`${id}-title`}
+      className="setup-card flex min-h-0 max-h-[85vh] flex-col gap-2.5 overflow-y-auto px-4"
+    >
+      <h2
+        id={`${id}-title`}
+        data-setup-title
+        data-testid="setup-ready-title"
+        className="flex items-center gap-2 text-[15px] leading-6 font-semibold text-ink"
+      >
+        <CheckLineIcon className="size-4 shrink-0 text-ink" />
+        {name ? t("setup.ready", { name }) : t("setup.ready.generic")}
+      </h2>
+      {recipient && <SendsLine provider={recipient} testId="setup-ready-sends" />}
+      {children}
       <div data-setup-foot>
         <button
           type="button"

@@ -12,7 +12,8 @@ import { useAppStore } from "./store";
 interface TranscriptionServicesState {
   /** The cloud services that can transcribe meeting audio (#141); empty until loaded. */
   services: TranscriptionServiceStatus[];
-  load(): Promise<void>;
+  /** Reads the list again; what went wrong, in words, when it couldn't be read, else null. */
+  load(): Promise<string | null>;
   /** Keeps a service's own key once it accepts it; what went wrong, in words, otherwise. */
   setKey(route: CloudTranscriptionRoute, apiKey: string): Promise<string | null>;
   removeKey(route: CloudTranscriptionRoute): Promise<string | null>;
@@ -29,9 +30,7 @@ export const useTranscriptionServices = create<TranscriptionServicesState>()((se
   };
   return {
     services: [],
-    async load() {
-      await attempt(() => core.listTranscriptionServices());
-    },
+    load: () => attempt(() => core.listTranscriptionServices()),
     setKey: (route, apiKey) => attempt(() => core.setTranscriptionKey({ route, apiKey })),
     removeKey: (route) => attempt(() => core.removeTranscriptionKey(route)),
   };
@@ -41,7 +40,12 @@ export const useTranscriptionServices = create<TranscriptionServicesState>()((se
 export function useTranscriptionServicesList(): TranscriptionServiceStatus[] {
   const services = useTranscriptionServices((state) => state.services);
   useEffect(() => {
-    void useTranscriptionServices.getState().load();
+    void useTranscriptionServices
+      .getState()
+      .load()
+      .then((problem) => {
+        if (problem) console.error("The transcription services couldn't be listed.", problem);
+      });
   }, []);
   return services;
 }

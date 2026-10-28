@@ -25,7 +25,7 @@ import { KeyEntry } from "./KeyEntry";
 import { OllamaAction, OllamaProgress, type Ollama as OllamaState, useOllama } from "./OllamaCard";
 import { ProviderForm } from "./ProviderForm";
 import { SendsLine } from "./SendsLine";
-import { SetupSteps } from "./SetupSteps";
+import { SetupCard, SetupSteps } from "./SetupSteps";
 
 const CLAUDE_DOWNLOAD = "https://claude.ai/download";
 
@@ -37,29 +37,86 @@ const CLAUDE_DOWNLOAD = "https://claude.ai/download";
  */
 export function ModelSetupCard() {
   const ready = useModelSetup((state) => state.ready);
-  // Step 2's rows depend on whether a cloud service has a key, so the steps open with the list
-  // read, not redrawn as it lands (#2147).
-  const listed = useServicesListed(ready);
-  return ready && listed ? <SetupSteps /> : <ChooseAnAi />;
+  // Step 2's rows depend on whether a cloud service has a key, so the steps open only on a list
+  // that was read, and never redraw as a later read lands (#2147).
+  const services = useServicesRead(ready);
+  if (!ready || services.state === "reading") return <ChooseAnAi />;
+  return services.state === "read" ? (
+    <SetupSteps />
+  ) : (
+    <ServicesProblem
+      problem={services.problem}
+      retrying={services.retrying}
+      retry={services.retry}
+    />
+  );
 }
 
-function useServicesListed(wanted: boolean): boolean {
-  const [listed, setListed] = useState(false);
+type ServicesRead =
+  | { state: "reading" }
+  | { state: "read" }
+  | { state: "failed"; problem: string; retrying: boolean; retry(): void };
+
+function useServicesRead(wanted: boolean): ServicesRead {
+  const [read, setRead] = useState<{ ok: true } | { ok: false; problem: string } | null>(null);
+  const [attempt, setAttempt] = useState(0);
+  const [retrying, setRetrying] = useState(false);
+  // biome-ignore lint/correctness/useExhaustiveDependencies: read again whenever the User asks.
   useEffect(() => {
     if (!wanted) {
-      setListed(false);
+      setRead(null);
       return;
     }
     let current = true;
+    setRetrying(true);
     void useTranscriptionServices
       .getState()
       .load()
-      .then(() => current && setListed(true));
+      .then((problem) => {
+        if (!current) return;
+        setRead(problem === null ? { ok: true } : { ok: false, problem });
+        setRetrying(false);
+      });
     return () => {
       current = false;
     };
-  }, [wanted]);
-  return listed;
+  }, [wanted, attempt]);
+  if (read === null) return { state: "reading" };
+  if (read.ok) return { state: "read" };
+  return {
+    state: "failed",
+    problem: read.problem,
+    retrying,
+    retry: () => setAttempt((count) => count + 1),
+  };
+}
+
+function ServicesProblem({
+  problem,
+  retrying,
+  retry,
+}: {
+  problem: string;
+  retrying: boolean;
+  retry(): void;
+}) {
+  const t = useT();
+  return (
+    <SetupCard>
+      <ProblemLine
+        testId="setup-services-problem"
+        title={problem}
+        action={{
+          label: t("setup.services.tryAgain"),
+          testId: "setup-services-retry",
+          disabled: retrying,
+          onClick: retry,
+        }}
+      >
+        {t("setup.services.failed")}
+      </ProblemLine>
+    </SetupCard>
+  );
 }
 
 function ChooseAnAi() {
