@@ -10,6 +10,7 @@ import {
   type Citation,
   type CitationAttributes,
   type FigureFinding,
+  type FigureInput,
   MIND_SIGN_OFFS_FIELD,
   type SignOffNow,
   type SignOffTarget,
@@ -101,6 +102,25 @@ export function signOffsOf(doc: Y.Doc): SignOffRecord[] {
     .sort((a, b) => a.at.localeCompare(b.at));
 }
 
+/** The Citations any mark names, taken off or not, as Undo can bring one back. */
+export function markedCitations(doc: Y.Doc): Set<string> {
+  return new Set(
+    [...doc.getMap<unknown>(MIND_SIGN_OFFS_FIELD).values()].flatMap((value) => {
+      const record = readSignOff(value);
+      return record?.target.kind === "citation" ? [record.target.id] : [];
+    }),
+  );
+}
+
+/**
+ * The id a Citation without one of its own goes by when it is first marked: its element's, which
+ * every version of the Note that holds it shares, so the mark finds it in a version kept before.
+ */
+export const citationElementId = (element: Y.XmlElement): string | null => {
+  const id = element._item?.id;
+  return id ? `${id.client}-${id.clock}` : null;
+};
+
 /** Writes a person's sign-off; call it inside the transaction that also makes any id it needs. */
 export function addSignOff(doc: Y.Doc, record: SignOffRecord): void {
   doc.getMap<unknown>(MIND_SIGN_OFFS_FIELD).set(record.id, record);
@@ -180,33 +200,54 @@ export const citationSignOffBasis = (
     ],
   });
 
+const citationEvidence = (citation: Citation) => [
+  citation.documentId,
+  citation.contentHash,
+  citation.quote,
+];
+
+const inputEvidence = (input: FigureInput) => [
+  input.name,
+  input.label,
+  input.number.chars,
+  citationEvidence(input.citation),
+  input.cell,
+  input.unitStatement && [
+    citationEvidence(input.unitStatement.citation),
+    input.unitStatement.scale,
+    input.unitStatement.scaleWord,
+    input.unitStatement.currency,
+  ],
+];
+
 /**
  * A figure's: what its check reads it against (its sentence's words and, in a table, its row's and
- * column's headings and units), what it shows, and for a calculated one its formula and inputs.
- * Its sources' versions are compared as it shows (`signOffShown`).
+ * column's headings and units), what it shows, and the evidence shown for it: the Citation and
+ * reading it was found in, or a calculated one's formula, inputs and Analysis. Its sources' newer versions
+ * are compared as it shows (`signOffShown`).
  */
-export const figureSignOffBasis = (figure: {
-  id: string;
-  reading: { chars: string };
-  calculated: CheckFigure["calculated"];
-  context?: string;
-}): string =>
+export const figureSignOffBasis = (
+  figure: Pick<CheckFigure, "id" | "calculated" | "context"> & {
+    reading: { chars: string };
+    source?: FigureFinding["source"];
+    sourceInput?: FigureFinding["sourceInput"];
+  },
+): string =>
   signOffBasis({
     sentence: figure.context ?? "",
     item: JSON.stringify([
       figure.id,
       figure.calculated?.figure.shown ?? figure.reading.chars,
-      figure.calculated && [
-        figure.calculated.figure.formula,
-        figure.calculated.figure.inputs.map((input) => [
-          input.name,
-          input.label,
-          input.number.chars,
-          input.citation.documentId,
-          input.citation.contentHash,
-          input.citation.quote,
-        ]),
-      ],
+      figure.calculated
+        ? [
+            figure.calculated.figure.formula,
+            figure.calculated.figure.inputs.map(inputEvidence),
+            figure.calculated.analysisId,
+          ]
+        : [
+            figure.source ? citationEvidence(figure.source) : null,
+            figure.sourceInput ? inputEvidence(figure.sourceInput) : null,
+          ],
     ]),
     sources: [],
   });

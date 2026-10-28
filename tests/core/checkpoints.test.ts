@@ -280,8 +280,8 @@ describe("Naming a version and keeping one as it was sent (#1933)", () => {
     await core.saveCheckpoint(mind.id, "idle");
 
     expect(await core.renameCheckpoint(mind.id, filed.id, "  Filed draft ")).toMatchObject({
-      id: filed.id,
-      name: "Filed draft",
+      checkpoint: { id: filed.id, name: "Filed draft" },
+      was: null,
     });
     // A day on, idle ones thin to one an hour; the named one stays though the hour's newest isn't it.
     clock.advance(DAY);
@@ -291,7 +291,10 @@ describe("Naming a version and keeping one as it was sent (#1933)", () => {
     const { checkpoints } = await core.listCheckpoints(mind.id);
     expect(checkpoints.find((each) => each.id === filed.id)?.name).toBe("Filed draft");
 
-    expect((await core.renameCheckpoint(mind.id, filed.id, "")).name).toBeNull();
+    expect(await core.renameCheckpoint(mind.id, filed.id, "")).toMatchObject({
+      checkpoint: { name: null },
+      was: "Filed draft",
+    });
     await expect(core.renameCheckpoint(mind.id, "nothing", "A name")).rejects.toThrow(
       NotFoundError,
     );

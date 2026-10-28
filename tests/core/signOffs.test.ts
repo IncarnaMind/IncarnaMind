@@ -1,9 +1,12 @@
 import { expect, test } from "vitest";
+import * as Y from "yjs";
 import { citationSentences } from "../../src/core/answers/checks/sentences";
+import { CITATION_NODE } from "../../src/core/api";
 import { calculatedFigureNode } from "../../src/shared/calculatedFigures";
 import { FORMULA_VERSION } from "../../src/shared/formula";
 import {
   addSignOff,
+  citationElementId,
   citationSignOffBasis,
   figureSignOffBasis,
   signOffsOf,
@@ -203,56 +206,89 @@ for (const language of ["en", "zh-CN"] as const) {
     expect(readMind(client).textContent).not.toContain(later);
   });
 
-  // protects=restoring a version from before a Citation was marked never changes the mark: the same Citation in the same place regains the id the mark names; fails_when=the mark is left on nothing; no_claim=a Citation the restore doesn't bring back.
-  test(`restoring the same Citation from before marking keeps its mark ${language}`, async () => {
-    const core = startCore(await createTempDataFolder());
-    const mind = await core.createMind({ title: "Restore evidence" });
-    const client = await connectToMind(core, mind.id);
-    const words = language === "en" ? "The sea rises" : "海平面上升";
-    const attributes = {
-      passageId: "passage-1",
-      documentId: "document-1",
-      documentName: "Tides",
-      contentHash: "v1",
-      pageFrom: 1,
-      pageTo: 1,
-      quote: "Tides rise.",
-      check: "found",
-    };
-    const write = (marked: boolean) =>
-      writeMind(client, [
-        {
-          type: "paragraph",
-          attrs: { id: "p1" },
-          content: [
-            { type: "text", text: words },
-            { type: "citation", attrs: { ...attributes, ...(marked ? { id: "c1" } : {}) } },
-            { type: "text", text: "." },
-          ],
-        },
-      ]);
-    write(false);
-    await client.settled();
-    const beforeMark = await core.saveCheckpoint(mind.id, "accept");
-    write(true);
-    addSignOff(client.doc, {
-      id: "mark-1",
-      target: { kind: "citation", id: "c1" },
-      at: "2026-10-28T09:00:00.000Z",
-      contentHash: citationSignOffBasis(words + "\uFFFC.", attributes),
-      deletedAt: null,
-      name: "Ada",
-      personId: "person-1",
-    });
-    await client.settled();
-    expect(citationSentences(client.blocks).has("c1")).toBe(true);
-    await core.restoreCheckpoint(mind.id, beforeMark.id);
-    await client.settled();
-    const held = signOffsOf(client.doc);
-    const identities = citationSentences(client.blocks);
-    expect(held).toHaveLength(1);
-    expect(identities.has(held[0]?.target.id ?? "")).toBe(true);
-  });
+  // protects=restoring a version kept before a Citation was marked never changes the mark: the Citation comes back with the id the mark names, whether it is unchanged, its quote was edited, it was deleted or its paragraph was (#1933); fails_when=the restored Citation has another id or none; no_claim=whether the mark then reads checked or changed.
+  test.each(["unchanged", "quote edited", "Citation deleted", "paragraph deleted"] as const)(
+    `restoring a version from before the mark keeps it on its Citation: %s ${language}`,
+    async (since) => {
+      const { core, client, mind, attributes, words } = await citedNote(language);
+      const beforeMark = await core.saveCheckpoint(mind.id, "accept");
+      const id = markCitation(client);
+      addSignOff(client.doc, {
+        id: "mark-1",
+        target: { kind: "citation", id },
+        at: "2026-10-28T09:00:00.000Z",
+        contentHash: citationSignOffBasis(`${words}\uFFFC.`, attributes),
+        deletedAt: null,
+        name: "Ada",
+        personId: "person-1",
+      });
+      if (since === "quote edited") citationIn(client).setAttribute("quote", "Tides fall.");
+      if (since === "Citation deleted") {
+        const citation = citationIn(client);
+        const paragraph = citation.parent;
+        if (!(paragraph instanceof Y.XmlElement)) throw new Error("No paragraph");
+        paragraph.delete(paragraph.toArray().indexOf(citation), 1);
+      }
+      if (since === "paragraph deleted")
+        writeMind(client, [note(language === "en" ? "Later." : "后来。")]);
+      await client.settled();
+
+      await core.restoreCheckpoint(mind.id, beforeMark.id);
+      await client.settled();
+
+      expect(signOffsOf(client.doc).map((record) => record.target.id)).toEqual([id]);
+      expect(citationIn(client).getAttribute("id")).toBe(id);
+      expect(citationSentences(client.blocks).has(id)).toBe(true);
+    },
+  );
+}
+
+async function citedNote(language: "en" | "zh-CN") {
+  const core = startCore(await createTempDataFolder());
+  const mind = await core.createMind({ title: "Restore evidence" });
+  const client = await connectToMind(core, mind.id);
+  const words = language === "en" ? "The sea rises" : "海平面上升";
+  const attributes = {
+    passageId: "passage-1",
+    documentId: "document-1",
+    documentName: "Tides",
+    contentHash: "v1",
+    pageFrom: 1,
+    pageTo: 1,
+    quote: "Tides rise.",
+    check: "found",
+  };
+  writeMind(client, [
+    {
+      type: "paragraph",
+      attrs: { id: "p1" },
+      content: [
+        { type: "text", text: words },
+        { type: "citation", attrs: attributes },
+        { type: "text", text: "." },
+      ],
+    },
+  ]);
+  await client.settled();
+  return { core, client, mind, attributes, words };
+}
+
+/** Gives the Citation the id the editor gives one it marks first, as the mark's step does. */
+function markCitation(client: { blocks: Y.XmlFragment }): string {
+  const citation = citationIn(client);
+  const id = citationElementId(citation);
+  if (!id) throw new Error("The Citation isn't in the Note");
+  citation.setAttribute("id", id);
+  return id;
+}
+
+function citationIn(client: { blocks: Y.XmlFragment }): Y.XmlElement {
+  for (const block of client.blocks.toArray()) {
+    if (!(block instanceof Y.XmlElement)) continue;
+    for (const node of block.createTreeWalker((each) => each instanceof Y.XmlElement))
+      if (node instanceof Y.XmlElement && node.nodeName === CITATION_NODE) return node;
+  }
+  throw new Error("No Citation in the Note");
 }
 
 // protects=when History can't keep the Note as it was sent, the file is still saved and the result says so, so the User learns it where it happened (#1933); fails_when=the save reports nothing wrong; no_claim=why storage refused.

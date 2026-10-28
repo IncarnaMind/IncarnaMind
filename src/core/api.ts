@@ -577,6 +577,12 @@ export interface Checkpoint {
   file: string | null;
 }
 
+/** A Checkpoint just named, and the name it had until then, which Undo gives back. */
+export interface RenamedCheckpoint {
+  checkpoint: Checkpoint;
+  was: string | null;
+}
+
 /** A Mind's Checkpoints, as History lists them. */
 export interface CheckpointList {
   /** Newest first. */
@@ -9370,7 +9376,11 @@ export interface CoreApi {
    * Names a Checkpoint, or (null or blank) takes its name off (#1933). A named one is kept for
    * good. Throws NotFoundError for one that isn't the Mind's, or is no longer kept.
    */
-  renameCheckpoint(mindId: string, checkpointId: string, name: string | null): Promise<Checkpoint>;
+  renameCheckpoint(
+    mindId: string,
+    checkpointId: string,
+    name: string | null,
+  ): Promise<RenamedCheckpoint>;
 
   /**
    * Asks a Question in the assistant (ADR-0017): adds it to the conversation, or starts

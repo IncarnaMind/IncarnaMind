@@ -737,7 +737,7 @@ export function figureSchedule(input: FigureScheduleInput): FigureSchedule {
         ? signOffNow(
             signOffShown(
               signOff,
-              figureSignOffBasis(occurrence),
+              figureSignOffBasis(finding),
               figureSignOffSources(finding),
               input.versions,
             ),

@@ -18,6 +18,7 @@ import { randomUUID } from "node:crypto";
 import * as Y from "yjs";
 import { figureRunsFor, installFigureRuns } from "../../shared/figureRuns";
 import { resolveProposals } from "../../shared/proposals";
+import { citationElementId, markedCitations } from "../../shared/signOffs";
 import { nodeOf, topLevelBlocks } from "../answers/blocks";
 import { addCitedUnits, addCitedVersions, type CitedUnits } from "../answers/citedVersions";
 import {
@@ -34,6 +35,7 @@ import {
   MIND_CONTENT_FIELD,
   type MindComparison,
   RECENTLY_DELETED_DAYS,
+  type RenamedCheckpoint,
   type RestoredCheckpoint,
   WORD_CHANGE_ID,
 } from "../api";
@@ -118,50 +120,22 @@ function citedIn(doc: Y.Doc): RetainVersion[] {
 
 const CITATION_ID = "id" satisfies keyof CitationAttributes;
 
-/** Each Citation's place: its Block, what it quotes, and which of those in its Block it is. */
-function citationPlaces(blocks: Y.XmlFragment): { element: Y.XmlElement; key: string }[] {
-  const found: { element: Y.XmlElement; key: string }[] = [];
+/**
+ * A restore never changes the User's marks: a Citation it brings back without an id of its own
+ * gets the one a mark made on it since names (`citationElementId`), however it was edited or
+ * deleted after.
+ */
+function nameMarkedCitations(blocks: Y.XmlFragment, marked: ReadonlySet<string>): void {
   for (const block of blocks.toArray()) {
     if (!(block instanceof Y.XmlElement)) continue;
-    const blockId = block.getAttribute(BLOCK_ID_ATTRIBUTE);
-    const seen = new Map<string, number>();
-    const walker = block.createTreeWalker(
-      (node) => node instanceof Y.XmlElement && node.nodeName === CITATION_NODE,
-    );
-    for (const node of walker) {
-      if (!(node instanceof Y.XmlElement)) continue;
-      const quoted = JSON.stringify([
-        blockId,
-        node.getAttribute("passageId") ?? node.getAttribute("documentId"),
-        node.getAttribute("quote"),
-      ]);
-      const nth = seen.get(quoted) ?? 0;
-      seen.set(quoted, nth + 1);
-      found.push({ element: node, key: `${quoted}#${nth}` });
+    for (const node of block.createTreeWalker(
+      (each) => each instanceof Y.XmlElement && each.nodeName === CITATION_NODE,
+    )) {
+      if (!(node instanceof Y.XmlElement) || typeof node.getAttribute(CITATION_ID) === "string")
+        continue;
+      const id = citationElementId(node);
+      if (id && marked.has(id)) node.setAttribute(CITATION_ID, id);
     }
-  }
-  return found;
-}
-
-/** The ids Citations have now, by place: what a person's "Checked by me" names them by (#1933). */
-function citationIds(blocks: Y.XmlFragment): Map<string, string> {
-  return new Map(
-    citationPlaces(blocks).flatMap(({ element, key }) => {
-      const id = element.getAttribute(CITATION_ID);
-      return typeof id === "string" ? [[key, id] as const] : [];
-    }),
-  );
-}
-
-/**
- * A restore never changes the User's marks: a Citation it brings back from before it was marked
- * regains the id its mark names, where the same Citation is in the same place.
- */
-function giveCitationIds(blocks: Y.XmlFragment, ids: ReadonlyMap<string, string>): void {
-  for (const { element, key } of citationPlaces(blocks)) {
-    const id = ids.get(key);
-    if (id && typeof element.getAttribute(CITATION_ID) !== "string")
-      element.setAttribute(CITATION_ID, id);
   }
 }
 
@@ -280,7 +254,7 @@ export function createCheckpoints(options: CheckpointsOptions) {
       return save(mindId, "export", { file, state });
     },
 
-    rename(mindInput: unknown, checkpointInput: unknown, nameInput: unknown): Checkpoint {
+    rename(mindInput: unknown, checkpointInput: unknown, nameInput: unknown): RenamedCheckpoint {
       const mindId = options.requireMind(mindInput);
       const checkpointId = parseId(checkpointInput, "A Checkpoint");
       const row = db.get<Row>(
@@ -296,7 +270,7 @@ export function createCheckpoints(options: CheckpointsOptions) {
         checkpointId,
       ]);
       options.changed(mindId);
-      return toCheckpoint({ ...row, name });
+      return { checkpoint: toCheckpoint({ ...row, name }), was: row.name };
     },
 
     list(mindInput: unknown): CheckpointList {
@@ -350,14 +324,13 @@ export function createCheckpoints(options: CheckpointsOptions) {
       const preview = docOf(content.storedState(mindId));
       try {
         const restoreBlocks = (blocks: Y.XmlFragment) => {
-          const restored = old
-            .getXmlFragment(MIND_CONTENT_FIELD)
+          const kept = old.getXmlFragment(MIND_CONTENT_FIELD);
+          if (blocks.doc) nameMarkedCitations(kept, markedCitations(blocks.doc));
+          const restored = kept
             .toArray()
             .flatMap((node) => (node instanceof Y.XmlHook ? [] : [node.clone()]));
-          const ids = citationIds(blocks);
           blocks.delete(0, blocks.length);
           blocks.insert(0, restored);
-          giveCitationIds(blocks, ids);
           // As History showed it: without the changes still waiting in it then, but someone's
           // from the Word file it was imported from, which stay theirs to resolve (#108).
           resolveProposals(blocks, (change) => !change.id.startsWith(WORD_CHANGE_ID), "reject");

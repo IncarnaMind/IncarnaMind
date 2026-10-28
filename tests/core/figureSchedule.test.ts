@@ -7,6 +7,7 @@ import { markSentence, textOf } from "../../src/core/answers/checks/sentences";
 import { type AnswerDocuments, createCitationSession } from "../../src/core/answers/citations";
 import { figureCitations } from "../../src/core/answers/citedVersions";
 import type {
+  Citation,
   ClaimCheckAttributes,
   FigureCheckAttributes,
   FigureCheckResult,
@@ -864,6 +865,70 @@ test("a figure's own check shows on its row, and as changed once its sentence ch
     mine(figureSchedule({ ...scheduleInput(blocks), personId: "person-1" }).rows),
   ).toMatchObject({ state: "changed", target: { kind: "figure", id: row.id } });
 });
+
+// protects=a figure's mark rests on the evidence it was checked against: once a check finds it in another Document, both versions current, the mark shows as changed, while a check that finds it where it was keeps it checked (#1933), in English and Chinese; fails_when=the mark still reads checked on the new evidence, or a same-evidence check changes it; no_claim=a newer version of the same Document, which signOffs.test covers.
+test.each([
+  { language: "en", text: "Revenue was £100.", label: "Revenue" },
+  { language: "zh-CN", text: "营业收入为100万元。", label: "营业收入" },
+])(
+  "a figure's mark changes when its check finds it in another Document ($language)",
+  ({ text, label }) => {
+    const blocks = note(paragraph("p", text));
+    const doc = blocks.doc;
+    const block = blocks.get(0);
+    const occurrence = figuresInMind(blocks)[0];
+    if (!doc || !(block instanceof Y.XmlElement) || !occurrence) throw new Error("Missing fixture");
+    const source = (documentId: string, contentHash: string): Citation => ({
+      passageId: `${documentId}-passage`,
+      documentId,
+      documentName: `${documentId}.pdf`,
+      contentHash,
+      pageFrom: 1,
+      pageTo: 1,
+      location: { kind: "page", from: 1, to: 1 },
+      quote: `${label} ${occurrence.reading.chars}`,
+      check: "found",
+      checkReason: null,
+    });
+    const checkedIn = (citation: Citation) => {
+      const parent = basis(textOf(block));
+      markSentence(block, 0, textOf(block).length, {
+        ...parent,
+        figures: [{ ...parent, ...finding(occurrence), source: citation }],
+        remainder: null,
+      });
+    };
+    const versions = new Map([
+      ["document-a", "a1"],
+      ["document-b", "b1"],
+    ]);
+    const mark = () =>
+      figureSchedule({ ...scheduleInput(blocks), versions, personId: "person-1" }).rows[0]?.signOff;
+    checkedIn(source("document-a", "a1"));
+    const [row] = figureSchedule({ ...scheduleInput(blocks), versions }).rows;
+    if (!row) throw new Error("No figure row");
+    expect(row.source?.documentId).toBe("document-a");
+    addSignOff(doc, {
+      id: "mark",
+      target: { kind: "figure", id: row.id },
+      at: "2026-10-28T09:00:00.000Z",
+      contentHash: figureSignOffBasis(row),
+      deletedAt: null,
+      name: "Ada Lovelace",
+      personId: "person-1",
+    });
+    expect(mark()?.state).toBe("checked");
+
+    checkedIn(source("document-a", "a1"));
+    expect(mark()?.state).toBe("checked");
+
+    checkedIn(source("document-b", "b1"));
+    expect(figureSchedule({ ...scheduleInput(blocks), versions }).rows[0]?.source?.documentId).toBe(
+      "document-b",
+    );
+    expect(mark()?.state).toBe("changed");
+  },
+);
 
 function scheduleInput(blocks: Y.XmlFragment) {
   return {

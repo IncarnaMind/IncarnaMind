@@ -16,6 +16,7 @@ import { fingerprintOfMind } from "../../../shared/mindState";
 import {
   addSignOff,
   checkedByMe,
+  citationElementId,
   citationSignOffBasis,
   figureSignOffBasis,
   figureSignOffSources,
@@ -237,6 +238,15 @@ function inNote(
  * "Checked by me" on the Citation at `pos`: marks it, giving it an id of its own first, or takes
  * the User's mark off. A mark that changed since is marked again, as checked now.
  */
+/** The id a Citation's element goes by in every version of the Note (`citationElementId`). */
+function elementIdOf(editor: Editor, node: ProseMirrorNode): string | null {
+  const mapping = ySyncPluginKey.getState(editor.state)?.binding?.mapping;
+  if (!mapping) return null;
+  for (const [type, mapped] of mapping)
+    if (mapped === node && type instanceof Y.XmlElement) return citationElementId(type);
+  return null;
+}
+
 export function toggleCitationSignOff(editor: Editor, pos: number, signer: Signer): void {
   const doc = noteDocOf(editor);
   const node = editor.state.doc.nodeAt(pos);
@@ -250,7 +260,10 @@ export function toggleCitationSignOff(editor: Editor, pos: number, signer: Signe
     liveVersions(),
     signer.personId,
   );
-  const id = typeof attributes.id === "string" ? attributes.id : crypto.randomUUID();
+  const id =
+    typeof attributes.id === "string"
+      ? attributes.id
+      : (elementIdOf(editor, node) ?? crypto.randomUUID());
   const target: SignOffTarget = { kind: "citation", id };
   const off = checkedByMe(now);
   const basis = citationBasisAt(editor.state.doc, pos, attributes);

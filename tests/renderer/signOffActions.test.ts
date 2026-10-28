@@ -135,6 +135,50 @@ describe("Checked by me on a Citation", () => {
     }
   });
 
+  // protects=a Citation marked in the editor after a version was kept, then edited or deleted, comes back from that version with the mark's id, so the mark shows on it again (#1933), in English and Chinese; fails_when=the restored Citation has no id or another; no_claim=whether the mark then reads checked or changed.
+  test.each([
+    ["en", "edited", "Spring tides come at new moon"],
+    ["en", "deleted", "Spring tides come at new moon"],
+    ["zh-CN", "edited", "大潮出现在新月时"],
+    ["zh-CN", "deleted", "大潮出现在新月时"],
+  ] as const)(
+    "a version kept before the mark brings the Citation back marked (%s, %s)",
+    async (_, since, words) => {
+      const core = startCore(await createTempDataFolder());
+      const mind = await core.createMind({ title: "Tides" });
+      const client = await connectToMind(core, mind.id);
+      writeMind(client, [
+        {
+          type: "paragraph",
+          attrs: { id: "p1" },
+          content: [{ type: "text", text: words }, cited(), { type: "text", text: "." }],
+        },
+      ]);
+      await client.settled();
+      const kept = await core.saveCheckpoint(mind.id, "accept");
+      const editor = boundEditor(client);
+      const doc = noteDocOf(editor);
+      if (!doc) throw new Error("The editor isn't bound to the Note.");
+
+      toggleCitationSignOff(editor, citationAt(editor).pos, signer);
+      const marked = signOffsOf(doc)[0]?.target.id;
+      expect(citationAt(editor).id).toBe(marked);
+      const { pos } = citationAt(editor);
+      if (since === "edited")
+        editor.view.dispatch(
+          editor.state.tr.setNodeAttribute(pos, "quote", "Neap tides come at half moon."),
+        );
+      else editor.commands.deleteRange({ from: pos, to: pos + 1 });
+      await client.settled();
+
+      await core.restoreCheckpoint(mind.id, kept.id);
+      await client.settled();
+
+      expect(citationAt(editor).id).toBe(marked);
+      expect(signOffsOf(doc).map((record) => record.target.id)).toEqual([marked]);
+    },
+  );
+
   // protects=a marked Citation copied and pasted beside itself is a Citation of its own, with no id, so the mark never moves to the copy; one cut and pasted, or dragged, keeps its id and the mark (#1933); fails_when=a copy shares the id; no_claim=pastes from other apps.
   test("a copy pasted beside a marked Citation has no id; one moved keeps it", () => {
     const editor = headlessEditor();

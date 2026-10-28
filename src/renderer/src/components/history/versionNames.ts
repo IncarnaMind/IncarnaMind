@@ -6,8 +6,8 @@ import { makeInTurn, useUndo } from "../../undo";
 export const HISTORY_UNDO_PLACE = "history";
 
 /**
- * Names a version, with its line and Undo, in turn with Undo and Redo: a ⌘Z pressed while the
- * name is saved takes back this name, not an earlier one.
+ * Names a version, with its line and Undo, in turn with Undo, Redo and other names: ⌘Z takes back
+ * the names in the order they were given, to the name each one replaced when it was saved.
  */
 export const renameVersion = (
   mindId: string,
@@ -16,13 +16,13 @@ export const renameVersion = (
   onNamed: (checkpoint: Checkpoint) => void,
 ): Promise<void> =>
   makeInTurn(async () => {
-    const before = checkpoint.name;
-    onNamed(await core.renameCheckpoint(mindId, checkpoint.id, name));
+    const { checkpoint: named, was } = await core.renameCheckpoint(mindId, checkpoint.id, name);
+    onNamed(named);
     useUndo.getState().push({
       said: (say) => (name ? say("history.named", { name }) : say("history.unnamed")),
       shownAt: HISTORY_UNDO_PLACE,
       undo: async () => {
-        await core.renameCheckpoint(mindId, checkpoint.id, before);
+        await core.renameCheckpoint(mindId, checkpoint.id, was);
       },
       redo: async () => {
         await core.renameCheckpoint(mindId, checkpoint.id, name);
