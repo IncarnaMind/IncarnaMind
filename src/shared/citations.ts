@@ -298,9 +298,11 @@ export function changedSourceNote(
   cited: Partial<Pick<CitationAttributes, "pageFrom" | "pageTo" | "location">>,
   recheck: CitationRecheck | "failed" | null,
   t: Translate,
+  web = false,
 ): ChangedSource | null {
   if (!changed) return null;
-  const notice = t("citation.changedAfterCited");
+  // A saved page keeps no way to show the version cited: the viewer shows the page as fetched last.
+  const notice = t(web ? "citation.changedAfterCited.web" : "citation.changedAfterCited");
   if (recheck === "failed" || recheck === null) return { notice, quote: null };
   const standing = quoteStanding(cited, recheck);
   if (standing === "found") return { notice, quote: t("citation.changed.still") };

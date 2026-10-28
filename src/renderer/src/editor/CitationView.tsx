@@ -679,7 +679,7 @@ function CitationCard({
   const quotedWords = state.check === "not-found" && parseQuotedWords(attributes.quotedWords);
   const scanned = useScannedQuote(attributes);
   const quote = useReadableQuote(attributes);
-  const changed = changedSourceNote(state.changedAfterCited, attributes, recheck, t);
+  const changed = changedSourceNote(state.changedAfterCited, attributes, recheck, t, web !== null);
   const words = recheck !== null && recheck !== "failed" ? (recheck.changed ?? null) : null;
   const changedOn = changedOnMessage(
     state.changedAfterCited,

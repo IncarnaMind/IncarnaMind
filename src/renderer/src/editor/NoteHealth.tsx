@@ -33,6 +33,7 @@ import { useAppStore } from "../store";
 import { useCheckUnread } from "../unreadFiles";
 import { AddedDocumentsLine } from "./AddedDocumentsLine";
 import { AnswerError } from "./AnswerView";
+import { useChangedCitations } from "./changedCitations";
 import { useCardPlace } from "./checkPlace";
 import { coverageOf, keptSpans, sameCoverage, shownClaims } from "./claimChecks";
 import {
@@ -269,15 +270,14 @@ export function HealthCard({
    * Puts the cursor at the next such sentence after it, round to the first; for a Citation, just
    * after its marker, where its state shows, so a key can't take the Citation away. It is
    * centred by its own position, not its paragraph's, which can be taller than the page, and clear
-   * of the fade and the badge at the page's foot.
+   * of the fade and the badge at the page's foot. Returns where it put it.
    */
-  const goToNext = (part: HealthPart | "checking") => {
-    if (editor.isDestroyed) return;
-    const cited = part === "found" || part === "notFound";
-    const targets = health[part].map((pos) => (cited ? pos + 1 : pos));
+  const moveTo = (positions: readonly number[], cited: boolean): number | null => {
+    if (editor.isDestroyed) return null;
+    const targets = positions.map((pos) => (cited ? pos + 1 : pos));
     const head = editor.state.selection.head;
     const next = targets.find((pos) => pos > head) ?? targets[0];
-    if (next === undefined) return;
+    if (next === undefined) return null;
     const { doc } = editor.state;
     const at = Math.min(next, doc.content.size);
     editor.view.dispatch(editor.state.tr.setSelection(TextSelection.near(doc.resolve(at))));
@@ -288,13 +288,20 @@ export function HealthCard({
       const area = scroller.getBoundingClientRect();
       scroller.scrollTop += (caret.top + caret.bottom) / 2 - (area.top + area.bottom) / 2;
     }
-    const claim = cited
-      ? undefined
-      : shownClaims(editor.state).find((each) => each.sentence.from <= at && at < each.sentence.to);
+    return at;
+  };
+  const goToNext = (part: HealthPart | "checking") => {
+    const cited = part === "found" || part === "notFound";
+    const at = moveTo(health[part], cited);
+    if (at === null || cited) return;
+    const claim = shownClaims(editor.state).find(
+      (each) => each.sentence.from <= at && at < each.sentence.to,
+    );
     if (!claim) return;
     setCheckCardOpen(place, false);
     setOpenClaim(place, claim.check.id);
   };
+  const changedSources = useChangedCitations(editor);
 
   const rows = ROWS.filter((part) => health[part].length > 0);
   const summary = healthSummary(health, {
@@ -355,6 +362,38 @@ export function HealthCard({
         {/* A claim being checked keeps its row: the card is as tall while a run is on as after
             it, so nothing under it moves when the run ends (#1312). */}
         {health.checking.length > 0 && row("checking")}
+        {changedSources.length > 0 && (
+          <button
+            type="button"
+            data-testid="health-changedSource"
+            data-count={changedSources.length}
+            className="check-row"
+            aria-label={t("health.next", {
+              part: t(
+                changedSources.length === 1 ? "health.changedSource.one" : "health.changedSource",
+                { count: format(changedSources.length) },
+              ),
+            })}
+            onMouseDown={(event) => event.preventDefault()}
+            onClick={() => moveTo(changedSources, true)}
+          >
+            <span className="check-row-mark">
+              <ClaimMarkIcon state="needs-recheck" className="mind-health-icon" />
+            </span>
+            <span className="check-row-text">
+              <Counted
+                text={t(
+                  changedSources.length === 1 ? "health.changedSource.one" : "health.changedSource",
+                  { count: format(changedSources.length) },
+                )}
+                count={format(changedSources.length)}
+              />
+            </span>
+            <span className="check-row-next" aria-hidden="true">
+              {t("badge.next")}
+            </span>
+          </button>
+        )}
       </div>
       {health.kept.length > 0 && (
         <p data-testid="health-kept" className="mind-health-line">

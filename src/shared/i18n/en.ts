@@ -810,6 +810,8 @@ export const en = {
   "health.needLook": "{count} claims need a look",
   "health.contradicted.one": "1 claim contradicted",
   "health.contradicted": "{count} claims contradicted",
+  "health.changedSource.one": "1 Citation changed its source",
+  "health.changedSource": "{count} Citations changed their sources",
   "health.noCitation.one": "1 claim with no Citation",
   "health.noCitation": "{count} claims with no Citation",
   "health.toCheck.one": "1 claim not checked yet",
@@ -3289,6 +3291,8 @@ export const en = {
   "command.citation.open": "Open cited page",
   "citation.regenerate": "Regenerate the Answer",
   "citation.changedAfterCited": "The Document changed after this was cited.",
+  "citation.changedAfterCited.web":
+    "This page was fetched again after this was cited. The page you cited is no longer shown.",
   "citation.changed.on": "This Document changed on {date}.",
   "citation.changed.still": "The quote is still here.",
   "citation.changed.gone": "Its quote is no longer in the new version.",

@@ -65,6 +65,7 @@ import {
   uncoveredOf,
 } from "../unsupportedFixes";
 import { type CitationDecision, citationDecision, citationsOf } from "./alreadyCited";
+import { ChangedCitations } from "./ChangedSourceNotice";
 import { ClaimOutline } from "./ClaimOutline";
 import { focusFirstAction, keepFocusInside } from "./cardFocus";
 import { useCardPlace } from "./checkPlace";
@@ -651,6 +652,7 @@ function ClaimCard({
           </blockquote>
         </figure>
       )}
+      <ChangedCitations cited={cited} />
       {already && (
         <OpenCitation
           citation={already}

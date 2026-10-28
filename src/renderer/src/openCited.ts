@@ -1,5 +1,9 @@
 import type { CitationAttributes, CitationCheck } from "../../core/api";
+import { citationState, quoteStanding } from "../../shared/citations";
+import { citationLocation, formatLocation } from "../../shared/locations";
 import { type CitedSource, useComposer } from "./composer";
+import { core } from "./core";
+import { translateNow } from "./i18n";
 import { currentTabOf } from "./layoutSlice";
 import { type AppState, useAppStore } from "./store";
 
@@ -86,4 +90,44 @@ export function openCited(
     },
   );
   useComposer.setState({ citedSource: source });
+}
+
+/**
+ * As `openCited`, but where its Document changed after the Citation was made and the quote now
+ * stands at another place in the new version, it opens there, with that place's label (#99). The
+ * Citation's own card does the same.
+ */
+export async function openCitedFollowing(
+  citation: Parameters<typeof openCited>[0],
+  how: Parameters<typeof openCited>[1],
+): Promise<void> {
+  const app = useAppStore.getState();
+  const cited = citationState(
+    citation,
+    app.status.kind === "ready" ? app.documents : null,
+    app.keptCitationTexts,
+  );
+  const quote = citation.quote ?? "";
+  if (!cited.changedAfterCited || quote === "") return openCited(citation, how);
+  const recheck = await core
+    .recheckCitation({
+      documentId: citation.documentId,
+      quote,
+      pageFrom: citation.pageFrom,
+      pageTo: citation.pageTo,
+      contentHash: citation.contentHash ?? null,
+    })
+    .catch((failure: unknown) => {
+      console.error("A moved quote couldn't be looked for in its Document's new version.", failure);
+      return null;
+    });
+  if (recheck === null || quoteStanding(citation, recheck) !== "moved") {
+    return openCited(citation, how);
+  }
+  const location = recheck.location ?? citationLocation(citation);
+  openCited(citation, {
+    ...how,
+    place: { pageFrom: recheck.pageFrom, pageTo: recheck.pageTo },
+    label: location ? formatLocation(location, translateNow) : how.label,
+  });
 }

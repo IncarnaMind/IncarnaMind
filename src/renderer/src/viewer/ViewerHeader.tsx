@@ -114,6 +114,7 @@ export function ViewerHeader({
         },
         recheck,
         t,
+        Boolean(document?.web),
       )
     : null;
   /** Why the Document's own app couldn't open it, until it is tried again. */
