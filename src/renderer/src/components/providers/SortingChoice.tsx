@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef } from "react";
 import type { ChatModelChoice, TaggingClassifier, TaggingModels } from "../../../../core/api";
 import type { Language } from "../../../../core/language";
 import { useAnswers } from "../../answers";
