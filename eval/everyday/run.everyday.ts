@@ -71,7 +71,15 @@ async function runModel(
   const judge = createAiSdkChatModel({ ...chatModelSpecOf(judging), thinking: "off" });
   const model = `${chat.kind}/${chat.modelId}${decider ? ` + ${decider.provider} decisions` : ""}`;
   const results: CaseResult[] = [];
-  for (const name of ["papers", "reports", "dated", "reserves", "filings", "cedar", "cedar-zh"] as const) {
+  for (const name of [
+    "papers",
+    "reports",
+    "dated",
+    "reserves",
+    "filings",
+    "cedar",
+    "cedar-zh",
+  ] as const) {
     const wanted = cases.filter((each) => each.library === name);
     if (wanted.length === 0) continue;
     const watch = watchReasks();

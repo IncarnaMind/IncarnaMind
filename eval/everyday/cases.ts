@@ -12,7 +12,14 @@ import type { Expected } from "./checks";
  * China's official reserve assets, whose cells give a difference (#1444), or a leverage covenant
  * folder in English or Chinese (./cedar, #1796).
  */
-export type LibraryName = "papers" | "reports" | "dated" | "reserves" | "cedar" | "cedar-zh" | "filings";
+export type LibraryName =
+  | "papers"
+  | "reports"
+  | "dated"
+  | "reserves"
+  | "cedar"
+  | "cedar-zh"
+  | "filings";
 
 export interface EverydayCase {
   id: string;
