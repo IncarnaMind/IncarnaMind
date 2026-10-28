@@ -174,10 +174,16 @@ export function useSorting() {
     saved.kind !== "automatic" &&
     !options.some((each) => sortingKey(each.classifier) === sortingKey(saved))
   ) {
-    // Where a saved choice goes comes from what is stored (its provider, or the Jev settings), so
-    // the list still being read never makes a cloud choice look local. undefined: not known yet.
-    const goes =
-      saved.kind === "chat"
+    // Where a saved choice goes comes from what is stored: its entry in the list once that is
+    // read (the list holds every choice, not only the default's), else its provider or the Jev
+    // settings. A list still being read never makes a cloud choice look local. undefined: not
+    // known, whether it isn't read yet or the choice is gone (its provider was removed).
+    const listed = models?.options.find(
+      (each) => sortingKey(each.classifier) === sortingKey(saved),
+    );
+    const goes = listed
+      ? providerOf(listed, language)
+      : saved.kind === "chat"
         ? readiness?.ready && readiness.provider.id === saved.choice.providerId
           ? (readiness.provider.service?.name ?? null)
           : undefined
@@ -186,22 +192,22 @@ export function useSorting() {
             ? undefined
             : (jev.service?.name ?? null)
           : null;
+    const named =
+      saved.kind === "chat" ? nameOf(saved.choice.modelId, saved.choice.providerId).name : "";
     options.unshift({
       classifier: saved,
       label:
         saved.kind === "chat"
-          ? nameOf(saved.choice.modelId, saved.choice.providerId).name
+          ? named
           : saved.kind === "jev"
             ? "TypeSafe Jev"
             : saved.kind === "auto"
               ? t("tagging.decision.auto")
               : saved.modelId,
       provider: goes ?? null,
-      decisionModel: saved.kind !== "chat",
+      decisionModel: listed?.decisionModel ?? saved.kind !== "chat",
       ...(goes === undefined && { unresolved: true }),
-      ...(saved.kind === "chat" && {
-        modelName: nameOf(saved.choice.modelId, saved.choice.providerId).name,
-      }),
+      ...(saved.kind === "chat" && { modelName: named }),
     });
   }
   const current =

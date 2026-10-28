@@ -770,6 +770,128 @@ for (const language of ["en", "zh-CN"] as const) {
   });
 }
 
+/** Saves Anthropic with its model, then OpenAI, which makes OpenAI the chat default. */
+async function saveOpenAiAsDefault(window: Page): Promise<void> {
+  await window.evaluate(async () => {
+    const core = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
+    await core.saveChatProvider({ kind: "openai", apiKey: "sk-test-b", modelId: "gpt-6-luna" });
+  });
+}
+
+/** Removes Anthropic's provider and its key, so a choice saved on it names a model that is gone. */
+async function removeAnthropic(window: Page): Promise<void> {
+  await window.evaluate(async () => {
+    const core = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
+    for (const provider of await core.listChatProviders()) {
+      if (provider.kind === "anthropic") await core.deleteChatProvider(provider.id);
+    }
+  });
+}
+
+/** What the sorting line shows to the User: its held rows are invisible and don't count. */
+function sortingWords(scope: Locator): Promise<string> {
+  return scope
+    .getByTestId("models-sorting-line")
+    .evaluate((line) => (line as HTMLElement).innerText);
+}
+
+for (const language of ["en", "zh-CN"] as const) {
+  test(`a sorting choice saved on one provider says where it goes once the list is read when another is the chat default, and says nothing when its provider is gone (${language})`, async () => {
+    const { app, window } = await launchApp(dataDir, { fakeChat: true });
+    try {
+      await setWindowSize(app, window, 1280, 800);
+      await acceptPlainTextKeys(window);
+      await setLanguage(window, language);
+      const card = await askFirstQuestion(window);
+      const field = card.getByTestId("setup-key");
+      await field.fill(ANTHROPIC_KEY);
+      await field.press("Enter");
+      await expect(card.getByTestId("setup-ready-title")).toBeVisible({ timeout: 15_000 });
+      await pointAndClick(window, card.getByTestId("setup-step-sorting-open"));
+      await expect(card.getByTestId("models-sorting")).toBeEnabled({ timeout: 15_000 });
+      await pointAndClick(window, card.getByTestId("setup-sorting-use"));
+      await expect(card.getByTestId("setup-step-sorting")).toHaveAttribute("data-done", "true");
+
+      // OpenAI is the chat default now; the saved choice is still Anthropic's Haiku. Reopened,
+      // the step names where it goes as soon as the list is read, and it can be used.
+      await saveOpenAiAsDefault(window);
+      const model = "Claude Haiku 5.5";
+      const pickedModel = card.getByTestId("models-sorting").locator("option:checked");
+      const sends = translate(language, "setup.sorting.sends", { service: "Anthropic" });
+      await pointAndClick(window, card.getByTestId("setup-step-sorting-open"));
+      await expect(card.getByTestId("setup-sorting-use")).toBeEnabled({ timeout: 15_000 });
+      await expect(pickedModel).toHaveText(model);
+      const words = await sortingWords(card);
+      expect(words).toContain(translate(language, "setup.sorting.chat", { model }));
+      expect(words).toContain(sends);
+      expect(words).not.toContain(translate(language, "setup.sorting.chatHere", { model }));
+
+      // Anthropic is removed: the choice names a model that is gone. Nothing is said about where
+      // it goes, and it can't be used, once the list shows it isn't there.
+      await removeAnthropic(window);
+      await pointAndClick(window, card.getByTestId("setup-step-transcription-open"));
+      await pointAndClick(window, card.getByTestId("setup-step-sorting-open"));
+      await expect(
+        card
+          .getByTestId("models-sorting")
+          .locator("option", { hasText: translate(language, "models.sorting.chat") }),
+      ).toHaveCount(1);
+      await expect(card.getByTestId("setup-sorting-use")).toBeDisabled();
+      expect(await sortingWords(card)).toBe("");
+    } finally {
+      await app.close();
+    }
+  });
+
+  test(`Settings › Models says the same of a saved sorting choice that isn't the chat default (${language})`, async () => {
+    const { app, window } = await launchApp(dataDir, { fakeChat: true });
+    try {
+      await setWindowSize(app, window, 1280, 800);
+      await acceptPlainTextKeys(window);
+      await window.evaluate(async () => {
+        const core = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
+        await core.saveChatProvider({
+          kind: "anthropic",
+          apiKey: "sk-ant-test-a",
+          modelId: "claude-haiku-5-5",
+        });
+        const chosen = (await core.getSettings()).user.chatModel;
+        const library = (await core.getLibrary()).settings;
+        if (chosen)
+          await core.saveLibrarySettings({
+            ...library,
+            classifier: { kind: "chat", choice: chosen },
+          });
+      });
+      await saveOpenAiAsDefault(window);
+      await dismissChatSetup(window);
+      const model = "Claude Haiku 5.5";
+      // The button that opens Settings is named in English until the language is changed inside it.
+      const settings = await openSettings(window, "models");
+      await setLanguage(window, language);
+      await expect(
+        settings
+          .getByTestId("models-sorting")
+          .locator("option", { hasText: translate(language, "models.sorting.chat") }),
+      ).toHaveCount(1);
+      await expect(settings.getByTestId("models-sorting").locator("option:checked")).toHaveText(
+        model,
+      );
+      const words = await sortingWords(settings);
+      expect(words).toContain(translate(language, "setup.sorting.chat", { model }));
+      expect(words).toContain(translate(language, "setup.sorting.sends", { service: "Anthropic" }));
+      expect(words).not.toContain(translate(language, "setup.sorting.chatHere", { model }));
+
+      // Anthropic is removed with Settings open: the list is read again, and the line says
+      // nothing about a choice whose model is gone.
+      await removeAnthropic(window);
+      await expect.poll(() => sortingWords(settings)).toBe("");
+    } finally {
+      await app.close();
+    }
+  });
+}
+
 for (const language of ["en", "zh-CN"] as const) {
   test(`a saved cloud choice, folded and reopened while the model list is read, says where it goes in every state it passes through, and nothing moves when the list lands (${language})`, async () => {
     const { app, window } = await launchApp(dataDir, { fakeChat: true });
