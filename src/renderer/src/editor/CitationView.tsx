@@ -14,15 +14,13 @@ import {
 import {
   badgeMessage,
   type CitationState,
-  changedOnMessage,
-  changedSourceNote,
+  changedSourceLines,
   citationSource,
   citationState,
   needsRecheck,
   newVersionCitation,
   parseQuotedWords,
   quoteStanding,
-  versionMoment,
   withShownName,
 } from "../../../shared/citations";
 import {
@@ -280,6 +278,8 @@ export function CitationView({
     offerEditorUndo(editor, (t) => t("citation.keptOld"));
     if (!groupsMerged()) editor.view.focus();
   };
+  const wordsChanged =
+    lookedAt !== null && recheck !== null && recheck !== "failed" && !!recheck.changed;
   const updateSentence = () => {
     const documentId = state.documentId ?? attributes.documentId;
     if (!newVersion || !documentId) return;
@@ -302,9 +302,8 @@ export function CitationView({
     const sentence = at === undefined ? null : sentenceAround(editor.state.doc, at);
     const chain = editor.chain().focus();
     (sentence ? chain.setTextSelection(sentence) : chain).run();
-    if (sentence && mindId && moved.quote) {
-      void updateSentenceToNewWords(editor, mindId, sentence, moved.quote);
-    }
+    // Words that only moved need no rewrite: the Citation switches and nothing is asked of a model.
+    if (sentence && mindId && wordsChanged) updateSentenceToNewWords(editor, mindId, sentence);
   };
   const openFromCardRef = useRef(openFromCard);
   openFromCardRef.current = openFromCard;
@@ -679,14 +678,17 @@ function CitationCard({
   const quotedWords = state.check === "not-found" && parseQuotedWords(attributes.quotedWords);
   const scanned = useScannedQuote(attributes);
   const quote = useReadableQuote(attributes);
-  const changed = changedSourceNote(state.changedAfterCited, attributes, recheck, t, web !== null);
-  const words = recheck !== null && recheck !== "failed" ? (recheck.changed ?? null) : null;
-  const changedOn = changedOnMessage(
+  const { note: changed, on } = changedSourceLines(
     state.changedAfterCited,
-    live ? versionMoment(live) : null,
+    attributes,
+    recheck,
+    live,
     language,
     t,
   );
+  const words = recheck !== null && recheck !== "failed" ? (recheck.changed ?? null) : null;
+  // A saved page says it was fetched again, with the day; any other Document says when it changed.
+  const changedOn = web ? (changed?.notice ?? null) : on;
   return (
     <div className={`citation-card citation-card--${state.check}`} contentEditable={false}>
       <div className="citation-card-head">
@@ -738,7 +740,7 @@ function CitationCard({
             <ChangedWords words={words} />
           ) : (
             <>
-              <p className="citation-card-note">{changed.notice}</p>
+              {!web && <p className="citation-card-note">{changed.notice}</p>}
               {changed.quote && (
                 <p data-testid="citation-changed-quote" className="citation-card-note">
                   {changed.quote}

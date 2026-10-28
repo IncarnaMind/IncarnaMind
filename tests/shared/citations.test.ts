@@ -12,6 +12,7 @@ import {
   citedLocation,
   citedTextKept,
   closestWordsMessage,
+  fetchedAgainOn,
   parseQuotedWords,
   quotedWordsFoundIn,
   quoteStanding,
@@ -752,20 +753,41 @@ describe("A Citation whose Document changed after it was cited", () => {
     });
   });
 
-  test("a saved web page says it was fetched again, and that the page cited is no longer shown", () => {
-    expect(changedSourceNote(true, found, "failed", in_("en"), true)).toEqual({
+  test("a saved web page says on what day it was fetched again, and that the copy cited is kept", () => {
+    expect(changedSourceNote(true, found, "failed", in_("en"), "21 October 2026")).toEqual({
       notice:
-        "This page was fetched again after this was cited. The page you cited is no longer shown.",
+        "This page was fetched again on 21 October 2026, after you cited it. What’s shown is the new copy; the one you cited is kept.",
       quote: null,
     });
-    expect(changedSourceNote(true, found, "failed", in_("zh-CN"), true)).toEqual({
-      notice: "此网页在被引用后重新抓取过，引用时的网页不再显示。",
+    expect(changedSourceNote(true, found, "failed", in_("zh-CN"), "2026年10月21日")).toEqual({
+      notice:
+        "此网页在你引用后于 2026年10月21日 重新抓取。这里显示的是新版本，你引用的版本仍保留。",
       quote: null,
     });
     // The words about how the quote stands in the new version are the same as for a file.
-    expect(changedSourceNote(true, found, rechecked({}), in_("en"), true)?.quote).toBe(
+    expect(changedSourceNote(true, found, rechecked({}), in_("en"), "21 October 2026")?.quote).toBe(
       "The quote is still here.",
     );
+  });
+
+  test("only a saved web page has a day it was fetched again, and it is the day of the version it now holds", () => {
+    const file = {
+      contentHash: "b",
+      modifiedAt: "2026-10-21T12:00:00Z",
+      updatedAt: "2026-10-24T09:00:00Z",
+      web: null,
+    };
+    expect(fetchedAgainOn(file, "en")).toBeNull();
+    expect(fetchedAgainOn(undefined, "en")).toBeNull();
+    const page = {
+      ...file,
+      web: {
+        fetchedAt: "2026-10-25T08:00:00Z",
+        versions: [{ contentHash: "b", fetchedAt: "2026-10-23T08:00:00Z" }],
+      },
+    };
+    expect(fetchedAgainOn(page, "en")).toBe(formatDate("2026-10-23T08:00:00Z", "en"));
+    expect(fetchedAgainOn(page, "zh-CN")).toBe(formatDate("2026-10-23T08:00:00Z", "zh-CN"));
   });
 
   test("names the day the version it now opens was made", () => {

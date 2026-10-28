@@ -1,11 +1,6 @@
 import type { ReactNode } from "react";
 import type { CitationAttributes } from "../../../core/api";
-import {
-  changedOnMessage,
-  changedSourceNote,
-  citationState,
-  versionMoment,
-} from "../../../shared/citations";
+import { changedSourceLines, citationState } from "../../../shared/citations";
 import { useCitationRecheck } from "../citationVersion";
 import { useLanguage, useT } from "../i18n";
 import { useAppStore } from "../store";
@@ -37,20 +32,15 @@ export function ChangedSourceNotice({
     state.changedAfterCited,
     live?.contentHash,
   );
-  const note = changedSourceNote(
+  const { note, on } = changedSourceLines(
     state.changedAfterCited,
     attributes,
     recheck,
-    t,
-    Boolean(live?.web),
-  );
-  if (!note) return null;
-  const on = changedOnMessage(
-    state.changedAfterCited,
-    live ? versionMoment(live) : null,
+    live,
     language,
     t,
   );
+  if (!note) return null;
   return (
     <div data-testid="citation-changed-notice" className="citation-card-note">
       {chip}

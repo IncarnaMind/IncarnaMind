@@ -41,7 +41,6 @@ import {
 import { catalogProvider } from "../../src/core/providers/catalog/providers";
 import { createAiSdkChatModel } from "../../src/core/providers/models";
 import { isCloudModelName } from "../../src/core/providers/ollamaCloud";
-import { updateRequest } from "../../src/shared/citationUpdate";
 import {
   outOfDateProposals,
   pendingProposals,
@@ -586,14 +585,7 @@ describe.each(LIVE)("Update the sentence, live: $name", (live) => {
             },
           ]);
           await client.settled();
-          const { result } = await edit(
-            core,
-            client,
-            mind.id,
-            "sentence",
-            "instruction",
-            updateRequest(update.quote),
-          );
+          const { result } = await edit(core, client, mind.id, "sentence", "follow-citation");
           if (result.kind === "proposed") {
             changes++;
             client.doc.transact(() => {
