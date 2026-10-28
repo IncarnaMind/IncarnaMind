@@ -1,5 +1,6 @@
 import { describe, expect, test } from "vitest";
 import { joinCjkLineWraps, onlyCjkLineWrapChange } from "../../src/core/documents/lineWrap";
+import { normaliseText } from "../../src/shared/text";
 
 describe("CJK PDF line wraps", () => {
   test("joins the film's digit-to-Han break without a space", () => {
@@ -16,9 +17,21 @@ describe("CJK PDF line wraps", () => {
     ["。\n7", "。7"],
     ["7\n。", "7。"],
     ["か\n7", "か7"],
-    ["한\n7", "한7"],
+    ["한\n7", "한 7"],
+    ["7\n한", "7 한"],
   ])("joins when either side is CJK or full-width punctuation: %s", (before, after) => {
     expect(joinCjkLineWraps(before)).toBe(after);
+  });
+
+  test("keeps one space beside Hangul so normalized text does not change", () => {
+    for (const [before, after] of [
+      ["월\n7", "월 7"],
+      ["7\n월", "7 월"],
+      ["배송비는 증가했습니다. 7\n월부터", "배송비는 증가했습니다. 7 월부터"],
+    ] as const) {
+      expect(joinCjkLineWraps(before)).toBe(after);
+      expect(normaliseText(before)).toBe(normaliseText(after));
+    }
   });
 
   test("keeps a break between two Latin words", () => {

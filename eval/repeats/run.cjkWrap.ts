@@ -17,6 +17,14 @@ import { createWorkerCrossEncoder, prepareGpuFile } from "../lib/rerank";
 const ROOT = resolve(__dirname, "../..");
 const ANSWER_WAIT_MS = 180_000;
 
+interface Usage {
+  calls: number;
+  inputTokens: number;
+  outputTokens: number;
+  spent: number;
+  seconds: number;
+}
+
 interface Row {
   model: string;
   language: "en" | "zh-CN";
@@ -24,12 +32,8 @@ interface Row {
   quote: string | null;
   check: string | null;
   mid: boolean;
-  calls: number;
-  inputTokens: number;
-  outputTokens: number;
   text: string;
-  spent: number;
-  seconds: number;
+  usage: Usage | null;
 }
 
 const CASES = [
@@ -127,7 +131,7 @@ test("the film's Citation quotes do not end at a PDF line wrap", async () => {
         const seconds = (Date.now() - started) / 1000;
         const spent = (await spentOf(core)) - before;
         const citations = answer.citations.length > 0 ? answer.citations : [null];
-        for (const citation of citations) {
+        for (const [index, citation] of citations.entries()) {
           const quote = citation?.quote ?? null;
           rows.push({
             model,
@@ -136,14 +140,25 @@ test("the film's Citation quotes do not end at a PDF line wrap", async () => {
             quote,
             check: citation?.check ?? "no-citation",
             mid: quote === null ? false : midPhrase(each.language, quote),
-            calls: recording?.modelCalls.length ?? 0,
-            inputTokens:
-              recording?.modelCalls.reduce((sum, call) => sum + (call.inputTokens ?? 0), 0) ?? 0,
-            outputTokens:
-              recording?.modelCalls.reduce((sum, call) => sum + (call.outputTokens ?? 0), 0) ?? 0,
             text: answer.text,
-            spent,
-            seconds,
+            usage:
+              index === 0
+                ? {
+                    calls: recording?.modelCalls.length ?? 0,
+                    inputTokens:
+                      recording?.modelCalls.reduce(
+                        (sum, call) => sum + (call.inputTokens ?? 0),
+                        0,
+                      ) ?? 0,
+                    outputTokens:
+                      recording?.modelCalls.reduce(
+                        (sum, call) => sum + (call.outputTokens ?? 0),
+                        0,
+                      ) ?? 0,
+                    spent,
+                    seconds,
+                  }
+                : null,
           });
         }
         log(
@@ -173,7 +188,7 @@ test("the film's Citation quotes do not end at a PDF line wrap", async () => {
     const [first] = group;
     if (!first) continue;
     lines.push(
-      `| ${first.model} | ${first.language} | ${group.length} | ${group.filter((row) => row.mid).length} | ${group.reduce((sum, row) => sum + row.calls, 0)} | ${group.reduce((sum, row) => sum + row.inputTokens, 0)} | ${group.reduce((sum, row) => sum + row.outputTokens, 0)} | ${group.reduce((sum, row) => sum + row.spent, 0).toFixed(4)} |`,
+      `| ${first.model} | ${first.language} | ${group.length} | ${group.filter((row) => row.mid).length} | ${group.reduce((sum, row) => sum + (row.usage?.calls ?? 0), 0)} | ${group.reduce((sum, row) => sum + (row.usage?.inputTokens ?? 0), 0)} | ${group.reduce((sum, row) => sum + (row.usage?.outputTokens ?? 0), 0)} | ${group.reduce((sum, row) => sum + (row.usage?.spent ?? 0), 0).toFixed(4)} |`,
     );
   }
   lines.push("", "## Every stored quote", "");

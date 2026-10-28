@@ -22,17 +22,24 @@ const ENGLISH_LINES = [
   "Online gross margin fell to 32.1% from 37.5% a year",
   "earlier: delivery costs rose, and the free-delivery threshold was cut to £40 in July.",
 ];
+const KOREAN_LINES = ["배송비는 증가했습니다. 7", "월부터 물류비가 감소했습니다."];
 
 interface Seed {
   id: string;
   name: string;
 }
 
-function asEarlierPipeline(dataDir: string, chinese: Seed, english: Seed, ordinary: Seed): void {
+function asEarlierPipeline(
+  dataDir: string,
+  chinese: Seed,
+  english: Seed,
+  ordinary: Seed,
+  korean: Seed,
+): void {
   const db = openDatabase(join(dataDir, DATABASE_FILE));
   try {
     db.transaction(() => {
-      for (const { id, name } of [chinese, english, ordinary]) {
+      for (const { id, name } of [chinese, english, ordinary, korean]) {
         db.run("UPDATE documents SET processing_version = 14 WHERE id = ?", [id]);
         if (name !== ordinary.name) continue;
         db.run("UPDATE passages SET text = 'Superseded wording' WHERE document_id = ?", [id]);
@@ -50,6 +57,14 @@ function asEarlierPipeline(dataDir: string, chinese: Seed, english: Seed, ordina
           `${unfoldedKeywords(chinese.name)} ${unfoldedKeywords(earlier)}`,
         ]);
       }
+      db.run(
+        "UPDATE passages SET text = replace(text, '7 월부터', '7\n월부터') WHERE document_id = ?",
+        [korean.id],
+      );
+      db.run(
+        "UPDATE passages_fts SET text = 'stale-index' WHERE rowid IN (SELECT seq FROM passages WHERE document_id = ?)",
+        [chinese.id],
+      );
     });
   } finally {
     db.close();
@@ -79,20 +94,26 @@ describe("CJK line-wrap re-reading", { timeout: 30_000 }, () => {
         "Ordinary announcement.pdf",
         buildPdf([{ lines: ENGLISH_LINES }]),
       ),
+      await writeSourceFile(
+        sources,
+        "Korean announcement.pdf",
+        buildPdf([{ chineseLines: KOREAN_LINES }]),
+      ),
     ];
-    const [chinese, english, ordinary] = await addAndProcess(first, paths);
-    if (!chinese || !english || !ordinary) throw new Error("The mixed Library was not added.");
+    const [chinese, english, ordinary, korean] = await addAndProcess(first, paths);
+    if (!chinese || !english || !ordinary || !korean)
+      throw new Error("The mixed Library was not added.");
     const initialCalls = embedder.texts.length;
     const chineseSeq = queryDatabase<{ seq: number }>(
       dataDir,
       "SELECT seq FROM passages WHERE document_id = ? AND deleted_at IS NULL",
       [chinese.id],
     )[0]?.seq;
-    asEarlierPipeline(dataDir, chinese, english, ordinary);
+    asEarlierPipeline(dataDir, chinese, english, ordinary, korean);
     await first.close();
 
     const core = startCore(dataDir, { embedder });
-    await waitForProcessing(core, [chinese.id, english.id, ordinary.id]);
+    await waitForProcessing(core, [chinese.id, english.id, ordinary.id, korean.id]);
 
     const chineseRows = queryDatabase<{ seq: number; text: string; embedding: Uint8Array | null }>(
       dataDir,
@@ -119,6 +140,14 @@ describe("CJK line-wrap re-reading", { timeout: 30_000 }, () => {
     expect(ordinaryRows).toHaveLength(1);
     expect(ordinaryRows[0]?.text).not.toBe("Superseded wording");
     expect(ordinaryRows[0]?.seq).not.toBe(chineseRows[0]?.seq);
+    const koreanRows = queryDatabase<{ text: string; embedding: Uint8Array | null }>(
+      dataDir,
+      "SELECT text, embedding FROM passages WHERE document_id = ? AND deleted_at IS NULL",
+      [korean.id],
+    );
+    expect(koreanRows).toHaveLength(1);
+    expect(koreanRows[0]?.text).toContain("7 월부터");
+    expect(koreanRows[0]?.embedding).not.toBeNull();
     expect(embedder.texts.length).toBeGreaterThan(initialCalls);
     expect(embedder.texts.length - initialCalls).toBe(1);
 
@@ -133,6 +162,14 @@ describe("CJK line-wrap re-reading", { timeout: 30_000 }, () => {
       }),
     ).toMatchObject({ check: "found" });
     expect(
+      await core.recheckCitation({
+        documentId: korean.id,
+        pageFrom: 1,
+        pageTo: 1,
+        quote: "배송비는 증가했습니다. 7\n월부터",
+      }),
+    ).toMatchObject({ check: "found" });
+    expect(
       queryDatabase<{ processing_version: number }>(
         dataDir,
         "SELECT DISTINCT processing_version FROM documents",
@@ -140,7 +177,7 @@ describe("CJK line-wrap re-reading", { timeout: 30_000 }, () => {
     ).toEqual([PROCESSING_VERSION]);
     console.info(
       JSON.stringify({
-        wrapOnlyUpdated: chineseRows.length,
+        wrapOnlyUpdated: chineseRows.length + koreanRows.length,
         unchanged: englishRows.length,
         ordinarilyReplaced: ordinaryRows.length,
         additionalEmbeddings: embedder.texts.length - initialCalls,
