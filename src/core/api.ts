@@ -218,8 +218,8 @@ export interface CreateMindInput {
  *   and the figures within their sentence's Check (#439, #1932). Older
  *   editors would discard those nodes and check attributes, so they open
  *   these Notes read-only. Existing content needs no conversion.
- * - 32: a Citation has an `id` of its own, which the editor gives it, and the
- *   Note holds the User's "Checked by me" marks on Citations and figures
+ * - 32: a Citation has an `id` of its own once the User marks it checked by
+ *   them, and the Note holds those marks on Citations and figures
  *   (`MIND_SIGN_OFFS_FIELD`, #1933). An older editor would strip the ids and
  *   leave the marks on nothing, so it opens these Notes read-only. Existing
  *   content needs no conversion.
@@ -543,10 +543,11 @@ export interface ProposalMaker {
  * Why a Checkpoint (CONTEXT.md) was saved: just before an AI change
  * (accepting changes, Regenerate, Enhance, a comparison table going in,
  * accepting someone else's changes from a Word file), just before restoring
- * another one, or once the Mind had been left alone for
- * `CHECKPOINT_IDLE_MS` ("idle"). Only idle ones thin out as they age (all for
- * a day, then one an hour for a week, one a day for 90 days, then one a
- * week); the others are kept for good.
+ * another one, as the Note was sent as Word or PDF ("export", #1933), or once
+ * the Mind had been left alone for `CHECKPOINT_IDLE_MS` ("idle"). Only idle
+ * ones the User hasn't named thin out as they age (all for a day, then one an
+ * hour for a week, one a day for 90 days, then one a week); the others are
+ * kept for good.
  */
 export const CHECKPOINT_REASONS = [
   "accept",
@@ -555,6 +556,7 @@ export const CHECKPOINT_REASONS = [
   "compare",
   "others",
   "restore",
+  "export",
   "idle",
 ] as const;
 export type CheckpointReason = (typeof CHECKPOINT_REASONS)[number];
@@ -569,6 +571,10 @@ export interface Checkpoint {
   reason: CheckpointReason;
   /** When it was saved (ISO 8601, UTC). */
   createdAt: string;
+  /** The name the User gave it ("Filed draft"); null for none. */
+  name: string | null;
+  /** For one saved as the Note was sent ("export"): the file's name, "Credit paper.docx". */
+  file: string | null;
 }
 
 /** A Mind's Checkpoints, as History lists them. */
@@ -2011,8 +2017,8 @@ export interface CitationAttributes {
    */
   keptOver?: string | null;
   /**
-   * Its own id, which the editor gives it, so the User's "Checked by me" mark (#1933) stays on it
-   * as the text around it changes. A pasted copy gets a new one.
+   * Its own id, given once the User marks it checked by them (#1933), so the mark stays on it
+   * as the text around it changes. A copy pasted beside it has none.
    */
   id?: string | null;
 }
@@ -9345,6 +9351,11 @@ export interface CoreApi {
    * Throws MindReadOnlyError for a Mind a newer version wrote.
    */
   restoreCheckpoint(mindId: string, checkpointId: string): Promise<RestoredCheckpoint>;
+  /**
+   * Names a Checkpoint, or (null or blank) takes its name off (#1933). A named one is kept for
+   * good. Throws NotFoundError for one that isn't the Mind's, or is no longer kept.
+   */
+  renameCheckpoint(mindId: string, checkpointId: string, name: string | null): Promise<Checkpoint>;
 
   /**
    * Asks a Question in the assistant (ADR-0017): adds it to the conversation, or starts
@@ -11092,6 +11103,7 @@ const methods: Record<CoreApiMethod, true> = {
   listCheckpoints: true,
   compareCheckpoints: true,
   restoreCheckpoint: true,
+  renameCheckpoint: true,
   askInConversation: true,
   askExampleReadyQuestion: true,
   regenerateConversationAnswer: true,

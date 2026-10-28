@@ -3756,6 +3756,8 @@ export function createCore(adapters: CoreAdapters): Core {
     listCheckpoints: async (mindId) => checkpoints.list(mindId),
     compareCheckpoints: async (input) => checkpoints.compare(input),
     restoreCheckpoint: async (mindId, checkpointId) => checkpoints.restore(mindId, checkpointId),
+    renameCheckpoint: async (mindId, checkpointId, name) =>
+      checkpoints.rename(mindId, checkpointId, name),
     askInConversation: async (input) =>
       answers.askInConversation(conversations.parseQuestion(input)),
     askExampleReadyQuestion: async () => {
@@ -4743,6 +4745,14 @@ export function createCore(adapters: CoreAdapters): Core {
         ownFileOf(options),
       );
       if (saved.status !== "saved") return saved;
+      // Sent as Word or PDF (#1933): History keeps the Note as it went, with the file's name.
+      if (options.format === "docx" || options.format === "pdf") {
+        try {
+          checkpoints.sent(mindId, saved.file.name);
+        } catch (error) {
+          console.error("export: the Note as it was sent couldn't be kept in History", error);
+        }
+      }
       await rememberExportChoices(counts, null);
       return { ...saved, ...counts, word };
     },

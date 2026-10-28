@@ -10,9 +10,11 @@ import { useAppStore } from "../../store";
 import { useUndo } from "../../undo";
 import { CloseLineIcon, HistoryLineIcon, RestoreLineIcon } from "../lineIcons";
 import { ProblemLine } from "../ProblemLine";
+import { UndoLineAt } from "../UndoLine";
 import { buttonStyle, iconButtonClass } from "../ui";
 import { useModal } from "../useModal";
 import { ComparedRows } from "./ComparedRows";
+import { HISTORY_UNDO_PLACE, VersionName } from "./VersionName";
 import { VersionPicker } from "./VersionPicker";
 
 /** How long the Mind stays unchanged before a comparison with now is made again. */
@@ -45,6 +47,7 @@ function History({ mindId, onClose }: { mindId: string; onClose(): void }) {
   const [comparison, setComparison] = useState<MindComparison | null>(null);
   const [problem, setProblem] = useState<string | null>(null);
   const [restoring, setRestoring] = useState(false);
+  const [naming, setNaming] = useState(false);
   /** Set when a new pair of versions is chosen, so their first change is scrolled to once. */
   const scrollPending = useRef(true);
 
@@ -172,12 +175,16 @@ function History({ mindId, onClose }: { mindId: string; onClose(): void }) {
               {title}
             </span>
           </h1>
-          {/* Enabled while the list loads, so it takes the focus as History opens. */}
+          {/* Enabled while the list loads, so it takes the focus as History opens. F2 names it. */}
           <VersionPicker
             side="left"
             checkpoints={checkpoints}
             chosen={left}
-            onChoose={setLeft}
+            onChoose={(id) => {
+              setNaming(false);
+              setLeft(id);
+            }}
+            onRename={leftCheckpoint ? () => setNaming(true) : undefined}
             disabled={list !== null && checkpoints.length === 0}
           />
         </div>
@@ -222,6 +229,29 @@ function History({ mindId, onClose }: { mindId: string; onClose(): void }) {
         })}
         className="history-card"
       >
+        {/* The left version's name, typed where it shows, and the line that takes it back. */}
+        {leftCheckpoint && (
+          <div className="history-version-line">
+            <VersionName
+              mindId={mindId}
+              checkpoint={leftCheckpoint}
+              naming={naming}
+              onNaming={setNaming}
+              onNamed={(named) =>
+                setList(
+                  (shown) =>
+                    shown && {
+                      ...shown,
+                      checkpoints: shown.checkpoints.map((each) =>
+                        each.id === named.id ? named : each,
+                      ),
+                    },
+                )
+              }
+            />
+            <UndoLineAt place={HISTORY_UNDO_PLACE} className="history-undo" />
+          </div>
+        )}
         {problem && (
           <ProblemLine testId="history-problem" className="history-note">
             {problem}

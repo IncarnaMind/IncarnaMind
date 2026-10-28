@@ -10,7 +10,6 @@ import {
   ANSWER_BLOCK,
   BLOCK_ID_ATTRIBUTE,
   CALCULATED_FIGURE_NODE,
-  CITATION_NODE,
   COMPARISON_TABLE_NODE,
   FOOTNOTE_NODE,
   GENERATED_MARK,
@@ -57,9 +56,8 @@ export { BLOCK_ID_ATTRIBUTE };
  * UniqueID gives every node of these types a UUID as it is created, and keeps
  * it when the Block is edited, turned into another type or dragged. It can't
  * tell top-level nodes from nested ones, so paragraphs inside lists, quotes
- * and Answers get an ID too; only top-level IDs name Blocks. Footnotes, calculated figures and
- * Citations (whose "Checked by me" marks name them, #1933) get one too, across edits and sync; a
- * pasted copy gets a new one.
+ * and Answers get an ID too; only top-level IDs name Blocks. Footnotes and
+ * calculated figures get one too, across edits and sync; a pasted copy gets a new one.
  */
 const BLOCK_TYPES: readonly string[] = [
   ...NOTE_BLOCK_TYPES,
@@ -206,7 +204,7 @@ export function noteExtensions({
     ClaimCheck,
     UniqueID.configure({
       attributeName: BLOCK_ID_ATTRIBUTE,
-      types: [...BLOCK_TYPES, FOOTNOTE_NODE, CALCULATED_FIGURE_NODE, CITATION_NODE],
+      types: [...BLOCK_TYPES, FOOTNOTE_NODE, CALCULATED_FIGURE_NODE],
     }),
   ];
 }

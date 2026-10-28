@@ -9090,6 +9090,52 @@
       height: 16px;
     }
   }
+  /* The chosen version's name (#1933), typed where it is shown; quiet until it has one. */
+  .history-name {
+    display: inline-flex;
+    flex: 0 1 auto;
+    min-width: 0;
+    max-width: 360px;
+    height: 28px;
+    align-items: center;
+    padding: 0 6px;
+    border-radius: 6px;
+    font-size: 13px;
+    color: var(--color-ink-meta);
+    white-space: nowrap;
+
+    &[data-named] {
+      color: var(--color-ink);
+      font-weight: 600;
+    }
+    &:hover {
+      background: var(--color-hover);
+    }
+  }
+  .history-version-line {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 4px 16px;
+    min-height: 36px;
+    /* Its words start where the notes under it do; the button's own padding is 6px. */
+    margin: 8px 24px 0 50px;
+  }
+  .history-undo {
+    min-width: 0;
+    font-size: 13px;
+  }
+  .history-name-input {
+    width: 280px;
+    min-width: 0;
+    height: 28px;
+    padding: 0 6px;
+    border: 1px solid var(--color-accent);
+    border-radius: 6px;
+    background: var(--color-sheet);
+    font-size: 13px;
+    color: var(--color-ink);
+  }
   .history-picker {
     display: inline-flex;
     flex: 0 1 auto;
@@ -9304,6 +9350,9 @@
     .history-note {
       margin-right: 24px;
       margin-left: 24px;
+    }
+    .history-version-line {
+      margin-left: 18px;
     }
   }
 

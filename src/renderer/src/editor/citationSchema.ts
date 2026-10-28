@@ -1,4 +1,6 @@
 import { mergeAttributes, Node, type NodeViewRenderer } from "@tiptap/core";
+import { Fragment, type NodeType, type Node as ProseMirrorNode, Slice } from "@tiptap/pm/model";
+import { Plugin, PluginKey } from "@tiptap/pm/state";
 import { CITATION_NODE, type CitationAttributes } from "../../../core/api";
 import { citationReference, parseQuotedWords } from "../../../shared/citations";
 import { parseLocation } from "../../../shared/locations";
@@ -30,6 +32,29 @@ function dataAttribute(name: string, kind: "text" | "page" = "text") {
   };
 }
 
+const ID_KEY = "data-citation-id";
+
+export const citationCopiesKey = new PluginKey("citationCopies");
+
+/** The slice without the ids of Citations `doc` still holds: a copy is a Citation of its own. */
+function withoutRepeatedIds(slice: Slice, doc: ProseMirrorNode, type: NodeType): Slice {
+  const held = new Set<string>();
+  doc.descendants((node) => {
+    if (node.type === type && typeof node.attrs.id === "string") held.add(node.attrs.id);
+  });
+  if (held.size === 0) return slice;
+  const strip = (fragment: Fragment): Fragment => {
+    const nodes: ProseMirrorNode[] = [];
+    fragment.forEach((node) => {
+      if (node.type === type && typeof node.attrs.id === "string" && held.has(node.attrs.id))
+        nodes.push(type.create({ ...node.attrs, id: undefined }, node.content, node.marks));
+      else nodes.push(node.isLeaf ? node : node.copy(strip(node.content)));
+    });
+    return Fragment.from(nodes);
+  };
+  return new Slice(strip(slice.content), slice.openStart, slice.openEnd);
+}
+
 /**
  * A Citation: an inline node in the text of an Answer, which the core writes
  * for each marker the model cited (see `CitationAttributes`). It moves with
@@ -49,8 +74,7 @@ export const Citation = Node.create<CitationOptions>({
   },
 
   addAttributes() {
-    // Its id is UniqueID's, as every node's that keeps one (`noteExtensions`).
-    const attributes: Record<Exclude<keyof CitationAttributes, "id">, object> = {
+    const attributes: Record<keyof CitationAttributes, object> = {
       passageId: dataAttribute("passageId"),
       documentId: dataAttribute("documentId"),
       documentName: dataAttribute("documentName"),
@@ -87,8 +111,30 @@ export const Citation = Node.create<CitationOptions>({
       },
       // Only Keep citing the old version sets it (#99), so a Citation without one stores nothing.
       keptOver: { ...dataAttribute("keptOver"), default: undefined },
+      // Only "Checked by me" gives it (#1933), so a Citation never marked stores nothing. A copy
+      // carries it; one pasted where the Citation still is loses it (`withoutRepeatedIds`).
+      id: {
+        default: undefined,
+        parseHTML: (element: HTMLElement) => element.getAttribute(ID_KEY) ?? undefined,
+        renderHTML: (attributes: Record<string, unknown>) =>
+          typeof attributes.id === "string" ? { [ID_KEY]: attributes.id } : {},
+      },
     };
     return attributes;
+  },
+
+  addProseMirrorPlugins() {
+    const type = this.type;
+    return [
+      new Plugin({
+        key: citationCopiesKey,
+        props: {
+          // A Citation moved keeps its id, and the User's mark with it; a copy beside it doesn't.
+          transformPasted: (slice, view) =>
+            view.dragging?.move ? slice : withoutRepeatedIds(slice, view.state.doc, type),
+        },
+      }),
+    ];
   },
 
   parseHTML() {

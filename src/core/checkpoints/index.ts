@@ -64,9 +64,11 @@ interface Row {
   mind_id: string;
   reason: string;
   created_at: string;
+  name: string | null;
+  detail: string | null;
 }
 
-const COLUMNS = "id, mind_id, reason, created_at";
+const COLUMNS = "id, mind_id, reason, created_at, name, detail";
 
 const isReason = (value: unknown): value is CheckpointReason =>
   CHECKPOINT_REASONS.some((reason) => reason === value);
@@ -89,6 +91,8 @@ const toCheckpoint = (row: Row): Checkpoint => ({
   mindId: row.mind_id,
   reason: isReason(row.reason) ? row.reason : "others",
   createdAt: row.created_at,
+  name: row.name,
+  file: row.detail,
 });
 
 const streamingAnswers = (blocks: Y.XmlFragment): string[] =>
@@ -127,7 +131,7 @@ export function createCheckpoints(options: CheckpointsOptions) {
   const thin = (mindId: string) => {
     const idle = db.all<Row>(
       `SELECT ${COLUMNS} FROM mind_checkpoints
-       WHERE mind_id = ? AND reason = 'idle' AND deleted_at IS NULL`,
+       WHERE mind_id = ? AND reason = 'idle' AND name IS NULL AND deleted_at IS NULL`,
       [mindId],
     );
     const at = options.now();
@@ -160,7 +164,12 @@ export function createCheckpoints(options: CheckpointsOptions) {
   const sameState = (saved: Uint8Array, snapshot: Y.Snapshot) =>
     saved.byteLength > 0 && Y.equalSnapshots(Y.decodeSnapshot(saved), snapshot);
 
-  const save = (mindInput: unknown, reasonInput: unknown): Checkpoint => {
+  /** Saves the Mind as it is: `file` for one saved as the Note was sent, which is always its own. */
+  const save = (
+    mindInput: unknown,
+    reasonInput: unknown,
+    file: string | null = null,
+  ): Checkpoint => {
     const reason = parseReason(reasonInput);
     const mindId = options.requireMind(mindInput);
     options.rebuildFigureRetention(mindId);
@@ -169,7 +178,7 @@ export function createCheckpoints(options: CheckpointsOptions) {
     try {
       const snapshot = Y.snapshot(doc);
       const last = newest(mindId);
-      if (last && sameState(last.snapshot, snapshot)) {
+      if (last && file === null && sameState(last.snapshot, snapshot)) {
         if (last.reason !== "idle" || reason === "idle") return toCheckpoint(last);
         // Now the state before an AI change: kept for good.
         db.run("UPDATE mind_checkpoints SET reason = ?, updated_at = ? WHERE id = ?", [
@@ -184,15 +193,16 @@ export function createCheckpoints(options: CheckpointsOptions) {
       const at = options.now();
       db.transaction(() => {
         db.run(
-          `INSERT INTO mind_checkpoints (id, mind_id, reason, data, snapshot, created_at, updated_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?)`,
-          [id, mindId, reason, state, Y.encodeSnapshot(snapshot), at, at],
+          `INSERT INTO mind_checkpoints
+             (id, mind_id, reason, data, snapshot, created_at, updated_at, detail)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+          [id, mindId, reason, state, Y.encodeSnapshot(snapshot), at, at, file],
         );
         retention.retain("checkpoint", id, citedIn(doc));
         if (reason === "idle") thin(mindId);
       });
       options.changed(mindId);
-      return { id, mindId, reason, createdAt: at };
+      return { id, mindId, reason, createdAt: at, name: null, file };
     } finally {
       doc.destroy();
     }
@@ -209,6 +219,30 @@ export function createCheckpoints(options: CheckpointsOptions) {
 
   return {
     save,
+
+    /** The Note was sent as `file`: a Checkpoint of it as it went, kept for good. */
+    sent(mindId: string, file: string): Checkpoint {
+      return save(mindId, "export", file);
+    },
+
+    rename(mindInput: unknown, checkpointInput: unknown, nameInput: unknown): Checkpoint {
+      const mindId = options.requireMind(mindInput);
+      const checkpointId = parseId(checkpointInput, "A Checkpoint");
+      const row = db.get<Row>(
+        `SELECT ${COLUMNS} FROM mind_checkpoints
+         WHERE id = ? AND mind_id = ? AND deleted_at IS NULL`,
+        [checkpointId, mindId],
+      );
+      if (!row) throw new NotFoundError({ key: "error.history.gone" });
+      const name = (typeof nameInput === "string" && nameInput.trim()) || null;
+      db.run("UPDATE mind_checkpoints SET name = ?, updated_at = ? WHERE id = ?", [
+        name,
+        options.now(),
+        checkpointId,
+      ]);
+      options.changed(mindId);
+      return toCheckpoint({ ...row, name });
+    },
 
     list(mindInput: unknown): CheckpointList {
       const mindId = options.requireMind(mindInput);
