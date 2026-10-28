@@ -18,8 +18,10 @@ import { documentFigureContext } from "../calculations";
 
 export function figuresInClaim(text: string, context: FigureContext): Figure[] {
   const references = citedCases(text).map((reference, index, citations) => {
+    const next = citations[index + 1];
+    const suffix = text.slice(reference.to, next?.from);
     const closed = /^[\s.,;!?…)\]}，。；！？]*$/u.test(
-      text.slice(reference.to, citations[index + 1]?.from),
+      next ? suffix.replace(/\b(?:and(?:\/or)?|or)\b|[&与及和或]/giu, "") : suffix,
     );
     return { from: reference.from, to: closed ? reference.to : reference.citeTo };
   });

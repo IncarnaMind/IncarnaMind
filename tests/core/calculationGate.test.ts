@@ -25,6 +25,7 @@ async function fixture({
   directInputs = false,
   decidingSource,
   judgement,
+  confirmationError,
   strict,
   says = "The accounts support the sentence. [^1]",
 }: {
@@ -43,6 +44,7 @@ async function fixture({
   directInputs?: boolean;
   decidingSource?: { name: string; contents: string; quote: string };
   judgement?: "same" | "conflict" | "neither";
+  confirmationError?: { status: number; message: string };
   strict?: "same" | "conflict" | "neither";
   says?: string | null;
 } = {}) {
@@ -142,6 +144,8 @@ async function fixture({
       generate: (call) => {
         comparisons.push(call.system);
         confirmationPrompts.push(call.prompt);
+        if (confirmationError && call.prompt.includes("Quantity to confirm:"))
+          return { error: confirmationError };
         return generate(call);
       },
     },
@@ -231,6 +235,30 @@ describe("a check cannot substitute a model verdict for derived arithmetic", () 
     expect(comparisons.filter((each) => each === STRICT_INSTRUCTIONS)).toHaveLength(1);
     expect(confirmationPrompts.some((each) => each.includes("Quantity to confirm:"))).toBe(true);
   });
+
+  test.each([401, 429])(
+    "a confirmation failure during a calculation's Supported re-evaluation keeps its provider reason: %s",
+    async (status) => {
+      const { result, confirmationPrompts } = await fixture({
+        claim: "Net debt is 600 and 6.0x adjusted EBITDA.",
+        stated: "6.0x",
+        required: ["6.0x"],
+        repair: true,
+        as: "times",
+        verdict: "unsupported",
+        topic: "not found",
+        says: null,
+        confirmationError: { status, message: status === 429 ? "Rate limited" : "Invalid API key" },
+      });
+      expect(result).toMatchObject({
+        verdict: "not-checked",
+        reason: status === 429 ? "rate-limit" : "failed",
+      });
+      expect(
+        confirmationPrompts.filter((each) => each.includes("Quantity to confirm:")),
+      ).toHaveLength(1);
+    },
+  );
 
   test("one direct quantity is confirmed once beside an already calculated one", async () => {
     const { result, confirmationPrompts } = await fixture({

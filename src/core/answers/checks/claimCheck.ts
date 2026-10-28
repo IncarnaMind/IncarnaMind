@@ -572,6 +572,7 @@ export function createClaimCheck(deps: ClaimCheckDependencies) {
             ...facts(),
           }
       : null;
+    if (confirmationFailure) return failedCheck(confirmationFailure);
     /** Unsupported, with the nearest line when it states another value for the same thing (#770). */
     const unsupported = async (
       why: UnsupportedReason = { reason: null, covered: null, uncovered: null },

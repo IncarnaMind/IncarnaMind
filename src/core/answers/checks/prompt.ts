@@ -473,10 +473,13 @@ export function readVerdict(reply: string): ReadVerdict | null {
       // A model that corrects its Roles line writes it again: its last one counts.
       roles: rolesOf(fields.findLast((each) => ROLES.test(each))),
       ...(calculationFields.some((line) => CALCULATION.test(line)) && {
-        calculations: calculationFields.flatMap((line) => {
+        calculations: calculationFields.reduce<string[]>((values, line) => {
           const value = CALCULATION.exec(line)?.[1]?.trim();
-          return value === undefined || NO_PHRASE.test(value) ? [] : [value];
-        }),
+          if (value === undefined) return values;
+          if (NO_PHRASE.test(value)) values.length = 0;
+          else values.push(value);
+          return values;
+        }, []),
       }),
     });
   }

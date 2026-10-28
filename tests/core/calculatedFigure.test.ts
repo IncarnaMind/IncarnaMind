@@ -85,3 +85,45 @@ describe("figures in a claim with case citations", () => {
     }
   });
 });
+
+describe.each([
+  {
+    language: "en",
+    conjunctions: ["and", "or", "&", "and/or"],
+    prefix: "See",
+    factual: " appeals succeeded",
+  },
+  {
+    language: "zh-CN",
+    conjunctions: ["与", "及", "和", "或"],
+    prefix: "参见",
+    factual: "宗上诉获支持",
+  },
+])("$language citation-list conjunctions", ({ language, conjunctions, prefix, factual }) => {
+  const linked = conjunctions.flatMap((conjunction) => [
+    {
+      name: `${conjunction}: closed pinpoints`,
+      text: `${prefix} [2024] UKSC 5, 60 ${conjunction} [2023] EWCA Civ 2, 10.`,
+      values: [],
+    },
+    {
+      name: `${conjunction}: fact before the later reference`,
+      text: `${prefix} [2024] UKSC 5, 60${factual} ${conjunction} [2023] EWCA Civ 2, 10.`,
+      values: [60],
+    },
+    {
+      name: `${conjunction}: fact after the later reference`,
+      text: `${prefix} [2024] UKSC 5, 60 ${conjunction} [2023] EWCA Civ 2, 10${factual}.`,
+      values: [10],
+    },
+    {
+      name: `${conjunction}: facts after both references`,
+      text: `${prefix} [2024] UKSC 5, 60${factual} ${conjunction} [2023] EWCA Civ 2, 10${factual}.`,
+      values: [60, 10],
+    },
+  ]);
+
+  test.each(linked)("$name", ({ text, values }) => {
+    expect(figuresInClaim(text, { language }).map((figure) => figure.value)).toEqual(values);
+  });
+});
