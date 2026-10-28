@@ -119,6 +119,22 @@ async function setup(language: "en" | "zh-CN", heard = true) {
 }
 
 for (const language of ["en", "zh-CN"] as const) {
+  test(`${language}: Not covered yet has the whole guide even outside retrieved excerpts`, async () => {
+    const { core, meeting, guide, calls, fact } = await setup(language);
+    await core.setMeetingTemplate({ meetingId: meeting.id, template: "interview" });
+    const answer = await answerOf(
+      core,
+      await core.askMeetingHelp({ meetingId: meeting.id, kind: "notCovered" }),
+    );
+    const first = calls.find((call) => call.prompt.includes("<help>"));
+    const supplied = first?.prompt.replace(
+      /<found-in-documents>[\s\S]*?<\/found-in-documents>/g,
+      "",
+    );
+    expect(supplied).toContain(fact);
+    expect(answer.citations.some((citation) => citation.documentId === guide.id)).toBe(true);
+  });
+
   for (const heard of [false, true]) {
     test(`${language}: an ordinary recap ${heard ? "with speech" : "before speech"} leaves Library facts out on ask and retry`, async () => {
       const { core, meeting, calls, fact, spoken } = await setup(language, heard);
