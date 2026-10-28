@@ -2080,6 +2080,10 @@ export const en = {
   "setup.step.useThis": "Use this",
   "setup.step.laterRecord": "Set up when I record",
   "setup.step.skip": "Skip",
+  "setup.step.skipped": "Skipped",
+  "setup.services.failed": "Couldn’t read the transcription services",
+  "setup.sorting.failed": "Couldn’t read the models that can sort",
+  "read.tryAgain": "Try again",
   "setup.step.addKey": "Add a key\u2026",
   "models.sorting.chat": "Use your AI model",
   "setup.sorting.uses": "Tags, Folders and meeting hints use this model",
@@ -2656,6 +2660,8 @@ export const en = {
   "privacy.traffic.remote-connectors": "Remote Connectors and their sign-in",
   "privacy.traffic.remote-connectors.tip":
     "Connects to your remote Connectors’ servers to list their Tools, and to the sign-in services they name. What their Tools are sent is the Connectors flow above.",
+  "privacy.runtimeFolder":
+    "Microsoft’s model runtime keeps usage data in a folder on this computer, and earlier versions of IncarnaMind may have added to it. It is safe to delete.",
   "privacy.skills.title": "Skill scripts",
   "privacy.skills.body":
     "Skill scripts run here and can send what they read. Each asks before it runs, unless you set it to Always allow.",

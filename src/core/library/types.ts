@@ -1,4 +1,9 @@
-import type { ChatModelChoice, ProviderError, TaggingState } from "../api";
+import type {
+  ChatModelChoice,
+  ExternalService,
+  ProviderError,
+  TaggingState,
+} from "../api";
 
 /** An in-app folder. The legacy Group API name keeps saved assignments compatible. */
 export interface LibraryGroup {
@@ -78,6 +83,16 @@ export type AutomaticTaggingReason =
   | "decision-models"
   | "local-chat";
 
+/**
+ * Where a choice sends its requests, as the core works it out for the data flows it registers: to
+ * a service, nowhere (it runs on this computer), or unknown, because what it names isn't there
+ * (its provider was removed, or Jev's key).
+ */
+export type TaggingDestination =
+  | { kind: "here" }
+  | { kind: "service"; service: ExternalService }
+  | { kind: "unknown" };
+
 /** What the Tagging section shows (see `CoreApi.getTaggingModels`). */
 export interface TaggingModels {
   /** What Automatic tags with now, and why; null when there is nothing it can use, so tagging waits. */
@@ -88,6 +103,8 @@ export interface TaggingModels {
   localMode: boolean;
   /** Tagging on a plan (ChatGPT's or Claude's) waits for its limit to reset, until this time (ISO 8601, UTC); null when it doesn't. */
   planPausedUntil: string | null;
+  /** The choice the User saved, with where it sends its requests; null while Automatic is the setting. */
+  saved: { classifier: TaggingClassifier; destination: TaggingDestination } | null;
 }
 
 export interface ClassificationModel {
