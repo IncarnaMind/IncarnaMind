@@ -45,6 +45,7 @@ interface Probe {
   }[];
   frames: { at: number; phase: string }[];
   marks: { name: string; at: number }[];
+  keys: { key: string; at: number; phase: string }[];
 }
 
 test("probe: a table that widens as it is written", async () => {
@@ -78,7 +79,22 @@ test("probe: a table that widens as it is written", async () => {
 
   await window.evaluate(() => {
     const holder = globalThis as unknown as { probe: Probe };
-    holder.probe = { events: [], tasks: [], loaves: [], frames: [], marks: [] };
+    holder.probe = { events: [], tasks: [], loaves: [], frames: [], marks: [], keys: [] };
+    for (const name of ["keydown", "keyup"]) {
+      globalThis.addEventListener(
+        name,
+        (event) => {
+          const target = event.target;
+          if (!(target instanceof Element) || !target.closest("[data-testid=composer]")) return;
+          holder.probe.keys.push({
+            key: `${name}:${(event as KeyboardEvent).key}`,
+            at: event.timeStamp,
+            phase: holder.probe.marks.at(-1)?.name ?? "before",
+          });
+        },
+        { capture: true, passive: true },
+      );
+    }
     const phase = () => holder.probe.marks.at(-1)?.name ?? "before";
     new PerformanceObserver((list) => {
       for (const entry of list.getEntries() as PerformanceEventTiming[]) {
@@ -209,6 +225,11 @@ test("probe: a table that widens as it is written", async () => {
       gpuCompositing: gpu.gpu_compositing,
       summary,
       marks: probe.marks.map((each) => ({ name: each.name, at: Math.round(each.at) })),
+      keys: probe.keys.map((each) => `${Math.round(each.at)} ${each.key}`),
+      events: probe.events.map(
+        (each) =>
+          `${Math.round(each.startTime)} ${Math.round(each.duration)}ms ${each.name} ${each.on}`,
+      ),
       slowEvents: probe.events
         .filter((each) => each.duration > 100)
         .map(
