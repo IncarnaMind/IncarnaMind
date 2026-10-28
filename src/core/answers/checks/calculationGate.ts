@@ -25,7 +25,12 @@ export function needsCalculation({
   const own = documentFigureContext([{ text: claim }]);
   const claimFigures = readFigures(claim, own.language ? own : { ...context, header: null });
   if (claimFigures.length === 0 && !attempted) return false;
-  if (verdict.verdict === "unsupported" && verdict.topic === "not found" && !attempted)
+  if (
+    verdict.verdict === "unsupported" &&
+    verdict.topic === "not found" &&
+    !attempted &&
+    !verdict.calculations?.length
+  )
     return false;
   const matches = (a: Pick<Figure, "value" | "unit">, b: Pick<InputNumber, "value" | "unit">) =>
     a.value === b.value &&

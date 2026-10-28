@@ -13,12 +13,16 @@ async function fixture({
   source = SOURCE,
   stated = "2.0x",
   required,
+  verdict = "supported",
+  topic = "found",
 }: {
   repair?: boolean;
   claim?: string;
   source?: string;
   stated?: string;
   required?: readonly string[];
+  verdict?: "supported" | "unsupported";
+  topic?: "found" | "not found";
 } = {}) {
   const calls: ModelCall[] = [];
   let verdicts = 0;
@@ -69,7 +73,8 @@ async function fixture({
       verdicts++;
       return {
         text: [
-          "Verdict: supported",
+          `Verdict: ${verdict}`,
+          `Topic: ${topic}`,
           "The accounts support the sentence. [^1]",
           ...(required?.map((number) => `Calculation: ${number}`) ?? []),
         ].join("\n"),
@@ -108,6 +113,16 @@ describe("a check cannot substitute a model verdict for derived arithmetic", () 
     expect(
       calls.flatMap((call) => call.results).some((result) => result.tool === "calculate"),
     ).toBe(true);
+  });
+
+  test("a declared calculation is still required when the reply says its topic was not found", async () => {
+    const { result, verdicts } = await fixture({
+      verdict: "unsupported",
+      topic: "not found",
+      required: ["2.0x"],
+    });
+    expect(result.verdict).toBe("not-checked");
+    expect(verdicts()).toBe(3);
   });
 
   test("a quoted covenant limit still needs the ratio calculated", async () => {
