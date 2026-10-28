@@ -226,7 +226,13 @@ import {
   createContextCitations,
   withoutWrittenIds,
 } from "./contextCitations";
-import { coverageInstructions, coverageOf, documentsAsked, type SizedDocument } from "./coverage";
+import {
+  coverageInstructions,
+  coverageOf,
+  documentsAsked,
+  namedCoverage,
+  type SizedDocument,
+} from "./coverage";
 import {
   documentSkimBlock,
   documentTextBlock,
@@ -1077,7 +1083,7 @@ export function createAnswers(options: AnswersOptions) {
     let { messages } = context;
     let mindRequest = input.mind?.request;
     /** It listened to a meeting's live transcript: the Question went with it. */
-    let listening = false;
+    let heard: LiveTranscript | null = null;
     /** Help asked while its Meeting's live text was behind (#1366). */
     let textBehind = false;
     /** The Documents whose whole text went with the Question; null until the assistant's request is built. */
@@ -1156,9 +1162,27 @@ export function createAnswers(options: AnswersOptions) {
       }
       return stillReadingAtEnd;
     };
+    let namedAtEnd: AnswerSteps["coverage"] | null | undefined;
+    const covered = () => {
+      if (coverage || outside || finishedAt === null) return coverage;
+      if (namedAtEnd === undefined) {
+        const { cited, passages, searched } = session.documentsRead();
+        const titles = new Map(options.documents.names().map((each) => [each.id, each.title]));
+        namedAtEnd = namedCoverage(
+          context.question,
+          cited.length > 0 ? cited : passages,
+          [...new Set([...cited, ...passages, ...searched])],
+          options.documents
+            .searchableBySize(documentIds)
+            .map((each) => ({ ...each, title: titles.get(each.id) })),
+        );
+      }
+      return namedAtEnd;
+    };
     const steps = (): AnswerSteps => {
       const summary = reasoning.trim();
       const reading = stillReading();
+      const shownCoverage = covered();
       const thoughtUntil =
         firstTextAt !== null && reasoningStartedAt !== null && firstTextAt > reasoningStartedAt
           ? firstTextAt
@@ -1196,14 +1220,14 @@ export function createAnswers(options: AnswersOptions) {
           ...(!calculating && unrunTools.includes("calculate") && { calculateUnavailable: true }),
         }),
         ...(askedAgainFor.length > 0 && { askedAgainFor: [...askedAgainFor] }),
-        ...(coverage && { coverage }),
+        ...(shownCoverage && { coverage: shownCoverage }),
         ...(writtenFrom && wroteNewText() && { writtenFrom }),
         ...(textBehind && { textBehind: true as const }),
         ...(reading && { stillReading: reading }),
         ...(sentDocuments && {
           sent: {
             documents: [...sentDocuments],
-            ...(listening && { transcript: true as const }),
+            ...(heard && transcripts.size > 0 && { transcript: true as const }),
           },
         }),
       };
@@ -1953,7 +1977,6 @@ export function createAnswers(options: AnswersOptions) {
         }
       }
       if (input.listening) {
-        let heard: LiveTranscript | null = null;
         try {
           heard = await input.listening();
         } catch (error) {
@@ -1961,6 +1984,7 @@ export function createAnswers(options: AnswersOptions) {
         }
         if (finished) return;
         const kept = newestWithin(heard?.passages ?? [], listenedTokens(prepared.window));
+        if (heard) messages = withTranscript(messages, session.show(kept));
         if (help && heard?.behind) {
           textBehind = true;
           const text = options.liveTextBehind(kept.length > 0);
@@ -1974,8 +1998,6 @@ export function createAnswers(options: AnswersOptions) {
           announce("answer.delta", { ...place, answerId, text: markdown });
         }
         if (kept.length > 0) {
-          messages = withTranscript(messages, session.show(kept));
-          listening = true;
           for (const passage of kept) transcripts.add(passage.documentId);
           callDocuments?.push(...transcripts);
           if (help) callLanguage = languageSaid(kept);
@@ -2021,6 +2043,7 @@ export function createAnswers(options: AnswersOptions) {
             withPassageNotes(show(passages), unread),
           );
         const scope =
+          (heard === null || help !== undefined || asked.each || asked.main !== null) &&
           callDocuments === null &&
           options.documents.searchableCount(documentIds) <= SMALL_SCOPE_DOCUMENTS
             ? options.documents.searchableBySize(documentIds)
@@ -2663,7 +2686,7 @@ export function createAnswers(options: AnswersOptions) {
             input.assistant && !help ? THIS_DOCUMENT_RULE : "",
             emptyMindNote(withMindTools, focusedEmpty),
             analysisInstructions(withAnalysisTools),
-            meetingInstructions(listening),
+            meetingInstructions(heard !== null),
             signInNeededInstructions(signInNeeded.map((connector) => connector.name)),
             help ? "" : language,
           ]

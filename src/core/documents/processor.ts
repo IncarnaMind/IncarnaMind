@@ -18,6 +18,7 @@ import type { TextUnit } from "../../shared/units";
 import type { LogFields, PagePicture, PictureRead, RecognizedLine } from "../adapters";
 import type { DocumentKind } from "../api";
 import type {
+  KeywordsJob,
   MetadataJob,
   MetadataResult,
   ProcessingJob,
@@ -43,6 +44,8 @@ export interface ProcessorHandlers {
   onWaiting(job: ProcessingJob): void;
   onResult(job: ProcessingJob, result: ProcessingResult): void;
   onMetadata(job: MetadataJob, result: MetadataResult): void;
+  /** A keyword job finished, or its worker crashed: the core writes what it got, if anything. */
+  onKeywords(job: KeywordsJob, result: WorkerResult): void;
   /**
    * How far a job is in reading the scanned pages of version `contentHash`:
    * `read` of `of`, and the page just read.
@@ -149,10 +152,10 @@ export function createProcessor(
     }
     // It finished before it stopped, or was cancelled: it ends here.
     if (waiting !== -1) scansWaiting.splice(waiting, 1);
-    if (job.task === "process") {
-      // The worker answers each job with a result of its kind (see `runJob`); a crash is either's.
-      call(() => handlers.onResult(job, result as ProcessingResult));
-    } else call(() => handlers.onMetadata(job, result as MetadataResult));
+    // The worker answers each job with a result of its kind (see `runJob`); a crash is any's.
+    if (job.task === "process") call(() => handlers.onResult(job, result as ProcessingResult));
+    else if (job.task === "keywords") call(() => handlers.onKeywords(job, result));
+    else call(() => handlers.onMetadata(job, result as MetadataResult));
     schedulePump();
   }
 
@@ -278,7 +281,7 @@ export function createProcessor(
   function start(queued: WorkerJob, lane: "queue" | "scan"): void {
     const id = nextId++;
     const worker = idle.pop() ?? startWorker();
-    const warm = worker.kinds.has(queued.kind);
+    const warm = queued.task === "process" && worker.kinds.has(queued.kind);
     const run: Run = {
       id,
       job: queued,
@@ -311,7 +314,7 @@ export function createProcessor(
         ...(password !== undefined && { password }),
       } satisfies WorkerRequest);
     };
-    if (job.kind !== "pdf" || !handlers.password) {
+    if (job.task !== "process" || job.kind !== "pdf" || !handlers.password) {
       send(undefined);
       return;
     }

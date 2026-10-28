@@ -1,5 +1,6 @@
 import type {
   AssignmentChange,
+  AssignmentState,
   DocumentBatch,
   DocumentGroupAssignment,
   LibraryClassifier,
@@ -14,10 +15,12 @@ import type { UiUsageEvent } from "./usageEvents";
 
 export type {
   AssignmentChange,
+  AssignmentState,
   AutomaticTaggingReason,
   ClassificationStatus,
   DocumentBatch,
   DocumentGroupAssignment,
+  DocumentTagging,
   LibraryClassifier,
   LibraryGroup,
   LibraryGroupInput,
@@ -25,6 +28,7 @@ export type {
   LibrarySnapshot,
   TaggingClassifier,
   TaggingCost,
+  TaggingDestination,
   TaggingModelGroup,
   TaggingModelOption,
   TaggingModels,
@@ -291,7 +295,7 @@ export interface MovedItem {
  * What a move did: each Mind, Document and conversation it moved, with where it
  * was. Those already in the Folder are listed too, with the Folder as `from`.
  * Undoing moves each Mind and conversation back to its `from`, and puts back
- * each Document's `previous`.
+ * each Document's `change`.
  */
 export interface FolderMove {
   folderId: string | null;
@@ -300,9 +304,9 @@ export interface FolderMove {
   conversations: MovedItem[];
 }
 
-/** A Document a move moved, with its assignment before (null: none), for `restoreAssignment`. */
+/** A Document a move moved, with its place and tagging before and after, for `restoreAssignment`. */
 export interface MovedDocument extends MovedItem {
-  previous: DocumentGroupAssignment | null;
+  change: AssignmentChange;
 }
 
 /**
@@ -2385,6 +2389,17 @@ export interface TranscriptionServiceStatus {
   hasKey: boolean;
   liveSpeakers: boolean;
   keyUrl: string | null;
+}
+
+/**
+ * The transcription services and the core's revision of what they say. The revision grows with
+ * every committed change (a key kept or forgotten, a provider saved or deleted). A list is
+ * stamped with the revision it began at, so of two answers the one to keep is the one with the
+ * higher revision, whichever was asked first.
+ */
+export interface TranscriptionServices {
+  revision: number;
+  services: TranscriptionServiceStatus[];
 }
 
 export interface SetTranscriptionKeyInput {
@@ -5758,7 +5773,10 @@ export interface AnswerSteps {
   askedAgainFor?: ClaimedTool[];
   /** Written in advance for the example (`askExampleReadyQuestion`): no model wrote it, and nothing was searched. */
   example?: true;
-  /** It covered only some of the Documents in scope, and offers the rest. Absent: all of them. */
+  /**
+   * It covered only some of the Documents in scope, or one of those a name fits, and offers the
+   * rest. Absent: all of them.
+   */
   coverage?: AnswerCoverage;
   /**
    * Documents in its Search scope were still being read (Queued or Extracting) when it ended, so
@@ -5787,12 +5805,14 @@ export interface AnswerSteps {
 
 /**
  * What an Answer covered of the Documents in scope, when not all of them: the
- * main few the Question asked for ("main"), or the largest of more than one
- * summary covers well ("largest"); by name as they were then. `rest`: the
- * others' ids, which a second Question can be asked from.
+ * main few the Question asked for ("main"), the largest of more than one
+ * summary covers well ("largest"), or the one Document it read by a name the
+ * Question gives that other Documents' names or titles have too ("named",
+ * #1512); by name as they were then. `rest`: the others' ids, which a second
+ * Question can be asked from: for "named", the others the name fits.
  */
 export interface AnswerCoverage {
-  kind: "main" | "largest";
+  kind: "main" | "largest" | "named";
   used: { id: string; name: string }[];
   rest: string[];
 }
@@ -9047,22 +9067,22 @@ export interface CoreApi {
   dismissAutomaticOffNotice(): Promise<void>;
   /**
    * A manual choice, including Not in a Folder (null), wins over in-flight classification.
-   * Returns the assignment before, for `restoreAssignment` (null: it had none).
+   * Returns the change it made, its place and tagging before and after, for `restoreAssignment`.
    */
-  assignDocumentGroup(
-    documentId: string,
-    groupId: string | null,
-  ): Promise<DocumentGroupAssignment | null>;
+  assignDocumentGroup(documentId: string, groupId: string | null): Promise<AssignmentChange>;
   /**
-   * Puts a Document's assignment back as it was (null: none), with who chose it, so an
-   * automatic choice stays automatic and Organize may change it again, and a Suggested
-   * Folder is a suggestion again, which also takes back its rejection: Organize may offer that
-   * Folder for the Document again. Other rejections stay.
+   * Puts a Document's place and tagging back as `before` had them, with who chose it, so an
+   * automatic choice stays automatic and Organize may change it again, and a Suggested Folder is
+   * a suggestion again, which also takes back its rejection: Organize may offer that Folder for
+   * the Document again. Other rejections stay. Each row goes back only while it still equals what
+   * the change left there (`after`); a later move, run or re-tag wins and that row is left alone.
+   * Returns the change it made, its real rows before and after, or null when it moved neither row.
    */
   restoreAssignment(
     documentId: string,
-    previous: Omit<DocumentGroupAssignment, "documentId"> | null,
-  ): Promise<void>;
+    before: AssignmentState,
+    after: AssignmentState,
+  ): Promise<AssignmentChange | null>;
   /**
    * Makes these Documents' Suggested Folders the User's choices, which
    * Organize never changes. Documents with none waiting are left alone; an
@@ -9081,7 +9101,7 @@ export interface CoreApi {
    * (null), all or none: an unknown Mind, Document, conversation or Folder changes
    * nothing and throws. A Document's move is a manual choice, which Organize keeps.
    * Returns where each was, for Undo: each Mind and conversation moved back to its
-   * `from`, and each Document's `previous` assignment put back with `restoreAssignment`.
+   * `from`, and each Document's `change` put back with `restoreAssignment`.
    * "minds.changed", "library.assignments" and "conversations.changed" follow, once each.
    */
   moveToFolder(move: FolderMoveInput): Promise<FolderMove>;
@@ -10162,6 +10182,14 @@ export interface CoreApi {
   listNetworkTraffic(): Promise<NetworkTraffic[]>;
   getPrivacySettings(): Promise<PrivacySettings>;
   /**
+   * The folder where Microsoft's model runtime keeps usage data, when it is there and this install
+   * is older than the build that stopped adding to it (#2145): its path, so Settings can say where
+   * it is. Null otherwise. Only whether the folder exists is looked at, never what is in it.
+   */
+  getModelRuntimeFolder(): Promise<string | null>;
+  /** Shows that folder in the file manager. Does nothing once it is gone. */
+  showModelRuntimeFolder(): Promise<void>;
+  /**
    * Changes the privacy choices on this device and returns them. Turning crash
    * reports on starts them; turning them off stops them at once. Refused if
    * this copy can't send crash reports.
@@ -10604,14 +10632,14 @@ export interface CoreApi {
   /** Deletes the Meeting's audio on this computer now; a recording goes on keeping what comes next. */
   deleteMeetingAudio(meetingId: string): Promise<Meeting>;
   /** The cloud services that can transcribe meeting audio (#141), and whether each has a key. */
-  listTranscriptionServices(): Promise<TranscriptionServiceStatus[]>;
+  listTranscriptionServices(): Promise<TranscriptionServices>;
   /**
    * Keeps a transcription service's own key (Soniox), in the keychain, once the service accepts
    * it. Throws `InvalidInputError` when it refuses the key.
    */
-  setTranscriptionKey(input: SetTranscriptionKeyInput): Promise<TranscriptionServiceStatus[]>;
+  setTranscriptionKey(input: SetTranscriptionKeyInput): Promise<TranscriptionServices>;
   /** Forgets a transcription service's own key; meeting audio is then transcribed on this computer. */
-  removeTranscriptionKey(route: CloudTranscriptionRoute): Promise<TranscriptionServiceStatus[]>;
+  removeTranscriptionKey(route: CloudTranscriptionRoute): Promise<TranscriptionServices>;
   /**
    * Whether this computer keeps up with live speech, as the last Meeting transcribed here
    * measured it; null before one has been. The speed probe (#462) will measure it sooner.
@@ -11119,6 +11147,8 @@ const methods: Record<CoreApiMethod, true> = {
   allowDataFlow: true,
   listNetworkTraffic: true,
   getPrivacySettings: true,
+  getModelRuntimeFolder: true,
+  showModelRuntimeFolder: true,
   updatePrivacySettings: true,
   recordUsage: true,
   resetUsageInstallId: true,

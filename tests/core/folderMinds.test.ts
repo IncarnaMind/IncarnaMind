@@ -5,6 +5,7 @@ import {
   type Core,
   DATABASE_FILE,
   type Document,
+  type DocumentGroupAssignment,
   InvalidInputError,
   type Mind,
   NotFoundError,
@@ -23,6 +24,10 @@ import { type ModelCall, scriptedModel } from "../helpers/models";
  * Folder's Minds go to Not in a Folder, and its name is kept for the Search
  * scopes that name it.
  */
+
+/** An assignment as a change carries it: its own fields, without its Document or tagging row. */
+const fieldsOf = ({ documentId: _id, tagging: _tagging, ...fields }: DocumentGroupAssignment) =>
+  fields;
 
 const FILES = [
   { name: "Harbour.txt", contents: "Harbour tides rise twice a day along the quay.\n" },
@@ -121,16 +126,20 @@ describe("A Mind in a Folder", () => {
       folderId: finance.id,
     });
 
-    // Where each was, for Undo.
-    expect(move).toEqual({
-      folderId: finance.id,
-      minds: [{ id: mind.id, from: null }],
-      documents: [
-        { id: id("Moon"), from: research.id, previous: filed },
-        { id: id("Harbour"), from: null, previous: null },
-      ],
-      conversations: [],
-    });
+    // Where each was, for Undo: its assignment and the Document's own tagging row where it moved.
+    if (!filed) throw new Error("No filed Document.");
+    const [moon, harbour] = move.documents;
+    if (!moon || !harbour) throw new Error("Not moved.");
+    expect(move.folderId).toBe(finance.id);
+    expect(move.minds).toEqual([{ id: mind.id, from: null }]);
+    expect(move.conversations).toEqual([]);
+    expect(moon.from).toBe(research.id);
+    expect(moon.change.before.assignment).toEqual(fieldsOf(filed));
+    expect(moon.change.before.tagging).toBeNull();
+    expect(moon.change.after.assignment).toMatchObject({ groupId: finance.id, source: "user" });
+    expect(moon.change.after.tagging).toBeNull();
+    expect(harbour.from).toBeNull();
+    expect(harbour.change.before.assignment).toBeNull();
     expect((await core.listMinds())[0]?.folderId).toBe(finance.id);
     // One event of each, whatever the number moved.
     expect(changes).toHaveLength(1);
@@ -146,7 +155,7 @@ describe("A Mind in a Folder", () => {
     // Undo: each back where it was, as it was.
     await core.moveToFolder({ mindIds: [mind.id], folderId: null });
     for (const document of move.documents)
-      await core.restoreAssignment(document.id, document.previous);
+      await core.restoreAssignment(document.id, document.change.before, document.change.after);
     expect((await core.listMinds())[0]?.folderId).toBeNull();
     expect((await core.getLibrary()).assignments).toEqual([filed]);
   });

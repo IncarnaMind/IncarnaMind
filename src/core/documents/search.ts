@@ -1,9 +1,10 @@
 /**
  * Searching Passages (ADR-0009). Keyword search runs FTS5 over each Passage's
- * segmented words (see ./keywords); vector search scans the in-memory vectors
- * (see ./vectors); hybrid search fuses the two by reciprocal rank fusion,
- * counting a Passage with no vector by its keyword rank for both. While
- * embeddings are off (the default), hybrid search is keyword search. The
+ * segmented words (see ./keywords), with its Document's name match added from
+ * an index of the names, one row a Document (#2042); vector search scans the
+ * in-memory vectors (see ./vectors); hybrid search fuses the two by reciprocal
+ * rank fusion, counting a Passage with no vector by its keyword rank for both.
+ * While embeddings are off (the default), hybrid search is keyword search. The
  * search Tool (#30) and Search scopes (#36) build on these.
  */
 import type { DocumentKind, DocumentTextMatch, PassageSearchResult } from "../api";
@@ -24,7 +25,25 @@ const scopeClause = (documentIds: readonly string[] | undefined) =>
 const scopeParams = (documentIds: readonly string[] | undefined) =>
   documentIds ? [JSON.stringify(documentIds)] : [];
 
-/** The `seq`s of the live Passages that best match the query's words, best first. */
+/**
+ * What a Document's name match adds to each of its Passages' keyword scores:
+ * one weight, on the name's own BM25, whose document frequency counts
+ * Documents (#2042). Tuned on the retrieval evaluation's gating set and the
+ * hard tier together: high enough that a query naming a Document still finds
+ * its Passages, low enough that a generic name word (report, annual) doesn't
+ * lift that Document's Passages above the ones that say what was asked.
+ */
+export const DOCUMENT_NAME_WEIGHT = 1;
+
+/**
+ * The `seq`s of the live Passages that best match the query's words, best
+ * first: those whose own words match, each scored by them and by its
+ * Document's name, then those of a Document whose name matches, which their
+ * Document's name alone finds. The name is scored apart, from its own index,
+ * where a word of it counts its Document once: in every Passage's row a word
+ * of a long Document's name counted once a Passage, and its document
+ * frequency grew with the Document's length (#2042).
+ */
 export function keywordSearch(
   db: Database,
   query: string,
@@ -33,19 +52,53 @@ export function keywordSearch(
 ): number[] {
   const match = keywordQuery(query);
   if (!match) return [];
-  return db
-    .all<{ seq: number }>(
-      `SELECT p.seq
-       FROM passages_fts
-       JOIN passages p ON p.seq = passages_fts.rowid
-       JOIN documents d ON d.id = p.document_id
-       WHERE passages_fts MATCH ? AND p.deleted_at IS NULL AND d.deleted_at IS NULL
-         ${scopeClause(documentIds)}
-       ORDER BY bm25(passages_fts), p.position, p.seq
-       LIMIT ?`,
-      [match, ...scopeParams(documentIds), BigInt(limit)],
-    )
-    .map((row) => row.seq);
+  // One query over the names, which holds one row a Document, then a lookup a Passage:
+  // joining the index once a Passage made every search pay for the name's statistics
+  // once a Passage, which is the cost this design removes (#2042).
+  const nameScores = new Map(
+    db
+      .all<{ documentId: string; score: number }>(
+        `SELECT document_id AS documentId, bm25(document_names_fts) AS score
+         FROM document_names_fts WHERE document_names_fts MATCH ?`,
+        [match],
+      )
+      .map((row) => [row.documentId, row.score]),
+  );
+  const nameScore = (documentId: string) =>
+    DOCUMENT_NAME_WEIGHT * (nameScores.get(documentId) ?? 0);
+  // A Passage's best score: the fewer, the better, as bm25() gives it.
+  const best = new Map<number, { position: number; score: number }>();
+  const add = (seq: number, position: number, score: number) => {
+    const known = best.get(seq);
+    if (!known || score < known.score) best.set(seq, { position, score });
+  };
+  for (const row of db.all<{ seq: number; documentId: string; position: number; score: number }>(
+    `SELECT p.seq, p.document_id AS documentId, p.position, bm25(passages_fts) AS score
+     FROM passages_fts
+     JOIN passages p ON p.seq = passages_fts.rowid
+     JOIN documents d ON d.id = p.document_id
+     WHERE passages_fts MATCH ? AND p.deleted_at IS NULL AND d.deleted_at IS NULL
+       ${scopeClause(documentIds)}`,
+    [match, ...scopeParams(documentIds)],
+  )) {
+    add(row.seq, row.position, row.score + nameScore(row.documentId));
+  }
+  if (nameScores.size > 0) {
+    for (const row of db.all<{ seq: number; documentId: string; position: number }>(
+      `SELECT p.seq, p.document_id AS documentId, p.position
+       FROM passages p JOIN documents d ON d.id = p.document_id
+       WHERE p.document_id IN (SELECT value FROM json_each(?))
+         AND p.deleted_at IS NULL AND d.deleted_at IS NULL
+         ${scopeClause(documentIds)}`,
+      [JSON.stringify([...nameScores.keys()]), ...scopeParams(documentIds)],
+    )) {
+      add(row.seq, row.position, nameScore(row.documentId));
+    }
+  }
+  return [...best.entries()]
+    .sort((a, b) => a[1].score - b[1].score || a[1].position - b[1].position || a[0] - b[0])
+    .slice(0, limit)
+    .map(([seq]) => seq);
 }
 
 /** How many of a Document's best Passages a text search looks at for one that holds the words. */
@@ -55,8 +108,8 @@ const PASSAGES_PER_DOCUMENT = 3;
  * The live Documents, not missing, whose Passages hold every word of the
  * query, the last letters of each still to type, best first, each with its
  * best Passage that holds one of them in its text: a word only in a
- * Document's name, which the index holds with each Passage, doesn't count.
- * See `CoreApi.searchDocumentText`.
+ * Document's name, which has an index of its own, doesn't count. See
+ * `CoreApi.searchDocumentText`.
  */
 export function textSearch(
   db: Database,
