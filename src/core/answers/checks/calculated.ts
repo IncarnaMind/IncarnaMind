@@ -169,6 +169,8 @@ export function agreesAtShownPrecision(
   figure: Pick<CalculatedFigure, "value" | "unit" | "inputs" | "formula">,
   { relation, costs = new Set() }: { relation?: LimitRelation; costs?: ReadonlySet<string> } = {},
 ): boolean | null {
+  // "about £130m" is rounded to its last significant figure, looser than its shown places.
+  if (stated.approximate) return agreesWith(stated, figure, { relation, costs });
   const value = comparisonValue(stated, figure, { relation, costs });
   if (value === null || !Number.isFinite(value)) return null;
   if (relation === "at most") return value <= stated.value;

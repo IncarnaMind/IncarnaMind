@@ -176,9 +176,16 @@ export function writtenLike(like: Figure, value: number, decimals: number): stri
   })
     .format(amount)
     .replace(/[,.]/g, (mark) => (comma ? (mark === "," ? "." : ",") : mark));
-  if (!digits) return number;
+  // The value keeps its own sign, written as the note writes a negative: brackets or a minus.
+  const signed = (text: string) =>
+    value >= 0
+      ? text
+      : /^[(（]/.test(like.chars) && like.value < 0
+        ? `(${text})`
+        : `${/^[-−]/.exec(like.chars)?.[0] ?? "−"}${text}`;
+  if (!digits) return signed(number);
   const around = like.chars.replace(/^[(\-−+]|[)]$/g, "");
-  return around.replace(DIGITS, number);
+  return signed(around.replace(DIGITS, number));
 }
 
 /** How many decimals `read` carries once written at the scale of `like`. */
@@ -228,7 +235,7 @@ export function differenceText(row: FigureScheduleRow, language: Language): stri
         maximumFractionDigits: decimals,
       }).format(Math.abs(row.difference) * 100)}`,
     });
-  return `${sign}${writtenLike(row.reading, row.difference, decimals)}`;
+  return `${sign}${writtenLike(row.reading, Math.abs(row.difference), decimals)}`;
 }
 
 export type ScheduleGlyph = "supported" | "look" | "recheck" | "not-checked" | "kept";

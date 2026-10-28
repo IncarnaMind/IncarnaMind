@@ -424,6 +424,10 @@ test("a row shows its source value and difference in the note's own terms", () =
   expect(differenceText(at("3.1×", "3.3×"), "en")).toBe("−0.2×");
   expect(differenceText(at("£20", "£20"), "en")).toBeNull();
   expect(writtenLike(pounds("1.2亿元"), 125_000_000, 2)).toBe("1.25亿元");
+  // A source's sign is its own, written as the note writes a negative.
+  expect(sourceValueText(at("£130m", "−£131m"))).toBe("−£131m");
+  expect(sourceValueText(at("-£130m", "-£131m"))).toBe("-£131m");
+  expect(sourceValueText(at("−£130m", "£131m"))).toBe("£131m");
 });
 
 test("a total that agrees with its source but doesn't add up names both facts and the row the table leaves out", async () => {
