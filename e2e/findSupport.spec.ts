@@ -1,7 +1,7 @@
 import { writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { type ElectronApplication, expect, type Locator, type Page, test } from "@playwright/test";
-import type { CoreBridge } from "../src/core/api";
+import type { CoreBridge, ReferencePatch } from "../src/core/api";
 import { buildPdf } from "../tests/helpers/pdf";
 import { paragraph, run, tracked, wordFile } from "../tests/helpers/word";
 import {
@@ -10,6 +10,7 @@ import {
   checkCard,
   createDataFolder,
   dismissChatSetup,
+  documentIdOf,
   importWordFromMenu,
   interceptOpenDialog,
   launchApp,
@@ -93,6 +94,26 @@ async function checkAll(window: Page, line: Locator, first: string, last: string
 
 const marks = (window: Page) => window.getByTestId("claim-mark");
 
+/** A journal article's record, as its Cite as panel would set it: a paper, so the Mind cites a work. */
+const PAPER_RECORD: ReferencePatch = {
+  type: "article-journal",
+  title: "Tides and the Moon",
+  authors: [{ family: "Bowler", given: "Diana E." }],
+  issued: "2010",
+  containerTitle: "Ocean Review",
+};
+
+/** Sets a Document's reference record, as its "Cite as" panel would. */
+const setRecord = (window: Page, documentId: string, patch: ReferencePatch) =>
+  window.evaluate(
+    ([id, fields]) =>
+      (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind.updateReference(
+        id,
+        fields,
+      ),
+    [documentId, patch] as const,
+  );
+
 test("Check against Documents on two sentences with no Citation: one is supported and its Citation is added, the other is marked unsupported", async () => {
   const { app, window } = await launchWithTides();
   await useLocalChatModel(window);
@@ -109,7 +130,7 @@ test("Check against Documents on two sentences with no Citation: one is supporte
   const unsupported = marks(window).and(window.locator('[data-check="unsupported"]'));
   await expect(supported).toHaveAttribute("data-addable", "true");
   await expect(supported).toHaveAccessibleName("Sentence check: Supported");
-  await expect(unsupported).toHaveAccessibleName("Sentence check: Unsupported");
+  await expect(unsupported).toHaveAccessibleName("Sentence check: Needs a look · Not found");
   // Each mark sits in the margin, right of the text, the first above the second.
   const lineBox = await line.boundingBox();
   const supportedBox = await supported.boundingBox();
@@ -119,17 +140,17 @@ test("Check against Documents on two sentences with no Citation: one is supporte
   // The unsupported sentence is washed; the badge's card counts both.
   await expect(line.locator(".claim-wash--unsupported")).toHaveText(UNSUPPORTED);
   await expect((await checkCard(window)).getByTestId("health-unsupported")).toContainText(
-    "1 unsupported",
+    "1 claim needs a look",
   );
   await expect((await checkCard(window)).getByTestId("health-noCitation")).toContainText(
-    "1 with no Citation",
+    "1 claim with no Citation",
   );
   await screenshot(window, "check-results-en");
 
   // The unsupported sentence's card says where it looked.
   await pointAndClick(window, unsupported);
   const card = window.getByTestId("claim-card");
-  await expect(card.getByTestId("claim-badge")).toHaveText("Unsupported");
+  await expect(card.getByTestId("claim-badge")).toHaveText("Needs a look · Not found");
   await expect(card.getByTestId("claim-nothing")).toHaveText(
     "I didn’t find this in “All Documents”.",
   );
@@ -177,9 +198,42 @@ test("Check against Documents on two sentences with no Citation: one is supporte
   await pointAndClick(window, card.getByTestId("claim-check-again"));
   await expect(marks(window)).toHaveAttribute("data-check", "unsupported");
   await expect((await checkCard(window)).getByTestId("health-unsupported")).toContainText(
-    "1 unsupported",
+    "1 claim needs a look",
   );
   await expect(editor).toContainText("Gulls nest on the harbour cliffs.");
+});
+
+test("Find sources… waits in the card's ⋯, and is a button only in a Mind that cites a paper or book", async () => {
+  const { app, window } = await launchWithTides();
+  await useLocalChatModel(window);
+  const { line } = await mindWithSentences(window, [SUPPORTED, UNSUPPORTED]);
+  await setRecord(window, await documentIdOf(window, "Tides"), PAPER_RECORD);
+  await setWindowSize(app, window, 1440, 900);
+  await checkAll(window, line, "Spring tides", "harbour cliffs.", "check-against-documents");
+  await expect(marks(window)).toHaveCount(2);
+  const supported = marks(window).and(window.locator('[data-check="supported"]'));
+  const unsupported = marks(window).and(window.locator('[data-check="unsupported"]'));
+  const card = window.getByTestId("claim-card");
+
+  // Before the Mind cites the paper, Find sources is only in the ⋯.
+  await pointAndClick(window, unsupported);
+  await expect(card.getByTestId("claim-find-sources")).toHaveCount(0);
+  await pointAndClick(window, card.getByTestId("check-menu"));
+  await expect(card.getByTestId("check.findSources")).toBeVisible();
+  await window.keyboard.press("Escape");
+  await window.keyboard.press("Escape");
+  await expect(card).toBeHidden();
+
+  // A Citation of the paper makes the Mind one that cites a work.
+  await pointAndClick(window, supported);
+  await pointAndClick(window, card.getByTestId("claim-add-citation"));
+  await expect(line.getByTestId("citation")).toHaveAttribute("data-check", "found");
+  await pointAndClick(window, unsupported);
+  await expect(card.getByTestId("claim-find-sources")).toBeVisible();
+  await expect(card.getByTestId("claim-find-sources")).toHaveText("Find sources");
+  await pointAndClick(window, card.getByTestId("check-menu"));
+  await expect(card.getByTestId("check.findSources")).toBeVisible();
+  await app.close();
 });
 
 test("The selection menu has one check, Check against Documents, and no Find support", async () => {
@@ -219,7 +273,7 @@ test("a card opened while its sentence is still checking stays open when the res
   await expect(unsupported).toHaveCount(1);
   await expect(card).toBeVisible();
   await expect(card).toHaveAttribute("data-check", "unsupported");
-  await expect(card.getByTestId("claim-badge")).toHaveText("Unsupported");
+  await expect(card.getByTestId("claim-badge")).toHaveText("Needs a look · Not found");
   await expect(card.getByTestId("claim-nothing")).toHaveText(
     "I didn’t find this in “All Documents”.",
   );
@@ -229,7 +283,7 @@ test("a card opened while its sentence is still checking stays open when the res
   await expect(card).toHaveCount(0);
   await pointAndClick(window, unsupported);
   await expect(card).toHaveAttribute("data-check", "unsupported");
-  await expect(card.getByTestId("claim-badge")).toHaveText("Unsupported");
+  await expect(card.getByTestId("claim-badge")).toHaveText("Needs a look · Not found");
   await window.keyboard.press("Escape");
   await expect(card).toHaveCount(0);
   await app.close();
@@ -257,14 +311,15 @@ test("In Chinese and a narrow window: Check against Documents marks a contradict
   const contradicted = marks(window).and(window.locator('[data-check="contradicted"]'));
   const notChecked = marks(window).and(window.locator('[data-check="not-checked"]'));
   await expect(contradicted).toBeVisible();
-  await expect(notChecked).toBeVisible();
+  // A sentence not checked yet has no mark on the page; its card opens from the row.
+  await expect(notChecked).toBeHidden();
   // In a narrow Mind the marks keep to the gutter right of the text.
   const lineBox = await line.boundingBox();
   const markBox = await contradicted.boundingBox();
   expect(markBox?.x ?? 0).toBeGreaterThanOrEqual((lineBox?.x ?? 0) + (lineBox?.width ?? 0));
   await expect(line.locator(".claim-wash--contradicted")).toHaveText(CONTRADICTED);
   await expect((await checkCard(window)).getByTestId("health-contradicted")).toContainText(
-    "1 条与文档矛盾",
+    "1 条说法与文档矛盾",
   );
   await expect((await checkCard(window)).getByTestId("health-toCheck")).toContainText(
     "1 条说法待核对",
@@ -276,7 +331,7 @@ test("In Chinese and a narrow window: Check against Documents marks a contradict
 
   await pointAndClick(window, contradicted);
   const card = window.getByTestId("claim-card");
-  await expect(card.getByTestId("claim-badge")).toHaveText("与文档矛盾");
+  await expect(card.getByTestId("claim-badge")).toHaveText("需要留意：与文档矛盾");
   await expect(card.getByTestId("claim-says")).toContainText(
     "Harbours publish the times of high water every 12 months.",
   );
@@ -286,7 +341,7 @@ test("In Chinese and a narrow window: Check against Documents marks a contradict
   await screenshot(window, "check-contradicted-card-zh-narrow");
   await window.keyboard.press("Escape");
 
-  await pointAndClick(window, notChecked);
+  await pointAndClick(window, (await checkCard(window)).getByTestId("health-toCheck"));
   await expect(card.getByTestId("claim-reason")).toHaveText("模型的回复是空的。");
   await expect(card.getByTestId("claim-check-again")).toHaveText("重新核对");
 
@@ -337,7 +392,7 @@ test("A figure the Documents don't state is worked out from theirs: a wrong mult
 
   await pointAndClick(window, contradicted);
   const card = window.getByTestId("claim-card");
-  await expect(card.getByTestId("claim-badge")).toHaveText("Contradicted");
+  await expect(card.getByTestId("claim-badge")).toHaveText("Needs a look · Contradicted");
   const working = card.getByTestId("claim-working");
   await expect(working).toContainText("Calculated from your Documents");
   await expect(working.getByTestId("claim-figure")).toHaveText("$1,234m ÷ $942m = 1.31x");

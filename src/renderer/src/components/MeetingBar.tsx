@@ -42,7 +42,8 @@ export function MeetingBar({ meeting, children }: { meeting: Meeting; children?:
     <section
       data-testid="meeting-bar"
       data-status={meeting.status}
-      aria-label={t("meetings.bar.label")}
+      data-kind={meeting.kind}
+      aria-label={t(meeting.kind === "memo" ? "memos.bar.label" : "meetings.bar.label")}
       className="meeting-bar"
     >
       <MeetingControls meeting={meeting} />
@@ -65,13 +66,15 @@ export function MeetingBarRoom({ meeting }: { meeting: Meeting }) {
 /**
  * The live-recording dot (red, the one red outside Citation checks; grey
  * while paused), "Recording 24:16" (or "Paused") with its level bars, Pause my mic, Pause or
- * Resume and Stop. ⌘⇧P is the "meeting.pauseResume" command's (../commands/meetings).
+ * Resume and Stop. ⌘⇧P is the "meeting.pauseResume" command's (../commands/meetings). A voice
+ * memo's reads "Voice memo 00:42", with Pause and Stop only: it has no call's parts (#1568).
  */
 function MeetingControls({ meeting }: { meeting: Meeting }) {
   const t = useT();
   const time = clockTime(useMeetingTime(meeting));
   const { pause, resume, stop } = useMeetings.getState();
   const recording = meeting.status === "recording";
+  const memo = meeting.kind === "memo";
   const toggle = () => void (recording ? pause(meeting.id) : resume(meeting.id));
   const shortcut = shortcutLabel("meeting.pauseResume");
   const markShortcut = shortcutLabel("meeting.mark");
@@ -85,19 +88,27 @@ function MeetingControls({ meeting }: { meeting: Meeting }) {
           data-status={meeting.status}
           className="recording-dot"
         />
-        <span className="font-semibold">
-          {t(recording ? "meetings.bar.recording" : "meetings.bar.paused")}
+        <span data-testid="meeting-state" className="font-semibold">
+          {t(
+            !recording
+              ? "meetings.bar.paused"
+              : memo
+                ? "memos.bar.recording"
+                : "meetings.bar.recording",
+          )}
         </span>
         <span role="timer" data-testid="meeting-time" className="meeting-time">
           {time}
         </span>
         <LevelBars meeting={meeting} />
       </span>
-      <MicrophoneButton
-        meeting={meeting}
-        testId="meeting-mic"
-        className="meeting-button meeting-button--icon"
-      />
+      {!memo && (
+        <MicrophoneButton
+          meeting={meeting}
+          testId="meeting-mic"
+          className="meeting-button meeting-button--icon"
+        />
+      )}
       <button
         type="button"
         data-testid={recording ? "meeting-pause" : "meeting-resume"}
@@ -123,25 +134,29 @@ function MeetingControls({ meeting }: { meeting: Meeting }) {
         <StopLineIcon className="size-3.5" />
         <span className="meeting-button-word">{t("meetings.bar.stop")}</span>
       </button>
-      <button
-        type="button"
-        data-testid="meeting-mark"
-        data-fold="mark"
-        disabled={!recording}
-        aria-label={t("meetings.mark.title", { shortcut: markShortcut })}
-        title={t(recording ? "meetings.mark.title" : "meetings.command.markPaused", {
-          shortcut: markShortcut,
-        })}
-        onClick={() => void commands.run("meeting.mark")}
-        className="meeting-button meeting-button--words"
-      >
-        <BookmarkLineIcon className="size-3.5" />
-        <span className="meeting-button-word">{t("meetings.mark")}</span>
-      </button>
-      <CallHelpToggle />
-      <TranscriptToggle meeting={meeting} />
-      <CaptureDetailsToggle meeting={meeting} />
-      <BarMore />
+      {!memo && (
+        <>
+          <button
+            type="button"
+            data-testid="meeting-mark"
+            data-fold="mark"
+            disabled={!recording}
+            aria-label={t("meetings.mark.title", { shortcut: markShortcut })}
+            title={t(recording ? "meetings.mark.title" : "meetings.command.markPaused", {
+              shortcut: markShortcut,
+            })}
+            onClick={() => void commands.run("meeting.mark")}
+            className="meeting-button meeting-button--words"
+          >
+            <BookmarkLineIcon className="size-3.5" />
+            <span className="meeting-button-word">{t("meetings.mark")}</span>
+          </button>
+          <CallHelpToggle />
+          <TranscriptToggle meeting={meeting} />
+          <CaptureDetailsToggle meeting={meeting} />
+          <BarMore />
+        </>
+      )}
     </div>
   );
 }

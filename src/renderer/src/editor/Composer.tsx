@@ -11,7 +11,6 @@ import {
 } from "react";
 import type * as Y from "yjs";
 import type { AnswerPlace, SearchScope } from "../../../core/api";
-import { setMindScope } from "../../../shared/mindScope";
 import { mindName } from "../../../shared/naming";
 import {
   chosenScope,
@@ -51,9 +50,10 @@ import { type Dragged, type Dropped, useDropTarget } from "../dragDrop";
 import { editFromComposer, stopEditing, useEdits } from "../editWithAi";
 import { errorMessage } from "../errors";
 import { useT } from "../i18n";
-import { useScopeBefore } from "../keptScope";
+import { useCitedScopeDocument, useScopeBefore } from "../keptScope";
 import { modelInUseOf, useModelInUse } from "../modelInUse";
 import { newNoteTitle } from "../newNoteRequest";
+import { useCitedSource } from "../openCited";
 import {
   cancelResearch,
   changePlan,
@@ -74,7 +74,7 @@ import { AnswerAnnouncer } from "./AnswerAnnouncer";
 import { AskedQuoteChips } from "./AskedQuotes";
 import { AskProblem } from "./AskProblem";
 import { EditStatus } from "./EditStatus";
-import { AskArrowIcon, CollapseIcon, ExpandIcon, RemoveIcon } from "./icons";
+import { AskArrowIcon, CollapseIcon, ExpandIcon, RemoveIcon, TableIcon } from "./icons";
 import { ModelChip } from "./ModelChip";
 import { useMindSelection } from "./mindSelection";
 import { PasteChip, usePasteLabel } from "./PasteChip";
@@ -146,18 +146,23 @@ export function Composer({
   const t = useT();
   const mindId = mind?.mindId ?? null;
   const key = mindId ?? NO_MIND;
+  const citedSource = useCitedSource();
+  const source = mind === null ? citedSource : null;
+  const scopeKey = source?.mindId ?? key;
+  const { doc: scopeDoc, setScope } = useCitedScopeDocument(source, mind?.doc ?? null);
   const draft = useComposer((state) => state.drafts[key]) ?? EMPTY;
+  const scopeDraft = useComposer((state) => state.drafts[scopeKey]) ?? EMPTY;
   // The Mind's Folder: its own Search scope while it holds a Document, and where its new notes go.
   const folderId = useAppStore(
-    (state) => state.minds.find((each) => each.id === mindId)?.folderId ?? null,
+    (state) => state.minds.find((each) => each.id === (source?.mindId ?? mindId))?.folderId ?? null,
   );
   const folderHolds = useFolderHoldsDocuments(folderId);
-  const before = useScopeBefore(mind?.doc ?? null);
+  const before = useScopeBefore(scopeDoc);
   const folderName = useAppStore(
     (state) => state.library?.groups.find((each) => each.id === folderId)?.name ?? null,
   );
   // What the chips show: what the core will search (#1359). Asking sends `composerScope`.
-  const scope = mindSearchScope(draft.scope, folderId, folderHolds);
+  const scope = mindSearchScope(scopeDraft.scope, folderId, folderHolds);
   // The Mind in focus changes under the one composer: what was typed with no Mind goes with the
   // User into the Mind that opens, whose draft is empty, and the quotes waiting with it go
   // whatever that draft holds; the rest of its state starts over.
@@ -216,8 +221,9 @@ export function Composer({
   /** The selection the composer is saying what to change in (Edit with AI…, ⌘J with a selection). */
   const editing = useEdits((state) => state.editing[key]);
   /** The Research plan open in the tray (#130): what is typed changes it. */
-  const plan = useResearch((state) => (mindId ? state.plans[mindId] : undefined));
-  const researching = mind !== null && draft.research === true;
+  const plan = useResearch((state) => state.plans[key]);
+  const researching = draft.research === true;
+  const analysing = draft.analyse === true && !researching;
   /** Tell it… (#130): the running Task what is typed goes to. */
   const told = useTasks((state) => (draft.tell ? state.tasks[draft.tell] : undefined));
   const target = mind && tellable(told) ? told : undefined;
@@ -236,8 +242,15 @@ export function Composer({
   });
 
   const update = (change: Partial<Draft>) => {
-    useComposer.getState().update(key, change);
-    if (mind && change.scope !== undefined) setMindScope(mind.doc, change.scope);
+    const composer = useComposer.getState();
+    if (change.scope !== undefined && scopeKey !== key) {
+      const { scope, ...rest } = change;
+      if (Object.keys(rest).length > 0) composer.update(key, rest);
+      composer.update(scopeKey, { scope });
+    } else {
+      composer.update(key, change);
+    }
+    if (change.scope !== undefined) setScope(change.scope);
   };
   /** Keeps the scope the User chose; the Mind's own follows it to another Folder. */
   const updateScope = (next: SearchScope) => update({ scope: chosenScope(next, folderId) });
@@ -302,8 +315,6 @@ export function Composer({
     const from = at - query.length - 1;
     if (dismissed.current === from) return null;
     const kind = match[1] === "@" ? "scope" : "skill";
-    // A slash is just a slash while there is nothing to choose: no Skill, and no Mind to research for.
-    if (kind === "skill" && enabledSkills.length === 0 && !mind) return null;
     return { kind, query, from, to: at };
   };
 
@@ -392,7 +403,12 @@ export function Composer({
 
   /** Research…: what is typed next is a topic (#130). */
   const chooseResearch = () => {
-    update({ research: true, skill: null, ...(picking && { text: withoutTyped(picking) }) });
+    update({
+      research: true,
+      skill: null,
+      analyse: false,
+      ...(picking && { text: withoutTyped(picking) }),
+    });
     useAnswers.getState().dismiss(composerKey(mindId));
     setPicking(null);
     field.current?.focus();
@@ -476,13 +492,14 @@ export function Composer({
         name: first.trim().slice(0, 60) || t("composer.paste.name"),
         text: paste.text,
       });
-      const now = useComposer.getState().draft(key);
-      const nowScope = mindSearchScope(now.scope, folderId, folderHolds);
+      const composer = useComposer.getState();
+      const now = composer.draft(key);
+      const nowScope = mindSearchScope(composer.draft(scopeKey).scope, folderId, folderHolds);
       const ids = scopeIds(nowScope, "document");
       update({
         pastes: now.pastes.filter((each) => each.id !== paste.id),
         scope: ids.includes(saved.id)
-          ? now.scope
+          ? composer.draft(scopeKey).scope
           : chosenScope({ ...nowScope, documentIds: [...ids, saved.id] }, folderId),
       });
     } catch {
@@ -494,7 +511,9 @@ export function Composer({
   /** Asks what is in the composer, or `said`: what ⌘K's "Ask about…" asks, leaving the draft as it is. */
   const ask = async (said?: string) => {
     // As it is now, not as it was drawn: "Ask without it" has just taken the Skill off.
-    const current = useComposer.getState().draft(key);
+    const composer = useComposer.getState();
+    const current = composer.draft(key);
+    const currentScopeDraft = composer.draft(scopeKey);
     if (said === undefined && mind && useEdits.getState().editing[mind.mindId]) {
       // What to change in the selected text: it comes back as changes in the note.
       if (
@@ -520,19 +539,21 @@ export function Composer({
       }
       return;
     }
-    if (mind && (plan || current.research)) {
+    if (plan || current.research) {
       const topic = current.text.trim();
       if (!topic) return;
       update({ text: "", research: false });
-      if (plan) void changePlan(mind.mindId, topic, modelInUseOf(mind.doc));
-      else openResearch(mind.mindId, topic, modelInUseOf(mind.doc), webReach === "ready");
+      if (plan) void changePlan(key, topic, modelInUseOf(mind?.doc ?? null));
+      else openResearch(key, topic, modelInUseOf(mind?.doc ?? null), webReach === "ready");
       return;
     }
     // An Answer is being written, or its Question is on its way: Enter waits for it, as in
     // ChatGPT and Claude, so a second press never asks the Question twice. The button is Stop.
     if (answerBeingWritten() !== null) return;
     const draft =
-      said === undefined ? current : { ...current, text: said, pastes: [], skill: null };
+      said === undefined
+        ? current
+        : { ...current, text: said, pastes: [], skill: null, analyse: false };
     const typed = draft.text.trim();
     // What is pasted, in chips, goes with the words typed.
     const text = [typed, ...draft.pastes.map((paste) => paste.text.trim())]
@@ -545,14 +566,15 @@ export function Composer({
       update({ text: "" });
       void useAppStore.getState().createMind({
         title,
-        folderId: filingFolder(composerScope(current, folderId), folderId),
+        folderId: filingFolder(composerScope(currentScopeDraft, folderId), folderId),
       });
       return;
     }
     useAnswers.getState().dismiss(composerKey(mindId));
     // Words asked from ⌘K go alone: the draft, its chips too, stays for the User.
     const quotes = said === undefined ? (current.quotes ?? []) : [];
-    if (said === undefined) update({ text: "", skill: null, pastes: [], quotes: [] });
+    if (said === undefined)
+      update({ text: "", skill: null, pastes: [], quotes: [], analyse: false });
     setExpanded(false);
     setViewing(null);
     setPicking(null);
@@ -561,9 +583,10 @@ export function Composer({
       mindId,
       text,
       focus: selection.focus(),
-      scope: composerScope(current, folderId),
+      scope,
       model: modelInUseOf(mind?.doc ?? null),
       forcedSkill: draft.skill,
+      ...(draft.analyse && { analyse: true }),
       quotes,
     });
     if (asked) {
@@ -575,7 +598,13 @@ export function Composer({
     const now = useComposer.getState().draft(key);
     const back = withQuotes(quotes, now.quotes ?? []);
     if (now.text === "" && now.pastes.length === 0) {
-      update({ text: typed, pastes: draft.pastes, skill: now.skill ?? draft.skill, quotes: back });
+      update({
+        text: typed,
+        pastes: draft.pastes,
+        skill: now.skill ?? draft.skill,
+        analyse: now.analyse || draft.analyse,
+        quotes: back,
+      });
     } else if (quotes.length > 0) {
       update({ quotes: back });
     }
@@ -628,9 +657,9 @@ export function Composer({
       void ask();
       return;
     }
-    if (event.key === "Enter" && isCommand(event) && plan && mind) {
+    if (event.key === "Enter" && isCommand(event) && plan) {
       event.preventDefault();
-      void startResearch(mind.mindId, modelInUseOf(mind.doc));
+      void startResearch(key, modelInUseOf(mind?.doc ?? null));
       return;
     }
     // The waiting ask in the tray, nearest the keyboard: ⌘↵ allows, ⌘⌫ (with nothing typed) denies.
@@ -671,15 +700,20 @@ export function Composer({
       setTellProblem(null);
       return;
     }
-    if (event.key === "Escape" && plan && mind) {
+    if (event.key === "Escape" && plan) {
       event.preventDefault();
-      cancelResearch(mind.mindId);
+      cancelResearch(key);
       return;
     }
     if (event.key === "Escape" && researching) {
       // Back to asking; the next Esc is the assistant's.
       event.preventDefault();
       update({ research: false });
+      return;
+    }
+    if (event.key === "Escape" && analysing) {
+      event.preventDefault();
+      update({ analyse: false });
       return;
     }
     if (event.key === "Escape" && expanded) {
@@ -873,6 +907,28 @@ export function Composer({
             </button>
           </span>
         )}
+        {analysing && !target && (
+          <span
+            data-testid="composer-analyse"
+            title={t("analysis.chip.hint")}
+            className="question-skill"
+          >
+            <TableIcon className="question-skill-icon" />
+            <span className="truncate">{t("analysis.chip")}</span>
+            <button
+              type="button"
+              data-testid="composer-analyse-remove"
+              aria-label={t("analysis.chip.remove")}
+              title={t("analysis.chip.remove")}
+              // The text keeps the focus.
+              onMouseDown={(event) => event.preventDefault()}
+              onClick={() => update({ analyse: false })}
+              className="scope-chip-remove"
+            >
+              <RemoveIcon className="size-2.5" />
+            </button>
+          </span>
+        )}
         {draft.skill && (
           <SkillChip
             name={draft.skill}
@@ -930,8 +986,8 @@ export function Composer({
               scope={scope}
               ownFolderId={folderId}
               onRemove={removeFromScope}
-              {...(draft.scope !== null &&
-                hasSearchScope(draft.scope) && { back: { label: backLabel, onBack: goBack } })}
+              {...(scopeDraft.scope !== null &&
+                hasSearchScope(scopeDraft.scope) && { back: { label: backLabel, onBack: goBack } })}
               onChange={openScopePicker}
               shown={CHIPS_SHOWN}
               className="composer-scope"
@@ -1024,7 +1080,7 @@ export function Composer({
             <SkillChoiceList
               ref={list}
               id={listId}
-              onResearch={mind ? chooseResearch : undefined}
+              onResearch={chooseResearch}
               researchHint={researchHint}
               skills={enabledSkills}
               describe={(each) => skillDescription(each, t)}

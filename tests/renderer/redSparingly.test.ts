@@ -27,6 +27,9 @@ const RED_RULES = [
   "src/styles.css .chart-check--contradicted",
   'src/styles.css :is(.check-row, .check-badge-mark)[data-part="contradicted"] .mind-health-icon',
   "src/styles.css .claim-wash--contradicted",
+  // A note's state when a claim is contradicted (D266): the margin's red, in words.
+  'src/styles.css .check-badge[data-tone="error"] .check-badge-words',
+  'src/styles.css .home-recent-state[data-tone="error"]',
   // The outline of a picture a contradicted quote was read from.
   'src/viewer/viewer.css [data-quote-tone="contradicted"]',
   'src/viewer/viewer.css [data-quote-tone="contradicted"] .quote-highlight, .highlight',

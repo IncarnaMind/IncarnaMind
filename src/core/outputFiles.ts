@@ -2,7 +2,7 @@
  * The files IncarnaMind creates (#124): exports now, and later transcripts,
  * saved web pages and what Tasks make. Each goes to the Output location, which
  * each device keeps: Documents › IncarnaMind until the User picks another, the
- * first save taking it without asking (D209); or inside a Linked folder,
+ * first save taking it without asking; or inside a Linked folder,
  * e.g. next to the original it was made from, once the User has allowed that
  * folder (ADR-0010). A new file never replaces anything: it takes the next
  * free name. Folders are checked with symbolic links resolved, so nothing
@@ -142,7 +142,7 @@ async function usableDefault(
 }
 
 export function createOutputFiles(options: OutputFilesOptions) {
-  const { db, events, now, settings, suggested } = options;
+  const { db, events, now, settings } = options;
   const pending = new Map<string, Pending>();
   /** Files saved since the core started: the only ones the window may ask to show. */
   const saved = new Set<string>();
@@ -189,7 +189,7 @@ export function createOutputFiles(options: OutputFilesOptions) {
         decidedAt: row.updated_at,
       });
     }
-    return { location: location(), suggested, linkedFolders };
+    return { location: location(), suggested: options.suggested, linkedFolders };
   };
 
   const changed = () => events.emit("outputSettings.changed", current());
@@ -247,7 +247,7 @@ export function createOutputFiles(options: OutputFilesOptions) {
       real = await realFolder(input);
     } catch (error) {
       if (!isGone(error)) throw error;
-      if (input !== suggested) throw new NotFoundError({ key: "error.path.noFolder" });
+      if (input !== options.suggested) throw new NotFoundError({ key: "error.path.noFolder" });
       await mkdir(input, { recursive: true });
       real = await realFolder(input);
     }
@@ -259,13 +259,18 @@ export function createOutputFiles(options: OutputFilesOptions) {
 
   /** Asks where new files go, saying why the default can't take this one; cancels if none is chosen. */
   const askForLocation = async (fileName: string, problem: OutputFolderProblem): Promise<void> => {
-    await ask("output-location", { kind: "output-location", suggested, fileName, problem });
+    await ask("output-location", {
+      kind: "output-location",
+      suggested: options.suggested,
+      fileName,
+      problem,
+    });
     if (location() === null) throw new FileWriteCancelledError();
   };
 
   /**
    * The Output location, made again if it was removed from a folder still
-   * there. None chosen yet, the default, without asking (D209), kept once a
+   * there. None chosen yet, the default, without asking, kept once a
    * file is written there; asking, saying why, if it can't take files.
    */
   const outputFolder = async (
@@ -273,7 +278,7 @@ export function createOutputFiles(options: OutputFilesOptions) {
   ): Promise<{ folder: string; defaulted: boolean }> => {
     let chosen = location();
     if (chosen === null) {
-      const usable = await usableDefault(suggested);
+      const usable = await usableDefault(options.suggested);
       if (usable.ok) return { folder: usable.real, defaulted: true };
       await askForLocation(fileName, usable.reason);
       chosen = location();
@@ -399,7 +404,7 @@ export function createOutputFiles(options: OutputFilesOptions) {
         saved.add(path);
         const inDefaultFolder =
           defaulted ||
-          (await realFolder(suggested).then(
+          (await realFolder(options.suggested).then(
             (real) => real === folder,
             () => false,
           ));

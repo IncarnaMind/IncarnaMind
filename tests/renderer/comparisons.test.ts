@@ -48,7 +48,7 @@ function editorWithTable(): Editor {
 describe("A comparison table in the editor", () => {
   test("“+ Question” adds a column, and a cell waiting in each row, as one change Undo takes back", () => {
     const editor = editorWithTable();
-    expect(addComparisonColumn(editor, "table-1", "  Governing   law ")).toBe(true);
+    expect(addComparisonColumn(editor, "table-1", "  Governing   law ")).not.toBeNull();
 
     const table = editor.state.doc.child(1);
     expect(comparisonQuestionsOf(table.attrs).map((question) => question.text)).toEqual([
@@ -66,16 +66,16 @@ describe("A comparison table in the editor", () => {
     expect(() => editor.state.doc.check()).not.toThrow();
 
     // Nothing to add: no column. A table that isn't there: nothing.
-    expect(addComparisonColumn(editor, "table-1", "   ")).toBe(false);
-    expect(addComparisonColumn(editor, "no-table", "Liability cap")).toBe(false);
+    expect(addComparisonColumn(editor, "table-1", "   ")).toBeNull();
+    expect(addComparisonColumn(editor, "no-table", "Liability cap")).toBeNull();
   });
 
   test("a table holds at most so many Questions", () => {
     const editor = editorWithTable();
     for (let added = 1; added < MAX_COMPARISON_QUESTIONS; added++) {
-      expect(addComparisonColumn(editor, "table-1", `Question ${added}`)).toBe(true);
+      expect(addComparisonColumn(editor, "table-1", `Question ${added}`)).not.toBeNull();
     }
-    expect(addComparisonColumn(editor, "table-1", "One too many")).toBe(false);
+    expect(addComparisonColumn(editor, "table-1", "One too many")).toBeNull();
   });
 });
 

@@ -27,7 +27,7 @@ const RUNS = Number(process.env.INCARNAMIND_LIVE_RUNS ?? "1");
 const DECOY_RUNS = Number(process.env.INCARNAMIND_LIVE_DECOY_RUNS ?? RUNS);
 const LANGUAGES = (process.env.INCARNAMIND_LIVE_LANGUAGES ?? "en,zh").split(",");
 
-type Expected = "supported" | "contradicted";
+type Expected = "supported" | "contradicted" | "unsupported";
 
 /** The prompt of the last request a check streamed: its calls and their results so far. */
 let lastPrompt: readonly { role: string; content: unknown }[] = [];
@@ -92,7 +92,7 @@ const CASES = [
     claims: [
       [
         "Net debt at 30 June 2026 was £528.9m, so leverage should still be inside the 3.25x covenant.",
-        "supported",
+        "unsupported",
       ],
       ["Using finance costs of (41.2) as a stand-in, cover would be 4.55x.", "supported"],
       [
@@ -104,6 +104,32 @@ const CASES = [
       [
         "Net debt at 30 June 2026 was £528.9m, which is 3.1x last-twelve-months Adjusted EBITDA.",
         "contradicted",
+      ],
+    ],
+  },
+  {
+    language: "en",
+    document: {
+      name: "Cedar stated results.md",
+      contents: [
+        "# Cedar results",
+        "All amounts are in GBP millions.",
+        "",
+        "Adjusted EBITDA 187.3 (FY2025), 88.0 and 91.5 (H1 2025, H1 2026)",
+        "",
+        "Finance costs (41.2)",
+        "",
+        "Net debt at 30 June 2026 528.9",
+        "",
+        "Net debt at 31 December 2026 (forecast) 668.0",
+        "",
+        "Net debt to Adjusted EBITDA must not exceed 3.25 to 1",
+      ].join("\n"),
+    },
+    claims: [
+      [
+        "Net debt at 30 June 2026 was £528.9m, so leverage should still be inside the 3.25x covenant.",
+        "supported",
       ],
     ],
   },
@@ -127,6 +153,7 @@ const CASES = [
     },
     claims: [
       ["2026年6月30日净负债为528.9，因此杠杆率仍应在3.25倍的契约上限之内。", "supported"],
+      ["2026年6月30日净负债为£528.9m，因此杠杆率仍应在3.25倍的契约上限之内。", "unsupported"],
       ["以 (41.2) 的财务费用估算，利息覆盖倍数为4.55倍。", "supported"],
       ["2026年12月31日净负债预测为668.0，杠杆率仍应在3.25倍的契约上限之内。", "contradicted"],
       ["调整后EBITDA至少是财务费用的5倍。", "contradicted"],
@@ -162,6 +189,7 @@ describe.each(CASES.filter((each) => LANGUAGES.includes(each.language)))(
           const runs = expected === "supported" ? RUNS : DECOY_RUNS;
           for (let run = 0; run < runs; run++) {
             const result = await core.checkClaim({ claim });
+            if (expected === "unsupported") expect(result.verdict, claim).not.toBe("supported");
             const calculation = result.verdict === "not-checked" ? null : result.calculation;
             const right = result.verdict === expected;
             const key = `${expected}:${right ? "right" : "wrong"}`;
@@ -170,7 +198,15 @@ describe.each(CASES.filter((each) => LANGUAGES.includes(each.language)))(
             const worked = calculation
               ? ` (${calculation.figure.shown} ${calculation.relation ?? "equals"} ${calculation.stated})`
               : why;
-            verdicts.push(`${result.verdict}${worked}`);
+            const parts =
+              result.verdict === "unsupported" && result.unsupported
+                ? ` ${JSON.stringify({
+                    covered: result.unsupported.covered,
+                    uncovered: result.unsupported.uncovered,
+                    reason: result.unsupported.reason,
+                  })}`
+                : "";
+            verdicts.push(`${result.verdict}${worked}${parts}`);
             if (!right) misses.push(`  - ${result.verdict}: ${calculateCalls()}`);
           }
           lines.push(`- ${claim} [${expected}] → ${verdicts.join(", ")}`, ...misses);

@@ -73,13 +73,13 @@ describe("Settings", () => {
         monthlyCap: null,
         webSearch: false,
         keepWebPageLook: false,
+        taskNotifications: true,
         recentCitationStyles: [],
         newMindStyle: { font: "default", size: "default" },
       },
       device: {
         sidebarWidth: 248,
         sidebarHidden: false,
-        chatSetupDismissed: false,
         sandboxNoticeDismissed: false,
         openedBefore: false,
         gettingStarted: {
@@ -89,6 +89,7 @@ describe("Settings", () => {
           indexed: false,
           askedOwn: false,
           askedReady: false,
+          exported: false,
           hidden: false,
           seen: false,
         },
@@ -183,13 +184,13 @@ describe("Settings", () => {
       monthlyCap: null,
       webSearch: false,
       keepWebPageLook: false,
+      taskNotifications: true,
       recentCitationStyles: [],
       newMindStyle: { font: "default", size: "default" },
     });
     expect(settings.device).toEqual({
       sidebarWidth: 320,
       sidebarHidden: false,
-      chatSetupDismissed: false,
       sandboxNoticeDismissed: false,
       openedBefore: false,
       gettingStarted: {
@@ -199,6 +200,7 @@ describe("Settings", () => {
         indexed: false,
         askedOwn: false,
         askedReady: false,
+        exported: false,
         hidden: false,
         seen: false,
       },
@@ -216,6 +218,20 @@ describe("Settings", () => {
       motion: "system",
       lastChatModel: null,
     });
+  });
+
+  test("Task notifications are on until the User turns them off, and each answer is kept", async () => {
+    const dataDir = await createTempDataFolder();
+    const before = startCore(dataDir);
+    expect((await before.getSettings()).user.taskNotifications).toBe(true);
+    expect(
+      (await before.updateSettings({ user: { taskNotifications: false } })).user.taskNotifications,
+    ).toBe(false);
+    before.close();
+
+    const after = startCore(dataDir);
+    expect((await after.getSettings()).user.taskNotifications).toBe(false);
+    after.close();
   });
 
   test("export options saved before the web page to share (#72) read its defaults", async () => {
@@ -354,6 +370,7 @@ describe("Settings", () => {
     expect((await after.getSettings()).device.gettingStarted).toEqual({
       ...kept,
       askedReady: false,
+      exported: false,
       seen: false,
     });
   });
@@ -380,6 +397,7 @@ describe("Settings", () => {
       const after = startCore(dataDir);
       expect((await after.getSettings()).device.gettingStarted).toEqual({
         ...older,
+        exported: false,
         citationChecked,
         mistakeSeen,
         seen: false,
@@ -402,6 +420,28 @@ describe("Settings", () => {
     core.close();
   });
 
+  test("old device progress defaults to not exported; a successful export milestone survives restart", async () => {
+    const dataDir = await createTempDataFolder();
+    const before = startCore(dataDir);
+    const { exported: _exported, ...oldProgress } = (await before.getSettings()).device
+      .gettingStarted;
+    await before.updateSettings({ device: { gettingStarted: oldProgress as GettingStarted } });
+    before.close();
+    const after = startCore(dataDir);
+    const progress = (await after.getSettings()).device.gettingStarted;
+    expect(progress.exported).toBe(false);
+    await expect(
+      after.updateSettings({
+        device: { gettingStarted: { ...progress, exported: "yes" } },
+      } as unknown as Parameters<typeof after.updateSettings>[0]),
+    ).rejects.toThrow(InvalidInputError);
+    await after.updateSettings({ device: { gettingStarted: { ...progress, exported: true } } });
+    after.close();
+    const reopened = startCore(dataDir);
+    expect((await reopened.getSettings()).device.gettingStarted.exported).toBe(true);
+    reopened.close();
+  });
+
   test("a width must be a number", async () => {
     const core = startCore(await createTempDataFolder());
 
@@ -416,7 +456,6 @@ describe("Settings", () => {
     const device = {
       sidebarWidth: 300,
       sidebarHidden: true,
-      chatSetupDismissed: true,
       sandboxNoticeDismissed: true,
       openedBefore: true,
       gettingStarted: {
@@ -426,6 +465,7 @@ describe("Settings", () => {
         indexed: false,
         askedOwn: false,
         askedReady: true,
+        exported: true,
         hidden: true,
         seen: false,
       },
@@ -474,6 +514,7 @@ describe("Settings", () => {
         monthlyCap: { amount: 20, currency: "USD" },
         webSearch: true,
         keepWebPageLook: true,
+        taskNotifications: true,
         recentCitationStyles: [],
         newMindStyle: { font: { family: "Georgia" }, size: "large" },
       },
@@ -519,6 +560,10 @@ describe("Settings", () => {
       patch: { device: { skillScriptTimeoutSeconds: 1.5 } },
     },
     { name: "an unknown motion choice", patch: { device: { motion: "slow" } } },
+    {
+      name: "Task notifications that aren't on or off",
+      patch: { user: { taskNotifications: "sometimes" } },
+    },
     { name: "a tip shown a negative number of times", patch: { device: { tips: { a: -1 } } } },
     { name: "a tip count that isn't a number", patch: { device: { tips: { a: "twice" } } } },
     {

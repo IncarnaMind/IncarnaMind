@@ -1,12 +1,13 @@
 import { useEffect, useRef, useState } from "react";
 import type { AgentClient, ChatProvider } from "../../../../core/api";
-import { SHOW_AGENT_CONNECTION } from "../../../../shared/agentConnection";
+import { SHOW_CLAUDE_APP_SETUP } from "../../../../shared/agentConnection";
 import { core } from "../../core";
 import { errorMessage } from "../../errors";
 import { useLanguage, useT } from "../../i18n";
+import { turnOffLocalMode } from "../../localMode";
 import { giveUpWaiting, useModelSetup } from "../../modelSetup";
 import { useAppStore } from "../../store";
-import { ChevronRightLineIcon, KeyLineIcon } from "../lineIcons";
+import { OnThisComputer } from "../OnThisComputer";
 import { ProblemLine } from "../ProblemLine";
 import { buttonStyle, hintClass } from "../ui";
 import { ChatGptMark } from "./ChatGptMark";
@@ -19,40 +20,35 @@ import {
 } from "./ChatGptSignIn";
 import { ClaudePlanWay } from "./ClaudePlan";
 import { CopilotSetupWay } from "./CopilotPlan";
-import {
-  OllamaAction,
-  OllamaProgress,
-  type Ollama as OllamaState,
-  ollamaDescription,
-  useOllama,
-} from "./OllamaCard";
+import { KeyEntry } from "./KeyEntry";
+import { OllamaAction, OllamaProgress, type Ollama as OllamaState, useOllama } from "./OllamaCard";
 import { ProviderForm } from "./ProviderForm";
 import { SendsLine } from "./SendsLine";
-import { SetupReady } from "./SetupReady";
+import { SetupSteps } from "./SetupSteps";
 
 const CLAUDE_DOWNLOAD = "https://claude.ai/download";
 
-type View = "key" | "local" | null;
-
 /**
- * The first own Question with no model set (#103, D198): the assistant's composer becomes this
- * card while the Question waits above it. Two ways lead, the same size: the ChatGPT plan and a
- * key (#890); in Chinese the key comes first and opens on DeepSeek. The rest are folded under
- * "Other ways", and Set up later is last. Choosing a service is the consent for it (#718), so no
- * dialog is added here.
+ * The first own Question with no model set (#103): the assistant's composer becomes this card
+ * while the Question waits above it. The first of three steps (#1922) is a key pasted, named by
+ * its form and used at once; then the ways in that need no key, best first. Choosing a service
+ * is the consent for it (#718), so no dialog is added here.
  */
 export function ModelSetupCard() {
-  return useModelSetup((state) => state.ready) ? <SetupReady /> : <ChooseAnAi />;
+  return useModelSetup((state) => state.ready) ? <SetupSteps /> : <ChooseAnAi />;
 }
 
 function ChooseAnAi() {
   const t = useT();
   const chinese = useLanguage() === "zh-CN";
-  const [view, setView] = useState<View>(null);
+  const localOnly = useAppStore((state) => state.embedding?.localOnly === true);
+  const [view, setView] = useState<"key" | null>(null);
+  const [initialKey, setInitialKey] = useState("");
   const [others, setOthers] = useState(false);
   const [providers, setProviders] = useState<ChatProvider[]>([]);
-  const ollama = useOllama(() => undefined);
+  const ollama = useOllama(() => undefined, undefined, { localModeUnasked: true });
   const sign = useContinueWithChatGpt({ onSignedIn: () => undefined });
+  const keyField = useRef<HTMLInputElement>(null);
   useEffect(() => {
     // Only to tell the form a key is already saved: the form works with none listed.
     core
@@ -63,16 +59,16 @@ function ChooseAnAi() {
   }, []);
   const running = ollama.status?.running;
   const card = useRef<HTMLElement>(null);
-  const previousView = useRef<View>(null);
   // It takes the composer's place, or opens from the steps card: either way the focus comes in.
   useEffect(() => {
-    if (view === null) {
-      const back = previousView.current;
-      const choice = back ? `[data-setup-view="${back}"]` : "[data-setup-choice]:not(:disabled)";
-      card.current?.querySelector<HTMLButtonElement>(choice)?.focus();
-    }
-    previousView.current = view;
+    if (view !== null) return;
+    card.current?.querySelector<HTMLInputElement>('[data-testid="setup-key"]')?.focus();
   }, [view]);
+
+  const useKeyInstead = () => {
+    setView(null);
+    keyField.current?.focus();
+  };
 
   return (
     <section
@@ -90,53 +86,63 @@ function ChooseAnAi() {
       </h2>
 
       {view === null ? (
-        <>
-          {sign.waiting ? (
-            <ChatGptSignInState sign={sign} />
-          ) : (
-            <>
-              <LeadingWays chinese={chinese} sign={sign} onKey={() => setView("key")} />
-              <ChatGptSignInState sign={sign} />
-            </>
-          )}
-          <details
-            open={others}
-            onToggle={(event) => setOthers(event.currentTarget.open)}
-            className="flex flex-col gap-2"
-          >
-            <summary
-              data-testid="setup-other"
-              className="cursor-default text-[13px] leading-5 font-semibold text-ink-secondary"
-            >
-              {t("setup.other")}
-            </summary>
-            <div className="mt-2 flex flex-col gap-2">
-              <ClaudePlanWay onUseKey={() => setView("key")} />
-              <CopilotSetupWay onKey={() => setView("key")} />
-              <Way
-                testId="way-local"
-                view="local"
-                title={t("setup.way.local")}
-                line={t(
-                  running === undefined
-                    ? "setup.way.local.line"
-                    : running
-                      ? "setup.way.local.running"
-                      : "setup.way.local.notRunning",
-                )}
-                onClick={() => {
-                  setOthers(true);
-                  setView("local");
+        sign.waiting ? (
+          <ChatGptSignInState sign={sign} />
+        ) : (
+          <>
+            {localOnly ? (
+              <ProblemLine
+                testId="setup-local-mode"
+                action={{
+                  label: t("localMode.turnOff"),
+                  testId: "setup-local-mode-off",
+                  onClick: () => void turnOffLocalMode(),
                 }}
-                {...(!running && {
-                  link: { label: t("setup.getOllama"), href: "https://ollama.com/download" },
-                })}
+              >
+                {t("setup.localMode")}
+              </ProblemLine>
+            ) : (
+              <KeyEntry
+                testId="setup-key"
+                autoFocus
+                inputRef={keyField}
+                onSaved={() => undefined}
+                unrecognised={{
+                  label: "setup.key.chooseService",
+                  run: (key) => {
+                    setInitialKey(key);
+                    setView("key");
+                  },
+                }}
               />
-              {/* Connecting the Claude app needs the agent connection, which is off (#882). */}
-              {SHOW_AGENT_CONNECTION && !chinese && <ClaudeWay />}
-            </div>
-          </details>
-        </>
+            )}
+            {!localOnly && (
+              <>
+                <ChatGptPlanWay sign={sign} chinese={chinese} />
+                <ClaudePlanWay onUseKey={useKeyInstead} />
+              </>
+            )}
+            <LocalWay ollama={ollama} running={running === true} />
+            {!localOnly && (
+              <details
+                open={others}
+                onToggle={(event) => setOthers(event.currentTarget.open)}
+                className="flex flex-col gap-2"
+              >
+                <summary
+                  data-testid="setup-other"
+                  className="cursor-default text-[13px] leading-5 font-semibold text-ink-secondary"
+                >
+                  {t("setup.other")}
+                </summary>
+                <div className="mt-2 flex flex-col gap-2">
+                  <CopilotSetupWay onKey={useKeyInstead} />
+                  {SHOW_CLAUDE_APP_SETUP && !chinese && <ClaudeWay />}
+                </div>
+              </details>
+            )}
+          </>
+        )
       ) : (
         <>
           <button
@@ -147,10 +153,12 @@ function ChooseAnAi() {
           >
             ‹ {t("setup.back")}
           </button>
-          {view === "key" && (
-            <ProviderForm providers={providers} onSaved={() => undefined} standalone />
-          )}
-          {view === "local" && <LocalWay ollama={ollama} />}
+          <ProviderForm
+            providers={providers}
+            initialKey={initialKey}
+            onSaved={() => undefined}
+            standalone
+          />
         </>
       )}
 
@@ -168,20 +176,19 @@ function ChooseAnAi() {
   );
 }
 
-function LeadingWays({
-  chinese,
+/** The ChatGPT plan: the first way in for a User with no key. */
+function ChatGptPlanWay({
   sign,
-  onKey,
+  chinese,
 }: {
-  chinese: boolean;
   sign: ReturnType<typeof useContinueWithChatGpt>;
-  onKey(): void;
+  chinese: boolean;
 }) {
   const t = useT();
   const storage = useChatGptStorage();
   const lineClass = "text-[12px] leading-[18px] text-ink-meta";
-  const plan = (
-    <div key="plan" className="flex min-w-0 flex-col gap-1">
+  return (
+    <div className="flex min-w-0 flex-col gap-1">
       <ChatGptStorageNotice storage={storage} />
       <button
         type="button"
@@ -201,94 +208,33 @@ function LeadingWays({
       <SendsLine provider={CHATGPT_RECIPIENT} testId="setup-chatgpt-sends" />
     </div>
   );
-  const key = (
-    <div key="key" className="flex min-w-0 flex-col gap-1">
-      <button
-        type="button"
-        data-testid="setup-key"
-        data-setup-choice
-        data-setup-view="key"
-        onClick={onKey}
-        className={`w-full ${buttonStyle(chinese ? "primary" : "secondary", "lg")}`}
-      >
-        <KeyLineIcon className="size-4" />
-        {t("setup.key.use")}
-      </button>
-      <p data-testid="setup-key-for" className={`${lineClass} text-balance`}>
-        {t("setup.key.for")}
-      </p>
-    </div>
-  );
-  return (
-    <div className="grid grid-cols-[repeat(auto-fit,minmax(12rem,1fr))] gap-3">
-      {/* A DeepSeek key is the recommended way in Chinese. */}
-      {chinese ? [key, plan] : [plan, key]}
-    </div>
-  );
 }
 
-function Way({
-  testId,
-  view,
-  title,
-  line,
-  onClick,
-  link,
-}: {
-  testId: string;
-  /** The view the row opens, so Back can return the focus to it. */
-  view?: Exclude<View, null>;
-  title: string;
-  line: string;
-  onClick(): void;
-  /** A link under the words (How do I get one?, Get Ollama), which is not the row's own click. */
-  link?: { label: string; href?: string; onClick?(): void };
-}) {
-  return (
-    <div className="flex items-center gap-2 rounded-md hover:bg-hover">
-      <button
-        type="button"
-        data-testid={testId}
-        data-setup-view={view}
-        onClick={onClick}
-        className="flex min-w-0 flex-1 flex-col items-start gap-0.5 px-2 py-1.5 text-left"
-      >
-        <span className="text-ui font-semibold text-ink">{title}</span>
-        <span className="text-[13px] leading-5 text-ink-secondary">{line}</span>
-      </button>
-      {link &&
-        (link.href ? (
-          <a
-            href={link.href}
-            target="_blank"
-            rel="noreferrer"
-            className="shrink-0 text-[13px] font-semibold text-accent underline-offset-2 hover:underline"
-          >
-            {link.label} ↗
-          </a>
-        ) : (
-          <button
-            type="button"
-            onClick={link.onClick}
-            className="shrink-0 text-[13px] font-semibold text-accent underline-offset-2 hover:underline"
-          >
-            {link.label}
-          </button>
-        ))}
-      <ChevronRightLineIcon aria-hidden="true" className="mr-2 size-3.5 shrink-0 text-ink-meta" />
-    </div>
-  );
-}
-
-function LocalWay({ ollama }: { ollama: OllamaState }) {
+/**
+ * A model on this computer (#545): used at once when Ollama runs and has a model, else its app
+ * is opened to install one. It says what it costs and that nothing leaves.
+ */
+function LocalWay({ ollama, running }: { ollama: OllamaState; running: boolean }) {
   const t = useT();
   return (
-    <div className="flex flex-col items-start gap-2 pl-2">
-      <p data-testid="ollama-status" className="text-[13px] leading-5 text-ink-secondary">
-        {ollamaDescription(ollama, t)}
-      </p>
+    <div data-testid="way-local" className="flex flex-col items-start gap-1.5 px-2 py-1.5">
+      <span className="text-ui font-semibold text-ink">
+        {t(running ? "setup.way.local" : "setup.way.local.install")}
+      </span>
+      <span data-testid="ollama-status" className="text-[13px] leading-5 text-ink-secondary">
+        {t(running ? "setup.way.local.running" : "setup.way.local.notRunning")}
+      </span>
       <OllamaProgress ollama={ollama} />
       <OllamaAction ollama={ollama} />
+      {/* One line in every state, so nothing under it moves when the line below changes. */}
+      <p data-testid="setup-local-keeps" className="min-h-[18px] text-[12px] leading-[18px]">
+        {/* With a cloud service set up and Local mode off, the click leaves Local mode as it is. */}
+        {ollama.status?.running && ollama.keepLocal.checked ? (
+          <OnThisComputer>{t("setup.way.local.keeps")}</OnThisComputer>
+        ) : (
+          <span className="text-ink-meta">{t("setup.way.local.line")}</span>
+        )}
+      </p>
     </div>
   );
 }

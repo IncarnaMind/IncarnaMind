@@ -1,4 +1,6 @@
 import { type RefObject, useEffect, useRef, useSyncExternalStore } from "react";
+import { flushSync } from "react-dom";
+import { useFocusReturn } from "./useFocusReturn";
 
 /** The native modal dialogs that are open, the one opened last on top. */
 const openModals: HTMLDialogElement[] = [];
@@ -45,6 +47,66 @@ export function topModalNow(): HTMLDialogElement | null {
   return shown === openModals.length ? (openModals.at(-1) ?? null) : null;
 }
 
+/** The part of a native <dialog> the Esc rule uses, so a unit test can stand in for one. */
+export interface EscCloseDialog {
+  open: boolean;
+  dispatchEvent(event: Event): boolean;
+  addEventListener(
+    type: string,
+    listener: (event: Event) => void,
+    options?: boolean | AddEventListenerOptions,
+  ): void;
+  removeEventListener(
+    type: string,
+    listener: (event: Event) => void,
+    options?: boolean | AddEventListenerOptions,
+  ): void;
+}
+
+/**
+ * The browser closes a dialog it shows as a modal on Esc by itself, and says so through a `close`
+ * event a task later. An ask to open it again can arrive before that event, writing the `open`
+ * the store already holds: nothing re-renders, `showModal()` never runs, and the late close then
+ * clears the store. Report the close in the Esc's own task instead, so the ask that follows is a
+ * change from closed to open; and stop a close that finds the dialog shown again. A close the
+ * browser makes itself has no `cancel` for the store to hear, so the focus is given back here.
+ * Returns what stops watching.
+ */
+export function watchEscClose(element: EscCloseDialog, giveFocusBack: () => void): () => void {
+  /** The close this hook reports itself, for the browser's own close that follows an Esc. */
+  let ownClose = false;
+  const onCancel = (event: Event) => {
+    // React's own `onCancel` runs first, on this same element, and says so in `defaultPrevented`.
+    if (event.defaultPrevented) return;
+    ownClose = true;
+    // React must hear the close before an input task can ask for the dialog again, so the ask
+    // reaches `showModal()`; a later task would come after the ask and lose it.
+    flushSync(() => element.dispatchEvent(new Event("close")));
+  };
+  const onClose = (event: Event) => {
+    // Capture on the way down reaches the dialogs a dialog's page holds: only its own close.
+    if (event.target !== element) return;
+    if (ownClose) {
+      ownClose = false;
+      return;
+    }
+    // Shown again since the browser decided to close it: that close is old news.
+    if (element.open) {
+      event.stopImmediatePropagation();
+      return;
+    }
+    // Closed by the browser itself, with no `cancel` to report: the effect that gives the focus
+    // back when the store closes the dialog never runs for this close.
+    giveFocusBack();
+  };
+  element.addEventListener("cancel", onCancel);
+  element.addEventListener("close", onClose, true);
+  return () => {
+    element.removeEventListener("cancel", onCancel);
+    element.removeEventListener("close", onClose, true);
+  };
+}
+
 /**
  * Keeps a native <dialog> shown as a modal while `open` is true. With
  * `focusDialog`, opening focuses the dialog itself (give it tabIndex={-1})
@@ -53,32 +115,29 @@ export function topModalNow(): HTMLDialogElement | null {
  */
 export function useModal(open: boolean, { focusDialog = false } = {}) {
   const dialog = useRef<HTMLDialogElement>(null);
+  const focus = useFocusReturn();
+  useEffect(() => {
+    const element = dialog.current;
+    if (!element) return;
+    return watchEscClose(element, () => focus.giveBack(element));
+  }, [focus]);
   useEffect(() => {
     const element = dialog.current;
     if (!element) return;
     if (open && !element.open) {
+      focus.remember();
       element.showModal();
       if (focusDialog) element.focus();
     }
     if (!open && element.open) {
       element.close();
-      // Chromium gives the focus back to the text field the dialog took it from, but leaves the
-      // caret outside it, so what is typed next goes nowhere (e.g. a follow-up after "Allow").
-      const field = document.activeElement;
-      if (
-        (field instanceof HTMLTextAreaElement || field instanceof HTMLInputElement) &&
-        field.selectionStart !== null &&
-        field.selectionEnd !== null
-      ) {
-        field.setSelectionRange(field.selectionStart, field.selectionEnd);
-      }
+      focus.giveBack(element);
     }
-  }, [open, focusDialog]);
-  useEffect(() => {
-    const element = dialog.current;
-    if (!open || !element) return;
+    if (!open) return;
+    // A close the browser made has already untracked it, so an ask that shows it again must
+    // track it again: the list holds what is on top now.
     return trackModal(element);
-  }, [open]);
+  }, [open, focusDialog, focus]);
   return dialog;
 }
 

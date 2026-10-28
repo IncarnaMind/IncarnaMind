@@ -14,6 +14,7 @@ import {
   dismissChatSetup,
   frontMindName,
   launchApp,
+  mindWrittenBefore,
   openSteps,
   pointAndClick,
   pointAt,
@@ -198,8 +199,16 @@ test("while an Answer is written, its line moves from Reading through Thinking o
     .filter((step) => step !== "none")
     .filter((step, index, all) => step !== all[index - 1]);
   expect(names[0]).toBe("reading");
-  expect(names.slice(-2)).toEqual(["writing", "checking"]);
-  const between = names.slice(1, -2);
+  // An assistant turn is offered the Tools that write Notes, so once its Citations are in it checks
+  // the changes its reply says it made (#2037), then is Checking again until it ends. Each of those
+  // steps is short, so whether the line shows it depends on how long Checking has been up: only
+  // their order holds.
+  expect(names.slice(0, names.indexOf("checking"))).not.toContain("checking-claims");
+  const own = names
+    .filter((step) => step !== "checking-claims")
+    .filter((step, index, all) => step !== all[index - 1]);
+  expect(own.slice(-2)).toEqual(["writing", "checking"]);
+  const between = own.slice(1, -2);
   expect(between.length).toBeGreaterThan(0);
   for (const step of between) expect(["thinking", "searching"]).toContain(step);
   const line = answer.getByTestId("answer-steps");
@@ -788,6 +797,68 @@ test("past three sources, +N more shows the rest, and each source names its Docu
   await expect(listed).toHaveCount(cited);
   await expect(more).toHaveCount(0);
   await app.close();
+});
+
+test("past twelve Documents, Claude Haiku 5.5 answers a Question asked again in its Note from a search of its own words, each Citation checked, and searches again when they fall short; in the assistant, which can write Notes, it searches first itself, as before", async () => {
+  const { app, window } = await start({ documents: false });
+  // Thirteen Documents: more than go whole with a Question, so the Answer searches.
+  const harbours = ["Brest", "Dover", "Calais"];
+  const files = [
+    ...harbours.map((place) => ({
+      name: `${place}.md`,
+      text: `# ${place}\n\nSpring tides at ${place} rise high.`,
+    })),
+    ...Array.from({ length: 10 }, (_, at) => ({
+      name: `Recipe ${at + 1}.md`,
+      text: `# Recipe ${at + 1}\n\nCream the butter and the sugar.`,
+    })),
+  ];
+  for (const file of files) await writeFile(join(sources, file.name), file.text);
+  await addDocuments(
+    window,
+    files.map((file) => join(sources, file.name)),
+  );
+
+  // A Question in a Note written before the assistant, asked again with Enter: no Tool that
+  // writes Notes is offered there.
+  const askAgainIn = async (title: string, question: string) => {
+    await mindWrittenBefore(window, title, [{ question, answer: "Not yet." }]);
+    await pointAndClick(window, window.getByTestId("mind-list-item").filter({ hasText: title }));
+    const editor = window.getByTestId("mind-editor");
+    await pointAndClick(window, editor.getByTestId("question").locator(".question-text"));
+    await window.keyboard.press("End");
+    await window.keyboard.press("Enter");
+    const answer = editor.getByTestId("answer");
+    await expect(answer).toHaveAttribute("data-status", "done", { timeout: 30_000 });
+    return answer.getByTestId("citation");
+  };
+  const each = await askAgainIn("Harbours", "How high do spring tides rise at each harbour?");
+  await expect(each).toHaveCount(3);
+  for (const citation of await each.all()) {
+    await expect(citation).toHaveAttribute("data-check", "found");
+  }
+  const twice = await askAgainIn("Dover", "When do spring tides rise at Dover? Search twice.");
+  await expect(twice).toHaveAttribute("data-check", "found");
+
+  const inAssistant = await ask(window, "How high do spring tides rise at each harbour?");
+  const timeline = await openSteps(window, inAssistant);
+  await expect(timeline.locator('[data-step="search"]')).toContainText(
+    "Searched All Documents for “How high do spring tides rise at each harbour?”",
+  );
+  await app.close();
+
+  // The scripted model cites, then writes, in calls of their own. In their Notes the first Answer
+  // makes those two and the one searched again three; in the assistant the model searches first
+  // as well, three. In the loop each Answer in a Note would make one call more: 10 all told.
+  const db = openDatabase(join(dataDir, "incarnamind.db"));
+  try {
+    const calls = db.all(
+      "SELECT id FROM ai_timings WHERE kind = 'model' AND flow = 'question' AND step IS NULL",
+    );
+    expect(calls).toHaveLength(8);
+  } finally {
+    db.close();
+  }
 });
 
 test("a Connector call waiting for approval: the line says so, its card waits outside the steps, and allowing it carries the steps on", async () => {

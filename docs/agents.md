@@ -1,14 +1,16 @@
 # Connect your AI agent to IncarnaMind
 
-*Experimental, and hidden in the alpha builds while we decide its future.* [中文版](agents.zh-CN.md)
+Available from the public alpha. Connections stay off until you enable them and approve a pairing. [中文版](agents.zh-CN.md)
 
 If you already use an AI agent, such as Claude, ChatGPT, Codex, Cursor or Antigravity, you can let it search the folders you choose in IncarnaMind and quote them. Every quote it gets from IncarnaMind is checked against your Document, and you can open any of them in IncarnaMind to see it in place.
+
+Agent guides: [Claude Code](claude-code.md), [Codex](codex.md), [Cursor](cursor.md). Each covers connection, shared content and revocation in English and Chinese.
 
 ## Before you start
 
 1. Open IncarnaMind, then **Settings → Agents**, and turn on **Connect AI agents**.
 2. Find your agent in the list (agents on this computer come first) and click **Connect**.
-3. Choose the folders it may read, then click **Allow and connect**. It can't read anything else. **Not in a Folder** is a choice too: the Documents that are in no Folder when the agent asks, so a Document you later put in a Folder is no longer shared; your Minds are shared only with their Folder. With no Documents yet, the dialog offers **Add Documents…**.
+3. Choose the folders it may read, then click **Allow and connect**. It can't read anything else. **Not in a Folder** is a choice too: the Documents that are in no Folder when the agent asks, so a Document you later put in a Folder is no longer shared; your Notes are shared only with their Folder. With no Documents yet, the dialog offers **Add Documents…**.
 4. Follow the one step for your agent below.
 
 Keep IncarnaMind open while you use your agent: the agent talks to it.
@@ -79,11 +81,11 @@ Your agent passes on what IncarnaMind says, in plain words.
 - **"IncarnaMind isn't open"**: open IncarnaMind, check that **Connect AI agents** is on, then restart the agent or reconnect it to IncarnaMind.
 - **"This agent can't read any Documents yet"**: choose its folders in Settings → Agents → **Folders…**.
 - **"Agents are paused"**: turn off **Keep everything on this computer** in Settings → Privacy.
-- **"This agent isn't connected to IncarnaMind any more"**: it was disconnected. Click **Connect** again.
+- **"This agent is no longer connected"**: it was disconnected. Connect it again in Settings → Agents.
 - **An answer from IncarnaMind takes long**: asking IncarnaMind writes a whole Answer on your own chat model. Some agents stop waiting after a minute; Codex is given two minutes when IncarnaMind sets it up.
 
 ## For technical users
 
 IncarnaMind is an MCP server over stdio. The command is IncarnaMind's own app, run as Node, with a small script that passes everything on to the running app over a local socket; the environment holds where that socket is and the agent's key. It serves the current MCP version (2026-07-28) and the one before it. Each connected agent's **Details for technical users** copies its settings again.
 
-The Tools: `search`, `read_passages`, `cite`, `check_citations`, `show_citation`, `list_minds`, `read_mind` and `ask`. All are read-only: an agent can't change your Documents or Minds.
+The Tools: `search`, `read_passages`, `cite`, `check_citations`, `show_citation`, `list_minds`, `read_mind` and `ask`. All are read-only: an agent can't change your Documents or Notes.

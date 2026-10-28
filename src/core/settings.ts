@@ -169,6 +169,7 @@ const userScope: Scope<UserSettings> = {
     monthlyCap: null,
     webSearch: false,
     keepWebPageLook: false,
+    taskNotifications: true,
     recentCitationStyles: [],
     newMindStyle: DEFAULT_MIND_STYLE,
   },
@@ -184,6 +185,7 @@ const userScope: Scope<UserSettings> = {
     monthlyCap: (value): value is MonthlyCap | null => value === null || isMonthlyCap(value),
     webSearch: isBoolean,
     keepWebPageLook: isBoolean,
+    taskNotifications: isBoolean,
     recentCitationStyles: isRecentStyles,
     newMindStyle: isMindStyle,
   },
@@ -196,14 +198,16 @@ const GETTING_STARTED_STEPS = [
   "indexed",
   "askedOwn",
   "askedReady",
+  "exported",
   "hidden",
   "seen",
 ];
 
 // Progress kept before the ready Question (#123) has no `askedReady`; `get` reads it as not asked.
 // Progress kept before the mistake had its own step has no `mistakeSeen`; `get` takes it from
-// `citationChecked`, so a first open already finished stays finished.
-const ADDED_LATER = ["askedReady", "mistakeSeen", "seen"];
+// `citationChecked`, so a first open already finished stays finished. A device that exported no
+// note, or showed no first-run card, has no `exported` or `seen`: both read as false.
+const ADDED_LATER = ["askedReady", "mistakeSeen", "exported", "seen"];
 const isGettingStarted = (value: unknown): value is GettingStarted =>
   isRecord(value) &&
   Object.keys(value).every((key) => GETTING_STARTED_STEPS.includes(key)) &&
@@ -224,7 +228,6 @@ const deviceScope: Scope<DeviceSettings> = {
     // DESIGN.md: the sidebar is 248px by default.
     sidebarWidth: 248,
     sidebarHidden: false,
-    chatSetupDismissed: false,
     sandboxNoticeDismissed: false,
     openedBefore: false,
     gettingStarted: {
@@ -234,6 +237,7 @@ const deviceScope: Scope<DeviceSettings> = {
       indexed: false,
       askedOwn: false,
       askedReady: false,
+      exported: false,
       hidden: false,
       seen: false,
     },
@@ -254,7 +258,6 @@ const deviceScope: Scope<DeviceSettings> = {
   validators: {
     sidebarWidth: isPaneWidth,
     sidebarHidden: isBoolean,
-    chatSetupDismissed: isBoolean,
     sandboxNoticeDismissed: isBoolean,
     openedBefore: isBoolean,
     gettingStarted: isGettingStarted,

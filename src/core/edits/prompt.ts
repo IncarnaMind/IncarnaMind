@@ -54,7 +54,7 @@ function taskFor(action: EditAction, instruction: string, cited: string): string
     case "cut-unsupported":
       return [
         ...(cited ? [`Its markers' sources say only this: ${cited}.`] : []),
-        `They don't support this part of it: ${instruction}. Every word left must be backed by them: take out each claim, topic or framing they don't state, or rewrite its words so they no longer claim it. Keep what they do state in the passage's own words, each marker right after the words it backs.`,
+        `They don't support this part of it: ${instruction}. Take out only the words that say that part, and any word or mark they would leave hanging, such as "and" or a comma. Keep every other word, mark and marker exactly as it is, in its place: never reword, reorder or add anything. If nothing would be left that reads as a sentence, give the passage back as it is.`,
       ].join(" ");
   }
 }

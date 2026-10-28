@@ -61,6 +61,31 @@ export function unbackedClaimLine(
   return t("answer.notWritten", { reason });
 }
 
+/**
+ * The Minds an Answer wrote new text into with none of it cited, once it had searched and found
+ * Passages (#1415): nothing written there was checked against the Documents. A later call that
+ * revised that text with Citations takes it back; a cited paragraph added beside it doesn't. In
+ * the order it wrote them.
+ */
+export function uncitedWritesOf(answer: Pick<ConversationAnswer, "toolCalls">): string[] {
+  const changes = answer.toolCalls.flatMap((call) => call.mindChange ?? []);
+  const uncited = changes.flatMap((change, at) =>
+    change.uncited &&
+    !changes
+      .slice(at + 1)
+      .some((later) => later.mindId === change.mindId && later.revised && (later.cited ?? 0) > 0)
+      ? [change.mindId]
+      : [],
+  );
+  return [...new Set(uncited)];
+}
+
+/** Whether an Answer's reply has no Citation though the model was asked for them, so nothing in it was checked (#1415). */
+export const uncitedReply = (answer: {
+  steps: Pick<AnswerSteps, "notCitedAfterAsking"> | null;
+  citations: ConversationAnswer["citations"];
+}): boolean => answer.steps?.notCitedAfterAsking === true && answer.citations.length === 0;
+
 /** Why a call of a Minds' Tool changed nothing, in its row's words; null for one of no kind it knows. */
 export function problemText(t: Translate, problem: MindProblem, mind: string): string | null {
   switch (problem.kind) {

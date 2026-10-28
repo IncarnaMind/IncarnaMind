@@ -222,6 +222,12 @@ export function createLibrary(options: {
   pageImages(id: string, contentHash: string, signal: AbortSignal): Promise<DocumentPageImage[]>;
   /** The pause a rate limit puts on all Tagging (see ../tags/rateLimit). */
   rateLimit: Pick<RateLimitPause, "pausedUntil" | "pause" | "succeeded" | "refusal" | "refuse">;
+  /**
+   * Whether a Document belongs to the examples', which Organize leaves where
+   * they are: never filed into the User's Folders, never given Tags of its own
+   * (#1942). Asked at each use, since the examples are made after the Library.
+   */
+  isExampleDocument?(id: string): boolean;
 }) {
   const { db, now, settings, background, changed } = options;
   const lifetime = new AbortController();
@@ -661,9 +667,12 @@ export function createLibrary(options: {
 
   function resume(): void {
     if (lifetime.signal.aborted) return;
-    const waiting = db.all<{ document_id: string }>(
-      "SELECT g.document_id FROM document_groups g JOIN documents d ON d.id = g.document_id WHERE g.deleted_at IS NULL AND d.deleted_at IS NULL AND g.status IN ('pending', 'waiting')",
-    );
+    const waiting = db
+      .all<{ document_id: string }>(
+        "SELECT g.document_id FROM document_groups g JOIN documents d ON d.id = g.document_id WHERE g.deleted_at IS NULL AND d.deleted_at IS NULL AND g.status IN ('pending', 'waiting')",
+      )
+      // An assignment an earlier version made for an example's Document isn't worked on again.
+      .filter((row) => !options.isExampleDocument?.(row.document_id));
     // Existing batches run text first, then PDFs needing images, avoiding model churn.
     const ordered =
       organizeModelOf(getSettings())?.kind === "auto"
@@ -715,17 +724,17 @@ export function createLibrary(options: {
     return { name, description, countsOwnFiles };
   }
 
+  // Organize holds a Document's Tags while its assignment isn't finished (queued, running,
+  // waiting or failed), or while Organize files new Documents by itself.
+  const isOrganizing = (id: string): boolean => {
+    const held = assignment(id);
+    return !!held && (getSettings().automatic || held.status !== "classified");
+  };
+
   return {
     settings: getSettings,
     taggingStoppedFor,
-    /**
-     * Whether Organize holds the Document's Tags: it has an assignment that isn't finished (queued,
-     * running, waiting or failed), or, while Organize files new Documents by itself, any assignment.
-     */
-    isOrganizing(id: string): boolean {
-      const held = assignment(id);
-      return !!held && (getSettings().automatic || held.status !== "classified");
-    },
+    isOrganizing,
     taggingPlaces(): (string | null)[] {
       const ids = db
         .all<{ id: string }>(
@@ -1035,12 +1044,13 @@ export function createLibrary(options: {
         (!Array.isArray(input) || !input.every((id) => typeof id === "string" && id !== ""))
       )
         throw new InvalidInputError("Choose valid Documents.");
-      const ids =
+      const ids = (
         input === undefined
           ? db
               .all<{ id: string }>("SELECT id FROM documents WHERE deleted_at IS NULL")
               .map((row) => row.id)
-          : [...new Set(input as string[])];
+          : [...new Set(input as string[])]
+      ).filter((id) => !options.isExampleDocument?.(id));
       const docs = ids.map(document);
       for (const doc of docs) asked.add(doc.id);
       db.transaction(() => {
@@ -1148,18 +1158,30 @@ export function createLibrary(options: {
       );
     },
     reject(input: unknown): AssignmentChange[] {
-      return review(input, (row) => {
+      const settled = new Set<string>();
+      const changes = review(input, (row) => {
+        // Only the tagging Organize held is the Reject's to settle; a state the tagger set, for a
+        // retag the User asked for, stays the tagger's (#1955).
+        const organizing = isOrganizing(row.document_id);
         const at = now();
+        // The User's decision settles the Document, so a run that failed before the rejection
+        // doesn't outlive it: it is finished, not one Organize couldn't sort (#1928).
         db.run(
-          "UPDATE document_groups SET group_id = NULL, suggested = 0, request_id = ?, updated_at = ? WHERE document_id = ? AND deleted_at IS NULL",
+          "UPDATE document_groups SET group_id = NULL, suggested = 0, status = 'classified', error_kind = NULL, error_message = NULL, error_wording = NULL, request_id = ?, updated_at = ? WHERE document_id = ? AND deleted_at IS NULL",
           [randomUUID(), at, row.document_id],
         );
+        if (organizing) {
+          tagState(row.document_id, "classified");
+          settled.add(row.document_id);
+        }
         if (row.group_id && !rejected(row.document_id).has(row.group_id))
           db.run(
             "INSERT INTO document_group_rejections (id, document_id, group_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?)",
             [randomUUID(), row.document_id, row.group_id, at, at],
           );
       });
+      if (settled.size > 0) options.tagged([...settled]);
+      return changes;
     },
     target(input: unknown): string | null {
       if (input === undefined || input === null) return null;
@@ -1175,6 +1197,7 @@ export function createLibrary(options: {
     },
     documentChanged(id: string) {
       if (lifetime.signal.aborted) return;
+      if (options.isExampleDocument?.(id)) return;
       const doc = document(id);
       const existing = assignment(id);
       if (!hasContent(doc)) {
