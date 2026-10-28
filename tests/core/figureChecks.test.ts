@@ -1053,6 +1053,19 @@ test.each([
   },
 );
 
+test("a bare cell under the note's own “(£m)” that the Documents don't state is Unsupported, with no reading named", async () => {
+  const figure = cell("f1", "999", "Q3 2026 (£m)");
+  expect(figure.reading.ambiguous.map((each) => each.kind)).toEqual(["scale"]);
+  const { result } = await checkWith({
+    figures: [figure],
+    body: SEGMENTS,
+    units: segments(),
+    quotes: ["Clothing\t300\t310"],
+    text: reply([{ ...item(), verdict: "unsupported", topic: "not found", source: null }]),
+  });
+  expect(result.figures?.[0]?.result.verdict).toBe("unsupported");
+});
+
 test.each([
   { again: "42", verdict: "contradicted" },
   { again: "78", verdict: "not-checked" },

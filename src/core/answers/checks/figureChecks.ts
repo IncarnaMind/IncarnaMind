@@ -398,7 +398,8 @@ export async function checkFigureReply(options: FigureCheckOptions): Promise<Cla
     const ambiguities = target.reading.ambiguous.filter((reading) => reading.kind !== "range");
     const selected = ambiguities[0]?.readings[(item.reading ?? 0) - 1];
     // Bare digits under the note's own "(£m)" need no reading named: their source's frame
-    // settles which one they are (`inSourceFrame`), as it does for the model.
+    // settles which one they are (`inSourceFrame`), as it does for the model. With no source,
+    // an Unsupported one needs no reading either.
     const framedLater = ambiguities.length === 1 && ambiguities[0]?.kind === "scale";
     if (
       (ambiguities.length > 0 && target.reading.ambiguous.length > 1) ||
@@ -449,7 +450,7 @@ export async function checkFigureReply(options: FigureCheckOptions): Promise<Cla
           ? frameOf(calculation.inputs, calculation.unit)
           : null,
     );
-    if (framedLater && !selected && framed === target) {
+    if (framedLater && !selected && framed === target && (sourceInput || calculation)) {
       rows.push({ ...finding(target), source: cited, result: unavailable("unread") });
       continue;
     }
