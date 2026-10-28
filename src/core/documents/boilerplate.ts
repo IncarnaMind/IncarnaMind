@@ -98,12 +98,22 @@ export function stripBoilerplate<Page extends PageText>(
   };
   return pages.map((page, index) => {
     const lines = split[index] as string[];
+    const isDepositionPageMarker = (line: string) => {
+      const match = /^Page\s+(\d+)$/i.exec(line.trim());
+      if (!match) return false;
+      const target = `deposition:page:${Number(match[1])}`;
+      return (page.anchors ?? []).some(
+        (anchor) =>
+          anchor.target === target &&
+          page.text.slice(anchor.start, anchor.end).trim() === line.trim(),
+      );
+    };
     let start = 0;
     let end = lines.length;
     for (let peeled = 0; start < end && peeled < edgeLines; ) {
       const line = lines[start] as string;
       if (line.trim() === "") start++;
-      else if (isBoilerplate(line)) {
+      else if (isBoilerplate(line) && !isDepositionPageMarker(line)) {
         start++;
         peeled++;
       } else break;
@@ -111,7 +121,7 @@ export function stripBoilerplate<Page extends PageText>(
     for (let peeled = 0; end > start && peeled < edgeLines; ) {
       const line = lines[end - 1] as string;
       if (line.trim() === "") end--;
-      else if (isBoilerplate(line)) {
+      else if (isBoilerplate(line) && !isDepositionPageMarker(line)) {
         end--;
         peeled++;
       } else break;

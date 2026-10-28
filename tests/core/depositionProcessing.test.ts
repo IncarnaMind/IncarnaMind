@@ -118,4 +118,49 @@ describe("deposition anchors through document processing", () => {
     ]);
     expect(resolved.units.map((unit) => unit.page)).toEqual([1, 1, 2, 2]);
   });
+
+  test("scanned deposition page markers survive running-header removal", async () => {
+    const dataDir = await createTempDataFolder();
+    const source = await createSourceFolder();
+    const recognizer = createFakeTextRecognizer({
+      script: {
+        pages: Object.fromEntries(
+          [45, 46, 47].map((printed, index) => [
+            index + 1,
+            {
+              lines: [
+                `SMITH DEPOSITION - HEADER ${printed}`,
+                `Page ${printed}`,
+                `1 Q. ${["courier", "witness", "neighbour"][index]}?`,
+                `2 A. ${["early", "signed", "left"][index]}.`,
+              ],
+            },
+          ]),
+        ),
+      },
+    });
+    const core = startCore(dataDir, {
+      textRecognizer: recognizer,
+      textRecognitionModelSource: NO_MODEL_FILES,
+    });
+    const scan = readFileSync(join(import.meta.dirname, "../fixtures/scans/en-clean.jpg"));
+    const path = await writeSourceFile(
+      source,
+      "smith-deposition-scan.pdf",
+      buildPdf([{ scan }, { scan }, { scan }]),
+    );
+    const [document] = await addAndProcess(core, [path]);
+    if (!document) throw new Error("The deposition was not added.");
+    expect(document.status).toBe("ready");
+
+    const { pages } = await core.readScannedText(document.id);
+    expect(pages).toHaveLength(3);
+    pages.forEach((page, index) => {
+      const printed = 45 + index;
+      expect(page.text.startsWith(`Page ${printed}\n`)).toBe(true);
+      expect(page.text).not.toContain("HEADER");
+      const marker = page.anchors?.find((anchor) => anchor.target === `deposition:page:${printed}`);
+      expect(marker && page.text.slice(marker.start, marker.end)).toBe(`Page ${printed}`);
+    });
+  });
 });
