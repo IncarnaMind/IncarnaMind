@@ -6,7 +6,7 @@ import * as Y from "yjs";
 import { cleanApiKey } from "../shared/apiKey";
 import { isCitationStyleId, withRecentStyle } from "../shared/citationStyles";
 import type { DrawnPage } from "../shared/citedPage";
-import { hasCitationPlace, optionsFor } from "../shared/exportOptions";
+import { optionsFor } from "../shared/exportOptions";
 import { translate } from "../shared/i18n";
 import { organizeModelOf, supportsLibraryImages } from "../shared/libraryModels";
 import { holdsOnlyItsTitle } from "../shared/madeMind";
@@ -36,6 +36,7 @@ import {
 import { mindName } from "../shared/naming";
 import { paperFor } from "../shared/printDocument";
 import { resolveProposals, restoreRevised } from "../shared/proposals";
+import { readyQuestionOf } from "../shared/readyQuestion";
 import { isPaperOrBook } from "../shared/references";
 import { RESEARCH_TASK } from "../shared/research";
 import { hasSearchScope, holdsText, mindSearchScope, type ScopeKind } from "../shared/searchScope";
@@ -88,15 +89,18 @@ import {
   type EmbeddingSettings,
   type ExportMindOptions,
   type ExternalService,
+  type MarkAiTextChoice,
   type Meeting,
   type MeetingHelpKind,
   type Mind,
   type MindCitationStyle,
   type MindContentSnapshot,
+  type MindExportPreview,
   type NetworkTrafficId,
   NOT_IN_A_FOLDER_ID,
   type OwnFileKind,
   type ProviderError,
+  type ReadyQuestion,
   type SavedExport,
   type SavedFile,
   type ScannedQuoteInput,
@@ -150,7 +154,7 @@ import { createWebPages } from "./documents/web";
 import { createEdits, editText } from "./edits";
 import { BUILT_IN_EMBEDDING_MODEL, createEmbeddingModel } from "./embedding";
 import { createActiveEmbedding } from "./embedding/active";
-import { createModelSources, MODEL_COPIES } from "./embedding/modelSources";
+import { createModelSources, MODEL_COPIES, modelCopyUrl } from "./embedding/modelSources";
 import {
   FileWriteCancelledError,
   InvalidInputError,
@@ -166,10 +170,8 @@ import { type AnyEventListener, createEventHub } from "./events";
 import { createExamples } from "./examples";
 import { createLocalExecutor } from "./execution";
 import { createExports, type ExportsDependencies } from "./exports";
-import { citationPlaceQuestion } from "./exports/citationPlaceQuestion";
 import { createComparisonExport } from "./exports/comparisonExport";
 import { exportLabels } from "./exports/labels";
-import { markAiTextQuestion } from "./exports/markAiTextQuestion";
 import { renderMarkdown } from "./exports/markdown";
 import { setTextOnlyDocuments, textOnlyDocuments } from "./exports/sharedPictures";
 import { createFileLock } from "./fileLock";
@@ -1405,70 +1407,34 @@ export function createCore(adapters: CoreAdapters): Core {
     },
     outputFolder: async () => outputs.settings().location,
     exportMind: async (mindId, format, folder, approved, marking) => {
-      let options = optionsFor(format, settings.get().user.exportOptions);
+      const options = optionsFor(format, settings.get().user.exportOptions);
+      let written = options;
       let settled: MarkingSettled | null = null;
+      let oneOff: MarkAiTextChoice | null = null;
       if (format === "docx") {
-        const { docx } = settings.get().user.exportOptions;
-        if (docx.markAiText === null) {
-          const ask = markAiTextQuestion(settings.get().language);
-          const asked =
-            marking.named === null && marking.asking ? await marking.asking(ask.question) : null;
-          const choice = marking.named ?? ask.choiceOf(asked);
-          if (choice === null) {
-            throw new InvalidInputError({
-              key: marking.asking
-                ? "error.commands.markAiTextClosed"
-                : "error.commands.markAiTextAsk",
-            });
-          }
-          const preferences = settings.get().user.exportOptions;
-          await api?.updateSettings({
-            user: {
-              exportOptions: { ...preferences, docx: { ...preferences.docx, markAiText: choice } },
-            },
-          });
-          settled = { choice, how: "kept" };
-          options = optionsFor(format, settings.get().user.exportOptions);
-        } else if (marking.named !== null && marking.named !== docx.markAiText && options) {
-          options = { ...options, markAiText: marking.named === "mark" };
-          settled = { choice: marking.named, how: "this-file" };
-        } else {
-          settled = { choice: docx.markAiText, how: "earlier" };
-        }
+        const saved = settings.get().user.exportOptions.docx.markAiText;
+        const choice = marking.named ?? saved ?? "mark";
+        written = { ...options, markAiText: choice === "mark" };
+        // A marking the request names settles its own file only, whatever the saved choice says.
+        oneOff = marking.named;
+        settled = {
+          choice,
+          how: oneOff !== null ? "this-file" : saved === null ? "default" : "earlier",
+        };
       }
-      if (!options) throw new InvalidInputError({ key: "error.commands.markAiTextAsk" });
-      if (
-        hasCitationPlace(format) &&
-        settings.get().user.exportOptions.citationPlace === undefined
-      ) {
-        const { numbered, citations, citedDocuments } = mindExports.preview(mindId, { format });
-        if (numbered && citations > 0 && marking.asking) {
-          const ask = citationPlaceQuestion(settings.get().language, {
-            citations,
-            documents: citedDocuments,
-          });
-          const choice = ask.choiceOf(await marking.asking(ask.question));
-          if (choice === null)
-            throw new InvalidInputError({ key: "error.commands.citationPlaceClosed" });
-          const preferences = settings.get().user.exportOptions;
-          await api?.updateSettings({
-            user: { exportOptions: { ...preferences, citationPlace: choice } },
-          });
-          options = { ...options, citationPlace: choice };
-        }
-      }
-      const { fileName, data, word } = await mindExports.export(mindId, options);
+      const exported = await mindExports.export(mindId, written);
       // The window shows first what a Word file can't keep (#105); the assistant can't.
-      if (word && word.notKept.length > 0) {
+      if (exported.word && exported.word.notKept.length > 0) {
         throw new InvalidInputError({ key: "error.commands.wordLoses" });
       }
       const file = await outputs.save({
-        name: fileName,
-        data,
-        ownFile: ownFileOf(options),
+        name: exported.fileName,
+        data: exported.data,
+        ownFile: ownFileOf(written),
         ...(folder !== null && { folder, approved }),
       });
-      recordExport(options);
+      await rememberExportChoices(exported, oneOff);
+      recordExport(written);
       return { file, marking: settled };
     },
   };
@@ -1514,6 +1480,7 @@ export function createCore(adapters: CoreAdapters): Core {
     },
     documents: {
       searchableCount: (documentIds) => documents.searchableCount(documentIds ?? undefined),
+      libraryCount: () => documents.ids({}).length,
       names: () => documents.names(),
       searchableNames: (documentIds, limit) =>
         documents.searchableNames(documentIds ?? undefined, limit),
@@ -1743,7 +1710,7 @@ export function createCore(adapters: CoreAdapters): Core {
     );
   const notifyTask = ({ task, what }: TaskNotice) => {
     const notifications = adapters.notifications;
-    if (!notifications) return;
+    if (!notifications || !settings.get().user.taskNotifications) return;
     const language = settings.get().language;
     const name = taskName(task.kind);
     const title = translate(
@@ -1776,6 +1743,9 @@ export function createCore(adapters: CoreAdapters): Core {
     mindName: (mindId) => (mindExists(mindId) ? mindName(minds.get(mindId)) || null : null),
     folderOfMind: (mindId) => (mindExists(mindId) ? minds.get(mindId).folderId : null),
     createMind: (title, folderId) => makeMind({ title, kind: DEFAULT_MIND_KIND, folderId }).id,
+    moveMind: (mindId, folderId) => {
+      if (minds.move([mindId], folderId).some((item) => item.from !== folderId)) mindsChanged();
+    },
     documents: {
       webPagesSince: (ids, since) =>
         documents
@@ -2180,6 +2150,38 @@ export function createCore(adapters: CoreAdapters): Core {
   });
   const ownFileOf = (options: ExportMindOptions): OwnFileKind =>
     options.format === "source-pack" ? "source-pack" : "export";
+  /**
+   * Keeps where Citations went and whether a Word file marks AI text, the first time an export
+   * settles them, so Export options and the next file say the choice rather than the default
+   * again (#1945). A request that named the marking for its own file leaves the saved choice as
+   * it was.
+   */
+  async function rememberExportChoices(
+    exported: Pick<MindExportPreview, "markAiText" | "citationPlace">,
+    named: MarkAiTextChoice | null,
+  ): Promise<void> {
+    const preferences = settings.get().user.exportOptions;
+    const markAiText =
+      named === null && exported.markAiText !== null && preferences.docx.markAiText === null
+        ? exported.markAiText
+          ? "mark"
+          : "leave"
+        : null;
+    const citationPlace =
+      exported.citationPlace !== null && preferences.citationPlace === undefined
+        ? exported.citationPlace
+        : null;
+    if (markAiText === null && citationPlace === null) return;
+    await api?.updateSettings({
+      user: {
+        exportOptions: {
+          ...preferences,
+          ...(citationPlace !== null && { citationPlace }),
+          docx: { ...preferences.docx, ...(markAiText !== null && { markAiText }) },
+        },
+      },
+    });
+  }
   /** Usage data: which format, and whether Questions went with it. */
   const recordExport = (options: ExportMindOptions) =>
     usageData.record({
@@ -2877,26 +2879,28 @@ export function createCore(adapters: CoreAdapters): Core {
     },
     listed: () => transcriber !== undefined && transcriptionSource.files.length > 0,
   });
-  // Any built-in model may come from these instead, and the probe asks ModelScope (#1578).
+  // Any built-in model may come from these instead, and the probe asks hf-mirror.com until our
+  // ModelScope copy exists (#1578).
+  const modelScopeCopy = modelCopyUrl(modelCopies.modelscope);
+  const r2Copy = modelCopyUrl(modelCopies.r2);
   const otherSources: { id: NetworkTrafficId; service: ExternalService }[] = [
-    {
-      id: "model-source-modelscope",
-      service: {
-        id: modelCopies.modelscope
-          ? new URL(modelCopies.modelscope.url).origin
-          : "https://www.modelscope.cn",
-        name: "ModelScope",
-      },
-    },
+    ...(modelScopeCopy
+      ? [
+          {
+            id: "model-source-modelscope" as const,
+            service: { id: new URL(modelScopeCopy).origin, name: "ModelScope" },
+          },
+        ]
+      : []),
     {
       id: "model-source-hf-mirror",
       service: { id: "https://hf-mirror.com", name: "hf-mirror.com" },
     },
-    ...(modelCopies.r2
+    ...(r2Copy
       ? [
           {
             id: "model-source-copy" as const,
-            service: { id: new URL(modelCopies.r2.url).origin, name: "IncarnaMind" },
+            service: { id: new URL(r2Copy).origin, name: "IncarnaMind" },
           },
         ]
       : []),
@@ -3082,6 +3086,14 @@ export function createCore(adapters: CoreAdapters): Core {
   });
   events.on("document.status", () => examples.documentChanged());
   isExampleDocument = (documentId) => examples.made().documentIds.includes(documentId);
+  const readyQuestionNow = (): ReadyQuestion | null => {
+    const exampleDocuments = new Set(examples.made().documentIds);
+    return readyQuestionOf({
+      own: documents.list().filter((each) => !exampleDocuments.has(each.id)),
+      example: examples.exampleReady(),
+      language: settings.get().language,
+    });
+  };
   // Started here, not with the rest of the Library, so a Document an earlier version filed as an
   // example's is never worked on again (#1942).
   library.start();
@@ -3652,7 +3664,7 @@ export function createCore(adapters: CoreAdapters): Core {
     restoreCheckpoint: async (mindId, checkpointId) => checkpoints.restore(mindId, checkpointId),
     askInConversation: async (input) =>
       answers.askInConversation(conversations.parseQuestion(input)),
-    askReadyQuestion: async () => {
+    askExampleReadyQuestion: async () => {
       const ready = examples.readyAnswer();
       if (!ready) {
         throw new InvalidInputError({ key: "error.examples.reading" });
@@ -3959,6 +3971,7 @@ export function createCore(adapters: CoreAdapters): Core {
     listUnmatchedReferences: async () => referenceImport.unmatched(),
     addReferenceFile: (recordId, path) => referenceImport.addFile(recordId, path),
     getExamples: async (group) => examples.status(group),
+    readyQuestion: async () => readyQuestionNow(),
     isExampleDocument: async (documentId) => isExampleDocument(documentId),
     offerExamples: async () => examples.offer(minds.list().length > 0),
     createExamples: async (group) => examples.create(group),
@@ -4621,8 +4634,6 @@ export function createCore(adapters: CoreAdapters): Core {
         fileName,
         fromWord: _,
         theirChanges: _waiting,
-        citedDocuments: _cited,
-        numbered: _numbered,
         data,
         word,
         ...counts
@@ -4636,7 +4647,9 @@ export function createCore(adapters: CoreAdapters): Core {
         () => recordExport(options),
         ownFileOf(options),
       );
-      return saved.status === "saved" ? { ...saved, ...counts, word } : saved;
+      if (saved.status !== "saved") return saved;
+      await rememberExportChoices(counts, null);
+      return { ...saved, ...counts, word };
     },
     saveCheckRecord: async (mindId) => {
       const saved: { format: CheckRecordFormat; file: SavedFile }[] = [];

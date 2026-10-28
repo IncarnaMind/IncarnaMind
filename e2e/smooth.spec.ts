@@ -1,12 +1,15 @@
-import { writeFile } from "node:fs/promises";
+import { readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { expect, type Page, test } from "@playwright/test";
+import type { CoreBridge } from "../src/core/api";
+import { buildPdf } from "../tests/helpers/pdf";
 import {
   assistantAnswers,
   createDataFolder,
   dismissChatSetup,
   expectReadyDocuments,
   launchApp,
+  leaveFirstOpen,
   newMind,
   removeDataFolder,
   setLanguage,
@@ -249,6 +252,61 @@ for (const count of [3, 4, 5]) {
     await app.close();
   });
 }
+
+// protects=a status the quiet first open held back starts its 300 ms and its 500 ms when its row is drawn, not while it was hidden; fails_when=its time was counted while its row was not drawn, so it shows at once and goes with its work; no_claim=how long a scan takes to read.
+test("a status the first open held back shows after 300 ms and stays 500 ms from when it shows", async () => {
+  test.setTimeout(120_000);
+  const pages = 6;
+  const script = join(sources, "scans.json");
+  await writeFile(
+    script,
+    JSON.stringify({
+      pages: Object.fromEntries(
+        Array.from({ length: pages }, (_, index) => [
+          index + 1,
+          { lines: ["The deposit is returned within 30 days."] },
+        ]),
+      ),
+    }),
+  );
+  const scan = join(sources, "Lease scan.pdf");
+  const picture = await readFile(join(__dirname, "../tests/fixtures/scans/en-clean.jpg"));
+  await writeFile(scan, buildPdf(Array.from({ length: pages }, () => ({ scan: picture }))));
+  const { app, window } = await launchApp(dataDir, {
+    examples: true,
+    fakeChat: true,
+    scans: script,
+    scansAtOnce: 1,
+  });
+  await setWindowSize(app, window, 1440, 900);
+  await dismissChatSetup(window);
+  await useLocalChatModel(window);
+  await watchSidebar(window);
+  await window.evaluate(async (path) => {
+    const bridge = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
+    await bridge.addDocuments([path]);
+  }, scan);
+  const lease = () =>
+    window.evaluate(async () => {
+      const bridge = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
+      const own = (await bridge.listDocuments()).find((each) => each.name === "Lease scan");
+      return { read: own?.scan?.read ?? 0, status: own?.status };
+    });
+  // Its last page still to read, with the first open still hiding the footer's progress.
+  await expect
+    .poll(async () => (await lease()).read, { timeout: 30_000, intervals: [50] })
+    .toBeGreaterThanOrEqual(pages - 1);
+  await expect(window.getByTestId("processing-status")).toHaveCount(0);
+  await leaveFirstOpen(window);
+  // Still reading, and the status only now has a row to be drawn in: it shows after its 300 ms.
+  expect((await lease()).status).toBe("extracting");
+  expect(await window.getByTestId("processing-status").count()).toBe(0);
+  await expect.poll(async () => (await lease()).status, { timeout: 30_000 }).toBe("ready");
+  await untilSettled(window);
+  const seen = await watched(window);
+  expect(shownTooShort(seen.frames, 480), "a status shown for under 500 ms").toEqual([]);
+  await app.close();
+});
 
 test("the Question doesn't jump when its Answer starts", async () => {
   const { app, window } = await launchApp(dataDir, { fakeChat: true });

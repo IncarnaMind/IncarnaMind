@@ -534,6 +534,14 @@ export interface ListedDocuments {
   names: readonly string[];
 }
 
+/** The Library's own Documents, when this Answer can use fewer of them (#1333). */
+export interface LibraryDocuments {
+  /** How many live Documents the Library holds: every one it lists, searchable or not. */
+  total: number;
+  /** Some of them are an example IncarnaMind made's Documents, which this Answer leaves out. */
+  examples: boolean;
+}
+
 /** A Document name on one line of its own, and not too long. */
 function listedName(name: string): string {
   const line = name.replace(/\s+/g, " ").trim();
@@ -617,6 +625,31 @@ function documentNames({ total, names }: ListedDocuments): string {
   ].join("\n");
 }
 
+const EXAMPLES_LEFT_OUT =
+  "Documents of an example IncarnaMind made are in the Library too, and aren't the User's own work: leave them out.";
+
+/**
+ * The Library's own count, when it holds more Documents than this Answer can use (#1333):
+ * told only its scope's one, models said the Library held one.
+ */
+function libraryNote(library: number, scoped: boolean): string {
+  return `Never say the Library holds fewer Documents than ${library}. When the Question names more Documents than ${scoped ? "the Search scope" : "this Answer"} can use, say in one sentence which you used and why, or ask which ones in one line.`;
+}
+
+/** How many Documents the User has, the Library's whole count when it is more than `listed` (#1333). */
+function addedLine(listed: number, library: number, scoped: boolean): string {
+  const documents = `${listed} Document${listed === 1 ? "" : "s"}`;
+  const sentence =
+    library > listed
+      ? scoped
+        ? `The User limited this Question to ${documents} of the ${library} in their Library`
+        : `The User's Library holds ${library} Documents, and this Answer can use ${listed} of them`
+      : scoped
+        ? `The User limited this Question to ${documents} of theirs`
+        : `The User has added ${documents}`;
+  return `${sentence} (PDF, Word, PowerPoint, Excel, CSV, text and Markdown files).`;
+}
+
 /**
  * What to do with the User's Documents, for a way of citing. `passages`: what
  * the one search found, for a model that can't call Tools. `scoped`: the User
@@ -625,6 +658,7 @@ function documentNames({ total, names }: ListedDocuments): string {
  * `calculate` Tool (or `calculations` in its JSON), and steered to it. `keeps`: the
  * Question context shows Citations with ids, or a Mind read may. `writeFirst`: a model in the
  * Tool loop writes the Answer, then cites it; `minds`: it is offered the Tools that write into Minds.
+ * `library`: the Library's own count, when it holds more than `listed` (#1333).
  */
 export function documentInstructions(
   mode: CitationSupport | "no-documents",
@@ -633,9 +667,12 @@ export function documentInstructions(
   scoped = false,
   calculate = false,
   keeps = false,
-  { writeFirst = false, minds = false }: { writeFirst?: boolean; minds?: boolean } = {},
+  {
+    writeFirst = false,
+    minds = false,
+    library = { total: listed.total, examples: false },
+  }: { writeFirst?: boolean; minds?: boolean; library?: LibraryDocuments } = {},
 ): string {
-  const documents = `${listed.total} Document${listed.total === 1 ? "" : "s"}`;
   const dated = datedDocumentsNote(passages);
   const notes = [
     dated,
@@ -643,7 +680,11 @@ export function documentInstructions(
     notCitedNote(passages),
     bracketedAmountsNote(passages),
   ].filter(Boolean);
-  const added = `${scoped ? `The User limited this Question to ${documents} of theirs` : `The User has added ${documents}`} (PDF, Word, PowerPoint, Excel, CSV, text and Markdown files).`;
+  const added = addedLine(listed.total, library.total, scoped);
+  const rest = [
+    ...(library.examples ? [EXAMPLES_LEFT_OUT] : []),
+    ...(library.total > listed.total ? [libraryNote(library.total, scoped)] : []),
+  ];
   switch (mode) {
     case "no-documents":
       return "";
@@ -651,6 +692,7 @@ export function documentInstructions(
       return [
         `${added} Search them with search_documents whenever they may help; search again with other words if the Passages don't answer the Question.`,
         documentNames(listed),
+        ...rest,
         "",
         "Cite every claim you draw from a Passage:",
         ...(writeFirst ? writeThenCite(keeps, minds) : citeFirst(keeps)),
@@ -664,6 +706,7 @@ export function documentInstructions(
       return [
         added,
         documentNames(listed),
+        ...rest,
         "",
         "Passages found in the User's Documents for this Question:",
         passages,
@@ -688,6 +731,7 @@ export function documentInstructions(
       return [
         added,
         documentNames(listed),
+        ...rest,
         "",
         "Passages found in the User's Documents for this Question:",
         passages,

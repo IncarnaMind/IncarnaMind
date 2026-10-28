@@ -1813,6 +1813,16 @@
     margin: 0;
     padding: 0 8px 6px;
   }
+  /* What a check found and what is left, under the rows (#1941). */
+  .mind-health-summary {
+    margin: 0;
+    padding: 0 8px 6px;
+
+    /* Its line is kept while a run is on, so the card keeps one height as results land (#1312). */
+    &:empty::before {
+      content: "\00a0";
+    }
+  }
   .check-card-note {
     padding: 4px 8px 6px;
     font-size: 12px;
@@ -5142,6 +5152,11 @@
     height: 11px;
     flex-shrink: 0;
   }
+  /* An unchecked sentence has no mark on the page (#1941): its button stays as its card's anchor,
+     keeping its box and place, but draws nothing, takes no pointer or focus, and leaves the tab order. */
+  .margin-check[data-check="not-checked"] {
+    visibility: hidden;
+  }
   /* Each check's colours: on its mark, and on its card's state line and quote. */
   .citation-marker[data-check="found"],
   .citation-card--found {
@@ -8322,10 +8337,50 @@
 
     .model-menu-item {
       align-items: start;
+      background: transparent;
+
+      &:hover,
+      &:focus-visible {
+        background: transparent;
+      }
     }
     .task-dot {
       margin: 7px 0 0 5px;
     }
+  }
+  /* A row with its actions beside it, the row taking the room the actions leave. */
+  .tasks-popover-item {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: start;
+    border-radius: 6px;
+    padding-right: 4px;
+
+    &:hover,
+    &:focus-within {
+      background: var(--color-hover);
+    }
+  }
+  /* Every action the row offers, in one line beside it: Stop, and more when a Task has them. */
+  .tasks-popover-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 2px;
+    margin: 5px 0 0 2px;
+  }
+  .tasks-popover-empty {
+    padding: 8px;
+    font-size: 13px;
+    line-height: 20px;
+    color: var(--color-ink-meta);
+  }
+  /* The chip's own slot in the band, for "Show Tasks" with no chip to show: it takes no room. */
+  .tasks-anchor {
+    flex: 0 0 auto;
+    width: 0;
+    height: 0;
+    padding: 0;
+    pointer-events: none;
   }
   .tasks-popover-title,
   .tasks-popover-line {

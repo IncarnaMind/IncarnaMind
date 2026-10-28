@@ -120,11 +120,15 @@ test("help during the call: the floating panel above the meeting gives one or tw
   await setMeetingKeys(window);
   await recordingMeeting(window);
 
-  // With no AI model yet, the assistant and the panel each say so in one line, with Set up.
+  // With no AI model yet, the assistant offers first run's key field in place, with one line
+  // naming what help sends (#1922): no step through Settings. The panel never takes the focus,
+  // so it keeps its one line and the way to the app's Settings.
   await window.getByTestId("mind-editor").click();
-  await expect(window.getByTestId("meeting-set-up")).toHaveText(
-    "Choose an AI model to get help during the call · Set up",
+  const needs = window.getByTestId("meeting-needs-model");
+  await expect(needs).toContainText(
+    "Call help needs an AI model. It sends the meeting’s transcript to the model you set up.",
   );
+  await expect(needs.getByTestId("meeting-needs-model-key")).toBeVisible();
   const panel = await panelOf(app);
   await pointAndClick(
     panel,

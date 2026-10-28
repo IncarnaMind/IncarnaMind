@@ -1,8 +1,8 @@
 /**
  * The first own Question with no model set (#103): it waits in the assistant's conversation while
- * the composer becomes the setup card, and is asked as it was once a model is chosen, without
- * being typed again (`askWaitingQuestion`, in ./conversations). "Set up later" gives its words
- * back to the composer.
+ * the composer becomes the setup card, and is asked as it was as soon as its first step works,
+ * without being typed again (`askWaitingQuestion`, in ./conversations). "Set up later" gives its
+ * words back to the composer.
  */
 import { create } from "zustand";
 import type { AskInConversationInput } from "../../core/api";
@@ -17,7 +17,7 @@ export type WaitingQuestion = Omit<AskInConversationInput, "conversationId"> & {
 export const useModelSetup = create<{
   waiting: WaitingQuestion | null;
   wanted: boolean;
-  /** A model works: the card says what each job uses, and waits for Continue. */
+  /** A model works: the card shows the steps that come after it (#1922). */
   ready: boolean;
 }>(() => ({
   waiting: null,
@@ -76,6 +76,7 @@ export function giveUpWaiting(): void {
   const { waiting } = useModelSetup.getState();
   useModelSetup.setState({ waiting: null, wanted: false, ready: false });
   if (waiting) giveBack(waiting);
+  useComposer.getState().requestFocus();
 }
 
 // The words only into an empty composer; the quotes whatever it holds, each once.

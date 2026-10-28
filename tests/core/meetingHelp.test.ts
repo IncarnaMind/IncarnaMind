@@ -7,6 +7,7 @@
  */
 import { describe, expect, test } from "vitest";
 import type { Core, Meeting, MeetingHelpKind } from "../../src/core";
+import { CITE_RETRY_INSTRUCTIONS } from "../../src/core/answers/prompt";
 import { setMindModel } from "../../src/shared/mindModel";
 import { answerEnded, shownPassages } from "../helpers/citations";
 import { createTempDataFolder } from "../helpers/core";
@@ -272,13 +273,15 @@ describe("Help during the call", { timeout: 60_000 }, () => {
       lines: ["我们先看一下报价。", "团队版每个席位每月二十五美元。"],
       theirLines: ["企业版能便宜一点吗？", "四十个席位一共多少钱？"],
     });
+    // The scripted help is in English, over Chinese lines: the request for its Citations follows it.
+    const helped = () => calls.findLast((call) => call.system !== CITE_RETRY_INSTRUCTIONS);
     for (const kind of ["sum", "ask", "check"] as const) {
       await press(core, meeting, kind);
-      expect(calls.at(-1)?.prompt).toContain(
+      expect(helped()?.prompt).toContain(
         '- The call is in Chinese: write all of it in Chinese, the "→" lines too',
       );
-      expect(calls.at(-1)?.system).not.toContain("The Question is written in English");
-      expect(calls.at(-1)?.prompt).toContain("企业版");
+      expect(helped()?.system).not.toContain("The Question is written in English");
+      expect(helped()?.prompt).toContain("企业版");
     }
     await core.updateSettings({ user: { language: "zh-CN" } });
     const { messages } = await press(core, meeting, "ask");

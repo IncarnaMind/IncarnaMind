@@ -4,6 +4,7 @@ import { topModalNow } from "../components/useModal";
 import { files } from "../core";
 import type { ObjectRef } from "../objects";
 import { useAppStore } from "../store";
+import { taskAt } from "../taskFocus";
 import { nextToRedo, nextToUndo, typesText, useUndo } from "../undo";
 import { keysLabel, keysOn, pressed } from "./keys";
 import { menuKinds } from "./menus";
@@ -57,6 +58,7 @@ const contextAt = (target: EventTarget | null): CommandContext => ({
   selection: [],
   focus: null,
   surface: surfaceOf(target),
+  task: taskAt(target),
 });
 
 const dialogOpen = () => document.querySelector("dialog[open]") !== null;

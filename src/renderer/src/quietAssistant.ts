@@ -11,7 +11,12 @@ useComposer.subscribe((state) => {
   if (state.focusWanted) useRevealed.setState({ revealed: true });
 });
 
-export const revealAssistant = (): void => useRevealed.setState({ revealed: true });
+/** Shows the assistant, with its composer and any setup card: revealed if it is still quiet, and unfolded. */
+export function revealAssistant(): void {
+  useRevealed.setState({ revealed: true });
+  const { layout, placeAssistant } = useAppStore.getState();
+  if (layout?.assistant.folded) void placeAssistant({ folded: false });
+}
 
 export function useQuietAssistant(): boolean {
   const firstOpen = useFirstOpen();

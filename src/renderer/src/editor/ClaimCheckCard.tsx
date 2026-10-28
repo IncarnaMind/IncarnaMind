@@ -136,6 +136,8 @@ export function ClaimMark({
 }) {
   const t = useT();
   const state = claim.shown.state;
+  // A sentence not checked yet has no mark on the page (D276): its button stays, unseen, as its card's anchor (#1941).
+  const silent = state === "not-checked";
   const id = claim.check.id;
   const place = useCardPlace(mindId);
   const [button, setButton] = useState<HTMLButtonElement | null>(null);
@@ -261,7 +263,7 @@ export function ClaimMark({
           if (event.target === event.currentTarget && reveal) onRevealed();
         }}
       >
-        <ClaimMarkIcon state={state} className="margin-check-icon" />
+        {!silent && <ClaimMarkIcon state={state} className="margin-check-icon" />}
         {plus && <span aria-hidden="true">+</span>}
       </button>
       {open && button?.parentElement && (

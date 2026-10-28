@@ -866,6 +866,41 @@ describe("A reply that claims a change no call made", { timeout: 30_000 }, () =>
   });
 });
 
+describe("A turn that ends after a refused Tool with no reply", { timeout: 30_000 }, () => {
+  // protects=a turn whose only Tool call is refused for a Mind that isn't there, and whose model then says nothing, still ends with a reply naming that Mind and saying the change wasn't made; fails_when=the Answer ends blank or fails, or the model isn't asked once more first; no_claim=how a real model words it.
+  test.each([
+    [
+      "Budget forecast",
+      "Shorten the summary in my Budget forecast Mind.",
+      "There is no note called “Budget forecast”, so the change wasn’t made.",
+    ],
+    [
+      "预算预测",
+      "把我的预算预测 Mind 里的摘要缩短一点。",
+      "没有名为“预算预测”的笔记，因此没有做这项改动。",
+    ],
+  ])("names “%s” and says the change wasn't made", async (name, request, said) => {
+    let nudge = "";
+    const model = scriptedModel((call): ScriptedReply => {
+      if (call.results.length === 0) {
+        return { calls: [{ tool: "read_mind", input: { mind: name } }] };
+      }
+      if (call.prompt.includes("Your reply is empty")) nudge = asked(call);
+      return { text: "" };
+    });
+    const { core, mind, client } = await setUp(model);
+
+    const answer = await askAssistant(core, { text: request, mindId: mind.id });
+
+    expect(nudge).toContain(`there is no note called “${name}”`);
+    expect(model.doStreamCalls).toHaveLength(3);
+    expect(answer.status).toBe("done");
+    expect(answer.text).toBe(said);
+    expect(mindCalls(answer)[0]?.mindProblem).toEqual({ kind: "not-found", name });
+    expect(pendingProposals(client.blocks)).toEqual([]);
+  });
+});
+
 describe("The owner's four turns", { timeout: 30_000 }, () => {
   const PAGE = "Paper summaries";
   const FALSE_CLAIM = `The summary in “${PAGE}” has been updated with Citations.`;

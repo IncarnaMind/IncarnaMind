@@ -41,6 +41,8 @@ const SENTENCES = {
     recheck: "Gulls circle the pier at dusk.",
     recheckWas: "Gulls circled the pier at dusk.",
     cited: "Harbours publish times of high water every 12 months.",
+    besideChecked: "Spring tides rise twice a day.",
+    besideUnchecked: "Gulls fly inland at dawn.",
   },
   "zh-CN": {
     supported:
@@ -51,6 +53,8 @@ const SENTENCES = {
     recheck: "海鸥黄昏时在码头上空盘旋。",
     recheckWas: "海鸥黄昏时曾在码头上空盘旋。",
     cited: "港口每 12 个月公布一次高潮时间。",
+    besideChecked: "春潮每天涨两次。",
+    besideUnchecked: "海鸥天亮时飞往内陆。",
   },
 } as const;
 
@@ -154,6 +158,12 @@ for (const language of ["en", "zh-CN"] as const) {
           type: "citation",
           attrs: passage,
         }),
+        // A checked claim and one not checked yet, starting on the same line (#1941).
+        paragraph(
+          checked("check-7", "supported", words.besideChecked, { evidence: passage }),
+          { type: "text", text: " " },
+          checked("check-8", "not-checked", words.besideUnchecked, { reason: "refused" }),
+        ),
       ],
     );
     const marks = window.getByTestId("claim-mark");
@@ -184,7 +194,16 @@ for (const language of ["en", "zh-CN"] as const) {
           Math.max(...boxes.map((each) => each.bottom)) >= words.bottom,
       };
     };
-    await expect(marks).toHaveCount(6);
+    await expect(marks).toHaveCount(8);
+    // A claim not checked yet takes no room in the margin's stack: on the same line as a checked
+    // claim, its unseen anchor sits on that line, and the checked mark keeps its own place (#1941).
+    const beside = window.locator('[data-testid="claim-mark"][data-claim="check-7"]');
+    const unseen = window.locator('[data-testid="claim-mark"][data-claim="check-8"]');
+    const rectOf = (locator: Locator) =>
+      locator.evaluate((element) => element.getBoundingClientRect().toJSON());
+    await expect(unseen).toBeHidden();
+    const [besideBox, unseenBox] = await Promise.all([rectOf(beside), rectOf(unseen)]);
+    expect(unseenBox.y).toBe(besideBox.y);
 
     const metaInk = await tokenColor(window, "--color-ink-meta");
     const accent = await tokenColor(window, "--color-accent");
@@ -202,7 +221,15 @@ for (const language of ["en", "zh-CN"] as const) {
       await expect(mark).toHaveAttribute("data-check", kind);
       await expect(outlined).toHaveCount(0);
 
-      await pointAndClick(window, mark);
+      if (kind === "not-checked") {
+        // A claim not checked yet has no mark on the page (#1941): it draws no icon and stays
+        // unseen, and its card opens from the badge's row for it.
+        await expect(mark).toBeHidden();
+        await expect(mark.locator("svg")).toHaveCount(0);
+        await pointAndClick(window, (await checkCard(window)).getByTestId("health-toCheck"));
+      } else {
+        await pointAndClick(window, mark);
+      }
       await expect(card).toHaveAttribute("data-check", kind);
       const line = card.getByTestId("claim-sentence");
       await expect(line).toHaveText(`“${sentence}”`);

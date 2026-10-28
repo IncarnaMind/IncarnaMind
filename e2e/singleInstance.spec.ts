@@ -9,6 +9,7 @@ import { createInterface } from "node:readline";
 import { DatabaseSync } from "node:sqlite";
 import { expect, test } from "@playwright/test";
 import { isRecord } from "../src/core/errors";
+import { MAPPED_WAL_RETRY_MS } from "../src/core/storage/node-sqlite";
 import { heldByAnotherCopy } from "../src/main/instanceLock";
 import {
   coreOf,
@@ -104,17 +105,18 @@ test("a copy that was killed outright leaves the data folder free for the next s
   await next.app.close();
 });
 
-test("a Windows crash restart opens saved text while an owned helper maps WAL shared memory", async () => {
+test("a Windows crash restart while an owned helper maps WAL shared memory says it couldn't start within its retry, and opens the saved text once the helper lets go (#2067)", async () => {
   test.skip(
     process.platform !== "win32" || !process.env.INCARNAMIND_PACKAGED_APP,
     "A genuine Windows packaged app is needed for the Windows file-mapping behavior.",
   );
+  // A cold runner takes about a minute to start the first copy and the PowerShell mapping helper.
+  test.setTimeout(180_000);
   const home = await mkdtemp(join(tmpdir(), "incarnamind-home-"));
   const sharedMemory = join(dataDir, "incarnamind.db-shm");
   const boxes = join(home, "mapped-shm-boxes.jsonl");
   const instanceTrace = join(home, "mapped-shm-events.jsonl");
   const tag = `--incarnamind-smoke-copy=${randomUUID()}`;
-  const port = await freePort();
   const first = await launchApp(dataDir, { home });
   let firstClosed = false;
   first.app.once("close", () => {
@@ -254,20 +256,10 @@ try {
     expect(mapper.exitCode).toBeNull();
     expect(mapper.signalCode).toBeNull();
     process.kill(mapped.pid, 0);
-    test.fail(
-      process.platform === "win32",
-      "The released runtime's SQLite cannot reopen mapped WAL shared memory (#2067).",
-    );
+    // The released runtime's SQLite can't reopen WAL shared memory another process maps (#2067).
     const successor = startCopy(
       home,
-      [
-        tag,
-        `--remote-debugging-port=${port}`,
-        "-r",
-        join(__dirname, "errorBoxes.cjs"),
-        "-r",
-        join(__dirname, "startDuringQuit.cjs"),
-      ],
+      [tag, "-r", join(__dirname, "errorBoxes.cjs"), "-r", join(__dirname, "startDuringQuit.cjs")],
       {
         INCARNAMIND_TEST_ERROR_BOXES: boxes,
         INCARNAMIND_TEST_INSTANCE_TRACE: instanceTrace,
@@ -278,29 +270,58 @@ try {
       successorError = String(error);
     });
     if (successorPid === undefined) throw new Error("The replacement app has no process id.");
-    const requireSuccessorRunning = () => {
-      const status = {
-        pid: successorPid,
-        code: successor.exitCode,
-        signal: successor.signalCode,
-        spawnError: successorError ?? null,
-      };
-      if (status.code !== null || status.signal !== null || status.spawnError !== null)
-        throw new Error(`The replacement app ended before its window: ${JSON.stringify(status)}`);
+    await exited(successor);
+    expect(successorError).toBeUndefined();
+    expect(successor.signalCode).toBeNull();
+    const traced = (await readFile(instanceTrace, "utf8"))
+      .trim()
+      .split("\n")
+      .map((line): unknown => JSON.parse(line))
+      .filter(isRecord)
+      .filter((event) => event.pid === successorPid);
+    const at = (name: string) => {
+      const event = traced.find((each) => each.event === name);
+      if (typeof event?.monotonic !== "string")
+        throw new Error(`The replacement app never traced ${name}.`);
+      return BigInt(event.monotonic);
     };
-    await expect
-      .poll(
-        async () => {
-          requireSuccessorRunning();
-          const windows = await windowsOf(port);
-          requireSuccessorRunning();
-          return windows;
-        },
-        { timeout: 60_000 },
-      )
-      .toBe(1);
-    await inCopyWindow(port, async (window) => {
-      const core = await coreOf(window);
+    const givenUpMs = Number((at("before-quit") - at("sqlite-open")) / 1_000_000n);
+    expect(givenUpMs).toBeLessThan(MAPPED_WAL_RETRY_MS + 1_000);
+    expect(
+      traced.filter(
+        (event) =>
+          event.event === "window-visibility" &&
+          typeof event.visibleWindows === "number" &&
+          event.visibleWindows > 0,
+      ),
+    ).toEqual([]);
+    const shown = (await readFile(boxes, "utf8"))
+      .trim()
+      .split("\n")
+      .map((line) => JSON.parse(line));
+    expect(shown).toEqual([
+      {
+        title: "IncarnaMind couldn’t start",
+        content:
+          "Your data folder couldn’t be opened. Close this message, then open IncarnaMind again.\n\ndisk I/O error",
+        ready: true,
+      },
+    ]);
+    expect(copiesWith(tag)).toEqual([]);
+    expect(
+      heldByAnotherCopy(dataDir, (what, error) => {
+        throw new Error(what, { cause: error });
+      }),
+    ).toBe(false);
+    expect(mapper.exitCode).toBeNull();
+    process.kill(mapped.pid, 0);
+
+    mapper.stdin.end("release\n");
+    await mapperClosed;
+    expect(mapper.exitCode).toBe(0);
+    const next = await launchApp(dataDir, { home });
+    try {
+      const core = await coreOf(next.window);
       expect(
         await core.evaluate(
           async (api, id) => (await api.listMinds()).find((mind) => mind.id === id),
@@ -316,25 +337,10 @@ try {
           }),
         noteId,
       );
-      await expect(window.getByTestId("mind-editor")).toHaveText(text);
-    });
-    await expect
-      .poll(async () => {
-        const recorded: unknown[] = (await readFile(instanceTrace, "utf8"))
-          .split("\n")
-          .slice(0, -1)
-          .map((line) => JSON.parse(line));
-        return recorded
-          .filter(isRecord)
-          .filter((event) => event.pid === successorPid && event.event === "window-visibility")
-          .at(-1)?.visibleWindows;
-      })
-      .toBe(1);
-    expect(copiesWith(tag)).toEqual([successorPid]);
-    expect(mapper.exitCode).toBeNull();
-    expect(mapper.signalCode).toBeNull();
-    process.kill(mapped.pid, 0);
-    expect(existsSync(boxes)).toBe(false);
+      await expect(next.window.getByTestId("mind-editor")).toHaveText(text);
+    } finally {
+      await next.app.close();
+    }
   } finally {
     try {
       const path = test.info().outputPath("mapped-shm-restart.json");
