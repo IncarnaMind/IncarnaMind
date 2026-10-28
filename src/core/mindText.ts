@@ -41,6 +41,8 @@ import {
   comparisonCellOf,
   comparisonNameOf,
   comparisonQuestionsOf,
+  hiddenColumnsNote,
+  visibleComparisonQuestions,
 } from "../shared/comparisons";
 import { type MessageKey, type MessageParams, translate } from "../shared/i18n";
 import { citationLocation } from "../shared/locations";
@@ -259,7 +261,12 @@ export type Block = (
     }
   | { kind: "quote"; content: Block[] }
   | { kind: "rule" }
-  | { kind: "table"; rows: TableCell[][] }
+  /**
+   * A plain table, or a comparison table: `widths` gives each column's share
+   * of the width in a writer that lays columns out unevenly, the Document
+   * column first, as the User sized the columns on the page.
+   */
+  | { kind: "table"; rows: TableCell[][]; widths?: number[] }
   | { kind: "image"; image: Image }
   /**
    * A chart (#436): what it draws, for a picture of it; its values as a table,
@@ -621,8 +628,24 @@ function readBlockElement(element: Y.XmlElement, options: ReadOptions): Block[] 
       return [{ kind: "rule" }];
     case "table":
       return [{ kind: "table", rows: readTable(element, options) }];
-    case COMPARISON_TABLE_NODE:
-      return [{ kind: "table", rows: readComparison(element, options) }];
+    case COMPARISON_TABLE_NODE: {
+      const comparison = readComparison(element, options);
+      return [
+        {
+          kind: "table",
+          rows: comparison.rows,
+          ...(comparison.widths && { widths: comparison.widths }),
+        },
+        ...(comparison.hiddenNote
+          ? [
+              {
+                kind: "paragraph" as const,
+                content: [{ kind: "text" as const, text: comparison.hiddenNote, marks: NO_MARKS }],
+              },
+            ]
+          : []),
+      ];
+    }
     case "image":
       return [{ kind: "image", image: readImage(element) }];
     case CHART_NODE:
@@ -688,7 +711,10 @@ export type ComparisonCellReading =
 
 /** A comparison table as read (#98): its Questions, then a row per Document, a cell per Question. */
 export interface ComparisonReading {
+  /** The columns it shows, in their order; a hidden column's Answers are not read. */
   questions: ComparisonQuestion[];
+  /** The columns it hides, for the line that says the file left them out. */
+  hidden?: ComparisonQuestion[];
   rows: {
     documentId: string;
     /** The Document's name, or that its source was removed. */
@@ -699,7 +725,9 @@ export interface ComparisonReading {
 
 export function readComparisonTable(table: Y.XmlElement, options: ReadOptions): ComparisonReading {
   const say = options.comparisonText ?? ((key, params) => translate("en", key, params));
-  const questions = comparisonQuestionsOf(table.getAttributes());
+  const columns = comparisonQuestionsOf(table.getAttributes());
+  const questions = visibleComparisonQuestions(columns);
+  const hidden = columns.filter((question) => question.hidden === true);
   const rows: ComparisonReading["rows"] = [];
   for (const row of table.toArray()) {
     if (!(row instanceof Y.XmlElement) || row.nodeName !== COMPARISON_ROW_NODE) continue;
@@ -726,15 +754,27 @@ export function readComparisonTable(table: Y.XmlElement, options: ReadOptions): 
       }),
     });
   }
-  return { questions, rows };
+  return { questions, ...(hidden.length > 0 && { hidden }), rows };
 }
+
+/** How wide a comparison table's Document column and its default columns weigh in a file. */
+const COMPARISON_DOCUMENT_WEIGHT = 150;
+const COMPARISON_COLUMN_WEIGHT = 240;
 
 /**
  * A comparison table as a table: a heading row ("Document", then its
  * Questions), then a row per Document, its name first, each cell its Answer,
- * or what it says in the Answer's place.
+ * or what it says in the Answer's place; the widths it shows on the page,
+ * and the columns it hides for the line under it.
  */
-function readComparison(table: Y.XmlElement, options: ReadOptions): TableCell[][] {
+function readComparison(
+  table: Y.XmlElement,
+  options: ReadOptions,
+): {
+  rows: TableCell[][];
+  widths: number[] | undefined;
+  hiddenNote: string | null;
+} {
   const say = options.comparisonText ?? ((key, params) => translate("en", key, params));
   const cell = (content: Block[], header = false): TableCell => ({
     header,
@@ -746,19 +786,31 @@ function readComparison(table: Y.XmlElement, options: ReadOptions): TableCell[][
   const words = (text: string): Block[] => [
     { kind: "paragraph", content: [{ kind: "text", text, marks: NO_MARKS }] },
   ];
-  const { questions, rows } = readComparisonTable(table, options);
-  return [
-    [
-      cell(words(say("comparison.document")), true),
-      ...questions.map((question) => cell(words(comparisonNameOf(question)), true)),
+  const { questions, hidden = [], rows } = readComparisonTable(table, options);
+  const widths = questions.some((question) => question.width !== undefined)
+    ? [
+        COMPARISON_DOCUMENT_WEIGHT,
+        ...questions.map((question) => question.width ?? COMPARISON_COLUMN_WEIGHT),
+      ]
+    : undefined;
+  return {
+    widths,
+    hiddenNote: hiddenColumnsNote(hidden, say),
+    rows: [
+      [
+        cell(words(say("comparison.document")), true),
+        ...questions.map((question) => cell(words(comparisonNameOf(question)), true)),
+      ],
+      ...rows.map((row) => [
+        cell(words(row.name)),
+        ...row.cells.map((each) =>
+          cell(
+            each.kind === "answer" ? each.content : each.kind === "words" ? words(each.text) : [],
+          ),
+        ),
+      ]),
     ],
-    ...rows.map((row) => [
-      cell(words(row.name)),
-      ...row.cells.map((each) =>
-        cell(each.kind === "answer" ? each.content : each.kind === "words" ? words(each.text) : []),
-      ),
-    ]),
-  ];
+  };
 }
 
 /**

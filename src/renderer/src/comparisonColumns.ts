@@ -1,7 +1,7 @@
 /**
  * A comparison table's columns (#1833): the field open in a heading to edit a
- * column or insert one beside it, and the four commands that change a table,
- * each one change of the note, with its undo line and the fill that follows.
+ * column or insert one beside it, and the commands that change a table, each
+ * one change of the note, with its undo line and the fill that follows.
  */
 import { comparisonLabelOf, MAX_COMPARISON_QUESTIONS } from "../../shared/comparisons";
 import { type ComparisonColumnHandle, useComparisonColumns } from "./comparisonColumnState";
@@ -10,8 +10,12 @@ import {
   duplicateComparisonColumn,
   editComparisonColumn,
   insertComparisonColumnBeside,
+  moveComparisonColumn,
+  moveComparisonColumnBy,
   questionLine,
   removeComparisonColumn,
+  setComparisonColumnHidden,
+  setComparisonColumnWidth,
 } from "./editor/comparisonColumnCommands";
 import { offerEditorUndo } from "./editor/editorUndo";
 
@@ -102,6 +106,53 @@ export function removeColumn(handle: ComparisonColumnHandle, questionId: string)
   const done = removeComparisonColumn(handle.editor, handle.tableId, questionId);
   if (!done) return;
   offerEditorUndo(handle.editor, (t) => t("comparison.column.removed", { label: done.label }));
+  useComparisonColumns.getState().focusColumn(handle.tableId, done.focusId);
+}
+
+/** A column moved to `to`, its Answers with it; the heading keeps the focus. */
+export function moveColumn(handle: ComparisonColumnHandle, questionId: string, to: number): void {
+  const done = moveComparisonColumn(handle.editor, handle.tableId, questionId, to);
+  if (!done) return;
+  offerEditorUndo(handle.editor, (t) => t("comparison.column.moved", { label: done.label }));
+  useComparisonColumns.getState().focusColumn(handle.tableId, questionId);
+}
+
+/** A column moved one visible column left or right, past hidden ones. */
+export function stepColumn(
+  handle: ComparisonColumnHandle,
+  questionId: string,
+  direction: -1 | 1,
+): void {
+  const done = moveComparisonColumnBy(handle.editor, handle.tableId, questionId, direction);
+  if (!done) return;
+  offerEditorUndo(handle.editor, (t) => t("comparison.column.moved", { label: done.label }));
+  useComparisonColumns.getState().focusColumn(handle.tableId, questionId);
+}
+
+/** A column made wider or narrower; dragging says it once, when the pointer lets go. */
+export function resizeColumn(
+  handle: ComparisonColumnHandle,
+  questionId: string,
+  width: number,
+): void {
+  const done = setComparisonColumnWidth(handle.editor, handle.tableId, questionId, width);
+  if (!done) return;
+  offerEditorUndo(handle.editor, (t) => t("comparison.column.resized", { label: done.label }));
+}
+
+/** A column hidden from the table, its cells and Answers kept with the Note. */
+export function hideColumn(handle: ComparisonColumnHandle, questionId: string): void {
+  const done = setComparisonColumnHidden(handle.editor, handle.tableId, questionId, true);
+  if (!done) return;
+  offerEditorUndo(handle.editor, (t) => t("comparison.column.hid", { label: done.label }));
+  useComparisonColumns.getState().focusColumn(handle.tableId, done.focusId);
+}
+
+/** A hidden column shown again, in its own place. */
+export function showColumn(handle: ComparisonColumnHandle, questionId: string): void {
+  const done = setComparisonColumnHidden(handle.editor, handle.tableId, questionId, false);
+  if (!done) return;
+  offerEditorUndo(handle.editor, (t) => t("comparison.column.shown", { label: done.label }));
   useComparisonColumns.getState().focusColumn(handle.tableId, done.focusId);
 }
 

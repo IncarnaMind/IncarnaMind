@@ -4,10 +4,14 @@ import {
   canInsertColumn,
   comparisonColumnHandles,
   duplicateColumn,
+  hideColumn,
   removeColumn,
+  resizeColumn,
   startColumnEdit,
   startColumnInsert,
+  stepColumn,
 } from "../comparisonColumns";
+import { fittedColumnWidth } from "../comparisonColumnWidth";
 import { startCompareDocuments, useComparisons } from "../comparisons";
 import { comparisonTableAt } from "../editor/comparisonCommands";
 import { exportComparison } from "../exports";
@@ -72,6 +76,19 @@ const addEnabled = (ctx: CommandContext) => {
   const here = columnHere(ctx);
   if (!here) return unavailable;
   return canInsertColumn(here.questions.length) ? true : insertReason;
+};
+
+/** Whether a shown column stands beside it on that side, hidden ones passed over. */
+const moveEnabled = (direction: -1 | 1) => (ctx: CommandContext) => {
+  const here = columnHere(ctx);
+  if (!here) return unavailable;
+  const index = here.questions.findIndex((question) => question.id === here.question.id);
+  const beside = direction < 0 ? here.questions.slice(0, index) : here.questions.slice(index + 1);
+  return beside.some((question) => question.hidden !== true)
+    ? true
+    : ({
+        reason: direction < 0 ? "comparison.column.first" : "comparison.column.last",
+      } as const);
 };
 
 export const comparisonCommands: readonly Command[] = [
@@ -139,6 +156,52 @@ export const comparisonCommands: readonly Command[] = [
     reversible: true,
     enabled: addEnabled,
     run: (ctx) => actColumn(ctx, ({ handle, question }) => duplicateColumn(handle, question.id)),
+  },
+  {
+    id: "comparison.column.moveLeft",
+    label: "comparison.column.moveLeft",
+    rowKeys: { mac: "Alt+Shift+Left", other: "Ctrl+Shift+Left" },
+    group: "move",
+    appliesTo: ["comparisonColumn"],
+    reversible: true,
+    enabled: moveEnabled(-1),
+    run: (ctx) => actColumn(ctx, ({ handle, question }) => stepColumn(handle, question.id, -1)),
+  },
+  {
+    id: "comparison.column.moveRight",
+    label: "comparison.column.moveRight",
+    rowKeys: { mac: "Alt+Shift+Right", other: "Ctrl+Shift+Right" },
+    group: "move",
+    appliesTo: ["comparisonColumn"],
+    reversible: true,
+    enabled: moveEnabled(1),
+    run: (ctx) => actColumn(ctx, ({ handle, question }) => stepColumn(handle, question.id, 1)),
+  },
+  {
+    id: "comparison.column.hide",
+    label: "comparison.column.hide",
+    menuLabel: "comparison.column.hideMenu",
+    group: "edit",
+    appliesTo: ["comparisonColumn"],
+    reversible: true,
+    enabled: editEnabled,
+    run: (ctx) => actColumn(ctx, ({ handle, question }) => hideColumn(handle, question.id)),
+  },
+  {
+    id: "comparison.column.fit",
+    label: "comparison.column.fit",
+    group: "edit",
+    appliesTo: ["comparisonColumn"],
+    reversible: true,
+    enabled: editEnabled,
+    run: (ctx) =>
+      actColumn(ctx, ({ handle, question }) => {
+        const table = document.querySelector<HTMLElement>(
+          `.comparison-table[data-comparison-table="${CSS.escape(handle.tableId)}"]`,
+        );
+        const width = table ? fittedColumnWidth(table, question.id) : null;
+        if (width !== null) resizeColumn(handle, question.id, width);
+      }),
   },
   {
     id: "comparison.column.remove",

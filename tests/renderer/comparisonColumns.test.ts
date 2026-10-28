@@ -14,7 +14,11 @@ import {
   editComparisonColumn,
   insertComparisonColumnAt,
   insertComparisonColumnBeside,
+  moveComparisonColumn,
+  moveComparisonColumnBy,
   removeComparisonColumn,
+  setComparisonColumnHidden,
+  setComparisonColumnWidth,
 } from "../../src/renderer/src/editor/comparisonColumnCommands";
 import { comparisonTableAt } from "../../src/renderer/src/editor/comparisonCommands";
 import { undoStackOf } from "../../src/renderer/src/editor/editorUndo";
@@ -23,6 +27,7 @@ import {
   comparisonLabelOf,
   comparisonNameOf,
   comparisonQuestionsOf,
+  MAX_COMPARISON_COLUMN_WIDTH,
   MAX_COMPARISON_QUESTIONS,
 } from "../../src/shared/comparisons";
 import { translate } from "../../src/shared/i18n";
@@ -220,6 +225,68 @@ describe("A comparison table's columns", () => {
     expect(removeComparisonColumn(editor, "table-1", "q2")).toMatchObject({ focusId: "q1" });
     expect(removeComparisonColumn(editor, "table-1", "q1")).toBeNull();
     expect(questionsOf(editor)).toHaveLength(1);
+  });
+
+  test("move takes the column and its Answers to a new place, past hidden ones, and ⌘Z puts it back", async () => {
+    const { editor, before } = await boundTable();
+    expect(moveComparisonColumn(editor, "table-1", "q1", 1)).toMatchObject({
+      label: "Notice",
+      index: 1,
+    });
+    expect(questionsOf(editor).map((question) => question.id)).toEqual(["q2", "q1"]);
+    for (const cells of cellsOf(editor)) {
+      expect(cells.map((cell) => cell.attrs?.questionId)).toEqual(["q2", "q1"]);
+    }
+    // Its Answer and Citation move with it, not a new cell.
+    expect(cellsOf(editor)[0]?.[1]?.content?.[0]?.content?.[0]?.text).toBe("90 days");
+    editor.commands.undo();
+    expect(editor.getJSON()).toEqual(before);
+
+    // One visible column right, hidden ones passed over.
+    expect(setComparisonColumnHidden(editor, "table-1", "q2", true)).not.toBeNull();
+    const added = insertComparisonColumnAt(editor, "table-1", 2, "Governing law");
+    expect(added).not.toBeNull();
+    expect(moveComparisonColumnBy(editor, "table-1", "q1", 1)).toMatchObject({ index: 2 });
+    expect(
+      questionsOf(editor)
+        .filter((question) => question.hidden !== true)
+        .map((question) => question.text),
+    ).toEqual(["Governing law", "Termination notice"]);
+    expect(moveComparisonColumnBy(editor, "table-1", "q1", 1)).toBeNull();
+  });
+
+  test("a column's width and hidden state stay with its Question, one step of Undo each", async () => {
+    const { editor, before } = await boundTable();
+    expect(setComparisonColumnWidth(editor, "table-1", "q1", 410)).toMatchObject({
+      label: "Notice",
+      width: 410,
+    });
+    expect(questionsOf(editor)[0]).toMatchObject({ id: "q1", width: 410 });
+    expect(setComparisonColumnWidth(editor, "table-1", "q1", 410)).toBeNull();
+    expect(setComparisonColumnWidth(editor, "table-1", "q1", 99_999)?.width).toBe(
+      MAX_COMPARISON_COLUMN_WIDTH,
+    );
+    editor.commands.undo();
+    expect(questionsOf(editor)[0]?.width).toBe(410);
+    editor.commands.undo();
+    expect(editor.getJSON()).toEqual(before);
+
+    expect(setComparisonColumnHidden(editor, "table-1", "q1", true)).toMatchObject({
+      label: "Notice",
+      hidden: true,
+      focusId: "q2",
+    });
+    expect(questionsOf(editor)[0]).toMatchObject({ hidden: true });
+    expect(setComparisonColumnHidden(editor, "table-1", "q1", true)).toBeNull();
+    expect(setComparisonColumnHidden(editor, "table-1", "q1", false)).toMatchObject({
+      hidden: false,
+      focusId: "q1",
+    });
+    expect(questionsOf(editor)[0]?.hidden).toBeUndefined();
+    editor.commands.undo();
+    expect(questionsOf(editor)[0]?.hidden).toBe(true);
+    editor.commands.undo();
+    expect(editor.getJSON()).toEqual(before);
   });
 
   test("duplicate copies the label, Question and Answers under a new id, and keeps a problem with its cell", async () => {

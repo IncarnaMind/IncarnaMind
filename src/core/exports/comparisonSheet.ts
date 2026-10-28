@@ -3,9 +3,10 @@
  * row and a Question a column, each cell its Answer's text, or the number or
  * day it is (./figureCells) with its words as written in its note; each cell's
  * Citations in its note; and a Sources sheet, a Citation a row, that links back
- * to the cell citing it.
+ * to the cell citing it. The User's column widths come along in characters,
+ * and hidden columns are left out with a line that says which.
  */
-import { comparisonNameOf } from "../../shared/comparisons";
+import { comparisonNameOf, hiddenColumnsNote } from "../../shared/comparisons";
 import type { MessageKey, MessageParams } from "../../shared/i18n";
 import type { CitationCheck } from "../api";
 import type { Language } from "../language";
@@ -97,6 +98,15 @@ export function blocksText(blocks: readonly Block[]): string {
 const TABLE = "table";
 const SOURCES = "sources";
 const DOCUMENT_COLUMN = "document";
+/** Excel's default column, and how many pixels of the page one of its characters holds. */
+const DEFAULT_COLUMN_WIDTH = 36;
+const PIXELS_PER_CHARACTER = 7;
+
+/** A column's width as Excel counts it, from the width it has on the page. */
+function columnWidthOf(width: number | undefined): number {
+  if (width === undefined) return DEFAULT_COLUMN_WIDTH;
+  return Math.max(8, Math.min(120, Math.round(width / PIXELS_PER_CHARACTER)));
+}
 
 /** The table and its Sources as a sheet book, and how many of its Citations aren't "Quote found". */
 export function comparisonBook(input: ComparisonSheetInput): {
@@ -111,6 +121,7 @@ export function comparisonBook(input: ComparisonSheetInput): {
     cells: cells.map(([column, text]) => ({ column, value: { kind: "text", text } })),
   });
   let unverified = 0;
+  const hiddenNote = hiddenColumnsNote(reading.hidden ?? [], t);
   const rows = reading.rows.map((row, rowAt): SheetRow => {
     const rowId = `row-${rowAt}`;
     const cells: SheetCell[] = [
@@ -180,7 +191,10 @@ export function comparisonBook(input: ComparisonSheetInput): {
           name: t("comparison.title"),
           columns: [
             { id: DOCUMENT_COLUMN, width: 32 },
-            ...reading.questions.map((question) => ({ id: question.id, width: 36 })),
+            ...reading.questions.map((question) => ({
+              id: question.id,
+              width: columnWidthOf(question.width),
+            })),
           ],
           rows: [
             header([
@@ -191,6 +205,21 @@ export function comparisonBook(input: ComparisonSheetInput): {
               ]),
             ]),
             ...rows,
+            ...(hiddenNote
+              ? [
+                  { id: "hidden-gap", cells: [] },
+                  {
+                    id: "hidden",
+                    cells: [
+                      {
+                        column: DOCUMENT_COLUMN,
+                        value: { kind: "text" as const, text: hiddenNote },
+                        wrap: true,
+                      },
+                    ],
+                  },
+                ]
+              : []),
           ],
           frozen: { rows: 1, columns: 1 },
         },

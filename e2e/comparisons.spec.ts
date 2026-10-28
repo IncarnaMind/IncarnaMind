@@ -1019,13 +1019,23 @@ test("a reworded column fills alone: its old Answers greyed until the new ones c
   await expect(cellAt(table, 0, 0).locator('.citation-marker[data-check="found"]')).toHaveCount(1);
   await expect(cellAt(table, 0, 0)).not.toHaveAttribute("data-stale", "true");
 
-  // ⌘Z puts the old Question and its Answers back, with no model call.
+  // ⌘Z puts the old Question and its Answers back, with no model call: a call would start a
+  // Task for the table, and none appears.
+  const taskIds = () =>
+    window.evaluate(async () =>
+      (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind
+        .listTasks()
+        .then((tasks) => tasks.map((task) => `${task.id}:${task.finishedAt === null}`)),
+    );
+  const tasksBefore = await taskIds();
   await window.getByTestId("mind-editor").first().focus();
   await window.keyboard.press("ControlOrMeta+z");
   await expect(headingAt(table, 0)).toHaveText("Termination notice");
   await expect
     .poll(async () => (await answersIn(table)).map((row) => row[0]))
     .toEqual(["90 days", "6 months", "30 days"]);
+  expect(await taskIds()).toEqual(tasksBefore);
+  await expect(table.getByTestId("comparison-progress")).toHaveCount(0);
 });
 
 test("a label alone refills nothing; F2 edits in place and Esc cancels; its undo line takes it back", async () => {
@@ -1232,6 +1242,282 @@ test("remove takes a column whole, its undo line brings back its Citations, and 
   await last.focus();
   await window.keyboard.press("Delete");
   await expect(table.getByTestId("comparison-question")).toHaveCount(1);
+});
+
+test("a column moves by menu, keys and drag, and hides and shows from the table's ⋯, each undone", async () => {
+  test.setTimeout(180_000);
+  const { app, window } = await launchApp(dataDir, { fakeChat: true });
+  await dismissChatSetup(window);
+  await setWindowSize(app, window, 1600, 860);
+  await useLocalChatModel(window);
+  const table = await filledSuppliersTable(window);
+  const before = await answersIn(table);
+  const orderOf = () =>
+    table
+      .getByTestId("comparison-question")
+      .evaluateAll((all) => all.map((each) => (each as HTMLElement).innerText.trim()));
+
+  // Its menu, in the shared order; Move left has nowhere to go at the first column.
+  const first = headingAt(table, 0);
+  await pointAndClick(window, first.getByTestId("comparison-column-menu"));
+  const menu = first.locator('[role="menu"]');
+  await expect(menu).toBeVisible();
+  const items = menu.getByRole("menuitem");
+  await expect(items).toHaveCount(8);
+  for (const [index, label] of [
+    "Edit column…",
+    "Insert left",
+    "Insert right",
+    "Duplicate",
+    "Move left",
+    "Move right",
+    "Hide",
+    "Remove column",
+  ].entries()) {
+    await expect(items.nth(index)).toContainText(label);
+  }
+  await expect(menu.getByTestId("comparison.column.moveLeft")).toHaveAttribute(
+    "aria-disabled",
+    "true",
+  );
+  await pointAndClick(window, menu.getByTestId("comparison.column.moveRight"));
+  await expect(window.getByTestId("undo-message")).toContainText("Moved “Termination notice”");
+  await expect.poll(orderOf).toEqual(["Liability cap", "Termination notice"]);
+  expect((await answersIn(table))[0]).toEqual(["12 months of fees", "90 days"]);
+  await pointAndClick(window, window.getByTestId("undo-action"));
+  await expect.poll(orderOf).toEqual(["Termination notice", "Liability cap"]);
+  expect(await answersIn(table)).toEqual(before);
+
+  // The same from the heading's own keys, and from ⌘K.
+  await headingAt(table, 0).focus();
+  await window.keyboard.press("Alt+Shift+ArrowRight");
+  await expect(window.getByTestId("undo-message")).toContainText("Moved “Termination notice”");
+  await expect.poll(orderOf).toEqual(["Liability cap", "Termination notice"]);
+  await window.getByTestId("mind-editor").first().focus();
+  await window.keyboard.press("ControlOrMeta+z");
+  await expect.poll(orderOf).toEqual(["Termination notice", "Liability cap"]);
+
+  await headingAt(table, 0).focus();
+  await window.keyboard.press("ControlOrMeta+k");
+  await window.keyboard.type("move right");
+  await expect(
+    window.getByTestId("palette").locator('[data-key="command:comparison.column.moveRight"]'),
+  ).toBeVisible();
+  await window.keyboard.press("Enter");
+  await expect(window.getByTestId("undo-message")).toContainText("Moved “Termination notice”");
+  await expect.poll(orderOf).toEqual(["Liability cap", "Termination notice"]);
+  await window.getByTestId("mind-editor").first().focus();
+  await window.keyboard.press("ControlOrMeta+z");
+  await expect.poll(orderOf).toEqual(["Termination notice", "Liability cap"]);
+
+  // Dragged by its heading: a rule shows where it would land, and it lands there.
+  const from = await pointAt(window, headingAt(table, 0));
+  const to = await headingAt(table, 1).boundingBox();
+  if (!to) throw new Error("The second heading isn't on screen.");
+  await window.mouse.move(from.x, from.y, { steps: 4 });
+  await window.mouse.down();
+  await window.mouse.move(to.x + to.width * 0.75, from.y, { steps: 12 });
+  await expect(headingAt(table, 1)).toHaveAttribute("data-drop", "after");
+  await window.mouse.up();
+  await expect(window.getByTestId("undo-message")).toContainText("Moved “Termination notice”");
+  await expect.poll(orderOf).toEqual(["Liability cap", "Termination notice"]);
+  await pointAndClick(window, window.getByTestId("undo-action"));
+  await expect.poll(orderOf).toEqual(["Termination notice", "Liability cap"]);
+  expect(await answersIn(table)).toEqual(before);
+
+  // Hidden from its menu; its Answers stay with the Note, and the table's ⋯ shows it again.
+  await headingAt(table, 0).focus();
+  await pointAndClick(window, headingAt(table, 0).getByTestId("comparison-column-menu"));
+  await pointAndClick(
+    window,
+    headingAt(table, 0).locator('[role="menu"]').getByTestId("comparison.column.hide"),
+  );
+  await expect(window.getByTestId("undo-message")).toContainText("Hid “Termination notice”");
+  await expect(table.getByTestId("comparison-question")).toHaveCount(1);
+  await expect(headingAt(table, 0)).toHaveText("Liability cap");
+  await pointAndClick(window, table.getByTestId("comparison-hidden-menu"));
+  const hiddenMenu = window.getByTestId("comparison-hidden-actions");
+  await expect(hiddenMenu.getByRole("menuitem")).toHaveCount(1);
+  await expect(hiddenMenu.getByRole("menuitem").first()).toContainText("Show “Termination notice”");
+  await pointAndClick(window, hiddenMenu.getByRole("menuitem").first());
+  await expect(table.getByTestId("comparison-question")).toHaveCount(2);
+  await expect(headingAt(table, 0)).toHaveText("Termination notice");
+  await expect(window.getByTestId("undo-message")).toContainText("Showed “Termination notice”");
+  expect(await answersIn(table)).toEqual(before);
+  await pointAndClick(window, window.getByTestId("undo-action"));
+  await expect(table.getByTestId("comparison-question")).toHaveCount(1);
+  await window.getByTestId("mind-editor").first().focus();
+  await window.keyboard.press("ControlOrMeta+z");
+  await expect(table.getByTestId("comparison-question")).toHaveCount(2);
+  expect(await answersIn(table)).toEqual(before);
+
+  // Hide from ⌘K, and show in Chinese from the table's ⋯.
+  await headingAt(table, 0).focus();
+  await window.keyboard.press("ControlOrMeta+k");
+  await window.keyboard.type("hide column");
+  await expect(
+    window.getByTestId("palette").locator('[data-key="command:comparison.column.hide"]'),
+  ).toBeVisible();
+  await window.keyboard.press("Enter");
+  await expect(table.getByTestId("comparison-question")).toHaveCount(1);
+  await bridge(window).language("zh-CN");
+  await expect(table.getByTestId("comparison-hidden-menu")).toHaveAttribute(
+    "aria-label",
+    "已隐藏的列（1）",
+  );
+  await pointAndClick(window, table.getByTestId("comparison-hidden-menu"));
+  await expect(
+    window.getByTestId("comparison-hidden-actions").getByRole("menuitem").first(),
+  ).toContainText("显示“Termination notice”");
+  await window.keyboard.press("Escape");
+  await window.getByTestId("mind-editor").first().focus();
+  await window.keyboard.press("ControlOrMeta+z");
+  await expect(table.getByTestId("comparison-question")).toHaveCount(2);
+  const zhFirst = headingAt(table, 0);
+  await pointAndClick(window, zhFirst, { button: "right" });
+  const zhMenu = zhFirst.locator('[role="menu"]');
+  for (const [index, label] of [
+    "编辑列…",
+    "在左侧插入列",
+    "在右侧插入列",
+    "复制列",
+    "向左移动",
+    "向右移动",
+    "隐藏",
+    "删除列",
+  ].entries()) {
+    await expect(zhMenu.getByRole("menuitem").nth(index)).toContainText(label);
+  }
+  await screenshot(window, "compare-column-menu-zh-1600");
+  await window.keyboard.press("Escape");
+  await bridge(window).language("en");
+});
+
+test("a column's edge resizes it and the width and a hidden column stay with the Note and in the export", async () => {
+  test.setTimeout(240_000);
+  const { app, window } = await launchApp(dataDir, { fakeChat: true });
+  await dismissChatSetup(window);
+  await setWindowSize(app, window, 1600, 860);
+  await useLocalChatModel(window);
+  await useOutputLocation(window, sources);
+  const table = await filledSuppliersTable(window);
+  const first = headingAt(table, 0);
+  const second = headingAt(table, 1);
+  const widthOf = async (heading: Locator) => (await heading.boundingBox())?.width ?? 0;
+  const auto = await widthOf(first);
+  const handle = first.getByTestId("comparison-column-resize");
+
+  // Drag its edge: wider at once, one change with its undo line.
+  const start = await pointAt(window, handle);
+  await window.mouse.down();
+  await window.mouse.move(start.x + 90, start.y, { steps: 12 });
+  await window.mouse.up();
+  await expect(window.getByTestId("undo-message")).toContainText("Resized “Termination notice”");
+  const wider = await widthOf(first);
+  expect(wider).toBeGreaterThan(auto + 40);
+  await pointAndClick(window, window.getByTestId("undo-action"));
+  await expect.poll(() => widthOf(first)).toBeLessThan(wider - 40);
+
+  // Double-click the edge fits the column to what it holds.
+  await pointAt(window, handle);
+  await handle.dblclick();
+  await expect(window.getByTestId("undo-message")).toContainText("Resized “Termination notice”");
+  await expect.poll(() => widthOf(first)).toBeLessThan(auto - 40);
+  await pointAndClick(window, window.getByTestId("undo-action"));
+
+  // The grip's own keys, and ⌘K fits it too.
+  await handle.focus();
+  await window.keyboard.press("ArrowRight");
+  await expect(window.getByTestId("undo-message")).toContainText("Resized “Termination notice”");
+  await expect.poll(() => widthOf(first)).toBeGreaterThan(auto + 8);
+  await window.keyboard.press("ArrowLeft");
+  await expect.poll(async () => Math.round(await widthOf(first))).toBe(Math.round(auto));
+  await first.focus();
+  await window.keyboard.press("ControlOrMeta+k");
+  await window.keyboard.type("fit column");
+  await expect(
+    window.getByTestId("palette").locator('[data-key="command:comparison.column.fit"]'),
+  ).toBeVisible();
+  await window.keyboard.press("Enter");
+  await expect(window.getByTestId("undo-message")).toContainText("Resized “Termination notice”");
+  await expect.poll(() => widthOf(first)).toBeLessThan(auto - 40);
+  await window.getByTestId("mind-editor").first().focus();
+  await window.keyboard.press("ControlOrMeta+z");
+
+  // A width set by hand on the second column, and the first hidden.
+  const secondHandle = second.getByTestId("comparison-column-resize");
+  const at = await pointAt(window, secondHandle);
+  await window.mouse.down();
+  await window.mouse.move(at.x + 120, at.y, { steps: 12 });
+  await window.mouse.up();
+  const secondWidth = await widthOf(second);
+  expect(secondWidth).toBeGreaterThan(auto + 60);
+  await first.focus();
+  await pointAndClick(window, first.getByTestId("comparison-column-menu"));
+  await pointAndClick(window, first.locator('[role="menu"]').getByTestId("comparison.column.hide"));
+  await expect(table.getByTestId("comparison-question")).toHaveCount(1);
+  await expect(table.getByTestId("comparison-hidden-menu")).toBeVisible();
+
+  // Kept with the Note: after a reload the column is still sized and the other still hidden.
+  await window.reload();
+  await expect(window.getByTestId("comparison-table")).toBeVisible({ timeout: 20_000 });
+  const reloaded = window.getByTestId("comparison-table");
+  await expect(reloaded.getByTestId("comparison-question")).toHaveCount(1);
+  await expect(headingAt(reloaded, 0)).toHaveText("Liability cap");
+  await expect
+    .poll(async () => Math.round(await widthOf(headingAt(reloaded, 0))))
+    .toBe(Math.round(secondWidth));
+  await expect(reloaded.getByTestId("comparison-hidden-menu")).toBeVisible();
+
+  // Excel leaves the hidden column out and says so, and keeps the width it was given.
+  const exported = async () => {
+    await pointAndClick(window, reloaded.getByTestId("comparison-export-excel"));
+    const result = window.getByTestId("export-result");
+    await expect(result).toHaveAttribute("data-state", "saved", { timeout: 20_000 });
+    const name = /“([^”]+\.xlsx)”/.exec(await result.innerText())?.[1];
+    if (!name) throw new Error(`No file name in “${await result.innerText()}”.`);
+    const written = new Uint8Array(await readFile(join(sources, name)));
+    return (await readWorkbook(written, undefined, {})).sheets[0];
+  };
+  await pointAndClick(window, reloaded.getByTestId("comparison-expand"));
+  const sheet = await exported();
+  const atCell = (row: number, column: number) =>
+    sheet?.cells.find((cell) => cell.row === row && cell.column === column)?.value;
+  expect(atCell(1, 1)).toBe("Liability cap");
+  expect(atCell(1, 2)).toBeUndefined();
+  expect(String(atCell(6, 0))).toContain("Left out 1 hidden column: “Termination notice”");
+  const columnWidth = (column: number) =>
+    sheet?.layout?.columns.get(column)?.width ?? sheet?.layout?.defaultColumnWidth ?? 0;
+  expect(columnWidth(1)).toBeGreaterThan(columnWidth(0));
+
+  // In Chinese the same file says it in Chinese, and the ⋯ says what it holds.
+  await bridge(window).language("zh-CN");
+  const zhSheet = await exported();
+  expect(zhSheet?.cells.find((cell) => cell.row === 6 && cell.column === 0)?.value).toBe(
+    "已排除 1 个隐藏列：“Termination notice”",
+  );
+  await expect(reloaded.getByTestId("comparison-hidden-menu")).toHaveAttribute(
+    "aria-label",
+    "已隐藏的列（1）",
+  );
+  await pointAndClick(window, reloaded.getByTestId("comparison-hidden-menu"));
+  await expect(
+    window.getByTestId("comparison-hidden-actions").getByRole("menuitem").first(),
+  ).toContainText("显示“Termination notice”");
+  await window.keyboard.press("Escape");
+
+  // Narrow, the title line and the hidden columns' menu stay inside the card.
+  await setWindowSize(app, window, 900, 860);
+  const scroller = window.locator(".mind-scroller").first();
+  const [menuBox, frame] = [
+    await reloaded.getByTestId("comparison-hidden-menu").boundingBox(),
+    await scroller.boundingBox(),
+  ];
+  if (!menuBox || !frame) throw new Error("The menu or the card isn't on screen.");
+  expect(menuBox.x + menuBox.width).toBeLessThanOrEqual(frame.x + frame.width + 1);
+  await screenshot(window, "compare-column-width-hidden-zh-900");
+  await window.keyboard.press("Escape");
+  await bridge(window).language("en");
 });
 
 test("⌘K edits a column by keyboard, and the Excel export follows the label", async () => {

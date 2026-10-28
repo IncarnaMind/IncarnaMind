@@ -1,10 +1,12 @@
 import type { Editor } from "@tiptap/core";
-import { type KeyboardEvent, useEffect, useRef, useState } from "react";
+import { type KeyboardEvent, type PointerEvent, useEffect, useRef, useState } from "react";
 import type { ComparisonQuestion } from "../../../core/api";
 import {
   comparisonLabelOf,
+  MAX_COMPARISON_COLUMN_WIDTH,
   MAX_COMPARISON_LABEL,
   MAX_COMPARISON_TEXT,
+  MIN_COMPARISON_COLUMN_WIDTH,
 } from "../../../shared/comparisons";
 import {
   type ComparisonColumnHandle,
@@ -17,15 +19,27 @@ import {
   saveColumnEdit,
   saveColumnInsert,
   startColumnEdit,
+  stepColumn,
 } from "../comparisonColumns";
 import { ObjectMenu, useObjectMenu } from "../components/ObjectMenu";
 import { useT } from "../i18n";
 
+/** Where a heading dropped, among the columns the table shows: before that one, or after the last. */
+export type ColumnDrop = "before" | "after" | null;
+
+const MOVE_DRAG_PX = 4;
+const WIDTH_STEP_PX = 16;
+const isMac = /Mac|iPhone|iPad/.test(navigator.platform);
+const clampedWidth = (width: number) =>
+  Math.min(MAX_COMPARISON_COLUMN_WIDTH, Math.max(MIN_COMPARISON_COLUMN_WIDTH, Math.round(width)));
+
 /**
  * A comparison table's heading (DESIGN.md, Comparison table; #1833): the
- * column's label, its menu, and the field that edits the label and Question
- * or asks for a column being inserted. F2 edits it, Delete removes it, and
- * Enter and Esc end a field, also while a Chinese input method composes.
+ * column's label, its menu, the edge that resizes it, and the field that
+ * edits the label and Question or asks for a column being inserted. F2 edits
+ * it, Delete removes it, ⌥⇧← and ⌥⇧→ move it, and dragging it moves it
+ * where it is dropped. Enter and Esc end a field, also while a Chinese input
+ * method composes.
  */
 export function ComparisonColumnHeading({
   editor,
@@ -34,6 +48,16 @@ export function ComparisonColumnHeading({
   question,
   count,
   editable,
+  width,
+  dragging = false,
+  drop = null,
+  onWidthPreview,
+  onWidthCommit,
+  onFit,
+  onDragStart,
+  onDragOver,
+  onDragEnd,
+  onMoveTo,
 }: {
   editor: Editor;
   mindId: string;
@@ -41,6 +65,18 @@ export function ComparisonColumnHeading({
   question: ComparisonQuestion;
   count: number;
   editable: boolean;
+  /** Its width in pixels when the User sized it; absent: the table's own width. */
+  width?: number;
+  dragging?: boolean;
+  drop?: ColumnDrop;
+  onWidthPreview?(questionId: string, width: number | null): void;
+  onWidthCommit?(questionId: string, width: number): void;
+  onFit?(questionId: string): void;
+  onDragStart?(questionId: string): void;
+  onDragOver?(slot: number | null): void;
+  onDragEnd?(): void;
+  /** Where the column lands among the columns the table shows, hidden ones passed over. */
+  onMoveTo?(questionId: string, slot: number): void;
 }) {
   const t = useT();
   const heading = useRef<HTMLDivElement>(null);
@@ -71,10 +107,135 @@ export function ComparisonColumnHeading({
     useComparisonColumns.getState().clearFocus(tableId, question.id);
   }, [focus, tableId, question.id]);
 
+  /** The headings the table shows, in the order it shows them. */
+  const headingsShown = (): HTMLElement[] => {
+    const table = heading.current?.closest(".comparison-table");
+    return Array.from(
+      table?.querySelectorAll<HTMLElement>(
+        ".comparison-head-row .comparison-question[data-question-id]",
+      ) ?? [],
+    ).filter((each) => each.getClientRects().length > 0);
+  };
+
+  const beginMove = (event: PointerEvent<HTMLDivElement>) => {
+    if (!editable || event.button !== 0) return;
+    const target = event.target as Element;
+    if (
+      target.closest(
+        "[data-object-menu], input, [data-comparison-field], .comparison-column-resize",
+      )
+    ) {
+      return;
+    }
+    const startX = event.clientX;
+    const startY = event.clientY;
+    let active = false;
+    let slot: number | null = null;
+    const onMove = (move: globalThis.PointerEvent) => {
+      if (!active) {
+        if (Math.hypot(move.clientX - startX, move.clientY - startY) < MOVE_DRAG_PX) return;
+        active = true;
+        document.documentElement.dataset.comparisonColumnDrag = "true";
+        onDragStart?.(question.id);
+      }
+      const shown = headingsShown();
+      let at = shown.length;
+      for (const [index, each] of shown.entries()) {
+        const box = each.getBoundingClientRect();
+        if (move.clientX < box.left + box.width / 2) {
+          at = index;
+          break;
+        }
+      }
+      slot = at;
+      onDragOver?.(at);
+    };
+    const remove = () => {
+      window.removeEventListener("pointermove", onMove);
+      window.removeEventListener("pointerup", onUp);
+      window.removeEventListener("pointercancel", cancel);
+    };
+    const onUp = () => {
+      remove();
+      if (!active) return;
+      delete document.documentElement.dataset.comparisonColumnDrag;
+      onDragEnd?.();
+      const own = headingsShown().indexOf(heading.current as HTMLElement);
+      if (slot === null || own < 0) return;
+      const landed = slot > own ? slot - 1 : slot;
+      if (landed !== own) onMoveTo?.(question.id, landed);
+    };
+    const cancel = () => {
+      remove();
+      if (!active) return;
+      delete document.documentElement.dataset.comparisonColumnDrag;
+      onDragEnd?.();
+    };
+    window.addEventListener("pointermove", onMove);
+    window.addEventListener("pointerup", onUp);
+    window.addEventListener("pointercancel", cancel);
+  };
+
+  const beginResize = (event: PointerEvent<HTMLSpanElement>) => {
+    if (!editable) return;
+    event.preventDefault();
+    event.stopPropagation();
+    const column = heading.current;
+    if (!column) return;
+    const startX = event.clientX;
+    const startWidth = column.getBoundingClientRect().width;
+    let width = startWidth;
+    const onMove = (move: globalThis.PointerEvent) => {
+      width = clampedWidth(startWidth + move.clientX - startX);
+      onWidthPreview?.(question.id, width);
+    };
+    const remove = () => {
+      window.removeEventListener("pointermove", onMove);
+      window.removeEventListener("pointerup", onUp);
+      window.removeEventListener("pointercancel", cancel);
+    };
+    const onUp = () => {
+      remove();
+      delete document.documentElement.dataset.comparisonColumnDrag;
+      onWidthPreview?.(question.id, null);
+      if (Math.round(width) !== Math.round(startWidth)) onWidthCommit?.(question.id, width);
+    };
+    const cancel = () => {
+      remove();
+      delete document.documentElement.dataset.comparisonColumnDrag;
+      onWidthPreview?.(question.id, null);
+    };
+    document.documentElement.dataset.comparisonColumnDrag = "true";
+    window.addEventListener("pointermove", onMove);
+    window.addEventListener("pointerup", onUp);
+    window.addEventListener("pointercancel", cancel);
+  };
+
+  const onResizeKeys = (event: KeyboardEvent<HTMLSpanElement>) => {
+    event.stopPropagation();
+    if (!editable) return;
+    if (event.key === "Enter") {
+      event.preventDefault();
+      onFit?.(question.id);
+      return;
+    }
+    if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
+    event.preventDefault();
+    const current =
+      question.width ??
+      heading.current?.getBoundingClientRect().width ??
+      MIN_COMPARISON_COLUMN_WIDTH;
+    const step = event.shiftKey ? WIDTH_STEP_PX * 4 : WIDTH_STEP_PX;
+    onWidthCommit?.(
+      question.id,
+      clampedWidth(current + (event.key === "ArrowRight" ? step : -step)),
+    );
+  };
+
   const onKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
     if (!editable || event.defaultPrevented) return;
     menu.rowProps.onKeyDown(event);
-    // F2 and Delete belong to the heading itself, not to a field or the menu inside it.
+    // F2, Delete and the move keys belong to the heading itself, not to a field or the menu inside it.
     if (event.defaultPrevented || event.target !== heading.current) return;
     if (event.key === "F2") {
       event.preventDefault();
@@ -84,6 +245,12 @@ export function ComparisonColumnHeading({
     if (event.key === "Delete" && count > 1) {
       event.preventDefault();
       removeColumn(handle, question.id);
+      return;
+    }
+    const moving = isMac ? event.altKey : event.ctrlKey;
+    if (moving && event.shiftKey && (event.key === "ArrowLeft" || event.key === "ArrowRight")) {
+      event.preventDefault();
+      stepColumn(handle, question.id, event.key === "ArrowLeft" ? -1 : 1);
     }
   };
 
@@ -102,8 +269,11 @@ export function ComparisonColumnHeading({
       tabIndex={editable ? 0 : undefined}
       data-testid="comparison-question"
       data-question-id={question.id}
+      data-dragging={dragging || undefined}
+      data-drop={drop ?? undefined}
       title={question.text}
       {...(showMenu && menu.rowProps)}
+      onPointerDown={beginMove}
       onKeyDown={onKeyDown}
       onDoubleClick={(event) => {
         if (!editable || (event.target as Element).closest("[data-object-menu]")) return;
@@ -135,6 +305,28 @@ export function ComparisonColumnHeading({
             />
           )}
         </>
+      )}
+      {editable && (
+        // biome-ignore lint/a11y/useSemanticElements: a resize grip at the column's edge, focusable for its own keys.
+        <span
+          role="separator"
+          aria-orientation="vertical"
+          aria-label={t("comparison.column.resize")}
+          aria-valuemin={MIN_COMPARISON_COLUMN_WIDTH}
+          aria-valuemax={MAX_COMPARISON_COLUMN_WIDTH}
+          aria-valuenow={Math.round(width ?? MIN_COMPARISON_COLUMN_WIDTH)}
+          title={t("comparison.column.resize")}
+          tabIndex={0}
+          className="comparison-column-resize"
+          data-testid="comparison-column-resize"
+          onPointerDown={beginResize}
+          onDoubleClick={(event) => {
+            event.preventDefault();
+            event.stopPropagation();
+            onFit?.(question.id);
+          }}
+          onKeyDown={onResizeKeys}
+        />
       )}
     </div>
   );

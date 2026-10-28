@@ -24,6 +24,9 @@ export const MAX_COMPARISON_DOCUMENTS = 100;
 export const MAX_COMPARISON_TEXT = 500;
 /** The longest a column's own heading may be; longer than a heading reads in a table. */
 export const MAX_COMPARISON_LABEL = 80;
+/** How narrow and how wide a column's edge can be dragged, in pixels. */
+export const MIN_COMPARISON_COLUMN_WIDTH = 96;
+export const MAX_COMPARISON_COLUMN_WIDTH = 560;
 const HEADING_CHARS = 40;
 
 function shortened(question: string): string {
@@ -71,6 +74,31 @@ export function comparisonQuestionsOf(attributes: Attributes): ComparisonQuestio
     });
   }
   return questions;
+}
+
+/** The columns a table draws: a hidden column keeps its Answers and its place, unshown. */
+export function visibleComparisonQuestions(
+  questions: readonly ComparisonQuestion[],
+): ComparisonQuestion[] {
+  return questions.filter((question) => question.hidden !== true);
+}
+
+/**
+ * What an export says when it leaves hidden columns out, in the export's
+ * language; null when the table hides none. A hidden column is the User's
+ * choice not to show it, so the file leaves it out and says what it left.
+ */
+export function hiddenColumnsNote(
+  questions: readonly ComparisonQuestion[],
+  t: (key: MessageKey, params?: MessageParams) => string,
+): string | null {
+  const hidden = questions.filter((question) => question.hidden === true);
+  if (hidden.length === 0) return null;
+  const columns = hidden.map((question) => `“${comparisonNameOf(question)}”`).join(", ");
+  return t(
+    hidden.length === 1 ? "export.comparison.hidden.one" : "export.comparison.hidden.other",
+    { count: hidden.length, columns },
+  );
 }
 
 const STATUSES: readonly ComparisonCellStatus[] = ["waiting", "writing", "done", "failed"];

@@ -13,9 +13,11 @@ import {
   comparisonCellOf,
   comparisonLabelOf,
   comparisonQuestionsOf,
+  MAX_COMPARISON_COLUMN_WIDTH,
   MAX_COMPARISON_LABEL,
   MAX_COMPARISON_QUESTIONS,
   MAX_COMPARISON_TEXT,
+  MIN_COMPARISON_COLUMN_WIDTH,
 } from "../../../shared/comparisons";
 import { staleAnswerKey, useComparisonColumns } from "../comparisonColumnState";
 import { comparisonTableAt } from "./comparisonCommands";
@@ -359,4 +361,148 @@ export function removeComparisonColumn(
   asOneStep(editor, () => editor.view.dispatch(tr));
   const focus = questions[index + 1] ?? questions[index - 1] ?? null;
   return { label: comparisonLabelOf(removed), focusId: focus?.id ?? null };
+}
+
+export interface MovedColumn {
+  label: string;
+  /** Where it now is: the second column is 1. */
+  index: number;
+}
+
+/**
+ * A column moved to `to`, its cells with it, as one change ⌘Z takes back:
+ * the same cells, their Answers and Citations, in their new place.
+ */
+export function moveComparisonColumn(
+  editor: Editor,
+  tableId: string,
+  questionId: string,
+  to: number,
+): MovedColumn | null {
+  const found = tableIn(editor, tableId);
+  if (!found) return null;
+  const questions = comparisonQuestionsOf(found.table.attrs);
+  const from = questions.findIndex((question) => question.id === questionId);
+  const column = questions[from];
+  if (!column || to < 0 || to >= questions.length || to === from) return null;
+  const next = questions.filter((question) => question.id !== questionId);
+  next.splice(to, 0, column);
+  const tr = editor.state.tr.setNodeAttribute(found.pos, "questions", next);
+  // Rows from the last, so a row's cells move without moving the rows below them.
+  for (let row = found.table.childCount - 1; row >= 0; row--) {
+    const node = found.table.child(row);
+    const rowPos = found.rows[row];
+    const at = cellOf(node, questionId);
+    if (rowPos === undefined || !at) continue;
+    const cell = node.child(at.index);
+    const start = rowPos + 1 + at.offset;
+    tr.delete(start, start + cell.nodeSize);
+    let insertAt = rowPos + 1;
+    for (let index = 0, before = 0; index < node.childCount && before < to; index++) {
+      if (index === at.index) continue;
+      insertAt += node.child(index).nodeSize;
+      before++;
+    }
+    tr.insert(insertAt, cell);
+  }
+  asOneStep(editor, () => editor.view.dispatch(tr));
+  return { label: comparisonLabelOf(column), index: next.indexOf(column) };
+}
+
+/** A column moved one column left or right, hidden ones passed over: the table's own order. */
+export function moveComparisonColumnBy(
+  editor: Editor,
+  tableId: string,
+  questionId: string,
+  direction: -1 | 1,
+): MovedColumn | null {
+  const found = tableIn(editor, tableId);
+  if (!found) return null;
+  const questions = comparisonQuestionsOf(found.table.attrs);
+  const index = questions.findIndex((question) => question.id === questionId);
+  if (index === -1) return null;
+  let neighbor = -1;
+  for (let at = index + direction; at >= 0 && at < questions.length; at += direction) {
+    if (questions[at]?.hidden !== true) {
+      neighbor = at;
+      break;
+    }
+  }
+  if (neighbor === -1) return null;
+  return moveComparisonColumn(editor, tableId, questionId, neighbor);
+}
+
+export interface ResizedColumn {
+  label: string;
+  width: number;
+}
+
+/** A column's width in pixels, within what a table can hold; ⌘Z puts the old width back. */
+export function setComparisonColumnWidth(
+  editor: Editor,
+  tableId: string,
+  questionId: string,
+  width: number,
+): ResizedColumn | null {
+  const found = tableIn(editor, tableId);
+  if (!found) return null;
+  const questions = comparisonQuestionsOf(found.table.attrs);
+  const index = questions.findIndex((question) => question.id === questionId);
+  const old = questions[index];
+  if (!old) return null;
+  const nextWidth = Math.min(
+    MAX_COMPARISON_COLUMN_WIDTH,
+    Math.max(MIN_COMPARISON_COLUMN_WIDTH, Math.round(width)),
+  );
+  if (old.width === nextWidth) return null;
+  const next = questions.map((question, at) =>
+    at === index ? { ...question, width: nextWidth } : question,
+  );
+  asOneStep(editor, () =>
+    editor.view.dispatch(editor.state.tr.setNodeAttribute(found.pos, "questions", next)),
+  );
+  return { label: comparisonLabelOf(old), width: nextWidth };
+}
+
+export interface HiddenColumn {
+  label: string;
+  questionId: string;
+  hidden: boolean;
+  /** The heading that takes the focus: the column shown, or the next one shown after a hidden one. */
+  focusId: string | null;
+}
+
+/** A column hidden from the table, or shown again; its Answers stay with it, and ⌘Z puts it back. */
+export function setComparisonColumnHidden(
+  editor: Editor,
+  tableId: string,
+  questionId: string,
+  hidden: boolean,
+): HiddenColumn | null {
+  const found = tableIn(editor, tableId);
+  if (!found) return null;
+  const questions = comparisonQuestionsOf(found.table.attrs);
+  const index = questions.findIndex((question) => question.id === questionId);
+  const old = questions[index];
+  if (!old || (old.hidden === true) === hidden) return null;
+  const next: typeof questions = questions.map((question, at) => {
+    if (at !== index) return question;
+    if (hidden) return { ...question, hidden: true };
+    const { hidden: _shown, ...rest } = question;
+    return rest;
+  });
+  asOneStep(editor, () =>
+    editor.view.dispatch(editor.state.tr.setNodeAttribute(found.pos, "questions", next)),
+  );
+  const after = next.slice(index + 1).find((question) => question.hidden !== true);
+  const before = next
+    .slice(0, index)
+    .reverse()
+    .find((question) => question.hidden !== true);
+  return {
+    label: comparisonLabelOf(old),
+    questionId,
+    hidden,
+    focusId: hidden ? (after?.id ?? before?.id ?? null) : questionId,
+  };
 }
