@@ -1001,6 +1001,15 @@ test.each([
     verdict: "supported",
   },
   {
+    body: "项目\t2024年\t2025年\t单位\n收入\t100\t120\t万元",
+    quote: "收入\t100\t120\t万元",
+    figure: () => cell("f1", "120", "2025年\n收入 | 100 | 120\n单位：万元"),
+    number: "120",
+    unitQuote: "单位" as string | null,
+    said: "supported",
+    verdict: "supported",
+  },
+  {
     body: "项目\t2024年\t2025年\t单位\n成本\t70\t78\t万元",
     quote: "成本\t70\t78\t万元",
     figure: () => target("f1", "70万元", "成本 2024年", "zh-CN"),

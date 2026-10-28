@@ -736,7 +736,7 @@ export function createCalculationSession(options: CalculationSessionOptions) {
     // A row's unit cell beside the number ("31000 | 万元") states its unit as a heading does.
     const onLine = (line: string) => (ownUnit ? null : readOnItsLine(line, figure, context));
     if (ofRow) stated = { quoted, stated: ofRow };
-    else if (unit) {
+    else if (unit && !ownUnit) {
       const row = onLine(unit.citation.quote);
       if (!row && readStatedUnits(unit.citation.quote, context, true).length === 0)
         return `the unitQuote "${unit.citation.quote}" states no unit or scale; give the line that does, such as "单位：万元" or "in millions".`;
