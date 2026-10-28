@@ -1064,7 +1064,7 @@ export function createAnswers(options: AnswersOptions) {
     let { messages } = context;
     let mindRequest = input.mind?.request;
     /** It listened to a meeting's live transcript: the Question went with it. */
-    let listening = false;
+    let heard: LiveTranscript | null = null;
     /** Help asked while its Meeting's live text was behind (#1366). */
     let textBehind = false;
     /** The Documents whose whole text went with the Question; null until the assistant's request is built. */
@@ -1190,7 +1190,7 @@ export function createAnswers(options: AnswersOptions) {
         ...(sentDocuments && {
           sent: {
             documents: [...sentDocuments],
-            ...(listening && { transcript: true as const }),
+            ...(heard && transcripts.size > 0 && { transcript: true as const }),
           },
         }),
       };
@@ -1940,7 +1940,6 @@ export function createAnswers(options: AnswersOptions) {
         }
       }
       if (input.listening) {
-        let heard: LiveTranscript | null = null;
         try {
           heard = await input.listening();
         } catch (error) {
@@ -1948,6 +1947,7 @@ export function createAnswers(options: AnswersOptions) {
         }
         if (finished) return;
         const kept = newestWithin(heard?.passages ?? [], listenedTokens(prepared.window));
+        if (heard) messages = withTranscript(messages, session.show(kept));
         if (help && heard?.behind) {
           textBehind = true;
           const text = options.liveTextBehind(kept.length > 0);
@@ -1961,8 +1961,6 @@ export function createAnswers(options: AnswersOptions) {
           announce("answer.delta", { ...place, answerId, text: markdown });
         }
         if (kept.length > 0) {
-          messages = withTranscript(messages, session.show(kept));
-          listening = true;
           for (const passage of kept) transcripts.add(passage.documentId);
           callDocuments?.push(...transcripts);
           if (help) callLanguage = languageSaid(kept);
@@ -2008,6 +2006,7 @@ export function createAnswers(options: AnswersOptions) {
             withPassageNotes(show(passages), unread),
           );
         const scope =
+          (heard === null || help !== undefined || asked.each || asked.main !== null) &&
           callDocuments === null &&
           options.documents.searchableCount(documentIds) <= SMALL_SCOPE_DOCUMENTS
             ? options.documents.searchableBySize(documentIds)
@@ -2644,7 +2643,7 @@ export function createAnswers(options: AnswersOptions) {
             input.assistant && !help ? THIS_DOCUMENT_RULE : "",
             emptyMindNote(withMindTools, focusedEmpty),
             analysisInstructions(withAnalysisTools),
-            meetingInstructions(listening),
+            meetingInstructions(heard !== null),
             signInNeededInstructions(signInNeeded.map((connector) => connector.name)),
             help ? "" : language,
           ]
