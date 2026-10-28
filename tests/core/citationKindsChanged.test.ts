@@ -180,4 +180,30 @@ describe("A Citation to a Document with a new version", { timeout: 60_000 }, () 
     expect(recheck.changed ?? null).toBeNull();
     expect(needsRecheck(state, citation, recheck)).toBe(false);
   });
+
+  // protects=a new version that can't be read leaves the last good version, so a Citation to it stays as it was: the Document is failed with Retry, its version is the one cited, and the Citation says nothing about a change; fails_when=a half-written file makes the Citation ask to be checked again; no_claim=the Document's own failed state (tests/core/versions.test.ts).
+  test("a new version that can't be read leaves the last good version, and the Citation quiet", async () => {
+    const kind = KINDS.find((each) => each.name === "Amendment.docx") as Kind;
+    const { core, document, citation } = await cited(kind);
+    const good = kind.file(OLD, OTHER);
+    await writeFile(document.path, Buffer.from(good).subarray(0, 40));
+    await core.reconcileDocuments();
+    const [failed] = await waitForProcessing(core, [document.id]);
+    expect(failed).toMatchObject({ status: "failed", contentHash: sha256(good) });
+
+    const documents = await core.listDocuments();
+    expect(citationState(citation, documents)).toMatchObject({
+      check: "found",
+      changedAfterCited: false,
+    });
+    const recheck = await core.recheckCitation({
+      documentId: document.id,
+      quote: citation.quote,
+      pageFrom: citation.pageFrom,
+      pageTo: citation.pageTo,
+      contentHash: citation.contentHash,
+    });
+    expect(recheck.check).toBe("found");
+    expect(recheck.changed ?? null).toBeNull();
+  });
 });

@@ -41,6 +41,7 @@ import {
 import { catalogProvider } from "../../src/core/providers/catalog/providers";
 import { createAiSdkChatModel } from "../../src/core/providers/models";
 import { isCloudModelName } from "../../src/core/providers/ollamaCloud";
+import { updateRequest } from "../../src/shared/citationUpdate";
 import {
   outOfDateProposals,
   pendingProposals,
@@ -510,6 +511,111 @@ describe.each(LIVE)("Edit with AI as it writes, live: $name", (live) => {
         `  accepted: ${readMind(client).textBetween(0, readMind(client).content.size, " | ")}`,
       );
       expect(plain("heading")).not.toBe("");
+      if (process.env.INCARNAMIND_LIVE_REPORT) {
+        await appendFile(process.env.INCARNAMIND_LIVE_REPORT, `${report.join("\n")}\n\n`);
+      }
+    },
+  );
+});
+
+/**
+ * Update the sentence… (#99): a sentence whose Citation now quotes the Document's new words is asked
+ * to agree with them. Each run writes the sentence anew with its Citation, asks as the app does,
+ * accepts what comes back, and checks that the new words are in, the old ones are out, and the
+ * Citation is still there and found. `INCARNAMIND_LIVE_RUNS` runs each language that many times.
+ */
+const UPDATES = [
+  {
+    language: "English",
+    file: "Amendment.md",
+    contents: "# Notice\n\nFor the Supplier, the notice period is forty-five (45) days.\n",
+    before: "For the Supplier, the notice period is sixty (60) days.",
+    quote: "For the Supplier, the notice period is forty-five (45) days.",
+    now: "forty-five",
+    gone: "sixty",
+  },
+  {
+    language: "Chinese",
+    file: "修订协议.md",
+    contents: "# 第 12.2 条\n\n供应商的通知期为四十五（45）天。\n",
+    before: "供应商的通知期为六十（60）天。",
+    quote: "供应商的通知期为四十五（45）天。",
+    now: "四十五",
+    gone: "六十",
+  },
+] as const;
+
+describe.each(LIVE)("Update the sentence, live: $name", (live) => {
+  test.skipIf(live.apiKey === undefined)(
+    `${live.name}: a sentence follows the new words its Citation quotes, in English and in Chinese, and keeps its Citation`,
+    { timeout: 900_000 },
+    async () => {
+      const runs = Number(process.env.INCARNAMIND_LIVE_RUNS ?? 3);
+      const report: string[] = [`## ${live.name} · ${live.model} (#99, Update the sentence)`];
+      for (const update of UPDATES) {
+        let followed = 0;
+        let kept = 0;
+        let changes = 0;
+        for (let run = 1; run <= runs; run++) {
+          const dataDir = await createTempDataFolder();
+          const sources = await createTempDataFolder();
+          const core = startCore(dataDir, { createChatModel: createAiSdkChatModel });
+          core.on(
+            "consent.requested",
+            (asked) => void core.respondToConsent(asked.requestId, true),
+          );
+          await core.saveChatProvider({
+            kind: live.kind,
+            ...(live.apiKey && { apiKey: live.apiKey }),
+            modelId: live.model,
+          });
+          if (live.local) await core.setLocalOnly(true);
+          const [document] = await addAndProcess(core, [
+            await writeSourceFile(sources, update.file, update.contents),
+          ]);
+          const mind = await core.createMind({ title: update.language });
+          const client = await connectToMind(core, mind.id);
+          writeMind(client, [
+            {
+              type: "paragraph",
+              attrs: { id: "sentence" },
+              content: [
+                { type: "text", text: `${update.before} ` },
+                citationOf(document as Document, update.quote),
+              ],
+            },
+          ]);
+          await client.settled();
+          const { result } = await edit(
+            core,
+            client,
+            mind.id,
+            "sentence",
+            "instruction",
+            updateRequest(update.quote),
+          );
+          if (result.kind === "proposed") {
+            changes++;
+            client.doc.transact(() => {
+              resolveProposals(client.blocks as Y.XmlFragment, () => true, "accept");
+            }, "editor");
+            await client.settled();
+          }
+          const text = shown(client, "sentence");
+          const citations = citationsOf(client, "sentence");
+          const follows = text.includes(update.now) && !text.includes(update.gone);
+          const still = citations.length === 1 && citations[0]?.check === "found";
+          if (follows) followed++;
+          if (still) kept++;
+          report.push(`- ${update.language} run ${run}: ${result.kind}, ${text}`);
+          core.close();
+        }
+        report.push(
+          `  ${update.language}: asked ${changes}/${runs}, sentence follows ${followed}/${runs}, Citation kept and found ${kept}/${runs}`,
+        );
+        expect(kept).toBe(runs);
+        expect(followed).toBe(runs);
+      }
       if (process.env.INCARNAMIND_LIVE_REPORT) {
         await appendFile(process.env.INCARNAMIND_LIVE_REPORT, `${report.join("\n")}\n\n`);
       }
