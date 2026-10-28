@@ -74,6 +74,8 @@ test("“write a summary page” makes the page with the summary applied, “mak
   await expect(first.getByTestId("mind-changes-open")).toBeVisible();
   await expect(first.getByTestId("mind-changes-undo")).toBeVisible();
   await expect(first.getByTestId("mind-changes-review")).toHaveText("Review changes");
+  // Nothing is left waiting there, so the card says nothing about a count (#1358).
+  await expect(first.getByTestId("mind-changes-left")).toHaveCount(0);
   await screenshot(window, "asked-write-en");
   await setLanguage(window, "zh-CN");
   await expect(first.getByTestId("mind-changes-title")).toHaveText("已写入“Summary”");

@@ -386,9 +386,10 @@ function apply(edit: Applying, request: string): ChangedBlocks {
 // Setting the assistant's changes aside before writing them as the editor's own: no Undo tracks it.
 class SettingAside {}
 
-/** The assistant's changes, applied: their steps of Undo. */
+/** The assistant's changes, applied: their steps of Undo, and the changes that were taken. */
 export interface AppliedAsked {
   followed: FollowedSteps;
+  accepted: readonly string[];
 }
 
 type AskedApplied = (mindId: string, requests: ReadonlySet<string>, asked: AppliedAsked) => void;
@@ -706,6 +707,11 @@ export function applyArrived(
   }
   const request = first?.request ?? [...requests][0];
   if (!request) return null;
+  const accepted = application
+    ? application.accepted
+    : proposalsIn(editor.state.doc)
+        .filter((each) => requests.has(each.request))
+        .map((each) => each.id);
   const edit = beginEdit(editor, mindId, `assistant:${request}`);
   if (!edit) return null;
   let planned: ReturnType<typeof planChanges>;
@@ -755,7 +761,7 @@ export function applyArrived(
   lastApplied.set(editor, edit);
   const { followed } = edit;
   if (followed) {
-    for (const listener of applied) listener(mindId, requests, { followed });
+    for (const listener of applied) listener(mindId, requests, { followed, accepted });
   }
   if (editor.isDestroyed) return "applied";
   setAppliedLine(editor, {
