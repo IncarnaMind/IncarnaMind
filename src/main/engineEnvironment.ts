@@ -6,7 +6,8 @@
  * before they connect or write a file; the Windows ones don't. The only switch onnxruntime-node's
  * Windows library has from outside is `ORT_RUNNING_UNIT_TESTS`, which ONNX Runtime's own tests set:
  * the library then never registers its ETW provider. onnxruntime-node has no call that reaches the
- * library's DisableTelemetryEvents. The speech engine's older Windows library reads neither.
+ * library's DisableTelemetryEvents. The speech package's own older Windows library reads neither,
+ * so the packager replaces it with onnxruntime-node's (scripts/afterPack.mjs, #2152).
  * tests/main/runtimeLibraries.test.ts fails when a new onnxruntime-node stops reading a name.
  */
 export function engineEnvironment(
