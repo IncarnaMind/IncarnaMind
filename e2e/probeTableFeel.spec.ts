@@ -46,6 +46,7 @@ interface Probe {
   frames: { at: number; phase: string }[];
   marks: { name: string; at: number }[];
   keys: { key: string; at: number; phase: string }[];
+  ticks: number[];
 }
 
 test("probe: a table that widens as it is written", async () => {
@@ -79,7 +80,8 @@ test("probe: a table that widens as it is written", async () => {
 
   await window.evaluate(() => {
     const holder = globalThis as unknown as { probe: Probe };
-    holder.probe = { events: [], tasks: [], loaves: [], frames: [], marks: [], keys: [] };
+    holder.probe = { events: [], tasks: [], loaves: [], frames: [], marks: [], keys: [], ticks: [] };
+    setInterval(() => holder.probe.ticks.push(performance.now()), 10);
     for (const name of ["keydown", "keyup"]) {
       globalThis.addEventListener(
         name,
@@ -234,6 +236,14 @@ test("probe: a table that widens as it is written", async () => {
       summary,
       marks: probe.marks.map((each) => ({ name: each.name, at: Math.round(each.at) })),
       keys: probe.keys.map((each) => `${Math.round(each.at)} ${each.key}`),
+      tickGaps: (() => {
+        const gaps: { at: number; gap: number }[] = [];
+        for (let index = 1; index < probe.ticks.length; index++) {
+          const gap = probe.ticks[index] - probe.ticks[index - 1];
+          if (gap > 80) gaps.push({ at: Math.round(probe.ticks[index]), gap: Math.round(gap) });
+        }
+        return gaps;
+      })(),
       events: probe.events.map(
         (each) =>
           `${Math.round(each.startTime)} ${Math.round(each.duration)}ms ${each.name} ${each.on}`,
