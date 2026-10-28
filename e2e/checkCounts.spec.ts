@@ -50,14 +50,14 @@ const WORDS = {
     line: "Checked 12 sentences · 10 claims not checked yet",
     lineAfter: "· 0 claims not checked yet",
     rest: "Check",
-    badgeWords: "11 need a look",
-    badgeName: "11 need a look",
-    afterBadgeWords: "12 need a look",
-    afterBadgeName: "12 need a look",
+    badgeWords: "Not checked",
+    badgeName: "Not checked",
+    afterBadgeWords: "1 needs a look",
+    afterBadgeName: "1 needs a look",
     toCheck: "11 claims not checked yet",
     tableCells: "10 table cells",
     found: "22 Citations found",
-    unsupported: "12 claims need a look",
+    unsupported: "1 claim needs a look",
     ask: "Check this note’s 11 claims against your Documents?",
     notNow: "Not now",
     uncited: "1 claim supported · 1 claim with no Citation",
@@ -67,14 +67,14 @@ const WORDS = {
     line: "已核对 12 句 · 10 条说法待核对",
     lineAfter: "· 0 条说法待核对",
     rest: "核对",
-    badgeWords: "需要留意 11 处",
-    badgeName: "需要留意 11 处",
-    afterBadgeWords: "需要留意 12 处",
-    afterBadgeName: "需要留意 12 处",
+    badgeWords: "未核对",
+    badgeName: "未核对",
+    afterBadgeWords: "需要留意 1 处",
+    afterBadgeName: "需要留意 1 处",
     toCheck: "11 条说法待核对",
     tableCells: "10 个表格单元格",
     found: "22 处引用已找到",
-    unsupported: "12 条说法需要留意",
+    unsupported: "1 条说法需要留意",
     ask: "要对照你的文档，核对这篇笔记中的 11 条说法吗？",
     notNow: "暂不",
     uncited: "1 条说法有依据 · 1 条说法没有引用",
@@ -176,8 +176,9 @@ for (const language of ["en", "zh-CN"] as const) {
     await expect(answer.getByTestId("self-check-left-action")).toHaveCount(0);
     const done = await checkCard(window);
     await expect(done.getByTestId("health-toCheck")).toHaveCount(0);
-    // What needs a look still shows, so the card never says everything is checked (#1909): the
-    // ten cells checked now are Supported, each figure bound to the row its label names.
+    // What needs a look still shows, so the card never says everything is checked (#1909): every
+    // cell is Supported, each figure bound to the row its label names, after the write as after
+    // the Check (#1459), and the Note's old sentence with no Citation needs a look.
     await expect(done.getByTestId("health-unsupported")).toContainText(words.unsupported);
     await expect(done.getByTestId("health-all-checked")).toHaveCount(0);
     await expect(window.getByTestId("check-badge-open")).toHaveAccessibleName(
