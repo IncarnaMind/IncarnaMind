@@ -506,7 +506,7 @@ test("a render that changes nothing doesn't outline the figure in the note again
   await render(shown);
   await click(mainOf("a"));
   expect(actions.onFocusFigure).toHaveBeenLastCalledWith(expect.objectContaining({ id: "a" }));
-  actions.onFocusFigure.mockClear();
+  vi.mocked(actions.onFocusFigure).mockClear();
   await render(shown);
   expect(actions.onFocusFigure).not.toHaveBeenCalled();
 });

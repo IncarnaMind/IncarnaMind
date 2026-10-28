@@ -124,12 +124,11 @@ function ResultBody({
     return () => clearTimeout(timer);
   }, [plain, held, dismiss]);
 
-  const saving =
-    result.format === COMPARISON_EXCEL || result.format === FIGURE_SCHEDULE_EXCEL
-      ? t("export.excel.saving")
-      : isCheckRecord(result.format)
-        ? t("checkRecord.saving")
-        : t("export.saving.line", { format: t(FORMAT_LABELS[result.format]) });
+  const saving = isWorkbook(result.format)
+    ? t("export.excel.saving")
+    : isCheckRecord(result.format)
+      ? t("checkRecord.saving")
+      : t("export.saving.line", { format: t(FORMAT_LABELS[result.format]) });
   const fix = (): ProblemAction | undefined => {
     if (result.state === "failed") {
       return {
@@ -342,6 +341,12 @@ function NeedsDetailsLine({ mindId, documentIds }: { mindId: string; documentIds
 }
 
 /** Where the note's checks stand (#1915), read as the corner badge reads it; null for a line that isn't the note's own export, or until its Mind is known. */
+/** A workbook the app writes from a note, the comparison or the figure schedule: not the note's own file. */
+const isWorkbook = (
+  format: SavedResult["format"],
+): format is typeof COMPARISON_EXCEL | typeof FIGURE_SCHEDULE_EXCEL =>
+  format === COMPARISON_EXCEL || format === FIGURE_SCHEDULE_EXCEL;
+
 function useExportNoteState(mindId: string | null): NoteState | null {
   const mind = useAppStore((state) =>
     mindId === null ? null : (state.minds.find((each) => each.id === mindId) ?? null),
@@ -360,8 +365,8 @@ function SavedSentence({ result, withFile }: { result: SavedResult; withFile: Sa
   const language = useLanguage();
   const folder = result.inDefaultFolder ? defaultFolderLabel(t) : folderName(result.folder);
   const name = nameInLine(result.name);
-  // The check record and the workbook aren't the note's file: their lines say what they are, not how the note stands.
-  const noteExport = !isCheckRecord(result.format) && result.format !== COMPARISON_EXCEL;
+  // The check record and the workbooks aren't the note's file: their lines say what they are, not how the note stands.
+  const noteExport = !isCheckRecord(result.format) && !isWorkbook(result.format);
   const state = useExportNoteState(noteExport ? result.mindId : null);
   const chosen = chosenParts(t, {
     places:
