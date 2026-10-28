@@ -1417,7 +1417,8 @@ describe("A model not measured to use calculate answers as before", { timeout: 6
     if (ended.event !== "finished") throw new Error(`The Answer failed: ${JSON.stringify(ended)}`);
 
     const request = ollama.chats.find((chat) => isAnswer(chat.body))?.body ?? {};
-    expect(JSON.stringify(request)).not.toMatch(/calculations|calculate/);
+    expect(JSON.stringify(request)).not.toMatch(/\bcalculations\b|\bcalculate\b|\[=1\]/);
+    expect(JSON.stringify(request)).toContain("IncarnaMind has no calculation Tool for this model");
     expect(ended.payload).toMatchObject({ figures: [], uncalculated: 0, figureRetry: null });
     expect(answerIn(client, answerId).textContent).toBe("Revenue grew 20.4% .");
   });

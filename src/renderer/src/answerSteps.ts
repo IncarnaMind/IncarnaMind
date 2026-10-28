@@ -2,6 +2,7 @@ import type {
   AnswerPhase,
   AnswerToolCall,
   AskedFrom,
+  ClaimedTool,
   ConversationAnswer,
   MarkedCitation,
   MindRead,
@@ -90,6 +91,8 @@ export type StepRow =
   | { kind: "call"; call: AnswerToolCall }
   /** A Skill, loaded by the model or chosen for the Question, with the files it read. */
   | { kind: "skill"; name: string; use: AnswerToolCall | null; reads: AnswerToolCall[] }
+  /** Its first reply said these Tools ran, and none had: the model was asked once more (#1796). */
+  | { kind: "asked-again"; tools: readonly ClaimedTool[] }
   /** The figures the Answer shows, each calculated from its cited inputs. */
   | { kind: "calculated"; count: number }
   /** The Citations checked against their sources, and how many weren't found; `running`: being checked now. */
@@ -280,8 +283,9 @@ const unansweredQuestion = (call: AnswerToolCall) =>
  * there is no share of it to say (#564), the Documents whose whole text went
  * with the Question, the
  * searches and other calls in the order they started (searches in a row as
- * one, a failed one where it happened), the figures calculated, and the check
- * of the Citations last. A call still waiting for the User has no row: its
+ * one, a failed one where it happened), the model asked again about Tools its
+ * first reply said ran, the figures calculated, and the check of the Citations
+ * last. A call still waiting for the User has no row: its
  * approval card shows instead.
  *
  * While the Answer is written (`live`: its step now), the rows are the same in
@@ -378,6 +382,8 @@ export function stepRows(
   }
   for (const [search, passages] of used) search.used = passages.size;
 
+  const askedAgainFor = answer.steps?.askedAgainFor ?? [];
+  if (askedAgainFor.length > 0) rows.push({ kind: "asked-again", tools: askedAgainFor });
   if (calculated > 0) rows.push({ kind: "calculated", count: calculated });
   const shown = shownCitations(answer);
   if (live) {

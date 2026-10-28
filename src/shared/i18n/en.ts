@@ -2074,8 +2074,10 @@ export const en = {
   "setup.other": "Other ways",
   "setup.way.local": "Use a model on this computer",
   "setup.way.local.install": "Install a model on this computer\u2026",
-  "setup.way.local.running": "Ollama is running \u00b7 free \u00b7 nothing leaves",
+  "setup.way.local.running": "Ollama is running \u00b7 free",
   "setup.way.local.notRunning": "Needs the free Ollama app",
+  "setup.way.local.line": "Free and private · slower",
+  "setup.way.local.keeps": "Keeps everything on this computer",
   "setup.step.transcription": "Meeting transcription",
   "setup.step.transcription.line": "Free \u00b7 nothing leaves this computer",
   "setup.step.sorting": "Sorting and meeting hints",
@@ -2257,6 +2259,9 @@ export const en = {
   "localMode.turnOff": "Allow cloud models",
   "localMode.turnedOff": "Turned off “Keep everything on this computer”",
   "localMode.turnedOn": "Turned on “Keep everything on this computer”",
+  "localMode.chosen": "Using {model} · Everything stays on this computer",
+  "localMode.chosen.undone": "Turned off “Keep everything on this computer” · Still using {model}",
+  "localMode.change": "Change",
   "localMode.keep.label": "Also keep everything on this computer",
   "localMode.keep.nothing": "Nothing in the cloud is set up yet.",
   "localMode.keep.pauses": "Pauses {services} until you turn it off.",
@@ -5440,6 +5445,9 @@ export const en = {
   "steps.check.allFound": "all found",
   "steps.check.found": "found",
   "steps.check.notFound": "{count} not found",
+  "steps.askedAgain.calculate":
+    "Asked again: the reply said figures were calculated, and no calculation had run",
+  "steps.askedAgain.search": "Asked again: the reply said a search ran, and none had",
   "steps.failed.search": "Couldn’t search {scope}",
   "steps.failed.search.auth": "Couldn’t search {scope}: the search model’s key was refused",
   "steps.live.reading": "Reading {mind}…",
@@ -5615,6 +5623,11 @@ export const en = {
   "answer.notWritten.noCall": "the assistant didn’t run the write",
   "answer.notWritten.retry": "Try again",
   "answer.notAllDone": "The assistant didn’t make every change this reply describes",
+  "answer.notCalculated":
+    "No calculation ran: IncarnaMind didn’t calculate the figures worked out in this reply, so they’re unchecked",
+  "answer.notCalculated.unavailable":
+    "No calculation ran: this model can’t use IncarnaMind’s calculation Tool, so the figures worked out in this reply are unchecked",
+  "answer.notSearched": "No search ran: this reply wasn’t drawn from a search",
   "answer.uncitedReply":
     "This reply has no Citations, so none of it was checked against your Documents",
   "answer.uncitedWrite":
