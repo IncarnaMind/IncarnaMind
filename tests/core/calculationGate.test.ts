@@ -177,6 +177,19 @@ describe("a check cannot substitute a model verdict for derived arithmetic", () 
       expect(result.unsupported?.quoted?.quote).toContain("600");
   });
 
+  test("a quantity starting after a citation is not mistaken for a pinpoint page", async () => {
+    const { result, verdicts } = await fixture({
+      claim: "Under [2024] UKSC 5, 60 of the appeals succeeded.",
+    });
+    expect(result.verdict).toBe("not-checked");
+    expect(verdicts()).toBe(2);
+  });
+
+  test("a closed citation pinpoint needs no arithmetic", async () => {
+    const { verdicts } = await fixture({ claim: "See [2024] UKSC 5, 60.", verdict: "unsupported" });
+    expect(verdicts()).toBe(1);
+  });
+
   test.each([
     "Under [2024] UKSC 5, net debt is 2.0x adjusted EBITDA.",
     "根据 [2024] UKSC 5，净负债为调整后EBITDA的2.0倍。",

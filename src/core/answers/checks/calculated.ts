@@ -17,7 +17,11 @@ import type { CalculatedFigure, LimitRelation } from "../../api";
 import { documentFigureContext } from "../calculations";
 
 export function figuresInClaim(text: string, context: FigureContext): Figure[] {
-  const references = citedCases(text);
+  const references = citedCases(text).map((reference) => {
+    const after = text.slice(reference.to).trimStart();
+    const closed = after === "" || /^[.,;!?…)\]}，。；！？]/u.test(after);
+    return { from: reference.from, to: closed ? reference.to : reference.citeTo };
+  });
   return readFigures(text, context).filter(
     (figure) =>
       !references.some((reference) => figure.start >= reference.from && figure.end <= reference.to),

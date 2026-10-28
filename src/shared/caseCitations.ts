@@ -16,6 +16,8 @@ export interface CaseCitation {
 /** Its span in the text, from the word that introduces it to its court and year, for a sentence break inside it to be mended (`sentenceSpans`). */
 export interface CitedCase extends CaseCitation {
   from: number;
+  /** End of the citation identity, before optional pinpoint pages or court metadata. */
+  citeTo: number;
   to: number;
 }
 
@@ -281,7 +283,7 @@ export function citedCases(text: string): CitedCase[] {
   const found: CitedCase[] = [];
   const add = (name: string | null, cite: string, from: number, citeEnd: number) => {
     const to = citeEnd + (TRAILER.exec(text.slice(citeEnd))?.[0].length ?? 0);
-    found.push({ name, cite: spaced(cite), from, to });
+    found.push({ name, cite: spaced(cite), from, citeTo: citeEnd, to });
   };
   for (const match of text.matchAll(AMERICAN)) {
     const [whole, name, cite] = match;
