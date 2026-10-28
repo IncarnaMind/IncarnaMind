@@ -46,6 +46,7 @@ import type { PreparedChatModel } from "../../providers/chat";
 import { currentTask } from "../../runs/current";
 import { RunItemError, runItems } from "../../runs/stop";
 import { type ClaimCheckRequest, recordJudged, runFailureOf } from "./claimCheck";
+import { claimsAtOnce } from "./runChecks";
 import {
   everySentence,
   keptAsView,
@@ -61,9 +62,6 @@ const ACTION = "contradiction-watch";
 
 /** A Document whose text is read: a new version of it can be searched. */
 const READ: readonly DocumentStatus[] = ["waiting-for-model", "embedding", "ready"];
-
-/** Claims a cloud model checks at once on demand; in the background, and on this computer, one. */
-const CLOUD_CLAIMS_AT_ONCE = 3;
 
 /** How long after a new version arrives its Folder's Minds are checked: more versions may follow. */
 export const AFTER_NEW_VERSION_MS = 30_000;
@@ -282,7 +280,7 @@ export function createContradictionWatch(options: WatchOptions) {
           return result;
         }),
       {
-        concurrency: prepared.provider.service ? CLOUD_CLAIMS_AT_ONCE : 1,
+        concurrency: claimsAtOnce(prepared),
         signal,
         onOutcome(claim, outcome) {
           if (outcome.status !== "done" || signal.aborted) return;

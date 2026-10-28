@@ -10,9 +10,9 @@
  * alone, in English and Chinese, and misses a vague sentence rather than flag
  * an honest one.
  */
+import { FIGURE_MARKER } from "../../shared/figureMarkers";
 import type { AnswerToolCall, ClaimedTool } from "../api";
 import { DOCUMENT_TOOLS, SOURCE_TOOLS, WEB_TOOLS } from "../tools";
-import { FIGURE_MARKER } from "../../shared/figureMarkers";
 import { thisAnswersRecord, UNSEEN_REPLY } from "./claimedChanges";
 import { sentencesOf } from "./claimStream";
 import type { ChangeStates, MindNames } from "./toolRecord";

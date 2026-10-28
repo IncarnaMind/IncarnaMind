@@ -157,6 +157,66 @@ async function shownChecks(core: Core, client: MindClient, folderId: string | nu
   }));
 }
 
+// protects=a check sends six claims at once to a model on a service and one at a time to a model on this computer (#1618); fails_when=the number changes, or a model on this computer is sent several at once; no_claim=a real provider's rate limits, which the run's backoff answers.
+test.each([
+  [6, "a model on a service", true],
+  [1, "a model on this computer", false],
+] as const)("Check this note sends %i claims at once to %s", async (atOnce, _, onService) => {
+  const sentences = Array.from(
+    { length: 9 },
+    (_, index) => `Spring tide ${index + 1} comes at new moon.`,
+  );
+  const plans: Record<string, Plan> = Object.fromEntries(
+    sentences.map((sentence) => [sentence, { verdict: "supported", quote: MOON }]),
+  );
+  const running = new Set<string>();
+  let most = 0;
+  const model = scriptedModel(
+    (call) => {
+      if (!isCheckRun(call)) return { text: "" };
+      const sentence = sentenceOf(call);
+      if (call.results.length === 0) {
+        running.add(sentence);
+        most = Math.max(most, running.size);
+      }
+      const reply = checkReply(call, plans);
+      if ("text" in reply && reply.text?.startsWith("Verdict")) running.delete(sentence);
+      return reply;
+    },
+    { generate: checkGenerate(plans) },
+  );
+  const core = startCore(await createTempDataFolder(), {
+    createChatModel: scriptedModels(model).createChatModel,
+  });
+  if (onService) {
+    core.on("consent.requested", (asked) => void core.respondToConsent(asked.requestId, true));
+    const provider = await core.saveChatProvider({
+      kind: "anthropic",
+      apiKey: "sk-ant-test",
+      modelId: "claude-haiku-5-5",
+    });
+    if (provider.service) await core.allowDataFlow("checks", provider.service.id);
+  } else await core.saveChatProvider({ kind: "ollama", modelId: "local-model" });
+  const sources = await createTempDataFolder();
+  await addAndProcess(core, [await writeSourceFile(sources, TIDES.name, TIDES.contents)]);
+  const mind = await core.createMind({ title: "Tide notes" });
+  const client = await connectToMind(core, mind.id);
+  writeMind(
+    client,
+    sentences.map((sentence, index) => ({
+      type: "paragraph",
+      attrs: { id: `tide-${index + 1}` },
+      content: [text(sentence)],
+    })),
+  );
+  await client.settled();
+
+  const result = await core.checkMind(request(mind.id, "all"));
+
+  expect(result).toMatchObject({ kind: "checked", sentences: 9 });
+  expect(most).toBe(atOnce);
+});
+
 describe("Check this note", () => {
   test("the model it names is the one in use: an older Mind follows a new last pick, its own pick wins, and a removed provider falls back", async () => {
     const { core, client, mindId } = await setUp();
