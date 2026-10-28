@@ -32,7 +32,7 @@ test.afterEach(async () => {
 });
 
 const paragraphs = Array.from(
-  { length: 12 },
+  { length: 200 },
   (_, at) =>
     `Harbour log, entry ${at + 1}. The tide table for berth ${at + 1} lists the water level, the pilot's call and the lock keeper's hours.`,
 );
