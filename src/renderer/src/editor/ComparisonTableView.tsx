@@ -47,7 +47,7 @@ import { useMindId } from "./mindContext";
  * shown keeps the grid's outer edge.
  */
 function hiddenColumnCss(tableId: string, columns: readonly ComparisonQuestion[]): string {
-  const table = `.comparison-table[data-comparison-table="${tableId}"]`;
+  const table = `.comparison-table[data-comparison-table="${CSS.escape(tableId)}"]`;
   const rules: string[] = [];
   columns.forEach((column, at) => {
     if (column.hidden !== true) return;
@@ -59,6 +59,11 @@ function hiddenColumnCss(tableId: string, columns: readonly ComparisonQuestion[]
   if (lastShown >= 0) {
     rules.push(
       `${table} .comparison-row-cells > .comparison-cell:nth-child(${lastShown + 1}){border-right:0}`,
+    );
+  } else {
+    rules.push(
+      `${table} .comparison-head-row > .comparison-corner{border-right:0}`,
+      `${table} .comparison-document{border-right:0}`,
     );
   }
   return rules.join("\n");
