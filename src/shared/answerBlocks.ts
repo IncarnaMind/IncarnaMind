@@ -11,6 +11,7 @@ import { markdownToBlocks } from "../core/answers/markdown";
 import { forPage } from "../core/answers/pointersBack";
 import {
   type AnswerAnalysis,
+  CALCULATED_FIGURE_NODE,
   type CalculatedFigure,
   CITATION_NODE,
   type ConversationAnswer,
@@ -18,7 +19,7 @@ import {
 } from "../core/api";
 import { asGenerated } from "./aiText";
 import { citationNode, type NodeJSON, withCitations } from "./blockJson";
-import { calculatedFigureNode } from "./calculatedFigures";
+import { calculatedFigureNode, figureShownText } from "./calculatedFigures";
 import { withFigures } from "./figureMarkers";
 import { figureRunId } from "./figureRuns";
 import { withoutFraming } from "./noteBlocks";
@@ -154,9 +155,14 @@ function closeUpCitations(blocks: readonly NodeJSON[]): NodeJSON[] {
   });
 }
 
-/** Whether Blocks hold any words: an Answer that failed before writing any has nothing to keep. */
+/**
+ * Whether Blocks hold anything to read, words or a calculated figure: an Answer that failed
+ * before writing any has nothing to keep.
+ */
 export const hasText = (blocks: readonly NodeJSON[]): boolean =>
   blocks.some(
     (block) =>
-      (block.type === "text" && (block.text ?? "").trim() !== "") || hasText(block.content ?? []),
+      (block.type === "text" && (block.text ?? "").trim() !== "") ||
+      (block.type === CALCULATED_FIGURE_NODE && figureShownText(block.attrs).trim() !== "") ||
+      hasText(block.content ?? []),
   );
