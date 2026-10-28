@@ -3960,6 +3960,8 @@ export const en = {
   "export.excel.cell": "Cell",
   "export.excel.asWritten": "As written: {text}",
   "export.unverified": "[unverified]",
+  "export.checkedBy": "Checked by {name} · {date}",
+  "export.checkedBy.changed": "Checked by {name} before it changed · {date}",
   "export.needsDetails.line.one": "1 Document lacks authors or dates",
   "export.needsDetails.line.other": "{count} Documents lack authors or dates",
   "export.needsDetails.show": "Add details",

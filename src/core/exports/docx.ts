@@ -534,7 +534,8 @@ export class DocxWriter {
           paragraph(
             { indent: hang, hanging: hang },
             (item.label ? `${this.styled(item.label)}<w:r><w:tab/></w:r>` : "") +
-              this.styled(item.runs),
+              this.styled(item.runs) +
+              checkedRuns(item.checked),
           ),
         )
         .join("")
@@ -859,7 +860,7 @@ export class DocxWriter {
     version: string | null,
   ): string {
     const key = shared
-      ? `numbered\n${documentId ?? ""}\n${version ?? ""}\n${citation.source}\n${citation.unverified}\n${citation.link ?? ""}`
+      ? `numbered\n${documentId ?? ""}\n${version ?? ""}\n${citation.source}\n${citation.unverified}\n${citation.link ?? ""}\n${citation.checked?.join("\n") ?? ""}`
       : null;
     const first = key === null ? undefined : this.notes.get(key);
     if (first) {
@@ -867,7 +868,13 @@ export class DocxWriter {
       return this.noteNumber(first.id);
     }
     const id = this.target.ids.take("footnote");
-    this.footnotes.push(footnote(id, this.source(citation, " "), this.styles.footnote));
+    this.footnotes.push(
+      footnote(
+        id,
+        this.source(citation, " ") + checkedRuns(citation.checked),
+        this.styles.footnote,
+      ),
+    );
     if (key !== null) this.notes.set(key, { id, text: "", reused: false });
     return footnoteReference(id, this.styles.footnote.reference);
   }
@@ -1387,3 +1394,7 @@ function styles(
     "</w:styles>"
   );
 }
+
+/** People's own checks of a source, a line each under it (#1933). */
+const checkedRuns = (lines: readonly string[] | undefined): string =>
+  (lines ?? []).map((line) => `<w:r><w:br/></w:r>${run(line)}`).join("");

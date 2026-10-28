@@ -329,6 +329,21 @@ export function signOffShown(
     : { state: "changed", record };
 }
 
+/** Every person's mark on a Citation, as each shows now against its sentence and quote. */
+export function citationMarksNow(
+  records: readonly SignOffRecord[],
+  id: string,
+  sentence: string,
+  cited: { documentId: string | null; contentHash: string | null; quote: string | null },
+  versions: ReadonlyMap<string, string> | null,
+  personId: string | null,
+): SignOffNow[] {
+  const basis = citationSignOffBasis(sentence, cited);
+  return records
+    .filter(({ target }) => target.kind === "citation" && target.id === id)
+    .map((record) => signOffNow(signOffShown(record, basis, [cited], versions), personId));
+}
+
 /** Whether a mark is the User's own: theirs on any device, or made before they had an id. */
 export const isMine = (record: SignOffRecord, personId: string | null): boolean =>
   record.personId === undefined || record.personId === personId;

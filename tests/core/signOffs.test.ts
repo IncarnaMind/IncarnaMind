@@ -5,6 +5,7 @@ import * as Y from "yjs";
 import { citationSentences } from "../../src/core/answers/checks/sentences";
 import { type CalculatedFigure, CITATION_NODE } from "../../src/core/api";
 import { calculatedFigureNode } from "../../src/shared/calculatedFigures";
+import { formatDate } from "../../src/shared/dates";
 import { FORMULA_VERSION } from "../../src/shared/formula";
 import { translate } from "../../src/shared/i18n";
 import {
@@ -16,8 +17,10 @@ import {
 } from "../../src/shared/signOffs";
 import { createTempDataFolder, queryDatabase, startCore } from "../helpers/core";
 import { parseCsv } from "../helpers/csv";
+import { footnotesOf, part, unzip } from "../helpers/docx";
 import { connectToMind } from "../helpers/mindClient";
 import { note, readMind, writeMind } from "../helpers/minds";
+import { fakePrinter } from "../helpers/printer";
 
 /*
  * The User's own "Checked by me" through the core (#1933): a figure's mark rests on what it was
@@ -409,6 +412,112 @@ function citationIn(client: { blocks: Y.XmlFragment }): Y.XmlElement {
   }
   throw new Error("No Citation in the Note");
 }
+
+// protects=an export says each person's check under the source it is on, in the Word file's and the PDF's footnotes, the shared page's notes and a Numbered list, and a mark made before its Citation changed reads "before it changed", never as checked; no line speaks for the whole document (#1933), in English and Chinese; fails_when=a source lacks its line, the changed one reads as checked, or the text has a "Checked by" line of its own; no_claim=citation styles other than Numbered, which format their own notes.
+test.each(["en", "zh-CN"] as const)(
+  "an export says each check under its own source (%s)",
+  async (language) => {
+    const { printed, printer } = fakePrinter();
+    const core = startCore(await createTempDataFolder(), { printer });
+    await core.updateSettings({ user: { language, personId: "person-1" } });
+    const mind = await core.createMind({ title: "Checked sources" });
+    const client = await connectToMind(core, mind.id);
+    const cited = (id: string, quote: string) => ({
+      type: "citation",
+      attrs: {
+        passageId: `passage-${id}`,
+        documentId: `document-${id}`,
+        documentName: id === "c1" ? "Tides" : "Harbours",
+        contentHash: "v1",
+        pageFrom: 1,
+        pageTo: 1,
+        quote,
+        check: "found",
+        id,
+      },
+    });
+    writeMind(client, [
+      {
+        type: "paragraph",
+        attrs: { id: "p1" },
+        content: [
+          { type: "text", text: language === "en" ? "The sea rises" : "海平面上升" },
+          cited("c1", "Tides rise."),
+          { type: "text", text: language === "en" ? ". Harbours fill" : "。港口满了" },
+          cited("c2", "Harbours fill."),
+          { type: "text", text: "." },
+        ],
+      },
+    ]);
+    await client.settled();
+    const sentences = citationSentences(client.blocks);
+    const at = "2026-10-28T09:00:00.000Z";
+    for (const [id, quote, changed] of [
+      ["c1", "Tides rise.", false],
+      ["c2", "Harbours fill.", true],
+    ] as const) {
+      addSignOff(client.doc, {
+        id: `mark-${id}`,
+        target: { kind: "citation", id },
+        at,
+        contentHash: changed
+          ? "checked-before-it-changed"
+          : citationSignOffBasis(sentences.get(id) ?? "", {
+              documentId: `document-${id}`,
+              contentHash: "v1",
+              quote,
+            }),
+        deletedAt: null,
+        name: "Ada",
+        personId: "person-1",
+      });
+    }
+    await client.settled();
+    const date = formatDate(at, language);
+    const checked = translate(language, "export.checkedBy", { name: "Ada", date });
+    const changed = translate(language, "export.checkedBy.changed", { name: "Ada", date });
+    const count = (text: string, part: string) => text.split(part).length - 1;
+    // Each source's own line, and the person named nowhere else: no line for the whole document.
+    const says = (text: string) => {
+      expect(count(text, checked)).toBe(1);
+      expect(count(text, changed)).toBe(1);
+      expect(count(text, "Ada")).toBe(2);
+    };
+
+    const word = unzip((await core.exportMind(mind.id, { format: "docx" })).data);
+    says(Object.values(footnotesOf(part(word, "word/footnotes.xml"))).join("\n"));
+    expect(part(word, "word/document.xml")).not.toContain("Ada");
+
+    const pdf = () => `${printed.at(-1)?.body ?? ""}${printed.at(-1)?.notes ?? ""}`;
+    await core.exportMind(mind.id, { format: "pdf" });
+    says(pdf());
+    await core.exportMind(mind.id, { format: "pdf", citationPlace: "list" });
+    says(pdf());
+
+    const page = new TextDecoder().decode(
+      (await core.exportMind(mind.id, { format: "share-page", citationCards: false })).data,
+    );
+    says(page);
+
+    // The check record names the person on each row, the changed one as changed since.
+    const out = await createTempDataFolder();
+    await core.setOutputLocation(out);
+    const saved = await core.saveCheckRecord(mind.id);
+    if (saved.status !== "saved") throw new Error(`Not saved: ${saved.status}`);
+    const csv = readFileSync(
+      join(out, `${saved.file.name.replace(/\.(pdf|csv)$/, "")}.csv`),
+      "utf8",
+    );
+    const time = (row: string[]) => row.find((cell) => cell.startsWith("Ada · ")) ?? "";
+    const rows = parseCsv(csv).filter((row) => time(row) !== "");
+    expect(rows).toHaveLength(2);
+    const since =
+      translate(language, "checkRecord.person.changed", { name: "\u0000", time: "\u0000" })
+        .split("\u0000")
+        .at(-1) ?? "";
+    expect(rows.filter((row) => time(row).endsWith(since))).toHaveLength(1);
+  },
+);
 
 // protects=when History can't keep the Note as it was sent, the file is still saved and the result says so, so the User learns it where it happened (#1933); fails_when=the save reports nothing wrong; no_claim=why storage refused.
 test("a sent version History couldn't keep is said with the saved file", async () => {

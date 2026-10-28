@@ -3800,6 +3800,8 @@ export const zhCN = {
   "export.excel.cell": "单元格",
   "export.excel.asWritten": "原文：{text}",
   "export.unverified": "[未核实]",
+  "export.checkedBy": "由 {name} 核对 · {date}",
+  "export.checkedBy.changed": "由 {name} 核对，核对后已改动 · {date}",
   "export.needsDetails.line.one": "1 个文档缺少作者或日期",
   "export.needsDetails.line.other": "{count} 个文档缺少作者或日期",
   "export.needsDetails.show": "补充信息",

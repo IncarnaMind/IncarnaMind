@@ -328,6 +328,12 @@ export function listCitations(
   });
 
   const t: Translate = (key, params) => translate(context.language, key, params);
+  const checkedAt = new Map<string, Set<string>>();
+  for (const citation of cited) {
+    if (!citation.footnote.checked) continue;
+    const key = sourceKeyOf(citation.work, context);
+    checkedAt.set(key, new Set([...(checkedAt.get(key) ?? []), ...citation.footnote.checked]));
+  }
   const unverifiedAt = new Map<string, Set<string>>();
   for (const citation of cited) {
     if (!citation.footnote.unverified) continue;
@@ -350,9 +356,11 @@ export function listCitations(
           ),
         };
         const entry = sourceEntry(marked, context.language);
+        const checked = checkedAt.get(source.key);
         return {
           label: [{ text: `[${index + 1}]` }],
           runs: [{ text: places?.has("") ? `${entry} ${unverified}` : entry }],
+          ...(checked && { checked: [...checked] }),
         };
       }),
       hangingIndent: false,
