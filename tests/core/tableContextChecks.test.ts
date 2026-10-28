@@ -239,7 +239,7 @@ describe("A table the assistant writes is checked cell by cell, each with its ro
       expect(prompt).toContain(budget.headings[1]);
       expect(prompt).toContain(`${first?.label} | 100 | 210`);
       expect(prompt).toContain(budget.caption);
-      expect(prompt).toContain(`"label":"${first?.label}"`);
+      expect(prompt).toContain(`"label":"${first?.label} · ${budget.headings[1]}"`);
       expect(marksIn(client)).toEqual(LANDED);
       expect(changesIn(answer)[0]?.selfCheck).toMatchObject({ cited: 4, sent: 4, checked: 4 });
       const schedule = await core.getFigureSchedule(mindId);

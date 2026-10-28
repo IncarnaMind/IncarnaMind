@@ -204,6 +204,12 @@ test("a row that only names a group heads the rows below it in their context", (
     ["2025", "Cost:"],
   ]);
   expect(figures[0]?.table).toMatchObject({ rowLabel: "Total" });
+  expect(figures.map((each) => each.label)).toEqual([
+    "Total · 2024",
+    "Total · 2025",
+    "Total · 2024",
+    "Total · 2025",
+  ]);
 });
 
 const value = (number: number | null): ChartValue => ({

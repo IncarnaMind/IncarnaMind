@@ -127,7 +127,15 @@ function inSentence(
       } satisfies TextStretch,
     };
   };
-  const common = table ? { table: table.place, label: table.place.rowLabel } : {};
+  // A cell is named by its row and its column, so the check reads which year it is for.
+  const common = table
+    ? {
+        table: table.place,
+        label: [table.place.rowLabel, ...table.place.columnLabel.split("\n")]
+          .filter(Boolean)
+          .join(" · "),
+      }
+    : {};
   // A court decision's citation ("512 S.W.3d 101 (Tex. 2017)") holds no figure to tie out.
   const cases = citedCases(raw);
   const found: FigureOccurrence[] = readFigures(raw, { ...note, header: table?.header ?? null })
