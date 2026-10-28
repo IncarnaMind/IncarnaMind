@@ -1912,6 +1912,27 @@ export const migrations: readonly Migration[] = [
       WHERE key = 'agentsEnabled' AND deleted_at IS NULL;
     `,
   },
+  {
+    version: 111,
+    description:
+      "Each Document's name in a keyword index of its own, once for the Document (#2042)",
+    sql: `
+      -- A Document's name, segmented as the Passages are (the core writes the
+      -- words: src/core/documents/keywords.ts), in an index whose document
+      -- frequency counts Documents: a word of a name weighs its Document once,
+      -- not once a Passage. Keyword search scores a Passage by its own words
+      -- and adds its Document's name match separately. The Passages' index is
+      -- rebuilt without the name by processing version 15 (see
+      -- NAME_INDEX_CURRENT_SINCE in src/core/documents/processing.ts).
+      -- One row a Document, deleted and written again when a Document is
+      -- renamed; a derived index, never synced.
+      CREATE VIRTUAL TABLE document_names_fts USING fts5 (
+        document_id UNINDEXED,
+        text,
+        tokenize = 'unicode61 remove_diacritics 2'
+      );
+    `,
+  },
 ];
 
 /**

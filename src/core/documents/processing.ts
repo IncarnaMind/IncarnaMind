@@ -54,8 +54,8 @@ import { unreadMessage } from "./unreadMessage";
  * scanned page's quarter-turn is normalized before it is read). 13: #740 (a
  * workbook records the hidden sheets and rows past the limit it left out).
  * 14: #1818 (PDF form fields are included in the pages' text). 15:
- * #2042 (a Document's name is indexed with its first Passage alone; see
- * `NAME_INDEX_CURRENT_SINCE`).
+ * #2042 (a Document's name is in a keyword index of its own, not in each
+ * Passage's row; see `NAME_INDEX_CURRENT_SINCE`).
  */
 export const PROCESSING_VERSION = 15;
 
@@ -102,14 +102,16 @@ export const HAN_CURRENT_SINCE = 6;
 
 /**
  * The oldest version whose keyword index holds a Document's name as this
- * version does: since version 15, a Passage's row holds its Document's name
- * with the Document's first Passage alone, not with every Passage (#2042).
- * The index took the name as text every Passage says, so a long Document
- * whose name held a word of a search counted as if all its Passages said it:
- * its document frequency grew with the Document's length, and the word's
- * IDF, and every match on it, fell. The Passages and their vectors are
- * unchanged, so a Document processed by an older version is processed again
- * at startup and keeps both (see `record` in ./index).
+ * version does: since version 15, a Passage's row holds its own words alone,
+ * and the name is indexed once for the Document, in an index whose document
+ * frequency counts Documents (#2042). Before, the name was text in every
+ * Passage's row, so a long Document whose name held a word of a search
+ * counted as if all its Passages said it: the word's document frequency grew
+ * with the Document's length, and its IDF, and every match on it, fell. The
+ * name's row also gives a query that names a Document its Passages, as a
+ * score added to theirs (see `keywordSearch` in ./search). The Passages and
+ * their vectors are unchanged, so a Document processed by an older version
+ * is processed again at startup and keeps both (see `record` in ./index).
  */
 export const NAME_INDEX_CURRENT_SINCE = 15;
 
@@ -192,7 +194,7 @@ export interface ProcessedPassage extends BuiltPassage {
   /**
    * The Passage's words for the keyword index (see ./keywords), worked out here
    * so the core's thread doesn't have to. The Document's name isn't included:
-   * the core adds it, so a rename only redoes that part.
+   * the core indexes it once for the Document, so a rename redoes only that.
    */
   keywords: string;
 }

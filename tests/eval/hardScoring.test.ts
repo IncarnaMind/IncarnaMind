@@ -37,6 +37,7 @@ import type { OpenReranker } from "../../eval/lib/rerank";
 import { GATING_MODE, HYBRID_RERANK_MODE } from "../../eval/lib/retrieval";
 import { DATABASE_FILE, type PassageSearchResult } from "../../src/core";
 import { keywordQuery } from "../../src/core/documents/keywords";
+import { DOCUMENT_NAME_WEIGHT } from "../../src/core/documents/search";
 import { openDatabase } from "../../src/core/storage";
 import { createTempDataFolder, queryDatabase, startCore } from "../helpers/core";
 import { addAndProcess, createSourceFolder, writeSourceFile } from "../helpers/documents";
@@ -254,7 +255,7 @@ describe("The hard tier's searches through a core", { timeout: 60_000 }, () => {
         ),
       };
     };
-    // Keyword search timed as the app runs it, and ordered by FTS5's rank: the same Passages.
+    // Keyword search timed as the app runs it, and over the Passages alone: the same Passages.
     const db = openDatabase(join(dataDir, DATABASE_FILE));
     try {
       const timing = timeKeywordSearch(
@@ -263,11 +264,18 @@ describe("The hard tier's searches through a core", { timeout: 60_000 }, () => {
         20,
       );
       // A query of stopwords only isn't searched, as in the app.
-      expect(timing).toMatchObject({ passages: 2, limit: 20, sameResults: 2 });
-      expect(timing.bm25.queries).toBe(2);
-      expect(timing.rank.queries).toBe(2);
+      expect(timing).toMatchObject({ passages: 2, limit: 20, reordered: 0 });
+      expect(timing.app.queries).toBe(2);
+      expect(timing.alone.queries).toBe(2);
+      const match = keywordQuery("the ferry passengers") as string;
       const bm25 = db
-        .all<{ seq: number }>(BM25_SQL, [keywordQuery("the ferry passengers") as string, 20n])
+        .all<{ seq: number }>(BM25_SQL, [
+          match,
+          DOCUMENT_NAME_WEIGHT,
+          match,
+          DOCUMENT_NAME_WEIGHT,
+          20n,
+        ])
         .map((row) => row.seq);
       const ids = queryDatabase<{ seq: number; id: string }>(
         dataDir,
@@ -441,9 +449,9 @@ const REPORT: HardReport = {
     keywordTiming: {
       passages: 1000,
       limit: 20,
-      bm25: timingOf([4, 2, 1, 3, 120]),
-      rank: timingOf([3, 2, 1, 2, 90]),
-      sameResults: 5,
+      app: timingOf([4, 2, 1, 3, 120]),
+      alone: timingOf([3, 2, 1, 2, 90]),
+      reordered: 5,
     },
   },
   citations: { skipped: "no chat model was given." },
@@ -489,10 +497,10 @@ describe("The hard tier's report", () => {
       "| x1 | cross-lingual | reports | – / 2 | – / 1 | – | (11) / 1 | – | – | x1? |",
     );
     expect(markdown).toContain(
-      "| Keyword search, `ORDER BY bm25(passages_fts)` (the app's) | 3.0 ms | 120 ms | 26 ms | 120 ms |  |",
+      "| Keyword search (the app's, its Document's name match added) | 3.0 ms | 120 ms | 26 ms | 120 ms |  |",
     );
     expect(markdown).toContain(
-      "| Keyword search, `ORDER BY rank` (bm25() with the same weights) | 2.0 ms | 90 ms | 20 ms | 90 ms |  |",
+      "| Keyword search over the Passages alone (no name index) | 2.0 ms | 90 ms | 20 ms | 90 ms |  |",
     );
     expect(markdown).toContain("Skipped: no chat model was given.");
   });

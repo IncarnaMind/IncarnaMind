@@ -35,14 +35,19 @@ const OLD_ID = "6f1c1c55-8a0e-4f43-9b5e-1d1b7c8b6a01";
 
 /**
  * Takes a data folder back to what processing version 5 left: every Document
- * marked as of version 5, and the keyword index holding each Passage's words
- * and its Document's name as written, traditional characters and all.
+ * marked as of version 5, except those in `current` (so a test isolates the
+ * rule it is about), and the keyword index holding each Passage's words and
+ * its Document's name as written, traditional characters and all.
  */
-function asVersion5(dataDir: string): void {
+function asVersion5(dataDir: string, current: readonly string[] = []): void {
   const db = openDatabase(join(dataDir, DATABASE_FILE));
   try {
     db.transaction(() => {
       db.run("UPDATE documents SET processing_version = 5");
+      db.run(
+        "UPDATE documents SET processing_version = ? WHERE id IN (SELECT value FROM json_each(?))",
+        [BigInt(PROCESSING_VERSION), JSON.stringify(current)],
+      );
       const passages = db.all<{ seq: number; text: string; name: string }>(
         `SELECT p.seq, p.text, d.name FROM passages p JOIN documents d ON d.id = p.document_id
          WHERE p.deleted_at IS NULL`,
@@ -70,6 +75,7 @@ function asNameWithEveryPassage(dataDir: string): void {
   try {
     db.transaction(() => {
       db.run("UPDATE documents SET processing_version = ?", [BigInt(NAME_INDEX_CURRENT_SINCE - 1)]);
+      db.run("DELETE FROM document_names_fts");
       const passages = db.all<{ seq: number; text: string; name: string }>(
         `SELECT p.seq, p.text, d.name FROM passages p JOIN documents d ON d.id = p.document_id
          WHERE p.deleted_at IS NULL`,
@@ -91,15 +97,16 @@ function asNameWithEveryPassage(dataDir: string): void {
 const FINANCE = "Finance has asked to lower the contingency to 8 per cent.";
 
 /**
- * Takes a data folder back to what processing version 6 left: every Document
- * marked as of version 6, and the Word Document's Passages and keyword index
- * without the comment it didn't read.
+ * Takes a data folder back to what processing version 6 left: the Word
+ * Document marked as of version 6, and its Passages and keyword index without
+ * the comment it didn't read. The others stay as this version built them, so
+ * the test isolates the Word rule.
  */
 function asVersion6(dataDir: string, wordId: string): void {
   const db = openDatabase(join(dataDir, DATABASE_FILE));
   try {
     db.transaction(() => {
-      db.run("UPDATE documents SET processing_version = 6");
+      db.run("UPDATE documents SET processing_version = 6 WHERE id = ?", [wordId]);
       const passages = db.all<{ seq: number; text: string; name: string }>(
         `SELECT p.seq, p.text, d.name FROM passages p JOIN documents d ON d.id = p.document_id
          WHERE p.deleted_at IS NULL AND p.document_id = ?`,
@@ -234,7 +241,7 @@ describe("Re-processing", { timeout: 30_000 }, () => {
       await writeSourceFile(sources, "Transformers.md", NOTES),
     ])) as [Document, Document, Document];
     first.close();
-    asVersion5(dataDir);
+    asVersion5(dataDir, [notes.id]);
     const passages = (documentId: string) =>
       queryDatabase<{ id: string; text: string; embedding: Uint8Array | null }>(
         dataDir,
@@ -329,23 +336,35 @@ describe("Re-processing", { timeout: 30_000 }, () => {
       queryDatabase(dataDir, "SELECT rowid FROM passages_fts WHERE passages_fts MATCH ?", [
         `"${word}"`,
       ]).length;
-    expect(matching("report")).toBe(1);
-    // As version 14 left it: its name with every Passage.
+    const names = (word: string) =>
+      queryDatabase(
+        dataDir,
+        "SELECT document_id FROM document_names_fts WHERE document_names_fts MATCH ?",
+        [`"${word}"`],
+      ).length;
+    expect(matching("report")).toBe(0);
+    expect(names("report")).toBe(1);
+
+    // As the pipeline before it left the data: its name in every Passage's row, and no name index.
     asNameWithEveryPassage(dataDir);
     expect(matching("report")).toBe(before.length);
+    expect(names("report")).toBe(0);
     const embeddedBefore = embedder.texts.length;
 
     const second = startCore(dataDir, { embedder });
     await waitForProcessing(second, [report.id]);
-    expect(matching("report")).toBe(1);
+    expect(matching("report")).toBe(0);
+    expect(names("report")).toBe(1);
     // Its Passages are the ones it had, and their vectors were kept: nothing to embed again.
     expect(live()).toEqual(before);
     expect(embedder.texts.length).toBe(embeddedBefore);
     expect(queryDatabase(dataDir, "SELECT processing_version FROM documents")).toEqual([
       { processing_version: PROCESSING_VERSION },
     ]);
-    const byName = await second.searchPassages("annual", { mode: "keyword" });
-    expect(byName.map((passage) => passage.documentId)).toEqual([report.id]);
+    // Its name still finds its Passages, which their own words don't.
+    const byName = await second.searchPassages("annual report", { mode: "keyword" });
+    expect(new Set(byName.map((passage) => passage.documentId))).toEqual(new Set([report.id]));
+    expect(byName.map((passage) => passage.position)).toEqual([0, 1, 2]);
     second.close();
   });
 

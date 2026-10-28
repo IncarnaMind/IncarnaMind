@@ -1,8 +1,10 @@
 /**
  * The library's Passages as the evaluation's own searches see them (see
- * ./searches): each with the words the keyword index holds for it, its text
- * and, on its Document's first Passage, its name (src/core/documents/keywords.ts),
- * and BM25 over them in memory, scored as FTS5 scores. FTS5 can't weigh one
+ * ./searches): each with the words the keyword index holds for it
+ * (src/core/documents/keywords.ts), its text, and BM25 over them in memory,
+ * scored as FTS5 scores. A Document's name isn't among them: keyword search
+ * adds its own match to each of the Document's Passages' scores (see
+ * `keywordSearch` in src/core/documents/search.ts). FTS5 can't weigh one
  * query term more than another, or score a Document's Passages by that
  * Document's own term statistics, which keyword + feedback terms and document
  * first need. The app never searches with it.
@@ -139,24 +141,14 @@ const LANGUAGE_SAMPLE = { passages: 4, characters: 1000 } as const;
 export function createCorpus(passages: readonly CorpusPassage[]): Corpus {
   const bySeq = new Map(passages.map((passage) => [passage.seq, passage]));
   const byId = new Map(passages.map((passage) => [passage.passageId, passage]));
-  const names = new Map<string, string[]>();
   const textTokens = new Map<number, string[]>();
   const indexed = passages.map((passage) => {
-    let name = names.get(passage.documentId);
-    if (!name) {
-      name = tokensOf(passage.documentName);
-      names.set(passage.documentId, name);
-    }
     const own = tokensOf(passage.text);
     textTokens.set(passage.seq, own);
-    return {
-      seq: passage.seq,
-      documentId: passage.documentId,
-      tokens: [...(passage.position === 0 ? name : []), ...own],
-    };
+    return { seq: passage.seq, documentId: passage.documentId, tokens: own };
   });
   const documentIndexes = new Map<string, Bm25>();
-  const documents = [...names.keys()].map((id) => {
+  const documents = [...new Set(passages.map((passage) => passage.documentId))].map((id) => {
     const own = passages
       .filter((passage) => passage.documentId === id)
       .sort((a, b) => a.position - b.position);

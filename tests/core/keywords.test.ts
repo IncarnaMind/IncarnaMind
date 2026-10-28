@@ -4,7 +4,7 @@
  * as simplified ones.
  */
 import { describe, expect, test } from "vitest";
-import type { Core } from "../../src/core";
+import type { Core, Document } from "../../src/core";
 import { keywordQuery, keywordTerms, keywordText } from "../../src/core/documents/keywords";
 import { SIMPLIFIED } from "../../src/shared/hanVariants";
 import { createTempDataFolder, queryDatabase, startCore } from "../helpers/core";
@@ -124,24 +124,15 @@ describe("A Document's name in the keyword index", { timeout: 30_000 }, () => {
     (_, line) => `第${line}条记录只谈论普通的沿海天气和安静的交通。`,
   ).join("\n");
 
-  async function passagesOf(dataDir: string, documentId: string) {
-    return queryDatabase<{ seq: number; position: number }>(
-      dataDir,
-      "SELECT seq, position FROM passages WHERE document_id = ? AND deleted_at IS NULL ORDER BY position",
-      [documentId],
-    );
-  }
-
-  const matching = (dataDir: string, word: string) =>
-    queryDatabase(dataDir, "SELECT rowid FROM passages_fts WHERE passages_fts MATCH ?", [
-      `"${word}"`,
-    ]).length;
+  const matching = (dataDir: string, word: string, table = "passages_fts") =>
+    queryDatabase(dataDir, `SELECT rowid FROM ${table} WHERE ${table} MATCH ?`, [`"${word}"`])
+      .length;
 
   for (const [name, word, contents] of [
     ["Annual Report", "report", LONG_ENGLISH],
     ["年度报告", "报告", LONG_CHINESE],
   ] as const) {
-    test(`“${word}” in ${name}'s name is one Passage's, whatever the Document's length (#2042)`, async () => {
+    test(`“${word}” in ${name}'s name weighs the Document once, and still finds its Passages (#2042)`, async () => {
       const dataDir = await createTempDataFolder();
       const core = startCore(dataDir);
       const sources = await createSourceFolder();
@@ -149,14 +140,43 @@ describe("A Document's name in the keyword index", { timeout: 30_000 }, () => {
         await writeSourceFile(sources, `${name}.txt`, contents),
       ]);
       if (!document) throw new Error("Nothing was added.");
-      expect((await passagesOf(dataDir, document.id)).length).toBeGreaterThan(1);
+      const positions = queryDatabase<{ position: number }>(
+        dataDir,
+        "SELECT position FROM passages WHERE document_id = ? AND deleted_at IS NULL ORDER BY position",
+        [document.id],
+      ).map((row) => row.position);
+      expect(positions.length).toBeGreaterThan(1);
 
-      // The name's word is in its first Passage's row alone, not in every Passage's.
-      expect(matching(dataDir, word)).toBe(1);
+      // No Passage's row holds the name: a word of it counts once, with its Document.
+      expect(matching(dataDir, word)).toBe(0);
+      expect(matching(dataDir, word, "document_names_fts")).toBe(1);
+      // Its name alone still finds the Passages, as a Document filter does, in reading order.
       const found = await core.searchPassages(word, { mode: "keyword" });
-      expect(found.map((passage) => passage.documentId)).toEqual([document.id]);
-      expect(found[0]?.position).toBe(0);
+      expect(new Set(found.map((passage) => passage.documentId))).toEqual(new Set([document.id]));
+      expect(found.map((passage) => passage.position)).toEqual(positions.slice(0, found.length));
       core.close();
     });
   }
+
+  test("a Passage that says a name's word ranks above one whose Document's name alone holds it (#2042)", async () => {
+    const dataDir = await createTempDataFolder();
+    const core = startCore(dataDir);
+    const sources = await createSourceFolder();
+    const added = (await addAndProcess(core, [
+      await writeSourceFile(sources, "Annual Report.txt", LONG_ENGLISH),
+      await writeSourceFile(sources, "Weekly Log.txt", "Annual rainfall rose through the year."),
+    ])) as [Document, Document];
+    const [named, saying] = added;
+
+    // Both Documents hold a word of the query; the one that says both in its Passages comes
+    // first, and the other is still found by its name.
+    const found = await core.searchPassages("annual rainfall", { mode: "keyword" });
+    expect(found[0]?.documentId).toBe(saying.id);
+    expect(new Set(found.map((passage) => passage.documentId))).toEqual(
+      new Set([saying.id, named.id]),
+    );
+    // A word in neither a Passage nor a name finds nothing.
+    expect(await core.searchPassages("harbourmaster", { mode: "keyword" })).toEqual([]);
+    core.close();
+  });
 });

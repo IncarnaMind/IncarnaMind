@@ -106,7 +106,7 @@ export interface HardReport {
     results: HardQuestionResult[];
     summary: Partial<Record<RetrievalMode, HardModeSummary>>;
     rerankers: RerankerInfo[];
-    /** Keyword search's own time per query at this size, ordered as the app orders it and by FTS5's rank. */
+    /** Keyword search's own time per query at this size, as the app runs it and without the name index. */
     keywordTiming: KeywordTiming | null;
   };
   citations: HardCitations | { skipped: string };
@@ -288,7 +288,7 @@ function searchTime(report: HardReport): string[] {
     "",
     ...(keywordTiming
       ? [
-          `Keyword search alone, at ${keywordTiming.passages} Passages: the app's SQL (\`keywordSearch\`) keeping the best ${keywordTiming.limit}, over ${keywordTiming.bm25.queries} queries (the Questions and their translations), each timed once after a warm-up pass. FTS5 scores every Passage a query's words match before keeping the best: it has no top-k pruning. Both orders gave the same Passages for ${keywordTiming.sameResults} of ${keywordTiming.bm25.queries} queries.`,
+          `Keyword search alone, at ${keywordTiming.passages} Passages: the app's SQL (\`keywordSearch\`) keeping the best ${keywordTiming.limit}, over ${keywordTiming.app.queries} queries (the Questions and their translations), each timed once after a warm-up pass, and the same search over the Passages alone, so the Document's name index's cost is the difference. FTS5 scores every Passage a query's words match before keeping the best: it has no top-k pruning. The name match changed which Passages were kept, or their order, for ${keywordTiming.reordered} of ${keywordTiming.app.queries} queries.`,
           "",
         ]
       : []),
@@ -296,8 +296,8 @@ function searchTime(report: HardReport): string[] {
     "|---|---|---|---|---|---|",
     ...(keywordTiming
       ? [
-          row("Keyword search, `ORDER BY bm25(passages_fts)` (the app's)", keywordTiming.bm25),
-          row("Keyword search, `ORDER BY rank` (bm25() with the same weights)", keywordTiming.rank),
+          row("Keyword search (the app's, its Document's name match added)", keywordTiming.app),
+          row("Keyword search over the Passages alone (no name index)", keywordTiming.alone),
         ]
       : []),
     ...rerankers.map((each) =>
