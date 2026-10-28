@@ -52,6 +52,18 @@ describe("What a reply says a Tool did", () => {
     ["我已核实上述计算结果。", ["calculate"]],
     ["文中的数字已用计算工具核算的，本回答没有附引用标记。", ["calculate"]],
     ["Let me re-calculate carefully: 310 / 95 = 3.26.", ["calculate"]],
+    [
+      "Not mental arithmetic this time: the calculation tool confirms 3.26x and £22.5m.",
+      ["calculate"],
+    ],
+    ["I didn't search the web, but the calculation tool confirms 3.26x.", ["calculate"]],
+    ["No figure here comes from the draft; the calculation tool confirms 3.26x.", ["calculate"]],
+    ["Without the draft figures, the calculation tool confirms 3.26x.", ["calculate"]],
+    ["The calculation tool confirms 3.26x; the web search was not available.", ["calculate"]],
+    [
+      "The calculation tool confirms 3.26x, though the search tool isn't available here.",
+      ["calculate"],
+    ],
     ["Confirmed by calculate.", ["calculate"]],
     ["According to calculate, the ratio is 3.26.", ["calculate"]],
     ["Using calculate: the headroom is GBP 22.5m.", ["calculate"]],
@@ -344,6 +356,30 @@ describe("A reply that says a Tool ran when none did", { timeout: 60_000 }, () =
     expect(answer.text).toContain("The calculation tool confirmed 3.26x");
     expect(answer.steps).not.toHaveProperty("unrunTools");
     expect(answer.steps).not.toHaveProperty("askedAgainFor");
+  });
+
+  // protects=asked again, a turn that makes its change may end blank with the change card, not with the reply before it; fails_when=the standing reply replaces the change; no_claim=that the card is right.
+  test("a blank reply after the change was made keeps the change card", async () => {
+    const model = scriptedModel((call) => {
+      if (call.results.some((result) => result.tool === "create_mind")) return { text: "" };
+      if (call.prompt.includes("Call calculate now")) {
+        return { calls: [{ tool: "create_mind", input: { title: "Summary" } }] };
+      }
+      return {
+        text: "Done — the summary is now on the page. The calculation tool confirmed 3.26x.",
+      };
+    });
+    const core = await setUp(model, {
+      kind: "anthropic",
+      apiKey: "sk-test",
+      modelId: "claude-haiku-5-5",
+    });
+
+    const answer = await ask(core, ASKED);
+
+    expect(answer.text.trim()).toBe("");
+    expect(changesIn(answer).some((change) => change.created)).toBe(true);
+    expect(answer.steps).not.toHaveProperty("unrunTools");
   });
 
   // protects=a follow-up answered from the Conversation's earlier search keeps no line and no ask; fails_when=this turn's calls alone are read and the reply is flagged; no_claim=that a real model answers from an earlier search.

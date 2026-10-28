@@ -41,8 +41,10 @@ const OWNER =
   /\b(?:their|its|his|her|the\s+(?:lenders?|banks?|borrowers?|vendors?|company|auditors?|agent|client|report|spreadsheet|model|workbook|agreement|document|firm|team)(?:['’]s)?)\s+(?:[\w-]+\s+){0,3}$/i;
 const NEGATION =
   /\b(?:not|no|never|without|nor|cannot|unable|unavailable|instead of|rather than)\b|n['’]t\b/i;
-const NOT_BEFORE = new RegExp(`(?:${NEGATION.source})[\\s\\S]{0,80}$`, "i");
-// The Tool itself said not to work, wherever in the sentence it is: "it isn't available to this model".
+// The Tool's own clause: a negation or an unavailability in another clause is no denial of it
+// ("I didn't search the web, but the calculation tool confirms 3.26x").
+const CLAUSE_BOUNDARY = /(?<!\d)[.;:,]|\b(?:but|though)\b/i;
+const namingClause = (text: string): string => text.split(CLAUSE_BOUNDARY).at(-1) ?? text;
 const TOOL_UNAVAILABLE =
   /\b(?:is|was|isn't|wasn't|not|never)\s+(?:available|supported|usable|accessible|installed)\b|\bunavailable\b|\bcan(?:not|['’]t)\s+(?:be\s+)?(?:used|called|run|invoked)\b|\bcould(?: not|n['’]t)\s+(?:be\s+)?(?:used|called|run)\b/i;
 const UNREAL_BEFORE =
@@ -143,12 +145,13 @@ function mentionsOurTool(
 }
 
 const oursInEnglish = (before: string, after: string) => {
-  const clause = clauseAfter(after, /[.;!?\n]|,?\s+(?:but|so)\s+/i);
+  const clause = clauseAfter(after, /[.;!?\n]|,?\s+(?:but|so|though)\s+/i);
+  const named = `${namingClause(before)}${clause}`;
   return (
     !NAMED_OWNER.test(before) &&
     !OWNER.test(before) &&
-    !NOT_BEFORE.test(before) &&
-    !TOOL_UNAVAILABLE.test(`${before}${after}`) &&
+    !NEGATION.test(namingClause(before)) &&
+    !TOOL_UNAVAILABLE.test(named) &&
     !UNREAL_BEFORE.test(before) &&
     !REPORTED_BEFORE.test(before) &&
     !UNREAL_AFTER.test(clause) &&

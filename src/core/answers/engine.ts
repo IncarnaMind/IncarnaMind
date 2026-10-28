@@ -2081,6 +2081,7 @@ async function* toolLoop(
         if (
           taken.text.trim() === "" &&
           standing !== null &&
+          !(request.mayEndBlank?.() ?? false) &&
           (request.blankReply?.() ?? null) === null
         ) {
           yield* backToFirst(standing);
