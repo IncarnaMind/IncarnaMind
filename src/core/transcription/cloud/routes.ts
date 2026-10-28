@@ -17,7 +17,7 @@ import type {
   CloudTranscriptionRoute,
   SetTranscriptionKeyInput,
   TranscriptionRoute,
-  TranscriptionServiceStatus,
+  TranscriptionServices,
 } from "../../api";
 import type { Consent } from "../../consent";
 import type { Meter } from "../../cost/meter";
@@ -86,6 +86,8 @@ export function createCloudTranscription(options: CloudTranscriptionOptions) {
   const keys = new Map<CloudTranscriptionRoute, string>();
   // Until the key changes, so each Meeting doesn't start with a refusal and a gap.
   const refused = new Set<CloudTranscriptionRoute>();
+  // Grows with every committed change to what `list` says; a failed change leaves it alone.
+  let revision = 0;
 
   async function keyOf(
     route: CloudTranscriptionRoute,
@@ -111,7 +113,7 @@ export function createCloudTranscription(options: CloudTranscriptionOptions) {
     },
   });
 
-  const list = async (): Promise<TranscriptionServiceStatus[]> =>
+  const readServices = () =>
     Promise.all(
       Object.values(TRANSCRIPTION_SERVICES).map(async (service) => {
         const key = await keyOf(service.route);
@@ -128,6 +130,16 @@ export function createCloudTranscription(options: CloudTranscriptionOptions) {
         };
       }),
     );
+
+  // Stamped with the revision it began at; one that a change overtook is read again, so the
+  // stamp never claims a state older than what the answer holds.
+  const list = async (): Promise<TranscriptionServices> => {
+    for (let attempt = 0; ; attempt += 1) {
+      const at = revision;
+      const services = await readServices();
+      if (at === revision || attempt === 2) return { revision: at, services };
+    }
+  };
 
   function sending(route: CloudTranscriptionRoute): CloudSending {
     if (chosen() !== route || !keys.has(route)) return "stopped";
@@ -177,6 +189,7 @@ export function createCloudTranscription(options: CloudTranscriptionOptions) {
      * is chosen no more. Resolves to whether that changed the route.
      */
     async refreshKeys(): Promise<boolean> {
+      revision += 1;
       await list();
       const route = chosen();
       if (!isCloudRoute(route) || keys.has(route)) return false;
@@ -189,7 +202,7 @@ export function createCloudTranscription(options: CloudTranscriptionOptions) {
       refused.add(route);
     },
 
-    async setKey(input: unknown): Promise<TranscriptionServiceStatus[]> {
+    async setKey(input: unknown): Promise<TranscriptionServices> {
       const given = isRecord(input) ? (input as Partial<SetTranscriptionKeyInput>) : {};
       const route = given.route;
       if (!isCloudRoute(route) || TRANSCRIPTION_SERVICES[route].key !== "own") {
@@ -228,14 +241,16 @@ export function createCloudTranscription(options: CloudTranscriptionOptions) {
         }
       }
       await secrets.set(keyName(route), apiKey);
+      revision += 1;
       return list();
     },
 
-    async removeKey(route: unknown): Promise<TranscriptionServiceStatus[]> {
+    async removeKey(route: unknown): Promise<TranscriptionServices> {
       if (!isCloudRoute(route))
         throw new InvalidInputError({ key: "error.transcription.unknownService" });
       if (TRANSCRIPTION_SERVICES[route].key === "own") await secrets.delete(keyName(route));
       keys.delete(route);
+      revision += 1;
       if (chosen() === route) settings.update({ device: { transcriptionRoute: "local" } });
       return list();
     },

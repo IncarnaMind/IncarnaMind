@@ -375,18 +375,26 @@ function servicesRead(app: ElectronApplication): Promise<number> {
 
 /**
  * The core's `channel` as a core that can't always answer would: while `failing`, every call
- * fails; the next call after `holdNextRead` waits, and `settleHeldRead` ends it, in order.
+ * fails; the next `hold` calls wait, before the core's handler or, with `after`, after it has
+ * answered; and `settle` ends the oldest one held (`resolveAll`, all of them). Resolves to how
+ * many calls are held.
  */
 function controlReads(
   app: ElectronApplication,
   channel: string,
-  change: { failing?: boolean; hold?: boolean; settle?: "reject" | "resolve" },
-): Promise<void> {
+  change: {
+    failing?: boolean;
+    hold?: number;
+    after?: boolean;
+    settle?: "reject" | "resolve" | "resolveAll";
+  },
+): Promise<number> {
   return app.evaluate(
     ({ ipcMain }, { name, what }) => {
       interface Control {
         failing: boolean;
-        hold: boolean;
+        hold: number;
+        after: boolean;
         held: ((how: "reject" | "resolve") => void)[];
       }
       const store = globalThis as unknown as { readControls?: Record<string, Control> };
@@ -394,7 +402,7 @@ function controlReads(
       store.readControls = controls;
       let control = controls[name];
       if (!control) {
-        const own: Control = { failing: false, hold: false, held: [] };
+        const own: Control = { failing: false, hold: 0, after: false, held: [] };
         control = own;
         controls[name] = own;
         const handlers = (
@@ -406,13 +414,14 @@ function controlReads(
         if (!original) throw new Error(`The ${name} handler is unavailable.`);
         ipcMain.removeHandler(name);
         ipcMain.handle(name, (event, ...args) => {
-          if (own.hold) {
-            own.hold = false;
+          if (own.hold > 0) {
+            own.hold -= 1;
+            const answered = own.after ? Promise.resolve(original(event, ...args)) : null;
             return new Promise((resolve, reject) => {
               own.held.push((how) =>
                 how === "reject"
                   ? reject(new Error(`${name} is temporarily unavailable.`))
-                  : resolve(original(event, ...args)),
+                  : resolve(answered ?? original(event, ...args)),
               );
             });
           }
@@ -422,14 +431,19 @@ function controlReads(
       }
       if (what.failing !== undefined) control.failing = what.failing;
       if (what.hold !== undefined) control.hold = what.hold;
-      if (what.settle) control.held.shift()?.(what.settle);
+      if (what.after !== undefined) control.after = what.after;
+      if (what.settle === "resolveAll") {
+        for (const end of control.held.splice(0)) end("resolve");
+      } else if (what.settle) control.held.shift()?.(what.settle);
+      return control.held.length;
     },
     { name: channel, what: change },
   );
 }
 
-const failReads = (app: ElectronApplication, channel: string, failing: boolean) =>
-  controlReads(app, channel, { failing });
+const failReads = async (app: ElectronApplication, channel: string, failing: boolean) => {
+  await controlReads(app, channel, { failing });
+};
 
 /** Lets the page paint `count` times, so what a settled read changes has been drawn. */
 function paints(window: Page, count = 15): Promise<void> {
@@ -1184,7 +1198,7 @@ for (const language of ["en", "zh-CN"] as const) {
       // Step 2 is opened again and its read, A, is held; the step is left and opened again, and
       // its read, B, lands. Then A fails, long after.
       await pointAndClick(window, card.getByTestId("setup-step-sorting-open"));
-      await controlReads(app, channel, { hold: true });
+      await controlReads(app, channel, { hold: 1 });
       await pointAndClick(window, card.getByTestId("setup-step-transcription-open"));
       await pointAndClick(window, card.getByTestId("setup-step-sorting-open"));
       await pointAndClick(window, card.getByTestId("setup-step-transcription-open"));
@@ -1265,7 +1279,7 @@ for (const language of ["en", "zh-CN"] as const) {
       await expect(card.getByTestId("setup-ready-title")).toBeVisible({ timeout: 15_000 });
 
       // Step 3 opens and its read is held. The User opens Document Info, which takes the focus.
-      await controlReads(app, "core:getTaggingModels", { hold: true });
+      await controlReads(app, "core:getTaggingModels", { hold: 1 });
       await pointAndClick(window, card.getByTestId("setup-step-sorting-open"));
       await window.getByTestId("document-list-item").first().getByTestId("open-document").focus();
       await window.keyboard.press("ControlOrMeta+i");
@@ -1287,6 +1301,162 @@ for (const language of ["en", "zh-CN"] as const) {
     } finally {
       await app.close();
       await rm(sources, { recursive: true, force: true });
+    }
+  });
+}
+
+const SERVICES = "core:listTranscriptionServices";
+const OWN_KEY = "soniox-test-key";
+
+/** Opens Settings on Meetings with the keyboard: its button is named in English only. */
+async function settingsOnMeetings(window: Page): Promise<Locator> {
+  await window.keyboard.press("ControlOrMeta+,");
+  return showSettingsPage(window, "meetings");
+}
+
+async function closeSettingsDialog(window: Page): Promise<void> {
+  await window.getByTestId("settings-close").click();
+  await expect(window.getByTestId("settings")).toBeHidden();
+}
+
+for (const language of ["en", "zh-CN"] as const) {
+  test(`a key save that fails changes nothing, and the steps open when the reads held behind it end (${language})`, async () => {
+    const { app, window } = await launchApp(dataDir, { fakeChat: true });
+    try {
+      await setWindowSize(app, window, 1280, 800);
+      await acceptPlainTextKeys(window);
+      await setLanguage(window, language);
+      // Settings › Meetings has read the list, and is closed with it kept.
+      const first = await settingsOnMeetings(window);
+      await expect(first.getByTestId("transcription-key-soniox")).toBeVisible();
+      await closeSettingsDialog(window);
+
+      // The model works, and the setup card's own read of the list is held.
+      const card = await askFirstQuestion(window);
+      await controlReads(app, SERVICES, { hold: 50 });
+      const field = card.getByTestId("setup-key");
+      await field.fill(OPENAI_KEY);
+      await field.press("Enter");
+      await expect.poll(() => controlReads(app, SERVICES, {})).toBeGreaterThanOrEqual(1);
+      await expect(card.getByTestId("setup-step-transcription")).toHaveCount(0);
+
+      // Meetings is opened again, its reads held too, and a key the service refuses is tried.
+      const settings = await settingsOnMeetings(window);
+      const row = settings.getByTestId("transcription-key-soniox");
+      await row.getByTestId("transcription-key-add").click();
+      const input = row.getByTestId("transcription-key-input");
+      await input.fill("soniox-wrong-key");
+      await input.press("Enter");
+      await expect(row.getByTestId("transcription-key-problem")).toBeVisible();
+      await expect.poll(() => controlReads(app, SERVICES, {})).toBeGreaterThanOrEqual(3);
+
+      // Every read ends: the failed save changed nothing, so the steps open.
+      await closeSettingsDialog(window);
+      await controlReads(app, SERVICES, { settle: "resolveAll" });
+      await expect(card.getByTestId("setup-step-transcription")).toBeVisible();
+      await expect(card.getByTestId("setup-services-problem")).toHaveCount(0);
+    } finally {
+      await app.close();
+    }
+  });
+
+  test(`a key saved while newer reads come back without it shows as saved when the save lands (${language})`, async () => {
+    const { app, window } = await launchApp(dataDir, { fakeChat: true });
+    try {
+      await setWindowSize(app, window, 1280, 800);
+      await acceptPlainTextKeys(window);
+      await setLanguage(window, language);
+      const first = await settingsOnMeetings(window);
+      const row = first.getByTestId("transcription-key-soniox");
+      await row.getByTestId("transcription-key-add").click();
+      await row.getByTestId("transcription-key-input").fill(OWN_KEY);
+
+      // Save is pressed and held before the core has it; Meetings is closed and opened again, and
+      // its newer reads say there is no key.
+      await controlReads(app, "core:setTranscriptionKey", { hold: 1 });
+      await row.getByTestId("transcription-key-save").click();
+      await expect.poll(() => controlReads(app, "core:setTranscriptionKey", {})).toBe(1);
+      await closeSettingsDialog(window);
+      const again = await settingsOnMeetings(window);
+      const reopened = again.getByTestId("transcription-key-soniox");
+      await expect(reopened.getByTestId("transcription-key-add")).toBeVisible();
+      await expect(reopened.getByTestId("transcription-key-saved")).toHaveCount(0);
+
+      // The core keeps the key: the row says so, though the reads that came back are newer.
+      await controlReads(app, "core:setTranscriptionKey", { settle: "resolve" });
+      await expect(reopened.getByTestId("transcription-key-saved")).toBeVisible();
+    } finally {
+      await app.close();
+    }
+  });
+
+  test(`a key removed while newer reads still have it shows as removed when the removal lands (${language})`, async () => {
+    const { app, window } = await launchApp(dataDir, { fakeChat: true });
+    try {
+      await setWindowSize(app, window, 1280, 800);
+      await acceptPlainTextKeys(window);
+      await setLanguage(window, language);
+      await window.evaluate(async (apiKey) => {
+        const core = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
+        await core.setTranscriptionKey({ route: "soniox", apiKey });
+      }, OWN_KEY);
+      const first = await settingsOnMeetings(window);
+      const row = first.getByTestId("transcription-key-soniox");
+      await expect(row.getByTestId("transcription-key-saved")).toBeVisible();
+
+      // Remove is pressed and held before the core has it; Meetings is closed and opened again,
+      // and its newer reads still have the key.
+      await controlReads(app, "core:removeTranscriptionKey", { hold: 1 });
+      await row.getByTestId("transcription-key-remove").click();
+      await expect.poll(() => controlReads(app, "core:removeTranscriptionKey", {})).toBe(1);
+      await closeSettingsDialog(window);
+      const again = await settingsOnMeetings(window);
+      const reopened = again.getByTestId("transcription-key-soniox");
+      await expect(reopened.getByTestId("transcription-key-saved")).toBeVisible();
+
+      // The core forgets the key: the row says so.
+      await controlReads(app, "core:removeTranscriptionKey", { settle: "resolve" });
+      await expect(reopened.getByTestId("transcription-key-saved")).toHaveCount(0);
+      await expect(reopened.getByTestId("transcription-key-add")).toBeVisible();
+    } finally {
+      await app.close();
+    }
+  });
+}
+
+for (const language of ["en", "zh-CN"] as const) {
+  test(`a read the core answered before a removal changes nothing when it arrives after it (${language})`, async () => {
+    const { app, window } = await launchApp(dataDir, { fakeChat: true });
+    try {
+      await setWindowSize(app, window, 1280, 800);
+      await acceptPlainTextKeys(window);
+      await setLanguage(window, language);
+      await window.evaluate(async (apiKey) => {
+        const core = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
+        await core.setTranscriptionKey({ route: "soniox", apiKey });
+      }, OWN_KEY);
+      const first = await settingsOnMeetings(window);
+      await expect(
+        first.getByTestId("transcription-key-soniox").getByTestId("transcription-key-saved"),
+      ).toBeVisible();
+      await closeSettingsDialog(window);
+
+      // Meetings is opened again: the core answers its reads with the key, and they are held.
+      await controlReads(app, SERVICES, { hold: 50, after: true });
+      const again = await settingsOnMeetings(window);
+      const row = again.getByTestId("transcription-key-soniox");
+      await expect.poll(() => controlReads(app, SERVICES, {})).toBeGreaterThanOrEqual(1);
+      await row.getByTestId("transcription-key-remove").click();
+      await expect(row.getByTestId("transcription-key-add")).toBeVisible();
+      await expect(row.getByTestId("transcription-key-saved")).toHaveCount(0);
+
+      // The held answers, older than the removal, arrive: nothing changes.
+      await controlReads(app, SERVICES, { settle: "resolveAll" });
+      await paints(window);
+      await expect(row.getByTestId("transcription-key-saved")).toHaveCount(0);
+      await expect(row.getByTestId("transcription-key-add")).toBeVisible();
+    } finally {
+      await app.close();
     }
   });
 }

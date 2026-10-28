@@ -2384,6 +2384,16 @@ export interface TranscriptionServiceStatus {
   keyUrl: string | null;
 }
 
+/**
+ * The transcription services and the core's revision of what they say. The revision grows with
+ * every committed change (a key kept or forgotten, a provider saved or deleted), so of two
+ * answers the one with the higher revision is the newer, whichever was asked first.
+ */
+export interface TranscriptionServices {
+  revision: number;
+  services: TranscriptionServiceStatus[];
+}
+
 export interface SetTranscriptionKeyInput {
   route: CloudTranscriptionRoute;
   apiKey: string;
@@ -10586,14 +10596,14 @@ export interface CoreApi {
   /** Deletes the Meeting's audio on this computer now; a recording goes on keeping what comes next. */
   deleteMeetingAudio(meetingId: string): Promise<Meeting>;
   /** The cloud services that can transcribe meeting audio (#141), and whether each has a key. */
-  listTranscriptionServices(): Promise<TranscriptionServiceStatus[]>;
+  listTranscriptionServices(): Promise<TranscriptionServices>;
   /**
    * Keeps a transcription service's own key (Soniox), in the keychain, once the service accepts
    * it. Throws `InvalidInputError` when it refuses the key.
    */
-  setTranscriptionKey(input: SetTranscriptionKeyInput): Promise<TranscriptionServiceStatus[]>;
+  setTranscriptionKey(input: SetTranscriptionKeyInput): Promise<TranscriptionServices>;
   /** Forgets a transcription service's own key; meeting audio is then transcribed on this computer. */
-  removeTranscriptionKey(route: CloudTranscriptionRoute): Promise<TranscriptionServiceStatus[]>;
+  removeTranscriptionKey(route: CloudTranscriptionRoute): Promise<TranscriptionServices>;
   /**
    * Whether this computer keeps up with live speech, as the last Meeting transcribed here
    * measured it; null before one has been. The speed probe (#462) will measure it sooner.
