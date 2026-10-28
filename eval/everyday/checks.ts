@@ -243,11 +243,16 @@ function proseSentences(text: string): string[] {
       return [];
     }
     if (fenced || /^\s*\|/.test(line)) return [];
-    return line
-      .replace(/^\s*(?:[-*+]|\d{1,3}[.)]|#{1,6}|>)\s+/, "")
-      .split(/(?<=[.!?。！？]["”’)」』]*(?:\[\^\d{1,4}\])*)(?!\d)\s*/u)
-      .map((sentence) => sentence.trim())
-      .filter((sentence) => /[\p{L}\p{N}]/u.test(sentence));
+    return (
+      line
+        .replace(/^\s*(?:[-*+]|\d{1,3}[.)]|#{1,6}|>)\s+/, "")
+        // A sentence never starts after "e.g." or "i.e.", nor with a digit, a small letter or a comma: "1.5", "e.g., Theft".
+        .split(
+          /(?<!\b[eEiI]\.[gGeE]\.)(?<=[.!?。！？]["”’)」』]*(?:\[\^\d{1,4}\])*)(?![\d\p{Ll},;:])\s*/u,
+        )
+        .map((sentence) => sentence.trim())
+        .filter((sentence) => /[\p{L}\p{N}]/u.test(sentence))
+    );
   });
 }
 
@@ -447,26 +452,52 @@ export function takenOut(outcome: RequestOutcome): { removed: string[]; lost: st
 const wordsOf = (text: string) =>
   new Set(text.toLocaleLowerCase().match(/[\p{L}\p{N}]{3,}|\p{Script=Han}/gu) ?? []);
 
+const piecesOf = (text: string): string[] =>
+  text
+    .replace(/\[[\^=]?\d{1,4}\]/g, "")
+    .toLocaleLowerCase()
+    .match(/\p{Script=Han}|[\p{L}\p{N}]+|[^\s\p{L}\p{N}]/gu) ?? [];
+
+/** Whether `now` is `given` with some of its words and marks taken out and nothing changed or added, as the check's cut leaves a sentence (#1397). */
+function onlyTakenOut(given: string, now: string): boolean {
+  const pieces = piecesOf(given);
+  const left = piecesOf(now);
+  let at = 0;
+  for (const piece of left) {
+    at = pieces.indexOf(piece, at) + 1;
+    if (at === 0) return false;
+  }
+  const words = left.filter((piece) => /[\p{L}\p{N}]/u.test(piece)).length;
+  return words >= 3 && left.length < pieces.length;
+}
+
 /**
  * The sentences the guard and search-talk filtering left in what the calls
- * gave that the Mind no longer holds as written, each with the Block of the
- * Mind that shares most of its words: the model's edit_mind, or the app's
- * check of the sentences written, rewrote them after the guard.
+ * gave that the Mind no longer holds as written: the model's edit_mind, or
+ * the app's check of the sentences written, changed them after the guard.
+ * Each is beside the Mind's sentence that is it with words only taken out
+ * (`cut`), else the Block of the Mind that shares most of its words.
  */
-export function rewrittenLater(outcome: RequestOutcome): { given: string; now: string | null }[] {
+export function rewrittenLater(
+  outcome: RequestOutcome,
+): { given: string; now: string | null; cut: boolean }[] {
   const written = outcome.writtenInMinds ?? [];
   const given = (outcome.givenToMinds ?? [])
     .filter(({ landed }) => landed)
     .map((given) => withoutSearchTalk(guarded(given)).markdown)
     .join("\n\n");
   return leftOut(given, written.join("\n\n")).map((sentence) => {
+    const cut = written
+      .flatMap((block) => proseSentences(block))
+      .find((each) => onlyTakenOut(sentence, each));
+    if (cut) return { given: sentence, now: cut, cut: true };
     const words = wordsOf(sentence);
     const shared = (block: string) => [...wordsOf(block)].filter((word) => words.has(word)).length;
     const now = written.reduce<string | null>(
       (best, block) => (shared(block) > (best === null ? 0 : shared(best)) ? block : best),
       null,
     );
-    return { given: sentence, now };
+    return { given: sentence, now, cut: false };
   });
 }
 
