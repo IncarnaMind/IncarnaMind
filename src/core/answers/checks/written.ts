@@ -593,11 +593,13 @@ export function createWrittenCheck(options: WrittenCheckOptions) {
     // Words a cut takes out must not change what the sentence says, so the cut is checked once, as it would land.
     const cited = [...kept.matchAll(MARKER)].flatMap((match) => {
       const node = marked.citations.get(Number(match[1]));
-      const quote = node ? quoteOf(node) : null;
+      const quote = node ? citedQuoteOf(node.attrs ?? {}) : null;
       return quote ? [quote] : [];
     });
+    const claim = kept.replace(MARKER, INLINE_NODE);
     const checked = await checkWithin(
-      { ...sentence, text: kept.replace(MARKER, INLINE_NODE), cited },
+      { ...sentence, text: claim, cited },
+      { claim, context: sentence.context },
       mindId,
       scope,
       prepared,

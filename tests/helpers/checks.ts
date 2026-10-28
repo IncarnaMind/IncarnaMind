@@ -26,8 +26,8 @@ export interface Plan {
   /** The line of the quote's Passage that states that number's unit, as the model gives it. */
   unitQuote?: string;
   says?: string;
-  /** Its reply instead, once it has searched. */
-  reply?: ScriptedReply;
+  /** Its reply instead, once it has searched; given the call, for one that names its figures. */
+  reply?: ScriptedReply | ((call: ModelCall) => ScriptedReply);
   /** What it says when asked to confirm a contradiction it found. */
   judgement?: "conflict" | "same" | "neither";
   /** Its reply to the strict judgement, a contradiction's second; `judgement` when absent. */
@@ -81,10 +81,14 @@ export function requestedFigures(
 }
 
 /** The sentence a check Run is asked about. */
-/** An Unsupported verdict as a check writes it, with the Figures line its requested figures need. */
-export function unsupportedReply(call: ModelCall): string {
+/**
+ * An Unsupported verdict as a check writes it, with `said` (its reason and Covered lines) and the
+ * Figures line its requested figures need.
+ */
+export function unsupportedReply(call: ModelCall, said?: string): string {
+  const verdict = said ? `Verdict: unsupported\n${said}` : "Verdict: unsupported";
   const figures = requestedFigures(call);
-  if (figures.length === 0) return "Verdict: unsupported";
+  if (figures.length === 0) return verdict;
   const items = figures.map(({ id }) => ({
     id,
     verdict: "unsupported",
@@ -97,7 +101,7 @@ export function unsupportedReply(call: ModelCall): string {
     source: null,
     calculation: null,
   }));
-  return `Verdict: unsupported\nFigures: ${JSON.stringify({ items, remainder: null })}`;
+  return `${verdict}\nFigures: ${JSON.stringify({ items, remainder: null })}`;
 }
 
 export const sentenceOf = (call: ModelCall) => {
@@ -141,7 +145,7 @@ export function checkReply(call: ModelCall, plans: Record<string, Plan>): Script
     return { calls: [{ tool: "search_documents", input: { query: again.query } }] };
   }
   const plan = again?.plan ?? planned;
-  if (plan.reply) return plan.reply;
+  if (plan.reply) return typeof plan.reply === "function" ? plan.reply(call) : plan.reply;
   // What its search found, and the Passages its sentence's Citations quote, given with the sentence.
   const shown = [...shownPassages(searches.at(-1)?.text ?? ""), ...shownPassages(call.prompt)];
   const { calculation } = plan;
