@@ -395,10 +395,8 @@ function paragraphIn(
  * written; once the User has changed it, only marked, so its words stay and
  * its check shows it needs doing again.
  */
-/**
- * Where a written sentence is in the Mind now: the same words nearest where they were written,
- * else, once the User has changed them, the sentence in the same place. `same`: still as written.
- */
+// The same words nearest where they were written, else, once the User has changed them, the
+// sentence in the same place.
 function placeOf(
   element: Y.XmlElement,
   sentence: Sentence,
@@ -431,11 +429,8 @@ function land(blocks: Y.XmlFragment, ids: readonly string[], landing: Landing): 
   markSentence(element, place.from, place.to, mark);
 }
 
-/**
- * A written sentence as the Mind's own checks read it (./sentences): a table cell's figure with
- * its row and column headings and the line before the table, and each figure it states with its
- * own place, so its results are the figure results Check this Mind gives (#1459).
- */
+// Read as Check this Mind reads it, a table cell with its headings and each figure with its own
+// place, so a written sentence's results are the ones Check this Mind gives (#1459).
 function readAsChecked(
   blocks: Y.XmlFragment,
   ids: readonly string[],

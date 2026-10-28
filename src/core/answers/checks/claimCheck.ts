@@ -272,7 +272,6 @@ function figuresReplied(
   ];
 }
 
-/** The Passages a sentence's Citations quote that its check may read: live, cited and in its scope. */
 function citedSources(
   cited: readonly CheckedCitation[],
   scope: EvidenceScope,

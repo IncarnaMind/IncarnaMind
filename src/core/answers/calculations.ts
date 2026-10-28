@@ -196,7 +196,6 @@ const writtenNumber = (reading: Reading) => reading.value / reading.scale;
  * unit cell beside the number ("31000 | 万元"), which a quote of the number alone leaves out
  * (#1798). Null when they read it as the quote does, or read its digits more than one way.
  */
-/** The one cell of a quoted row that is only a unit ("收入	100	120	万元"): it states the unit of each number in its row. */
 function rowUnitCell(quote: string, context: FigureContext): string | null {
   const units = new Set(
     quote

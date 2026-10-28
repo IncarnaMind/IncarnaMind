@@ -144,7 +144,6 @@ interface Sending {
   held: string[];
 }
 
-/** A paragraph's sentence that holds figures, which the one Check checks each with its own source. */
 const figuredSentence = (sentence: SelectedSentence) =>
   sentence.element.nodeName === "paragraph" && (sentence.figures?.length ?? 0) > 0;
 
