@@ -12,7 +12,7 @@ import { type ModelCall, scriptedModel, scriptedModels } from "../helpers/models
  */
 
 const SUMMARY = "The agreement runs for three years from 1 November 2026.";
-const NO_MIND = "No Mind is open, so I can't write it there.";
+const NO_MIND = "No Note is open, so I can't write it there.";
 
 const CASES: { language: Language; untitled: string; request: string; text: string }[] = [
   {

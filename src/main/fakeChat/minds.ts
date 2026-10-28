@@ -284,8 +284,8 @@ export function mindsReply(prompt: Prompt, asked: string, names: readonly string
     const listed = /^Their names, newest first:\n((?:- .+\n?)+)/m.exec(systemOf(prompt))?.[1] ?? "";
     const names = [...listed.matchAll(/^- (.+)$/gm)].map((line) => line[1]).sort();
     const content = `Written from ${names.join(", ")}.`;
-    // An empty Mind is filled; any other gets a new one beside it.
-    return systemOf(prompt).includes("The Mind in <mind> is open and still empty")
+    // An empty Note is filled; any other gets a new one beside it.
+    return systemOf(prompt).includes("The Note in <mind> is open and still empty")
       ? { tool: "add_to_mind", input: { content } }
       : { tool: "create_mind", input: { title: "Summary", content } };
   }
@@ -295,7 +295,7 @@ export function mindsReply(prompt: Prompt, asked: string, names: readonly string
       return {
         text: /\p{Script=Han}/u.test(question)
           ? "没有打开的笔记，所以没法写进去。"
-          : "No Mind is open, so I can't write it there.",
+          : "No Note is open, so I can't write it there.",
       };
     }
     const added = lastResult(prompt, "add_to_mind");

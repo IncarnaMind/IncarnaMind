@@ -354,7 +354,7 @@ describe("The assistant changes Minds as Proposals", { timeout: 30_000 }, () => 
 
     const none = toolModel(
       { tool: "edit_mind", input: { instruction: "Shorten it" } },
-      "No Mind is open.",
+      "No Note is open.",
     );
     const other = await setUp(none);
     const unfocused = await ask(other.core, { text: "Shorten the summary" });

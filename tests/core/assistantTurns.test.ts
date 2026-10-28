@@ -341,13 +341,13 @@ describe("A claim needs its command (#1559)", { timeout: 30_000 }, () => {
       ({ results }): ScriptedReply =>
         results.length === 0
           ? { calls: [{ tool: "add_to_mind", input: { content: "## Risks\n\nLate." } }] }
-          : { text: "No Mind is open: open one, or ask for a new Mind." },
+          : { text: "No Note is open: open one, or ask for a new Note." },
     );
     const { core } = await setUp(model);
 
     const answer = await askAssistant(core, { text: "add a risks section" });
 
-    expect(answer.text).toBe("No Mind is open: open one, or ask for a new Mind.");
+    expect(answer.text).toBe("No Note is open: open one, or ask for a new Note.");
     expect(model.doStreamCalls).toHaveLength(2);
   });
 });
