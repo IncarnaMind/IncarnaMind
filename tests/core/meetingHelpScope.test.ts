@@ -119,6 +119,40 @@ async function setup(language: "en" | "zh-CN", heard = true) {
 }
 
 for (const language of ["en", "zh-CN"] as const) {
+  test(`${language}: an explicit request for all Documents during an empty call keeps their text without Tools`, async () => {
+    const fact =
+      language === "en"
+        ? "Zircon vessels stabilize in forty-five days"
+        : "锆石容器在四十五天内稳定";
+    const model = scriptedModel((call) => {
+      if (call.tools.length > 0) {
+        return { error: { status: 400, message: "This model does not support tools" } };
+      }
+      const answer = call.prompt.includes(fact) ? fact : "No readable source.";
+      return { text: call.json ? JSON.stringify({ answer, citations: [] }) : answer };
+    });
+    const { core } = await transcribingCore(await createTempDataFolder(), { model });
+    await core.updateSettings({ user: { language } });
+    const provider = await core.saveChatProvider({
+      kind: "anthropic",
+      modelId: "claude-haiku-5-5",
+      apiKey: "sk-test",
+    });
+    if (provider.service) await core.allowDataFlow("chat", provider.service.id);
+    const folder = await createSourceFolder();
+    await addAndProcess(core, [await writeSourceFile(folder, "Zircon.txt", fact)]);
+    const meeting = await core.createMeeting();
+    await core.startMeeting({ meetingId: meeting.id, systemAudio: true });
+    const answer = await answerOf(
+      core,
+      await core.askInConversation({
+        mindId: meeting.mindId,
+        text: language === "en" ? "Summarize all Documents." : "请总结所有文档。",
+      }),
+    );
+    expect(answer.text).toContain(fact);
+  });
+
   test(`${language}: Not covered yet has the whole guide even outside retrieved excerpts`, async () => {
     const { core, meeting, guide, calls, fact } = await setup(language);
     await core.setMeetingTemplate({ meetingId: meeting.id, template: "interview" });

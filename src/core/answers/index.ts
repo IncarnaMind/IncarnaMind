@@ -2006,7 +2006,7 @@ export function createAnswers(options: AnswersOptions) {
             withPassageNotes(show(passages), unread),
           );
         const scope =
-          (heard === null || help !== undefined) &&
+          (heard === null || help !== undefined || asked.each || asked.main !== null) &&
           callDocuments === null &&
           options.documents.searchableCount(documentIds) <= SMALL_SCOPE_DOCUMENTS
             ? options.documents.searchableBySize(documentIds)
