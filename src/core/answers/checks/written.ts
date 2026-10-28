@@ -39,7 +39,6 @@ import { INLINE_NODE, isClaim, sentenceSpans } from "../../../shared/sentences";
 import { judgesUnreliably } from "../../../shared/smallModel";
 import {
   BLOCK_ID_ATTRIBUTE,
-  type CheckFigure,
   CITATION_NODE,
   type CitedQuote,
   CLAIM_CHECK_MARK,
@@ -542,7 +541,7 @@ function readAsChecked(
   blocks: Y.XmlFragment,
   ids: readonly string[],
   sentence: Sentence,
-  figures: ReadonlyMap<string, CheckFigure[]>,
+  figures: ReturnType<typeof figuresByBlock>,
 ): ReturnType<typeof checkText> {
   const element = paragraphIn(blocks, ids, sentence.path);
   const blockId = element?.getAttribute(BLOCK_ID_ATTRIBUTE);

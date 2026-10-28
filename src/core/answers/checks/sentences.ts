@@ -26,7 +26,7 @@ import {
   type WaitingSentences,
 } from "../../api";
 import { layout, textBlocks } from "../../proposals/write";
-import { figuresInMind } from "./figureOccurrences";
+import { type FigureOccurrence, figuresInMind, inTableCell } from "./figureOccurrences";
 
 const BREAK = "hardBreak";
 
@@ -57,7 +57,7 @@ export interface SelectedSentence {
   context: string;
   /** What its Citations quote. */
   cited: CitedQuote[];
-  figures?: CheckFigure[];
+  figures?: FigureOccurrence[];
 }
 
 export type SelectedSentences =
@@ -120,8 +120,8 @@ export function checkText(sentence: SelectedSentence) {
 }
 
 /** The figures a check reads in each of the Mind's Blocks, by Block id. */
-export function figuresByBlock(blocks: Y.XmlFragment): ReadonlyMap<string, CheckFigure[]> {
-  const index = new Map<string, CheckFigure[]>();
+export function figuresByBlock(blocks: Y.XmlFragment): ReadonlyMap<string, FigureOccurrence[]> {
+  const index = new Map<string, FigureOccurrence[]>();
   for (const figure of figuresInMind(blocks)) {
     const id =
       figure.locator.kind === "text" ? figure.locator.from.blockId : figure.locator.blockId;
@@ -136,18 +136,12 @@ export function figuresByBlock(blocks: Y.XmlFragment): ReadonlyMap<string, Check
  * What a Mind's stored checks are compared with of its figures now: each figure's context, and
  * whether a marked table cell holds any (`ClaimCheckNow.figured`).
  */
-/** A paragraph that is a table's cell: a whole-sentence check of it read it without its row and column. */
-export const inTableCell = (element: Y.XmlElement): boolean =>
-  element.nodeName === "paragraph" &&
-  element.parent instanceof Y.XmlElement &&
-  (element.parent.nodeName === "tableCell" || element.parent.nodeName === "tableHeader");
-
 export function figuresNow(blocks: Y.XmlFragment): {
   figureContexts: Map<string, string>;
   figured(marked: { element: Y.XmlElement; from: number; to: number }): boolean;
 } {
   const found = figuresInMind(blocks);
-  const byBlock = new Map<string, CheckFigure[]>();
+  const byBlock = new Map<string, FigureOccurrence[]>();
   for (const figure of found) {
     if (figure.locator.kind !== "text") continue;
     const id = figure.locator.from.blockId;
@@ -158,9 +152,7 @@ export function figuresNow(blocks: Y.XmlFragment): {
     figured: ({ element, from, to }) => {
       const blockId = element.getAttribute(BLOCK_ID_ATTRIBUTE);
       return (
-        inTableCell(element) &&
-        typeof blockId === "string" &&
-        inSpan(byBlock.get(blockId) ?? [], from, to).length > 0
+        typeof blockId === "string" && inTableCell(inSpan(byBlock.get(blockId) ?? [], from, to))
       );
     },
   };
@@ -171,7 +163,7 @@ export function sentenceOf(
   element: Y.XmlElement,
   blockId: string,
   span: { from: number; to: number },
-  figures: ReadonlyMap<string, CheckFigure[]>,
+  figures: ReadonlyMap<string, readonly FigureOccurrence[]>,
 ): SelectedSentence {
   const text = textOf(element);
   return {
@@ -186,7 +178,7 @@ export function sentenceOf(
   };
 }
 
-const inSpan = (figures: readonly CheckFigure[], from: number, to: number) =>
+const inSpan = <Figure extends CheckFigure>(figures: readonly Figure[], from: number, to: number) =>
   figures.filter(
     (figure) =>
       figure.locator.kind === "chart" ||
@@ -195,7 +187,7 @@ const inSpan = (figures: readonly CheckFigure[], from: number, to: number) =>
 
 function chartSentence(
   element: Y.XmlElement,
-  figures: readonly CheckFigure[],
+  figures: readonly FigureOccurrence[],
 ): SelectedSentence | null {
   const blockId = element.getAttribute(BLOCK_ID_ATTRIBUTE);
   if (typeof blockId !== "string" || chartPoints(readChart(element.getAttributes())).length === 0)

@@ -11,6 +11,7 @@ import { Decoration, DecorationSet, type EditorView } from "@tiptap/pm/view";
 import {
   BLOCK_ID_ATTRIBUTE,
   CALCULATED_FIGURE_NODE,
+  type CellFigurePlace,
   CHART_NODE,
   CLAIM_CHECK_MARK,
   type ClaimCheckAttributes,
@@ -199,6 +200,16 @@ export interface ClaimContext {
   versions: ReadonlyMap<string, string> | null;
   folderId: string | null;
   scope: SearchScope | null;
+}
+
+/** `ClaimContext.figurePlaces` from where the core reads figures in table cells. */
+export function figurePlacesOf(
+  cells: readonly CellFigurePlace[],
+): Map<string, (readonly [number, number])[]> {
+  const places = new Map<string, (readonly [number, number])[]>();
+  for (const { blockId, from, to } of cells)
+    places.set(blockId, [...(places.get(blockId) ?? []), [from, to]]);
+  return places;
 }
 
 /** A check where it is, and how it shows: never one the User keeps as their own view, which shows nothing. */

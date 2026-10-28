@@ -6349,6 +6349,15 @@ export interface MindSnippet {
 export interface MindContentSnapshot {
   mindId: string;
   state: Uint8Array;
+  /** Where its table cells hold figures the one Check reads, so a reader judges them as the editor does (#1459). */
+  cellFigures: CellFigurePlace[];
+}
+
+/** A figure's place in a table's cell: its paragraph's Block, and where it starts and ends there. */
+export interface CellFigurePlace {
+  blockId: string;
+  from: number;
+  to: number;
 }
 
 /**

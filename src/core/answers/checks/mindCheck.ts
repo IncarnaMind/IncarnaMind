@@ -51,6 +51,7 @@ import type { MindContent } from "../../mindContent";
 import { parseMindId } from "../../minds";
 import type { PreparedChatModel } from "../../providers/chat";
 import type { CheckedCitation } from "./claimCheck";
+import { inTableCell } from "./figureOccurrences";
 import { type ClaimsFound, claimsAmong } from "./findClaims";
 import { type QueuedClaim, type RunChecksOptions, runChecks } from "./runChecks";
 import {
@@ -58,7 +59,6 @@ import {
   checkText,
   everySentence,
   figuresNow,
-  inTableCell,
   keptAsView,
   markedSentences,
   markSentence,
@@ -144,9 +144,6 @@ interface Sending {
   /** In "changed" mode, when each check that still holds was made. */
   held: string[];
 }
-
-const figuredSentence = (sentence: SelectedSentence) =>
-  inTableCell(sentence.element) && (sentence.figures?.length ?? 0) > 0;
 
 export function createMindCheck(options: MindCheckOptions) {
   const { content } = options;
@@ -316,7 +313,7 @@ export function createMindCheck(options: MindCheckOptions) {
                   folderId,
                   scope,
                   figureContexts,
-                  figured: figuredSentence(sentence),
+                  figured: inTableCell(sentence.figures),
                 })
               : null,
             skipped: skipped.has(sentenceKey(sentence.text)),
@@ -364,7 +361,7 @@ export function createMindCheck(options: MindCheckOptions) {
                 folderId,
                 scope,
                 figureContexts,
-                figured: figuredSentence(sentence),
+                figured: inTableCell(sentence.figures),
               })
             : null,
           skipped: skipped.has(sentenceKey(sentence.text)),

@@ -54,6 +54,7 @@ import { createAiUseStatement } from "./aiUseStatement";
 import { createAiSdkAnswerEngine, createAnswers } from "./answers";
 import { createAskedChanges } from "./answers/applyAsked";
 import { createChecks } from "./answers/checks";
+import { tableCellFigurePlaces } from "./answers/checks/figureOccurrences";
 import { AFTER_NEW_VERSION_MS, CLAIM_TIME_LIMIT_MS } from "./answers/checks/watch";
 import {
   citeSelection,
@@ -3827,7 +3828,11 @@ export function createCore(adapters: CoreAdapters): Core {
           if (error instanceof NotFoundError) continue;
           throw error;
         }
-        found.push({ mindId, state: content.storedState(mindId) });
+        found.push({
+          mindId,
+          state: content.storedState(mindId),
+          cellFigures: content.peek(mindId, tableCellFigurePlaces),
+        });
       }
       return found;
     },
