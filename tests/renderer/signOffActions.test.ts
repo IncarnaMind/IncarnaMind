@@ -135,12 +135,14 @@ describe("Checked by me on a Citation", () => {
     }
   });
 
-  // protects=a Citation marked in the editor after a version was kept, then edited or deleted, comes back from that version with the mark's id, so the mark shows on it again (#1933), in English and Chinese; fails_when=the restored Citation has no id or another; no_claim=whether the mark then reads checked or changed.
+  // protects=a Citation marked in the editor after a version was kept, then edited or deleted, comes back from that version with the mark's id, so the mark shows on it again; and so does one that version was already restored once before the mark (#1933), in English and Chinese; fails_when=the restored Citation has no id or another; no_claim=whether the mark then reads checked or changed.
   test.each([
     ["en", "edited", "Spring tides come at new moon"],
     ["en", "deleted", "Spring tides come at new moon"],
+    ["en", "restored before the mark", "Spring tides come at new moon"],
     ["zh-CN", "edited", "大潮出现在新月时"],
     ["zh-CN", "deleted", "大潮出现在新月时"],
+    ["zh-CN", "restored before the mark", "大潮出现在新月时"],
   ] as const)(
     "a version kept before the mark brings the Citation back marked (%s, %s)",
     async (_, since, words) => {
@@ -159,6 +161,10 @@ describe("Checked by me on a Citation", () => {
       const editor = boundEditor(client);
       const doc = noteDocOf(editor);
       if (!doc) throw new Error("The editor isn't bound to the Note.");
+      if (since === "restored before the mark") {
+        await core.restoreCheckpoint(mind.id, kept.id);
+        await client.settled();
+      }
 
       toggleCitationSignOff(editor, citationAt(editor).pos, signer);
       const marked = signOffsOf(doc)[0]?.target.id;
@@ -168,7 +174,7 @@ describe("Checked by me on a Citation", () => {
         editor.view.dispatch(
           editor.state.tr.setNodeAttribute(pos, "quote", "Neap tides come at half moon."),
         );
-      else editor.commands.deleteRange({ from: pos, to: pos + 1 });
+      if (since === "deleted") editor.commands.deleteRange({ from: pos, to: pos + 1 });
       await client.settled();
 
       await core.restoreCheckpoint(mind.id, kept.id);

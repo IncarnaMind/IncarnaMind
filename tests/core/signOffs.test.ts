@@ -1,7 +1,7 @@
 import { expect, test } from "vitest";
 import * as Y from "yjs";
 import { citationSentences } from "../../src/core/answers/checks/sentences";
-import { CITATION_NODE } from "../../src/core/api";
+import { type CalculatedFigure, CITATION_NODE } from "../../src/core/api";
 import { calculatedFigureNode } from "../../src/shared/calculatedFigures";
 import { FORMULA_VERSION } from "../../src/shared/formula";
 import {
@@ -24,86 +24,40 @@ import { note, readMind, writeMind } from "../helpers/minds";
 for (const language of ["en", "zh-CN"] as const) {
   // protects=a calculated figure's mark shows as changed once the words of its sentence change, though its own result is the same; fails_when=it still reads checked; no_claim=its inputs' versions, which signOffs.test covers.
   test(`a calculated figure's mark changes with the sentence ${language}`, async () => {
-    const core = startCore(await createTempDataFolder());
-    await core.updateSettings({ user: { language, personId: "person-1" } });
-    const mind = await core.createMind({ title: "Review fixture" });
-    const client = await connectToMind(core, mind.id);
-    const figure = calculatedFigureNode(
-      {
-        label: "value",
-        formula: "x",
-        inputs: [
-          {
-            name: "x",
-            label: "value",
-            citation: {
-              passageId: "passage-1",
-              documentId: "document-1",
-              documentName: "Values",
-              contentHash: "v1",
-              pageFrom: 1,
-              pageTo: 1,
-              location: { kind: "page", from: 1, to: 1 },
-              quote: "10",
-              check: "found",
-              checkReason: null,
-            },
-            number: {
-              chars: "10",
-              at: 0,
-              value: 10,
-              scale: 1,
-              scaleWord: null,
-              unit: { kind: "plain" },
-              decimals: 0,
-              approximate: false,
-              reading: null,
-            },
-            cell: null,
-            unitStatement: null,
-          },
-        ],
-        value: 10,
-        unit: { kind: "plain" },
-        approximate: false,
-        shown: "10",
-        show: { language, as: "number", decimals: 0, scale: null },
-        literals: [],
-        engine: FORMULA_VERSION,
-        written: null,
-      },
-      "atom-1",
-      null,
-    );
-    const write = (text: string) =>
-      writeMind(client, [
-        {
-          type: "paragraph",
-          attrs: { id: "p1" },
-          content: [{ type: "text", text }, figure, { type: "text", text: "." }],
-        },
-      ]);
-    write(language === "en" ? "Revenue was " : "营业收入为 ");
-    await client.settled();
-    const row = (await core.getFigureSchedule(mind.id)).rows.find((r) => r.id === "atom-1");
-    if (!row) throw new Error("Missing calculated figure");
-    addSignOff(client.doc, {
-      id: "mark-1",
-      target: { kind: "figure", id: row.id },
-      at: "2026-10-28T09:00:00.000Z",
-      contentHash: figureSignOffBasis(row),
-      deletedAt: null,
-      name: "Ada",
-      personId: "person-1",
+    const marked = await markedCalculation(language, calculation(language));
+    await marked.write(language === "en" ? "Costs were " : "支出为 ", calculation(language));
+    expect(await marked.state()).toBe("changed");
+  });
+
+  // protects=a calculated figure's mark rests on its input as bound, not only as printed: the same quote "1,250" read another way (1.25, not 1,250) changes it, though x − x still shows 0 (#1933); fails_when=it still reads checked; no_claim=how the reading is chosen.
+  test(`a calculated figure's mark changes when its input is read another way ${language}`, async () => {
+    const read = (value: number, reading: number, decimals: number) =>
+      calculation(language, {
+        formula: "x - x",
+        value: 0,
+        shown: "0",
+        number: { chars: "1,250", value, reading, decimals },
+      });
+    const marked = await markedCalculation(language, read(1250, 1, 0));
+    await marked.write(marked.words, read(1250, 1, 0));
+    expect(await marked.state()).toBe("checked");
+    await marked.write(marked.words, read(1.25, 2, 2));
+    expect(await marked.state()).toBe("changed");
+  });
+
+  // protects=a figure an Analysis gives rests on the result it is bound to: the same atom bound from revenue to costs in the same kept run, both 10, changes its mark (#1933); fails_when=it still reads checked; no_claim=whether the Analysis is still valid.
+  test(`a calculated figure's mark changes when it gives another Analysis result ${language}`, async () => {
+    const bound = (result: string) => ({
+      ...calculation(language),
+      formula: "",
+      inputs: [],
+      analysis: { analysis: 1, result },
     });
-    await client.settled();
-    expect(
-      (await core.getFigureSchedule(mind.id)).rows.find((r) => r.id === "atom-1")?.signOff?.state,
-    ).toBe("checked");
-    write(language === "en" ? "Costs were " : "支出为 ");
-    await client.settled();
-    const changed = (await core.getFigureSchedule(mind.id)).rows.find((r) => r.id === "atom-1");
-    expect(changed?.signOff?.state).toBe("changed");
+    const marked = await markedCalculation(language, bound("revenue"), "run-1");
+    await marked.write(marked.words, bound("revenue"), "run-1");
+    expect(await marked.state()).toBe("checked");
+    await marked.write(marked.words, bound("costs"), "run-1");
+    expect(await marked.state()).toBe("changed");
   });
 
   // protects=a table cell's mark shows as changed once its row's label changes, as the row is what it was checked against; fails_when=it still reads checked; no_claim=another table's cells.
@@ -241,6 +195,105 @@ for (const language of ["en", "zh-CN"] as const) {
       expect(citationSentences(client.blocks).has(id)).toBe(true);
     },
   );
+}
+
+function calculation(
+  language: "en" | "zh-CN",
+  change: {
+    formula?: string;
+    value?: number;
+    shown?: string;
+    number?: { chars: string; value: number; reading: number | null; decimals: number };
+  } = {},
+): CalculatedFigure {
+  const number = change.number ?? { chars: "10", value: 10, reading: null, decimals: 0 };
+  return {
+    label: "value",
+    formula: change.formula ?? "x",
+    inputs: [
+      {
+        name: "x",
+        label: "value",
+        citation: {
+          passageId: "passage-1",
+          documentId: "document-1",
+          documentName: "Values",
+          contentHash: "v1",
+          pageFrom: 1,
+          pageTo: 1,
+          location: { kind: "page", from: 1, to: 1 },
+          quote: number.chars,
+          check: "found",
+          checkReason: null,
+        },
+        number: {
+          chars: number.chars,
+          at: 0,
+          value: number.value,
+          scale: 1,
+          scaleWord: null,
+          unit: { kind: "plain" },
+          decimals: number.decimals,
+          approximate: false,
+          reading: number.reading,
+        },
+        cell: null,
+        unitStatement: null,
+      },
+    ],
+    value: change.value ?? 10,
+    unit: { kind: "plain" },
+    approximate: false,
+    shown: change.shown ?? "10",
+    show: { language, as: "number", decimals: 0, scale: null },
+    literals: [],
+    engine: FORMULA_VERSION,
+    written: null,
+  };
+}
+
+/** A Note with one calculated figure in a sentence, marked Checked by me as the schedule shows it. */
+async function markedCalculation(
+  language: "en" | "zh-CN",
+  figure: CalculatedFigure,
+  analysisId: string | null = null,
+) {
+  const core = startCore(await createTempDataFolder());
+  await core.updateSettings({ user: { language, personId: "person-1" } });
+  const mind = await core.createMind({ title: "Review fixture" });
+  const client = await connectToMind(core, mind.id);
+  const words = language === "en" ? "Revenue was " : "营业收入为 ";
+  const write = async (text: string, shown: CalculatedFigure, run: string | null = null) => {
+    writeMind(client, [
+      {
+        type: "paragraph",
+        attrs: { id: "p1" },
+        content: [
+          { type: "text", text },
+          calculatedFigureNode(shown, "atom-1", run),
+          { type: "text", text: "." },
+        ],
+      },
+    ]);
+    await client.settled();
+  };
+  const row = async () =>
+    (await core.getFigureSchedule(mind.id)).rows.find((r) => r.id === "atom-1");
+  await write(words, figure, analysisId);
+  const marked = await row();
+  if (!marked) throw new Error("Missing calculated figure");
+  addSignOff(client.doc, {
+    id: "mark-1",
+    target: { kind: "figure", id: marked.id },
+    at: "2026-10-28T09:00:00.000Z",
+    contentHash: figureSignOffBasis(marked),
+    deletedAt: null,
+    name: "Ada",
+    personId: "person-1",
+  });
+  await client.settled();
+  expect((await row())?.signOff?.state).toBe("checked");
+  return { words, write, state: async () => (await row())?.signOff?.state };
 }
 
 async function citedNote(language: "en" | "zh-CN") {

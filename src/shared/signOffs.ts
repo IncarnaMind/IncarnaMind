@@ -6,6 +6,7 @@
  */
 import type * as Y from "yjs";
 import {
+  type CalculatedFigureAttributes,
   type CheckFigure,
   type Citation,
   type CitationAttributes,
@@ -102,19 +103,10 @@ export function signOffsOf(doc: Y.Doc): SignOffRecord[] {
     .sort((a, b) => a.at.localeCompare(b.at));
 }
 
-/** The Citations any mark names, taken off or not, as Undo can bring one back. */
-export function markedCitations(doc: Y.Doc): Set<string> {
-  return new Set(
-    [...doc.getMap<unknown>(MIND_SIGN_OFFS_FIELD).values()].flatMap((value) => {
-      const record = readSignOff(value);
-      return record?.target.kind === "citation" ? [record.target.id] : [];
-    }),
-  );
-}
-
 /**
- * The id a Citation without one of its own goes by when it is first marked: its element's, which
- * every version of the Note that holds it shares, so the mark finds it in a version kept before.
+ * The id a Citation without one of its own goes by: its element's, which every version of the Note
+ * that holds it shares. A first mark gives it this id, and a restore gives it to each Citation it
+ * copies, so a mark finds its Citation in any version kept before, through any restore.
  */
 export const citationElementId = (element: Y.XmlElement): string | null => {
   const id = element._item?.id;
@@ -200,31 +192,45 @@ export const citationSignOffBasis = (
     ],
   });
 
-const citationEvidence = (citation: Citation) => [
-  citation.documentId,
-  citation.contentHash,
-  citation.quote,
-];
+/** Where a Citation quotes from, in which version, and what: the app's own verdict on it isn't evidence. */
+const citationEvidence = ({
+  documentId,
+  passageId,
+  contentHash,
+  pageFrom,
+  pageTo,
+  location,
+  quote,
+}: Citation) => [documentId, passageId, contentHash, pageFrom, pageTo, location, quote];
 
-const inputEvidence = (input: FigureInput) => [
-  input.name,
-  input.label,
-  input.number.chars,
-  citationEvidence(input.citation),
-  input.cell,
-  input.unitStatement && [
-    citationEvidence(input.unitStatement.citation),
-    input.unitStatement.scale,
-    input.unitStatement.scaleWord,
-    input.unitStatement.currency,
-  ],
-];
+/** An input as it is bound: its name and label, the number as read, where it was read, its unit line. */
+const inputEvidence = ({ citation, unitStatement, ...input }: FigureInput) => ({
+  ...input,
+  citation: citationEvidence(citation),
+  unitStatement: unitStatement && {
+    ...unitStatement,
+    citation: citationEvidence(unitStatement.citation),
+  },
+});
+
+/**
+ * A calculated figure's result as it is bound: its formula, inputs, value and unit, the Analysis
+ * result it gives and the Analysis kept for it. Not the rules version, which a recheck may raise.
+ */
+const resultEvidence = ({
+  figure: { engine: _, ...figure },
+  analysisId,
+}: CalculatedFigureAttributes) => ({
+  ...figure,
+  inputs: figure.inputs.map(inputEvidence),
+  analysisId,
+});
 
 /**
  * A figure's: what its check reads it against (its sentence's words and, in a table, its row's and
  * column's headings and units), what it shows, and the evidence shown for it: the Citation and
- * reading it was found in, or a calculated one's formula, inputs and Analysis. Its sources' newer versions
- * are compared as it shows (`signOffShown`).
+ * reading it was found in, or a calculated one's bound result. Its sources' newer versions are
+ * compared as it shows (`signOffShown`).
  */
 export const figureSignOffBasis = (
   figure: Pick<CheckFigure, "id" | "calculated" | "context"> & {
@@ -239,11 +245,7 @@ export const figureSignOffBasis = (
       figure.id,
       figure.calculated?.figure.shown ?? figure.reading.chars,
       figure.calculated
-        ? [
-            figure.calculated.figure.formula,
-            figure.calculated.figure.inputs.map(inputEvidence),
-            figure.calculated.analysisId,
-          ]
+        ? resultEvidence(figure.calculated)
         : [
             figure.source ? citationEvidence(figure.source) : null,
             figure.sourceInput ? inputEvidence(figure.sourceInput) : null,

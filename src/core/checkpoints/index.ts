@@ -18,7 +18,7 @@ import { randomUUID } from "node:crypto";
 import * as Y from "yjs";
 import { figureRunsFor, installFigureRuns } from "../../shared/figureRuns";
 import { resolveProposals } from "../../shared/proposals";
-import { citationElementId, markedCitations } from "../../shared/signOffs";
+import { citationElementId } from "../../shared/signOffs";
 import { nodeOf, topLevelBlocks } from "../answers/blocks";
 import { addCitedUnits, addCitedVersions, type CitedUnits } from "../answers/citedVersions";
 import {
@@ -121,11 +121,11 @@ function citedIn(doc: Y.Doc): RetainVersion[] {
 const CITATION_ID = "id" satisfies keyof CitationAttributes;
 
 /**
- * A restore never changes the User's marks: a Citation it brings back without an id of its own
- * gets the one a mark made on it since names (`citationElementId`), however it was edited or
- * deleted after.
+ * A restore never changes the User's marks. It copies each Citation it brings back, so one without
+ * an id of its own first takes the one it goes by in every version (`citationElementId`): a mark
+ * made on it, before or after this restore, then finds it however it was edited or deleted.
  */
-function nameMarkedCitations(blocks: Y.XmlFragment, marked: ReadonlySet<string>): void {
+function nameCitations(blocks: Y.XmlFragment): void {
   for (const block of blocks.toArray()) {
     if (!(block instanceof Y.XmlElement)) continue;
     for (const node of block.createTreeWalker(
@@ -134,7 +134,7 @@ function nameMarkedCitations(blocks: Y.XmlFragment, marked: ReadonlySet<string>)
       if (!(node instanceof Y.XmlElement) || typeof node.getAttribute(CITATION_ID) === "string")
         continue;
       const id = citationElementId(node);
-      if (id && marked.has(id)) node.setAttribute(CITATION_ID, id);
+      if (id) node.setAttribute(CITATION_ID, id);
     }
   }
 }
@@ -325,7 +325,7 @@ export function createCheckpoints(options: CheckpointsOptions) {
       try {
         const restoreBlocks = (blocks: Y.XmlFragment) => {
           const kept = old.getXmlFragment(MIND_CONTENT_FIELD);
-          if (blocks.doc) nameMarkedCitations(kept, markedCitations(blocks.doc));
+          nameCitations(kept);
           const restored = kept
             .toArray()
             .flatMap((node) => (node instanceof Y.XmlHook ? [] : [node.clone()]));
