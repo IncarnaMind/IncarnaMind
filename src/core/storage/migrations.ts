@@ -1937,9 +1937,11 @@ export function migrate(db: Database, list: readonly Migration[] = migrations): 
     throw new DataFromNewerVersionError(Math.max(...unknown));
   }
 
+  const pending = list.filter((migration) => !applied.has(migration.version));
+  if (pending.length === 0) return;
+
   db.transaction(() => {
-    for (const migration of list) {
-      if (applied.has(migration.version)) continue;
+    for (const migration of pending) {
       db.exec(migration.sql);
       db.run("INSERT INTO schema_migrations (version, applied_at) VALUES (?, ?)", [
         migration.version,
