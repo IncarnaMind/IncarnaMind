@@ -1,9 +1,5 @@
 import { describe, expect, test } from "vitest";
-import {
-  RECORD_CITE_STRINGS,
-  type RecordCiteStringKey,
-  recordCiteTranslatorFor,
-} from "../../src/core/checkRecord/strings";
+import { RECORD_CITE_KEYS, recordCiteTranslatorFor } from "../../src/core/checkRecord/strings";
 import { type MessageKey, translate } from "../../src/shared/i18n";
 import { en } from "../../src/shared/i18n/en";
 import { zhCN } from "../../src/shared/i18n/zh-CN";
@@ -52,21 +48,16 @@ describe("the words of the check record", () => {
 });
 
 describe("the record-cite words of the check record", () => {
-  const recordCiteKeys = Object.keys(RECORD_CITE_STRINGS.en) as RecordCiteStringKey[];
-
-  test.each(recordCiteKeys)("%s matches in English and Chinese", (key) => {
-    const english = RECORD_CITE_STRINGS.en[key];
-    const chinese = RECORD_CITE_STRINGS["zh-CN"][key];
+  test.each(RECORD_CITE_KEYS)("%s matches in English and Chinese", (key) => {
+    const english = recordCiteTranslatorFor("en")(key, "3");
+    const chinese = recordCiteTranslatorFor("zh-CN")(key, "3");
     expect(english).not.toBe("");
     expect(chinese).not.toBe("");
     expect(chinese).not.toBe(english);
     expect(chinese).toMatch(/\p{Script=Han}/u);
     expect(chinese).not.toContain("您");
     expect(chinese).not.toMatch(/[\p{Script=Han}][A-Za-z0-9]|[A-Za-z0-9][\p{Script=Han}]/u);
-    const placeholders = (value: string) =>
-      [...value.matchAll(/\{(\w+)\}/g)].map((each) => each[1]);
-    expect(placeholders(chinese)).toEqual(placeholders(english));
-    expect(recordCiteTranslatorFor("en")(key, "3")).not.toContain("{count}");
-    expect(recordCiteTranslatorFor("zh-CN")(key, "3")).not.toContain("{count}");
+    expect(english).not.toContain("{count}");
+    expect(chinese).not.toContain("{count}");
   });
 });

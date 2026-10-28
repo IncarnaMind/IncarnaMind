@@ -64,7 +64,15 @@ export interface RecordSetReport {
 }
 
 export async function loadRecordCiteSet(root: string): Promise<RecordCiteSet> {
-  return JSON.parse(await readFile(join(root, RECORD_CITE_SET), "utf8")) as RecordCiteSet;
+  const parsed: unknown = JSON.parse(await readFile(join(root, RECORD_CITE_SET), "utf8"));
+  if (typeof parsed !== "object" || parsed === null) {
+    throw new Error(`${RECORD_CITE_SET} must hold "documents" and "cases" arrays.`);
+  }
+  const { documents, cases } = parsed as { documents?: unknown; cases?: unknown };
+  if (!Array.isArray(documents) || !Array.isArray(cases)) {
+    throw new Error(`${RECORD_CITE_SET} must hold "documents" and "cases" arrays.`);
+  }
+  return parsed as RecordCiteSet;
 }
 
 const sha256 = (bytes: Uint8Array) => createHash("sha256").update(bytes).digest("hex");

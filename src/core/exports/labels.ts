@@ -77,7 +77,7 @@ export function exportLabels(language: Language): ExportLabels {
         if (cite.candidates.length > 0) {
           lines.push(
             t("export.comment.recordCite.candidates", {
-              candidates: cite.candidates.join(t("export.citation.separator")),
+              candidates: cite.candidates.join(t("export.parts.separator")),
             }),
           );
         }

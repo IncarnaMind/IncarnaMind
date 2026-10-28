@@ -204,7 +204,7 @@ function renderRecordCiteItem(each: RecordCiteItem, context: RenderContext): str
       : detail(
           rt("recordCites.column.candidates"),
           escapeHtml(
-            each.candidates.map((candidate) => candidate.name).join(t("export.citation.separator")),
+            each.candidates.map((candidate) => candidate.name).join(t("export.parts.separator")),
           ),
         );
   return [

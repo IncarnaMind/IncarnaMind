@@ -193,11 +193,11 @@ const SHAPES: readonly RecordCiteShape[] = [
     read: readDocket,
   },
   {
-    pattern: /^([a-z]+)-(\d+)$/i,
+    pattern: /^([A-Z]+)-(\d{4,})$/,
     read: (match) => batesRange(group(match, 1), group(match, 2), group(match, 2)),
   },
   {
-    pattern: /^([a-z]+) (\d+) *[-–—] *(\d+)$/i,
+    pattern: /^([A-Z]+) (\d{4,}) *[-–—] *(\d{4,})$/,
     read: (match) => batesRange(group(match, 1), group(match, 2), group(match, 3)),
   },
   {
@@ -210,7 +210,7 @@ const SHAPES: readonly RecordCiteShape[] = [
     read: readTime,
   },
   {
-    pattern: /^id\.?(?: at (\d+))?$/i,
+    pattern: /^[Ii]d\.(?: at (\d+))?$/,
     read: (match, options) => {
       const page = group(match, 1) ? positiveInteger(group(match, 1)) : null;
       if (group(match, 1) && page === null) return "out-of-range";

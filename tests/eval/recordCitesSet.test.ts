@@ -1,6 +1,9 @@
+import { mkdir, writeFile } from "node:fs/promises";
+import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, test } from "vitest";
-import { checkRecordCiteSet } from "../../eval/record-cites/set";
+import { checkRecordCiteSet, loadRecordCiteSet } from "../../eval/record-cites/set";
+import { createTempDataFolder } from "../helpers/core";
 
 const ROOT = fileURLToPath(new URL("../..", import.meta.url));
 
@@ -11,5 +14,14 @@ describe("the public record-cite evaluation set (#1709)", { timeout: 600_000 }, 
     expect(report.documents).toBe(2);
     expect(report.cases).toBe(8);
     expect(report.cites).toBe(10);
+  });
+
+  test("a malformed set names the missing arrays instead of failing at its first case", async () => {
+    const root = await createTempDataFolder();
+    await mkdir(join(root, "eval/record-cites"), { recursive: true });
+    await writeFile(join(root, "eval/record-cites/set.json"), '{"documents":[]}');
+    await expect(loadRecordCiteSet(root)).rejects.toThrow(
+      'eval/record-cites/set.json must hold "documents" and "cases" arrays.',
+    );
   });
 });

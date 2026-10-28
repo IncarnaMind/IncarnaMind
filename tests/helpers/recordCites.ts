@@ -225,7 +225,7 @@ export const ACCEPTED_RECORD_CITE_FIXTURES: readonly AcceptedRecordCiteFixture[]
       timeLocation(from, to),
     );
   }),
-  ...ten((index) => previousFixture("Id.", index % 2 === 0 ? "Id." : "ID.", "id", null)),
+  ...ten((index) => previousFixture("Id.", index % 2 === 0 ? "Id." : "id.", "id", null)),
   ...ten((index) =>
     previousFixture("Id. with a new page", `Id. at ${7 + index}`, "id", page(7 + index)),
   ),

@@ -53,10 +53,11 @@ Real-model built-app hand checks also pass on Haiku 5.5 and Sonnet 5.5, each in 
 
 ## Independent review and versions
 
-The final independent review reports no remaining P1/P2 findings. The implementation also fixes its earlier concrete findings: evidence-only judgement, EvidenceScope/exclusions, chosen versions, timestamp choices, invalid choices, exact Bates suffixes, positional history, all cloud paths, whole printed deposition pages, duplicate details without device-path persistence, complete Note history and duplicate-position ambiguity. The established provider-failure rule remains overall `not-checked`, with no fabricated per-cite verdict.
+Self-review and CodeRabbit's findings are addressed: evidence-only judgement, EvidenceScope/exclusions, chosen versions, timestamp choices, invalid choices, exact Bates suffixes, positional history, all cloud paths, whole printed deposition pages, duplicate details without device-path persistence, complete Note history and duplicate-position ambiguity. The established provider-failure rule remains overall `not-checked`, with no fabricated per-cite verdict. The CTO's independent review follows full CI; subagent reviews are not independent approval.
 
 Latest main was merged and rechecked: main is schema 30/PDF 14; this branch is `CONTENT_SCHEMA_VERSION = 32` and PDF `PROCESSING_VERSION`/`CURRENT_SINCE.pdf = 15`, with no SQL migration.
 
 ## Still open before merge
 
-1. Push the exact head, open the PR and run full CI.
+1. Push the exact head and run full CI.
+2. Complete the CTO's independent review.

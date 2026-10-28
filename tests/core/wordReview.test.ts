@@ -592,7 +592,7 @@ describe("sentences whose check isn't good", () => {
       "段落：The deposition supports the sentence.",
       "Ex. 7 at 3：部分有依据",
       "ECF No. 41 at 5：选择文档",
-      "可选文档：Tides，Other filing",
+      "可选文档：Tides、Other filing",
       "Dkt. 41 at 6：未找到",
       "附近段落建议：Tides，第 7 页 · 第 5–9 行",
     ]) {

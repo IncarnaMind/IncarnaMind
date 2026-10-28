@@ -178,6 +178,13 @@ describe("invalid record cites", () => {
 });
 
 describe("record-cite scanning", () => {
+  test.each(["ID.", "COVID-19", "pages 10-12", "PL-123", "pl-000123"])(
+    "ignores %s rather than inventing a record cite",
+    (text) => {
+      expect(scanRecordCites(text)).toEqual([]);
+    },
+  );
+
   test("keeps repeated raw cites as separate occurrences with their own ranges", () => {
     const raw = "Smith Dep. 45:3–12";
     const text = `${raw}, then ${raw}.`;

@@ -21,6 +21,8 @@ function recordCiteComments(
   cites: readonly RecordCiteResult[],
   context: SentenceCheckContext,
 ): RecordCiteComment[] {
+  const sourceOf = (cite: Partial<CitationAttributes>) =>
+    context.sourceOf({ ...cite, documentName: undefined, contentHash: undefined });
   return cites.map((cite) => {
     const sourced =
       cite.documentId !== undefined ||
@@ -30,14 +32,14 @@ function recordCiteComments(
     return {
       raw: cite.raw,
       outcome: cite.outcome,
-      source: sourced ? context.sourceOf(cite) : null,
+      source: sourced ? sourceOf(cite) : null,
       passage: cite.passage ?? null,
       covered: cite.covered ?? null,
       uncovered: cite.uncovered ?? null,
       candidates: (cite.candidates ?? []).map((candidate) => candidate.name),
       nearby: cite.nearby
         ? {
-            source: context.sourceOf({ ...cite, ...cite.nearby }),
+            source: sourceOf({ ...cite, ...cite.nearby }),
             passage: cite.nearby.passage,
           }
         : null,

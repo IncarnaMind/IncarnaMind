@@ -220,12 +220,14 @@ async function withRecordCites(
 ): Promise<ClaimCheckResult> {
   if (result.verdict === "not-checked") return result;
   const recordClaim = request.recordClaim ?? request.claim;
+  const occurrences = recordOccurrences(recordClaim, true);
+  if (occurrences.length === 0) return result;
   const choices = deps.documents.recordChoices?.(request.mindId, request.place, recordClaim) ?? {
     previous: null,
     choices: {},
   };
   const resolved = resolveRecordCites({
-    cites: recordOccurrences(recordClaim, choices.previous !== null),
+    cites: occurrences,
     documents: recordDocuments(deps, request.scope),
     choices,
     resolveDeposition: mapDeposition,
