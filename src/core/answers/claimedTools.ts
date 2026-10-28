@@ -12,6 +12,7 @@
  */
 import type { AnswerToolCall, ClaimedTool } from "../api";
 import { DOCUMENT_TOOLS, SOURCE_TOOLS, WEB_TOOLS } from "../tools";
+import { FIGURE_MARKER } from "../../shared/figureMarkers";
 import { thisAnswersRecord, UNSEEN_REPLY } from "./claimedChanges";
 import { sentencesOf } from "./claimStream";
 import type { ChangeStates, MindNames } from "./toolRecord";
@@ -214,9 +215,18 @@ const RAN: Record<ClaimedTool, (call: AnswerToolCall) => boolean> = {
       (call.source === "sources" && call.tool === SOURCE_TOOLS.find)),
 };
 
-/** The Tools a reply says ran that none of `calls` ran: a figure is calculated only by `calculate`. */
+/**
+ * The Tools a reply says ran that none of `calls` backed: a figure is calculated only by
+ * `calculate`, in a reply that shows the figure where the number goes.
+ */
 export function unrunToolClaims(reply: string, calls: readonly AnswerToolCall[]): ClaimedTool[] {
-  return toolClaimsIn(reply).filter((tool) => !calls.some(RAN[tool]));
+  // A calculate call whose figure the reply doesn't show is dropped from the Answer's record
+  // before the User reads it, so the figure is unchecked in what they see.
+  const showsFigure = (reply.match(FIGURE_MARKER) ?? []).length > 0;
+  return toolClaimsIn(reply).filter((tool) => {
+    if (!calls.some(RAN[tool])) return true;
+    return tool === "calculate" && !showsFigure;
+  });
 }
 
 const CLAIMED_WORDS: Record<ClaimedTool, string> = {

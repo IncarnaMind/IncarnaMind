@@ -126,9 +126,10 @@ describe("What a reply says a Tool did", () => {
     expect(toolClaimsIn(reply)).toEqual([]);
   });
 
-  // protects=a claim is held to the calls: a calculate call that worked out figures backs a calculation, a search that ran backs a search; fails_when=a call that did nothing backs one, or one that did is ignored; no_claim=that the right figures were calculated.
+  // protects=a claim is held to the calls: a calculate call that worked out figures, in a reply that shows the figure, backs a calculation, and a search that ran backs a search; fails_when=a call that did nothing backs one, one that did is ignored, or a calculation whose figure the reply doesn't show is taken as backed; no_claim=that the right figures were calculated.
   test("held to what the calls did", () => {
     const reply = "I recalculated the ratio: 3.26x. I searched your Documents first.";
+    const shown = "I recalculated the ratio: [=1]. I searched your Documents first.";
     const calculated = (resultCount: number): AnswerToolCall => ({
       id: "calculated-figures",
       tool: "calculate",
@@ -147,11 +148,13 @@ describe("What a reply says a Tool did", () => {
     });
 
     expect(unrunToolClaims(reply, [])).toEqual(["calculate", "search"]);
-    expect(unrunToolClaims(reply, [calculated(0), searched("failed")])).toEqual([
+    expect(unrunToolClaims(shown, [])).toEqual(["calculate", "search"]);
+    expect(unrunToolClaims(shown, [calculated(0), searched("failed")])).toEqual([
       "calculate",
       "search",
     ]);
-    expect(unrunToolClaims(reply, [calculated(1), searched("done")])).toEqual([]);
+    expect(unrunToolClaims(shown, [calculated(1), searched("done")])).toEqual([]);
+    expect(unrunToolClaims(reply, [calculated(1), searched("done")])).toEqual(["calculate"]);
   });
 });
 
