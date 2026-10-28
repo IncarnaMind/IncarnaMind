@@ -44,7 +44,7 @@ const LANGUAGES = [
 ];
 
 describe("a quoted row's unit cell", () => {
-  // protects=a unit cell states only its own row's unit: a headcount quoted under a row in thousand tonnes is never read as 7,000 tonnes, while the row's own 100 still is 100,000 (Codex2's review of #2132), in English and Chinese; fails_when=another row's unit scales the 7; no_claim=how the model is asked for a unit line.
+  // protects=a unit cell states only its own row's unit: a headcount quoted under a row in thousand tonnes is never read as 7,000 tonnes, while the row's own 100 still is 100,000 (#1459), in English and Chinese; fails_when=another row's unit scales the 7; no_claim=how the model is asked for a unit line.
   test.each(LANGUAGES)(
     "is never another row's ($language)",
     ({ language, unit, scale, revenue, people }) => {
@@ -153,7 +153,7 @@ function legacyTable(words: (typeof LANGUAGES)[number], nested: boolean) {
 }
 
 describe("an old verdict on a numeric table cell", () => {
-  // protects=Home, Recent and the export menu read a numeric cell's old whole-sentence verdict as needing a check again, as the editor does, from the same places the core reads (Codex2's review of #2132), in English and Chinese, with the number directly in the cell or in a list there; fails_when=Home says Checked where the editor says Needs re-check; no_claim=the editor's own figure schedule.
+  // protects=Home, Recent and the export menu read a numeric cell's old whole-sentence verdict as needing a check again, as the editor does, from the same places the core reads (#1459), in English and Chinese, with the number directly in the cell or in a list there; fails_when=Home says Checked where the editor says Needs re-check; no_claim=the editor's own figure schedule.
   test.each(LANGUAGES.flatMap((words) => [false, true].map((nested) => ({ ...words, nested }))))(
     "needs a check again in the editor and on Home alike ($language, nested $nested)",
     ({ nested, ...words }) => {
@@ -174,7 +174,7 @@ describe("an old verdict on a numeric table cell", () => {
     },
   );
 
-  // protects=the core's own rule finds a cell however deep the cell holds its number, as its figure reader places it (Codex2's review of #2132), in English and Chinese; fails_when=a number in a list in a cell isn't the cell's; no_claim=none beyond protects.
+  // protects=the core's own rule finds a cell however deep the cell holds its number, as its figure reader places it (#1459), in English and Chinese; fails_when=a number in a list in a cell isn't the cell's; no_claim=none beyond protects.
   test.each(LANGUAGES)("is a cell's in a list in the cell too ($language)", (words) => {
     const { doc } = legacyTable(words, true);
     const blocks = doc.getXmlFragment(MIND_CONTENT_FIELD);
@@ -185,7 +185,7 @@ describe("an old verdict on a numeric table cell", () => {
     expect(figuresNow(blocks).figured({ element, from: 0, to: 3 })).toBe(true);
   });
 
-  // protects=Check this Mind's changed mode plans a check again for an old verdict on a numeric cell, directly in the cell or in a list there (Codex2's review of #2132), in English and Chinese; fails_when=the nested cell's plan says nothing changed; no_claim=the check's result.
+  // protects=Check this Mind's changed mode plans a check again for an old verdict on a numeric cell, directly in the cell or in a list there (#1459), in English and Chinese; fails_when=the nested cell's plan says nothing changed; no_claim=the check's result.
   test.each(LANGUAGES)(
     "is planned for a check again by Check this Mind ($language)",
     async (words) => {
