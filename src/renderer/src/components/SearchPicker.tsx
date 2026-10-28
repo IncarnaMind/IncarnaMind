@@ -13,6 +13,7 @@ import { createPortal } from "react-dom";
 import { enterFrom, exitToward } from "../motion";
 import { CheckLineIcon } from "./lineIcons";
 import { menuClass, menuFrameClass, menuTitleClass } from "./ui";
+import { useFocusReturn } from "./useFocusReturn";
 
 const GAP_PX = 4;
 const EDGE_PX = 8;
@@ -113,7 +114,7 @@ export function SearchPicker<Id>({
 }) {
   const id = useId();
   const panel = useRef<HTMLDivElement>(null);
-  const opener = useRef<HTMLElement | null>(null);
+  const focus = useFocusReturn();
   const field = useRef<HTMLInputElement>(null);
   const list = useRef<HTMLDivElement>(null);
   const [query, setQuery] = useState("");
@@ -160,8 +161,8 @@ export function SearchPicker<Id>({
     setQuery("");
     setActive(0);
     setScrollTop(0);
+    if (!element.matches(":popover-open")) focus.remember();
     element.showPopover();
-    opener.current = anchor;
     const box = anchor.getBoundingClientRect();
     const width = element.offsetWidth;
     const elementHeight = element.offsetHeight;
@@ -173,7 +174,7 @@ export function SearchPicker<Id>({
         : `${below}px`;
     enterFrom(element, anchor);
     field.current?.focus();
-  }, [open, anchor]);
+  }, [open, anchor, focus]);
 
   // Closed from outside (its anchor went): hidden.
   useEffect(() => {
@@ -317,7 +318,7 @@ export function SearchPicker<Id>({
           setActive(0);
           setScrollTop(0);
           onClose();
-          opener.current?.focus();
+          focus.giveBack(panel.current, anchor);
         }
       }}
       onKeyDown={onKeyDown}

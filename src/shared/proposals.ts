@@ -196,6 +196,7 @@ export function resolveProposals(
   blocks: Y.XmlFragment,
   picked: (proposal: ProposalRef) => boolean,
   outcome: "accept" | "reject",
+  within?: ReadonlySet<string>,
 ): ResolvedProposal[] {
   const stale = outcome === "accept" ? outOfDateProposals(blocks) : new Set<string>();
   const wanted = (proposal: ProposalRef) => picked(proposal) && !stale.has(proposal.id);
@@ -259,6 +260,7 @@ export function resolveProposals(
       }
       if (!(child instanceof Y.XmlElement)) continue;
       const top = parent === blocks ? idOf(child) : above;
+      if (parent === blocks && within && (!top || !within.has(top))) continue;
       // A footnote has an id but isn't a Block, and one a Proposal moves holds the User's text.
       const footnote = child.nodeName === FOOTNOTE_NODE;
       const own = (footnote ? null : idOf(child)) ?? owner;
@@ -463,6 +465,23 @@ export function waitingChanges(
   return pendingProposals(blocks).filter(belongs).length;
 }
 
+/**
+ * What an applied row still says waits: the changes a Mind counts as waiting, less the ones its
+ * apply took, and whether the Mind's copy has the apply yet — it counts the taken ones as waiting
+ * until the update that applied them arrives (#1325, #1358).
+ */
+export function appliedWaiting(
+  pending: readonly string[],
+  accepted: readonly string[] | undefined,
+): { count: number; settled: boolean } {
+  if (!accepted) return { count: pending.length, settled: true };
+  const taken = new Set(accepted);
+  return {
+    count: pending.filter((id) => !taken.has(id)).length,
+    settled: !pending.some((id) => taken.has(id)),
+  };
+}
+
 const TEXT_BLOCKS: ReadonlySet<string> = new Set(["paragraph", "heading"]);
 
 /**
@@ -605,7 +624,16 @@ export function proposalRequestOf(doc: Y.Doc, request: string): ProposalRequest 
   }
   const requested =
     record.requested === "edit" || record.requested === "write" ? record.requested : null;
-  if (source === "answer-added") return { ...made, source, ...(requested && { requested }) };
+  if (source === "answer-added") {
+    const action = editActions.find((each) => each === record.action);
+    return {
+      ...made,
+      source,
+      ...(requested && { requested }),
+      ...(action && { action }),
+      ...(typeof record.instruction === "string" && { instruction: record.instruction }),
+    };
+  }
   if (source === "comparison-table") {
     return isText(record.tableId) ? { ...made, source, tableId: record.tableId } : null;
   }

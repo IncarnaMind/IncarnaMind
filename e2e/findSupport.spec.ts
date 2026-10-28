@@ -130,7 +130,7 @@ test("Check against Documents on two sentences with no Citation: one is supporte
   const unsupported = marks(window).and(window.locator('[data-check="unsupported"]'));
   await expect(supported).toHaveAttribute("data-addable", "true");
   await expect(supported).toHaveAccessibleName("Sentence check: Supported");
-  await expect(unsupported).toHaveAccessibleName("Sentence check: Not found");
+  await expect(unsupported).toHaveAccessibleName("Sentence check: Needs a look · Not found");
   // Each mark sits in the margin, right of the text, the first above the second.
   const lineBox = await line.boundingBox();
   const supportedBox = await supported.boundingBox();
@@ -140,17 +140,17 @@ test("Check against Documents on two sentences with no Citation: one is supporte
   // The unsupported sentence is washed; the badge's card counts both.
   await expect(line.locator(".claim-wash--unsupported")).toHaveText(UNSUPPORTED);
   await expect((await checkCard(window)).getByTestId("health-unsupported")).toContainText(
-    "1 needs a look",
+    "1 claim needs a look",
   );
   await expect((await checkCard(window)).getByTestId("health-noCitation")).toContainText(
-    "1 with no Citation",
+    "1 claim with no Citation",
   );
   await screenshot(window, "check-results-en");
 
   // The unsupported sentence's card says where it looked.
   await pointAndClick(window, unsupported);
   const card = window.getByTestId("claim-card");
-  await expect(card.getByTestId("claim-badge")).toHaveText("Not found");
+  await expect(card.getByTestId("claim-badge")).toHaveText("Needs a look · Not found");
   await expect(card.getByTestId("claim-nothing")).toHaveText(
     "I didn’t find this in “All Documents”.",
   );
@@ -198,7 +198,7 @@ test("Check against Documents on two sentences with no Citation: one is supporte
   await pointAndClick(window, card.getByTestId("claim-check-again"));
   await expect(marks(window)).toHaveAttribute("data-check", "unsupported");
   await expect((await checkCard(window)).getByTestId("health-unsupported")).toContainText(
-    "1 needs a look",
+    "1 claim needs a look",
   );
   await expect(editor).toContainText("Gulls nest on the harbour cliffs.");
 });
@@ -273,7 +273,7 @@ test("a card opened while its sentence is still checking stays open when the res
   await expect(unsupported).toHaveCount(1);
   await expect(card).toBeVisible();
   await expect(card).toHaveAttribute("data-check", "unsupported");
-  await expect(card.getByTestId("claim-badge")).toHaveText("Not found");
+  await expect(card.getByTestId("claim-badge")).toHaveText("Needs a look · Not found");
   await expect(card.getByTestId("claim-nothing")).toHaveText(
     "I didn’t find this in “All Documents”.",
   );
@@ -283,7 +283,7 @@ test("a card opened while its sentence is still checking stays open when the res
   await expect(card).toHaveCount(0);
   await pointAndClick(window, unsupported);
   await expect(card).toHaveAttribute("data-check", "unsupported");
-  await expect(card.getByTestId("claim-badge")).toHaveText("Not found");
+  await expect(card.getByTestId("claim-badge")).toHaveText("Needs a look · Not found");
   await window.keyboard.press("Escape");
   await expect(card).toHaveCount(0);
   await app.close();
@@ -311,14 +311,15 @@ test("In Chinese and a narrow window: Check against Documents marks a contradict
   const contradicted = marks(window).and(window.locator('[data-check="contradicted"]'));
   const notChecked = marks(window).and(window.locator('[data-check="not-checked"]'));
   await expect(contradicted).toBeVisible();
-  await expect(notChecked).toBeVisible();
+  // A sentence not checked yet has no mark on the page; its card opens from the row.
+  await expect(notChecked).toBeHidden();
   // In a narrow Mind the marks keep to the gutter right of the text.
   const lineBox = await line.boundingBox();
   const markBox = await contradicted.boundingBox();
   expect(markBox?.x ?? 0).toBeGreaterThanOrEqual((lineBox?.x ?? 0) + (lineBox?.width ?? 0));
   await expect(line.locator(".claim-wash--contradicted")).toHaveText(CONTRADICTED);
   await expect((await checkCard(window)).getByTestId("health-contradicted")).toContainText(
-    "1 条与文档矛盾",
+    "1 条说法与文档矛盾",
   );
   await expect((await checkCard(window)).getByTestId("health-toCheck")).toContainText(
     "1 条说法待核对",
@@ -330,7 +331,7 @@ test("In Chinese and a narrow window: Check against Documents marks a contradict
 
   await pointAndClick(window, contradicted);
   const card = window.getByTestId("claim-card");
-  await expect(card.getByTestId("claim-badge")).toHaveText("与文档矛盾");
+  await expect(card.getByTestId("claim-badge")).toHaveText("需要留意：与文档矛盾");
   await expect(card.getByTestId("claim-says")).toContainText(
     "Harbours publish the times of high water every 12 months.",
   );
@@ -340,7 +341,7 @@ test("In Chinese and a narrow window: Check against Documents marks a contradict
   await screenshot(window, "check-contradicted-card-zh-narrow");
   await window.keyboard.press("Escape");
 
-  await pointAndClick(window, notChecked);
+  await pointAndClick(window, (await checkCard(window)).getByTestId("health-toCheck"));
   await expect(card.getByTestId("claim-reason")).toHaveText("模型的回复是空的。");
   await expect(card.getByTestId("claim-check-again")).toHaveText("重新核对");
 
@@ -391,7 +392,7 @@ test("A figure the Documents don't state is worked out from theirs: a wrong mult
 
   await pointAndClick(window, contradicted);
   const card = window.getByTestId("claim-card");
-  await expect(card.getByTestId("claim-badge")).toHaveText("Contradicted");
+  await expect(card.getByTestId("claim-badge")).toHaveText("Needs a look · Contradicted");
   const working = card.getByTestId("claim-working");
   await expect(working).toContainText("Calculated from your Documents");
   await expect(working.getByTestId("claim-figure")).toHaveText("$1,234m ÷ $942m = 1.31x");

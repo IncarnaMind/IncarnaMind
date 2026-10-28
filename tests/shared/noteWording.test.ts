@@ -2,6 +2,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, test } from "vitest";
+import { matchName, queryWords } from "../../src/renderer/src/matcher";
 import { en } from "../../src/shared/i18n/en";
 import type { MessageKey } from "../../src/shared/i18n/types";
 import { zhCN } from "../../src/shared/i18n/zh-CN";
@@ -9,6 +10,7 @@ import { zhCN } from "../../src/shared/i18n/zh-CN";
 const ROOT = fileURLToPath(new URL("../../", import.meta.url));
 
 const MIND = /\bMinds?\b/g;
+const ONE_MIND = /\bMinds?\b/;
 const NOTE = /\bnotes?\b/i;
 const HAS_NOTES = /笔记(?!本)/;
 const NOTES_ALL = /笔记(?!本)/g;
@@ -16,18 +18,27 @@ const HAS_YOUR_TEXT = /你写的内容/;
 const YOUR_TEXT = /\byour text\b/i;
 
 /**
- * The uses of Mind still to rename, in the string values of each dictionary and
- * in the docs that define the unit. A string slice lowers its number by the
- * uses it renamed, and never raises one: a new interface string says Note.
- * Counts, not a key list, keep the slices that run in parallel to one line each.
+ * Every file whose words the User or a contributor reads. None says Mind: the
+ * place the User writes is a Note (笔记), and only the product's name keeps the
+ * letters, which the word boundary leaves out. A new string says Note.
  */
-const MIND_LEFT: readonly { readonly name: string; readonly left: number }[] = [
-  { name: "en", left: 170 },
-  { name: "zh-CN", left: 169 },
-  { name: "CONTEXT.md", left: 52 },
-  { name: "docs/agents/zh-CN.md", left: 12 },
-  { name: "README.md", left: 12 },
-  { name: "README.zh-CN.md", left: 13 },
+const NO_MIND: readonly string[] = [
+  "en",
+  "zh-CN",
+  "CONTEXT.md",
+  "docs/agents/zh-CN.md",
+  "README.md",
+  "README.zh-CN.md",
+  "AGENTS.md",
+  ".github/pull_request_template.md",
+  "docs/privacy.md",
+  "docs/agents.md",
+  "docs/agents.zh-CN.md",
+  "docs/agents/interaction.md",
+  "docs/agents/testing.md",
+  "docs/code-signing-policy.md",
+  "docs/development.md",
+  "docs/releasing.md",
 ];
 
 interface RetiredNote {
@@ -56,37 +67,34 @@ const RETIRED_NOTE: readonly RetiredNote[] = [
   { key: "skills.make.empty", old: 1, final: 1, englishOld: true },
 ];
 
-/** A Meeting's notes, whose word a later slice decides. */
-const MEETING_NOTE: readonly { readonly key: MessageKey; readonly chinese: boolean }[] = [
-  { key: "consent.data.live-transcript", chinese: true },
-  { key: "library.preset.meetings", chinese: false },
-  { key: "meetings.audio.confirm", chinese: true },
-  { key: "meetings.cantRecord.notes", chinese: true },
-  { key: "meetings.fill.failed", chinese: true },
-  { key: "meetings.fill.filled", chinese: true },
-  { key: "meetings.fill.filling", chinese: true },
-  { key: "meetings.fill.fillingLocal", chinese: true },
-  { key: "meetings.fill.notify", chinese: true },
-  { key: "meetings.fill.question.notes", chinese: true },
-  { key: "meetings.fill.question.sections", chinese: true },
-  { key: "meetings.fill.undoName", chinese: true },
-  { key: "meetings.fill.waiting", chinese: true },
-  { key: "meetings.mark.noNote", chinese: true },
-  { key: "meetings.record.keywords", chinese: false },
-  { key: "meetings.start.noticeText", chinese: true },
-];
-
-/** Already says note for the Note (the old Mind), and 笔记 in Chinese. */
+/**
+ * The strings that name the Note, or write notes as an activity: English says a
+ * note word and Chinese says 笔记, wherever in the string they sit.
+ */
 const NOTE_FOR_MIND: readonly MessageKey[] = [
   "answer.add",
   "command.answer.addToNote",
   "command.viewer.selection.addToNote",
   "comparison.back",
+  "consent.data.live-transcript",
+  "meetings.audio.confirm",
+  "meetings.cantRecord.notes",
   "meetings.command.addLine",
+  "meetings.fill.failed",
+  "meetings.fill.filled",
+  "meetings.fill.filling",
+  "meetings.fill.fillingLocal",
+  "meetings.fill.notify",
+  "meetings.fill.question.notes",
+  "meetings.fill.question.sections",
+  "meetings.fill.undoName",
+  "meetings.fill.waiting",
   "meetings.help.addCommand",
   "meetings.help.addToNotes",
   "meetings.help.added",
+  "meetings.mark.noNote",
   "meetings.start.dismiss",
+  "meetings.start.noticeText",
   "proposal.arrived",
   "proposal.arrived.one",
   "transcript.addToNote",
@@ -102,26 +110,29 @@ const NOTE_FOR_MIND: readonly MessageKey[] = [
 /** Already says 笔记 for the Note, with an English word that never said note. */
 const CHINESE_ONLY: readonly MessageKey[] = ["history.reason.enhance"];
 
-/** A note here is something else: Word's notes, speaker notes, a style's name. */
+/**
+ * A note here is something else: Word's notes, speaker notes, a style's name,
+ * or the activity of taking notes in a ⌘K keyword list.
+ */
 const ANOTHER_NOTE: readonly MessageKey[] = [
   "citation.note",
   "citationStyle.chicago-notes",
   "citationStyle.form.note",
   "export.html.notes",
   "location.section.notes",
+  "meetings.record.keywords",
   "share.page.notes",
   "viewer.slide.notes",
   "wordImport.keptChange.content",
 ];
 
 /**
- * An inventory, not a conformance check: neither label is a dictionary key yet.
- * A later slice decides them, and adds the keys to the lists above when they
- * land. CONTEXT.md's Meeting definition keeps its Notes with them, asserted
- * below, so that word is not decided here either.
+ * The two labels a later screen adds. This slice decided them: a Meeting's
+ * notes are its Note, the same Note as everywhere else, so both read Note and
+ * no plural, beside 笔记 for the tab and for the quick field.
  */
-const LATER_LABELS = [
-  { english: "Notes", chinese: "笔记", where: "the Meetings Notes | Transcript tab" },
+const MEETING_LABELS = [
+  { english: "Note", chinese: "笔记", where: "the Meetings Note | Transcript tab" },
   { english: "Note", chinese: "笔记", where: "the call help quick Note | Ask field" },
 ] as const;
 
@@ -166,22 +177,48 @@ const stateOf = (
   return finalPair ? "final" : "unfinished";
 };
 
-describe("the interface word for a Mind", () => {
-  test.each(MIND_LEFT)("$name keeps only the uses left to rename", ({ name, left }) => {
+describe("the word the interface uses", () => {
+  test("no interface string says Mind: the place the User writes is a Note", () => {
+    const says = Object.entries(DICTIONARIES).flatMap(([name, dictionary]) =>
+      Object.entries(dictionary)
+        .filter(([, value]) => ONE_MIND.test(value))
+        .map(([key]) => `${name}:${key}`),
+    );
+    expect(says, "a string says Mind where the word is Note").toEqual([]);
+  });
+
+  test("the product's name still says IncarnaMind, which the check lets through", () => {
+    expect(en["privacy.intro"]).toContain("IncarnaMind");
+    expect(ONE_MIND.test("IncarnaMind")).toBe(false);
+  });
+
+  test.each(NO_MIND)("%s says Note, never Mind", (name) => {
     const found = count(textOf(name), MIND);
-    expect(
-      found,
-      `${name}: ${found} uses of Mind, ${left} allowed. A new string says Note; a slice that renamed uses lowers the number.`,
-    ).toBe(left);
+    expect(found, `${name}: ${found} uses of Mind, none allowed`).toBe(0);
+  });
+});
+
+describe("the Chinese word for it", () => {
+  test("a Chinese string says 笔记, never the English Note", () => {
+    const says = Object.entries(zhCN)
+      .filter(([, value]) => NOTE.test(value))
+      .map(([key]) => key);
+    expect(says, "a Chinese string says the English Note").toEqual([]);
+  });
+
+  test("the Chinese docs say 笔记 too", () => {
+    for (const file of ["README.zh-CN.md", "docs/agents.zh-CN.md"]) {
+      expect(readDoc(file).match(NOTE), file).toBeNull();
+    }
   });
 });
 
 describe("the retired Block-level Note", () => {
-  test.each(RETIRED_NOTE)("$key is the old Note, or fully your text in both languages", (entry) => {
+  test.each(RETIRED_NOTE)("$key is fully your text in both languages", (entry) => {
     expect(
       stateOf(en[entry.key], zhCN[entry.key], entry),
-      `${entry.key}: both languages stay the old Note, or both move to "your text" / 你写的内容, with 笔记 only where the wording names the Note`,
-    ).not.toBe("unfinished");
+      `${entry.key}: the finished wording names your text / 你写的内容 in both languages, with 笔记 only where it names the Note`,
+    ).toBe("final");
   });
 
   test("one language moving alone is unfinished", () => {
@@ -233,7 +270,6 @@ describe("the retired Block-level Note", () => {
       ...NOTE_FOR_MIND,
       ...CHINESE_ONLY,
       ...RETIRED_NOTE.map((entry) => entry.key),
-      ...MEETING_NOTE.map((entry) => entry.key),
     ]);
     const oneSided = (Object.keys(en) as MessageKey[]).filter(
       (key) => NOTE.test(en[key]) !== HAS_NOTES.test(zhCN[key]),
@@ -244,14 +280,7 @@ describe("the retired Block-level Note", () => {
     ).toEqual([]);
   });
 
-  test("a Meeting's notes keep their word on both sides until a later slice", () => {
-    for (const { key, chinese } of MEETING_NOTE) {
-      expect(NOTE.test(en[key]), key).toBe(true);
-      expect(HAS_NOTES.test(zhCN[key]), key).toBe(chinese);
-    }
-  });
-
-  test("a string that already says note for the Note keeps it in both languages", () => {
+  test("a string that says note for the Note keeps it in both languages", () => {
     for (const key of NOTE_FOR_MIND) {
       expect(NOTE.test(en[key]), key).toBe(true);
       expect(HAS_NOTES.test(zhCN[key]), key).toBe(true);
@@ -273,20 +302,78 @@ describe("the retired Block-level Note", () => {
   });
 });
 
-describe("the labels deferred to a later slice (inventory)", () => {
-  test("the Meetings Notes | Transcript tab and the call help Note | Ask field are recorded", () => {
-    expect(LATER_LABELS.map((label) => [label.english, label.chinese])).toEqual([
-      ["Notes", "笔记"],
-      ["Note", "笔记"],
-    ]);
-    expect(LATER_LABELS.map((label) => label.where)).toEqual([
-      "the Meetings Notes | Transcript tab",
-      "the call help quick Note | Ask field",
-    ]);
+describe("the Meeting's Note", () => {
+  test("the Meetings Note | Transcript tab and the call help Note | Ask field read the interface's Note", () => {
+    for (const label of MEETING_LABELS) {
+      expect(label.english, label.where).toBe(en["palette.kind.mind"]);
+      expect(label.chinese, label.where).toBe(zhCN["palette.kind.mind"]);
+    }
   });
 
-  test("the Meeting definition's Notes stay deferred with the labels", () => {
-    expect(readDoc("CONTEXT.md")).toContain("the Notes written during it");
+  test("the Meeting definition says the Note written during it", () => {
+    expect(readDoc("CONTEXT.md")).toContain("a Transcript and the Note written during it");
+  });
+
+  test("the Library preset for minutes is Documents, not a Note", () => {
+    expect(en["library.preset.meetings"]).toBe("Meeting minutes");
+    expect(zhCN["library.preset.meetings"]).toBe("会议纪要");
+  });
+});
+
+describe("the rules the finished wording keeps", () => {
+  test("a count says notes, and 篇 in Chinese; a label takes no measure word", () => {
+    expect(en["home.minds"]).toBe("{count} notes");
+    expect(en["home.minds.one"]).toBe("1 note");
+    expect(en["commands.found.mind"]).toBe("Found {count} notes");
+    expect(zhCN["home.minds"]).toBe("{count} 篇笔记");
+    expect(zhCN["home.minds.one"]).toBe("1 篇笔记");
+    expect(zhCN["mind.count"]).toBe("笔记（{count}）");
+    expect(zhCN["mindChanges.minds"]).toBe("修改过的笔记（{count}）");
+  });
+
+  test("inside a sentence the word is note, never Note", () => {
+    const offenders = (Object.keys(en) as MessageKey[]).filter((key) => {
+      if (ANOTHER_NOTE.includes(key)) return false;
+      const value = en[key];
+      const at = value.search(/\bNotes?\b/);
+      if (at < 0) return false;
+      if (at === 0 || /[.!?]\s+$/.test(value.slice(0, at))) return false;
+      return /^Notes?\b/.test(value.slice(at));
+    });
+    expect(offenders, "a sentence capitalises Note in the middle of it").toEqual([]);
+  });
+
+  test("the AI use statement names the Note, never a document", () => {
+    const aboutTheNote: readonly MessageKey[] = [
+      "aiStatement.intro",
+      "aiStatement.empty",
+      "aiStatement.uses.none",
+      "aiStatement.use.answer-added",
+      "aiStatement.text.none",
+      "aiStatement.text.intro",
+      "aiStatement.text.whole",
+      "aiStatement.text.removed",
+      "aiStatement.checks.none",
+    ];
+    for (const key of aboutTheNote) {
+      expect(/\bdocuments?\b/i.test(en[key]), key).toBe(false);
+      expect(/文档/.test(zhCN[key]), key).toBe(false);
+    }
+  });
+
+  test("the zh-CN guide quotes the interface's own words", () => {
+    const text = readDoc("docs/agents/zh-CN.md");
+    expect(text).toContain(zhCN["mindStyle.makeDefault"]);
+    expect(text).toContain(zhCN["palette.group.notes"]);
+    expect(text).toContain(zhCN["palette.searching"]);
+    expect(text).not.toContain("Today's strings");
+  });
+
+  test("⌘K finds New note by its Chinese pinyin and initials", () => {
+    const name = zhCN["sidebar.newMind"];
+    for (const typed of ["xinjian", "biji", "xinjianbiji", "bj"]) {
+      expect(matchName(queryWords(typed), name), typed).not.toBeNull();
+    }
   });
 });
 
@@ -301,10 +388,12 @@ describe("the docs that define the unit", () => {
     expect(text).not.toContain("**Mind**:");
   });
 
-  test("docs/agents/zh-CN.md gives 笔记 to Note and 你写的内容 to your text", () => {
+  test("docs/agents/zh-CN.md gives 笔记 to Note and counts it with 篇", () => {
     const text = readDoc("docs/agents/zh-CN.md");
     expect(text).toContain("| Note | 笔记 |");
     expect(text).toContain("| Your text | 你写的内容 |");
+    expect(text).toContain('"3 篇笔记"');
+    expect(text).toContain("笔记（3）");
     expect(text).not.toContain("| Mind | Mind |");
     expect(text).not.toContain("Mind takes no plural");
   });

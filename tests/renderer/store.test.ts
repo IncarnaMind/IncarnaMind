@@ -679,7 +679,6 @@ describe("Get started's Add your Documents", () => {
       linkedFolderId,
       answerId: "a",
       more: [],
-      ready: null,
     }) satisfies CoreEvents["examples.changed"];
   const ticked = () => useAppStore.getState().settings?.device.gettingStarted.indexed;
 
@@ -1368,7 +1367,6 @@ describe("Get started's Ask a question", () => {
         linkedFolderId: "f",
         answerId: "example",
         more: [],
-        ready: null,
       } satisfies CoreEvents["examples.changed"],
       otherExamples: [],
       settings: {
@@ -1400,6 +1398,25 @@ describe("Get started's Ask a question", () => {
   test("a later failed Answer doesn't take the tick back", () => {
     finished("own", "done");
     emit("answer.failed", { answerId: "again" } as CoreEvents["answer.failed"]);
+    expect(asked()).toBe(true);
+  });
+
+  test("the first own Answer is recorded even when this device has no first-run checklist", () => {
+    const state = useAppStore.getState();
+    const settings = state.settings;
+    if (!settings) throw new Error("Settings have not loaded.");
+    useAppStore.setState({
+      settings: {
+        ...settings,
+        device: {
+          ...settings.device,
+          gettingStarted: { ...settings.device.gettingStarted, started: false },
+        },
+      },
+    });
+    finished("example", "done");
+    expect(asked()).toBe(false);
+    finished("own", "done");
     expect(asked()).toBe(true);
   });
 });

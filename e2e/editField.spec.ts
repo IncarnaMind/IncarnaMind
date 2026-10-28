@@ -46,6 +46,10 @@ const selectedInMind = (editor: Locator) =>
     return state.doc.textBetween(state.selection.from, state.selection.to);
   });
 
+/** Where the cursor sits in the editor's own state, not in the page's selection. */
+const cursorIn = (editor: Locator) =>
+  editor.evaluate((dom) => (dom as unknown as { editor: Editor }).editor.state.selection.from);
+
 async function mindWith(window: Page, text: string) {
   await newMind(window);
   const editor = window.getByTestId("mind-editor");
@@ -67,12 +71,13 @@ interface Look {
  * Looks at the page after every change to it, from now on: where each paragraph, the working
  * line, the running line and the Undo line are, and whether a Writing… line is drawn. A change
  * to the page is what a person would see differ, and unlike a frame callback it still comes when
- * the window isn't being painted, as on a busy runner. `enterAt` is when Enter was first pressed.
+ * the window isn't being painted, as on a busy runner. `enterAt` is when Enter was first pressed,
+ * `actedAt` when a selection menu's AI action was last clicked.
  */
 async function watchPage(window: Page): Promise<void> {
   await window.evaluate(() => {
     const looks: Look[] = [];
-    const state = { enterAt: 0, looks };
+    const state = { enterAt: 0, actedAt: 0, looks };
     (globalThis as unknown as { __watch: typeof state }).__watch = state;
     addEventListener(
       "keydown",
@@ -80,6 +85,18 @@ async function watchPage(window: Page): Promise<void> {
         if (event.key === "Enter") state.enterAt = performance.now();
       },
       { capture: true, once: true },
+    );
+    addEventListener(
+      "click",
+      (event) => {
+        const target = event.target instanceof Element ? event.target : null;
+        if (
+          target?.closest('[data-testid^="selection-action-"], [data-testid^="selection-choice-"]')
+        ) {
+          state.actedAt = performance.now();
+        }
+      },
+      { capture: true },
     );
     const rect = (selector: string) => {
       const each = document.querySelector(selector);
@@ -110,9 +127,26 @@ async function watchPage(window: Page): Promise<void> {
   });
 }
 
-async function watched(window: Page): Promise<{ enterAt: number; looks: Look[] }> {
+/** Forgets what was watched, for the next action in the same window. */
+async function watchAgain(window: Page): Promise<void> {
+  await window.evaluate(() => {
+    const state = (
+      globalThis as unknown as { __watch: { enterAt: number; actedAt: number; looks: Look[] } }
+    ).__watch;
+    state.enterAt = 0;
+    state.actedAt = 0;
+    state.looks.length = 0;
+  });
+}
+
+async function watched(window: Page): Promise<{ enterAt: number; actedAt: number; looks: Look[] }> {
   return window.evaluate(
-    () => (globalThis as unknown as { __watch: { enterAt: number; looks: Look[] } }).__watch,
+    () =>
+      (
+        globalThis as unknown as {
+          __watch: { enterAt: number; actedAt: number; looks: Look[] };
+        }
+      ).__watch,
   );
 }
 
@@ -408,6 +442,224 @@ for (const sidebar of ["shown", "hidden"] as const) {
     // The Undo line takes the running line's box, and nothing around it moves with the swap.
     expect(landed.applied).toEqual(last.running);
     expect(landed.boxes).toEqual(last.boxes);
+    await app.close();
+  });
+}
+
+/** What the menu's actions say in each language, as the lines show it. */
+const LINES = {
+  en: {
+    making: "Making the changes…",
+    stop: "Stop",
+    applied: "Changed 1 paragraph",
+    undo: "Undo",
+    failed: /Edit with AI didn.t work/,
+    retry: "Try again",
+  },
+  "zh-CN": {
+    making: "正在修改…",
+    stop: "停止",
+    applied: "修改了 1 个段落",
+    undo: "撤销",
+    failed: /用 AI 编辑未能完成/,
+    retry: "重试",
+  },
+} as const;
+
+/** The menu's actions that change the selected words (#1411). */
+const CHANGING = ["improve", "shorten", "translate"] as const;
+
+/** Words the scripted model changes for each of them, and takes a moment over: "slowly". */
+const TIDES = "the tide turns very slowly";
+/** The paragraph they sit in, selected in part as a person would select the words. */
+const TIDE_LINE = `${TIDES} in the harbour today.`;
+
+/** Chooses one of the three in the open menu, and Translate's language. */
+async function chooseAction(window: Page, action: (typeof CHANGING)[number]): Promise<void> {
+  await pointAndClick(window, window.getByTestId(`selection-action-${action}`));
+  if (action !== "translate") return;
+  const languages = window.getByTestId("selection-choices-translate");
+  await expect(languages).toBeVisible();
+  await pointAndClick(window, languages.getByTestId("selection-choice-en"));
+}
+
+for (const language of ["en", "zh-CN"] as const) {
+  for (const sidebar of ["shown", "hidden"] as const) {
+    test(`Improve writing, Shorten and Translate report where their Undo line lands, at 900 and 1,600 px, with the sidebar ${sidebar}, in ${language} (#1411)`, async () => {
+      const { app, window } = await launchApp(dataDir, { fakeChat: true });
+      await dismissChatSetup(window);
+      await useLocalChatModel(window);
+      await setLanguage(window, language);
+      await newMind(window);
+      const editor = window.getByTestId("mind-editor");
+      await editor.click();
+      await window.keyboard.type(TIDE_LINE);
+      const note = editor.locator(":scope > p").first();
+      const running = editor.getByTestId("menu-edit-line");
+      const applied = editor.getByTestId("applied-line");
+      const words = LINES[language];
+      await watchPage(window);
+      // It hides after the Mind is made: the + menu it holds makes one.
+      if (sidebar === "hidden") await hideSidebar(window);
+
+      for (const width of [900, 1600] as const) {
+        await setWindowSize(app, window, width, 820);
+
+        for (const action of CHANGING) {
+          await slideSelect(window, note, TIDES);
+          await watchAgain(window);
+          await chooseAction(window, action);
+
+          // Nothing in the composer's row: the line shows where the Undo line lands.
+          await expect(window.getByTestId("edit-pending")).toHaveCount(0);
+          await expect(window.getByTestId("edit-status-problem")).toHaveCount(0);
+          await expect(running).toBeVisible();
+          await expect(running).toContainText(words.making);
+          await expect(running.getByTestId("menu-edit-stop")).toHaveText(words.stop);
+          expect(await onScreen(running)).toBe(true);
+          await expect(applied).toBeVisible({ timeout: 40_000 });
+          await expect(applied.getByTestId("applied-count")).toHaveText(words.applied);
+          await expect(applied.getByTestId("applied-undo")).toHaveText(words.undo);
+
+          const { actedAt, looks } = await watched(window);
+          const seen = looks.filter((each) => each.running !== null);
+          const first = seen[0];
+          const last = seen.at(-1);
+          const landed = looks.find((each) => each.applied !== null);
+          if (!first || !last || !landed || actedAt === 0) {
+            throw new Error(
+              `The running or the Undo line was never seen for ${action}: the action at ${actedAt}, ${looks.length} looks, ${seen.length} with the running line, the last ${JSON.stringify(looks.at(-1))}.`,
+            );
+          }
+          // Nothing shows for the first 300 ms of the request, which starts with the click.
+          expect(first.t - actedAt).toBeGreaterThanOrEqual(300);
+          // The Undo line takes the running line's box, and nothing around it moves with the swap.
+          expect(landed.applied).toEqual(last.running);
+          expect(landed.boxes).toEqual(last.boxes);
+
+          await editor.focus();
+          await window.keyboard.press("ControlOrMeta+z");
+          await expect(note).toHaveText(TIDE_LINE);
+          await expect(applied).toHaveCount(0);
+        }
+      }
+      await app.close();
+    });
+  }
+}
+
+test("Review changes of Improve writing at a paragraph's start shows its marks in both paragraphs and restores them, in a two-paragraph edit (#1411)", async () => {
+  const { app, window } = await launchApp(dataDir, { fakeChat: true });
+  await dismissChatSetup(window);
+  await useLocalChatModel(window);
+  await setWindowSize(app, window, 1280, 820);
+  await newMind(window);
+  const editor = window.getByTestId("mind-editor");
+  await editor.click();
+  await window.keyboard.type(TIDE_LINE);
+  await window.keyboard.press("Enter");
+  await window.keyboard.type("the wind is calm");
+  const note = editor.locator(":scope > p").first();
+  const second = editor.locator(":scope > p").nth(1);
+  await slideSelect(window, note, TIDES, { line: second, words: "the wind is calm" });
+  await pointAndClick(window, window.getByTestId("selection-action-improve"));
+  const applied = editor.getByTestId("applied-line");
+  await expect(applied).toBeVisible({ timeout: 40_000 });
+  await expect(note).toHaveText("The tide turns very slowly in the harbour today.");
+  await expect(second).toHaveText("The wind is calm");
+
+  await pointAndClick(window, applied.getByTestId("applied-review"));
+  // Each paragraph's first word changed: its old words struck, its new ones marked, in both.
+  await expect(note.locator("del.applied-old")).toHaveText(/^t(he)?$/);
+  await expect(note.locator(".applied-new")).toHaveText(/^T(he)?$/);
+  await expect(second.locator("del.applied-old")).toHaveText(/^t(he)?$/);
+  await expect(second.locator(".applied-new")).toHaveText(/^T(he)?$/);
+
+  // The line is over the first change, above both paragraphs' words, and the cursor is on it: position 1, the Note's first word.
+  const [line, firstOld, secondOld] = await Promise.all([
+    applied.boundingBox(),
+    note.locator("del.applied-old").first().boundingBox(),
+    second.locator("del.applied-old").first().boundingBox(),
+  ]);
+  if (!line || !firstOld || !secondOld) throw new Error("Review's line or a change was not drawn.");
+  expect(line.y).toBeLessThan(firstOld.y);
+  expect(line.y).toBeLessThan(secondOld.y);
+  expect(await cursorIn(editor)).toBe(1);
+
+  await pointAndClick(window, note.getByTestId("change-restore").first());
+  // Paragraph 1 as it was; paragraph 2 still shows its own change, untouched.
+  await expect(note).toHaveText(TIDE_LINE);
+  await expect(second.locator("del.applied-old")).toHaveText(/^t(he)?$/);
+  await expect(second.locator(".applied-new")).toHaveText(/^T(he)?$/);
+  await pointAndClick(window, second.getByTestId("change-restore").first());
+  await expect(second).toHaveText("the wind is calm");
+  // With both changes restored, Review has nothing left to show.
+  await expect(applied).toHaveCount(0);
+  await app.close();
+});
+
+for (const language of ["en", "zh-CN"] as const) {
+  for (const sidebar of ["shown", "hidden"] as const) {
+    test(`a failed Improve writing, Shorten or Translate shows a problem line with Try again where its Undo line would land, in ${language}, at 900 and 1,600 px, with the sidebar ${sidebar} (#1411)`, async () => {
+      const { app, window } = await launchApp(dataDir, { fakeChat: true });
+      await dismissChatSetup(window);
+      await useLocalChatModel(window, "fake-not-found");
+      await setLanguage(window, language);
+      await newMind(window);
+      const editor = window.getByTestId("mind-editor");
+      await editor.click();
+      await window.keyboard.type(TIDE_LINE);
+      const note = editor.locator(":scope > p").first();
+      // The sidebar hides after the Mind is made: the + menu it holds makes one.
+      if (sidebar === "hidden") await hideSidebar(window);
+      const problem = editor.getByTestId("edit-problem");
+      const words = LINES[language];
+
+      for (const width of [900, 1600] as const) {
+        await setWindowSize(app, window, width, 820);
+
+        for (const action of CHANGING) {
+          await slideSelect(window, note, TIDES);
+          await chooseAction(window, action);
+          await expect(problem).toBeVisible({ timeout: 40_000 });
+          await expect(problem).toContainText(words.failed);
+          await expect(problem.getByTestId("menu-edit-action")).toHaveText(words.retry);
+          // In the page where the change would have gone, and not in the composer's row: one line only.
+          await expect(window.getByTestId("edit-pending")).toHaveCount(0);
+          await expect(window.getByTestId("edit-status-problem")).toHaveCount(0);
+          await expect(window.getByTestId("edit-problem")).toHaveCount(1);
+          expect(await onScreen(problem)).toBe(true);
+          await expect(note).toHaveText(TIDE_LINE);
+          await pointAndClick(window, problem.getByTestId("menu-edit-close"));
+          await expect(problem).toHaveCount(0);
+        }
+      }
+      await app.close();
+    });
+  }
+}
+
+for (const how of ["Stop on the running line", "Esc in the text"] as const) {
+  test(`${how} stops Improve writing from the menu with the text as it was (#1411)`, async () => {
+    const { app, window } = await launchApp(dataDir, { fakeChat: true });
+    await dismissChatSetup(window);
+    await useLocalChatModel(window);
+    await setWindowSize(app, window, 1280, 820);
+    await newMind(window);
+    const editor = window.getByTestId("mind-editor");
+    await editor.click();
+    await window.keyboard.type(TIDE_LINE);
+    const note = editor.locator(":scope > p").first();
+    await slideSelect(window, note, TIDES);
+    await pointAndClick(window, window.getByTestId("selection-action-improve"));
+    const running = editor.getByTestId("menu-edit-line");
+    await expect(running).toBeVisible();
+
+    if (how === "Esc in the text") await window.keyboard.press("Escape");
+    else await pointAndClick(window, running.getByTestId("menu-edit-stop"));
+    await expect(running).toHaveCount(0);
+    await expect(note).toHaveText(TIDE_LINE);
+    await expect(editor.getByTestId("applied-line")).toHaveCount(0);
     await app.close();
   });
 }

@@ -63,6 +63,28 @@ export function shownPassages(result: string): ShownPassage[] {
   return passages;
 }
 
+export function transcriptCitations(
+  call: ModelCall,
+  shown: readonly ShownPassage[],
+  quotes: Readonly<Record<number, string>>,
+): ScriptedReply | null {
+  const cited = call.results.filter((result) => result.tool === "cite").at(-1);
+  const needsContext = cited?.text.includes("quote enough surrounding words") ?? false;
+  if (cited && !needsContext) return null;
+  const citations = Object.entries(quotes).map(([marker, quote]) => {
+    const passage = shown.find((passage) => passage.text.includes(quote));
+    return {
+      marker: Number(marker),
+      passage: passage?.id,
+      quote:
+        needsContext && passage
+          ? passage.text.replace(/\[\d{1,2}:\d{2}(?::\d{2})?(?: [^\]\n]+)?\]\s*/g, "")
+          : quote,
+    };
+  });
+  return { calls: [{ tool: "cite", input: { citations } }] };
+}
+
 /** What a citing model does, step by step: search, give its records, then answer. */
 export interface CitingPlan {
   /** What it searches for. */

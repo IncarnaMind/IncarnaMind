@@ -9,6 +9,7 @@ import {
   type SearchScope,
   type UnreadFile,
 } from "../../src/core/api";
+import { messageReference } from "../../src/core/references";
 import type { NoteHealth } from "../../src/renderer/src/editor/healthCounts";
 import { noteExtensions } from "../../src/renderer/src/editor/noteSchema";
 import {
@@ -17,6 +18,7 @@ import {
   readNoteState,
   unreadForCard,
 } from "../../src/renderer/src/noteState";
+import { setOrigins } from "../../src/shared/blockOrigins";
 import { formatDateTime } from "../../src/shared/dates";
 import { translate } from "../../src/shared/i18n";
 import { setMindScope } from "../../src/shared/mindScope";
@@ -27,6 +29,8 @@ const CHECKED_AT = "2026-10-20T14:25:00.000Z";
 const health = (parts: Partial<NoteHealth>): NoteHealth => ({
   found: [],
   notFound: [],
+  lookClaims: [],
+  lookNotFound: [],
   unsupported: [],
   contradicted: [],
   toCheck: [],
@@ -37,6 +41,7 @@ const health = (parts: Partial<NoteHealth>): NoteHealth => ({
   tableCells: [],
   noCitation: [],
   checkable: 0,
+  supported: 0,
   checkedAt: null,
   ...parts,
 });
@@ -70,7 +75,9 @@ describe("A note's state (D266)", () => {
   });
 
   test("is needs-a-look with a contradiction, in red", () => {
-    const state = noteStateOf(health({ checkable: 2, contradicted: [0], checkedAt: CHECKED_AT }));
+    const state = noteStateOf(
+      health({ checkable: 2, contradicted: [0], lookClaims: [0], checkedAt: CHECKED_AT }),
+    );
     expect(state).toMatchObject({
       kind: "needs-look",
       look: 1,
@@ -80,8 +87,8 @@ describe("A note's state (D266)", () => {
   });
 
   test.each<[string, Partial<NoteHealth>, string]>([
-    ["an unsupported claim", { unsupported: [0] }, "unsupported"],
-    ["a Citation not found", { notFound: [0] }, "notFound"],
+    ["an unsupported claim", { unsupported: [0], lookClaims: [0] }, "unsupported"],
+    ["a Citation not found", { notFound: [0], lookClaims: [0] }, "notFound"],
   ])("is needs-a-look, in amber, with %s", (_, parts, mark) => {
     expect(noteStateOf(health({ checkable: 1, ...parts }))).toMatchObject({
       kind: "needs-look",
@@ -98,6 +105,8 @@ describe("A note's state (D266)", () => {
         contradicted: [0],
         unsupported: [6],
         notFound: [12],
+        lookClaims: [0, 6, 12],
+        lookNotFound: [12],
         failed: [18],
         toCheck: [18, 24],
         recheck: [24],
@@ -143,7 +152,9 @@ describe("A note's state (D266)", () => {
   });
 
   test("names only the narrow-scope unread files: a wide search's stay out of an amber state", () => {
-    expect(noteStateOf(health({ checkable: 1, contradicted: [0] }), 3)?.unread).toBe(0);
+    expect(
+      noteStateOf(health({ checkable: 1, contradicted: [0], lookClaims: [0] }), 3)?.unread,
+    ).toBe(0);
     expect(noteStateOf(health({ checkable: 1, toCheck: [0] }), 3)?.unread).toBe(0);
   });
 
@@ -157,8 +168,9 @@ describe("A note's state (D266)", () => {
         " · ",
       );
     const fresh = noteStateOf(health({ checkable: 1, toCheck: [0] })) ?? fail();
-    const one = noteStateOf(health({ checkable: 1, contradicted: [0] })) ?? fail();
-    const two = noteStateOf(health({ checkable: 2, unsupported: [0, 6] })) ?? fail();
+    const one = noteStateOf(health({ checkable: 1, contradicted: [0], lookClaims: [0] })) ?? fail();
+    const two =
+      noteStateOf(health({ checkable: 2, unsupported: [0, 6], lookClaims: [0, 6] })) ?? fail();
     const done = noteStateOf(health({ checkable: 1, checkedAt: CHECKED_AT }), 3) ?? fail();
     expect(en(fresh)).toBe("Not checked");
     expect(zh(fresh)).toBe("未核对");
@@ -538,6 +550,26 @@ describe("Reading a note's state from its Yjs document (Home and Export)", () =>
     );
     const { state } = read(doc);
     expect(state).toMatchObject({ kind: "checked", unread: 1, unreadMatters: false });
+    doc.destroy();
+  });
+
+  test("names the Answers its live Blocks hold, not one whose Block was deleted since", () => {
+    const doc = source([
+      {
+        type: "paragraph",
+        attrs: { id: "live" },
+        content: [checked("Spring tides happen at new and full moon.", "supported")],
+      },
+    ]);
+    setOrigins(doc, ["live", "deleted"], {
+      from: messageReference("conversation", "answer-in-the-note"),
+      question: "How do tides work?",
+    });
+    setOrigins(doc, ["deleted-elsewhere"], {
+      from: messageReference("conversation", "answer-no-longer-in-the-note"),
+      question: "How do tides work?",
+    });
+    expect(read(doc).filedAnswers).toEqual(new Set(["answer-in-the-note"]));
     doc.destroy();
   });
 });

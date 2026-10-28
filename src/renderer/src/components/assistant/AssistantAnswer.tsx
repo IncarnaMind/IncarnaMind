@@ -27,12 +27,18 @@ import { AnswerActions } from "./AnswerActions";
 import { AnswerSteps, useStepsScopeOf } from "./AnswerSteps";
 import { AnswerText } from "./AnswerText";
 import { AskedLines } from "./AskCall";
-import { UnbackedClaimLine, WaitingChangesLine } from "./ChangeProblemLines";
+import {
+  UnbackedClaimLine,
+  UncitedReplyLine,
+  UncitedWritesLine,
+  WaitingChangesLine,
+} from "./ChangeProblemLines";
 import { CommandsCard } from "./CommandsCard";
 import { CoverageLine, WrittenFromLine } from "./CoverageLines";
 import { MindChangesCard, NoMindLine, wantedAMind } from "./MindChangesCard";
 import { SelfCheckLines } from "./SelfCheckLines";
 import { StillReadingLine } from "./StillReadingLine";
+import { UnrunToolLines } from "./UnrunToolLines";
 
 /** What adding an Answer needs from the thread around it. */
 export interface AnswerKeeping {
@@ -148,6 +154,9 @@ export function AssistantAnswer({
       )}
       {!streaming && <WaitingChangesLine answer={answer} />}
       {!streaming && <UnbackedClaimLine answer={answer} onRetry={regenerate} />}
+      {!streaming && <UnrunToolLines steps={answer.steps} onRetry={regenerate} />}
+      {!streaming && <UncitedWritesLine answer={answer} onRetry={regenerate} />}
+      {!streaming && <UncitedReplyLine answer={answer} onRetry={regenerate} />}
       {!streaming && scopeEmpty && (
         <ProblemLine
           role="status"

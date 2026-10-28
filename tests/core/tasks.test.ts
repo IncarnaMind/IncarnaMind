@@ -456,4 +456,30 @@ describe("the Task journal", () => {
     await core.respondToApproval(next.requestId, "allow-once");
     await waitFor(() => expect(shown.at(-1)?.title).toBe("Task finished"));
   });
+
+  test("with Task notifications turned off it says nothing, and the Task still runs and lists", async () => {
+    const dataDir = await createTempDataFolder();
+    const folder = await createTempDataFolder();
+    const shown: { title: string; body: string }[] = [];
+    const notifications: SystemNotifications = {
+      show: (note) => shown.push(note),
+    };
+    const probe: Probe = { performed: [] };
+    const core = startCore(dataDir, { taskKinds: [askingKind(probe, folder)], notifications });
+    const mind = await core.createMind({ title: "Peer comparison" });
+    await core.updateSettings({ user: { taskNotifications: false } });
+
+    const task = core.startTask("test-asking", mind.id, { folder });
+    for (let allowed = 0; allowed < FILES.length; allowed++) {
+      await waitFor(async () => expect(await core.listApprovalRequests()).toHaveLength(1));
+      const [request] = await core.listApprovalRequests();
+      if (!request) throw new Error("Not asked.");
+      await core.respondToApproval(request.requestId, "allow-once");
+    }
+    await waitFor(async () => {
+      expect((await core.listTasks()).find((each) => each.id === task.id)?.status).toBe("done");
+    });
+    expect(probe.performed).toEqual(FILES);
+    expect(shown).toEqual([]);
+  });
 });

@@ -219,7 +219,7 @@ describe("Asking a Question", () => {
       /Write the Question/,
     );
     await expect(core.askQuestion({ mindId: mind.id, questionId: "nope" })).rejects.toThrow(
-      /isn’t in this Mind/,
+      /isn’t in this note/,
     );
   });
 });

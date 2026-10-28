@@ -65,15 +65,18 @@ const bridge = (window: Page) => ({
       language,
     ),
   /** Claude Haiku 5.5 on an Anthropic key, billed per token: choosing it allows sending to it. */
-  cloudModel: () =>
-    window.evaluate(async () => {
-      const core = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
-      await core.saveChatProvider({
-        kind: "anthropic",
-        apiKey: "sk-ant-test",
-        modelId: "claude-haiku-5-5",
-      });
-    }),
+  cloudModel: (modelId = "claude-haiku-5-5", kind: "anthropic" | "ollama" = "anthropic") =>
+    window.evaluate(
+      async (chosen) => {
+        const core = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
+        await core.saveChatProvider({
+          kind: chosen.kind,
+          ...(chosen.kind === "anthropic" ? { apiKey: "sk-ant-test" } : {}),
+          modelId: chosen.modelId,
+        });
+      },
+      { modelId, kind },
+    ),
   documentId: (name: string) =>
     window.evaluate(
       async (wanted) =>
@@ -81,6 +84,13 @@ const bridge = (window: Page) => ({
           await (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind.listDocuments()
         ).find((document) => document.name === wanted)?.id ?? "",
       name,
+    ),
+  /** A monthly cap, so the estimate shows under it even for a run that costs less than a dollar (#1941). */
+  cap: () =>
+    window.evaluate(() =>
+      (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind.updateSettings({
+        user: { monthlyCap: { amount: 20, currency: "USD" } },
+      }),
     ),
   deleteDocument: (id: string) =>
     window.evaluate(
@@ -144,16 +154,20 @@ test("Compare Documents from “/”: 3 Documents × 2 Questions fill as a chang
   await setWindowSize(app, window, 1440, 860);
   await acceptPlainTextKeys(window);
   await bridge(window).cloudModel();
+  await bridge(window).cap();
   await addSuppliers(window);
 
   const sheet = await openSheetFromSlash(window);
   await expect(sheet.getByTestId("compare-sheet-counted")).toHaveText("3 of 3");
   await expect(sheet.getByTestId("compare-sheet-document")).toHaveCount(3);
   await typeQuestions(window, ["Termination notice", "Liability cap (busy)"]);
-  // A cloud model billed per token: the estimate shows before the run.
-  await expect(sheet.getByTestId("compare-sheet-estimate")).toContainText(
-    "About $0.0095 · 18 model calls",
+  // A cloud model billed per token under a monthly cap: the estimate shows before the run, and
+  // never says model calls.
+  const estimateLine = sheet.getByTestId("compare-sheet-estimate");
+  await expect(estimateLine).toHaveText(
+    /^About \$[\d.,]+ · [\d.,]+[KMB]? tokens · \$[\d.,]+ of \$20\.00 used this month$/,
   );
+  await expect(estimateLine).not.toContainText("model calls");
   await screenshot(window, "compare-sheet-en-1440");
   await pointAndClick(window, sheet.getByTestId("compare-sheet-make"));
 
@@ -462,7 +476,25 @@ test("empty states from the + menu, and the monthly cap: every cell left says it
   );
   await expect(sheet.getByTestId("compare-sheet-make")).toBeDisabled();
   await typeQuestions(window, ["Termination notice", "Liability cap"]);
+  // The model's name is never squeezed into a letter: Make moves down instead (#763).
+  const model = sheet.getByTestId("composer-model");
+  await expect(model).toBeVisible();
+  await expect
+    .poll(() =>
+      model
+        .locator("span")
+        .first()
+        .evaluate((element) => element.scrollWidth <= element.clientWidth),
+    )
+    .toBe(true);
   await screenshot(window, "compare-sheet-zh-900");
+  // Its foot, which the model's name makes wrap: kept for the pull request's before and after.
+  if (SCREENSHOTS) {
+    await mkdir(SCREENSHOTS, { recursive: true });
+    await sheet
+      .locator(".compare-sheet-foot")
+      .screenshot({ path: join(SCREENSHOTS, "compare-footer-zh-900.png") });
+  }
 
   // A cap too small for one request: nothing is sent, and every cell says why.
   await window.evaluate(() =>
@@ -548,6 +580,7 @@ for (const { language, width } of SCOPE_VARIANTS) {
     await setWindowSize(app, window, width, 860);
     await acceptPlainTextKeys(window);
     await bridge(window).cloudModel();
+    await bridge(window).cap();
     await addLibrary(window, 22);
 
     const sheet = await openSheetFromPlusMenu(window);
@@ -576,7 +609,12 @@ for (const { language, width } of SCOPE_VARIANTS) {
     await expect(counted).toHaveText(words.counted(1, 22));
     await expect(make).toBeEnabled();
     await expect(selectAll).toHaveJSProperty("indeterminate", true);
-    await expect(estimate).toContainText("$0.00");
+    const estimateText =
+      language === "zh-CN"
+        ? /^约 \$[\d.,]+ · [^\s·]+ token · 本月已用 \$[\d.,]+，上限 \$20\.00$/
+        : /^About \$[\d.,]+ · [^\s·]+ tokens · \$[\d.,]+ of \$20\.00 used this month$/;
+    await expect(estimate).toHaveText(estimateText);
+    await expect(estimate).not.toContainText("model calls");
     const [estimateBox, makeBox, sheetBox] = [
       await estimate.boundingBox(),
       await make.boundingBox(),
@@ -659,6 +697,7 @@ test("a tick doesn't move the sheet: the estimate stays on show while the next o
   await setWindowSize(app, window, 900, 860);
   await acceptPlainTextKeys(window);
   await bridge(window).cloudModel();
+  await bridge(window).cap();
   await addLibrary(window, 12);
 
   const sheet = await openSheetFromPlusMenu(window);
@@ -666,7 +705,9 @@ test("a tick doesn't move the sheet: the estimate stays on show while the next o
   const estimate = sheet.getByTestId("compare-sheet-estimate");
   await typeQuestions(window, ["Termination notice"]);
   await pointAndClick(window, boxes.first());
-  await expect(estimate).toContainText("About $");
+  await expect(estimate).toHaveText(
+    /^About \$[\d.,]+ · [\d.,]+[KMB]? tokens · \$[\d.,]+ of \$20\.00 used this month$/,
+  );
 
   // A flash lasts a frame or two, so it is sampled on every frame rather than polled for.
   await window.evaluate(() => {
@@ -684,7 +725,9 @@ test("a tick doesn't move the sheet: the estimate stays on show while the next o
   });
   for (const index of [1, 2, 3, 4, 5]) await pointAndClick(window, boxes.nth(index));
   await expect(sheet.getByTestId("compare-sheet-counted")).toHaveText("6 of 12");
-  await expect(estimate).toContainText("18 model calls");
+  await expect(estimate).toHaveText(
+    /^About \$[\d.,]+ · [\d.,]+[KMB]? tokens · \$[\d.,]+ of \$20\.00 used this month$/,
+  );
   const frames = await window.evaluate(() => {
     const { sampler } = globalThis as unknown as {
       sampler: { running: boolean; frames: { estimate: boolean; height: number }[] };
@@ -723,6 +766,47 @@ test("a large run goes on once it is asked about: Enter on the question makes th
   await expect(window.getByTestId("comparison-table").getByTestId("comparison-title")).toHaveText(
     WORDS.en.title(22),
   );
+  await expect(sheet).toHaveCount(0);
+});
+
+test("a key saved while a large run is being confirmed keeps the question, and Make runs once with that model (#1922)", async () => {
+  test.setTimeout(120_000);
+  const { app, window } = await launchApp(dataDir, { fakeChat: true });
+  await dismissChatSetup(window);
+  await setWindowSize(app, window, 1440, 860);
+  await acceptPlainTextKeys(window);
+  // A monthly cap, so the estimate shows under it even for a run that costs less than a dollar (#1941).
+  await bridge(window).cap();
+  await addLibrary(window, 22);
+
+  const sheet = await openSheetFromPlusMenu(window);
+  await typeQuestions(window, ["Termination notice"]);
+  await pointAndClick(window, sheet.getByTestId("compare-sheet-select-all"));
+  await expect(sheet.getByTestId("compare-sheet-counted")).toHaveText("22 of 22");
+  await pointAndClick(window, sheet.getByTestId("compare-sheet-make"));
+  const ask = sheet.getByTestId("compare-sheet-ask");
+  await expect(ask).toContainText(WORDS.en.ask(22));
+  await pointAndClick(window, sheet.getByTestId("compare-sheet-ask-make"));
+
+  // No model yet: the key field comes in place, with the question still asked.
+  const needs = sheet.getByTestId("compare-sheet-needs-model");
+  await expect(needs).toBeVisible();
+  await expect(ask).toBeVisible();
+  const field = needs.getByTestId("compare-sheet-needs-model-key");
+  await field.fill("sk-ant-api03-a-test-key-for-first-run");
+  await field.press("Enter");
+
+  // The key saved, the question stays and now prices the run with that model; nothing runs by itself.
+  await expect(needs).toHaveCount(0);
+  await expect(ask).toBeVisible();
+  await expect(ask).toContainText("About $");
+  await expect(sheet.getByTestId("comparison-table")).toHaveCount(0);
+  await pointAndClick(window, sheet.getByTestId("compare-sheet-ask-make"));
+  const table = window.getByTestId("comparison-table");
+  await expect(table.getByTestId("comparison-title")).toHaveText(WORDS.en.title(22), {
+    timeout: 60_000,
+  });
+  await expect(table).toHaveCount(1);
   await expect(sheet).toHaveCount(0);
 });
 
@@ -1212,4 +1296,42 @@ test("⌘K edits a column by keyboard, and the Excel export follows the label", 
   await pointAndClick(window, cellAt(table, 0, 0));
   await window.keyboard.press("Escape");
   await expect(table).not.toHaveAttribute("data-expanded", "true");
+});
+
+test("the sheet's foot keeps the model's whole name and every part inside the sheet (#763)", async () => {
+  const { app, window } = await launchApp(dataDir, { fakeChat: true });
+  try {
+    await dismissChatSetup(window);
+    await bridge(window).language("zh-CN");
+    await setWindowSize(app, window, 900, 860);
+    await acceptPlainTextKeys(window);
+    await bridge(window).cloudModel();
+    await addSuppliers(window);
+    const sheet = await openSheetFromSlash(window);
+    await typeQuestions(window, ["Termination notice"]);
+    const model = sheet.getByTestId("composer-model");
+    await expect(model).toBeVisible();
+    // The name is whole: never cut to a letter, whatever room the foot has.
+    const name = model.locator("span").first();
+    expect(await name.evaluate((element) => element.scrollWidth <= element.clientWidth)).toBe(true);
+    // And no part of the foot runs past the sheet's edge: Make moves down rather than out.
+    const foot = sheet.locator(".compare-sheet-foot");
+    const [footBox, makeBox, sheetBox] = await Promise.all([
+      foot.boundingBox(),
+      sheet.getByTestId("compare-sheet-make").boundingBox(),
+      sheet.boundingBox(),
+    ]);
+    expect(
+      footBox && sheetBox && footBox.x + footBox.width <= sheetBox.x + sheetBox.width + 1,
+    ).toBe(true);
+    expect(
+      makeBox && sheetBox && makeBox.x + makeBox.width <= sheetBox.x + sheetBox.width + 1,
+    ).toBe(true);
+    if (SCREENSHOTS) {
+      await screenshot(window, "compare-footer-zh-900");
+      await foot.screenshot({ path: join(SCREENSHOTS, "compare-footer-only-zh-900.png") });
+    }
+  } finally {
+    await app.close();
+  }
 });

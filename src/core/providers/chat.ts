@@ -851,7 +851,16 @@ export function createChat(options: {
             [id, server.kind, server.baseUrl, server.catalogId, server.endpoint, at, at],
           );
         }
-        if (makeDefault) settings.update({ user: { chatModel: { providerId: id, modelId } } });
+        // Quick tasks and reading images go back to Automatic with the Answers model, with no row of their own (#1922).
+        if (makeDefault) {
+          settings.update({
+            user: {
+              chatModel: { providerId: id, modelId },
+              quickTasksModel: null,
+              imageModel: null,
+            },
+          });
+        }
       });
       if (apiKey === null) await secrets.delete(keyName(id));
 

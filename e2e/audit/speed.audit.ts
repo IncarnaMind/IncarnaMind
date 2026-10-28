@@ -890,7 +890,7 @@ test("B3 2,000 Documents: linking, the sidebar, the Library, Organize, and a war
           await click(window, window.getByTestId("open-library"));
           actionsWhileIndexing.library?.push(await done());
           done = await armUntil(window, "selectorShown", '[data-testid="mind-editor"]');
-          await click(window, window.getByRole("button", { name: "Back to Mind" }));
+          await click(window, window.getByRole("button", { name: "Back to note" }));
           actionsWhileIndexing.back?.push(await done());
         }
       },

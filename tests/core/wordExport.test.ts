@@ -561,11 +561,11 @@ describe("IncarnaMind's comments in an imported file (#107)", () => {
 });
 
 describe("The Word copy offered when quitting follows the User's answer about marking (#1536)", () => {
-  // protects=the quit-time copy of a Mind with text IncarnaMind wrote carries the comment on it only when the User chose Mark it, and none with Leave it out or no answer yet; fails_when=it marks for an answer of "leave" or none, or leaves out the mark for "mark"; no_claim=the save dialog.
+  // protects=the quit-time copy of a Mind with text IncarnaMind wrote carries the comment on it unless the User chose Leave it out, and with no answer yet it does, as the default (#1945); fails_when=it marks for an answer of "leave", or leaves out the mark for "mark" or none; no_claim=the save dialog.
   test.each([
     { answer: "mark" as const, marked: true },
     { answer: "leave" as const, marked: false },
-    { answer: null, marked: false },
+    { answer: null, marked: true },
   ])("with the answer $answer, the copy marked is $marked", async ({ answer, marked }) => {
     const { core, mindId, client } = await setUp({ body: paragraph(run("Due in May.")) });
     editMind(client, (blocks) => [
@@ -876,13 +876,13 @@ describe("sentences whose check isn't good, in an imported file (#900)", () => {
       language: "en" as const,
       one: "Not found: I didn’t find this in “Okoro agreement”.",
       two: "Not found: I didn’t find this in “Okoro agreement” or 1 more.",
-      changed: "Needs re-check: the Mind’s Search scope has changed since.",
+      changed: "Needs re-check: the note’s Search scope has changed since.",
     },
     {
       language: "zh-CN" as const,
       one: "未找到：未在“Okoro agreement”中找到。",
       two: "未找到：未在“Okoro agreement”等 2 项中找到。",
-      changed: "需重新核对：这个 Mind 的搜索范围已更改。",
+      changed: "需重新核对：这篇笔记的搜索范围已更改。",
     },
   ])(
     // protects=the Word comment of a sentence checked in the Mind's chosen scope names that scope, as its card does, and one checked in another scope than the Mind's now needs a re-check (#1623); fails_when=it says All Documents, another wording than the card's, or keeps a verdict made elsewhere; no_claim=the card itself (e2e).

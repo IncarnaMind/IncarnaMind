@@ -11,6 +11,7 @@ import { yXmlFragmentToProseMirrorRootNode } from "@tiptap/y-tiptap";
 import type * as Y from "yjs";
 import { type KeptCitationText, MIND_CONTENT_FIELD, type UnreadFile } from "../../core/api";
 import type { Language } from "../../core/language";
+import { allOrigins } from "../../shared/blockOrigins";
 import { citationState, type LiveDocument } from "../../shared/citations";
 import { checkSearchedNarrowerThanAll } from "../../shared/claimChecks";
 import { formatDateTime } from "../../shared/dates";
@@ -20,7 +21,7 @@ import { mindScopeOf } from "../../shared/mindScope";
 import { checkUnreadOf } from "../../shared/unreadFiles";
 import { claimsOf, type ShownClaim } from "./editor/claimChecks";
 import { type NoteHealth, noteHealth } from "./editor/healthCounts";
-import { noteExtensions } from "./editor/noteSchema";
+import { BLOCK_ID_ATTRIBUTE, noteExtensions } from "./editor/noteSchema";
 
 export type NoteStateKind = "not-checked" | "needs-look" | "checked";
 
@@ -60,7 +61,7 @@ export interface NoteState {
 export function noteStateOf(health: NoteHealth, unread = 0, narrowUnread = 0): NoteState | null {
   const unreadMatters = narrowUnread > 0;
   if (health.checkable === 0) return null;
-  const look = health.unsupported.length + health.contradicted.length + health.notFound.length;
+  const look = health.lookClaims.length;
   const base = {
     checkedAt: health.checkedAt,
     unread: 0,
@@ -132,6 +133,8 @@ export function unreadForCard(
   return state?.unreadMatters === true ? narrow : all;
 }
 
+export type NoteReading = ReturnType<typeof readNoteState>;
+
 type Translate = (key: MessageKey, params?: MessageParams) => string;
 
 /** The state's words, part by part: "Checked 14:25", "3 files couldn't be read" (#740, D261). */
@@ -168,8 +171,9 @@ let schema: ReturnType<typeof getSchema> | undefined;
 
 /**
  * A Mind's health and state from its Yjs document, as the editor reads them, for Home's rows
- * and the Export menu. `documents` is null until the live Documents are known: checks show as
- * they were stored until then, as the editor does.
+ * and the Export menu, and the Answers its live Blocks hold: a Block deleted since keeps its
+ * origin, but the Answer it came from is no longer in the Mind. `documents` is null until the
+ * live Documents are known: checks show as they were stored until then, as the editor does.
  */
 export function readNoteState({
   doc,
@@ -181,7 +185,7 @@ export function readNoteState({
   documents: readonly LiveDocument[] | null;
   keptCitationTexts: readonly KeptCitationText[];
   folderId: string | null;
-}): { health: NoteHealth; state: NoteState | null } {
+}): { health: NoteHealth; state: NoteState | null; filedAnswers: ReadonlySet<string> } {
   schema ??= getSchema(noteExtensions());
   const root = yXmlFragmentToProseMirrorRootNode(doc.getXmlFragment(MIND_CONTENT_FIELD), schema);
   const { claims, kept } = claimsOf(root, {
@@ -203,8 +207,18 @@ export function readNoteState({
   );
   const unread = checkUnreadOf(doc, requests).length;
   const narrowUnread = checkUnreadOf(doc, narrowRequestsOf(claims)).length;
+  const origins = allOrigins(doc);
+  const filedAnswers = new Set<string>();
+  root.forEach((block) => {
+    const id = block.attrs[BLOCK_ID_ATTRIBUTE];
+    const reference = typeof id === "string" ? origins.get(id)?.from : undefined;
+    if (reference?.artifactKind === "conversation" && reference.anchor.kind === "message") {
+      filedAnswers.add(reference.anchor.messageId);
+    }
+  });
   return {
     health,
     state: noteStateOf(health, unread, narrowUnread),
+    filedAnswers,
   };
 }

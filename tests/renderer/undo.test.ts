@@ -2,6 +2,8 @@ import { beforeEach, describe, expect, test } from "vitest";
 import type { Language } from "../../src/core/language";
 import { saidInLine } from "../../src/renderer/src/lineNames";
 import {
+  answerUndoPlace,
+  lineShownAt,
   makeInTurn,
   nextToRedo,
   nextToUndo,
@@ -41,7 +43,7 @@ const noWords = (key: MessageKey) => key;
 const names = (changes: readonly Undoable[]) => changes.map((each) => each.name?.(noWords));
 
 beforeEach(() => {
-  useUndo.setState({ done: [], undone: [], line: null, running: null, making: 0 });
+  useUndo.setState({ done: [], undone: [], line: null, running: null, making: 0, places: [] });
 });
 
 describe("the undo stack", () => {
@@ -270,6 +272,49 @@ describe("the undo stack", () => {
     expect(names(useUndo.getState().done)).toEqual(["A"]);
   });
 
+  test("a chosen change moves between the stacks without disturbing the others", async () => {
+    const log: string[] = [];
+    const [a, b, c] = ["A", "B", "C"].map((name) => change(name, log));
+    if (!a || !b || !c) throw new Error("No changes.");
+    push(a);
+    push(b);
+    push(c);
+    await useUndo.getState().undo(b);
+    expect(names(useUndo.getState().done)).toEqual(["A", "C"]);
+    expect(names(useUndo.getState().undone)).toEqual(["B"]);
+    await useUndo.getState().redo();
+    expect(names(useUndo.getState().done)).toEqual(["A", "C", "B"]);
+    expect(log).toEqual(["undo B", "redo B"]);
+  });
+
+  test("a change withdrawn while its Undo runs never comes back as Redo", async () => {
+    const log: string[] = [];
+    let finish: () => void = () => undefined;
+    const slow: Undoable = {
+      said: () => "Slow",
+      name: () => "Slow",
+      undo: () =>
+        new Promise<void>((resolve) => {
+          finish = resolve;
+        }),
+      redo: async () => {
+        log.push("redo Slow");
+      },
+    };
+    push(slow);
+    const back = undo();
+    for (let index = 0; index < 3; index++) await Promise.resolve();
+    expect(useUndo.getState().running?.change).toBe(slow);
+    useUndo.getState().withdraw(slow);
+    finish();
+    await back;
+    expect(useUndo.getState().running).toBeNull();
+    expect(useUndo.getState().done).toEqual([]);
+    expect(useUndo.getState().undone).toEqual([]);
+    await redo();
+    expect(log).toEqual([]);
+  });
+
   test("a change renewed as more of it lands goes back on top, past the User's own", async () => {
     const log: string[] = [];
     const request = change("Request", log);
@@ -290,6 +335,108 @@ describe("the undo stack", () => {
     useUndo.getState().withdraw(accepted);
     expect(names(useUndo.getState().done)).toEqual(["A"]);
     expect(useUndo.getState().line).toBeNull();
+  });
+});
+
+describe("what an undo says afterwards", () => {
+  test("a note says what an undo left, in the place its change showed its line (#1573)", async () => {
+    const log: string[] = [];
+    const hide = useUndo.getState().showPlace("setup");
+    push({
+      ...change("Local mode", log),
+      undoneNote: () => () => "Still using the model",
+      shownAt: "setup",
+    });
+    await undo();
+    const { line } = useUndo.getState();
+    expect(line?.note?.(noWords)).toBe("Still using the model");
+    expect(line?.shownAt).toBe("setup");
+    // Notes go to their place too, so neither the sidebar nor the pill shows it again.
+    expect(lineShownAt(useUndo.getState())).toBe("setup");
+    hide();
+
+    push({ ...change("Move", log), undoneNote: () => () => "Kept the Folder" });
+    await undo();
+    expect(useUndo.getState().line?.shownAt).toBeUndefined();
+    expect(lineShownAt(useUndo.getState())).toBeNull();
+  });
+
+  test("a note whose place closed goes to the sidebar's foot, so it is never out of sight (#1573)", async () => {
+    const hide = useUndo.getState().showPlace("setup");
+    push({
+      ...change("Local mode", []),
+      undoneNote: () => () => "Still using the model",
+      shownAt: "setup",
+    });
+    await undo();
+    expect(lineShownAt(useUndo.getState())).toBe("setup");
+    hide();
+    expect(lineShownAt(useUndo.getState())).toBeNull();
+  });
+});
+
+describe("where a refused step says so", () => {
+  const failing = (shownAt?: string): Undoable => ({
+    said: () => "Turned on Local mode",
+    undo: () => Promise.reject(new Error("The settings couldn't be saved.")),
+    redo: async () => undefined,
+    ...(shownAt && { shownAt }),
+  });
+  const shownAt = () => lineShownAt(useUndo.getState());
+
+  test("in the place its change showed its line while that place shows one, else at the sidebar's foot (#1573)", async () => {
+    const hide = useUndo.getState().showPlace("setup");
+    push(failing("setup"));
+    expect(shownAt()).toBe("setup");
+    await undo();
+    expect(useUndo.getState().line?.problem?.reason(noWords)).toBe(
+      "The settings couldn't be saved.",
+    );
+    expect(shownAt()).toBe("setup");
+    // The setup card closed: the problem is never out of sight.
+    hide();
+    expect(shownAt()).toBeNull();
+  });
+
+  test("a refused redo goes to the place too, and a change's line stays at its place as before", async () => {
+    const hide = useUndo.getState().showPlace("settings:models");
+    push({
+      said: () => "Turned on Local mode",
+      undo: async () => undefined,
+      redo: () => Promise.reject(new Error("It isn't there.")),
+      shownAt: "settings:models",
+    });
+    await undo();
+    await redo();
+    expect(useUndo.getState().line?.problem?.step).toBe("redo");
+    expect(shownAt()).toBe("settings:models");
+    hide();
+
+    push(change("Move", []));
+    expect(shownAt()).toBeNull();
+    push({ ...change("Add", []), shownAt: answerUndoPlace("a1") });
+    expect(shownAt()).toBe(answerUndoPlace("a1"));
+  });
+
+  test("an Answer's change, with no line of its own for problems, and a change of no place say it at the sidebar's foot", async () => {
+    push(failing(answerUndoPlace("a1")));
+    await undo();
+    expect(useUndo.getState().line?.problem).toBeDefined();
+    expect(shownAt()).toBeNull();
+
+    push(failing());
+    await undo();
+    expect(useUndo.getState().line?.problem).toBeDefined();
+    expect(shownAt()).toBeNull();
+  });
+
+  test("a place shown twice still shows once one of them closes", () => {
+    const first = useUndo.getState().showPlace("settings:privacy");
+    const second = useUndo.getState().showPlace("settings:privacy");
+    first();
+    expect(useUndo.getState().places).toEqual(["settings:privacy"]);
+    second();
+    expect(useUndo.getState().places).toEqual([]);
   });
 });
 
@@ -348,7 +495,7 @@ describe("the lines follow the interface language", () => {
     language = "zh-CN";
     const action = (key: MessageKey) => t(key, { name: "交易资料" });
     expect(t("menu.undo.named", { action: action("undo.name.linkFolder") })).toBe(
-      "撤销“添加同步文件夹‘交易资料’”",
+      "撤销“添加关联文件夹‘交易资料’”",
     );
     expect(t("menu.undo.named", { action: action("undo.name.move") })).toBe("撤销“移动‘交易资料’”");
     expect(t("menu.redo.named", { action: action("undo.name.delete") })).toBe(
