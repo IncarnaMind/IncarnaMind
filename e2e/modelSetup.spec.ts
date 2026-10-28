@@ -55,7 +55,7 @@ const bridge = (window: Page) => ({
 
 async function askFirstQuestion(window: Page): Promise<Locator> {
   await newMind(window);
-  await window.getByTestId("mind-editor").click();
+  await window.getByTestId("mind-editor").focus();
   await window.keyboard.press("ControlOrMeta+j");
   await window.keyboard.type("What is in my Documents?");
   await window.keyboard.press("Enter");
@@ -269,7 +269,7 @@ for (const language of ["en", "zh-CN"] as const) {
       );
       await addDocuments(window, [join(sources, "Tides.txt")]);
       await newMind(window);
-      await window.getByTestId("mind-editor").click();
+      await window.getByTestId("mind-editor").focus();
       await window.keyboard.press("ControlOrMeta+j");
       await window.keyboard.type("What do tides do with forty citations");
       await window.keyboard.press("Enter");
@@ -411,9 +411,11 @@ test("a later step's title opens it, a finished step is a line with its choice t
   }
 });
 
-for (const [width, height] of [
-  [900, 560],
-  [1000, 560],
+// At 900 px the assistant is docked at the foot and step 3 is taller than its room on any font;
+// at 1000 px it is at the side, and whether step 3 scrolls depends on the font.
+for (const [width, height, mustScroll] of [
+  [900, 560, true],
+  [1000, 560, false],
 ] as const) {
   test(`a shorter window (${width} × ${height}) scrolls the card, keeps the room for the conversation, and keeps the step in hand in view`, async () => {
     const { app, window } = await launchApp(dataDir, { fakeChat: true });
@@ -448,7 +450,7 @@ for (const [width, height] of [
       await pointAndClick(window, card.getByTestId("setup-transcription-use"));
       await expect(card.getByTestId("models-sorting")).toBeEnabled({ timeout: 15_000 });
       const taller = await buttonsInView(window);
-      expect(taller.scrolls, "step 3 scrolls in a short window").toBe(true);
+      if (mustScroll) expect(taller.scrolls, "step 3 scrolls in a short window").toBe(true);
       expect(taller.thread).toBeGreaterThanOrEqual(100);
       expect(await shows('[data-testid="setup-step-sorting"] h3')).toBe(true);
       expect(await shows('[data-testid="models-sorting"]')).toBe(true);
