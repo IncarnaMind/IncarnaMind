@@ -78,14 +78,9 @@ const addEnabled = (ctx: CommandContext) => {
   return canInsertColumn(here.questions.length) ? true : insertReason;
 };
 
-/** Whether a shown column stands beside it on that side, hidden ones passed over. */
-const hiddenEnabled = (ctx: CommandContext) => {
-  const here = columnHere(ctx);
-  if (!here) return unavailable;
-  return here.questions.some((question) => question.hidden === true)
-    ? true
-    : ({ reason: "comparison.column.noneHidden" } as const);
-};
+/** Whether the table has a column hidden to show again. */
+const hasHidden = (ctx: CommandContext) =>
+  columnHere(ctx)?.questions.some((question) => question.hidden === true) ?? false;
 
 const moveEnabled = (direction: -1 | 1) => (ctx: CommandContext) => {
   const here = columnHere(ctx);
@@ -173,7 +168,8 @@ export const comparisonCommands: readonly Command[] = [
     appliesTo: ["comparisonColumn"],
     reversible: true,
     enabled: moveEnabled(-1),
-    run: (ctx) => actColumn(ctx, ({ handle, question }) => stepColumn(handle, question.id, -1)),
+    run: (ctx) =>
+      actColumn(ctx, ({ handle, question }) => void stepColumn(handle, question.id, -1)),
   },
   {
     id: "comparison.column.moveRight",
@@ -183,7 +179,7 @@ export const comparisonCommands: readonly Command[] = [
     appliesTo: ["comparisonColumn"],
     reversible: true,
     enabled: moveEnabled(1),
-    run: (ctx) => actColumn(ctx, ({ handle, question }) => stepColumn(handle, question.id, 1)),
+    run: (ctx) => actColumn(ctx, ({ handle, question }) => void stepColumn(handle, question.id, 1)),
   },
   {
     id: "comparison.column.hide",
@@ -201,7 +197,7 @@ export const comparisonCommands: readonly Command[] = [
     group: "edit",
     appliesTo: ["comparisonColumn"],
     reversible: true,
-    enabled: hiddenEnabled,
+    when: hasHidden,
     // The table's own ⋯ is the picker: it lists each hidden column, and every way to show one.
     run: (ctx) =>
       actColumn(ctx, ({ handle }) => {

@@ -21,6 +21,25 @@ export const EDIT_FROM_CORE = Symbol("an edit asked for here, from the core");
 
 const takers = new Map<string, { doc: Y.Doc; take(update: Uint8Array, cause: EditCause): void }>();
 
+/** The changes this window sent for each Mind, in the order it sent them, until the core has them all. */
+const sent = new Map<string, Promise<void>>();
+
+/**
+ * Waits until every change this window sent for the Mind has reached the
+ * core, for an ask that must see them: a column move, which copies each cell
+ * as it is then, the words just typed into one included.
+ */
+export async function flushMindUpdates(mindId: string): Promise<void> {
+  let waiting = sent.get(mindId);
+  while (waiting) {
+    // A send that failed and goes again adds its retry after this one.
+    await waiting.catch(() => undefined);
+    const next = sent.get(mindId);
+    if (next === waiting) return;
+    waiting = next;
+  }
+}
+
 /** Hands the updates of this edit to `take`, in the copy `doc` only. Returns what stops it. */
 export function takeEditUpdates(
   requestId: string,
@@ -61,11 +80,15 @@ export function openMindCopy(
   });
   // A change that built on one the core never got goes again inside the whole copy (#1119).
   const store = (update: Uint8Array, again: boolean) => {
-    core.applyMindUpdate(mindId, update).catch((error: unknown) => {
-      const missed = describeError(error).wording?.key === "error.mind.missedChange";
-      if (missed && again && active) store(Y.encodeStateAsUpdate(local), false);
-      else failed(error);
-    });
+    const earlier = sent.get(mindId) ?? Promise.resolve();
+    const tracked = earlier
+      .then(() => core.applyMindUpdate(mindId, update))
+      .catch((error: unknown) => {
+        const missed = describeError(error).wording?.key === "error.mind.missedChange";
+        if (missed && again && active) store(Y.encodeStateAsUpdate(local), false);
+        else failed(error);
+      });
+    sent.set(mindId, tracked);
   };
   const send = (update: Uint8Array, origin: unknown) => {
     if (origin !== FROM_CORE && origin !== EDIT_FROM_CORE && editable) store(update, true);

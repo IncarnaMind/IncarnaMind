@@ -1,11 +1,13 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { expect, type Locator, type Page, test } from "@playwright/test";
+import type { Editor } from "@tiptap/core";
 import type { CoreBridge } from "../src/core/api";
 import { readWorkbook } from "../src/core/documents/formats/xlsx";
 import {
   acceptPlainTextKeys,
   addDocuments,
+  checkCard,
   createDataFolder,
   dismissChatSetup,
   launchApp,
@@ -13,6 +15,7 @@ import {
   pointAndClick,
   pointAt,
   removeDataFolder,
+  setLanguage,
   setWindowSize,
   useLocalChatModel,
   useOutputLocation,
@@ -965,6 +968,54 @@ async function filledSuppliersTable(window: Page): Promise<Locator> {
   return table;
 }
 
+/** A 2 × 2 table whose cells are full claims, with the note's own lines taken out. */
+async function filledClaimsTable(window: Page): Promise<Locator> {
+  // The app's examples would make rows of their own: this table is its two Documents alone.
+  await window.evaluate(async () => {
+    const core = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
+    const documents = await core.listDocuments();
+    if (documents.length > 0) {
+      await core.deleteDocuments(documents.map((document) => document.id));
+    }
+  });
+  const files: Record<string, string> = {
+    "Alpha Terms.txt":
+      "Alpha Terms.\nTermination notice: Alpha may end the agreement in 30 days.\nLiability cap: Alpha's liability is capped at twelve months of fees.\n",
+    "Beta Terms.txt":
+      "Beta Terms.\nTermination notice: Beta may end the agreement in 60 days.\nLiability cap: Beta's liability is capped at six months of fees.\n",
+  };
+  const paths: string[] = [];
+  for (const [name, text] of Object.entries(files)) {
+    const path = join(sources, name);
+    await writeFile(path, text);
+    paths.push(path);
+  }
+  await addDocuments(window, paths);
+  const sheet = await openSheetFromSlash(window);
+  await typeQuestions(window, ["Termination notice", "Liability cap"]);
+  await pointAndClick(window, sheet.getByTestId("compare-sheet-make"));
+  const table = window.getByTestId("comparison-table");
+  await expect(table).toBeVisible();
+  await expect(table.getByTestId("comparison-progress")).toHaveCount(0, { timeout: 30_000 });
+  await pointAndClick(window, table.getByTestId("comparison-accept-all"));
+  await expect(table).not.toHaveAttribute("data-pending", "true");
+  // The note's own lines made claims too: take them out, so the cells are what needs a look.
+  await window
+    .getByTestId("mind-editor")
+    .first()
+    .evaluate((dom) => {
+      const editor = (dom as unknown as { editor: Editor }).editor;
+      let tablePos = -1;
+      editor.state.doc.forEach((node, offset) => {
+        if (node.type.name === "comparisonTable") tablePos = offset;
+      });
+      if (tablePos > 0) editor.commands.deleteRange({ from: 0, to: tablePos });
+      // A line above the table, so "Show" starts before its first cell rather than in it.
+      editor.commands.insertContentAt(0, { type: "paragraph" });
+    });
+  return table;
+}
+
 /** A double-click on a heading, and the label and Question it opens in place. */
 async function editColumn(window: Page, heading: Locator) {
   const point = await pointAt(window, heading);
@@ -1341,6 +1392,42 @@ test("a column moves by menu, keys and drag, and hides and shows from the table'
   await expect(window.getByTestId("undo-message")).toContainText("Moved “Termination notice”");
   await expect.poll(orderOf).toEqual(["Liability cap", "Termination notice"]);
   expect(await visualAnswersIn(table)).toEqual(["12 months of fees", "90 days"]);
+  // What the User copies, and what Tab reaches, is the order drawn: the cells' document order.
+  const drawnIds = await table
+    .getByTestId("comparison-row")
+    .first()
+    .getByTestId("comparison-cell")
+    .evaluateAll((cells) =>
+      cells
+        .map((cell) => ({
+          x: cell.getBoundingClientRect().x,
+          id: cell.getAttribute("data-question-id") ?? "",
+        }))
+        .sort((left, right) => left.x - right.x)
+        .map((cell) => cell.id),
+    );
+  const documentOrder = await table
+    .getByTestId("comparison-row")
+    .first()
+    .getByTestId("comparison-cell")
+    .evaluateAll((cells) => cells.map((cell) => cell.getAttribute("data-question-id") ?? ""));
+  expect(documentOrder).toEqual(drawnIds);
+  await headingAt(table, 0).focus();
+  const reached: string[] = [];
+  for (let step = 0; step < 8 && reached.length < 2; step++) {
+    await window.keyboard.press("Tab");
+    const label = await window.evaluate(() => {
+      const active = document.activeElement as HTMLElement | null;
+      return (
+        active
+          ?.closest(".comparison-question")
+          ?.querySelector(".comparison-question-label")
+          ?.textContent?.trim() ?? null
+      );
+    });
+    if (label && !reached.includes(label)) reached.push(label);
+  }
+  expect(reached).toEqual(["Liability cap", "Termination notice"]);
   await pointAndClick(window, window.getByTestId("undo-action"));
   await expect.poll(orderOf).toEqual(["Termination notice", "Liability cap"]);
   expect(await answersIn(table)).toEqual(before);
@@ -1432,7 +1519,116 @@ test("a column moves by menu, keys and drag, and hides and shows from the table'
   await window.keyboard.press("Enter");
   await expect(table.getByTestId("comparison-question")).toHaveCount(2);
   await expect(window.getByTestId("undo-message")).toContainText("Showed “Termination notice”");
+
+  // With nothing hidden, ⌘K doesn't offer Show at all.
+  await headingAt(table, 0).focus();
+  await window.keyboard.press("ControlOrMeta+k");
+  await window.keyboard.type("show hidden");
+  await expect(
+    window.getByTestId("palette").locator('[data-key="command:comparison.column.showHidden"]'),
+  ).toHaveCount(0);
+  await window.keyboard.press("Escape");
 });
+
+test("Show steps through the table's cells that need a look in the order the columns are drawn, after a move", async () => {
+  test.setTimeout(180_000);
+  const { app, window } = await launchApp(dataDir, { fakeChat: true });
+  await dismissChatSetup(window);
+  await setWindowSize(app, window, 1600, 860);
+  await useLocalChatModel(window);
+  const table = await filledClaimsTable(window);
+  const drawnQuestions = () =>
+    table.getByTestId("comparison-question").evaluateAll((all) =>
+      all
+        .map((each) => ({
+          x: each.getBoundingClientRect().x,
+          id: (each as HTMLElement).dataset.questionId ?? "",
+        }))
+        .sort((left, right) => left.x - right.x)
+        .map((each) => each.id),
+    );
+  const caretQuestion = () =>
+    window
+      .getByTestId("mind-editor")
+      .first()
+      .evaluate((dom) => {
+        const editor = (dom as unknown as { editor: Editor }).editor;
+        const { $from } = editor.state.selection;
+        for (let depth = $from.depth; depth > 0; depth--) {
+          const node = $from.node(depth);
+          if (node.type.name === "comparisonCell") return String(node.attrs.questionId ?? "");
+        }
+        return "";
+      });
+  const startAtTop = () =>
+    window
+      .getByTestId("mind-editor")
+      .first()
+      .evaluate((dom) => {
+        (dom as unknown as { editor: Editor }).editor.commands.focus("start");
+      });
+  const showNext = async () => {
+    await pointAndClick(window, (await checkCard(window)).getByTestId("health-toCheck"));
+    await window.keyboard.press("Escape");
+    await expect(window.getByTestId("check-card")).toHaveCount(0);
+  };
+  // The first row's two cells are the first two cells that need a look, drawn left to right.
+  const cellsShown = async () => {
+    await startAtTop();
+    const shown: string[] = [];
+    for (let step = 0; step < 8 && shown.length < 2; step++) {
+      await showNext();
+      const questionId = await caretQuestion();
+      if (questionId && !shown.includes(questionId)) shown.push(questionId);
+    }
+    return shown;
+  };
+  expect(await cellsShown()).toEqual(await drawnQuestions());
+
+  // Move the first column right: Show now steps the other column first, as it is drawn.
+  await headingAt(table, 0).focus();
+  await pointAndClick(window, headingAt(table, 0).getByTestId("comparison-column-menu"));
+  await pointAndClick(
+    window,
+    headingAt(table, 0).locator('[role="menu"]').getByTestId("comparison.column.moveRight"),
+  );
+  await expect(window.getByTestId("undo-message")).toContainText("Moved “Termination notice”");
+  await expect
+    .poll(() => table.getByTestId("comparison-question").first().innerText())
+    .toBe("Liability cap");
+  expect(await cellsShown()).toEqual(await drawnQuestions());
+});
+
+for (const [language, words] of [
+  ["en", "terms amended"],
+  ["zh-CN", "条款已修订"],
+] as const) {
+  test(`words typed in the note just before a column move are kept, through Undo and Redo (${language})`, async () => {
+    test.setTimeout(120_000);
+    const { app, window } = await launchApp(dataDir, { fakeChat: true });
+    await dismissChatSetup(window);
+    await setLanguage(window, language);
+    await setWindowSize(app, window, 1600, 860);
+    await useLocalChatModel(window);
+    const table = await filledSuppliersTable(window);
+    const editor = window.getByTestId("mind-editor").first();
+    await editor.focus();
+    await window.keyboard.press("ControlOrMeta+Home");
+    await window.keyboard.type(words);
+    // Move at once, before the words have had time to be stored.
+    await headingAt(table, 0).focus();
+    await window.keyboard.press(`${WORD_KEY}+Shift+ArrowRight`);
+    await expect(window.getByTestId("undo-message")).toContainText(
+      language === "en" ? "Moved “Termination notice”" : "已移动“Termination notice”列",
+    );
+    await expect(editor).toContainText(words);
+    await editor.focus();
+    await window.keyboard.press("ControlOrMeta+z");
+    await expect(editor).toContainText(words);
+    await window.keyboard.press("ControlOrMeta+Shift+z");
+    await expect(editor).toContainText(words);
+  });
+}
 
 test("a hidden column is out of Fill's count until it is shown, in English and Chinese", async () => {
   test.setTimeout(120_000);

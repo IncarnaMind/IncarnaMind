@@ -363,59 +363,42 @@ export function removeComparisonColumn(
   return { label: comparisonLabelOf(removed), focusId: focus?.id ?? null };
 }
 
-export interface MovedColumn {
-  label: string;
-  /** Where it now is: the second column is 1. */
+export interface ColumnHere {
+  /** Where it is among all the columns: the second column is 1. */
   index: number;
+  label: string;
 }
 
-/**
- * A column moved to `to`, as one change ⌘Z takes back: only the order of
- * the Questions changes, and the table draws each row's cells in that order.
- * Rewriting cells here would leave a running fill writing into another
- * column's cell (#1833).
- */
-export function moveComparisonColumn(
+/** A column as the note has it now, for the core to move. */
+export function comparisonColumnHere(
   editor: Editor,
   tableId: string,
   questionId: string,
-  to: number,
-): MovedColumn | null {
+): ColumnHere | null {
   const found = tableIn(editor, tableId);
   if (!found) return null;
   const questions = comparisonQuestionsOf(found.table.attrs);
-  const from = questions.findIndex((question) => question.id === questionId);
-  const column = questions[from];
-  if (!column || to < 0 || to >= questions.length || to === from) return null;
-  const next = questions.filter((question) => question.id !== questionId);
-  next.splice(to, 0, column);
-  asOneStep(editor, () =>
-    editor.view.dispatch(editor.state.tr.setNodeAttribute(found.pos, "questions", next)),
-  );
-  return { label: comparisonLabelOf(column), index: next.indexOf(column) };
+  const index = questions.findIndex((question) => question.id === questionId);
+  const question = questions[index];
+  return question ? { index, label: comparisonLabelOf(question) } : null;
 }
 
-/** A column moved one column left or right, hidden ones passed over: the table's own order. */
-export function moveComparisonColumnBy(
+/** Where a column lands one shown column left or right, hidden ones passed over; null at the edge. */
+export function comparisonColumnStep(
   editor: Editor,
   tableId: string,
   questionId: string,
   direction: -1 | 1,
-): MovedColumn | null {
+): number | null {
   const found = tableIn(editor, tableId);
   if (!found) return null;
   const questions = comparisonQuestionsOf(found.table.attrs);
   const index = questions.findIndex((question) => question.id === questionId);
   if (index === -1) return null;
-  let neighbor = -1;
   for (let at = index + direction; at >= 0 && at < questions.length; at += direction) {
-    if (questions[at]?.hidden !== true) {
-      neighbor = at;
-      break;
-    }
+    if (questions[at]?.hidden !== true) return at;
   }
-  if (neighbor === -1) return null;
-  return moveComparisonColumn(editor, tableId, questionId, neighbor);
+  return null;
 }
 
 export interface ResizedColumn {

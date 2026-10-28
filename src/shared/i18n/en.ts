@@ -3021,7 +3021,6 @@ export const en = {
   "comparison.column.moveRight": "Move right",
   "comparison.column.hide": "Hide column",
   "comparison.column.showHidden": "Show hidden column…",
-  "comparison.column.noneHidden": "No column is hidden.",
   "comparison.column.hideMenu": "Hide",
   "comparison.column.fit": "Fit column to content",
   "comparison.column.resize": "Drag to resize; double-click fits the column to its content",

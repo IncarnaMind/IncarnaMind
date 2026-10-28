@@ -45,6 +45,7 @@ const SUPPLIERS = [
 ];
 
 interface ShownCell {
+  questionId: string;
   status: string;
   problem: string | null;
   text: string;
@@ -68,6 +69,7 @@ function tableIn(client: MindClient) {
         if (node.type.name === "citation") citations.push(node.attrs as CitationAttributes);
       });
       cells.push({
+        questionId: String(cell.attrs.questionId ?? ""),
         status: cell.attrs.status,
         problem: cell.attrs.problem,
         text: cell.textContent.trim(),
@@ -82,6 +84,19 @@ function tableIn(client: MindClient) {
     proposal: found.attrs.proposal as { kind: string } | null,
     rows,
   };
+}
+
+/** The Mind's comparison table in the Yjs copy, as the document holds it. */
+function tableElementIn(client: MindClient): Y.XmlElement {
+  const found = client.doc
+    .getXmlFragment(MIND_CONTENT_FIELD)
+    .toArray()
+    .find(
+      (element): element is Y.XmlElement =>
+        element instanceof Y.XmlElement && element.nodeName === "comparisonTable",
+    );
+  if (!found) throw new Error("There is no comparison table in the Mind.");
+  return found;
 }
 
 /** A table of `documents` by `questions`, every cell waiting: what an editor leaves before a fill. */
@@ -1098,6 +1113,115 @@ describe("Compare Documents", () => {
         ["failed", "cost-cap"],
         ["waiting", null],
       ]);
+    }
+  });
+
+  test("a move writes the order and every row's cells in one change, Answers under their own Questions", async () => {
+    const model = cellModel();
+    const { core, client, mind, documents } = await setUpWithDocuments(model, SUPPLIERS);
+    const tableId = await compare(core, client, {
+      mindId: mind.id,
+      documentIds: documents.map((document) => document.id),
+      questions: QUESTIONS,
+    });
+    const [notice, liability] = comparisonQuestionsOf(tableElementIn(client).getAttributes());
+    if (!notice || !liability) throw new Error("The table has no two columns.");
+    const updates: Uint8Array[] = [];
+    const stop = core.on("mind.update", (event) => {
+      if (event.mindId === mind.id) updates.push(event.update);
+    });
+    const moved = await core.moveComparisonColumn({
+      mindId: mind.id,
+      tableId,
+      questionId: notice.id,
+      to: 1,
+    });
+    stop();
+    expect(moved).toEqual({ index: 1, moved: true });
+    await client.settled();
+    // One transaction: a reader of the Mind never sees the order without the cells.
+    expect(updates).toHaveLength(1);
+    const after = tableIn(client);
+    expect(after.questions).toEqual(["Liability cap", "Termination notice"]);
+    const texts = ["12 months of fees", "twice the annual fees", ""];
+    for (const [index, row] of after.rows.entries()) {
+      expect(row.cells.map((cell) => cell.questionId)).toEqual([liability.id, notice.id]);
+      expect(row.cells[0]?.text).toBe(texts[index]);
+      // The last row's Liability cap is in no Document: its own cell keeps its problem.
+      expect(row.cells.map((cell) => cell.status)).toEqual(
+        index === 2 ? ["failed", "done"] : ["done", "done"],
+      );
+    }
+  });
+
+  test("a fill moved at each point lands with every Answer under its own Question, and Undo moves it back", async () => {
+    for (const point of ["before", "between", "after"] as const) {
+      let release = () => {};
+      const held = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      const model = cellModel(undefined, held, (asked) => asked.question === "Liability cap");
+      const corvane = SUPPLIERS[0];
+      if (!corvane) throw new Error("No Document to compare.");
+      const { core, client, mind, documents } = await cloudSetUp(
+        model,
+        { kind: "ollama", modelId: "local-model" },
+        [corvane],
+      );
+      const result = await core.compareDocuments({
+        mindId: mind.id,
+        documentIds: documents.map((document) => document.id),
+        questions: QUESTIONS,
+      });
+      if (!result.started) throw new Error(`The table wasn't made: ${JSON.stringify(result)}`);
+      const [notice, liability] = comparisonQuestionsOf(tableElementIn(client).getAttributes());
+      if (!notice || !liability) throw new Error("The table has no two columns.");
+      if (point === "after") {
+        release();
+        await fillEnded(core, result.tableId);
+        await client.settled();
+      }
+      if (point === "between") {
+        await vi.waitFor(() =>
+          expect(tableIn(client).rows[0]?.cells[0]).toMatchObject({
+            questionId: notice.id,
+            status: "done",
+          }),
+        );
+      }
+      const moved = await core.moveComparisonColumn({
+        mindId: mind.id,
+        tableId: result.tableId,
+        questionId: notice.id,
+        to: 1,
+      });
+      expect(moved.moved).toBe(true);
+      if (point !== "after") {
+        release();
+        await fillEnded(core, result.tableId);
+      }
+      await client.settled();
+      const filled = tableIn(client);
+      expect(filled.questions).toEqual(["Liability cap", "Termination notice"]);
+      const cells = filled.rows[0]?.cells ?? [];
+      expect(cells.map((cell) => cell.questionId)).toEqual([liability.id, notice.id]);
+      expect(cells.find((cell) => cell.questionId === notice.id)?.text).toBe("90 days");
+      expect(cells.find((cell) => cell.questionId === liability.id)?.text).toBe(
+        "12 months of fees",
+      );
+      // Undo moves the columns back; each Answer stays under its own Question.
+      await core.moveComparisonColumn({
+        mindId: mind.id,
+        tableId: result.tableId,
+        questionId: notice.id,
+        to: 0,
+      });
+      await client.settled();
+      const back = tableIn(client);
+      expect(back.questions).toEqual(["Termination notice", "Liability cap"]);
+      expect(back.rows[0]?.cells.map((cell) => cell.questionId)).toEqual([notice.id, liability.id]);
+      expect(back.rows[0]?.cells[0]?.text).toBe("90 days");
+      expect(back.rows[0]?.cells[1]?.text).toBe("12 months of fees");
     }
   });
 

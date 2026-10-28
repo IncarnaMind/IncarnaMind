@@ -42,64 +42,6 @@ import { CollapseIcon, ExpandIcon, TableIcon } from "./icons";
 import { useMindId } from "./mindContext";
 
 /**
- * How the table places its cells: every heading and cell has its column from
- * the Question it belongs to and every row its line, so a moved column is
- * drawn where the Questions put it without touching a cell. A hidden column's
- * cells stay in the document, unshown, and the last column shown keeps the
- * grid's outer edge.
- */
-function comparisonGridCss(
-  tableId: string,
-  columns: readonly ComparisonQuestion[],
-  rows: number,
-  adding: boolean,
-): string {
-  const table = `.comparison-table[data-comparison-table="${CSS.escape(tableId)}"]`;
-  const rules = [`${table} .comparison-head-row > .comparison-corner{grid-row:1;grid-column:1}`];
-  const selectorOf = (question: (typeof columns)[number]) =>
-    `[data-question-id="${CSS.escape(question.id)}"]`;
-  let shown = 0;
-  for (const column of columns) {
-    if (column.hidden === true) {
-      rules.push(
-        `${table} .comparison-row-cells > .comparison-cell${selectorOf(column)}{display:none}`,
-      );
-      continue;
-    }
-    shown++;
-    rules.push(
-      `${table} .comparison-head-row > .comparison-question${selectorOf(column)}{grid-row:1;grid-column:${shown + 1}}`,
-      `${table} .comparison-row-cells > .comparison-cell${selectorOf(column)}{grid-column:${shown + 1}}`,
-    );
-  }
-  for (let row = 1; row <= rows; row++) {
-    rules.push(
-      `${table} .comparison-row:nth-child(${row}) > .comparison-document{grid-row:${row + 1};grid-column:1}`,
-      `${table} .comparison-row:nth-child(${row}) > .comparison-row-cells > .comparison-cell{grid-row:${row + 1}}`,
-    );
-  }
-  if (adding) {
-    rules.push(
-      `${table} .comparison-head-row > .comparison-question--new{grid-row:1;grid-column:${shown + 2}}`,
-    );
-  }
-  const lastShown = columns.reduce((last, column, at) => (column.hidden ? last : at), -1);
-  const lastColumn = lastShown >= 0 ? columns[lastShown] : undefined;
-  if (lastColumn) {
-    rules.push(
-      `${table} .comparison-head-row > .comparison-question${selectorOf(lastColumn)}{border-right:0}`,
-      `${table} .comparison-row-cells > .comparison-cell${selectorOf(lastColumn)}{border-right:0}`,
-    );
-  } else {
-    rules.push(
-      `${table} .comparison-head-row > .comparison-corner{border-right:0}`,
-      `${table} .comparison-document{border-right:0}`,
-    );
-  }
-  return rules.join("\n");
-}
-
-/**
  * The table's cells: how many, how many have their outcome, how many filling
  * again would write, and the monthly cap or plan's limit that stopped a fill.
  */
@@ -217,6 +159,31 @@ export function ComparisonTableView({ node, editor }: ReactNodeViewProps) {
   const [drag, setDrag] = useState<{ questionId: string; slot: number | null } | null>(null);
   const hiddenIds = new Set(hidden.map((column) => column.id));
   const { total, settled, toFill, stop } = cellCounts(node, hiddenIds);
+  const hiddenKey = hidden.map((column) => column.id).join("\n");
+  const lastShown = questions.at(-1)?.id ?? null;
+  // The cells are drawn in the document's order, which is the Questions': a hidden column's
+  // cells are hidden, and the last column shown keeps the grid's outer edge. Read by
+  // `questionId`, so a move, a hide or a show keeps this right however the rows arrive.
+  useLayoutEffect(() => {
+    const element = wrapper.current;
+    if (!element) return;
+    const hiddenNow = new Set(hiddenKey === "" ? [] : hiddenKey.split("\n"));
+    const apply = () => {
+      for (const cell of element.querySelectorAll<HTMLElement>(
+        ".comparison-row-cells > .comparison-cell[data-question-id]",
+      )) {
+        const questionId = cell.dataset.questionId ?? "";
+        cell.hidden = hiddenNow.has(questionId);
+        if (questionId === lastShown) cell.dataset.lastShown = "true";
+        else delete cell.dataset.lastShown;
+      }
+    };
+    apply();
+    editor.on("transaction", apply);
+    return () => {
+      editor.off("transaction", apply);
+    };
+  }, [editor, hiddenKey, lastShown]);
   const language = useLanguage();
   const openSettings = useAppStore((state) => state.openSettings);
   const editable = editor.isEditable;
@@ -246,7 +213,7 @@ export function ComparisonTableView({ node, editor }: ReactNodeViewProps) {
     const to = landing
       ? columns.findIndex((column) => column.id === landing.id)
       : columns.length - 1;
-    if (to >= 0) moveColumn(handle, questionId, to);
+    if (to >= 0) void moveColumn(handle, questionId, to);
   };
 
   const fit = (questionId: string) => {
@@ -269,6 +236,7 @@ export function ComparisonTableView({ node, editor }: ReactNodeViewProps) {
       const width = widthOf(question);
       return width ? `${Math.round(width)}px` : "minmax(156px, 1fr)";
     }),
+    ...(adding ? ["minmax(156px, 1fr)"] : []),
   ].join(" ");
 
   const canAdd = editable && columns.length < MAX_COMPARISON_QUESTIONS;
@@ -297,9 +265,9 @@ export function ComparisonTableView({ node, editor }: ReactNodeViewProps) {
       data-waiting={(!filling && waiting) || undefined}
       data-expanded={expanded || undefined}
       data-pending={proposal ? "true" : undefined}
+      data-no-columns={questions.length === 0 ? "true" : undefined}
       className="comparison-table"
     >
-      <style>{comparisonGridCss(tableId, columns, node.childCount, adding)}</style>
       <div contentEditable={false} data-comparison-ui className="comparison-head">
         {expanded && <TableIcon className="size-4 shrink-0 text-ink-meta" />}
         <span data-testid="comparison-title" className="comparison-title" title={title}>
@@ -439,12 +407,7 @@ export function ComparisonTableView({ node, editor }: ReactNodeViewProps) {
           className="comparison-scroll"
           role="table"
           aria-label={title}
-          style={
-            {
-              "--comparison-columns": questions.length + (adding ? 1 : 0),
-              gridTemplateColumns,
-            } as React.CSSProperties
-          }
+          style={{ gridTemplateColumns } as React.CSSProperties}
         >
           {/* biome-ignore lint/a11y/useSemanticElements lint/a11y/useFocusableInteractive: the table's heading row, as its grid needs it; nothing in it takes the focus but "+ Question"'s field. */}
           <div
@@ -467,6 +430,7 @@ export function ComparisonTableView({ node, editor }: ReactNodeViewProps) {
                 count={columns.length}
                 editable={editable}
                 width={widthOf(question)}
+                lastShown={question.id === lastShown}
                 dragging={drag?.questionId === question.id}
                 drop={dropOf(index)}
                 onWidthPreview={(questionId, width) =>

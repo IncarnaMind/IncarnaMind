@@ -4505,6 +4505,21 @@ export interface ComparisonFillRequest extends ComparisonTableRef {
   questionIds?: readonly string[];
 }
 
+/** A comparison table's column to move, and where it lands. */
+export interface ComparisonColumnMove extends ComparisonTableRef {
+  /** The column's Question. */
+  questionId: string;
+  /** Where it lands among all the columns, hidden ones counted: the second column is 1. */
+  to: number;
+}
+
+/** Where a moved column now is, and whether it moved at all. */
+export interface ComparisonColumnMoveResult {
+  /** Among all the columns, hidden ones counted: the second column is 1. */
+  index: number;
+  moved: boolean;
+}
+
 /**
  * What asking for a comparison table, or for its cells to be filled, did: it
  * is in the Mind (a change to accept, the first time) and its cells are being
@@ -9834,6 +9849,13 @@ export interface CoreApi {
    * already going takes them up once its cells are done.
    */
   fillComparisonTable(input: ComparisonFillRequest): Promise<ComparisonResult>;
+  /**
+   * Moves a comparison table's column: its Question's place and every row's
+   * cell with it, as one change of the Mind, so no reader ever sees a half
+   * moved table. Its Answers, Citations and marks go with it, and a fill
+   * going on keeps writing into its cells.
+   */
+  moveComparisonColumn(input: ComparisonColumnMove): Promise<ComparisonColumnMoveResult>;
   /** Stops filling a comparison table: cells being written stay as they were. */
   stopComparisonTable(input: ComparisonTableRef): Promise<void>;
   /** The comparison tables whose cells are being filled now. */
@@ -11040,6 +11062,7 @@ const methods: Record<CoreApiMethod, true> = {
   estimateRun: true,
   compareDocuments: true,
   fillComparisonTable: true,
+  moveComparisonColumn: true,
   stopComparisonTable: true,
   listFillingComparisons: true,
   listTasks: true,

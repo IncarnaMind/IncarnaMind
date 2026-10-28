@@ -2887,7 +2887,6 @@ export const zhCN = {
   "comparison.column.moveRight": "向右移动",
   "comparison.column.hide": "隐藏列",
   "comparison.column.showHidden": "显示隐藏的列…",
-  "comparison.column.noneHidden": "没有隐藏的列。",
   "comparison.column.hideMenu": "隐藏",
   "comparison.column.fit": "列宽适应内容",
   "comparison.column.resize": "拖动调整列宽，双击适应内容",

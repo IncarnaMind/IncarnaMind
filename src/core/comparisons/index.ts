@@ -49,6 +49,8 @@ import {
   COMPARISON_ROW_NODE,
   COMPARISON_TABLE_NODE,
   type ComparisonCellAttributes,
+  type ComparisonColumnMove,
+  type ComparisonColumnMoveResult,
   type ComparisonProblem,
   type ComparisonResult,
   type ComparisonTableRef,
@@ -228,6 +230,16 @@ function parseRef(input: unknown, what: string): ComparisonTableRef {
     throw new InvalidInputError(`${what} needs a Mind and a comparison table.`);
   }
   return { mindId: String(input.mindId ?? ""), tableId: input.tableId };
+}
+
+function parseColumnMove(input: unknown): ComparisonColumnMove {
+  const ref = parseRef(input, "moveComparisonColumn");
+  const questionId = isRecord(input) ? input.questionId : undefined;
+  const to = isRecord(input) ? input.to : undefined;
+  if (typeof questionId !== "string" || questionId === "" || !Number.isInteger(to)) {
+    throw new InvalidInputError({ key: "error.comparison.columnIds" });
+  }
+  return { ...ref, questionId, to: to as number };
 }
 
 function parseFillRef(input: unknown): ComparisonTableRef & { questionIds: string[] | null } {
@@ -808,6 +820,45 @@ export function createComparisons(options: ComparisonsOptions) {
     describeSteps: describeCells,
   };
 
+  /**
+   * A column moved to `to`: the Questions' order and every row's cells in it,
+   * copied into that order in one transaction, so no reader ever sees a half
+   * moved table. A cell is copied whole, the words a fill is streaming into
+   * it included; fills write their cells by questionId, so they keep writing
+   * into them wherever the move put them.
+   */
+  function moveColumn(raw: unknown): ComparisonColumnMoveResult {
+    const input = parseColumnMove(raw);
+    const mindId = options.requireMind(input.mindId);
+    return content.edit(mindId, (all) => {
+      const table = tableIn(all, input.tableId);
+      if (!table) throw new NotFoundError({ key: "error.comparison.notFound" });
+      const questions = comparisonQuestionsOf(table.getAttributes());
+      const from = questions.findIndex((question) => question.id === input.questionId);
+      if (from < 0) return { index: -1, moved: false };
+      const to = Math.min(Math.max(input.to, 0), questions.length - 1);
+      if (to === from) return { index: from, moved: false };
+      const next = questions.filter((_question, at) => at !== from);
+      next.splice(to, 0, questions[from] as (typeof questions)[number]);
+      for (const row of elements(table)) {
+        if (row.nodeName !== COMPARISON_ROW_NODE) continue;
+        const cells = new Map(
+          elements(row)
+            .filter((cell) => cell.nodeName === COMPARISON_CELL_NODE)
+            .map((cell) => [String(cell.getAttribute("questionId") ?? ""), cell]),
+        );
+        const ordered = next.flatMap((question) => {
+          const cell = cells.get(question.id);
+          return cell ? [cell.clone()] : [];
+        });
+        row.delete(0, row.length);
+        row.insert(0, ordered);
+      }
+      table.setAttribute("questions", next as never);
+      return { index: to, moved: true };
+    });
+  }
+
   /** Where the table goes: after the Block named, or before it when it is an empty paragraph. */
   function placeOf(blocks: Y.XmlFragment, afterBlockId: string | null): number {
     if (!afterBlockId) return blocks.length;
@@ -936,6 +987,10 @@ export function createComparisons(options: ComparisonsOptions) {
       if (!("model" in ready)) return ready;
       startFill(mindId, ref.tableId, ready.model, ref.questionIds);
       return { started: true, tableId: ref.tableId };
+    },
+
+    moveColumn(input: unknown): ComparisonColumnMoveResult {
+      return moveColumn(input);
     },
 
     async stop(input: unknown): Promise<void> {

@@ -6,18 +6,22 @@
 import { comparisonLabelOf, MAX_COMPARISON_QUESTIONS } from "../../shared/comparisons";
 import { type ComparisonColumnHandle, useComparisonColumns } from "./comparisonColumnState";
 import { fillComparisonTable } from "./comparisons";
+import { core } from "./core";
 import {
+  comparisonColumnHere,
+  comparisonColumnStep,
   duplicateComparisonColumn,
   editComparisonColumn,
   insertComparisonColumnBeside,
-  moveComparisonColumn,
-  moveComparisonColumnBy,
   questionLine,
   removeComparisonColumn,
   setComparisonColumnHidden,
   setComparisonColumnWidth,
 } from "./editor/comparisonColumnCommands";
+import { offerMoveUndo } from "./editor/comparisonMoveUndo";
 import { offerEditorUndo } from "./editor/editorUndo";
+import { flushMindUpdates } from "./mindCopies";
+import { useAppStore } from "./store";
 
 export type { ComparisonColumnField, ComparisonColumnHandle } from "./comparisonColumnState";
 export { comparisonColumnHandles, useComparisonColumns } from "./comparisonColumnState";
@@ -109,24 +113,52 @@ export function removeColumn(handle: ComparisonColumnHandle, questionId: string)
   useComparisonColumns.getState().focusColumn(handle.tableId, done.focusId);
 }
 
-/** A column moved to `to`, its Answers with it; the heading keeps the focus. */
-export function moveColumn(handle: ComparisonColumnHandle, questionId: string, to: number): void {
-  const done = moveComparisonColumn(handle.editor, handle.tableId, questionId, to);
-  if (!done) return;
-  offerEditorUndo(handle.editor, (t) => t("comparison.column.moved", { label: done.label }));
+/**
+ * A column moved to `to`, its Answers with it: the core writes the Questions'
+ * order and every row's cells in one change, after what the User typed in the
+ * note has reached it, so a cell is copied as they left it. Undo and Redo ask
+ * the core to move it back or forward.
+ */
+export async function moveColumn(
+  handle: ComparisonColumnHandle,
+  questionId: string,
+  to: number,
+): Promise<void> {
+  const here = comparisonColumnHere(handle.editor, handle.tableId, questionId);
+  if (!here || here.index === to) return;
+  await flushMindUpdates(handle.mindId);
+  let moved: { index: number; moved: boolean };
+  try {
+    moved = await core.moveComparisonColumn({
+      mindId: handle.mindId,
+      tableId: handle.tableId,
+      questionId,
+      to,
+    });
+  } catch (error) {
+    useAppStore.getState().reportError(error);
+    return;
+  }
+  if (moved.moved) {
+    offerMoveUndo(handle.editor, handle, {
+      questionId,
+      label: here.label,
+      from: here.index,
+      to: moved.index,
+    });
+  }
   useComparisonColumns.getState().focusColumn(handle.tableId, questionId);
 }
 
 /** A column moved one visible column left or right, past hidden ones. */
-export function stepColumn(
+export async function stepColumn(
   handle: ComparisonColumnHandle,
   questionId: string,
   direction: -1 | 1,
-): void {
-  const done = moveComparisonColumnBy(handle.editor, handle.tableId, questionId, direction);
-  if (!done) return;
-  offerEditorUndo(handle.editor, (t) => t("comparison.column.moved", { label: done.label }));
-  useComparisonColumns.getState().focusColumn(handle.tableId, questionId);
+): Promise<void> {
+  const to = comparisonColumnStep(handle.editor, handle.tableId, questionId, direction);
+  if (to === null) return;
+  await moveColumn(handle, questionId, to);
 }
 
 /** A column made wider or narrower; dragging says it once, when the pointer lets go. */

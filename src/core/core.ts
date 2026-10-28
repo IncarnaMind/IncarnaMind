@@ -4108,6 +4108,8 @@ export function createCore(adapters: CoreAdapters): Core {
     compareDocuments: (input) => inFlow("comparison", () => comparisons.compareDocuments(input)),
     fillComparisonTable: (input) =>
       inFlow("comparison", () => comparisons.fillComparisonTable(input)),
+    moveComparisonColumn: (input) =>
+      inFlow("comparison", async () => comparisons.moveColumn(input)),
     stopComparisonTable: (input) => comparisons.stop(input),
     listFillingComparisons: async () => comparisons.filling(),
     listTasks: async () => tasks.list(),

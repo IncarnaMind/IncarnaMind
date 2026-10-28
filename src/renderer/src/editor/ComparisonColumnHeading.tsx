@@ -47,6 +47,7 @@ export function ComparisonColumnHeading({
   count,
   editable,
   width,
+  lastShown = false,
   dragging = false,
   drop = null,
   onWidthPreview,
@@ -65,6 +66,8 @@ export function ComparisonColumnHeading({
   editable: boolean;
   /** Its width in pixels when the User sized it; absent: the table's own width. */
   width?: number;
+  /** The last column the table shows: the grid's outer edge is its right edge. */
+  lastShown?: boolean;
   dragging?: boolean;
   drop?: ColumnDrop;
   onWidthPreview?(questionId: string, width: number | null): void;
@@ -209,7 +212,7 @@ export function ComparisonColumnHeading({
     const moving = isMac ? event.altKey : event.ctrlKey;
     if (moving && event.shiftKey && (event.key === "ArrowLeft" || event.key === "ArrowRight")) {
       event.preventDefault();
-      stepColumn(handle, question.id, event.key === "ArrowLeft" ? -1 : 1);
+      void stepColumn(handle, question.id, event.key === "ArrowLeft" ? -1 : 1);
     }
   };
 
@@ -228,6 +231,7 @@ export function ComparisonColumnHeading({
       tabIndex={editable ? 0 : undefined}
       data-testid="comparison-question"
       data-question-id={question.id}
+      data-last-shown={lastShown || undefined}
       data-dragging={dragging || undefined}
       data-drop={drop ?? undefined}
       title={question.text}
