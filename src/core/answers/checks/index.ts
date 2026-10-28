@@ -105,6 +105,8 @@ export interface ChecksOptions
   > {
   /** The interface language: what a check's sentence is written in. */
   language(): Language;
+  /** For the paired comparison of #1634 only: every call carries what it did before its cuts. */
+  carriesAll?(): boolean;
   content: Pick<MindContent, "read" | "edit" | "readSettings" | "editSettings">;
   /** What contradiction watch needs besides (#112). */
   watch: Pick<

@@ -89,7 +89,7 @@ import type {
   SearchResultForModel,
   UnfoundQuote,
 } from "./engine";
-import { NOT_CITED_ATTRIBUTE } from "./prompt";
+import { CONTINUES_ATTRIBUTE, NOT_CITED_ATTRIBUTE } from "./prompt";
 
 const SEARCHED_ALREADY =
   "You already searched for this, and have its Passages: answer with them, or search for something different.";
@@ -1023,12 +1023,14 @@ interface ShownPassage {
   location: string | null;
   text: string;
   notCited: boolean;
+  /** The id of the Passage shown just before it whose end its start repeats, which is left out. */
+  continues: string | null;
 }
 
 /** Passages as the model sees them, each with its short id, Document, its date, and pages or Location. */
 function formatPassages(passages: readonly ShownPassage[]): string {
   return passages
-    .map(({ id, documentName, date, range, location, text, notCited }) => {
+    .map(({ id, documentName, date, range, location, text, notCited, continues }) => {
       const pages = pagesLabel(range);
       const where = location
         ? ` location="${attribute(location)}"`
@@ -1038,11 +1040,44 @@ function formatPassages(passages: readonly ShownPassage[]): string {
       const dated = date
         ? ` ${date.of === "document" ? "date" : date.of}="${attribute(date.date)}"`
         : "";
+      const after = continues ? ` ${CONTINUES_ATTRIBUTE}="${continues}"` : "";
       const never = notCited ? NOT_CITED_ATTRIBUTE : "";
-      return `<passage id="${id}" document="${attribute(documentName)}"${dated}${where}${never}>\n${text}\n</passage>`;
+      return `<passage id="${id}" document="${attribute(documentName)}"${dated}${where}${after}${never}>\n${text}\n</passage>`;
     })
     .join("\n\n");
 }
+
+/** How many of `text`'s first lines `before` ends with: what a Passage repeats of the one before it. */
+function repeatedLines(before: string, text: string): number {
+  const lines = text.split("\n");
+  for (let count = lines.length - 1; count > 0; count--) {
+    if (before.endsWith(lines.slice(0, count).join("\n"))) return count;
+  }
+  return 0;
+}
+
+/**
+ * A Passage's shown text without its first `repeated` lines, which the Passage before it ends
+ * with, starting with the mark of the Unit it now starts in: its own start no longer says.
+ */
+function withoutRepeatedStart(text: string, repeated: number, units: readonly PageText[]): string {
+  const lines = text.split("\n");
+  const rest = lines.slice(repeated).join("\n").replace(/^\n+/, "");
+  const marks = units.map(unitMark);
+  if (marks.some((mark) => mark && rest.startsWith(`${mark} `))) return rest;
+  let startsIn: string | null = null;
+  for (const line of lines.slice(0, repeated)) {
+    const mark = marks.find((each, index) => index > 0 && each && line.startsWith(`${each} `));
+    if (mark) startsIn = mark;
+  }
+  return startsIn ? `${startsIn} ${rest}` : rest;
+}
+
+const follows = (before: WindowedPassage | undefined, passage: WindowedPassage) =>
+  before !== undefined &&
+  before.documentId === passage.documentId &&
+  before.contentHash === passage.contentHash &&
+  passage.position === before.position + 1;
 
 /** A record the core accepted, with what it points to. */
 interface Accepted {
@@ -1105,6 +1140,8 @@ const toCitation = (record: Accepted, result: CheckResult | null): Citation => (
 export interface CitationSessionEvents {
   /** The model gave a valid record for a marker (again: it replaces the earlier one). */
   onRecord(marker: number, citation: Citation): void;
+  /** For the paired comparison of #1634 only: show each Passage whole. */
+  repeatsSharedLines?: boolean;
 }
 
 /**
@@ -1521,7 +1558,8 @@ export function createCitationSession(
       if (!dates.has(documentId)) dates.set(documentId, documents.documentDate(documentId));
       return dates.get(documentId) ?? null;
     };
-    const formatted = found.map((passage): ShownPassage => {
+    const shownIds: string[] = [];
+    const formatted = found.map((passage, index): ShownPassage => {
       const range = { pageFrom: passage.pageFrom, pageTo: passage.pageTo };
       const units =
         passage.pageFrom !== null && passage.pageTo !== null
@@ -1539,19 +1577,29 @@ export function createCitationSession(
       const id = measuring
         ? (handleOf.get(passage.passageId) ?? `P${handleOf.size + ++unseen}`)
         : handleFor(passage.passageId);
+      shownIds.push(id);
       // A browser-made PDF's "⼤" for "大": every other reader of the text folds it (ADR-0009).
       const text = foldRadicals(withCueMarks(marked, units));
       const notCited = documents.citationSource(passage.passageId)?.notCited ?? false;
       // What later requests offer for citing is what was shown here: never a Passage no record may name.
       if (!notCited && !measuring) shownTexts.set(id, text);
+      // Consecutive Passages share up to 200 tokens (../documents/passages): a quarter of what a
+      // search handed the model (#1634). The shared lines are shown once, in the Passage before;
+      // the quote check reads each Passage's own pages, so a quote from them checks under either id.
+      const before = found[index - 1];
+      const repeated =
+        !events.repeatsSharedLines && follows(before, passage)
+          ? repeatedLines(before?.text ?? "", passage.text)
+          : 0;
       return {
         id,
         documentName: passage.documentName,
         date: dateOf(passage.documentId),
         range,
         location: passageLocation(units),
-        text,
+        text: repeated > 0 ? withoutRepeatedStart(text, repeated, units) : text,
         notCited,
+        continues: repeated > 0 ? (shownIds[index - 1] ?? null) : null,
       };
     });
     return formatPassages(formatted);

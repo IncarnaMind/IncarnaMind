@@ -38,6 +38,7 @@ import {
   type RequestMind,
 } from "./context";
 import type { AnswerMessage } from "./engine";
+import { CONTINUES_ATTRIBUTE } from "./prompt";
 
 /** The factor on the estimate until a request's real count is known. */
 export const ESTIMATE_FACTOR = 1.25;
@@ -56,6 +57,8 @@ export const SEARCH_RESERVE_TOKENS = 4_500;
 const MIN_RESULT_TOKENS = 256;
 
 const PASSAGE = /<passage\b[^>]*>[\s\S]*?<\/passage>/g;
+const PASSAGE_ID = /^<passage id="([^"]+)"/;
+const CONTINUED = new RegExp(`^<passage\\b[^>]*\\b${CONTINUES_ATTRIBUTE}="([^"]+)"`);
 
 /** What a search result says when none of its Passages fit. */
 export const NO_ROOM_FOR_PASSAGES =
@@ -144,13 +147,24 @@ export function createWindowBudget(
       if (ranks?.length === passages.length) {
         order.sort((a, b) => (ranks[a] as number) - (ranks[b] as number) || a - b);
       }
+      const ids = passages.map((passage) => PASSAGE_ID.exec(passage)?.[1]);
+      const before = passages.map((passage) => {
+        const continued = CONTINUED.exec(passage)?.[1];
+        return continued === undefined ? -1 : ids.indexOf(continued);
+      });
       const chosen = new Set<number>();
       let used = 0;
+      const costOf = (at: number) => tokens(passages[at] as string) + 1;
       for (const index of order) {
-        const cost = tokens(passages[index] as string) + 1;
-        if (used + cost > room) break;
-        chosen.add(index);
-        used += cost;
+        if (chosen.has(index)) continue;
+        // A Passage that leaves out the start it shares with the one before goes with it if it can.
+        const group: number[] = [];
+        for (let at = index; at >= 0 && !chosen.has(at); at = before[at] ?? -1) group.push(at);
+        const cost = group.reduce((sum, at) => sum + costOf(at), 0);
+        const taken = used + cost <= room ? group : used + costOf(index) <= room ? [index] : null;
+        if (!taken) break;
+        for (const at of taken) chosen.add(at);
+        used += taken === group ? cost : costOf(index);
       }
       const kept = passages.filter((_, index) => chosen.has(index));
       if (kept.length === passages.length) return { text, passages: passages.length };

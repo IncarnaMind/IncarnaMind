@@ -10,6 +10,7 @@ import {
   type Figure,
   type FigureContext,
   type FigureUnit,
+  figureContextOf,
   readFigures,
 } from "../../../shared/figures";
 import type { ResultUnit } from "../../../shared/formula";
@@ -29,6 +30,19 @@ export function figuresInClaim(text: string, context: FigureContext): Figure[] {
     (figure) =>
       !references.some((reference) => figure.start >= reference.from && figure.end <= reference.to),
   );
+}
+
+/**
+ * Whether `sentence` states a figure in its own way of writing numbers or in English or Chinese
+ * ones: `calculate` settles only a figure the sentence states (`statedFigure`), so a check of a
+ * sentence with none isn't offered it, nor its instructions (#1634).
+ */
+export function statesAFigure(sentence: string): boolean {
+  return [
+    documentFigureContext([{ text: sentence }]),
+    figureContextOf(sentence, "en"),
+    figureContextOf(sentence, "zh-CN"),
+  ].some((context) => figuresInClaim(sentence, context).length > 0);
 }
 
 /**

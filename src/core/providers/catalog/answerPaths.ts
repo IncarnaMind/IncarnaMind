@@ -59,6 +59,8 @@ export interface ListedModel {
 export interface AnswerPathsOverride {
   writesThenCites?(model: ListedModel): boolean | undefined;
   retrievesFirst?(model: ListedModel): boolean | undefined;
+  /** For the paired comparison of #1634 only: true, every call carries what it did before its cuts. */
+  carriesAll?(): boolean | undefined;
 }
 
 const listed = (

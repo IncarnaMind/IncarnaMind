@@ -44,6 +44,7 @@ import {
 } from "./pairedReport";
 import { percentile } from "./report";
 import { env, list, modelNamed, modelsAsked, spentUsd } from "./settings";
+import { createTokenAuditor, type TokenAuditRun, tokenReport } from "./tokens";
 
 const ROOT = resolve(__dirname, "../..");
 const ANSWER_TIMEOUT_MS = 5 * 60_000;
@@ -167,6 +168,8 @@ test.skipIf(env("PAIRED") === null)("paired runs: today's path against a new one
   const margin = Number(env("MARGIN") ?? "0");
   const judge = judgeOf(models);
   const switcher = armSwitch();
+  const audit = env("AUDIT") === "1" ? createTokenAuditor() : null;
+  const tokenRuns: (TokenAuditRun & { arm: string })[] = [];
   const reranker = createWorkerCrossEncoder(config.rerankOnCpu);
   const rows: PairedRow[] = [];
   const loads: number[] = [];
@@ -196,7 +199,9 @@ test.skipIf(env("PAIRED") === null)("paired runs: today's path against a new one
       log,
       embeddings: false,
       recordTimings: true,
-      chatModels: switcher.chatModels,
+      chatModels: audit
+        ? (inner) => switcher.chatModels(audit.chatModels(inner))
+        : switcher.chatModels,
       answerPaths: switcher.answerPaths,
     });
     const { core, timings } = opened.library;
@@ -237,7 +242,9 @@ test.skipIf(env("PAIRED") === null)("paired runs: today's path against a new one
               const arm = arms[which as 0 | 1];
               switcher.use(arm);
               await arm.prepare?.(core);
-              done[which] = await runOnArm(item, {
+              const spentFirst = await spentUsd(core);
+              audit?.begin({ flow: item.set, model: name, language: item.language });
+              const ran = await runOnArm(item, {
                 library: opened.library,
                 recorder: timings,
                 choice,
@@ -246,6 +253,17 @@ test.skipIf(env("PAIRED") === null)("paired runs: today's path against a new one
                 grade: (expected, answer) => gradeAnswer(judge.model, expected, answer),
                 claimsJudge: judge.model,
               });
+              const requests = audit?.end() ?? [];
+              if (audit) {
+                tokenRuns.push({
+                  arm: arm.id,
+                  flow: item.set,
+                  model: name,
+                  language: item.language,
+                  requests,
+                });
+              }
+              done[which] = { ...ran, costUsd: (await spentUsd(core)) - spentFirst };
             }
             const row: PairedRow = {
               set: item.set,
@@ -312,6 +330,14 @@ test.skipIf(env("PAIRED") === null)("paired runs: today's path against a new one
     "## Item by item",
     "",
     ...items,
+    ...(audit
+      ? names.flatMap((arm) => [
+          "",
+          `## Tokens: ${arm}`,
+          "",
+          tokenReport(tokenRuns.filter((run) => run.arm === arm)),
+        ])
+      : []),
   ].join("\n");
   console.log(report);
   const out = join(
@@ -321,5 +347,6 @@ test.skipIf(env("PAIRED") === null)("paired runs: today's path against a new one
   await mkdir(out, { recursive: true });
   await writeFile(join(out, "report.md"), report);
   await writeFile(join(out, "report.json"), JSON.stringify({ arms: names, rows }, null, 2));
+  if (audit) await writeFile(join(out, "tokens.json"), JSON.stringify(tokenRuns, null, 2));
   log(`Report in ${out}`);
 });

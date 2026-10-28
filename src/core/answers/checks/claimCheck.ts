@@ -62,7 +62,7 @@ import {
   type CiteOptions,
   type DocumentLanguage,
 } from "../engine";
-import { agreesWith, statedFigure } from "./calculated";
+import { agreesWith, statedFigure, statesAFigure } from "./calculated";
 import { needsCalculation } from "./calculationGate";
 import { figuresMatch, nearestLine } from "./nearest";
 import {
@@ -91,6 +91,8 @@ export interface ClaimCheckDependencies {
   language(): Language;
   engine: AnswerEngine;
   evidence: Pick<Evidence, "search">;
+  /** For the paired comparison of #1634 only: every call carries what it did before its cuts. */
+  carriesAll?(): boolean;
   documents: Pick<AnswerDocuments, "citationSource" | "pageTexts" | "documentDate"> & {
     searchableCount(documentIds: readonly string[] | null): number;
     searchableLanguages(documentIds: readonly string[] | null): DocumentLanguage[];
@@ -204,9 +206,16 @@ export function createClaimCheck(deps: ClaimCheckDependencies) {
         deps.documents.pageTexts(documentId, contentHash, from, to),
       documentDate: (documentId) => deps.documents.documentDate(documentId),
     };
-    const session = createCitationSession(scoped, { onRecord: () => undefined });
+    const carriesAll = deps.carriesAll?.() ?? false;
+    const session = createCitationSession(scoped, {
+      onRecord: () => undefined,
+      repeatsSharedLines: carriesAll,
+    });
     const { model } = request;
-    const calculating = model.support === "tools" && calculates(model.capabilities);
+    const calculating =
+      model.support === "tools" &&
+      calculates(model.capabilities) &&
+      (carriesAll || statesAFigure(request.claim));
     const recorded = new Set<number>();
     let attempts = 0;
     let invalidInput = false;

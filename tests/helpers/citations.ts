@@ -32,6 +32,8 @@ export interface ShownPassage {
   pages: string | null;
   /** Every kind but PDF: where the Passage is, e.g. "slides 3–4" or "lines 1–12". */
   location: string | null;
+  /** The Passage shown before it whose end its left-out start repeats. */
+  continues: string | null;
   text: string;
 }
 
@@ -49,7 +51,7 @@ export function recordSearches() {
 export function shownPassages(result: string): ShownPassage[] {
   const passages: ShownPassage[] = [];
   const pattern =
-    /<passage id="([^"]+)" document="([^"]*)"(?: ((?:date|file-created|file-modified)="[^"]+"))?(?: pages="([^"]+)")?(?: location="([^"]+)")?(?: cite="never")?>\n([\s\S]*?)\n<\/passage>/g;
+    /<passage id="([^"]+)" document="([^"]*)"(?: ((?:date|file-created|file-modified)="[^"]+"))?(?: pages="([^"]+)")?(?: location="([^"]+)")?(?: continues="([^"]+)")?(?: cite="never")?>\n([\s\S]*?)\n<\/passage>/g;
   for (const match of result.matchAll(pattern)) {
     passages.push({
       id: match[1] as string,
@@ -57,7 +59,8 @@ export function shownPassages(result: string): ShownPassage[] {
       date: match[3] ?? null,
       pages: match[4] ?? null,
       location: match[5] ?? null,
-      text: match[6] as string,
+      continues: match[6] ?? null,
+      text: match[7] as string,
     });
   }
   return passages;

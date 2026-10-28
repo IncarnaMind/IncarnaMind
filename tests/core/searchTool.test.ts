@@ -120,8 +120,13 @@ describe("The document-search Tool", { timeout: 30_000 }, () => {
     );
     // The model sees where each new section starts, e.g. "[§ Section 3]" (ADR-0011).
     const unmarked = (text: string) => text.replace(/\n\n\[(?:§[^\]\n]*|p\. \d+)\] /g, "\n\n");
-    const positionOf = (text: string) =>
-      all.find((passage) => passage.text === unmarked(text))?.position;
+    // A Passage that goes on from the one before leaves out the lines they share (#1634).
+    const positionOf = ({ text, continues }: ShownPassage) =>
+      all.find((passage) =>
+        continues
+          ? passage.text.endsWith(unmarked(text.replace(/^\[(?:§[^\]\n]*|p\. \d+)\] /, "")))
+          : passage.text === unmarked(text),
+      )?.position;
 
     await askAndFinish(core, client, mind.id, "Where is the lighthouse?");
 
@@ -130,7 +135,7 @@ describe("The document-search Tool", { timeout: 30_000 }, () => {
     const fromCoast = shown.filter((passage) => passage.document === "Coast");
     // Coast's Passages come first, together, in reading order.
     expect(shown.slice(0, fromCoast.length)).toEqual(fromCoast);
-    const positions = fromCoast.map((passage) => positionOf(passage.text) as number);
+    const positions = fromCoast.map((passage) => positionOf(passage) as number);
     expect(positions.every((position) => position !== undefined)).toBe(true);
     expect([...positions].sort((a, b) => a - b)).toEqual(positions);
     // The Passage with the match is there with its neighbours: a whole window of 3 around it.

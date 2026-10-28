@@ -613,6 +613,9 @@ export const KINDS: readonly { kind: string; flows: readonly string[] }[] = [
   { kind: "Edits", flows: ["edit-with-ai"] },
   { kind: "Checks", flows: ["find-support", "check-mind"] },
   { kind: "Other flows", flows: ["suggestion", "comparison", "research"] },
+  { kind: "Questions asked in a Mind", flows: ["gating", "hard"] },
+  { kind: "Everyday requests", flows: ["everyday"] },
+  { kind: "Check this Mind, checks set", flows: ["checks"] },
 ];
 
 /** The kind of request this call is: a written check counts as a check, whatever flow made it. */

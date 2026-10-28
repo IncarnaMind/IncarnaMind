@@ -6,6 +6,7 @@
  */
 import type { CitationSupport, ClaimVerdict } from "../../api";
 import { LANGUAGE_NAMES, type Language } from "../../language";
+import { continuingNote } from "../prompt";
 
 const VERDICTS: readonly ClaimVerdict[] = ["supported", "unsupported", "contradicted"];
 
@@ -103,6 +104,7 @@ export function checkInstructions(
         "",
         "Passages found in the User's Documents for this sentence:",
         passages,
+        ...[continuingNote(passages)].filter(Boolean),
         "",
         'Reply with one JSON object: {"answer": "…", "citations": [{"marker": 1, "passage": "P1", "location": "…", "quote": "…"}]}.',
         `- answer: your reply, in the form below. citations: for supported or contradicted, one record, marker 1: ${RECORD}. None for unsupported.`,
@@ -115,6 +117,7 @@ export function checkInstructions(
         "",
         "Passages found in the User's Documents for this sentence:",
         passages,
+        ...[continuingNote(passages)].filter(Boolean),
         "",
         REPLY,
       ].join("\n");
