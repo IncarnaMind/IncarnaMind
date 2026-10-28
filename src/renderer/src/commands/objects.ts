@@ -11,7 +11,6 @@ import { useAppStore } from "../store";
 import { findTab } from "../tabs";
 import { deleteTag } from "../tagChanges";
 import { stoppedPlaces, tagWithAi } from "../taggingStop";
-import { citationHandle } from "./handles";
 import { type Command, type CommandContext, needsHere } from "./registry";
 import { documentsOf, everyDocument, idsOf, onlyOne } from "./targets";
 
@@ -628,24 +627,17 @@ export const answerCommands: readonly Command[] = [
 export const citationCommands: readonly Command[] = [
   // "Checked by me" (#1933), as a toggle: the first while it is off, the second while it is on;
   // from the Citation's menu, or from ⌘K while its card shows.
-  ...(["signOff", "signOffRemove"] as const).map((action): Command => {
-    const id = `citation.${action}` as const;
-    const on = action === "signOffRemove";
-    const shown = () => {
-      const mark = citationHandle.current?.signOff() ?? null;
-      return mark && mark.checked === on ? mark : null;
-    };
-    return {
-      id,
+  ...(["signOff", "signOffRemove"] as const).map(
+    (action): Command => ({
+      id: `citation.${action}`,
       label: "signOff.action",
       keywords: ["signOff.keywords"],
       group: "edit",
       reversible: true,
-      checked: () => on,
-      when: (ctx) => ctx.here?.[id] !== undefined || shown() !== null,
-      run: (ctx) => (ctx.here?.[id] ?? shown()?.toggle)?.(),
-    };
-  }),
+      checked: () => action === "signOffRemove",
+      ...needsHere(`citation.${action}`),
+    }),
+  ),
   {
     id: "citation.remove",
     label: "citation.remove",

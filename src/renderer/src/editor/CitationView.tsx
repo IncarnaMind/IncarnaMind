@@ -84,6 +84,7 @@ import {
   citationSignOff,
   currentSigner,
   toggleCitationSignOff,
+  useDocumentVersions,
   usePersonId,
 } from "./signOffActions";
 import { runsText } from "./styledText";
@@ -311,7 +312,6 @@ export function CitationView({
     const handle = {
       open: () => openFromCardRef.current(),
       choices: () => choicesRef.current,
-      signOff: () => signOffRef.current,
       here: () => hereRef.current,
     };
     citationHandle.current = handle;
@@ -323,27 +323,18 @@ export function CitationView({
   // The User's own "Checked by me" (#1933): in a Note they can change, not in a footnote's text.
   const { records } = useContext(SignOffsContext);
   const personId = usePersonId();
+  const versions = useDocumentVersions();
   const canSignOff = mindId !== null && editor.isEditable && !inFootnote;
   const at = getPos();
   const signOff =
-    mindId !== null && typeof attributes.id === "string" && at !== undefined && documents
-      ? citationSignOff(
-          records,
-          editor.state.doc,
-          at,
-          attributes,
-          new Map(documents.map((each) => [each.id, each.contentHash])),
-          personId,
-        )
+    mindId !== null && at !== undefined
+      ? citationSignOff(records, editor.state.doc, at, attributes, versions, personId)
       : null;
   const toggleSignOff = () => {
     const pos = getPos();
     const signer = currentSigner();
     if (pos !== undefined && signer) toggleCitationSignOff(editor, pos, signer);
   };
-
-  const signOffRef = useRef<{ toggle: () => void; checked: boolean } | null>(null);
-  signOffRef.current = canSignOff ? { toggle: toggleSignOff, checked: checkedByMe(signOff) } : null;
 
   const menuId = useId();
   const objectMenu = useObjectMenu({ kind: "citation", id: menuId });

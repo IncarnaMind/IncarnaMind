@@ -32,6 +32,7 @@ import {
   calculatedFigureSignOff,
   currentSigner,
   setFigureSignOffs,
+  useDocumentVersions,
   usePersonId,
 } from "./signOffActions";
 import "./calculatedFigure.css";
@@ -145,18 +146,10 @@ export function CalculatedFigureView({
   // The User's own "Checked by me" on the figure (#1933), in a Note they can change.
   const { records } = useContext(SignOffsContext);
   const personId = usePersonId();
-  const documents = useAppStore((state) => state.documents);
+  const versions = useDocumentVersions();
   const signOff = useMemo(
-    () =>
-      attributes
-        ? calculatedFigureSignOff(
-            records,
-            attributes,
-            new Map(documents.map((each) => [each.id, each.contentHash])),
-            personId,
-          )
-        : null,
-    [records, attributes, documents, personId],
+    () => (attributes ? calculatedFigureSignOff(records, attributes, versions, personId) : null),
+    [records, attributes, versions, personId],
   );
   const canSignOff = mindId !== null && editor.isEditable;
   const toggleSignOff = () => {

@@ -15,8 +15,6 @@ export const assistantHandle: Handle<{ openHistory(): void }> = { current: null 
 export const citationHandle: Handle<{
   open(): void;
   choices(): { update: (() => void) | null; keepOld: (() => void) | null };
-  /** Its "Checked by me" (#1933), and whether it shows ticked; null where it can't be marked. */
-  signOff(): { toggle: () => void; checked: boolean } | null;
   /** What its card offers, for ⌘K, which takes them as it opens: a click there closes the card. */
   here(): CommandContext["here"];
 }> = { current: null };
