@@ -75,10 +75,10 @@ export function AssistantAnswer({
   askedAgain?: number;
 }) {
   const t = useT();
-  const { text, citations, figures, status } = answer;
+  const { text, citations, figures, status, claimChecks } = answer;
   const blocks = useMemo(
-    () => answerBlocks({ text, citations, figures, status }),
-    [text, citations, figures, status],
+    () => answerBlocks({ text, citations, figures, status, claimChecks }),
+    [text, citations, figures, status, claimChecks],
   );
   const writing = useAnswers((state) => state.writing.has(answer.id));
   const streaming = writing || status === "streaming";
@@ -144,6 +144,11 @@ export function AssistantAnswer({
           regenerate={regenerate}
           onOpenTable={(table) => keeping.openTable(answer, table)}
         />
+      )}
+      {(claimChecks?.length ?? 0) > 0 && answer.steps?.smallModel && (
+        <ProblemLine role="status" testId="answer-small-model">
+          {t("checks.smallModel")}
+        </ProblemLine>
       )}
       <MindChangesCard answer={answer} streaming={streaming} />
       <CommandsCard answer={answer} streaming={streaming} />

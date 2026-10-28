@@ -79,10 +79,13 @@ const sameMarks = (a: readonly Mark[], b: readonly Mark[]) =>
 export function MarginChecks({
   editor,
   mind,
+  readOnly = false,
 }: {
   editor: Editor;
   /** The Mind and its document: a card checks again there. */
   mind: { id: string; doc: Y.Doc };
+  /** A conversation Answer has no Mind to edit or check again (#1445). */
+  readOnly?: boolean;
 }) {
   const t = useT();
   const place = useCardPlace(mind.id);
@@ -238,6 +241,7 @@ export function MarginChecks({
           editor={editor}
           mindId={mind.id}
           doc={mind.doc}
+          readOnly={readOnly}
           label={t("claim.mark.label", { state: t(checkStateKey(editor, mark.claim)) })}
           reveal={mark.delay !== null}
           style={{ top: mark.top, "--reveal-delay": `${mark.delay ?? 0}ms` } as CSSProperties}

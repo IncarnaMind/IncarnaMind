@@ -119,6 +119,7 @@ export function ClaimMark({
   editor,
   mindId,
   doc,
+  readOnly = false,
   label,
   style,
   reveal,
@@ -128,6 +129,8 @@ export function ClaimMark({
   editor: Editor;
   mindId: string;
   doc: Y.Doc;
+  /** A conversation Answer shows evidence but offers no Note edits or another Mind check (#1445). */
+  readOnly?: boolean;
   label: string;
   style: CSSProperties;
   reveal: boolean;
@@ -149,9 +152,13 @@ export function ClaimMark({
   /** Whether the card was opened with the keyboard, whose Esc gives the caret back (#1762). */
   const openedByKeyboard = useRef(false);
   const open = pinned || peeking;
-  const decision = state === "supported" ? citationDecision(editor.state, claim) : NO_DECISION;
+  const decision =
+    !readOnly && state === "supported" ? citationDecision(editor.state, claim) : NO_DECISION;
   const plus = decision.kind === "add";
-  const added = useAddedDocuments((store) => store.byMind[mindId]?.[claim.check.id]?.length ?? 0);
+  const addedDocuments = useAddedDocuments(
+    (store) => store.byMind[mindId]?.[claim.check.id]?.length ?? 0,
+  );
+  const added = readOnly ? 0 : addedDocuments;
   const heading = t(checkStateKey(editor, claim));
 
   const hold = useCallback((source: string, on: boolean) => {
@@ -297,9 +304,10 @@ export function ClaimMark({
               heading={heading}
               verified={verificationOf(doc)?.documentId ?? null}
               cited={citationsOf(editor.state, claim)}
-              fixes={offersFixes(editor, claim)}
-              notFound={offersNotFound(editor, claim)}
-              keep={offersKeepAsView(editor, claim)}
+              readOnly={readOnly}
+              fixes={!readOnly && offersFixes(editor, claim)}
+              notFound={!readOnly && offersNotFound(editor, claim)}
+              keep={!readOnly && offersKeepAsView(editor, claim)}
               editor={editor}
               decision={decision}
               added={added}
@@ -356,7 +364,7 @@ export function ClaimMark({
                 keepAsView(editor, claim);
                 done();
               }}
-              use={offersUseFigure(editor, claim)}
+              use={!readOnly && offersUseFigure(editor, claim)}
               onUse={() => {
                 applyFigure(editor, mindId, doc, claim);
                 done(true);
@@ -463,6 +471,7 @@ function ClaimCard({
   heading,
   verified,
   cited,
+  readOnly,
   fixes,
   notFound,
   keep,
@@ -491,6 +500,7 @@ function ClaimCard({
   /** The Document a Verify Mind checks: left out of every check, as itself, never as a copy. */
   verified: string | null;
   cited: readonly NumberedCitation[];
+  readOnly: boolean;
   fixes: boolean;
   notFound: boolean;
   keep: boolean;
@@ -560,7 +570,7 @@ function ClaimCard({
       savedPage.fetchedAt,
   };
   const nothingFound = saysNotFound(shown, check, cited.length);
-  const findSourcesOffered = offersFindSources(editor, claim);
+  const findSourcesOffered = !readOnly && offersFindSources(editor, claim);
   const objectMenu = useObjectMenu({ kind: "check", id: check.id });
   const checkedIn = decided || state === "unsupported";
   const cuttable = fixes && uncoveredOf(claim) !== null;
@@ -726,7 +736,7 @@ function ClaimCard({
           </button>
         </p>
       )}
-      {reason && pastCap && (
+      {!readOnly && reason && pastCap && (
         <div className="citation-card-note">
           <MetaLine
             data-testid="claim-reason"
@@ -744,7 +754,7 @@ function ClaimCard({
           />
         </div>
       )}
-      {reason && !pastCap && (
+      {reason && (!pastCap || readOnly) && (
         <p data-testid="claim-reason" className="citation-card-note">
           {reason}
         </p>
@@ -868,7 +878,7 @@ function ClaimCard({
             {t(`citation.open.${openKind(location)}`)}
           </button>
         )}
-        {differs && (
+        {!readOnly && differs && (
           <button
             type="button"
             data-testid="claim-fix"
@@ -888,7 +898,7 @@ function ClaimCard({
             {t("claim.cutUnsupported")}
           </button>
         )}
-        {state === "unsupported" && searchedLess(claim) && !decisionMissing && (
+        {!readOnly && state === "unsupported" && searchedLess(claim) && !decisionMissing && (
           <button
             type="button"
             data-testid="claim-search-all"
@@ -941,7 +951,7 @@ function ClaimCard({
             </button>
           </>
         )}
-        {state === "unsupported" && !fixes && (
+        {!readOnly && state === "unsupported" && !fixes && (
           <button
             type="button"
             data-testid="claim-remove"
@@ -951,16 +961,17 @@ function ClaimCard({
             {t("claim.removeMark")}
           </button>
         )}
-        {(state === "needs-recheck" || (state === "not-checked" && added === 0 && !pastCap)) && (
-          <button
-            type="button"
-            data-testid="claim-check-again"
-            className="citation-card-action citation-card-action--primary"
-            onClick={() => onCheckAgain()}
-          >
-            {t("claim.checkAgain")}
-          </button>
-        )}
+        {!readOnly &&
+          (state === "needs-recheck" || (state === "not-checked" && added === 0 && !pastCap)) && (
+            <button
+              type="button"
+              data-testid="claim-check-again"
+              className="citation-card-action citation-card-action--primary"
+              onClick={() => onCheckAgain()}
+            >
+              {t("claim.checkAgain")}
+            </button>
+          )}
       </div>
       {findSourcesOffered && (
         <ObjectMenu

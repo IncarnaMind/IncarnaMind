@@ -71,6 +71,7 @@ import {
   waitingChanges,
 } from "../../shared/proposals";
 import { filingFolder, hasSearchScope, NO_SCOPE, searchScopeOf } from "../../shared/searchScope";
+import { judgesUnreliably } from "../../shared/smallModel";
 import { normaliseText } from "../../shared/text";
 import { setTextOrigin } from "../../shared/textOrigins";
 import type { AnalysisRuntime } from "../adapters";
@@ -95,6 +96,7 @@ import {
   type CitationRecheck,
   type CitationSupport,
   type CitedSelection,
+  type ClaimCheckAttributes,
   type ClaimedChange,
   type CommandDone,
   type CommandProblem,
@@ -189,6 +191,8 @@ import {
 import { answerLanguage, createCalculationSession, whole } from "./calculations";
 import { asksToCheckOrCalculate } from "./carefulIntent";
 import { type ChangedScale, changedScale, changedScaleNote } from "./changedScale";
+import type { createUncitedCheck } from "./checks/uncited";
+import type { CheckScope } from "./checks/verify";
 import {
   type AnswerDocuments,
   createCitationSession,
@@ -415,6 +419,8 @@ export interface AnswerConversations {
   ): Turn;
   /** Writes an Answer as it stands; false when it is gone: its conversation was deleted. */
   writeAnswer(answerId: string, write: AnswerWrite): boolean;
+  /** Publishes the uncited checks finished so far; null when the Answer is gone. */
+  writeClaimChecks(answerId: string, checks: readonly ClaimCheckAttributes[]): Turn | null;
 }
 
 /** Why a Question wasn't asked, before anything was kept or sent. */
@@ -575,6 +581,13 @@ export interface AnswersOptions {
   liveTextBehind(lines: boolean): string;
   /** The User's Skills. */
   skills: AnswerSkills;
+  /** Uncited figures checked after the Answer's text finishes (#1445); absent: no such check. */
+  uncited?: ReturnType<typeof createUncitedCheck>;
+  /** The Search scope and evidence exclusions for those checks. */
+  uncitedScope?(
+    mindId: string | null,
+    documentIds: readonly string[] | null,
+  ): CheckScope & { searchable: number };
   /** The assistant's conversations, which Answers are written into too. */
   conversations: AnswerConversations;
   /**
@@ -1031,6 +1044,9 @@ export function createAnswers(options: AnswersOptions) {
       if (!outside) events.emit(event, payload);
     };
     const controller = new AbortController();
+    let background: AbortController | null = null;
+    let onChecking: (() => void) | undefined;
+    let prepared: PreparedChatModel;
     /** What the model wrote: Markdown, with Citation markers. */
     let markdown = "";
     /**
@@ -1092,6 +1108,8 @@ export function createAnswers(options: AnswersOptions) {
       cachedInputTokens: 0,
       cacheWriteTokens: 0,
     };
+    const claimChecks: ClaimCheckAttributes[] = [];
+    let smallModel = false;
     const toolCalls: AnswerToolCall[] = [];
     // Its last Answer put in as it is ("make it a document") holds what that Answer covered.
     const wroteNewText = () =>
@@ -1165,6 +1183,7 @@ export function createAnswers(options: AnswersOptions) {
         ...(sentAt !== null &&
           firstWordAt !== Infinity && { firstWordMs: wordAfter(sentAt, firstWordAt) }),
         ...(careful && { careful: true as const }),
+        ...(smallModel && { smallModel: true as const }),
         ...(unbackedClaims.length > 0 && { unbackedClaims: [...unbackedClaims] }),
         ...(coverage && { coverage }),
         ...(writtenFrom && wroteNewText() && { writtenFrom }),
@@ -1342,6 +1361,24 @@ export function createAnswers(options: AnswersOptions) {
       return { figures: placed, missing: missing.size };
     };
 
+    const finalBlocks = () => {
+      const text = withAnalysisResults(
+        withoutFootnoteDefinitions(markdown),
+        analyses,
+        answerLanguage(context.question),
+      );
+      const blocks = withCitations(markdownToBlocks(text), (marker) => session.finalNode(marker));
+      return asGenerated(
+        calculating
+          ? withFigures(
+              blocks,
+              (marker) => figures.figure(marker),
+              (figure) => figure.shown,
+            )
+          : blocks,
+      );
+    };
+
     /** Writes the Answer as it stands into its home; false if it is gone. */
     const write = (outcome?: Outcome): boolean => {
       const final = outcome !== undefined;
@@ -1359,23 +1396,23 @@ export function createAnswers(options: AnswersOptions) {
           {
             markdown: text,
             // A figure reads as its shown text until a Mind has a node of its own for one (#439).
-            blocks: () => {
-              const blocks = withCitations(
-                markdownToBlocks(text, { streaming: !final }),
-                final
-                  ? (marker) => session.finalNode(marker)
-                  : (marker) => session.streamingNode(marker),
-              );
-              return asGenerated(
-                calculating
-                  ? withFigures(
-                      blocks,
-                      (marker) => figures.figure(marker),
-                      (figure) => figure.shown,
-                    )
-                  : blocks,
-              );
-            },
+            blocks: final
+              ? finalBlocks
+              : () => {
+                  const blocks = withCitations(
+                    markdownToBlocks(text, { streaming: true }),
+                    (marker) => session.streamingNode(marker),
+                  );
+                  return asGenerated(
+                    calculating
+                      ? withFigures(
+                          blocks,
+                          (marker) => figures.figure(marker),
+                          (figure) => figure.shown,
+                        )
+                      : blocks,
+                  );
+                },
             citations: () => {
               const found: MarkedCitation[] = [];
               // The markers the Blocks would show, so none in code is taken for one.
@@ -1406,12 +1443,17 @@ export function createAnswers(options: AnswersOptions) {
     };
 
     const finish = (outcome: Outcome) => {
-      if (finished) return;
+      if (finished) {
+        background?.abort();
+        return;
+      }
       finished = true;
       finishedAt = Date.now();
       if (timer) clearTimeout(timer);
-      active.delete(answerId);
-      writingChanged();
+      const settle = () => {
+        active.delete(answerId);
+        writingChanged();
+      };
       controller.abort();
       skills?.release();
       // A Tool call still running when the Answer stopped didn't finish; one still waiting for
@@ -1454,8 +1496,12 @@ export function createAnswers(options: AnswersOptions) {
       }
       const written = write(outcome);
       if (outcome.status === "failed") {
+        settle();
         announce("answer.failed", { ...place, answerId, error: outcome.error });
-      } else {
+        return;
+      }
+      const announceFinished = () => {
+        settle();
         announce("answer.finished", {
           ...place,
           answerId,
@@ -1471,7 +1517,38 @@ export function createAnswers(options: AnswersOptions) {
           figureRetry,
           usage,
         });
+      };
+      if (
+        outcome.status === "done" &&
+        written &&
+        typeof place.conversationId === "string" &&
+        options.uncited &&
+        options.uncitedScope
+      ) {
+        background = new AbortController();
+        const scope = options.uncitedScope(place.mindId, documentIds);
+        void options
+          .uncited({
+            answerId,
+            mindId: place.mindId,
+            blocks: finalBlocks(),
+            prepared,
+            scope: { scope: scope.scope, marked: scope.marked, wanted: scope.wanted },
+            searchable: scope.searchable,
+            usage,
+            signal: background.signal,
+            checking: () => onChecking?.(),
+            publish: (check) => {
+              claimChecks.push(check);
+              const turn = options.conversations.writeClaimChecks(answerId, claimChecks);
+              if (turn) options.conversations.publish(turn);
+            },
+          })
+          .catch((error: unknown) => options.reportError(error))
+          .finally(announceFinished);
+        return;
       }
+      announceFinished();
     };
 
     const writeSoon = () => {
@@ -1861,6 +1938,10 @@ export function createAnswers(options: AnswersOptions) {
       // model's service, searching, the model loading (a local model, until Ollama has it
       // loaded or it starts to answer), writing, or checking quotes (asking a local model once
       // more for the quotes the check didn't find).
+      onChecking = () => {
+        activity = "checking-claims";
+        showPhase();
+      };
       let consenting = input.consentNeeded;
       let activity: Extract<
         AnswerPhase,
@@ -1877,14 +1958,13 @@ export function createAnswers(options: AnswersOptions) {
             : loading && !responded
               ? "loading"
               : "writing";
-        if (finished || phase === shown) return;
+        if (phase === shown) return;
         shown = phase;
         phases.push({ phase, at: new Date().toISOString() });
         announce("answer.phase", { ...place, answerId, phase });
       };
       // Nothing is sent before the User says: the Answer waits for them.
       if (consenting) showPhase();
-      let prepared: PreparedChatModel;
       try {
         prepared = await options.prepareModel(
           model,
@@ -1895,6 +1975,7 @@ export function createAnswers(options: AnswersOptions) {
         finish({ status: "failed", error: failureOf(error) });
         return;
       }
+      smallModel = judgesUnreliably(prepared);
       calculating = offersCalculate(prepared.capabilities);
       const within = input.mind?.within(mindLimit(prepared));
       if (within) {

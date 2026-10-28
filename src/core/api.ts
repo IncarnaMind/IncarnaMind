@@ -5722,6 +5722,8 @@ export interface AnswerSteps {
   firstWordMs?: number;
   /** Its Question asked to check or calculate, so it was written with the larger thinking budget. */
   careful?: true;
+  /** Its background claim verdicts came from a local model under 20B parameters (#680). */
+  smallModel?: true;
   /**
    * The changes its reply says it made to a Mind that none of its Tool calls
    * made, even once the model was asked again with what they did.
@@ -6023,6 +6025,8 @@ export interface ConversationAnswer {
   citations: MarkedCitation[];
   /** Its calculated figures (ADR-0021), in the order of their markers ("[=1]") in the text, each once. */
   figures: MarkedFigure[];
+  /** Background checks of its uncited figures and quoted facts (#1445), in the order they finished. */
+  claimChecks?: ClaimCheckAttributes[];
   /** The Analyses it ran (#447), in order: a figure "From Analysis 2" names one by its number. */
   analyses: AnswerAnalysis[];
   /** The model that wrote it; null for one that says its Search scope has no Documents. */

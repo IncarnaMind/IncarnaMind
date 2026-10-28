@@ -35,6 +35,7 @@ import type {
   AskedQuote,
   ChatModelChoice,
   CitationSupport,
+  ClaimCheckAttributes,
   ClaimedChange,
   Conversation,
   ConversationAnswer,
@@ -89,6 +90,7 @@ export interface AnswerWrite {
   text: string;
   citations: MarkedCitation[];
   figures: MarkedFigure[];
+  claimChecks?: ClaimCheckAttributes[];
   analyses: AnswerAnalysis[];
   toolCalls: AnswerToolCall[];
   support: CitationSupport | null;
@@ -144,6 +146,7 @@ interface MessageRow {
   citation_support: string | null;
   citations: string;
   figures: string;
+  claim_checks: string;
   analyses: string;
   tool_calls: string;
   text_origin: string | null;
@@ -478,6 +481,7 @@ function toAnswer(row: MessageRow): ConversationAnswer {
     text: row.text,
     citations: storedList<MarkedCitation>(row.citations),
     figures: storedList<MarkedFigure>(row.figures),
+    claimChecks: storedList<ClaimCheckAttributes>(row.claim_checks),
     analyses: storedList<AnswerAnalysis>(row.analyses),
     model: modelOf(row),
     status,
@@ -1094,7 +1098,7 @@ export function createConversations(db: Database, now: () => string) {
         if (!answer || !question)
           throw new NotFoundError({ key: "error.answer.notInConversation" });
         db.run(
-          `UPDATE conversation_messages SET text = '', citations = '[]', figures = '[]', analyses = '[]', tool_calls = '[]',
+          `UPDATE conversation_messages SET text = '', citations = '[]', figures = '[]', claim_checks = '[]', analyses = '[]', tool_calls = '[]',
              status = 'streaming', error_kind = NULL, error_message = NULL,
              error_sign_in_route = NULL, citation_support = NULL, text_origin = NULL, steps = NULL, provider_id = ?,
              model_id = ?, read_mind_id = ?, read_mind_version = ?, read_partial = ?,
@@ -1123,7 +1127,7 @@ export function createConversations(db: Database, now: () => string) {
       const { outcome } = write;
       db.transaction(() => {
         db.run(
-          `UPDATE conversation_messages SET text = ?, citations = ?, figures = ?, analyses = ?,
+          `UPDATE conversation_messages SET text = ?, citations = ?, figures = ?, claim_checks = ?, analyses = ?,
              tool_calls = ?, citation_support = ?, text_origin = ?, read_mind_id = ?, read_mind_version = ?,
              read_partial = ?, steps = ?, status = ?, error_kind = ?, error_message = ?,
              error_sign_in_route = ?, updated_at = ?
@@ -1132,6 +1136,7 @@ export function createConversations(db: Database, now: () => string) {
             write.text,
             JSON.stringify(write.citations),
             JSON.stringify(write.figures),
+            JSON.stringify(write.claimChecks ?? []),
             JSON.stringify(write.analyses),
             JSON.stringify(write.toolCalls),
             write.support,
@@ -1149,6 +1154,20 @@ export function createConversations(db: Database, now: () => string) {
         if (outcome) indexMessage(row.seq, write.text, write.figures);
       });
       return toAnswer(storedMessage(answerId));
+    },
+
+    /** Publishes the background checks finished so far, without touching the Answer's text. */
+    writeClaimChecks(answerId: string, checks: readonly ClaimCheckAttributes[]): Turn | null {
+      const row = liveMessage(answerId);
+      if (row?.kind !== "answer") return null;
+      db.run("UPDATE conversation_messages SET claim_checks = ?, updated_at = ? WHERE id = ?", [
+        JSON.stringify(checks),
+        now(),
+        answerId,
+      ]);
+      const question = liveMessage(row.question_id);
+      if (question?.kind !== "question") return null;
+      return turnOf(question, answerId);
     },
 
     /** See `CoreApi.renameConversation`. */

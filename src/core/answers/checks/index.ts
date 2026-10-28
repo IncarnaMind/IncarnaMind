@@ -75,6 +75,7 @@ import type { AnswerEngine } from "../engine";
 import { type ClaimCheckDependencies, createClaimCheck, recordJudged } from "./claimCheck";
 import { createMindCheck, type MindCheckOptions } from "./mindCheck";
 import { markedSentences, markSentence, selectedSentences, updateCheck } from "./sentences";
+import { createUncitedCheck } from "./uncited";
 import { createVerify, type NoDocuments, type VerifyOptions } from "./verify";
 import { createContradictionWatch, type WatchOptions } from "./watch";
 import { createWrittenCheck, type WrittenCheckOptions } from "./written";
@@ -590,7 +591,35 @@ export function createChecks(options: ChecksOptions) {
     claimTimeLimitMs: options.watch.claimTimeLimitMs,
   });
 
+  const uncited = createUncitedCheck({
+    ...options,
+    prepare: (answer) =>
+      prepareQuietly({ providerId: answer.provider.id, modelId: answer.modelId }),
+    claimCheck,
+    citedNow,
+    withResult,
+    claimTimeLimitMs: options.watch.claimTimeLimitMs,
+  });
+  const uncitedScope = (mindId: string | null, documentIds: readonly string[] | null) => {
+    const scope = options.evidence.scope(documentIds, mindId ? leftOutOf(mindId) : {});
+    const chosen: SearchScope | null = documentIds
+      ? { folderIds: [], tagIds: [], documentIds: [...documentIds] }
+      : null;
+    return {
+      scope,
+      searchable: options.documents.searchableCount(scope.documentIds),
+      marked: {
+        folderId: mindId ? options.mindFolder(mindId) : null,
+        widened: false,
+        ...(chosen && { chosen }),
+      },
+      wanted: chosen,
+    };
+  };
+
   return {
+    uncited,
+    uncitedScope,
     ...verify,
 
     /** What the assistant wrote in a Mind, checked before it lands (./written). */

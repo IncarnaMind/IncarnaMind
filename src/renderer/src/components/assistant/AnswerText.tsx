@@ -1,6 +1,7 @@
 import "katex/dist/katex.min.css";
 import { EditorContent, ReactNodeViewRenderer, useEditor } from "@tiptap/react";
 import { useEffect, useRef } from "react";
+import * as Y from "yjs";
 import type { NodeJSON } from "../../../../shared/blockJson";
 import { lendAnswerEditor } from "../../answerEditors";
 import { AnswerTableSlots } from "../../editor/answerTables";
@@ -8,7 +9,9 @@ import { CitationView } from "../../editor/CitationView";
 import { checklistLabel } from "../../editor/checklistLabel";
 import { CitationGlue, withCitationGlue } from "../../editor/citationGlue";
 import { CitationNumbers } from "../../editor/citationNumbers";
+import { ClaimChecks } from "../../editor/claimChecks";
 import { CopyCitations } from "../../editor/copyCitations";
+import { MarginChecks } from "../../editor/MarginChecks";
 import { RegenerateAnswerContext } from "../../editor/mindContext";
 import { noteExtensions } from "../../editor/noteSchema";
 import { useT } from "../../i18n";
@@ -74,6 +77,7 @@ export function AnswerText({
         ...noteExtensions({ citationView, checklistLabel }),
         CitationGlue,
         CitationNumbers,
+        ClaimChecks,
         CopyCitations,
         AnswerTableSlots,
       ],
@@ -82,6 +86,9 @@ export function AnswerText({
   );
 
   const frame = useRef<HTMLDivElement>(null);
+  const mindDoc = useRef<Y.Doc | null>(null);
+  if (mindDoc.current === null) mindDoc.current = new Y.Doc();
+  useEffect(() => () => mindDoc.current?.destroy(), []);
   useTableFades(frame, t("answer.table.label"));
 
   useEffect(() => lendAnswerEditor(answerId, editor), [answerId, editor]);
@@ -103,6 +110,7 @@ export function AnswerText({
     <RegenerateAnswerContext.Provider value={regenerate}>
       <div ref={frame} className="assistant-answer-frame">
         <EditorContent editor={editor} />
+        <MarginChecks editor={editor} mind={{ id: answerId, doc: mindDoc.current }} readOnly />
         <OpenAsTable frame={frame} editor={editor} streaming={streaming} onOpen={onOpenTable} />
       </div>
     </RegenerateAnswerContext.Provider>

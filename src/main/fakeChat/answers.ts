@@ -158,10 +158,21 @@ const citedAsText = (question: string, records: readonly unknown[]) =>
   `${uncitedAnswer(question)}\n\n<cite>\n${JSON.stringify(records)}\n</cite>`;
 
 /** The scripted Answer to such a Question: a sentence with a marker no record backs. */
-const uncitedAnswer = (question: string) =>
-  /\p{Script=Han}/u.test(question)
+const uncitedAnswer = (question: string) => {
+  if (/^I didn't find/i.test(question)) return question;
+  if (/two uncited figures/i.test(question)) {
+    return "Income totaled $1,482.6 million. Annual revenue totaled $1,200 million, forever.";
+  }
+  if (/uncited supported figure/i.test(question)) {
+    return "Income totaled $1,482.6 million.";
+  }
+  if (/uncited contradicted figure/i.test(question)) {
+    return "Annual revenue totaled $1,200 million.";
+  }
+  return /\p{Script=Han}/u.test(question)
     ? "文档回答了这个问题[^1]。\n\n以上。"
     : "Your Documents answer this [^1].\n\nThat is all.";
+};
 
 /** The scripted Answer, as a table, to a Question that asks for one: the markers in a cell. */
 const tableAnswer = (markers: string) =>

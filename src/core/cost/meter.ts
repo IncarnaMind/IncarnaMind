@@ -59,11 +59,11 @@ import { costOf, inCurrency, promptTokensOf, reservationOf, TYPICAL_ANSWER } fro
 
 type Wrapped = Parameters<NonNullable<LanguageModelMiddleware["wrapStream"]>>[0];
 type CallOptions = Wrapped["params"];
-type StreamPart =
+export type StreamPart =
   Awaited<ReturnType<Wrapped["doStream"]>>["stream"] extends ReadableStream<infer Part>
     ? Part
     : never;
-type Usage = Extract<StreamPart, { type: "finish" }>["usage"];
+export type Usage = Extract<StreamPart, { type: "finish" }>["usage"];
 
 /** What is known of a model when it is handed out, for metering its requests. */
 export interface MeteredModel {
@@ -201,6 +201,7 @@ export type Meter = ReturnType<typeof createMeter>;
 const usageOf = (usage: Usage) => ({
   inputTokens: usage.inputTokens.total,
   cachedInputTokens: usage.inputTokens.cacheRead,
+  cacheWriteTokens: usage.inputTokens.cacheWrite,
   outputTokens: usage.outputTokens.total,
 });
 
@@ -213,7 +214,7 @@ const GENERATED: Readonly<Record<string, string>> = {
   "tool-call": "tool-call",
 };
 
-function timingMiddleware(timings: Timings, metered: MeteredModel): LanguageModelMiddleware {
+export function timingMiddleware(timings: Timings, metered: MeteredModel): LanguageModelMiddleware {
   const about = {
     dataFlow: metered.flow,
     providerKind: metered.kind,

@@ -58,3 +58,11 @@ Each Citation the model reads in Question context (the Mind it reads, read_mind'
 - **The quote gone.** When less than half of the quote's words are still at its place, the card says the quote is no longer in the new version and offers Keep citing the old version alone.
 - **Why.** A Citation opens the version it was made from or says the Document changed. Re-pointing it as it landed did neither: someone cites what they read, and a later version may say something else around the same words. Choosing between the old and the new version is the User's, made where the Citation is.
 - **Retention.** The version stays while a Citation in a Mind (Recently deleted included) or in a conversation quotes it, as ADR-0010 says. Undoing a landing leaves the conversation's Citation keeping it; after Update the sentence…, the old version goes at the next start once nothing else quotes it.
+
+## Amendment: uncited figures are checked after the text ends (2026-10-28, #1445)
+
+An Answer can finish its text before its uncited figures are checked. Each uncited sentence with a figure or quoted fact is checked in the background on the Answer's model, except the assistant's own absence reports. Results arrive one by one and are retained as `ClaimCheckAttributes` JSON beside the Answer, not as rich Blocks. The renderer derives the same Blocks with those marks and shows the ordinary claim card. Stop aborts the remaining checks and keeps results already published.
+
+- **Migration 112** adds `conversation_messages.claim_checks`, default `[]`. Regeneration clears it. Conversation Answers still need no content schema version and stay editor-independent.
+- **One active generation until checks end.** `answer.finished` is emitted after the last result or abort, so Stop covers the background phase. The checks use the existing checks-flow consent and Local-mode preparation, never a second consent prompt.
+- **Usage counts too.** Model calls for these checks join the Answer's `AnswerUsage`, nested judgements included.

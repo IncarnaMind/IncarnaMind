@@ -1571,6 +1571,8 @@ export function createCore(adapters: CoreAdapters): Core {
       proposeInMind: (input) => edits.proposeInMind(input),
       checkWritten: (input) => checks.checkWritten(input),
     },
+    uncited: (input) => checks.uncited(input),
+    uncitedScope: (mindId, documentIds) => checks.uncitedScope(mindId, documentIds),
     withdrawChanges: (changes) => {
       // Last first: a revision taken back brings back what it replaced, which an earlier call of
       // the same Answer may have written, and a Mind its first call made is empty only once the
@@ -1626,6 +1628,11 @@ export function createCore(adapters: CoreAdapters): Core {
         const answer = conversations.writeAnswer(answerId, write);
         if (answer) events.emit("conversation.message", answer);
         return answer !== null;
+      },
+      writeClaimChecks: (answerId, checks) => {
+        const turn = conversations.writeClaimChecks(answerId, checks);
+        if (turn) events.emit("conversation.message", turn.answer);
+        return turn;
       },
     },
     resolveScope,

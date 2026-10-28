@@ -127,7 +127,7 @@ interface QuotedSpan extends QuotedSentence {
   span: Span;
 }
 
-function quotedSpansIn(text: string): QuotedSpan[] {
+function quotedSpansIn(text: string, citedOnly = true): QuotedSpan[] {
   const spans = spansOf(text);
   if (spans.length === 0) return [];
   const found: QuotedSpan[] = [];
@@ -135,7 +135,7 @@ function quotedSpansIn(text: string): QuotedSpan[] {
     const markers = [...text.slice(sentence.start, sentence.end).matchAll(MARKER)].map((match) =>
       Number(match[1]),
     );
-    if (markers.length === 0) continue;
+    if (citedOnly && markers.length === 0) continue;
     for (const span of spans) {
       if (span.start < sentence.start || span.end > sentence.end) continue;
       const words = cleanQuote(
@@ -210,6 +210,16 @@ export function quotedWordsIn(markdown: string): QuotedSentence[] {
   const found: QuotedSentence[] = [];
   mapBlocks(markdown, (text) => {
     for (const { words, markers } of quotedSpansIn(text)) found.push({ words, markers });
+    return text;
+  });
+  return found;
+}
+
+/** Quoted facts, including sentences with no Citation marker (#1445). */
+export function quotedFactsIn(markdown: string): QuotedSentence[] {
+  const found: QuotedSentence[] = [];
+  mapBlocks(markdown, (text) => {
+    for (const { words, markers } of quotedSpansIn(text, false)) found.push({ words, markers });
     return text;
   });
   return found;

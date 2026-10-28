@@ -54,7 +54,7 @@ const WORD_DELAY_MS = 60;
 /** For a Question asked "slowly": the wait before each step, and between two words of the Answer. */
 const SLOW_STEP_MS = 1200;
 const SLOW_WORD_MS = 250;
-/** An Edit with AI asked "forever" writes nothing until it is stopped, or this long. */
+/** A scripted request asked "forever" writes nothing until it is stopped, or this long. */
 const HOLD_MS = 120_000;
 /** Between two words of Edit with AI's new text: a passage takes a moment, not seconds. */
 const EDIT_WORD_MS = 10;
@@ -254,6 +254,7 @@ export const createFakeChatModel: ChatModelFactory = (spec) =>
       // does, so a spec can open its card while the check still runs.
       const checked = /<sentence>\n([\s\S]*?)\n<\/sentence>/.exec(lastUserText(prompt))?.[1] ?? "";
       const slow = edit ? edit.slow : !search && SLOWLY.test(`${lastQuestion(prompt)} ${checked}`);
+      const holds = edit?.holds || (!search && /\bforever\b/i.test(checked));
       const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
       const stream = new ReadableStream<StreamPart>({
         async pull(controller) {
@@ -262,7 +263,7 @@ export const createFakeChatModel: ChatModelFactory = (spec) =>
             controller.close();
             return;
           }
-          if (edit?.holds && part.type === "stream-start") {
+          if (holds && part.type === "stream-start") {
             await new Promise<void>((resolve) => {
               const timer = setTimeout(resolve, HOLD_MS);
               abortSignal?.addEventListener("abort", () => {

@@ -38,6 +38,21 @@ describe("Migrations", () => {
     db.close();
   });
 
+  test("conversation Answers keep their uncited checks in migration 112", async () => {
+    const db = openDatabase(join(await createTempDataFolder(), "test.db"));
+    migrate(
+      db,
+      migrations.filter((migration) => migration.version < 112),
+    );
+    migrate(db);
+    const columns = db.all<{ name: string; dflt_value: string | null }>(
+      "PRAGMA table_info(conversation_messages)",
+    );
+    expect(columns.find((column) => column.name === "claim_checks")?.dflt_value).toBe("'[]'");
+    expect(userVersion(db)).toBe(112);
+    db.close();
+  });
+
   test("version numbers may skip numbers reserved by work in progress", async () => {
     const db = openDatabase(join(await createTempDataFolder(), "test.db"));
 

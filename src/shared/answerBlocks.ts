@@ -12,6 +12,7 @@ import { forPage } from "../core/answers/pointersBack";
 import { CITATION_NODE, type ConversationAnswer, type MarkedCitation } from "../core/api";
 import { asGenerated } from "./aiText";
 import { citationNode, type NodeJSON, withCitations } from "./blockJson";
+import { checkableSentences, paragraphAt, withSentenceMark } from "./claimCheckBlocks";
 import { withFigures } from "./figureMarkers";
 import { withoutFraming } from "./noteBlocks";
 
@@ -22,7 +23,7 @@ import { withoutFraming } from "./noteBlocks";
  * figure is left out.
  */
 export function answerBlocks(
-  answer: Pick<ConversationAnswer, "text" | "citations" | "figures" | "status">,
+  answer: Pick<ConversationAnswer, "text" | "citations" | "figures" | "status" | "claimChecks">,
 ): NodeJSON[] {
   const streaming = answer.status === "streaming";
   const cited = new Map(answer.citations.map(({ marker, ...citation }) => [marker, citation]));
@@ -32,7 +33,7 @@ export function answerBlocks(
     if (citation) return citationNode(citation);
     return streaming ? citationNode(null) : null;
   });
-  return asGenerated(
+  const generated = asGenerated(
     closeUpCitations(
       withFigures(
         blocks,
@@ -41,6 +42,18 @@ export function answerBlocks(
       ),
     ),
   );
+  for (const sentence of checkableSentences(generated)) {
+    const check = answer.claimChecks?.find((each) => each.text === sentence.text);
+    const paragraph = check && paragraphAt(generated, sentence.path);
+    if (!check || !paragraph) continue;
+    paragraph.content = withSentenceMark(
+      paragraph.content ?? [],
+      sentence.from,
+      sentence.to,
+      check,
+    );
+  }
+  return generated;
 }
 
 /**

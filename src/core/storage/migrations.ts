@@ -1912,6 +1912,14 @@ export const migrations: readonly Migration[] = [
       WHERE key = 'agentsEnabled' AND deleted_at IS NULL;
     `,
   },
+  {
+    version: 112,
+    description: "Answers keep background checks of their uncited figures (#1445)",
+    // JSON: ClaimCheckAttributes as each check finishes, [] until then and on regeneration.
+    sql: `
+      ALTER TABLE conversation_messages ADD COLUMN claim_checks TEXT NOT NULL DEFAULT '[]';
+    `,
+  },
 ];
 
 /**
