@@ -279,13 +279,14 @@ test("a Document another window filed in the new Folder since keeps it when its 
     const row = (name: string) => library.getByTestId("library-document").filter({ hasText: name });
     const field = nameField(window);
 
-    // The Folder is made with the first Document in it.
-    await pointAndClick(window, row("Chen 2019").getByTestId("library-select"));
-    await pointAndClick(
-      window,
-      library.getByTestId("library-selection").getByTestId("document-file-menu"),
-    );
-    await pointAndClick(window, window.getByTestId("folder.newWith"));
+    // The Folder is made with the first Document in it, from its own row's menu: the selection
+    // bar is for two or more selected.
+    const newFolderWith = async (name: string) => {
+      await row(name).hover();
+      await pointAndClick(window, row(name).getByTestId("document-file-menu"));
+      await pointAndClick(window, window.getByTestId("folder.newWith"));
+    };
+    await newFolderWith("Chen 2019");
     await expect(field).toBeFocused();
     await window.keyboard.type("Chapter 2 sources");
     await window.keyboard.press("Enter");
@@ -318,12 +319,7 @@ test("a Document another window filed in the new Folder since keeps it when its 
 
     // In Chinese, a Folder made and named in Chinese.
     await setLanguage(window, "zh-CN");
-    await pointAndClick(window, row("Chen 2019").getByTestId("library-select"));
-    await pointAndClick(
-      window,
-      library.getByTestId("library-selection").getByTestId("document-file-menu"),
-    );
-    await pointAndClick(window, window.getByTestId("folder.newWith"));
+    await newFolderWith("Chen 2019");
     await expect(field).toBeFocused();
     await typeWithInputMethod(window, field, "第二章资料");
     await expect(sidebarFolder(window, "第二章资料")).toHaveAttribute("data-count", "1");
