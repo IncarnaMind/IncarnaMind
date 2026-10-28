@@ -50,12 +50,18 @@ interface AskedChangesState {
   facts: Readonly<Record<string, ChangedMind>>;
   /** By Answer and Mind (`keyOf`): written again over its earlier changes, which stayed. */
   onTop: Readonly<Record<string, true>>;
+  /**
+   * By Answer and Mind (`keyOf`): the changes its apply took. The card draws how many changes still
+   * wait only once this Mind's copy no longer holds them, so a count never shows what was applied.
+   */
+  accepted: Readonly<Record<string, readonly string[]>>;
 }
 
 export const useAskedChanges = create<AskedChangesState>()(() => ({
   outcomes: {},
   facts: {},
   onTop: {},
+  accepted: {},
 }));
 
 type ApplicationRef = Pick<AskedChangeApplication, "undoId" | "held">;
@@ -95,7 +101,7 @@ export function askedInThisWindow(state: EditorState, request: string): boolean 
 
 const keyOf = (answerId: string, mindId: string) => `${answerId} ${mindId}`;
 
-function setOutcome(each: Asked, outcome: AskedOutcome): void {
+function setOutcome(each: Asked, outcome: AskedOutcome, accepted?: readonly string[]): void {
   const { answerId, mindId } = each;
   useAskedChanges.setState((state) => ({
     outcomes: {
@@ -103,11 +109,21 @@ function setOutcome(each: Asked, outcome: AskedOutcome): void {
       [answerId]: { ...state.outcomes[answerId], [mindId]: outcome },
     },
     facts: { ...state.facts, [keyOf(answerId, mindId)]: each.facts },
+    ...(accepted && {
+      accepted: { ...state.accepted, [keyOf(answerId, mindId)]: accepted },
+    }),
   }));
 }
 
 export const useAskedFacts = (answerId: string, mindId: string): ChangedMind | undefined =>
   useAskedChanges((state) => state.facts[keyOf(answerId, mindId)]);
+
+/** The changes this Answer's apply took in a Mind, until its copy shows them applied. */
+export const useAcceptedChanges = (
+  answerId: string,
+  mindId: string,
+): readonly string[] | undefined =>
+  useAskedChanges((state) => state.accepted[keyOf(answerId, mindId)]);
 
 async function releaseApplication(application: ApplicationRef): Promise<void> {
   await core.releaseAskedChanges(application.undoId).catch(useAppStore.getState().reportError);
@@ -488,7 +504,7 @@ async function finishIn(
       application: refOf(application),
     };
     asked.set(keyOf(answer.id, row.mindId), each);
-    setOutcome(each, application.held ? "held" : "applied");
+    setOutcome(each, application.held ? "held" : "applied", application.accepted);
     if (!(await openBeside(row.mindId, behind))) {
       each.application = refOf(application);
       return;
@@ -574,7 +590,7 @@ onAskedApplied((mindId, requests, applied) => {
       current.followerStop = applied.followed.observe(check);
       check();
     }
-    setOutcome(each, "applied");
+    setOutcome(each, "applied", applied.accepted);
   }
 });
 
