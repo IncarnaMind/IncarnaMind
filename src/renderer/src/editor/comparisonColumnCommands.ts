@@ -370,8 +370,10 @@ export interface MovedColumn {
 }
 
 /**
- * A column moved to `to`, its cells with it, as one change ⌘Z takes back:
- * the same cells, their Answers and Citations, in their new place.
+ * A column moved to `to`, as one change ⌘Z takes back: only the order of
+ * the Questions changes, and the table draws each row's cells in that order.
+ * Rewriting cells here would leave a running fill writing into another
+ * column's cell (#1833).
  */
 export function moveComparisonColumn(
   editor: Editor,
@@ -387,25 +389,9 @@ export function moveComparisonColumn(
   if (!column || to < 0 || to >= questions.length || to === from) return null;
   const next = questions.filter((question) => question.id !== questionId);
   next.splice(to, 0, column);
-  const tr = editor.state.tr.setNodeAttribute(found.pos, "questions", next);
-  // Rows from the last, so a row's cells move without moving the rows below them.
-  for (let row = found.table.childCount - 1; row >= 0; row--) {
-    const node = found.table.child(row);
-    const rowPos = found.rows[row];
-    const at = cellOf(node, questionId);
-    if (rowPos === undefined || !at) continue;
-    const cell = node.child(at.index);
-    const start = rowPos + 1 + at.offset;
-    tr.delete(start, start + cell.nodeSize);
-    let insertAt = rowPos + 1;
-    for (let index = 0, before = 0; index < node.childCount && before < to; index++) {
-      if (index === at.index) continue;
-      insertAt += node.child(index).nodeSize;
-      before++;
-    }
-    tr.insert(insertAt, cell);
-  }
-  asOneStep(editor, () => editor.view.dispatch(tr));
+  asOneStep(editor, () =>
+    editor.view.dispatch(editor.state.tr.setNodeAttribute(found.pos, "questions", next)),
+  );
   return { label: comparisonLabelOf(column), index: next.indexOf(column) };
 }
 

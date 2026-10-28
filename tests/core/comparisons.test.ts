@@ -87,7 +87,7 @@ function tableIn(client: MindClient) {
 /** A table of `documents` by `questions`, every cell waiting: what an editor leaves before a fill. */
 function waitingTable(
   documents: readonly { id: string; name: string }[],
-  questions: readonly { id: string; text: string }[],
+  questions: readonly { id: string; text: string; hidden?: boolean }[],
 ): NodeJSON {
   const cell = (questionId: string): NodeJSON => ({
     type: "comparisonCell",
@@ -869,6 +869,132 @@ describe("Compare Documents", () => {
     expect(new Set(asked.slice(beforeQuit))).toEqual(
       new Set(["Termination notice", "Liability cap", "Governing law"]),
     );
+  });
+
+  test("a hidden column is out of the fill, and Show brings its empty cells back", async () => {
+    let release = () => {};
+    const held = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const asked: string[] = [];
+    const model = cellModel((call, question) => {
+      if (call.results.length === 0) asked.push(question.question);
+      return null;
+    }, held);
+    const { core, client, mind, documents } = await setUpWithDocuments(model, SUPPLIERS);
+    const questions = [
+      { id: "q-notice", text: "Termination notice" },
+      { id: "q-liability", text: "Liability cap", hidden: true },
+    ];
+    client.doc.transact(() =>
+      client.doc
+        .getXmlFragment(MIND_CONTENT_FIELD)
+        .push([createElement(waitingTable(documents, questions))]),
+    );
+    await client.settled();
+    const tableId = "held-table";
+    const statuses = () => tableIn(client).rows.map((row) => row.cells.map((cell) => cell.status));
+
+    // Fill asks for the shown column only, and its progress counts only its cells.
+    expect(await core.fillComparisonTable({ mindId: mind.id, tableId })).toEqual({
+      started: true,
+      tableId,
+    });
+    await vi.waitFor(async () => {
+      const [task] = await core.listTasks();
+      expect(task?.progress).toMatchObject({ total: 3 });
+    });
+    release();
+    await fillEnded(core, tableId);
+    await client.settled();
+    expect(new Set(asked)).toEqual(new Set(["Termination notice"]));
+    expect(statuses()).toEqual([
+      ["done", "waiting"],
+      ["done", "waiting"],
+      ["done", "waiting"],
+    ]);
+
+    // Shown again, its waiting cells are back in the work.
+    client.doc.transact(() => {
+      const table = client.doc
+        .getXmlFragment(MIND_CONTENT_FIELD)
+        .toArray()
+        .find(
+          (element) => element instanceof Y.XmlElement && element.nodeName === "comparisonTable",
+        );
+      if (!(table instanceof Y.XmlElement)) return;
+      const next = comparisonQuestionsOf(table.getAttributes()).map((question) =>
+        question.id === "q-liability" ? { ...question, hidden: undefined } : question,
+      );
+      table.setAttribute("questions", next as never);
+    });
+    await client.settled();
+    expect(await core.fillComparisonTable({ mindId: mind.id, tableId })).toEqual({
+      started: true,
+      tableId,
+    });
+    await fillEnded(core, tableId);
+    await client.settled();
+    expect(new Set(asked)).toEqual(new Set(["Termination notice", "Liability cap"]));
+    expect(statuses()).toEqual([
+      ["done", "done"],
+      ["done", "done"],
+      ["done", "failed"],
+    ]);
+  });
+
+  test("a cell already being filled when its column is hidden finishes, and the cells not started wait", async () => {
+    let release = () => {};
+    const held = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const asked: string[] = [];
+    const model = cellModel((call, question) => {
+      if (call.results.length === 0) asked.push(question.question);
+      return null;
+    }, held);
+    const { core, client, mind, documents } = await setUpWithDocuments(model, SUPPLIERS);
+    const questions = [
+      { id: "q-notice", text: "Termination notice" },
+      { id: "q-liability", text: "Liability cap" },
+    ];
+    client.doc.transact(() =>
+      client.doc
+        .getXmlFragment(MIND_CONTENT_FIELD)
+        .push([createElement(waitingTable(documents, questions))]),
+    );
+    await client.settled();
+    const tableId = "held-table";
+    expect(await core.fillComparisonTable({ mindId: mind.id, tableId })).toEqual({
+      started: true,
+      tableId,
+    });
+    await vi.waitFor(() => expect(asked).toContain("Termination notice"));
+    // The first column is hidden while its first cell is being written: it finishes and is kept;
+    // its cells that never started wait for Show, and the shown column still fills.
+    client.doc.transact(() => {
+      const table = client.doc
+        .getXmlFragment(MIND_CONTENT_FIELD)
+        .toArray()
+        .find(
+          (element) => element instanceof Y.XmlElement && element.nodeName === "comparisonTable",
+        );
+      if (!(table instanceof Y.XmlElement)) return;
+      const next = comparisonQuestionsOf(table.getAttributes()).map((question) =>
+        question.id === "q-notice" ? { ...question, hidden: true } : question,
+      );
+      table.setAttribute("questions", next as never);
+    });
+    await client.settled();
+    release();
+    await fillEnded(core, tableId);
+    await client.settled();
+    const statuses = tableIn(client).rows.map((row) => row.cells.map((cell) => cell.status));
+    expect(statuses).toEqual([
+      ["done", "done"],
+      ["waiting", "done"],
+      ["waiting", "failed"],
+    ]);
   });
 
   test("a plan's limit mid-run stops the fill: the cells left say they weren't checked", async () => {

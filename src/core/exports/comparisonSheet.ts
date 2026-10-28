@@ -3,10 +3,9 @@
  * row and a Question a column, each cell its Answer's text, or the number or
  * day it is (./figureCells) with its words as written in its note; each cell's
  * Citations in its note; and a Sources sheet, a Citation a row, that links back
- * to the cell citing it. The User's column widths come along in characters,
- * and hidden columns are left out with a line that says which.
+ * to the cell citing it, and the User's column widths come along in characters.
  */
-import { comparisonNameOf, hiddenColumnsNote } from "../../shared/comparisons";
+import { comparisonNameOf } from "../../shared/comparisons";
 import type { MessageKey, MessageParams } from "../../shared/i18n";
 import type { CitationCheck } from "../api";
 import type { Language } from "../language";
@@ -121,7 +120,6 @@ export function comparisonBook(input: ComparisonSheetInput): {
     cells: cells.map(([column, text]) => ({ column, value: { kind: "text", text } })),
   });
   let unverified = 0;
-  const hiddenNote = hiddenColumnsNote(reading.hidden ?? [], t);
   const rows = reading.rows.map((row, rowAt): SheetRow => {
     const rowId = `row-${rowAt}`;
     const cells: SheetCell[] = [
@@ -205,21 +203,6 @@ export function comparisonBook(input: ComparisonSheetInput): {
               ]),
             ]),
             ...rows,
-            ...(hiddenNote
-              ? [
-                  { id: "hidden-gap", cells: [] },
-                  {
-                    id: "hidden",
-                    cells: [
-                      {
-                        column: DOCUMENT_COLUMN,
-                        value: { kind: "text" as const, text: hiddenNote },
-                        wrap: true,
-                      },
-                    ],
-                  },
-                ]
-              : []),
           ],
           frozen: { rows: 1, columns: 1 },
         },

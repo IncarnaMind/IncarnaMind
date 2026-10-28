@@ -651,7 +651,7 @@ export interface ComparisonQuestion {
   text: string;
   /** Its heading, which starts as its Question shortened; absent: the Question shortened. */
   label?: string;
-  /** Its width in the table; absent: the table's own. */
+  /** Its width in the table, in pixels; absent: the table's own. */
   width?: number;
   /** Whether the table draws it; absent: it does. */
   hidden?: boolean;
@@ -4519,7 +4519,13 @@ export type ComparisonResult =
 /** What saving a comparison table as an Excel workbook did (`CoreApi.saveComparisonExport`). */
 export type SavedComparisonExport =
   /** Saved, with how many of the workbook's Citations aren't "Quote found", which the result line says. */
-  | { status: "saved"; file: SavedFile; unverifiedCitations: number }
+  | {
+      status: "saved";
+      file: SavedFile;
+      unverifiedCitations: number;
+      /** The columns the file leaves out, for the app to say so. */
+      hiddenColumns: number;
+    }
   | Exclude<SavedExport, { status: "saved" }>;
 
 /** A comparison table whose cells are being filled ("comparison.filling"). */
@@ -8119,6 +8125,8 @@ export interface MindExportPreview {
   unverifiedCitations: number;
   /** The Question Blocks in the Mind, whether the export includes them or not. */
   questions: number;
+  /** The comparison-table columns a file leaves out, for the app to say so. */
+  hiddenColumns: number;
   /** The Mind was imported from a Word file, which a Word export writes back into (#105). */
   fromWord: boolean;
   /** Someone's changes from that Word file still waiting (#734), shown or accepted as `theirChanges` says. */

@@ -2,7 +2,7 @@ import { Editor, type JSONContent } from "@tiptap/core";
 import { describe, expect, onTestFinished, test, vi } from "vitest";
 import * as Y from "yjs";
 import { type ComparisonProblem, MIND_CONTENT_FIELD } from "../../src/core";
-import { createElement, type NodeJSON } from "../../src/core/answers/blocks";
+import { createElement, type NodeJSON, syncContent } from "../../src/core/answers/blocks";
 import {
   duplicateColumn,
   saveColumnEdit,
@@ -80,6 +80,12 @@ const answer = (
       ],
 });
 
+const emptyCell = (questionId: string): NodeJSON => ({
+  type: "comparisonCell",
+  attrs: { questionId, status: "waiting" },
+  content: [paragraph("")],
+});
+
 /** A table of two columns and two rows, its Answers cited, as the core fills one. */
 const table = (firstProblem?: ComparisonProblem): NodeJSON => ({
   type: "comparisonTable",
@@ -97,8 +103,18 @@ const table = (firstProblem?: ComparisonProblem): NodeJSON => ({
   })),
 });
 
+/** The same table before its fill, its cells waiting. */
+const waitingTable = (): NodeJSON => ({
+  ...table(),
+  content: ["doc-a", "doc-b"].map((documentId) => ({
+    type: "comparisonRow",
+    attrs: { documentId, documentName: documentId },
+    content: [emptyCell("q1"), emptyCell("q2")],
+  })),
+});
+
 /** A Mind's editor holding that table, bound to Yjs so ⌘Z is the note's own. */
-async function boundTable(firstProblem?: ComparisonProblem) {
+async function boundTable(firstProblem?: ComparisonProblem, { waiting = false } = {}) {
   const dataDir = await createTempDataFolder();
   const core = startCore(dataDir);
   onTestFinished(() => core.close());
@@ -107,12 +123,38 @@ async function boundTable(firstProblem?: ComparisonProblem) {
   client.doc.transact(() => {
     client.doc
       .getXmlFragment(MIND_CONTENT_FIELD)
-      .push([createElement(paragraph("Shortlist")), createElement(table(firstProblem))]);
+      .push([
+        createElement(paragraph("Shortlist")),
+        createElement(waiting ? waitingTable() : table(firstProblem)),
+      ]);
   });
   await client.settled();
   const editor = boundEditor(client);
   const before = editor.getJSON();
-  return { core, client, editor, before };
+  const writer = waiting ? await connectToMind(core, mind.id) : null;
+  return { core, client, editor, before, writer };
+}
+
+/** The core writing a cell it found by its Document and Question, as a fill does. */
+function fillWrite(writer: { doc: Y.Doc }, documentId: string, questionId: string, text: string) {
+  writer.doc.transact(() => {
+    const fragment = writer.doc.getXmlFragment(MIND_CONTENT_FIELD);
+    const found = fragment
+      .toArray()
+      .find(
+        (element): element is Y.XmlElement =>
+          element instanceof Y.XmlElement && element.nodeName === "comparisonTable",
+      );
+    for (const row of found?.toArray() ?? []) {
+      if (!(row instanceof Y.XmlElement) || row.getAttribute("documentId") !== documentId) continue;
+      for (const cell of row.toArray()) {
+        if (cell instanceof Y.XmlElement && cell.getAttribute("questionId") === questionId) {
+          cell.setAttribute("status", "done");
+          syncContent(cell, [paragraph(text)]);
+        }
+      }
+    }
+  });
 }
 
 const questionsOf = (editor: Editor) => {
@@ -227,18 +269,18 @@ describe("A comparison table's columns", () => {
     expect(questionsOf(editor)).toHaveLength(1);
   });
 
-  test("move takes the column and its Answers to a new place, past hidden ones, and ⌘Z puts it back", async () => {
+  test("move changes only the Questions' order, past hidden ones, and ⌘Z puts it back", async () => {
     const { editor, before } = await boundTable();
     expect(moveComparisonColumn(editor, "table-1", "q1", 1)).toMatchObject({
       label: "Notice",
       index: 1,
     });
     expect(questionsOf(editor).map((question) => question.id)).toEqual(["q2", "q1"]);
+    // No cell is rewritten: each stays where it is, with its own Question and Answer.
     for (const cells of cellsOf(editor)) {
-      expect(cells.map((cell) => cell.attrs?.questionId)).toEqual(["q2", "q1"]);
+      expect(cells.map((cell) => cell.attrs?.questionId)).toEqual(["q1", "q2"]);
     }
-    // Its Answer and Citation move with it, not a new cell.
-    expect(cellsOf(editor)[0]?.[1]?.content?.[0]?.content?.[0]?.text).toBe("90 days");
+    expect(cellsOf(editor)[0]?.[0]?.content?.[0]?.content?.[0]?.text).toBe("90 days");
     editor.commands.undo();
     expect(editor.getJSON()).toEqual(before);
 
@@ -253,6 +295,34 @@ describe("A comparison table's columns", () => {
         .map((question) => question.text),
     ).toEqual(["Governing law", "Termination notice"]);
     expect(moveComparisonColumnBy(editor, "table-1", "q1", 1)).toBeNull();
+  });
+
+  test("a fill that lands during a move stays in its own cell, and ⌘Z swaps nothing", async () => {
+    const { editor, client, writer } = await boundTable(undefined, { waiting: true });
+    if (!writer) throw new Error("No second client to write a fill with.");
+    expect(moveComparisonColumn(editor, "table-1", "q1", 1)).toMatchObject({ index: 1 });
+    // The cells keep their own Question: a move rewrites no cell.
+    for (const cells of cellsOf(editor)) {
+      expect(cells.map((cell) => cell.attrs?.questionId)).toEqual(["q1", "q2"]);
+    }
+    await client.settled();
+    // The core fills by Document and Question while the editor's move is in the Note.
+    fillWrite(writer, "doc-a", "q1", "90 days");
+    fillWrite(writer, "doc-a", "q2", "12 months");
+    await writer.settled();
+    await client.settled();
+    const [first] = cellsOf(editor);
+    expect(first?.[0]?.attrs).toMatchObject({ questionId: "q1", status: "done" });
+    expect(first?.[0]?.content?.[0]?.content?.[0]?.text).toBe("90 days");
+    expect(first?.[1]?.attrs).toMatchObject({ questionId: "q2", status: "done" });
+    expect(first?.[1]?.content?.[0]?.content?.[0]?.text).toBe("12 months");
+    // Undo puts the order back; the Answers were never moved, so none is swapped.
+    editor.commands.undo();
+    expect(questionsOf(editor).map((question) => question.id)).toEqual(["q1", "q2"]);
+    expect(cellsOf(editor)[0]?.[0]?.attrs).toMatchObject({ questionId: "q1" });
+    expect(cellsOf(editor)[0]?.[0]?.content?.[0]?.content?.[0]?.text).toBe("90 days");
+    expect(cellsOf(editor)[0]?.[1]?.attrs).toMatchObject({ questionId: "q2" });
+    expect(cellsOf(editor)[0]?.[1]?.content?.[0]?.content?.[0]?.text).toBe("12 months");
   });
 
   test("a column's width and hidden state stay with its Question, one step of Undo each", async () => {

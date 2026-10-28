@@ -42,23 +42,53 @@ import { CollapseIcon, ExpandIcon, TableIcon } from "./icons";
 import { useMindId } from "./mindContext";
 
 /**
- * How the table leaves a hidden column out of its grid: each row's cell of it
- * stays in the document, so its Answers do, but is not drawn; the last column
- * shown keeps the grid's outer edge.
+ * How the table places its cells: every heading and cell has its column from
+ * the Question it belongs to and every row its line, so a moved column is
+ * drawn where the Questions put it without touching a cell. A hidden column's
+ * cells stay in the document, unshown, and the last column shown keeps the
+ * grid's outer edge.
  */
-function hiddenColumnCss(tableId: string, columns: readonly ComparisonQuestion[]): string {
+function comparisonGridCss(
+  tableId: string,
+  columns: readonly ComparisonQuestion[],
+  rows: number,
+  adding: boolean,
+): string {
   const table = `.comparison-table[data-comparison-table="${CSS.escape(tableId)}"]`;
-  const rules: string[] = [];
-  columns.forEach((column, at) => {
-    if (column.hidden !== true) return;
+  const rules = [`${table} .comparison-head-row > .comparison-corner{grid-row:1;grid-column:1}`];
+  const selectorOf = (question: (typeof columns)[number]) =>
+    `[data-question-id="${CSS.escape(question.id)}"]`;
+  let shown = 0;
+  for (const column of columns) {
+    if (column.hidden === true) {
+      rules.push(
+        `${table} .comparison-row-cells > .comparison-cell${selectorOf(column)}{display:none}`,
+      );
+      continue;
+    }
+    shown++;
     rules.push(
-      `${table} .comparison-row-cells > .comparison-cell:nth-child(${at + 1}){display:none}`,
+      `${table} .comparison-head-row > .comparison-question${selectorOf(column)}{grid-row:1;grid-column:${shown + 1}}`,
+      `${table} .comparison-row-cells > .comparison-cell${selectorOf(column)}{grid-column:${shown + 1}}`,
     );
-  });
-  const lastShown = columns.reduce((last, column, at) => (column.hidden ? last : at), -1);
-  if (lastShown >= 0) {
+  }
+  for (let row = 1; row <= rows; row++) {
     rules.push(
-      `${table} .comparison-row-cells > .comparison-cell:nth-child(${lastShown + 1}){border-right:0}`,
+      `${table} .comparison-row:nth-child(${row}) > .comparison-document{grid-row:${row + 1};grid-column:1}`,
+      `${table} .comparison-row:nth-child(${row}) > .comparison-row-cells > .comparison-cell{grid-row:${row + 1}}`,
+    );
+  }
+  if (adding) {
+    rules.push(
+      `${table} .comparison-head-row > .comparison-question--new{grid-row:1;grid-column:${shown + 2}}`,
+    );
+  }
+  const lastShown = columns.reduce((last, column, at) => (column.hidden ? last : at), -1);
+  const lastColumn = lastShown >= 0 ? columns[lastShown] : undefined;
+  if (lastColumn) {
+    rules.push(
+      `${table} .comparison-head-row > .comparison-question${selectorOf(lastColumn)}{border-right:0}`,
+      `${table} .comparison-row-cells > .comparison-cell${selectorOf(lastColumn)}{border-right:0}`,
     );
   } else {
     rules.push(
@@ -73,13 +103,15 @@ function hiddenColumnCss(tableId: string, columns: readonly ComparisonQuestion[]
  * The table's cells: how many, how many have their outcome, how many filling
  * again would write, and the monthly cap or plan's limit that stopped a fill.
  */
-function cellCounts(node: ReactNodeViewProps["node"]) {
+function cellCounts(node: ReactNodeViewProps["node"], hidden: ReadonlySet<string>) {
   let total = 0;
   let settled = 0;
   let toFill = 0;
   let stop: RunStop | null = null;
   node.forEach((row) => {
     row.forEach((cell) => {
+      // A hidden column is out of the work, as the core's fill leaves it: not counted or stopped on.
+      if (hidden.has(String(cell.attrs.questionId ?? ""))) return;
       const state = comparisonCellOf(cell.attrs);
       total++;
       if (state.status === "done" || state.status === "failed") settled++;
@@ -183,7 +215,8 @@ export function ComparisonTableView({ node, editor }: ReactNodeViewProps) {
   const [adding, setAdding] = useState(false);
   const [resizing, setResizing] = useState<{ questionId: string; width: number } | null>(null);
   const [drag, setDrag] = useState<{ questionId: string; slot: number | null } | null>(null);
-  const { total, settled, toFill, stop } = cellCounts(node);
+  const hiddenIds = new Set(hidden.map((column) => column.id));
+  const { total, settled, toFill, stop } = cellCounts(node, hiddenIds);
   const language = useLanguage();
   const openSettings = useAppStore((state) => state.openSettings);
   const editable = editor.isEditable;
@@ -208,7 +241,6 @@ export function ComparisonTableView({ node, editor }: ReactNodeViewProps) {
     if (id) void fillComparisonTable({ ...ref, questionIds: [id] });
   };
 
-  /** The column lands in the place of the one shown at `slot`, hidden columns staying put. */
   const moveTo = (questionId: string, slot: number) => {
     const landing = questions[slot];
     const to = landing
@@ -267,7 +299,7 @@ export function ComparisonTableView({ node, editor }: ReactNodeViewProps) {
       data-pending={proposal ? "true" : undefined}
       className="comparison-table"
     >
-      {hidden.length > 0 && <style>{hiddenColumnCss(tableId, columns)}</style>}
+      <style>{comparisonGridCss(tableId, columns, node.childCount, adding)}</style>
       <div contentEditable={false} data-comparison-ui className="comparison-head">
         {expanded && <TableIcon className="size-4 shrink-0 text-ink-meta" />}
         <span data-testid="comparison-title" className="comparison-title" title={title}>

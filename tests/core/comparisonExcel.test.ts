@@ -230,8 +230,8 @@ describe("A comparison table exported to Excel", () => {
     expect(unnamed?.kind === "text" ? unnamed.text : "").toBe(`Corvane · ${question}`);
   });
 
-  // protects=a hidden column is left out of the workbook with a line saying which, and a column the User sized is wider in the file; fails_when=the hidden column's heading or Answers appear, the file says nothing about them, or the set width does not reach Excel; no_claim=Excel's own rendering.
-  test("leaves a hidden column out with a line that says so, and keeps the User's column widths", async () => {
+  // protects=a hidden column is left out of the workbook with no line, the app is told the count, and a column the User sized is wider in the file; fails_when=the hidden column's heading or Answers appear, the file mentions a hidden column, or the set width does not reach Excel; no_claim=Excel's own rendering.
+  test("leaves a hidden column out with no line, and keeps the User's column widths", async () => {
     const core = startCore(await createTempDataFolder());
     onTestFinished(() => core.close());
     const mind = await core.createMind({ title: "Suppliers" });
@@ -284,7 +284,9 @@ describe("A comparison table exported to Excel", () => {
       undefined,
     ]);
     expect(table.at("B2").text).toBe("90 days");
-    expect(table.at("A4").text).toContain("Left out 1 hidden column: “Result”");
+    // The file leaves the column out and says nothing about it; the app is told the count.
+    expect(table.at("A3").text).toBeUndefined();
+    expect(saved.hiddenColumns).toBe(1);
     expect(table.width(1)).toBeGreaterThan(table.width(0));
   });
 });

@@ -22,16 +22,14 @@ import {
   stepColumn,
 } from "../comparisonColumns";
 import { ObjectMenu, useObjectMenu } from "../components/ObjectMenu";
+import { ResizeRod } from "../components/ResizeRod";
 import { useT } from "../i18n";
 
 /** Where a heading dropped, among the columns the table shows: before that one, or after the last. */
 export type ColumnDrop = "before" | "after" | null;
 
 const MOVE_DRAG_PX = 4;
-const WIDTH_STEP_PX = 16;
 const isMac = /Mac|iPhone|iPad/.test(navigator.platform);
-const clampedWidth = (width: number) =>
-  Math.min(MAX_COMPARISON_COLUMN_WIDTH, Math.max(MIN_COMPARISON_COLUMN_WIDTH, Math.round(width)));
 
 /**
  * A comparison table's heading (DESIGN.md, Comparison table; #1833): the
@@ -90,6 +88,17 @@ export function ComparisonColumnHeading({
   const inserting =
     open?.mode === "insert" && open.tableId === tableId && open.questionId === question.id;
   const label = comparisonLabelOf(question);
+  const [drawnWidth, setDrawnWidth] = useState(MIN_COMPARISON_COLUMN_WIDTH);
+
+  useEffect(() => {
+    const element = heading.current;
+    if (!element) return;
+    const draw = () => setDrawnWidth(element.getBoundingClientRect().width);
+    draw();
+    const observer = new ResizeObserver(draw);
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, []);
 
   useEffect(() => {
     const entry = { editor, mindId, tableId };
@@ -107,7 +116,6 @@ export function ComparisonColumnHeading({
     useComparisonColumns.getState().clearFocus(tableId, question.id);
   }, [focus, tableId, question.id]);
 
-  /** The headings the table shows, in the order it shows them. */
   const headingsShown = (): HTMLElement[] => {
     const table = heading.current?.closest(".comparison-table");
     return Array.from(
@@ -154,6 +162,7 @@ export function ComparisonColumnHeading({
       window.removeEventListener("pointermove", onMove);
       window.removeEventListener("pointerup", onUp);
       window.removeEventListener("pointercancel", cancel);
+      window.removeEventListener("keydown", onKey, true);
     };
     const onUp = () => {
       remove();
@@ -171,65 +180,15 @@ export function ComparisonColumnHeading({
       delete document.documentElement.dataset.comparisonColumnDrag;
       onDragEnd?.();
     };
-    window.addEventListener("pointermove", onMove);
-    window.addEventListener("pointerup", onUp);
-    window.addEventListener("pointercancel", cancel);
-  };
-
-  const beginResize = (event: PointerEvent<HTMLSpanElement>) => {
-    if (!editable) return;
-    event.preventDefault();
-    event.stopPropagation();
-    const column = heading.current;
-    if (!column) return;
-    const startX = event.clientX;
-    const startWidth = column.getBoundingClientRect().width;
-    let width = startWidth;
-    const onMove = (move: globalThis.PointerEvent) => {
-      width = clampedWidth(startWidth + move.clientX - startX);
-      onWidthPreview?.(question.id, width);
-    };
-    const remove = () => {
-      window.removeEventListener("pointermove", onMove);
-      window.removeEventListener("pointerup", onUp);
-      window.removeEventListener("pointercancel", cancel);
-    };
-    const onUp = () => {
-      remove();
-      delete document.documentElement.dataset.comparisonColumnResize;
-      onWidthPreview?.(question.id, null);
-      if (Math.round(width) !== Math.round(startWidth)) onWidthCommit?.(question.id, width);
-    };
-    const cancel = () => {
-      remove();
-      delete document.documentElement.dataset.comparisonColumnResize;
-      onWidthPreview?.(question.id, null);
-    };
-    document.documentElement.dataset.comparisonColumnResize = "true";
-    window.addEventListener("pointermove", onMove);
-    window.addEventListener("pointerup", onUp);
-    window.addEventListener("pointercancel", cancel);
-  };
-
-  const onResizeKeys = (event: KeyboardEvent<HTMLSpanElement>) => {
-    event.stopPropagation();
-    if (!editable) return;
-    if (event.key === "Enter") {
+    const onKey = (event: globalThis.KeyboardEvent) => {
+      if (event.key !== "Escape") return;
       event.preventDefault();
-      onFit?.(question.id);
-      return;
-    }
-    if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
-    event.preventDefault();
-    const current =
-      question.width ??
-      heading.current?.getBoundingClientRect().width ??
-      MIN_COMPARISON_COLUMN_WIDTH;
-    const step = event.shiftKey ? WIDTH_STEP_PX * 4 : WIDTH_STEP_PX;
-    onWidthCommit?.(
-      question.id,
-      clampedWidth(current + (event.key === "ArrowRight" ? step : -step)),
-    );
+      cancel();
+    };
+    window.addEventListener("pointermove", onMove);
+    window.addEventListener("pointerup", onUp);
+    window.addEventListener("pointercancel", cancel);
+    window.addEventListener("keydown", onKey, true);
   };
 
   const onKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
@@ -276,7 +235,12 @@ export function ComparisonColumnHeading({
       onPointerDown={beginMove}
       onKeyDown={onKeyDown}
       onDoubleClick={(event) => {
-        if (!editable || (event.target as Element).closest("[data-object-menu]")) return;
+        if (
+          !editable ||
+          (event.target as Element).closest("[data-object-menu], .comparison-column-resize")
+        ) {
+          return;
+        }
         event.preventDefault();
         startColumnEdit(handle, question.id);
       }}
@@ -307,26 +271,23 @@ export function ComparisonColumnHeading({
         </>
       )}
       {editable && (
-        // biome-ignore lint/a11y/useSemanticElements: a resize grip at the column's edge, focusable for its own keys.
-        <span
-          role="separator"
-          aria-orientation="vertical"
-          aria-label={t("comparison.column.resize")}
-          aria-valuemin={MIN_COMPARISON_COLUMN_WIDTH}
-          aria-valuemax={MAX_COMPARISON_COLUMN_WIDTH}
-          aria-valuenow={Math.round(width ?? MIN_COMPARISON_COLUMN_WIDTH)}
-          title={t("comparison.column.resize")}
-          tabIndex={0}
-          className="comparison-column-resize"
-          data-testid="comparison-column-resize"
-          onPointerDown={beginResize}
-          onDoubleClick={(event) => {
-            event.preventDefault();
-            event.stopPropagation();
-            onFit?.(question.id);
-          }}
-          onKeyDown={onResizeKeys}
-        />
+        <span className="comparison-column-resize">
+          <ResizeRod
+            label={t("comparison.column.resize")}
+            testId="comparison-column-resize"
+            width={Math.round(width ?? drawnWidth)}
+            min={MIN_COMPARISON_COLUMN_WIDTH}
+            max={MAX_COMPARISON_COLUMN_WIDTH}
+            direction={1}
+            onPreview={(next) => onWidthPreview?.(question.id, next)}
+            onCommit={(next) => {
+              onWidthPreview?.(question.id, null);
+              onWidthCommit?.(question.id, next);
+            }}
+            onRelease={() => onWidthPreview?.(question.id, null)}
+            onReset={() => onFit?.(question.id)}
+          />
+        </span>
       )}
     </div>
   );

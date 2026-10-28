@@ -5,7 +5,7 @@
 import type { ComparisonQuestion } from "../../../core/api";
 import { comparisonLabelOf } from "../../../shared/comparisons";
 import { MoreLineIcon } from "../components/lineIcons";
-import { menuClass, menuItemClass } from "../components/ui";
+import { menuClass, menuItemClass, menuTitleClass } from "../components/ui";
 import { usePopoverMenu } from "../components/usePopoverMenu";
 import { useT } from "../i18n";
 
@@ -38,6 +38,7 @@ export function ComparisonHiddenColumnsMenu({
         className={menuClass}
         data-testid="comparison-hidden-actions"
       >
+        {menu.open && <div className={menuTitleClass}>{label}</div>}
         {menu.open &&
           hidden.map((question) => (
             <button

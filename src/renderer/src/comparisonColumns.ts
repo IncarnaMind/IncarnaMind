@@ -145,7 +145,18 @@ export function hideColumn(handle: ComparisonColumnHandle, questionId: string): 
   const done = setComparisonColumnHidden(handle.editor, handle.tableId, questionId, true);
   if (!done) return;
   offerEditorUndo(handle.editor, (t) => t("comparison.column.hid", { label: done.label }));
-  useComparisonColumns.getState().focusColumn(handle.tableId, done.focusId);
+  if (done.focusId) {
+    useComparisonColumns.getState().focusColumn(handle.tableId, done.focusId);
+    return;
+  }
+  // Nothing is left to take the focus: the table's hidden-columns button shows what went.
+  requestAnimationFrame(() =>
+    document
+      .querySelector<HTMLElement>(
+        `.comparison-table[data-comparison-table="${CSS.escape(handle.tableId)}"] [data-testid="comparison-hidden-menu"]`,
+      )
+      ?.focus(),
+  );
 }
 
 /** A hidden column shown again, in its own place. */

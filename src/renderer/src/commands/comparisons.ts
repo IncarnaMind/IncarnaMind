@@ -79,6 +79,14 @@ const addEnabled = (ctx: CommandContext) => {
 };
 
 /** Whether a shown column stands beside it on that side, hidden ones passed over. */
+const hiddenEnabled = (ctx: CommandContext) => {
+  const here = columnHere(ctx);
+  if (!here) return unavailable;
+  return here.questions.some((question) => question.hidden === true)
+    ? true
+    : ({ reason: "comparison.column.noneHidden" } as const);
+};
+
 const moveEnabled = (direction: -1 | 1) => (ctx: CommandContext) => {
   const here = columnHere(ctx);
   if (!here) return unavailable;
@@ -186,6 +194,22 @@ export const comparisonCommands: readonly Command[] = [
     reversible: true,
     enabled: editEnabled,
     run: (ctx) => actColumn(ctx, ({ handle, question }) => hideColumn(handle, question.id)),
+  },
+  {
+    id: "comparison.column.showHidden",
+    label: "comparison.column.showHidden",
+    group: "edit",
+    appliesTo: ["comparisonColumn"],
+    reversible: true,
+    enabled: hiddenEnabled,
+    // The table's own ⋯ is the picker: it lists each hidden column, and every way to show one.
+    run: (ctx) =>
+      actColumn(ctx, ({ handle }) => {
+        const button = document.querySelector<HTMLButtonElement>(
+          `.comparison-table[data-comparison-table="${CSS.escape(handle.tableId)}"] [data-testid="comparison-hidden-menu"]`,
+        );
+        requestAnimationFrame(() => button?.click());
+      }),
   },
   {
     id: "comparison.column.fit",

@@ -165,7 +165,9 @@ interface Cell {
 /** What a cell came to: its Answer, or why it has none. */
 type Written =
   | { kind: "answer"; blocks: NodeJSON[] }
-  | { kind: "problem"; problem: ComparisonProblem; message?: string };
+  | { kind: "problem"; problem: ComparisonProblem; message?: string }
+  /** Its column was hidden before its turn came: it stays waiting, with no model call. */
+  | { kind: "left-out" };
 
 interface Fill {
   mindId: string;
@@ -256,6 +258,8 @@ function cellsToFill(table: Y.XmlElement, only: ReadonlySet<string> | null = nul
       elements(row).map((cell) => [String(cell.getAttribute("questionId") ?? ""), cell]),
     );
     for (const question of questions) {
+      // A hidden column is out of the work until it is shown again.
+      if (question.hidden === true) continue;
       if (only && !only.has(question.id)) continue;
       const cell = byQuestion.get(question.id);
       if (!cell || !cellToFill(comparisonCellOf(cell.getAttributes()))) continue;
@@ -279,10 +283,17 @@ function progressOf(
 ): { done: number; total: number } {
   let done = 0;
   let total = 0;
+  const hidden = new Set(
+    comparisonQuestionsOf(table.getAttributes())
+      .filter((question) => question.hidden === true)
+      .map((question) => question.id),
+  );
   for (const row of elements(table)) {
     if (row.nodeName !== COMPARISON_ROW_NODE) continue;
     for (const cell of elements(row)) {
-      if (only && !only.has(String(cell.getAttribute("questionId") ?? ""))) continue;
+      const questionId = String(cell.getAttribute("questionId") ?? "");
+      if (hidden.has(questionId)) continue;
+      if (only && !only.has(questionId)) continue;
       total++;
       const status = comparisonCellOf(cell.getAttributes()).status;
       if (status === "done" || status === "failed") done++;
@@ -424,6 +435,7 @@ export function createComparisons(options: ComparisonsOptions) {
       case "stopped":
         return;
       case "done":
+        if (outcome.value.kind === "left-out") return;
         patch =
           outcome.value.kind === "answer"
             ? {
@@ -489,6 +501,16 @@ export function createComparisons(options: ComparisonsOptions) {
    * gives way to an Answer, and is written again after it.
    */
   async function write(fill: Fill, tableId: string, cell: Cell): Promise<Written> {
+    // Hidden since its batch was listed: its turn never comes, so it waits for Show.
+    const shown = content.read(fill.mindId, (all) => {
+      const table = tableIn(all, tableId);
+      return table
+        ? comparisonQuestionsOf(table.getAttributes()).some(
+            (question) => question.id === cell.questionId && question.hidden !== true,
+          )
+        : false;
+    });
+    if (!shown) return { kind: "left-out" };
     const turn = await fill.task.turn(fill.local);
     try {
       const written = await writeCell(

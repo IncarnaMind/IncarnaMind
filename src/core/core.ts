@@ -4681,12 +4681,12 @@ export function createCore(adapters: CoreAdapters): Core {
     },
     saveComparisonExport: async (input) => {
       const ref: Record<string, unknown> = isRecord(input) ? input : {};
-      const { fileName, data, unverifiedCitations } = comparisonExport.workbook(
+      const { fileName, data, unverifiedCitations, hiddenColumns } = comparisonExport.workbook(
         ref.mindId,
         ref.tableId,
       );
       const saved = await saveExport(fileName, data);
-      return saved.status === "saved" ? { ...saved, unverifiedCitations } : saved;
+      return saved.status === "saved" ? { ...saved, unverifiedCitations, hiddenColumns } : saved;
     },
     saveSkillExport: async (skillId) => {
       const { fileName, data } = await skills.exportZip(skillId);

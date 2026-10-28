@@ -145,6 +145,8 @@ export const comparisonCellView: NodeViewRenderer = ({ node: first, getPos, view
 
   const draw = () => {
     const cell = comparisonCellOf(node.attrs);
+    // Which column it is: the table draws its cells in the Questions' order.
+    dom.dataset.questionId = cell.questionId;
     dom.dataset.status = cell.status;
     if (cell.status === "writing") {
       dom.setAttribute("aria-busy", "true");
