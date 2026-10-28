@@ -25,6 +25,7 @@ export type {
   LibrarySnapshot,
   TaggingClassifier,
   TaggingCost,
+  TaggingDestination,
   TaggingModelGroup,
   TaggingModelOption,
   TaggingModels,

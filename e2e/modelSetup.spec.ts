@@ -306,7 +306,7 @@ function watchSortingStep(window: Page): Promise<void> {
       if (!card || !line) return;
       const { top, height } = card.getBoundingClientRect();
       seen.push({
-        line: line.textContent ?? "",
+        line: (line as HTMLElement).innerText,
         usable: use !== null && !use?.hasAttribute("disabled"),
         top,
         height,
@@ -397,6 +397,42 @@ function failReads(app: ElectronApplication, channel: string, on: boolean): Prom
     },
     { name: channel, failing: on },
   );
+}
+
+// A model on this computer and a cloud model Ollama forwards to ollama.com, on one server.
+const OLLAMA_MODELS = [
+  { modelId: "qwen3.5:4b", cloud: false },
+  { modelId: "gpt-oss:120b-cloud", cloud: true },
+] as const;
+
+/** Saves `modelId` on the saved Ollama server for sorting, as the Other model form does. */
+async function saveSortingOnOllama(window: Page, modelId: string): Promise<void> {
+  await window.evaluate(async (model) => {
+    const core = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
+    const ollama = (await core.listChatProviders()).find((each) => each.kind === "ollama");
+    if (!ollama) throw new Error("No Ollama server is saved.");
+    await core.saveLibrarySettings({
+      ...(await core.getLibrary()).settings,
+      classifier: { kind: "chat", choice: { providerId: ollama.id, modelId: model } },
+    });
+  }, modelId);
+}
+
+/** Makes `modelId` on the saved Ollama server the chat default. */
+async function saveOllamaDefault(window: Page, modelId: string): Promise<void> {
+  await window.evaluate(async (model) => {
+    const core = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
+    await core.saveChatProvider({ kind: "ollama", modelId: model });
+  }, modelId);
+}
+
+async function removeOllama(window: Page): Promise<void> {
+  await window.evaluate(async () => {
+    const core = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
+    for (const provider of await core.listChatProviders()) {
+      if (provider.kind === "ollama") await core.deleteChatProvider(provider.id);
+    }
+  });
 }
 
 const OPENAI_KEY = "sk-proj-a-test-key-for-first-run";
@@ -986,12 +1022,10 @@ for (const language of ["en", "zh-CN"] as const) {
   });
 }
 
-// What step 3 and Settings › Models read to say what sorts: the models that can, and the saved providers.
-// Settings › Models reads the saved providers for the whole page and draws nothing until it has
-// them, saying a failure as a notice of its own, so only a read again reaches this row.
+// What step 3 and Settings › Models read to say what sorts: the core's models, with its answer for
+// the saved choice. The core is the only thing they ask, so it is the one read that can fail.
 const SORTING_READS = [
   { channel: "core:getTaggingModels", name: "the models that can sort", atFirst: true },
-  { channel: "core:listChatProviders", name: "the saved providers", atFirst: false },
 ] as const;
 
 for (const language of ["en", "zh-CN"] as const) {
@@ -1108,9 +1142,9 @@ for (const language of ["en", "zh-CN"] as const) {
       await expect(card.getByTestId("setup-step-sorting")).toHaveAttribute("data-done", "true");
       await expect.poll(async () => (await bridge(window).library()).classifier.kind).toBe("chat");
 
-      // Opened again, the step is built before its list is read. Every state it passes through,
-      // from that first one to the list landing, says what the saved choice is: it goes to
-      // Anthropic, which the sends row says, and it can be used.
+      // Opened again, the step is built before the core has said where the choice goes. Every
+      // state it passes through, from that first one to the core's answer, says nothing and can't
+      // be used, or says what the choice is: it goes to Anthropic, which the sends row says.
       await watchSortingStep(window);
       await pointAndClick(window, card.getByTestId("setup-step-sorting-open"));
       const picked = card.getByTestId("models-sorting").locator("option:checked");
@@ -1120,20 +1154,86 @@ for (const language of ["en", "zh-CN"] as const) {
       const seen = await sortingStepsSeen(window);
       const model = "Claude Haiku 5.5";
       expect(seen.length, "no state of the reopened step was seen").toBeGreaterThan(1);
+      const says = (line: string) =>
+        line.includes(translate(language, "setup.sorting.chat", { model })) &&
+        line.includes(translate(language, "setup.sorting.sends", { service: "Anthropic" }));
       for (const state of seen) {
-        expect(state.line).toContain(translate(language, "setup.sorting.chat", { model }));
-        expect(state.line).toContain(
-          translate(language, "setup.sorting.sends", { service: "Anthropic" }),
-        );
         expect(state.line).not.toContain(translate(language, "setup.sorting.chatHere", { model }));
-        expect(state.usable).toBe(true);
+        expect(state.usable, "usable before the core has said where it goes").toBe(
+          says(state.line),
+        );
         expect(state.top).toBeCloseTo(seen[0]?.top ?? 0, 0);
         expect(state.height).toBeCloseTo(seen[0]?.height ?? 0, 0);
       }
+      expect(says(seen.at(-1)?.line ?? "")).toBe(true);
     } finally {
       await app.close();
     }
   });
+
+  for (const { modelId, cloud } of OLLAMA_MODELS) {
+    for (const chatDefault of ["the same", "another"] as const) {
+      test(`a sorting choice on ${modelId}, ${cloud ? "a cloud model" : "a model on this computer"} of one Ollama server, with ${chatDefault} chat default, says what the core says of where it goes (${language})`, async () => {
+        const { app, window } = await launchApp(dataDir, { fakeChat: true });
+        try {
+          await setWindowSize(app, window, 1280, 800);
+          await acceptPlainTextKeys(window);
+          await setLanguage(window, language);
+          const card = await askFirstQuestion(window);
+          await setLocalChatModel(window);
+          await expect(card.getByTestId("setup-ready-title")).toBeVisible({ timeout: 15_000 });
+          await saveSortingOnOllama(window, modelId);
+          if (chatDefault === "the same") await saveOllamaDefault(window, modelId);
+          else await saveOpenAiAsDefault(window);
+
+          await pointAndClick(window, card.getByTestId("setup-step-sorting-open"));
+          await expect(card.getByTestId("setup-sorting-use")).toBeEnabled({ timeout: 15_000 });
+          const words = await sortingWords(card);
+          // The core's own answer: where the saved choice goes, and what it registers for tagging.
+          const told = await window.evaluate(async () => {
+            const core = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
+            const answer = (await core.getTaggingModels()).saved?.destination;
+            const flows = await core.listRegisteredDataFlows();
+            return {
+              answer,
+              registered: flows
+                .find((flow) => flow.id === "tagging")
+                ?.services.map((each) => each.flow.service.id),
+            };
+          });
+          if (cloud) {
+            if (told.answer?.kind !== "service") throw new Error("The core says nothing leaves.");
+            expect(told.registered).toContain(told.answer.service.id);
+            expect(words).toContain(
+              translate(language, "setup.sorting.sends", { service: told.answer.service.name }),
+            );
+            expect(words).not.toContain(
+              translate(language, "setup.sorting.chatHere", { model: modelId }),
+            );
+          } else {
+            expect(told.answer?.kind).toBe("here");
+            expect(words).toContain(
+              translate(language, "setup.sorting.chatHere", { model: modelId }),
+            );
+            expect(words).not.toContain(
+              translate(language, "setup.sorting.sends", { service: "" }),
+            );
+          }
+
+          // Its provider is removed: the core can't say, so nothing is said and it can't be used.
+          if (chatDefault === "another") {
+            await removeOllama(window);
+            await pointAndClick(window, card.getByTestId("setup-step-transcription-open"));
+            await pointAndClick(window, card.getByTestId("setup-step-sorting-open"));
+            await expect(card.getByTestId("setup-sorting-use")).toBeDisabled();
+            expect(await sortingWords(card)).toBe("");
+          }
+        } finally {
+          await app.close();
+        }
+      });
+    }
+  }
 
   test(`a saved cloud service, folded and reopened in step 2, still says where the audio goes (${language})`, async () => {
     const { app, window } = await launchApp(dataDir, { fakeChat: true });

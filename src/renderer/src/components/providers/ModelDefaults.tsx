@@ -147,7 +147,7 @@ function SortingRow({ id }: { id: string }) {
             current={current}
             onChange={(option) => void choose(option)}
           />
-          <SortingLine option={current} />
+          <SortingLine option={current} reading={read.state === "loading"} />
         </>
       )}
     </div>

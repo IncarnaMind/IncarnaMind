@@ -320,7 +320,6 @@ function SortingStep({ onDone }: { onDone(choice: string): void }) {
   const { options, current, choose, known, loading, read } = useSorting();
   const [picked, setPicked] = useState<SortingOptionLike | null>(null);
   const chosen = picked ?? current;
-  const shown = chosen ?? (loading ? known : null);
   const use = async () => {
     if (chosen && !(await choose(chosen))) return;
     onDone(chosen?.label ?? t("setup.step.skipped"));
@@ -350,7 +349,7 @@ function SortingStep({ onDone }: { onDone(choice: string): void }) {
         current={chosen}
         onChange={setPicked}
       />
-      <SortingLine option={shown} holds={known} />
+      <SortingLine option={chosen} holds={known} reading={loading && chosen === null} />
       <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
         <button
           type="button"

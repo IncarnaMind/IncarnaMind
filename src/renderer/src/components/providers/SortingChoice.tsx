@@ -1,10 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import type {
-  ChatModelChoice,
-  ChatProvider,
-  TaggingClassifier,
-  TaggingModels,
-} from "../../../../core/api";
+import type { ChatModelChoice, TaggingClassifier, TaggingModels } from "../../../../core/api";
 import type { Language } from "../../../../core/language";
 import { useAnswers } from "../../answers";
 import { core } from "../../core";
@@ -103,8 +98,8 @@ export function sortingOptions(
 }
 
 /**
- * The models sorting may use now and the saved providers, read together, as one read: a line
- * says the model it opened with only while it is loading, and a read that fails says so.
+ * What the core says can sort and where the saved choice goes, as one read: nothing is said of a
+ * saved choice until the core has answered, and a read that fails says so.
  */
 export function useSortingModels() {
   const chatModel = useAppStore((state) => state.settings?.user.chatModel ?? null);
@@ -114,11 +109,7 @@ export function useSortingModels() {
     // The line that says what sorts names the User's model: its group is where the name is.
     useAnswers.getState().loadModels();
   }, [chatModel, readiness]);
-  return useRead(
-    "The models that can sort",
-    () => Promise.all([core.getTaggingModels(), core.listChatProviders()]),
-    [chatModel, readiness],
-  );
+  return useRead("The models that can sort", () => core.getTaggingModels(), [chatModel, readiness]);
 }
 
 /**
@@ -130,8 +121,7 @@ export function useSorting() {
   const language = useLanguage();
   const nameOf = useModelNames();
   const read = useSortingModels();
-  const models = read.state === "ready" ? read.data[0] : null;
-  const providers = read.state === "ready" ? read.data[1] : null;
+  const models = read.state === "ready" ? read.data : null;
   const [jev] = useJevSettings();
   const chatModel = useAppStore((state) => state.settings?.user.chatModel ?? null);
   const readiness = useAppStore((state) => state.chatReadiness);
@@ -167,40 +157,18 @@ export function useSorting() {
         chatName: chatModel ? nameOf(chatModel.modelId, chatModel.providerId).name : "",
       })
     : [];
-  if (
-    saved &&
-    saved.kind !== "automatic" &&
-    !options.some((each) => sortingKey(each.classifier) === sortingKey(saved))
-  ) {
-    // Where a saved choice goes comes from what is stored: its entry in the list once that is
-    // read, else the provider it names among the saved ones (the list holds each provider's tagging
-    // and default models, not every model the User set up), else the Jev settings. A list still
-    // being read never makes a cloud choice look local. undefined: not known, because the
-    // provider isn't saved or the saved ones aren't read yet, or Jev's settings aren't read yet.
-    const listed = models?.options.find(
-      (each) => sortingKey(each.classifier) === sortingKey(saved),
-    );
-    const provider =
-      saved.kind === "chat"
-        ? (providers?.find((each) => each.id === saved.choice.providerId) ??
-          (readiness?.ready && readiness.provider.id === saved.choice.providerId
-            ? readiness.provider
-            : undefined))
+  if (saved && saved.kind !== "automatic") {
+    // Where the saved choice goes is what the core says for it, whichever model it names and
+    // whether or not the list offers it: the card works out nothing of its own. Until the core
+    // has said, or when it can't (what the choice names is gone), it is unresolved.
+    const answer =
+      models?.saved && sortingKey(models.saved.classifier) === sortingKey(saved)
+        ? models.saved.destination
         : undefined;
-    const goes = listed
-      ? providerOf(listed, language)
-      : saved.kind === "chat"
-        ? provider
-          ? (provider.service?.name ?? null)
-          : undefined
-        : saved.kind === "jev"
-          ? jev === null
-            ? undefined
-            : (jev.service?.name ?? null)
-          : null;
+    const at = options.findIndex((each) => sortingKey(each.classifier) === sortingKey(saved));
     const named =
       saved.kind === "chat" ? nameOf(saved.choice.modelId, saved.choice.providerId).name : "";
-    options.unshift({
+    const base: SortingOption = options[at] ?? {
       classifier: saved,
       label:
         saved.kind === "chat"
@@ -210,11 +178,17 @@ export function useSorting() {
             : saved.kind === "auto"
               ? t("tagging.decision.auto")
               : saved.modelId,
-      provider: goes ?? null,
-      decisionModel: listed?.decisionModel ?? saved.kind !== "chat",
-      ...(goes === undefined && { unresolved: true }),
+      provider: null,
+      decisionModel: saved.kind !== "chat",
       ...(saved.kind === "chat" && { modelName: named }),
-    });
+    };
+    const told: SortingOption = {
+      ...base,
+      provider: answer?.kind === "service" ? answer.service.name : null,
+      ...(answer?.kind === "here" || answer?.kind === "service" ? {} : { unresolved: true }),
+    };
+    if (at >= 0) options[at] = told;
+    else options.unshift(told);
   }
   const current =
     saved && saved.kind !== "automatic"
@@ -307,9 +281,12 @@ export function SortingSelect({
 export function SortingLine({
   option,
   holds = null,
+  reading = false,
 }: {
   option: SortingOption | null;
   holds?: SortingOption | null;
+  /** The core hasn't answered: nothing is said, and the rows held hold the room. */
+  reading?: boolean;
 }) {
   const t = useT();
   const rows = (each: SortingOption | null) => {
@@ -346,7 +323,7 @@ export function SortingLine({
       </>
     );
   };
-  const unresolved = option?.unresolved === true;
+  const unresolved = reading || option?.unresolved === true;
   const holding =
     holds !== null &&
     (option === null ||
