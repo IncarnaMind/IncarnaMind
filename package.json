@@ -1,7 +1,7 @@
 {
   "name": "incarnamind",
   "productName": "IncarnaMind",
-  "version": "0.1.0-alpha.4",
+  "version": "0.1.0-alpha.5",
   "private": true,
   "description": "A local-first notebook that answers Questions from your own Documents.",
   "license": "Apache-2.0",
