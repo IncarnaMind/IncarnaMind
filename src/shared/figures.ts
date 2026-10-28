@@ -1023,6 +1023,9 @@ const STATEMENTS: readonly RegExp[] = [
   /(?<![A-Za-z])in (?<scale>thousands|millions|billions)(?: of (?<cur>U\.?S\.? dollars|US dollars|Hong Kong dollars|HK dollars|dollars|euros|[Rr]enminbi|RMB|yuan|pounds sterling|pounds|yen))?(?![A-Za-z])/dgi,
   /(?<![\dA-Za-z.,])(?<cur>US\$|HK\$|A\$|C\$|S\$|NT\$|\$|€|£|¥|USD|RMB|CNY|HKD|EUR|GBP|JPY|AUD|CAD|SGD|TWD|CHF)[ \u00a0]?(?:in )?(?<scale>'000s?|000s|thousands?|millions?|billions?|mn|bn|m|k)(?![A-Za-z0-9])(?![ \u00a0]?[\d(-])/dg,
   /[(（][ \u00a0]?(?<cur>US\$|HK\$|A\$|C\$|S\$|NT\$|\$|€|£|¥|USD|RMB|CNY|HKD|EUR|GBP|JPY|AUD|CAD|SGD|TWD|CHF)[ \u00a0]?[)）]/dg,
+  // A heading's "Unit: million tonnes", "(thousand tonnes)" or a row's "thousand tonnes" cell; in a
+  // sentence, "78 million tonnes" is a figure and "a million people" states nothing.
+  /(?<=(?:^|[\n\t(（|]|\bunits?[ \u00a0]?[:：])[ \u00a0]*)(?<scale>thousands?|millions?|billions?)(?:[ \u00a0]of)?[ \u00a0](?<unit>[a-z]+(?:[ \u00a0][a-z]+)?)(?=[ \u00a0]*(?:$|[\n\t)）|]))/dgi,
   /[(（]%[)）]|(?<![A-Za-z])in (?:%|per cent|percent)(?![A-Za-z])/dg,
 ];
 

@@ -1085,6 +1085,23 @@ describe("stated units", () => {
     expect(stated("Sales (see note 3)", EN)).toEqual([]);
   });
 
+  test("a heading's or a row's own scale and unit words state them: “Unit: million tonnes”, “thousand tonnes”", () => {
+    const tonnes = (scale: number, chars: string) => ({
+      chars,
+      scale,
+      scaleWord: chars.split(" ")[0],
+      unit: { kind: "other", word: "tonnes" },
+    });
+    expect(stated("Unit: million tonnes", EN)).toEqual([tonnes(1000000, "million tonnes")]);
+    expect(stated("Cost\t70\t78\tthousand tonnes", EN)).toEqual([tonnes(1000, "thousand tonnes")]);
+    expect(stated("Cost | 70 | 78 | million tonnes", EN)).toEqual([
+      tonnes(1000000, "million tonnes"),
+    ]);
+    expect(stated("Output (thousand tonnes)", EN)).toEqual([tonnes(1000, "thousand tonnes")]);
+    expect(stated("Output reached 78 million tonnes", EN)).toEqual([]);
+    expect(stated("A million people came", EN)).toEqual([]);
+  });
+
   test("a Chinese header states a scale and a currency", () => {
     expect(stated("单位：万元")).toEqual([
       {
