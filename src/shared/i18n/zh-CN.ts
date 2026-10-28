@@ -1988,6 +1988,10 @@ export const zhCN = {
   "setup.step.useThis": "使用这个",
   "setup.step.laterRecord": "录制时再设置",
   "setup.step.skip": "跳过",
+  "setup.step.skipped": "已跳过",
+  "setup.services.failed": "无法读取转写服务",
+  "setup.sorting.failed": "无法读取可用于整理的模型",
+  "read.tryAgain": "重试",
   "setup.step.addKey": "添加密钥…",
   "models.sorting.chat": "用你的 AI 模型",
   "setup.sorting.uses": "标签、文件夹和会议提示都使用这个模型",
@@ -2535,6 +2539,8 @@ export const zhCN = {
   "privacy.traffic.remote-connectors": "远程连接器及其登录",
   "privacy.traffic.remote-connectors.tip":
     "连接你的远程连接器的服务器以列出工具，并连接它们指定的登录服务。发送给工具的内容属于上面的连接器数据流。",
+  "privacy.runtimeFolder":
+    "Microsoft 的模型运行库在这台电脑上的一个文件夹里保存了使用数据，早期版本的 IncarnaMind 可能也写入过。可以放心删除。",
   "privacy.skills.title": "技能脚本",
   "privacy.skills.body":
     "技能脚本在这台电脑上运行，可发送它读取的内容。每个脚本运行前都会询问，除非你设为“始终允许”。",

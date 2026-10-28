@@ -16,6 +16,8 @@ export interface CaseCitation {
 /** Its span in the text, from the word that introduces it to its court and year, for a sentence break inside it to be mended (`sentenceSpans`). */
 export interface CitedCase extends CaseCitation {
   from: number;
+  /** End of the citation identity and explicit court/year metadata, excluding a bare pinpoint. */
+  citeTo: number;
   to: number;
 }
 
@@ -274,14 +276,15 @@ const spaced = (text: string) => text.replace(/\s+/g, " ").trim();
 const bare = (name: string) => spaced(name).replace(ARTICLES, "");
 
 const MAY_CITE = /\sv\.?\s|\[(?:1[89]|20)\d{2}\]/u;
-const TRAILER = /^(?:,\s*\d{1,5}(?:[-–]\d{1,5})?)*(?:\s*\([^()]{0,40}\d{4}\))?/u;
+const TRAILER = /^((?:,\s*\d{1,5}(?:[-–]\d{1,5})?)*)(\s*\([^()]{0,40}\d{4}\))?/u;
 
 export function citedCases(text: string): CitedCase[] {
   if (!MAY_CITE.test(text)) return [];
   const found: CitedCase[] = [];
   const add = (name: string | null, cite: string, from: number, citeEnd: number) => {
-    const to = citeEnd + (TRAILER.exec(text.slice(citeEnd))?.[0].length ?? 0);
-    found.push({ name, cite: spaced(cite), from, to });
+    const trailer = TRAILER.exec(text.slice(citeEnd));
+    const to = citeEnd + (trailer?.[0].length ?? 0);
+    found.push({ name, cite: spaced(cite), from, citeTo: trailer?.[2] ? to : citeEnd, to });
   };
   for (const match of text.matchAll(AMERICAN)) {
     const [whole, name, cite] = match;

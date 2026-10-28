@@ -31,6 +31,7 @@ import { DEFAULT_OLLAMA_SETTINGS, type OllamaModelSettings } from "./ollamaModel
 import { withCacheBreakpoints } from "./promptCache";
 import { withOptionsOver, withoutStorage } from "./responsesStore";
 import type { RequestTransform } from "./signedFetch";
+import { strictSchema } from "./strictSchema";
 
 /** A model object, never a model id string (which the AI SDK would send to its gateway). */
 export type ChatLanguageModel = Exclude<LanguageModel, string>;
@@ -98,14 +99,49 @@ const hostedUrl = (spec: ChatModelSpec): string =>
   spec.baseUrl ?? endpointUrl(spec.kind, spec.endpoint, spec.catalogId) ?? requireBaseUrl(spec);
 
 /**
+ * The APIs sent a reply schema as it is written: Anthropic closes objects
+ * itself, Gemini reads a smaller schema language, and the local server of
+ * Ollama constrains a small model's decoding by the schema, where every
+ * property forced would change what it writes. Every other API either
+ * enforces OpenAI's strict rules (OpenAI, xAI, OpenRouter, DeepSeek, Kimi,
+ * any server that takes `json_schema`) or accepts a schema that meets them
+ * (#2146).
+ */
+const SCHEMA_AS_WRITTEN: ReadonlySet<ChatProviderKind> = new Set([
+  "anthropic",
+  "claude-account",
+  "google",
+  "ollama",
+]);
+
+function withStrictSchema(model: ChatLanguageModel): ChatLanguageModel {
+  return wrapLanguageModel({
+    model,
+    middleware: {
+      specificationVersion: "v4",
+      transformParams: async ({ params }) => {
+        const { responseFormat } = params;
+        if (responseFormat?.type !== "json" || !responseFormat.schema) return params;
+        return {
+          ...params,
+          responseFormat: { ...responseFormat, schema: strictSchema(responseFormat.schema) },
+        };
+      },
+    },
+  });
+}
+
+/**
  * The AI SDK provider for each kind, with what every request to its provider
  * carries: for OpenAI and xAI, `store: false`, as the Responses API keeps
- * requests unless every one says not to; for a small call, thinking off; and
- * for the Answer's, the request for a summary of the model's reasoning.
+ * requests unless every one says not to; for a small call, thinking off; for
+ * the Answer's, the request for a summary of the model's reasoning; and for
+ * an API that enforces a reply schema, the schema in its strict form.
  */
 export const createAiSdkChatModel: ChatModelFactory = (spec) => {
   const request = catalogProviderOf(anthropicFor(spec.kind), spec.catalogId)?.request;
   let model = providerModel(spec);
+  if (!SCHEMA_AS_WRITTEN.has(spec.kind)) model = withStrictSchema(model);
   if (request?.store === false) {
     model = withoutStorage(model, spec.kind === "xai" ? "xai" : "openai");
   }

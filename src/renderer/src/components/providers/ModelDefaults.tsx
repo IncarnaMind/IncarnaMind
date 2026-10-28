@@ -9,8 +9,10 @@ import { core } from "../../core";
 import { useLanguage, useT } from "../../i18n";
 import { useModelNames } from "../../modelNames";
 import { useAppStore } from "../../store";
+import { type ServicesView, useTranscriptionServicesRead } from "../../transcriptionServices";
 import { TranscriptionRouteSelect } from "../meetings/TranscriptionRouteSelect";
 import { TranscriptionRouteConsent } from "../meetings/TranscriptionSettings";
+import { ReadProblem } from "../ReadProblem";
 import { fieldClass, hintClass, ruledListClass, sectionTitleClass } from "../ui";
 import { ModelHealthLine } from "./ModelHealthLine";
 import { providerName } from "./ProviderPage";
@@ -59,16 +61,18 @@ export function ModelDefaults({
   const t = useT();
   const id = useId();
   const roles = useModelRoles(groups);
+  // The one read of the Meetings choice: its row and the line under the list draw from it.
+  const services = useTranscriptionServicesRead();
 
   return (
     <section data-testid="model-defaults" className="flex flex-col gap-2">
       <h4 className={sectionTitleClass}>{t("models.defaults.title")}</h4>
       <div className={ruledListClass}>
         <YourAiRow id={`${id}-ai`} groups={groups} providers={providers} roles={roles} />
-        <TranscriptionRow id={`${id}-meetings`} />
+        <TranscriptionRow id={`${id}-meetings`} services={services} />
         <SortingRow id={`${id}-sorting`} />
       </div>
-      <TranscriptionRouteConsent />
+      <TranscriptionRouteConsent read={services} />
     </section>
   );
 }
@@ -110,35 +114,58 @@ function YourAiRow({
   );
 }
 
-function TranscriptionRow({ id }: { id: string }) {
+function TranscriptionRow({ id, services }: { id: string; services: ServicesView }) {
   const t = useT();
   const localOnly = useAppStore((state) => state.embedding?.localOnly === true);
   return (
-    <div data-testid="model-default-row-transcription" className="flex flex-col gap-0.5 py-2">
+    <div
+      data-testid="model-default-row-transcription"
+      data-read-host
+      className="flex flex-col gap-0.5 py-2"
+    >
       <label htmlFor={id} className="text-ui font-semibold text-ink">
         {t("models.defaults.transcription")}
       </label>
-      <TranscriptionRouteSelect id={id} className={rowSelectClass} localOnly={localOnly} />
+      <TranscriptionRouteSelect
+        id={id}
+        className={rowSelectClass}
+        localOnly={localOnly}
+        read={services}
+      />
     </div>
   );
 }
 
 function SortingRow({ id }: { id: string }) {
   const t = useT();
-  const { options, current, choose } = useSorting();
+  const { options, current, choose, read } = useSorting();
   return (
-    <div data-testid="model-default-row-sorting" className="flex flex-col gap-0.5 py-2">
+    <div
+      data-testid="model-default-row-sorting"
+      data-read-host
+      className="flex flex-col gap-0.5 py-2"
+    >
       <label htmlFor={id} className="text-ui font-semibold text-ink">
         {t("models.defaults.sorting")}
       </label>
-      <SortingSelect
-        id={id}
-        className={rowSelectClass}
-        options={options}
-        current={current}
-        onChange={(option) => void choose(option)}
-      />
-      <SortingLine option={current} />
+      {read.state === "failed" ? (
+        <ReadProblem
+          words={t("setup.sorting.failed")}
+          read={read}
+          testId="models-sorting-problem"
+        />
+      ) : (
+        <>
+          <SortingSelect
+            id={id}
+            className={rowSelectClass}
+            options={options}
+            current={current}
+            onChange={(option) => void choose(option)}
+          />
+          <SortingLine option={current} reading={read.state === "loading"} />
+        </>
+      )}
     </div>
   );
 }
