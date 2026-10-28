@@ -5728,6 +5728,15 @@ export interface AnswerSteps {
    * Absent: none.
    */
   unbackedClaims?: ClaimedChange[];
+  /**
+   * What its reply says a Tool did that none of its calls did (#1796): a figure calculated or
+   * checked, or a search. Absent: none.
+   */
+  unrunTools?: ClaimedTool[];
+  /** With `unrunTools`: its model isn't offered the calculation Tool. */
+  calculateUnavailable?: true;
+  /** Its first reply said so, and the model was asked once more with what its calls did. */
+  askedAgainFor?: ClaimedTool[];
   /** Written in advance for the example (`askExampleReadyQuestion`): no model wrote it, and nothing was searched. */
   example?: true;
   /** It covered only some of the Documents in scope, and offers the rest. Absent: all of them. */
@@ -5775,6 +5784,10 @@ export interface AnswerCoverage {
  */
 export const CLAIMED_CHANGES = ["made", "added", "changed", "removed"] as const;
 export type ClaimedChange = (typeof CLAIMED_CHANGES)[number];
+
+/** What an Answer's reply can say a Tool did (#1796): calculated or checked a figure, or searched. */
+export const CLAIMED_TOOLS = ["calculate", "search"] as const;
+export type ClaimedTool = (typeof CLAIMED_TOOLS)[number];
 
 /** A Tool call of an Answer started, or finished (see `call.status`). */
 export interface AnswerToolCallEvent extends AnswerPlace {

@@ -133,6 +133,14 @@ function sentenceClaims(sentence: string, minds: ReadonlyMap<string, string>): C
 const MAY_CLAIM = new RegExp(`\\bI\\b|\\b(?:now|been|${VERBS}|replaces)\\b|[“"«]|我|已`, "iu");
 const REPORT_VERB_LIST = REPORT_VERBS.split("|");
 
+/** A reply's sentences, its Citation and figure markers left out. */
+export const sentencesOf = (reply: string): string[] =>
+  reply
+    .replace(/\[\^\d+\]|\[=\d+\]/g, "")
+    .split(/(?<=[.!?])\s+|(?<=[。！？])|\n+/)
+    .map((sentence) => sentence.trim())
+    .filter((sentence) => sentence !== "");
+
 export function holdBack(minds: () => readonly string[]): (text: string) => number {
   let seen = "";
   let held = false;
