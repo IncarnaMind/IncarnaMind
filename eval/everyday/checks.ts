@@ -663,8 +663,12 @@ export function requestFailures(outcome: RequestOutcome): RequestFailure[] {
   ) {
     failures.push({ kind: "wrong-answer-citation" });
   }
+  const absenceRead = outcome.answer.toolCalls.some(
+    (call) =>
+      call.tool === "read_document" && call.status === "done" && (call.resultCount ?? 0) > 0,
+  );
   if (expected.searchMiss) {
-    if (!declines(answer.text)) failures.push({ kind: "no-search-miss" });
+    if (!declines(answer.text) && !absenceRead) failures.push({ kind: "no-search-miss" });
     const invented = clausesOf(answer.text).some((sentence) => {
       if (!sentence.trim() || declines(sentence) || /\[\^\d+\]/.test(sentence)) return false;
       if (
@@ -680,10 +684,6 @@ export function requestFailures(outcome: RequestOutcome): RequestFailure[] {
     });
     if (invented) failures.push({ kind: "invented-answer" });
   }
-  const absenceRead = outcome.answer.toolCalls.some(
-    (call) =>
-      call.tool === "read_document" && call.status === "done" && (call.resultCount ?? 0) > 0,
-  );
   if (
     expected.noDocumentAbsence &&
     statesDocumentAbsence(answer.text, expected.noDocumentAbsence) &&

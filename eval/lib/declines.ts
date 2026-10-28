@@ -33,7 +33,6 @@ const ENGLISH = [
   // "I couldn't find", "can't be determined from"
   /\b(?:could(?:n't| not)|can(?:'t|not)|can not|did(?:n't| not)|was(?:n't| not) able to|unable to)\s+(?:\w+\s+){0,2}?(?:find|found|located?|determined?|answered?|confirmed?|tell|say|identified?|established?)\b/,
   /\bthe closest (?:they|it|that (?:they|it)) comes?\b/,
-  /\b(?:lack(?:s|ed|ing)?|missing|absent|unavailable|without)\b/i,
   /\bi (?:don't|do not) (?:know|have)\b|\bi(?:'m| am) not (?:sure|certain)\b/,
 ];
 
@@ -61,7 +60,6 @@ const CHINESE = [
   /无法(?:从[^，。,.]{0,15})?(?:确定|回答|得知|得出|判断|找到|提供|告诉|说明|确认)/,
   /不在(?:您|你)?(?:的|已添加的)?(?:文档|资料|文件)/,
   /最接近/,
-  /缺少|缺失|不存在|未披露|未提及|未说明|未包含|不含|未曾|并未|没有/,
   /(?:我|本人)?(?:不知道|不确定|不清楚)/,
 ];
 
