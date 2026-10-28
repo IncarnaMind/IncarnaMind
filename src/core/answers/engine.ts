@@ -275,6 +275,7 @@ export interface AnswerTools {
    * the model about them. Absent: the Answer offers no `calculate`.
    */
   calculate?(figures: readonly unknown[], options?: CiteOptions): string;
+  calculationFailed?(): void;
   /**
    * The figures structured output gave that couldn't be worked out: what its
    * one request to fix them asks about (see ./figureRetry).
@@ -1873,6 +1874,7 @@ async function* toolLoop(
         // A failed call (a Skill or file that isn't there, a Connector's failure or a declined
         // consent) is told to the model; its card says it failed.
         const called = calls.get(event.id);
+        if (called === calculate && !event.ok) request.documents.calculationFailed?.();
         if (called && !recording(called)) {
           const passages = found.get(event.id);
           const error = failures.get(event.id);

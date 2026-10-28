@@ -35,6 +35,24 @@ const read = (cited: string, document = cited): CheckedText[] => [
 ];
 
 describe("A currency the Document doesn't state", () => {
+  test("a unit problem preserves two matching occurrences inside one cited page", () => {
+    const [text] = read("The other balance is 600. Net debt is 600.0.");
+    if (!text) throw new Error("Missing synthetic page.");
+    const result = unitNotStated("Net debt is £600.", [text]);
+    expect(result).toMatchObject({ kind: "currency", amount: "600" });
+    expect(result?.matches).toEqual([
+      { text, start: text.cited().indexOf("600") },
+      { text, start: text.cited().lastIndexOf("600") },
+    ]);
+  });
+
+  test("a unit problem keeps every matching source, including another spelling of the same value", () => {
+    const texts = [...read("Net debt is 600."), ...read("The other balance is 600.0.")];
+    const result = unitNotStated("Net debt is £600.", texts);
+    expect(result).toMatchObject({ kind: "currency", amount: "600" });
+    expect(result?.matches.map(({ text }) => text)).toEqual(texts);
+  });
+
   // protects=a currency added to a figure the cited text states as a plain number, which the Document never names, is found, as the sentence writes it apart from the number, in English and Chinese, "¥" and Chinese numerals included; fails_when="£54,000" against "54,000" passes, "¥" passes, or "五万四千英镑" is named as the currency; no_claim=other units, which the model judges.
   test.each([
     ["The annual salary is £54,000.", "£"],
@@ -45,7 +63,7 @@ describe("A currency the Document doesn't state", () => {
     ["The annual salary is ¥54,000.", "¥"],
     ["年薪为¥54,000。", "¥"],
   ])("%s adds %s", (claim, currency) => {
-    expect(unitNotStated(claim, read(STATED, CONTRACT.contents))).toEqual({
+    expect(unitNotStated(claim, read(STATED, CONTRACT.contents))).toMatchObject({
       kind: "currency",
       currency,
       amount: "54,000",
@@ -57,7 +75,7 @@ describe("A currency the Document doesn't state", () => {
     const claim =
       "Net debt at 30 June 2026 was £528.9m, so leverage should still be inside the 3.25x covenant.";
     const cited = "Net debt at 30 June 2026 528.9";
-    expect(unitNotStated(claim, read(cited))).toEqual({
+    expect(unitNotStated(claim, read(cited))).toMatchObject({
       kind: "scale",
       figure: "£528.9m",
       amount: "528.9",
@@ -77,7 +95,7 @@ describe("A currency the Document doesn't state", () => {
       "Net debt at 30 June 2026 was £528.9m, so leverage should still be inside the 3.25x covenant.";
     const plain = read("Net debt at 30 June 2026 528.9");
     const other = read("All amounts are in GBP millions.\nOther results 100.0");
-    expect(unitNotStated(claim, [...plain, ...other])).toEqual({
+    expect(unitNotStated(claim, [...plain, ...other])).toMatchObject({
       kind: "scale",
       figure: "£528.9m",
       amount: "528.9",
@@ -87,14 +105,14 @@ describe("A currency the Document doesn't state", () => {
   test("a plain scale statement does not establish a currency", () => {
     const claim = "Net debt at 30 June 2026 was £528.9m.";
     const plain = "All amounts are in millions.\nNet debt at 30 June 2026 528.9";
-    expect(unitNotStated(claim, read(plain))).toEqual({
+    expect(unitNotStated(claim, read(plain))).toMatchObject({
       kind: "currency",
       currency: "£",
       amount: "528.9",
     });
     expect(
       unitNotStated("Net debt at 30 June 2026 was 528.9m.", read("Net debt at 30 June 2026 528.9")),
-    ).toEqual({
+    ).toMatchObject({
       kind: "scale",
       figure: "528.9m",
       amount: "528.9",
@@ -107,7 +125,7 @@ describe("A currency the Document doesn't state", () => {
 
   test("the same written number at another scale is not supported in Chinese either", () => {
     const claim = "2026年6月30日净负债为£528.9m，因此杠杆率仍应在3.25倍的契约上限之内。";
-    expect(unitNotStated(claim, read("2026年6月30日净负债 528.9"))).toEqual({
+    expect(unitNotStated(claim, read("2026年6月30日净负债 528.9"))).toMatchObject({
       kind: "scale",
       figure: "£528.9m",
       amount: "528.9",
@@ -226,7 +244,7 @@ describe("A percent where the Document gives percentage points", () => {
     ["The spread widened 0.5%.", "The spread widened 50 bps.", "0.5%", "50 bps"],
     ["The rate rose 2 percentage points.", "The rate rose 2%.", "2 percentage points", "2%"],
   ])("%s against %s", (claim, cited, figure, amount) => {
-    expect(unitNotStated(claim, read(cited))).toEqual({ kind: "unit", figure, amount });
+    expect(unitNotStated(claim, read(cited))).toMatchObject({ kind: "unit", figure, amount });
   });
 
   // protects=the same unit, or a figure the Document gives both ways, isn't flagged; fails_when=a right percent is flagged; no_claim=none beyond protects.
@@ -266,14 +284,14 @@ describe("How much a check reads", () => {
     ];
 
     expect(unitNotStated("The notice period is three months.", counted(STATED))).toBeNull();
-    expect(reads).toEqual({ cited: 0, document: 0 });
+    expect(reads).toMatchObject({ cited: 0, document: 0 });
     expect(unitNotStated("The bonus is £5,000.", counted(STATED))).toBeNull();
-    expect(reads).toEqual({ cited: 1, document: 0 });
+    expect(reads).toMatchObject({ cited: 1, document: 0 });
     const inPounds = `${STATED}, in pounds sterling`;
     expect(unitNotStated("The annual salary is £54,000.", counted(inPounds))).toBeNull();
-    expect(reads).toEqual({ cited: 2, document: 0 });
+    expect(reads).toMatchObject({ cited: 2, document: 0 });
     expect(unitNotStated("The annual salary is £54,000.", counted(STATED))).not.toBeNull();
-    expect(reads).toEqual({ cited: 3, document: 1 });
+    expect(reads).toMatchObject({ cited: 3, document: 1 });
   });
 });
 

@@ -334,7 +334,11 @@ const isCount = (value: unknown): value is number =>
   typeof value === "number" && Number.isInteger(value) && value > 0;
 
 function storedCoverage(value: unknown): { coverage: AnswerCoverage } | null {
-  if (!isRecord(value) || (value.kind !== "main" && value.kind !== "largest")) return null;
+  if (
+    !isRecord(value) ||
+    (value.kind !== "main" && value.kind !== "largest" && value.kind !== "named")
+  )
+    return null;
   const used = Array.isArray(value.used)
     ? value.used.flatMap((each) =>
         isRecord(each) && typeof each.id === "string" && typeof each.name === "string"

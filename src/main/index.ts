@@ -311,6 +311,9 @@ function createWindow(): BrowserWindow {
     window.show();
     shownWindows.add(window);
     finishStartup();
+    // The keyword index an older version built is rewritten in the background, off this
+    // thread, once the window has been shown (#2042).
+    setImmediate(() => core?.upgradeKeywordIndex());
   });
   keepWindowPlace(window, dataDir);
   reportFullScreen(window);
