@@ -134,15 +134,18 @@ function Step({
 }) {
   const t = useT();
   const item = useRef<HTMLLIElement>(null);
+  const heading = useRef<HTMLHeadingElement>(null);
   const wasOpen = useRef(open);
   // In a short card the step opens under the card's sticky title at once, not later when its
-  // list arrives and the focus follows.
+  // list arrives and the focus follows. The button that opened it is gone, so its heading holds
+  // the focus until the step's own field can take it.
   useLayoutEffect(() => {
     const card = item.current?.closest("section");
     const head = card?.querySelector("[data-setup-title]");
     if (open && !wasOpen.current && item.current && card && head) {
       card.scrollTop +=
         item.current.getBoundingClientRect().top - head.getBoundingClientRect().bottom;
+      heading.current?.focus({ preventScroll: true });
     }
     wasOpen.current = open;
   }, [open]);
@@ -156,7 +159,11 @@ function Step({
       data-open={open || undefined}
       className="flex flex-col gap-2"
     >
-      <h3 className="flex items-center text-[14px] leading-5">
+      <h3
+        ref={heading}
+        tabIndex={-1}
+        className="flex items-center text-[14px] leading-5 outline-none"
+      >
         {open ? (
           <span className="flex items-center gap-2.5 font-semibold text-ink">
             {mark}

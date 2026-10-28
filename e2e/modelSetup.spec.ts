@@ -495,7 +495,18 @@ for (const language of ["en", "zh-CN"] as const) {
       await expect(card.getByTestId("setup-step-sorting")).toHaveAttribute("data-open", "true");
       const opened = await stepsFrame(window);
       expect(opened.reading, "the model list was still being read").toBe(true);
+      // The title that opened it is gone and the picker can't take the focus yet: the step holds it.
+      expect(
+        await window.evaluate(
+          () =>
+            document
+              .querySelector('[data-testid="setup-step-sorting"]')
+              ?.contains(document.activeElement) ?? false,
+        ),
+        "the focus left the step while its list was read",
+      ).toBe(true);
       await expect(card.getByTestId("models-sorting")).toBeEnabled({ timeout: 15_000 });
+      await expect(card.getByTestId("models-sorting")).toBeFocused();
       const settled = await stepsFrame(window);
       expect(settled.reading).toBe(false);
 
