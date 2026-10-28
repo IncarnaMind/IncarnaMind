@@ -33,6 +33,7 @@ import type {
   ClaimCalculation,
   ClaimCheckFailure,
   ClaimCheckResult,
+  Document,
   LeftOutDocument,
   LimitRelation,
   PassageSearchResult,
@@ -101,6 +102,8 @@ export interface ClaimCheckDependencies {
     ): import("../../documents/search").WindowedPassage[];
     searchableLanguages(documentIds: readonly string[] | null): DocumentLanguage[];
     savedBySearch(documentId: string): boolean;
+    getMany?(documentIds: readonly string[]): Document[];
+    names?(): readonly import("../../../shared/citations").LiveDocument[];
   };
 }
 

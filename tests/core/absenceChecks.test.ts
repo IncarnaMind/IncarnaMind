@@ -1,4 +1,7 @@
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { describe, expect, test } from "vitest";
+import { createFakeTextRecognizer } from "../../src/core/documents/scan/fake";
 import { checkGenerate, checkReply } from "../helpers/checks";
 import { setUpWithDocuments } from "../helpers/citations";
 import { scriptedModel } from "../helpers/models";
@@ -51,6 +54,45 @@ describe("Checking an absence sentence", () => {
       ],
     });
     expect(wholeReads).toHaveLength(1);
+  });
+
+  test("one unreadable page makes the whole-scope absence Not checked, never Supported", async () => {
+    const wholeReads: number[] = [];
+    const scan = readFileSync(join(import.meta.dirname, "../fixtures/scans/en-clean.jpg"));
+    const textRecognition = createFakeTextRecognizer({
+      script: {
+        pages: {
+          "1": { lines: ["The lease runs for three years."] },
+          "2": { fail: "Unreadable page" },
+        },
+      },
+    });
+    const { core } = await setUpWithDocuments(
+      absenceModel("supported", wholeReads),
+      [{ name: "Lease.pdf", contents: buildPdf([{ scan }, { scan }]) }],
+      { textRecognizer: textRecognition },
+    );
+
+    const result = await core.checkClaim({ claim: CLAIM });
+
+    expect(result).toMatchObject({ verdict: "not-checked", reason: "absence-read-limit" });
+    expect(wholeReads).toHaveLength(0);
+  });
+
+  test("an unreadable PDF beside a readable one makes the scope Not checked, never Supported", async () => {
+    const wholeReads: number[] = [];
+    const { core } = await setUpWithDocuments(absenceModel("supported", wholeReads), [
+      {
+        name: "Lease.pdf",
+        contents: buildPdf([{ lines: ["The lease runs for three years."] }]),
+      },
+      { name: "Broken.pdf", contents: "Not a PDF" },
+    ]);
+
+    const result = await core.checkClaim({ claim: CLAIM });
+
+    expect(result).toMatchObject({ verdict: "not-checked", reason: "absence-read-limit" });
+    expect(wholeReads).toHaveLength(0);
   });
 
   test("a false absence is Contradicted with the clause found by the whole read", async () => {

@@ -884,6 +884,7 @@ describe("The filing guards", () => {
         quote: "Operating profitability reached 38.2%",
       },
     ],
+    toolCalls: AnswerToolCall[] = [],
   ) =>
     requestFailures(
       outcome({
@@ -898,10 +899,19 @@ describe("The filing guards", () => {
           },
           noDocumentAbsence: /margin|利润率/,
         },
-        answer: { text, citations, toolCalls: [], steps: null },
+        answer: { text, citations, toolCalls, steps: null },
         citedInMinds: [],
       }),
     );
+
+  const READ: AnswerToolCall = {
+    id: "read-1",
+    tool: "read_document",
+    source: "documents",
+    input: { document: "10-Q", pages: "1-3" },
+    status: "done",
+    resultCount: 3,
+  };
 
   test("requires the expected figure and rejects a whole-Document absence claim in English and Chinese", () => {
     expect(
@@ -915,6 +925,29 @@ describe("The filing guards", () => {
     expect(filingOutcome("报告未披露 38.2% 的营业利润率。").map((failure) => failure.kind)).toEqual(
       ["document-absence"],
     );
+  });
+
+  test("rejects other absence wordings even with the expected figure and Citation", () => {
+    expect(
+      filingOutcome("The release lacks an operating margin. Operating margin was 38.2% [^1].").map(
+        (failure) => failure.kind,
+      ),
+    ).toEqual(["document-absence"]);
+    expect(
+      filingOutcome("The operating margin is missing from the release. It was 38.2% [^1].").map(
+        (failure) => failure.kind,
+      ),
+    ).toEqual(["document-absence"]);
+    expect(
+      filingOutcome("业绩公告缺少经营利润率。经营利润率为 38.2% [^1]。").map(
+        (failure) => failure.kind,
+      ),
+    ).toEqual(["document-absence"]);
+    expect(
+      filingOutcome("公告未包含经营利润率。经营利润率为 38.2% [^1]。").map(
+        (failure) => failure.kind,
+      ),
+    ).toEqual(["document-absence"]);
   });
 
   test("rejects absence after the verb and a Citation to another Document", () => {
@@ -957,7 +990,11 @@ describe("The filing guards", () => {
   });
 
   test("a true absence accepts a search miss but not an invented figure or a Document-level claim", () => {
-    const missing = (text: string, citations: ReturnType<typeof citation>[] = []) =>
+    const missing = (
+      text: string,
+      citations: ReturnType<typeof citation>[] = [],
+      toolCalls: AnswerToolCall[] = [],
+    ) =>
       requestFailures(
         outcome({
           expected: {
@@ -967,7 +1004,7 @@ describe("The filing guards", () => {
             searchMiss: true,
             noDocumentAbsence: /cash conversion|现金转换周期/,
           },
-          answer: { text, citations, toolCalls: [], steps: null },
+          answer: { text, citations, toolCalls, steps: null },
           citedInMinds: [],
         }),
       ).map((failure) => failure.kind);
@@ -993,5 +1030,7 @@ describe("The filing guards", () => {
         "I didn't find the cash conversion cycle. I searched the Q2 2026 10-Q and nothing matched.",
       ),
     ).toEqual([]);
+    expect(missing("The 10-Q lacks a cash conversion cycle.", [], [READ])).toEqual([]);
+    expect(missing("季报缺少现金转换周期。", [], [READ])).toEqual([]);
   });
 });

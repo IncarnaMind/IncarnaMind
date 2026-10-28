@@ -507,6 +507,12 @@ const DOCUMENT_ABSENCE = [
   /(?:文档|报告|公告|文件)[^。！？!?\n]{0,12}(?:(?:未|没有|并未|不曾)(?:披露|提及|说明|记载|给出|包含|列出)|不含|不包含|未包含|没有包含)/,
 ];
 
+const ABSENCE_WORDING = [
+  /\b(?:lack(?:s|ed|ing)?|missing|absent|unavailable)\b/i,
+  /\bwithout\b/i,
+  /缺少|缺失|不存在/,
+];
+
 function clausesOf(text: string): string[] {
   return text.split(/[\n。！？!?，；;]+|\.(?!\d)/);
 }
@@ -517,7 +523,9 @@ const ASSERTED_COPULA = /\b(?:was|were|is|are)\b|[为是]/i;
 
 function statesDocumentAbsence(text: string, about: RegExp): boolean {
   return clausesOf(text).some(
-    (sentence) => about.test(sentence) && DOCUMENT_ABSENCE.some((phrase) => phrase.test(sentence)),
+    (sentence) =>
+      about.test(sentence) &&
+      [...DOCUMENT_ABSENCE, ...ABSENCE_WORDING].some((phrase) => phrase.test(sentence)),
   );
 }
 
@@ -642,9 +650,14 @@ export function requestFailures(outcome: RequestOutcome): RequestFailure[] {
     });
     if (invented) failures.push({ kind: "invented-answer" });
   }
+  const absenceRead = outcome.answer.toolCalls.some(
+    (call) =>
+      call.tool === "read_document" && call.status === "done" && (call.resultCount ?? 0) > 0,
+  );
   if (
     expected.noDocumentAbsence &&
-    statesDocumentAbsence(answer.text, expected.noDocumentAbsence)
+    statesDocumentAbsence(answer.text, expected.noDocumentAbsence) &&
+    (!expected.searchMiss || !absenceRead)
   ) {
     failures.push({ kind: "document-absence" });
   }
