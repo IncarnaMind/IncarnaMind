@@ -731,10 +731,15 @@ export function createCalculationSession(options: CalculationSessionOptions) {
       const lines = quotedLines(quoted);
       const row = onLine(lines);
       if (row) found.push({ statement: lines, reading: row });
+      // A heading's "(£)" changes no value but gives bare digits their currency, as a unitQuote's would.
+      const changes = (each: Reading) =>
+        each.value !== base.value || each.unit.kind !== base.unit.kind;
+      const same = (a: Reading, b: Reading) =>
+        a.value === b.value && JSON.stringify(a.unit) === JSON.stringify(b.unit);
       for (const statement of readStatedUnits(page, context)) {
         for (const each of statedReading(quote, figure.start, quoteContext, statement.chars)) {
-          if (each.value === base.value) continue;
-          if (!found.some((other) => other.reading.value === each.value))
+          if (!changes(each)) continue;
+          if (!found.some((other) => same(other.reading, each)))
             found.push({ statement: statement.chars, reading: each });
         }
       }

@@ -932,6 +932,45 @@ test("a source left without its sheet's unit line is asked for with calculate's 
 });
 
 test.each([
+  { language: "en", heading: "Region\t2026 sales (£)", row: "West\t9537361", shown: "£9,537,361" },
+  {
+    language: "zh-CN",
+    heading: "地区\t2026 年销售额（英镑）",
+    row: "西区\t9537361",
+    shown: "9,537,361 英镑",
+  },
+])(
+  "a yearly row's bare cell under its column's currency is asked for that line, then Supported: $language",
+  async ({ heading, row, shown }) => {
+    const body = `${heading}\n${row}`;
+    const units: UnitText[] = [
+      {
+        page: 1,
+        text: body,
+        kind: "rows",
+        label: { sheet: "2026", from: 1, to: 2, rows: [1, 2], column: 0 },
+      },
+    ];
+    const bare = {
+      ...item(),
+      source: { citation: 1, number: "9537361", reading: null, unitQuote: null },
+    };
+    const fixed = { ...bare, source: { ...bare.source, unitQuote: heading } };
+    const { result, calls } = await checkWith({
+      figures: [target("f1", shown, "West 2026")],
+      body,
+      units,
+      quotes: [row, heading],
+      text: reply([bare]),
+      askedAgain: { note: "can't be read", text: reply([fixed]) },
+    });
+    const asked = calls.find((call) => call.prompt.includes("can't be read"));
+    expect(asked?.prompt).toContain("give that line as unitQuote");
+    expect(result.figures?.[0]?.result.verdict).toBe("supported");
+  },
+);
+
+test.each([
   { text: "I'm sorry, I can't help with that.", reason: "refused" },
   { text: "", reason: "empty" },
   { text: "Figures: {", reason: "malformed" },

@@ -1074,6 +1074,17 @@ describe("stated units", () => {
     ]);
   });
 
+  test("a heading's currency alone in brackets states it: “2026 sales (£)”, “Amount (USD)”", () => {
+    expect(stated("Region\t2026 sales (£)", EN)).toEqual([
+      { chars: "(£)", scale: 1, scaleWord: null, unit: { kind: "currency", code: "GBP" } },
+    ]);
+    expect(stated("Amount (USD)", EN)).toMatchObject([
+      { chars: "(USD)", scale: 1, unit: { kind: "currency", code: "USD" } },
+    ]);
+    expect(stated("Revenue (£m)", EN)).toMatchObject([{ scale: 1000000, unit: { code: "GBP" } }]);
+    expect(stated("Sales (see note 3)", EN)).toEqual([]);
+  });
+
   test("a Chinese header states a scale and a currency", () => {
     expect(stated("单位：万元")).toEqual([
       {
