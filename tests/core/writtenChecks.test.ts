@@ -809,7 +809,7 @@ describe("What the assistant writes is checked before it lands", { timeout: 30_0
     });
   });
 
-  test("identical proposed Id. sentences each use the preceding occurrence", async () => {
+  test("identical proposed Id. sentences never borrow a later occurrence", async () => {
     const { core, change, client } = await write({
       into: true,
       record: RECORD_FILE,
@@ -822,7 +822,7 @@ describe("What the assistant writes is checked before it lands", { timeout: 30_0
     );
     expect(next).toHaveLength(2);
     for (const { check } of next) {
-      expect(check.recordCites?.[0]).toMatchObject({ raw: "Id. at 2", outcome: "supported" });
+      expect(check.recordCites?.[0]).toMatchObject({ raw: "Id. at 2", outcome: "not-found" });
     }
   });
 

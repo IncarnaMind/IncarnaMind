@@ -362,21 +362,18 @@ export function createChecks(options: ChecksOptions) {
         if (choice?.place) {
           const positioned = choice.place;
           const sentences = noteRecordSentences(mindId);
-          const previousPlace = content.readSettings(mindId, readRecordCiteChoices).previous?.place;
-          const before = previousPlace
-            ? sentences.findIndex(
-                (sentence) =>
-                  sentence.place.blockId === previousPlace.blockId &&
-                  sentence.place.from === previousPlace.from,
-              )
-            : -1;
+          const positionedCurrent = sentences.find(
+            (sentence) =>
+              sentence.place.blockId === positioned.blockId &&
+              sentence.place.from === positioned.from,
+          );
+          const matches = positionedCurrent
+            ? []
+            : sentences.flatMap((sentence, index) =>
+                sentence.text === choice.claim ? [index] : [],
+              );
           const current =
-            sentences.find(
-              (sentence) =>
-                sentence.place.blockId === positioned.blockId &&
-                sentence.place.from === positioned.from,
-            ) ??
-            sentences.find((sentence, index) => index > before && sentence.text === choice.claim);
+            positionedCurrent ?? (matches.length === 1 ? sentences[matches[0] ?? -1] : undefined);
           if (current) {
             canonical = {
               ...choice,

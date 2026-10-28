@@ -93,7 +93,7 @@ describe("the immediately preceding record item", () => {
     ).toBe(true);
   });
 
-  test("duplicate proposed sentences advance past the current referent", () => {
+  test("duplicate proposed claims never borrow an occurrence's position", () => {
     const source = "ECF No. 41 at 3 states the deadline.";
     const repeated = "Id. at 2 states another deadline.";
     const first = sentence("source", source);
@@ -108,7 +108,7 @@ describe("the immediately preceding record item", () => {
         proposed,
         repeated,
       ),
-    ).toBe(true);
+    ).toBe(false);
     expect(
       hasImmediateRecordCitePrevious(
         sentences,
@@ -116,7 +116,7 @@ describe("the immediately preceding record item", () => {
         proposed,
         repeated,
       ),
-    ).toBe(true);
+    ).toBe(false);
   });
 
   test("an item cannot refer to itself or a later source", () => {

@@ -29,10 +29,11 @@ export function hasImmediateRecordCitePrevious(
     (sentence) =>
       sentence.place.blockId === current.blockId && sentence.place.from === current.from,
   );
-  const now =
+  const matches =
     positioned >= 0 || currentClaim === undefined
-      ? positioned
-      : sentences.findIndex((sentence, index) => index > before && sentence.text === currentClaim);
+      ? []
+      : sentences.flatMap((sentence, index) => (sentence.text === currentClaim ? [index] : []));
+  const now = positioned >= 0 ? positioned : matches.length === 1 ? (matches[0] ?? -1) : -1;
   if (before < 0 || now < 0 || before >= now) return false;
   const earlier = sentences[before];
   if (!earlier || earlier.text !== previous.claim) return false;
