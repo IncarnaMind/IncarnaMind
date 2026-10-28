@@ -1,5 +1,10 @@
 import { useEffect, useRef, useState } from "react";
-import type { ChatModelChoice, TaggingClassifier, TaggingModels } from "../../../../core/api";
+import type {
+  ChatModelChoice,
+  ChatProvider,
+  TaggingClassifier,
+  TaggingModels,
+} from "../../../../core/api";
 import type { Language } from "../../../../core/language";
 import { useAnswers } from "../../answers";
 import { core } from "../../core";
@@ -100,10 +105,16 @@ export function sortingOptions(
  * The models sorting may use now: read until Ollama and the providers answer, and `failed` when
  * they couldn't, so a line says the model it opened with only while the list is still coming.
  */
-export function useSortingModels(): { models: TaggingModels | null; failed: boolean } {
+export function useSortingModels(): {
+  models: TaggingModels | null;
+  /** The saved providers, read with the list: where a saved choice goes is told by its provider. */
+  providers: ChatProvider[] | null;
+  failed: boolean;
+} {
   const chatModel = useAppStore((state) => state.settings?.user.chatModel ?? null);
   const readiness = useAppStore((state) => state.chatReadiness);
   const [models, setModels] = useState<TaggingModels | null>(null);
+  const [providers, setProviders] = useState<ChatProvider[] | null>(null);
   const [failed, setFailed] = useState(false);
   // biome-ignore lint/correctness/useExhaustiveDependencies: listed again whenever these change.
   useEffect(() => {
@@ -111,6 +122,10 @@ export function useSortingModels(): { models: TaggingModels | null; failed: bool
     useAnswers.getState().loadModels();
     let current = true;
     setFailed(false);
+    core.listChatProviders().then(
+      (saved) => current && setProviders(saved),
+      (error: unknown) => console.error("The saved chat providers couldn't be listed.", error),
+    );
     core.getTaggingModels().then(
       (listed) => current && setModels(listed),
       (error: unknown) => {
@@ -122,7 +137,7 @@ export function useSortingModels(): { models: TaggingModels | null; failed: bool
       current = false;
     };
   }, [chatModel, readiness]);
-  return { models, failed };
+  return { models, providers, failed };
 }
 
 /**
@@ -133,7 +148,7 @@ export function useSorting() {
   const t = useT();
   const language = useLanguage();
   const nameOf = useModelNames();
-  const { models, failed } = useSortingModels();
+  const { models, providers, failed } = useSortingModels();
   const [jev] = useJevSettings();
   const chatModel = useAppStore((state) => state.settings?.user.chatModel ?? null);
   const readiness = useAppStore((state) => state.chatReadiness);
@@ -175,17 +190,25 @@ export function useSorting() {
     !options.some((each) => sortingKey(each.classifier) === sortingKey(saved))
   ) {
     // Where a saved choice goes comes from what is stored: its entry in the list once that is
-    // read (the list holds every choice, not only the default's), else its provider or the Jev
-    // settings. A list still being read never makes a cloud choice look local. undefined: not
-    // known, whether it isn't read yet or the choice is gone (its provider was removed).
+    // read, else the provider it names among the saved ones (the list holds each provider's tagging
+    // and default models, not every model the User set up), else the Jev settings. A list still
+    // being read never makes a cloud choice look local. undefined: not known, because the
+    // provider isn't saved or the saved ones aren't read yet, or Jev's settings aren't read yet.
     const listed = models?.options.find(
       (each) => sortingKey(each.classifier) === sortingKey(saved),
     );
+    const provider =
+      saved.kind === "chat"
+        ? (providers?.find((each) => each.id === saved.choice.providerId) ??
+          (readiness?.ready && readiness.provider.id === saved.choice.providerId
+            ? readiness.provider
+            : undefined))
+        : undefined;
     const goes = listed
       ? providerOf(listed, language)
       : saved.kind === "chat"
-        ? readiness?.ready && readiness.provider.id === saved.choice.providerId
-          ? (readiness.provider.service?.name ?? null)
+        ? provider
+          ? (provider.service?.name ?? null)
           : undefined
         : saved.kind === "jev"
           ? jev === null

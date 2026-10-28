@@ -837,11 +837,17 @@ for (const language of ["en", "zh-CN"] as const) {
         await pointAndClick(window, card.getByTestId("setup-sorting-use"));
         await expect(card.getByTestId("setup-step-sorting")).toHaveAttribute("data-done", "true");
 
+        // Reopened while its model is still the chat default: the line says where it goes.
+        const sends = translate(language, "setup.sorting.sends", { service: "Anthropic" });
+        await pointAndClick(window, card.getByTestId("setup-step-sorting-open"));
+        await expect(card.getByTestId("setup-sorting-use")).toBeEnabled({ timeout: 15_000 });
+        expect(await sortingWords(card)).toContain(sends);
+        await pointAndClick(window, card.getByTestId("setup-step-transcription-open"));
+
         // OpenAI is the chat default now; the saved choice is still Anthropic's. Reopened,
         // the step names where it goes as soon as the list is read, and it can be used.
         await saveOpenAiAsDefault(window);
         const pickedModel = card.getByTestId("models-sorting").locator("option:checked");
-        const sends = translate(language, "setup.sorting.sends", { service: "Anthropic" });
         await pointAndClick(window, card.getByTestId("setup-step-sorting-open"));
         await expect(card.getByTestId("setup-sorting-use")).toBeEnabled({ timeout: 15_000 });
         await expect(pickedModel).toHaveText(model);

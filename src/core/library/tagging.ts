@@ -373,10 +373,6 @@ export function createTagging(options: TaggingOptions) {
           add(chatOption(small, false));
         }
       }
-      // The saved choice is always listed while its provider is, whether or not it is a role model
-      // or the default: the list is where its destination is read from.
-      const saved = options.setting();
-      if (saved.kind === "chat") add(chatOption(saved.choice, false));
       const decision = DECISION_MODELS.filter((model) => hasOllamaModel(models, model));
       if (baseUrl) {
         if (decision.some((model) => model !== PAGE_DECISION_MODEL)) {
