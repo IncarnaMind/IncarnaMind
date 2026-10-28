@@ -987,6 +987,16 @@ test.each([
     quote: "收入\t100\t120\t万元",
     figure: () => cell("f1", "100", "2024年\n收入 | 100 | 120\n单位：万元"),
     number: "100",
+    unitQuote: null as string | null,
+    said: "supported",
+    verdict: "supported",
+  },
+  {
+    body: "项目\t2024年\t2025年\t单位\n收入\t100\t120\t万元",
+    quote: "收入\t100\t120\t万元",
+    figure: () => cell("f1", "100", "2024年\n收入 | 100 | 120\n单位：万元"),
+    number: "100",
+    unitQuote: "单位" as string | null,
     said: "supported",
     verdict: "supported",
   },
@@ -995,6 +1005,7 @@ test.each([
     quote: "Cost\t70\t78\tthousand tonnes",
     figure: () => target("f1", "70 thousand tonnes", "Cost 2024"),
     number: "70",
+    unitQuote: null as string | null,
     said: "supported",
     verdict: "supported",
   },
@@ -1003,23 +1014,20 @@ test.each([
     quote: "Cost\t70\t78\tthousand tonnes",
     figure: () => target("f1", "78 million tonnes", "Cost 2025"),
     number: "78",
+    unitQuote: null as string | null,
     said: "contradicted",
     verdict: "unsupported",
   },
 ])(
   "a quoted row's unit cell states the unit of each number in its row, with no unit line asked for: $number → $verdict",
-  async ({ body, quote, figure, number, said, verdict }) => {
+  async ({ body, quote, figure, number, unitQuote, said, verdict }) => {
     const { result, calls } = await checkWith({
       figures: [figure()],
       body,
       units: rowsOf(body),
-      quotes: [quote],
+      quotes: unitQuote ? [quote, unitQuote] : [quote],
       text: reply([
-        {
-          ...item(),
-          verdict: said,
-          source: { citation: 1, number, reading: null, unitQuote: null },
-        },
+        { ...item(), verdict: said, source: { citation: 1, number, reading: null, unitQuote } },
       ]),
     });
     expect(calls.some((call) => call.prompt.includes("can't be read"))).toBe(false);

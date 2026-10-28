@@ -721,12 +721,22 @@ export function createCalculationSession(options: CalculationSessionOptions) {
     let candidate: Stated | null = null;
     const ownUnit =
       figure.scaleWord !== null || (base.unit.kind !== "plain" && base.unit.kind !== "currency");
+    // A heading's "(£)" changes no value but gives bare digits their currency, as a unitQuote's would.
+    const changes = (each: Reading) =>
+      each.value !== base.value || each.unit.kind !== base.unit.kind;
+    // A row's unit cell in the quote itself ("收入	100	120	万元") states the unit of each number in
+    // it, so the quote needs no unit line, and one that names its heading cell ("单位") is no matter.
+    const inRow = ownUnit ? null : rowUnitCell(quote, context);
+    const ofRow = inRow
+      ? statedReading(quote, figure.start, quoteContext, inRow).find(changes)
+      : undefined;
     // A number that writes its own scale or unit ("4,979.6百万元") needs no unit line, so one
     // taken from another Passage doesn't stop it being read.
-    if (unitProblem && !ownUnit) return unitProblem;
+    if (unitProblem && !ownUnit && !ofRow) return unitProblem;
     // A row's unit cell beside the number ("31000 | 万元") states its unit as a heading does.
     const onLine = (line: string) => (ownUnit ? null : readOnItsLine(line, figure, context));
-    if (unit) {
+    if (ofRow) stated = { quoted, stated: ofRow };
+    else if (unit) {
       const row = onLine(unit.citation.quote);
       if (!row && readStatedUnits(unit.citation.quote, context, true).length === 0)
         return `the unitQuote "${unit.citation.quote}" states no unit or scale; give the line that does, such as "单位：万元" or "in millions".`;
@@ -742,33 +752,23 @@ export function createCalculationSession(options: CalculationSessionOptions) {
         null;
       if (applies) stated = { quoted: unit, stated: applies };
     } else if (!ownUnit) {
-      // A heading's "(£)" changes no value but gives bare digits their currency, as a unitQuote's would.
-      const changes = (each: Reading) =>
-        each.value !== base.value || each.unit.kind !== base.unit.kind;
-      const inRow = rowUnitCell(quote, context);
-      const ofRow = inRow
-        ? statedReading(quote, figure.start, quoteContext, inRow).find(changes)
-        : undefined;
-      if (ofRow) stated = { quoted, stated: ofRow };
-      else {
-        const page = quoted.units.map((each) => each.text).join("\n");
-        const found: Stated[] = [];
-        const lines = quotedLines(quoted);
-        const row = onLine(lines);
-        if (row) found.push({ statement: lines, reading: row });
-        const same = (a: Reading, b: Reading) =>
-          a.value === b.value && JSON.stringify(a.unit) === JSON.stringify(b.unit);
-        for (const statement of readStatedUnits(page, context)) {
-          for (const each of statedReading(quote, figure.start, quoteContext, statement.chars)) {
-            if (!changes(each)) continue;
-            if (!found.some((other) => same(other.reading, each)))
-              found.push({ statement: statement.chars, reading: each });
-          }
+      const page = quoted.units.map((each) => each.text).join("\n");
+      const found: Stated[] = [];
+      const lines = quotedLines(quoted);
+      const row = onLine(lines);
+      if (row) found.push({ statement: lines, reading: row });
+      const same = (a: Reading, b: Reading) =>
+        a.value === b.value && JSON.stringify(a.unit) === JSON.stringify(b.unit);
+      for (const statement of readStatedUnits(page, context)) {
+        for (const each of statedReading(quote, figure.start, quoteContext, statement.chars)) {
+          if (!changes(each)) continue;
+          if (!found.some((other) => same(other.reading, each)))
+            found.push({ statement: statement.chars, reading: each });
         }
-        if (found.length > 1)
-          return `${figure.chars} has no unit, and ${whereOf(quoted)} states more than one (${found.map((each) => `"${each.statement}"`).join(", ")}); give the line that applies to it as unitQuote.`;
-        candidate = found[0] ?? null;
       }
+      if (found.length > 1)
+        return `${figure.chars} has no unit, and ${whereOf(quoted)} states more than one (${found.map((each) => `"${each.statement}"`).join(", ")}); give the line that applies to it as unitQuote.`;
+      candidate = found[0] ?? null;
     }
 
     let rate: ReadInput["rate"] = null;
