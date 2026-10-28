@@ -1,4 +1,3 @@
-import { useEffect, useState } from "react";
 import { create } from "zustand";
 import type {
   CloudTranscriptionRoute,
@@ -12,38 +11,29 @@ import { formatMoney, joinMeta } from "./cost";
 import { errorMessage } from "./errors";
 import { translateNow } from "./i18n";
 import { useAppStore } from "./store";
-import type { Read } from "./useRead";
-
-/** What the newest answer about the cloud services that can transcribe meeting audio (#141) said. */
-type ServicesRead =
-  | { state: "loading" }
-  | { state: "ready"; services: TranscriptionServiceStatus[] }
-  | { state: "failed"; problem: string };
+import { type Read, useRead } from "./useRead";
 
 interface TranscriptionServicesState {
-  read: ServicesRead;
-  /** The core's revision of the answer in `read`; an answer with a lower one is older. */
+  /** The cloud services that can transcribe meeting audio (#141), as the newest answer said; null before any. */
+  services: TranscriptionServiceStatus[] | null;
+  /** The core's revision of `services`; an answer with a lower one is older. */
   revision: number;
-  /** Reads begun and not yet ended. */
-  reading: number;
-  /** Reads the list. Resolves when this read has ended, whatever it gave; it never rejects. */
-  load(): Promise<void>;
+  /** Reads the list and resolves with what is held after it; rejects when the core can't answer. */
+  load(): Promise<TranscriptionServiceStatus[]>;
   /** Keeps a service's own key once it accepts it; what went wrong, in words, otherwise. */
   setKey(route: CloudTranscriptionRoute, apiKey: string): Promise<string | null>;
   removeKey(route: CloudTranscriptionRoute): Promise<string | null>;
 }
 
-const LOADING: ServicesRead = { state: "loading" };
-
 /**
- * The one owner of the list: every view reads it from here. The core says which answer is newer
- * (its revision grows with every committed change), so the answer held is the one with the
- * highest revision, whatever order the reads began or ended in; a change that failed changes
- * nothing.
+ * The one owner of the list's data. The core says which answer is newer (its revision grows with
+ * every committed change), so what is held is the answer with the highest revision, whatever
+ * order the reads began or ended in. A read that fails, or a change that does, changes nothing
+ * here: a failure belongs to the view that asked.
  */
 export const useTranscriptionServices = create<TranscriptionServicesState>()((set, get) => {
   const take = ({ revision, services }: TranscriptionServices) => {
-    if (revision >= get().revision) set({ read: { state: "ready", services }, revision });
+    if (revision >= get().revision) set({ services, revision });
   };
   const change = async (action: () => Promise<TranscriptionServices>) => {
     try {
@@ -54,23 +44,11 @@ export const useTranscriptionServices = create<TranscriptionServicesState>()((se
     }
   };
   return {
-    read: LOADING,
+    services: null,
     revision: 0,
-    reading: 0,
     async load() {
-      const began = get().read;
-      set((state) => ({ reading: state.reading + 1 }));
-      try {
-        take(await core.listTranscriptionServices());
-      } catch (error) {
-        console.error("The transcription services couldn't be listed.", error);
-        // A failure speaks for what the read began from: an answer that landed since is newer.
-        if (get().read === began) {
-          set({ read: { state: "failed", problem: errorMessage(error, translateNow) } });
-        }
-      } finally {
-        set((state) => ({ reading: state.reading - 1 }));
-      }
+      take(await core.listTranscriptionServices());
+      return get().services ?? [];
     },
     setKey: (route, apiKey) => change(() => core.setTranscriptionKey({ route, apiKey })),
     removeKey: (route) => change(() => core.removeTranscriptionKey(route)),
@@ -78,45 +56,28 @@ export const useTranscriptionServices = create<TranscriptionServicesState>()((se
 });
 
 /**
- * The services as a view of them: loading, ready or failed. It reads the list when it mounts, as
- * a key may have come or gone; `reads` false only looks, for a view whose caller reads for it.
- * `fresh` waits until the reads this view began have ended, not for a list read earlier.
+ * The services as one view of them: loading, ready or failed. The view reads the list when it
+ * mounts, as a key may have come or gone, and owns that read: its failure stays, with Try again,
+ * until the User retries, whatever other views' reads do; only the data is shared, and live. A
+ * view that isn't failed shows the data held while its own read goes on, unless `fresh`, which
+ * waits for its own read. `reads` false only looks, for a view whose caller reads for it.
  */
 export function useTranscriptionServicesRead(
   reads = true,
   fresh = false,
 ): Read<TranscriptionServiceStatus[]> {
-  const read = useTranscriptionServices((state) => state.read);
-  const reading = useTranscriptionServices((state) => state.reading > 0);
-  const [own, setOwn] = useState({ armed: false, begun: 0, ended: 0 });
-  const begin = () => {
-    setOwn((now) => ({ ...now, begun: now.begun + 1 }));
-    void useTranscriptionServices
-      .getState()
-      .load()
-      .then(() => setOwn((now) => ({ ...now, ended: now.ended + 1 })));
-  };
-  // biome-ignore lint/correctness/useExhaustiveDependencies: it reads when `reads` turns on.
-  useEffect(() => {
-    setOwn((now) => ({ ...now, armed: reads }));
-    if (reads) begin();
-  }, [reads]);
-  const [retried, setRetried] = useState(false);
-  // A problem the User asked to try again stays while the new read goes on, not the card behind it.
-  const waiting = fresh && reads && (!own.armed || own.ended < own.begun);
-  if (waiting && !(retried && read.state === "failed")) return { state: "loading" };
-  if (read.state === "failed") {
-    return {
-      state: "failed",
-      problem: read.problem,
-      retrying: reading,
-      retry: () => {
-        setRetried(true);
-        begin();
-      },
-    };
+  const own = useRead(
+    "The transcription services",
+    () => useTranscriptionServices.getState().load(),
+    [],
+    reads,
+  );
+  const held = useTranscriptionServices((state) => state.services);
+  if (own.state === "failed") return own;
+  if (own.state === "ready" || (!fresh && held !== null)) {
+    return { state: "ready", data: held ?? [] };
   }
-  return read.state === "ready" ? { state: "ready", data: read.services } : { state: "loading" };
+  return { state: "loading" };
 }
 
 const NONE: TranscriptionServiceStatus[] = [];

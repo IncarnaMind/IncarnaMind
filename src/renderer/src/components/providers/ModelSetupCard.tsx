@@ -40,17 +40,10 @@ export function ModelSetupCard() {
   const ready = useModelSetup((state) => state.ready);
   const t = useT();
   // Step 2's rows depend on whether a cloud service has a key, so the steps open only on a list
-  // that was read, and never redraw as a later read lands (#2147). Once open they stay open: a
-  // read a step makes later says its own failure in place.
+  // that was read, and never redraw as a later read lands (#2147).
   const services = useTranscriptionServicesRead(ready, true);
-  const [opened, setOpened] = useState(false);
-  useEffect(() => {
-    if (!ready) setOpened(false);
-    else if (services.state === "ready") setOpened(true);
-  }, [ready, services.state]);
-  if (!ready) return <ChooseAnAi />;
-  if (opened || services.state === "ready") return <SetupSteps />;
-  if (services.state === "loading") return <ChooseAnAi />;
+  if (!ready || services.state === "loading") return <ChooseAnAi />;
+  if (services.state === "ready") return <SetupSteps />;
   return (
     <SetupCard>
       <ReadProblem

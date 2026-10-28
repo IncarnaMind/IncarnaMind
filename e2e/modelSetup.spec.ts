@@ -375,7 +375,7 @@ function servicesRead(app: ElectronApplication): Promise<number> {
 
 /**
  * The core's `channel` as a core that can't always answer would: while `failing`, every call
- * fails; the next `hold` calls wait, before the core's handler or, with `after`, after it has
+ * fails, and the next `failNext` calls fail; the next `hold` calls wait, before the core's handler or, with `after`, after it has
  * answered; and `settle` ends the oldest one held (`resolveAll`, all of them). Resolves to how
  * many calls are held.
  */
@@ -384,6 +384,7 @@ function controlReads(
   channel: string,
   change: {
     failing?: boolean;
+    failNext?: number;
     hold?: number;
     after?: boolean;
     settle?: "reject" | "resolve" | "resolveAll";
@@ -393,6 +394,7 @@ function controlReads(
     ({ ipcMain }, { name, what }) => {
       interface Control {
         failing: boolean;
+        failNext: number;
         hold: number;
         after: boolean;
         held: ((how: "reject" | "resolve") => void)[];
@@ -402,7 +404,7 @@ function controlReads(
       store.readControls = controls;
       let control = controls[name];
       if (!control) {
-        const own: Control = { failing: false, hold: 0, after: false, held: [] };
+        const own: Control = { failing: false, failNext: 0, hold: 0, after: false, held: [] };
         control = own;
         controls[name] = own;
         const handlers = (
@@ -425,11 +427,15 @@ function controlReads(
               );
             });
           }
-          if (own.failing) throw new Error(`${name} is temporarily unavailable.`);
+          if (own.failing || own.failNext > 0) {
+            own.failNext = Math.max(0, own.failNext - 1);
+            throw new Error(`${name} is temporarily unavailable.`);
+          }
           return original(event, ...args);
         });
       }
       if (what.failing !== undefined) control.failing = what.failing;
+      if (what.failNext !== undefined) control.failNext = what.failNext;
       if (what.hold !== undefined) control.hold = what.hold;
       if (what.after !== undefined) control.after = what.after;
       if (what.settle === "resolveAll") {
@@ -1241,20 +1247,21 @@ for (const language of ["en", "zh-CN"] as const) {
         translate(language, "meetings.route.cloudLine", { service: "OpenAI" }),
       );
 
-      // The page is left and opened again while the core can't list the services.
+      // Settings is closed and opened again while the core can't list the services.
       await controlReads(app, "core:listTranscriptionServices", { failing: true });
-      await showSettingsPage(window, "models");
-      await showSettingsPage(window, "meetings");
-      const problem = settings.getByTestId("meetings-route-problem");
+      await closeSettingsDialog(window);
+      const again = await settingsOnMeetings(window);
+      const problem = again.getByTestId("meetings-settings").getByTestId("meetings-route-problem");
       await expect(problem).toContainText(translate(language, "setup.services.failed"));
-      await expect(line).toHaveCount(0);
+      const meetings = again.getByTestId("meetings-settings");
+      await expect(meetings.getByTestId("meetings-route-line")).toHaveCount(0);
       // The saved route is still OpenAI: nothing says it is on this computer.
-      await expect(settings.getByTestId("meetings-route")).toHaveValue("openai");
-      await expect(settings).not.toContainText(translate(language, "meetings.route.hereLine"));
+      await expect(meetings.getByTestId("meetings-route")).toHaveValue("openai");
+      await expect(meetings).not.toContainText(translate(language, "meetings.route.hereLine"));
 
       await controlReads(app, "core:listTranscriptionServices", { failing: false });
-      await pointAndClick(window, settings.getByTestId("meetings-route-problem-retry"));
-      await expect(line).toContainText(
+      await pointAndClick(window, meetings.getByTestId("meetings-route-problem-retry"));
+      await expect(meetings.getByTestId("meetings-route-line")).toContainText(
         translate(language, "meetings.route.cloudLine", { service: "OpenAI" }),
       );
       await expect(problem).toHaveCount(0);
@@ -1355,6 +1362,52 @@ for (const language of ["en", "zh-CN"] as const) {
       await controlReads(app, SERVICES, { settle: "resolveAll" });
       await expect(card.getByTestId("setup-step-transcription")).toBeVisible();
       await expect(card.getByTestId("setup-services-problem")).toHaveCount(0);
+    } finally {
+      await app.close();
+    }
+  });
+
+  test(`a read that fails belongs to the view that asked: its problem and Try again stay until the User retries, whatever other reads do (${language})`, async () => {
+    const { app, window } = await launchApp(dataDir, { fakeChat: true });
+    try {
+      await setWindowSize(app, window, 1280, 800);
+      await acceptPlainTextKeys(window);
+      await setLanguage(window, language);
+      // Settings › Meetings has read the list, and is closed with it kept.
+      const first = await settingsOnMeetings(window);
+      await expect(first.getByTestId("transcription-key-soniox")).toBeVisible();
+      await closeSettingsDialog(window);
+
+      // Meetings is opened again: two of its refresh reads are held, and Settings is closed.
+      await controlReads(app, SERVICES, { hold: 2 });
+      await settingsOnMeetings(window);
+      await expect.poll(() => controlReads(app, SERVICES, {})).toBe(2);
+      await closeSettingsDialog(window);
+
+      // The model works, and the setup card's own read, the only one that fails, fails.
+      const card = await askFirstQuestion(window);
+      await controlReads(app, SERVICES, { failNext: 1 });
+      const field = card.getByTestId("setup-key");
+      await field.fill(OPENAI_KEY);
+      await field.press("Enter");
+      const problem = card.getByTestId("setup-services-problem");
+      const retry = card.getByTestId("setup-services-problem-retry");
+      await expect(problem).toBeVisible({ timeout: 15_000 });
+      await expect(retry).toBeEnabled();
+      await expect(retry).toBeFocused();
+
+      // The two older reads land with the list: the card's problem is its own, and stays.
+      await controlReads(app, SERVICES, { settle: "resolveAll" });
+      await paints(window);
+      await expect(problem).toBeVisible();
+      await expect(card.getByTestId("setup-step-transcription")).toHaveCount(0);
+      await expect(retry).toBeEnabled();
+      await expect(retry).toBeFocused();
+
+      // The User retries: the card's read ends, and the steps open once.
+      await window.keyboard.press("Enter");
+      await expect(card.getByTestId("setup-step-transcription")).toBeVisible();
+      await expect(problem).toHaveCount(0);
     } finally {
       await app.close();
     }

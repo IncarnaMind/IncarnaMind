@@ -285,7 +285,7 @@ describe("Cloud transcription with the User's own key", { timeout: 60_000 }, () 
       expect(without.services[0]).toMatchObject({ hasKey: false });
     });
 
-    test("a list that a committed removal overtakes holds the state after it, with its revision", async () => {
+    test("a list that changes overtake while it is read keeps the revision it began at, below theirs", async () => {
       const dataDir = await createTempDataFolder();
       const memory = createMemoryKeychain();
       let hold: Promise<void> | null = null;
@@ -302,19 +302,23 @@ describe("Cloud transcription with the User's own key", { timeout: 60_000 }, () 
         },
       });
       await core.setTranscriptionKey({ route: "soniox", apiKey: SONIOX_KEY });
+      const began = (await core.listTranscriptionServices()).revision;
 
-      // The list reads the key, then waits; the key is forgotten; the list ends.
+      // The list reads the key, then waits; three changes are committed; the list ends.
       let release = () => {};
       hold = new Promise<void>((resolve) => {
         release = resolve;
       });
       const racing = core.listTranscriptionServices();
-      const removed = await core.removeTranscriptionKey("soniox");
+      await core.removeTranscriptionKey("soniox");
+      await core.setTranscriptionKey({ route: "soniox", apiKey: SONIOX_KEY });
+      const last = await core.removeTranscriptionKey("soniox");
       release();
       const listed = await racing;
 
-      expect(listed.services[1]).toMatchObject({ hasKey: false });
-      expect(listed.revision).toBe(removed.revision);
+      expect(listed.revision).toBe(began);
+      expect(last.revision).toBeGreaterThan(began);
+      expect(last.services[1]).toMatchObject({ hasKey: false });
     });
   });
 

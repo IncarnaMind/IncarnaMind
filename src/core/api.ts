@@ -2386,8 +2386,9 @@ export interface TranscriptionServiceStatus {
 
 /**
  * The transcription services and the core's revision of what they say. The revision grows with
- * every committed change (a key kept or forgotten, a provider saved or deleted), so of two
- * answers the one with the higher revision is the newer, whichever was asked first.
+ * every committed change (a key kept or forgotten, a provider saved or deleted). A list is
+ * stamped with the revision it began at, so of two answers the one to keep is the one with the
+ * higher revision, whichever was asked first.
  */
 export interface TranscriptionServices {
   revision: number;

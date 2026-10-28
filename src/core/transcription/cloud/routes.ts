@@ -131,14 +131,12 @@ export function createCloudTranscription(options: CloudTranscriptionOptions) {
       }),
     );
 
-  // Stamped with the revision it began at; one that a change overtook is read again, so the
-  // stamp never claims a state older than what the answer holds.
+  // Stamped with the revision it began at, so it never claims a state newer than what it saw. A
+  // change committed meanwhile answers with its own, higher revision, and whoever holds both
+  // keeps that one.
   const list = async (): Promise<TranscriptionServices> => {
-    for (let attempt = 0; ; attempt += 1) {
-      const at = revision;
-      const services = await readServices();
-      if (at === revision || attempt === 2) return { revision: at, services };
-    }
+    const at = revision;
+    return { revision: at, services: await readServices() };
   };
 
   function sending(route: CloudTranscriptionRoute): CloudSending {
