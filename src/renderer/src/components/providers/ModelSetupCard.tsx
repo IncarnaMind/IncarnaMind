@@ -7,6 +7,7 @@ import { useLanguage, useT } from "../../i18n";
 import { turnOffLocalMode } from "../../localMode";
 import { giveUpWaiting, useModelSetup } from "../../modelSetup";
 import { useAppStore } from "../../store";
+import { useTranscriptionServices } from "../../transcriptionServices";
 import { OnThisComputer } from "../OnThisComputer";
 import { ProblemLine } from "../ProblemLine";
 import { buttonStyle, hintClass } from "../ui";
@@ -35,7 +36,29 @@ const CLAUDE_DOWNLOAD = "https://claude.ai/download";
  * is the consent for it (#718), so no dialog is added here.
  */
 export function ModelSetupCard() {
-  return useModelSetup((state) => state.ready) ? <SetupSteps /> : <ChooseAnAi />;
+  const ready = useModelSetup((state) => state.ready);
+  // Step 2's rows depend on whether a cloud service has a key, so the steps open with the list read, not redrawn as it lands (#2147).
+  const listed = useServicesListed(ready);
+  return ready && listed ? <SetupSteps /> : <ChooseAnAi />;
+}
+
+function useServicesListed(wanted: boolean): boolean {
+  const [listed, setListed] = useState(false);
+  useEffect(() => {
+    if (!wanted) {
+      setListed(false);
+      return;
+    }
+    let current = true;
+    void useTranscriptionServices
+      .getState()
+      .load()
+      .then(() => current && setListed(true));
+    return () => {
+      current = false;
+    };
+  }, [wanted]);
+  return listed;
 }
 
 function ChooseAnAi() {

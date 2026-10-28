@@ -2080,6 +2080,7 @@ export const en = {
   "setup.step.useThis": "Use this",
   "setup.step.laterRecord": "Set up when I record",
   "setup.step.skip": "Skip",
+  "setup.step.skipped": "Skipped",
   "setup.step.addKey": "Add a key\u2026",
   "models.sorting.chat": "Use your AI model",
   "setup.sorting.uses": "Tags, Folders and meeting hints use this model",

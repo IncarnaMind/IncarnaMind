@@ -1988,6 +1988,7 @@ export const zhCN = {
   "setup.step.useThis": "使用这个",
   "setup.step.laterRecord": "录制时再设置",
   "setup.step.skip": "跳过",
+  "setup.step.skipped": "已跳过",
   "setup.step.addKey": "添加密钥…",
   "models.sorting.chat": "用你的 AI 模型",
   "setup.sorting.uses": "标签、文件夹和会议提示都使用这个模型",

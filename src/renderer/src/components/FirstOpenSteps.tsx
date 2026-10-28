@@ -19,7 +19,6 @@ import { composerKey } from "../composer";
 import { askReadyQuestion, useConversations } from "../conversations";
 import { AskProblem } from "../editor/AskProblem";
 import { goToCitation } from "../editor/citationMark";
-import { CheckMarkIcon } from "../editor/icons";
 import { goToMistake } from "../editor/mistakeMark";
 import { useLanguage, useT } from "../i18n";
 import { openModelSetup } from "../modelSetup";
@@ -31,11 +30,11 @@ import { ExampleBanner } from "./GettingStarted";
 import { ChatLineIcon, CheckLineIcon, CloseLineIcon, PlusLineIcon } from "./lineIcons";
 import { ProblemLine } from "./ProblemLine";
 import { SLOT, Slotted } from "./Slotted";
+import { STEP_BUTTON_CLASS, StepNumber, type StepState } from "./StepNumber";
 import { UnreadFilesLine } from "./UnreadFilesLine";
 import { buttonStyle } from "./ui";
 
 type StepKey = "citation" | "question" | "files";
-type StepState = "open" | "later" | "done";
 
 const STEPS: readonly StepKey[] = ["files", "question", "citation"];
 
@@ -71,29 +70,6 @@ const CARD_PADDING = "px-3.5 pt-3.5 pb-2.5";
 
 const HERE: CommandContext = { selection: [], focus: null, surface: "mind" };
 
-function Mark({ number, state }: { number: number; state: StepState }) {
-  if (state === "done") {
-    return (
-      <span
-        aria-hidden="true"
-        className="flex size-[18px] shrink-0 items-center justify-center rounded-full bg-success text-white"
-      >
-        <CheckMarkIcon check="found" className="size-2.5" />
-      </span>
-    );
-  }
-  return (
-    <span
-      aria-hidden="true"
-      className={`flex size-[18px] shrink-0 items-center justify-center rounded-full text-[10px] leading-none font-bold ${
-        state === "open" ? "bg-ink text-white" : "border-[1.5px] border-tab-divider text-ink-meta"
-      }`}
-    >
-      {number}
-    </span>
-  );
-}
-
 function Step({
   step,
   number,
@@ -126,9 +102,9 @@ function Step({
           aria-label={action}
           title={action}
           onClick={onDo}
-          className="group -mx-1.5 -my-0.5 flex items-center gap-2.5 rounded-md px-1.5 py-0.5 text-left hover:bg-chip"
+          className={STEP_BUTTON_CLASS}
         >
-          <Mark number={number} state={state} />
+          <StepNumber number={number} state={state} />
           <span className={`${tone} group-hover:text-ink`}>
             {t(`firstOpen.step.${step}.${state === "done" ? "done" : "title"}`)}
           </span>

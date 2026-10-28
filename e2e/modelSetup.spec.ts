@@ -131,52 +131,357 @@ test("a pasted key is named by its form and works at once: the waiting Question 
   }
 });
 
-/** Where the steps' buttons are, and what the sorting step says, in the one frame they share. */
-async function stepsFrame(window: Page) {
+/** Where the card and its step in hand's buttons are, as the User's eye holds them. */
+interface StepsFrame {
+  step: string;
+  card: Box;
+  buttons: Box[];
+  later: Box;
+  /** How tall the conversation above the card is, so a test can tell the Answer grew. */
+  thread: number;
+  line: string;
+  reading: boolean;
+}
+type Box = { top: number; left: number; width: number; height: number };
+
+/** The card, the buttons of its step in hand and Set up later, in the one frame they share. */
+function stepsFrame(window: Page): Promise<StepsFrame> {
   return window.evaluate(() => {
-    const boxOf = (testId: string) => {
-      const element = document.querySelector(`[data-testid="${testId}"]`);
-      if (!element) throw new Error(`The steps show no ${testId}.`);
-      const { x, y, width, height } = element.getBoundingClientRect();
-      const round = (value: number) => Math.round(value);
-      return { x: round(x), y: round(y), width: round(width), height: round(height) };
+    const box = (element: Element): Box => {
+      const { top, left, width, height } = element.getBoundingClientRect();
+      return { top, left, width, height };
     };
+    const card = document.querySelector('[data-testid="model-setup"]');
+    const open = card?.querySelector('[data-testid^="setup-step-"][data-open]');
+    const later = card?.querySelector('[data-testid="setup-later"]');
+    const thread = document.querySelector('[data-testid="assistant-thread"]');
+    if (!card || !open || !later || !thread) throw new Error("The steps aren't showing.");
     return {
-      card: boxOf("model-setup"),
-      transcription: boxOf("setup-transcription-use"),
-      sorting: boxOf("setup-sorting-use"),
-      later: boxOf("setup-later"),
-      // The list is still being read while the picker can offer nothing yet.
-      reading: document.querySelector('[data-testid="models-sorting"]')?.hasAttribute("disabled"),
-      line: document.querySelector('[data-testid="models-sorting-line"]')?.textContent ?? "",
+      step: open.getAttribute("data-testid") ?? "",
+      card: box(card),
+      buttons: [...open.querySelectorAll("button")].map(box),
+      later: box(later),
+      thread: thread.scrollHeight,
+      line: open.querySelector('[data-testid="models-sorting-line"]')?.textContent ?? "",
+      reading:
+        open.querySelector('[data-testid="models-sorting"]')?.hasAttribute("disabled") ?? false,
     };
   });
 }
 
+/** Films every frame from now on, until `stopRecording`, so a move between two looks can't hide. */
+async function recordSteps(window: Page): Promise<void> {
+  await window.evaluate(() => {
+    const filmed = globalThis as unknown as { steps?: { frames: unknown[]; running: boolean } };
+    const record = { frames: [] as unknown[], running: true };
+    filmed.steps = record;
+    const box = (element: Element) => {
+      const { top, left, width, height } = element.getBoundingClientRect();
+      return { top, left, width, height };
+    };
+    const tick = () => {
+      if (!record.running) return;
+      const card = document.querySelector('[data-testid="model-setup"]');
+      const open = card?.querySelector('[data-testid^="setup-step-"][data-open]');
+      const later = card?.querySelector('[data-testid="setup-later"]');
+      const thread = document.querySelector('[data-testid="assistant-thread"]');
+      if (card && open && later && thread) {
+        record.frames.push({
+          step: open.getAttribute("data-testid"),
+          card: box(card),
+          buttons: [...open.querySelectorAll("button")].map(box),
+          later: box(later),
+          thread: thread.scrollHeight,
+        });
+      }
+      requestAnimationFrame(tick);
+    };
+    tick();
+  });
+}
+
+async function stopRecording(window: Page): Promise<StepsFrame[]> {
+  return window.evaluate(() => {
+    const filmed = globalThis as unknown as { steps: { frames: unknown[]; running: boolean } };
+    filmed.steps.running = false;
+    return filmed.steps.frames as StepsFrame[];
+  });
+}
+
+/** The most any box's edge moved over the frames: 0 is a card that held still. */
+function spread(frames: StepsFrame[], of: (frame: StepsFrame) => Box): number {
+  const edges = (pick: (box: Box) => number) => frames.map((frame) => pick(of(frame)));
+  return Math.max(
+    ...[(box: Box) => box.top, (box: Box) => box.left, (box: Box) => box.height].map(
+      (pick) => Math.max(...edges(pick)) - Math.min(...edges(pick)),
+    ),
+  );
+}
+
+function buttonOf(frame: StepsFrame, index: number): Box {
+  const button = frame.buttons[index];
+  if (!button) throw new Error(`The step in hand has no button ${index}.`);
+  return button;
+}
+
+/** Whether every button of the step in hand shows in the card, with no scrolling in the card. */
+function buttonsInView(window: Page): Promise<{
+  scrolls: boolean;
+  outside: string[];
+  thread: number;
+}> {
+  return window.evaluate(() => {
+    const card = document.querySelector('[data-testid="model-setup"]');
+    const open = card?.querySelector('[data-testid^="setup-step-"][data-open]');
+    const foot = card?.querySelector("[data-setup-foot]");
+    const thread = document.querySelector('[data-testid="assistant-thread"]');
+    if (!card || !open || !foot || !thread) throw new Error("The steps aren't showing.");
+    const room = card.getBoundingClientRect();
+    const under = foot.getBoundingClientRect().top;
+    const outside = [...open.querySelectorAll("button")]
+      .filter((button) => {
+        const { top, bottom } = button.getBoundingClientRect();
+        return top < room.top - 0.5 || bottom > room.bottom + 0.5 || bottom > under + 0.5;
+      })
+      .map((button) => button.getAttribute("data-testid") ?? button.textContent ?? "a button");
+    return {
+      scrolls: card.scrollHeight > card.clientHeight + 1,
+      outside,
+      thread: thread.clientHeight,
+    };
+  });
+}
+
+const OPENAI_KEY = "sk-proj-a-test-key-for-first-run";
+
 for (const language of ["en", "zh-CN"] as const) {
-  test(`steps 2 and 3 hold their buttons where they were while the model list is read (${language}) (#2130)`, async () => {
+  test(`the card holds its place and every button of the step in hand shows at 1280 × 800, before the Answer and as it grows (${language}) (#2147)`, async () => {
+    test.setTimeout(150_000);
+    const sources = await mkdtemp(join(tmpdir(), "incarnamind-2147-"));
+    const { app, window } = await launchApp(dataDir, { fakeChat: true });
+    try {
+      await setWindowSize(app, window, 1280, 800);
+      await acceptPlainTextKeys(window);
+      await setLanguage(window, language);
+      await writeFile(
+        join(sources, "Tides.txt"),
+        "Tides and the Moon.\nThe Moon raises two bulges of water on the Earth.\n",
+      );
+      await addDocuments(window, [join(sources, "Tides.txt")]);
+      await newMind(window);
+      await window.getByTestId("mind-editor").click();
+      await window.keyboard.press("ControlOrMeta+j");
+      await window.keyboard.type("What do tides do with forty citations");
+      await window.keyboard.press("Enter");
+      const card = window.getByTestId("model-setup");
+      await expect(card).toBeVisible();
+
+      // Film from the moment the steps first show, with a key whose service also transcribes, so
+      // the lists the steps read (services, models) have rows to add if they were late.
+      await recordSteps(window);
+      const field = card.getByTestId("setup-key");
+      await field.fill(OPENAI_KEY);
+      await field.press("Enter");
+      await expect(card.getByTestId("setup-ready-title")).toBeVisible({ timeout: 15_000 });
+
+      const first = await buttonsInView(window);
+      expect(first.outside, "buttons outside the card at first paint").toEqual([]);
+      expect(first.scrolls, "the card scrolls at first paint").toBe(false);
+      const before = await stepsFrame(window);
+
+      // The Answer's text lands and grows past the room above the card.
+      await expect
+        .poll(async () => (await stepsFrame(window)).thread, { timeout: 60_000 })
+        .toBeGreaterThan(before.thread + 200);
+      const frames = (await stopRecording(window)).filter((each) => each.step === before.step);
+
+      // The card's top edge and every button held still the whole time: no frame differs from
+      // the others, while the conversation above grew.
+      expect(frames.length).toBeGreaterThan(30);
+      expect(frames.every((frame) => frame.buttons.length === before.buttons.length)).toBe(true);
+      expect(spread(frames, (frame) => frame.card)).toBeLessThan(0.5);
+      expect(spread(frames, (frame) => frame.later)).toBeLessThan(0.5);
+      for (const index of before.buttons.keys()) {
+        expect(
+          spread(frames, (frame) => buttonOf(frame, index)),
+          `button ${index} of the step in hand`,
+        ).toBeLessThan(0.5);
+      }
+      const grown = frames.map((frame) => frame.thread);
+      expect(Math.max(...grown) - Math.min(...grown)).toBeGreaterThan(200);
+
+      const after = await buttonsInView(window);
+      expect(after.outside, "buttons outside the card after the Answer").toEqual([]);
+      expect(after.scrolls, "the card scrolls after the Answer").toBe(false);
+      // The conversation follows its end while the reader is at it.
+      const fromFoot = await window
+        .getByTestId("assistant-thread")
+        .evaluate((thread) => thread.scrollHeight - thread.scrollTop - thread.clientHeight);
+      expect(fromFoot).toBeLessThanOrEqual(24);
+
+      // Step 3, opened by finishing step 2, shows all of its buttons too, and the card changes
+      // only for that.
+      await pointAndClick(window, card.getByTestId("setup-transcription-use"));
+      await expect(card.getByTestId("setup-step-sorting")).toHaveAttribute("data-open", "true");
+      await expect(card.getByTestId("models-sorting")).toBeEnabled({ timeout: 15_000 });
+      const sorting = await buttonsInView(window);
+      expect(sorting.outside, "buttons outside the card in step 3").toEqual([]);
+      expect(sorting.scrolls, "the card scrolls in step 3").toBe(false);
+    } finally {
+      await app.close();
+      await rm(sources, { recursive: true, force: true });
+    }
+  });
+}
+
+test("a later step's title opens it, a finished step is a line with its choice that opens again, and the steps are an order, never a gate", async () => {
+  const { app, window } = await launchApp(dataDir, { fakeChat: true });
+  try {
+    await setWindowSize(app, window, 1280, 800);
+    await acceptPlainTextKeys(window);
+    const card = await askFirstQuestion(window);
+    await setLocalChatModel(window);
+    await expect(card.getByTestId("setup-ready-title")).toBeVisible({ timeout: 15_000 });
+
+    // Only the step in hand shows its details; the later step is its title, as a button.
+    const transcription = card.getByTestId("setup-step-transcription");
+    const sorting = card.getByTestId("setup-step-sorting");
+    await expect(transcription).toHaveAttribute("data-open", "true");
+    await expect(card.getByTestId("setup-transcription")).toBeVisible();
+    await expect(sorting).not.toHaveAttribute("data-open", "true");
+    await expect(card.getByTestId("models-sorting")).toHaveCount(0);
+    await expect(card.getByTestId("setup-sorting-use")).toHaveCount(0);
+    const title = card.getByTestId("setup-step-sorting-open");
+    await expect(title).toContainText("Sorting and meeting hints");
+
+    // By keyboard: in the tab order after step 2's buttons, with its focus showing.
+    await card.getByTestId("setup-transcription-later").focus();
+    for (
+      let presses = 0;
+      presses < 4 && !(await title.evaluate((e) => e === document.activeElement));
+      presses++
+    ) {
+      await window.keyboard.press("Tab");
+    }
+    await expect(title).toBeFocused();
+    expect(await title.evaluate((element) => getComputedStyle(element).outlineStyle)).not.toBe(
+      "none",
+    );
+    await window.keyboard.press("Enter");
+
+    // Opened ahead of step 2: step 2 is a line, not done, and the focus is in step 3.
+    await expect(sorting).toHaveAttribute("data-open", "true");
+    await expect(transcription).not.toHaveAttribute("data-open", "true");
+    await expect(transcription).not.toHaveAttribute("data-done", "true");
+    await expect(card.getByTestId("setup-transcription")).toHaveCount(0);
+    await expect(card.getByTestId("models-sorting")).toBeFocused();
+    // What goes where is on screen before the button that is its consent.
+    await expect(card.getByTestId("models-sorting-line")).toBeVisible();
+    await pointAndClick(window, card.getByTestId("setup-step-transcription-open"));
+    await expect(transcription).toHaveAttribute("data-open", "true");
+    await expect(card.getByTestId("setup-transcription")).toBeFocused();
+    await expect(card.getByTestId("setup-transcription-line")).toBeVisible();
+
+    // Step 2 done: a tick and its choice on one line, and step 3 is in hand.
+    await pointAndClick(window, card.getByTestId("setup-transcription-use"));
+    await expect(transcription).toHaveAttribute("data-done", "true");
+    await expect(sorting).toHaveAttribute("data-open", "true");
+    const line = card.getByTestId("setup-step-transcription-open");
+    await expect(line).toContainText("Meeting transcription");
+    await expect(line).toContainText("On this computer");
+    expect((await line.boundingBox())?.height ?? 0).toBeLessThan(28);
+
+    // Clicking the line opens it again, with what was chosen kept.
+    await pointAndClick(window, line);
+    await expect(transcription).toHaveAttribute("data-open", "true");
+    await expect(transcription).toHaveAttribute("data-done", "true");
+    await expect(card.getByTestId("setup-transcription")).toHaveValue("local");
+    await expect(sorting).not.toHaveAttribute("data-open", "true");
+
+    // Skipping step 3 finishes both.
+    await pointAndClick(window, card.getByTestId("setup-step-sorting-open"));
+    await pointAndClick(window, card.getByTestId("setup-sorting-skip"));
+    await expect(card).toHaveCount(0);
+    expect((await bridge(window).library()).classifier).toEqual({ kind: "automatic" });
+    await expect
+      .poll(async () => (await bridge(window).settings()).device.transcriptionRoute)
+      .toBe("local");
+  } finally {
+    await app.close();
+  }
+});
+
+test("a shorter window scrolls the card, keeps the room for the conversation, and keeps the step in hand in view", async () => {
+  const { app, window } = await launchApp(dataDir, { fakeChat: true });
+  try {
+    await setWindowSize(app, window, 1000, 560);
+    await acceptPlainTextKeys(window);
+    const card = await askFirstQuestion(window);
+    await setLocalChatModel(window);
+    await expect(card.getByTestId("setup-ready-title")).toBeVisible({ timeout: 15_000 });
+
+    const panel = await window.getByTestId("assistant").boundingBox();
+    const opening = await buttonsInView(window);
+    // The conversation keeps room, whatever the step needs.
+    expect(opening.thread).toBeGreaterThanOrEqual(100);
+    expect(((await card.boundingBox())?.height ?? 0) + opening.thread).toBeLessThan(
+      panel?.height ?? 0,
+    );
+
+    // Step 3 is taller than the room: the card scrolls, and the step opens in view.
+    await pointAndClick(window, card.getByTestId("setup-transcription-use"));
+    await expect(card.getByTestId("models-sorting")).toBeEnabled({ timeout: 15_000 });
+    const inView = (testId: string) =>
+      window.evaluate((id) => {
+        const card = document.querySelector('[data-testid="model-setup"]');
+        const target = document.querySelector(`[data-testid="${id}"]`);
+        const head = card?.querySelector("[data-setup-title]");
+        if (!card || !target || !head) throw new Error("The steps aren't showing.");
+        const room = card.getBoundingClientRect();
+        const { top, bottom } = target.getBoundingClientRect();
+        return top >= head.getBoundingClientRect().bottom - 0.5 && bottom <= room.bottom + 0.5;
+      }, testId);
+    const taller = await buttonsInView(window);
+    expect(taller.scrolls, "step 3 scrolls in a short window").toBe(true);
+    expect(taller.thread).toBeGreaterThanOrEqual(100);
+    expect(await inView("setup-step-sorting")).toBe(true);
+    expect(await inView("models-sorting")).toBe(true);
+
+    // Its buttons are one scroll away, and the User's click lands on them.
+    await pointAndClick(window, card.getByTestId("setup-sorting-use"));
+    await expect(card).toHaveCount(0);
+  } finally {
+    await app.close();
+  }
+});
+
+for (const language of ["en", "zh-CN"] as const) {
+  test(`step 3 holds its buttons where they were while the model list is read (${language}) (#2130)`, async () => {
     // Listed a second and a half after it is asked, as a busy machine's server answers.
-    const ollama = await ollamaListing(["qwen3.5:4b"], { delayMs: 1500 });
-    const { app, window } = await launchApp(dataDir, { fakeChat: true, ollama: ollama.url });
+    const server = await ollamaListing(["qwen3.5:4b"], { delayMs: 1500 });
+    const { app, window } = await launchApp(dataDir, { fakeChat: true, ollama: server.url });
     try {
       await setWindowSize(app, window, 1440, 900);
       await setLanguage(window, language);
       const card = await askFirstQuestion(window);
       await setLocalChatModel(window, "qwen3.5:4b");
       await expect(card.getByTestId("setup-ready-title")).toBeVisible({ timeout: 15_000 });
+      const first = await stepsFrame(window);
+      expect(first.step).toBe("setup-step-transcription");
 
-      // The first paint, while the list is still being read: the sorting step already names the
-      // model that will sort, and holds the rows its line keeps once the list lands.
+      // Step 3 opens as the list is asked for: it already names the model that will sort, and
+      // holds the rows its line keeps once the list lands.
+      await pointAndClick(window, card.getByTestId("setup-step-sorting-open"));
+      await expect(card.getByTestId("setup-step-sorting")).toHaveAttribute("data-open", "true");
       const opened = await stepsFrame(window);
       expect(opened.reading, "the model list was still being read").toBe(true);
       await expect(card.getByTestId("models-sorting")).toBeEnabled({ timeout: 15_000 });
       const settled = await stepsFrame(window);
       expect(settled.reading).toBe(false);
 
-      // Nothing moved: step 2's and step 3's Use this, and Set up later, are where they were.
+      // Nothing moved: the card's edge, step 3's buttons and Set up later are where they were.
       expect(settled.card).toEqual(opened.card);
-      expect(settled.transcription).toEqual(opened.transcription);
-      expect(settled.sorting).toEqual(opened.sorting);
+      expect(settled.buttons).toEqual(opened.buttons);
       expect(settled.later).toEqual(opened.later);
       // The words were there from the first paint, and only the list changed under them.
       expect(opened.line).toContain(
@@ -186,7 +491,7 @@ for (const language of ["en", "zh-CN"] as const) {
       expect(settled.line).toBe(opened.line);
     } finally {
       await app.close();
-      ollama.server.close();
+      server.server.close();
     }
   });
 }
@@ -452,6 +757,7 @@ test("Local mode offers only choices on this computer, in step 1 and in the step
     await expect(card.getByTestId("setup-transcription").locator("option")).toHaveText([
       "On this computer",
     ]);
+    await pointAndClick(window, card.getByTestId("setup-step-sorting-open"));
     await expect(card.getByTestId("models-sorting").locator("option")).toHaveText([
       "Use your AI model",
     ]);

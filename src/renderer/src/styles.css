@@ -8214,11 +8214,13 @@
     flex: none;
     padding: 0 var(--edge) 10px;
 
+    /* The card keeps the height its step needs while the Answer above it grows, and scrolls past the room it leaves the thread (#2147). */
     &[data-setup] {
       display: flex;
-      flex: 0 1 auto;
+      flex: none;
       flex-direction: column;
       min-height: 0;
+      max-height: calc(100% - 10rem);
     }
 
     &:empty {
