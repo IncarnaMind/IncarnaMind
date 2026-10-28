@@ -192,15 +192,16 @@ export function quoteOnPage(
 const writtenNumber = (reading: Reading) => reading.value / reading.scale;
 
 /**
- * A quote's figure as `lines` read it, when they give it a unit or scale of its own: a sheet's
- * unit cell beside the number ("31000 | 万元"), which a quote of the number alone leaves out
- * (#1798). Null when they read it as the quote does, or read its digits more than one way.
+ * The unit cell of the row a quoted number is in ("收入	100	万元"), which states that row's unit;
+ * null when its own row has none, or more than one. Another row's unit is never its own.
  */
-function rowUnitCell(quote: string, context: FigureContext): string | null {
+function rowUnitCell(quote: string, at: number, context: FigureContext): string | null {
+  const end = quote.indexOf("\n", at);
+  const row = quote.slice(quote.lastIndexOf("\n", at - 1) + 1, end === -1 ? undefined : end);
+  if (!row.includes("\t")) return null;
   const units = new Set(
-    quote
-      .split("\n")
-      .flatMap((line) => (line.includes("\t") ? line.split("\t") : []))
+    row
+      .split("\t")
       .map((cell) => cell.trim())
       .filter((cell) => {
         if (!cell || /\d/.test(cell)) return false;
@@ -211,6 +212,11 @@ function rowUnitCell(quote: string, context: FigureContext): string | null {
   return units.size === 1 ? ([...units][0] ?? null) : null;
 }
 
+/**
+ * A quote's figure as `lines` read it, when they give it a unit or scale of its own: a sheet's
+ * unit cell beside the number ("31000 | 万元"), which a quote of the number alone leaves out
+ * (#1798). Null when they read it as the quote does, or read its digits more than one way.
+ */
 export function readOnItsLine(
   lines: string,
   figure: Figure,
@@ -725,7 +731,7 @@ export function createCalculationSession(options: CalculationSessionOptions) {
       each.value !== base.value || each.unit.kind !== base.unit.kind;
     // A row's unit cell in the quote itself ("收入	100	120	万元") states the unit of each number in
     // it, so the quote needs no unit line, and one that names its heading cell ("单位") is no matter.
-    const inRow = ownUnit ? null : rowUnitCell(quote, context);
+    const inRow = ownUnit ? null : rowUnitCell(quote, figure.start, context);
     const ofRow = inRow
       ? statedReading(quote, figure.start, quoteContext, inRow).find(changes)
       : undefined;

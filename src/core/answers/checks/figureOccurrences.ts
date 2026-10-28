@@ -11,7 +11,13 @@ import {
 } from "../../../shared/charts";
 import { type FigureContext, readFigures } from "../../../shared/figures";
 import { targetHash } from "../../../shared/proposals";
-import { CALCULATED_FIGURE_NODE, CHART_NODE, type CheckFigure, type TextStretch } from "../../api";
+import {
+  CALCULATED_FIGURE_NODE,
+  type CellFigurePlace,
+  CHART_NODE,
+  type CheckFigure,
+  type TextStretch,
+} from "../../api";
 import { plainText } from "../../mindText";
 import { layout, textBlocks } from "../../proposals/write";
 import { nodeOf } from "../blocks";
@@ -244,6 +250,28 @@ function inChart(element: Y.XmlElement): FigureOccurrence[] {
       },
     ];
   });
+}
+
+/**
+ * Whether these figures are a table's cell's, however deep in it (a list or a quote there too):
+ * a whole-sentence check of such a cell read it without its row and column (#1459).
+ */
+export const inTableCell = (figures: readonly FigureOccurrence[] | undefined): boolean =>
+  figures?.some((figure) => figure.table !== undefined) ?? false;
+
+/** Each place a figure the one Check reads sits in a table's cell, by Block: what `inTableCell` finds. */
+export function tableCellFigurePlaces(blocks: Y.XmlFragment): CellFigurePlace[] {
+  return figuresInMind(blocks).flatMap((figure) =>
+    figure.table !== undefined && figure.locator.kind === "text"
+      ? [
+          {
+            blockId: figure.locator.from.blockId,
+            from: figure.locator.from.offset,
+            to: figure.locator.to.offset,
+          },
+        ]
+      : [],
+  );
 }
 
 export function figuresInMind(blocks: Y.XmlFragment): FigureOccurrence[] {

@@ -86,6 +86,7 @@ function readingOf(scope: ClaimCheckAttributes["scope"], search: SearchScope | n
     new Set(["r1"]),
   );
   const reading = readNoteState({
+    cellFigures: [],
     doc,
     documents: [],
     keptCitationTexts: [],
