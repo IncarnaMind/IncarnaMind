@@ -16,6 +16,8 @@ const realHome = process.env[REAL_HOME_VARIABLE] ?? homedir();
 process.env[REAL_HOME_VARIABLE] = realHome;
 const home = mkdtempSync(join(tmpdir(), "incarnamind-test-home-"));
 Object.assign(process.env, homeEnv(home));
+// Tests that load a real model run onnxruntime-node, which would send usage telemetry from this computer (#2145).
+process.env.ORT_DISABLE_TELEMETRY = "1";
 
 // Where the person running chose to keep downloads and reports, which may well be in their home
 // folder; the evaluation's configs always name its cache (eval/lib/cache.ts).

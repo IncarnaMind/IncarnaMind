@@ -15,6 +15,7 @@ import {
   launchPackaged,
   packagedExecutable,
   packagedLogLines,
+  runtimeTelemetryFolder,
 } from "./app";
 
 const root = resolve(__dirname, "../..");
@@ -280,5 +281,7 @@ test("rotated scans keep their quantities, table rows and Citation highlights wi
   });
   await app.close();
   app = undefined;
+  // The OCR engine ran onnxruntime in its own process (#2145).
+  expect(existsSync(runtimeTelemetryFolder(home))).toBe(false);
   await copyModelsOut(dataDir);
 });
