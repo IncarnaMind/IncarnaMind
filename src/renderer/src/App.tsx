@@ -150,7 +150,9 @@ function useSidebarPeek(hidden: boolean, beforeSlide: (shows: boolean) => void) 
     setPointer(false);
     setFocus(false);
   }, [hidden]);
-  const peeking = hidden && (pointer || focus);
+  // What was true of the sidebar before it hid says nothing about the one the User is left with,
+  // and on the render that hides it the flags still hold that: only what both meet counts.
+  const peeking = hidden && wasHidden.current === hidden && (pointer || focus);
   const hold = (by: { pointer?: boolean; focus?: boolean }) => {
     const next = hidden && ((by.pointer ?? pointer) || (by.focus ?? focus));
     if (next !== peeking) beforeSlide(next);
