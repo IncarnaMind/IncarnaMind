@@ -496,6 +496,7 @@ function lastAnswerOf(
     blocks,
     origin: { from: messageReference(conversationId, answer.id), question: question?.text ?? "" },
     folderId: question?.kind === "question" ? filedIn(question.scope, question.askedFrom) : null,
+    answer: { id: answer.id, analyses: answer.analyses },
   };
 }
 
@@ -2146,18 +2147,23 @@ export function createAnswers(options: AnswersOptions) {
           return answer;
         });
       // The Minds' Tools, for an Answer in the assistant (#202). A calculated figure it writes
-      // into a Note brings the Analysis run it was worked out by, as Add to note does (#439).
+      // into a Note brings the Analysis run it was worked out by, as Add to note does (#439):
+      // this Answer's, or the last Answer's that `answer: true` writes.
       const given = outside ? undefined : options.minds;
+      const answersWithRuns = [
+        { id: answerId, analyses },
+        ...(input.assistant?.lastAnswer ? [input.assistant.lastAnswer.answer] : []),
+      ];
       const minds: MindsForTools | undefined = given && {
         ...given,
         edit: (mindId, change) =>
           given.edit(mindId, (blocks) => {
             const result = change(blocks);
-            if (analyses.length > 0 && blocks.doc)
-              installFigureRuns(
-                blocks.doc,
-                figureRunsOfAnswer({ id: answerId, analyses }, topLevelBlocks(blocks).map(nodeOf)),
-              );
+            if (blocks.doc) {
+              const nodes = topLevelBlocks(blocks).map(nodeOf);
+              const runs = answersWithRuns.flatMap((each) => figureRunsOfAnswer(each, nodes));
+              if (runs.length > 0) installFigureRuns(blocks.doc, runs);
+            }
             return result;
           }),
       };
