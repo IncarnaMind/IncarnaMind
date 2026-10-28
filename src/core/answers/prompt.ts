@@ -337,14 +337,9 @@ export function signInNeededInstructions(connectorNames: readonly string[]): str
  * as one from the User's Documents. General knowledge only for a general
  * Question, labelled, and without figures. `cite`: the Answer cites with markers.
  */
-function notCovered(cite: boolean): string {
-  return `If the Documents don't cover the Question, say so plainly. You may add what the Passages do say that comes closest${cite ? ", cited" : ""}, then stop: never fill the gap from your own knowledge, so no figure, date or name that isn't in a Passage. Only a general Question that isn't about the User's Documents (a concept or a method) may be answered from your own knowledge, in a paragraph that starts "Not from your Documents:" ("以下内容不是来自你的文档："), with no figures${cite ? " and no markers" : ""}.`;
-}
-
-function absenceAfterSearch(tools: boolean): string {
-  return tools
-    ? '- When a search does not find the answer, say "I didn\'t find X in “Doc”" ("未在“Doc”中找到 X"), not that the Document lacks it. Only after read_document of the pages where the answer would be may you say "The Document doesn\'t state X".'
-    : '- When the Passages do not answer the Question, say "I didn\'t find X in “Doc”" ("未在“Doc”中找到 X"); never say "The Document doesn\'t state X" because you have not read that Document whole.';
+function notCovered(cite: boolean, reads = false): string {
+  const absence = reads ? "Document absence needs read_document." : "Never claim Document absence.";
+  return `If the Documents don't cover the Question, say "I didn't find X in “Doc”" ("未在“Doc”中找到 X"). ${absence} You may add what the Passages do say that comes closest${cite ? ", cited" : ""}, then stop: never fill the gap from your own knowledge, so no figure, date or name that isn't in a Passage. Only a general Question that isn't about the User's Documents (a concept or a method) may be answered from your own knowledge, in a paragraph that starts "Not from your Documents:" ("以下内容不是来自你的文档："), with no figures${cite ? " and no markers" : ""}.`;
 }
 
 /**
@@ -702,8 +697,7 @@ export function documentInstructions(
         "",
         "Cite every claim you draw from a Passage:",
         ...(writeFirst ? writeThenCite(keeps, minds) : citeFirst(keeps)),
-        notCovered(true),
-        absenceAfterSearch(true),
+        notCovered(true, true),
         CITED_SAYS_ONLY_ITS_QUOTE,
         FIGURES_AS_STATED,
         readingRules(true),
@@ -730,7 +724,6 @@ export function documentInstructions(
         QUOTATION_MARKS,
         ...(calculate ? [CALCULATIONS] : []),
         notCovered(true),
-        absenceAfterSearch(false),
         CITED_SAYS_ONLY_ITS_QUOTE,
         FIGURES_AS_STATED,
         readingRules(true),
@@ -747,7 +740,6 @@ export function documentInstructions(
         "",
         "Use them where they help. Don't write citation markers or a list of sources.",
         notCovered(false),
-        absenceAfterSearch(false),
         FIGURES_AS_STATED,
         readingRules(false),
       ].join("\n");

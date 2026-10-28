@@ -222,7 +222,7 @@ describe("Answers cite Passages", { timeout: 30_000 }, () => {
 
     const system = promptOf(model)[0]?.text ?? "";
     expect(system).toMatch(/Cite every claim you draw from a Passage/);
-    expect(system).toMatch(/If the Documents don't cover the Question, say so/);
+    expect(system).toMatch(/If the Documents don't cover the Question, say "I didn't find/);
     expect(system).toMatch(/\[\^1\]/);
     expect(system).toMatch(
       /one unbroken stretch of the Passage: don't leave words out with an ellipsis/,
