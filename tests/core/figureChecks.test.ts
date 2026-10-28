@@ -782,6 +782,17 @@ test("a verdict with no Figures line is asked for it once, and the reply that ha
   });
 });
 
+test("a Figures line that leaves out its remainder is asked for it once, and the reply that has it binds", async () => {
+  const noRemainder = `Verdict: supported\nFigures: ${JSON.stringify({ items: [item()] })}`;
+  const { result, calls } = await checkWith({
+    figures: [target("f1")],
+    text: noRemainder,
+    askedAgain: { note: "gives no remainder", text: reply([item()]) },
+  });
+  expect(calls.filter((call) => call.prompt.includes("gives no remainder"))).toHaveLength(1);
+  expect(result.figures?.[0]?.result.verdict).toBe("supported");
+});
+
 const SEGMENTS = "All figures in £m\nSegment\tQ3 2026\tQ3 2025\nClothing\t300\t310";
 const segments = (body = SEGMENTS): UnitText[] => [
   {

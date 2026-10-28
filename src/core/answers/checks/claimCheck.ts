@@ -179,6 +179,9 @@ const SEARCH_FIRST =
 const FIGURES_LINE =
   "Your reply has no Figures line that can be read. Write your whole reply again, ending with the one Figures: line, its JSON object on that line.";
 
+const REMAINDER_LINE =
+  'Your Figures line gives no remainder. Give "remainder": null when the sentence asserts nothing beyond its figures, or its other assertion as the instructions say, then write your whole reply again.';
+
 const figureSourcesNote = (problems: readonly string[], unrecorded: readonly number[]) =>
   [
     ...(unrecorded.length > 0
@@ -209,10 +212,13 @@ function figuresReplied(
   return [
     {
       name: "figures-line",
-      check: (text) =>
-        asked(text) && !readFigureReply(text, figures, request.claim)
-          ? { claims: [], note: FIGURES_LINE }
-          : null,
+      check(text) {
+        if (!asked(text)) return null;
+        const read = readFigureReply(text, figures, request.claim);
+        if (!read) return { claims: [], note: FIGURES_LINE };
+        // Without its remainder the reply can't be settled, so it is asked for as the line is.
+        return read.remainder === undefined ? { claims: [], note: REMAINDER_LINE } : null;
+      },
     },
     {
       name: "figures-sources",
