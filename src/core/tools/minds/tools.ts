@@ -2345,7 +2345,7 @@ export function mindTools(options: MindToolsOptions): { tools: Tool[]; settle():
   const create: Tool = {
     name: MIND_TOOLS.create,
     description:
-      "Make a new Note for a piece of writing the User asked for (a summary, report, memo, notes, plan or letter) when no empty Note is in front, or when they ask for a new note, page or document. Write its content as you would an Answer: call cite first, then put its markers in content. Leave content out for an empty Note. It opens beside the User's Note, its text applied at once, with Undo.",
+      "Make a new Note for a piece of writing the User asked for (a summary, report, memo, notes, plan or letter) when no empty Note is in front, or when they explicitly ask for a new note, page or document. Never use it merely to write a piece when an empty Note is in front: use add_to_mind there instead. Write its content as you would an Answer: call cite first, then put its markers in content. Leave content out for an empty Note. It opens beside the User's Note, its text applied at once, with Undo.",
     inputSchema: {
       type: "object",
       properties: {
