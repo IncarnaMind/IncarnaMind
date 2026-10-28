@@ -1664,12 +1664,12 @@ test("fitting a column measures what the table shows, not a hidden column's cell
   await expect(headingAt(table, 1)).toHaveText("Cap");
 
   const widthOf = async (heading: Locator) => (await heading.boundingBox())?.width ?? 0;
-  const fit = async (heading: Locator) => {
+  const fitColumn = async (heading: Locator) => {
     await pointAt(window, heading.getByTestId("comparison-column-resize"));
     await heading.getByTestId("comparison-column-resize").dblclick();
     await expect(window.getByTestId("undo-message")).toContainText("Resized “Cap”");
   };
-  await fit(headingAt(table, 1));
+  await fitColumn(headingAt(table, 1));
   const shown = await widthOf(headingAt(table, 1));
   await pointAndClick(window, window.getByTestId("undo-action"));
 
@@ -1681,7 +1681,7 @@ test("fitting a column measures what the table shows, not a hidden column's cell
     headingAt(table, 0).locator('[role="menu"]').getByTestId("comparison.column.hide"),
   );
   await expect(table.getByTestId("comparison-question")).toHaveCount(1);
-  await fit(headingAt(table, 0));
+  await fitColumn(headingAt(table, 0));
   expect(Math.abs((await widthOf(headingAt(table, 0))) - shown)).toBeLessThanOrEqual(2);
 });
 
