@@ -121,16 +121,19 @@ describe("a check cannot substitute a model verdict for derived arithmetic", () 
     expect(verdicts()).toBe(2);
   });
 
-  test("one calculation cannot settle two derived quantities with the same value", async () => {
-    const { result } = await fixture({
-      source: `${SOURCE} Finance costs are 300. Revenue is 100.`,
-      claim: "Net debt is 6.0x adjusted EBITDA and finance costs are 6.0x revenue.",
-      stated: "6.0x",
-      required: ["6.0x", "6.0x"],
-      repair: true,
-    });
-    expect(result.verdict).toBe("not-checked");
-  });
+  test.each([{ required: ["6.0x"] }, { required: ["6.0x", "6.0x"] }])(
+    "one calculation cannot settle two derived quantities when it declares %j",
+    async ({ required }) => {
+      const { result } = await fixture({
+        source: `${SOURCE} Finance costs are 300. Revenue is 100.`,
+        claim: "Net debt is 6.0x adjusted EBITDA and finance costs are 6.0x revenue.",
+        stated: "6.0x",
+        required,
+        repair: true,
+      });
+      expect(result.verdict).toBe("not-checked");
+    },
+  );
 
   test("an unrelated bare amount cannot stand in for a calculated multiple", async () => {
     const { result, verdicts } = await fixture({

@@ -61,12 +61,16 @@ export function needsCalculation({
     }),
     ...inputs,
   ];
+  const unused = [...computed];
   if (
-    claimFigures.some(
-      (figure) =>
-        !available.some((source) => matches(figure, source)) &&
-        !computed.some((number) => matches(figure, number)),
-    )
+    claimFigures.some((figure) => {
+      const at = unused.findIndex((number) => matches(figure, number));
+      if (at >= 0) {
+        unused.splice(at, 1);
+        return false;
+      }
+      return !available.some((source) => matches(figure, source));
+    })
   )
     return verdict.verdict === "supported" || computed.length === 0;
   return false;

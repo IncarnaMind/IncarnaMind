@@ -69,6 +69,9 @@ const CALCULATE = [
   '- call calculate with one figure, marker 1: its inputs, a formula that gives the figure as the sentence states it (for "fell 5%", the fall: (a - b) / a), and stated, the number as the sentence writes it ("1.1x");',
   '- an input keeps its sign as the Passage writes it: an amount in brackets, "(12,500)", is negative, so take a deduction written in brackets off a total by adding it (price + fee), never by subtracting it;',
   "- IncarnaMind works it out and compares it with the sentence's number, to its rounding. Then reply as below.",
+  "- A successful calculation settles that derived number: do not call it unsupported merely because the Document prints its inputs rather than the result. Still judge every other detail of the sentence.",
+  "- If calculate refuses an input, use its exact error to repair that input once. Do not replace a refused or missing calculation with your own arithmetic.",
+  "- A figure stated directly in a Passage needs no calculation, even when the quote is identical to the sentence. The Passage itself is evidence; it need not cite a second source.",
 ].join("\n");
 
 /**

@@ -50,7 +50,11 @@ function brokenInput(failure: Failure, stated: string): unknown {
 async function fixture(
   example: Example,
   inputs: readonly unknown[],
-  { malformedAt = 0, refuses = false }: { malformedAt?: number; refuses?: boolean } = {},
+  {
+    malformedAt = 0,
+    refuses = false,
+    suffix,
+  }: { malformedAt?: number; refuses?: boolean; suffix?: string } = {},
 ) {
   const calls: ModelCall[] = [];
   const wireInputs: string[] = [];
@@ -97,7 +101,12 @@ async function fixture(
             new TransformStream<LanguageModelV4StreamPart, LanguageModelV4StreamPart>({
               transform(part, controller) {
                 if (part.type === "tool-call" && part.toolName === "calculate") {
-                  const input = wireInputs.length + 1 === malformedAt ? MALFORMED : part.input;
+                  const input =
+                    wireInputs.length + 1 === malformedAt
+                      ? suffix === undefined
+                        ? MALFORMED
+                        : `${part.input}${suffix}`
+                      : part.input;
                   wireInputs.push(input);
                   controller.enqueue({ ...part, input });
                 } else controller.enqueue(part);
@@ -156,6 +165,18 @@ describe.each(LANGUAGES)("a rejected calculation input ($language)", (example) =
       stated: example.stated,
       figure: { value: 6 },
     });
+  });
+
+  test("an extra closing object is re-asked with its exact parse error", async () => {
+    const { result, wireInputs, feedback } = await fixture(
+      example,
+      [calculation(example.stated), calculation(example.stated)],
+      { malformedAt: 1, suffix: "}" },
+    );
+    expect(() => JSON.parse(wireInputs[0] ?? "")).toThrow(SyntaxError);
+    expect(feedback[0]?.text).toContain("JSON parsing failed");
+    expect(feedback[1]?.text).toMatch(/^Recorded/);
+    expect(result.verdict).toBe("contradicted");
   });
 
   test("a second failed input exhausts the single repair", async () => {
