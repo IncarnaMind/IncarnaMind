@@ -75,13 +75,18 @@ test("probe: a table that widens as it is written", async () => {
   );
 
   const gpu = await app.evaluate(({ app: electronApp }) => electronApp.getGPUFeatureStatus());
+  await app.evaluate(() => {
+    const holder = globalThis as unknown as { mainTicks: number[] };
+    holder.mainTicks = [];
+    setInterval(() => holder.mainTicks.push(Date.now()), 10);
+  });
   const cdp = await window.context().newCDPSession(window);
   if (THROTTLE > 1) await cdp.send("Emulation.setCPUThrottlingRate", { rate: THROTTLE });
 
   await window.evaluate(() => {
     const holder = globalThis as unknown as { probe: Probe };
     holder.probe = { events: [], tasks: [], loaves: [], frames: [], marks: [], keys: [], ticks: [] };
-    setInterval(() => holder.probe.ticks.push(performance.now()), 10);
+    setInterval(() => holder.probe.ticks.push(Date.now()), 10);
     for (const name of ["keydown", "keyup"]) {
       globalThis.addEventListener(
         name,
@@ -194,6 +199,9 @@ test("probe: a table that widens as it is written", async () => {
   await film("off");
 
   const probe = await window.evaluate(() => (globalThis as unknown as { probe: Probe }).probe);
+  const mainTicks = await app.evaluate(
+    () => (globalThis as unknown as { mainTicks: number[] }).mainTicks,
+  );
   const windowOf = (name: string) => {
     const start = probe.marks.find((each) => each.name === `${name}:start`)?.at ?? 0;
     const done = probe.marks.find((each) => each.name === `${name}:done`)?.at ?? Number.MAX_VALUE;
@@ -236,6 +244,14 @@ test("probe: a table that widens as it is written", async () => {
       summary,
       marks: probe.marks.map((each) => ({ name: each.name, at: Math.round(each.at) })),
       keys: probe.keys.map((each) => `${Math.round(each.at)} ${each.key}`),
+      mainTickGaps: (() => {
+        const gaps: { at: number; gap: number }[] = [];
+        for (let index = 1; index < mainTicks.length; index++) {
+          const gap = mainTicks[index] - mainTicks[index - 1];
+          if (gap > 80) gaps.push({ at: mainTicks[index], gap: Math.round(gap) });
+        }
+        return gaps;
+      })(),
       tickGaps: (() => {
         const gaps: { at: number; gap: number }[] = [];
         for (let index = 1; index < probe.ticks.length; index++) {
