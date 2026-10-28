@@ -1,0 +1,5 @@
+language js;
+
+`utilityProcess` as $use where {
+  register_diagnostic(span = $use, message = "Start an engine process with startEngineProcess (src/main/engineProcess.ts): it turns off ONNX Runtime's usage telemetry (#2145).", severity = "error")
+}
