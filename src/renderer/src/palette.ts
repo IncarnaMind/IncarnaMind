@@ -23,6 +23,7 @@ import { formatLocation } from "../../shared/locations";
 import { mindName } from "../../shared/naming";
 import { focusComposer } from "./commands/assistant";
 import { placeAt } from "./commands/edit";
+import { citationHandle } from "./commands/handles";
 import { placeHere } from "./commands/here";
 import { menuKeysLabel, objectAt } from "./commands/keymap";
 import {
@@ -78,7 +79,12 @@ function acting(
     ...on,
     place: placeAt(active),
     task: taskAt(active),
-    here: { "mind.moveTo": moveTo, "document.moveTo": moveTo, ...here },
+    here: {
+      "mind.moveTo": moveTo,
+      "document.moveTo": moveTo,
+      ...citationHandle.current?.here(),
+      ...here,
+    },
   };
 }
 

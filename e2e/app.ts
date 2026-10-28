@@ -2990,9 +2990,12 @@ export async function menuCommands(menu: Locator): Promise<string[]> {
   await expect(menu).toBeVisible();
   // Its items draw a moment after the popover shows.
   await expect(menu.getByRole("menuitem").first()).toBeVisible();
+  // A toggle's item (menuitemcheckbox) is an item as any other; a rule is "—".
   return menu.evaluate((element) =>
     Array.from(element.children).map((child) =>
-      child.getAttribute("role") === "menuitem" ? (child.getAttribute("data-testid") ?? "") : "—",
+      child.getAttribute("role")?.startsWith("menuitem")
+        ? (child.getAttribute("data-testid") ?? "")
+        : "—",
     ),
   );
 }

@@ -137,6 +137,18 @@ for (const language of ["en", "zh-CN"] as const) {
       await pointAndClick(window, again.getByTestId("sign-off-again"));
       await expect(again.getByTestId("sign-off-line")).toHaveText(words.mine);
       await expect(again.getByTestId("sign-off-toggle")).toHaveAttribute("aria-pressed", "true");
+
+      // ⌘K reaches it while the card shows, ticked; choosing it takes the mark off.
+      await window.keyboard.press("ControlOrMeta+k");
+      await expect(window.getByTestId("palette-search")).toBeFocused();
+      await window.keyboard.type(words.action);
+      const item = window
+        .getByTestId("palette")
+        .locator('[data-key="command:citation.signOffRemove"]');
+      await expect(item.getByTestId("palette-checked")).toBeVisible();
+      await pointAndClick(window, item);
+      await openCard(window, chip);
+      await expect(again.getByTestId("sign-off-toggle")).toHaveAttribute("aria-pressed", "false");
     } finally {
       await app.close();
     }

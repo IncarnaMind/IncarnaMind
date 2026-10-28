@@ -308,7 +308,12 @@ export function CitationView({
   // "Open cited page" (a command) opens the Citation whose card shows.
   useEffect(() => {
     if (!open) return;
-    const handle = { open: () => openFromCardRef.current(), choices: () => choicesRef.current };
+    const handle = {
+      open: () => openFromCardRef.current(),
+      choices: () => choicesRef.current,
+      signOff: () => signOffRef.current,
+      here: () => hereRef.current,
+    };
     citationHandle.current = handle;
     return () => {
       if (citationHandle.current === handle) citationHandle.current = null;
@@ -337,6 +342,9 @@ export function CitationView({
     if (pos !== undefined && signer) toggleCitationSignOff(editor, pos, signer);
   };
 
+  const signOffRef = useRef<{ toggle: () => void; checked: boolean } | null>(null);
+  signOffRef.current = canSignOff ? { toggle: toggleSignOff, checked: checkedByMe(signOff) } : null;
+
   const menuId = useId();
   const objectMenu = useObjectMenu({ kind: "citation", id: menuId });
   const here = {
@@ -357,6 +365,9 @@ export function CitationView({
       },
     }),
   };
+
+  const hereRef = useRef(here);
+  hereRef.current = here;
 
   // The number, the Document, where it points and the check: the marker only shows the number.
   const label = inFootnote

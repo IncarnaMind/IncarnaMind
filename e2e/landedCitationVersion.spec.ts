@@ -216,6 +216,8 @@ for (const language of ["en", "zh-CN"] as const) {
         "citation.update",
         "citation.keepOld",
         "—",
+        "citation.signOff",
+        "—",
         "citation.remove",
       ]);
       await expect(menu.getByTestId("citation.keepOld")).toHaveText(words.keep);
