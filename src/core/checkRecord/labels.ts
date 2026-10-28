@@ -1,7 +1,7 @@
 import { SENTENCE_RESULT_LABELS } from "../../shared/claimChecks";
 import { formatFullDateTime } from "../../shared/dates";
 import { type MessageKey, type MessageParams, translate } from "../../shared/i18n";
-import type { CitationCheck } from "../api";
+import type { CitationCheck, SignOffNow } from "../api";
 import type { ModelDescription, ModelPlace } from "../chatModelNames";
 import type { Language } from "../language";
 import type { RecordItem, TextOrigin } from "./read";
@@ -74,4 +74,21 @@ export function recordTime(moment: string, language: Language, t: Translator): s
   return t("checkRecord.time", {
     time: formatFullDateTime(moment, language, { timeZone: "UTC", twelveHour: false }),
   });
+}
+
+/**
+ * A person's own check of an item (#1933), as the record says it: their name, when (`time` writes
+ * it) and whether it changed since. Others read the record, so it names the person, never "you".
+ */
+export function personCheck(
+  signOff: SignOffNow | null,
+  time: (moment: string) => string,
+  t: Translator,
+): string | null {
+  if (!signOff) return null;
+  const params = { name: signOff.name ?? t("checkRecord.notRecorded"), time: time(signOff.at) };
+  return t(
+    signOff.state === "checked" ? "checkRecord.person" : "checkRecord.person.changed",
+    params,
+  );
 }

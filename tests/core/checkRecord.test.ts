@@ -10,6 +10,7 @@ import {
   type Document,
   GENERATED_MARK,
 } from "../../src/core";
+import { addSignOff, citationSignOffBasis } from "../../src/shared/signOffs";
 import { setTextOrigin } from "../../src/shared/textOrigins";
 import { createTempDataFolder, manualClock, startCore } from "../helpers/core";
 import { parseCsv } from "../helpers/csv";
@@ -499,6 +500,44 @@ describe("The check record as CSV", () => {
       模型: "IncarnaMind",
       服务: "在这台电脑上",
     });
+  });
+});
+
+describe("A person's own check in the check record", () => {
+  // protects=a Citation the User marked Checked by me is listed with their name and when, apart from IncarnaMind's result, and as changed once its sentence changes (D280, #1933); fails_when=the column is empty, says "you", or still says checked after the edit; no_claim=the PDF's layout.
+  test("lists who checked a Citation and when, beside IncarnaMind's result, and that it changed since", async () => {
+    const setup = await setUp();
+    const { client, tides } = setup;
+    const cited = { ...citation(tides, "found") };
+    cited.attrs = { ...cited.attrs, id: "citation-1" };
+    const write = (words: string) =>
+      writeMind(client, [paragraph("own", text(words), cited, text("."))]);
+    write("The Moon pulls the sea");
+    await client.settled();
+    addSignOff(client.doc, {
+      id: randomUUID(),
+      target: { kind: "citation", id: "citation-1" },
+      at: "2026-10-16T08:30:00.000Z",
+      contentHash: citationSignOffBasis("The Moon pulls the sea\uFFFC.", {
+        documentId: tides.id,
+        contentHash: tides.contentHash,
+        quote: QUOTE,
+      }),
+      deletedAt: null,
+      name: "Ada Lovelace",
+      personId: "person-1",
+    });
+    await client.settled();
+
+    const personOf = async () => {
+      const csv = readFileSync((await saveRecord(setup, "csv")).path, "utf8");
+      return rowsOf(csv).find((row) => row.Kind === "Citation")?.["Checked by a person"];
+    };
+    expect(await personOf()).toBe("Ada Lovelace · 2026-10-16T08:30:00.000Z");
+
+    write("The Moon pulls every sea");
+    await client.settled();
+    expect(await personOf()).toBe("Ada Lovelace · 2026-10-16T08:30:00.000Z · changed since");
   });
 });
 

@@ -3873,6 +3873,11 @@ export const en = {
   "checkRecord.column.model": "Model",
   "checkRecord.column.service": "Service",
   "checkRecord.column.checked": "Checked (UTC)",
+  "checkRecord.column.person": "Checked by a person",
+  "checkRecord.person": "{name} · {time}",
+  "checkRecord.person.changed": "{name} · {time} · changed since",
+  "checkRecord.personNote":
+    "“Checked by a person” is that person’s own check, which they marked in IncarnaMind. IncarnaMind’s checks are not a person’s.",
   "checkRecord.modelNote":
     "IncarnaMind checks a Citation’s quote against the Document’s text on this computer, without a model, and doesn’t date that check. The models listed checked sentences.",
   "checkRecord.note":

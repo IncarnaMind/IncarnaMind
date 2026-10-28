@@ -20,6 +20,7 @@ import { calculatedFigureNode } from "../../src/shared/calculatedFigures";
 import { aggregateFigureResults } from "../../src/shared/figureChecks";
 import { childrenOf, lineShows } from "../../src/shared/figureSchedule";
 import { FORMULA_VERSION } from "../../src/shared/formula";
+import { addSignOff, figureSignOffBasis } from "../../src/shared/signOffs";
 
 const paragraph = (id: string, text: string, attrs: Record<string, string> = {}): NodeJSON => ({
   type: "paragraph",
@@ -33,16 +34,7 @@ function note(...nodes: NodeJSON[]) {
   blocks.push(nodes.map(createElement));
   return blocks;
 }
-const project = (blocks: Y.XmlFragment) =>
-  figureSchedule({
-    mindId: "note",
-    name: "Figures",
-    basis: "exact-basis",
-    blocks,
-    versions: new Map<string, string>(),
-    folderId: null,
-    scope: null,
-  });
+const project = (blocks: Y.XmlFragment) => figureSchedule(scheduleInput(blocks));
 function basis(text: string): ClaimCheckAttributes {
   return {
     id: "check",
@@ -837,3 +829,50 @@ test.each([
     expect(project(blocks).rows.map((row) => row.shown.state)).toEqual([state]);
   },
 );
+
+// protects=a figure the User marked Checked by me shows their mark on its row, and as changed once its sentence's words change, while the mark itself is kept (D280, #1933); fails_when=the row has no mark, still says checked after the edit, or the mark goes; no_claim=a Document's newer version, which signOffs.test covers.
+test("a figure's own check shows on its row, and as changed once its sentence changes", () => {
+  const blocks = note(paragraph("p", "Revenue rose 5% in the year."));
+  const doc = blocks.doc;
+  if (!doc) throw new Error("No note document");
+  const [row] = project(blocks).rows;
+  if (!row) throw new Error("No figure row");
+  addSignOff(doc, {
+    id: "mark",
+    target: { kind: "figure", id: row.id },
+    at: "2026-10-28T09:00:00.000Z",
+    contentHash: figureSignOffBasis(row),
+    deletedAt: null,
+    name: "Ada Lovelace",
+    personId: "person-1",
+  });
+  const mine = (rows: ReturnType<typeof project>["rows"]) => rows[0]?.signOff ?? null;
+
+  expect(
+    mine(figureSchedule({ ...scheduleInput(blocks), personId: "person-1" }).rows),
+  ).toMatchObject({ state: "checked", name: "Ada Lovelace", mine: true });
+  expect(
+    mine(figureSchedule({ ...scheduleInput(blocks), personId: "person-2" }).rows),
+  ).toMatchObject({ state: "checked", mine: false });
+
+  const text = blocks.get(0);
+  if (!(text instanceof Y.XmlElement)) throw new Error("No paragraph");
+  const words = text.get(0);
+  if (!(words instanceof Y.XmlText)) throw new Error("No text");
+  words.insert(0, "Group ");
+  expect(
+    mine(figureSchedule({ ...scheduleInput(blocks), personId: "person-1" }).rows),
+  ).toMatchObject({ state: "changed", target: { kind: "figure", id: row.id } });
+});
+
+function scheduleInput(blocks: Y.XmlFragment) {
+  return {
+    mindId: "note",
+    name: "Figures",
+    basis: "exact-basis",
+    blocks,
+    versions: new Map<string, string>(),
+    folderId: null,
+    scope: null,
+  };
+}

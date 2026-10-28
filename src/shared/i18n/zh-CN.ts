@@ -3713,6 +3713,11 @@ export const zhCN = {
   "checkRecord.column.model": "模型",
   "checkRecord.column.service": "服务",
   "checkRecord.column.checked": "核对时间（UTC）",
+  "checkRecord.column.person": "人工核对",
+  "checkRecord.person": "{name} · {time}",
+  "checkRecord.person.changed": "{name} · {time} · 核对后已改动",
+  "checkRecord.personNote":
+    "“人工核对”是本人在 IncarnaMind 中标记的核对。IncarnaMind 的核对不是人工核对。",
   "checkRecord.modelNote":
     "IncarnaMind 在这台电脑上把引用的引文与文档的文字对照，不使用模型，也不记录核对时间。所列模型核对的是句子。",
   "checkRecord.note":

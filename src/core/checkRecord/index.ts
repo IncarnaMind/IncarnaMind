@@ -51,6 +51,8 @@ export interface CheckRecordDependencies {
   now(): string;
   /** The note's Figure schedule: the figures of its one Check (#1932). */
   figures(mindId: string): readonly FigureScheduleRow[];
+  /** The User, whose own check marks are theirs (#1933); null before they make one. */
+  personId(): string | null;
 }
 
 const GONE: Record<ScopeKind, MessageKey> = {
@@ -103,6 +105,7 @@ export function createCheckRecord(deps: CheckRecordDependencies) {
           attributes.quote
             ? (deps.readableQuote(attributes) ?? readableQuoteText(attributes.quote))
             : null,
+        personId: deps.personId(),
       });
       return {
         ...record,

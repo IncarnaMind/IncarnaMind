@@ -49,7 +49,8 @@ export const Citation = Node.create<CitationOptions>({
   },
 
   addAttributes() {
-    const attributes: Record<keyof CitationAttributes, object> = {
+    // Its id is UniqueID's, as every node's that keeps one (`noteExtensions`).
+    const attributes: Record<Exclude<keyof CitationAttributes, "id">, object> = {
       passageId: dataAttribute("passageId"),
       documentId: dataAttribute("documentId"),
       documentName: dataAttribute("documentName"),
@@ -86,9 +87,6 @@ export const Citation = Node.create<CitationOptions>({
       },
       // Only Keep citing the old version sets it (#99), so a Citation without one stores nothing.
       keptOver: { ...dataAttribute("keptOver"), default: undefined },
-      // Only "Checked by me" gives it (#1933). It isn't written into the HTML a copy carries,
-      // so a pasted copy has none and the User's mark stays with the Citation they checked.
-      id: { default: undefined, parseHTML: () => undefined, renderHTML: () => ({}) },
     };
     return attributes;
   },

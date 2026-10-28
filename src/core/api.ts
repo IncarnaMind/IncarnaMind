@@ -218,10 +218,11 @@ export interface CreateMindInput {
  *   and the figures within their sentence's Check (#439, #1932). Older
  *   editors would discard those nodes and check attributes, so they open
  *   these Notes read-only. Existing content needs no conversion.
- * - 32: a Citation has an `id` of its own once the User marks it checked by
- *   them (#1933), and the Note holds those marks (`MIND_SIGN_OFFS_FIELD`). An
- *   older editor would strip the ids and leave the marks on nothing, so it
- *   opens these Notes read-only. Existing content needs no conversion.
+ * - 32: a Citation has an `id` of its own, which the editor gives it, and the
+ *   Note holds the User's "Checked by me" marks on Citations and figures
+ *   (`MIND_SIGN_OFFS_FIELD`, #1933). An older editor would strip the ids and
+ *   leave the marks on nothing, so it opens these Notes read-only. Existing
+ *   content needs no conversion.
  */
 export const CONTENT_SCHEMA_VERSION = 32;
 
@@ -2010,8 +2011,8 @@ export interface CitationAttributes {
    */
   keptOver?: string | null;
   /**
-   * Its own id, given once the User marks it checked by them (#1933), so the mark stays on it
-   * as the text around it changes. A copy pasted elsewhere has none.
+   * Its own id, which the editor gives it, so the User's "Checked by me" mark (#1933) stays on it
+   * as the text around it changes. A pasted copy gets a new one.
    */
   id?: string | null;
 }

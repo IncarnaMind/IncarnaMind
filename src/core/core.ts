@@ -2239,6 +2239,7 @@ export function createCore(adapters: CoreAdapters): Core {
     paper: systemPaper,
     now,
     figures: (mindId) => readFigureSchedule(mindId).rows,
+    personId: () => settings.get().user.personId,
   });
   const ownFileOf = (options: ExportMindOptions): OwnFileKind =>
     options.format === "source-pack" ? "source-pack" : "export";

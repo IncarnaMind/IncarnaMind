@@ -5,6 +5,7 @@ import {
   checkedBy,
   KIND_LABELS,
   ORIGIN_LABELS,
+  personCheck,
   resultKey,
   type Translator,
   translatorFor,
@@ -26,6 +27,7 @@ const COLUMNS: readonly MessageKey[] = [
   "checkRecord.column.model",
   "checkRecord.column.service",
   "checkRecord.column.checked",
+  "checkRecord.column.person",
 ];
 
 const BYTE_ORDER_MARK = "﻿";
@@ -66,6 +68,7 @@ function itemRow(item: RecordItem, t: Translator): (string | number | null)[] {
     by?.name ?? null,
     by?.place ?? null,
     item.kind === "sentence" ? (item.check?.at ?? null) : null,
+    item.kind === "citation" ? personCheck(item.signOff, (at) => at, t) : null,
   ];
 }
 
@@ -93,6 +96,7 @@ export function renderCsv(record: CheckRecord): string {
     [t("checkRecord.summary.citations"), counts(record.citations, t) || none],
     [t("checkRecord.modelNote")],
     [t("checkRecord.note")],
+    [t("checkRecord.personNote")],
   ];
   const items = [...record.sentences, ...record.citations].map((item) => itemRow(item, t));
   const lines = [...summary.map(row), "", row(COLUMNS.map((key) => t(key))), ...items.map(row)];

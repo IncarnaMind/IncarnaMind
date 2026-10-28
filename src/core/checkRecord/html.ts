@@ -11,6 +11,7 @@ import {
   checkedBy,
   KIND_LABELS,
   ORIGIN_LABELS,
+  personCheck,
   recordTime,
   resultKey,
   type Translator,
@@ -78,6 +79,7 @@ export function renderRecordHtml(record: CheckRecord): string {
       )
       .join("")}</table>`,
     `<p class="record-note">${escapeHtml(t("checkRecord.modelNote"))}</p>`,
+    `<p class="record-note">${escapeHtml(t("checkRecord.personNote"))}</p>`,
     section(
       t("checkRecord.sentences.heading", { count: number(record.sentences.length) }),
       record.sentences,
@@ -122,6 +124,7 @@ function renderFigures(rows: readonly FigureScheduleRow[], language: Language): 
             ? ""
             : `<div class="record-label">${escapeHtml(figureReason(row, language))}</div>`
         }</td>`,
+        cell(personCheck(row.signOff, (moment) => recordTime(moment, language, t), t) ?? ""),
       ].join("")}</tr>`;
     })
     .join("");
@@ -132,6 +135,7 @@ function renderFigures(rows: readonly FigureScheduleRow[], language: Language): 
     t("figures.export.documentPlace"),
     t("figures.difference"),
     t("figures.status"),
+    t("checkRecord.column.person"),
   ];
   return [
     `<h2>${escapeHtml(t("figures.export.recordHeading"))}</h2>`,
@@ -148,6 +152,10 @@ function renderItem(
   const { evidence } = each;
   const by = checkedBy(each, t);
   const at = each.kind === "sentence" ? each.check?.at : null;
+  const person =
+    each.kind === "citation"
+      ? personCheck(each.signOff, (moment) => recordTime(moment, language, t), t)
+      : null;
   const where = evidence
     ? [evidence.name, evidence.location].filter((part) => part !== null && part !== "")
     : [];
@@ -188,6 +196,7 @@ function renderItem(
       ? [detail(t("checkRecord.column.file"), [...file, ...hash].join(" · "))]
       : []),
     ...(checker ? [detail(t("checkRecord.checkedBy"), checker.join(" · "))] : []),
+    ...(person ? [detail(t("checkRecord.column.person"), escapeHtml(person))] : []),
     "</div>",
   ].join("");
 }
