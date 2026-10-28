@@ -821,12 +821,16 @@ describe("making a Folder", () => {
     });
   };
   const top = () => useUndo.getState().done.at(-1);
+  /** What the line says once the Undo of the Folder came back, if it kept it. */
+  const noteNow = () => useUndo.getState().line?.note?.(words) ?? null;
 
   beforeEach(() => {
     useUndo.setState({ done: [], undone: [], line: null });
     useRequests.setState({ nameFolder: null });
     useAppStore.setState({ settings: null, minds: [] });
     method("createLibraryGroup").mockResolvedValue(made);
+    method("listMinds").mockResolvedValue([]);
+    method("listConversations").mockResolvedValue([]);
     withNewFolder();
   });
 
@@ -937,6 +941,18 @@ describe("making a Folder", () => {
       conversations: [],
     });
     withNewFolder("Untitled Folder", [filed]);
+    // The Mind is back in its own Folder once Undo has put it there.
+    method("listMinds").mockResolvedValue([
+      {
+        id: "m",
+        title: "Plan",
+        autoTitle: "",
+        kind: "mind",
+        folderId: "g",
+        createdAt: "",
+        updatedAt: "",
+      },
+    ]);
 
     await useAppStore.getState().createFolder({ mindIds: ["m"], documentIds: ["a", "b", "c"] });
     expect(method("moveToFolder")).toHaveBeenCalledWith({
@@ -981,6 +997,59 @@ describe("making a Folder", () => {
       conversationIds: [],
       folderId: "n",
     });
+  });
+
+  test("a Document filed in the new Folder since keeps it, and the line says so in English and in Chinese", async () => {
+    await useAppStore.getState().createFolder();
+    // Another window filed it here after the Folder was made: Undo leaves that work where it is.
+    withNewFolder(made.name, [assignment("later", "classified", "n")]);
+    await useUndo.getState().undo();
+    expect(method("deleteLibraryGroup")).not.toHaveBeenCalled();
+    expect(noteNow()).toBe("Kept the Folder “Untitled Folder”: you’ve filed things in it since.");
+
+    useUndo.setState({ done: [], undone: [], line: null });
+    useAppStore.setState({ settings: { language: "zh-CN" } as never });
+    await useAppStore.getState().createFolder();
+    withNewFolder("未命名文件夹", [assignment("later", "classified", "n")]);
+    await useUndo.getState().undo();
+    expect(method("deleteLibraryGroup")).not.toHaveBeenCalled();
+    expect(noteNow()).toBe("保留了文件夹“未命名文件夹”：之后你在里面放了其他内容。");
+  });
+
+  test("a Mind put in the new Folder since keeps it too", async () => {
+    await useAppStore.getState().createFolder();
+    method("listMinds").mockResolvedValue([
+      {
+        id: "later",
+        title: "Plan",
+        autoTitle: "",
+        kind: "mind",
+        folderId: "n",
+        createdAt: "",
+        updatedAt: "",
+      },
+    ]);
+    await useUndo.getState().undo();
+    expect(method("deleteLibraryGroup")).not.toHaveBeenCalled();
+    expect(noteNow()).toBe("Kept the Folder “Untitled Folder”: you’ve filed things in it since.");
+  });
+
+  test("a conversation put in the new Folder since keeps it too", async () => {
+    await useAppStore.getState().createFolder();
+    method("listConversations").mockResolvedValue([
+      {
+        id: "later",
+        title: "",
+        autoTitle: "Why do parks cool at night",
+        folderId: "n",
+        askedFrom: [],
+        createdAt: "",
+        updatedAt: "",
+      },
+    ]);
+    await useUndo.getState().undo();
+    expect(method("deleteLibraryGroup")).not.toHaveBeenCalled();
+    expect(noteNow()).toBe("Kept the Folder “Untitled Folder”: you’ve filed things in it since.");
   });
 
   test("the line says how many went in, in English and in Chinese", async () => {

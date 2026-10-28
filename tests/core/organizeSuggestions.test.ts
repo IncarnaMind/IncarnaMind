@@ -1071,6 +1071,123 @@ describe("Putting a Document's place and tagging back", () => {
     release();
     await vi.waitFor(async () => expect((await documentOf(core, doc.id))?.tagging).toBe("tagged"));
   });
+
+  /**
+   * A Document in no Folder whose tagging is pending, its turn waiting behind another Document's.
+   * Once a Folder exists, Organize holds every Document it has filed, and the tagger drops the
+   * turn it had queued for it (#1928).
+   */
+  async function queuedInNoFolder() {
+    const fake = sorter();
+    const core = startCore(await createTempDataFolder(), { createChatModel: () => fake.model });
+    const provider = await core.saveChatProvider({ kind: "ollama", modelId: "main-model" });
+    await core.createTag({ name: "Bills", description: "Bills and invoices" });
+    await core.saveLibrarySettings({
+      classifier: {
+        kind: "chat",
+        choice: { providerId: provider.id, modelId: "small-classifier" },
+      },
+      automatic: true,
+    });
+    const sources = await createSourceFolder();
+    const add = async (name: string) => {
+      const [doc] = await addAndProcess(core, [
+        await writeSourceFile(sources, `${name}.txt`, `${name}: GBP 900.`),
+      ]);
+      if (!doc) throw new Error("Not added.");
+      return doc;
+    };
+    // The first Document holds the tagger at its model: the others wait, queued.
+    let release = () => {};
+    fake.holdTags(
+      new Promise<void>((resolve) => {
+        release = resolve;
+      }),
+    );
+    const busy = await add("Invoice 1");
+    await vi.waitFor(async () =>
+      expect((await documentOf(core, busy.id))?.tagging).toBe("tagging"),
+    );
+    const moving = await add("Invoice 2");
+    await vi.waitFor(async () =>
+      expect((await documentOf(core, moving.id))?.tagging).toBe("pending"),
+    );
+    const proof = await add("Invoice 3");
+    await vi.waitFor(async () =>
+      expect((await documentOf(core, proof.id))?.tagging).toBe("pending"),
+    );
+    // A Folder now: an assignment is Organize's, and it holds the Document's tagging.
+    const finance = await core.createLibraryGroup({ name: "Finance", description: "Money." });
+    return { core, finance, moving, proof, release };
+  }
+
+  test("a first assign during pending tagging is queued again by Undo", async () => {
+    const { core, finance, moving, proof, release } = await queuedInNoFolder();
+
+    const change = await core.assignDocumentGroup(moving.id, finance.id);
+    expect(change.before.assignment).toBeNull();
+    expect(change.before.tagging?.status).toBe("pending");
+    expect(change.after.assignment).toMatchObject({ groupId: finance.id, source: "user" });
+    expect(change.after.tagging?.status).toBe("waiting-for-provider");
+
+    // Organize holds the Document now, so the tagger drops its turn: the one after it is tagged, it is not.
+    release();
+    await vi.waitFor(async () =>
+      expect((await documentOf(core, proof.id))?.tagging).toBe("tagged"),
+    );
+    expect((await documentOf(core, moving.id))?.tagging).toBe("waiting-for-provider");
+
+    // ⌘Z: no assignment again, and its pending tagging gets a turn again.
+    const undone = await core.restoreAssignment(moving.id, change.before, change.after);
+    if (!undone) throw new Error("Not put back.");
+    expect(await assignmentOf(core, moving.id)).toBeUndefined();
+    await vi.waitFor(async () =>
+      expect((await documentOf(core, moving.id))?.tagging).toBe("tagged"),
+    );
+
+    // ⇧⌘Z: the User's Folder again.
+    await core.restoreAssignment(moving.id, undone.before, undone.after);
+    expect(await assignmentOf(core, moving.id)).toMatchObject({
+      groupId: finance.id,
+      source: "user",
+      status: "classified",
+    });
+  });
+
+  test("a first move during pending tagging is queued again by Undo", async () => {
+    const { core, finance, moving, proof, release } = await queuedInNoFolder();
+
+    const [move] = (await core.moveToFolder({ documentIds: [moving.id], folderId: finance.id }))
+      .documents;
+    if (!move) throw new Error("Not moved.");
+    expect(move.change.before.assignment).toBeNull();
+    expect(move.change.before.tagging?.status).toBe("pending");
+    expect(move.change.after.assignment).toMatchObject({ groupId: finance.id, source: "user" });
+    expect(move.change.after.tagging?.status).toBe("waiting-for-provider");
+
+    // Organize holds the Document now, so the tagger drops its turn: the one after it is tagged, it is not.
+    release();
+    await vi.waitFor(async () =>
+      expect((await documentOf(core, proof.id))?.tagging).toBe("tagged"),
+    );
+    expect((await documentOf(core, moving.id))?.tagging).toBe("waiting-for-provider");
+
+    // ⌘Z: no assignment again, and its pending tagging gets a turn again.
+    const undone = await core.restoreAssignment(moving.id, move.change.before, move.change.after);
+    if (!undone) throw new Error("Not put back.");
+    expect(await assignmentOf(core, moving.id)).toBeUndefined();
+    await vi.waitFor(async () =>
+      expect((await documentOf(core, moving.id))?.tagging).toBe("tagged"),
+    );
+
+    // ⇧⌘Z: the User's Folder again.
+    await core.restoreAssignment(moving.id, undone.before, undone.after);
+    expect(await assignmentOf(core, moving.id)).toMatchObject({
+      groupId: finance.id,
+      source: "user",
+      status: "classified",
+    });
+  });
 });
 
 describe("Migration 36", () => {
