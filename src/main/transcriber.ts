@@ -6,10 +6,10 @@
  * dies (a crash, or out of memory), the core hears it, marks the gap and
  * loads it again (see `createChannelTranscriber`).
  */
-import { utilityProcess } from "electron";
 import type { Transcriber } from "../core";
 import { createChannelTranscriber, type TranscriberResponse } from "../core/transcription/channel";
 import type { FakeTranscriberOptions } from "../core/transcription/fake";
+import { startEngineProcess } from "./engineProcess";
 import transcriberProcessPath from "./transcriberProcess?modulePath";
 
 export interface UtilityProcessTranscriberOptions {
@@ -22,10 +22,7 @@ export function createUtilityProcessTranscriber(
 ): Transcriber {
   const args = options.fake ? ["--fake", `--fake-options=${JSON.stringify(options.fake)}`] : [];
   return createChannelTranscriber(() => {
-    const child = utilityProcess.fork(transcriberProcessPath, args, {
-      serviceName: "IncarnaMind transcription",
-      stdio: "inherit",
-    });
+    const child = startEngineProcess(transcriberProcessPath, args, "IncarnaMind transcription");
     return {
       send: (request) => child.postMessage(request),
       onResponse: (listener) =>
