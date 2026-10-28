@@ -11,94 +11,7 @@ import { chatGroupClassifier } from "../../src/core/library/classifier";
 import { createAiSdkChatModel } from "../../src/core/providers/models";
 import { chatClassifier } from "../../src/core/tags/classify";
 import { createTempDataFolder, startCore } from "../helpers/core";
-
-type Reply = { text: string } | { call: { name: string; input: unknown } };
-
-interface Captured {
-  url: string;
-  body: Record<string, unknown>;
-}
-
-/** Stands in for OpenAI: records every request and answers from `replies`, in turn (the last again). */
-function fakeOpenAI(replies: Reply[]) {
-  const requests: Captured[] = [];
-  const respond = async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
-    const url = String(input instanceof Request ? input.url : input);
-    const body = JSON.parse(String(init?.body ?? "{}")) as Record<string, unknown>;
-    requests.push({ url, body });
-    const reply = replies[Math.min(requests.length - 1, replies.length - 1)] as Reply;
-    const output =
-      "text" in reply
-        ? {
-            id: "msg_1",
-            type: "message",
-            role: "assistant",
-            status: "completed",
-            content: [{ type: "output_text", text: reply.text, annotations: [] }],
-          }
-        : {
-            id: "fc_1",
-            type: "function_call",
-            call_id: "call_1",
-            name: reply.call.name,
-            arguments: JSON.stringify(reply.call.input),
-            status: "completed",
-          };
-    const response = {
-      id: "resp_1",
-      object: "response",
-      created_at: 1_790_000_000,
-      model: String(body.model),
-      status: "completed",
-      output: [output],
-      usage: {
-        input_tokens: 10,
-        input_tokens_details: { cached_tokens: 0 },
-        output_tokens: 4,
-        output_tokens_details: { reasoning_tokens: 0 },
-        total_tokens: 14,
-      },
-    };
-    if (body.stream !== true) {
-      return new Response(JSON.stringify(response), {
-        headers: { "content-type": "application/json" },
-      });
-    }
-    const events: object[] = [
-      { type: "response.created", response: { ...response, status: "in_progress", output: [] } },
-      {
-        type: "response.output_item.added",
-        output_index: 0,
-        item: "text" in reply ? { ...output, status: "in_progress", content: [] } : output,
-      },
-    ];
-    if ("text" in reply) {
-      events.push({
-        type: "response.content_part.added",
-        item_id: "msg_1",
-        output_index: 0,
-        content_index: 0,
-        part: { type: "output_text", text: "", annotations: [] },
-      });
-      events.push({
-        type: "response.output_text.delta",
-        item_id: "msg_1",
-        output_index: 0,
-        content_index: 0,
-        delta: reply.text,
-      });
-    }
-    events.push(
-      { type: "response.output_item.done", output_index: 0, item: output },
-      { type: "response.completed", response },
-    );
-    return new Response(events.map((event) => `data: ${JSON.stringify(event)}\n\n`).join(""), {
-      headers: { "content-type": "text/event-stream" },
-    });
-  };
-  vi.stubGlobal("fetch", vi.fn(respond));
-  return requests;
-}
+import { type Captured, stubOpenAI } from "../helpers/stubOpenAI";
 
 afterEach(() => vi.unstubAllGlobals());
 
@@ -148,7 +61,7 @@ async function run(answer: AnswerRequest): Promise<AnswerEngineEvent[]> {
 
 describe("Requests to OpenAI say not to store", () => {
   test("an Answer with the Tool loop: every step of the loop", async () => {
-    const requests = fakeOpenAI([
+    const requests = stubOpenAI([
       { call: { name: "search_documents", input: { query: "Mind" } } },
       { text: "A Mind is a note." },
     ]);
@@ -163,7 +76,7 @@ describe("Requests to OpenAI say not to store", () => {
   });
 
   test("an Answer by structured output, with its query rewritten and translated", async () => {
-    const requests = fakeOpenAI([
+    const requests = stubOpenAI([
       { text: "what is a Mind" },
       { text: "什么是 Mind" },
       { text: JSON.stringify({ answer: "A Mind is a note.", citations: [] }) },
@@ -187,7 +100,7 @@ describe("Requests to OpenAI say not to store", () => {
   });
 
   test("a plain Answer, with no Documents to search", async () => {
-    const requests = fakeOpenAI([{ text: "A Mind is a note." }]);
+    const requests = stubOpenAI([{ text: "A Mind is a note." }]);
 
     const events = await run(
       request({ documents: { ...documents(), documentCount: 0 }, support: "none" }),
@@ -198,7 +111,7 @@ describe("Requests to OpenAI say not to store", () => {
   });
 
   test("automatic tagging and Organize", async () => {
-    const requests = fakeOpenAI([
+    const requests = stubOpenAI([
       { text: JSON.stringify({ tags: ["Report"] }) },
       { text: JSON.stringify({ groupId: "g-reports", tags: ["t-report"] }) },
     ]);
@@ -229,7 +142,7 @@ describe("Requests to OpenAI say not to store", () => {
   });
 
   test("the connection test", async () => {
-    const requests = fakeOpenAI([{ text: "OK" }]);
+    const requests = stubOpenAI([{ text: "OK" }]);
     const core = startCore(await createTempDataFolder(), { createChatModel: createAiSdkChatModel });
     core.on("consent.requested", (asked) => void core.respondToConsent(asked.requestId, true));
 
@@ -244,7 +157,7 @@ describe("Requests to OpenAI say not to store", () => {
   });
 
   test("an option set by a caller is kept, and only store is forced", async () => {
-    const requests = fakeOpenAI([{ text: "OK" }]);
+    const requests = stubOpenAI([{ text: "OK" }]);
     const { generateText } = await import("ai");
 
     await generateText({
@@ -259,7 +172,7 @@ describe("Requests to OpenAI say not to store", () => {
   });
 
   test("other providers are left alone", async () => {
-    const requests = fakeOpenAI([{ text: "OK" }]);
+    const requests = stubOpenAI([{ text: "OK" }]);
     const { generateText } = await import("ai");
     const compatible = createAiSdkChatModel({
       kind: "openai-compatible",
