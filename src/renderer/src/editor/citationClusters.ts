@@ -214,10 +214,17 @@ export function citationClustersPlugin(): Plugin<Clusters> {
         const mapped = previous.decorations.map(tr.mapping, tr.doc);
         const kept = mapped.find().length === members;
         // Typing in a text block with fewer than two Citations can't join or part any:
-        // they only move along. (Their positions in `clusters` aren't kept up to date.)
+        // they only move along, and their places move with them for the style's order.
         const typedIn = textBlockEdited(tr);
         if (kept && typedIn !== null && citationsIn(tr.doc.nodeAt(typedIn)) < 2) {
-          return { ...previous, decorations: mapped };
+          const clusters = previous.clusters.map((cluster) => ({
+            ...cluster,
+            members: cluster.members.map((member) => ({
+              ...member,
+              pos: tr.mapping.map(member.pos),
+            })),
+          }));
+          return { ...previous, clusters, decorations: mapped };
         }
         const next = clusterCitations(tr.doc);
         const shape = shapeOf(next);
