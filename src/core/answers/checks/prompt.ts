@@ -32,7 +32,7 @@ const RULES = [
  * User's sentence or the Documents are in (#701): without this, a model that
  * read Documents in another language wrote its sentence in that one.
  */
-const reply = (language: Language) =>
+const reply = (language: Language, calculate: boolean) =>
   [
     "Reply in exactly this form, the verdict word in English:",
     "Verdict: supported, unsupported or contradicted",
@@ -46,6 +46,11 @@ const reply = (language: Language) =>
     `For unsupported, one plain sentence in ${LANGUAGE_NAMES[language]} saying what the Documents don't say.`,
     `Add two last lines, "Covered: " and "Not covered: ", only when a Passage states part of what this sentence itself says: the same subject and the same detail, the sentence saying more than the Passage (a wider group, an added condition, more days). "Covered: " is a short phrase in ${LANGUAGE_NAMES[language]} for that part ("the speed comparison"), "Not covered: " for the rest, as a phrase of the same kind ("memory and robustness"). A Passage about a neighbouring thing (the rent for a service charge, another period, site or person) states no part of the sentence: then write neither line.`,
     `For supported with a wider scope, the same two last lines: "Covered: " and what the Passage states for its own party, then "Not covered: " and the wider group. For supported with roles that differ, "Covered: " and what the Passage states, then "Not covered: " and what the sentence says otherwise.`,
+    ...(calculate
+      ? [
+          'Add a final "Calculation: " line for each quantity that needs arithmetic, followed by the exact quantity or limit copied from the sentence ("Calculation: 3.25x"). A claim that a calculated ratio is within a stated limit needs that calculation even when the limit itself is quoted. If no arithmetic is needed, write "Calculation: none". A found quote alone never completes missing arithmetic.',
+        ]
+      : []),
     "Write nothing else.",
   ].join("\n");
 
@@ -77,7 +82,7 @@ export function checkInstructions(
   passages = "",
   calculate = false,
 ): string {
-  const REPLY = reply(language);
+  const REPLY = reply(language, mode === "tools" && calculate);
   switch (mode) {
     case "tools":
       return [
@@ -314,6 +319,7 @@ export interface ReadVerdict {
   topic: "found" | "not found" | null;
   /** "differs": another party does it, the parties are the other way round, or must is may; null when the reply doesn't say. */
   roles: "same" | "differs" | null;
+  calculations?: string[];
 }
 
 const MARKERS = /\s*\[[\^=]?\d{1,4}\]/g;
@@ -330,7 +336,8 @@ const NOT_COVERED = /^[\s>*_#`"'“”-]*(?:not covered|uncovered|未涵盖)[\s*
 const SCOPE = /^[\s>*_#`"'“”-]*(?:scope|范围)[\s*_]*[:：](.*)$/i;
 const TOPIC = /^[\s>*_#`"'“”-]*(?:topic|主题)[\s*_]*[:：][\s*_"'“”`]*(found|not found)\b/i;
 const ROLES = /^[\s>*_#`"'“”-]*(?:roles|角色)[\s*_]*[:：](.*)$/i;
-const FIELDS = [COVERED, NOT_COVERED, SCOPE, TOPIC, ROLES];
+const CALCULATION = /^[\s>*_#`'"“”-]*(?:calculation|计算)[\s*_]*[:：][\s*_]*(.*)$/i;
+const FIELDS = [COVERED, NOT_COVERED, SCOPE, TOPIC, ROLES, CALCULATION];
 const MAX_PHRASE = 120;
 const MAX_REASON = 300;
 const PHRASE_EDGES = /^[\s"'“”‘’「」『』*_`]+|[\s"'“”‘’「」『』*_`.。;；:：,，]+$/gu;
@@ -345,10 +352,8 @@ function jsonVerdict(reply: string): ReadVerdict | null {
   try {
     const value: unknown = JSON.parse(reply.slice(start, end + 1));
     if (typeof value !== "object" || value === null) return null;
-    const { verdict, says, covered, uncovered, scope, topic, roles } = value as Record<
-      string,
-      unknown
-    >;
+    const { verdict, says, covered, uncovered, scope, topic, roles, calculations } =
+      value as Record<string, unknown>;
     const known = VERDICTS.find((each) => each === String(verdict).toLowerCase());
     if (!known) return null;
     return {
@@ -359,6 +364,10 @@ function jsonVerdict(reply: string): ReadVerdict | null {
       scope: scopeOf(typeof scope === "string" ? `Scope: ${scope}` : undefined),
       topic: topicOf(typeof topic === "string" ? `Topic: ${topic}` : undefined),
       roles: rolesOf(typeof roles === "string" ? `Roles: ${roles}` : undefined),
+      ...(Array.isArray(calculations) &&
+        calculations.every((value) => typeof value === "string" && value.trim() !== "") && {
+          calculations: calculations.map((value: string) => value.trim()),
+        }),
     };
   } catch {
     return null;
@@ -450,6 +459,12 @@ export function readVerdict(reply: string): ReadVerdict | null {
       topic: topicOf(fields.find((each) => TOPIC.test(each))),
       // A model that corrects its Roles line writes it again: its last one counts.
       roles: rolesOf(fields.findLast((each) => ROLES.test(each))),
+      ...(fields.some((line) => CALCULATION.test(line)) && {
+        calculations: fields.flatMap((line) => {
+          const value = CALCULATION.exec(line)?.[1]?.trim();
+          return value === undefined || NO_PHRASE.test(value) ? [] : [value];
+        }),
+      }),
     });
   }
   return withShortReason(jsonVerdict(text));

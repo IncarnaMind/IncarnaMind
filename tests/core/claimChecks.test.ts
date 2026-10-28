@@ -1096,12 +1096,12 @@ describe("A figure the Documents don't state, worked out (#707)", () => {
     } as const;
     const { core } = await calculatingCheck(checkingModel(plans));
     expect(await core.checkClaim({ claim })).toMatchObject({
-      verdict: "unsupported",
-      calculation: null,
+      verdict: "not-checked",
+      reason: "no-evidence",
     });
   });
 
-  test("a figure for a number the sentence doesn't have decides nothing: the model's own verdict stands", async () => {
+  test("a figure for a number the sentence doesn't have leaves the arithmetic Not checked", async () => {
     const claim = "Net debt to EBITDA fell to 1.1x.";
     const plans = {
       [claim]: { verdict: "unsupported", calculation: { ...RATIO, stated: "2.5x" } },
@@ -1109,8 +1109,8 @@ describe("A figure the Documents don't state, worked out (#707)", () => {
     const { core } = await calculatingCheck(checkingModel(plans));
 
     expect(await core.checkClaim({ claim })).toMatchObject({
-      verdict: "unsupported",
-      calculation: null,
+      verdict: "not-checked",
+      reason: "no-evidence",
     });
   });
 });
@@ -1664,12 +1664,12 @@ describe("A limit the figure stays within, and a cost printed in brackets (#1908
           stated: zh ? "3.25倍" : "3.25x",
           relation: "at most" as const,
         },
-        "unsupported",
+        "not-checked",
       ],
     ] as const;
   };
 
-  // protects=brackets on a loss keep its sign, a sum in any form (SUM, a product added) keeps the sign of a cost in it, every number the model names must hold whatever their order, and a negative figure is never inside a positive limit, in English and Chinese (review of #1908); fails_when="Operating margin was 3%" against an operating loss "(12.0)", "Net cash flow was 5.0" against SUM(10.0, (15.0)), or "Leverage of 2.5x is inside the 3.25x covenant" at 2.77x is Supported, or a loss-making EBITDA's negative leverage is inside a covenant; no_claim=what the model's own verdict is when the calculation decides nothing, which stays as it said.
+  // protects=brackets on a loss keep its sign, a sum in any form (SUM, a product added) keeps the sign of a cost in it, every number the model names must hold whatever their order, and a negative figure is never inside a positive limit, in English and Chinese (review of #1908); fails_when="Operating margin was 3%" against an operating loss "(12.0)", "Net cash flow was 5.0" against SUM(10.0, (15.0)), or "Leverage of 2.5x is inside the 3.25x covenant" at 2.77x is Supported, or a loss-making EBITDA's negative leverage is inside a covenant; no_claim=the meaning of a covenant against loss-making EBITDA; an incomparable result leaves its arithmetic Not checked.
   test.each(
     [...cases("en"), ...cases("zh")].map(
       ([document, claim, calculation, verdict]) => [claim, verdict, document, calculation] as const,
@@ -2889,7 +2889,7 @@ describe("A quote whose page mentions it before its Passage (#1981)", () => {
       .flatMap((call) => call.results)
       .filter((each) => each.tool === "calculate");
     expect(replies.at(-1)?.text).toMatch(problem);
-    expect(result).toMatchObject({ verdict: "unsupported" });
+    expect(result).toMatchObject({ verdict: "not-checked", reason: "no-evidence" });
   };
 
   test("a unique quote of the heading still refuses its section number", async () => {
