@@ -3,6 +3,7 @@ import { STRICT_INSTRUCTIONS } from "../../src/core/answers/checks/prompt";
 import { checkGenerate } from "../helpers/checks";
 import { setUpWithDocuments, shownPassages } from "../helpers/citations";
 import { type ModelCall, type ScriptedReply, scriptedModel } from "../helpers/models";
+import { buildPdf } from "../helpers/pdf";
 
 const SOURCE = "Net debt is 600. Adjusted EBITDA is 100.";
 const DOCUMENT = { name: "Invented accounts.md", contents: `# Invented accounts\n\n${SOURCE}\n` };
@@ -10,6 +11,9 @@ const CLAIM = "Net debt is 2.0x adjusted EBITDA.";
 
 async function fixture({
   repair = false,
+  formula = "debt / ebitda",
+  pdf = false,
+  quote,
   claim = CLAIM,
   source = SOURCE,
   stated = "2.0x",
@@ -25,6 +29,9 @@ async function fixture({
   says = "The accounts support the sentence. [^1]",
 }: {
   repair?: boolean;
+  formula?: string;
+  pdf?: boolean;
+  quote?: string;
   claim?: string;
   source?: string;
   stated?: string;
@@ -41,6 +48,7 @@ async function fixture({
 } = {}) {
   const calls: ModelCall[] = [];
   const comparisons: string[] = [];
+  const confirmationPrompts: string[] = [];
   let verdicts = 0;
   const generate = checkGenerate({
     [claim]: {
@@ -72,7 +80,11 @@ async function fixture({
               tool: "cite",
               input: {
                 citations: [
-                  { marker: 1, passage: decision.id, quote: decidingSource?.quote ?? source },
+                  {
+                    marker: 1,
+                    passage: decision.id,
+                    quote: decidingSource?.quote ?? quote ?? source,
+                  },
                 ],
               },
             },
@@ -88,7 +100,7 @@ async function fixture({
                   {
                     marker: 1,
                     label: "Net debt to adjusted EBITDA",
-                    formula: "debt / ebitda",
+                    formula,
                     stated,
                     relation: "equals",
                     ...(as && { as }),
@@ -129,12 +141,15 @@ async function fixture({
     {
       generate: (call) => {
         comparisons.push(call.system);
+        confirmationPrompts.push(call.prompt);
         return generate(call);
       },
     },
   );
   const { core } = await setUpWithDocuments(model, [
-    { ...DOCUMENT, contents: `# Invented accounts\n\n${source}\n` },
+    pdf
+      ? { name: "Invented accounts.pdf", contents: buildPdf([{ lines: [source] }]) }
+      : { ...DOCUMENT, contents: `# Invented accounts\n\n${source}\n` },
     ...(decidingSource ? [decidingSource] : []),
   ]);
   core.on("consent.requested", (event) => void core.respondToConsent(event.requestId, true));
@@ -143,10 +158,121 @@ async function fixture({
     apiKey: "synthetic-test-key",
     modelId: "claude-haiku-5-5",
   });
-  return { result: await core.checkClaim({ claim }), calls, comparisons, verdicts: () => verdicts };
+  return {
+    result: await core.checkClaim({ claim }),
+    calls,
+    comparisons,
+    confirmationPrompts,
+    verdicts: () => verdicts,
+  };
 }
 
 describe("a check cannot substitute a model verdict for derived arithmetic", () => {
+  test.each([
+    ["The total is 20.", "The first amount is 10. The second amount is 20."],
+    ["总额为20。", "第一笔金额为10。第二笔金额为20。"],
+  ])("a matching addend cannot prove the total: %s", async (claim, source) => {
+    const { result, comparisons, verdicts } = await fixture({ claim, source, strict: "neither" });
+    expect(result.verdict).toBe("not-checked");
+    expect(verdicts()).toBe(2);
+    expect(comparisons.filter((each) => each === STRICT_INSTRUCTIONS)).toHaveLength(1);
+  });
+
+  test.each([
+    ["The total is 20.", "The first amount is 10. The second amount is 20."],
+    ["总额为20。", "第一笔金额为10。第二笔金额为20。"],
+  ])("a matching addend is contradicted only by the calculation: %s", async (claim, source) => {
+    const { result } = await fixture({
+      claim,
+      source,
+      strict: "neither",
+      repair: true,
+      stated: "20",
+      formula: "debt + ebitda",
+    });
+    expect(result).toMatchObject({
+      verdict: "contradicted",
+      calculation: { agrees: false, figure: { value: 30 } },
+    });
+  });
+
+  test.each([
+    ["The total is 30.", "The first amount is 10. The second amount is 20."],
+    ["总额为30。", "第一笔金额为10。第二笔金额为20。"],
+  ])(
+    "a valid calculation supports a total not printed in its inputs: %s",
+    async (claim, source) => {
+      const { result, comparisons } = await fixture({
+        claim,
+        source,
+        repair: true,
+        stated: "30",
+        formula: "debt + ebitda",
+      });
+      expect(result).toMatchObject({
+        verdict: "supported",
+        calculation: { agrees: true, figure: { value: 30 } },
+      });
+      expect(comparisons).not.toContain(STRICT_INSTRUCTIONS);
+    },
+  );
+
+  test.each([
+    ["The combined amount is 20.", "The fee is 10. The total is 20."],
+    ["合计金额为20。", "费用为10。总额为20。"],
+  ])("strict comparison can confirm an ambiguous direct quantity: %s", async (claim, source) => {
+    const { result, comparisons, confirmationPrompts, verdicts } = await fixture({
+      claim,
+      source,
+      strict: "same",
+    });
+    expect(result.verdict).toBe("supported");
+    expect(verdicts()).toBe(1);
+    expect(comparisons.filter((each) => each === STRICT_INSTRUCTIONS)).toHaveLength(1);
+    expect(confirmationPrompts.some((each) => each.includes("Quantity to confirm:"))).toBe(true);
+  });
+
+  test("one direct quantity is confirmed once beside an already calculated one", async () => {
+    const { result, confirmationPrompts } = await fixture({
+      claim: "Net debt is 600 and 6.0x adjusted EBITDA.",
+      stated: "6.0x",
+      required: ["6.0x"],
+      repair: true,
+      as: "times",
+      strict: "same",
+    });
+    expect(result).toMatchObject({ verdict: "supported", calculation: { agrees: true } });
+    const confirmed = confirmationPrompts.filter((each) => each.includes("Quantity to confirm:"));
+    expect(confirmed).toHaveLength(1);
+    expect(confirmed[0]).toContain('"chars":"600"');
+  });
+
+  test.each([
+    ["The combined amount is 20.", "The total is 20."],
+    ["合计金额为20。", "总额为20。"],
+    ["The combined amount is £20.", "The total is £20. The margin is 10%."],
+    ["合计金额为20英镑。", "总额为20英镑。利润率为10%。"],
+  ])("one number in the quantity's unit needs no extra comparison: %s", async (claim, source) => {
+    const { result, comparisons, verdicts } = await fixture({ claim, source });
+    expect(result.verdict).toBe("supported");
+    expect(verdicts()).toBe(1);
+    expect(comparisons).not.toContain(STRICT_INSTRUCTIONS);
+  });
+
+  test.each(["600", "600.0"])(
+    "a repeated amount on one cited page has no arbitrary unit-warning quote: %s",
+    async (amount) => {
+      const { result } = await fixture({
+        claim: "Net debt is £600.",
+        source: `The other company has a balance of ${amount}. Net debt is 600.`,
+        quote: `The other company has a balance of ${amount}.`,
+        pdf: true,
+      });
+      expect(result.verdict).toBe("unsupported");
+      if (result.verdict === "unsupported") expect(result.unsupported?.quoted).toBeUndefined();
+    },
+  );
+
   test.each([
     ["Harbours publish the times every 6 months.", "Harbours publish the times every 12 months."],
     ["港口每6个月公布时间表。", "港口每12个月公布时间表。"],

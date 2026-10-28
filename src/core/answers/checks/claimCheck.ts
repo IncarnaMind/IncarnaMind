@@ -320,7 +320,7 @@ export function createClaimCheck(deps: ClaimCheckDependencies) {
         translate(deps.language(), key, params);
       const { amount } = found;
       const candidates = checked
-        .filter((text) => found.texts.includes(text))
+        .filter((text) => found.matches.some((each) => each.text === text))
         .map(({ citation }) => citation);
       const unique = new Map(
         candidates.map((citation) => [
@@ -336,7 +336,12 @@ export function createClaimCheck(deps: ClaimCheckDependencies) {
           citation,
         ]),
       );
-      const single = unique.size === 1 ? (unique.values().next().value ?? null) : null;
+      const repeated = found.matches.some((each, at) =>
+        found.matches
+          .slice(0, at)
+          .some((earlier) => earlier.text === each.text && earlier.start !== each.start),
+      );
+      const single = !repeated && unique.size === 1 ? (unique.values().next().value ?? null) : null;
       const quote =
         single &&
         readFigures(single.quote, { ...figureContext(single), midLine: true }).some(
@@ -415,13 +420,10 @@ export function createClaimCheck(deps: ClaimCheckDependencies) {
       documentFigureContext(
         scoped.pageTexts(citation.documentId, citation.contentHash, null, null),
       );
-    const requiresCalculation = (verdict: ReadVerdict | null): boolean => {
+    const confirmations = new Map<string, Promise<boolean>>();
+    let confirmationFailure: ProviderError | null = null;
+    const requiresCalculation = async (verdict: ReadVerdict | null): Promise<boolean> => {
       if (!calculating || !verdict) return false;
-      if (
-        attempts === 0 &&
-        session.shownPassages().some((passage) => passage.text.includes(request.claim.trim()))
-      )
-        return false;
       session.check();
       const checked = calculated(request.claim, figures, stated, figureContext);
       const citations = [
@@ -431,6 +433,12 @@ export function createClaimCheck(deps: ClaimCheckDependencies) {
         ),
       ];
       if (invalidInput || pending.size > 0) return true;
+      if (
+        attempts === 0 &&
+        citations.length === 0 &&
+        session.shownPassages().some((passage) => passage.text.includes(request.claim.trim()))
+      )
+        return false;
       return needsCalculation({
         claim: request.claim,
         verdict,
@@ -440,9 +448,30 @@ export function createClaimCheck(deps: ClaimCheckDependencies) {
           calculation.figure.inputs.map((input) => input.number),
         ),
         citations: citations.map((citation) => ({
-          quote: citation.quote,
+          citation,
           units: scoped.pageTexts(citation.documentId, citation.contentHash, null, null),
         })),
+        confirm: (figure, quoted) => {
+          const key = JSON.stringify([figure.start, figure.end, quoted]);
+          const existing = confirmations.get(key);
+          if (existing) return existing;
+          const confirmed = compare(
+            request,
+            quoted,
+            session,
+            signal,
+            STRICT_INSTRUCTIONS,
+            figure,
+          ).then((result) => {
+            if ("failed" in result) {
+              confirmationFailure = result.failed;
+              return false;
+            }
+            return readJudgement(result.reply) === "same";
+          });
+          confirmations.set(key, confirmed);
+          return confirmed;
+        },
       });
     };
 
@@ -477,8 +506,9 @@ export function createClaimCheck(deps: ClaimCheckDependencies) {
         searchAgain(() => searches),
         {
           name: "calculate-first",
-          check: (text) =>
-            attempts === 0 && requiresCalculation(readsAsRefusal(text) ? null : readVerdict(text))
+          check: async (text) =>
+            attempts === 0 &&
+            (await requiresCalculation(readsAsRefusal(text) ? null : readVerdict(text)))
               ? {
                   claims: [],
                   note: "The numerical check is incomplete. If the Documents let you work out the claim's quantity or comparison, call calculate with the cited inputs, formula and stated quantity before giving a verdict. Never calculate in your head. If a Document states the claim directly, record its deciding quote and write Calculation: none. Otherwise name each required quantity on a Calculation: line; if its inputs cannot be found, say that it could not be calculated.",
@@ -496,6 +526,7 @@ export function createClaimCheck(deps: ClaimCheckDependencies) {
     }
     if (signal.aborted) return notChecked("stopped");
     if (failed) return failedCheck(failed);
+    if (confirmationFailure) return failedCheck(confirmationFailure);
     if (invalidInput || pending.size > 0) return notChecked("no-evidence");
     const checked = calculated(request.claim, figures, stated, figureContext);
     const worked = checked.find(({ calculation }) => !calculation.agrees) ?? checked[0] ?? null;
@@ -526,9 +557,10 @@ export function createClaimCheck(deps: ClaimCheckDependencies) {
       (withVerdict === undefined ? null : readVerdict(`${withVerdict}\n\n${reply}`));
     if (!verdict) return notChecked(refused ? "refused" : "malformed");
     if (searches === 0) return notChecked("unread");
-    if (requiresCalculation(verdict)) return notChecked("no-evidence");
+    if (await requiresCalculation(verdict))
+      return confirmationFailure ? failedCheck(confirmationFailure) : notChecked("no-evidence");
     const byCalculation: ClaimCheckResult | null = worked
-      ? requiresCalculation({ ...verdict, verdict: "supported" })
+      ? (await requiresCalculation({ ...verdict, verdict: "supported" }))
         ? notChecked("no-evidence")
         : {
             verdict: "supported",
@@ -823,12 +855,18 @@ async function askForEvidence(
 // another site in a parallel Document (#97). Judged alone, the sentence beside its quote, it didn't.
 async function compare(
   request: ClaimCheckRequest,
-  quoted: Citation,
+  quoted: Citation | readonly Citation[],
   session: ReturnType<typeof createCitationSession>,
   signal: AbortSignal,
   instructions: string,
+  quantity?: Figure,
 ): Promise<{ reply: string } | { failed: ProviderError }> {
-  const passage = session.shownPassages().find((each) => each.passageId === quoted.passageId);
+  const citations: readonly Citation[] = "quote" in quoted ? [quoted] : quoted;
+  const passages = citations.map(
+    (citation) =>
+      session.shownPassages().find((each) => each.passageId === citation.passageId)?.text ??
+      citation.quote,
+  );
   const { model } = request;
   try {
     const { text } = await generateText({
@@ -836,8 +874,9 @@ async function compare(
       instructions,
       prompt: confirmPrompt({
         claim: request.claim,
-        quote: quoted.quote,
-        passage: passage?.text ?? quoted.quote,
+        quote: citations.map((citation) => citation.quote).join("\n"),
+        passage: passages.join("\n"),
+        quantity,
       }),
       temperature: answerTemperature(model.capabilities.facts.temperature),
       maxOutputTokens: 300,

@@ -35,11 +35,22 @@ const read = (cited: string, document = cited): CheckedText[] => [
 ];
 
 describe("A currency the Document doesn't state", () => {
+  test("a unit problem preserves two matching occurrences inside one cited page", () => {
+    const [text] = read("The other balance is 600. Net debt is 600.0.");
+    if (!text) throw new Error("Missing synthetic page.");
+    const result = unitNotStated("Net debt is £600.", [text]);
+    expect(result).toMatchObject({ kind: "currency", amount: "600" });
+    expect(result?.matches).toEqual([
+      { text, start: text.cited().indexOf("600") },
+      { text, start: text.cited().lastIndexOf("600") },
+    ]);
+  });
+
   test("a unit problem keeps every matching source, including another spelling of the same value", () => {
     const texts = [...read("Net debt is 600."), ...read("The other balance is 600.0.")];
     const result = unitNotStated("Net debt is £600.", texts);
     expect(result).toMatchObject({ kind: "currency", amount: "600" });
-    expect(result?.texts).toEqual(texts);
+    expect(result?.matches.map(({ text }) => text)).toEqual(texts);
   });
 
   // protects=a currency added to a figure the cited text states as a plain number, which the Document never names, is found, as the sentence writes it apart from the number, in English and Chinese, "¥" and Chinese numerals included; fails_when="£54,000" against "54,000" passes, "¥" passes, or "五万四千英镑" is named as the currency; no_claim=other units, which the model judges.

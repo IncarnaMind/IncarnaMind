@@ -20,7 +20,7 @@ export type UnitNotStated =
     | { kind: "unit"; figure: string; amount: string }
     /** The same written number at another scale, with no stated unit or scale to settle it. */
     | { kind: "scale"; figure: string; amount: string }
-  ) & { texts: readonly CheckedText[] };
+  ) & { matches: readonly { text: CheckedText; start: number }[] };
 
 /** A Citation's text, read only when it is needed. */
 export interface CheckedText {
@@ -55,9 +55,15 @@ interface Read {
   inDocument: Set<string> | null;
 }
 
-const textsOf = (read: readonly { text: CheckedText }[]) => [
-  ...new Set(read.map((each) => each.text)),
-];
+const matchesOf = (read: readonly { text: CheckedText; start: number }[]) =>
+  read
+    .filter(
+      (each, at) =>
+        !read
+          .slice(0, at)
+          .some((earlier) => earlier.text === each.text && earlier.start === each.start),
+    )
+    .map(({ text, start }) => ({ text, start }));
 
 /**
  * What `claim` gives a figure that its Citations (`citations`, each with its own Document) state
@@ -90,7 +96,7 @@ export function unitNotStated(
       figures.flatMap((each) =>
         readingsOf(each)
           .filter((reading) => sameValue(reading.value, figure.value))
-          .map((reading) => ({ text, chars: each.chars, unit: reading.unit })),
+          .map((reading) => ({ text, start: each.start, chars: each.chars, unit: reading.unit })),
       ),
     );
     const sameWritten = read.flatMap(({ text, context, figures }) =>
@@ -106,7 +112,13 @@ export function unitNotStated(
           .filter((reading) =>
             sameValue(reading.value / reading.scale, figure.value / figure.scale),
           )
-          .map((reading) => ({ text, context, chars: each.chars, scale: reading.scale }));
+          .map((reading) => ({
+            text,
+            start: each.start,
+            context,
+            chars: each.chars,
+            scale: reading.scale,
+          }));
       }),
     );
     if (
@@ -128,7 +140,7 @@ export function unitNotStated(
           kind: "scale",
           figure: figure.chars,
           amount: sameWritten[0]?.chars ?? figure.chars,
-          texts: textsOf(sameWritten),
+          matches: matchesOf(sameWritten),
         };
       }
     }
@@ -141,7 +153,7 @@ export function unitNotStated(
           kind: "unit",
           figure: figure.chars,
           amount: other.chars,
-          texts: textsOf(same.filter(({ unit }) => isShare(unit))),
+          matches: matchesOf(same.filter(({ unit }) => isShare(unit))),
         };
       continue;
     }
@@ -163,7 +175,7 @@ export function unitNotStated(
       kind: "currency",
       currency: figure.currency ?? [...codes][0] ?? "",
       amount: same[0]?.chars ?? figure.chars,
-      texts: textsOf(same),
+      matches: matchesOf(same),
     };
   }
   return null;

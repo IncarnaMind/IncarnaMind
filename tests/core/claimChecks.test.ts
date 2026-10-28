@@ -1228,7 +1228,9 @@ describe("A limit the figure stays within, and a cost printed in brackets (#1908
     says?: string,
     language?: "en" | "zh-CN",
   ) {
-    const plans = { [claim]: { verdict: said, calculation, ...(says && { says }) } } as const;
+    const plans = {
+      [claim]: { verdict: said, calculation, strict: { text: "same" }, ...(says && { says }) },
+    } as const;
     const calls: ModelCall[] = [];
     const setup = await setUpWithDocuments(checkingModel(plans, calls), [document]);
     const saved = await setup.core.saveChatProvider({
@@ -1477,7 +1479,9 @@ describe("A limit the figure stays within, and a cost printed in brackets (#1908
     async (kind) => {
       const claim = COVERED("4.55x");
       const calculation = { ...COVER, stated: "4.55x" };
-      const plans = { [claim]: { verdict: "unsupported" as const, calculation } };
+      const plans = {
+        [claim]: { verdict: "unsupported" as const, calculation, strict: { text: "same" } },
+      };
       const model = scriptedModel(
         (call) => {
           if (isCheckRun(call) && call.results.some((each) => each.tool === "calculate")) {
@@ -2766,7 +2770,9 @@ describe("A quote that starts with a figure (#1969)", () => {
       stated: "2.77倍",
     };
     const calls: ModelCall[] = [];
-    const plans = { [claim]: { verdict: "unsupported", calculation } } as const;
+    const plans = {
+      [claim]: { verdict: "unsupported", calculation, strict: { text: "same" } },
+    } as const;
     const setup = await setUpWithDocuments(checkingModel(plans, calls), [RESULTS_ZH]);
     const saved = await setup.core.saveChatProvider({
       kind: "anthropic",

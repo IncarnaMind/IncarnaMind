@@ -1,25 +1,27 @@
 import { type Figure, readFigures, readingsOf, readStatedUnits } from "../../../shared/figures";
-import type { InputNumber } from "../../api";
+import type { Citation, InputNumber } from "../../api";
 import { documentFigureContext } from "../calculations";
 import { figuresInClaim, statedFigure } from "./calculated";
 import type { ReadVerdict } from "./prompt";
 import { unitNotStated } from "./units";
 
-export function needsCalculation({
+export async function needsCalculation({
   claim,
   verdict,
   attempted,
   computed,
   citations,
   inputs,
+  confirm,
 }: {
   claim: string;
   verdict: ReadVerdict;
   attempted: boolean;
   computed: readonly Figure[];
-  citations: readonly { quote: string; units: readonly { text: string }[] }[];
+  citations: readonly { citation: Citation; units: readonly { text: string }[] }[];
   inputs: readonly InputNumber[];
-}): boolean {
+  confirm(figure: Figure, citations: readonly Citation[]): Promise<boolean>;
+}): Promise<boolean> {
   const context = documentFigureContext(citations.flatMap((citation) => citation.units));
   const own = documentFigureContext([{ text: claim }]);
   const claimFigures = figuresInClaim(claim, own.language ? own : { ...context, header: null });
@@ -31,11 +33,12 @@ export function needsCalculation({
     !verdict.calculations?.length
   )
     return false;
+  const sameUnit = (a: Figure["unit"], b: InputNumber["unit"]) =>
+    a.kind === b.kind &&
+    (a.kind !== "currency" || (b.kind === "currency" && a.code === b.code)) &&
+    (a.kind !== "other" || (b.kind === "other" && a.word === b.word));
   const matches = (a: Pick<Figure, "value" | "unit">, b: Pick<InputNumber, "value" | "unit">) =>
-    a.value === b.value &&
-    a.unit.kind === b.unit.kind &&
-    (a.unit.kind !== "currency" || (b.unit.kind === "currency" && a.unit.code === b.unit.code)) &&
-    (a.unit.kind !== "other" || (b.unit.kind === "other" && a.unit.word === b.unit.word));
+    a.value === b.value && sameUnit(a.unit, b.unit);
   const remaining = [...computed];
   if (
     verdict.calculations?.some((named) => {
@@ -47,41 +50,70 @@ export function needsCalculation({
     })
   )
     return true;
-  const available = [
-    ...citations.flatMap((citation) => {
-      const units = citation.units;
-      const source = units.map((unit) => unit.text).join("\n");
-      const context = documentFigureContext(units);
-      const statements = readStatedUnits(source, context);
-      return [
-        ...readFigures(citation.quote, context),
-        ...(statements.length === 1
-          ? readFigures(citation.quote, { ...context, header: statements[0]?.chars }).flatMap(
-              readingsOf,
-            )
-          : []),
-      ];
-    }),
-    ...inputs,
+  const unique = [
+    ...new Map(
+      citations.map((each) => [
+        JSON.stringify([
+          each.citation.documentId,
+          each.citation.contentHash,
+          each.citation.passageId,
+          each.citation.quote,
+        ]),
+        each,
+      ]),
+    ).values(),
   ];
-  const quoted = citations.map((citation) => ({
+  const sources = unique.map(({ citation, units }) => {
+    const context = documentFigureContext(units);
+    const statements = readStatedUnits(units.map((unit) => unit.text).join("\n"), context);
+    const header = statements.length === 1 ? statements[0]?.chars : undefined;
+    const figures = readFigures(citation.quote, context);
+    const alternatives = header ? readFigures(citation.quote, { ...context, header }) : [];
+    return {
+      citation,
+      figures: figures.map((figure) => [
+        figure,
+        ...alternatives
+          .filter((each) => each.start === figure.start && each.end === figure.end)
+          .flatMap(readingsOf),
+      ]),
+    };
+  });
+  const available = [...sources.flatMap(({ figures }) => figures.flat()), ...inputs];
+  const quoted = citations.map(({ citation, units }) => ({
     cited: () => citation.quote,
-    document: () => citation.units.map((unit) => unit.text).join("\n"),
+    document: () => units.map((unit) => unit.text).join("\n"),
   }));
   const unused = [...computed];
-  if (
-    claimFigures.some((figure) => {
-      const at = unused.findIndex((number) => matches(figure, number));
-      if (at >= 0) {
-        unused.splice(at, 1);
-        return false;
-      }
-      return (
-        !available.some((source) => matches(figure, source)) &&
-        unitNotStated(figure.chars, quoted) === null
-      );
-    })
-  )
-    return verdict.verdict === "supported" || (attempted && computed.length === 0);
+  for (const figure of claimFigures) {
+    const at = unused.findIndex((number) => matches(figure, number));
+    if (at >= 0) {
+      unused.splice(at, 1);
+      continue;
+    }
+    if (unitNotStated(figure.chars, quoted) !== null) continue;
+    if (!available.some((source) => matches(figure, source))) {
+      if (verdict.verdict === "supported" || (attempted && computed.length === 0)) return true;
+      continue;
+    }
+    if (verdict.verdict !== "supported") continue;
+    const inUnit = sources.flatMap((source) =>
+      source.figures.filter((readings) =>
+        readings.some((each) => sameUnit(figure.unit, each.unit)),
+      ),
+    );
+    if (
+      inUnit.length > 1 &&
+      inUnit.some((readings) => readings.some((each) => matches(figure, each)))
+    ) {
+      if (
+        !(await confirm(
+          figure,
+          sources.map(({ citation }) => citation),
+        ))
+      )
+        return true;
+    }
+  }
   return false;
 }

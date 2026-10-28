@@ -260,12 +260,23 @@ export function readPart(reply: string): { covered: string | null; uncovered: st
 }
 
 /** The request to confirm a contradiction: the sentence, the quote, and the Passage it is in. */
-export function confirmPrompt(input: { claim: string; quote: string; passage: string }): string {
+export function confirmPrompt(input: {
+  claim: string;
+  quote: string;
+  passage: string;
+  quantity?: { chars: string; start: number; end: number };
+}): string {
   return [
     `<sentence>\n${input.claim.trim()}\n</sentence>`,
     `<quote>\n${input.quote.trim()}\n</quote>`,
     "The Passage it is quoted from, for what its words refer to:",
     `<passage>\n${input.passage.trim()}\n</passage>`,
+    ...(input.quantity
+      ? [
+          `Quantity to confirm: ${JSON.stringify(input.quantity)}`,
+          "Compare only what this quantity measures in the sentence, keeping its subject, period and unit. Does the quote state it as that same quantity? Do not work it out from other numbers. A matching addend is not a stated total. Other quantities in the sentence are checked separately.",
+        ]
+      : []),
   ].join("\n");
 }
 
@@ -447,23 +458,22 @@ export function readVerdict(reply: string): ReadVerdict | null {
     const rest = line.slice(match[0].length).trim();
     const after = lines.slice(at + 1);
     // A reply that ends by repeating its verdict line leaves its fields above it (#1668).
-    const fields = after.some((each) => FIELDS.some((field) => field.test(each)))
-      ? after
-      : lines.slice(0, at);
+    const fields = [...lines.slice(0, at), ...after];
+    const calculationFields = after.some((each) => CALCULATION.test(each)) ? after : fields;
     const phrase = (label: RegExp) =>
-      phraseOf(fields.map((each) => label.exec(each)?.[1]).find(Boolean));
+      phraseOf(label.exec(fields.findLast((each) => label.test(each)) ?? "")?.[1]);
     const next = after.find((each) => !FIELDS.some((field) => field.test(each)));
     return withShortReason({
       verdict,
       says: cleanSays(rest || (next ?? "")),
       covered: phrase(COVERED),
       uncovered: phrase(NOT_COVERED),
-      scope: scopeOf(fields.find((each) => SCOPE.test(each))),
-      topic: topicOf(fields.find((each) => TOPIC.test(each))),
+      scope: scopeOf(fields.findLast((each) => SCOPE.test(each))),
+      topic: topicOf(fields.findLast((each) => TOPIC.test(each))),
       // A model that corrects its Roles line writes it again: its last one counts.
       roles: rolesOf(fields.findLast((each) => ROLES.test(each))),
-      ...(fields.some((line) => CALCULATION.test(line)) && {
-        calculations: fields.flatMap((line) => {
+      ...(calculationFields.some((line) => CALCULATION.test(line)) && {
+        calculations: calculationFields.flatMap((line) => {
           const value = CALCULATION.exec(line)?.[1]?.trim();
           return value === undefined || NO_PHRASE.test(value) ? [] : [value];
         }),

@@ -182,6 +182,125 @@ describe("What a reply says its Citations cover and don't", () => {
     });
   });
 
+  test.each([
+    {
+      language: "English",
+      fields: [
+        "Scope: staff, wider",
+        "Topic: found",
+        "Roles: the Tenant must pay / the Tenant may pay, differs",
+        "Covered: the Tenant may pay",
+        "Not covered: all staff must pay",
+      ],
+      calculation: "Calculation: none",
+      covered: "the Tenant may pay",
+      uncovered: "all staff must pay",
+    },
+    {
+      language: "Chinese",
+      fields: [
+        "范围：全体职工，wider",
+        "主题：found",
+        "角色：乙方必须付款 / 乙方可以付款，differs",
+        "已涵盖：乙方可以付款",
+        "未涵盖：全体职工必须付款",
+      ],
+      calculation: "计算：无",
+      covered: "乙方可以付款",
+      uncovered: "全体职工必须付款",
+    },
+  ])(
+    "a trailing calculation after a repeated verdict keeps earlier $language fields",
+    ({ fields, calculation, covered, uncovered }) => {
+      expect(
+        readVerdict(
+          ["Verdict: supported", ...fields, "Verdict: supported", calculation].join("\n"),
+        ),
+      ).toMatchObject({
+        verdict: "supported",
+        scope: "wider",
+        topic: "found",
+        roles: "differs",
+        covered,
+        uncovered,
+        calculations: [],
+      });
+    },
+  );
+
+  test.each([
+    [
+      "English",
+      "Scope: staff, wider\nTopic: found\nRoles: must pay / may pay, differs\nCovered: the Tenant may pay\nNot covered: all staff must pay",
+      "Roles: may pay / may pay, same\nCalculation: none",
+      "the Tenant may pay",
+      "all staff must pay",
+    ],
+    [
+      "Chinese",
+      "范围：全体职工，wider\n主题：found\n角色：必须付款 / 可以付款，differs\n已涵盖：乙方可以付款\n未涵盖：全体职工必须付款",
+      "角色：可以付款 / 可以付款，same\n计算：无",
+      "乙方可以付款",
+      "全体职工必须付款",
+    ],
+  ])(
+    "a repeated verdict replaces only the %s field it repeats",
+    (_language, earlier, tail, covered, uncovered) => {
+      expect(
+        readVerdict(`Verdict: supported\n${earlier}\nVerdict: supported\n${tail}`),
+      ).toMatchObject({
+        scope: "wider",
+        topic: "found",
+        roles: "same",
+        covered,
+        uncovered,
+        calculations: [],
+      });
+    },
+  );
+
+  test.each([
+    [
+      "English",
+      "Scope: staff, wider\nTopic: found\nRoles: differs\nCovered: the Tenant may pay\nNot covered: all staff must pay",
+      "Scope: the Tenant, same\nTopic: not found\nRoles: same\nCovered: a different part\nNot covered: none",
+      "a different part",
+    ],
+    [
+      "Chinese",
+      "范围：全体职工，wider\n主题：found\n角色：differs\n已涵盖：乙方可以付款\n未涵盖：全体职工必须付款",
+      "范围：乙方，same\n主题：not found\n角色：same\n已涵盖：另一部分\n未涵盖：无",
+      "另一部分",
+    ],
+  ])("the latest actual %s field replacement wins", (_language, earlier, replacement, covered) => {
+    expect(
+      readVerdict(
+        `Verdict: unsupported\n${earlier}\n${replacement}\nVerdict: supported\nCalculation: none`,
+      ),
+    ).toMatchObject({
+      verdict: "supported",
+      scope: "same",
+      topic: "not found",
+      roles: "same",
+      covered,
+      uncovered: null,
+      calculations: [],
+    });
+  });
+
+  test("a repeated verdict replaces calculation declarations without dropping other fields", () => {
+    expect(
+      readVerdict(
+        "Verdict: supported\nScope: wider\nCalculation: 2.0x\nCalculation: 3.0x\nVerdict: supported\nCalculation: none",
+      ),
+    ).toMatchObject({ scope: "wider", calculations: [] });
+    expect(
+      readVerdict(
+        "Verdict: supported\nCalculation: 2.0x\nCalculation: 3.0x\nVerdict: supported\nTopic: found",
+      ),
+    ).toMatchObject({ topic: "found", calculations: ["2.0x", "3.0x"] });
+  });
+
   test("a reply's roles are the field's last word, read apart from the explanation", () => {
     expect(
       readVerdict(
