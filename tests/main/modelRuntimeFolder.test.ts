@@ -1,67 +1,78 @@
-import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, onTestFinished } from "vitest";
 import {
   createModelRuntimeFolder,
-  modelRuntimeFolderPath,
+  modelRuntimeFolderPaths,
 } from "../../src/main/modelRuntimeFolder";
 
+const SUFFIX = join("Microsoft", "DeveloperTools", ".onnxruntime");
+
 describe("where ONNX Runtime keeps its usage data", () => {
-  it("is under Application Support on macOS", () => {
-    expect(modelRuntimeFolderPath({ platform: "darwin", home: "/Users/priya", env: {} })).toBe(
-      "/Users/priya/Library/Application Support/Microsoft/DeveloperTools/.onnxruntime",
-    );
+  it("is under Application Support on macOS, whatever XDG says", () => {
+    expect(
+      modelRuntimeFolderPaths({
+        platform: "darwin",
+        home: "/Users/priya",
+        env: { XDG_CACHE_HOME: "/var/cache/priya" },
+      }),
+    ).toEqual([join("/Users/priya/Library/Application Support", SUFFIX)]);
   });
 
-  it("is in the cache folder on Linux, the XDG one when it is absolute", () => {
-    const folder = (env: NodeJS.ProcessEnv) =>
-      modelRuntimeFolderPath({ platform: "linux", home: "/home/priya", env });
-    expect(folder({})).toBe("/home/priya/.cache/Microsoft/DeveloperTools/.onnxruntime");
-    expect(folder({ XDG_CACHE_HOME: "/var/cache/priya" })).toBe(
-      "/var/cache/priya/Microsoft/DeveloperTools/.onnxruntime",
-    );
-    expect(folder({ XDG_CACHE_HOME: "cache" })).toBe(
-      "/home/priya/.cache/Microsoft/DeveloperTools/.onnxruntime",
-    );
+  it("is in the cache folder on Linux: XDG's when it is absolute, then ~/.cache", () => {
+    const folders = (env: NodeJS.ProcessEnv) =>
+      modelRuntimeFolderPaths({ platform: "linux", home: "/home/priya", env });
+    expect(folders({})).toEqual([join("/home/priya/.cache", SUFFIX)]);
+    expect(folders({ XDG_CACHE_HOME: "/var/cache/priya" })).toEqual([
+      join("/var/cache/priya", SUFFIX),
+      join("/home/priya/.cache", SUFFIX),
+    ]);
+    expect(folders({ XDG_CACHE_HOME: "/home/priya/.cache" })).toEqual([
+      join("/home/priya/.cache", SUFFIX),
+    ]);
+    expect(folders({ XDG_CACHE_HOME: "cache" })).toEqual([join("/home/priya/.cache", SUFFIX)]);
   });
 
   it("is nowhere on Windows, where the library only writes ETW events", () => {
     expect(
-      modelRuntimeFolderPath({ platform: "win32", home: "C:\\Users\\priya", env: {} }),
-    ).toBeNull();
+      modelRuntimeFolderPaths({ platform: "win32", home: "C:\\Users\\priya", env: {} }),
+    ).toEqual([]);
   });
 });
 
 describe("finding the folder", () => {
-  const find = async (setUp: (home: string) => Promise<void>) => {
+  async function temporaryHome() {
     const home = await mkdtemp(join(tmpdir(), "incarnamind-runtime-"));
-    await setUp(home);
-    return createModelRuntimeFolder({ platform: "linux", home, env: {} }).find();
-  };
-  const folder = (home: string) =>
-    join(home, ".cache", "Microsoft", "DeveloperTools", ".onnxruntime");
+    onTestFinished(() => rm(home, { recursive: true, force: true }));
+    return home;
+  }
+  const find = (home: string, env: NodeJS.ProcessEnv = {}) =>
+    createModelRuntimeFolder({ platform: "linux", home, env }).find();
 
-  it("returns its path when it is there", async () => {
-    let path = "";
-    const found = await find(async (home) => {
-      path = folder(home);
-      await mkdir(path, { recursive: true });
-      await writeFile(join(path, "deviceid"), "00000000-0000-4000-8000-000000000000");
-    });
-    expect(found).toBe(path);
+  it("returns its path when it is there, and never opens what is in it", async () => {
+    const home = await temporaryHome();
+    const path = join(home, ".cache", SUFFIX);
+    await mkdir(path, { recursive: true });
+    await writeFile(join(path, "deviceid"), "");
+    expect(await find(home)).toBe(path);
   });
 
-  it("returns nothing when it isn't", async () => {
-    expect(await find(async () => undefined)).toBeNull();
+  it("finds the one under ~/.cache when XDG names another place", async () => {
+    const home = await temporaryHome();
+    const path = join(home, ".cache", SUFFIX);
+    await mkdir(path, { recursive: true });
+    expect(await find(home, { XDG_CACHE_HOME: join(home, "elsewhere") })).toBe(path);
+  });
+
+  it("returns nothing when it isn't there", async () => {
+    expect(await find(await temporaryHome())).toBeNull();
   });
 
   it("returns nothing when a file is in its place", async () => {
-    expect(
-      await find(async (home) => {
-        await mkdir(join(home, ".cache", "Microsoft", "DeveloperTools"), { recursive: true });
-        await writeFile(folder(home), "");
-      }),
-    ).toBeNull();
+    const home = await temporaryHome();
+    await mkdir(join(home, ".cache", "Microsoft", "DeveloperTools"), { recursive: true });
+    await writeFile(join(home, ".cache", SUFFIX), "");
+    expect(await find(home)).toBeNull();
   });
 });

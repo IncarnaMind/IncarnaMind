@@ -28,6 +28,7 @@ export function ModelRuntimeFolderLine() {
     <ProblemLine
       role="status"
       testId="model-runtime-folder"
+      className="mt-2"
       title={path}
       action={{
         label: t(showFileLabelKey(navigator.platform)),

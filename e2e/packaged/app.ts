@@ -107,9 +107,14 @@ export async function packagedLogLines(dataDir: string, match: RegExp): Promise<
 }
 
 /**
- * Where ONNX Runtime keeps its device id and its queue of usage events on macOS, under the app's
- * home folder (#2145). It makes the folder when it starts, so a home without it never ran with
- * telemetry on.
+ * Where ONNX Runtime keeps its device id and its queue of usage events under the app's home folder
+ * (#2145): Application Support on macOS, and the cache folder on Linux, which the app's XDG_CACHE_HOME
+ * puts at ~/.cache. It makes the folder when it starts, so a home without it never ran with
+ * telemetry on. The Windows library keeps none.
  */
-export const runtimeTelemetryFolder = (home: string): string =>
-  join(home, "Library", "Application Support", "Microsoft", "DeveloperTools", ".onnxruntime");
+export const runtimeTelemetryFolders = (home: string): string[] => {
+  const folder = join("Microsoft", "DeveloperTools", ".onnxruntime");
+  if (process.platform === "darwin") return [join(home, "Library", "Application Support", folder)];
+  if (process.platform === "linux") return [join(home, ".cache", folder)];
+  return [];
+};

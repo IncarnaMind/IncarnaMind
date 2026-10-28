@@ -2,9 +2,8 @@ import { mkdir, mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { expect, test } from "@playwright/test";
-import { DATABASE_FILE } from "../src/core";
 import { openDatabase } from "../src/core/storage";
-import { modelRuntimeFolderPath } from "../src/main/modelRuntimeFolder";
+import { modelRuntimeFolderPaths } from "../src/main/modelRuntimeFolder";
 import {
   createDataFolder,
   dismissChatSetup,
@@ -23,7 +22,7 @@ let home: string;
 test.beforeEach(async () => {
   dataDir = await createDataFolder();
   home = await mkdtemp(join(tmpdir(), "incarnamind-home-"));
-  test.skip(folderPath() === null, "The runtime's Windows library keeps no folder");
+  test.skip(folderPath() === undefined, "The runtime's Windows library keeps no folder");
 });
 test.afterEach(async () => {
   await removeDataFolder(dataDir);
@@ -31,11 +30,11 @@ test.afterEach(async () => {
 });
 
 const folderPath = () =>
-  modelRuntimeFolderPath({ platform: process.platform, home, env: lifecycleHomeEnv(home) });
+  modelRuntimeFolderPaths({ platform: process.platform, home, env: lifecycleHomeEnv(home) })[0];
 
 async function putRuntimeFolder(): Promise<string> {
   const path = folderPath();
-  if (path === null) throw new Error("This computer's runtime keeps no folder.");
+  if (path === undefined) throw new Error("This computer's runtime keeps no folder.");
   await mkdir(path, { recursive: true });
   return path;
 }
@@ -44,7 +43,7 @@ async function putRuntimeFolder(): Promise<string> {
 async function installedEarlier(): Promise<void> {
   const { app } = await launchApp(dataDir, { home });
   await app.close();
-  const db = openDatabase(join(dataDir, DATABASE_FILE));
+  const db = openDatabase(join(dataDir, "incarnamind.db"));
   db.run("UPDATE schema_migrations SET applied_at = '2026-10-15T09:00:00.000Z' WHERE version = 1");
   db.close();
 }

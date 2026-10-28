@@ -10,7 +10,7 @@ import {
   launchPackaged,
   packagedExecutable,
   packagedLogLines,
-  runtimeTelemetryFolder,
+  runtimeTelemetryFolders,
 } from "./app";
 
 test.skip(process.platform !== "darwin", "CI builds and runs the packaged app on macOS only");
@@ -76,9 +76,7 @@ test("the packaged app's reranking model runs without onnxruntime's telemetry fo
 
   await app.close();
   app = undefined;
-  expect(
-    existsSync(runtimeTelemetryFolder(home)),
-    `${runtimeTelemetryFolder(home)} exists: onnxruntime ran with its telemetry on`,
-  ).toBe(false);
+  // A folder here means onnxruntime ran with its telemetry on.
+  expect(runtimeTelemetryFolders(home).filter(existsSync)).toEqual([]);
   await copyModelsOut(dataDir);
 });
