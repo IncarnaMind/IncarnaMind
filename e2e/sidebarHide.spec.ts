@@ -204,11 +204,18 @@ test("the shortcut, the button and the View menu hide and show the sidebar, and 
   await button.click();
   await expect.poll(() => isHidden(window)).toBe(false);
 
-  // The same button, by keyboard: Enter on it, and the focus is still on a sidebar button.
+  // The same button, by keyboard: the Tab makes the keyboard the last input, so the focus the
+  // button takes matches :focus-visible and Enter hides the sidebar, as when a person tabs to it.
+  await window.keyboard.press("Tab");
   await button.focus();
   await window.keyboard.press("Enter");
   await expect.poll(() => isHidden(window)).toBe(true);
   await expect(window.getByTestId("sidebar-toggle")).toBeFocused();
+  // It still goes out of the window: the focus it had in its header is no reason to stay over the
+  // content. A peek is the pointer or the keyboard arriving after it is hidden.
+  await motionSettled(window);
+  await expect(window.getByTestId("sidebar-panel")).not.toHaveAttribute("data-open", "true");
+  expect(await sidebarLeft(window)).toBeLessThan(0);
   await window.keyboard.press("Enter");
   await expect.poll(() => isHidden(window)).toBe(false);
   await expect(window.getByTestId("sidebar-toggle")).toBeFocused();

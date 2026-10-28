@@ -2076,6 +2076,17 @@ async function* toolLoop(
         if (keptText.trim() === "" && (setAside.at(-1)?.text ?? "").trim() !== "")
           keptText = setAside.pop()?.text ?? "";
         const taken = takeToolText(keptText, toolTextTags);
+        // Asked again, the model wrote nothing: the reply before stands, as when the ask fails.
+        // A turn that ended after a refused Tool keeps the app's own words (`blankReply`).
+        if (
+          taken.text.trim() === "" &&
+          standing !== null &&
+          (request.blankReply?.() ?? null) === null
+        ) {
+          yield* backToFirst(standing);
+          yield* endAnswer();
+          return;
+        }
         if (mode === "tools" && !request.documents.wroteIntoMind?.()) {
           const records = parseRecords(taken.records).filter(
             ({ marker }) => !request.documents.hasRecord?.(marker),

@@ -1003,6 +1003,8 @@ export function createAnswers(options: AnswersOptions) {
     > & {
       /** What the commands of the Conversation's earlier Answers renamed, oldest first. */
       renames: readonly CommandRename[];
+      /** The calls of the Conversation's earlier Answers, oldest first: a follow-up may be answered from their searches (#1796). */
+      earlierCalls?: readonly AnswerToolCall[];
     };
   }): void {
     const { home, answerId, model, context, forcedSkill, help } = input;
@@ -2454,7 +2456,7 @@ export function createAnswers(options: AnswersOptions) {
       const claimedTools: TurnCheck = {
         name: "claimed-tool",
         check: (text) => {
-          const tools = unrunToolClaims(text, toolCalls);
+          const tools = unrunToolClaims(text, toolCalls, input.assistant?.earlierCalls ?? []);
           return tools.length > 0
             ? {
                 claims: [],
@@ -3179,6 +3181,9 @@ export function createAnswers(options: AnswersOptions) {
         remake,
         renames: renamesIn(turn.earlier),
         touched: touchedIn(turn.earlier),
+        earlierCalls: turn.earlier.flatMap((message) =>
+          message.kind === "answer" ? message.toolCalls : [],
+        ),
       },
     });
     return {

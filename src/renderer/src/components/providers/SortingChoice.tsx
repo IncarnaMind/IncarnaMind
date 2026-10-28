@@ -94,25 +94,33 @@ export function sortingOptions(
     : [...(byKey ? [byKey] : []), ...(chatOption ? [chatOption] : []), ...decisions];
 }
 
-/** The models sorting may use now; null until Ollama and the providers have answered. */
-export function useSortingModels(): TaggingModels | null {
+/**
+ * The models sorting may use now: read until Ollama and the providers answer, and `failed` when
+ * they couldn't, so a line says the model it opened with only while the list is still coming.
+ */
+export function useSortingModels(): { models: TaggingModels | null; failed: boolean } {
   const chatModel = useAppStore((state) => state.settings?.user.chatModel ?? null);
   const readiness = useAppStore((state) => state.chatReadiness);
   const [models, setModels] = useState<TaggingModels | null>(null);
+  const [failed, setFailed] = useState(false);
   // biome-ignore lint/correctness/useExhaustiveDependencies: listed again whenever these change.
   useEffect(() => {
     // The line that says what sorts names the User's model: its group is where the name is.
     useAnswers.getState().loadModels();
     let current = true;
+    setFailed(false);
     core.getTaggingModels().then(
       (listed) => current && setModels(listed),
-      (error: unknown) => console.error("The models that sort couldn't be listed.", error),
+      (error: unknown) => {
+        console.error("The models that sort couldn't be listed.", error);
+        if (current) setFailed(true);
+      },
     );
     return () => {
       current = false;
     };
   }, [chatModel, readiness]);
-  return models;
+  return { models, failed };
 }
 
 /**
@@ -123,12 +131,29 @@ export function useSorting() {
   const t = useT();
   const language = useLanguage();
   const nameOf = useModelNames();
-  const models = useSortingModels();
+  const { models, failed } = useSortingModels();
   const [jev] = useJevSettings();
   const chatModel = useAppStore((state) => state.settings?.user.chatModel ?? null);
+  const readiness = useAppStore((state) => state.chatReadiness);
   const localMode = useAppStore((state) => state.embedding?.localOnly === true);
   const library = useAppStore((state) => state.library);
   const saved = library?.settings.classifier ?? null;
+  // The model that works, which sorting will use unless the list says otherwise: its line holds
+  // the rows from the step's first paint, so the list landing changes only the words (#2130).
+  const known =
+    chatModel &&
+    readiness?.ready &&
+    readiness.provider.id === chatModel.providerId &&
+    readiness.modelId === chatModel.modelId
+      ? {
+          classifier: { kind: "chat" as const, choice: chatModel },
+          label: t("models.sorting.chat"),
+          provider:
+            readiness.provider.service?.name ?? t(`providers.kind.${readiness.provider.kind}`),
+          decisionModel: false,
+          modelName: nameOf(chatModel.modelId, chatModel.providerId).name,
+        }
+      : null;
   const options = models
     ? sortingOptions(models, {
         chatModel,
@@ -184,7 +209,14 @@ export function useSorting() {
       return false;
     }
   };
-  return { options, current, choose, loading: models === null, library };
+  return {
+    options,
+    current,
+    choose,
+    known,
+    loading: models === null && !failed,
+    library,
+  };
 }
 
 /** The choice of what sorts, editable in place wherever it is shown. */
@@ -242,43 +274,62 @@ export function SortingSelect({
 /**
  * What the choice sends, in a line (ADR-0022): to its service for a decision model, or the
  * User's model's own line; and what meeting hints need, which the User's AI model can't do.
+ * `holds`: the option the line had before its list came. Its rows keep the block's height, so a
+ * shorter choice swaps its words in place and the buttons under it stay where they were (#2130).
  */
-export function SortingLine({ option }: { option: SortingOption | null }) {
+export function SortingLine({
+  option,
+  holds = null,
+}: {
+  option: SortingOption | null;
+  holds?: SortingOption | null;
+}) {
   const t = useT();
-  if (!option) {
-    return (
-      <p data-testid="models-sorting-line" className="text-[12px] leading-5 text-ink-meta">
-        {t("setup.sorting.none")}
-      </p>
-    );
-  }
-  if (option.decisionModel) {
-    return (
-      <div data-testid="models-sorting-line" className="flex flex-col gap-1">
-        <p className="text-[12px] leading-5 text-ink-meta">
-          {t(option.provider ? "setup.sorting.uses" : "setup.sorting.here")}
-        </p>
-        {option.provider && (
+  const rows = (each: SortingOption | null) => {
+    if (!each) {
+      return <p className="text-[12px] leading-5 text-ink-meta">{t("setup.sorting.none")}</p>;
+    }
+    if (each.decisionModel) {
+      return (
+        <>
           <p className="text-[12px] leading-5 text-ink-meta">
-            {t("setup.sorting.sends", { service: option.provider })}
+            {t(each.provider ? "setup.sorting.uses" : "setup.sorting.here")}
+          </p>
+          {each.provider && (
+            <p className="text-[12px] leading-5 text-ink-meta">
+              {t("setup.sorting.sends", { service: each.provider })}
+            </p>
+          )}
+        </>
+      );
+    }
+    return (
+      <>
+        <p className="text-[12px] leading-5 text-ink-meta">
+          {t(each.provider ? "setup.sorting.chat" : "setup.sorting.chatHere", {
+            model: each.modelName ?? "",
+          })}
+        </p>
+        <p className="text-[12px] leading-5 text-ink-meta">{t("setup.sorting.chat.hints")}</p>
+        {each.provider && (
+          <p className="text-[12px] leading-5 text-ink-meta">
+            {t("setup.sorting.sends", { service: each.provider })}
           </p>
         )}
-      </div>
+      </>
     );
-  }
+  };
+  const holding =
+    holds !== null &&
+    (option === null || sortingKey(holds.classifier) !== sortingKey(option.classifier));
   return (
-    <div data-testid="models-sorting-line" className="flex flex-col gap-1">
-      <p className="text-[12px] leading-5 text-ink-meta">
-        {t(option.provider ? "setup.sorting.chat" : "setup.sorting.chatHere", {
-          model: option.modelName ?? "",
-        })}
-      </p>
-      <p className="text-[12px] leading-5 text-ink-meta">{t("setup.sorting.chat.hints")}</p>
-      {option.provider && (
-        <p className="text-[12px] leading-5 text-ink-meta">
-          {t("setup.sorting.sends", { service: option.provider })}
-        </p>
+    <div data-testid="models-sorting-line" className="grid">
+      {holding && (
+        <div aria-hidden="true" className="invisible col-start-1 row-start-1 flex flex-col gap-1">
+          {rows(holds)}
+        </div>
       )}
+      <div className="col-start-1 row-start-1 flex flex-col gap-1">{rows(option)}</div>
     </div>
   );
 }

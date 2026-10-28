@@ -1,7 +1,6 @@
 import { type ReactNode, useEffect, useId, useState } from "react";
 import type { ChatProvider, TranscriptionRoute } from "../../../../core/api";
 import { continueSetup } from "../../conversations";
-import { core } from "../../core";
 import { useLanguage, useT } from "../../i18n";
 import { giveUpWaiting } from "../../modelSetup";
 import { useAppStore } from "../../store";
@@ -36,21 +35,16 @@ export function SetupSteps() {
   const t = useT();
   const language = useLanguage();
   const id = useId();
-  const user = useAppStore((state) => state.settings?.user);
-  const [providers, setProviders] = useState<ChatProvider[]>([]);
+  const readiness = useAppStore((state) => state.chatReadiness);
   const [done, setDone] = useState({ transcription: false, sorting: false });
 
-  useEffect(() => {
-    core.listChatProviders().then(setProviders, (error: unknown) => {
-      console.error("The saved chat providers couldn't be listed for the setup card.", error);
-    });
-  }, []);
   useEffect(() => {
     if (done.transcription && done.sorting) continueSetup();
   }, [done]);
 
-  const chosen = user?.chatModel;
-  const provider = providers.find((each) => each.id === chosen?.providerId);
+  // The model that works: the card opens on it, so its name and where it sends are on the first
+  // paint, and the row under the title doesn't push step 2 down a moment later (#2130).
+  const provider = readiness?.ready ? readiness.provider : null;
   const name = provider ? providerName(provider, t, language) : null;
   const recipient = provider && name ? recipientOf(provider, name) : null;
 
@@ -218,9 +212,10 @@ function TranscriptionStep({ onDone }: { onDone(): void }) {
 /** What sorts Tags and Folders and names meeting hints, the best the keys reach picked first. */
 function SortingStep({ onDone, autoFocus }: { onDone(): void; autoFocus: boolean }) {
   const t = useT();
-  const { options, current, choose } = useSorting();
+  const { options, current, choose, known, loading } = useSorting();
   const [picked, setPicked] = useState<SortingOptionLike | null>(null);
   const chosen = picked ?? current;
+  const shown = chosen ?? (loading ? known : null);
   const use = async () => {
     if (chosen && !(await choose(chosen))) return;
     onDone();
@@ -235,7 +230,7 @@ function SortingStep({ onDone, autoFocus }: { onDone(): void; autoFocus: boolean
         current={chosen}
         onChange={setPicked}
       />
-      <SortingLine option={chosen} />
+      <SortingLine option={shown} holds={known} />
       <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
         <button
           type="button"

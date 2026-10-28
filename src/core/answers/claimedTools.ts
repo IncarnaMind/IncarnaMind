@@ -17,11 +17,21 @@ import { thisAnswersRecord, UNSEEN_REPLY } from "./claimedChanges";
 import { sentencesOf } from "./claimStream";
 import type { ChangeStates, MindNames } from "./toolRecord";
 
-const CALCULATION_TOOL =
-  /\b(?:calculat(?:ion|e|ing|or)|comput(?:ation|e|ing)|math|maths|arithmetic)\s+(?:tool|function)s?\b|\b(?:the|a|my|IncarnaMind['’]s)\s+calculator\b|\bIncarnaMind['’]s\s+calculations?\b(?!\s+(?:tool|function)s?\b)|\bcalculate\b/gi;
-// A Tool named is a claim only when it is said to have done something, or was used for a result.
-const ACT =
-  /\b(?:confirm(?:s|ed)?|show(?:s|ed)?|give(?:s|n)?|gave|got|return(?:s|ed)?|produce[sd]?|yield(?:s|ed)?|calculate[sd]|compute[sd]|verif(?:y|ies|ied)|check(?:s|ed)|found|output(?:s|ted)?|results?|says|reports?|reported|agrees?|match(?:es|ed)?)\b|=/i;
+// What a Tool, IncarnaMind or the assistant is said to have done with the figures.
+const ACT_WORD =
+  "(?:confirm(?:s|ed)?|show(?:s|ed)?|give(?:s|n)?|gave|got|return(?:s|ed)?|produce[sd]?|yield(?:s|ed)?|calculate[sd]|compute[sd]|verif(?:y|ies|ied)|check(?:s|ed)|found|output(?:s|ted)?|results?|says|reports?|reported|agrees?|match(?:es|ed)?)";
+const ACT = new RegExp(`\\b${ACT_WORD}\\b|=`, "i");
+const CALCULATION_TOOL = new RegExp(
+  [
+    "\\b(?:calculat(?:ion|e|ing|or)|comput(?:ation|e|ing)|math|maths|arithmetic)\\s+(?:tool|function)s?\\b",
+    "\\b(?:the|a|my|IncarnaMind['’]s)\\s+calculator\\b",
+    "\\bIncarnaMind['’]s\\s+calculations?\\b(?!\\s+(?:tool|function)s?\\b)",
+    // The Tool's own name, only as what a calculation used it for or as the subject of an act.
+    "(?<=\\b(?:by|using|used|with|via|through|from|ran|run|running|called|according to|based on|per|into)\\s+(?:the\\s+|my\\s+|a\\s+)?(?:IncarnaMind['’]s\\s+)?)calculate\\b",
+    `\\bcalculate\\b(?=\\s+${ACT_WORD}\\b)`,
+  ].join("|"),
+  "gi",
+);
 const USED_FOR =
   /(?:\b(?:using|used|with|via|through|by|from|ran|run|running|called|according to|based on|per|into)\s+(?:the\s+|my\s+|a\s+)?(?:IncarnaMind['’]s\s+)?|\(\s*)$/i;
 // "Northbank's covenant calculator", "the vendor calculation tool": someone else's.
@@ -31,10 +41,14 @@ const OWNER =
   /\b(?:their|its|his|her|the\s+(?:lenders?|banks?|borrowers?|vendors?|company|auditors?|agent|client|report|spreadsheet|model|workbook|agreement|document|firm|team)(?:['’]s)?)\s+(?:[\w-]+\s+){0,3}$/i;
 const NEGATION =
   /\b(?:not|no|never|without|nor|cannot|unable|unavailable|instead of|rather than)\b|n['’]t\b/i;
-const NOT_BEFORE = new RegExp(`(?:${NEGATION.source})[^.;:,]{0,30}$`, "i");
+const NOT_BEFORE = new RegExp(`(?:${NEGATION.source})[\\s\\S]{0,80}$`, "i");
+// The Tool itself said not to work, wherever in the sentence it is: "it isn't available to this model".
+const TOOL_UNAVAILABLE =
+  /\b(?:is|was|isn't|wasn't|not|never)\s+(?:available|supported|usable|accessible|installed)\b|\bunavailable\b|\bcan(?:not|['’]t)\s+(?:be\s+)?(?:used|called|run|invoked)\b|\bcould(?: not|n['’]t)\s+(?:be\s+)?(?:used|called|run)\b/i;
 const UNREAL_BEFORE =
-  /(?:\b(?:can|could|would|should|will|shall|might|may|must|if|whether|unless|please)\b|['’](?:ll|d)\b|\bto\s+(?:use|run|call|try)\b|\byou\s+(?:asked|wanted|requested|mentioned)\b)[^.;:]{0,40}$/i;
-const UNREAL_AFTER = /^\W*(?:would|could|might|can|should|will|may|must)\b/i;
+  /(?:\b(?:can|could|would|should|will|shall|might|may|must|if|whether|unless|please)\b|['’](?:ll|d)\b|\bto\s+(?:use|run|call|try)\b|\b(?:you|(?:the\s+)?[Uu]ser)\s+(?:asked|wanted|requested|mentioned)\b)[^.;:]{0,40}$/i;
+const UNREAL_AFTER =
+  /^(?:\W*(?:would|could|might|can|should|will|may|must)\b|\W*had\s+(?:it|they|this|that)\s+been\b)/i;
 // "Earlier I said the calculation tool confirmed…", "my earlier claim that…": a correction.
 const REPORTED_BEFORE =
   /\b(?:I|we)\s+(?:had\s+|have\s+)?(?:said|wrote|claimed|stated|told you|mentioned)\b|\b(?:my|the|an)\s+(?:earlier|previous|first|last)\s+(?:claim|answer|reply|statement|response)\b|\b(?:earlier|previously)\b/i;
@@ -76,11 +90,11 @@ const ZH_TOOL = /计算工具|计算器|计算功能/g;
 const ZH_ACT = /运行|确认|显示|得出|算出|计算|核实|核对|复核|核算|验证|给出|结果|表明|证实|=/;
 const ZH_USED_FOR =
   /(?:经过?|使用|用|通过|借助|调用了?|利用|根据|按照|依据|[（(])\s*(?:IncarnaMind\s*的\s*)?$/;
-const ZH_NEGATION = /不可用|用不了|无法|不能|没有|没|未|并未|尚未|不可|不支持|不是/;
+const ZH_NEGATION = /不可用|用不了|无法|不能|没有|没|未|并未|尚未|不可|不支持|不是|并非/;
 const ZH_NOT_BEFORE =
-  /(?:没有|没|未|无法|不能|不可|并未|尚未|不是|不用|不使用|未使用|无|不)[^，。！？；：]{0,16}$/;
+  /(?:没有|没|未|无法|不能|不可|并未|尚未|不是|并非|不用|不使用|未使用|无|不)[^，。！？；：]{0,16}$/;
 const ZH_UNREAL_BEFORE =
-  /(?:可以|可|能|将|会|如果|若|需要|建议|请|是否|要不要|你(?:要求|希望|让|请))[^，。！？；：]{0,8}$/;
+  /(?:可以|可|能|将|会|如果|若|假如|需要|建议|请|是否|要不要|(?:您|你|用户)(?:要求|希望|让|请))[^，。！？；：]{0,8}$/;
 const ZH_UNREAL_AFTER = /^[^，。！？；]{0,4}(?:可以|可|能|会|将|需要|应)/;
 const ZH_REPORTED_BEFORE =
   /(?:说|称|写|表示|提到)(?:过|了)?[^，。！？；]{0,12}$|之前|此前|先前|上一条|上次/;
@@ -134,6 +148,7 @@ const oursInEnglish = (before: string, after: string) => {
     !NAMED_OWNER.test(before) &&
     !OWNER.test(before) &&
     !NOT_BEFORE.test(before) &&
+    !TOOL_UNAVAILABLE.test(`${before}${after}`) &&
     !UNREAL_BEFORE.test(before) &&
     !REPORTED_BEFORE.test(before) &&
     !UNREAL_AFTER.test(clause) &&
@@ -217,14 +232,21 @@ const RAN: Record<ClaimedTool, (call: AnswerToolCall) => boolean> = {
 
 /**
  * The Tools a reply says ran that none of `calls` backed: a figure is calculated only by
- * `calculate`, in a reply that shows the figure where the number goes.
+ * `calculate`, in a reply that shows the figure where the number goes, and a search by a
+ * search of `earlier`, the Conversation's own, which a follow-up may be answered from.
  */
-export function unrunToolClaims(reply: string, calls: readonly AnswerToolCall[]): ClaimedTool[] {
+export function unrunToolClaims(
+  reply: string,
+  calls: readonly AnswerToolCall[],
+  earlier: readonly AnswerToolCall[] = [],
+): ClaimedTool[] {
   // A calculate call whose figure the reply doesn't show is dropped from the Answer's record
   // before the User reads it, so the figure is unchecked in what they see.
   const showsFigure = (reply.match(FIGURE_MARKER) ?? []).length > 0;
+  const ran = (tool: ClaimedTool) =>
+    calls.some(RAN[tool]) || (tool === "search" && earlier.some(RAN.search));
   return toolClaimsIn(reply).filter((tool) => {
-    if (!calls.some(RAN[tool])) return true;
+    if (!ran(tool)) return true;
     return tool === "calculate" && !showsFigure;
   });
 }

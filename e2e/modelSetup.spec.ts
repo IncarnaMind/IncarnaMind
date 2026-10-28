@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { expect, type Locator, type Page, test } from "@playwright/test";
 import type { CoreBridge } from "../src/core/api";
+import { translate } from "../src/shared/i18n";
 import { createFakeAnthropic } from "../tests/helpers/fakeAnthropic";
 import { createFakeOpenAI, signInAt } from "../tests/helpers/fakeOpenAI";
 import {
@@ -129,6 +130,66 @@ test("a pasted key is named by its form and works at once: the waiting Question 
     await app.close();
   }
 });
+
+/** Where the steps' buttons are, and what the sorting step says, in the one frame they share. */
+async function stepsFrame(window: Page) {
+  return window.evaluate(() => {
+    const boxOf = (testId: string) => {
+      const element = document.querySelector(`[data-testid="${testId}"]`);
+      if (!element) throw new Error(`The steps show no ${testId}.`);
+      const { x, y, width, height } = element.getBoundingClientRect();
+      const round = (value: number) => Math.round(value);
+      return { x: round(x), y: round(y), width: round(width), height: round(height) };
+    };
+    return {
+      card: boxOf("model-setup"),
+      transcription: boxOf("setup-transcription-use"),
+      sorting: boxOf("setup-sorting-use"),
+      later: boxOf("setup-later"),
+      // The list is still being read while the picker can offer nothing yet.
+      reading: document.querySelector('[data-testid="models-sorting"]')?.hasAttribute("disabled"),
+      line: document.querySelector('[data-testid="models-sorting-line"]')?.textContent ?? "",
+    };
+  });
+}
+
+for (const language of ["en", "zh-CN"] as const) {
+  test(`steps 2 and 3 hold their buttons where they were while the model list is read (${language}) (#2130)`, async () => {
+    // Listed a second and a half after it is asked, as a busy machine's server answers.
+    const ollama = await ollamaListing(["qwen3.5:4b"], { delayMs: 1500 });
+    const { app, window } = await launchApp(dataDir, { fakeChat: true, ollama: ollama.url });
+    try {
+      await setWindowSize(app, window, 1440, 900);
+      await setLanguage(window, language);
+      const card = await askFirstQuestion(window);
+      await setLocalChatModel(window, "qwen3.5:4b");
+      await expect(card.getByTestId("setup-ready-title")).toBeVisible({ timeout: 15_000 });
+
+      // The first paint, while the list is still being read: the sorting step already names the
+      // model that will sort, and holds the rows its line keeps once the list lands.
+      const opened = await stepsFrame(window);
+      expect(opened.reading, "the model list was still being read").toBe(true);
+      await expect(card.getByTestId("models-sorting")).toBeEnabled({ timeout: 15_000 });
+      const settled = await stepsFrame(window);
+      expect(settled.reading).toBe(false);
+
+      // Nothing moved: step 2's and step 3's Use this, and Set up later, are where they were.
+      expect(settled.card).toEqual(opened.card);
+      expect(settled.transcription).toEqual(opened.transcription);
+      expect(settled.sorting).toEqual(opened.sorting);
+      expect(settled.later).toEqual(opened.later);
+      // The words were there from the first paint, and only the list changed under them.
+      expect(opened.line).toContain(
+        translate(language, "setup.sorting.chat", { model: "qwen3.5:4b" }),
+      );
+      expect(opened.line).toContain(translate(language, "setup.sorting.chat.hints"));
+      expect(settled.line).toBe(opened.line);
+    } finally {
+      await app.close();
+      ollama.server.close();
+    }
+  });
+}
 
 test("with no key, the ChatGPT plan comes first, the Claude account second, and a model on this computer third", async () => {
   const openai = await createFakeOpenAI();

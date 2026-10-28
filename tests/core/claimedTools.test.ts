@@ -9,6 +9,7 @@ import { addAndProcess, writeSourceFile } from "../helpers/documents";
 import { connectToMind } from "../helpers/mindClient";
 import { readMind } from "../helpers/minds";
 import { type ModelCall, scriptedModel, scriptedModels } from "../helpers/models";
+import { transcribingCore, until } from "../helpers/transcription";
 
 /**
  * A reply that says a figure was calculated or checked, or that a search ran,
@@ -54,6 +55,7 @@ describe("What a reply says a Tool did", () => {
     ["Confirmed by calculate.", ["calculate"]],
     ["According to calculate, the ratio is 3.26.", ["calculate"]],
     ["Using calculate: the headroom is GBP 22.5m.", ["calculate"]],
+    ["Calculate confirms 3.26x.", ["calculate"]],
     ["让我重新计算一下：310 ÷ 95 ≈ 3.26。", ["calculate"]],
     ["我搜索了你的文档。", ["search"]],
     ["搜索结果显示，修订函2027年才生效。", ["search"]],
@@ -85,6 +87,12 @@ describe("What a reply says a Tool did", () => {
     "You can calculate the ratio by hand: 310 / 95 ≈ 3.26.",
     "To calculate the ratio, divide 310 by 95.",
     "I calculate the ratio as 310 / 95.",
+    "Here's how to calculate it: 310 / 95 = 3.26.",
+    "Calculate the ratio: 310 ÷ 95 = 3.26.",
+    "We calculate leverage as 310 ÷ 95.",
+    "The User asked for the calculation tool to confirm 3.37x, but it isn't available to this model.",
+    "I did not check the headroom in turns (3.50 − 3.26 = 0.24) with the calculation tool, so treat 0.24 as unverified.",
+    "The calculation tool, had it been available, would confirm 3.26x.",
     "I've verified the figures, and the headroom is £22.5m.",
     "IncarnaMind's calculation Tool isn't available to this model, so 310 / 95 ≈ 3.26 is my own working.",
     "IncarnaMind's calculation Tool can't be used by this model.",
@@ -125,6 +133,9 @@ describe("What a reply says a Tool did", () => {
     "供应商备忘录称其计算工具确认为3.37倍。",
     "备忘录写道：『计算工具确认3.37倍』。",
     "你可以用计算工具核对这些数字。",
+    "您要求使用计算工具重新计算，但这个模型无法调用它。",
+    "以下结果并非由计算工具得出。",
+    "假如有计算工具，它会显示3.26倍。",
     "财务部已核对上述数字。",
     "我核对了协议的生效日期。",
     "我之前算出的3.37倍是错的。",
@@ -190,8 +201,8 @@ async function setUp(
   return core;
 }
 
-async function ask(core: Core, text: string): Promise<ConversationAnswer> {
-  const asked = await core.askInConversation({ text });
+async function ask(core: Core, text: string, conversationId?: string): Promise<ConversationAnswer> {
+  const asked = await core.askInConversation(conversationId ? { text, conversationId } : { text });
   if (!asked.asked) throw new Error(`The Question wasn't asked: ${JSON.stringify(asked)}`);
   const ended = await answerEnded(core, asked.answerId);
   if (ended.event !== "finished") throw new Error(`The Answer failed: ${JSON.stringify(ended)}`);
@@ -282,6 +293,81 @@ describe("A reply that says a Tool ran when none did", { timeout: 60_000 }, () =
     expect(answer.steps?.unrunTools).toEqual(["calculate"]);
     expect(answer.steps).not.toHaveProperty("calculateUnavailable");
     expect(answer.steps?.askedAgainFor).toEqual(["calculate"]);
+  });
+
+  // protects=a blank reply to the ask keeps the reply before it, with its line, instead of failing the Answer or losing it; fails_when=the Answer fails or the first reply is gone; no_claim=that a real model answers blank.
+  test("with the Tool, answering the ask with nothing keeps the reply before it", async () => {
+    const asks: ModelCall[] = [];
+    const model = scriptedModel((call) => {
+      if (call.results.length === 0) {
+        return { calls: [{ tool: "search_documents", input: { query: "Cedar leverage" } }] };
+      }
+      if (!call.prompt.includes("Call calculate now")) return { text: CLAIM };
+      asks.push(call);
+      return { text: "" };
+    });
+    const core = await setUp(model, {
+      kind: "anthropic",
+      apiKey: "sk-test",
+      modelId: "claude-haiku-5-5",
+    });
+
+    const answer = await ask(core, ASKED);
+
+    expect(asks).toHaveLength(1);
+    expect(answer.text).toBe(CLAIM);
+    expect(answer.steps?.unrunTools).toEqual(["calculate"]);
+    expect(answer.steps?.askedAgainFor).toEqual(["calculate"]);
+  });
+
+  // protects=one-click help is read by its own panel, so a claim in its reply is neither asked about nor lined; fails_when=the check runs there; no_claim=that the panel's shape is right.
+  test("a help Answer is left to its own flow", async () => {
+    const model = scriptedModel(() => ({
+      text: "★ The calculation tool confirmed 3.26x\n→ says it as fact",
+    }));
+    const { core, record } = await transcribingCore(await createTempDataFolder(), {
+      createChatModel: scriptedModels(model).createChatModel,
+    });
+    await core.saveChatProvider({ kind: "ollama", modelId: "local-model" });
+    const meeting = await core.createMeeting();
+    await core.startMeeting({ meetingId: meeting.id, systemAudio: true });
+    record(9_000);
+    await until(core, meeting.id, (transcript) => transcript.lines >= 4);
+
+    const result = await core.askMeetingHelp({ meetingId: meeting.id, kind: "want" });
+    if (!result.asked) throw new Error("The help wasn't asked.");
+    expect((await answerEnded(core, result.answerId)).event).toBe("finished");
+    const { messages } = await core.getConversation(result.conversation.id);
+    const answer = messages.find((message) => message.id === result.answerId);
+    if (answer?.kind !== "answer") throw new Error("No Answer.");
+
+    expect(answer.text).toContain("The calculation tool confirmed 3.26x");
+    expect(answer.steps).not.toHaveProperty("unrunTools");
+    expect(answer.steps).not.toHaveProperty("askedAgainFor");
+  });
+
+  // protects=a follow-up answered from the Conversation's earlier search keeps no line and no ask; fails_when=this turn's calls alone are read and the reply is flagged; no_claim=that a real model answers from an earlier search.
+  test("a follow-up answered from the Conversation's earlier search keeps no line", async () => {
+    const model = scriptedModel((call) => {
+      if (call.index === 0) {
+        return { calls: [{ tool: "search_documents", input: { query: "Cedar leverage" } }] };
+      }
+      if (call.results.some((result) => result.tool === "search_documents")) {
+        return { text: "Cedar's leverage is 3.26x, from the final figures." };
+      }
+      return { text: "The search found the executed agreement and the amendment." };
+    });
+    const core = await setUp(model, {
+      kind: "anthropic",
+      apiKey: "sk-test",
+      modelId: "claude-haiku-5-5",
+    });
+
+    const first = await ask(core, "What is Cedar's leverage?");
+    const second = await ask(core, "Which Documents did the search find?", first.conversationId);
+
+    expect(second.steps).not.toHaveProperty("unrunTools");
+    expect(second.steps).not.toHaveProperty("askedAgainFor");
   });
 
   // protects=a model in the Tool loop that has no calculation Tool, saying one confirmed its figures, is asked once and told it has none, and its honest reply keeps no line; fails_when=it isn't told, or a line stays; no_claim=that a real model then writes honestly.
