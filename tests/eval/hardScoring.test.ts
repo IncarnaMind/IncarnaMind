@@ -11,7 +11,7 @@ import { join } from "node:path";
 import { describe, expect, test } from "vitest";
 import { asEvalQuestion, summariseDifficulty } from "../../eval/hard/lib/citations";
 import { embedEveryPassage } from "../../eval/hard/lib/indexing";
-import { BM25_SQL, timeKeywordSearch, timingOf } from "../../eval/hard/lib/keywordTiming";
+import { timeKeywordSearch, timingOf } from "../../eval/hard/lib/keywordTiming";
 import type { HardDocument } from "../../eval/hard/lib/manifest";
 import { type HardQuestion, textProblems } from "../../eval/hard/lib/questions";
 import {
@@ -36,8 +36,7 @@ import type { AnswerRecord, CitationRecord, CitationRun } from "../../eval/lib/c
 import type { OpenReranker } from "../../eval/lib/rerank";
 import { GATING_MODE, HYBRID_RERANK_MODE } from "../../eval/lib/retrieval";
 import { DATABASE_FILE, type PassageSearchResult } from "../../src/core";
-import { keywordQuery } from "../../src/core/documents/keywords";
-import { DOCUMENT_NAME_WEIGHT } from "../../src/core/documents/search";
+import { keywordSearch } from "../../src/core/documents/search";
 import { openDatabase } from "../../src/core/storage";
 import { createTempDataFolder, queryDatabase, startCore } from "../helpers/core";
 import { addAndProcess, createSourceFolder, writeSourceFile } from "../helpers/documents";
@@ -267,21 +266,15 @@ describe("The hard tier's searches through a core", { timeout: 60_000 }, () => {
       expect(timing).toMatchObject({ passages: 2, limit: 20, reordered: 0 });
       expect(timing.app.queries).toBe(2);
       expect(timing.alone.queries).toBe(2);
-      const match = keywordQuery("the ferry passengers") as string;
-      const bm25 = db
-        .all<{ seq: number }>(BM25_SQL, [
-          match,
-          DOCUMENT_NAME_WEIGHT,
-          match,
-          DOCUMENT_NAME_WEIGHT,
-          20n,
-        ])
-        .map((row) => row.seq);
       const ids = queryDatabase<{ seq: number; id: string }>(
         dataDir,
         "SELECT seq, id FROM passages",
       );
-      expect(bm25.map((seq) => ids.find((row) => row.seq === seq)?.id)).toEqual(
+      expect(
+        keywordSearch(db, "the ferry passengers", 20).map(
+          (seq) => ids.find((row) => row.seq === seq)?.id,
+        ),
+      ).toEqual(
         (await core.searchPassages("the ferry passengers", { mode: "keyword", limit: 20 })).map(
           (each) => each.passageId,
         ),

@@ -288,7 +288,7 @@ function searchTime(report: HardReport): string[] {
     "",
     ...(keywordTiming
       ? [
-          `Keyword search alone, at ${keywordTiming.passages} Passages: the app's SQL (\`keywordSearch\`) keeping the best ${keywordTiming.limit}, over ${keywordTiming.app.queries} queries (the Questions and their translations), each timed once after a warm-up pass, and the same search over the Passages alone, so the Document's name index's cost is the difference. FTS5 scores every Passage a query's words match before keeping the best: it has no top-k pruning. The name match changed which Passages were kept, or their order, for ${keywordTiming.reordered} of ${keywordTiming.app.queries} queries.`,
+          `Keyword search alone, at ${keywordTiming.passages} Passages: the app's own (\`keywordSearch\`) keeping the best ${keywordTiming.limit}, over ${keywordTiming.app.queries} queries (the Questions and their translations), each timed once after a warm-up pass, and the same search over the Passages alone, so the Document's name index's cost is the difference. FTS5 scores every Passage a query's words match before keeping the best: it has no top-k pruning. The name match changed which Passages were kept, or their order, for ${keywordTiming.reordered} of ${keywordTiming.app.queries} queries.`,
           "",
         ]
       : []),

@@ -3744,7 +3744,7 @@ export function createCore(adapters: CoreAdapters): Core {
     // the search's limit, so they never take one of its places.
     searchDocumentText: async (query, options) => {
       const example = examples.made().documentIds;
-      const own = documents.list().some((each) => !example.includes(each.id));
+      const own = documents.hasDocumentOutside(example);
       return documents.searchText(query, {
         ...options,
         ...(own ? { excludeDocumentIds: example } : {}),

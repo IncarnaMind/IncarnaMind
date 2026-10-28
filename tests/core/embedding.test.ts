@@ -601,7 +601,7 @@ describe("Vector and hybrid search", { timeout: 30_000 }, () => {
 
   test("renaming a Document re-indexes its name for keyword search", async () => {
     const { core, markets } = await library();
-    // The name is indexed with the Document's first Passage.
+    // The name is indexed once for the Document, in its own index.
     expect(ids(await core.searchPassages("markets", { mode: "keyword" }))).toEqual([markets.id]);
 
     await core.renameDocument(markets.id, "Monetary policy");

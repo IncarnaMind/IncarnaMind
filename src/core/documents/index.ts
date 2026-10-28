@@ -977,11 +977,7 @@ export function createDocuments(options: DocumentsOptions) {
         samePassages(row.id, result.passages);
       // Its Passages are the ones it had, and so are their vectors; its index, built before
       // NAME_INDEX_CURRENT_SINCE, still holds its name in every Passage's row (#2042).
-      if (
-        unchanged &&
-        result.outcome === "ready" &&
-        row.processing_version < NAME_INDEX_CURRENT_SINCE
-      ) {
+      if (unchanged && row.processing_version < NAME_INDEX_CURRENT_SINCE) {
         reindexPassages(
           row.id,
           new Map(result.passages.map((passage) => [passage.position, passage.keywords])),
@@ -1780,6 +1776,20 @@ export function createDocuments(options: DocumentsOptions) {
         title: row.title,
       }));
 
+  /**
+   * Whether any live Document is outside these: whether the Library holds more
+   * than the example's own copies (#1942). A search asks this on every call, so
+   * it reads no more than the first Document it finds.
+   */
+  const hasDocumentOutside = (outside: readonly string[]): boolean =>
+    Boolean(
+      db.get(
+        `SELECT 1 FROM documents WHERE deleted_at IS NULL
+         AND id NOT IN (SELECT value FROM json_each(?)) LIMIT 1`,
+        [JSON.stringify(outside)],
+      ),
+    );
+
   /** The ids of the live Documents the filter keeps, in `list`'s order. */
   const ids = (filter: DocumentFilter = {}): string[] => {
     const { where, params } = filterWhere(filter);
@@ -2426,6 +2436,7 @@ export function createDocuments(options: DocumentsOptions) {
     list,
     names,
     ids,
+    hasDocumentOutside,
 
     /** The live Documents (of these, or all of them) that failed, have no text or were read in part: the few `findUnreadDocuments` looks at. */
     unread(documentIds?: readonly string[]): Document[] {

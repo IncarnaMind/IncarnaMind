@@ -52,44 +52,53 @@ export function keywordSearch(
 ): number[] {
   const match = keywordQuery(query);
   if (!match) return [];
-  // MATERIALIZED: the name's scores are worked out once a search, not once a Passage.
-  const names = `WITH names AS MATERIALIZED (
-      SELECT document_id, bm25(document_names_fts) AS name_score
-      FROM document_names_fts WHERE document_names_fts MATCH ?)`;
-  return db
-    .all<{ seq: number }>(
-      `${names}
-       SELECT seq FROM (
-         SELECT p.seq AS seq, p.position AS position,
-           bm25(passages_fts) + ? * coalesce(n.name_score, 0) AS score
-         FROM passages_fts
-         JOIN passages p ON p.seq = passages_fts.rowid
-         JOIN documents d ON d.id = p.document_id
-         LEFT JOIN names n ON n.document_id = p.document_id
-         WHERE passages_fts MATCH ? AND p.deleted_at IS NULL AND d.deleted_at IS NULL
-           ${scopeClause(documentIds)}
-         UNION ALL
-         SELECT p.seq, p.position, ? * n.name_score
-         FROM names n
-         JOIN passages p ON p.document_id = n.document_id
-         JOIN documents d ON d.id = p.document_id
-         WHERE p.deleted_at IS NULL AND d.deleted_at IS NULL
-           ${scopeClause(documentIds)}
-       )
-       GROUP BY seq
-       ORDER BY min(score), min(position), seq
-       LIMIT ?`,
-      [
-        match,
-        DOCUMENT_NAME_WEIGHT,
-        match,
-        ...scopeParams(documentIds),
-        DOCUMENT_NAME_WEIGHT,
-        ...scopeParams(documentIds),
-        BigInt(limit),
-      ],
-    )
-    .map((row) => row.seq);
+  // One query over the names, which holds one row a Document, then a lookup a Passage:
+  // joining the index once a Passage made every search pay for the name's statistics
+  // once a Passage, which is the cost this design removes (#2042).
+  const nameScores = new Map(
+    db
+      .all<{ documentId: string; score: number }>(
+        `SELECT document_id AS documentId, bm25(document_names_fts) AS score
+         FROM document_names_fts WHERE document_names_fts MATCH ?`,
+        [match],
+      )
+      .map((row) => [row.documentId, row.score]),
+  );
+  const nameScore = (documentId: string) =>
+    DOCUMENT_NAME_WEIGHT * (nameScores.get(documentId) ?? 0);
+  // A Passage's best score: the fewer, the better, as bm25() gives it.
+  const best = new Map<number, { position: number; score: number }>();
+  const add = (seq: number, position: number, score: number) => {
+    const known = best.get(seq);
+    if (!known || score < known.score) best.set(seq, { position, score });
+  };
+  for (const row of db.all<{ seq: number; documentId: string; position: number; score: number }>(
+    `SELECT p.seq, p.document_id AS documentId, p.position, bm25(passages_fts) AS score
+     FROM passages_fts
+     JOIN passages p ON p.seq = passages_fts.rowid
+     JOIN documents d ON d.id = p.document_id
+     WHERE passages_fts MATCH ? AND p.deleted_at IS NULL AND d.deleted_at IS NULL
+       ${scopeClause(documentIds)}`,
+    [match, ...scopeParams(documentIds)],
+  )) {
+    add(row.seq, row.position, row.score + nameScore(row.documentId));
+  }
+  if (nameScores.size > 0) {
+    for (const row of db.all<{ seq: number; documentId: string; position: number }>(
+      `SELECT p.seq, p.document_id AS documentId, p.position
+       FROM passages p JOIN documents d ON d.id = p.document_id
+       WHERE p.document_id IN (SELECT value FROM json_each(?))
+         AND p.deleted_at IS NULL AND d.deleted_at IS NULL
+         ${scopeClause(documentIds)}`,
+      [JSON.stringify([...nameScores.keys()]), ...scopeParams(documentIds)],
+    )) {
+      add(row.seq, row.position, nameScore(row.documentId));
+    }
+  }
+  return [...best.entries()]
+    .sort((a, b) => a[1].score - b[1].score || a[1].position - b[1].position || a[0] - b[0])
+    .slice(0, limit)
+    .map(([seq]) => seq);
 }
 
 /** How many of a Document's best Passages a text search looks at for one that holds the words. */
