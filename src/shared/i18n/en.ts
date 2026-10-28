@@ -5422,7 +5422,7 @@ export const en = {
   "steps.search": "Searched {scope} for “{query}”",
   "steps.search.times": "Searched {scope} {count} times",
   "steps.readDocument.times": "Read Documents {count} times",
-  "steps.readDocument.none": "No Passages read from “{document}”",
+  "steps.readDocument.none": "No passages read from “{document}”",
   "steps.failed.readDocument": "Couldn’t read “{document}”",
   "steps.readDocument.pages": "Read pages {pages} of “{document}”",
   "steps.readDocument.around": "Read around {passage} in “{document}”",
