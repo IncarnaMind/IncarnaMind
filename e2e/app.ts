@@ -365,6 +365,7 @@ export async function launchApp(
       ...(sandboxNotice === "switch" ? ["--no-sandbox"] : []),
       ...(packaged ? [] : [appDir]),
       ...APP_ARGS,
+      ...(process.env.PROBE_GPU_OFF === "1" ? ["--disable-gpu"] : []),
     ],
     env,
     chromiumSandbox: sandboxed || sandboxNotice === "environment" || sandboxNotice === "on",
