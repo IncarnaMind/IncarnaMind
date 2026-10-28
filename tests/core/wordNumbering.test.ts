@@ -30,6 +30,10 @@ const paragraph = (text: string): JSONContent => ({
   content: [{ type: "text", text }],
 });
 const bullet = (...items: JSONContent[]): JSONContent => ({ type: "bulletList", content: items });
+const task = (...items: JSONContent[]): JSONContent => ({
+  type: "taskList",
+  content: items.map((each) => ({ ...each, type: "taskItem" })),
+});
 
 /** Each level's number format and text, as the scheme writes it. */
 const WORD_LEVELS: Record<NumberingScheme, readonly [string, string][]> = {
@@ -234,6 +238,28 @@ describe("Numbering schemes in Word", () => {
       expect(startAt(numberingXml, listId, 1)).toBe(1);
     },
   );
+
+  // protects=a numbered list under a to-do starts its own numbering, at the to-do's indent, in a list of the same scheme above it; fails_when=it shares the list above's numbering and goes on with its numbers; no_claim=a to-do inside a to-do.
+  test("a numbered list under a to-do starts its own numbering", async () => {
+    const { core, mind, client } = await newMind();
+    writeMind(client, [
+      ordered({}, item("One", task(item("To-do", ordered({}, item("A"), item("B")))))),
+    ]);
+    await client.settled();
+
+    const files = unzip((await core.exportMind(mind.id, { format: "docx" })).data);
+    const numberingXml = part(files, "word/numbering.xml");
+    const paragraphs = numberedParagraphs(part(files, "word/document.xml"));
+    expect(paragraphs.map(({ level, text }) => [level, text])).toEqual([
+      [0, "One"],
+      [0, "A"],
+      [0, "B"],
+    ]);
+    const listId = paragraphs[1]?.numId ?? "";
+    expect(listId).not.toBe(paragraphs[0]?.numId);
+    expect(levelAt(numberingXml, listId, 0)).toEqual(WORD_LEVELS.default[0]);
+    expect(startAt(numberingXml, listId, 0)).toBe(1);
+  });
 
   // protects=a numbered list under a bullet in a numbered list sits two levels in, in its own scheme, a numbering of its own; fails_when=it sits at its first level, flush with the list's own items, or takes the outer list's numbering; no_claim=deeper shapes.
   test("a numbered list under a bullet in a numbered list sits two levels in, in its own scheme", async () => {

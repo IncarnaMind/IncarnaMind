@@ -713,7 +713,10 @@ export class DocxWriter {
                   pendingContext(child, {
                     ...context,
                     indent: textAt,
+                    // A list under a to-do starts its own numbering, whatever list holds the to-do.
                     listDepth: 0,
+                    listStart: undefined,
+                    numbered: undefined,
                     todo: undefined,
                   }),
                 )
