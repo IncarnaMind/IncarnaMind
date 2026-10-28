@@ -1,9 +1,12 @@
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { expect, test } from "vitest";
 import * as Y from "yjs";
 import { citationSentences } from "../../src/core/answers/checks/sentences";
 import { type CalculatedFigure, CITATION_NODE } from "../../src/core/api";
 import { calculatedFigureNode } from "../../src/shared/calculatedFigures";
 import { FORMULA_VERSION } from "../../src/shared/formula";
+import { translate } from "../../src/shared/i18n";
 import {
   addSignOff,
   citationElementId,
@@ -12,6 +15,7 @@ import {
   signOffsOf,
 } from "../../src/shared/signOffs";
 import { createTempDataFolder, queryDatabase, startCore } from "../helpers/core";
+import { parseCsv } from "../helpers/csv";
 import { connectToMind } from "../helpers/mindClient";
 import { note, readMind, writeMind } from "../helpers/minds";
 
@@ -158,6 +162,68 @@ for (const language of ["en", "zh-CN"] as const) {
     await client.settled();
     expect(readMind(client).textContent).toContain(original);
     expect(readMind(client).textContent).not.toContain(later);
+  });
+
+  // protects=a restore to a version without a Citation the User checked says how many it leaves out, the check record keeps a row for the mark as "Not in this Note now" with who checked it and when, and a later restore that brings the Citation back brings its mark back (#1933), in English and Chinese; fails_when=the count is missing, the row goes, or the mark stays off the Citation that came back; no_claim=History's line itself, which the smoke spec covers.
+  test(`a restore counts a checked Citation it leaves out, the record keeps its row, and a later restore brings the mark back ${language}`, async () => {
+    const out = await createTempDataFolder();
+    const core = startCore(await createTempDataFolder());
+    await core.updateSettings({ user: { language, personId: "person-1" } });
+    await core.setOutputLocation(out);
+    const mind = await core.createMind({ title: "Gone" });
+    const client = await connectToMind(core, mind.id);
+    const words = language === "en" ? "The sea rises" : "海平面上升";
+    writeMind(client, [note(words)]);
+    await client.settled();
+    const without = await core.saveCheckpoint(mind.id, "accept");
+    const attributes = {
+      passageId: "passage-1",
+      documentId: "document-1",
+      documentName: "Tides",
+      contentHash: "v1",
+      quote: "Tides rise.",
+      check: "found",
+    };
+    writeMind(client, [
+      {
+        type: "paragraph",
+        attrs: { id: "p1" },
+        content: [
+          { type: "text", text: words },
+          { type: "citation", attrs: { ...attributes, id: "c1" } },
+          { type: "text", text: "." },
+        ],
+      },
+    ]);
+    addSignOff(client.doc, {
+      id: "mark-1",
+      target: { kind: "citation", id: "c1" },
+      at: "2026-10-28T09:00:00.000Z",
+      contentHash: citationSignOffBasis(`${words}\uFFFC.`, attributes),
+      deletedAt: null,
+      name: "Ada",
+      personId: "person-1",
+    });
+    await client.settled();
+
+    const restored = await core.restoreCheckpoint(mind.id, without.id);
+    await client.settled();
+    expect(restored.checkedLeftOut).toBe(1);
+
+    const saved = await core.saveCheckRecord(mind.id);
+    if (saved.status !== "saved") throw new Error(`Not saved: ${saved.status}`);
+    const csv = readFileSync(
+      join(out, `${saved.file.name.replace(/\.(pdf|csv)$/, "")}.csv`),
+      "utf8",
+    );
+    const gone = parseCsv(csv).find((row) =>
+      row.includes(translate(language, "checkRecord.notInNote")),
+    );
+    expect(gone?.some((cell) => cell.startsWith("Ada · "))).toBe(true);
+
+    expect((await core.restoreCheckpoint(mind.id, restored.before.id)).checkedLeftOut).toBe(0);
+    await client.settled();
+    expect(citationSentences(client.blocks).has("c1")).toBe(true);
   });
 
   // protects=restoring a version kept before a Citation was marked never changes the mark: the Citation comes back with the id the mark names, whether it is unchanged, its quote was edited, it was deleted or its paragraph was (#1933); fails_when=the restored Citation has another id or none; no_claim=whether the mark then reads checked or changed.

@@ -57,7 +57,7 @@ function itemRow(item: RecordItem, t: Translator): (string | number | null)[] {
     t(KIND_LABELS[item.kind]),
     item.text,
     t(resultKey(item)),
-    t(ORIGIN_LABELS[item.origin]),
+    item.origin ? t(ORIGIN_LABELS[item.origin]) : null,
     evidence?.name ?? null,
     evidence?.deleted ? t("checkRecord.documentDeleted") : (evidence?.file ?? null),
     evidence?.size ?? null,

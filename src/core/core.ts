@@ -818,6 +818,7 @@ export function createCore(adapters: CoreAdapters): Core {
     stopAnswer: (mindId, answerId) => answers.stop({ mindId, answerId }),
     settleAnswers: (mindId) => answers.settleOrphans(mindId),
     reportError: (error) => console.error(error),
+    personId: () => settings.get().user.personId ?? null,
   });
   // Background work (automatic tagging, Organize's classification, saving cited pages): one
   // job at a time, giving way to Answers.

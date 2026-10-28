@@ -178,8 +178,8 @@ function renderItem(
   ];
   return [
     '<div class="record-item">',
-    `<p class="record-text">${escapeHtml(each.text)}</p>`,
-    `<p class="record-result"><span class="record-shape">${shapeOf(each.result)}</span><b>${escapeHtml(t(resultKey(each)))}</b> · ${escapeHtml(t(KIND_LABELS[each.kind]))} · ${escapeHtml(t(ORIGIN_LABELS[each.origin]))}</p>`,
+    ...(each.text ? [`<p class="record-text">${escapeHtml(each.text)}</p>`] : []),
+    `<p class="record-result"><span class="record-shape">${shapeOf(each.result)}</span><b>${escapeHtml(t(resultKey(each)))}</b> · ${escapeHtml(t(KIND_LABELS[each.kind]))}${each.origin ? ` · ${escapeHtml(t(ORIGIN_LABELS[each.origin]))}` : ""}</p>`,
     ...(evidence
       ? [
           detail(

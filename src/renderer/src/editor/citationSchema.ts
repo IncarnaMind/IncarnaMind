@@ -4,6 +4,7 @@ import { Plugin, PluginKey } from "@tiptap/pm/state";
 import { CITATION_NODE, type CitationAttributes } from "../../../core/api";
 import { citationReference, parseQuotedWords } from "../../../shared/citations";
 import { parseLocation } from "../../../shared/locations";
+import { citationIds } from "./citationIds";
 
 export interface CitationOptions {
   /** Draws the Citation: its badge, and what clicking it does. */
@@ -111,8 +112,8 @@ export const Citation = Node.create<CitationOptions>({
       },
       // Only Keep citing the old version sets it (#99), so a Citation without one stores nothing.
       keptOver: { ...dataAttribute("keptOver"), default: undefined },
-      // Only "Checked by me" gives it (#1933), so a Citation never marked stores nothing. A copy
-      // carries it; one pasted where the Citation still is loses it (`withoutRepeatedIds`).
+      // What "Checked by me" names it by (#1933), given as it is written (`citationIds`). A copy
+      // pasted where the Citation still is gets a new one (`withoutRepeatedIds`).
       id: {
         default: undefined,
         parseHTML: (element: HTMLElement) => element.getAttribute(ID_KEY) ?? undefined,
@@ -134,6 +135,7 @@ export const Citation = Node.create<CitationOptions>({
             view.dragging?.move ? slice : withoutRepeatedIds(slice, view.state.doc, type),
         },
       }),
+      citationIds(type),
     ];
   },
 

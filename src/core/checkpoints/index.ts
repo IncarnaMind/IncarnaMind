@@ -18,8 +18,9 @@ import { randomUUID } from "node:crypto";
 import * as Y from "yjs";
 import { figureRunsFor, installFigureRuns } from "../../shared/figureRuns";
 import { resolveProposals } from "../../shared/proposals";
-import { citationElementId } from "../../shared/signOffs";
+import { citationElementId, isMine, signOffsOf } from "../../shared/signOffs";
 import { nodeOf, topLevelBlocks } from "../answers/blocks";
+import { citationSentences } from "../answers/checks/sentences";
 import { addCitedUnits, addCitedVersions, type CitedUnits } from "../answers/citedVersions";
 import {
   ANSWER_BLOCK,
@@ -61,6 +62,8 @@ export interface CheckpointsOptions {
   /** Marks the Mind's Answers left "streaming" with nothing writing them as stopped. */
   settleAnswers(mindId: string): void;
   reportError(error: unknown): void;
+  /** The User, whose own checks a restore counts (#1933). */
+  personId(): string | null;
 }
 
 interface Row {
@@ -351,7 +354,18 @@ export function createCheckpoints(options: CheckpointsOptions) {
         });
         // One that was being written when the Checkpoint was saved comes back stopped.
         options.settleAnswers(mindId);
-        return { before };
+        const personId = options.personId();
+        const checkedLeftOut = content.peek(mindId, (blocks) => {
+          if (!blocks.doc) return 0;
+          const held = citationSentences(blocks);
+          return signOffsOf(blocks.doc).filter(
+            (record) =>
+              record.target.kind === "citation" &&
+              !held.has(record.target.id) &&
+              isMine(record, personId),
+          ).length;
+        });
+        return { before, checkedLeftOut };
       } finally {
         preview.destroy();
         old.destroy();

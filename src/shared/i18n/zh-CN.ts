@@ -3714,6 +3714,7 @@ export const zhCN = {
   "checkRecord.column.checked": "核对时间（UTC）",
   "checkRecord.column.person": "人工核对",
   "checkRecord.person": "{name} · {time}",
+  "checkRecord.notInNote": "当前笔记中没有",
   "checkRecord.person.changed": "{name} · {time} · 核对后已改动",
   "checkRecord.personNote":
     "“人工核对”是本人在 IncarnaMind 中标记的核对。IncarnaMind 的核对不是人工核对。",
@@ -5701,6 +5702,8 @@ export const zhCN = {
   "history.empty": "还没有历史版本。AI 修改前及停止编辑 5 分钟后会保存。",
   "history.noChanges": "没有变化：这两个版本内容相同。",
   "history.restored": "已恢复 {version} 的版本",
+  "history.restored.leftOut.one": "已恢复 {version} 的版本 · 你核对过的 1 处引文不在其中",
+  "history.restored.leftOut": "已恢复 {version} 的版本 · 你核对过的 {count} 处引文不在其中",
   "history.restored.name": "恢复版本",
   "wordImport.command": "导入 Word 文件…",
   "wordImport.pick.title": "导入 Word 文件",

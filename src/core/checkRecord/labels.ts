@@ -13,7 +13,8 @@ export const translatorFor =
   (key, params) =>
     translate(language, key, params);
 
-const CITATION_RESULTS: Readonly<Record<CitationCheck, MessageKey>> = {
+const CITATION_RESULTS: Readonly<Record<CitationCheck | "gone", MessageKey>> = {
+  gone: "checkRecord.notInNote",
   found: "aiStatement.citations.found",
   "not-found": "aiStatement.citations.notFound",
   "cant-check": "aiStatement.citations.cantCheck",

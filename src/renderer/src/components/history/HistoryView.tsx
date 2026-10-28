@@ -159,14 +159,17 @@ function History({ mindId, onClose }: { mindId: string; onClose(): void }) {
     if (!leftCheckpoint || restoring) return;
     setRestoring(true);
     try {
-      const { before } = await core.restoreCheckpoint(mindId, leftCheckpoint.id);
+      const { before, checkedLeftOut } = await core.restoreCheckpoint(mindId, leftCheckpoint.id);
       const restoredAt = new Date();
       const restoredId = leftCheckpoint.id;
       useUndo.getState().push({
-        said: (t) =>
-          t("history.restored", {
-            version: versionLabel(leftCheckpoint, restoredAt, languageNow(), t),
-          }),
+        said: (t) => {
+          const version = versionLabel(leftCheckpoint, restoredAt, languageNow(), t);
+          if (checkedLeftOut === 0) return t("history.restored", { version });
+          return checkedLeftOut === 1
+            ? t("history.restored.leftOut.one", { version })
+            : t("history.restored.leftOut", { version, count: checkedLeftOut });
+        },
         name: (t) => t("history.restored.name"),
         undo: async () => {
           await core.restoreCheckpoint(mindId, before.id);

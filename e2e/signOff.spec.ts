@@ -1,5 +1,6 @@
 import { join } from "node:path";
 import { expect, type Locator, type Page, test } from "@playwright/test";
+import type { CoreBridge } from "../src/core/api";
 import { translate } from "../src/shared/i18n";
 import {
   checkCard,
@@ -151,6 +152,82 @@ for (const language of ["en", "zh-CN"] as const) {
       await pointAndClick(window, item);
       await openCard(window, chip);
       await expect(again.getByTestId("sign-off-toggle")).toHaveAttribute("aria-pressed", "false");
+    } finally {
+      await app.close();
+    }
+  });
+}
+
+for (const language of ["en", "zh-CN"] as const) {
+  test(`a checked Citation deleted by editing leaves the counts and Undo brings it back; a restore without it says so, and the next restore brings its mark back (${language})`, async () => {
+    const t = (key: Parameters<typeof translate>[1], params?: Parameters<typeof translate>[2]) =>
+      translate(language, key, params);
+    const { app, window } = await launchApp(dataDir, { examples: true });
+    try {
+      // A wide window in English, a narrow one in Chinese.
+      await setWindowSize(app, window, language === "en" ? 1600 : 900, 900);
+      await setLanguage(window, language);
+      await leaveFirstOpen(window);
+      const chips = editor(window).getByTestId("citation-chip");
+      const chip = chips.first();
+      await expect(chip).toHaveAttribute("data-check", "found", { timeout: 30_000 });
+      const card = await openCard(window, chip);
+      await pointAndClick(window, card.getByTestId("sign-off-toggle"));
+      await expect(card.getByTestId("sign-off-toggle")).toHaveAttribute("aria-pressed", "true");
+      await window.keyboard.press("Escape");
+      await expect(card).toHaveCount(0);
+      const cited = await chips.count();
+
+      // Deleted as a person does: the word before it double-clicked, a Shift-click just after it,
+      // and Backspace. The counts cover the text as it is.
+      await chip.evaluate((element) => element.scrollIntoView({ block: "center" }));
+      const box = await chip.boundingBox();
+      if (!box) throw new Error("The Citation isn't on screen.");
+      await window.mouse.dblclick(box.x - 15, box.y + box.height / 2);
+      await window.keyboard.down("Shift");
+      await window.mouse.click(box.x + box.width + 4, box.y + box.height / 2);
+      await window.keyboard.up("Shift");
+      await window.mouse.move(box.x - 15, box.y - 120);
+      await expect(window.getByTestId("citation-card")).toHaveCount(0);
+      await window.keyboard.press("Backspace");
+      await expect.poll(() => chips.count()).toBeLessThan(cited);
+      const left = await chips.count();
+      await expect((await checkCard(window)).getByTestId("health-sign-offs")).toHaveCount(0);
+      await window.keyboard.press("Escape");
+
+      // A version of the Note without it, then ⌘Z brings it back with its mark.
+      const mindId =
+        (await window.locator("article[data-mind-id]").first().getAttribute("data-mind-id")) ?? "";
+      await window.evaluate(async (id) => {
+        const bridge = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
+        await bridge.saveCheckpoint(id, "accept");
+      }, mindId);
+      await editor(window).focus();
+      await window.keyboard.press("ControlOrMeta+z");
+      await expect(chips).toHaveCount(cited);
+      const back = await openCard(window, chip);
+      await expect(back.getByTestId("sign-off-toggle")).toHaveAttribute("aria-pressed", "true");
+      await window.keyboard.press("Escape");
+
+      // Restoring that version says, in the restore's own line, that the Citation isn't in it.
+      await runCommand(window, "mind.history", t("history.command"));
+      const history = window.getByTestId("history");
+      await expect(history).toBeVisible();
+      await pointAndClick(window, history.getByTestId("history-restore"));
+      await expect(history).toBeHidden();
+      await expect(chips).toHaveCount(left);
+      const [restored, leftOut] = t("history.restored.leftOut.one", { version: "\u0000" }).split(
+        "\u0000",
+      );
+      await expect(window.getByTestId("undo-message")).toContainText(restored ?? "");
+      await expect(window.getByTestId("undo-message")).toContainText(leftOut ?? "");
+      await screenshot(window, `sign-off-restored-left-out-${language}`);
+
+      // Undo takes the restore back: the Citation returns, and its mark with it.
+      await pointAndClick(window, window.getByTestId("undo-action"));
+      await expect(chips).toHaveCount(cited);
+      const returned = await openCard(window, chip);
+      await expect(returned.getByTestId("sign-off-toggle")).toHaveAttribute("aria-pressed", "true");
     } finally {
       await app.close();
     }

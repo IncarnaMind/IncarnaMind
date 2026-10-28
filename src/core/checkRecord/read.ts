@@ -83,11 +83,22 @@ export type SentenceItem = RecordItemFields & {
  * IncarnaMind checks a Citation's quote against the Document's text without a model, and keeps no
  * time. `signOff` is a person's own check of it (#1933), which isn't IncarnaMind's.
  */
-export type CitationItem = RecordItemFields & {
-  kind: "citation";
-  result: CitationCheck;
-  signOff: SignOffNow | null;
-};
+export type CitationItem =
+  | (RecordItemFields & {
+      kind: "citation";
+      result: CitationCheck;
+      signOff: SignOffNow | null;
+    })
+  | {
+      /** A person's check of a Citation the Note doesn't hold now, kept as a row (#1933). */
+      kind: "citation";
+      result: "gone";
+      text: "";
+      origin: null;
+      says: null;
+      evidence: null;
+      signOff: SignOffNow;
+    };
 
 export type RecordItem = SentenceItem | CitationItem;
 
@@ -248,6 +259,18 @@ export function readRecord(sources: RecordSources): {
     for (const group of groupsOf(readBlock(child, readOptions))) {
       citations.push(...citationsIn(group, { attributesOf, origin, sources, signOffOf }));
     }
+  }
+  for (const mark of marks) {
+    if (mark.target.kind !== "citation" || signedOff.has(mark.target.id)) continue;
+    citations.push({
+      kind: "citation",
+      result: "gone",
+      text: "",
+      origin: null,
+      says: null,
+      evidence: null,
+      signOff: signOffNow({ state: "checked", record: mark }, sources.personId),
+    });
   }
   return { sentences, citations, requests };
 }

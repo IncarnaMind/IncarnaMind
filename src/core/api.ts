@@ -657,6 +657,8 @@ export interface MindComparison {
 /** What restoring a Checkpoint did: it saved the Mind as it was, which restoring takes the restore back. */
 export interface RestoredCheckpoint {
   before: Checkpoint;
+  /** How many Citations the User checked the restored text doesn't hold (#1933). */
+  checkedLeftOut: number;
 }
 
 /**

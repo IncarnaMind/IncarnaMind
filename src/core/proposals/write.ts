@@ -42,6 +42,7 @@ import {
   targetHash,
   targetText,
 } from "../../shared/proposals";
+import { citationElementId } from "../../shared/signOffs";
 import { createElement, formattingOf, type NodeJSON } from "../answers/blocks";
 import {
   BLOCK_ID_ATTRIBUTE,
@@ -328,7 +329,9 @@ export function readSelection(blocks: Y.XmlFragment, from: TextPlace, to: TextPl
   const nodeToken = (node: Y.XmlElement, attributes: Attributes, index: number): NodeKey => {
     const name = node.nodeName;
     if (name === CITATION_NODE) {
-      citations.push(attributes);
+      // One written before Citations had ids goes by its element's, which the versions kept before share.
+      const id = attributes[BLOCK_ID_ATTRIBUTE] ?? citationElementId(node);
+      citations.push(id ? { ...attributes, [BLOCK_ID_ATTRIBUTE]: id } : attributes);
       return { key: keyOf.citation(citations.length), shown: `[${citations.length}]` };
     }
     if (name === FOOTNOTE_NODE) {
@@ -645,12 +648,24 @@ function newParagraphs(
       ),
     ),
   );
+  // A Citation the new text cites again is the same Citation, so its id goes with it (#1933);
+  // cited a second time, it is a copy, which gets an id of its own.
+  const cited = new Set<number>();
   const citationNode = (n: number): NewToken | null => {
-    const attributes = fresh.get(n) ?? selection.citations[n - 1];
-    if (!attributes) return null;
+    const was = selection.citations[n - 1];
+    const now = fresh.get(n) ?? was;
+    if (!now) return null;
+    const { [BLOCK_ID_ATTRIBUTE]: _, ...attributes } = now;
+    const id = was?.[BLOCK_ID_ATTRIBUTE];
+    const first = !cited.has(n);
+    cited.add(n);
     return {
       key: `${keyOf.citation(n)}${fresh.has(n) ? "*" : ""}`,
-      node: { name: CITATION_NODE, attributes },
+      node: {
+        name: CITATION_NODE,
+        attributes:
+          first && id !== undefined ? { ...attributes, [BLOCK_ID_ATTRIBUTE]: id } : attributes,
+      },
     };
   };
   const footnoteNode = (n: number): NewToken | null => {

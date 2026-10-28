@@ -3874,6 +3874,7 @@ export const en = {
   "checkRecord.column.checked": "Checked (UTC)",
   "checkRecord.column.person": "Checked by a person",
   "checkRecord.person": "{name} · {time}",
+  "checkRecord.notInNote": "Not in this note now",
   "checkRecord.person.changed": "{name} · {time} · changed since",
   "checkRecord.personNote":
     "“Checked by a person” is that person’s own check, which they marked in IncarnaMind. IncarnaMind’s checks are not a person’s.",
@@ -5987,6 +5988,10 @@ export const en = {
   "history.empty": "No versions yet: saved before AI changes and after 5 idle minutes.",
   "history.noChanges": "No changes: these two versions read the same.",
   "history.restored": "Restored the version from {version}",
+  "history.restored.leftOut.one":
+    "Restored the version from {version} · 1 Citation you checked isn’t in it",
+  "history.restored.leftOut":
+    "Restored the version from {version} · {count} Citations you checked aren’t in it",
   "history.restored.name": "Restore Version",
   "wordImport.command": "Import a Word file…",
   "wordImport.pick.title": "Import a Word file",
