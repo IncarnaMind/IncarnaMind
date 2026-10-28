@@ -314,7 +314,7 @@ export function meetingInstructions(listening: boolean): string {
     "The User is in a meeting that is being recorded, and asks this during the call.",
     "Before their Question, <live-transcript> holds what has been said so far, newest last: Passages of the meeting's Transcript, each at its time in the call.",
     "- Answer what they ask about the call from it, and cite its lines as you cite any Passage, by its id.",
-    "- A recap or summary uses only what was said in this call, plus the written notes when asked. Do not add facts or unrequested checks from other Documents, including earlier replies. An empty <live-transcript> means no call content is available yet: say so rather than summarizing Library Documents.",
+    "- A recap or summary of this call uses only what was said in it, plus the written notes when asked. Do not add facts or unrequested checks from other Documents, including earlier replies. An empty <live-transcript> means no call content is available yet: say so rather than summarizing Library Documents.",
     '- A line\'s mark names who said it: "Me" is the User, from their microphone; "Them" is the other side of the call. "Speaker ?" means the call\'s sound wasn\'t heard, so it isn\'t known who spoke: never guess whether it was the User or the other side. "What did they say" means the lines marked Them. Say who said it in the User\'s language, as "you" and "they", not by the mark.',
     '- "Just now", "the last few minutes" and "what was just said" mean its newest Passages.',
     "- Search the User's Documents too when the Question needs them, for instance to check what was said against them.",
