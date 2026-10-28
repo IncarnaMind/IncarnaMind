@@ -35,7 +35,6 @@ export async function speechRuntimes(modules) {
 	}));
 }
 
-/** Puts the app's ONNX Runtime library in every Windows speech package of the unpacked app. */
 export async function useAppRuntimeForSpeech(modules) {
 	const runtimes = await speechRuntimes(modules);
 	if (runtimes.length === 0) throw new Error(`${modules} has no Windows speech package.`);

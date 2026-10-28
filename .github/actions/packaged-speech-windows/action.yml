@@ -2,8 +2,8 @@ name: The packaged Windows app's speech engine
 description: >
   Runs the packaged transcription check against the Windows app already packaged in dist/
   (the dist:dir script): a recording through Chromium's fake microphone transcribed by the real
-  speech engine and model, then the speech process's loaded ONNX Runtime library and registered
-  event providers (#2152). Needs the dependencies installed first.
+  speech engine and model, then the speech process's loaded ONNX Runtime library (#2152). Needs the
+  dependencies installed first.
 
 runs:
   using: composite

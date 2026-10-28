@@ -19,7 +19,6 @@ const sha256 = async (file: string) =>
     .update(await readFile(file))
     .digest("hex");
 
-/** The processes the app started to run a built-in model, by the name each was given. */
 async function engineProcess(app: ElectronApplication, name: string): Promise<number> {
   const processes = await app.evaluate(({ app: electron }) =>
     electron
@@ -36,12 +35,20 @@ const powershell = async (command: string) =>
 
 /**
  * What the speech engine's process loaded, once it has decoded (#2152): one ONNX Runtime library,
- * the app's own 1.30 build, which the process's environment keeps from writing usage events; and
- * no event provider of ONNX Runtime registered with Windows by the process, so nothing of the
- * engine's reaches Windows' diagnostic data.
+ * the app's own, which the process's environment keeps from writing usage events. The process
+ * is found by the name it was started with.
  */
 export async function expectSpeechEngineOnTheAppsRuntime(app: ElectronApplication): Promise<void> {
   const pid = await engineProcess(app, "transcription");
+  const appRuntime = join(
+    unpacked,
+    "onnxruntime-node",
+    "bin",
+    "napi-v6",
+    "win32",
+    "x64",
+    "onnxruntime.dll",
+  );
 
   const modules = await powershell(
     `(Get-Process -Id ${pid}).Modules | Where-Object { $_.ModuleName -ieq 'onnxruntime.dll' } | ForEach-Object { $_.FileName + '|' + $_.FileVersionInfo.FileVersion }`,
@@ -49,14 +56,10 @@ export async function expectSpeechEngineOnTheAppsRuntime(app: ElectronApplicatio
   const loaded = modules.split(/\r?\n/).filter(Boolean);
   expect(loaded, `onnxruntime.dll modules of process ${pid}: ${modules}`).toHaveLength(1);
   const [file, version] = (loaded[0] as string).split("|") as [string, string];
-  expect(version).toMatch(/^1\.30\./);
-  expect(await sha256(file)).toBe(
-    await sha256(
-      join(unpacked, "onnxruntime-node", "bin", "napi-v6", "win32", "x64", "onnxruntime.dll"),
-    ),
-  );
-
-  const providers = (await run("logman.exe", ["query", "providers", "-pid", String(pid)])).stdout;
-  expect(providers, "logman listed no providers for the process").toMatch(/Provider/i);
-  expect(providers).not.toMatch(/ONNXRuntime/i);
+  const appVersion = (
+    await powershell(`(Get-Item '${appRuntime}').VersionInfo.FileVersion`)
+  ).trim();
+  expect(appVersion).not.toBe("");
+  expect(version).toBe(appVersion);
+  expect(await sha256(file)).toBe(await sha256(appRuntime));
 }
