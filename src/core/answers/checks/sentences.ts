@@ -134,8 +134,14 @@ export function figuresByBlock(blocks: Y.XmlFragment): ReadonlyMap<string, Check
 
 /**
  * What a Mind's stored checks are compared with of its figures now: each figure's context, and
- * whether a marked paragraph sentence holds any (`ClaimCheckNow.figured`).
+ * whether a marked table cell holds any (`ClaimCheckNow.figured`).
  */
+/** A paragraph that is a table's cell: a whole-sentence check of it read it without its row and column. */
+export const inTableCell = (element: Y.XmlElement): boolean =>
+  element.nodeName === "paragraph" &&
+  element.parent instanceof Y.XmlElement &&
+  (element.parent.nodeName === "tableCell" || element.parent.nodeName === "tableHeader");
+
 export function figuresNow(blocks: Y.XmlFragment): {
   figureContexts: Map<string, string>;
   figured(marked: { element: Y.XmlElement; from: number; to: number }): boolean;
@@ -152,7 +158,7 @@ export function figuresNow(blocks: Y.XmlFragment): {
     figured: ({ element, from, to }) => {
       const blockId = element.getAttribute(BLOCK_ID_ATTRIBUTE);
       return (
-        element.nodeName === "paragraph" &&
+        inTableCell(element) &&
         typeof blockId === "string" &&
         inSpan(byBlock.get(blockId) ?? [], from, to).length > 0
       );

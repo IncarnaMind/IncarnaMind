@@ -502,8 +502,8 @@ function MindEditorView({
   const figurePlaces = useMemo(() => {
     if (!schedule || schedule.basis !== fingerprintOfMind(doc)) return null;
     const places = new Map<string, [number, number][]>();
-    for (const { locator } of schedule.rows) {
-      if (locator.kind !== "text") continue;
+    for (const { locator, place } of schedule.rows) {
+      if (locator.kind !== "text" || !place.table) continue;
       const { blockId } = locator.from;
       places.set(blockId, [
         ...(places.get(blockId) ?? []),

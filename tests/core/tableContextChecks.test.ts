@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import type { JSONContent } from "@tiptap/core";
 import { describe, expect, test } from "vitest";
 import * as Y from "yjs";
-import { CLAIM_CHECK_MARK } from "../../src/core/api";
+import { CLAIM_CHECK_MARK, type FigureSchedule } from "../../src/core/api";
 import { claimSpans, claimsOf } from "../../src/renderer/src/editor/claimChecks";
 import { pendingProposals } from "../../src/shared/proposals";
 import { INLINE_NODE } from "../../src/shared/sentences";
@@ -497,18 +497,11 @@ describe("A verdict stored before figures were checked one by one", () => {
     const schedule = await core.getFigureSchedule(mindId);
     const row = schedule.rows.find((each) => each.reading.chars === "100");
     expect(row?.shown).toEqual({ state: "needs-recheck", why: "figures" });
-    const places = new Map<string, [number, number][]>();
-    for (const { locator } of schedule.rows)
-      if (locator.kind === "text")
-        places.set(locator.from.blockId, [
-          ...(places.get(locator.from.blockId) ?? []),
-          [locator.from.offset, locator.to.offset],
-        ]);
     const { claims } = claimsOf(readMind(client), {
       versions: null,
       folderId: null,
       scope: null,
-      figurePlaces: places,
+      figurePlaces: tablePlaces(schedule),
     });
     expect(claims.map(({ shown }) => shown)).toEqual([{ state: "needs-recheck", why: "figures" }]);
 
@@ -519,7 +512,84 @@ describe("A verdict stored before figures were checked one by one", () => {
     expect(again?.check.request).not.toBe("old");
     expect(again?.check.figures?.map((figure) => figure.reading.chars)).toEqual(["100"]);
   });
+
+  // protects=an older verdict on a sentence of prose with a figure stands, as Verify and the examples still make them: the sentence was read whole, so only a table cell's is checked again (#1459); fails_when=every such verdict on a Note turns Needs re-check; no_claim=none beyond protects.
+  test("a sentence of prose keeps it: only a table cell was read without its row and column", async () => {
+    const budget = BUDGETS[0] as Budget;
+    const checks: ModelCall[] = [];
+    const model = scriptedModel(
+      (call) => {
+        checks.push(call);
+        return checkReply(call, budget.plans);
+      },
+      { generate: checkGenerate(budget.plans) },
+    );
+    const { core, client, mindId } = await budgetMind(budget, model);
+    const text = "Revenue was 210 in 2025.";
+    writeMind(client, [
+      {
+        type: "paragraph",
+        attrs: { id: randomUUID() },
+        content: [
+          {
+            type: "text",
+            text,
+            marks: [
+              {
+                type: CLAIM_CHECK_MARK,
+                attrs: {
+                  id: randomUUID(),
+                  request: "old",
+                  action: "check-against-documents",
+                  state: "contradicted",
+                  reason: null,
+                  detail: null,
+                  providerId: "provider",
+                  modelId: "model",
+                  text,
+                  evidence: null,
+                  says: "The budget gives 120 for 2025.",
+                  unsupported: null,
+                  calculation: null,
+                  citedCaseUnchecked: false,
+                  citedCaseFound: false,
+                  scope: { folderId: null, widened: true },
+                  versions: [],
+                  excluded: [],
+                  checkedAt: "2026-10-20T12:46:23.507Z",
+                },
+              },
+            ],
+          },
+        ],
+      },
+    ]);
+    await client.settled();
+
+    const schedule = await core.getFigureSchedule(mindId);
+    const { claims } = claimsOf(readMind(client), {
+      versions: null,
+      folderId: null,
+      scope: null,
+      figurePlaces: tablePlaces(schedule),
+    });
+    expect(claims.map(({ shown }) => shown.state)).toEqual(["contradicted"]);
+    await core.checkMind({ requestId: randomUUID(), mindId, mode: "changed" });
+    expect(checks.some((call) => sentenceOf(call) === text)).toBe(false);
+  });
 });
+
+/** Where a table's figures are, as the editor gives them to the margin. */
+function tablePlaces(schedule: FigureSchedule): Map<string, [number, number][]> {
+  const places = new Map<string, [number, number][]>();
+  for (const { locator, place } of schedule.rows)
+    if (locator.kind === "text" && place.table)
+      places.set(locator.from.blockId, [
+        ...(places.get(locator.from.blockId) ?? []),
+        [locator.from.offset, locator.to.offset],
+      ]);
+  return places;
+}
 
 describe("Check this Mind on the User's own numeric table", () => {
   // protects=a whole-Note check reads an ordinary table the User wrote cell by cell, with its headings: a quantity (3 where the Document gives 2) is checked with its row and column and gets its own result, not left out while the prose is checked (#1459); fails_when=the table's cells get no check, or are counted and left unchecked; no_claim=how well a real model judges it.

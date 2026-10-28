@@ -763,7 +763,7 @@ describe("sentences whose check isn't good, in an imported file (#900)", () => {
   test("each gets a comment on its own words, written into its paragraph; the others stay as they were", async () => {
     const { core, bytes, mindId, client } = await setUp({
       body:
-        paragraph("Halden’s head office is in Leeds.") +
+        paragraph("Halden held cash of £192.9m.") +
         paragraph("Nothing to check here.") +
         paragraph("Margins widened in 2026."),
     });
@@ -771,7 +771,7 @@ describe("sentences whose check isn't good, in an imported file (#900)", () => {
       {
         ...(first as JSONContent),
         content: [
-          checked("Halden’s head office is in Leeds.", "contradicted", "The report says York."),
+          checked("Halden held cash of £192.9m.", "contradicted", "The report says £182.9m."),
         ],
       },
       second as JSONContent,
@@ -795,41 +795,17 @@ describe("sentences whose check isn't good, in an imported file (#900)", () => {
       commented: true,
     });
     expect([...comments.matchAll(/<w:comment /g)]).toHaveLength(2);
-    expect(textOf(comments)).toContain("Contradicted: The report says York.");
+    expect(textOf(comments)).toContain("Contradicted: The report says £182.9m.");
     expect(textOf(comments)).toContain("Not found: I didn’t find this in “All Documents”.");
     const [first, second, third] = paragraphsIn(document);
     expect(first).toMatch(
-      /<w:commentRangeStart w:id="(\d+)"\/>[\s\S]*Halden’s head office is in Leeds\.[\s\S]*<w:commentRangeEnd w:id="\1"\/>/,
+      /<w:commentRangeStart w:id="(\d+)"\/>[\s\S]*Halden held cash of £192\.9m\.[\s\S]*<w:commentRangeEnd w:id="\1"\/>/,
     );
     expect(third).toMatch(
       /<w:commentRangeStart w:id="(\d+)"\/>[\s\S]*Margins widened in 2026\.[\s\S]*<w:commentRangeEnd w:id="\1"\/>/,
     );
     const before = paragraphsIn(unzip(bytes).get("word/document.xml")?.toString("utf8") ?? "");
     expect(second).toBe(before[1]);
-  });
-
-  test("a sentence with figures checked before each figure had its own check is commented as needing re-check (#1459)", async () => {
-    const { core, mindId, client } = await setUp({
-      body: paragraph("Halden held cash of £192.9m."),
-    });
-    editMind(client, ([first]) => [
-      {
-        ...(first as JSONContent),
-        content: [
-          checked("Halden held cash of £192.9m.", "contradicted", "The report says £182.9m."),
-        ],
-      },
-    ]);
-    await client.settled();
-
-    const result = await core.exportMind(mindId, { format: "docx", commentFailedChecks: true });
-    const comments = textOf(unzip(result.data).get("word/comments.xml")?.toString("utf8") ?? "");
-
-    expect(result.sentenceChecks).toMatchObject({ contradicted: 0, needsRecheck: 1 });
-    expect(comments).toContain(
-      "Needs re-check: checked before each of its figures was checked with its own source.",
-    );
-    expect(comments).not.toContain("£182.9m");
   });
 
   const STAFF = "Staff may work from home two days a week.";

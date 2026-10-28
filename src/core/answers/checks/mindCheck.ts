@@ -58,6 +58,7 @@ import {
   checkText,
   everySentence,
   figuresNow,
+  inTableCell,
   keptAsView,
   markedSentences,
   markSentence,
@@ -145,7 +146,7 @@ interface Sending {
 }
 
 const figuredSentence = (sentence: SelectedSentence) =>
-  sentence.element.nodeName === "paragraph" && (sentence.figures?.length ?? 0) > 0;
+  inTableCell(sentence.element) && (sentence.figures?.length ?? 0) > 0;
 
 export function createMindCheck(options: MindCheckOptions) {
   const { content } = options;

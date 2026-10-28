@@ -193,7 +193,7 @@ export function claimSpans(doc: ProseMirrorNode): ClaimSpan[] {
 /** What a check is compared with besides its sentence: the Documents' versions and the Mind's Folder. */
 export interface ClaimContext {
   figureContexts?: ReadonlyMap<string, string> | null;
-  /** Where each figure the one Check reads is, by Block: its start and end in the Block's text. */
+  /** Where each figure the one Check reads in a table's cells is, by Block: its start and end in the Block's text. */
   figurePlaces?: ReadonlyMap<string, readonly (readonly [number, number])[]> | null;
   /** Each live Document's current version, by id; null while they aren't known. */
   versions: ReadonlyMap<string, string> | null;
