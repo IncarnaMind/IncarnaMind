@@ -501,6 +501,34 @@ test("one selected figure is outlined; the menu acts on every selected figure an
   expect(button("Check again", menuOf("c") ?? container)).toBeNull();
 });
 
+test("a render that changes nothing doesn't outline the figure in the note again", async () => {
+  const shown = schedule([row("a", 1), row("b", 2)]);
+  await render(shown);
+  await click(mainOf("a"));
+  expect(actions.onFocusFigure).toHaveBeenLastCalledWith(expect.objectContaining({ id: "a" }));
+  actions.onFocusFigure.mockClear();
+  await render(shown);
+  expect(actions.onFocusFigure).not.toHaveBeenCalled();
+});
+
+test("a selection of mixed figures shows each item for, counts and acts on the figures it applies to", async () => {
+  const unread = row("unread", 1, { shown: { state: "not-checked", reason: "unread" } });
+  const kept = row("kept", 2, { shown: { state: "kept" } });
+  await render(schedule([unread, kept, row("supported", 3)]));
+  await click(mainOf("supported"));
+  await click(mainOf("unread"), { ctrlKey: true });
+  // The menu of a Supported row still checks the selected figure that isn't checked.
+  await click(button("Check again", menuOf("supported") ?? container));
+  expect(actions.onCheckAgain).toHaveBeenLastCalledWith(["unread"]);
+  await click(button("Keep 2 figures as my view", menuOf("supported") ?? container));
+  expect(actions.onKeep).toHaveBeenLastCalledWith(["unread", "supported"]);
+  await click(mainOf("kept"));
+  await click(mainOf("unread"), { ctrlKey: true });
+  // A kept row's menu still keeps the selected figure that isn't kept.
+  await click(button("Keep as my view", menuOf("kept") ?? container));
+  expect(actions.onKeep).toHaveBeenLastCalledWith(["unread"]);
+});
+
 test("a contradicted figure offers Change to its source value; a supported uncited one Add as Citation", async () => {
   const off = row("off", 1, {
     shown: { state: "contradicted" },

@@ -277,6 +277,19 @@ export function rowGlyph(row: FigureScheduleRow): ScheduleGlyph {
   return group;
 }
 
+/** Of the chosen rows, those Check again checks: not checked, needing a re-check or kept. */
+export const toCheckAgain = (rows: readonly FigureScheduleRow[]): FigureScheduleRow[] =>
+  rows.filter(
+    (row) =>
+      row.shown.state === "not-checked" ||
+      row.shown.state === "needs-recheck" ||
+      row.shown.state === "kept",
+  );
+
+/** Of the chosen rows, those Keep as my view keeps: every one not kept already. */
+export const toKeep = (rows: readonly FigureScheduleRow[]): FigureScheduleRow[] =>
+  rows.filter((row) => row.shown.state !== "kept");
+
 /** A row that isn't checked yet shows no source, value or Difference. */
 export const notCheckedYet = (row: FigureScheduleRow): boolean =>
   row.shown.state === "not-checked" || row.shown.state === "checking";
