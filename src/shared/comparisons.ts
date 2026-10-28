@@ -94,7 +94,9 @@ export function hiddenColumnsNote(
 ): string | null {
   const hidden = questions.filter((question) => question.hidden === true);
   if (hidden.length === 0) return null;
-  const columns = hidden.map((question) => `“${comparisonNameOf(question)}”`).join(", ");
+  const columns = hidden
+    .map((question) => `“${comparisonNameOf(question)}”`)
+    .join(t("export.parts.separator"));
   return t(
     hidden.length === 1 ? "export.comparison.hidden.one" : "export.comparison.hidden.other",
     { count: hidden.length, columns },

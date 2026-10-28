@@ -1528,6 +1528,41 @@ test("a column's edge resizes it and the width and a hidden column stay with the
   await bridge(window).language("en");
 });
 
+test("fitting a column measures what the table shows, not a hidden column's cells", async () => {
+  test.setTimeout(120_000);
+  const { app, window } = await launchApp(dataDir, { fakeChat: true });
+  await dismissChatSetup(window);
+  await setWindowSize(app, window, 1600, 860);
+  await useLocalChatModel(window);
+  const table = await filledSuppliersTable(window);
+  // A short heading, so the cells decide the fitted width.
+  const fields = await editColumn(window, headingAt(table, 1));
+  await fields.label.fill("Cap");
+  await window.keyboard.press("Enter");
+  await expect(headingAt(table, 1)).toHaveText("Cap");
+
+  const widthOf = async (heading: Locator) => (await heading.boundingBox())?.width ?? 0;
+  const fit = async (heading: Locator) => {
+    await pointAt(window, heading.getByTestId("comparison-column-resize"));
+    await heading.getByTestId("comparison-column-resize").dblclick();
+    await expect(window.getByTestId("undo-message")).toContainText("Resized “Cap”");
+  };
+  await fit(headingAt(table, 1));
+  const shown = await widthOf(headingAt(table, 1));
+  await pointAndClick(window, window.getByTestId("undo-action"));
+
+  // Hidden before it, the column fits to its own Answers still.
+  await headingAt(table, 0).focus();
+  await pointAndClick(window, headingAt(table, 0).getByTestId("comparison-column-menu"));
+  await pointAndClick(
+    window,
+    headingAt(table, 0).locator('[role="menu"]').getByTestId("comparison.column.hide"),
+  );
+  await expect(table.getByTestId("comparison-question")).toHaveCount(1);
+  await fit(headingAt(table, 0));
+  expect(Math.abs((await widthOf(headingAt(table, 0))) - shown)).toBeLessThanOrEqual(2);
+});
+
 test("⌘K edits a column by keyboard, and the Excel export follows the label", async () => {
   test.setTimeout(120_000);
   const { app, window } = await launchApp(dataDir, { fakeChat: true });

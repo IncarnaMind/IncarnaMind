@@ -28,7 +28,10 @@ export function fittedColumnWidth(table: HTMLElement, questionId: string): numbe
     clone.querySelector(".comparison-question-menu")?.remove(),
   );
   for (const row of table.querySelectorAll<HTMLElement>(".comparison-row")) {
-    const cell = row.querySelectorAll<HTMLElement>(".comparison-cell")[index];
+    // A hidden column keeps its cell in the row, unshown: measure only the cells the table draws.
+    const cell = Array.from(row.querySelectorAll<HTMLElement>(".comparison-cell")).filter(
+      (each) => each.getClientRects().length > 0,
+    )[index];
     if (!cell) continue;
     widest = Math.max(
       widest,
