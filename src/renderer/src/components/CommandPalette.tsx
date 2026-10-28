@@ -41,6 +41,7 @@ import {
 } from "../palette";
 import { useAppStore } from "../store";
 import {
+  CheckLineIcon,
   ConversationLineIcon,
   DocumentLineIcon,
   MindLineIcon,
@@ -464,6 +465,9 @@ function Option({
           </span>
         )}
       </span>
+      {item.kind === "command" && item.checked && (
+        <CheckLineIcon data-testid="palette-checked" className="size-4 shrink-0 text-ink-meta" />
+      )}
       {item.kind === "command" && item.shortcut && (
         <span className="shrink-0 text-[12px] text-ink-meta">{item.shortcut}</span>
       )}

@@ -24,7 +24,7 @@ import { mindName } from "../../shared/naming";
 import { focusComposer } from "./commands/assistant";
 import { placeAt } from "./commands/edit";
 import { placeHere } from "./commands/here";
-import { menuKeysLabel, objectAt, surfaceOf } from "./commands/keymap";
+import { menuKeysLabel, objectAt } from "./commands/keymap";
 import {
   COMMAND_GROUPS,
   type CommandContext,
@@ -89,7 +89,9 @@ function acting(
  */
 export function contextAt(active: Element | null): CommandContext {
   const { surface, items } = useSelection.getState();
-  if (surface !== null && items.length > 0 && surfaceOf(active) === surface) {
+  // By the list's own mark: the Figure schedule holds a selection without being a command surface.
+  const list = active?.closest<HTMLElement>("[data-surface]")?.dataset.surface;
+  if (surface !== null && items.length > 0 && list === surface) {
     return acting(items.length === 1 ? items[0] : undefined, active, {
       selection: items,
       focus: null,
@@ -127,6 +129,8 @@ export type PaletteItem =
       /** What it is for, under its name; "" for most. */
       purpose: string;
       shortcut: string | null;
+      /** A toggle's state, shown as a tick; undefined for a command that isn't one. */
+      checked?: boolean;
     }
   | {
       kind: "note";
@@ -311,6 +315,7 @@ export function actionGroup(
       meta: command.appliesTo ? targetName : "",
       purpose: command.purpose ? t(command.purpose) : "",
       shortcut: menuKeysLabel(command),
+      ...(command.checked && { checked: command.checked(ctx) }),
     };
     // A match by keyword or in the other language ranks below one by its name.
     const score = named?.score ?? (elsewhere ? elsewhere.score - 4000 : 0);

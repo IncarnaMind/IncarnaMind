@@ -14,6 +14,7 @@ import {
   type NoteState,
   setFigureTotalRole,
 } from "../../editor/figureActions";
+import { currentSigner, figureMarkOf, setFigureSignOffs } from "../../editor/signOffActions";
 import { exportFigureSchedule } from "../../exports";
 import { focusFigure, useFigureSchedule } from "../../figures";
 import { translateNow, useLanguage, useT } from "../../i18n";
@@ -81,14 +82,32 @@ export function FigureScheduleTab({ mindId }: { mindId: string }) {
     if (schedule) edit((note) => keepFigureViews(note, schedule, ids));
   };
   const checkAgain = (figureIds: string[]) => void checkMind(mindId, "all", { figureIds });
-  const actions = useRef({ keep, checkAgain });
-  actions.current = { keep, checkAgain };
+  const signOff = (ids: string[], off: boolean) => {
+    const signer = currentSigner();
+    if (!copy || !schedule || !signer) return;
+    try {
+      if (!copy.editable) throw new Error(translateNow("figures.changed"));
+      const chosen = schedule.rows.filter((row) => ids.includes(row.id)).map(figureMarkOf);
+      const undoable = setFigureSignOffs(
+        { mindId, basis: schedule.basis, copy: copy.doc },
+        chosen,
+        off,
+        signer,
+      );
+      if (undoable) madeHere.current.push(undoable);
+    } catch (error) {
+      report(error);
+    }
+  };
+  const actions = useRef({ keep, checkAgain, signOff });
+  actions.current = { keep, checkAgain, signOff };
   useEffect(() => {
     if (!schedule) return;
     const held = {
       schedule,
       keep: (ids: string[]) => actions.current.keep(ids),
       checkAgain: (ids: string[]) => actions.current.checkAgain(ids),
+      signOff: (ids: string[], off: boolean) => actions.current.signOff(ids, off),
     };
     figureScheduleHandle.current = held;
     return () => {
@@ -180,6 +199,7 @@ export function FigureScheduleTab({ mindId }: { mindId: string }) {
         onStop={() => stopCheck(mindId)}
         onKeep={keep}
         onCheckAgain={checkAgain}
+        onSignOff={signOff}
         onChangeToSource={(ids) => {
           if (!schedule) return;
           edit((note) => changeFiguresToSource(note, schedule, ids));

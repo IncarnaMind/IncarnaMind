@@ -171,14 +171,19 @@ export const figureSignOffBasis = (figure: {
     sources: [],
   });
 
-/** The Citations a figure's check read it from, whose newer versions change the User's check. */
+/**
+ * The Citations a figure rests on, whose newer versions change the User's check: a calculated
+ * figure's inputs, or the Citation its check read it from.
+ */
 export const figureSignOffSources = (
   figure: Pick<FigureFinding, "source" | "sourceInput" | "calculated">,
-): Citation[] => [
-  ...(figure.source ? [figure.source] : []),
-  ...(figure.sourceInput ? [figure.sourceInput.citation] : []),
-  ...(figure.calculated?.figure.inputs.map((input) => input.citation) ?? []),
-];
+): Citation[] =>
+  figure.calculated
+    ? figure.calculated.figure.inputs.map((input) => input.citation)
+    : [
+        ...(figure.source ? [figure.source] : []),
+        ...(figure.sourceInput ? [figure.sourceInput.citation] : []),
+      ];
 
 /**
  * How a sign-off shows: checked while what it rests on is as it was, else changed. `versions`
@@ -205,6 +210,10 @@ export function signOffShown(
 /** Whether a mark is the User's own: theirs on any device, or made before they had an id. */
 export const isMine = (record: SignOffRecord, personId: string | null): boolean =>
   record.personId === undefined || record.personId === personId;
+
+/** Whether "Checked by me" shows ticked: the User's own mark stands on the item as it is now. */
+export const checkedByMe = (now: SignOffNow | null): boolean =>
+  now?.mine === true && now.state === "checked";
 
 export const signOffNow = (
   { state, record }: SignOffShown,

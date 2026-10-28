@@ -5509,6 +5509,43 @@
       background: #2e3238;
     }
   }
+  /*
+   * The User's own "Checked by me" (#1933): a person's check, never the app's result, so it is
+   * drawn in ink, not in a check's colours. Changed since, it is quieter and offers Check again.
+   */
+  .sign-off-line {
+    margin: 0;
+    padding-left: 22px;
+    font-size: var(--text-meta);
+    line-height: 18px;
+    color: var(--color-ink-secondary);
+
+    &[data-state="changed"] {
+      color: var(--color-ink-meta);
+    }
+  }
+  .sign-off-again {
+    color: var(--color-accent-strong);
+
+    &:hover {
+      text-decoration: underline;
+    }
+  }
+  .sign-off-toggle {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+
+    &[aria-pressed="true"] {
+      background: var(--color-chip);
+      box-shadow: none;
+    }
+  }
+  .sign-off-toggle-tick {
+    width: 14px;
+    height: 14px;
+    margin-left: -2px;
+  }
   /* In a note style, the note the Citation is written as: what the export's footnote says. */
   .citation-card-styled {
     margin: 0;

@@ -1,0 +1,200 @@
+import { join } from "node:path";
+import { expect, type Locator, type Page, test } from "@playwright/test";
+import { translate } from "../src/shared/i18n";
+import {
+  checkCard,
+  createDataFolder,
+  launchApp,
+  leaveFirstOpen,
+  motionSettled,
+  pointAndClick,
+  removeDataFolder,
+  runCommand,
+  setLanguage,
+  setWindowSize,
+} from "./app";
+
+/*
+ * The User's own "Checked by me" (D280, #1933): a Citation's card and menu mark it as checked by
+ * the User, with their name and the time, apart from the app's check; Undo takes it back; an
+ * edit to its sentence keeps the mark as changed, with Check again; the badge's card counts the
+ * User's checks on a line of their own.
+ */
+
+const SCREENSHOTS = process.env.INCARNAMIND_SCREENSHOTS;
+
+async function screenshot(window: Page, name: string): Promise<void> {
+  if (!SCREENSHOTS) return;
+  await motionSettled(window);
+  await window.screenshot({ path: join(SCREENSHOTS, `${name}.png`) });
+}
+
+let dataDir: string;
+test.beforeEach(async () => {
+  dataDir = await createDataFolder();
+});
+test.afterEach(async () => {
+  await removeDataFolder(dataDir);
+});
+
+const editor = (window: Page) => window.getByTestId("mind-pane").getByTestId("mind-editor");
+
+async function openCard(window: Page, chip: Locator): Promise<Locator> {
+  // Clear of the check badge at the page's foot, as a person scrolls it to the middle.
+  await chip.evaluate((element) => element.scrollIntoView({ block: "center" }));
+  await pointAndClick(window, chip);
+  const card = window.getByTestId("citation-card");
+  await expect(card).toBeVisible();
+  return card;
+}
+
+const WORDS = {
+  en: {
+    action: "Checked by me",
+    mine: /^Checked by you · \d{1,2}:\d{2}/,
+    changed: "Checked by you before it changed · Check again",
+    count: "1 checked by you",
+    countChanged: "1 changed since you checked",
+  },
+  "zh-CN": {
+    action: "我已核对",
+    mine: /^由你核对 · \d{1,2}:\d{2}/,
+    changed: "核对后已改动 · 重新核对",
+    count: "由你核对 1 项",
+    countChanged: "核对后已改动 1 项",
+  },
+} as const;
+
+for (const language of ["en", "zh-CN"] as const) {
+  test(`a Citation's card marks it checked by the User, Undo takes it back, and an edit keeps it as changed (${language})`, async () => {
+    const words = WORDS[language];
+    const { app, window } = await launchApp(dataDir, { examples: true });
+    try {
+      await setWindowSize(app, window, 1440, 900);
+      await setLanguage(window, language);
+      await leaveFirstOpen(window);
+      const chip = editor(window).getByTestId("citation-chip").first();
+      await expect(chip).toHaveAttribute("data-check", "found", { timeout: 30_000 });
+
+      const card = await openCard(window, chip);
+      const toggle = card.getByTestId("sign-off-toggle");
+      await expect(toggle).toHaveText(words.action);
+      await expect(toggle).toHaveAttribute("aria-pressed", "false");
+      await expect(card.getByTestId("sign-off-line")).toHaveCount(0);
+      await screenshot(window, `sign-off-card-before-${language}`);
+
+      await pointAndClick(window, toggle);
+      await expect(toggle).toHaveAttribute("aria-pressed", "true");
+      await expect(card.getByTestId("sign-off-line")).toHaveText(words.mine);
+      await screenshot(window, `sign-off-card-checked-${language}`);
+
+      // Undo takes the mark back, as any edit of the note.
+      await pointAndClick(window, window.getByTestId("undo-action"));
+      await expect(card).toHaveCount(0);
+      const undone = await openCard(window, chip);
+      await expect(undone.getByTestId("sign-off-toggle")).toHaveAttribute("aria-pressed", "false");
+      await expect(undone.getByTestId("sign-off-line")).toHaveCount(0);
+
+      // From the Citation's right-click menu, in the shared order: a toggle that shows ticked.
+      await window.keyboard.press("Escape");
+      await expect(card).toHaveCount(0);
+      await chip.evaluate((element) => element.scrollIntoView({ block: "center" }));
+      await pointAndClick(window, chip, { button: "right" });
+      const unticked = window.getByRole("menuitemcheckbox", { name: words.action });
+      await expect(unticked).toHaveAttribute("aria-checked", "false");
+      await pointAndClick(window, unticked);
+      await pointAndClick(window, chip, { button: "right" });
+      await expect(window.getByRole("menuitemcheckbox", { name: words.action })).toHaveAttribute(
+        "aria-checked",
+        "true",
+      );
+      await window.keyboard.press("Escape");
+
+      const health = await checkCard(window);
+      await expect(health.getByTestId("health-sign-offs")).toHaveText(words.count);
+      await window.keyboard.press("Escape");
+
+      // An edit to its sentence keeps the mark, as changed: it no longer counts as checked.
+      await chip.evaluate((element) => element.scrollIntoView({ block: "center" }));
+      const box = await chip.boundingBox();
+      if (!box) throw new Error("The Citation isn't on screen.");
+      // The word just before the Citation, written over as a person does.
+      await window.mouse.dblclick(box.x - 15, box.y + box.height / 2);
+      await window.keyboard.type(language === "en" ? "period" : "期末");
+      const changed = await openCard(window, chip);
+      await expect(changed.getByTestId("sign-off-line")).toHaveText(words.changed);
+      await expect(changed.getByTestId("sign-off-toggle")).toHaveAttribute("aria-pressed", "false");
+      await screenshot(window, `sign-off-card-changed-${language}`);
+      await window.keyboard.press("Escape");
+      await expect((await checkCard(window)).getByTestId("health-sign-offs")).toHaveText(
+        words.countChanged,
+      );
+      await screenshot(window, `sign-off-badge-card-${language}`);
+      await window.keyboard.press("Escape");
+
+      // Check again marks it as checked by the User now.
+      const again = await openCard(window, chip);
+      await pointAndClick(window, again.getByTestId("sign-off-again"));
+      await expect(again.getByTestId("sign-off-line")).toHaveText(words.mine);
+      await expect(again.getByTestId("sign-off-toggle")).toHaveAttribute("aria-pressed", "true");
+    } finally {
+      await app.close();
+    }
+  });
+}
+
+for (const language of ["en", "zh-CN"] as const) {
+  test(`the figure schedule marks figures checked by the User, shows who and when, and filters the rest (${language})`, async () => {
+    const t = (key: Parameters<typeof translate>[1], params?: Parameters<typeof translate>[2]) =>
+      translate(language, key, params);
+    const { app, window } = await launchApp(dataDir, { examples: true });
+    try {
+      await setWindowSize(app, window, 1440, 900);
+      await setLanguage(window, language);
+      await leaveFirstOpen(window);
+      await expect(editor(window).getByTestId("citation-chip").first()).toHaveAttribute(
+        "data-check",
+        "found",
+        { timeout: 30_000 },
+      );
+      const health = await checkCard(window);
+      await pointAndClick(window, health.getByTestId("health-open-schedule"));
+      const schedule = window.getByTestId("figure-schedule");
+      const rows = schedule.locator("tbody tr[data-figure-id]");
+      await expect(rows).toHaveCount(3);
+      const rowOf = (index: number) => rows.nth(index);
+      const checkedBy = (index: number) => rowOf(index).locator(".figure-checked-by");
+      await expect(checkedBy(0)).toHaveText("");
+
+      // One figure, from its row's menu.
+      await pointAndClick(window, rowOf(0).locator("[data-tree-row]"));
+      await pointAndClick(window, rowOf(0).locator("[data-figure-more]"));
+      const menu = rowOf(0).getByRole("menu");
+      const toggle = menu.getByRole("menuitemcheckbox", { name: t("signOff.action") });
+      await expect(toggle).toHaveAttribute("aria-checked", "false");
+      await pointAndClick(window, toggle);
+      const mine = new RegExp(`^${t("figures.checkedBy.mine", { time: "" }).trim()}`);
+      await expect(checkedBy(0)).toHaveText(mine);
+      await expect(checkedBy(1)).toHaveText("");
+      await screenshot(window, `sign-off-schedule-${language}`);
+
+      // Not checked by me: the figure the User checked leaves the list.
+      await pointAndClick(window, schedule.locator('[data-filter="not-mine"]'));
+      await expect(rows).toHaveCount(2);
+      await pointAndClick(window, schedule.locator('[data-filter="all"]'));
+      await expect(rows).toHaveCount(3);
+
+      // Two figures at once from ⌘K, then the same two taken off.
+      await pointAndClick(window, rowOf(1).locator("[data-tree-row]"));
+      await pointAndClick(window, rowOf(2).locator("[data-tree-row]"), { modifiers: ["Shift"] });
+      await runCommand(window, "figures.signOffChosen", t("signOff.markCount", { count: 2 }));
+      await expect(checkedBy(1)).toHaveText(mine);
+      await expect(checkedBy(2)).toHaveText(mine);
+      await expect((await checkCard(window)).getByTestId("health-sign-offs")).toHaveText(
+        t("signOff.count.mine", { count: 3 }),
+      );
+    } finally {
+      await app.close();
+    }
+  });
+}

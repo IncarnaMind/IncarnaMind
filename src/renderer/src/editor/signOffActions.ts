@@ -1,9 +1,11 @@
 import type { Editor } from "@tiptap/core";
 import type { Node as ProseMirrorNode } from "@tiptap/pm/model";
+import { useEditorState } from "@tiptap/react";
 import { ySyncPluginKey } from "@tiptap/y-tiptap";
-import { useEffect, useMemo, useState } from "react";
+import { useContext, useEffect, useMemo, useState } from "react";
 import * as Y from "yjs";
 import {
+  type CalculatedFigureAttributes,
   CITATION_NODE,
   type CitationAttributes,
   type FigureScheduleRow,
@@ -14,8 +16,10 @@ import {
 import { fingerprintOfMind } from "../../../shared/mindState";
 import {
   addSignOff,
+  checkedByMe,
   citationSignOffBasis,
   figureSignOffBasis,
+  figureSignOffSources,
   removeSignOff,
   type SignOffRecord,
   signOffNow,
@@ -26,9 +30,10 @@ import {
 import { translateNow } from "../i18n";
 import type { WordsInLine } from "../lineNames";
 import { useAppStore } from "../store";
-import { useUndo } from "../undo";
+import { type Undoable, useUndo } from "../undo";
 import { sentenceAround } from "./citationSentence";
 import { asOneStep, offerEditorUndo, undoStackOf } from "./editorUndo";
+import { SignOffsContext } from "./mindContext";
 import { mindEditor } from "./openEditors";
 
 /** Who a mark is by: Settings' name for them, and their person id. */
@@ -111,9 +116,71 @@ export function citationSignOff(
     : null;
 }
 
-/** Whether "Checked by me" shows ticked: the User's own mark stands on it as it is now. */
-export const checkedByMe = (now: SignOffNow | null): boolean =>
-  now?.mine === true && now.state === "checked";
+/** The mark on a calculated figure as it shows now: it rests on its result and its inputs. */
+export function calculatedFigureSignOff(
+  records: readonly SignOffRecord[],
+  figure: CalculatedFigureAttributes,
+  versions: ReadonlyMap<string, string>,
+  personId: string | null,
+): { mark: FigureMark; now: SignOffNow | null } {
+  const basis = figureSignOffBasis({
+    id: figure.id,
+    reading: { chars: figure.figure.shown },
+    calculated: figure,
+  });
+  const record = signOffOn(records, { kind: "figure", id: figure.id }, personId);
+  const now = record
+    ? signOffNow(
+        signOffShown(
+          record,
+          basis,
+          figureSignOffSources({ source: null, sourceInput: null, calculated: figure }),
+          versions,
+        ),
+        personId,
+      )
+    : null;
+  return { mark: { id: figure.id, basis, now }, now };
+}
+
+/** How many of the Note's items the User checked, and how many changed since they did. */
+export function signOffCounts(
+  doc: ProseMirrorNode,
+  records: readonly SignOffRecord[],
+  rows: readonly FigureScheduleRow[] | null,
+  versions: ReadonlyMap<string, string>,
+  personId: string | null,
+): { checked: number; changed: number } {
+  let checked = 0;
+  let changed = 0;
+  const count = (now: SignOffNow | null) => {
+    if (!now?.mine) return;
+    if (now.state === "checked") checked++;
+    else changed++;
+  };
+  if (records.some((record) => record.target.kind === "citation"))
+    doc.descendants((node, pos) => {
+      if (node.type.name === CITATION_NODE)
+        count(
+          citationSignOff(records, doc, pos, node.attrs as CitationAttributes, versions, personId),
+        );
+    });
+  for (const row of rows ?? []) count(row.signOff);
+  return { checked, changed };
+}
+
+/** The Note's counts of the User's own checks, kept up to date as the text and the marks change. */
+export function useSignOffCounts(editor: Editor): { checked: number; changed: number } {
+  const { records, rows } = useContext(SignOffsContext);
+  const personId = usePersonId();
+  const versions = useDocumentVersions();
+  return useEditorState({
+    editor,
+    selector: ({ editor: current }) =>
+      signOffCounts(current.state.doc, records, rows, versions, personId),
+    equalityFn: (a, b) => a?.checked === b?.checked && a?.changed === b?.changed,
+  });
+}
 
 const markBy = (target: SignOffTarget, contentHash: string, signer: Signer): SignOffRecord => ({
   id: crypto.randomUUID(),
@@ -137,27 +204,27 @@ function inEditor(editor: Editor, change: (doc: Y.Doc) => void, said: WordsInLin
 /**
  * Makes `change` in the Note's editor when it is open, so its ⌘Z takes it back with its other
  * edits; else in `copy`, the schedule's copy of the Note the core keeps in step, with an Undo of
- * its own.
+ * its own, which it returns for the schedule to withdraw when it closes.
  */
 function inNote(
   mindId: string,
   copy: Y.Doc | null,
   change: (doc: Y.Doc) => void,
   said: WordsInLine,
-): void {
+): Undoable | null {
   const editor = mindEditor(mindId);
   if (editor && noteDocOf(editor)) {
     if (!editor.isEditable) throw new Error(translateNow("figures.changed"));
     inEditor(editor, change, said);
-    return;
+    return null;
   }
-  if (!copy) return;
+  if (!copy) return null;
   const origin = { signOffs: mindId };
   const steps = new Y.UndoManager(copy.getMap(MIND_SIGN_OFFS_FIELD), {
     trackedOrigins: new Set([origin]),
   });
   copy.transact(() => change(copy), origin);
-  useUndo.getState().push({
+  const undoable: Undoable = {
     said,
     undo: async () => {
       steps.undo();
@@ -165,67 +232,89 @@ function inNote(
     redo: async () => {
       steps.redo();
     },
-  });
+  };
+  useUndo.getState().push(undoable);
+  return undoable;
 }
 
 /**
  * "Checked by me" on the Citation at `pos`: marks it, giving it an id of its own first, or takes
  * the User's mark off. A mark that changed since is marked again, as checked now.
  */
-export function toggleCitationSignOff(
-  editor: Editor,
-  pos: number,
-  now: SignOffNow | null,
-  signer: Signer,
-): void {
+export function toggleCitationSignOff(editor: Editor, pos: number, signer: Signer): void {
+  const doc = noteDocOf(editor);
   const node = editor.state.doc.nodeAt(pos);
-  if (node?.type.name !== CITATION_NODE) return;
+  if (!doc || node?.type.name !== CITATION_NODE) return;
   const attributes = node.attrs as CitationAttributes;
+  const versions = new Map(
+    useAppStore.getState().documents.map((each) => [each.id, each.contentHash]),
+  );
+  const now = citationSignOff(
+    signOffsOf(doc),
+    editor.state.doc,
+    pos,
+    attributes,
+    versions,
+    signer.personId,
+  );
   const id = typeof attributes.id === "string" ? attributes.id : crypto.randomUUID();
   const target: SignOffTarget = { kind: "citation", id };
   const off = checkedByMe(now);
   const basis = citationBasisAt(editor.state.doc, pos, attributes);
   inEditor(
     editor,
-    (doc) => {
+    (note) => {
       if (attributes.id !== id)
         editor.view.dispatch(editor.state.tr.setNodeMarkup(pos, undefined, { ...attributes, id }));
-      removeSignOff(doc, target, new Date().toISOString(), signer.personId);
-      if (!off) addSignOff(doc, markBy(target, basis, signer));
+      removeSignOff(note, target, new Date().toISOString(), signer.personId);
+      if (!off) addSignOff(note, markBy(target, basis, signer));
     },
     (t) => t(off ? "signOff.removed" : "signOff.added"),
   );
 }
 
+/** A figure to mark: its id, what its mark rests on now, and the mark it has. */
+export interface FigureMark {
+  id: string;
+  basis: string;
+  now: SignOffNow | null;
+}
+
+export const figureMarkOf = (row: FigureScheduleRow): FigureMark => ({
+  id: row.id,
+  basis: figureSignOffBasis(row),
+  now: row.signOff,
+});
+
 /**
- * "Checked by me" on figures of the Note's schedule: marks each one the User hasn't checked as it
- * is now, or, `off`, takes their marks off. Refused once the Note moved on from `basis`, the
- * schedule the rows came from, so a mark never lands on a figure that has changed.
+ * "Checked by me" on figures: marks each one the User hasn't checked as it is now, or, `off`,
+ * takes their marks off. With the `basis` of the schedule the figures came from, refused once
+ * the Note moved on, so a mark never lands on a figure that has changed since.
  */
 export function setFigureSignOffs(
-  input: { mindId: string; basis: string; copy: Y.Doc | null },
-  rows: readonly FigureScheduleRow[],
+  note: { mindId: string; basis: string | null; copy: Y.Doc | null },
+  figures: readonly FigureMark[],
   off: boolean,
   signer: Signer,
-): void {
-  const chosen = rows.filter((row) =>
-    off ? row.signOff?.mine === true : !checkedByMe(row.signOff),
+): Undoable | null {
+  const chosen = figures.filter((figure) =>
+    off ? figure.now?.mine === true : !checkedByMe(figure.now),
   );
-  if (chosen.length === 0) return;
-  const shown = mindEditor(input.mindId);
-  const note = (shown && noteDocOf(shown)) ?? input.copy;
-  if (!note || fingerprintOfMind(note) !== input.basis)
+  if (chosen.length === 0) return null;
+  const shown = mindEditor(note.mindId);
+  const doc = (shown && noteDocOf(shown)) ?? note.copy;
+  if (!doc || (note.basis !== null && fingerprintOfMind(doc) !== note.basis))
     throw new Error(translateNow("figures.changed"));
   const count = chosen.length;
-  inNote(
-    input.mindId,
-    input.copy,
-    (doc) => {
+  return inNote(
+    note.mindId,
+    note.copy,
+    (marks) => {
       const at = new Date().toISOString();
-      for (const row of chosen) {
-        if (row.signOff?.mine) removeSignOff(doc, row.signOff.target, at, signer.personId);
+      for (const figure of chosen) {
+        if (figure.now?.mine) removeSignOff(marks, figure.now.target, at, signer.personId);
         if (!off)
-          addSignOff(doc, markBy({ kind: "figure", id: row.id }, figureSignOffBasis(row), signer));
+          addSignOff(marks, markBy({ kind: "figure", id: figure.id }, figure.basis, signer));
       }
     },
     (t) =>

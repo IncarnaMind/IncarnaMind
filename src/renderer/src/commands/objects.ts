@@ -625,6 +625,27 @@ export const answerCommands: readonly Command[] = [
 ];
 
 export const citationCommands: readonly Command[] = [
+  // "Checked by me" (#1933), as a toggle: the first while it is off, the second while it is on.
+  {
+    id: "citation.signOff",
+    label: "signOff.action",
+    keywords: ["signOff.keywords"],
+    group: "edit",
+    appliesTo: ["citation"],
+    reversible: true,
+    checked: () => false,
+    ...needsHere("citation.signOff"),
+  },
+  {
+    id: "citation.signOffRemove",
+    label: "signOff.action",
+    keywords: ["signOff.keywords"],
+    group: "edit",
+    appliesTo: ["citation"],
+    reversible: true,
+    checked: () => true,
+    ...needsHere("citation.signOffRemove"),
+  },
   {
     id: "citation.remove",
     label: "citation.remove",

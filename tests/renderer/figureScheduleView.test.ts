@@ -216,6 +216,7 @@ interface ViewProps {
   onStop?(): void;
   onKeep(ids: string[]): void;
   onCheckAgain(ids: string[]): void;
+  onSignOff(ids: string[], off: boolean): void;
   onChangeToSource(ids: string[]): void;
   onAddCitation(id: string): void;
   onChooseCitation(id: string): void;
@@ -287,6 +288,7 @@ beforeEach(async () => {
     onStop: vi.fn(),
     onKeep: vi.fn(),
     onCheckAgain: vi.fn(),
+    onSignOff: vi.fn(),
     onChangeToSource: vi.fn(),
     onAddCitation: vi.fn(),
     onChooseCitation: vi.fn(),
@@ -594,7 +596,7 @@ test("the keyboard moves, opens, outlines, unfolds a calculated figure's inputs 
   await act(async () => {});
   const [text, html] = state.copied.mock.lastCall ?? [];
   expect(text).toMatch(
-    /^#\tFigure\tSource value\tSource\tDifference\tStatus\n1\t20.0%\t20%\tInvented accounts, p. 1\t\tSupported\n/,
+    /^#\tFigure\tSource value\tSource\tDifference\tStatus\tChecked by\n1\t20.0%\t20%\tInvented accounts, p. 1\t\tSupported\t\n/,
   );
   expect(text).toContain("\tRevenue 2026\t1,200\t");
   expect(html).toContain("<th>Source value</th>");
@@ -652,7 +654,7 @@ test("⌘K offers the menu's actions on the figures chosen in the schedule, sayi
   const shown = schedule([unread("a", 1), unread("b", 2), row("c", 3)]);
   const keep = vi.fn();
   const checkAgain = vi.fn();
-  figureScheduleHandle.current = { schedule: shown, keep, checkAgain };
+  figureScheduleHandle.current = { schedule: shown, keep, checkAgain, signOff: vi.fn() };
   const refOf = (id: string) => {
     const each = shown.rows.find((candidate) => candidate.id === id);
     if (!each) throw new Error(`No row ${id}`);

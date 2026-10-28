@@ -9,6 +9,7 @@ import {
 } from "../../../shared/calculatedFigures";
 import { commonCitationStyle } from "../../../shared/citationStyles";
 import { calculatedCitations, calculatedSources } from "../../../shared/figureRuns";
+import { checkedByMe } from "../../../shared/signOffs";
 import { useMindFormatting } from "../citationFormatting";
 import { useStyleCatalogue } from "../citationStylePicker";
 import { registerMenu } from "../commands/menus";
@@ -22,16 +23,24 @@ import { citationWorkSignature } from "./citationClusters";
 import { figureNumberOf } from "./citationNumbers";
 import { figureShownIn } from "./claimChecks";
 import { type FigureHandle, figureHandle } from "./figureHandle";
-import { MindIdContext } from "./mindContext";
+import { MindIdContext, SignOffsContext } from "./mindContext";
 import { Popover } from "./Popover";
 import { useCitationPeek } from "./peek";
 import { focusQuietly, isQuietFocus } from "./quietFocus";
 import { StyledRuns } from "./StyledRuns";
+import {
+  calculatedFigureSignOff,
+  currentSigner,
+  setFigureSignOffs,
+  usePersonId,
+} from "./signOffActions";
 import "./calculatedFigure.css";
 
 registerMenu("check", [
   "figure.open",
   "figure.copyFormula",
+  "figure.signOff",
+  "figure.signOffRemove",
   "figure.convertToText",
   "figure.remove",
 ]);
@@ -133,11 +142,46 @@ export function CalculatedFigureView({
       if (figureHandle.current === active) figureHandle.current = null;
     };
   }, [open, attributes]);
+  // The User's own "Checked by me" on the figure (#1933), in a Note they can change.
+  const { records } = useContext(SignOffsContext);
+  const personId = usePersonId();
+  const documents = useAppStore((state) => state.documents);
+  const signOff = useMemo(
+    () =>
+      attributes
+        ? calculatedFigureSignOff(
+            records,
+            attributes,
+            new Map(documents.map((each) => [each.id, each.contentHash])),
+            personId,
+          )
+        : null,
+    [records, attributes, documents, personId],
+  );
+  const canSignOff = mindId !== null && editor.isEditable;
+  const toggleSignOff = () => {
+    const signer = currentSigner();
+    if (!signOff || !mindId || !signer) return;
+    try {
+      setFigureSignOffs(
+        { mindId, basis: null, copy: null },
+        [signOff.mark],
+        checkedByMe(signOff.now),
+        signer,
+      );
+    } catch (error) {
+      useAppStore.getState().reportError(error);
+    }
+  };
   const target = { kind: "check" as const, id: attributes?.id ?? "" };
   const menu = useObjectMenu(target);
   const here = {
     "figure.open": actions.open,
     "figure.copyFormula": actions.copyFormula,
+    ...(canSignOff &&
+      (checkedByMe(signOff?.now ?? null)
+        ? { "figure.signOffRemove": toggleSignOff }
+        : { "figure.signOff": toggleSignOff })),
     ...(editor.isEditable && {
       "figure.convertToText": actions.convertToText,
       "figure.remove": actions.remove,
@@ -239,6 +283,8 @@ export function CalculatedFigureView({
               sources={evidence?.sources ?? null}
               problem={!!evidence?.error}
               onCopyFormula={copyFormula}
+              signOff={signOff?.now ?? null}
+              onSignOff={canSignOff ? toggleSignOff : null}
             />
           </Popover>,
           editor.view.dom.ownerDocument.body,
