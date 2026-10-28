@@ -1091,7 +1091,7 @@ export function createDocuments(options: DocumentsOptions) {
    * counted twice (#2042).
    */
   function upgradeKeywordIndex(): void {
-    if (keywordUpgradeNext) return;
+    if (closed || keywordUpgradeNext) return;
     const stale = db.all<{ id: string }>(
       `SELECT id FROM documents d
        WHERE d.deleted_at IS NULL AND d.processing_version < ?
@@ -1104,6 +1104,10 @@ export function createDocuments(options: DocumentsOptions) {
     const queue = stale.map((row) => row.id);
     const next = () => {
       for (;;) {
+        if (closed) {
+          keywordUpgradeNext = null;
+          return;
+        }
         const id = queue.shift();
         if (id === undefined) {
           keywordUpgradeNext = null;

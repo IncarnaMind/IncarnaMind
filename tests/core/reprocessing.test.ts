@@ -483,6 +483,28 @@ describe("Re-processing", { timeout: 30_000 }, () => {
     second.close();
   });
 
+  test("asking for the keyword rewrite after the core closed does nothing (#2042)", async () => {
+    const dataDir = await createTempDataFolder();
+    const sources = await createSourceFolder();
+    const first = startCore(dataDir);
+    await addAndProcess(first, [
+      await writeSourceFile(sources, "Annual Report.md", "Ordinary weather over the coast."),
+    ]);
+    first.close();
+    asNameWithEveryPassage(dataDir);
+    const second = startCore(dataDir);
+    second.close();
+    expect(() => second.upgradeKeywordIndex()).not.toThrow();
+    // Nothing ran on the closed database: the older index is still there.
+    expect(
+      queryDatabase<{ n: number }>(
+        dataDir,
+        "SELECT count(*) AS n FROM passages_fts WHERE passages_fts MATCH ?",
+        ['"report"'],
+      ),
+    ).toEqual([{ n: 1 }]);
+  });
+
   test("the keyword search an upgraded data folder gives equals a fresh index's, a renamed Document and a name with no words included (#2042)", async () => {
     const dataDir = await createTempDataFolder();
     const sources = await createSourceFolder();
