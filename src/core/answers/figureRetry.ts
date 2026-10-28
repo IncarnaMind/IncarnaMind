@@ -14,6 +14,7 @@
  */
 import { jsonSchema, Output, streamText } from "ai";
 import { givenList, whole } from "./calculations";
+import { calculationsSchema } from "./calculationsSchema";
 import type { AnswerEngineEvent, AnswerRequest } from "./engine";
 import { FIGURE_RETRY_INSTRUCTIONS, type FigureToRetry, figureRetryPrompt } from "./prompt";
 import { nearestExcerpt, replyJson } from "./quoteRetry";
@@ -30,7 +31,7 @@ const OUTPUT_TOKENS_PER_FIGURE = 300;
 
 const figuresSchema = jsonSchema<{ calculations: unknown }>({
   type: "object",
-  properties: { calculations: { type: "array", items: { type: "object" } } },
+  properties: { calculations: calculationsSchema },
   required: ["calculations"],
 });
 
