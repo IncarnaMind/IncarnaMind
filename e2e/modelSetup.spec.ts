@@ -23,6 +23,7 @@ import {
   setLanguage,
   useLocalChatModel as setLocalChatModel,
   setWindowSize,
+  showSettingsPage,
   startRecording,
   urlsOpened,
 } from "./app";
@@ -372,14 +373,30 @@ function servicesRead(app: ElectronApplication): Promise<number> {
   );
 }
 
-/** While on, every call of the core's `channel` fails, as a core that can't answer would. */
-function failReads(app: ElectronApplication, channel: string, on: boolean): Promise<void> {
+/**
+ * The core's `channel` as a core that can't always answer would: while `failing`, every call
+ * fails; the next call after `holdNextRead` waits, and `settleHeldRead` ends it, in order.
+ */
+function controlReads(
+  app: ElectronApplication,
+  channel: string,
+  change: { failing?: boolean; hold?: boolean; settle?: "reject" | "resolve" },
+): Promise<void> {
   return app.evaluate(
-    ({ ipcMain }, { name, failing }) => {
-      const store = globalThis as unknown as { failingReads?: Record<string, boolean> };
-      const failures = store.failingReads ?? {};
-      store.failingReads = failures;
-      if (!(name in failures)) {
+    ({ ipcMain }, { name, what }) => {
+      interface Control {
+        failing: boolean;
+        hold: boolean;
+        held: ((how: "reject" | "resolve") => void)[];
+      }
+      const store = globalThis as unknown as { readControls?: Record<string, Control> };
+      const controls = store.readControls ?? {};
+      store.readControls = controls;
+      let control = controls[name];
+      if (!control) {
+        const own: Control = { failing: false, hold: false, held: [] };
+        control = own;
+        controls[name] = own;
         const handlers = (
           ipcMain as unknown as {
             _invokeHandlers: Map<string, (event: unknown, ...args: unknown[]) => unknown>;
@@ -389,13 +406,41 @@ function failReads(app: ElectronApplication, channel: string, on: boolean): Prom
         if (!original) throw new Error(`The ${name} handler is unavailable.`);
         ipcMain.removeHandler(name);
         ipcMain.handle(name, (event, ...args) => {
-          if (failures[name]) throw new Error(`${name} is temporarily unavailable.`);
+          if (own.hold) {
+            own.hold = false;
+            return new Promise((resolve, reject) => {
+              own.held.push((how) =>
+                how === "reject"
+                  ? reject(new Error(`${name} is temporarily unavailable.`))
+                  : resolve(original(event, ...args)),
+              );
+            });
+          }
+          if (own.failing) throw new Error(`${name} is temporarily unavailable.`);
           return original(event, ...args);
         });
       }
-      failures[name] = failing;
+      if (what.failing !== undefined) control.failing = what.failing;
+      if (what.hold !== undefined) control.hold = what.hold;
+      if (what.settle) control.held.shift()?.(what.settle);
     },
-    { name: channel, failing: on },
+    { name: channel, what: change },
+  );
+}
+
+const failReads = (app: ElectronApplication, channel: string, failing: boolean) =>
+  controlReads(app, channel, { failing });
+
+/** Lets the page paint `count` times, so what a settled read changes has been drawn. */
+function paints(window: Page, count = 15): Promise<void> {
+  return window.evaluate(
+    (times) =>
+      new Promise<void>((done) => {
+        let seen = 0;
+        const next = () => (++seen >= times ? done() : requestAnimationFrame(next));
+        next();
+      }),
+    count,
   );
 }
 
@@ -1120,6 +1165,130 @@ for (const language of ["en", "zh-CN"] as const) {
       }
     });
   }
+}
+
+for (const language of ["en", "zh-CN"] as const) {
+  test(`a read of the services that was overtaken changes nothing when it fails after a newer one has landed (${language})`, async () => {
+    const { app, window } = await launchApp(dataDir, { fakeChat: true });
+    try {
+      await setWindowSize(app, window, 1280, 800);
+      await acceptPlainTextKeys(window);
+      await setLanguage(window, language);
+      const card = await askFirstQuestion(window);
+      const field = card.getByTestId("setup-key");
+      await field.fill(OPENAI_KEY);
+      await field.press("Enter");
+      await expect(card.getByTestId("meetings-route-consent")).toBeVisible({ timeout: 15_000 });
+      const channel = "core:listTranscriptionServices";
+
+      // Step 2 is opened again and its read, A, is held; the step is left and opened again, and
+      // its read, B, lands. Then A fails, long after.
+      await pointAndClick(window, card.getByTestId("setup-step-sorting-open"));
+      await controlReads(app, channel, { hold: true });
+      await pointAndClick(window, card.getByTestId("setup-step-transcription-open"));
+      await pointAndClick(window, card.getByTestId("setup-step-sorting-open"));
+      await pointAndClick(window, card.getByTestId("setup-step-transcription-open"));
+      await expect(card.getByTestId("meetings-route-consent")).toBeVisible();
+      await expect(card.getByTestId("setup-transcription-use")).toBeEnabled();
+      await paints(window);
+      const before = await stepsFrame(window);
+
+      await controlReads(app, channel, { settle: "reject" });
+      await paints(window);
+      // The newer read stands: its list is drawn, nothing says a read failed, and nothing moved.
+      await expect(card.getByTestId("meetings-route-consent")).toBeVisible();
+      await expect(card.getByTestId("setup-transcription-use")).toBeEnabled();
+      await expect(card.getByTestId("setup-transcription-problem")).toHaveCount(0);
+      const after = await stepsFrame(window);
+      expect(after.card).toEqual(before.card);
+      expect(after.buttons).toEqual(before.buttons);
+    } finally {
+      await app.close();
+    }
+  });
+
+  test(`Settings › Meetings says a failed read of the services in place, and keeps the saved cloud route (${language})`, async () => {
+    const { app, window } = await launchApp(dataDir, { fakeChat: true });
+    try {
+      await setWindowSize(app, window, 1280, 800);
+      await acceptPlainTextKeys(window);
+      await saveOpenAiAsDefault(window);
+      await window.evaluate(async () => {
+        const core = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
+        await core.updateSettings({ device: { transcriptionRoute: "openai" } });
+      });
+      await dismissChatSetup(window);
+      // The button that opens Settings is named in English until the language is changed inside it.
+      const dialog = await openSettings(window, "meetings");
+      await setLanguage(window, language);
+      const settings = dialog.getByTestId("meetings-settings");
+      const line = settings.getByTestId("meetings-route-line");
+      await expect(line).toContainText(
+        translate(language, "meetings.route.cloudLine", { service: "OpenAI" }),
+      );
+
+      // The page is left and opened again while the core can't list the services.
+      await controlReads(app, "core:listTranscriptionServices", { failing: true });
+      await showSettingsPage(window, "models");
+      await showSettingsPage(window, "meetings");
+      const problem = settings.getByTestId("meetings-route-problem");
+      await expect(problem).toContainText(translate(language, "setup.services.failed"));
+      await expect(line).toHaveCount(0);
+      // The saved route is still OpenAI: nothing says it is on this computer.
+      await expect(settings.getByTestId("meetings-route")).toHaveValue("openai");
+      await expect(settings).not.toContainText(translate(language, "meetings.route.hereLine"));
+
+      await controlReads(app, "core:listTranscriptionServices", { failing: false });
+      await pointAndClick(window, settings.getByTestId("meetings-route-problem-retry"));
+      await expect(line).toContainText(
+        translate(language, "meetings.route.cloudLine", { service: "OpenAI" }),
+      );
+      await expect(problem).toHaveCount(0);
+    } finally {
+      await app.close();
+    }
+  });
+
+  test(`a read that fails while the focus is elsewhere leaves it there, and the problem still shows (${language})`, async () => {
+    const sources = await mkdtemp(join(tmpdir(), "incarnamind-2147-focus-"));
+    const { app, window } = await launchApp(dataDir, { fakeChat: true });
+    try {
+      await setWindowSize(app, window, 1280, 800);
+      await acceptPlainTextKeys(window);
+      await setLanguage(window, language);
+      await writeFile(join(sources, "Tides.txt"), "Tides and the Moon.\n");
+      await addDocuments(window, [join(sources, "Tides.txt")]);
+      const card = await askFirstQuestion(window);
+      const field = card.getByTestId("setup-key");
+      await field.fill(ANTHROPIC_KEY);
+      await field.press("Enter");
+      await expect(card.getByTestId("setup-ready-title")).toBeVisible({ timeout: 15_000 });
+
+      // Step 3 opens and its read is held. The User opens Document Info, which takes the focus.
+      await controlReads(app, "core:getTaggingModels", { hold: true });
+      await pointAndClick(window, card.getByTestId("setup-step-sorting-open"));
+      await window.getByTestId("document-list-item").first().getByTestId("open-document").focus();
+      await window.keyboard.press("ControlOrMeta+i");
+      const info = window.getByTestId("info-panel");
+      await expect(info).toBeVisible();
+      await expect
+        .poll(() => info.evaluate((panel) => panel.contains(document.activeElement)))
+        .toBe(true);
+
+      // The read fails: the problem shows, and the focus stays in Document Info.
+      await controlReads(app, "core:getTaggingModels", { settle: "reject" });
+      await expect(card.getByTestId("setup-sorting-problem")).toContainText(
+        translate(language, "setup.sorting.failed"),
+      );
+      await paints(window);
+      await expect(info).toBeVisible();
+      expect(await info.evaluate((panel) => panel.contains(document.activeElement))).toBe(true);
+      await expect(card.getByTestId("setup-sorting-problem-retry")).not.toBeFocused();
+    } finally {
+      await app.close();
+      await rm(sources, { recursive: true, force: true });
+    }
+  });
 }
 
 for (const language of ["en", "zh-CN"] as const) {

@@ -4,10 +4,11 @@ import type { FailedRead } from "../useRead";
 import { ProblemLine } from "./ProblemLine";
 
 /**
- * Where a read the screen depends on failed: one line in place, with Try again, which takes the
- * focus when the problem replaces the field that had it, and again after a retry that fails
- * again (a retry disables its own button), unless the User has moved on to something else. The
- * error's own words are on hover.
+ * Where a read the screen depends on failed: one line in place, with Try again. Try again takes
+ * the focus when it was on the control the problem replaced (now on the page) or inside the
+ * failed part (its step, its row), and again after a retry that fails again, since a retry
+ * disables its own button. Anywhere else the focus stays where the User put it. The error's own
+ * words are on hover.
  */
 export function ReadProblem({
   words,
@@ -21,16 +22,11 @@ export function ReadProblem({
   const t = useT();
   const box = useRef<HTMLDivElement>(null);
   const { retrying } = read;
-  // biome-ignore lint/correctness/useExhaustiveDependencies: only a change of `retrying` moves the focus.
   useEffect(() => {
     const active = document.activeElement;
-    // A heading that holds the focus for a step that just opened is as free as the page.
-    const free =
-      !active ||
-      active === document.body ||
-      box.current?.contains(active) ||
-      (active.getAttribute("tabindex") === "-1" && !active.matches("input, textarea, select"));
-    if (retrying || !free) return;
+    const host = box.current?.closest("[data-read-host], li, section");
+    const mine = !active || active === document.body || host?.contains(active);
+    if (retrying || !mine) return;
     box.current?.querySelector("button")?.focus();
   }, [retrying]);
   return (

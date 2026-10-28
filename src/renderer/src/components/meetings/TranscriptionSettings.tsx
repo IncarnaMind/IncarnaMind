@@ -9,10 +9,12 @@ import {
   serviceMeta,
   useTranscriptionServices,
   useTranscriptionServicesList,
+  useTranscriptionServicesRead,
 } from "../../transcriptionServices";
 import { KeyCharacterLine } from "../KeyCharacterLine";
 import { ProblemLine } from "../ProblemLine";
 import { SecretStorageNotice } from "../providers/ProviderForm";
+import { ReadProblem } from "../ReadProblem";
 import {
   buttonStyle,
   inputClass,
@@ -33,7 +35,20 @@ export function TranscriptionRouteLine({ id }: { id?: string }) {
   const language = useLanguage();
   const route = useAppStore((state) => state.settings?.device.transcriptionRoute) ?? "local";
   const localMode = useAppStore((state) => state.embedding?.localOnly === true);
-  const services = useTranscriptionServicesList();
+  const read = useTranscriptionServicesRead();
+  // A list that couldn't be read says nothing of where the audio goes: the saved route stands.
+  if (read.state === "failed") {
+    return (
+      <div id={id} data-read-host>
+        <ReadProblem
+          words={t("setup.services.failed")}
+          read={read}
+          testId="meetings-route-problem"
+        />
+      </div>
+    );
+  }
+  const services = read.state === "ready" ? read.data : [];
   const service = services.find((each) => each.route === route);
   if (!service) {
     return (
@@ -68,7 +83,19 @@ export function TranscriptionRouteLine({ id }: { id?: string }) {
 export function TranscriptionRouteConsent({ listed = false }: { listed?: boolean }) {
   const t = useT();
   const route = useAppStore((state) => state.settings?.device.transcriptionRoute) ?? "local";
-  const services = useTranscriptionServicesList(!listed);
+  const read = useTranscriptionServicesRead(!listed);
+  if (read.state === "failed") {
+    return (
+      <div data-read-host>
+        <ReadProblem
+          words={t("setup.services.failed")}
+          read={read}
+          testId="meetings-route-problem"
+        />
+      </div>
+    );
+  }
+  const services = read.state === "ready" ? read.data : [];
   const service = services.find((each) => each.route === route);
   if (!service && !services.some((each) => each.hasKey)) return null;
   return (

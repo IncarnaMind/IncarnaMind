@@ -7,8 +7,7 @@ import { useLanguage, useT } from "../../i18n";
 import { turnOffLocalMode } from "../../localMode";
 import { giveUpWaiting, useModelSetup } from "../../modelSetup";
 import { useAppStore } from "../../store";
-import { useTranscriptionServices } from "../../transcriptionServices";
-import { useRead } from "../../useRead";
+import { useTranscriptionServicesRead } from "../../transcriptionServices";
 import { OnThisComputer } from "../OnThisComputer";
 import { ProblemLine } from "../ProblemLine";
 import { ReadProblem } from "../ReadProblem";
@@ -42,12 +41,7 @@ export function ModelSetupCard() {
   const t = useT();
   // Step 2's rows depend on whether a cloud service has a key, so the steps open only on a list
   // that was read, and never redraw as a later read lands (#2147).
-  const services = useRead(
-    "The transcription services",
-    () => useTranscriptionServices.getState().load(),
-    [],
-    ready,
-  );
+  const services = useTranscriptionServicesRead(ready, true);
   if (!ready || services.state === "loading") return <ChooseAnAi />;
   if (services.state === "ready") return <SetupSteps />;
   return (

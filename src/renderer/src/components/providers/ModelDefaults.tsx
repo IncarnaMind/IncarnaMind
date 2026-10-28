@@ -115,7 +115,11 @@ function TranscriptionRow({ id }: { id: string }) {
   const t = useT();
   const localOnly = useAppStore((state) => state.embedding?.localOnly === true);
   return (
-    <div data-testid="model-default-row-transcription" className="flex flex-col gap-0.5 py-2">
+    <div
+      data-testid="model-default-row-transcription"
+      data-read-host
+      className="flex flex-col gap-0.5 py-2"
+    >
       <label htmlFor={id} className="text-ui font-semibold text-ink">
         {t("models.defaults.transcription")}
       </label>
@@ -128,7 +132,11 @@ function SortingRow({ id }: { id: string }) {
   const t = useT();
   const { options, current, choose, read } = useSorting();
   return (
-    <div data-testid="model-default-row-sorting" className="flex flex-col gap-0.5 py-2">
+    <div
+      data-testid="model-default-row-sorting"
+      data-read-host
+      className="flex flex-col gap-0.5 py-2"
+    >
       <label htmlFor={id} className="text-ui font-semibold text-ink">
         {t("models.defaults.sorting")}
       </label>

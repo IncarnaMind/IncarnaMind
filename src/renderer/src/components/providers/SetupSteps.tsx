@@ -4,8 +4,7 @@ import { continueSetup } from "../../conversations";
 import { useLanguage, useT } from "../../i18n";
 import { giveUpWaiting } from "../../modelSetup";
 import { useAppStore } from "../../store";
-import { useTranscriptionServices } from "../../transcriptionServices";
-import { useRead } from "../../useRead";
+import { useTranscriptionServicesRead } from "../../transcriptionServices";
 import { CheckLineIcon } from "../lineIcons";
 import { ROUTE_LABELS, TranscriptionRouteSelect } from "../meetings/TranscriptionRouteSelect";
 import { TranscriptionRouteConsent } from "../meetings/TranscriptionSettings";
@@ -226,12 +225,10 @@ function TranscriptionStep({ onDone }: { onDone(choice: string): void }) {
   const saved = useAppStore((state) => state.settings?.device.transcriptionRoute) ?? null;
   const updateSettings = useAppStore((state) => state.updateSettings);
   const openSettings = useAppStore((state) => state.openSettings);
-  // Opened again, the step reads the list again: a key may have come or gone. A read that fails
-  // drops the list, and the step says so in place instead of drawing rows from it.
-  const read = useRead("The transcription services", () =>
-    useTranscriptionServices.getState().load(),
-  );
-  const services = useTranscriptionServices((state) => state.services);
+  // Opened again, the step reads the list again: a key may have come or gone. A read that
+  // fails is said in place, and the step draws no rows from the list it had.
+  const read = useTranscriptionServicesRead();
+  const services = read.state === "ready" ? read.data : [];
   const cloudy = services.filter((service) => service.hasKey);
   const [picked, setPicked] = useState<TranscriptionRoute | null>(null);
   const route = localOnly ? "local" : (picked ?? saved ?? "local");
