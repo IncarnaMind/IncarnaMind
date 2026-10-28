@@ -1,4 +1,3 @@
-import type { LanguageModelV4StreamPart } from "@ai-sdk/provider";
 import { wrapLanguageModel } from "ai";
 import { describe, expect, test } from "vitest";
 import { checkGenerate } from "../helpers/checks";
@@ -95,10 +94,11 @@ async function fixture(
       specificationVersion: "v4",
       wrapStream: async ({ doStream }) => {
         const result = await doStream();
+        type StreamPart = typeof result.stream extends ReadableStream<infer Part> ? Part : never;
         return {
           ...result,
           stream: result.stream.pipeThrough(
-            new TransformStream<LanguageModelV4StreamPart, LanguageModelV4StreamPart>({
+            new TransformStream<StreamPart, StreamPart>({
               transform(part, controller) {
                 if (part.type === "tool-call" && part.toolName === "calculate") {
                   const input =

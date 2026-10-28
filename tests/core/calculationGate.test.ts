@@ -17,6 +17,8 @@ async function fixture({
   topic = "found",
   cite = true,
   as,
+  directInputs = false,
+  decidingSource,
 }: {
   repair?: boolean;
   claim?: string;
@@ -27,6 +29,8 @@ async function fixture({
   topic?: "found" | "not found";
   cite?: boolean;
   as?: "times";
+  directInputs?: boolean;
+  decidingSource?: { name: string; contents: string; quote: string };
 } = {}) {
   const calls: ModelCall[] = [];
   let verdicts = 0;
@@ -38,16 +42,25 @@ async function fixture({
         return {
           calls: [{ tool: "search_documents", input: { query: "net debt adjusted EBITDA" } }],
         };
-      const passage = shownPassages(searched.at(-1)?.text ?? "").find((passage) =>
-        passage.text.includes(source),
-      );
+      const shown = searched.flatMap((result) => shownPassages(result.text));
+      const passage = shown.find((passage) => passage.text.includes(source));
       if (!passage) throw new Error("Synthetic source was not searched.");
+      const decision = decidingSource
+        ? shown.find((entry) => entry.text.includes(decidingSource.quote))
+        : passage;
+      if (!decision && decidingSource)
+        return { calls: [{ tool: "search_documents", input: { query: decidingSource.quote } }] };
+      if (!decision) throw new Error("The deciding synthetic source was not searched.");
       if (cite && !call.results.some((result) => result.tool === "cite"))
         return {
           calls: [
             {
               tool: "cite",
-              input: { citations: [{ marker: 1, passage: passage.id, quote: source }] },
+              input: {
+                citations: [
+                  { marker: 1, passage: decision.id, quote: decidingSource?.quote ?? source },
+                ],
+              },
             },
           ],
         };
@@ -66,8 +79,22 @@ async function fixture({
                     relation: "equals",
                     ...(as && { as }),
                     inputs: [
-                      { name: "debt", label: "Net debt", citation: 1, position: 1 },
-                      { name: "ebitda", label: "Adjusted EBITDA", citation: 1, position: 2 },
+                      {
+                        name: "debt",
+                        label: "Net debt",
+                        ...(directInputs
+                          ? { passage: passage.id, quote: source }
+                          : { citation: 1 }),
+                        position: 1,
+                      },
+                      {
+                        name: "ebitda",
+                        label: "Adjusted EBITDA",
+                        ...(directInputs
+                          ? { passage: passage.id, quote: source }
+                          : { citation: 1 }),
+                        position: 2,
+                      },
                     ],
                   },
                 ],
@@ -89,6 +116,7 @@ async function fixture({
   );
   const { core } = await setUpWithDocuments(model, [
     { ...DOCUMENT, contents: `# Invented accounts\n\n${source}\n` },
+    ...(decidingSource ? [decidingSource] : []),
   ]);
   core.on("consent.requested", (event) => void core.respondToConsent(event.requestId, true));
   await core.saveChatProvider({
@@ -118,6 +146,33 @@ describe("a check cannot substitute a model verdict for derived arithmetic", () 
     expect(
       calls.flatMap((call) => call.results).some((result) => result.tool === "calculate"),
     ).toBe(true);
+  });
+
+  test.each([
+    [
+      "Net debt is £600 and 6.0x adjusted EBITDA; finance costs are 8.0x revenue; the company is based in London.",
+      "not-checked",
+    ],
+    [
+      "Net debt is £600 and 6.0x adjusted EBITDA, and the company is based in London.",
+      "unsupported",
+    ],
+  ])("a unit gap in a direct input cannot settle the rest: %s", async (claim, verdict) => {
+    const { result } = await fixture({
+      source: `${SOURCE} Finance costs are 300. Revenue is 100.`,
+      claim,
+      stated: "6.0x",
+      required: ["6.0x"],
+      repair: true,
+      as: "times",
+      directInputs: true,
+      decidingSource: {
+        name: "Address.md",
+        contents: "# Address\n\nThe company is based in London.",
+        quote: "The company is based in London.",
+      },
+    });
+    expect(result.verdict).toBe(verdict);
   });
 
   test.each([

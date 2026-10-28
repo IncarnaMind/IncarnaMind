@@ -416,7 +416,6 @@ export function createClaimCheck(deps: ClaimCheckDependencies) {
           quote: citation.quote,
           units: scoped.pageTexts(citation.documentId, citation.contentHash, null, null),
         })),
-        unstatedUnit: checked.length > 0 && unstatedUnit(citations) !== null,
       });
     };
 
@@ -574,7 +573,13 @@ export function createClaimCheck(deps: ClaimCheckDependencies) {
     if (signal.aborted) return notChecked("stopped");
     if (isFailed(evidence)) return failedCheck(evidence.failed);
     if (!evidence) return notChecked("no-evidence");
-    const unit = unstatedUnit([evidence, ...foundCitations(session.finalCitation, evidence)]);
+    const unit = unstatedUnit([
+      evidence,
+      ...foundCitations(session.finalCitation, evidence),
+      ...checked.flatMap(({ calculation }) =>
+        calculation.figure.inputs.map((input) => input.citation),
+      ),
+    ]);
     if (unit && (verdict.verdict !== "contradicted" || onlyCalculation))
       return unsupported(unit, evidence, null);
     // An unsupported reply with no topic or part named can be missing only the derived figure.

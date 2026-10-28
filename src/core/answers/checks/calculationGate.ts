@@ -3,6 +3,7 @@ import type { InputNumber } from "../../api";
 import { documentFigureContext } from "../calculations";
 import { figuresInClaim, statedFigure } from "./calculated";
 import type { ReadVerdict } from "./prompt";
+import { unitNotStated } from "./units";
 
 export function needsCalculation({
   claim,
@@ -11,7 +12,6 @@ export function needsCalculation({
   computed,
   citations,
   inputs,
-  unstatedUnit,
 }: {
   claim: string;
   verdict: ReadVerdict;
@@ -19,7 +19,6 @@ export function needsCalculation({
   computed: readonly Figure[];
   citations: readonly { quote: string; units: readonly { text: string }[] }[];
   inputs: readonly InputNumber[];
-  unstatedUnit: boolean;
 }): boolean {
   const context = documentFigureContext(citations.flatMap((citation) => citation.units));
   const own = documentFigureContext([{ text: claim }]);
@@ -48,7 +47,6 @@ export function needsCalculation({
     })
   )
     return true;
-  if (computed.length > 0 && unstatedUnit) return false;
   const available = [
     ...citations.flatMap((citation) => {
       const units = citation.units;
@@ -66,6 +64,10 @@ export function needsCalculation({
     }),
     ...inputs,
   ];
+  const quoted = citations.map((citation) => ({
+    cited: () => citation.quote,
+    document: () => citation.units.map((unit) => unit.text).join("\n"),
+  }));
   const unused = [...computed];
   if (
     claimFigures.some((figure) => {
@@ -74,7 +76,10 @@ export function needsCalculation({
         unused.splice(at, 1);
         return false;
       }
-      return !available.some((source) => matches(figure, source));
+      return (
+        !available.some((source) => matches(figure, source)) &&
+        unitNotStated(figure.chars, quoted) === null
+      );
     })
   )
     return verdict.verdict === "supported" || computed.length === 0;
