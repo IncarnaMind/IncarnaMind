@@ -75,7 +75,8 @@ function ChooseAnAi() {
         console.error("The saved chat providers couldn't be listed for the setup card.", error),
       );
   }, []);
-  const card = useRef<HTMLElement>(null); // It takes the composer's place, or opens from the steps card: either way the focus comes in.
+  const card = useRef<HTMLElement>(null);
+  // It takes the composer's place, or opens from the steps card: either way the focus comes in.
   useEffect(() => {
     if (view !== null) return;
     card.current?.querySelector<HTMLInputElement>('[data-testid="setup-key"]')?.focus();
