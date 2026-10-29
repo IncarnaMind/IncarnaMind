@@ -1627,6 +1627,11 @@ export function createCore(adapters: CoreAdapters): Core {
       publish: publishConversation,
       discard: (added) => conversations.discard(added),
       questionOf: (input) => conversations.questionOf(input),
+      setQuestionModel: (questionId, model) => {
+        const question = conversations.setQuestionModel(questionId, model);
+        if (question) events.emit("conversation.message", question);
+        return question;
+      },
       clearScope: (questionId) => {
         const question = conversations.clearScope(questionId);
         if (question) events.emit("conversation.message", question);

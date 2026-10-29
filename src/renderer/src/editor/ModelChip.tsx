@@ -19,7 +19,7 @@ import { core } from "../core";
 import { useT } from "../i18n";
 import { turnOffLocalMode } from "../localMode";
 import { useModelInUse } from "../modelInUse";
-import { useModelMenuRequests } from "../modelMenu";
+import { noteModelPick, useModelMenuRequests } from "../modelMenu";
 import { useModelNames } from "../modelNames";
 import { usePlanStandIn } from "../planLimits";
 import { useAppStore } from "../store";
@@ -76,6 +76,7 @@ export function useRunModel(doc: Y.Doc | null): {
 }
 
 function chooseModel(doc: Y.Doc | null, choice: ChatModelChoice): void {
+  noteModelPick(choice);
   if (doc) setMindModel(doc, choice);
   void useAppStore.getState().updateSettings({ device: { lastChatModel: choice } });
 }

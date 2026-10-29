@@ -184,6 +184,8 @@ export function AssistantAnswer({
           details={answer.errorMessage}
           failedAt={answer.updatedAt}
           onRetry={regenerate}
+          onRetryWith={(model) => void regenerateAnswer(answer.id, { model })}
+          chooseHere
           onOpenSettings={openSettings}
         />
       )}

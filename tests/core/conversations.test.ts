@@ -1010,6 +1010,67 @@ describe("An Answer in a conversation", { timeout: 30_000 }, () => {
     });
   });
 
+  // protects=an Answer written again with another model (the one picked after its own failed) is written with it, keeps its Question's words and Search scope, and the Question stays on that model for the next Regenerate (#1848); fails_when=the override is ignored, the Question is asked anew, or its scope or text is lost; no_claim=how the failed line offers it (e2e/askAgainWithModel.spec.ts).
+  test("an Answer written again with another model keeps its Question and goes on with that model", async () => {
+    const built: string[] = [];
+    const model = streamingModel("Twice a day.");
+    const { core, ended } = await setUp(model, {
+      createChatModel: (spec) => {
+        built.push(spec.modelId);
+        return model;
+      },
+    });
+    const first = await ask(core, ended, { text: "How often?", model: undefined });
+    const providerId = answerOf(await core.getConversation(first.conversation.id), first.answerId)
+      .model?.providerId;
+    if (!providerId) throw new Error("The Answer names no provider.");
+
+    const picked = { providerId, modelId: "second-model" };
+    const again = await core.regenerateConversationAnswer({
+      conversationId: first.conversation.id,
+      answerId: first.answerId,
+      model: picked,
+    });
+    expect(again).toMatchObject({ asked: true, answerId: first.answerId });
+    const settled = async () =>
+      answerOf(await core.getConversation(first.conversation.id), first.answerId).status;
+    await vi.waitFor(() => expect(built).toContain("second-model"));
+    await vi.waitFor(async () => expect(await settled()).not.toBe("streaming"));
+
+    let content = await core.getConversation(first.conversation.id);
+    expect(content.messages.map((message) => message.kind)).toEqual(["question", "answer"]);
+    expect(content.messages[0]).toMatchObject({
+      kind: "question",
+      text: "How often?",
+      model: picked,
+    });
+    expect(answerOf(content, first.answerId).model).toEqual(picked);
+
+    // Written again once more with no model named, it goes on with the one the Question now has.
+    await core.regenerateConversationAnswer({
+      conversationId: first.conversation.id,
+      answerId: first.answerId,
+    });
+    await vi.waitFor(() =>
+      expect(built.filter((id) => id === "second-model").length).toBeGreaterThan(1),
+    );
+    await vi.waitFor(async () => expect(await settled()).not.toBe("streaming"));
+    content = await core.getConversation(first.conversation.id);
+    expect(answerOf(content, first.answerId).model).toEqual(picked);
+  });
+
+  test("a model that isn't { providerId, modelId } is refused when an Answer is written again", async () => {
+    const { core, ended } = await setUp(streamingModel("Twice a day."));
+    const first = await ask(core, ended, { text: "How often?" });
+    await expect(
+      core.regenerateConversationAnswer({
+        conversationId: first.conversation.id,
+        answerId: first.answerId,
+        model: { modelId: "no-provider" } as never,
+      }),
+    ).rejects.toThrow(/model must be/);
+  });
+
   test("one left being written when IncarnaMind quit is stopped at the next start, not asked again, and found by search", async () => {
     const controlled = controlledModel();
     const { core, dataDir, adapters } = await setUp(controlled.model);
