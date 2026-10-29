@@ -1,10 +1,11 @@
-import type { ReactNode } from "react";
+import { type ReactNode, useContext } from "react";
 import type { CitationAttributes } from "../../../core/api";
 import { changedSourceLines, citationState } from "../../../shared/citations";
 import { useCitationRecheck } from "../citationVersion";
 import { useLanguage, useT } from "../i18n";
 import { useAppStore } from "../store";
 import type { NumberedCitation } from "./citationNumbers";
+import { MindIdContext } from "./mindContext";
 import { CitationChip } from "./UnsupportedCited";
 
 /**
@@ -31,6 +32,7 @@ export function ChangedSourceNotice({
     state.changedAfterCited ? attributes : null,
     state.changedAfterCited,
     live?.contentHash,
+    useContext(MindIdContext),
   );
   const { note, on } = changedSourceLines(
     state.changedAfterCited,

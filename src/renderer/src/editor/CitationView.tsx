@@ -156,7 +156,10 @@ export function CitationView({
     keptInsideName(
       state.library,
       attributes.documentId,
-      state.minds.find((mind) => mind.id === mindId)?.folderId ?? conversation?.folderId ?? null,
+      // In a Note, its own Folder decides, even when it is in none; in the assistant, the conversation's.
+      mindId !== null
+        ? (state.minds.find((mind) => mind.id === mindId)?.folderId ?? null)
+        : (conversation?.folderId ?? null),
     ),
   );
   /** The Mind's group: the Document opens in the group to its right. */
@@ -169,6 +172,7 @@ export function CitationView({
     state.changedAfterCited ? attributes : null,
     state.changedAfterCited,
     liveVersion,
+    mindId,
   );
   const shown = withShownName(attributes, documents);
   const location = citationLocation(attributes);

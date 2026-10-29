@@ -2366,7 +2366,7 @@ export function createCore(adapters: CoreAdapters): Core {
    */
   const recheckIn = (input: RecheckCitationInput): CitationRecheck => {
     const wall = walledDocument(input.documentId);
-    if (wall === null || wall === walledFolder(input.mindId ?? null)) {
+    if (wall === null || input.mindId === null || wall === walledFolder(input.mindId)) {
       return recheckCitation(documents, input);
     }
     return {
@@ -4278,6 +4278,9 @@ export function createCore(adapters: CoreAdapters): Core {
       if (!isRecord(input) || typeof input.text !== "string" || input.text.trim() === "") {
         throw new InvalidInputError("There is no text to save.");
       }
+      const from = typeof input.mindId === "string" ? input.mindId : null;
+      const filed = filedWithin(walledFolder(from), null);
+      if (filed === null) throw new InvalidInputError({ key: "error.folder.notFiled" });
       const title = typeof input.name === "string" ? input.name : "";
       const folder = join(dataDir, "Saved text");
       mkdirSync(folder, { recursive: true });
@@ -4290,6 +4293,7 @@ export function createCore(adapters: CoreAdapters): Core {
       const { documents: added } = await documents.add([join(folder, name)]);
       const saved = added[0];
       if (!saved) throw new InvalidInputError("The text couldn't be saved.");
+      if (filed.folderId !== null) library.assign(saved.id, filed.folderId);
       return saved;
     },
     listDocuments: async (options) => {
@@ -4400,13 +4404,17 @@ export function createCore(adapters: CoreAdapters): Core {
       }
       const page = (value: unknown) =>
         typeof value === "number" && Number.isInteger(value) && value >= 1 ? value : null;
+      // Left out, the Note can't be judged, so it is never taken as one outside a wall.
+      if (input.mindId !== null && typeof input.mindId !== "string") {
+        throw new InvalidInputError({ key: "error.citation.recheckNote" });
+      }
       return recheckIn({
         documentId: input.documentId,
         quote: typeof input.quote === "string" ? input.quote : "",
         pageFrom: page(input.pageFrom),
         pageTo: page(input.pageTo) ?? page(input.pageFrom),
         contentHash: typeof input.contentHash === "string" ? input.contentHash : null,
-        mindId: typeof input.mindId === "string" ? input.mindId : null,
+        mindId: input.mindId,
       });
     },
     citeSelection: async (input) => {

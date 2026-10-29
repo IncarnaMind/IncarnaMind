@@ -59,10 +59,10 @@ import {
   type CitationCheck,
   type CitationCheckReason,
   type CitationRecheck,
+  type CitationToRecheck,
   type CitedSelection,
   MAX_CITED_PAGES,
   type QuotedWords,
-  type RecheckCitationInput,
   type RejectedRecord,
   type SelectedPart,
 } from "../api";
@@ -446,7 +446,7 @@ function versionOf(documents: RecheckDocuments, documentId: string, contentHash:
   return { units, matching, inRange, result };
 }
 
-type Rechecked = Pick<RecheckCitationInput, "documentId" | "quote" | "pageFrom" | "pageTo">;
+type Rechecked = Pick<CitationToRecheck, "documentId" | "quote" | "pageFrom" | "pageTo">;
 
 /**
  * Checks a Citation again against its Document's current version (see

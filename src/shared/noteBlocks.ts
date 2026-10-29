@@ -10,8 +10,8 @@ import {
   CALCULATED_FIGURE_NODE,
   CITATION_NODE,
   type CitationRecheck,
+  type CitationToRecheck,
   NOTE_BLOCK_TYPES,
-  type RecheckCitationInput,
 } from "../core/api";
 import type { NodeJSON } from "./blockJson";
 import { figureShownText, readCalculatedFigureAttributes } from "./calculatedFigures";
@@ -80,7 +80,7 @@ export function withoutIds(blocks: readonly NodeJSON[]): NodeJSON[] {
 }
 
 /** What checking a Citation again gives, sync or async (the core's own, or over IPC). */
-export type Recheck = (input: RecheckCitationInput) => CitationRecheck | Promise<CitationRecheck>;
+export type Recheck = (input: CitationToRecheck) => CitationRecheck | Promise<CitationRecheck>;
 
 const unit = (value: unknown): number | null =>
   typeof value === "number" && Number.isInteger(value) && value >= 1 ? value : null;

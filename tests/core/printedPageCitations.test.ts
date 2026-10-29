@@ -49,6 +49,7 @@ async function addReport(core: Core, name: string, bytes: Uint8Array): Promise<D
 /** The Location the check gives a quote from `page` of the report. */
 async function locationOf(core: Core, document: Document, page: number) {
   const result = await core.recheckCitation({
+    mindId: null,
     documentId: document.id,
     quote: sentence(page),
     pageFrom: page,
@@ -130,6 +131,7 @@ describe("A Citation of a PDF with no labels, whose footers print numbers one lo
     const document = await addReport(core, "Annual Report.pdf", report(footers));
 
     const result = await core.recheckCitation({
+      mindId: null,
       documentId: document.id,
       quote: `${sentence(3)} ${sentence(4)}`,
       pageFrom: 3,

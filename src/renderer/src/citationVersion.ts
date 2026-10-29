@@ -15,6 +15,8 @@ export function useCitationRecheck(
   > | null,
   changed: boolean,
   currentVersion: string | null | undefined,
+  /** The Note the Citation is in; null for one in no Note (`RecheckCitationInput.mindId`). */
+  mindId: string | null,
 ): CitationRecheck | "failed" | null {
   const documentId = citation?.documentId ?? null;
   const quote = citation?.quote ?? "";
@@ -27,21 +29,23 @@ export function useCitationRecheck(
     setRecheck(null);
     if (!changed || documentId === null || quote === "") return;
     let current = true;
-    core.recheckCitation({ documentId, quote, pageFrom, pageTo, contentHash: version }).then(
-      (result) => {
-        if (current) setRecheck(result);
-      },
-      (failure: unknown) => {
-        console.error(
-          "A Citation's quote couldn't be checked against its Document's new version.",
-          failure,
-        );
-        if (current) setRecheck("failed");
-      },
-    );
+    core
+      .recheckCitation({ documentId, quote, pageFrom, pageTo, contentHash: version, mindId })
+      .then(
+        (result) => {
+          if (current) setRecheck(result);
+        },
+        (failure: unknown) => {
+          console.error(
+            "A Citation's quote couldn't be checked against its Document's new version.",
+            failure,
+          );
+          if (current) setRecheck("failed");
+        },
+      );
     return () => {
       current = false;
     };
-  }, [changed, documentId, quote, pageFrom, pageTo, version, currentVersion]);
+  }, [changed, documentId, quote, pageFrom, pageTo, version, currentVersion, mindId]);
   return recheck;
 }

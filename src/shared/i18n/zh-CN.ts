@@ -342,6 +342,7 @@ export const zhCN = {
   "folder.wall.notFiled":
     "未新建任何内容：这项工作只在所在文件夹内进行，但现在找不到该文件夹。笔记没有变化。",
   "error.folder.wall": "只在本文件夹内工作。",
+  "error.citation.recheckNote": "只能针对引用所在的笔记重新核对引用。",
   "error.folder.wallMove":
     "未移动：只在本文件夹内工作的文件夹，助手不能移入或移出其中的内容。你仍可以自己移动。",
   "error.folder.notFiled":

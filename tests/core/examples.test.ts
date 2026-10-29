@@ -504,6 +504,7 @@ describe("the example Mind", { timeout: 30_000 }, () => {
       expect(
         (
           await core.recheckCitation({
+            mindId: null,
             documentId: citation.documentId,
             pageFrom: citation.pageFrom,
             pageTo: citation.pageTo,

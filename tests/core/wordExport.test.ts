@@ -929,8 +929,16 @@ describe("sentences whose check isn't good, in an imported file (#900)", () => {
         body: paragraph("Margins widened in 2026.") + paragraph("Costs fell in 2025."),
       });
       await core.updateSettings({ user: { language } });
-      const okoro = await core.saveTextAsDocument({ name: "Okoro agreement", text: "Notice." });
-      const adeyemi = await core.saveTextAsDocument({ name: "Adeyemi agreement", text: "Leave." });
+      const okoro = await core.saveTextAsDocument({
+        mindId: null,
+        name: "Okoro agreement",
+        text: "Notice.",
+      });
+      const adeyemi = await core.saveTextAsDocument({
+        mindId: null,
+        name: "Adeyemi agreement",
+        text: "Leave.",
+      });
       const scopeOf = (documentIds: string[]) => ({ folderIds: [], tagIds: [], documentIds });
       const inScope = (value: string, documentIds: string[]) => {
         const marked = checked(value, "unsupported", null);

@@ -16,8 +16,9 @@ import { useAppStore } from "./store";
 export type LineAdded = "added" | "already" | "failed";
 
 /** The Citation of one line: its Unit, as the Transcript's blocks of lines number them, and its words. */
-async function citationOf(document: Document, cue: Cue, page: number | null) {
+async function citationOf(document: Document, cue: Cue, page: number | null, mindId: string) {
   const found = await core.recheckCitation({
+    mindId,
     documentId: document.id,
     pageFrom: page,
     pageTo: page,
@@ -48,7 +49,7 @@ export async function addLineToNote(input: {
   const meeting = useMeetings.getState().meetings.find((each) => each.id === meetingId);
   if (!meeting) return "failed";
   try {
-    const citation = await citationOf(document, cue, page);
+    const citation = await citationOf(document, cue, page, meeting.mindId);
     const note = await noteOf(meeting.mindId);
     if (!note) throw new Error(translateNow("transcript.addToNote.failed"));
     const current = useMeetings.getState().meetings.find((each) => each.id === meetingId);

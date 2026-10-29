@@ -6,6 +6,7 @@ import { translate } from "../../src/shared/i18n";
 import { askAssistant } from "../helpers/assistant";
 import { answerEnded, setUpWithDocuments } from "../helpers/citations";
 import { createTempDataFolder, nextEvent, queryDatabase } from "../helpers/core";
+import { waitForProcessing } from "../helpers/documents";
 import { connectToMind } from "../helpers/mindClient";
 import { readMind } from "../helpers/minds";
 import { type ModelCall, type ScriptedReply, scriptedModel } from "../helpers/models";
@@ -19,7 +20,10 @@ import { type ModelCall, type ScriptedReply, scriptedModel } from "../helpers/mo
 const FILES = [
   { name: "Client A lease.txt", contents: "Client A notice: 90 days.\n" },
   { name: "Client B lease.txt", contents: "Client B notice: 45 days.\n" },
-  { name: "Memo one.txt", contents: "Memo one says the fee is 2 percent.\n" },
+  {
+    name: "Memo one.txt",
+    contents: "Memo one says the fee is 2 percent, with a notice of 30 days.\n",
+  },
   { name: "Memo two.txt", contents: "Memo two says the fee is 3 percent.\n" },
 ];
 
@@ -293,6 +297,90 @@ describe("an Answer's Citations copied out of a wall", () => {
 });
 
 type Setup = Awaited<ReturnType<typeof setUp>>;
+
+describe("a Citation checked again names the Note it is for", () => {
+  const lease = (s: Setup, mindId: string | null) => ({
+    documentId: s.leaseA.id,
+    quote: "Client A notice: 90 days.",
+    pageFrom: null,
+    pageTo: null,
+    contentHash: s.leaseA.contentHash,
+    mindId,
+  });
+
+  test("a walled Note's own Citation is still found after its Document gets a new version", async () => {
+    const s = await setUp();
+    await writeFile(s.leaseA.path, "Client A notice: 90 days.\nRenewal: yearly.\n");
+    await s.core.reconcileDocuments();
+    const [changed] = await waitForProcessing(s.core, [s.leaseA.id]);
+    expect(changed?.contentHash).not.toBe(s.leaseA.contentHash);
+    expect(await s.core.recheckCitation(lease(s, s.noteA.id))).toMatchObject({
+      check: "found",
+      contentHash: changed?.contentHash,
+    });
+    // In no Note (an Answer, the Document's viewer) it is read as browsing is, never as outside.
+    expect(await s.core.recheckCitation(lease(s, null))).toMatchObject({ check: "found" });
+    // From a Note outside the wall, the check it was made with stands.
+    expect(await s.core.recheckCitation(lease(s, s.noteX.id))).toMatchObject({
+      contentHash: null,
+      checkReason: "kept-inside",
+    });
+  });
+
+  test("a re-check that leaves the Note out is refused", async () => {
+    const s = await setUp();
+    const { mindId: _left, ...withoutNote } = lease(s, null);
+    // @ts-expect-error: every re-check says which Note it is for, or null for none.
+    await expect(s.core.recheckCitation(withoutNote)).rejects.toThrow(
+      translate("en", "error.citation.recheckNote"),
+    );
+  });
+});
+
+describe("a long paste saved as a Document from a Note's composer", () => {
+  const OFFER = "The notice of the settlement offer zeta: 4 million omega.";
+
+  test("from a walled Note, it is filed in that Folder and stays behind the wall", async () => {
+    const s = await setUp();
+    const saved = await s.core.saveTextAsDocument({
+      name: "Pasted offer",
+      text: OFFER,
+      mindId: s.noteA.id,
+    });
+    const { assignments } = await s.core.getLibrary();
+    expect(assignments.find((each) => each.documentId === saved.id)).toMatchObject({
+      groupId: s.folderA.id,
+      source: "user",
+    });
+    await waitForProcessing(s.core, [saved.id]);
+    const from = s.calls.length;
+    await askAssistant(s.core, { text: "What is the settlement offer?", mindId: s.mind.id });
+    const outside = s.calls
+      .slice(from)
+      .flatMap((call) => call.results.map((each) => each.text))
+      .join("\n");
+    expect(outside).toContain("Memo one");
+    expect(outside).not.toContain("4 million omega");
+    const inside = s.calls.length;
+    await askAssistant(s.core, { text: "What is the settlement offer?", mindId: s.noteA.id });
+    const within = s.calls
+      .slice(inside)
+      .flatMap((call) => call.results.map((each) => each.text))
+      .join("\n");
+    expect(within).toContain("4 million omega");
+  });
+
+  test("from a Note outside every wall, it is in no Folder, as before", async () => {
+    const s = await setUp();
+    const saved = await s.core.saveTextAsDocument({
+      name: "Pasted",
+      text: OFFER,
+      mindId: s.noteX.id,
+    });
+    const { assignments } = await s.core.getLibrary();
+    expect(assignments.find((each) => each.documentId === saved.id)?.groupId ?? null).toBeNull();
+  });
+});
 
 describe("earlier turns are judged by the wall, not by this turn's Search scope", () => {
   const scoped = (documentId: string): SearchScope => ({

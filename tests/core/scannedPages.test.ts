@@ -592,6 +592,7 @@ describe("Scanned pages are read on this computer (#397)", { timeout: 60_000 }, 
     expect(units[1]?.text).toContain("northern estuarine");
     expect(JSON.parse(units[1]?.label ?? "{}").scan.reader).toBe(READER);
     const recheck = await restarted.recheckCitation({
+      mindId: null,
       documentId: document.id,
       quote,
       pageFrom: 1,

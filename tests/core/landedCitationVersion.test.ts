@@ -139,7 +139,9 @@ const LANDINGS = {
   /** Add to note into the Mind open in the editor, which checks them through the bridge. */
   "the open Mind": async (core: Core, answer: ConversationAnswer) =>
     citationsOf(
-      await recheckCitations(answerBlocks(answer), (input) => core.recheckCitation(input)),
+      await recheckCitations(answerBlocks(answer), (input) =>
+        core.recheckCitation({ ...input, mindId: null }),
+      ),
     ) as unknown as CitationAttributes[],
 } as const;
 
@@ -173,6 +175,7 @@ describe("A Citation keeps the version it quotes where its Answer lands", {
       const state = citationState(landed ?? {}, await core.listDocuments());
       expect(state.changedAfterCited).toBe(true);
       const recheck = await core.recheckCitation({
+        mindId: null,
         documentId: document.id,
         quote: OLD,
         pageFrom: 2,
@@ -230,7 +233,7 @@ describe("A Citation keeps the version it quotes where its Answer lands", {
 
     expect(landed).toMatchObject({ contentHash: sha256(V1), check: "found" });
     const input = { documentId: document.id, quote: OLD, pageFrom: 2, pageTo: 2 };
-    const gone = await core.recheckCitation({ ...input, contentHash: sha256(V1) });
+    const gone = await core.recheckCitation({ mindId: null, ...input, contentHash: sha256(V1) });
     expect(gone).toMatchObject({ check: "not-found", contentHash: sha256(V3), changed: null });
     const state = citationState(landed ?? {}, await core.listDocuments());
     expect(needsRecheck(state, landed ?? {}, gone)).toBe(true);
@@ -242,12 +245,12 @@ describe("A Citation keeps the version it quotes where its Answer lands", {
     const [again] = citationsOf(
       await recheckCitations(
         [{ type: "paragraph", content: [{ type: "citation", attrs: pinned }] }],
-        (each) => core.recheckCitation(each),
+        (each) => core.recheckCitation({ ...each, mindId: null }),
       ),
     );
     expect(again).toMatchObject({ contentHash: sha256(V1), keptOver: sha256(V3) });
     await change(core, document, V2);
-    const back = await core.recheckCitation({ ...input, contentHash: sha256(V1) });
+    const back = await core.recheckCitation({ mindId: null, ...input, contentHash: sha256(V1) });
     expect(needsRecheck(state, pinned, back)).toBe(true);
   });
 
@@ -295,6 +298,7 @@ describe("A Citation keeps the version it quotes where its Answer lands", {
 
     expect(kept(landed ?? {})).toEqual(kept(answer.citations[0] ?? {}));
     const recheck = await core.recheckCitation({
+      mindId: null,
       documentId: document.id,
       quote: before,
       pageFrom: landed?.pageFrom ?? null,

@@ -100,6 +100,8 @@ export function openCited(
 export async function openCitedFollowing(
   citation: Parameters<typeof openCited>[0],
   how: Parameters<typeof openCited>[1],
+  /** The Note the Citation is in; null for one in no Note (`RecheckCitationInput.mindId`). */
+  mindId: string | null,
 ): Promise<void> {
   const app = useAppStore.getState();
   const cited = citationState(
@@ -111,6 +113,7 @@ export async function openCitedFollowing(
   if (!cited.changedAfterCited || quote === "") return openCited(citation, how);
   const recheck = await core
     .recheckCitation({
+      mindId,
       documentId: citation.documentId,
       quote,
       pageFrom: citation.pageFrom,

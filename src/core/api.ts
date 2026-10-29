@@ -1832,7 +1832,8 @@ export type CitationCheckReason =
  * What to re-check a Citation with against its Document's current version
  * (see `CoreApi.recheckCitation`): its Document, cited Units and quote.
  */
-export interface RecheckCitationInput {
+/** A Citation to look for again in its Document (see `RecheckCitationInput`). */
+export interface CitationToRecheck {
   documentId: string;
   /** The cited Units (pages, slides…), from 1; null for a whole TXT or Markdown file. */
   pageFrom: number | null;
@@ -1844,11 +1845,16 @@ export interface RecheckCitationInput {
    * (`changed`).
    */
   contentHash?: string | null;
+}
+
+export interface RecheckCitationInput extends CitationToRecheck {
   /**
-   * The Note the Citation is going into. A Document kept inside a walled Folder that Note is
-   * outside isn't read again: the check it was made with stands (#1934).
+   * The Note the Citation is in, or going into; null for one shown in no Note (an Answer in the
+   * assistant, the Document's viewer), which is read as browsing is. A Document kept inside a
+   * walled Folder isn't read again for a Note outside it: the check it was made with stands
+   * (#1934). Never left out.
    */
-  mindId?: string | null;
+  mindId: string | null;
 }
 
 /**
@@ -9859,10 +9865,18 @@ export interface CoreApi {
   /**
    * Keeps text the User pasted as a Markdown Document, so Answers can cite it.
    * The file is written in the data folder ("Saved text"), never next to the
-   * User's files, and added on its own like any file (no Folder). A name taken
+   * User's files, and added on its own like any file (no Folder, but behind a wall in its Folder). A name taken
    * already gets a number. Throws InvalidInputError for text with no words.
    */
-  saveTextAsDocument(input: { name: string; text: string }): Promise<Document>;
+  saveTextAsDocument(input: {
+    name: string;
+    text: string;
+    /**
+     * The Note whose composer it was pasted in; null for none. From a Note in a walled Folder it
+     * is filed in that Folder, as everything made behind the wall is (#1934).
+     */
+    mindId: string | null;
+  }): Promise<Document>;
   /**
    * Saves a web page as a Document (#261): its readable text, without
    * navigation, ads or scripts, kept as a snapshot that Citations point at

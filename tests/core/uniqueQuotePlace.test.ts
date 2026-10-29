@@ -223,6 +223,7 @@ for (const language of ["en", "zh-CN"] as const) {
     const doc = documents[0];
     if (!doc) throw new Error("No Document");
     const result = await core.recheckCitation({
+      mindId: null,
       documentId: doc.id,
       contentHash: doc.contentHash,
       quote: row,
@@ -231,6 +232,7 @@ for (const language of ["en", "zh-CN"] as const) {
     });
     expect(result).toMatchObject({ check: "not-found", pageFrom: 2, pageTo: 2 });
     const whole = await core.recheckCitation({
+      mindId: null,
       documentId: doc.id,
       contentHash: doc.contentHash,
       quote: row,

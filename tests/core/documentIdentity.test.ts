@@ -178,7 +178,13 @@ describe("A Linked folder found somewhere else keeps its Documents", { timeout: 
       changedAfterCited: false,
     });
     expect(
-      await second.recheckCitation({ documentId: tides.id, quote: SPRING, pageFrom: 2, pageTo: 2 }),
+      await second.recheckCitation({
+        mindId: null,
+        documentId: tides.id,
+        quote: SPRING,
+        pageFrom: 2,
+        pageTo: 2,
+      }),
     ).toMatchObject({ check: "found", contentHash: tides.contentHash });
     const file = await second.openDocumentFile(tides.id);
     expect(Buffer.from(await new Response(file.stream).arrayBuffer())).toEqual(Buffer.from(TIDES));
@@ -341,7 +347,7 @@ describe("The files IncarnaMind keeps are in the data folder, wherever it is", {
     const first = startCore(dataDir);
     const saved = await first.saveWebPage({ address: "https://reader.example/tea", html: ARTICLE });
     if (saved.outcome !== "saved") throw new Error("The page wasn't saved.");
-    const text = await first.saveTextAsDocument({ name: "Pasted", text: SPRING });
+    const text = await first.saveTextAsDocument({ mindId: null, name: "Pasted", text: SPRING });
     await waitForProcessing(first, [saved.document.id, text.id]);
     await first.close();
     const kept = places(dataDir).filter((row) => row.source_kind === "data-folder");

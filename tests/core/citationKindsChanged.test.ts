@@ -142,6 +142,7 @@ describe("A Citation to a Document with a new version", { timeout: 60_000 }, () 
       const state = citationState(citation, documents);
       expect(state.changedAfterCited).toBe(true);
       const recheck = await core.recheckCitation({
+        mindId: null,
         documentId: document.id,
         quote: citation.quote,
         pageFrom: citation.pageFrom,
@@ -170,6 +171,7 @@ describe("A Citation to a Document with a new version", { timeout: 60_000 }, () 
     const state = citationState(citation, documents);
     expect(state.changedAfterCited).toBe(true);
     const recheck = await core.recheckCitation({
+      mindId: null,
       documentId: document.id,
       quote: citation.quote,
       pageFrom: citation.pageFrom,
@@ -197,6 +199,7 @@ describe("A Citation to a Document with a new version", { timeout: 60_000 }, () 
       changedAfterCited: false,
     });
     const recheck = await core.recheckCitation({
+      mindId: null,
       documentId: document.id,
       quote: citation.quote,
       pageFrom: citation.pageFrom,

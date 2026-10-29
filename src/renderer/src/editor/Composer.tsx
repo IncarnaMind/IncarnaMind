@@ -530,6 +530,7 @@ export function Composer({
       const saved = await core.saveTextAsDocument({
         name: first.trim().slice(0, 60) || t("composer.paste.name"),
         text: paste.text,
+        mindId: source?.mindId ?? mindId,
       });
       const composer = useComposer.getState();
       const now = composer.draft(key);

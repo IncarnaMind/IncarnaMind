@@ -3,6 +3,7 @@ import {
   type CSSProperties,
   type RefObject,
   useCallback,
+  useContext,
   useEffect,
   useMemo,
   useRef,
@@ -76,6 +77,7 @@ import { useReadableQuote } from "./citationScan";
 import { claimCardPlace } from "./claimCardPlace";
 import type { ShownClaim } from "./claimChecks";
 import { ClaimMarkIcon, type ClaimMarkState } from "./icons";
+import { MindIdContext } from "./mindContext";
 import { Popover } from "./Popover";
 import { isQuietFocus } from "./quietFocus";
 import { CitationChip, OpenCitation, UnsupportedCited } from "./UnsupportedCited";
@@ -386,6 +388,7 @@ export function ClaimMark({
  */
 function Working({ calculation, onOpen }: { calculation: ClaimCalculation; onOpen(): void }) {
   const t = useT();
+  const mindId = useContext(MindIdContext);
   const documents = useAppStore((store) => store.documents);
   const { figure } = calculation;
   const byName = new Map(figure.inputs.map((input) => [input.name.toLowerCase(), input]));
@@ -428,11 +431,11 @@ function Working({ calculation, onOpen }: { calculation: ClaimCalculation; onOpe
                 className="claim-card-input"
                 title={input.citation.quote}
                 onClick={() => {
-                  void openCitedFollowing(input.citation, {
-                    check: "found",
-                    withQuote: true,
-                    label: where,
-                  });
+                  void openCitedFollowing(
+                    input.citation,
+                    { check: "found", withQuote: true, label: where },
+                    mindId,
+                  );
                   onOpen();
                 }}
               >
@@ -528,6 +531,7 @@ function ClaimCard({
   onUse(): void;
 }) {
   const t = useT();
+  const mindId = useContext(MindIdContext);
   const language = useLanguage();
   const citesWorks = useCitesWorks(editor);
   const webSearchOn = useAppStore((store) => store.settings?.user.webSearch === true);
@@ -903,6 +907,7 @@ function ClaimCard({
               void openCitedFollowing(
                 { ...evidence, documentId: evidence.documentId },
                 { check: "found", withQuote: true, label: where },
+                mindId,
               );
               onOpen();
             }}

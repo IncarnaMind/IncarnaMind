@@ -284,6 +284,7 @@ describe("Files IncarnaMind wrote aren't evidence", () => {
     const empty = await indexed(core, await writeSourceFile(papers, "Empty.md", ""));
     expect(empty.ownFile).toBeNull();
     const pasted = await core.saveTextAsDocument({
+      mindId: null,
       name: "Field notes",
       text: "Spring tides flooded the harbour steps at Whitby.",
     });

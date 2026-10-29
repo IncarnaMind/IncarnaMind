@@ -48,6 +48,7 @@ describe("citeSelection", () => {
     expect(cited).toMatchObject({ check: "found", pageFrom: 2, pageTo: 2, quote: REPEATED });
     expect(cited.location).toEqual({ kind: "page", from: 2, to: 2 });
     const anywhere = await core.recheckCitation({
+      mindId: null,
       documentId: document.id,
       quote: REPEATED,
       pageFrom: null,
@@ -159,6 +160,7 @@ describe("citeSelection", () => {
       parts: [{ unit: 1, text: line, linesBefore: 0, linesAfter: 0 }],
     });
     const again = await core.recheckCitation({
+      mindId: null,
       documentId: document.id,
       quote: cited.quote,
       pageFrom: 1,
