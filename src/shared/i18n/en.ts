@@ -4212,6 +4212,12 @@ export const en = {
 
   "error.connector.notInDirectory": "That Connector isn’t in the directory.",
   "error.examples.reading": "The example’s Documents are still being read. Try again in a moment.",
+  "error.examples.unreadable":
+    "The example’s Document “{document}” couldn’t be read. Add a file of your own, or remove the examples.",
+  "error.examples.gone":
+    "The example’s Document “{document}” was deleted. Add a file of your own, or remove the examples.",
+  "error.examples.absent":
+    "The example isn’t there any more. Add a file of your own to ask about it.",
   "error.selection.none": "No text is selected.",
   "error.document.notFound": "There is no such Document.",
   "sheet.noSavedValue": "No saved value",
@@ -5002,6 +5008,7 @@ export const en = {
   "firstOpen.step.question.own": "or press {shortcut} to type your own",
   "firstOpen.step.question.ownOnly": "Press {shortcut} to ask your own Question.",
   "firstOpen.step.question.reading": "Reading “{document}”…",
+  "firstOpen.step.question.stop": "Stop",
   "readyQuestion.document": "What does ‘{document}’ say?",
   "firstOpen.step.files.title": "Add your files",
   "firstOpen.step.files.done": "Added your files",
@@ -5929,6 +5936,7 @@ export const en = {
   "command.answer.copy": "Copy the Answer",
   "command.answer.regenerate": "Regenerate the Answer",
   "command.answer.stop": "Stop the Answer",
+  "command.ready.stop": "Stop waiting for the Documents",
   "command.answer.stop.unavailable": "No Answer is being written",
   "origin.open": "Open the source conversation",
   "origin.deleted": "From the conversation “{title}”, now in Recently deleted",
