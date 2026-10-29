@@ -38,6 +38,12 @@ function judgesOf(scripted: boolean): readonly Judge[] {
   }
   const judges = [modelJudge(first), modelJudge(second)];
   if (judges[0]?.id === judges[1]?.id) throw new Error("The two judges must be different models.");
+  const unpriced = judges.find((judge) => judge.price === null && judge.kind !== "ollama");
+  if (unpriced) {
+    throw new Error(
+      `The app's catalog has no price for ${unpriced.id}, so its cost can't be capped.`,
+    );
+  }
   return judges;
 }
 
@@ -49,8 +55,16 @@ test("the citation benchmark's judges", async () => {
   const judges = judgesOf(settings.scripted);
   mkdirSync(join(settings.runsDir, "judgements"), { recursive: true });
 
-  let spent = 0;
-  for (const file of runFiles(settings.runsDir)) {
+  const files = runFiles(settings.runsDir);
+  // What earlier judging spent counts against the cap too.
+  let spent = files
+    .flatMap((file) =>
+      judges.flatMap((judge) => [
+        ...readJudgements(judgementsFile(settings.runsDir, file, judge.id)).values(),
+      ]),
+    )
+    .reduce((sum, judgement) => sum + (judgement.usd ?? 0), 0);
+  for (const file of files) {
     const run = readRun(join(settings.runsDir, file));
     if (!run) continue;
     const tasks = run.answers.flatMap((answer) =>

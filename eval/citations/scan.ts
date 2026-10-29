@@ -132,6 +132,48 @@ export function scanText(
 
 const TEXT_FILE = /\.(?:json|jsonl|md|ts|txt|csv)$/i;
 
+const ESCAPED: Readonly<Record<string, string>> = {
+  n: "\n",
+  r: "\r",
+  t: "\t",
+  b: "\b",
+  f: "\f",
+  '"': '"',
+  "\\": "\\",
+  "/": "/",
+};
+
+/**
+ * JSON's text with its escapes read as the characters they stand for, as a
+ * reader of the file gets them: "\/" a slash, "\u0040" an "@". `at` gives
+ * each character's place in the file, for its line.
+ */
+export function decodeJsonEscapes(text: string): { text: string; at: number[] } {
+  let decoded = "";
+  const at: number[] = [];
+  for (let index = 0; index < text.length; index++) {
+    const char = text[index] as string;
+    const next = text[index + 1];
+    if (
+      char === "\\" &&
+      next === "u" &&
+      /^[0-9a-fA-F]{4}$/.test(text.slice(index + 2, index + 6))
+    ) {
+      decoded += String.fromCharCode(Number.parseInt(text.slice(index + 2, index + 6), 16));
+      at.push(index);
+      index += 5;
+    } else if (char === "\\" && next !== undefined && ESCAPED[next] !== undefined) {
+      decoded += ESCAPED[next];
+      at.push(index);
+      index += 1;
+    } else {
+      decoded += char;
+      at.push(index);
+    }
+  }
+  return { text: decoded, at };
+}
+
 function filesUnder(folder: string): string[] {
   if (!existsSync(folder)) return [];
   return readdirSync(folder).flatMap((name) => {
@@ -199,9 +241,16 @@ export async function scanBenchmark(
         continue;
       }
       const text = readFileSync(path, "utf8");
-      // A JSON escape before a value ("\\npio@…") would read as part of it; two spaces keep the offsets.
-      const plain = /\.jsonl?$/.test(path) ? text.replace(/\\[nrtbf"\\/]/g, "  ") : text;
-      findings.push(...scanText(plain, shown(path), { allowed: allowedHashes, secrets }));
+      if (!/\.jsonl?$/.test(path)) {
+        findings.push(...scanText(text, shown(path), { allowed: allowedHashes, secrets }));
+        continue;
+      }
+      const decoded = decodeJsonEscapes(text);
+      const lineOf = (index: number) =>
+        text.slice(0, decoded.at[index] ?? text.length).split("\n").length;
+      findings.push(
+        ...scanText(decoded.text, shown(path), { allowed: allowedHashes, secrets, lineOf }),
+      );
     }
   }
   return findings;

@@ -296,6 +296,12 @@ export async function runBenchmark(options: HarnessOptions): Promise<Map<Languag
     what: `the ${toAsk} Questions to ask are expected to cost`,
   });
   if (refused) throw new Error(`The run doesn't start. ${refused}`);
+  // A hosted provider's model bills by the token; one on this computer, or a local server, doesn't.
+  if (!price && ref.kind !== "ollama" && ref.kind !== "openai-compatible") {
+    throw new Error(
+      `The run doesn't start. The app's catalog has no price for ${label}, so its cost can't be capped.`,
+    );
+  }
   log(
     `${label}: ${toAsk} Questions to ask in ${plan.map((each) => `${each.language} (${each.questions.length})`).join(", ")}` +
       (price
@@ -344,6 +350,11 @@ export async function runBenchmark(options: HarnessOptions): Promise<Map<Languag
       ? { kind: "ollama", modelId: SCRIPTED }
       : chatProviderOf(chat);
     const provider = await core.saveChatProvider(input);
+    if (provider.service && !price) {
+      throw new Error(
+        `The run doesn't start. The app's catalog has no price for ${label} at ${provider.service.name}, so its cost can't be capped.`,
+      );
+    }
     const model = modelOf(chat, provider.service?.name ?? null);
     const cpu = cpus();
     const passageTexts = new Map(

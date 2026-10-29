@@ -182,12 +182,12 @@ Each run's misses, and how many the app's check flagged: a Citation's "Quote not
 
 ## What the check gets wrong itself
 
-| Model | Language | "Quote not found" on a quote that is there | Cited sentences flagged with no miss | Answers whose Note wasn't checked |
-|---|---|---|---|---|
-| ollama/qwen3.5:4b | English | [0](ollama-qwen3.5-4b.en.json) | [0](ollama-qwen3.5-4b.en.json) | [0](ollama-qwen3.5-4b.en.json) |
-| ollama/qwen3.5:4b | Chinese | [0](ollama-qwen3.5-4b.zh.json) | [0](ollama-qwen3.5-4b.zh.json) | [0](ollama-qwen3.5-4b.zh.json) |
-| scripted | English | [0](scripted.en.json) | [0](scripted.en.json) | [0](scripted.en.json) |
-| scripted | Chinese | [0](scripted.zh.json) | [0](scripted.zh.json) | [0](scripted.zh.json) |
+| Model | Language | "Quote not found" on a quote that is there | Cited sentences flagged with no miss | Answers whose Note got no verdict | Sentences it couldn't check |
+|---|---|---|---|---|---|
+| ollama/qwen3.5:4b | English | [0](ollama-qwen3.5-4b.en.json) | [0](ollama-qwen3.5-4b.en.json) | [2](ollama-qwen3.5-4b.en.json) | [9](ollama-qwen3.5-4b.en.json) |
+| ollama/qwen3.5:4b | Chinese | [0](ollama-qwen3.5-4b.zh.json) | [0](ollama-qwen3.5-4b.zh.json) | [1](ollama-qwen3.5-4b.zh.json) | [5](ollama-qwen3.5-4b.zh.json) |
+| scripted | English | [0](scripted.en.json) | [0](scripted.en.json) | [0](scripted.en.json) | [0](scripted.en.json) |
+| scripted | Chinese | [0](scripted.zh.json) | [0](scripted.zh.json) | [0](scripted.zh.json) | [0](scripted.zh.json) |
 
 ## Questions the Documents don't answer
 

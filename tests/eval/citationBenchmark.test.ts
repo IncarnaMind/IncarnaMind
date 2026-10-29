@@ -11,7 +11,7 @@ import { finalVerdict, type Judgement, readVerdict } from "../../eval/citations/
 import { resultsPage } from "../../eval/citations/results";
 import type { CitationsRun, RunAnswer, RunCitation } from "../../eval/citations/runs";
 import { keptAnswers, noTokens, resumeProblem, spentUsd } from "../../eval/citations/runs";
-import { heldSecrets, scanText } from "../../eval/citations/scan";
+import { decodeJsonEscapes, heldSecrets, scanText } from "../../eval/citations/scan";
 import {
   type FinalVerdict,
   figureRight,
@@ -146,6 +146,10 @@ describe("The citation benchmark (#1999)", () => {
     expect(quoteFound(citation({ pageFrom: 2, pageTo: 2 }), PAGES)).toBe(false);
     expect(quoteFound(citation({ quote: "Department of Energy 52.0" }), PAGES)).toBe(false);
     expect(quoteFound(citation({ document: null }), PAGES)).toBe(false);
+    // A Location is one Unit or two consecutive ones: a wider range holds no quote.
+    const wide = [...PAGES, { page: 3, text: "Notes" }];
+    expect(quoteFound(citation({ pageFrom: 1, pageTo: 3 }), wide)).toBe(false);
+    expect(quoteFound(citation({ pageFrom: 1, pageTo: 2 }), wide)).toBe(true);
   });
 
   test("numbers are read with their scale words, in English and Chinese", () => {
@@ -205,6 +209,7 @@ describe("The citation benchmark (#1999)", () => {
     });
     expect(readVerdict("Reasoning… so: supported").verdict).toBe("supported");
     expect(readVerdict("I can't tell.").verdict).toBe("unread");
+    expect(readVerdict('{"verdict": "partially supported"}').verdict).toBe("unread");
   });
 
   test("with the check: what it catches of each miss, what it lets through, and its own false alarms", () => {
@@ -262,7 +267,13 @@ describe("The citation benchmark (#1999)", () => {
       ["en-014", "figure", "citation check"],
       ["en-015", "support", null],
     ]);
-    expect(score.withTheCheck).toMatchObject({ misses: 3, caught: 2, falseQuoteNotFound: 1 });
+    expect(score.withTheCheck).toMatchObject({
+      misses: 3,
+      caught: 2,
+      falseQuoteNotFound: 1,
+      notChecked: 2,
+      sentencesNotChecked: 0,
+    });
   });
 
   test("a resumed run keeps what was paid for, asks a failed Answer again, and refuses another model's file", () => {
@@ -328,6 +339,24 @@ describe("The citation benchmark (#1999)", () => {
     expect(scanText("write to someone@example.org", "file", { allowed })).toEqual([]);
     expect(heldSecrets({ SOME_API_KEY: held, PATH: "/bin:/usr/bin:/usr/local/bin" })).toEqual([
       held,
+    ]);
+  });
+
+  test("the scan reads a JSON file's escapes as its reader does, and keeps their lines", () => {
+    const json = [
+      "{",
+      '  "a": "fine",',
+      '  "b": "Bearer abcdefghijklmnopqrs\\/t and pio\\u0040example.org"',
+      "}",
+    ].join("\n");
+    const decoded = decodeJsonEscapes(json);
+    expect(decoded.text).toContain("Bearer abcdefghijklmnopqrs/t and pio@example.org");
+    const lineOf = (index: number) => json.slice(0, decoded.at[index]).split("\n").length;
+    expect(
+      scanText(decoded.text, "run.json", { lineOf }).map(({ kind, line }) => [kind, line]),
+    ).toEqual([
+      ["api-key", 3],
+      ["email", 3],
     ]);
   });
 

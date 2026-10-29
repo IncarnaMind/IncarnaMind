@@ -80,6 +80,8 @@ export function readVerdict(text: string): { verdict: Verdict | "unread"; reason
       if (verdict === "supported" || verdict === "not supported") {
         return { verdict, reason: typeof parsed.reason === "string" ? parsed.reason : "" };
       }
+      // "partially supported" would read as supported below: a hedge is no verdict.
+      return { verdict: "unread", reason: text.slice(0, 200) };
     } catch {
       // Not JSON after all: read the words below.
     }
@@ -246,7 +248,8 @@ export async function judgeAll(
   let spent = cap.spentUsd;
   let judged = 0;
   for (const task of tasks) {
-    if (done.has(task.key)) continue;
+    // A reply that couldn't be read is asked again; the later line replaces it.
+    if (done.has(task.key) && done.get(task.key)?.verdict !== "unread") continue;
     const refused = capProblem(cap.capUsd, judge.price, spent, {
       usd: cap.perCallUsd,
       what: "the next verdict may cost up to",

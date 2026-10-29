@@ -370,7 +370,8 @@ type PageText = { page: number | null; text: string };
 
 /**
  * Whether a quote is on the pages (Units) a Citation cites, under the looser
- * normalisation; a Citation with no pages cites the whole Document.
+ * normalisation; a Citation with no pages cites the whole Document. A
+ * Location is one Unit or two consecutive ones, so a wider range holds nothing.
  */
 export function onCitedPages(
   quote: string,
@@ -380,6 +381,7 @@ export function onCitedPages(
 ): boolean {
   const needle = looseText(quote);
   if (!needle) return false;
+  if (pageFrom !== null && pageTo !== null && pageTo - pageFrom > 1) return false;
   const cited = pages.filter(
     ({ page }) =>
       pageFrom === null || pageTo === null || (page !== null && page >= pageFrom && page <= pageTo),

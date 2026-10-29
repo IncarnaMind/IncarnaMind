@@ -113,6 +113,9 @@ export function resultsPage(page: ResultsPage): string {
         : [
             ...(judged > 0 ? [ofLink(score.supported.supported, judged, file)] : []),
             ...(unsettled > 0 ? [`${link(unsettled, file)} to settle`] : []),
+            ...(score.supported.unjudged > 0
+              ? [`${link(score.supported.unjudged, file)} not judged`]
+              : []),
           ].join(", ");
     lines.push(
       `| ${score.model} | ${LANGUAGE[score.language] ?? score.language} | ${link(`${score.answers} of ${score.questions}`, file)}${score.failed > 0 ? `, ${link(score.failed, file)} failed` : ""} | ${ofLink(score.quoteFound, score.citations, file)} | ${supported} | ${ofLink(score.figureRight.right, score.figureRight.scored, file)} | ${ofLink(score.withTheCheck.caught, score.withTheCheck.misses, file)} |`,
@@ -126,13 +129,13 @@ export function resultsPage(page: ResultsPage): string {
     "",
     "## What the check gets wrong itself",
     "",
-    '| Model | Language | "Quote not found" on a quote that is there | Cited sentences flagged with no miss | Answers whose Note wasn\'t checked |',
-    "|---|---|---|---|---|",
+    '| Model | Language | "Quote not found" on a quote that is there | Cited sentences flagged with no miss | Answers whose Note got no verdict | Sentences it couldn\'t check |',
+    "|---|---|---|---|---|---|",
   );
   for (const score of page.scores) {
     const { file } = score;
     lines.push(
-      `| ${score.model} | ${LANGUAGE[score.language] ?? score.language} | ${link(score.withTheCheck.falseQuoteNotFound, file)} | ${link(score.withTheCheck.flaggedWithoutMiss, file)} | ${link(score.withTheCheck.notChecked, file)} |`,
+      `| ${score.model} | ${LANGUAGE[score.language] ?? score.language} | ${link(score.withTheCheck.falseQuoteNotFound, file)} | ${link(score.withTheCheck.flaggedWithoutMiss, file)} | ${link(score.withTheCheck.notChecked, file)} | ${link(score.withTheCheck.sentencesNotChecked, file)} |`,
     );
   }
 

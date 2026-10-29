@@ -139,7 +139,9 @@ and scanned. Its `RESULTS.md` says at its top that these are not published numbe
   Citations, 11 of them with the quote at its Location. Of the 7 misses the scorers found, the
   check caught 2 (both on the one Citation whose quote wasn't at its Location, which showed
   "Quote not found"), let 4 through, and had nothing to flag for a figure the Answer left out.
-  The published run on Ollama needs the app's own window, not 8,192.
+  The check of the Notes could check only 2 of the 16 sentences it named, for the same reason
+  as the refusals, so 3 of the 5 Notes got no verdict. The published run on Ollama needs the
+  app's own window, not 8,192.
 - Stopped after 3 of 6 Questions and run again, a run asked only the other 3; run a third time, it
   asked none. A run on a model with a price and no cap, or a cap below its estimate, refused to
   start before anything was sent.

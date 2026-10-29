@@ -243,8 +243,10 @@ export interface RunScore {
     falseQuoteNotFound: number;
     /** Cited sentences the check flagged whose every Citation is found and judged supported. */
     flaggedWithoutMiss: number;
-    /** Answers whose Note the check couldn't check, or that weren't checked. */
+    /** Answers whose Note wasn't checked, or none of whose sentences got a verdict. */
     notChecked: number;
+    /** Sentences the check named but couldn't check (a model that failed, a reply it couldn't read). */
+    sentencesNotChecked: number;
   };
   absent: { questions: number; declined: number; citedAnyway: number };
   tokens: { input: number; cachedInput: number; output: number };
@@ -283,6 +285,7 @@ export function scoreRun(
   let falseQuoteNotFound = 0;
   let flaggedWithoutMiss = 0;
   let notChecked = 0;
+  let sentencesNotChecked = 0;
   const absent = { questions: 0, declined: 0, citedAnyway: 0 };
   const tokens = { input: 0, cachedInput: 0, output: 0 };
   let usd: number | null = run.settings.price ? 0 : null;
@@ -299,7 +302,12 @@ export function scoreRun(
     if (usd !== null) usd += (answer.usd.answer ?? 0) + (answer.usd.check ?? 0);
     seconds += answer.seconds.answer + answer.seconds.check;
     if (answer.status === "failed" || answer.status === "timed-out") continue;
-    if (answer.check.kind !== "checked") notChecked++;
+    const checked = answer.check.kind === "checked" ? answer.check.sentences : [];
+    const unchecked = checked.filter((each) => each.outcome === "not-checked").length;
+    sentencesNotChecked += unchecked;
+    if (checked.every((each) => each.outcome === "not-checked" || each.outcome === "no-mark")) {
+      notChecked++;
+    }
 
     const sentenceMisses = new Set<string>();
     const caughtIn = (sentence: string | null, citationsHere: readonly RunCitation[]) => {
@@ -428,6 +436,7 @@ export function scoreRun(
       falseQuoteNotFound,
       flaggedWithoutMiss,
       notChecked,
+      sentencesNotChecked,
     },
     absent,
     tokens,
