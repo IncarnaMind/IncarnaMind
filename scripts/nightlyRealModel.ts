@@ -66,7 +66,7 @@ export interface Step {
   provider: Provider;
   /** The step is stopped, and fails, when it takes longer. */
   minutes: number;
-  results: "vitest" | "everyday";
+  results: "vitest" | "everyday" | "claim-probes";
   command: (folder: string) => string[];
   env: (key: string) => Record<string, string>;
 }
@@ -144,7 +144,22 @@ export const STEPS: readonly Step[] = [
       INCARNAMIND_EVAL_JUDGE_KEY: key,
     }),
   },
+  {
+    id: "claim-probes",
+    name: "Change-claim probes on Claude Haiku 5.5",
+    provider: "anthropic",
+    minutes: 10,
+    results: "claim-probes",
+    command: () => ["npm", "run", "eval:everyday"],
+    env: (key) => ({
+      INCARNAMIND_EVAL_EVERYDAY: "claim-probes",
+      INCARNAMIND_EVAL_CHAT_KIND: "anthropic",
+      INCARNAMIND_EVAL_CHAT_MODEL: HAIKU,
+      INCARNAMIND_EVAL_CHAT_KEY: key,
+    }),
+  },
 ];
+
 
 /** The secrets the steps need that the environment doesn't have, or has empty. */
 export function missingSecrets(
@@ -379,6 +394,12 @@ interface VitestReport {
   }[];
 }
 
+/** The claim-probes report: each probe's runs and the backed write (eval/everyday/claimProbes.everyday.ts). */
+interface ClaimProbesReport {
+  rows?: { id: string; run: number; passed: boolean }[];
+  backed?: { passed: boolean };
+}
+
 interface EverydayReport {
   rows?: {
     id: string;
@@ -390,7 +411,28 @@ interface EverydayReport {
   }[];
 }
 
-function casesOf(step: Step, folder: string): { cases: Case[]; skipped: number } {
+export function casesOf(step: Step, folder: string): { cases: Case[]; skipped: number } {
+  if (step.results === "claim-probes") {
+    const report = readJson(join(folder, "everyday", "report.json")) as ClaimProbesReport | null;
+    const probes = new Map<string, { passed: number; runs: number }>();
+    for (const row of report?.rows ?? []) {
+      const counted = probes.get(row.id) ?? { passed: 0, runs: 0 };
+      probes.set(row.id, { passed: counted.passed + (row.passed ? 1 : 0), runs: counted.runs + 1 });
+    }
+    const cases = [...probes].map(([id, counted]) => ({
+      name: id,
+      passed: counted.passed === counted.runs,
+      detail: `${counted.passed} of ${counted.runs} runs passed`,
+    }));
+    if (report?.backed) {
+      cases.push({
+        name: "backed write",
+        passed: report.backed.passed,
+        detail: report.backed.passed ? "left alone" : "flagged",
+      });
+    }
+    return { cases, skipped: 0 };
+  }
   if (step.results === "everyday") {
     const report = readJson(join(folder, "everyday", "report.json")) as EverydayReport | null;
     const cases = (report?.rows ?? []).map((row) => ({
@@ -418,7 +460,9 @@ function casesOf(step: Step, folder: string): { cases: Case[]; skipped: number }
 const everydayReports = () => {
   const results = join(ROOT, "eval", "results");
   return new Set(
-    existsSync(results) ? readdirSync(results).filter((n) => n.endsWith("-everyday")) : [],
+    existsSync(results)
+      ? readdirSync(results).filter((n) => n.endsWith("-everyday") || n.endsWith("-claim-probes"))
+      : [],
   );
 };
 
