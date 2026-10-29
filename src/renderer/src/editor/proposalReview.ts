@@ -36,6 +36,7 @@ import {
   readProposalRef,
   targetHash,
 } from "../../../shared/proposals";
+import { nameOlderCitations } from "../../../shared/signOffs";
 
 /** A Proposal waiting in the Mind, as the editor shows it. */
 export interface PendingProposal {
@@ -889,6 +890,7 @@ export function resolveInEditor(
   undo?.stopCapturing();
   let resolved: ResolvedProposal[] = [];
   const applying = applyingIn(editor.state);
+  nameOlderCitations(binding.type);
   // As the editor's own change, so its Undo takes it back.
   binding.doc.transact(() => {
     resolved = decideProposals(

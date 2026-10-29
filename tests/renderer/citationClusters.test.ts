@@ -100,8 +100,19 @@ describe("Citation clusters", () => {
     ]);
     const before = citationClusters(state);
     state = state.apply(state.tr.insertText("More ", state.doc.content.size - 6));
-    expect(citationClusters(state)).toBe(before);
+    expect(citationClusters(state)).toEqual(before);
     expect(places(state)).toEqual(["0:0/2", "0:1/2"]);
+  });
+
+  test("typing before a Citation moves its cluster's place with it, for the style's order", () => {
+    let state = stateWith([paragraph("a", text("Tides "), citation("tides"), text("."))]);
+    state = state.apply(state.tr.insertText("Spring ", 1));
+    const at: number[] = [];
+    state.doc.descendants((node, pos) => {
+      if (node.type.name === CITATION_NODE) at.push(pos);
+      return true;
+    });
+    expect(citationClusters(state).map((cluster) => cluster.members[0]?.pos)).toEqual(at);
   });
 
   test("a check that changes redraws the cluster, which shows each work's check", () => {

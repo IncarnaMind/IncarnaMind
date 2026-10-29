@@ -27,6 +27,7 @@ import { originMaps } from "../../shared/blockOrigins";
 import { fingerprintOfMind } from "../../shared/mindState";
 import { mindName } from "../../shared/naming";
 import { aiUseOfAccepted, proposalRequestOf, resolveProposals } from "../../shared/proposals";
+import { nameOlderCitations } from "../../shared/signOffs";
 import { type ChangeCounts, changeFact } from "./changeFacts";
 import { core } from "./core";
 import {
@@ -355,6 +356,7 @@ function apply(edit: Applying, request: string): ChangedBlocks {
   const places = changesOf(editor.state, request);
   const blocks = edit.doc.getXmlFragment(MIND_CONTENT_FIELD);
   let resolved: ReturnType<typeof resolveProposals> = [];
+  nameOlderCitations(blocks);
   asEditStep(edit, () => {
     edit.doc.transact(() => {
       resolved = resolveProposals(blocks, (ref: ProposalRef) => ref.request === request, "accept");

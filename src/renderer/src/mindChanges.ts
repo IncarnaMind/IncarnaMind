@@ -23,6 +23,7 @@ import {
 import { originMaps } from "../../shared/blockOrigins";
 import { holdsOnlyItsTitle } from "../../shared/madeMind";
 import { aiUseOfAccepted, decideProposals, pendingProposals } from "../../shared/proposals";
+import { nameOlderCitations } from "../../shared/signOffs";
 import type { ChangedMind } from "./changedMinds";
 import { readMindHandle } from "./commands/handles";
 import { core } from "./core";
@@ -287,6 +288,7 @@ async function resolveRow(row: ChangedMind, outcome: "accept" | "reject"): Promi
     { trackedOrigins: new Set([origin]) },
   );
   let resolved: ReturnType<typeof decideProposals> = [];
+  nameOlderCitations(blocks);
   doc.transact(() => {
     resolved = decideProposals(blocks, picked, outcome);
   }, origin);

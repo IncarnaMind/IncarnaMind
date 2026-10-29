@@ -79,6 +79,46 @@ function processedByOlderPipeline(dataDir: string, documentId: string) {
 }
 
 describe("Versions retained by features other than Citations", { timeout: 30_000 }, () => {
+  test("the existing collector keeps source text for a kind an older app does not understand", async () => {
+    const dataDir = await createTempDataFolder();
+    const folder = await createSourceFolder();
+    const core = startCore(dataDir);
+    const note = await addNote(core, folder, "Figure inputs / 数字来源");
+    core.retention.retain("note-figure", "future-note", [
+      { documentId: note.id, contentHash: note.v1, pageFrom: 1, pageTo: 1 },
+    ]);
+    await changeFile(core, note.id, note.path, note.text.v2);
+    core.close();
+    const db = openDatabase(join(dataDir, DATABASE_FILE));
+    try {
+      db.run("UPDATE retained_versions SET kind = ? WHERE owner_id = ?", [
+        "newer-note-figure",
+        "future-note",
+      ]);
+    } finally {
+      db.close();
+    }
+    const older = startCore(dataDir);
+    expect(unitsByVersion(dataDir)).toEqual({
+      [`${note.id}:${note.v1}`]: 1,
+      [`${note.id}:${note.v2}`]: 1,
+    });
+    older.close();
+    const writer = openDatabase(join(dataDir, DATABASE_FILE));
+    try {
+      const at = new Date().toISOString();
+      writer.run("UPDATE retained_versions SET deleted_at = ?, updated_at = ? WHERE owner_id = ?", [
+        at,
+        at,
+        "future-note",
+      ]);
+    } finally {
+      writer.close();
+    }
+    startCore(dataDir);
+    expect(unitsByVersion(dataDir)).toEqual({ [`${note.id}:${note.v2}`]: 1 });
+  });
+
   test("a version retained by each kind survives restarts, and goes at the next start once released", async () => {
     const dataDir = await createTempDataFolder();
     const folder = await createSourceFolder();
@@ -122,7 +162,9 @@ describe("Versions retained by features other than Citations", { timeout: 30_000
     }
     // Search and the Documents were never affected: the current versions are what they hold.
     expect(await current.searchPassages("happen", { mode: "keyword" })).toEqual([]);
-    expect(await current.searchPassages("follow", { mode: "keyword" })).toHaveLength(5);
+    expect(await current.searchPassages("follow", { mode: "keyword" })).toHaveLength(
+      RETENTION_KINDS.length + 1,
+    );
   });
 
   test("an owner's versions are replaced when it retains others, and a version stays until its last owner releases it", async () => {

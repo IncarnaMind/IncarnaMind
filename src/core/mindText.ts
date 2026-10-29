@@ -34,6 +34,7 @@
  */
 import * as Y from "yjs";
 import { originOf } from "../shared/blockOrigins";
+import { figureShownText, readCalculatedFigureAttributes } from "../shared/calculatedFigures";
 import { type ChartAttributes, chartSources, chosenSeries, readChart } from "../shared/charts";
 import { type RecheckReason, readClaimCheck } from "../shared/claimChecks";
 import {
@@ -43,6 +44,7 @@ import {
   comparisonQuestionsOf,
   visibleComparisonQuestions,
 } from "../shared/comparisons";
+import { type CalculatedSources, calculatedSources, labelledCitations } from "../shared/figureRuns";
 import { type MessageKey, type MessageParams, translate } from "../shared/i18n";
 import { citationLocation } from "../shared/locations";
 import type { TableAlign } from "../shared/markdownTables";
@@ -64,8 +66,12 @@ import { readWordAtom, wordAtomText } from "../shared/wordFiles";
 import {
   ANSWER_BLOCK,
   BLOCK_ID_ATTRIBUTE,
+  CALCULATED_FIGURE_NODE,
+  type CalculatedFigure,
+  type CalculatedFigureAttributes,
   CHART_NODE,
   CITATION_NODE,
+  type Citation,
   type CitedWork,
   CLAIM_CHECK_MARK,
   type ClaimCalculation,
@@ -121,6 +127,11 @@ export interface Footnote {
   link?: string;
   /** Its check failed, which a Word file can say in a comment (#107). */
   failed?: FailedCheck;
+  /**
+   * People's own checks of it (#1933), each a line under its source: "Checked by Ada · 28 Oct
+   * 2026", or "… before it changed" for one made before its text, quote or version did.
+   */
+  checked?: readonly string[];
 }
 
 /** How a Citation's check failed (#107). */
@@ -182,6 +193,17 @@ export interface Image {
   alt: string;
 }
 
+/**
+ * A Citation a calculated figure is worked out from (`labelledCitations`), with the input's label
+ * or the range's name. A writer makes its footnote with `ReadOptions.footnote` only when it
+ * writes it: Question context gives an id to each Citation it reads, and shows none of these.
+ */
+export interface FigureSource {
+  label: string;
+  citation: Citation;
+  work: CitedWork;
+}
+
 export type Inline = (
   | {
       kind: "text";
@@ -194,6 +216,17 @@ export type Inline = (
   | { kind: "math"; latex: string }
   | { kind: "break" }
   | { kind: "citation"; footnote: Footnote; work: CitedWork }
+  /**
+   * A calculated figure (ADR-0021), written as `figure.shown` where a writer has nothing more to
+   * show; `analysis` is the title of the saved Analysis it came from (#447). Its sources are null
+   * when that Analysis isn't saved in the Note.
+   */
+  | {
+      kind: "figure";
+      figure: CalculatedFigure;
+      sources: FigureSource[] | null;
+      analysis: string | null;
+    }
   /**
    * A footnote the User wrote, at its marker: its text. A Citation in it is
    * part of that text (written as its source), not a footnote of its own.
@@ -213,6 +246,8 @@ export type Inline = (
       of?: string;
       /** The footnotes of its Citations whose check failed. */
       failed?: Footnote[];
+      /** As a note: its Citations' people's checks (`Footnote.checked`). */
+      checked?: readonly string[];
     }
 ) &
   Pendings;
@@ -221,6 +256,8 @@ export type Inline = (
 export interface BibliographyItem {
   label: StyledRun[] | null;
   runs: StyledRun[];
+  /** People's own checks of the source's Citations, a line each (`Footnote.checked`). */
+  checked?: readonly string[];
 }
 
 export interface TableCell {
@@ -427,10 +464,17 @@ export function readBlock(element: Y.XmlElement, options: ReadOptions): Block[] 
   return change ? withChange(readBlockElement(element, options), change) : [];
 }
 
+const hasTextChild = (children: readonly unknown[]): boolean =>
+  children.some(
+    (child) =>
+      child instanceof Y.XmlText ||
+      (child instanceof Y.XmlElement && child.nodeName === CALCULATED_FIGURE_NODE),
+  );
+
 /** The first stretch of text in an element: a list's first item, not all its items run together. */
 function firstText(element: Y.XmlElement): string {
   const children = element.toArray();
-  if (children.some((child) => child instanceof Y.XmlText)) return plainText(element);
+  if (hasTextChild(children)) return plainText(element);
   for (const child of children) {
     if (!(child instanceof Y.XmlElement)) continue;
     const text = firstText(child);
@@ -561,6 +605,7 @@ const INLINE_TYPES: ReadonlySet<string> = new Set([
   "inlineMath",
   "hardBreak",
   "image",
+  CALCULATED_FIGURE_NODE,
   CITATION_NODE,
   FOOTNOTE_NODE,
   WORD_ATOM_NODE,
@@ -986,6 +1031,11 @@ function readInlineElement(
 ): void {
   const add = (inline: Inline) => content.push({ ...inline, ...change });
   switch (child.nodeName) {
+    case CALCULATED_FIGURE_NODE: {
+      const attributes = readCalculatedFigureAttributes(child.getAttributes());
+      if (attributes) add(readFigure(attributes, child.doc));
+      break;
+    }
     case "inlineMath":
       add({ kind: "math", latex: stringAttribute(child, "latex") });
       break;
@@ -1042,6 +1092,28 @@ function readInlineElement(
   }
 }
 
+function readFigure(attributes: CalculatedFigureAttributes, doc: Y.Doc | null): Inline {
+  const { figure } = attributes;
+  let sources: CalculatedSources;
+  try {
+    sources = calculatedSources(attributes, doc);
+  } catch {
+    // Its saved Analysis is gone: it still reads as its text, and an export that would write its
+    // sources says they aren't available, as the editor does (`error.figure.evidenceMissing`).
+    return { kind: "figure", figure, sources: null, analysis: null };
+  }
+  return {
+    kind: "figure",
+    figure,
+    sources: labelledCitations(sources).map(({ label, citation }) => ({
+      label,
+      citation,
+      work: citedWork({ ...citation }),
+    })),
+    analysis: sources.analysis?.title ?? null,
+  };
+}
+
 /** What a citation style needs of a Citation: its Document, its Location and the version quoted. */
 function citedWork(attributes: Record<string, unknown>): CitedWork {
   const text = (value: unknown) => (typeof value === "string" && value !== "" ? value : null);
@@ -1078,7 +1150,7 @@ export function blockText(element: Y.XmlElement): string {
   const visit = (node: Y.XmlElement) => {
     if (proposedOnly(node)) return;
     const children = node.toArray();
-    if (!children.some((child) => child instanceof Y.XmlText)) {
+    if (!hasTextChild(children)) {
       for (const child of children) if (child instanceof Y.XmlElement) visit(child);
       return;
     }
@@ -1121,6 +1193,7 @@ export function plainText(element: Y.XmlElement | Y.XmlText, footnotes = false):
       .join("");
   }
   if (!footnotes && element.nodeName === FOOTNOTE_NODE) return "";
+  if (element.nodeName === CALCULATED_FIGURE_NODE) return figureShownText(element.getAttributes());
   if (element.nodeName === WORD_ATOM_NODE || element.nodeName === WORD_BLOCK_NODE) {
     return wordAtomText(readWordAtom(element.getAttributes() as Record<string, unknown>));
   }

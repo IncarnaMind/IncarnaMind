@@ -49,6 +49,7 @@ const QUIET_OFFICE = "# Harbour office\n\nThe harbour office opens at nine in th
 const YEARLY = "Harbours publish the times of high water every year.";
 const MOON = "Spring tides come at new and full moon.";
 const UNCITED = "Penguins nest on the cliffs above the harbour.";
+const FERRY = "The ferry carries 120 cars a day.";
 
 const PLANS: Record<string, Plan> = {
   [YEARLY]: {
@@ -58,6 +59,11 @@ const PLANS: Record<string, Plan> = {
   },
   [MOON]: { verdict: "unsupported" },
   [UNCITED]: { verdict: "contradicted", quote: "opens at nine" },
+  [FERRY]: {
+    verdict: "contradicted",
+    quote: "The ferry carries 80 cars a day.",
+    says: "The harbour office says the ferry carries 80 cars a day.",
+  },
 };
 
 const text = (value: string): JSONContent => ({ type: "text", text: value });
@@ -190,6 +196,29 @@ describe("Check for contradictions", () => {
     });
     // The Document the claims cite is never searched, nor is the uncited sentence checked.
     expect(searched(calls)).toEqual(new Set([office.name]));
+  });
+
+  test("a contradicted figure keeps its own result, as the one Check gives it", async () => {
+    const { core, tides, folder } = await setUp({
+      office: "# Harbour office\n\nThe ferry carries 80 cars a day.\n",
+    });
+    const mind = await core.createMind({ title: "Ferry notes", folderId: folder.id });
+    const client = await connectToMind(core, mind.id);
+    writeMind(client, [
+      {
+        type: "paragraph",
+        attrs: { id: "ferry" },
+        content: [text(`${FERRY} `), citation(tides, YEARLY)],
+      },
+    ]);
+    await client.settled();
+
+    await core.checkContradictions({ requestId: "r1", mindId: mind.id });
+    const [check] = await shownChecks(core, client, folder.id);
+    expect(check?.shown).toEqual({ state: "contradicted" });
+    expect(check?.check.figures?.map((figure) => [figure.reading.chars, figure.state])).toEqual([
+      ["120 cars", "contradicted"],
+    ]);
   });
 
   test("Check again on its mark checks that sentence again, after a new version of its evidence", async () => {
