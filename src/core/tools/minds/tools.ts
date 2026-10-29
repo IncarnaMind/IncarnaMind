@@ -56,6 +56,7 @@ import {
   resolveProposals,
   waitingChanges,
 } from "../../../shared/proposals";
+import { sentenceSpans } from "../../../shared/sentences";
 import { countFor, countText, mostlyCjk } from "../../../shared/wordCount";
 import {
   createElement,
@@ -107,7 +108,7 @@ import {
   waitingIn,
   writtenByAnswer,
 } from "../../proposals/ownWaiting";
-import { layout, textBlocks } from "../../proposals/write";
+import { layout, textAround, textBlocks } from "../../proposals/write";
 import type { PreparedChatModel } from "../../providers/chat";
 import { MIND_TOOLS, type Tool, type ToolProviderInfo } from "..";
 import { partialFields } from "../partialInput";
@@ -577,10 +578,12 @@ function stretchOf(
       if (!paragraph) {
         const count = countText(nameKey(part));
         const short = count.words < MIN_FIRST_WORDS && count.cjk < MIN_FIRST_CJK;
+        const names = headings.slice(0, 10).map((element) => `“${plainText(element)}”`);
+        const known = names.length > 0 ? `; its headings are ${names.join(", ")}` : "";
         return {
           why: short
-            ? `there is no heading “${part}” in it, and to name a paragraph, give more of its first words: at least ${MIN_FIRST_WORDS} words or ${MIN_FIRST_CJK} Chinese characters`
-            : `there is no heading or paragraph “${part}” in it`,
+            ? `there is no heading “${part}” in it, and to name a paragraph, give more of its first words: at least ${MIN_FIRST_WORDS} words or ${MIN_FIRST_CJK} Chinese characters${known}`
+            : `there is no heading or paragraph “${part}” in it${known}`,
           kind: "no-heading",
           hint,
         };
@@ -659,6 +662,66 @@ function lengths(before: string, after: string): string {
   const to = countFor(now, "words");
   if (unit(was) !== unit(now)) return `from ${from} ${unit(was)} to ${to} ${unit(now)}`;
   return `from ${from} to ${to} ${unit(now)}${to >= from ? ", not shorter" : ""}`;
+}
+
+/** A sentence as compared: no paragraph mark, no Citation or footnote marker, spaces made alike. */
+const plainSentence = (sentence: string) =>
+  sentence
+    .replace(/^\s*(?:#{1,6}|[-*•>]|\d+[.)])\s+/u, "")
+    .replace(/\[\^?\d+\]/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+
+/** The most sentences the model is told were taken out, and how much of each. */
+const TAKEN_OUT_SENTENCES = 6;
+const TAKEN_OUT_CHARACTERS = 110;
+
+/**
+ * What a rewrite took out, as the model is told so it reports what happened and not what it
+ * meant to do: the sentences of the old text the new one doesn't hold. Null when none went.
+ */
+function takenOut(before: string, after: string, wrote: string = after): string | null {
+  const sentencesOf = (text: string) =>
+    text
+      .split(/\n+/)
+      .flatMap((line) => {
+        // A marker right after a full stop would start a sentence of its own.
+        const bare = line.replace(/\[\^?\d+\]/g, "");
+        return sentenceSpans(bare).map((span) => plainSentence(bare.slice(span.from, span.to)));
+      })
+      .filter((sentence) => sentence !== "");
+  const quoted = (sentences: readonly string[]) => {
+    const shown = sentences.slice(0, TAKEN_OUT_SENTENCES).map((sentence) => {
+      const cut =
+        sentence.length > TAKEN_OUT_CHARACTERS
+          ? `${sentence.slice(0, TAKEN_OUT_CHARACTERS)}…`
+          : sentence;
+      return `“${cut}”`;
+    });
+    const more =
+      sentences.length > shown.length ? ` and ${sentences.length - shown.length} more` : "";
+    return `${shown.join(", ")}${more}`;
+  };
+  const was = [...new Set(sentencesOf(before))];
+  const now = new Set(sentencesOf(after));
+  const written = new Set(sentencesOf(wrote));
+  const gone = was.filter((sentence) => !now.has(sentence));
+  // Text the rewrite left out stays unless the request asked to take text out, as a model may
+  // return only what it changed: said plainly, so its own "removed" is not repeated.
+  const stayed = was.filter((sentence) => now.has(sentence) && !written.has(sentence));
+  const told = [
+    ...(gone.length > 0
+      ? [
+          `Sentences no longer in the text as they were (taken out or reworded): ${quoted(gone)}. Report what this shows, and say plainly if part of what the User asked to remove is still there.`,
+        ]
+      : []),
+    ...(stayed.length > 0
+      ? [
+          `The rewrite left these sentences out, but they are still in the text, as the request didn't ask to take text out: ${quoted(stayed)}. Say they stayed, whatever the rewrite says it removed.`,
+        ]
+      : []),
+  ];
+  return told.length > 0 ? told.join(" ") : null;
 }
 
 const changes = (count: number) => (count === 1 ? "1 change" : `${count} changes`);
@@ -794,7 +857,7 @@ function notProposed(
     case "failed":
       return new Refusal(
         { kind: "model", mindId, message: result.error.message },
-        `The change couldn't be made: ${result.error.message} Nothing was proposed.`,
+        `The change couldn't be made: ${result.error.message} Nothing was proposed and the text is as it was: don't say it was changed, removed or already done.`,
       );
     case "cancelled":
       return new Refusal(
@@ -2187,12 +2250,19 @@ export function mindTools(options: MindToolsOptions): { tools: Tool[]; settle():
         });
       }
       options.changed(toolCallId, change);
+      // What the Mind holds once the changes are accepted, not the rewrite's words: it keeps what the
+      // reply left out unless the request asked to take it out. A revision replaces its text whole.
+      const around = revised
+        ? length
+        : minds.read(mind.id, (note) => textAround(note, stretch.from, stretch.to, result.request));
+      const gone = around ? takenOut(around.before, around.after, length?.after) : null;
       const went = length ? ` (${lengths(length.before, length.after)})` : "";
       return [
         revised
           ? revisedText(mind, change, went)
           : editedText(mind, result.request, result.proposals, went),
         ...tableNotes(change, result.unmatchedMarkers),
+        ...(gone ? [gone] : []),
         ...(reason ? [`Why, as the rewrite says: ${reason}`] : []),
         ...droppedSaid(result.droppedCitations),
         ...(result.outOfDate > 0
