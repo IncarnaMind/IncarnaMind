@@ -42,6 +42,13 @@ describe("CJK PDF line wraps", () => {
     }
   });
 
+  test.each(["甲\n\n乙", "Latin\n\n月", "甲\n \n乙"])(
+    "preserves a blank-line separator: %s",
+    (text) => {
+      expect(joinCjkLineWraps(text)).toBe(text);
+    },
+  );
+
   test("keeps a break between two Latin words", () => {
     expect(joinCjkLineWraps("delivery\ncosts")).toBe("delivery\ncosts");
     expect(joinCjkLineWraps("37.5% a year\nearlier")).toBe("37.5% a year\nearlier");
