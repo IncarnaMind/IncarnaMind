@@ -554,7 +554,7 @@ describe("Citing Word, PowerPoint and Excel Documents in an Answer", { timeout: 
             location: "§ 2.1 Sensitivity",
             quote: "Raising the barrier crest by 40 centimetres",
           },
-          // The wrong slide: not found.
+          // The wrong slide: placed where this quote uniquely occurs.
           {
             marker: 4,
             passage: byDocument(passages, "Deck"),
@@ -588,10 +588,10 @@ describe("Citing Word, PowerPoint and Excel Documents in an Answer", { timeout: 
       [{ kind: "slide", from: 3, to: 3 }, "found"],
       [{ kind: "rows", sheet: "Revenue", from: 7, to: 7 }, "found"],
       [{ kind: "section", heading: "2.1 Sensitivity" }, "found"],
-      [{ kind: "slide", from: 4, to: 4 }, "not-found"],
+      [{ kind: "slide", from: 3, to: 3 }, "found"],
     ]);
     expect(citations[1]).toMatchObject({ pageFrom: 1, pageTo: 1, documentName: "Revenue" });
-    expect(citeFeedback(model)).toMatch(/\[\^4\]: the quote isn't word for word at slide 4/);
+    expect(citeFeedback(model)).not.toMatch(/\[\^4\]: the quote isn't word for word at slide 4/);
   });
 
   test("a Question about a Word comment finds it, and its Citation, found, names the section and says it is a comment by its author (#76)", async () => {
@@ -727,7 +727,7 @@ describe("Citing Word, PowerPoint and Excel Documents in an Answer", { timeout: 
     expect(markdown).not.toContain(`${name}, § Start`);
   });
 
-  test("a Location the Passage doesn't have is 'not found', and the model is told where it can cite", async () => {
+  test("a Location the Passage doesn't have is placed at its unique quote", async () => {
     const model = citingModel({
       query: "west revenue",
       records: (passages) => [
@@ -747,9 +747,10 @@ describe("Citing Word, PowerPoint and Excel Documents in an Answer", { timeout: 
     const { answerId } = await askAndFinish(core, client, mind.id, "What did the West earn?");
 
     expect(citationsIn(client, answerId)[0]).toMatchObject({
-      check: "not-found",
-      checkReason: "pages-outside-passage",
+      check: "found",
+      checkReason: null,
+      location: { kind: "rows", sheet: "Revenue", from: 7, to: 7 },
     });
-    expect(citeFeedback(model)).toMatch(/give a location inside P\d \(Revenue, rows 1–9\)/);
+    expect(citeFeedback(model)).not.toMatch(/give a location inside P\d \(Revenue, rows 1–9\)/);
   });
 });
