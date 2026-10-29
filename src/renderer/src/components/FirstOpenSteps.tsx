@@ -250,18 +250,14 @@ export function FirstOpenSteps({ mindId }: { mindId: string }) {
             <ReadyLine
               question={ready?.question ?? null}
               waitingFor={
-                askingReady
-                  ? ready === null
-                    ? readyWaiting
-                    : ready.waitingFor
-                  : (ready?.waitingFor ?? null)
+                askingReady ? (ready?.waitingFor ?? readyWaiting) : (ready?.waitingFor ?? null)
               }
               asking={live && askingReady}
               reading={reading}
               unread={unread}
               testId={only("first-open-ready")}
               problem={live ? problem : undefined}
-              busy={asking || writing}
+              busy={asking || writing || askingReady}
               onAsk={() => {
                 if (!ready) return;
                 focusNext.current = true;
@@ -397,9 +393,7 @@ function ReadyLine({
   onAsk,
 }: {
   question: string | null;
-  /** The Document the Answer waits for, while the ready Question is asked (#2218). */
   waitingFor: string | null;
-  /** That Question is being asked, and its Answer isn't there yet. */
   asking: boolean;
   reading: string | null;
   unread: ReturnType<typeof useUnreadFiles>;
@@ -410,15 +404,22 @@ function ReadyLine({
 }) {
   const t = useT();
   const room = useRef<HTMLDivElement>(null);
+  const stopRef = useRef<HTMLButtonElement>(null);
+  const wasAsking = useRef(false);
+  const stops = asking && waitingFor !== null;
+  useEffect(() => {
+    if (stops && !wasAsking.current) stopRef.current?.focus();
+    wasAsking.current = stops;
+  }, [stops]);
   const label = question === null ? "" : t("firstOpen.step.question.ready", { question });
   const [ref, shown] = useFittedLine(label, useLanguage() !== "zh-CN", room);
   let line: ReactNode;
-  // Asked, and its Answer waits for a Document still being read: the row says so, and stops.
   if (asking && waitingFor !== null)
     line = (
       <>
         <span
           data-testid={testId === undefined ? undefined : `${testId}-waiting`}
+          role="status"
           title={waitingFor}
           className="min-w-0 truncate text-[13px] leading-5 text-ink-secondary"
         >
@@ -430,6 +431,7 @@ function ReadyLine({
             testId: testId === undefined ? undefined : `${testId}-stop`,
             onClick: stopReadyAsk,
           }}
+          ref={stopRef}
         />
       </>
     );

@@ -5655,6 +5655,7 @@ export const zhCN = {
   "command.answer.copy": "复制回答",
   "command.answer.regenerate": "重新生成回答",
   "command.answer.stop": "停止生成回答",
+  "command.ready.stop": "停止读取文档",
   "command.answer.stop.unavailable": "当前没有正在生成的回答",
   "origin.open": "打开来源对话",
   "origin.deleted": "来自对话“{title}”，已移到回收站",

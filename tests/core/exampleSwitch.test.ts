@@ -120,6 +120,7 @@ async function exampleOverFakes() {
       throw new Error("not used");
     },
     linkedFolderExists: (linkedFolderId) => folders.has(linkedFolderId),
+    linkedFolderScanning: () => false,
     documentsIn: (linkedFolderId) => documents.get(linkedFolderId) ?? [],
     mindFolder: () => null,
     now: () => "2026-10-16T09:00:00.000Z",

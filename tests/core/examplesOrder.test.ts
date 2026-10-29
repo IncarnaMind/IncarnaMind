@@ -23,6 +23,7 @@ function examplesOver(store: Map<string, unknown>, random: () => number) {
     unlinkFolder: unused,
     restoreFolder: unused,
     linkedFolderExists: () => false,
+    linkedFolderScanning: () => false,
     documentsIn: () => [],
     mindFolder: () => null,
     now: () => "2026-10-14T09:00:00.000Z",

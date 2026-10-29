@@ -139,6 +139,49 @@ test("a read that never ends says so, rather than waiting for ever", async () =>
   release();
 });
 
+const exampleDocumentsOf = async (core: Core) => {
+  const { linkedFolderId } = await core.getExamples();
+  return (await core.listDocuments()).filter((each) => each.linkedFolderId === linkedFolderId);
+};
+
+test("a deleted example Document takes the Question away, with nothing to wait for", async () => {
+  const core = await startWith();
+  await vi.waitFor(async () => expect((await core.readyQuestion())?.waitingFor).toBeNull(), {
+    timeout: 30_000,
+  });
+  const [document] = await exampleDocumentsOf(core);
+  await core.deleteDocument(document?.id as string);
+  // Gone, not still reading: no button, rather than twenty seconds of "Reading…" and a refusal.
+  await vi.waitFor(async () => expect(await core.readyQuestion()).toBeNull(), { timeout: 30_000 });
+  await expect(core.askExampleReadyQuestion()).rejects.toMatchObject({
+    wording: { key: "error.examples.unreadable" },
+  });
+});
+
+test("a Document deleted while it waits says why, rather than still reading", async () => {
+  const { recognizer } = heldRecognizer();
+  const examples = await examplesFolder(() => buildPdf([{ scan: picture("en-clean") }]));
+  const core = await startWith(
+    {
+      textRecognizer: recognizer,
+      textRecognitionModelSource: NO_MODEL_FILES,
+      exampleReadyWaitMs: 30_000,
+    },
+    examples,
+  );
+  const waiting = core.askExampleReadyQuestion();
+  const [document] = await vi.waitFor(async () => {
+    const listed = await exampleDocumentsOf(core);
+    expect(listed.length).toBeGreaterThan(0);
+    return listed;
+  });
+  await vi.waitFor(async () => expect((await core.readyQuestion())?.waitingFor).not.toBeNull());
+  await core.deleteDocument(document?.id as string);
+  await expect(waiting).rejects.toMatchObject({
+    wording: { key: "error.examples.unreadable" },
+  });
+});
+
 test("an example Document with no text to read takes the Question away", async () => {
   const fake = createFakeTextRecognizer({ script: { pages: {} } });
   const examples = await examplesFolder(() => buildPdf([{ scan: picture("en-clean") }]));

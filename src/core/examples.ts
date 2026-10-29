@@ -105,6 +105,8 @@ export interface ExamplesOptions {
   /** Brings back an unlinked Linked folder with the Documents that left the index with it. */
   restoreFolder(linkedFolderId: string): void;
   linkedFolderExists(linkedFolderId: string): boolean;
+  /** Whether it is still being compared with the index: its Documents may not all be listed yet. */
+  linkedFolderScanning(linkedFolderId: string): boolean;
   documentsIn(linkedFolderId: string): Document[];
   /** The Folder a Mind is in; null for none: where its checks searched. */
   mindFolder(mindId: string): string | null;
@@ -232,11 +234,18 @@ export function createExamples(options: ExamplesOptions) {
     if (!examples || !ready || !options.mindExists(examples.mindId)) return null;
     if (!options.linkedFolderExists(examples.linkedFolderId)) return null;
     const documents = options.documentsIn(examples.linkedFolderId);
+    const scanning = options.linkedFolderScanning(examples.linkedFolderId);
     let waitingFor: string | null = null;
     for (const quote of ready.quotes) {
       const document = documents.find((each) => each.name === quote.document);
-      // Not listed yet, or its text is still being read: the Answer waits for it.
-      if (!document || document.status === "queued" || document.status === "extracting") {
+      // A folder still scanned may list it later; otherwise it was deleted, with the Question.
+      if (!document) {
+        if (!scanning) return null;
+        waitingFor ??= quote.document;
+        continue;
+      }
+      // Its text is still being read: the Answer waits for it.
+      if (document.status === "queued" || document.status === "extracting") {
         waitingFor ??= quote.document;
         continue;
       }
@@ -281,10 +290,16 @@ export function createExamples(options: ExamplesOptions) {
     if (!examples || !ready || !options.mindExists(examples.mindId)) return { kind: "absent" };
     if (!options.linkedFolderExists(examples.linkedFolderId)) return { kind: "absent" };
     const documents = options.documentsIn(examples.linkedFolderId);
+    const scanning = options.linkedFolderScanning(examples.linkedFolderId);
     const citations: MarkedCitation[] = [];
     for (const [index, quote] of ready.quotes.entries()) {
       const document = documents.find((each) => each.name === quote.document);
-      if (!document || document.status === "queued" || document.status === "extracting") {
+      if (!document) {
+        return scanning
+          ? { kind: "reading", document: quote.document }
+          : { kind: "unreadable", document: quote.document };
+      }
+      if (document.status === "queued" || document.status === "extracting") {
         return { kind: "reading", document: quote.document };
       }
       if (!hasText(document)) return { kind: "unreadable", document: quote.document };

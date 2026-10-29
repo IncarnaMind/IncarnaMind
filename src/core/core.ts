@@ -431,7 +431,6 @@ const LIVE_TRANSCRIPT_WAIT_MS = 3_000;
  */
 const EXAMPLE_READY_WAIT_MS = 20_000;
 
-/** How often that wait looks at the Documents again, while they are read. */
 const EXAMPLE_READY_LOOK_MS = 100;
 
 const isBehind = (meeting: Meeting) => meeting.transcript?.state === "behind";
@@ -3210,6 +3209,10 @@ export function createCore(adapters: CoreAdapters): Core {
     },
     linkedFolderExists: (linkedFolderId) =>
       documents.linkedFolders.list().some((folder) => folder.id === linkedFolderId),
+    linkedFolderScanning: (linkedFolderId) =>
+      documents.linkedFolders
+        .list()
+        .some((folder) => folder.id === linkedFolderId && folder.status === "scanning"),
     documentsIn: (linkedFolderId) => documents.list({ linkedFolderId }),
     mindFolder: (mindId) => minds.get(mindId).folderId,
     now,
@@ -3246,8 +3249,7 @@ export function createCore(adapters: CoreAdapters): Core {
       language: settings.get().language,
     });
   };
-  /** Stops a wait for the example's ready Documents once the User presses Stop (#2218). */
-  let stopReadyWait: (() => void) | null = null;
+  const stopReadyWaits = new Set<() => void>();
   /**
    * The example's ready Answer as it can be written now, waiting while a Document it cites is
    * read, so pressing the card's button answers instead of doing nothing (#2218). `stopped`: Stop
@@ -3259,9 +3261,10 @@ export function createCore(adapters: CoreAdapters): Core {
     timedOut: boolean;
   }> => {
     let stopped = false;
-    stopReadyWait = () => {
+    const stop = () => {
       stopped = true;
     };
+    stopReadyWaits.add(stop);
     try {
       const deadline = Date.now() + (adapters.exampleReadyWaitMs ?? EXAMPLE_READY_WAIT_MS);
       for (;;) {
@@ -3271,7 +3274,7 @@ export function createCore(adapters: CoreAdapters): Core {
         await new Promise((settle) => setTimeout(settle, EXAMPLE_READY_LOOK_MS));
       }
     } finally {
-      stopReadyWait = null;
+      stopReadyWaits.delete(stop);
     }
   };
   // Started here, not with the rest of the Library, so a Document an earlier version filed as an
@@ -3897,7 +3900,7 @@ export function createCore(adapters: CoreAdapters): Core {
       };
     },
     stopExampleReadyQuestion: async () => {
-      stopReadyWait?.();
+      for (const stop of [...stopReadyWaits]) stop();
     },
     regenerateConversationAnswer: async (input) => answers.regenerateInConversation(input),
     countScopeDocuments: async (scope) => {

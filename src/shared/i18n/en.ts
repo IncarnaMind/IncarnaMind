@@ -5934,6 +5934,7 @@ export const en = {
   "command.answer.copy": "Copy the Answer",
   "command.answer.regenerate": "Regenerate the Answer",
   "command.answer.stop": "Stop the Answer",
+  "command.ready.stop": "Stop reading the Documents",
   "command.answer.stop.unavailable": "No Answer is being written",
   "origin.open": "Open the source conversation",
   "origin.deleted": "From the conversation “{title}”, now in Recently deleted",
