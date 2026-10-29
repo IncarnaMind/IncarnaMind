@@ -74,6 +74,7 @@ import {
   CHART_NODE,
   type ChartProblem,
   CITATION_NODE,
+  type ConversationAnswer,
   type EditAction,
   type EditWithAiResult,
   type Effect,
@@ -93,11 +94,13 @@ import { plainText } from "../../mindText";
 import { insertBlocks } from "../../noteAdding";
 import {
   citationsDropped,
+  keepingTitle,
   type OwnApplied,
   type OwnWaiting,
   ownAppliedIn,
   ownAppliedTexts,
   ownAsked,
+  ownTitleOf,
   ownWaitingTexts,
   replaceApplied,
   replaceOwn,
@@ -213,9 +216,15 @@ export interface MindToolsOptions {
    * The conversation's last Answer before this one, as Add to note puts it
    * in a Mind, with its Citations, the Answer its Blocks link back to, and
    * the Folder of its Question's Search scope, where a Mind made of it goes:
-   * what `answer: true` writes. Null: there is none.
+   * what `answer: true` writes, and the Analysis runs its calculated figures were
+   * worked out by. Null: there is none.
    */
-  lastAnswer: { blocks: NodeJSON[]; origin: BlockOrigin; folderId: string | null } | null;
+  lastAnswer: {
+    blocks: NodeJSON[];
+    origin: BlockOrigin;
+    folderId: string | null;
+    answer: Pick<ConversationAnswer, "id" | "analyses">;
+  } | null;
   /** The language the Answer is written in, which the model is told to ask the User in. */
   language: Language;
   /**
@@ -239,7 +248,7 @@ export interface MindToolsOptions {
   /**
    * Markdown as a Mind holds it: each Citation marker the Answer recorded a
    * Citation for, checked, each source written as a name in brackets the
-   * Citation recorded for it, and its figures as their shown text, without
+   * Citation recorded for it, and its calculated figures as figures, without
    * its sentences about the Answer's searching. Says how many of its
    * Citations weren't found, how many markers had no Citation, which sources
    * were written as text, and how many sentences it left out.
@@ -2094,9 +2103,10 @@ export function mindTools(options: MindToolsOptions): { tools: Tool[]; settle():
             `Nothing was changed in “${mind.name}”: content only replaces your own text there, still waiting or as you wrote it. To change the User's text, give instruction instead.`,
           );
         }
+        const newText = minds.read(mind.id, (blocks) => keepingTitle(blocks, over, markdown));
         const before = minds.read(mind.id, (blocks) => stretchText(blocks, stretch));
         const beforeLanguage = detectLanguage(before);
-        const contentLanguage = detectLanguage(markdown);
+        const contentLanguage = detectLanguage(newText);
         const previousTranslation =
           over.kind === "own" &&
           minds.read(mind.id, (note) =>
@@ -2107,11 +2117,11 @@ export function mindTools(options: MindToolsOptions): { tools: Tool[]; settle():
           (beforeLanguage && contentLanguage && beforeLanguage !== contentLanguage)
             ? ("translate" as const)
             : undefined;
-        const written = writeOver(toolCallId, mind, over, markdown, canCallAgain?.() ?? true, {
+        const written = writeOver(toolCallId, mind, over, newText, canCallAgain?.() ?? true, {
           action,
         });
         const checked = await checkWritten(toolCallId, written, signal);
-        const went = ` (${lengths(before, markdown)})`;
+        const went = ` (${lengths(before, newText)})`;
         return [
           over.kind === "own"
             ? revisedText(mind, written.change, went)
@@ -2285,6 +2295,7 @@ export function mindTools(options: MindToolsOptions): { tools: Tool[]; settle():
     folderId = options.folderId,
   ): ChangeableMind => {
     const made = minds.create(title, folderId, !startsWithHeading);
+    if (!startsWithHeading) minds.edit(made.id, (note) => ownTitleOf(note, options.origin));
     settled.add(made.id);
     return made;
   };

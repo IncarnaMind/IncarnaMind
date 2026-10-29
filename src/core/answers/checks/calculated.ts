@@ -5,15 +5,36 @@
  * (ADR-0021), to the sentence's own rounding. A program decides, not the
  * model: a wrong derived number is what an analyst fears most.
  */
+import { citedCases } from "../../../shared/caseCitations";
 import {
   type Figure,
   type FigureContext,
   type FigureUnit,
   readFigures,
 } from "../../../shared/figures";
-import type { ResultUnit } from "../../../shared/formula";
+import {
+  evaluateFormula,
+  type FormulaInput,
+  type ResultUnit,
+  sameNumber,
+} from "../../../shared/formula";
 import type { CalculatedFigure, LimitRelation } from "../../api";
 import { documentFigureContext } from "../calculations";
+
+export function figuresInClaim(text: string, context: FigureContext): Figure[] {
+  const references = citedCases(text).map((reference, index, citations) => {
+    const next = citations[index + 1];
+    const suffix = text.slice(reference.to, next?.from);
+    const closed = /^[\s.,;!?…)\]}，。；！？]*$/u.test(
+      next ? suffix.replace(/\b(?:and(?:\/or)?|or)\b|[&与及和或]/giu, "") : suffix,
+    );
+    return { from: reference.from, to: closed ? reference.to : reference.citeTo };
+  });
+  return readFigures(text, context).filter(
+    (figure) =>
+      !references.some((reference) => figure.start >= reference.from && figure.end <= reference.to),
+  );
+}
 
 /**
  * The number of `sentence` that `stated` names ("1.1x" in "Net debt to
@@ -32,7 +53,7 @@ export function statedFigure(
   const [named] = readFigures(stated, context);
   if (!named) return null;
   return (
-    readFigures(sentence, context).find(
+    figuresInClaim(sentence, context).find(
       (figure) =>
         figure.ambiguous.length === 0 &&
         figure.value === named.value &&
@@ -128,17 +149,28 @@ function bracketsOnly(
  * limit (`relation`) when the figure stays within it. Null when they measure
  * different things, or the figure is a yes or no.
  */
-export function agreesWith(
+function comparisonValue(
   stated: Figure,
   figure: Pick<CalculatedFigure, "value" | "unit" | "inputs" | "formula">,
   { relation, costs = new Set() }: { relation?: LimitRelation; costs?: ReadonlySet<string> } = {},
-): boolean | null {
+): number | null {
   if (typeof figure.value === "boolean" || !comparable(stated.unit, figure.unit)) return null;
   const value = bracketsOnly(stated, figure, costs) ? -figure.value : figure.value;
   // A figure of the other sign isn't inside a limit the sentence writes as positive: a loss-making
   // EBITDA gives a negative leverage. The model's verdict stands instead.
   if (relation === "at most" && value < 0 && stated.value > 0 && !/[-−(（]/.test(stated.chars))
     return null;
+  return value;
+}
+
+export function agreesWith(
+  stated: Figure,
+  figure: Pick<CalculatedFigure, "value" | "unit" | "inputs" | "formula">,
+  options: { relation?: LimitRelation; costs?: ReadonlySet<string> } = {},
+): boolean | null {
+  const value = comparisonValue(stated, figure, options);
+  if (value === null) return null;
+  const { relation } = options;
   // A limit is exact: "at least 5x" isn't met by 4.6x, though 4.6 rounds to 5.
   const within = relation ? 1e-9 * Math.max(1, Math.abs(stated.value)) : tolerance(stated);
   const low = Math.min(stated.value, stated.rangeTo ?? stated.value) - within;
@@ -146,4 +178,42 @@ export function agreesWith(
   if (relation === "at most") return value <= high;
   if (relation === "at least") return value >= low;
   return value >= low && value <= high;
+}
+
+export function agreesAtShownPrecision(
+  stated: Figure,
+  figure: Pick<CalculatedFigure, "value" | "unit" | "inputs" | "formula">,
+  { relation, costs = new Set() }: { relation?: LimitRelation; costs?: ReadonlySet<string> } = {},
+): boolean | null {
+  // "about £130m" is rounded to its last significant figure, looser than its shown places.
+  if (stated.approximate) return agreesWith(stated, figure, { relation, costs });
+  const value = comparisonValue(stated, figure, { relation, costs });
+  if (value === null || !Number.isFinite(value)) return null;
+  if (relation === "at most") return value <= stated.value;
+  if (relation === "at least") return value >= stated.value;
+  if (stated.rangeTo !== null)
+    return (
+      value >= Math.min(stated.value, stated.rangeTo) &&
+      value <= Math.max(stated.value, stated.rangeTo)
+    );
+  if (stated.precision === null) return sameNumber(value, stated.value);
+  if (stated.precision === undefined || !Number.isFinite(stated.precision) || stated.precision <= 0)
+    return null;
+  const places = -Math.round(Math.log10(stated.precision));
+  if (10 ** -places !== stated.precision) return null;
+  const input = (name: string, value: number): FormulaInput => ({
+    name,
+    value,
+    scale: 1,
+    scaleWord: null,
+    unit: { kind: "plain" },
+    decimals: 0,
+    approximate: false,
+  });
+  const result = evaluateFormula("ROUND(source, places) = ROUND(stated, places)", [
+    input("source", value),
+    input("stated", stated.value),
+    input("places", places),
+  ]);
+  return result.ok && typeof result.value === "boolean" ? result.value : null;
 }

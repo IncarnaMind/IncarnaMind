@@ -20,12 +20,15 @@ export function VersionPicker({
   checkpoints,
   chosen,
   onChoose,
+  onRename,
   disabled = false,
 }: {
   side: "left" | "right";
   checkpoints: readonly Checkpoint[];
   chosen: string | null;
   onChoose(id: string | null): void;
+  /** F2 on the button names the chosen version, as F2 renames a row. */
+  onRename?: () => void;
   /** Nothing to choose from: the Mind has no versions yet. */
   disabled?: boolean;
 }) {
@@ -57,6 +60,11 @@ export function VersionPicker({
         })}
         className="history-picker"
         data-side={side}
+        onKeyDown={(event) => {
+          if (event.key !== "F2" || !onRename) return;
+          event.preventDefault();
+          onRename();
+        }}
       >
         {picked && beforeAiChange(picked) && <SparkLineIcon className="history-icon" />}
         <span className="min-w-0 truncate">

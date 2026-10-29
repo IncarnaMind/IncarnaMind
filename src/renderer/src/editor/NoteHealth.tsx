@@ -25,6 +25,7 @@ import { UnreadFilesLine } from "../components/UnreadFilesLine";
 import { useComposer } from "../composer";
 import { useContradictionLine } from "../contradictions";
 import { errorMessage } from "../errors";
+import { openFigureSchedule } from "../figures";
 import { useLanguage, useT } from "../i18n";
 import { startMindCheck, useMindCheck, useMindCheckRun } from "../mindCheck";
 import { type NoteState, unreadForCard } from "../noteState";
@@ -45,6 +46,7 @@ import {
 import { CheckMarkIcon, ClaimMarkIcon } from "./icons";
 import { CheckedWhen, RunningText } from "./MindCheckLine";
 import { useRunModel } from "./ModelChip";
+import { useSignOffCounts } from "./signOffActions";
 import { UncoveredLine } from "./UncoveredLine";
 import { COUNT_IDLE_MS } from "./WordCount";
 
@@ -223,12 +225,14 @@ export function HealthCard({
   mindId,
   health,
   state,
+  figures,
 }: {
   editor: Editor;
   doc: Y.Doc;
   mindId: string;
   health: Health;
   state: NoteState | null;
+  figures: number;
 }) {
   const t = useT();
   const language = useLanguage();
@@ -262,6 +266,7 @@ export function HealthCard({
     problem?.kind === "no-documents" ? (problem.chosen ?? null) : null,
   );
   const format = (value: number) => new Intl.NumberFormat(language).format(value);
+  const signedOff = useSignOffCounts(editor);
 
   const label = (part: HealthPart, count: number) => partLabel(t, part, count, format(count));
 
@@ -293,6 +298,10 @@ export function HealthCard({
       : shownClaims(editor.state).find((each) => each.sentence.from <= at && at < each.sentence.to);
     if (!claim) return;
     setCheckCardOpen(place, false);
+    if (claim.kind === "chart") {
+      void openFigureSchedule(mindId).catch(useAppStore.getState().reportError);
+      return;
+    }
     setOpenClaim(place, claim.check.id);
   };
 
@@ -366,6 +375,38 @@ export function HealthCard({
       {health.tableCells.length > 0 && (
         <p data-testid="health-table-cells" className="mind-health-line">
           {t("health.tableCells", { count: format(health.tableCells.length) })}
+        </p>
+      )}
+      {figures > 0 && (
+        <p data-testid="health-figures" className="mind-health-line">
+          {figures === 1 ? t("figures.count.one") : t("figures.count", { count: format(figures) })}
+          <span className="mind-health-sep" aria-hidden="true">
+            {" · "}
+          </span>
+          <button
+            type="button"
+            className="mind-health-link"
+            data-testid="health-open-schedule"
+            onClick={() => {
+              setCheckCardOpen(place, false);
+              void openFigureSchedule(mindId).catch(useAppStore.getState().reportError);
+            }}
+          >
+            {t("figures.openSchedule")}
+          </button>
+        </p>
+      )}
+      {/* The User's own checks (#1933), on a line of their own: never a check result. */}
+      {(signedOff.checked > 0 || signedOff.changed > 0) && (
+        <p data-testid="health-sign-offs" className="mind-health-line">
+          {signedOff.checked > 0 && t("signOff.count.mine", { count: format(signedOff.checked) })}
+          {signedOff.checked > 0 && signedOff.changed > 0 && (
+            <span className="mind-health-sep" aria-hidden="true">
+              {" · "}
+            </span>
+          )}
+          {signedOff.changed > 0 &&
+            t("signOff.count.changed", { count: format(signedOff.changed) })}
         </p>
       )}
       {summary?.kind === "all" && (
@@ -522,9 +563,7 @@ export function HealthCard({
           resetsAt={problem.error.resetsAt ?? null}
           signInRoute={problem.error.signInRoute ?? null}
           details={problem.error.message}
-          onRetry={() =>
-            void startMindCheck(mindId, problem.mode, { allDocuments: problem.allDocuments })
-          }
+          onRetry={problem.retry}
           onOpenSettings={openSettings}
         />
       )}

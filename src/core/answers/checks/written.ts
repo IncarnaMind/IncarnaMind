@@ -34,6 +34,7 @@
 import { randomUUID } from "node:crypto";
 import * as Y from "yjs";
 import { SENTENCES_CHECKED_AT_MOST } from "../../../shared/claimChecks";
+import { beginFigureCheck } from "../../../shared/figureChecks";
 import type { RecordCitePlace, RecordCiteSentence } from "../../../shared/recordCiteChoices";
 import { INLINE_NODE, isClaim, sentenceSpans } from "../../../shared/sentences";
 import { judgesUnreliably } from "../../../shared/smallModel";
@@ -53,9 +54,14 @@ import type { PreparedChatModel } from "../../providers/chat";
 import { RunItemError, runItems } from "../../runs/stop";
 import { inStep } from "../../timing/flows";
 import { type MarkJSON, type NodeJSON, syncContent, topLevelBlocks } from "../blocks";
-import { type ClaimCheckRequest, recordJudged, runFailureOf } from "./claimCheck";
+import {
+  type CheckedCitation,
+  type ClaimCheckRequest,
+  recordJudged,
+  runFailureOf,
+} from "./claimCheck";
 import { claimsAtOnce } from "./runChecks";
-import { markSentence } from "./sentences";
+import { checkText, citedQuoteOf, figuresByBlock, markSentence, sentenceOf } from "./sentences";
 import type { CheckScope } from "./verify";
 
 const UNCHECKED: ReadonlySet<string> = new Set(["question", "codeBlock", "blockMath", "heading"]);
@@ -70,12 +76,16 @@ export interface WrittenCheckOptions {
   /** Where the Mind's sentences are checked, as Check this Mind checks them. */
   scopeOf(mindId: string): { searchable: number; check: CheckScope };
   /** What the Citations quote, each Document named as it is now. */
-  citedNow(cited: readonly CitedQuote[]): { documentName: string; quote: string }[];
+  citedNow(cited: readonly CitedQuote[]): CheckedCitation[];
   withResult(
     check: ClaimCheckAttributes,
     result: ClaimCheckResult,
     at: string,
+    blocks: Y.XmlFragment,
+    mindId: string,
   ): ClaimCheckAttributes;
+  /** Reads the Mind's content, where what the assistant wrote already is. */
+  read<T>(mindId: string, look: (blocks: Y.XmlFragment) => T): T;
   retainEvidence(mindId: string): void;
   recordAiUse(inputs: RecordAiUseInput[]): void;
   /** Edit with AI's new text for a passage not in a Mind (../../edits, `editText`). */
@@ -137,6 +147,8 @@ interface Sentence {
   text: string;
   context: string;
   cited: CitedQuote[];
+  /** In a table's cell, whose words are a figure, not a clause a cut could take out. */
+  inCell: boolean;
 }
 
 function paragraphText(content: readonly NodeJSON[]): string {
@@ -156,28 +168,16 @@ function inlineLayout(content: readonly NodeJSON[]): { node: NodeJSON; start: nu
   });
 }
 
-function quoteOf(node: NodeJSON): CitedQuote | null {
-  const attrs = node.attrs ?? {};
-  const { quote, documentName, documentId, contentHash } = attrs;
-  if (typeof quote !== "string" || quote === "") return null;
-  return {
-    documentName: typeof documentName === "string" ? documentName : "",
-    quote,
-    ...(typeof documentId === "string" && { documentId }),
-    ...(typeof contentHash === "string" && { contentHash }),
-  };
-}
-
 /** The sentences a check reads that the write holds (#1909): every sentence with a Citation, and every claim with none. */
 function checkableSentences(blocks: readonly NodeJSON[], every = false): Sentence[] {
   const found: Sentence[] = [];
-  const visit = (nodes: readonly NodeJSON[], path: number[]) => {
+  const visit = (nodes: readonly NodeJSON[], path: number[], inCell: boolean) => {
     nodes.forEach((node, index) => {
       if (UNCHECKED.has(node.type)) return;
       const here = [...path, index];
       const content = node.content ?? [];
       if (node.type !== "paragraph") {
-        visit(content, here);
+        visit(content, here, inCell || node.type === "tableCell" || node.type === "tableHeader");
         return;
       }
       const context = paragraphText(content);
@@ -186,14 +186,14 @@ function checkableSentences(blocks: readonly NodeJSON[], every = false): Sentenc
         const text = context.slice(span.from, span.to);
         const cited = layout.flatMap(({ node: inline, start }) => {
           if (inline.type !== CITATION_NODE || start < span.from || start >= span.to) return [];
-          return quoteOf(inline) ?? [];
+          return citedQuoteOf(inline.attrs ?? {}) ?? [];
         });
         if (!every && cited.length === 0 && !isClaim(text)) continue;
-        found.push({ path: here, from: span.from, to: span.to, text, context, cited });
+        found.push({ path: here, from: span.from, to: span.to, text, context, cited, inCell });
       }
     });
   };
-  visit(blocks, []);
+  visit(blocks, [], false);
   return found;
 }
 
@@ -407,7 +407,8 @@ interface Landing {
   sentence: Sentence;
   /** The cut, in place of the sentence's own words; null: they stay. */
   nodes: NodeJSON[] | null;
-  mark: ClaimCheckAttributes;
+  /** Its mark, made where it lands: a figure's result is footed against the table it is in. */
+  mark(blocks: Y.XmlFragment): ClaimCheckAttributes;
 }
 
 const withMark = (nodes: readonly NodeJSON[], mark: ClaimCheckAttributes): NodeJSON[] =>
@@ -501,28 +502,54 @@ function paragraphIn(
  * written; once the User has changed it, only marked, so its words stay and
  * its check shows it needs doing again.
  */
-function land(blocks: Y.XmlFragment, ids: readonly string[], landing: Landing): void {
-  const { sentence } = landing;
-  const element = paragraphIn(blocks, ids, sentence.path);
-  if (!element) return;
-  const content = inlineOf(element);
-  const text = paragraphText(content);
+// The same words nearest where they were written, else, once the User has changed them, the
+// sentence in the same place.
+function placeOf(
+  element: Y.XmlElement,
+  sentence: Sentence,
+): { from: number; to: number; same: boolean } | null {
+  const text = paragraphText(inlineOf(element));
   const spans = sentenceSpans(text);
   const same = spans
     .filter((span) => text.slice(span.from, span.to) === sentence.text)
     .sort((a, b) => Math.abs(a.from - sentence.from) - Math.abs(b.from - sentence.from))[0];
-  if (same && landing.nodes) {
-    syncContent(element, replaced(content, same.from, same.to, landing.nodes));
-    return;
-  }
-  if (same) {
-    markSentence(element, same.from, same.to, landing.mark);
-    return;
-  }
+  if (same) return { ...same, same: true };
   const written = sentenceSpans(sentence.context);
   const index = written.findIndex((span) => span.from === sentence.from);
   const now = spans.length === written.length ? spans[index] : undefined;
-  if (now) markSentence(element, now.from, now.to, landing.mark);
+  return now ? { ...now, same: false } : null;
+}
+
+function land(blocks: Y.XmlFragment, ids: readonly string[], landing: Landing): void {
+  const { sentence } = landing;
+  const element = paragraphIn(blocks, ids, sentence.path);
+  const place = element ? placeOf(element, sentence) : null;
+  if (!element || !place) return;
+  const mark = landing.mark(blocks);
+  if (place.same && landing.nodes) {
+    syncContent(
+      element,
+      replaced(inlineOf(element), place.from, place.to, withMark(landing.nodes, mark)),
+    );
+    return;
+  }
+  markSentence(element, place.from, place.to, mark);
+}
+
+// Read as Check this Mind reads it, a table cell with its headings and each figure with its own
+// place, so a written sentence's results are the ones Check this Mind gives (#1459).
+function readAsChecked(
+  blocks: Y.XmlFragment,
+  ids: readonly string[],
+  sentence: Sentence,
+  figures: ReturnType<typeof figuresByBlock>,
+): ReturnType<typeof checkText> {
+  const element = paragraphIn(blocks, ids, sentence.path);
+  const blockId = element?.getAttribute(BLOCK_ID_ATTRIBUTE);
+  const place = element ? placeOf(element, sentence) : null;
+  if (!element || typeof blockId !== "string" || !place?.same)
+    return { claim: sentence.text, context: sentence.context };
+  return checkText(sentenceOf(element, blockId, place, figures));
 }
 
 const notChecked = (
@@ -554,7 +581,9 @@ export function createWrittenCheck(options: WrittenCheckOptions) {
       {
         text: marked.passage,
         context: marked.context,
-        quotes: [...marked.citations.values()].map((node) => quoteOf(node)?.quote ?? ""),
+        quotes: [...marked.citations.values()].map(
+          (node) => citedQuoteOf(node.attrs ?? {})?.quote ?? "",
+        ),
       },
       signal,
     );
@@ -566,11 +595,13 @@ export function createWrittenCheck(options: WrittenCheckOptions) {
     // Words a cut takes out must not change what the sentence says, so the cut is checked once, as it would land.
     const cited = [...kept.matchAll(MARKER)].flatMap((match) => {
       const node = marked.citations.get(Number(match[1]));
-      const quote = node ? quoteOf(node) : null;
+      const quote = node ? citedQuoteOf(node.attrs ?? {}) : null;
       return quote ? [quote] : [];
     });
+    const claim = kept.replace(MARKER, INLINE_NODE);
     const checked = await checkWithin(
-      { ...sentence, text: kept.replace(MARKER, INLINE_NODE), cited },
+      { ...sentence, text: claim, cited },
+      { claim, context: sentence.context },
       mindId,
       scope,
       prepared,
@@ -585,6 +616,7 @@ export function createWrittenCheck(options: WrittenCheckOptions) {
   /** One sentence's check, given up on once it takes longer than the time limit. */
   async function checkWithin(
     sentence: Sentence,
+    read: ReturnType<typeof checkText>,
     mindId: string,
     scope: CheckScope,
     prepared: PreparedChatModel,
@@ -600,8 +632,7 @@ export function createWrittenCheck(options: WrittenCheckOptions) {
     );
     const replied = await Promise.race([
       options.claimCheck({
-        claim: sentence.text,
-        context: sentence.context,
+        ...read,
         cited: options.citedNow(sentence.cited),
         scope: scope.scope,
         model: prepared,
@@ -623,7 +654,7 @@ export function createWrittenCheck(options: WrittenCheckOptions) {
     };
   }
 
-  const placeOf = (
+  const recordPlaceOf = (
     sentence: Sentence,
     blocks: readonly NodeJSON[],
     ids: readonly string[],
@@ -643,7 +674,7 @@ export function createWrittenCheck(options: WrittenCheckOptions) {
     if (judgesUnreliably(input.prepared)) return null;
     const checkable = checkableSentences(blocks);
     const recordSentences = checkableSentences(blocks, true).flatMap((sentence) => {
-      const place = placeOf(sentence, blocks, input.ids);
+      const place = recordPlaceOf(sentence, blocks, input.ids);
       return place ? [{ text: sentence.text, place }] : [];
     });
     // The claims with no Citation are left to the one count and Check the rest (#1909).
@@ -654,25 +685,34 @@ export function createWrittenCheck(options: WrittenCheckOptions) {
     const { searchable, check: scope } = options.scopeOf(mindId);
     if (searchable === 0) return null;
     const sending = sentences.slice(0, SENTENCES_CHECKED_AT_MOST);
+    const reads = options.read(mindId, (note) => {
+      const figures = figuresByBlock(note);
+      return new Map(
+        sending.map((sentence) => [sentence, readAsChecked(note, input.ids, sentence, figures)]),
+      );
+    });
     input.checking(sending.length);
     const request = randomUUID();
     const startedAt = options.now().toISOString();
     const { outcomes, stop } = await runItems(
       sending,
       async (sentence) => {
+        const read = reads.get(sentence) ?? { claim: sentence.text, context: sentence.context };
         const result = await checkWithin(
           sentence,
+          read,
           mindId,
           scope,
           prepared,
           signal,
-          placeOf(sentence, blocks, input.ids),
+          recordPlaceOf(sentence, blocks, input.ids),
           recordSentences,
         );
         const failure = runFailureOf(result);
         if (failure) throw new RunItemError(failure);
+        // Asked to cut what a cell's Citations don't state, Edit with AI rewrote its figure.
         const uncovered =
-          result.verdict === "unsupported" && result.unsupported?.covered
+          result.verdict === "unsupported" && result.unsupported?.covered && !sentence.inCell
             ? result.unsupported.uncovered
             : null;
         const nodes = uncovered
@@ -684,7 +724,7 @@ export function createWrittenCheck(options: WrittenCheckOptions) {
               prepared,
               scope,
               signal,
-              placeOf(sentence, blocks, input.ids),
+              recordPlaceOf(sentence, blocks, input.ids),
               recordSentences,
             )
           : null;
@@ -733,6 +773,12 @@ export function createWrittenCheck(options: WrittenCheckOptions) {
       excluded: [],
       checkedAt: startedAt,
     });
+    const begun = (sentence: Sentence): ClaimCheckAttributes => {
+      const figures = reads.get(sentence)?.figures;
+      return figures?.length
+        ? beginFigureCheck(null, markOf(sentence), figures, null)
+        : markOf(sentence);
+    };
     const failed = (sentence: Sentence, reason: ClaimCheckFailure, detail: string | null) => {
       done.failed++;
       if (reason === "consent-revoked" || reason === "local-mode") {
@@ -744,10 +790,11 @@ export function createWrittenCheck(options: WrittenCheckOptions) {
       console.warn(
         `A sentence the assistant wrote in Mind ${mindId} couldn't be checked before it landed: ${reason}${detail ? ` (${detail})` : ""}`,
       );
+      const at = options.now().toISOString();
       landings.push({
         sentence,
         nodes: null,
-        mark: notChecked(markOf(sentence), reason, detail, options.now().toISOString()),
+        mark: () => notChecked(markOf(sentence), reason, detail, at),
       });
     };
     sending.forEach((sentence, index) => {
@@ -774,14 +821,15 @@ export function createWrittenCheck(options: WrittenCheckOptions) {
         return;
       }
       done.checked++;
-      const mark = options.withResult(markOf(sentence), result, at);
+      const mark = (note: Y.XmlFragment) =>
+        options.withResult(begun(sentence), result, at, note, mindId);
       if (result.verdict === "supported") {
         landings.push({ sentence, nodes: null, mark });
         return;
       }
       if (nodes && uncovered) {
         done.cut.push(uncovered);
-        landings.push({ sentence, nodes: withMark(nodes, mark), mark });
+        landings.push({ sentence, nodes, mark });
         return;
       }
       done[result.verdict]++;
@@ -792,7 +840,7 @@ export function createWrittenCheck(options: WrittenCheckOptions) {
       landings.push({
         sentence,
         nodes: null,
-        mark: notChecked(markOf(sentence), "too-many", null, at),
+        mark: () => notChecked(markOf(sentence), "too-many", null, at),
       });
     }
     if (landings.length > 0) {

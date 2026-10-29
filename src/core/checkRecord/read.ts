@@ -17,9 +17,16 @@ import { claimCheckShown, type SentenceResult, sentenceResultOf } from "../../sh
 import type { Translate } from "../../shared/locations";
 import { mindScopeOf } from "../../shared/mindScope";
 import { comparableSentence, INLINE_NODE, sentenceSpans } from "../../shared/sentences";
+import {
+  citationSignOffBasis,
+  signOffNow,
+  signOffOn,
+  signOffShown,
+  signOffsOf,
+} from "../../shared/signOffs";
 import { textOriginOf } from "../../shared/textOrigins";
 import { groupsOf, isProposed } from "../aiUseStatement/figures";
-import { checkedSentences } from "../answers/checks/sentences";
+import { checkedSentences, citationSentences, figuresNow } from "../answers/checks/sentences";
 import {
   ANSWER_BLOCK,
   BLOCK_ID_ATTRIBUTE,
@@ -31,6 +38,7 @@ import {
   type KeptCitationText,
   QUESTION_BLOCK,
   type RecordCiteResult,
+  type SignOffNow,
 } from "../api";
 import type { ModelDescription } from "../chatModelNames";
 import { type Footnote, type Inline, readBlock, reviewReading } from "../mindText";
@@ -72,8 +80,26 @@ export type SentenceItem = RecordItemFields & {
   check: SentenceCheck | null;
 };
 
-/** IncarnaMind checks a Citation's quote against the Document's text without a model, and keeps no time. */
-export type CitationItem = RecordItemFields & { kind: "citation"; result: CitationCheck };
+/**
+ * IncarnaMind checks a Citation's quote against the Document's text without a model, and keeps no
+ * time. `signOff` is a person's own check of it (#1933), which isn't IncarnaMind's.
+ */
+export type CitationItem =
+  | (RecordItemFields & {
+      kind: "citation";
+      result: CitationCheck;
+      signOff: SignOffNow | null;
+    })
+  | {
+      /** A person's check of a Citation the Note doesn't hold now, kept as a row (#1933). */
+      kind: "citation";
+      result: "gone";
+      text: "";
+      origin: null;
+      says: null;
+      evidence: null;
+      signOff: SignOffNow;
+    };
 
 export type RecordItem = SentenceItem | CitationItem;
 
@@ -101,6 +127,8 @@ export interface RecordSources {
   t: Translate;
   model(providerId: string | null, modelId: string | null): ModelDescription | null;
   readQuote(attributes: Partial<CitationAttributes>): string | null;
+  /** The User, whose own check marks are theirs (#1933); null before they make one. */
+  personId: string | null;
 }
 
 interface Run {
@@ -196,6 +224,7 @@ export function readRecord(sources: RecordSources): {
   const { fragment, documents, folderId, model } = sources;
   const scope = fragment.doc ? mindScopeOf(fragment.doc) : null;
   const versions = new Map(documents.map((document) => [document.id, document.contentHash]));
+  const { figureContexts, figured } = figuresNow(fragment);
 
   const sentences: SentenceItem[] = [];
   const recordCites: RecordCiteItem[] = [];
@@ -203,7 +232,14 @@ export function readRecord(sources: RecordSources): {
   for (const { element, from, to, check, sentence, cited } of checkedSentences(fragment)) {
     requests.push(check.request);
     const result = sentenceResultOf(
-      claimCheckShown(check, { text: sentence, versions, folderId, scope }),
+      claimCheckShown(check, {
+        text: sentence,
+        versions,
+        folderId,
+        scope,
+        figureContexts,
+        figured: figured({ element, from, to }),
+      }),
       check,
       cited.length,
     );
@@ -250,15 +286,37 @@ export function readRecord(sources: RecordSources): {
   }
 
   const attributesOf = new Map<Footnote, Partial<CitationAttributes>>();
+  const idOf = new Map<Footnote, string>();
   const readOptions = {
     includeQuestions: false,
     footnote: (attributes: Record<string, unknown>): Footnote => {
       const note: Footnote = { source: "", unverified: false };
       attributesOf.set(note, citationAttributesOf(attributes));
+      const id = attributes[BLOCK_ID_ATTRIBUTE];
+      if (typeof id === "string") idOf.set(note, id);
       return note;
     },
     trimBeforeCitation: false,
     review: reviewReading(fragment),
+  };
+  const marks = fragment.doc ? signOffsOf(fragment.doc) : [];
+  const signedOff = marks.length > 0 ? citationSentences(fragment) : new Map<string, string>();
+  const signOffOf = (note: Footnote): SignOffNow | null => {
+    const id = idOf.get(note);
+    const attributes = attributesOf.get(note);
+    const sentence = id === undefined ? undefined : signedOff.get(id);
+    const mark =
+      id === undefined ? null : signOffOn(marks, { kind: "citation", id }, sources.personId);
+    if (!mark || !attributes || sentence === undefined) return null;
+    const cited = {
+      documentId: attributes.documentId ?? null,
+      contentHash: attributes.contentHash ?? null,
+      quote: attributes.quote ?? null,
+    };
+    return signOffNow(
+      signOffShown(mark, citationSignOffBasis(sentence, cited), [cited], versions),
+      sources.personId,
+    );
   };
   const citations: CitationItem[] = [];
   for (const child of fragment.toArray()) {
@@ -266,8 +324,20 @@ export function readRecord(sources: RecordSources): {
     if (isProposed(child)) continue;
     const origin = blockOrigin(fragment, child);
     for (const group of groupsOf(readBlock(child, readOptions))) {
-      citations.push(...citationsIn(group, { attributesOf, origin, sources }));
+      citations.push(...citationsIn(group, { attributesOf, origin, sources, signOffOf }));
     }
+  }
+  for (const mark of marks) {
+    if (mark.target.kind !== "citation" || signedOff.has(mark.target.id)) continue;
+    citations.push({
+      kind: "citation",
+      result: "gone",
+      text: "",
+      origin: null,
+      says: null,
+      evidence: null,
+      signOff: signOffNow({ state: "checked", record: mark }, sources.personId),
+    });
   }
   return { sentences, citations, recordCites, requests };
 }
@@ -278,12 +348,17 @@ function citationsIn(
     attributesOf: ReadonlyMap<Footnote, Partial<CitationAttributes>>;
     origin: TextOrigin | null;
     sources: RecordSources;
+    signOffOf(note: Footnote): SignOffNow | null;
   },
 ): CitationItem[] {
-  const { attributesOf, origin, sources } = context;
+  const { attributesOf, origin, sources, signOffOf } = context;
   let plain = "";
   const aiAt: boolean[] = [];
-  const placed: { offset: number; attributes: Partial<CitationAttributes> }[] = [];
+  const placed: {
+    offset: number;
+    attributes: Partial<CitationAttributes>;
+    signOff: SignOffNow | null;
+  }[] = [];
   const add = (text: string, ai: boolean) => {
     for (const character of text) {
       plain += character;
@@ -294,16 +369,19 @@ function citationsIn(
     if (inline.inserted) continue;
     if (inline.kind === "text") {
       add(inline.text, inline.ai === true);
+    } else if (inline.kind === "figure") {
+      add(inline.figure.shown, false);
     } else if (inline.kind === "citation") {
       const attributes = attributesOf.get(inline.footnote);
-      if (attributes) placed.push({ offset: aiAt.length, attributes });
+      if (attributes)
+        placed.push({ offset: aiAt.length, attributes, signOff: signOffOf(inline.footnote) });
       add(INLINE_NODE, false);
     } else if (inline.kind === "break") {
       add("\n", false);
     }
   }
   const spans = sentenceSpans(plain);
-  return placed.map(({ offset, attributes }): CitationItem => {
+  return placed.map(({ offset, attributes, signOff }): CitationItem => {
     const span = spans.find((each) => each.from <= offset && offset < each.to) ??
       spans.filter((each) => each.from <= offset).at(-1) ?? { from: 0, to: aiAt.length };
     return {
@@ -313,6 +391,7 @@ function citationsIn(
       origin: origin ?? (aiAt.slice(span.from, span.to).some(Boolean) ? "ai" : "user"),
       says: attributes.verdict ?? null,
       evidence: documentOf(attributes, sources),
+      signOff,
     };
   });
 }

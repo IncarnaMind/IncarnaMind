@@ -174,6 +174,15 @@ export interface FileShell {
   showItemInFolder(path: string): void;
 }
 
+/**
+ * Where Microsoft's ONNX Runtime keeps its usage data on this computer (#2145). The desktop app
+ * looks (src/main/modelRuntimeFolder.ts); nothing ever lists or reads what is in it.
+ */
+export interface ModelRuntimeFolder {
+  /** The folder's path if it is there; null if it isn't, or where the runtime keeps none. */
+  find(): Promise<string | null>;
+}
+
 /** Opened through the OS by the desktop app (src/main/ollamaApp.ts): the core never starts a program itself. */
 export interface OllamaApp {
   /** False where it isn't, and where this computer can't tell. */
@@ -825,6 +834,8 @@ export interface CoreAdapters {
    * Absent (tests that don't need it): both are refused.
    */
   shell?: FileShell;
+  /** Absent (tests that aren't about it): there is none to show. */
+  modelRuntimeFolder?: ModelRuntimeFolder;
   /** Absent (tests): it is never installed, so it can't be opened. */
   ollamaApp?: OllamaApp;
   /** How long Open Ollama waits for Ollama to answer, in ms (default 20 s). */

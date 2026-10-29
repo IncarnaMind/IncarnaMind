@@ -18,6 +18,7 @@
  */
 import { randomUUID } from "node:crypto";
 import { writeContradictionWatch } from "../../../shared/contradictionWatch";
+import { beginFigureCheck } from "../../../shared/figureChecks";
 import { mindModelOf } from "../../../shared/mindModel";
 import type { RecordCitePlace } from "../../../shared/recordCiteChoices";
 import { comparableSentence, isClaim } from "../../../shared/sentences";
@@ -26,6 +27,7 @@ import type { Logger } from "../../adapters";
 import type {
   ChatModelChoice,
   CheckContradictionsResult,
+  CheckFigure,
   CheckSentencesResult,
   ClaimCheckAttributes,
   ClaimCheckResult,
@@ -135,6 +137,7 @@ interface Claim {
   text: string;
   context: string;
   scope: EvidenceScope;
+  figures?: CheckFigure[];
 }
 
 type Plan =
@@ -179,6 +182,7 @@ export function createContradictionWatch(options: WatchOptions) {
           text: sentence.text,
           context: sentence.context,
           scope,
+          ...(sentence.figures?.length && { figures: sentence.figures }),
         },
       ];
     });
@@ -243,11 +247,15 @@ export function createContradictionWatch(options: WatchOptions) {
         excluded: [],
         checkedAt: at,
       };
+      // Each figure keeps its own result, as the one Check gives it.
+      const pending = sentence.figures?.length
+        ? beginFigureCheck(null, check, sentence.figures, null)
+        : check;
       markSentence(
         sentence.element,
         sentence.from,
         sentence.to,
-        options.withResult(check, result, at),
+        options.withResult(pending, result, at),
       );
       return true;
     });
@@ -275,6 +283,7 @@ export function createContradictionWatch(options: WatchOptions) {
             recordClaim: claim.text,
             context: claim.context,
             scope: claim.scope,
+            ...(claim.figures && { figures: claim.figures }),
             model: prepared,
             mindId,
             place: claim.place,

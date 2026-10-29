@@ -6,7 +6,14 @@ import { claimSpans } from "../../src/renderer/src/editor/claimChecks";
 import { claimCheckShown, SENTENCES_CHECKED_AT_MOST } from "../../src/shared/claimChecks";
 import { INLINE_NODE } from "../../src/shared/sentences";
 import { askAssistant, changesIn, lastResult } from "../helpers/assistant";
-import { checkGenerate, checkReply, isCheckRun, type Plan, sentenceOf } from "../helpers/checks";
+import {
+  checkGenerate,
+  checkReply,
+  isCheckRun,
+  type Plan,
+  sentenceOf,
+  unsupportedReply,
+} from "../helpers/checks";
 import { shownPassages } from "../helpers/citations";
 import { createTempDataFolder, startCore } from "../helpers/core";
 import { addAndProcess, writeSourceFile } from "../helpers/documents";
@@ -88,10 +95,14 @@ const PLANS: Record<string, Plan> = {
       text: "Verdict: unsupported\n没有段落说港口每年被淹没。\nCovered: 大潮出现的时间\nNot covered: 每年淹没港口",
     },
   },
+  // Its 5% is a figure, which the check asks about one by one.
   [TWO_CITED_ZH.replaceAll("[^1]", INLINE_NODE)]: {
-    reply: {
-      text: "Verdict: unsupported\n没有段落说两个数字都成立。\nCovered: 增长与成本\nNot covered: 两个数字",
-    },
+    reply: (call) => ({
+      text: unsupportedReply(
+        call,
+        "没有段落说两个数字都成立。\nCovered: 增长与成本\nNot covered: 两个数字",
+      ),
+    }),
   },
   [asChecked("Revenue did not rise in 2023")]: partly("the revenue", "not"),
   [asCheckedZh("公司营收没有在所有地区增长")]: partly("营收增长", "没有"),

@@ -43,7 +43,7 @@
 import { randomUUID } from "node:crypto";
 import type * as Y from "yjs";
 import { asGenerated } from "../../shared/aiText";
-import { hasText, markersIn, pageBlocks } from "../../shared/answerBlocks";
+import { hasText, markersIn, pageBlocks, withCalculatedFigures } from "../../shared/answerBlocks";
 import { runsByDefault } from "../../shared/approvalRules";
 import {
   askedFor,
@@ -53,6 +53,7 @@ import {
 import { citationNode, withCitations } from "../../shared/blockJson";
 import { type LiveDocument, shownDocumentName } from "../../shared/citations";
 import { withFigures, withFigureText } from "../../shared/figureMarkers";
+import { figureRunsOfAnswer, installFigureRuns } from "../../shared/figureRuns";
 import { translate } from "../../shared/i18n";
 import { englishPlace } from "../../shared/locations";
 import { holdsNothing, madeByAnswer } from "../../shared/madeMind";
@@ -73,6 +74,7 @@ import {
 import { filingFolder, hasSearchScope, NO_SCOPE, searchScopeOf } from "../../shared/searchScope";
 import { normaliseText } from "../../shared/text";
 import { setTextOrigin } from "../../shared/textOrigins";
+import { unrunToolNotes } from "../../shared/unrunTools";
 import type { AnalysisRuntime } from "../adapters";
 import { withAnalysisResults } from "../analysis/markers";
 import { analysisTool } from "../analysis/tool";
@@ -96,6 +98,7 @@ import {
   type CitationSupport,
   type CitedSelection,
   type ClaimedChange,
+  type ClaimedTool,
   type CommandDone,
   type CommandProblem,
   type CommandsFound,
@@ -182,6 +185,7 @@ import {
   findBlock,
   isEdited,
   type NodeJSON,
+  nodeOf,
   syncContent,
   textAttribute,
   topLevelBlocks,
@@ -192,6 +196,7 @@ import { type ChangedScale, changedScale, changedScaleNote } from "./changedScal
 import {
   type AnswerDocuments,
   createCitationSession,
+  documentNamedAmong,
   type QuoteInput,
   withoutDeadMarkers,
   withoutFootnoteDefinitions,
@@ -202,6 +207,7 @@ import {
   unmadeFixesNote,
 } from "./claimedChanges";
 import { unmadeFixesIn } from "./claimedFixes";
+import { unrunToolClaims, unrunToolsNote } from "./claimedTools";
 import { holdBack } from "./claimStream";
 import {
   askedText,
@@ -223,7 +229,13 @@ import {
   createContextCitations,
   withoutWrittenIds,
 } from "./contextCitations";
-import { coverageInstructions, coverageOf, documentsAsked, type SizedDocument } from "./coverage";
+import {
+  coverageInstructions,
+  coverageOf,
+  documentsAsked,
+  namedCoverage,
+  type SizedDocument,
+} from "./coverage";
 import {
   documentSkimBlock,
   documentTextBlock,
@@ -403,7 +415,11 @@ export interface AnswerConversations {
     question: ConversationQuestion;
     toolCalls: AnswerToolCall[];
     onScreen: string[];
+    /** The model the caller chose to write it with instead of the Question's own (#1848). */
+    model: ChatModelChoice | null;
   };
+  /** Keeps a Question on the model its Answer is written with now, so Regenerate goes on with it. */
+  setQuestionModel(questionId: string, model: ChatModelChoice): ConversationQuestion | null;
   /** Takes the Search scope off a Question: its Answers search every Document (#748). */
   clearScope(questionId: string): ConversationQuestion | null;
   /** Empties an Answer, where it is, to write it again, reading `read`. */
@@ -483,17 +499,23 @@ function lastAnswerOf(
   conversationId: string,
   earlier: readonly ConversationMessage[],
   filedIn: (scope: SearchScope | null, askedFrom: AskedFrom | null) => string | null,
+  language: Language,
 ): MindToolsOptions["lastAnswer"] {
   const at = earlier.findLastIndex((message) => message.kind === "answer");
   const answer = earlier[at];
   if (answer?.kind !== "answer") return null;
   const question = earlier.slice(0, at).findLast((message) => message.kind === "question");
-  const blocks = pageBlocks(answer, question?.text ?? "");
+  // Put into a Note as it is, a claim of a Tool that didn't run keeps its line (#1796).
+  const blocks = [
+    ...pageBlocks(answer, question?.text ?? ""),
+    ...unrunToolNotes((key, params) => translate(language, key, params), answer.steps),
+  ];
   if (!hasText(blocks)) return null;
   return {
     blocks,
     origin: { from: messageReference(conversationId, answer.id), question: question?.text ?? "" },
     folderId: question?.kind === "question" ? filedIn(question.scope, question.askedFrom) : null,
+    answer: { id: answer.id, analyses: answer.analyses },
   };
 }
 
@@ -782,17 +804,7 @@ function inScope(
     pageTexts: (documentId, contentHash, from, to) =>
       documents.pageTexts(documentId, contentHash, from, to),
     documentDate: (documentId) => documents.documentDate(documentId),
-    documentNamed: (name) => {
-      const key = (text: string) => text.replace(/\s+/g, " ").trim().toLocaleLowerCase();
-      const wanted = key(name.replace(/\s*\(“[^”]*”\)\s*$/, ""));
-      const all = documents.searchableBySize(documentIds);
-      return (
-        all.find((each) => key(each.name) === wanted)?.id ??
-        all.find((each) => key(each.name).includes(wanted) || wanted.includes(key(each.name)))
-          ?.id ??
-        null
-      );
-    },
+    documentNamed: (name) => documentNamedAmong(documents.searchableBySize(documentIds), name),
   };
 }
 
@@ -995,6 +1007,8 @@ export function createAnswers(options: AnswersOptions) {
     > & {
       /** What the commands of the Conversation's earlier Answers renamed, oldest first. */
       renames: readonly CommandRename[];
+      /** The calls of the Conversation's earlier Answers, oldest first: a follow-up may be answered from their searches (#1796). */
+      earlierCalls?: readonly AnswerToolCall[];
     };
   }): void {
     const { home, answerId, model, context, forcedSkill, help } = input;
@@ -1054,7 +1068,7 @@ export function createAnswers(options: AnswersOptions) {
     let { messages } = context;
     let mindRequest = input.mind?.request;
     /** It listened to a meeting's live transcript: the Question went with it. */
-    let listening = false;
+    let heard: LiveTranscript | null = null;
     /** Help asked while its Meeting's live text was behind (#1366). */
     let textBehind = false;
     /** The Documents whose whole text went with the Question; null until the assistant's request is built. */
@@ -1085,6 +1099,8 @@ export function createAnswers(options: AnswersOptions) {
     /** The one request to fix figures, if the engine made it (see ./figureRetry). */
     let figureRetry: FigureRetry | null = null;
     let unbackedClaims: ClaimedChange[] = [];
+    let unrunTools: readonly ClaimedTool[] = [];
+    let askedAgainFor: readonly ClaimedTool[] = [];
     /** What the model calls counted, the cached input tokens too. */
     const usage: AnswerUsage = {
       inputTokens: 0,
@@ -1131,9 +1147,27 @@ export function createAnswers(options: AnswersOptions) {
       }
       return stillReadingAtEnd;
     };
+    let namedAtEnd: AnswerSteps["coverage"] | null | undefined;
+    const covered = () => {
+      if (coverage || outside || finishedAt === null) return coverage;
+      if (namedAtEnd === undefined) {
+        const { cited, passages, searched } = session.documentsRead();
+        const titles = new Map(options.documents.names().map((each) => [each.id, each.title]));
+        namedAtEnd = namedCoverage(
+          context.question,
+          cited.length > 0 ? cited : passages,
+          [...new Set([...cited, ...passages, ...searched])],
+          options.documents
+            .searchableBySize(documentIds)
+            .map((each) => ({ ...each, title: titles.get(each.id) })),
+        );
+      }
+      return namedAtEnd;
+    };
     const steps = (): AnswerSteps => {
       const summary = reasoning.trim();
       const reading = stillReading();
+      const shownCoverage = covered();
       const thoughtUntil =
         firstTextAt !== null && reasoningStartedAt !== null && firstTextAt > reasoningStartedAt
           ? firstTextAt
@@ -1166,14 +1200,19 @@ export function createAnswers(options: AnswersOptions) {
           firstWordAt !== Infinity && { firstWordMs: wordAfter(sentAt, firstWordAt) }),
         ...(careful && { careful: true as const }),
         ...(unbackedClaims.length > 0 && { unbackedClaims: [...unbackedClaims] }),
-        ...(coverage && { coverage }),
+        ...(unrunTools.length > 0 && {
+          unrunTools: [...unrunTools],
+          ...(!calculating && unrunTools.includes("calculate") && { calculateUnavailable: true }),
+        }),
+        ...(askedAgainFor.length > 0 && { askedAgainFor: [...askedAgainFor] }),
+        ...(shownCoverage && { coverage: shownCoverage }),
         ...(writtenFrom && wroteNewText() && { writtenFrom }),
         ...(textBehind && { textBehind: true as const }),
         ...(reading && { stillReading: reading }),
         ...(sentDocuments && {
           sent: {
             documents: [...sentDocuments],
-            ...(listening && { transcript: true as const }),
+            ...(heard && transcripts.size > 0 && { transcript: true as const }),
           },
         }),
       };
@@ -1358,7 +1397,6 @@ export function createAnswers(options: AnswersOptions) {
         return home.write(
           {
             markdown: text,
-            // A figure reads as its shown text until a Mind has a node of its own for one (#439).
             blocks: () => {
               const blocks = withCitations(
                 markdownToBlocks(text, { streaming: !final }),
@@ -1368,11 +1406,10 @@ export function createAnswers(options: AnswersOptions) {
               );
               return asGenerated(
                 calculating
-                  ? withFigures(
-                      blocks,
-                      (marker) => figures.figure(marker),
-                      (figure) => figure.shown,
-                    )
+                  ? withCalculatedFigures(blocks, (marker) => figures.figure(marker), {
+                      id: answerId,
+                      analyses,
+                    })
                   : blocks,
               );
             },
@@ -1923,7 +1960,6 @@ export function createAnswers(options: AnswersOptions) {
         }
       }
       if (input.listening) {
-        let heard: LiveTranscript | null = null;
         try {
           heard = await input.listening();
         } catch (error) {
@@ -1931,6 +1967,7 @@ export function createAnswers(options: AnswersOptions) {
         }
         if (finished) return;
         const kept = newestWithin(heard?.passages ?? [], listenedTokens(prepared.window));
+        if (heard) messages = withTranscript(messages, session.show(kept));
         if (help && heard?.behind) {
           textBehind = true;
           const text = options.liveTextBehind(kept.length > 0);
@@ -1944,8 +1981,6 @@ export function createAnswers(options: AnswersOptions) {
           announce("answer.delta", { ...place, answerId, text: markdown });
         }
         if (kept.length > 0) {
-          messages = withTranscript(messages, session.show(kept));
-          listening = true;
           for (const passage of kept) transcripts.add(passage.documentId);
           callDocuments?.push(...transcripts);
           if (help) callLanguage = languageSaid(kept);
@@ -1991,6 +2026,7 @@ export function createAnswers(options: AnswersOptions) {
             withPassageNotes(show(passages), unread),
           );
         const scope =
+          (heard === null || help !== undefined || asked.each || asked.main !== null) &&
           callDocuments === null &&
           options.documents.searchableCount(documentIds) <= SMALL_SCOPE_DOCUMENTS
             ? options.documents.searchableBySize(documentIds)
@@ -2145,8 +2181,27 @@ export function createAnswers(options: AnswersOptions) {
           asksUser.recorded(toolCallId, { ...question, answer });
           return answer;
         });
-      // The Minds' Tools, for an Answer in the assistant (#202).
-      const minds = outside ? undefined : options.minds;
+      // The Minds' Tools, for an Answer in the assistant (#202). A calculated figure it writes
+      // into a Note brings the Analysis run it was worked out by, as Add to note does (#439):
+      // this Answer's, or the last Answer's that `answer: true` writes.
+      const given = outside ? undefined : options.minds;
+      const answersWithRuns = [
+        { id: answerId, analyses },
+        ...(input.assistant?.lastAnswer ? [input.assistant.lastAnswer.answer] : []),
+      ];
+      const minds: MindsForTools | undefined = given && {
+        ...given,
+        edit: (mindId, change) =>
+          given.edit(mindId, (blocks) => {
+            const result = change(blocks);
+            if (blocks.doc) {
+              const nodes = topLevelBlocks(blocks).map(nodeOf);
+              const runs = answersWithRuns.flatMap((each) => figureRunsOfAnswer(each, nodes));
+              if (runs.length > 0) installFigureRuns(blocks.doc, runs);
+            }
+            return result;
+          }),
+      };
       const focusedId = input.assistant?.focused?.mindId ?? null;
       // A new piece fills the empty Mind the User is in rather than making another (#1109).
       const focusedEmpty =
@@ -2216,11 +2271,10 @@ export function createAnswers(options: AnswersOptions) {
                 );
                 const blocks = asGenerated(
                   calculating
-                    ? withFigures(
-                        cited,
-                        (marker) => figures.figure(marker),
-                        (figure) => figure.shown,
-                      )
+                    ? withCalculatedFigures(cited, (marker) => figures.figure(marker), {
+                        id: answerId,
+                        analyses,
+                      })
                     : cited,
                 );
                 return {
@@ -2436,6 +2490,28 @@ export function createAnswers(options: AnswersOptions) {
           }) ?? null
         );
       };
+      const claimedTools: TurnCheck = {
+        name: "claimed-tool",
+        check: (text) => {
+          const tools = unrunToolClaims(text, toolCalls, input.assistant?.earlierCalls ?? []);
+          return tools.length > 0
+            ? {
+                claims: [],
+                tools,
+                note: unrunToolsNote(
+                  tools,
+                  toolCalls,
+                  options.readableMindName,
+                  calculating,
+                  appliedInTurn,
+                ),
+              }
+            : null;
+        },
+      };
+      // An Answer the User reads holds its claims of Tools to its calls; a check's, a cell's or a
+      // call's help is read by its own flow, which offers no calculate to call.
+      const readByUser = !outside && !help && !input.task && input.toolSet !== "check";
       const turnChecks: TurnCheck[] = [
         ...(mindsTools
           ? [
@@ -2536,6 +2612,7 @@ export function createAnswers(options: AnswersOptions) {
               : null;
           },
         },
+        ...(readByUser ? [claimedTools] : []),
       ];
       // The search made first takes the User's words as the query before the model has read them,
       // which is right only for a Question about the Documents. So it is made only on a turn that is
@@ -2604,7 +2681,7 @@ export function createAnswers(options: AnswersOptions) {
             input.assistant && !help ? THIS_DOCUMENT_RULE : "",
             emptyMindNote(withMindTools, focusedEmpty),
             analysisInstructions(withAnalysisTools),
-            meetingInstructions(listening),
+            meetingInstructions(heard !== null),
             signInNeededInstructions(signInNeeded.map((connector) => connector.name)),
             help ? "" : language,
           ]
@@ -2659,38 +2736,43 @@ export function createAnswers(options: AnswersOptions) {
         ...(prepared.capabilities.facts.toolsEveryRequest && { toolsEveryRequest: true }),
         retryQuotes: prepared.retryQuotes,
         cacheKey: place.conversationId ?? place.mindId ?? undefined,
-        ...(input.assistant && {
-          turnChecks,
-          shownUpTo: heldBack,
-          mayEndBlank: changedAMind,
-          blankReply: () => {
-            if (!endedAfterRefusal()) return null;
-            const language = answerLanguage(context.question);
-            const missing = missingMindNames();
-            const [only] = missing;
-            if (missing.length === 1 && only !== undefined) {
-              return translate(language, "answer.refused.noSuchMind", { name: only });
-            }
-            const quoted = missing.map((name) => `“${name}”`);
-            return translate(language, "answer.refused.noSuchMind.many", {
-              names:
-                language === "zh-CN"
-                  ? quoted.join("、")
-                  : `${quoted.slice(0, -1).join(", ")} and ${quoted.at(-1) ?? ""}`,
-            });
-          },
-        }),
-        ...(input.checkScales && {
-          turnChecks: [
-            {
-              name: "changed-scale",
-              check: (text: string) => {
-                const found = scaleChangeIn(text);
-                return found ? { note: changedScaleNote(found, calculating), claims: [] } : null;
+        ...(input.assistant
+          ? {
+              turnChecks,
+              shownUpTo: heldBack,
+              mayEndBlank: changedAMind,
+              blankReply: () => {
+                if (!endedAfterRefusal()) return null;
+                const language = answerLanguage(context.question);
+                const missing = missingMindNames();
+                const [only] = missing;
+                if (missing.length === 1 && only !== undefined) {
+                  return translate(language, "answer.refused.noSuchMind", { name: only });
+                }
+                const quoted = missing.map((name) => `“${name}”`);
+                return translate(language, "answer.refused.noSuchMind.many", {
+                  names:
+                    language === "zh-CN"
+                      ? quoted.join("、")
+                      : `${quoted.slice(0, -1).join(", ")} and ${quoted.at(-1) ?? ""}`,
+                });
               },
-            },
-          ],
-        }),
+            }
+          : input.checkScales
+            ? {
+                turnChecks: [
+                  {
+                    name: "changed-scale",
+                    check: (text: string) => {
+                      const found = scaleChangeIn(text);
+                      return found
+                        ? { note: changedScaleNote(found, calculating), claims: [] }
+                        : null;
+                    },
+                  },
+                ],
+              }
+            : readByUser && { turnChecks: [claimedTools] }),
         signal: controller.signal,
       })) {
         if (finished) break;
@@ -2731,6 +2813,11 @@ export function createAnswers(options: AnswersOptions) {
             break;
           case "claims-unbacked":
             unbackedClaims = event.claims;
+            unrunTools = event.tools ?? [];
+            writeSoon();
+            break;
+          case "asked-again":
+            askedAgainFor = event.tools;
             writeSoon();
             break;
           case "usage":
@@ -2834,7 +2921,13 @@ export function createAnswers(options: AnswersOptions) {
         const found = findBlock(blocks, ANSWER_BLOCK, answerId);
         if (!found) return false;
         const { element } = found;
-        syncContent(element, answer.blocks());
+        const nodes = answer.blocks();
+        if (blocks.doc)
+          installFigureRuns(
+            blocks.doc,
+            figureRunsOfAnswer({ id: answerId, analyses: answer.analyses }, nodes),
+          );
+        syncContent(element, nodes);
         const calls = answer.toolCalls.length > 0 ? JSON.stringify(answer.toolCalls) : null;
         if (textAttribute(element, "toolCalls") !== calls)
           setAttributes(element, { toolCalls: calls });
@@ -2892,7 +2985,13 @@ export function createAnswers(options: AnswersOptions) {
         if (!found) return false;
         const { element } = found;
         resolveProposals(element, () => true, "reject");
-        const written = proposeBlocks(element, answer.blocks(), request, randomUUID);
+        const nodes = answer.blocks();
+        if (blocks.doc)
+          installFigureRuns(
+            blocks.doc,
+            figureRunsOfAnswer({ id: answerId, analyses: answer.analyses }, nodes),
+          );
+        const written = proposeBlocks(element, nodes, request, randomUUID);
         if (written.proposals.length > 0 && blocks.doc) {
           recordProposalRequest(blocks.doc, request, {
             source: "answer",
@@ -3122,10 +3221,18 @@ export function createAnswers(options: AnswersOptions) {
         },
         folderId: filedIn(question.scope, question.askedFrom),
         origin: { from: messageReference(conversation.id, answer.id), question: question.text },
-        lastAnswer: lastAnswerOf(conversation.id, turn.earlier, filedIn),
+        lastAnswer: lastAnswerOf(
+          conversation.id,
+          turn.earlier,
+          filedIn,
+          options.interfaceLanguage(),
+        ),
         remake,
         renames: renamesIn(turn.earlier),
         touched: touchedIn(turn.earlier),
+        earlierCalls: turn.earlier.flatMap((message) =>
+          message.kind === "answer" ? message.toolCalls : [],
+        ),
       },
     });
     return {
@@ -3423,9 +3530,11 @@ export function createAnswers(options: AnswersOptions) {
       const asked = options.conversations.questionOf(input);
       const everyDocument = isRecord(input) && input.clearScope === true;
       if (everyDocument) options.conversations.clearScope(asked.question.id);
-      const { answerId, question, toolCalls, onScreen } = options.conversations.questionOf(input);
-      const ready = await readyModel(question.model, question.forcedSkill);
+      const { answerId, question, toolCalls, onScreen, model } =
+        options.conversations.questionOf(input);
+      const ready = await readyModel(model ?? question.model, question.forcedSkill);
       if ("asked" in ready) return ready;
+      if (model) options.conversations.setQuestionModel(question.id, model);
       active.get(answerId)?.finish({ status: "stopped" });
       const changes = toolCalls.flatMap((call) => call.mindChange ?? []);
       // Written again, it proposes its changes again: those still waiting from before go.

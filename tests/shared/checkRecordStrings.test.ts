@@ -16,6 +16,7 @@ const NO_TRANSLATION = new Set<MessageKey>([
   "checkRecord.checker",
   "checkRecord.time",
   "checkRecord.modelAt",
+  "checkRecord.person",
 ]);
 
 describe("the words of the check record", () => {

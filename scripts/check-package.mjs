@@ -4,7 +4,8 @@
 //      means the `files` patterns in electron-builder.yml let the whole folder in.
 //   2. Each app.asar and each installer is within its size budget.
 //   3. Each app has the speech-to-text addon (#136) of its own platform and architecture, and no
-//      other, unpacked beside app.asar.
+//      other, unpacked beside app.asar. On Windows its ONNX Runtime library is the app's own, byte
+//      for byte (#2152).
 //   4. Each app has what Analyses run with (ADR-0023) in python/ beside app.asar, as
 //      packages.json lists it.
 // Usage: node scripts/check-package.mjs [dist-folder]   (default: dist)
@@ -12,6 +13,7 @@
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { dirname, join, resolve, sep } from "node:path";
 import { listPackage } from "@electron/asar";
+import { speechRuntimes } from "./afterPack.mjs";
 
 const ALLOWED_TOP_LEVEL = new Set(["out", "node_modules", "package.json"]);
 
@@ -107,6 +109,16 @@ for (const asar of asars) {
 	const others = found.filter((name) => name !== expected);
 	if (others.length > 0) {
 		failures.push(`${asar} carries another platform's speech package: ${others.join(", ")}`);
+	}
+	if (expected === "sherpa-onnx-win-x64") {
+		for (const { speech, sharedProviders, app } of await speechRuntimes(modules)) {
+			if (!existsSync(speech) || !existsSync(app) || !readFileSync(speech).equals(readFileSync(app))) {
+				failures.push(`${speech} isn't the app's own ONNX Runtime library (#2152)`);
+			}
+			if (existsSync(sharedProviders)) {
+				failures.push(`${sharedProviders} is the speech package's, beside the app's runtime (#2152)`);
+			}
+		}
 	}
 }
 

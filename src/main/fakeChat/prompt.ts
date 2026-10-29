@@ -26,6 +26,16 @@ export const lastUserText = (prompt: Prompt): string =>
 export const lastQuestion = (prompt: Prompt): string =>
   lastUserText(prompt).split("\n\n").at(-1) ?? "";
 
+/** Every message's text, the earlier turns and a check's note too: what a whole conversation says. */
+export const promptText = (prompt: Prompt): string =>
+  prompt
+    .flatMap((message) =>
+      typeof message.content === "string"
+        ? [message.content]
+        : message.content.flatMap((part) => (part.type === "text" ? [part.text] : [])),
+    )
+    .join("\n");
+
 /** The text results of the Tool calls so far, by Tool name, oldest first. */
 export function toolResults(prompt: Prompt, tool: string): string[] {
   const results: string[] = [];

@@ -38,7 +38,12 @@ const COMPANY_ABBREVIATION = /(?:^|\s)(?:inc|ltd|co|corp)\.$/iu;
  * decision's citation stays in one sentence: the segmenter ends one at the
  * "v." and at the "(Tex." inside it.
  */
-export function sentenceSpans(text: string): SentenceSpan[] {
+export function sentenceSpans(text: string, figures: readonly number[] = []): SentenceSpan[] {
+  if (figures.length > 0) {
+    const characters = text.split("");
+    for (const at of figures) if (characters[at] === INLINE_NODE) characters[at] = "0";
+    return sentenceSpans(characters.join(""));
+  }
   const decisions = citedCases(text);
   const unbrokenCitations: SentenceSpan[] = [...decisions, ...scanRecordCites(text)];
   const spans: SentenceSpan[] = [];

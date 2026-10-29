@@ -11,6 +11,7 @@ import {
   GENERATED_MARK,
   type RecordCiteResult,
 } from "../../src/core";
+import { addSignOff, citationSignOffBasis } from "../../src/shared/signOffs";
 import { setTextOrigin } from "../../src/shared/textOrigins";
 import { createTempDataFolder, manualClock, startCore } from "../helpers/core";
 import { parseCsv } from "../helpers/csv";
@@ -684,6 +685,104 @@ describe("The check record as CSV", () => {
       附近位置: "第 47 页 · 第 5–9 行",
       附近段落: "The point appears nearby instead.",
     });
+  });
+});
+
+describe("A person's own check in the check record", () => {
+  // protects=a Citation the User marked Checked by me is listed with their name and when, apart from IncarnaMind's result, and as changed once its sentence changes (#1933); fails_when=the column is empty, says "you", or still says checked after the edit; no_claim=the PDF's layout.
+  test("lists who checked a Citation and when, beside IncarnaMind's result, and that it changed since", async () => {
+    const setup = await setUp();
+    const { client, tides } = setup;
+    const cited = { ...citation(tides, "found") };
+    cited.attrs = { ...cited.attrs, id: "citation-1" };
+    const write = (words: string) =>
+      writeMind(client, [paragraph("own", text(words), cited, text("."))]);
+    write("The Moon pulls the sea");
+    await client.settled();
+    addSignOff(client.doc, {
+      id: randomUUID(),
+      target: { kind: "citation", id: "citation-1" },
+      at: "2026-10-16T08:30:00.000Z",
+      contentHash: citationSignOffBasis("The Moon pulls the sea\uFFFC.", {
+        documentId: tides.id,
+        contentHash: tides.contentHash,
+        quote: QUOTE,
+      }),
+      deletedAt: null,
+      name: "Ada Lovelace",
+      personId: "person-1",
+    });
+    await client.settled();
+
+    const personOf = async () => {
+      const csv = readFileSync((await saveRecord(setup, "csv")).path, "utf8");
+      return rowsOf(csv).find((row) => row.Kind === "Citation")?.["Checked by a person"];
+    };
+    expect(await personOf()).toBe("Ada Lovelace · 2026-10-16T08:30:00.000Z");
+
+    write("The Moon pulls every sea");
+    await client.settled();
+    expect(await personOf()).toBe("Ada Lovelace · 2026-10-16T08:30:00.000Z · changed since");
+  });
+});
+
+describe("#1933's acceptance: ten Citations, six marked, one edited, then sent", () => {
+  // protects=#1933's acceptance criterion, with the edited mark kept as changed: of six Citations the User marked, the one whose sentence was edited shows as changed since, the record lists IncarnaMind's result for all ten and five checked by the person, and History keeps the Note as it was sent; fails_when=a count or the sent version is wrong; no_claim=the Word file's contents.
+  test("the record lists five checked by the person, one changed since, every result, and History the export", async () => {
+    const setup = await setUp();
+    const { core, client, tides, mind, out } = setup;
+    const lines = Array.from({ length: 10 }, (_, index) => `Line ${index + 1} cites the tides`);
+    const write = (edited: number | null) =>
+      writeMind(
+        client,
+        lines.map((line, index) =>
+          paragraph(
+            `p${index}`,
+            text(index === edited ? `${line} again` : line),
+            {
+              ...citation(tides, "found"),
+              attrs: { ...citation(tides, "found").attrs, id: `c${index}` },
+            },
+            text("."),
+          ),
+        ),
+      );
+    write(null);
+    await client.settled();
+    for (const index of [0, 1, 2, 3, 4, 5]) {
+      addSignOff(client.doc, {
+        id: randomUUID(),
+        target: { kind: "citation", id: `c${index}` },
+        at: "2026-10-16T08:30:00.000Z",
+        contentHash: citationSignOffBasis(`${lines[index]}\uFFFC.`, {
+          documentId: tides.id,
+          contentHash: tides.contentHash,
+          quote: QUOTE,
+        }),
+        deletedAt: null,
+        name: "Ada Lovelace",
+        personId: "person-1",
+      });
+    }
+    await client.settled();
+    write(2);
+    await client.settled();
+    const sent = await core.saveMindExport(mind.id, { format: "docx" });
+    if (sent.status !== "saved") throw new Error(`Not saved: ${sent.status}`);
+
+    const rows = rowsOf(
+      readFileSync((await saveRecord({ core, mind, out }, "csv")).path, "utf8"),
+    ).filter((row) => row.Kind === "Citation");
+    expect(rows).toHaveLength(10);
+    expect(rows.every((row) => row.Result === "Quote found")).toBe(true);
+    const people = rows.map((row) => row["Checked by a person"]);
+    expect(
+      people.filter((each) => each === "Ada Lovelace · 2026-10-16T08:30:00.000Z"),
+    ).toHaveLength(5);
+    expect(people.filter((each) => each?.endsWith("changed since"))).toHaveLength(1);
+    expect(people.filter((each) => each === "")).toHaveLength(4);
+    const { checkpoints } = await core.listCheckpoints(mind.id);
+    expect(checkpoints.find((each) => each.reason === "export")?.file).toBe(sent.file.name);
   });
 });
 
