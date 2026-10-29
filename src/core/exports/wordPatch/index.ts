@@ -259,6 +259,7 @@ export async function exportWordPatch(input: WordPatchInput): Promise<WordPatchR
     sources: input.sources,
     format: input.formatCitations,
     unverified: input.labels.unverified,
+    figures: { footnote: options.footnote, labels: input.labels },
   });
   for (const each of order) if (each.blocks) each.blocks = await input.withPictures(each.blocks);
 

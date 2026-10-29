@@ -1773,6 +1773,17 @@
     font-weight: 600;
     color: var(--color-ink);
   }
+  /* "18 figures · Open schedule": the Figure schedule's door from the badge (#1932). */
+  .mind-health-link {
+    color: var(--color-accent-strong);
+
+    &:hover {
+      text-decoration: underline;
+    }
+  }
+  .mind-health-sep {
+    color: var(--color-ink-placeholder);
+  }
   .check-rows {
     display: flex;
     flex-direction: column;

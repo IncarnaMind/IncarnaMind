@@ -74,6 +74,7 @@ import {
   CHART_NODE,
   type ChartProblem,
   CITATION_NODE,
+  type ConversationAnswer,
   type EditAction,
   type EditWithAiResult,
   type Effect,
@@ -215,9 +216,15 @@ export interface MindToolsOptions {
    * The conversation's last Answer before this one, as Add to note puts it
    * in a Mind, with its Citations, the Answer its Blocks link back to, and
    * the Folder of its Question's Search scope, where a Mind made of it goes:
-   * what `answer: true` writes. Null: there is none.
+   * what `answer: true` writes, and the Analysis runs its calculated figures were
+   * worked out by. Null: there is none.
    */
-  lastAnswer: { blocks: NodeJSON[]; origin: BlockOrigin; folderId: string | null } | null;
+  lastAnswer: {
+    blocks: NodeJSON[];
+    origin: BlockOrigin;
+    folderId: string | null;
+    answer: Pick<ConversationAnswer, "id" | "analyses">;
+  } | null;
   /** The language the Answer is written in, which the model is told to ask the User in. */
   language: Language;
   /**
@@ -241,7 +248,7 @@ export interface MindToolsOptions {
   /**
    * Markdown as a Mind holds it: each Citation marker the Answer recorded a
    * Citation for, checked, each source written as a name in brackets the
-   * Citation recorded for it, and its figures as their shown text, without
+   * Citation recorded for it, and its calculated figures as figures, without
    * its sentences about the Answer's searching. Says how many of its
    * Citations weren't found, how many markers had no Citation, which sources
    * were written as text, and how many sentences it left out.

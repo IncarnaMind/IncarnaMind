@@ -3,8 +3,11 @@
  * footnotes, and text with markers and Sources. Added to every editor that shows Notes.
  */
 import { Extension } from "@tiptap/core";
-import { DOMSerializer } from "@tiptap/pm/model";
+import { DOMSerializer, type Fragment } from "@tiptap/pm/model";
 import { Plugin } from "@tiptap/pm/state";
+import type { RetainedFigureAnalysis } from "../../../core/api";
+import type { NodeJSON } from "../../../shared/blockJson";
+import { calculatedFiguresIn, readFigureRunClosure } from "../../../shared/figureRuns";
 import type { SourceContext } from "../../../shared/sources";
 import { languageNow } from "../i18n";
 import { useAppStore } from "../store";
@@ -14,8 +17,18 @@ export function sourceContext(): SourceContext {
   return { language: languageNow(), documents: useAppStore.getState().documents };
 }
 
-export const CopyCitations = Extension.create({
+export const FIGURE_RUNS_ATTRIBUTE = "data-incarnamind-figure-runs";
+
+export const clipboardBlocks = (fragment: Fragment): NodeJSON[] =>
+  fragment.content.map((node) => node.toJSON() as NodeJSON);
+
+interface CopyCitationsOptions {
+  figureRuns(blocks: readonly NodeJSON[]): readonly RetainedFigureAnalysis[];
+}
+
+export const CopyCitations = Extension.create<CopyCitationsOptions>({
   name: "copyCitations",
+  addOptions: () => ({ figureRuns: () => [] }),
   // Before the editor's own plain-text copy, which writes a Citation as its reference.
   priority: 1000,
 
@@ -45,6 +58,19 @@ export const CopyCitations = Extension.create({
             const serializer = new DOMSerializer(base.nodes, base.marks);
             serializer.serializeFragment = (fragment, options, target) => {
               const out = base.serializeFragment(fragment, options, target);
+              const blocks = clipboardBlocks(fragment);
+              if (calculatedFiguresIn(blocks).some(({ figure }) => figure.analysis)) {
+                try {
+                  const runs = readFigureRunClosure(blocks, this.options.figureRuns(blocks));
+                  const carrier = (options?.document ?? document).createElement("span");
+                  carrier.setAttribute(FIGURE_RUNS_ATTRIBUTE, JSON.stringify(runs));
+                  carrier.hidden = true;
+                  out.appendChild(carrier);
+                } catch (error) {
+                  useAppStore.getState().reportError(error);
+                  throw error;
+                }
+              }
               addFootnotes(out, citationsIn(fragment), sourceContext());
               return out;
             };

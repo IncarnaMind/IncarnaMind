@@ -45,6 +45,8 @@ function inlineText(content: readonly Inline[]): string {
       switch (inline.kind) {
         case "text":
           return inline.text;
+        case "figure":
+          return inline.figure.shown;
         case "break":
           return "\n";
         case "math":

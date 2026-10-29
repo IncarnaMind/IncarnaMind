@@ -48,10 +48,14 @@ import type {
   AnalysisLanguage,
   AnalysisOutput,
   AnalysisUnavailableReason,
+  AnalysisValue,
   AnalysisVersions,
 } from "../shared/analysis";
 import type { CitationForm, CitationStyleId, StyleCatalogue } from "../shared/citationStyles";
+import type { ClaimCheckShown } from "../shared/claimChecks";
 import type { AppCommandId, AssistantCommandId } from "../shared/commands";
+import type { FigureFooting } from "../shared/figureFooting";
+import type { Figure } from "../shared/figures";
 import type { FormulaInput, FormulaLiteral, ResultUnit, ShowAs } from "../shared/formula";
 import type { HelpKeys, MeetingHelpKind, MeetingHelpTemplate } from "../shared/meetingHelp";
 import type { MindStyle } from "../shared/mindStyle";
@@ -214,8 +218,12 @@ export interface CreateMindInput {
  *   `hidden`. An older version's editor writes the columns back without
  *   these when it changes one, so it opens these Minds read-only. Older
  *   content is version 30 content as it is.
+ * - 31: Notes own calculated figure nodes, bounded Analysis run dependencies
+ *   and the figures within their sentence's Check (#439, #1932). Older
+ *   editors would discard those nodes and check attributes, so they open
+ *   these Notes read-only. Existing content needs no conversion.
  */
-export const CONTENT_SCHEMA_VERSION = 30;
+export const CONTENT_SCHEMA_VERSION = 31;
 
 /**
  * The key, in the Mind's settings map (`MIND_SETTINGS_FIELD`), of the content
@@ -318,6 +326,8 @@ export const MIND_CONTENT_FIELD = "blocks";
  * before has none, and uses the defaults.
  */
 export const MIND_SETTINGS_FIELD = "settings";
+
+export const MIND_FIGURE_RUNS_FIELD = "figureRuns";
 
 /**
  * The name of the Y.Map, beside a Mind's Blocks, that says where Blocks came
@@ -1248,6 +1258,8 @@ export interface SkillScriptRun {
  */
 export const CITATION_NODE = "citation";
 
+export const CALCULATED_FIGURE_NODE = "calculatedFigure";
+
 /**
  * The node type of a footnote the User writes: an inline node at its marker,
  * holding the footnote's text (text with marks, line breaks and Citations, but
@@ -2038,6 +2050,12 @@ export interface MarkedFigure extends CalculatedFigure {
   marker: number;
 }
 
+export interface CalculatedFigureAttributes {
+  id: string;
+  figure: CalculatedFigure;
+  analysisId: string | null;
+}
+
 export interface FigureFromAnalysis {
   /** The Answer's Analysis, by its number. */
   analysis: number;
@@ -2104,6 +2122,16 @@ export interface AnswerAnalysis {
     tables: { result: string; marker: number }[];
     charts: number[];
   };
+}
+
+/** A successful run kept once by a Note, with only the results its figures still use (ADR-0021). */
+export interface RetainedFigureAnalysis
+  extends Pick<
+    AnswerAnalysis,
+    "title" | "language" | "code" | "inputs" | "versions" | "codeSha256" | "ranAt"
+  > {
+  id: string;
+  values: Extract<AnalysisValue, { kind: "figure" }>[];
 }
 
 /** A number a calculated figure is worked out from: one read from a Citation's quote. */
@@ -2461,6 +2489,7 @@ export const MAX_TAB_GROUPS = 3;
 /** What a tab shows. The Library has one tab per window. */
 export type TabItem =
   | { kind: "mind"; mindId: string }
+  | { kind: "figures"; mindId: string }
   | { kind: "library" }
   | { kind: "home" }
   | { kind: "document"; documentId: string };
@@ -5376,7 +5405,7 @@ export type UnlockDocumentResult =
   | { kind: "wrong-password" };
 
 /** What one claim check found: the claim-check function's result (`checkClaim`). */
-export type ClaimCheckResult =
+export type ClaimJudgment =
   | {
       verdict: ClaimVerdict;
       /**
@@ -5413,21 +5442,111 @@ export type ClaimCheckResult =
       excluded: LeftOutDocument[];
     };
 
+export type FigureLocator =
+  | ({ kind: "text" } & TextStretch)
+  | { kind: "chart"; blockId: string; row: number; series: number };
+
+export interface CheckFigure {
+  id: string;
+  locator: FigureLocator;
+  reading: Figure;
+  calculated: CalculatedFigureAttributes | null;
+  context?: string;
+  label?: string;
+}
+
+export interface FigureFinding extends CheckFigure {
+  sourceInput: FigureInput | null;
+  source?: Citation | null;
+  roundedFrom: number | null;
+  /** Note minus Source, in base units. */
+  difference: number | null;
+  footing: (FigureFooting & { axis: "row" | "column" })[];
+  sourceFooting?: FigureSourceFooting[];
+}
+
+export interface FigureSourceFooting {
+  axis: "row" | "column";
+  componentIds: string[];
+  /** Source rows the Note leaves out; only their used, checked inputs are retained. */
+  inputs: FigureInput[];
+  sum: number | null;
+  agrees: boolean | null;
+}
+
+export type FigureScheduleReason =
+  | "contradicted"
+  | "unsupported"
+  | "not-found"
+  | "quote-not-found"
+  | "needs-recheck"
+  | "doesnt-add-up";
+
+export interface FigureScheduleRow extends FigureFinding {
+  number: number;
+  sentence: TextStretch | null;
+  shown: ClaimCheckShown;
+  reason: FigureScheduleReason | null;
+  sourceValue: number | null;
+  sourceShown: string | null;
+  checkedAt: string | null;
+  model: ChatModelChoice | null;
+  /** A Citation already follows the figure in the note, so Add as Citation has nothing to add. */
+  cited: boolean;
+  place: {
+    heading: string | null;
+    paragraph: number;
+    table?: { row: number; column: number; rowLabel: string; columnLabel: string };
+    chart?: { rowLabel: string; seriesLabel: string };
+  };
+}
+
+export interface FigureSchedule {
+  analyses: RetainedFigureAnalysis[];
+  mindId: string;
+  name: string;
+  /** Fingerprint of the exact Note state used for this projection, including deletions. */
+  basis: string;
+  rows: FigureScheduleRow[];
+  counts: {
+    total: number;
+    supported: number;
+    needsLook: number;
+    notChecked: number;
+    checking: number;
+    kept: number;
+  };
+  checkedAt: string | null;
+  model: ChatModelChoice | null;
+  progress: { done: number; total: number } | null;
+}
+
+export type FigureCheckResult = FigureFinding & { result: ClaimJudgment };
+
+export type ClaimCheckResult = ClaimJudgment & {
+  figures?: FigureCheckResult[];
+  /** Undefined is a missing decomposition; null explicitly means no other assertion. */
+  remainder?: ClaimJudgment | null;
+};
+
 /**
  * What a sentence already cites: a Citation's quote, and its Document as it was cited. With
- * `documentId` (or `contentHash`) the check names the Document as it is named now.
+ * `documentId` (or `contentHash`) the check names the Document as it is named now; with
+ * `passageId`, of the version it quotes, the check reads that Passage itself (#1459).
  */
 export interface CitedQuote {
   documentName: string;
   quote: string;
   documentId?: string;
   contentHash?: string;
+  passageId?: string;
 }
 
 /** What the claim-check function checks (`checkClaim`). */
 export interface CheckClaimInput {
   /** The sentence, or claim, to check: the User's own words. */
   claim: string;
+  figures?: CheckFigure[];
   /** The paragraph it is in, for what its words refer to. */
   context?: string;
   /** What the sentence already cites, for Check against Documents. */
@@ -5459,7 +5578,7 @@ export interface ClaimCheckScope {
  * result and what it was made from, so it is known to need a re-check once
  * the sentence, a Document it read or the Mind's Folder changes.
  */
-export interface ClaimCheckAttributes {
+export interface ClaimCheckBasis {
   /** The result's random UUID: checking the sentence again gives it a new one. */
   id: string;
   /** The `checkSentences` request that made it. A "checking" mark of a request that ended was stopped. */
@@ -5495,6 +5614,13 @@ export interface ClaimCheckAttributes {
    * stay as they were checked, it isn't shown, counted or checked again.
    */
   kept?: true;
+}
+
+export interface FigureCheckAttributes extends ClaimCheckBasis, FigureFinding {}
+
+export interface ClaimCheckAttributes extends ClaimCheckBasis {
+  figures?: FigureCheckAttributes[];
+  remainder?: ClaimCheckBasis | null;
 }
 
 export interface CheckSentencesInput {
@@ -5642,6 +5768,8 @@ export interface DocumentsAddedSince {
 }
 
 export interface CheckMindInput {
+  /** Only these current figures; sibling judgments and personal-view choices are kept. */
+  figureIds?: string[];
   requestId: string;
   mindId: string;
   mode: CheckMindMode;
@@ -6329,6 +6457,7 @@ export interface AddToNoteInput {
    * given anew.
    */
   blocks: unknown[];
+  figureRuns?: RetainedFigureAnalysis[];
   /** Their link back to the Answer they came from; null for none. */
   origin: BlockOrigin | null;
   /** The model that wrote the Answer, for the record of AI use; null when unknown. */
@@ -6404,6 +6533,15 @@ export interface MindSnippet {
 export interface MindContentSnapshot {
   mindId: string;
   state: Uint8Array;
+  /** Where its table cells hold figures the one Check reads, so a reader judges them as the editor does (#1459). */
+  cellFigures: CellFigurePlace[];
+}
+
+/** A figure's place in a table's cell: its paragraph's Block, and where it starts and ends there. */
+export interface CellFigurePlace {
+  blockId: string;
+  from: number;
+  to: number;
 }
 
 /**
@@ -10238,6 +10376,9 @@ export interface CoreApi {
    * the run in the Mind (`MindCheckRun`). `cancelCheck` stops it.
    */
   checkMind(input: CheckMindInput): Promise<CheckMindResult>;
+  /** The current Note’s figures, projected from its one Check and saved evidence. */
+  getFigureSchedule(mindId: string): Promise<FigureSchedule>;
+  saveFigureScheduleExport(mindId: string): Promise<SavedExport>;
   /** The Mind's checks that Documents added since could change, with those Documents (#993). Sends nothing. */
   documentsAddedSinceChecks(mindId: string): Promise<DocumentsAddedSince[]>;
 
@@ -11305,6 +11446,8 @@ const methods: Record<CoreApiMethod, true> = {
   planMindCheck: true,
   findMindClaims: true,
   checkMind: true,
+  getFigureSchedule: true,
+  saveFigureScheduleExport: true,
   documentsAddedSinceChecks: true,
   getSecretStorage: true,
   acceptPlainTextSecretStorage: true,

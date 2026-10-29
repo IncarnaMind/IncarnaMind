@@ -25,6 +25,7 @@ import { UnreadFilesLine } from "../components/UnreadFilesLine";
 import { useComposer } from "../composer";
 import { useContradictionLine } from "../contradictions";
 import { errorMessage } from "../errors";
+import { openFigureSchedule } from "../figures";
 import { useLanguage, useT } from "../i18n";
 import { startMindCheck, useMindCheck, useMindCheckRun } from "../mindCheck";
 import { type NoteState, unreadForCard } from "../noteState";
@@ -223,12 +224,14 @@ export function HealthCard({
   mindId,
   health,
   state,
+  figures,
 }: {
   editor: Editor;
   doc: Y.Doc;
   mindId: string;
   health: Health;
   state: NoteState | null;
+  figures: number;
 }) {
   const t = useT();
   const language = useLanguage();
@@ -293,6 +296,10 @@ export function HealthCard({
       : shownClaims(editor.state).find((each) => each.sentence.from <= at && at < each.sentence.to);
     if (!claim) return;
     setCheckCardOpen(place, false);
+    if (claim.kind === "chart") {
+      void openFigureSchedule(mindId).catch(useAppStore.getState().reportError);
+      return;
+    }
     setOpenClaim(place, claim.check.id);
   };
 
@@ -366,6 +373,25 @@ export function HealthCard({
       {health.tableCells.length > 0 && (
         <p data-testid="health-table-cells" className="mind-health-line">
           {t("health.tableCells", { count: format(health.tableCells.length) })}
+        </p>
+      )}
+      {figures > 0 && (
+        <p data-testid="health-figures" className="mind-health-line">
+          {figures === 1 ? t("figures.count.one") : t("figures.count", { count: format(figures) })}
+          <span className="mind-health-sep" aria-hidden="true">
+            {" · "}
+          </span>
+          <button
+            type="button"
+            className="mind-health-link"
+            data-testid="health-open-schedule"
+            onClick={() => {
+              setCheckCardOpen(place, false);
+              void openFigureSchedule(mindId).catch(useAppStore.getState().reportError);
+            }}
+          >
+            {t("figures.openSchedule")}
+          </button>
         </p>
       )}
       {summary?.kind === "all" && (
@@ -522,9 +548,7 @@ export function HealthCard({
           resetsAt={problem.error.resetsAt ?? null}
           signInRoute={problem.error.signInRoute ?? null}
           details={problem.error.message}
-          onRetry={() =>
-            void startMindCheck(mindId, problem.mode, { allDocuments: problem.allDocuments })
-          }
+          onRetry={problem.retry}
           onOpenSettings={openSettings}
         />
       )}

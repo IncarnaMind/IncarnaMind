@@ -10,7 +10,7 @@ import { basename, join, resolve } from "node:path";
 import { expect, type Page } from "@playwright/test";
 import * as Y from "yjs";
 import type { CoreBridge } from "../../src/core/api";
-import { mindNode } from "../app";
+import { isTraced, mindNode } from "../app";
 import { type DemoLanguage, writeTermSheets } from "./documents";
 import { type ResearchFiles, writeResearchFiles } from "./research";
 import type { Block, DemoScript } from "./script";
@@ -49,6 +49,11 @@ export async function seedModels(dataDir: string): Promise<void> {
 
 /** Makes the first key in `KEY_NAMES` the provider accepts the chat model. Never shows the key. */
 export async function connectClaude(window: Page): Promise<string> {
+  if (isTraced(window)) {
+    throw new Error(
+      "The app keeps a trace, which would hold the key: record without INCARNAMIND_KEEP_ARTIFACTS.",
+    );
+  }
   for (const name of KEY_NAMES) {
     const apiKey = process.env[name];
     if (!apiKey) continue;

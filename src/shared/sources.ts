@@ -81,6 +81,15 @@ function webParts(name: string, web: { site: string }): string[] {
   return parts;
 }
 
+/** A Citation's Document as it is named now, and where in it, apart, for a link beside its place. */
+export function sourceParts(
+  attributes: Cited,
+  context: SourceContext,
+): { name: string; location: string | null } {
+  const t = translator(context.language);
+  return { name: nameOf(attributes, context, t), location: citedLocation(attributes, t) };
+}
+
 /**
  * A Citation's source as its footnote reads it: "Aldermoor MSA, p. 14", or a web page's
  * "Tea, The Open Encyclopedia, § History, ¶ 3, https://tea.example/history, accessed 3 October 2026".
@@ -91,8 +100,7 @@ export function sourceText(
   context: SourceContext,
 ): { text: string; link: string | null } {
   const t = translator(context.language);
-  const name = nameOf(attributes, context, t);
-  const location = citedLocation(attributes, t);
+  const { name, location } = sourceParts(attributes, context);
   const found = webOf(attributes, context);
   if (!found) {
     return {

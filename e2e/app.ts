@@ -6,6 +6,7 @@ import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
 import { basename, join, resolve } from "node:path";
 import {
+  type BrowserContext,
   type ElectronApplication,
   _electron as electron,
   expect,
@@ -32,6 +33,7 @@ import { defaultHelpKeys, HELP_SHORTCUTS, type HelpKeys } from "../src/shared/me
 import type { TestHooks } from "../src/shared/testHooks";
 import { type FakeOpenAIServer, signInAt } from "../tests/helpers/fakeOpenAI";
 import { APP_ARGS, KEYCHAIN_ARGS } from "../tests/helpers/home";
+import { launchEnvironment } from "./launchEnvironment";
 import { assertPackagedMain, lifecycleHomeEnv, mainExecutable } from "./lifecycle";
 
 const appDir = resolve(__dirname, "..");
@@ -209,6 +211,14 @@ export interface LaunchOptions {
    * of the app as the User runs it.
    */
   realEngines?: boolean;
+  /**
+   * More of the app's environment, by name: a made-up credential, or a switch such as
+   * ELECTRON_DISABLE_SANDBOX. Nothing else comes from the test's own (`launchEnvironment`), and
+   * a trace keeps all of it, so never a real key.
+   */
+  extraEnv?: Record<string, string>;
+  /** Keeps the app's trace at `tracePath` when it closes, as INCARNAMIND_KEEP_ARTIFACTS does, without the video. */
+  trace?: boolean;
 }
 
 /**
@@ -276,86 +286,52 @@ export async function launchApp(
     sandboxed = false,
     sandboxNotice,
     realEngines = false,
+    extraEnv,
+    trace = false,
   }: LaunchOptions = {},
 ): Promise<RunningApp> {
-  const env: Record<string, string> = {};
-  for (const [name, value] of Object.entries(process.env)) {
-    if (value !== undefined) env[name] = value;
-  }
-  delete env.ELECTRON_RUN_AS_NODE;
-  delete env.OLLAMA_HOST;
-  if (ollama) env.OLLAMA_HOST = ollama;
-  delete env.INCARNAMIND_TEST_OLLAMA_APP;
-  if (ollamaApp) env.INCARNAMIND_TEST_OLLAMA_APP = ollamaApp;
-  delete env.INCARNAMIND_TEST_LOCAL_SERVERS;
-  if (localServers) env.INCARNAMIND_TEST_LOCAL_SERVERS = JSON.stringify(localServers);
-  delete env.INCARNAMIND_TEST_SENTRY_DSN;
-  delete env.INCARNAMIND_TEST_EXAMPLES;
-  delete env.INCARNAMIND_TEST_POSTHOG_KEY;
-  delete env.INCARNAMIND_TEST_POSTHOG_HOST;
-  delete env.INCARNAMIND_TEST_TESTER_BUILD;
-  delete env.POSTHOG_CAPTURE_MODE;
-  delete env.INCARNAMIND_TEST_REFERENCE_LOOKUP;
-  delete env.INCARNAMIND_TEST_SOURCES;
-  delete env.INCARNAMIND_TEST_CONNECTOR_DIRECTORY;
-  delete env.INCARNAMIND_TEST_CONNECTOR_REGISTRY;
-  delete env.INCARNAMIND_TEST_CHATGPT;
-  delete env.INCARNAMIND_TEST_CLAUDE;
-  delete env.INCARNAMIND_TEST_CLAUDE_SIGN_IN_MS;
-  delete env.INCARNAMIND_TEST_COPILOT;
-  delete env.INCARNAMIND_TEST_TRANSCRIBER_OPTIONS;
-  delete env.INCARNAMIND_TEST_SCANS;
-  delete env.INCARNAMIND_TEST_SCANS_AT_ONCE;
-  delete env.INCARNAMIND_TEST_MODEL_DOWNLOADS;
-  delete env.INCARNAMIND_TEST_WEB;
-  delete env.INCARNAMIND_TEST_LOOK_LIMIT;
-  delete env.INCARNAMIND_TEST_TASKS;
-  delete env.INCARNAMIND_TEST_CONTRADICTION_DELAY_MS;
-  delete env.INCARNAMIND_TEST_SANDBOX_NOTICE;
-  if (sandboxNotice) env.INCARNAMIND_TEST_SANDBOX_NOTICE = "1";
-  if (sandboxNotice === "environment") env.ELECTRON_DISABLE_SANDBOX = "1";
-  // A test never uses the ChatGPT sign-in an agent's shell may point at for checks by hand.
-  delete env.INCARNAMIND_CHATGPT_PROFILE;
-  env.INCARNAMIND_TEST_AUDIO = noAudioEngine ? "none" : "fake";
-  env.INCARNAMIND_TEST_AUDIO_SYSTEM = computerSound;
-  env.INCARNAMIND_TEST_AUDIO_MICROPHONE = microphone;
-  delete env.INCARNAMIND_TEST_GUIDE;
-  if (permissionGuide) env.INCARNAMIND_TEST_GUIDE = permissionGuide;
-  if (examples) env.INCARNAMIND_TEST_EXAMPLES = "1";
-  if (sentryDsn) env.INCARNAMIND_TEST_SENTRY_DSN = sentryDsn;
-  if (usageData) {
-    env.INCARNAMIND_TEST_POSTHOG_KEY = "test-project-key";
-    env.INCARNAMIND_TEST_POSTHOG_HOST = usageData.host;
-    if (usageData.testerBuild) env.INCARNAMIND_TEST_TESTER_BUILD = "1";
-  }
   const appHome = home ?? (await mkdtemp(join(tmpdir(), "incarnamind-home-")));
-  Object.assign(env, lifecycleHomeEnv(appHome));
-  if (referenceLookup) env.INCARNAMIND_TEST_REFERENCE_LOOKUP = referenceLookup;
-  if (sources) env.INCARNAMIND_TEST_SOURCES = sources;
-  if (connectorDirectory) env.INCARNAMIND_TEST_CONNECTOR_DIRECTORY = connectorDirectory;
-  // Nowhere, unless a test serves one: a search in a test never reaches the real Registry.
-  env.INCARNAMIND_TEST_CONNECTOR_REGISTRY = connectorRegistry ?? "http://127.0.0.1:9";
-  if (chatGpt) env.INCARNAMIND_TEST_CHATGPT = chatGpt;
-  if (claude) env.INCARNAMIND_TEST_CLAUDE = claude;
-  if (claudeSignInMs) env.INCARNAMIND_TEST_CLAUDE_SIGN_IN_MS = String(claudeSignInMs);
-  if (copilot) env.INCARNAMIND_TEST_COPILOT = copilot;
-  if (scans) env.INCARNAMIND_TEST_SCANS = scans;
-  if (scansAtOnce) env.INCARNAMIND_TEST_SCANS_AT_ONCE = String(scansAtOnce);
-  if (modelDownloads) env.INCARNAMIND_TEST_MODEL_DOWNLOADS = JSON.stringify(modelDownloads);
-  if (web) env.INCARNAMIND_TEST_WEB = String(web);
-  if (lookLimit) env.INCARNAMIND_TEST_LOOK_LIMIT = String(lookLimit);
-  if (scriptedTasks) env.INCARNAMIND_TEST_TASKS = "1";
-  if (contradictionWatchDelayMs !== undefined) {
-    env.INCARNAMIND_TEST_CONTRADICTION_DELAY_MS = String(contradictionWatchDelayMs);
-  }
-  env.INCARNAMIND_DATA_DIR = dataDir;
-  env.INCARNAMIND_TEST_HOOKS = "1";
-  if (fakeChat) env.INCARNAMIND_FAKE_CHAT = "1";
-  if (!realEngines) {
-    env.INCARNAMIND_TEST_EMBEDDER = "fake";
-    env.INCARNAMIND_TEST_TRANSCRIBER = "fake";
-  }
-  if (transcriber) env.INCARNAMIND_TEST_TRANSCRIBER_OPTIONS = JSON.stringify(transcriber);
+  const env = launchEnvironment({
+    ...lifecycleHomeEnv(appHome),
+    INCARNAMIND_DATA_DIR: dataDir,
+    INCARNAMIND_TEST_HOOKS: "1",
+    INCARNAMIND_FAKE_CHAT: fakeChat ? "1" : undefined,
+    INCARNAMIND_TEST_EMBEDDER: realEngines ? undefined : "fake",
+    INCARNAMIND_TEST_TRANSCRIBER: realEngines ? undefined : "fake",
+    INCARNAMIND_TEST_TRANSCRIBER_OPTIONS: transcriber && JSON.stringify(transcriber),
+    OLLAMA_HOST: ollama,
+    INCARNAMIND_TEST_OLLAMA_APP: ollamaApp,
+    INCARNAMIND_TEST_LOCAL_SERVERS: localServers && JSON.stringify(localServers),
+    INCARNAMIND_TEST_SANDBOX_NOTICE: sandboxNotice && "1",
+    ELECTRON_DISABLE_SANDBOX: sandboxNotice === "environment" ? "1" : undefined,
+    INCARNAMIND_TEST_AUDIO: noAudioEngine ? "none" : "fake",
+    INCARNAMIND_TEST_AUDIO_SYSTEM: computerSound,
+    INCARNAMIND_TEST_AUDIO_MICROPHONE: microphone,
+    INCARNAMIND_TEST_GUIDE: permissionGuide,
+    INCARNAMIND_TEST_EXAMPLES: examples ? "1" : undefined,
+    INCARNAMIND_TEST_SENTRY_DSN: sentryDsn,
+    INCARNAMIND_TEST_POSTHOG_KEY: usageData && "test-project-key",
+    INCARNAMIND_TEST_POSTHOG_HOST: usageData?.host,
+    INCARNAMIND_TEST_TESTER_BUILD: usageData?.testerBuild ? "1" : undefined,
+    INCARNAMIND_TEST_REFERENCE_LOOKUP: referenceLookup,
+    INCARNAMIND_TEST_SOURCES: sources,
+    INCARNAMIND_TEST_CONNECTOR_DIRECTORY: connectorDirectory,
+    // Nowhere, unless a test serves one: a search in a test never reaches the real Registry.
+    INCARNAMIND_TEST_CONNECTOR_REGISTRY: connectorRegistry ?? "http://127.0.0.1:9",
+    INCARNAMIND_TEST_CHATGPT: chatGpt,
+    INCARNAMIND_TEST_CLAUDE: claude,
+    INCARNAMIND_TEST_CLAUDE_SIGN_IN_MS: claudeSignInMs ? String(claudeSignInMs) : undefined,
+    INCARNAMIND_TEST_COPILOT: copilot,
+    INCARNAMIND_TEST_SCANS: scans,
+    INCARNAMIND_TEST_SCANS_AT_ONCE: scansAtOnce ? String(scansAtOnce) : undefined,
+    INCARNAMIND_TEST_MODEL_DOWNLOADS: modelDownloads && JSON.stringify(modelDownloads),
+    INCARNAMIND_TEST_WEB: web ? String(web) : undefined,
+    INCARNAMIND_TEST_LOOK_LIMIT: lookLimit ? String(lookLimit) : undefined,
+    INCARNAMIND_TEST_TASKS: scriptedTasks ? "1" : undefined,
+    INCARNAMIND_TEST_CONTRADICTION_DELAY_MS:
+      contradictionWatchDelayMs === undefined ? undefined : String(contradictionWatchDelayMs),
+    ...extraEnv,
+  });
 
   const packaged = process.env.INCARNAMIND_PACKAGED_APP !== undefined;
   const app = await electron.launch({
@@ -372,7 +348,7 @@ export async function launchApp(
       recordVideo: { dir: test.info().outputPath("video", basename(dataDir)) },
     }),
   });
-  if (KEEP_ARTIFACTS) await keepOnClose(app, dataDir);
+  if (KEEP_ARTIFACTS || trace) await keepOnClose(app, dataDir);
   openApps.set(app, dataDir);
   app.on("close", () => {
     openApps.delete(app);
@@ -2869,12 +2845,22 @@ export async function stubClipboard(window: Page) {
 /** A fresh, empty data folder. Remove it with `removeDataFolder`. */
 export const createDataFolder = () => mkdtemp(join(tmpdir(), "incarnamind-smoke-"));
 
+const traced = new WeakSet<BrowserContext>();
+
+/** Whether the app this window is in keeps a trace, which holds the arguments of every call. */
+export const isTraced = (window: Page): boolean => traced.has(window.context());
+
+/** Where the trace of the app on `dataDir` is kept, once it has closed. */
+export const tracePath = (dataDir: string): string =>
+  test.info().outputPath(`trace-${basename(dataDir)}.zip`);
+
 /**
  * Makes closing the app, by the test or by `removeDataFolder`, first keep its window as it is
  * and its trace with the test's results; the video is finished by the close itself.
  */
 async function keepOnClose(app: ElectronApplication, dataDir: string): Promise<void> {
   await app.context().tracing.start({ screenshots: true, snapshots: true });
+  traced.add(app.context());
   const close = app.close.bind(app);
   let kept = false;
   app.close = async () => {
@@ -2889,7 +2875,7 @@ async function keepOnClose(app: ElectronApplication, dataDir: string): Promise<v
       }
       await app
         .context()
-        .tracing.stop({ path: info.outputPath(`trace-${basename(dataDir)}.zip`) })
+        .tracing.stop({ path: tracePath(dataDir) })
         .catch((error: unknown) => console.warn(`The app's trace was not kept: ${error}`));
     }
     return close();
