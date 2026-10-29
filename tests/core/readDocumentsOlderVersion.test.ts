@@ -13,7 +13,7 @@ import { createTempDataFolder, startCore } from "../helpers/core";
 
 vi.mock("../../src/core/api", async (importOriginal) => ({
   ...(await importOriginal<object>()),
-  CONTENT_SCHEMA_VERSION: 33,
+  CONTENT_SCHEMA_VERSION: 34,
 }));
 
 const SENTENCE = "The lease has no break clause.";
@@ -51,7 +51,7 @@ function mindWithWholeRead(): Y.Doc {
   text.insert(0, SENTENCE, { [CLAIM_CHECK_MARK]: mark });
   paragraph.insert(0, [text]);
   doc.getXmlFragment(MIND_CONTENT_FIELD).push([paragraph]);
-  doc.getMap(MIND_SETTINGS_FIELD).set(CONTENT_SCHEMA_VERSION_KEY, 34);
+  doc.getMap(MIND_SETTINGS_FIELD).set(CONTENT_SCHEMA_VERSION_KEY, 35);
   return doc;
 }
 
@@ -75,7 +75,7 @@ function locationsOf(doc: Y.Doc) {
 
 describe("a version from before whole-read absence evidence", () => {
   test("opens the Note read-only and never strips its read Locations", async () => {
-    expect(CONTENT_SCHEMA_VERSION).toBe(33);
+    expect(CONTENT_SCHEMA_VERSION).toBe(34);
     const core = startCore(await createTempDataFolder());
     const mind = await core.createMind({ title: "Lease" });
     await core.applyMindUpdate(mind.id, Y.encodeStateAsUpdate(mindWithWholeRead()));

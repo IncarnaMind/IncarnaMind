@@ -7,15 +7,20 @@
  * and the labels stay.
  */
 import type { SpeakerSeparator } from "../core";
-import { startEngineProcess } from "./engineProcess";
+import { type EngineProcess, startEngineProcess } from "./engineProcess";
 import type { SeparationReply } from "./speakerProcess";
 import speakerProcessPath from "./speakerProcess?modulePath";
+
+export const SPEAKER_PROCESS: EngineProcess = {
+  modulePath: speakerProcessPath,
+  serviceName: "IncarnaMind speakers",
+};
 
 export function createUtilityProcessSeparator(): SpeakerSeparator {
   return {
     separate: (request) =>
       new Promise((resolve, reject) => {
-        const child = startEngineProcess(speakerProcessPath, [], "IncarnaMind speakers");
+        const child = startEngineProcess(SPEAKER_PROCESS, []);
         let answered = false;
         child.on("message", (reply: SeparationReply) => {
           answered = true;

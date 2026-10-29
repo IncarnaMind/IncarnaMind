@@ -487,7 +487,8 @@ async function conform(run: Run, kind: ObjectKind, stage: Stage): Promise<void> 
     const place = await placeOf(run, kind, stage, key);
     const byRightClick = await menuByRightClick(window, place);
     expect(byRightClick.length).toBeGreaterThan(0);
-    expect(byRightClick).toEqual(menuOf(byRightClick, registry, kind));
+    const commandsOnly = byRightClick.at(-1) === "—" ? byRightClick.slice(0, -1) : byRightClick;
+    expect(commandsOnly).toEqual(menuOf(byRightClick, registry, kind));
     await closeMenu(window, place);
     expect(await menuByButton(window, place)).toEqual(byRightClick);
     await closeMenu(window, place);
@@ -934,6 +935,19 @@ const STAGES: Record<Staged, Stage> = {
     make: ({ window, sources: dir }) => mindWithComparisonRows(window, dir),
     show: ({ window }, key) => showInNote(window, key, "comparisonRow"),
     opened: ({ window }) => window.getByTestId("viewer-header"),
+  },
+  comparisonCell: {
+    inNote: true,
+    make: ({ window }) => mindWithComparison(window),
+    show: ({ window }, key) => showInNote(window, key, "comparisonCell"),
+    name: ({ window }) =>
+      window.getByTestId("comparison-cell").first().locator(".comparison-cell-content").innerText(),
+    renameFrom: {
+      doubleClick: ({ window }) => window.getByTestId("comparison-cell").first(),
+      focus: ({ window }) => window.getByTestId("comparison-cell").first(),
+    },
+    hit: ({ window }) => window.getByTestId("comparison-cell").first(),
+    opened: ({ window }) => window.getByTestId("comparison-cell-card"),
   },
   check: {
     inNote: true,

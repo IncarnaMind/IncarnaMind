@@ -148,5 +148,5 @@ A comparison table has a **title** of its own, its name in the title line and th
 
 An absence sentence can be Supported only after the check reads every scoped Document. Its card names those Documents and the Locations read, and a later change to one invalidates the result.
 
-- **Content schema version 34** adds `readDocuments` to a `claimCheck` mark: each Document read, its content version and the Locations shown. An older version's editor would strip the field, losing the card's Locations and the dependency that requires a re-check, so it opens these Notes read-only. Older content is version 34 content as it is.
+- **Content schema version 35** adds `readDocuments` to a `claimCheck` mark: each Document read, its content version and the Locations shown. An older version's editor would strip the field, losing the card's Locations and the dependency that requires a re-check, so it opens these Notes read-only. Older content is version 35 content as it is.
 - **No SQL table, no migration.** Nothing outside the Mind's Yjs document changes.

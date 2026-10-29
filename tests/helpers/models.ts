@@ -268,7 +268,7 @@ export function claimCheckReply(
     text: JSON.stringify({
       claims: candidates
         .filter((claim) => reply.includes(claim.sentence))
-        .map((claim) => ({ ...claim, backed: false })),
+        .map((claim) => ({ about: "mind", ...claim, backed: false })),
     }),
   };
 }

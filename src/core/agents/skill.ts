@@ -13,12 +13,12 @@ export const SKILL_NAME = "incarnamind";
 
 export const SKILL_MARKDOWN = `---
 name: ${SKILL_NAME}
-description: Answer from the User's own IncarnaMind Library, their Documents, files, reports, notes and Minds (notebooks), with Citations IncarnaMind checks. Use for any question about the User's own documents, in English or Chinese, for example "using my IncarnaMind Library", "in my documents", "what do my notes say", "根据我的 IncarnaMind 文库回答", "我的文档/笔记里怎么说". Do not answer such a question from memory.
+description: Answer from the User's own IncarnaMind Library, their Documents, files, reports and Notes, with Citations IncarnaMind checks. Use for any question about the User's own documents, in English or Chinese, for example "using my IncarnaMind Library", "in my documents", "what do my notes say", "根据我的 IncarnaMind 文库回答", "我的文档/笔记里怎么说". Do not answer such a question from memory.
 ---
 
 # IncarnaMind
 
-IncarnaMind holds the User's own Documents and Minds (their notebooks), limited to the Folders the User shared with you. Its Tools are on the \`incarnamind\` MCP server.
+IncarnaMind holds the User's own Documents and Notes, limited to the Folders the User shared with you. Its Tools are on the \`incarnamind\` MCP server.
 
 ## Rules
 
@@ -37,5 +37,5 @@ IncarnaMind holds the User's own Documents and Minds (their notebooks), limited 
 
 \`ask\` is for when the User wants IncarnaMind's own Answer: it writes a whole Answer with checked Citations in one call, and can take a minute. Pass its answer on with its tokens as they are.
 
-\`show_citation\` opens a \`[cite:…]\` in IncarnaMind, at its quote, when the User wants to see a source. \`list_minds\` and \`read_mind\` read the User's Minds.
+\`show_citation\` opens a \`[cite:…]\` in IncarnaMind, at its quote, when the User wants to see a source. \`list_minds\` and \`read_mind\` read the User's Notes.
 `;

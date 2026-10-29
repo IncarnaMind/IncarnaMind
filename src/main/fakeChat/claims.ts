@@ -39,6 +39,6 @@ export function fakeChangeClaims(options: GenerateOptions): string | null {
   const reply = /<reply>\n([\s\S]*)\n<\/reply>/.exec(lastUserText(options.prompt))?.[1] ?? "";
   const unmade = /I've added a risks section|我已经把风险部分/.test(reply);
   return JSON.stringify({
-    claims: unmade ? [{ sentence: reply, kind: "added", backed: false }] : [],
+    claims: unmade ? [{ sentence: reply, kind: "added", about: "mind", backed: false }] : [],
   });
 }

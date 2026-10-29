@@ -329,7 +329,7 @@ export function createMindContent(
 
     apply(mindId: string, update: unknown, cause?: EditCause): void {
       if (!(update instanceof Uint8Array) || update.byteLength === 0) {
-        throw new InvalidInputError("A Mind update must be a non-empty Uint8Array.");
+        throw new InvalidInputError("A Note update must be a non-empty Uint8Array.");
       }
       const mind = load(mindId);
       requireWritable(mind);

@@ -28,6 +28,7 @@ import { translate } from "../shared/i18n";
 import { ANALYSIS_SCHEME_PRIVILEGES } from "./analysis";
 import { showDevelopmentDockIcon, windowIcon } from "./appIcon";
 import { DOCUMENT_SCHEME_PRIVILEGES, serveDocumentFiles } from "./documentProtocol";
+import { CHECK_ENGINES_SWITCH, engineCheckDataFolder, runEngineCheck } from "./engineCheck";
 import { serveFileActions } from "./files";
 import {
   failUpdate,
@@ -75,9 +76,13 @@ if (import.meta.env.MODE === "test") {
   }
 }
 
-// Points the app at another data folder: the smoke test uses a temporary one.
-// Set before anything reads `userData`, so Chromium's own data moves there too.
-const dataDirOverride = process.env.INCARNAMIND_DATA_DIR;
+/** Where the engine check (./engineCheck) writes its report: given, the app does nothing else. */
+const engineCheckReport = app.commandLine.getSwitchValue(CHECK_ENGINES_SWITCH);
+
+// Points the app at another data folder: the smoke test uses a temporary one, and the engine check
+// one of its own. Set before anything reads `userData`, so Chromium's own data moves there too.
+const dataDirOverride =
+  process.env.INCARNAMIND_DATA_DIR ?? (engineCheckReport ? engineCheckDataFolder() : undefined);
 if (dataDirOverride) app.setPath("userData", resolve(dataDirOverride));
 
 // The log in the data folder's `logs/`, from the start, so it has what goes wrong at startup too.
@@ -141,6 +146,13 @@ if (instance.kind === "owner") {
   );
 }
 const startWaitsForQuit = reopenAfterQuit(app, canReopenAfterUpdate, logger);
+
+if (engineCheckReport && ownsDataFolder) {
+  app.whenReady().then(() => {
+    app.dock?.hide();
+    return runEngineCheck(engineCheckReport, logger);
+  });
+}
 
 // Whether Skill scripts run in the OS sandbox, found out while Electron starts.
 const scriptExecutor = ownsDataFolder ? chooseExecutor(logger) : Promise.resolve(undefined);
@@ -422,7 +434,7 @@ async function showUpdateProblem(
 }
 
 app.whenReady().then(async () => {
-  if (!ownsDataFolder) return;
+  if (!ownsDataFolder || engineCheckReport) return;
   if (instance.kind === "owner") instance.owner.starting();
   showDevelopmentDockIcon();
   const createChatModel = await testChatModel();
@@ -590,7 +602,8 @@ app.on("select-client-certificate", (event, _contents, _url, _list, callback) =>
 });
 
 app.on("window-all-closed", () => {
-  if (process.platform !== "darwin") app.quit();
+  // The engine check's only window, the hidden Analyses one, may close and open again.
+  if (process.platform !== "darwin" && !engineCheckReport) app.quit();
 });
 
 app.on("will-quit", () => {

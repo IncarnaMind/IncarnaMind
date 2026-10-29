@@ -581,10 +581,21 @@ test("the line that says nothing changed goes when a Document is edited, moved o
 
   // Each change leaves checks to make, so the line goes and the button says how many; checking them brings it back.
   const checkedAgain = async () => {
+    await checkCard(window);
     await pointAndClick(window, check);
     await expect(check).toHaveAttribute("title", "Nothing changed", { timeout: 20_000 });
-    await pointAndClick(window, check);
-    await expect(unchanged).toBeVisible();
+    // The press that planned may have found nothing changed itself: the line is on, and a second
+    // press would only say it again.
+    if (await unchanged.isVisible()) return;
+    // Otherwise it checked, and a finished check never says "nothing changed": only a press on
+    // what that left can say it, so press again, waiting each check out, and open the card again
+    // if one closed it.
+    await expect(async () => {
+      await checkCard(window);
+      await pointAndClick(window, check);
+      await expect(window.getByTestId("badge-stop")).toHaveCount(0, { timeout: 30_000 });
+      await expect(unchanged).toBeVisible({ timeout: 2_000 });
+    }).toPass({ timeout: 30_000 });
   };
   await pointAndClick(window, check);
   await expect(unchanged).toBeVisible();

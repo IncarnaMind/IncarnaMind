@@ -232,12 +232,16 @@ export interface CreateMindInput {
  *   writes the table back without it when it changes it, so it opens these
  *   Notes read-only. Older content is version 33 content as it is, its table
  *   called "Comparison table" until the User names it.
- * - 34: `readDocuments` on a `claimCheck` mark (#1443): the whole Documents
+ * - 34: a comparison cell records a hand edit, its reviewed projection and the
+ *   refill pass allowed to write it (#1836). An older editor would strip these
+ *   attributes, so it opens these Notes read-only. Older content is version 34
+ *   content as it is.
+ * - 35: `readDocuments` on a `claimCheck` mark (#1443): the whole Documents
  *   read to decide an absence sentence, which an older editor would strip,
  *   losing both the card's Locations and the dependency that makes a changed
- *   Document need a re-check. Older content is version 34 content as it is.
+ *   Document need a re-check. Older content is version 35 content as it is.
  */
-export const CONTENT_SCHEMA_VERSION = 34;
+export const CONTENT_SCHEMA_VERSION = 35;
 
 /**
  * The key, in the Mind's settings map (`MIND_SETTINGS_FIELD`), of the content
@@ -778,6 +782,12 @@ export type ComparisonProblem =
 export interface ComparisonCellAttributes {
   questionId: string;
   status: ComparisonCellStatus;
+  /** The User changed this Answer by hand; absent: written by the model. */
+  edited?: boolean | null;
+  /** Derived from the Note's cell sign-off records; never stored on the cell. */
+  reviewed?: boolean | null;
+  /** The refill pass allowed to write this cell; absent: the ordinary initial fill. */
+  fillId?: string;
   problem: ComparisonProblem | null;
   /** The provider's own message for a failure, or what the model said when the Document doesn't answer. */
   message: string | null;
@@ -4613,11 +4623,24 @@ export interface ComparisonTableRef {
  * some of its rows alone, so Documents added later fill without touching the
  * Answers already there.
  */
+export type ComparisonFillMode = "fill" | "refill" | "refill-all" | "refill-problems";
+
+export interface ComparisonCellRef {
+  documentId: string;
+  questionId: string;
+}
+
 export interface ComparisonFillRequest extends ComparisonTableRef {
-  /** The columns to fill, by their Questions' ids; absent: every cell to fill in the table. */
+  /** The columns to fill, by their Questions' ids; absent with documentIds: every cell to fill. */
   questionIds?: readonly string[];
-  /** The rows to fill, by their Documents' ids; absent: every row. */
+  /** The rows to fill, by their Documents' ids; absent with questionIds: every cell to fill. */
   documentIds?: readonly string[];
+  /** Exact cells to fill, in addition to any row/column scope. */
+  cells?: readonly ComparisonCellRef[];
+  /** Refill Answers, override protection, or retry only failures; absent: cells with no Answer. */
+  mode?: ComparisonFillMode;
+  /** The cell identities this pass may write; a later User change or pass refuses late writes. */
+  pass?: string;
 }
 
 /** A comparison table's column to move, and where it lands. */
@@ -4805,7 +4828,8 @@ export interface ComparisonWindow {
 export type ComparisonResult =
   | { started: true; tableId: string }
   | { started: false; reason: "not-ready"; readiness: Extract<ChatReadiness, { ready: false }> }
-  | { started: false; reason: "consent-declined" };
+  | { started: false; reason: "consent-declined" }
+  | { started: false; reason: "nothing-to-fill" };
 
 /** What saving a comparison table as an Excel workbook did (`CoreApi.saveComparisonExport`). */
 export type SavedComparisonExport =
@@ -8630,6 +8654,15 @@ export interface MindExport extends MindExportPreview {
    * for the result line's count. None in Numbered, which lists Documents by name.
    */
   needsDetails: string[];
+  /**
+   * The footnotes in the file, for the Saved line (#1945): the User's own and the Citations', a
+   * Citation of a source and place already footnoted repeating that footnote (#1381), so five
+   * Citations across two pages are 2 footnotes and one beside a footnote the User wrote is 3.
+   * A Word file counts the notes its document refers to, an imported file's own included; a PDF
+   * counts the notes printed with it. 0 for a format whose line counts none: Markdown, HTML, a
+   * share page, a source pack.
+   */
+  footnotes: number;
 }
 
 /** What `saveMindExport` did. */
@@ -8654,6 +8687,7 @@ export type SavedMindExport =
         | "citedDocuments"
         | "citationPlace"
         | "markAiText"
+        | "footnotes"
       >)
   /**
    * Not saved: a Mind imported from Word can't keep something in its file
@@ -9525,12 +9559,14 @@ export interface CoreApi {
    * Brings back deleted Minds with their content, conversations with their messages,
    * Documents with their Passages, text and Tags, Folders with the Minds, conversations and
    * Documents their deletion took out (those in no Folder since)
-   * and Tags with their links, all or none, and sends the events any change sends. One not
-   * deleted is left as it is. Throws, changing nothing, for one deleted permanently or more
-   * than `RECENTLY_DELETED_DAYS` ago, or that can't come back now (its name taken, its
-   * Linked folder unlinked). Never touches the User's files.
+   * and Tags with their links, all or none, and sends the events any change sends. With `reopen`,
+   * Undo putting the User back where they were, a Mind's tabs, which its delete closed, come back
+   * where they were and as they were; without it the window stays as it is, since a restore must
+   * not replace the Note the User is in. One not deleted is left as it is. Throws, changing
+   * nothing, for one deleted permanently or more than `RECENTLY_DELETED_DAYS` ago, or that can't
+   * come back now (its name taken, its Linked folder unlinked). Never touches the User's files.
    */
-  restore(refs: RestoreRef[]): Promise<void>;
+  restore(refs: RestoreRef[], options?: { reopen?: boolean }): Promise<void>;
   /**
    * Takes back every change the commands of one of the assistant's Runs made (#1110), the last
    * first: `CommandDone.run`. A change that can't be taken back is skipped and the rest are;

@@ -101,14 +101,14 @@ describe("The record of an Answer's Tool calls", () => {
       "- search_documents “tides”: 8 Passages",
       "- read_document “Filing” pages 12–13: 2 Passages",
       "- search_documents “moon”: failed",
-      "- create_mind: made the Mind “Tide notes” and proposed 7 changes, waiting for the User",
-      "- create_mind: made the Mind “Empty”, empty",
+      "- create_mind: made the Note “Tide notes” and proposed 7 changes, waiting for the User",
+      "- create_mind: made the Note “Empty”, empty",
       "- add_to_mind “Tide notes”: proposed 1 new Block, waiting for the User",
       "- edit_mind “Tide notes” (section “Summary”): proposed 2 changes, waiting for the User",
       "- edit_mind “Tide notes”: revised your own waiting text in place, and proposed 7 changes, waiting for the User",
       "- edit_mind “Q3 review”: no change was needed",
       "- edit_mind “Tide notes”: nothing changed: 12 changes the assistant can't revise waited there for the User",
-      "- read_mind “Chapter 9”: couldn't read it: no Mind is called “Chapter 9”",
+      "- read_mind “Chapter 9”: couldn't read it: no Note is called “Chapter 9”",
       "- read_web_page https://example.com: saved as the Document “Example”",
       "- book_boat (the Connector “Boats”): the User denied it, so it wasn't made",
     ]);
@@ -159,7 +159,7 @@ describe("The record of an Answer's Tool calls", () => {
       mindChange: { mindId: "m1", created: false, request: "r", proposals: 2, unrecorded: 3 },
     });
     expect(toolRecord([made, lost], names, 9).split("\n").slice(2, -1)).toEqual([
-      "- create_mind: made the Mind “Tide notes” and proposed 7 changes, waiting for the User, with 6 Citations",
+      "- create_mind: made the Note “Tide notes” and proposed 7 changes, waiting for the User, with 6 Citations",
       "- add_to_mind “Tide notes”: proposed 2 new Blocks, waiting for the User; 3 markers had no Citation recorded with cite, so they were left out",
       "- cite: 9 Citations in your reply; each reads as its source in brackets, like [Tides, p. 3]",
     ]);
@@ -293,7 +293,7 @@ describe("A record within the context's budget", () => {
     expect(text).not.toContain("The page sums up");
     expect(text).toContain("What the Tools of an earlier Answer of yours really did");
     expect(text).not.toContain("your Answer above");
-    expect(text).toContain("- create_mind: made the Mind “Tide notes” and proposed 2 changes");
+    expect(text).toContain("- create_mind: made the Note “Tide notes” and proposed 2 changes");
     expect(text.endsWith(QUESTION)).toBe(true);
     expect(sent(earlier(reply), 100_000)).toContain(
       `The page sums up both papers.\n\n${record}\n\n${QUESTION}`,
@@ -327,7 +327,7 @@ describe("A record within the context's budget", () => {
       .messages.map((message) => message.content)
       .join("\n\n");
 
-    expect(text).toContain("made the Mind “Tide notes”");
+    expect(text).toContain("made the Note “Tide notes”");
     expect(text).not.toContain("winter storms");
   });
 
@@ -356,7 +356,7 @@ describe("A record within the context's budget", () => {
 
     // The blank lines between pieces aren't counted in the budget, as before.
     expect(estimateTokens(text)).toBeLessThanOrEqual(budget + 20);
-    expect(text).toContain("- create_mind: made the Mind “Tide notes” and proposed 2 changes");
+    expect(text).toContain("- create_mind: made the Note “Tide notes” and proposed 2 changes");
     expect(text).not.toContain("Answer 1. ");
     expect(text).toContain("Answer 30. ");
   });
@@ -381,11 +381,11 @@ describe("What became of a change, in its record", () => {
     [3, { waiting: 1, accepted: 2, rejected: 0 }, "then the User accepted 2 of 3, 1 still waiting"],
     [3, { waiting: 0, accepted: 2, rejected: 1 }, "then the User accepted 2 and rejected 1"],
     [3, { waiting: 3, accepted: 0, rejected: 0 }, "waiting for the User"],
-    [3, { waiting: 0, accepted: 0, rejected: 0, gone: true }, "but the Mind is no longer there"],
+    [3, { waiting: 0, accepted: 0, rejected: 0, gone: true }, "but the Note is no longer there"],
     [
       2,
       { waiting: 0, accepted: 0, rejected: 0, applied: true },
-      "applied in the Mind at once, with Undo",
+      "applied in the Note at once, with Undo",
     ],
   ])("%i changes, %j", (proposals, state, said) => {
     expect(line(proposals, state)).toBe(

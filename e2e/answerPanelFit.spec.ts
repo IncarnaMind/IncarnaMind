@@ -411,7 +411,7 @@ for (const language of ["en", "zh-CN"] as const) {
     });
   });
 
-  test(`an Answer with one table: Open as a table from ⌘K and from the keyboard, ⌘Z takes it back, and its tab is open before the table is in, in ${language}`, async () => {
+  test(`an Answer with one table: Open as a table from ⌘K and from the keyboard, ⌘Z never closes the Mind it made, and its tab is open before the table is in, in ${language}`, async () => {
     test.setTimeout(240_000);
     const window = await start(language, 1440, 900);
     const words = WORDS[language];
@@ -445,10 +445,13 @@ for (const language of ["en", "zh-CN"] as const) {
       await expect(table.locator("tr")).toHaveCount(10);
       expect(await tableWhenTabShown.jsonValue()).toEqual([0]);
       await expect(answer.getByTestId("answer-added")).toHaveCount(0);
+      // ⌘Z never closes a Mind that was made: making one leaves no step to take back.
+      await window.keyboard.press("ControlOrMeta+z");
+      await expect(tabs).toHaveCount(2);
       await deleteShownMind(window, tabs);
     });
 
-    await test.step("from the keyboard: Tab to the button, Enter, then ⌘Z", async () => {
+    await test.step("from the keyboard: Tab to the button, Enter", async () => {
       const open = answer.getByTestId("answer-open-table");
       await tabTo(window, open);
       expect(await focusRingShows(window)).toBe(true);
@@ -458,9 +461,6 @@ for (const language of ["en", "zh-CN"] as const) {
       await expect(table.locator("tr")).toHaveCount(10);
       await expect(answer.getByTestId("answer-added")).toHaveCount(0);
 
-      // ⌘Z never closes a Mind that was made: Delete does.
-      await window.keyboard.press("ControlOrMeta+z");
-      await expect(tabs).toHaveCount(2);
       await deleteShownMind(window, tabs);
       await expect(open).toBeVisible();
     });
