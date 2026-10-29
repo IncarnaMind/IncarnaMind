@@ -3,7 +3,7 @@ import { answerOthersComments, type ExportResult } from "../exports";
 import { useT } from "../i18n";
 import { CitationPlaceLine } from "./CitationPlace";
 import { MarkAiTextLine } from "./MarkAiText";
-import { buttonStyle } from "./ui";
+import { buttonStyle, hintClass } from "./ui";
 
 type Changing = Extract<ExportResult, { state: "saved" }>["changing"];
 
@@ -51,13 +51,17 @@ function CheckCommentsLine({ mindId, format }: { mindId: string; format: "docx" 
   const id = useId();
   return (
     <div className="flex min-w-0 flex-wrap items-center gap-x-4 gap-y-1">
-      <p
-        id={`${id}-question`}
-        data-testid="export-comments-question"
-        title={t("export.commentFailedChecks.hint.others")}
-        className="min-w-0 text-[14px] leading-5 text-ink-secondary"
-      >
-        {t("export.checkComments.ask")}
+      <p className="flex min-w-0 flex-col">
+        <span
+          id={`${id}-question`}
+          data-testid="export-comments-question"
+          className="text-[14px] leading-5 text-ink-secondary"
+        >
+          {t("export.checkComments.ask")}
+        </span>
+        <span id={`${id}-hint`} data-testid="export-comments-hint" className={hintClass}>
+          {t("export.commentFailedChecks.hint.others")}
+        </span>
       </p>
       <span className="flex shrink-0 gap-2">
         {([true, false] as const).map((answer) => (
@@ -65,7 +69,7 @@ function CheckCommentsLine({ mindId, format }: { mindId: string; format: "docx" 
             key={String(answer)}
             type="button"
             data-testid={`export-comments-${answer ? "add" : "leave"}`}
-            aria-describedby={`${id}-question`}
+            aria-describedby={`${id}-question ${id}-hint`}
             onClick={() => void answerOthersComments(mindId, format, answer)}
             className={buttonStyle("secondary", "sm")}
           >

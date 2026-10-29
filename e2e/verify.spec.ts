@@ -316,6 +316,13 @@ test("Verify a Word file: its Note opens beside the file with their change waiti
   await expect(result.getByTestId("export-comments-question")).toHaveText(
     "Comment on what needs a look?",
   );
+  // What the comments give away is said before either answer, and describes both.
+  await expect(result.getByTestId("export-comments-hint")).toHaveText(
+    "Comments quote your Documents and name them",
+  );
+  await expect(result.getByTestId("export-comments-add")).toHaveAccessibleDescription(
+    /Comments quote your Documents and name them/,
+  );
   await pointAndClick(window, result.getByTestId("export-comments-add"));
   await expect(part).toHaveText("2 check comments");
   await expect(window.getByTestId("undo-message")).toHaveText(

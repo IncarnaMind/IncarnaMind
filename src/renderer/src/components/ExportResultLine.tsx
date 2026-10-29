@@ -55,7 +55,7 @@ const isPlainSaved = (result: SavedResult, t: ReturnType<typeof useT>): boolean 
   result.kept.length === 0 &&
   result.failures.length === 0 &&
   result.sentKept &&
-  (othersWord(result) || unmarkedChecks(result.checks, t) === null);
+  unmarkedChecks(result.checks, t) === null;
 
 const othersWord = (result: SavedResult) => result.format === "docx" && result.othersFile;
 
