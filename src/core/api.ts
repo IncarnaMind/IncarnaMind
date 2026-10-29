@@ -8635,6 +8635,15 @@ export interface MindExport extends MindExportPreview {
    * for the result line's count. None in Numbered, which lists Documents by name.
    */
   needsDetails: string[];
+  /**
+   * The footnotes in the file, for the Saved line (#1945): the User's own and the Citations', a
+   * Citation of a source and place already footnoted repeating that footnote (#1381), so five
+   * Citations across two pages are 2 footnotes and one beside a footnote the User wrote is 3.
+   * A Word file counts the notes its document refers to, an imported file's own included; a PDF
+   * counts the notes printed with it. 0 for a format whose line counts none: Markdown, HTML, a
+   * share page, a source pack.
+   */
+  footnotes: number;
 }
 
 /** What `saveMindExport` did. */
@@ -8659,6 +8668,7 @@ export type SavedMindExport =
         | "citedDocuments"
         | "citationPlace"
         | "markAiText"
+        | "footnotes"
       >)
   /**
    * Not saved: a Mind imported from Word can't keep something in its file
@@ -9530,12 +9540,14 @@ export interface CoreApi {
    * Brings back deleted Minds with their content, conversations with their messages,
    * Documents with their Passages, text and Tags, Folders with the Minds, conversations and
    * Documents their deletion took out (those in no Folder since)
-   * and Tags with their links, all or none, and sends the events any change sends. One not
-   * deleted is left as it is. Throws, changing nothing, for one deleted permanently or more
-   * than `RECENTLY_DELETED_DAYS` ago, or that can't come back now (its name taken, its
-   * Linked folder unlinked). Never touches the User's files.
+   * and Tags with their links, all or none, and sends the events any change sends. With `reopen`,
+   * Undo putting the User back where they were, a Mind's tabs, which its delete closed, come back
+   * where they were and as they were; without it the window stays as it is, since a restore must
+   * not replace the Note the User is in. One not deleted is left as it is. Throws, changing
+   * nothing, for one deleted permanently or more than `RECENTLY_DELETED_DAYS` ago, or that can't
+   * come back now (its name taken, its Linked folder unlinked). Never touches the User's files.
    */
-  restore(refs: RestoreRef[]): Promise<void>;
+  restore(refs: RestoreRef[], options?: { reopen?: boolean }): Promise<void>;
   /**
    * Takes back every change the commands of one of the assistant's Runs made (#1110), the last
    * first: `CommandDone.run`. A change that can't be taken back is skipped and the rest are;

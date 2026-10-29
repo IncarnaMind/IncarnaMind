@@ -7,6 +7,7 @@
  */
 import type { TranscriptionModelFiles } from "../adapters";
 import { MEETING_SAMPLE_RATE } from "../adapters";
+import { engineModule, exportsOf } from "../engineModules";
 import type { SpeechEngine, VoiceDetector } from "./speech";
 import { textOfResult, wordsOnly } from "./speechText";
 import { writtenNumbers } from "./spokenNumbers";
@@ -17,21 +18,26 @@ const WINDOW = 512;
 /** The engine id the model definitions use (./model). */
 export const QWEN3_ASR = "qwen3-asr";
 
-function hasDefault<T extends object>(loaded: T | { default: T }): loaded is { default: T } {
-  return "default" in loaded;
-}
+/** The speech engine, its voice detector and the speaker pass (./diarization). */
+export const SHERPA = engineModule(
+  "sherpa-onnx-node",
+  async () => exportsOf(await import("sherpa-onnx-node")),
+  [
+    "OfflineRecognizer.createAsync",
+    "Vad",
+    "OfflineSpeakerDiarization",
+    "SpeakerEmbeddingExtractor",
+  ],
+);
 
-// A native `import()` of a CommonJS package, as the built process makes, has all its exports on
-// `default`: Node finds named ones only where it can read them off the file. A bundler's interop has both.
-const exportsOf = <T extends object>(loaded: T | { default: T }): T =>
-  hasDefault(loaded) ? loaded.default : loaded;
+/** Reads a decoded stretch's result itself when sherpa's own reader refuses it (#981). */
+export const SHERPA_ADDON = engineModule(
+  "sherpa-onnx-node/addon.js",
+  async () => exportsOf(await import("sherpa-onnx-node/addon.js")),
+  ["getOfflineStreamResultAsJson"],
+);
 
-// Loaded only when needed: the native runtime is large.
-export async function loadSherpa() {
-  return exportsOf(await import("sherpa-onnx-node"));
-}
-
-type Sherpa = Awaited<ReturnType<typeof loadSherpa>>;
+type Sherpa = Awaited<ReturnType<typeof SHERPA.load>>;
 
 function sileroDetector(sherpa: Sherpa, vadFile: string): VoiceDetector {
   const vad = new sherpa.Vad(
@@ -83,14 +89,14 @@ function sileroDetector(sherpa: Sherpa, vadFile: string): VoiceDetector {
 
 /** Silero VAD alone, for a cloud service that needs our own turns (OpenAI's live model, #141). */
 export async function createSileroDetectors(vadFile: string): Promise<() => VoiceDetector> {
-  const sherpa = await loadSherpa();
+  const sherpa = await SHERPA.load();
   return () => sileroDetector(sherpa, vadFile);
 }
 
 export async function createSherpaEngine(model: TranscriptionModelFiles): Promise<SpeechEngine> {
   if (model.engine !== QWEN3_ASR)
     throw new Error(`Unknown speech-to-text engine "${model.engine}".`);
-  const sherpa = await loadSherpa();
+  const sherpa = await SHERPA.load();
   const { files } = model;
   const required = (name: string) => {
     const path = files[name];
@@ -127,7 +133,7 @@ export async function createSherpaEngine(model: TranscriptionModelFiles): Promis
         } catch (error) {
           if (!(error instanceof SyntaxError)) throw error;
           // The stretch was decoded; sherpa's reader refused its JSON (#981): read it here.
-          const addon = exportsOf(await import("sherpa-onnx-node/addon.js"));
+          const addon = await SHERPA_ADDON.load();
           return writtenNumbers(
             wordsOnly(textOfResult(addon.getOfflineStreamResultAsJson(stream.handle))),
           );
