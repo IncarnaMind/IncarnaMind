@@ -296,8 +296,22 @@ jobs:
       - name: Check the package contents and sizes
         run: npm run check:package
 
-      # The packaged arm64 app reads scans with real OCR (#1819) and transcribes a meeting with its
-      # real speech engine and model, before anything is uploaded (#1239): engines can fail only in the built app.
+      # The packaged app for this runner loads each engine module in the process that runs it and
+      # starts Python, before anything is uploaded (#1239): a module can fail to load only in the
+      # built app. The step fails naming the module. On macOS the check runs with the other packaged
+      # specs in the step after this one.
+      - if: runner.os != 'macOS'
+        uses: ./.github/actions/packaged-engines
+
+      - name: Say that the Intel macOS app isn't checked
+        if: runner.os == 'macOS'
+        run: |
+          if [ -d dist/mac/IncarnaMind.app ]; then
+            echo "::warning title=Intel macOS app not checked::dist/mac/IncarnaMind.app, the Intel app, uploads without the engine check, and it can't start its embedding, reranking or text recognition engine (#2199)."
+          fi
+
+      # The packaged arm64 app loads every engine module, reads scans with real OCR (#1819) and
+      # transcribes a meeting with its real speech engine and model (#1239).
       - if: runner.os == 'macOS'
         uses: ./.github/actions/packaged-transcription
 

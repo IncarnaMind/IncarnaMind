@@ -1589,12 +1589,16 @@ for (const language of ["en", "zh-CN"] as const) {
       await window.keyboard.press("ControlOrMeta+z");
     };
     const menu = async (column: number, item: string) => {
-      await headingAt(table, column).focus();
-      await pointAndClick(window, headingAt(table, column).getByTestId("comparison-column-menu"));
-      await pointAndClick(
-        window,
-        headingAt(table, column).locator('[role="menu"]').getByTestId(item),
-      );
+      const heading = headingAt(table, column);
+      await heading.focus();
+      // A heading is redrawn, and the table can scroll to it, after a move: a click aimed at its
+      // box a moment earlier can land in a cell instead, whose Citation card then covers the
+      // heading. A click that waits for the button to keep its box and take the pointer lands on
+      // the button; the menu is then open before the item is clicked.
+      await heading.getByTestId("comparison-column-menu").click();
+      const opened = heading.locator('[role="menu"]');
+      await expect(opened).toBeVisible();
+      await opened.getByTestId(item).click();
     };
     const base = await state();
 
@@ -1662,9 +1666,21 @@ for (const language of ["en", "zh-CN"] as const) {
 
     // Move, then hide: ⌘Z shows the column, ⌘Z again moves it back.
     await menu(0, "comparison.column.moveRight");
+    // The core writes the move, and the headings are redrawn in its order: wait for the drawn
+    // order by name, or a redraw between the menu's own two clicks leaves the second place on a
+    // heading whose menu is not the one opened.
+    await expect
+      .poll(async () => (await state()).headings)
+      .toEqual(["Liability cap", "Termination notice", "Governing law"]);
     await menu(1, "comparison.column.hide");
+    // Which column the hide took, not just how many are left.
+    await expect
+      .poll(async () => (await state()).headings)
+      .toEqual(["Liability cap", "Governing law"]);
     await undo();
-    await expect(table.getByTestId("comparison-question")).toHaveCount(3);
+    await expect
+      .poll(async () => (await state()).headings)
+      .toEqual(["Liability cap", "Termination notice", "Governing law"]);
     await undo();
     await expect.poll(state).toEqual(base);
   });
