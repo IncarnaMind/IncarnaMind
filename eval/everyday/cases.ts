@@ -1727,6 +1727,7 @@ export const CASES: readonly EverydayCase[] = [
         quote: /like-for-like sales declined 6\.2%/i,
       },
       noDocumentAbsence: /comparable|同店/,
+      documentAbsenceMetric: "consolidated comparable-sales change",
     },
   },
   {
@@ -1743,6 +1744,7 @@ export const CASES: readonly EverydayCase[] = [
         quote: /同店销售额下降 6\.2%/,
       },
       noDocumentAbsence: /comparable|同店/,
+      documentAbsenceMetric: "集团同店销售额变化",
     },
   },
   {
@@ -1760,6 +1762,7 @@ export const CASES: readonly EverydayCase[] = [
         quote: /Operating profitability reached 38\.2%/,
       },
       noDocumentAbsence: /margin|利润率/,
+      documentAbsenceMetric: "2026 operating margin",
     },
   },
   {
@@ -1776,6 +1779,7 @@ export const CASES: readonly EverydayCase[] = [
         quote: /经营利润率达到 38\.2%/,
       },
       noDocumentAbsence: /margin|利润率/,
+      documentAbsenceMetric: "2026年经营利润率",
     },
   },
   {
@@ -1793,6 +1797,7 @@ export const CASES: readonly EverydayCase[] = [
         quote: /Restated second-quarter sales: \$423 million/,
       },
       noDocumentAbsence: /recast|重述|revenue|销售额/,
+      documentAbsenceMetric: "recast second-quarter revenue",
     },
   },
   {
@@ -1809,6 +1814,7 @@ export const CASES: readonly EverydayCase[] = [
         quote: /重述第二季度销售额：4\.23 亿元/,
       },
       noDocumentAbsence: /recast|重述|revenue|销售额/,
+      documentAbsenceMetric: "重述的第二季度收入",
     },
   },
   {
@@ -1817,7 +1823,12 @@ export const CASES: readonly EverydayCase[] = [
     library: "filings",
     mind: null,
     request: "What was Northmart's cash conversion cycle in Q2 2026?",
-    expected: { ...NOTHING, searchMiss: true, noDocumentAbsence: /cash conversion/ },
+    expected: {
+      ...NOTHING,
+      searchMiss: true,
+      noDocumentAbsence: /cash conversion/,
+      documentAbsenceMetric: "Q2 2026 cash conversion cycle",
+    },
   },
   {
     id: "filing-absent-zh",
@@ -1825,7 +1836,12 @@ export const CASES: readonly EverydayCase[] = [
     library: "filings",
     mind: null,
     request: "北域零售2026年第二季度的现金转换周期是多少？",
-    expected: { ...NOTHING, searchMiss: true, noDocumentAbsence: /现金转换周期/ },
+    expected: {
+      ...NOTHING,
+      searchMiss: true,
+      noDocumentAbsence: /现金转换周期/,
+      documentAbsenceMetric: "2026年第二季度现金转换周期",
+    },
   },
   {
     id: "reserves-change-zh",

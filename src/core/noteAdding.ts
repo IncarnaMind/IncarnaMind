@@ -13,6 +13,7 @@ import { randomUUID } from "node:crypto";
 import * as Y from "yjs";
 import { asGenerated } from "../shared/aiText";
 import { parseOrigin, removeOrigins, setOrigins } from "../shared/blockOrigins";
+import { installFigureRuns, readFigureRunClosure } from "../shared/figureRuns";
 import { carryAnswerScope, uncarryAnswerScope } from "../shared/mindScope";
 import {
   citedTables,
@@ -136,6 +137,7 @@ export function createNoteAdding(options: NoteAddingOptions) {
       if (!parsed) {
         throw new InvalidInputError("addToNote takes a list of Notes, as the editor writes them.");
       }
+      const figureRuns = readFigureRunClosure(parsed, input.figureRuns ?? []);
       const origin =
         input.origin === null || input.origin === undefined ? null : parseOrigin(input.origin);
       if (input.origin && !origin) throw new InvalidInputError("That isn't a Block's origin.");
@@ -149,6 +151,7 @@ export function createNoteAdding(options: NoteAddingOptions) {
       const folderId = options.mindFolder(mindId);
 
       const blockIds = content.edit(mindId, (note) => {
+        if (note.doc) installFigureRuns(note.doc, figureRuns);
         const ids = insertBlocks(note, blocks, {
           request: proposed ? request : null,
         });

@@ -227,7 +227,7 @@ describe("Why a small model's Citations of long PDFs aren't found", () => {
     ]);
   });
 
-  test("the Passage's first page, for a quote on its second, is a wrong page that cite's feedback lets the Tool loop fix; structured output's is placed (en-02)", async () => {
+  test("the Passage's first page, for a quote on its second, is placed in the Tool loop and structured output (en-02)", async () => {
     const attention = sessionOver(ATTENTION);
     // The Passage covers pp. 7–8, and marks where p. 8 starts.
     expect(await attention.shown()).toContain('pages="7-8">');
@@ -240,12 +240,11 @@ describe("Why a small model's Citations of long PDFs aren't found", () => {
     ]);
 
     expect(outcomes).toMatchObject([
-      { check: "not-found", outcome: "wrong-page", pages: [7, 7], quoteOn: [8, 8] },
+      { check: "found", pages: [8, 8] },
       { check: "found", pages: [8, 8] },
       { check: "found", pages: [8, 8] },
     ]);
-    // In the Tool loop, `cite` tells the model, which may fix the record with another call.
-    expect(feedback).toMatch(/\[\^1\]: the quote isn't word for word on p\. 7 in P1/);
+    expect(feedback).not.toContain("the quote isn't word for word");
     // Structured output sends one request, so nothing can tell the model: its record is placed.
     const placed = sessionOver(ATTENTION);
     await placed.shown();
@@ -274,9 +273,9 @@ describe("Why a small model's Citations of long PDFs aren't found", () => {
 
     expect(outcomes).toMatchObject([
       { check: "found", pages: [8, 8] },
-      { check: "not-found", checkReason: "pages-outside-passage", outcome: "page-range" },
+      { check: "found", pages: [8, 8] },
     ]);
-    // In structured output, a page outside the Passage is placed inside it, where the quote is.
+    // Structured output follows the same placement rule.
     const placed = sessionOver(ATTENTION);
     await placed.shown();
     expect(
@@ -304,7 +303,7 @@ describe("Why a small model's Citations of long PDFs aren't found", () => {
     ]);
 
     expect(outcomes).toMatchObject([
-      { check: "not-found", outcome: "wrong-page", quoteOn: [33, 34] },
+      { check: "found", pages: [33, 34] },
       { check: "found", pages: [33, 34] },
       { check: "not-found", checkReason: "pages-outside-passage", outcome: "page-range" },
     ]);
@@ -340,7 +339,7 @@ describe("Why a small model's Citations of long PDFs aren't found", () => {
     expect(outcomes).toMatchObject([
       { check: "found", pages: [2, 2] },
       { check: "found", pages: [3, 3] },
-      { check: "not-found", checkReason: "too-many-pages", outcome: "page-range" },
+      { check: "found", pages: [3, 3] },
     ]);
   });
 

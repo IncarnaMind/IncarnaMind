@@ -142,6 +142,7 @@ describe("The Output location", () => {
       citations: 0,
       unverifiedCitations: 0,
       questions: 0,
+      hiddenColumns: 0,
       word: null,
       sentenceChecks: {
         contradicted: 0,
@@ -158,6 +159,7 @@ describe("The Output location", () => {
       numbered: true,
       citationPlace: null,
       markAiText: null,
+      sentKept: true,
     });
     expect(await readFile(join(location, "Tides.md"), "utf8")).toContain(
       "Spring tides come twice a month.",

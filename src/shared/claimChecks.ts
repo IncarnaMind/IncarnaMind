@@ -12,16 +12,19 @@ import {
   type ClaimCalculation,
   type ClaimCheckAction,
   type ClaimCheckAttributes,
+  type ClaimCheckBasis,
   type ClaimCheckFailure,
   type ClaimCheckScope,
   type ClaimReadDocument,
   type ClaimVerdict,
   claimCheckActions,
   type EvidenceExclusion,
+  type FigureCheckAttributes,
   type LeftOutDocument,
   type SearchScope,
   type UnsupportedReason,
 } from "../core/api";
+import { aggregateFigureStates, figureProblem, readFigureFinding } from "./figureChecks";
 import type { MessageKey } from "./i18n";
 import { parseLocation } from "./locations";
 import { folderScope, hasSearchScope, sameScope, storedSearchScope } from "./searchScope";
@@ -157,7 +160,7 @@ export const checkSearchedNarrowerThanAll = (scope: ClaimCheckScope): boolean =>
   !scope.widened && checkedScope(scope) !== null;
 
 /** A check's attributes as a mark holds them, or null when they aren't one's. Unknown values read safely. */
-export function readClaimCheck(value: unknown): ClaimCheckAttributes | null {
+function readCheckBasis(value: unknown): ClaimCheckBasis | null {
   if (!isRecord(value)) return null;
   const id = text(value.id);
   const state = STATES.find((each) => each === value.state);
@@ -189,6 +192,30 @@ export function readClaimCheck(value: unknown): ClaimCheckAttributes | null {
   };
 }
 
+export function readClaimCheck(value: unknown): ClaimCheckAttributes | null {
+  const basis = readCheckBasis(value);
+  if (!basis || !isRecord(value)) return null;
+  const figures: FigureCheckAttributes[] = [];
+  if (value.figures != null) {
+    if (!Array.isArray(value.figures)) return null;
+    const ids = new Set<string>();
+    for (const raw of value.figures) {
+      const child = readCheckBasis(raw);
+      const finding = readFigureFinding(raw);
+      if (!child || !finding || ids.has(child.id)) return null;
+      ids.add(child.id);
+      figures.push({ ...child, ...finding });
+    }
+  }
+  const remainder = value.remainder == null ? value.remainder : readCheckBasis(value.remainder);
+  if (value.remainder != null && !remainder) return null;
+  return {
+    ...basis,
+    ...(value.figures != null && { figures }),
+    ...(remainder !== undefined && { remainder }),
+  };
+}
+
 /**
  * Why a check no longer holds: its sentence was edited (an accepted change
  * or a restored Checkpoint edits it too), a Document it read has a new
@@ -200,7 +227,9 @@ export type RecheckReason =
   | "new-version"
   | "document-removed"
   | "scope"
-  | "search-scope";
+  | "search-scope"
+  /** Checked before each of its figures was checked with its own source (#1459). */
+  | "figures";
 
 /** A check as it shows now; "kept": the User keeps the sentence as their own view, and it shows nothing. */
 export type ClaimCheckShown =
@@ -212,6 +241,9 @@ export type ClaimCheckShown =
 
 /** What a check is compared with. */
 export interface ClaimCheckNow {
+  figureContexts?: ReadonlyMap<string, string> | null;
+  /** The sentence is a table cell holding figures the one Check checks each with its own source; unknown when absent. */
+  figured?: boolean;
   /** The sentence as it reads now: all of the sentences its marked text is in. */
   text: string;
   /** Each live Document's current version, by id; null while they aren't known. */
@@ -278,11 +310,25 @@ export function restsOn(check: ClaimCheckAttributes): (CitationAttributes | Cita
     check.evidence,
     check.unsupported?.quoted ?? null,
     ...inputs.flatMap((input) => [input.citation, input.unitStatement?.citation ?? null]),
+    ...(check.figures ?? []).flatMap((figure) => [
+      ...restsOn(figure),
+      figure.source ?? null,
+      figure.sourceInput?.citation ?? null,
+      figure.sourceInput?.unitStatement?.citation ?? null,
+      ...(figure.calculated?.figure.inputs ?? []).flatMap((input) => [
+        input.citation,
+        input.unitStatement?.citation ?? null,
+      ]),
+      ...(figure.sourceFooting ?? []).flatMap((proof) =>
+        proof.inputs.flatMap((input) => [input.citation, input.unitStatement?.citation ?? null]),
+      ),
+    ]),
+    ...(check.remainder ? restsOn(check.remainder) : []),
   ].filter((each): each is CitationAttributes | Citation => each !== null);
 }
 
 /** How a check shows, given the sentence, the Documents and the Mind's Folder and scope as they are now. */
-export function claimCheckShown(check: ClaimCheckAttributes, now: ClaimCheckNow): ClaimCheckShown {
+function basisShown(check: ClaimCheckBasis, now: ClaimCheckNow): ClaimCheckShown {
   if (check.state === "checking") return { state: "checking" };
   if (comparableSentence(now.text) !== comparableSentence(check.text)) {
     return { state: "needs-recheck", why: "edited" };
@@ -318,6 +364,52 @@ export function claimCheckShown(check: ClaimCheckAttributes, now: ClaimCheckNow)
   if (check.state === "not-checked")
     return { state: "not-checked", reason: check.reason ?? "failed" };
   return { state: check.state };
+}
+
+export function claimCheckShown(check: ClaimCheckAttributes, now: ClaimCheckNow): ClaimCheckShown {
+  if (!check.figures?.length || check.kept) {
+    const shown = basisShown(check, now);
+    // A verdict stored before each figure got its own never read a table cell's row and column,
+    // so a right cell could stand as Unsupported (#1459): it is checked again, not kept.
+    return now.figured === true &&
+      check.action === "check-against-documents" &&
+      (shown.state === "supported" ||
+        shown.state === "unsupported" ||
+        shown.state === "contradicted")
+      ? { state: "needs-recheck", why: "figures" }
+      : shown;
+  }
+  const figures = check.figures.map((figure) => figureCheckShown(figure, now));
+  return aggregateFigureStates(
+    figures,
+    check.remainder === null
+      ? null
+      : check.remainder
+        ? basisShown(check.remainder, now)
+        : undefined,
+  );
+}
+
+export function figureCheckShown(
+  figure: FigureCheckAttributes,
+  now: ClaimCheckNow,
+): ClaimCheckShown {
+  const shown = basisShown(figure, now);
+  // Unknown contexts (null) are a reader that hasn't read them yet, not a change to them.
+  if (
+    shown.state !== "kept" &&
+    shown.state !== "checking" &&
+    figure.context !== undefined &&
+    now.figureContexts != null &&
+    now.figureContexts.get(figure.id) !== figure.context
+  )
+    return { state: "needs-recheck", why: "edited" };
+  return shown.state !== "kept" &&
+    shown.state !== "needs-recheck" &&
+    shown.state !== "contradicted" &&
+    figureProblem(figure) !== null
+    ? { state: "unsupported" }
+    : shown;
 }
 
 /**
@@ -371,6 +463,7 @@ export function keptOn(
 
 export function checkedSentence(input: {
   text: string;
+  hasFigures?: boolean;
   /** How its check shows now; null for none. */
   check: ClaimCheckShown | null;
   /** The last whole-Mind check found it makes no claim. */
@@ -396,7 +489,7 @@ export function checkedSentence(input: {
     }
   }
   if (input.kept) return { kind: "kept" };
-  if (input.skipped || !isClaim(input.text)) return { kind: "not-claim" };
+  if (input.skipped || (!input.hasFigures && !isClaim(input.text))) return { kind: "not-claim" };
   return { kind: "to-check", fresh: true, why: "none" };
 }
 

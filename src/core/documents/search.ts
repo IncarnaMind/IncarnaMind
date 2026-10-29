@@ -424,11 +424,6 @@ export function passagesBetween(
     .map(toWindowed);
 }
 
-/**
- * The live Passages of one sliding window of a Document, in reading order:
- * those whose own window range takes in `window`. With windows of 3 and step 1,
- * window w holds the Passages at positions w, w + 1 and w + 2.
- */
 /** Live Passages covering or, when `overlapping`, intersecting pages `from` to `to`, in reading order. */
 export function passagesCovering(
   db: Database,

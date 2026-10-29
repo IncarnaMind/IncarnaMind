@@ -26,10 +26,14 @@ import * as Y from "yjs";
 import {
   cellToFill,
   comparisonCellOf,
+  comparisonLabelOf,
   comparisonQuestionsOf,
+  MAX_COMPARISON_COLUMN_WIDTH,
   MAX_COMPARISON_DOCUMENTS,
+  MAX_COMPARISON_LABEL,
   MAX_COMPARISON_QUESTIONS,
   MAX_COMPARISON_TEXT,
+  MIN_COMPARISON_COLUMN_WIDTH,
 } from "../../shared/comparisons";
 import { recordProposalRequest, targetHash } from "../../shared/proposals";
 import type { CellAnswer } from "../answers";
@@ -37,6 +41,7 @@ import {
   createElement,
   findBlock,
   type NodeJSON,
+  nodeOf,
   syncContent,
   topLevelBlocks,
 } from "../answers/blocks";
@@ -49,8 +54,29 @@ import {
   COMPARISON_ROW_NODE,
   COMPARISON_TABLE_NODE,
   type ComparisonCellAttributes,
+  type ComparisonColumnAdded,
+  type ComparisonColumnDuplicateRequest,
+  type ComparisonColumnEdited,
+  type ComparisonColumnEditRequest,
+  type ComparisonColumnHiddenRequest,
+  type ComparisonColumnHiddenSet,
+  type ComparisonColumnInsertRequest,
+  type ComparisonColumnMove,
+  type ComparisonColumnMoveResult,
+  type ComparisonColumnRemoved,
+  type ComparisonColumnRemoveRequest,
+  type ComparisonColumnWidthRequest,
+  type ComparisonColumnWidthSet,
   type ComparisonProblem,
   type ComparisonResult,
+  type ComparisonRowMoveRequest,
+  type ComparisonRowMoveResult,
+  type ComparisonRowRemoved,
+  type ComparisonRowRemoveRequest,
+  type ComparisonRowsAdded,
+  type ComparisonRowsAddRequest,
+  type ComparisonStructureRef,
+  type ComparisonStructureUndoResult,
   type ComparisonTableRef,
   type CoreEvents,
   PROPOSAL_ATTRIBUTE,
@@ -71,13 +97,19 @@ export const CLOUD_CELLS_AT_ONCE = 4;
 /** The kind of Task that fills a comparison table. */
 export const COMPARISON_TASK = "comparison";
 
-/** What a comparison table's Task fills: the table, or some of its columns, and the model. */
+/** Some of a table's columns and rows, each absent for all of them: one rectangle of cells. */
+interface CellRequest {
+  questionIds?: string[];
+  documentIds?: string[];
+}
+
+/** What a comparison table's Task fills: the table, or rectangles of its cells, and the model. */
 interface ComparisonTaskInput {
   tableId: string;
   providerId: string;
   modelId: string;
-  /** The columns it fills, by their Questions' ids; absent: every cell to fill in the table. */
-  questionIds?: string[];
+  /** The rectangles of cells it fills; one empty request: every cell to fill in the table. */
+  fills: CellRequest[];
 }
 
 function taskInputOf(input: unknown): ComparisonTaskInput | null {
@@ -90,11 +122,15 @@ function taskInputOf(input: unknown): ComparisonTaskInput | null {
     return null;
   }
   const questionIds = storedColumnIds(input.questionIds);
+  const documentIds = storedColumnIds(input.documentIds);
   return {
     tableId: input.tableId,
     providerId: input.providerId,
     modelId: input.modelId,
-    ...(questionIds && { questionIds }),
+    // A Task started before requests were kept as rectangles says its one request flat.
+    fills: storedFills(input.fills) ?? [
+      { ...(questionIds && { questionIds }), ...(documentIds && { documentIds }) },
+    ],
   };
 }
 
@@ -102,6 +138,18 @@ function storedColumnIds(value: unknown): string[] | null {
   if (!Array.isArray(value)) return null;
   const ids = value.filter((each): each is string => typeof each === "string" && each !== "");
   return ids.length > 0 ? ids : null;
+}
+
+function storedFills(value: unknown): CellRequest[] | null {
+  if (!Array.isArray(value)) return null;
+  const fills: CellRequest[] = [];
+  for (const each of value) {
+    if (!isRecord(each)) return null;
+    const questionIds = storedColumnIds(each.questionIds);
+    const documentIds = storedColumnIds(each.documentIds);
+    fills.push({ ...(questionIds && { questionIds }), ...(documentIds && { documentIds }) });
+  }
+  return fills.length > 0 ? fills : null;
 }
 
 /** What comparison tables need of Tasks (see ../runs/tasks). */
@@ -151,7 +199,10 @@ export interface ComparisonsOptions {
   /** Saves a Checkpoint of the Mind as it is before the table goes in (#113). */
   checkpoint(mindId: string): void;
   tasks: ComparisonTasks;
-  emit<E extends "comparison.filling">(event: E, payload: CoreEvents[E]): void;
+  emit<E extends "comparison.filling" | "comparison.structure">(
+    event: E,
+    payload: CoreEvents[E],
+  ): void;
   reportError(error: unknown): void;
 }
 
@@ -165,7 +216,18 @@ interface Cell {
 /** What a cell came to: its Answer, or why it has none. */
 type Written =
   | { kind: "answer"; blocks: NodeJSON[] }
-  | { kind: "problem"; problem: ComparisonProblem; message?: string };
+  | { kind: "problem"; problem: ComparisonProblem; message?: string }
+  /** Its column was hidden before its turn came: it stays waiting, with no model call. */
+  | { kind: "left-out" };
+
+/** Some of a table's columns and rows, each null for all of them: one rectangle of its cells. */
+interface CellRectangle {
+  questions: Set<string> | null;
+  documents: Set<string> | null;
+}
+
+/** The cells a fill writes: every cell in any of its rectangles. */
+type FillScope = CellRectangle[];
 
 interface Fill {
   mindId: string;
@@ -175,11 +237,8 @@ interface Fill {
   task: TaskRun;
   /** Whether the model runs on this computer: one cell at a time, giving way to Answers. */
   local: boolean;
-  /**
-   * The columns it fills, by their Questions' ids, and any a later request added
-   * while it ran; null: every cell to fill in the table.
-   */
-  scope: Set<string> | null;
+  /** The rectangles of cells it fills, and any a later request added while it ran. */
+  scope: FillScope;
 }
 
 /** What a cell's attributes are set to, and its content (none: one empty paragraph). */
@@ -228,14 +287,170 @@ function parseRef(input: unknown, what: string): ComparisonTableRef {
   return { mindId: String(input.mindId ?? ""), tableId: input.tableId };
 }
 
-function parseFillRef(input: unknown): ComparisonTableRef & { questionIds: string[] | null } {
-  const ref = parseRef(input, "fillComparisonTable");
-  const value = isRecord(input) ? input.questionIds : undefined;
-  if (value === undefined || value === null) return { ...ref, questionIds: null };
+function parseColumnMove(input: unknown): ComparisonColumnMove {
+  const ref = parseColumnId(input, "moveComparisonColumn");
+  const to = isRecord(input) ? input.to : undefined;
+  if (!Number.isInteger(to)) {
+    throw new InvalidInputError({ key: "error.comparison.columnIds" });
+  }
+  return { ...ref, to: to as number };
+}
+
+function parseColumnId(
+  input: unknown,
+  what: string,
+): ComparisonTableRef & { clientId: string; questionId: string } {
+  const ref = parseRef(input, what);
+  const questionId = isRecord(input) ? input.questionId : undefined;
+  const clientId = isRecord(input) ? input.clientId : undefined;
+  if (
+    typeof questionId !== "string" ||
+    questionId === "" ||
+    typeof clientId !== "string" ||
+    clientId === ""
+  ) {
+    throw new InvalidInputError({ key: "error.comparison.columnRequest" });
+  }
+  return { ...ref, clientId, questionId };
+}
+
+function parseEdit(input: unknown): ComparisonColumnEditRequest {
+  const base = parseColumnId(input, "editComparisonColumn");
+  if (!isRecord(input) || typeof input.text !== "string" || typeof input.label !== "string") {
+    throw new InvalidInputError({ key: "error.comparison.editRequest" });
+  }
+  return { ...base, text: input.text, label: input.label };
+}
+
+function parseInsert(input: unknown): ComparisonColumnInsertRequest {
+  const base = parseColumnId(input, "insertComparisonColumn");
+  const side = isRecord(input) ? input.side : undefined;
+  const text = isRecord(input) ? input.text : undefined;
+  const label = isRecord(input) ? input.label : undefined;
+  if ((side !== "left" && side !== "right") || typeof text !== "string") {
+    throw new InvalidInputError({ key: "error.comparison.insertRequest" });
+  }
+  return { ...base, side, text, ...(typeof label === "string" && { label }) };
+}
+
+function parseWidth(input: unknown): ComparisonColumnWidthRequest {
+  const base = parseColumnId(input, "resizeComparisonColumn");
+  const width = isRecord(input) ? input.width : undefined;
+  if (typeof width !== "number" || !Number.isFinite(width)) {
+    throw new InvalidInputError({ key: "error.comparison.resizeRequest" });
+  }
+  return { ...base, width };
+}
+
+function parseHidden(input: unknown): ComparisonColumnHiddenRequest {
+  const base = parseColumnId(input, "setComparisonColumnHidden");
+  const hidden = isRecord(input) ? input.hidden : undefined;
+  if (typeof hidden !== "boolean") {
+    throw new InvalidInputError({ key: "error.comparison.hideRequest" });
+  }
+  return { ...base, hidden };
+}
+
+function parseDuplicate(input: unknown): ComparisonColumnDuplicateRequest {
+  return parseColumnId(input, "duplicateComparisonColumn");
+}
+
+function parseStructure(input: unknown, what: string): ComparisonStructureRef {
+  const ref = parseRef(input, what);
+  const step = isRecord(input) ? input.step : undefined;
+  const clientId = isRecord(input) ? input.clientId : undefined;
+  if (typeof step !== "string" || step === "" || typeof clientId !== "string" || clientId === "") {
+    throw new InvalidInputError({ key: "error.comparison.structureRequest" });
+  }
+  return { ...ref, step, clientId };
+}
+
+function parseWatch(input: unknown): { mindId: string; clientId: string } {
+  const mindId = isRecord(input) ? input.mindId : undefined;
+  const clientId = isRecord(input) ? input.clientId : undefined;
+  if (
+    typeof mindId !== "string" ||
+    mindId === "" ||
+    typeof clientId !== "string" ||
+    clientId === ""
+  ) {
+    throw new InvalidInputError({ key: "error.comparison.watchRequest" });
+  }
+  return { mindId, clientId };
+}
+
+function parseRemove(input: unknown): ComparisonColumnRemoveRequest {
+  return parseColumnId(input, "removeComparisonColumn");
+}
+
+function parseRowsAdd(input: unknown): ComparisonRowsAddRequest {
+  const ref = parseRef(input, "addComparisonRows");
+  const clientId = isRecord(input) ? input.clientId : undefined;
+  const documentIds = isRecord(input) ? input.documentIds : undefined;
+  if (
+    typeof clientId !== "string" ||
+    clientId === "" ||
+    !Array.isArray(documentIds) ||
+    !documentIds.every((id) => typeof id === "string" && id !== "")
+  ) {
+    throw new InvalidInputError({ key: "error.comparison.rowsRequest" });
+  }
+  return { ...ref, clientId, documentIds: [...new Set(documentIds as string[])] };
+}
+
+function parseRowId(input: unknown, what: string): ComparisonRowRemoveRequest {
+  const ref = parseRef(input, what);
+  const documentId = isRecord(input) ? input.documentId : undefined;
+  const clientId = isRecord(input) ? input.clientId : undefined;
+  if (
+    typeof documentId !== "string" ||
+    documentId === "" ||
+    typeof clientId !== "string" ||
+    clientId === ""
+  ) {
+    throw new InvalidInputError({ key: "error.comparison.rowRequest" });
+  }
+  return { ...ref, clientId, documentId };
+}
+
+function parseRowMove(input: unknown): ComparisonRowMoveRequest {
+  const ref = parseRowId(input, "moveComparisonRow");
+  const to = isRecord(input) ? input.to : undefined;
+  if (!Number.isInteger(to)) {
+    throw new InvalidInputError({ key: "error.comparison.rowRequest" });
+  }
+  return { ...ref, to: to as number };
+}
+
+/** A column's label, as one short line; empty is no label, which the heading derives. */
+function labelLine(value: string): string {
+  return value.replace(/\s+/g, " ").trim().slice(0, MAX_COMPARISON_LABEL);
+}
+
+function withLabel<T extends { label?: string }>(question: T, label: string): T {
+  if (label) return { ...question, label };
+  const { label: _gone, ...rest } = question;
+  return rest as T;
+}
+
+/** A list of ids a fill is limited to, or null for all of them. */
+function fillIds(value: unknown): string[] | null {
+  if (value === undefined || value === null) return null;
   if (!Array.isArray(value) || !value.every((each) => typeof each === "string" && each !== "")) {
     throw new InvalidInputError({ key: "error.comparison.columnIds" });
   }
-  return { ...ref, questionIds: value.length > 0 ? [...new Set(value)] : null };
+  return value.length > 0 ? [...new Set(value)] : null;
+}
+
+function parseFillRef(
+  input: unknown,
+): ComparisonTableRef & { questionIds: string[] | null; documentIds: string[] | null } {
+  const ref = parseRef(input, "fillComparisonTable");
+  return {
+    ...ref,
+    questionIds: fillIds(isRecord(input) ? input.questionIds : undefined),
+    documentIds: fillIds(isRecord(input) ? input.documentIds : undefined),
+  };
 }
 
 /** A comparison table's Block, by its id: null once it was deleted or rejected. */
@@ -245,8 +460,17 @@ const tableIn = (blocks: Y.XmlFragment, tableId: string) =>
 const elements = (parent: Y.XmlElement) =>
   parent.toArray().filter((child): child is Y.XmlElement => child instanceof Y.XmlElement);
 
+/** Whether a fill's rectangles hold the cell of `questionId` and `documentId`. */
+function inScope(scope: FillScope, questionId: string, documentId: string): boolean {
+  return scope.some(
+    ({ questions, documents }) =>
+      (questions === null || questions.has(questionId)) &&
+      (documents === null || documents.has(documentId)),
+  );
+}
+
 /** The cells to fill in a table, row by row, each row's in its columns' order. */
-function cellsToFill(table: Y.XmlElement, only: ReadonlySet<string> | null = null): Cell[] {
+function cellsToFill(table: Y.XmlElement, scope: FillScope): Cell[] {
   const questions = comparisonQuestionsOf(table.getAttributes());
   const cells: Cell[] = [];
   for (const row of elements(table)) {
@@ -256,7 +480,9 @@ function cellsToFill(table: Y.XmlElement, only: ReadonlySet<string> | null = nul
       elements(row).map((cell) => [String(cell.getAttribute("questionId") ?? ""), cell]),
     );
     for (const question of questions) {
-      if (only && !only.has(question.id)) continue;
+      // A hidden column is out of the work until it is shown again.
+      if (question.hidden === true) continue;
+      if (!inScope(scope, question.id, documentId)) continue;
       const cell = byQuestion.get(question.id);
       if (!cell || !cellToFill(comparisonCellOf(cell.getAttributes()))) continue;
       cells.push({ documentId, questionId: question.id, question: question.text });
@@ -272,17 +498,22 @@ const cellJSON = (questionId: string): NodeJSON => ({
   content: EMPTY_CELL,
 });
 
-/** A table's cells settled (written, or without an Answer), and in all. */
-function progressOf(
-  table: Y.XmlElement,
-  only: ReadonlySet<string> | null = null,
-): { done: number; total: number } {
+/** A table's cells settled (written, or without an Answer), and in all, within a fill's scope. */
+function progressOf(table: Y.XmlElement, scope: FillScope): { done: number; total: number } {
   let done = 0;
   let total = 0;
+  const hidden = new Set(
+    comparisonQuestionsOf(table.getAttributes())
+      .filter((question) => question.hidden === true)
+      .map((question) => question.id),
+  );
   for (const row of elements(table)) {
     if (row.nodeName !== COMPARISON_ROW_NODE) continue;
+    const documentId = String(row.getAttribute("documentId") ?? "");
     for (const cell of elements(row)) {
-      if (only && !only.has(String(cell.getAttribute("questionId") ?? ""))) continue;
+      const questionId = String(cell.getAttribute("questionId") ?? "");
+      if (hidden.has(questionId)) continue;
+      if (!inScope(scope, questionId, documentId)) continue;
       total++;
       const status = comparisonCellOf(cell.getAttributes()).status;
       if (status === "done" || status === "failed") done++;
@@ -295,49 +526,60 @@ export function createComparisons(options: ComparisonsOptions) {
   const { content } = options;
   /** The fills going, by table. */
   const fills = new Map<string, Fill>();
-  // Columns asked for while a table's Task runs or waits: its Task's scope plus these
-  // make the columns it fills; "all" is the whole table.
-  const extraScopes = new Map<string, Set<string> | "all">();
+  /** The cells asked for while a table's Task waits: its Task's rectangles plus these. */
+  const extraScopes = new Map<string, FillScope>();
 
-  // Adds a request's columns to the Task's durable input, so a run resumed after a
-  // quit fills them too, and to its fill going, if any.
-  function widen(tableId: string, questionIds: readonly string[] | null): void {
+  const rectangleOf = ({ questionIds, documentIds }: CellRequest): CellRectangle => ({
+    questions: questionIds ? new Set(questionIds) : null,
+    documents: documentIds ? new Set(documentIds) : null,
+  });
+
+  const requestOf = ({ questions, documents }: CellRectangle): CellRequest => ({
+    ...(questions && { questionIds: [...questions] }),
+    ...(documents && { documentIds: [...documents] }),
+  });
+
+  /** Whether `outer` holds every cell of `inner`. */
+  function holds(outer: CellRectangle, inner: CellRectangle): boolean {
+    const holdsAll = (all: Set<string> | null, some: Set<string> | null) =>
+      all === null || (some !== null && [...some].every((id) => all.has(id)));
+    return holdsAll(outer.questions, inner.questions) && holdsAll(outer.documents, inner.documents);
+  }
+
+  // Rectangles stay apart: a row request and a column request together hold their two
+  // rectangles, not every cell the two touch.
+  function widenScope(scope: FillScope, added: CellRectangle): FillScope {
+    if (scope.some((each) => holds(each, added))) return scope;
+    return [...scope.filter((each) => !holds(added, each)), added];
+  }
+
+  // Adds a request's cells to the Task's durable input, so a run resumed after a quit fills
+  // them too, and to its fill going, if any.
+  function widen(
+    tableId: string,
+    questionIds: readonly string[] | null,
+    documentIds: readonly string[] | null,
+  ): void {
     const task = taskOf(tableId);
-    const input = task ? taskInputOf(task.input) : null;
-    const merged =
-      input?.questionIds && questionIds !== null
-        ? [...new Set([...input.questionIds, ...questionIds])]
-        : null;
-    if (task && input) {
-      const kept = input.questionIds ?? [];
-      const wider =
-        merged === null
-          ? questionIds === null && input.questionIds !== undefined
-          : merged.length !== kept.length || merged.some((id) => !kept.includes(id));
-      if (wider) {
-        options.tasks.updateInput(task.id, {
-          tableId: input.tableId,
-          providerId: input.providerId,
-          modelId: input.modelId,
-          ...(merged && { questionIds: merged }),
-        });
-      }
+    if (!task) return;
+    const input = taskInputOf(task.input);
+    // A fill only exists under a Task, whose input says what it fills.
+    if (!input) return;
+    const added = rectangleOf({
+      ...(questionIds && { questionIds: [...questionIds] }),
+      ...(documentIds && { documentIds: [...documentIds] }),
+    });
+    const wanted = input.fills.map(rectangleOf);
+    const scope = widenScope(wanted, added);
+    if (scope !== wanted) {
+      options.tasks.updateInput(task.id, { ...input, fills: scope.map(requestOf) });
     }
     const fill = fills.get(tableId);
     if (fill) {
-      if (merged === null) fill.scope = null;
-      else if (fill.scope) for (const id of merged) fill.scope.add(id);
+      fill.scope = widenScope(fill.scope, added);
       return;
     }
-    if (merged === null) {
-      extraScopes.set(tableId, "all");
-      return;
-    }
-    const current = extraScopes.get(tableId);
-    if (current === "all") return;
-    const ids = current ?? new Set<string>(input?.questionIds ?? []);
-    for (const id of merged) ids.add(id);
-    extraScopes.set(tableId, ids);
+    extraScopes.set(tableId, widenScope(extraScopes.get(tableId) ?? wanted, added));
   }
 
   /** The unfinished Task filling a table, if any. */
@@ -417,6 +659,17 @@ export function createComparisons(options: ComparisonsOptions) {
     });
   }
 
+  function cellShown(fill: Fill, tableId: string, cell: Pick<Cell, "questionId">): boolean {
+    return content.read(fill.mindId, (all) => {
+      const table = tableIn(all, tableId);
+      return table
+        ? comparisonQuestionsOf(table.getAttributes()).some(
+            (question) => question.id === cell.questionId && question.hidden !== true,
+          )
+        : false;
+    });
+  }
+
   /** Writes a cell's outcome as it comes. A stopped cell stays as it was: filling again writes it. */
   function record(fill: Fill, tableId: string, cell: Cell, outcome: ItemOutcome<Written>): void {
     let patch: CellPatch;
@@ -424,6 +677,7 @@ export function createComparisons(options: ComparisonsOptions) {
       case "stopped":
         return;
       case "done":
+        if (outcome.value.kind === "left-out") return;
         patch =
           outcome.value.kind === "answer"
             ? {
@@ -451,6 +705,8 @@ export function createComparisons(options: ComparisonsOptions) {
         };
         break;
       case "not-checked":
+        // A column hidden while its cell waited is out of the work, not failed: Show offers it again.
+        if (!cellShown(fill, tableId, cell)) return;
         patch = {
           status: "failed",
           problem: outcome.stop.reason,
@@ -489,8 +745,12 @@ export function createComparisons(options: ComparisonsOptions) {
    * gives way to an Answer, and is written again after it.
    */
   async function write(fill: Fill, tableId: string, cell: Cell): Promise<Written> {
+    // Hidden since its batch was listed: its turn never comes, so it waits for Show.
+    if (!cellShown(fill, tableId, cell)) return { kind: "left-out" };
     const turn = await fill.task.turn(fill.local);
     try {
+      // It can be hidden while it waits for its turn, too.
+      if (!cellShown(fill, tableId, cell)) return { kind: "left-out" };
       const written = await writeCell(
         fill,
         tableId,
@@ -658,7 +918,7 @@ export function createComparisons(options: ComparisonsOptions) {
   async function fillAsTask(
     task: TaskRun,
     mindId: string,
-    { tableId, providerId, modelId, questionIds }: ComparisonTaskInput,
+    { tableId, providerId, modelId, fills: requests }: ComparisonTaskInput,
   ): Promise<TaskEnd> {
     const there = () =>
       options.mindExists(mindId) && content.read(mindId, (all) => !!tableIn(all, tableId));
@@ -669,21 +929,17 @@ export function createComparisons(options: ComparisonsOptions) {
     const controller = new AbortController();
     const abort = () => controller.abort();
     task.signal.addEventListener("abort", abort, { once: true });
-    // A column asked for before the Task ran joins the columns it was started with,
+    // Columns or rows asked for before the Task ran join those it was started with,
     // and the Task's input records them, so a resume after a quit fills them too.
     const extra = extraScopes.get(tableId);
     extraScopes.delete(tableId);
-    const scope = !questionIds
-      ? null
-      : extra === "all"
-        ? null
-        : new Set([...questionIds, ...(extra ?? [])]);
+    const scope: FillScope = extra ?? requests.map(rectangleOf);
     if (extra !== undefined) {
       options.tasks.updateInput(task.id, {
         tableId,
         providerId,
         modelId,
-        ...(scope && { questionIds: [...scope] }),
+        fills: scope.map(requestOf),
       });
     }
     const fill: Fill = {
@@ -717,18 +973,19 @@ export function createComparisons(options: ComparisonsOptions) {
   }
 
   /**
-   * Fills a table as a Task: resumes the one it has, adding the columns this
-   * request wants to the columns it fills, or starts one.
+   * Fills a table as a Task: resumes the one it has, adding the columns and
+   * rows this request wants to the cells it fills, or starts one.
    */
   function startFill(
     mindId: string,
     tableId: string,
     model: ChatModelChoice,
-    questionIds: string[] | null = null,
+    questionIds: readonly string[] | null = null,
+    documentIds: readonly string[] | null = null,
   ): void {
     const task = taskOf(tableId);
     if (task) {
-      widen(tableId, questionIds);
+      widen(tableId, questionIds, documentIds);
       if (!options.tasks.isLive(task.id)) options.tasks.resume(task.id).catch(options.reportError);
       return;
     }
@@ -737,7 +994,12 @@ export function createComparisons(options: ComparisonsOptions) {
       tableId,
       providerId: model.providerId,
       modelId: model.modelId,
-      ...(questionIds && { questionIds }),
+      fills: [
+        {
+          ...(questionIds && { questionIds: [...questionIds] }),
+          ...(documentIds && { documentIds: [...documentIds] }),
+        },
+      ],
     });
   }
 
@@ -778,6 +1040,842 @@ export function createComparisons(options: ComparisonsOptions) {
     blockOf: (input) => taskInputOf(input)?.tableId ?? null,
     describeSteps: describeCells,
   };
+
+  type ColumnQuestion = ReturnType<typeof comparisonQuestionsOf>[number];
+
+  /** One column of a table as a change needs it: its Question and a copy of each row's cell. */
+  interface AddressedColumn {
+    question: ColumnQuestion;
+    cells: Map<string, NodeJSON>;
+  }
+
+  /** One structure change, undone and done again on the table it changed, by the window that made it. */
+  interface StructureStep {
+    id: string;
+    clientId: string;
+    mindId: string;
+    tableId: string;
+    undo(table: Y.XmlElement): void;
+    redo(table: Y.XmlElement): void;
+  }
+
+  /** A table's structure changes still undoable, and those undone, most recent last. */
+  interface TableHistory {
+    steps: Map<string, StructureStep>;
+    applied: string[];
+    undone: string[];
+  }
+
+  /** How many structure changes a table keeps to undo; older step records and their copies go. */
+  const MAX_STRUCTURE_STEPS = 100;
+  const histories = new Map<string, TableHistory>();
+  /** Structure commands of a table run one after another, in the order the windows asked. */
+  const structureQueues = new Map<string, Promise<unknown>>();
+  /** The windows with each Mind open: a structure change waits for all of them to flush. */
+  const watchers = new Map<string, Set<string>>();
+  const acks = new Map<string, { pending: Set<string>; done: () => void }>();
+
+  const rowsOf = (table: Y.XmlElement) =>
+    elements(table).filter((row) => row.nodeName === COMPARISON_ROW_NODE);
+  const documentIdOf = (row: Y.XmlElement) => String(row.getAttribute("documentId") ?? "");
+  const questionsOf = (table: Y.XmlElement) => comparisonQuestionsOf(table.getAttributes());
+  function setQuestions(table: Y.XmlElement, questions: readonly ColumnQuestion[]): void {
+    const typed = table as Y.XmlElement<{ questions: readonly ColumnQuestion[] }>;
+    typed.setAttribute("questions", questions);
+  }
+
+  function cellOf(row: Y.XmlElement, questionId: string): Y.XmlElement | null {
+    return (
+      elements(row).find(
+        (cell) =>
+          cell.nodeName === COMPARISON_CELL_NODE &&
+          String(cell.getAttribute("questionId") ?? "") === questionId,
+      ) ?? null
+    );
+  }
+
+  function captureColumn(table: Y.XmlElement, index: number): AddressedColumn | null {
+    const question = questionsOf(table)[index];
+    if (!question) return null;
+    const cells = new Map<string, NodeJSON>();
+    for (const row of rowsOf(table)) {
+      const cell = cellOf(row, question.id);
+      if (cell) cells.set(documentIdOf(row), nodeOf(cell));
+    }
+    return { question: { ...question }, cells };
+  }
+
+  function waitingColumn(question: ColumnQuestion): AddressedColumn {
+    return { question, cells: new Map() };
+  }
+
+  /** A cell put back by Undo waits for its fill again, rather than saying it is still being written. */
+  function restorable(cell: NodeJSON): NodeJSON {
+    if (cell.attrs?.status !== "writing") return cell;
+    return { ...cell, attrs: { ...cell.attrs, status: "waiting" } };
+  }
+
+  /** A row as it is now, its cells waiting wherever a fill was still writing them. */
+  function restorableRow(row: NodeJSON): NodeJSON {
+    return { ...row, content: (row.content ?? []).map((cell) => restorable(cell)) };
+  }
+
+  function insertRowAt(table: Y.XmlElement, index: number, row: NodeJSON): void {
+    const rows = rowsOf(table);
+    const at = Math.max(0, Math.min(index, rows.length));
+    table.insert(at, [createElement(restorableRow(row))]);
+  }
+
+  function removeRowAt(table: Y.XmlElement, index: number): void {
+    const row = rowsOf(table)[index];
+    if (!row) return;
+    const at = table.toArray().indexOf(row);
+    if (at >= 0) table.delete(at, 1);
+  }
+
+  /** A row moved among the rows, copied into its new place in one change. */
+  function moveRowIn(
+    table: Y.XmlElement,
+    documentId: string,
+    to: number,
+  ): { index: number; moved: boolean } {
+    const rows = rowsOf(table);
+    const from = rows.findIndex((row) => documentIdOf(row) === documentId);
+    if (from < 0) return { index: -1, moved: false };
+    const at = Math.min(Math.max(to, 0), rows.length - 1);
+    if (at === from) return { index: from, moved: false };
+    const row = rows[from] as Y.XmlElement;
+    const copy = row.clone();
+    const at0 = table.toArray().indexOf(row);
+    table.delete(at0, 1);
+    table.insert(at, [copy]);
+    return { index: at, moved: true };
+  }
+
+  function insertColumnAt(table: Y.XmlElement, index: number, column: AddressedColumn): void {
+    const questions = questionsOf(table);
+    const at = Math.max(0, Math.min(index, questions.length));
+    const next = [...questions];
+    next.splice(at, 0, column.question);
+    setQuestions(table, next);
+    for (const row of rowsOf(table)) {
+      const stored = column.cells.get(documentIdOf(row));
+      row.insert(Math.min(at, row.length), [
+        createElement(stored ? restorable(stored) : cellJSON(column.question.id)),
+      ]);
+    }
+  }
+
+  function replaceColumnAt(table: Y.XmlElement, index: number, column: AddressedColumn): void {
+    const questions = questionsOf(table);
+    const current = questions[index];
+    if (!current) {
+      insertColumnAt(table, index, column);
+      return;
+    }
+    const next = [...questions];
+    next[index] = column.question;
+    setQuestions(table, next);
+    for (const row of rowsOf(table)) {
+      const existing = cellOf(row, current.id) ?? cellOf(row, column.question.id);
+      const at = existing ? row.toArray().indexOf(existing) : index;
+      if (existing && at >= 0) row.delete(at, 1);
+      const stored = column.cells.get(documentIdOf(row));
+      row.insert(Math.min(at < 0 ? index : at, row.length), [
+        createElement(stored ? restorable(stored) : cellJSON(column.question.id)),
+      ]);
+    }
+  }
+
+  function removeColumnById(table: Y.XmlElement, questionId: string): number {
+    const questions = questionsOf(table);
+    const at = questions.findIndex((question) => question.id === questionId);
+    if (at < 0) return -1;
+    setQuestions(
+      table,
+      questions.filter((question) => question.id !== questionId),
+    );
+    for (const row of rowsOf(table)) {
+      const cell = cellOf(row, questionId);
+      if (!cell) continue;
+      const index = row.toArray().indexOf(cell);
+      if (index >= 0) row.delete(index, 1);
+    }
+    return at;
+  }
+
+  function setQuestion(table: Y.XmlElement, questionId: string, question: ColumnQuestion): void {
+    const questions = questionsOf(table);
+    const index = questions.findIndex((each) => each.id === questionId);
+    if (index < 0) return;
+    const next = [...questions];
+    next[index] = question;
+    setQuestions(table, next);
+  }
+
+  /**
+   * A column moved to `to`: the Questions' order and every row's cells in it,
+   * copied into that order in one transaction, so no reader ever sees a half
+   * moved table. A cell is copied whole, the words a fill is streaming into
+   * it included; fills write their cells by questionId, so they keep writing
+   * into them wherever the move put them.
+   */
+  function moveIn(
+    table: Y.XmlElement,
+    questionId: string,
+    to: number,
+  ): { index: number; moved: boolean } {
+    const questions = questionsOf(table);
+    const from = questions.findIndex((question) => question.id === questionId);
+    if (from < 0) return { index: -1, moved: false };
+    const at = Math.min(Math.max(to, 0), questions.length - 1);
+    if (at === from) return { index: from, moved: false };
+    const next = questions.filter((_question, index) => index !== from);
+    next.splice(at, 0, questions[from] as ColumnQuestion);
+    for (const row of rowsOf(table)) {
+      const cells = new Map(
+        elements(row)
+          .filter((cell) => cell.nodeName === COMPARISON_CELL_NODE)
+          .map((cell) => [String(cell.getAttribute("questionId") ?? ""), cell]),
+      );
+      const ordered = next.flatMap((question) => {
+        const cell = cells.get(question.id);
+        return cell ? [cell.clone()] : [];
+      });
+      row.delete(0, row.length);
+      row.insert(0, ordered);
+    }
+    setQuestions(table, next);
+    return { index: at, moved: true };
+  }
+
+  function withTable<T>(mindId: string, tableId: string, change: (table: Y.XmlElement) => T): T {
+    return content.edit(mindId, (all) => {
+      const table = tableIn(all, tableId);
+      if (!table) throw new NotFoundError({ key: "error.comparison.notFound" });
+      return change(table);
+    });
+  }
+
+  const historyKey = (mindId: string, tableId: string) => `${mindId}\n${tableId}`;
+
+  function historyOf(mindId: string, tableId: string): TableHistory {
+    const key = historyKey(mindId, tableId);
+    const existing = histories.get(key);
+    if (existing) return existing;
+    const history: TableHistory = { steps: new Map(), applied: [], undone: [] };
+    histories.set(key, history);
+    return history;
+  }
+
+  /**
+   * A window that is gone stops being waited for: dropped from every Mind it
+   * watched, and from every wait it was part of. A window that misses one wait
+   * is dropped the same way, so it costs that one wait and no more.
+   */
+  function forgetClient(clientId: string): void {
+    for (const [watchedMind, watching] of watchers) {
+      if (!watching.delete(clientId)) continue;
+      if (watching.size === 0) watchers.delete(watchedMind);
+    }
+    for (const waiting of [...acks.values()]) {
+      if (waiting.pending.delete(clientId) && waiting.pending.size === 0) waiting.done();
+    }
+  }
+
+  /**
+   * Every window with the Mind open flushes its changes for it, and holds
+   * that table's edits, before the change copies a cell; the core waits for
+   * each window's word that they have reached it, then writes.
+   */
+  async function barrier<T>(mindId: string, tableId: string, run: () => T): Promise<T> {
+    const requestId = randomUUID();
+    const pending = new Set(watchers.get(mindId) ?? []);
+    options.emit("comparison.structure", { mindId, tableId, requestId, writing: true });
+    if (pending.size > 0) {
+      await new Promise<void>((resolve) => {
+        const timer = setTimeout(() => {
+          const waiting = acks.get(requestId)?.pending;
+          acks.delete(requestId);
+          for (const clientId of waiting ?? []) forgetClient(clientId);
+          options.reportError(new Error(`A window did not answer a column change of ${tableId}.`));
+          resolve();
+        }, 2000);
+        acks.set(requestId, {
+          pending,
+          done: () => {
+            clearTimeout(timer);
+            acks.delete(requestId);
+            resolve();
+          },
+        });
+      });
+    }
+    try {
+      return run();
+    } finally {
+      options.emit("comparison.structure", { mindId, tableId, requestId, writing: false });
+    }
+  }
+
+  function queued<T>(mindId: string, tableId: string, run: () => T): Promise<T> {
+    const key = historyKey(mindId, tableId);
+    const earlier = structureQueues.get(key) ?? Promise.resolve();
+    const perform = () => barrier(mindId, tableId, run);
+    const next = earlier.then(perform, perform);
+    structureQueues.set(
+      key,
+      next.then(
+        () => undefined,
+        () => undefined,
+      ),
+    );
+    return next;
+  }
+
+  function remember(step: Omit<StructureStep, "id">): string {
+    const id = randomUUID();
+    const history = historyOf(step.mindId, step.tableId);
+    for (const undoneId of history.undone) history.steps.delete(undoneId);
+    history.undone = [];
+    history.steps.set(id, { ...step, id });
+    history.applied.push(id);
+    while (history.applied.length > MAX_STRUCTURE_STEPS) {
+      const dropped = history.applied.shift();
+      if (dropped && !history.undone.includes(dropped)) history.steps.delete(dropped);
+    }
+    return id;
+  }
+
+  function watchMind(mindId: string, clientId: string): void {
+    const watching = watchers.get(mindId) ?? new Set<string>();
+    watching.add(clientId);
+    watchers.set(mindId, watching);
+  }
+
+  function unwatchMind(mindId: string, clientId: string): void {
+    const watching = watchers.get(mindId);
+    if (!watching) return;
+    watching.delete(clientId);
+    if (watching.size === 0) watchers.delete(mindId);
+  }
+
+  function acknowledge(requestId: string, clientId: string): void {
+    const waiting = acks.get(requestId);
+    if (!waiting?.pending.delete(clientId)) return;
+    if (waiting.pending.size === 0) waiting.done();
+  }
+
+  /**
+   * A column's label and Question (#1833): a new Question gives it new cells,
+   * so a fill still writing for the old one can no longer land, and Undo puts
+   * the old Question and its Answers back. Everything else about the column,
+   * its width and its hidden flag, stays.
+   */
+  async function editColumn(raw: unknown): Promise<ComparisonColumnEdited> {
+    const input = parseEdit(raw);
+    const mindId = options.requireMind(input.mindId);
+    return queued(mindId, input.tableId, () =>
+      withTable(mindId, input.tableId, (table) => {
+        const questions = questionsOf(table);
+        const index = questions.findIndex((question) => question.id === input.questionId);
+        const old = questions[index];
+        if (!old)
+          return {
+            changed: false,
+            refilled: false,
+            questionId: input.questionId,
+            label: "",
+            step: "",
+          };
+        const text = oneLine(input.text, "A Question", "error.comparison.questionTooLong");
+        if (!text) throw new InvalidInputError({ key: "error.comparison.noQuestion" });
+        const label = labelLine(input.label);
+        if (text === old.text && label === (old.label ?? "")) {
+          return {
+            changed: false,
+            refilled: false,
+            questionId: input.questionId,
+            label: comparisonLabelOf(old),
+            step: "",
+          };
+        }
+        if (text === old.text) {
+          const next = withLabel({ ...old }, label);
+          setQuestion(table, input.questionId, next);
+          const step = remember({
+            mindId,
+            clientId: input.clientId,
+            tableId: input.tableId,
+            undo: (current) => setQuestion(current, input.questionId, old),
+            redo: (current) => setQuestion(current, input.questionId, next),
+          });
+          return {
+            changed: true,
+            refilled: false,
+            questionId: input.questionId,
+            label: comparisonLabelOf(next),
+            step,
+          };
+        }
+        const newQuestionId = randomUUID();
+        const question: ColumnQuestion = {
+          id: newQuestionId,
+          text,
+          ...(label && { label }),
+          ...(old.width !== undefined && { width: old.width }),
+          ...(old.hidden !== undefined && { hidden: old.hidden }),
+        };
+        const removed = captureColumn(table, index);
+        if (!removed)
+          return {
+            changed: false,
+            refilled: false,
+            questionId: input.questionId,
+            label: "",
+            step: "",
+          };
+        let state = waitingColumn(question);
+        replaceColumnAt(table, index, state);
+        const step = remember({
+          mindId,
+          clientId: input.clientId,
+          tableId: input.tableId,
+          undo: (current) => {
+            const at = questionsOf(current).findIndex((each) => each.id === newQuestionId);
+            if (at < 0) return;
+            state = captureColumn(current, at) ?? state;
+            replaceColumnAt(current, at, removed);
+          },
+          redo: (current) => {
+            const at = questionsOf(current).findIndex((each) => each.id === old.id);
+            if (at < 0) return;
+            replaceColumnAt(current, at, state);
+          },
+        });
+        return {
+          changed: true,
+          refilled: true,
+          questionId: newQuestionId,
+          label: comparisonLabelOf(question),
+          step,
+        };
+      }),
+    );
+  }
+
+  /** A column added beside another, with a waiting cell in every row; Undo takes it out whole. */
+  async function insertColumn(raw: unknown): Promise<ComparisonColumnAdded> {
+    const input = parseInsert(raw);
+    const mindId = options.requireMind(input.mindId);
+    return queued(mindId, input.tableId, () =>
+      withTable(mindId, input.tableId, (table) => {
+        const questions = questionsOf(table);
+        const beside = questions.findIndex((question) => question.id === input.questionId);
+        if (beside < 0) throw new NotFoundError({ key: "error.comparison.notFound" });
+        if (questions.length >= MAX_COMPARISON_QUESTIONS) {
+          throw new InvalidInputError({
+            key: "error.comparison.tooManyQuestions",
+            values: { max: MAX_COMPARISON_QUESTIONS },
+          });
+        }
+        const text = oneLine(input.text, "A Question", "error.comparison.questionTooLong");
+        if (!text) throw new InvalidInputError({ key: "error.comparison.noQuestion" });
+        const label = labelLine(input.label ?? "");
+        const question: ColumnQuestion = { id: randomUUID(), text, ...(label && { label }) };
+        const at = input.side === "left" ? beside : beside + 1;
+        let state = waitingColumn(question);
+        insertColumnAt(table, at, state);
+        const step = remember({
+          mindId,
+          clientId: input.clientId,
+          tableId: input.tableId,
+          undo: (current) => {
+            const index = questionsOf(current).findIndex((each) => each.id === question.id);
+            if (index < 0) return;
+            state = captureColumn(current, index) ?? state;
+            removeColumnById(current, question.id);
+          },
+          redo: (current) => insertColumnAt(current, at, state),
+        });
+        return { questionId: question.id, label: comparisonLabelOf(question), fill: true, step };
+      }),
+    );
+  }
+
+  /** A column copied beside itself, its Answers included; Undo takes the copy out whole. */
+  async function duplicateColumn(raw: unknown): Promise<ComparisonColumnAdded> {
+    const input = parseDuplicate(raw);
+    const mindId = options.requireMind(input.mindId);
+    return queued(mindId, input.tableId, () =>
+      withTable(mindId, input.tableId, (table) => {
+        const questions = questionsOf(table);
+        const index = questions.findIndex((question) => question.id === input.questionId);
+        const source = questions[index];
+        if (!source) throw new NotFoundError({ key: "error.comparison.notFound" });
+        if (questions.length >= MAX_COMPARISON_QUESTIONS) {
+          throw new InvalidInputError({
+            key: "error.comparison.tooManyQuestions",
+            values: { max: MAX_COMPARISON_QUESTIONS },
+          });
+        }
+        const question: ColumnQuestion = { ...source, id: randomUUID() };
+        const cells = new Map<string, NodeJSON>();
+        let fill = false;
+        for (const row of rowsOf(table)) {
+          const cell = cellOf(row, source.id);
+          const state = cell ? comparisonCellOf(cell.getAttributes()) : null;
+          const kept = cell ? nodeOf(cell) : null;
+          const copy =
+            kept && state && (state.status === "done" || state.status === "failed")
+              ? { ...kept, attrs: { ...kept.attrs, questionId: question.id } }
+              : cellJSON(question.id);
+          if (cellToFill(comparisonCellOf(copy.attrs ?? {}))) fill = true;
+          cells.set(documentIdOf(row), copy);
+        }
+        const at = index + 1;
+        let state = { question, cells };
+        insertColumnAt(table, at, state);
+        const step = remember({
+          mindId,
+          clientId: input.clientId,
+          tableId: input.tableId,
+          undo: (current) => {
+            const found = questionsOf(current).findIndex((each) => each.id === question.id);
+            if (found < 0) return;
+            state = captureColumn(current, found) ?? state;
+            removeColumnById(current, question.id);
+          },
+          redo: (current) => insertColumnAt(current, at, state),
+        });
+        return { questionId: question.id, label: comparisonLabelOf(question), fill, step };
+      }),
+    );
+  }
+
+  /** A column and its cells taken out whole; Undo puts them back with their Answers and problems. */
+  async function removeColumn(raw: unknown): Promise<ComparisonColumnRemoved> {
+    const input = parseRemove(raw);
+    const mindId = options.requireMind(input.mindId);
+    return queued(mindId, input.tableId, () =>
+      withTable(mindId, input.tableId, (table) => {
+        const questions = questionsOf(table);
+        const index = questions.findIndex((question) => question.id === input.questionId);
+        const removed = questions[index];
+        if (!removed) throw new NotFoundError({ key: "error.comparison.notFound" });
+        if (questions.length <= 1) {
+          throw new InvalidInputError({ key: "error.comparison.lastColumn" });
+        }
+        const column = captureColumn(table, index);
+        if (!column) throw new NotFoundError({ key: "error.comparison.notFound" });
+        removeColumnById(table, removed.id);
+        const after = questions.slice(index + 1).find((question) => question.hidden !== true);
+        const before = questions
+          .slice(0, index)
+          .reverse()
+          .find((question) => question.hidden !== true);
+        let state = column;
+        const step = remember({
+          mindId,
+          clientId: input.clientId,
+          tableId: input.tableId,
+          undo: (current) => insertColumnAt(current, index, state),
+          redo: (current) => {
+            const at = questionsOf(current).findIndex((each) => each.id === removed.id);
+            if (at >= 0) state = captureColumn(current, at) ?? state;
+            removeColumnById(current, removed.id);
+          },
+        });
+        return {
+          label: comparisonLabelOf(removed),
+          focusId: after?.id ?? before?.id ?? null,
+          step,
+        };
+      }),
+    );
+  }
+
+  /** A column's width within the table's bounds; Undo puts the old width back. */
+  async function resizeColumn(raw: unknown): Promise<ComparisonColumnWidthSet | null> {
+    const input = parseWidth(raw);
+    const mindId = options.requireMind(input.mindId);
+    return queued(mindId, input.tableId, () =>
+      withTable(mindId, input.tableId, (table) => {
+        const questions = questionsOf(table);
+        const index = questions.findIndex((question) => question.id === input.questionId);
+        const old = questions[index];
+        if (!old) throw new NotFoundError({ key: "error.comparison.notFound" });
+        const width = Math.min(
+          MAX_COMPARISON_COLUMN_WIDTH,
+          Math.max(MIN_COMPARISON_COLUMN_WIDTH, Math.round(input.width)),
+        );
+        if (old.width === width) return null;
+        const next = { ...old, width };
+        setQuestion(table, input.questionId, next);
+        const step = remember({
+          mindId,
+          clientId: input.clientId,
+          tableId: input.tableId,
+          undo: (current) => setQuestion(current, input.questionId, old),
+          redo: (current) => setQuestion(current, input.questionId, next),
+        });
+        return { label: comparisonLabelOf(old), width, step };
+      }),
+    );
+  }
+
+  /** A column hidden from the table, or shown again: hiding deletes nothing. */
+  async function setHidden(raw: unknown): Promise<ComparisonColumnHiddenSet | null> {
+    const input = parseHidden(raw);
+    const mindId = options.requireMind(input.mindId);
+    return queued(mindId, input.tableId, () =>
+      withTable(mindId, input.tableId, (table) => {
+        const questions = questionsOf(table);
+        const index = questions.findIndex((question) => question.id === input.questionId);
+        const old = questions[index];
+        if (!old) throw new NotFoundError({ key: "error.comparison.notFound" });
+        if ((old.hidden === true) === input.hidden) return null;
+        const next: ColumnQuestion = input.hidden
+          ? { ...old, hidden: true }
+          : (() => {
+              const { hidden: _hidden, ...shown } = old;
+              return shown;
+            })();
+        setQuestion(table, input.questionId, next);
+        const shownList = questions.map((question, at) => (at === index ? next : question));
+        const after = shownList.slice(index + 1).find((question) => question.hidden !== true);
+        const before = shownList
+          .slice(0, index)
+          .reverse()
+          .find((question) => question.hidden !== true);
+        const step = remember({
+          mindId,
+          clientId: input.clientId,
+          tableId: input.tableId,
+          undo: (current) => setQuestion(current, input.questionId, old),
+          redo: (current) => setQuestion(current, input.questionId, next),
+        });
+        return {
+          label: comparisonLabelOf(old),
+          questionId: input.questionId,
+          hidden: input.hidden,
+          focusId: input.hidden ? (after?.id ?? before?.id ?? null) : input.questionId,
+          step,
+        };
+      }),
+    );
+  }
+
+  async function moveColumn(raw: unknown): Promise<ComparisonColumnMoveResult> {
+    const input = parseColumnMove(raw);
+    const mindId = options.requireMind(input.mindId);
+    return queued(mindId, input.tableId, () =>
+      withTable(mindId, input.tableId, (table) => {
+        const from = questionsOf(table).findIndex((question) => question.id === input.questionId);
+        const moved = moveIn(table, input.questionId, input.to);
+        if (!moved.moved || from < 0) return { ...moved, step: "" };
+        const step = remember({
+          mindId,
+          clientId: input.clientId,
+          tableId: input.tableId,
+          undo: (current) => moveIn(current, input.questionId, from),
+          redo: (current) => moveIn(current, input.questionId, moved.index),
+        });
+        return { ...moved, step };
+      }),
+    );
+  }
+
+  /**
+   * Documents added as rows, each with a waiting cell under every column. A
+   * Document the table already has, or one checks leave out, is dropped; the
+   * window fills the new rows alone. Undo takes the rows out whole.
+   */
+  async function addRows(raw: unknown): Promise<ComparisonRowsAdded> {
+    const input = parseRowsAdd(raw);
+    const mindId = options.requireMind(input.mindId);
+    const counted = new Set(options.evidence(input.documentIds));
+    const documents = options.documents
+      .live(input.documentIds)
+      .filter((document) => counted.has(document.id))
+      .map((document) => ({ id: document.id, name: document.name }));
+    return queued(mindId, input.tableId, () =>
+      withTable(mindId, input.tableId, (table) => {
+        const there = new Set(rowsOf(table).map(documentIdOf));
+        const added = documents.filter((document) => !there.has(document.id));
+        if (added.length === 0) {
+          return { documentIds: [], labels: [], fill: false, step: "" };
+        }
+        if (rowsOf(table).length + added.length > MAX_COMPARISON_DOCUMENTS) {
+          throw new InvalidInputError({
+            key: "error.comparison.tooManyDocuments",
+            values: { max: MAX_COMPARISON_DOCUMENTS },
+          });
+        }
+        const columns = questionsOf(table);
+        let state: { documentId: string; row: NodeJSON }[] = added.map((document) => ({
+          documentId: document.id,
+          row: {
+            type: COMPARISON_ROW_NODE,
+            attrs: { documentId: document.id, documentName: document.name },
+            content: columns.map((column) => cellJSON(column.id)),
+          } satisfies NodeJSON,
+        }));
+        for (const each of state) insertRowAt(table, rowsOf(table).length, each.row);
+        const step = remember({
+          mindId,
+          clientId: input.clientId,
+          tableId: input.tableId,
+          undo: (current) => {
+            state = state.map((each) => {
+              const index = rowsOf(current).findIndex(
+                (row) => documentIdOf(row) === each.documentId,
+              );
+              const row = rowsOf(current)[index];
+              const kept = row ? nodeOf(row) : each.row;
+              if (index >= 0) removeRowAt(current, index);
+              return { ...each, row: kept };
+            });
+          },
+          redo: (current) => {
+            for (const each of state) insertRowAt(current, rowsOf(current).length, each.row);
+          },
+        });
+        return {
+          documentIds: added.map((document) => document.id),
+          labels: added.map((document) => document.name),
+          fill: columns.some((column) => column.hidden !== true),
+          step,
+        };
+      }),
+    );
+  }
+
+  /** A row and its cells taken out whole; Undo puts them back with their Answers and problems. */
+  async function removeRow(raw: unknown): Promise<ComparisonRowRemoved> {
+    const input = parseRowId(raw, "removeComparisonRow");
+    const mindId = options.requireMind(input.mindId);
+    return queued(mindId, input.tableId, () =>
+      withTable(mindId, input.tableId, (table) => {
+        const rows = rowsOf(table);
+        const index = rows.findIndex((row) => documentIdOf(row) === input.documentId);
+        const row = rows[index];
+        if (!row) throw new NotFoundError({ key: "error.comparison.notFound" });
+        if (rows.length <= 1) {
+          throw new InvalidInputError({ key: "error.comparison.lastRow" });
+        }
+        const label = String(row.getAttribute("documentName") ?? "");
+        const after = rows[index + 1];
+        const before = rows[index - 1];
+        let state = nodeOf(row);
+        removeRowAt(table, index);
+        const step = remember({
+          mindId,
+          clientId: input.clientId,
+          tableId: input.tableId,
+          undo: (current) => insertRowAt(current, index, state),
+          redo: (current) => {
+            const at = rowsOf(current).findIndex((each) => documentIdOf(each) === input.documentId);
+            if (at >= 0) state = nodeOf(rowsOf(current)[at] as Y.XmlElement);
+            removeRowAt(current, at);
+          },
+        });
+        return {
+          label,
+          focusDocumentId: after ? documentIdOf(after) : before ? documentIdOf(before) : null,
+          step,
+        };
+      }),
+    );
+  }
+
+  /** A row moved among the rows, its cells with it; Undo and Redo move it back and forward. */
+  async function moveRow(raw: unknown): Promise<ComparisonRowMoveResult> {
+    const input = parseRowMove(raw);
+    const mindId = options.requireMind(input.mindId);
+    return queued(mindId, input.tableId, () =>
+      withTable(mindId, input.tableId, (table) => {
+        const from = rowsOf(table).findIndex((row) => documentIdOf(row) === input.documentId);
+        if (from < 0) throw new NotFoundError({ key: "error.comparison.notFound" });
+        const moved = moveRowIn(table, input.documentId, input.to);
+        if (!moved.moved) return { ...moved, step: "" };
+        const step = remember({
+          mindId,
+          clientId: input.clientId,
+          tableId: input.tableId,
+          undo: (current) => moveRowIn(current, input.documentId, from),
+          redo: (current) => moveRowIn(current, input.documentId, moved.index),
+        });
+        return { ...moved, step };
+      }),
+    );
+  }
+
+  /**
+   * Takes back the step the window names, if it is still the table's latest
+   * structure change and that window made it: a later change of the same
+   * table, from any window, refuses rather than undoing over it.
+   */
+  async function undoStructure(raw: unknown): Promise<ComparisonStructureUndoResult> {
+    const ref = parseStructure(raw, "undoComparisonStructure");
+    const mindId = options.requireMind(ref.mindId);
+    return queued(mindId, ref.tableId, () => {
+      const history = histories.get(historyKey(mindId, ref.tableId));
+      if (!history || history.applied.at(-1) !== ref.step) {
+        return { moved: false, reason: "changed" };
+      }
+      const step = history.steps.get(ref.step);
+      if (!step || step.clientId !== ref.clientId) {
+        return { moved: false, reason: "changed" };
+      }
+      withTable(mindId, ref.tableId, (table) => step.undo(table));
+      history.applied.pop();
+      history.undone.push(step.id);
+      return { moved: true };
+    });
+  }
+
+  /** Does again the step the window names, if it is still the table's latest undone one. */
+  async function redoStructure(raw: unknown): Promise<ComparisonStructureUndoResult> {
+    const ref = parseStructure(raw, "redoComparisonStructure");
+    const mindId = options.requireMind(ref.mindId);
+    return queued(mindId, ref.tableId, () => {
+      const history = histories.get(historyKey(mindId, ref.tableId));
+      if (!history || history.undone.at(-1) !== ref.step) {
+        return { moved: false, reason: "changed" };
+      }
+      const step = history.steps.get(ref.step);
+      if (!step || step.clientId !== ref.clientId) {
+        return { moved: false, reason: "changed" };
+      }
+      withTable(mindId, ref.tableId, (table) => step.redo(table));
+      history.undone.pop();
+      history.applied.push(step.id);
+      return { moved: true };
+    });
+  }
+
+  async function watchComparison(raw: unknown): Promise<void> {
+    const input = parseWatch(raw);
+    watchMind(options.requireMind(input.mindId), input.clientId);
+  }
+
+  async function unwatchComparison(raw: unknown): Promise<void> {
+    const input = parseWatch(raw);
+    unwatchMind(input.mindId, input.clientId);
+  }
+
+  async function acknowledgeStructure(raw: unknown): Promise<void> {
+    if (isRecord(raw) && typeof raw.requestId === "string" && typeof raw.clientId === "string") {
+      acknowledge(raw.requestId, raw.clientId);
+    }
+  }
+
+  async function forgetWindow(raw: unknown): Promise<void> {
+    if (isRecord(raw) && typeof raw.clientId === "string" && raw.clientId !== "") {
+      forgetClient(raw.clientId);
+    }
+  }
 
   /** Where the table goes: after the Block named, or before it when it is an empty paragraph. */
   function placeOf(blocks: Y.XmlFragment, afterBlockId: string | null): number {
@@ -899,15 +1997,33 @@ export function createComparisons(options: ComparisonsOptions) {
       });
       const task = taskOf(ref.tableId);
       if (task && options.tasks.isLive(task.id)) {
-        // The Task going takes the columns this request wants with it.
-        widen(ref.tableId, ref.questionIds);
+        // The Task going takes the columns and rows this request wants with it.
+        widen(ref.tableId, ref.questionIds, ref.documentIds);
         return { started: true, tableId: ref.tableId };
       }
       const ready = await readyModel(picked);
       if (!("model" in ready)) return ready;
-      startFill(mindId, ref.tableId, ready.model, ref.questionIds);
+      startFill(mindId, ref.tableId, ready.model, ref.questionIds, ref.documentIds);
       return { started: true, tableId: ref.tableId };
     },
+
+    addRows: (input: unknown) => addRows(input),
+    removeRow: (input: unknown) => removeRow(input),
+    moveRow: (input: unknown) => moveRow(input),
+
+    moveColumn: (input: unknown) => moveColumn(input),
+    editColumn: (input: unknown) => editColumn(input),
+    insertColumn: (input: unknown) => insertColumn(input),
+    duplicateColumn: (input: unknown) => duplicateColumn(input),
+    removeColumn: (input: unknown) => removeColumn(input),
+    resizeColumn: (input: unknown) => resizeColumn(input),
+    hideColumn: (input: unknown) => setHidden(input),
+    undoStructure: (input: unknown) => undoStructure(input),
+    redoStructure: (input: unknown) => redoStructure(input),
+    watchMind: (input: unknown) => watchComparison(input),
+    unwatchMind: (input: unknown) => unwatchComparison(input),
+    acknowledge: (input: unknown) => acknowledgeStructure(input),
+    forgetWindow: (input: unknown) => forgetWindow(input),
 
     async stop(input: unknown): Promise<void> {
       const ref = parseRef(input, "stopComparisonTable");
@@ -927,7 +2043,11 @@ export function createComparisons(options: ComparisonsOptions) {
         const there =
           options.mindExists(mindId) &&
           content.read(mindId, (blocks) => !!tableIn(blocks, tableId));
-        if (!there) options.tasks.stop(task.id).catch(options.reportError);
+        if (!there) {
+          options.tasks.stop(task.id).catch(options.reportError);
+          histories.delete(historyKey(mindId, tableId));
+          structureQueues.delete(historyKey(mindId, tableId));
+        }
       }
     },
 

@@ -210,6 +210,17 @@ export function ExportLineIcon(props: IconProps) {
   );
 }
 
+/** Open beside: an arrow up and out of a page. */
+export function OpenBesideLineIcon(props: IconProps) {
+  return (
+    <LineIcon {...props}>
+      <path d="M20 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V5a1 1 0 0 1 1-1h5" />
+      <path d="M14 4h6v6" />
+      <path d="m20 4-8 8" />
+    </LineIcon>
+  );
+}
+
 export function CloseLineIcon(props: IconProps) {
   return (
     <LineIcon strokeWidth={2} {...props}>
@@ -288,6 +299,14 @@ export function KeyLineIcon(props: IconProps) {
     <LineIcon {...props}>
       <circle cx="8" cy="15" r="4.5" />
       <path d="m11.2 11.8 8.8-8.8M16.5 6.5l2.5 2.5M14 9l2 2" />
+    </LineIcon>
+  );
+}
+
+export function SortLineIcon(props: IconProps) {
+  return (
+    <LineIcon strokeWidth={2} {...props}>
+      <path d="M7 5v14M4 16l3 3 3-3M17 19V5M14 8l3-3 3 3" />
     </LineIcon>
   );
 }

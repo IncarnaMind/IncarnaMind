@@ -77,9 +77,11 @@ test("a refused request and an overloaded provider each say why, with the action
   await expect(line.getByRole("button")).toHaveText("换一个模型");
   await setLanguage(window, "en");
   await line.getByRole("button").click();
-  await expect(window.getByTestId("settings")).toHaveAttribute("data-page", "models");
-  await window.keyboard.press("Escape");
+  // The menu is the composer's, where the Question was asked: no Settings page opens (#1848).
+  await expect(window.getByTestId("composer-model-menu")).toBeVisible();
   await expect(window.getByTestId("settings")).toBeHidden();
+  await window.keyboard.press("Escape");
+  await expect(window.getByTestId("composer-model-menu")).toBeHidden();
 
   // A provider overloaded as its reply begins: Try again writes the Answer.
   const overloaded = await askFailing(window, "Is the provider overloaded today?");

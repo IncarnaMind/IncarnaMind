@@ -103,6 +103,8 @@ export interface Expected {
   answerEvidence?: { document: RegExp; quote: RegExp };
   /** It may report a search miss, never that the Document lacks the fact this expression names. */
   noDocumentAbsence?: RegExp;
+  /** The requested metric's plain name, given to the absence judge with the request. */
+  documentAbsenceMetric?: string;
   /** The information really is absent: the reply reports a search miss and invents nothing. */
   searchMiss?: true;
   /**
@@ -651,9 +653,14 @@ export function requestFailures(outcome: RequestOutcome): RequestFailure[] {
   );
   if (expected.searchMiss) {
     if (!declines(answer.text) && !absenceRead) failures.push({ kind: "no-search-miss" });
+    const judgedAbsence = new Set(
+      (outcome.absenceSentences ?? []).flatMap((judged) =>
+        clausesOf(judged).map((clause) => clause.trim()),
+      ),
+    );
     const invented = clausesOf(answer.text).some((sentence) => {
       if (!sentence.trim() || declines(sentence) || /\[\^\d+\]/.test(sentence)) return false;
-      if (outcome.absenceSentences?.includes(sentence)) {
+      if (judgedAbsence.has(sentence.trim())) {
         return false;
       }
       return (

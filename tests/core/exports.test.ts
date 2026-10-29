@@ -389,6 +389,7 @@ describe("exporting a Mind", () => {
       numbered: true,
       unverifiedCitations: 2,
       questions: 1,
+      hiddenColumns: 0,
       fromWord: false,
       theirChanges: 0,
       unreadFiles: 0,

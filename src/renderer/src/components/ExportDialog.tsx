@@ -402,6 +402,7 @@ function ExportOptionsForm({ mind, onDone }: { mind: Mind; onDone(): void }) {
     theirChanges: number;
     unreadFiles: number;
     unreadFileNames: boolean;
+    hiddenColumns: number;
   } | null>(null);
   const [nameUnreadFiles, setNameUnreadFiles] = useState<boolean | null>(null);
   const [saving, setSaving] = useState(false);
@@ -452,6 +453,7 @@ function ExportOptionsForm({ mind, onDone }: { mind: Mind; onDone(): void }) {
           theirChanges: preview.theirChanges,
           unreadFiles: preview.unreadFiles,
           unreadFileNames: preview.unreadFileNames,
+          hiddenColumns: preview.hiddenColumns,
         });
         setNameUnreadFiles((chosen) => chosen ?? preview.unreadFileNames);
       },
@@ -553,6 +555,13 @@ function ExportOptionsForm({ mind, onDone }: { mind: Mind; onDone(): void }) {
         {emptyPack && (
           <p data-testid="export-pack-empty" className={`-mt-1 pb-2 ${hintClass}`}>
             {t("export.pack.empty")}
+          </p>
+        )}
+        {(counts?.hiddenColumns ?? 0) > 0 && (
+          <p data-testid="export-hidden-columns" className={`-mt-1 pb-2 ${hintClass}`}>
+            {(counts?.hiddenColumns ?? 0) === 1
+              ? t("export.hiddenColumns.one")
+              : t("export.hiddenColumns.other", { count: counts?.hiddenColumns ?? 0 })}
           </p>
         )}
 

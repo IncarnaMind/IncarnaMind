@@ -4,12 +4,24 @@ import {
   canInsertColumn,
   comparisonColumnHandles,
   duplicateColumn,
+  hideColumn,
   removeColumn,
+  resizeColumn,
   startColumnEdit,
   startColumnInsert,
+  stepColumn,
 } from "../comparisonColumns";
+import { fittedColumnWidth } from "../comparisonColumnWidth";
+import { openRowDocument, removeRow, stepRow } from "../comparisonRows";
 import { startCompareDocuments, useComparisons } from "../comparisons";
+import { startTableRename } from "../comparisonTableName";
+import {
+  comparisonRowHandles,
+  comparisonTableHandles,
+  useComparisonTables,
+} from "../comparisonTableState";
 import { comparisonTableAt } from "../editor/comparisonCommands";
+import { comparisonRowCount, comparisonRowHere } from "../editor/comparisonRowCommands";
 import { exportComparison } from "../exports";
 import { currentMindIdOf } from "../layoutSlice";
 import { useAppStore } from "../store";
@@ -64,7 +76,36 @@ function actColumn(
 }
 
 const unavailable = { reason: "comparison.column.unavailable" } as const;
+const tableUnavailable = { reason: "comparison.table.unavailable" } as const;
+const rowUnavailable = { reason: "comparison.row.unavailable" } as const;
 const insertReason = { reason: "comparison.column.maxQuestions" } as const;
+
+/** The table a menu or ⌘K names, with the editor showing it. */
+function tableHere(ctx: CommandContext) {
+  if (ctx.focus?.kind !== "comparisonTable") return null;
+  const handle = comparisonTableHandles.get(ctx.focus.id);
+  if (!handle || handle.editor.isDestroyed || !handle.editor.isEditable) return null;
+  return comparisonTableAt(handle.editor, handle.tableId) === null ? null : handle;
+}
+
+/** The row a menu or ⌘K names, where it is now. */
+function rowHere(ctx: CommandContext) {
+  if (ctx.focus?.kind !== "comparisonRow") return null;
+  const handle = comparisonRowHandles.get(ctx.focus.id);
+  if (!handle || handle.editor.isDestroyed || !handle.editor.isEditable) return null;
+  const here = comparisonRowHere(handle.editor, handle.tableId, handle.documentId);
+  if (!here) return null;
+  return { handle, here, rows: comparisonRowCount(handle.editor, handle.tableId) };
+}
+
+const rowMoveEnabled = (direction: -1 | 1) => (ctx: CommandContext) => {
+  const found = rowHere(ctx);
+  if (!found) return rowUnavailable;
+  const to = found.here.index + direction;
+  return to >= 0 && to < found.rows
+    ? true
+    : ({ reason: direction < 0 ? "comparison.row.first" : "comparison.row.last" } as const);
+};
 
 const editEnabled = (ctx: CommandContext) => (columnHere(ctx) ? true : unavailable);
 
@@ -72,6 +113,31 @@ const addEnabled = (ctx: CommandContext) => {
   const here = columnHere(ctx);
   if (!here) return unavailable;
   return canInsertColumn(here.questions.length) ? true : insertReason;
+};
+
+/** The table whose columns are hidden, as Export resolves one: it needs no heading to be focused. */
+function hiddenTable(): { mindId: string; tableId: string } | null {
+  const table = tableToExport();
+  const note = noteHandle.current;
+  if (!table || note?.mindId !== table.mindId || note.editor.isDestroyed) return null;
+  const pos = comparisonTableAt(note.editor, table.tableId);
+  const node = pos === null ? null : note.editor.state.doc.nodeAt(pos);
+  const hidden = node
+    ? comparisonQuestionsOf(node.attrs).some((question) => question.hidden === true)
+    : false;
+  return hidden ? table : null;
+}
+
+const moveEnabled = (direction: -1 | 1) => (ctx: CommandContext) => {
+  const here = columnHere(ctx);
+  if (!here) return unavailable;
+  const index = here.questions.findIndex((question) => question.id === here.question.id);
+  const beside = direction < 0 ? here.questions.slice(0, index) : here.questions.slice(index + 1);
+  return beside.some((question) => question.hidden !== true)
+    ? true
+    : ({
+        reason: direction < 0 ? "comparison.column.first" : "comparison.column.last",
+      } as const);
 };
 
 export const comparisonCommands: readonly Command[] = [
@@ -141,6 +207,70 @@ export const comparisonCommands: readonly Command[] = [
     run: (ctx) => actColumn(ctx, ({ handle, question }) => duplicateColumn(handle, question.id)),
   },
   {
+    id: "comparison.column.moveLeft",
+    label: "comparison.column.moveLeft",
+    rowKeys: { mac: "Alt+Shift+Left", other: "Ctrl+Shift+Left" },
+    group: "move",
+    appliesTo: ["comparisonColumn"],
+    reversible: true,
+    enabled: moveEnabled(-1),
+    run: (ctx) =>
+      actColumn(ctx, ({ handle, question }) => void stepColumn(handle, question.id, -1)),
+  },
+  {
+    id: "comparison.column.moveRight",
+    label: "comparison.column.moveRight",
+    rowKeys: { mac: "Alt+Shift+Right", other: "Ctrl+Shift+Right" },
+    group: "move",
+    appliesTo: ["comparisonColumn"],
+    reversible: true,
+    enabled: moveEnabled(1),
+    run: (ctx) => actColumn(ctx, ({ handle, question }) => void stepColumn(handle, question.id, 1)),
+  },
+  {
+    id: "comparison.column.hide",
+    label: "comparison.column.hide",
+    menuLabel: "comparison.column.hideMenu",
+    group: "edit",
+    appliesTo: ["comparisonColumn"],
+    reversible: true,
+    enabled: editEnabled,
+    run: (ctx) => actColumn(ctx, ({ handle, question }) => hideColumn(handle, question.id)),
+  },
+  {
+    id: "comparison.column.showHidden",
+    label: "comparison.column.showHidden",
+    group: "edit",
+    reversible: true,
+    // Any table with a hidden column, even one with every column hidden: Export's way of resolving it.
+    when: () => hiddenTable() !== null,
+    // The table's own ⋯ is the picker: it lists each hidden column, and every way to show one.
+    run: () => {
+      const table = hiddenTable();
+      if (!table) return;
+      const button = document.querySelector<HTMLButtonElement>(
+        `.comparison-table[data-comparison-table="${CSS.escape(table.tableId)}"] [data-testid="comparison-table-menu"]`,
+      );
+      requestAnimationFrame(() => button?.click());
+    },
+  },
+  {
+    id: "comparison.column.fit",
+    label: "comparison.column.fit",
+    group: "edit",
+    appliesTo: ["comparisonColumn"],
+    reversible: true,
+    enabled: editEnabled,
+    run: (ctx) =>
+      actColumn(ctx, ({ handle, question }) => {
+        const table = document.querySelector<HTMLElement>(
+          `.comparison-table[data-comparison-table="${CSS.escape(handle.tableId)}"]`,
+        );
+        const width = table ? fittedColumnWidth(table, question.id) : null;
+        if (width !== null) resizeColumn(handle, question.id, width);
+      }),
+  },
+  {
     id: "comparison.column.remove",
     label: "comparison.column.remove",
     rowKeys: "Delete",
@@ -151,5 +281,94 @@ export const comparisonCommands: readonly Command[] = [
     // The last column stays: a table without one has nothing to compare by.
     when: (ctx) => (columnHere(ctx)?.questions.length ?? 0) > 1,
     run: (ctx) => actColumn(ctx, ({ handle, question }) => removeColumn(handle, question.id)),
+  },
+  {
+    id: "comparison.table.addDocuments",
+    label: "comparison.table.addDocuments",
+    group: "main",
+    appliesTo: ["comparisonTable"],
+    reversible: true,
+    enabled: (ctx) => (tableHere(ctx) ? true : tableUnavailable),
+    run: (ctx) => {
+      const handle = tableHere(ctx);
+      if (handle) useComparisonTables.getState().openAddDocuments(handle.tableId);
+    },
+  },
+  {
+    id: "comparison.table.rename",
+    label: "comparison.table.rename",
+    rowKeys: "F2",
+    group: "edit",
+    appliesTo: ["comparisonTable"],
+    reversible: true,
+    enabled: (ctx) => (tableHere(ctx) ? true : tableUnavailable),
+    run: (ctx) => {
+      const handle = tableHere(ctx);
+      if (handle) startTableRename(handle.tableId);
+    },
+  },
+  {
+    id: "comparisonRow.open",
+    label: "comparison.row.open",
+    rowKeys: "Enter",
+    group: "open",
+    appliesTo: ["comparisonRow"],
+    reversible: true,
+    enabled: (ctx) => {
+      const found = rowHere(ctx);
+      if (!found) return rowUnavailable;
+      return useAppStore.getState().documents.some((each) => each.id === found.here.documentId)
+        ? true
+        : ({ reason: "comparison.cell.sourceRemoved" } as const);
+    },
+    run: (ctx) => {
+      const found = rowHere(ctx);
+      if (found) openRowDocument(found.here.documentId);
+    },
+  },
+  {
+    id: "comparisonRow.moveUp",
+    label: "comparison.row.moveUp",
+    rowKeys: { mac: "Alt+Shift+Up", other: "Ctrl+Shift+Up" },
+    group: "move",
+    appliesTo: ["comparisonRow"],
+    reversible: true,
+    enabled: rowMoveEnabled(-1),
+    run: (ctx) => {
+      const found = rowHere(ctx);
+      if (found) void stepRow(found.handle, found.here.documentId, -1);
+    },
+  },
+  {
+    id: "comparisonRow.moveDown",
+    label: "comparison.row.moveDown",
+    rowKeys: { mac: "Alt+Shift+Down", other: "Ctrl+Shift+Down" },
+    group: "move",
+    appliesTo: ["comparisonRow"],
+    reversible: true,
+    enabled: rowMoveEnabled(1),
+    run: (ctx) => {
+      const found = rowHere(ctx);
+      if (found) void stepRow(found.handle, found.here.documentId, 1);
+    },
+  },
+  {
+    id: "comparisonRow.remove",
+    label: "comparison.row.remove",
+    rowKeys: "Delete",
+    group: "danger",
+    appliesTo: ["comparisonRow"],
+    reversible: true,
+    destructive: true,
+    // The last row stays, as the last column does.
+    enabled: (ctx) => {
+      const found = rowHere(ctx);
+      if (!found) return rowUnavailable;
+      return found.rows > 1 ? true : ({ reason: "comparison.table.lastRow" } as const);
+    },
+    run: (ctx) => {
+      const found = rowHere(ctx);
+      if (found && found.rows > 1) void removeRow(found.handle, found.here.documentId);
+    },
   },
 ];

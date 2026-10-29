@@ -17,6 +17,7 @@ const SHAPES: Readonly<Record<RecordItem["result"], string>> = {
   needsRecheck: '<path d="M18.5 12a6.5 6.5 0 1 1-1.9-4.6M17.5 3.5v4h-4"/>',
   changed: '<path d="M18.5 12a6.5 6.5 0 1 1-1.9-4.6M17.5 3.5v4h-4"/>',
   checking: '<circle cx="12" cy="12" r="4" fill="#000"/>',
+  gone: '<path d="M7 12h10"/>',
 };
 
 export const shapeOf = (result: RecordItem["result"]): string =>

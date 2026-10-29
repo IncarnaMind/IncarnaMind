@@ -47,3 +47,11 @@ describe("The gap between two pieces of text on a screen", () => {
     );
   });
 });
+
+test("a table row's label sits a space from the Chinese around it when it is Latin, and none when it is Chinese", () => {
+  expect(translate("zh-CN", "figures.tableRow", { label: "Groceries" })).toBe("表格，Groceries 行");
+  expect(translate("zh-CN", "figures.tableRow", { label: "日用食品" })).toBe("表格，日用食品行");
+  expect(translate("zh-CN", "figures.tableCell", { label: "Fuel", column: "Q3 2026" })).toBe(
+    "表格，Fuel 行，Q3 2026",
+  );
+});

@@ -11,6 +11,13 @@ import type { Translate } from "../../shared/locations";
 import { type SourceContext, sourceEntry, sourceKeyOf, sourcesOf } from "../../shared/sources";
 import type { CitationFormatRequest, CitedWork, FormattedCitations, StyledRun } from "../api";
 import { type Block, type Inline, type Pendings, trimTrailingSpace } from "../mindText";
+import {
+  type FigureInline,
+  type FigureWriting,
+  figureCited,
+  figureSourcesOf,
+  figureWithNote,
+} from "./figures";
 
 /** Every run of inline content in the Blocks, in order, mapped by `map`. */
 function mapInlines(blocks: readonly Block[], map: (content: Inline[]) => Inline[]): Block[] {
@@ -89,6 +96,18 @@ function clustersIn(content: readonly Inline[]): Cluster[] {
   return found;
 }
 
+/** The clusters in one run of content, and the calculated figures whose inputs a style cites, in order. */
+function citedIn(
+  content: readonly Inline[],
+): (Cluster | { start: number; end: number; figure: FigureInline })[] {
+  const figures = content.flatMap((inline, start) =>
+    inline.kind === "figure" && figureSourcesOf(inline).length > 0
+      ? [{ start, end: start + 1, figure: inline }]
+      : [],
+  );
+  return [...clustersIn(content), ...figures].sort((a, b) => a.start - b.start);
+}
+
 const sameFormat = (a: StyledRun, b: StyledRun) =>
   a.italic === b.italic &&
   a.bold === b.bold &&
@@ -111,19 +130,33 @@ function runsOf(runs: FormattedCitations["clusters"][number]["runs"]): StyledRun
 
 /**
  * The Blocks with their Citations in `style`, and its Bibliography at the end: `format` is the
- * core's `formatCitations`. An entry too thin to cite is written with the details it has, never
- * a placeholder the User would send (#1910); the Saved line counts them instead. Blocks with no
- * Citation come back as they were.
+ * core's `formatCitations`. A calculated figure's inputs are a cluster of their own, after its
+ * text (./figures), as the editor shows them. An entry too thin to cite is written with the
+ * details it has, never a placeholder the User would send (#1910); the Saved line counts them
+ * instead. Blocks with no Citation come back as they were.
  */
 export async function styleCitations(
   blocks: readonly Block[],
   style: ResolvedCitationStyle,
   format: (request: CitationFormatRequest) => Promise<FormattedCitations>,
+  figures: FigureWriting,
 ): Promise<Block[]> {
   const works: CitedWork[][] = [];
+  const checkedOf = new Map<string, Set<string>>();
   mapInlines(blocks, (content) => {
-    for (const cluster of clustersIn(content)) {
-      works.push(cluster.citations.map((citation) => citation.work));
+    for (const cited of citedIn(content)) {
+      works.push(
+        "figure" in cited
+          ? figureSourcesOf(cited.figure).map((source) => source.work)
+          : cited.citations.map((citation) => citation.work),
+      );
+      if ("figure" in cited) continue;
+      for (const { work, footnote } of cited.citations) {
+        if (!work.documentId || !footnote.checked) continue;
+        const lines = checkedOf.get(work.documentId) ?? new Set<string>();
+        for (const line of footnote.checked) lines.add(line);
+        checkedOf.set(work.documentId, lines);
+      }
     }
     return content;
   });
@@ -135,7 +168,7 @@ export async function styleCitations(
   });
   let next = 0;
   const styled = mapInlines(blocks, (content) => {
-    const clusters = clustersIn(content);
+    const clusters = citedIn(content);
     if (clusters.length === 0) return content;
     const out: Inline[] = [];
     let at = 0;
@@ -144,17 +177,27 @@ export async function styleCitations(
       const runs = runsOf(formatted.clusters[next]?.runs ?? []);
       next++;
       const note = formatted.form === "note";
+      if ("figure" in cluster) {
+        out.push(...figureCited(cluster.figure, runs, note, figures));
+        at = cluster.end;
+        continue;
+      }
       // A note's number, or a raised number, goes right after the word, as in print.
       if (note || runs[0]?.script === "sup") trimTrailingSpace(out);
       const [first] = cluster.citations;
       const failed = cluster.citations.flatMap((citation) =>
         citation.footnote.failed ? [citation.footnote] : [],
       );
+      const checked = [
+        ...new Set(cluster.citations.flatMap((citation) => citation.footnote.checked ?? [])),
+      ];
       out.push({
         kind: "cite",
         runs,
         note,
         unverified: cluster.citations.some((citation) => citation.footnote.unverified),
+        // A note style says who checked a source in its note, any other under its reference.
+        ...(note && checked.length > 0 && { checked }),
         of: cluster.citations
           .map((citation) =>
             [
@@ -179,13 +222,29 @@ export async function styleCitations(
     {
       kind: "bibliography",
       heading: style.heading,
-      items: formatted.bibliography.map((entry) => ({
-        label: entry.label,
-        runs: entry.runs,
-      })),
+      items: formatted.bibliography.map((entry) => {
+        const checked =
+          formatted.form === "note" || !entry.documentId
+            ? undefined
+            : checkedOf.get(entry.documentId);
+        return {
+          label: entry.label,
+          runs: entry.runs,
+          ...(checked && { checked: [...checked] }),
+        };
+      }),
       hangingIndent: formatted.hangingIndent,
     },
   ];
+}
+
+/** The Blocks with each calculated figure followed by its note, for Numbered (./figures). */
+export function withFigureNotes(blocks: readonly Block[], figures: FigureWriting): Block[] {
+  return mapInlines(blocks, (content) =>
+    content.flatMap((inline) =>
+      inline.kind === "figure" ? figureWithNote(inline, figures) : [inline],
+    ),
+  );
 }
 
 /**
@@ -289,6 +348,12 @@ export function listCitations(
   });
 
   const t: Translate = (key, params) => translate(context.language, key, params);
+  const checkedAt = new Map<string, Set<string>>();
+  for (const citation of cited) {
+    if (!citation.footnote.checked) continue;
+    const key = sourceKeyOf(citation.work, context);
+    checkedAt.set(key, new Set([...(checkedAt.get(key) ?? []), ...citation.footnote.checked]));
+  }
   const unverifiedAt = new Map<string, Set<string>>();
   for (const citation of cited) {
     if (!citation.footnote.unverified) continue;
@@ -311,9 +376,11 @@ export function listCitations(
           ),
         };
         const entry = sourceEntry(marked, context.language);
+        const checked = checkedAt.get(source.key);
         return {
           label: [{ text: `[${index + 1}]` }],
           runs: [{ text: places?.has("") ? `${entry} ${unverified}` : entry }],
+          ...(checked && { checked: [...checked] }),
         };
       }),
       hangingIndent: false,

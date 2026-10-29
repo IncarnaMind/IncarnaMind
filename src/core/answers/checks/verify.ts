@@ -20,6 +20,7 @@
  */
 import { randomUUID } from "node:crypto";
 import * as Y from "yjs";
+import { beginFigureCheck } from "../../../shared/figureChecks";
 import { isClaim } from "../../../shared/sentences";
 import { setTextOrigin } from "../../../shared/textOrigins";
 import {
@@ -227,8 +228,9 @@ export function createVerify(options: VerifyOptions) {
       signal,
     );
     if (found.kind !== "found") return found;
+    // A sentence no reply decided is checked: left out, it would never be (#1682).
     const claims = sentences
-      .filter((_, index) => found.claims.has(index))
+      .filter((_, index) => found.claims.has(index) || found.undecided.has(index))
       .map(({ blockId, text }) => ({ blockId, text }));
     content.edit(mindId, (blocks) => {
       const settings = blocks.doc?.getMap<unknown>(MIND_SETTINGS_FIELD);
@@ -282,9 +284,16 @@ export function createVerify(options: VerifyOptions) {
           excluded: [],
           checkedAt: startedAt,
         };
-        markSentence(sentence.element, sentence.from, sentence.to, marked);
+        // Each figure gets its own result, as the one Check gives it.
+        const figures = sentence.figures?.length ? sentence.figures : undefined;
+        markSentence(
+          sentence.element,
+          sentence.from,
+          sentence.to,
+          figures ? beginFigureCheck(null, marked, figures, null) : marked,
+        );
         const said = claimOf(sentence) ?? { claim: sentence.text, context: sentence.context };
-        return [{ id: marked.id, ...said }];
+        return [{ id: marked.id, ...said, ...(figures && { figures }) }];
       });
       if (marked.length > 0) options.recordUnread(blocks, requestId, unread);
       return marked;

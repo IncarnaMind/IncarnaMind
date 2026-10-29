@@ -2,7 +2,11 @@
  * A scripted model that checks claims (#96, #97) as its plans say, and names
  * a verified document's claims: those it has a plan for.
  */
+
+import { documentFigureContext } from "../../src/core/answers/calculations";
 import { SEARCH_AGAIN } from "../../src/core/answers/checks/searchAgain";
+import { isRecord } from "../../src/core/errors";
+import { readFigures } from "../../src/shared/figures";
 import { shownPassages } from "./citations";
 import {
   type GenerateCall,
@@ -15,13 +19,17 @@ import {
 /** How the scripted model checks a sentence: what it cites, and how it replies. */
 export interface Plan {
   verdict?: "supported" | "unsupported" | "contradicted";
-  /** The sentence asserts an absence itself, which needs a whole read. */
-  absence?: boolean;
   /** The line it cites, from the Passage that holds it. */
   quote?: string;
+  /** The number of `quote` that backs the sentence's figure, as written: its first of a kind when absent. */
+  number?: string;
+  /** The line of the quote's Passage that states that number's unit, as the model gives it. */
+  unitQuote?: string;
   says?: string;
-  /** Its reply instead, once it has searched. */
-  reply?: ScriptedReply;
+  /** Its Absence line; absent: no line, as an older or malformed reply gives. */
+  absence?: boolean;
+  /** Its reply instead, once it has searched; given the call, for one that names its figures. */
+  reply?: ScriptedReply | ((call: ModelCall) => ScriptedReply);
   /** What it says when asked to confirm a contradiction it found. */
   judgement?: "conflict" | "same" | "neither";
   /** Its reply to the strict judgement, a contradiction's second; `judgement` when absent. */
@@ -53,8 +61,51 @@ interface PlannedFigure {
 }
 
 const SENTENCE = /<sentence>\n([\s\S]*?)\n<\/sentence>/;
+const FIGURES = /<figures>\n([\s\S]*?)\n<\/figures>/;
+
+/**
+ * The figures of the sentence a check Run is asked to bind, each with its id, its shown text and,
+ * for one it may be read more than one way, its first reading, as a model names one.
+ */
+export function requestedFigures(
+  call: ModelCall,
+): { id: string; shown: string; reading: number | null }[] {
+  const match = FIGURES.exec(call.prompt);
+  if (!match?.[1]) return [];
+  const value: unknown = JSON.parse(match[1]);
+  if (!Array.isArray(value)) throw new Error("The fixture expected requested figures.");
+  return value.map((figure: unknown) => {
+    if (!isRecord(figure) || typeof figure.id !== "string" || typeof figure.shown !== "string")
+      throw new Error("The fixture received an invalid figure.");
+    const unsettled = Array.isArray(figure.ambiguities) && figure.ambiguities.length > 0;
+    return { id: figure.id, shown: figure.shown, reading: unsettled ? 1 : null };
+  });
+}
 
 /** The sentence a check Run is asked about. */
+/**
+ * An Unsupported verdict as a check writes it, with `said` (its reason and Covered lines) and the
+ * Figures line its requested figures need.
+ */
+export function unsupportedReply(call: ModelCall, said?: string): string {
+  const verdict = said ? `Verdict: unsupported\n${said}` : "Verdict: unsupported";
+  const figures = requestedFigures(call);
+  if (figures.length === 0) return verdict;
+  const items = figures.map(({ id }) => ({
+    id,
+    verdict: "unsupported",
+    scope: "same",
+    topic: "not found",
+    roles: "same",
+    says: null,
+    reading: null,
+    relation: "equals",
+    source: null,
+    calculation: null,
+  }));
+  return `${verdict}\nFigures: ${JSON.stringify({ items, remainder: null })}`;
+}
+
 export const sentenceOf = (call: ModelCall) => {
   const text = call.options.prompt
     .filter((message) => message.role === "user")
@@ -68,11 +119,15 @@ export const sentenceOf = (call: ModelCall) => {
 };
 
 /** The numbers of the listed sentences ("[3] …") that have a plan. */
-function plannedNumbers(prompt: string, plans: Record<string, Plan>): number[] {
-  return prompt.split("\n").flatMap((line) => {
-    const listed = /^\[(\d+)\] (.*)$/.exec(line);
-    return listed?.[2] !== undefined && listed[2] in plans ? [Number(listed[1])] : [];
-  });
+/** Each listed sentence's decision: a claim when there is a plan for it. */
+function plannedDecisions(prompt: string, plans: Record<string, Plan>): Record<string, string> {
+  return Object.fromEntries(
+    prompt.split("\n").flatMap((line) => {
+      const listed = /^\[(\d+)\] (.*)$/.exec(line);
+      if (listed?.[1] === undefined || listed[2] === undefined) return [];
+      return [[listed[1], listed[2] in plans ? "claim" : "no"]];
+    }),
+  );
 }
 
 /** The strict judgement's instructions, which ask for the sentence's detail and the quote's before the word. */
@@ -96,8 +151,9 @@ export function checkReply(call: ModelCall, plans: Record<string, Plan>): Script
     return { calls: [{ tool: "search_documents", input: { query: again.query } }] };
   }
   const plan = again?.plan ?? planned;
-  if (plan.reply) return plan.reply;
-  const shown = shownPassages(searches.at(-1)?.text ?? "");
+  if (plan.reply) return typeof plan.reply === "function" ? plan.reply(call) : plan.reply;
+  // What its search found, and the Passages its sentence's Citations quote, given with the sentence.
+  const shown = [...shownPassages(searches.at(-1)?.text ?? ""), ...shownPassages(call.prompt)];
   const { calculation } = plan;
   if (calculation && !call.results.some((result) => result.tool === "calculate")) {
     const passageOf = (quote: string) => shown.find((each) => each.text.includes(quote))?.id;
@@ -119,9 +175,71 @@ export function checkReply(call: ModelCall, plans: Record<string, Plan>): Script
       calls: [{ tool: "cite", input: { citations: [{ marker: 1, passage: passage?.id, quote }] } }],
     };
   }
-  return {
-    text: `Verdict: ${plan.verdict}\nAbsence: ${plan.absence === true}${plan.says ? `\n${plan.says} [^1]` : ""}`,
-  };
+  const verdict = `Verdict: ${plan.verdict}${plan.absence === undefined ? "" : `\nAbsence: ${plan.absence}`}${plan.says ? `\n${plan.says} [^1]` : ""}`;
+  const figures = requestedFigures(call);
+  if (figures.length === 0) return { text: verdict };
+  if (!calculation) {
+    // With nothing quoted, each figure is one no Passage states.
+    if (!quote) {
+      const items = figures.map(({ id }) => ({
+        id,
+        verdict: "unsupported",
+        scope: "same",
+        topic: "not found",
+        roles: "same",
+        says: null,
+        reading: null,
+        relation: "equals",
+        source: null,
+        calculation: null,
+      }));
+      return { text: `${verdict}\nFigures: ${JSON.stringify({ items, remainder: null })}` };
+    }
+    // Each figure from the cited quote's number of its own kind of unit, or its first.
+    const numbers = readFigures(quote, documentFigureContext([{ text: quote }]));
+    const items = figures.map(({ id, shown, reading }) => {
+      const kind = readFigures(shown, documentFigureContext([{ text: shown }]))[0]?.unit.kind;
+      const source = plan.number
+        ? { chars: plan.number }
+        : (numbers.find((each) => each.unit.kind === kind) ?? numbers[0]);
+      return {
+        id,
+        verdict: source ? (plan.verdict ?? "unsupported") : "unsupported",
+        scope: "same",
+        topic: source ? "found" : "not found",
+        roles: "same",
+        says: null,
+        reading,
+        relation: "equals",
+        source: source
+          ? {
+              citation: 1,
+              number: source.chars,
+              ...(plan.unitQuote && { unitQuote: plan.unitQuote }),
+            }
+          : null,
+        calculation: null,
+      };
+    });
+    return { text: `${verdict}\nFigures: ${JSON.stringify({ items, remainder: null })}` };
+  }
+  const worked: readonly PlannedFigure[] = "formula" in calculation ? [calculation] : calculation;
+  const items = figures.map(({ id, shown }) => {
+    const marker = worked.findIndex((figure) => figure.stated === shown) + 1;
+    return {
+      id,
+      verdict: marker > 0 ? (plan.verdict ?? "unsupported") : "unsupported",
+      scope: "same",
+      topic: marker > 0 ? "found" : "not found",
+      roles: "same",
+      says: null,
+      reading: null,
+      relation: "equals",
+      source: null,
+      calculation: marker > 0 ? marker : null,
+    };
+  });
+  return { text: `${verdict}\nFigures: ${JSON.stringify({ items, remainder: null })}` };
 }
 
 /**
@@ -134,7 +252,7 @@ export const checkGenerate =
   (plans: Record<string, Plan>, evidence: string = JSON.stringify({ passage: null })) =>
   (call: GenerateCall): GeneratedReply => {
     if (call.system.startsWith("You sort the sentences")) {
-      return { text: JSON.stringify({ claims: plannedNumbers(call.prompt, plans) }) };
+      return { text: JSON.stringify(plannedDecisions(call.prompt, plans)) };
     }
     if (call.system.startsWith("A sentence the User wrote says more")) {
       return { text: plans[SENTENCE.exec(call.prompt)?.[1] ?? ""]?.part ?? "" };

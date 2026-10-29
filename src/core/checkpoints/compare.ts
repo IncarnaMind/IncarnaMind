@@ -46,13 +46,15 @@ const plainOf = (content: readonly Inline[]): string =>
     .map((inline) =>
       inline.kind === "text"
         ? inline.text
-        : inline.kind === "math"
-          ? inline.latex
-          : inline.kind === "break"
-            ? "\n"
-            : inline.kind === "footnote"
-              ? plainOf(inline.content)
-              : "",
+        : inline.kind === "figure"
+          ? inline.figure.shown
+          : inline.kind === "math"
+            ? inline.latex
+            : inline.kind === "break"
+              ? "\n"
+              : inline.kind === "footnote"
+                ? plainOf(inline.content)
+                : "",
     )
     .join("");
 
@@ -61,6 +63,8 @@ function inlineTokens(content: readonly Inline[]): Token[] {
     switch (inline.kind) {
       case "text":
         return textTokens(inline.text);
+      case "figure":
+        return textTokens(inline.figure.shown);
       case "math":
         return textTokens(inline.latex);
       case "break":

@@ -50,7 +50,7 @@ import { useT } from "../../i18n";
 import { useMeetings } from "../../meetings";
 import { useModelNames } from "../../modelNames";
 import type { Translate } from "../../objects";
-import { openCited, quoteSaysSo } from "../../openCited";
+import { openCitedFollowing, quoteSaysSo } from "../../openCited";
 import { scopeChips } from "../../scope";
 import { skillTitle } from "../../skills";
 import { useAppStore } from "../../store";
@@ -874,7 +874,7 @@ function SourceRow({ source }: { source: StepSource }) {
       data-document-id={source.documentId}
       title={where ? t("citation.where", { document: name, location: where }) : name}
       onClick={() =>
-        openCited(source, {
+        void openCitedFollowing(source, {
           check: source.check,
           withQuote: quoteSaysSo(source.check),
           label: where,

@@ -54,6 +54,10 @@ describe("The filing evaluation", () => {
       "filing-absent-en",
       "filing-absent-zh",
     ]);
+    for (const each of cases) {
+      expect(each.expected.documentAbsenceMetric).toEqual(expect.any(String));
+      expect(each.expected.documentAbsenceMetric).not.toContain("|");
+    }
     for (const each of cases.filter((each) => !each.id.startsWith("filing-absent-"))) {
       expect(each.library).toBe("filings");
       expect(each.expected.cite).toBe(true);

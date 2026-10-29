@@ -22,6 +22,39 @@ export interface ExportLabels {
   failedSentence(sentence: FailedSentence): string;
   /** Who made someone's change shown in an export, and when (#734): "Deleted by Priya Nair, 2 Oct 2026". */
   change(change: NotedChange): string;
+  /**
+   * A calculated figure's note in Numbered (#439): how it was worked out, then each source with
+   * the inputs from it. "Calculated: (Revenue 2025 − Revenue 2024) ÷ Revenue 2024 = 20.4%.
+   * Revenue 2025 and Revenue 2024: Acme Annual Report 2025, p. 4."
+   */
+  figureNote(worked: FigureWorked, figure: string, sources: readonly FigureNoteSource[]): string;
+  /** The words before and after a calculated figure's inputs' cluster in a citation style: "calculated from ", "". */
+  figureCluster(note: boolean): [before: string, after: string];
+}
+
+/** How a calculated figure was worked out: its formula in words, or the saved Analysis it came from. */
+export type FigureWorked = { formula: string } | { analysis: string };
+
+export interface FigureNoteSource {
+  inputs: readonly string[];
+  source: string;
+  unverified: boolean;
+}
+
+const FULL_WIDTH_END = /[\u3000-\u303f\uff00-\uffef]$/;
+
+/** "A and B", "A、B 和 C": a space where 和 meets a Latin letter or a digit (docs/agents/zh-CN.md). */
+function listOf(items: readonly string[], language: Language): string {
+  const latin = /[A-Za-z0-9%]/;
+  return new Intl.ListFormat(language, { type: "conjunction" })
+    .formatToParts(items)
+    .map((part, at, parts) => {
+      if (part.type !== "literal" || !/^\p{Script=Han}+$/u.test(part.value)) return part.value;
+      const before = latin.test(parts[at - 1]?.value.at(-1) ?? "") ? " " : "";
+      const after = latin.test(parts[at + 1]?.value.charAt(0) ?? "") ? " " : "";
+      return before + part.value + after;
+    })
+    .join("");
 }
 
 export function exportLabels(language: Language): ExportLabels {
@@ -110,6 +143,28 @@ export function exportLabels(language: Language): ExportLabels {
         } as const
       )[kind];
       return date ? t(key, { author, date }) : t(`${key}.noDate`, { author });
+    },
+    figureNote: (worked, figure, sources) =>
+      [
+        "formula" in worked
+          ? t("export.figure.calculated", { formula: worked.formula, figure })
+          : t("export.figure.analysis", { title: worked.analysis, figure }),
+        ...sources.map(({ inputs, source, unverified }) =>
+          t("export.figure.inputs", {
+            inputs: listOf(inputs, language),
+            source: unverified ? `${source} ${t("export.unverified")}` : source,
+          }),
+        ),
+      ].reduce((text, sentence) =>
+        // No space after full-width punctuation (docs/agents/zh-CN.md).
+        FULL_WIDTH_END.test(text) ? text + sentence : `${text} ${sentence}`,
+      ),
+    figureCluster: (note) => {
+      const [before = "", after = ""] = t(
+        note ? "export.figure.cluster.note" : "export.figure.cluster",
+        { cluster: "\u0000" },
+      ).split("\u0000");
+      return [before, after];
     },
   };
 }

@@ -558,8 +558,16 @@ export async function runCase(
     answer.toolCalls,
     last ? { text: last.text, question: each.before?.at(-1) ?? "" } : null,
   );
-  const absenceSentences = each.expected.noDocumentAbsence
-    ? await judgeDocumentAbsence(judge, answer.text, each.expected.noDocumentAbsence)
+  if (each.expected.noDocumentAbsence && !each.expected.documentAbsenceMetric) {
+    throw new Error(`${each.id} needs a plain Document-absence metric for its judge.`);
+  }
+  const absenceSentences = each.expected.documentAbsenceMetric
+    ? await judgeDocumentAbsence(
+        judge,
+        answer.text,
+        each.expected.documentAbsenceMetric,
+        each.request,
+      )
     : undefined;
   const outcome: RequestOutcome = {
     expected: each.expected,

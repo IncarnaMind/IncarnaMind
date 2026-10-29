@@ -16,7 +16,7 @@ import {
   rewrittenLater,
   takenOut,
 } from "../../eval/everyday/checks";
-import { judgeClaims, verdictIn } from "../../eval/everyday/judge";
+import { judgeClaims, judgeDocumentAbsence, verdictIn } from "../../eval/everyday/judge";
 import { languageRates, rowRates } from "../../eval/everyday/rates";
 import { ASKED_AGAIN } from "../../eval/everyday/reasks";
 import type { AnswerToolCall } from "../../src/core";
@@ -874,6 +874,39 @@ describe("The judge of claims", () => {
   });
 });
 
+describe("The Document absence judge", () => {
+  test("sees the plain metric and actual request, and takes its last JSON verdict", async () => {
+    let asked = { system: "", prompt: "" };
+    const model = scriptedModel(() => ({ text: "" }), {
+      generate: ({ system, prompt }) => {
+        asked = { system, prompt };
+        return {
+          text: '{"absence":["The release has no recast revenue."]}\nCorrection: the request was answered.\n{"absence":[]}',
+        };
+      },
+    });
+    const verdict = await judgeDocumentAbsence(
+      model,
+      "The release has no recast revenue.",
+      "recast second-quarter revenue",
+      "What was the recast second-quarter revenue?",
+    );
+    expect(asked.system).toContain("The requested metric is recast second-quarter revenue.");
+    expect(asked.system).not.toContain("recast|重述|revenue");
+    expect(asked.prompt).toContain("What was the recast second-quarter revenue?");
+    expect(verdict).toEqual([]);
+  });
+
+  test("rejects a malformed absence list instead of reading it as no absence", async () => {
+    const model = scriptedModel(() => ({ text: "" }), {
+      generate: () => ({ text: '{"absence":[1]}' }),
+    });
+    await expect(
+      judgeDocumentAbsence(model, "The metric is missing.", "metric", "What is the metric?"),
+    ).rejects.toThrow("The absence judge's reply couldn't be read.");
+  });
+});
+
 describe("The filing guards", () => {
   const filingOutcome = (
     text: string,
@@ -1092,5 +1125,16 @@ describe("The filing guards", () => {
       ),
     ).toEqual([]);
     expect(missing("季报缺少现金转换周期。", [], [READ], ["季报缺少现金转换周期。"])).toEqual([]);
+    expect(
+      missing(
+        "The cash conversion cycle is missing from the 10-Q.",
+        [],
+        [READ],
+        ["The cash conversion cycle is missing from the 10-Q."],
+      ),
+    ).toEqual([]);
+    expect(
+      missing("季报中的现金转换周期是缺失的。", [], [READ], ["季报中的现金转换周期是缺失的。"]),
+    ).toEqual([]);
   });
 });

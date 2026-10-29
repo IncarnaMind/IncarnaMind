@@ -181,6 +181,39 @@ describe("Check this note", () => {
     });
   });
 
+  test("a failed check of chosen figures retries those figures, never the whole note", async () => {
+    bridge.checkMind.mockRejectedValueOnce(new Error("The check stopped."));
+    const { checkMind } = await import("../../src/renderer/src/mindCheck");
+    const { setCheckProblem } = await import("../../src/renderer/src/checks");
+    await checkMind("mind", "all", { figureIds: ["f1", "f2"] });
+    const problem = vi.mocked(setCheckProblem).mock.calls.at(-1)?.[1];
+    if (problem?.kind !== "failed" || !problem.retry)
+      throw new Error("A failed check has no retry.");
+    problem.retry();
+    await vi.waitFor(() => expect(bridge.checkMind).toHaveBeenCalledTimes(2));
+    expect(bridge.checkMind.mock.calls[1]?.[0]).toMatchObject({
+      mindId: "mind",
+      mode: "all",
+      figureIds: ["f1", "f2"],
+    });
+  });
+
+  test("a check of chosen figures whose model fails retries those figures without planning the note", async () => {
+    bridge.checkMind.mockResolvedValueOnce({
+      kind: "failed",
+      error: { kind: "provider", message: "Overloaded" },
+    });
+    const { checkMind } = await import("../../src/renderer/src/mindCheck");
+    const { setCheckProblem } = await import("../../src/renderer/src/checks");
+    await checkMind("mind", "all", { figureIds: ["f1"] });
+    const problem = vi.mocked(setCheckProblem).mock.calls.at(-1)?.[1];
+    if (problem?.kind !== "find-failed") throw new Error("No failure to retry.");
+    problem.retry();
+    await vi.waitFor(() => expect(bridge.checkMind).toHaveBeenCalledTimes(2));
+    expect(bridge.checkMind.mock.calls[1]?.[0]).toMatchObject({ figureIds: ["f1"] });
+    expect(bridge.planMindCheck).not.toHaveBeenCalled();
+  });
+
   test("when nothing changed it asks no model and opens the card on the line that says so", async () => {
     bridge.planMindCheck.mockResolvedValue(unchanged);
     const { startCheck, useMindCheck } = await import("../../src/renderer/src/mindCheck");
