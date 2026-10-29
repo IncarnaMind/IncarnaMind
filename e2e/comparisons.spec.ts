@@ -2341,14 +2341,16 @@ test("a table gains Documents later: the picker ticks its own, its line counts o
 
   await expect(window.getByTestId("undo-message")).toContainText("Added 2 Documents");
   await expect(table.getByTestId("comparison-row")).toHaveCount(5);
-  await expect(table.getByTestId("comparison-progress")).toHaveCount(0, { timeout: 30_000 });
+  // The fill starts after the rows are added, so wait for its Answers rather than for a
+  // progress line that is still absent the moment before it starts.
+  const addedAnswers = async () =>
+    (await cellTexts(table))
+      .slice(3)
+      .map((cells) => cells[0]?.replace(/(\s+\d+)+\s*$/, ""));
+  await expect.poll(addedAnswers, { timeout: 30_000 }).toEqual(["45 days", "15 days"]);
   // Only the new rows were asked: the Answers already there are as they were.
   expect((await cellTexts(table)).slice(0, 3)).toEqual(before);
-  const added = (await cellTexts(table)).slice(3);
-  expect(added.map((cells) => cells[0]?.replace(/(\s+\d+)+\s*$/, ""))).toEqual([
-    "45 days",
-    "15 days",
-  ]);
+  await expect(table.getByTestId("comparison-progress")).toHaveCount(0);
   await expect.poll(() => rowNames(table)).toContain("Aldermoor Term Sheet");
 
   await window.getByTestId("mind-editor").first().focus();
