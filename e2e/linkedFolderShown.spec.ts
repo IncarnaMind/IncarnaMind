@@ -4,11 +4,12 @@ import { expect, test } from "@playwright/test";
 import type { CoreBridge } from "../src/core/api";
 import {
   addDocuments,
+  confirmLink,
   createDataFolder,
   dismissChatSetup,
+  interceptOpenDialog,
   launchApp,
   linkedFolderRow,
-  linkFolderFromSidebar,
   removeDataFolder,
   setLanguage,
   setWindowSize,
@@ -16,7 +17,7 @@ import {
 
 /**
  * After linking a folder, the sidebar shows where it is (#763): its row in
- * the Linked folders section (关联文件夹), apart from the User's own Folders,
+ * the Folders on disk section (磁盘上的文件夹), apart from the User's own Folders,
  * in sight and washed for a moment. The two sections never share a name. The
  * row doesn't unfold, and opens the Library.
  */
@@ -32,12 +33,12 @@ test.afterEach(async () => {
 });
 
 const WORDS = {
-  en: { sections: ["Folders", "Linked folders"], name: "contracts" },
-  "zh-CN": { sections: ["文件夹", "关联文件夹"], name: "contracts" },
+  en: { sections: ["Folders", "Folders on disk"], name: "contracts" },
+  "zh-CN": { sections: ["文件夹", "磁盘上的文件夹"], name: "contracts" },
 } as const;
 
 for (const language of ["en", "zh-CN"] as const) {
-  test(`a folder just linked is in sight in the Linked folders section, its row washed; it doesn't unfold and opens the Library (${language})`, async () => {
+  test(`a folder just linked reveals the sidebar and is in sight in Folders on disk, its row washed; it doesn't unfold and opens the Library (${language})`, async () => {
     test.setTimeout(120_000);
     const words = WORDS[language];
     const linked = join(sources, words.name);
@@ -55,9 +56,20 @@ for (const language of ["en", "zh-CN"] as const) {
       await core.createLibraryGroup({ name: "Mine", description: "" });
     });
     await expect(window.getByTestId("linked-folders-section")).toHaveCount(0);
+    await window.getByTestId("sidebar-toggle").click();
+    const panel = window.getByTestId("sidebar-panel");
+    await expect(panel).toHaveAttribute("data-hidden", "true");
 
-    await linkFolderFromSidebar(app, window, linked);
+    await interceptOpenDialog(app, linked);
+    await window.keyboard.press("ControlOrMeta+k");
+    await expect(window.getByTestId("palette-search")).toBeFocused();
+    await window.keyboard.type(language === "en" ? "Link a folder" : "添加关联文件夹");
+    await window.keyboard.press("Enter");
+    const dialog = window.getByTestId("link-folder-dialog");
+    await expect(dialog.getByTestId("link-folder-files")).toBeVisible();
+    await confirmLink(dialog);
 
+    await expect(panel).not.toHaveAttribute("data-hidden", "true");
     // Its section comes, after the Folders, and the two have two names.
     const section = window.getByTestId("linked-folders-section");
     await expect(section.getByTestId("linked-folders-section-heading")).toHaveText(

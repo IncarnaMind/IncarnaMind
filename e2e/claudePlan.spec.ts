@@ -29,7 +29,7 @@ import {
  * the User pastes the code Anthropic's page shows, as they do.
  */
 
-const USAGE = "Answers count toward your Claude plan’s usage limits.";
+const USAGE = "Answers count toward your Claude Pro, Max or Team usage limits.";
 
 let dataDir: string;
 let fake: FakeAnthropic;
@@ -331,7 +331,7 @@ test("in Chinese: the row follows the plan and comes before a model on this comp
     const notice = row.getByTestId("claude-plan-notice");
     const usage = notice.getByTestId("claude-plan-usage");
     const sends = notice.getByTestId("claude-plan-sends");
-    await expect(usage).toHaveText("回答会计入你 Claude 订阅的用量限额。");
+    await expect(usage).toHaveText("回答会计入你 Claude Pro、Max 或 Team 订阅的用量限额。");
     await expect(usage).toHaveCSS("font-weight", "600");
     await expect(sends.locator("p")).toHaveText("会把你的问题和文档内容发送给 Anthropic。 · 详情");
     await expect(row.getByTestId("claude-plan-sign-in")).toHaveText("用 Claude 账号登录");

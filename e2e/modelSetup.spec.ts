@@ -783,7 +783,7 @@ for (const language of ["en", "zh-CN"] as const) {
       expect(settled.later).toEqual(opened.later);
       // The words were there from the first paint, and only the list changed under them.
       expect(opened.line).toContain(
-        translate(language, "setup.sorting.chat", { model: "qwen3.5:4b" }),
+        translate(language, "setup.sorting.chat", { model: "Qwen 3.5 4B" }),
       );
       expect(opened.line).toContain(translate(language, "setup.sorting.chat.hints"));
       expect(settled.line).toBe(opened.line);

@@ -1,3 +1,4 @@
+import { modelName } from "../../../../shared/modelName";
 import { useT } from "../../i18n";
 import {
   buttonClass,
@@ -50,8 +51,14 @@ function LocalModelChoice({ onClose }: { onClose(): void }) {
             : ollamaDescription(ollama, t)}
         </p>
         {status?.recommendedModel && (
-          <p data-testid="local-model-recommended" className={dialogTextClass}>
-            {t("localModel.recommended", { model: status.recommendedModel })}
+          <p
+            data-testid="local-model-recommended"
+            title={status.recommendedModel}
+            className={dialogTextClass}
+          >
+            {t("localModel.recommended", {
+              model: modelName(status.recommendedModel, { kind: "ollama" }),
+            })}
           </p>
         )}
         <OllamaProgress ollama={ollama} />

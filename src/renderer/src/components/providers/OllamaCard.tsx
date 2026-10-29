@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import type { ChatProvider, OllamaPullProgress, OllamaStatus } from "../../../../core/api";
 import { OLLAMA_DOWNLOAD_URL } from "../../../../core/providers/catalog/billing";
+import { modelName } from "../../../../shared/modelName";
 import { core } from "../../core";
 import { errorMessage } from "../../errors";
 import { useT } from "../../i18n";
@@ -119,7 +120,12 @@ export function OllamaProgress({ ollama }: { ollama: Ollama }) {
         <div className="text-[13px] leading-5 text-ink-secondary">
           <p>
             {t("providers.ollama.pulling", {
-              model: progress?.model ?? (status?.running ? status.recommendedModel : ""),
+              model: modelName(
+                progress?.model ?? (status?.running ? status.recommendedModel : ""),
+                {
+                  kind: "ollama",
+                },
+              ),
             })}
           </p>
           <div className="mt-1.5 h-1 overflow-hidden rounded-full bg-rule">
@@ -151,6 +157,7 @@ export function OllamaAction({ ollama, large = false }: { ollama: Ollama; large?
   const t = useT();
   const { status, pulling } = ollama;
   const size = large ? "lg" : "md";
+  const model = status ? modelName(status.recommendedModel, { kind: "ollama" }) : "";
   if (status?.running) {
     return (
       <button
@@ -158,9 +165,10 @@ export function OllamaAction({ ollama, large = false }: { ollama: Ollama; large?
         data-testid="ollama-use"
         disabled={pulling || !ollama.keepLocal.asked}
         onClick={() => void ollama.use()}
+        title={status.recommendedModel}
         className={buttonStyle("primary", size)}
       >
-        {t("providers.ollama.use", { model: status.recommendedModel })}
+        {t("providers.ollama.use", { model })}
       </button>
     );
   }

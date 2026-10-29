@@ -299,6 +299,10 @@ describe("The provider catalog", () => {
         ).toBe(true);
       }
     }
+    for (const model of LOCAL_MODELS) {
+      expect(model.name.trim(), model.tag).not.toBe("");
+      expect(model.name, model.tag).not.toBe(model.tag);
+    }
     // Only a model the evaluation measured counts as tested; the one-click model is one.
     expect(LOCAL_MODELS.filter((model) => model.evaluated).map((model) => model.tag)).toEqual([
       RECOMMENDED_OLLAMA_MODEL,

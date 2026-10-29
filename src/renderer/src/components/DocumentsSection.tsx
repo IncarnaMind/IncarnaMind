@@ -272,7 +272,7 @@ export function DocumentsSection() {
           </ProblemLine>
         )}
         {!quiet && hasLinkedFolders && (
-          <SidebarSection testId="linked-folders-section" title={t("sidebar.linkedFolders")}>
+          <SidebarSection testId="linked-folders-section" title={t("library.sources")}>
             <LinkedFolderRows hideExamples={foldExamples} />
           </SidebarSection>
         )}

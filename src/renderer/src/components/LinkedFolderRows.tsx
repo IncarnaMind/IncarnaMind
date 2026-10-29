@@ -1,5 +1,6 @@
 import { useEffect, useMemo } from "react";
 import type { LinkedFolder } from "../../../core/api";
+import { sidebarHandle } from "../commands/handles";
 import { buildFolderTree } from "../folders";
 import { useLanguage, useT } from "../i18n";
 import { sourceRequest } from "../libraryPage";
@@ -116,6 +117,7 @@ function LinkedFolderRow({
   // Its row, once it shows: in sight, washed for a moment, then as any other (#763).
   useEffect(() => {
     if (!justLinked) return;
+    if (sidebarHandle.current?.hidden) sidebarHandle.current.toggle();
     document
       .querySelector(`[data-linked-folder-id="${linked.id}"][data-root]`)
       ?.scrollIntoView({ block: "nearest" });

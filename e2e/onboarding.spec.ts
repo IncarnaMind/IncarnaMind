@@ -5,7 +5,6 @@ import type { Editor } from "@tiptap/core";
 import type { CoreBridge } from "../src/core/api";
 import {
   acceptPlainTextKeys,
-  addFilesLabel,
   assistantAnswers,
   continueSetup,
   createDataFolder,
@@ -83,7 +82,7 @@ const JARGON = [
   /\bstdio\b/,
   /\bendpoint/i,
   /\bOAuth\b/,
-  /\b(?:claude|gpt|qwen|llama|gemini|deepseek)-[\w.:-]+/i,
+  /\b(?:claude|gpt|qwen|llama|gemini|deepseek)[\w.]*[-:][\w.:-]+/i,
   /索引|嵌入|重排序|重新排序|对话模型|提供商|本地模式/,
 ];
 
@@ -369,7 +368,7 @@ test("an empty Mind of one's own shows no second start guide, the example's step
   const steps = window.getByTestId("first-open-steps");
   await expect(steps).toContainText("You’re set up.");
   await expect(steps.locator('[data-testid="first-open-step"][data-state="done"]')).toHaveText([
-    /Added your files/,
+    /Added your Documents/,
     /Asked a question/,
     /Checked a Citation/,
   ]);
@@ -402,8 +401,10 @@ test("the steps card's first step offers Add files… and Link a folder… at on
   await markSteps(window, { askedOwn: true });
   const files = step(window, "files");
   await expect(files).toHaveAttribute("data-state", "open");
+  await expect(files.getByTestId("first-open-step-do")).toHaveAccessibleName("Add your Documents");
+  await expect(files).toContainText("Reading your files");
   const offered = files.locator('button:not([data-testid="first-open-step-do"])');
-  await expect(offered).toHaveText([addFilesLabel("en")]);
+  await expect(offered).toHaveText(["Add files…", "Link a folder…"]);
   await expect(window.getByTestId("mind-editor").locator("h1")).toHaveText(
     "Draft: credit committee paper",
   );
@@ -411,7 +412,9 @@ test("the steps card's first step offers Add files… and Link a folder… at on
 
   await setLanguage(window, "zh-CN");
   await setWindowSize(app, window, 900, 760);
-  await expect(offered).toHaveText([addFilesLabel("zh-CN")]);
+  await expect(files.getByTestId("first-open-step-do")).toHaveAccessibleName("添加你的文档");
+  await expect(files).toContainText("读取你的文件");
+  await expect(offered).toHaveText(["添加文件…", "添加关联文件夹…"]);
   await expectPlainWords(firstScreen);
   const card = await pane.getByTestId("first-open-steps").boundingBox();
   const buttons = await offered.last().boundingBox();
@@ -438,7 +441,16 @@ test("the steps card's first step offers Add files… and Link a folder… at on
   });
   await expect(steps).not.toContainText("准备好了。");
   await pointAndClick(window, steps.getByTestId("first-open-choose-model"));
-  await expect(window.getByTestId("model-setup")).toContainText("设置你的 AI");
+  const setup = window.getByTestId("model-setup");
+  await expect(setup).toContainText("设置你的 AI");
+  await expect(setup).toContainText("使用自己的密钥");
+  await expect(setup.getByTestId("setup-key")).toHaveAccessibleName("使用自己的密钥");
+  await expectPlainWords([setup]);
+  await setLanguage(window, "en");
+  await expect(setup).toContainText("Use your own key");
+  await expect(setup.getByTestId("setup-key")).toHaveAccessibleName("Use your own key");
+  await expectPlainWords([setup]);
+  await setLanguage(window, "zh-CN");
   await useLocalChatModel(window);
   await expect(steps).toContainText("准备好了。");
   await continueSetup(window);
