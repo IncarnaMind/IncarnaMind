@@ -11,6 +11,8 @@ import { connectToMind } from "../helpers/mindClient";
 import { editMind, question, readMind, writeMind } from "../helpers/minds";
 
 const KEY = process.env.INCARNAMIND_LIVE_ANTHROPIC_KEY;
+// This acceptance run is opt-in so the nightly live suite doesn't pay for 20 full flows.
+const REQUESTED = process.env.INCARNAMIND_MATTER_WALL_EVAL === "1";
 const MODEL = process.env.INCARNAMIND_LIVE_ANTHROPIC_MODEL ?? "claude-haiku-5-5";
 
 const WORDS = {
@@ -148,9 +150,13 @@ async function runMatterWall(language: Language, run: number) {
 describe("Matter wall on Claude Haiku 5.5", () => {
   for (const language of ["en", "zh-CN"] as const) {
     for (let run = 1; run <= 10; run++) {
-      test.skipIf(KEY === undefined)(`${language} run ${run}`, { timeout: 600_000 }, async () => {
-        await runMatterWall(language, run);
-      });
+      test.skipIf(KEY === undefined || !REQUESTED)(
+        `${language} run ${run}`,
+        { timeout: 600_000 },
+        async () => {
+          await runMatterWall(language, run);
+        },
+      );
     }
   }
 });
