@@ -948,6 +948,7 @@ export const en = {
   "claim.checkNow": "Check now",
   "claim.reason.consent-revoked": "Not checked: you turned off sending to this service.",
   "claim.reason.local-mode": "Not checked: everything stays on this computer.",
+  "claim.reason.kept-inside": "Kept inside {detail}",
   "claim.recheck.edited": "The sentence has changed since it was checked.",
   "claim.recheck.new-version": "A Document it was checked against has a new version.",
   "claim.recheck.document-removed": "A Document it was checked against was deleted.",

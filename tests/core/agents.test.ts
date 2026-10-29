@@ -284,7 +284,7 @@ describe("outside agents", () => {
     await core.updateSettings({ user: { language: "zh-CN" } });
     await expect(
       core.updateAgent(pairing.id, { folderIds: [coast.id, finance.id] }),
-    ).rejects.toThrow("Coast 只在本文件夹内工作，不能和其他文件夹共用一个智能体");
+    ).rejects.toThrow("“Coast”只在本文件夹内工作，不能和其他文件夹共用一个智能体");
     await core.updateSettings({ user: { language: "en" } });
     const own = await core.createMind({ title: "Coast note", folderId: coast.id });
     const other = await core.createMind({ title: "Finance note", folderId: finance.id });

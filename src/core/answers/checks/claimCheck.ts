@@ -322,24 +322,9 @@ export function createClaimCheck(deps: ClaimCheckDependencies) {
       const [kept] = outsideCited;
       if (!kept) throw new Error("An outside Citation is missing.");
       return {
-        verdict: "supported",
-        evidence: {
-          passageId: kept.source.passageId,
-          documentId: kept.source.documentId,
-          documentName: kept.source.documentName,
-          contentHash: kept.source.contentHash,
-          pageFrom: kept.source.pageFrom,
-          pageTo: kept.source.pageTo,
-          location: null,
-          quote: kept.citation.quote,
-          check: "found",
-          checkReason: null,
-        },
-        says: null,
-        unsupported: null,
-        calculation: null,
-        citedCaseUnchecked: caseCitations(request.claim).length > 0,
-        citedCaseFound: false,
+        verdict: "not-checked",
+        reason: "kept-inside",
+        detail: kept.source.documentName,
         versions: [],
         excluded: [],
       };

@@ -5375,6 +5375,7 @@ export type ClaimVerdict = "supported" | "unsupported" | "contradicted";
  * - "too-many": the assistant wrote more sentences with Citations than one write has checked (#1111).
  * - "consent-revoked": the User turned off sending checks to the model's service while it ran.
  * - "local-mode": "Keep everything on this computer" came on while it ran.
+ * - "kept-inside": the existing Citation is outside this wall, so it was not read again.
  */
 export type ClaimCheckFailure =
   | "refused"
@@ -5390,7 +5391,8 @@ export type ClaimCheckFailure =
   | "stopped"
   | "too-many"
   | "consent-revoked"
-  | "local-mode";
+  | "local-mode"
+  | "kept-inside";
 
 /** Why a sentence was found unsupported, as the check gave it. */
 export interface UnsupportedReason {
@@ -6356,7 +6358,7 @@ export interface ConversationQuestion {
   focus: MindFocus | null;
   /** Its Search scope; null: none, every Document. */
   scope: SearchScope | null;
-  /** The Folder wall it was asked inside; null: outside or before walls were recorded. */
+  /** The Folder it was scoped to when asked; null: not recorded (older Questions). */
   wallId?: string | null;
   /** The model picked for it; null: the default. */
   model: ChatModelChoice | null;

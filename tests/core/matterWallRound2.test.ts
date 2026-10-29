@@ -279,7 +279,8 @@ describe("probe #2167 round 2", { timeout: 60_000 }, () => {
     expect(control.sent).toContain("Rent 5000");
     expect(walled.sent).not.toContain("Rent 5000");
     expect(walled.note).toContain('check="found"');
-    expect(walled.note).not.toContain('state="unsupported"');
+    expect(walled.note).toContain('state="not-checked"');
+    expect(walled.note).toContain('reason="kept-inside"');
   });
 
   async function suggestionRun(wall: boolean) {

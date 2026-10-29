@@ -30,6 +30,6 @@ A Folder's **Keep this Folder's work inside it** switch adds an information barr
 
 - A Note inside the wall keeps its Folder chip and cannot remove it to widen its scope. Outside, the chip is not a way to pick the walled Folder or its Documents: their names stay visible with a lock, and the All Documents chip says how many Folders are left out. Opening a Note in the Folder remains available.
 - The wall is enforced in the core's scope resolution, including checks, Compare, Research and outside agents. A Folder shared with an outside agent is approved only on its own.
-- A null Search scope goes through the same resolution as an explicit one: outside work never turns it into every Document. A scope with no Note open may name one walled Folder, never two; each Question records the wall it was asked inside, so moving its Note cannot change an earlier turn's scope.
+- A null Search scope goes through the same resolution as an explicit one: outside work never turns it into every Document. A scope with no Note open may name one walled Folder, never two; each Question records its Folder so a later wall applies to the turn that was already asked, while an unrecorded older Question uses the previous derivation.
 - A Document or Note can still be moved out. Its move notice says what changes and has Undo. Turning the switch off restores the ordinary Search scope.
 - A Citation made before the wall stays readable and opens as before. An outside check does not read its Document again: its last result stands and says **Kept inside {Folder}**.

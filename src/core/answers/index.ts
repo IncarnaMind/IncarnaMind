@@ -3185,7 +3185,7 @@ export function createAnswers(options: AnswersOptions) {
     const wallId = mind
       ? options.walledFolder(mind.mindId)
       : turn.question.wallId !== undefined
-        ? turn.question.wallId
+        ? options.walledFolderId(turn.question.wallId)
         : options.walledFolderId(conversation.folderId);
     let turnWall: string | null = null;
     const permitted = documentIds === null ? null : new Set(documentIds);
@@ -3194,7 +3194,7 @@ export function createAnswers(options: AnswersOptions) {
       if (message.kind === "question") {
         turnWall =
           message.wallId !== undefined
-            ? message.wallId
+            ? options.walledFolderId(message.wallId)
             : message.askedFrom
               ? options.walledFolderId(filedIn(message.scope, message.askedFrom))
               : options.walledFolderId(conversation.folderId);
@@ -3598,12 +3598,12 @@ export function createAnswers(options: AnswersOptions) {
         readOf(mind),
         false,
         (folderId) => {
-          if (mind) return options.walledFolder(mind.mindId);
-          if (scope === null) return options.walledFolderId(folderId);
+          if (mind) return options.mindFolder(mind.mindId);
+          if (scope === null) return folderId;
           return scope.folderIds.length === 1 &&
             scope.tagIds.length === 0 &&
             scope.documentIds.length === 0
-            ? options.walledFolderId(scope.folderIds[0] ?? null)
+            ? (scope.folderIds[0] ?? null)
             : null;
         },
       );
@@ -3620,12 +3620,12 @@ export function createAnswers(options: AnswersOptions) {
         const { documentIds, emptyScope } = scopeNow(
           scope,
           question.mind?.id ?? null,
-          readyMind ? null : added.turn.question.wallId,
+          readyMind ? null : options.walledFolderId(added.turn.question.wallId ?? null),
         );
         const checked = checkQuotes(
           question.quotes,
           question.mind?.id ?? null,
-          readyMind ? null : added.turn.question.wallId,
+          readyMind ? null : options.walledFolderId(added.turn.question.wallId ?? null),
         );
         const readyTurn = options.conversations.restartAnswer(
           turn.answer.id,
@@ -3679,7 +3679,7 @@ export function createAnswers(options: AnswersOptions) {
         mind
           ? null
           : question.wallId !== undefined
-            ? question.wallId
+            ? options.walledFolderId(question.wallId)
             : options.walledFolderId(turn.conversation.folderId),
       );
       return startInConversation(

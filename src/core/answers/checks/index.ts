@@ -377,6 +377,14 @@ export function createChecks(options: ChecksOptions) {
     const evidence = check.evidence;
     const evidenceWall = evidence?.documentId ? options.walledDocument(evidence.documentId) : null;
     if (
+      result.verdict === "not-checked" &&
+      result.reason === "kept-inside" &&
+      check.state !== "checking" &&
+      check.state !== "not-checked"
+    ) {
+      return check;
+    }
+    if (
       result.verdict === "unsupported" &&
       check.state !== "checking" &&
       check.state !== "not-checked" &&
