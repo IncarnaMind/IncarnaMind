@@ -23,9 +23,10 @@ import { INPUT_CEILING_MS } from "./feel";
  * The Word look is drawn with one rule a style, never one decoration a Block, which ProseMirror
  * looks up for each child in its parent's list: 280 ms a keystroke on a 6,090-Block lease in
  * the Page view spike (#755). These hold it there on CI's slower machines, as relations to the
- * same Note drawn plain and as generous bounds, and print what they measured: on a laptop a
- * keystroke takes about 30 ms either way, on CI's Linux runners about 100 ms. Playwright takes
- * seconds there to deliver each key to so long a page, so a test types ten keys, not more.
+ * same Note drawn plain and as bounds, and print what they measured. A key is timed twice: how
+ * long the app takes to take it (the main process reads keys before the page does, so work
+ * there holds every key back, as reading the whole Note's figures on every change once did),
+ * and keydown to the page's next frame.
  */
 
 let dataDir: string;
@@ -42,18 +43,23 @@ test.afterEach(async () => {
   await removeDataFolder(files);
 });
 
-/** Ten keys at the end of a paragraph, as a person types them; keydown to the next frame. */
+const KEYS = 20;
+const BETWEEN_KEYS_MS = 40;
+
+/** Twenty keys at the end of a paragraph, as a person types them. */
 async function typeAt(window: Page, index: number) {
   const target = window.getByTestId("mind-editor").locator(":scope > p").nth(index);
   await target.scrollIntoViewIfNeeded();
   await pointAndClick(window, target);
   await window.keyboard.press("End");
   await takeKeyLatency(window);
-  await window.keyboard.type("x".repeat(10), { delay: 40 });
-  return takeKeyLatency(window);
+  const start = Date.now();
+  await window.keyboard.type("x".repeat(KEYS), { delay: BETWEEN_KEYS_MS });
+  const taken = Math.round((Date.now() - start) / KEYS - BETWEEN_KEYS_MS);
+  return { taken, ...(await takeKeyLatency(window)) };
 }
 
-test("typing on the 304-page contract in its look keeps up with the same Note drawn plain, and no keystroke comes near a freeze", async () => {
+test("typing on the 304-page contract in its look takes each key within 100 ms, as the same Note drawn plain does", async () => {
   test.setTimeout(480_000);
   const { app, window } = await launchApp(dataDir, { home });
   await setWindowSize(app, window, 1440, 900);
@@ -74,16 +80,19 @@ test("typing on the 304-page contract in its look keeps up with the same Note dr
   console.log(`Typing on the 304-page contract (ms): ${JSON.stringify(result)}`);
   test.info().annotations.push({ type: "typing", description: JSON.stringify(result) });
 
+  for (const [at, typed] of [...word, ...plain].entries()) {
+    expect(typed.keys).toBeGreaterThanOrEqual(KEYS - 2);
+    expect(
+      typed.taken,
+      `the app taking each key (${at < word.length ? "Word look" : "plain"})`,
+    ).toBeLessThanOrEqual(100);
+    expect(typed.p95, "the slowest keystrokes").toBeLessThanOrEqual(INPUT_CEILING_MS);
+  }
   for (const [at, typed] of word.entries()) {
-    expect(typed.keys).toBeGreaterThanOrEqual(8);
-    const plainMedian = plain[at]?.median ?? 0;
-    // Per-Block decorations would make it many times slower than plain, and slower down the page.
-    expect(typed.median, "median keystroke against the plain Note").toBeLessThanOrEqual(
-      plainMedian * 1.5 + 15,
+    // Per-Block decorations would make the look many times slower than plain, and slower down the page.
+    expect(typed.median, "keydown to the next frame, against the plain Note").toBeLessThanOrEqual(
+      (plain[at]?.median ?? 0) * 1.5 + 15,
     );
-    // 100 ms on a laptop; CI's runners are two to five times slower.
-    expect(typed.median, "median keystroke in the Word look").toBeLessThanOrEqual(250);
-    expect(typed.p95, "slowest keystrokes in the Word look").toBeLessThanOrEqual(INPUT_CEILING_MS);
   }
   await app.close();
 });

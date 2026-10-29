@@ -13,6 +13,7 @@ import { core } from "./core";
 import { figurePlace } from "./editor/figurePlaces";
 import { mindEditor } from "./editor/openEditors";
 import { scrollMindTo } from "./editor/reviewPick";
+import { COUNT_IDLE_MS } from "./editor/wordCountText";
 import { frontTabOfMind, groupsMerged } from "./layoutSlice";
 import { startCheck, useMindCheck } from "./mindCheck";
 import { useAppStore } from "./store";
@@ -28,6 +29,7 @@ export function useFigureSchedule(mindId: string, doc: Y.Doc | null): FigureSche
     let active = true;
     let pending = false;
     let changed = false;
+    let idle: ReturnType<typeof setTimeout> | undefined;
     // The schedule shown stays until the core's projection of the new text arrives: actions
     // on it are refused once the text moved on (`requireCurrent`).
     const refresh = () => {
@@ -52,18 +54,24 @@ export function useFigureSchedule(mindId: string, doc: Y.Doc | null): FigureSche
           if (active && changed) refresh();
         });
     };
-    blocks.observeDeep(refresh);
+    // Asked a moment after the text last changed, as the counts are: the core reads the whole Note.
+    const later = () => {
+      clearTimeout(idle);
+      idle = setTimeout(refresh, COUNT_IDLE_MS);
+    };
+    blocks.observeDeep(later);
     // The User's own check marks are kept beside the Blocks; each row says how its mark shows.
     const marks = doc.getMap(MIND_SIGN_OFFS_FIELD);
     marks.observe(refresh);
     const stop = core.on("mind.update", (event) => {
-      if (event.mindId === mindId) refresh();
+      if (event.mindId === mindId) later();
     });
     refresh();
     return () => {
       active = false;
+      clearTimeout(idle);
       stop();
-      blocks.unobserveDeep(refresh);
+      blocks.unobserveDeep(later);
       marks.unobserve(refresh);
     };
   }, [mindId, doc, documents, mind?.folderId, mind?.title]);

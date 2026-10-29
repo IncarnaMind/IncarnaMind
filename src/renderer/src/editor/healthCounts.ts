@@ -29,6 +29,7 @@ import {
   keptOn,
 } from "../../../shared/claimChecks";
 import { readFigures } from "../../../shared/figures";
+import { memoized } from "../../../shared/memo";
 import { sentenceKey } from "../../../shared/mindCheck";
 import { readProposalAttribute } from "../../../shared/proposals";
 import { isClaim, sentenceSpans } from "../../../shared/sentences";
@@ -83,6 +84,13 @@ export interface NoteHealth {
 
 /** A digit or a Chinese numeral: a sentence with neither holds no figure, and isn't read for one. */
 const MAY_HOLD_FIGURE = /[\d〇零一二三四五六七八九十百千万亿两]/;
+
+/** Whether a sentence holds a figure, read once while its words stay the same: the health is counted again after every change. */
+const holdsFigures = memoized(
+  20_000,
+  (words: string) => words,
+  (words: string) => MAY_HOLD_FIGURE.test(words) && readFigures(words).length > 0,
+);
 
 /** Blocks whose text isn't counted. */
 const UNCOUNTED: ReadonlySet<string> = new Set(["question", "heading", "codeBlock", "blockMath"]);
@@ -190,8 +198,7 @@ function eachSentence(
       const state = checkedSentence({
         text: words,
         hasFigures:
-          figures.some(({ at }) => at >= span.from && at < span.to) ||
-          (MAY_HOLD_FIGURE.test(words) && readFigures(words).length > 0),
+          figures.some(({ at }) => at >= span.from && at < span.to) || holdsFigures(words),
         check: claim?.shown ?? null,
         skipped: skipped.has(sentenceKey(words)),
         kept: keptOn(kept, { from, to, text: words }),

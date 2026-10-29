@@ -48,7 +48,7 @@ import { CheckedWhen, RunningText } from "./MindCheckLine";
 import { useRunModel } from "./ModelChip";
 import { useSignOffCounts } from "./signOffActions";
 import { UncoveredLine } from "./UncoveredLine";
-import { COUNT_IDLE_MS } from "./WordCount";
+import { COUNT_IDLE_MS } from "./wordCountText";
 
 const NO_HEALTH: Health = {
   found: [],

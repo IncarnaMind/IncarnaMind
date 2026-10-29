@@ -33,6 +33,8 @@ import {
   type Figure,
   type FigureContext,
   figureContextOf,
+  figureContextOfFacts,
+  figureFactsOf,
   figureLanguageTag,
   type Reading,
   readFigures,
@@ -61,6 +63,7 @@ import {
   joinUnits,
   quoteInUnits,
 } from "../../shared/locations";
+import { memoized } from "../../shared/memo";
 import { findQuote, type TextRange } from "../../shared/quoteMatch";
 import { anchorsOf, cellNumber } from "../../shared/units";
 import type {
@@ -118,6 +121,24 @@ export function answerLanguage(question: string): Language {
 export function documentFigureContext(units: readonly { text: string }[]): FigureContext {
   const all = units.map((unit) => unit.text).join("\n");
   return figureContextOf(all, figureLanguageTag(detectLanguage(all.slice(0, 20_000))));
+}
+
+const factsOf = memoized(
+  20_000,
+  (text: string, language: string | null) => `${language ?? ""}\u0000${text}`,
+  figureFactsOf,
+);
+
+/**
+ * `documentFigureContext` of a Note's paragraphs, each read once while its text stays the same:
+ * the whole Note is read for its separators and language on every change to it (#746).
+ */
+export function partsFigureContext(parts: readonly string[]): FigureContext {
+  const language = figureLanguageTag(detectLanguage(parts.join("\n").slice(0, 20_000)));
+  return figureContextOfFacts(
+    parts.map((text) => factsOf(text, language)),
+    language,
+  );
 }
 
 /** What reading a quote's figures needs of it: the quote, and the Units it cites. */

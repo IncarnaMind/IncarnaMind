@@ -9,7 +9,8 @@ import {
   readChart,
   type SourceGrid,
 } from "../../../shared/charts";
-import { type FigureContext, readFigures } from "../../../shared/figures";
+import { type Figure, type FigureContext, readFigures } from "../../../shared/figures";
+import { memoized } from "../../../shared/memo";
 import { targetHash } from "../../../shared/proposals";
 import {
   CALCULATED_FIGURE_NODE,
@@ -21,7 +22,7 @@ import {
 import { plainText } from "../../mindText";
 import { layout, textBlocks } from "../../proposals/write";
 import { nodeOf } from "../blocks";
-import { documentFigureContext } from "../calculations";
+import { documentFigureContext, partsFigureContext } from "../calculations";
 import { type SelectedSentence, sentenceSpansIn, textOf, wordsOf } from "./sentences";
 
 export interface FigureOccurrence extends CheckFigure {
@@ -101,6 +102,14 @@ function tableContext(element: Y.XmlElement, grids: Map<Y.XmlElement, SourceGrid
   };
 }
 
+/** A paragraph's figures, read once while its text and what it is read with stay the same. */
+const figuresOf = memoized(
+  20_000,
+  (text: string, context: FigureContext) => `${JSON.stringify(context)}\u0000${text}`,
+  (text: string, context: FigureContext): readonly Figure[] =>
+    Object.freeze(readFigures(text, context)),
+);
+
 /**
  * A figure's id and the context its check rests on are its own sentence's
  * (and, in a table, its row's and column's headings), so editing another
@@ -144,7 +153,7 @@ function inSentence(
     : {};
   // A court decision's citation ("512 S.W.3d 101 (Tex. 2017)") holds no figure to tie out.
   const cases = citedCases(raw);
-  const found: FigureOccurrence[] = readFigures(raw, { ...note, header: table?.header ?? null })
+  const found: FigureOccurrence[] = figuresOf(raw, { ...note, header: table?.header ?? null })
     .filter((reading) => reading.start >= sentence.from && reading.end <= sentence.to)
     .filter(
       (reading) => !cases.some((each) => reading.start >= each.from && reading.end <= each.to),
@@ -280,13 +289,9 @@ export function figuresInMind(blocks: Y.XmlFragment): FigureOccurrence[] {
   const read = textBlocks(blocks, { charts: true });
   // A Note's numbers are read as a Document's are: its separators and language from all its text,
   // so "2,160" alone in a table cell reads as the memo around it writes numbers.
-  const note = documentFigureContext([
-    {
-      text: read
-        .flatMap(({ element }) => (element.nodeName === "paragraph" ? [wordsOf(element)] : []))
-        .join("\n"),
-    },
-  ]);
+  const note = partsFigureContext(
+    read.flatMap(({ element }) => (element.nodeName === "paragraph" ? [wordsOf(element)] : [])),
+  );
   for (const { element, busy } of read) {
     if (busy) continue;
     if (element.nodeName === CHART_NODE) found.push(...inChart(element));
