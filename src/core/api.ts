@@ -8361,6 +8361,8 @@ export interface WindowCommandRequest {
   run: string;
   command: CommandId;
   targets: { kind: CommandTarget; id: string }[];
+  /** The Note the Question was asked from, which a command with no `targets` acts on; null: none. */
+  mindId: string | null;
 }
 
 /**

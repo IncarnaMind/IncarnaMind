@@ -42,6 +42,8 @@ export interface WindowRun {
   answerId: string;
   runId: string;
   toolCallId: string;
+  /** The Note the Question was asked from. */
+  mindId: string | null;
 }
 
 function targetsOf(
@@ -90,6 +92,7 @@ export function windowChecked(
           run: context.runId,
           command: entry.id,
           targets: items.map(({ kind, id }) => ({ kind, id })),
+          mindId: context.mindId,
         },
         signal,
       );

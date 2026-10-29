@@ -27,10 +27,14 @@ const english: Translate = (key, params) => translate("en", key, params);
 const isTarget = (kind: string): kind is CommandTarget =>
   COMMAND_TARGETS.some((each) => each === kind);
 
-/** Where the assistant's commands act with nothing found: what the tab in front shows, as ⌘K does. */
-const inFront = (): CommandContext => ({
+/**
+ * Where the assistant's commands act with nothing found: the Note the Question was asked from,
+ * else what the tab in front shows, as ⌘K does. "Check this Note" means that Note, even when a
+ * Document opened beside it is in front.
+ */
+const inFront = (mindId: string | null): CommandContext => ({
   selection: [],
-  focus: objectInFront(),
+  focus: mindId ? { kind: "mind", id: mindId } : objectInFront(),
   surface: "palette",
 });
 
@@ -61,9 +65,9 @@ function entryOf(command: Command, front: CommandContext): OfferedCommand | null
   };
 }
 
-/** The window's commands the assistant may run now, for a Question asked here. */
-export function offeredCommands(): OfferedCommand[] {
-  const front = inFront();
+/** The window's commands the assistant may run now, for a Question asked here from `mindId`. */
+export function offeredCommands(mindId: string | null): OfferedCommand[] {
+  const front = inFront(mindId);
   return commands.all().flatMap((command) => {
     try {
       return entryOf(command, front) ?? [];
@@ -75,10 +79,10 @@ export function offeredCommands(): OfferedCommand[] {
   });
 }
 
-/** Where a command the assistant runs acts: what it found, else what the tab in front shows. */
-function contextFor(targets: WindowCommandRequest["targets"]): CommandContext {
+/** Where a command the assistant runs acts: what it found, else as `inFront`. */
+function contextFor({ targets, mindId }: WindowCommandRequest): CommandContext {
   const [one] = targets;
-  if (!one) return inFront();
+  if (!one) return inFront(mindId);
   return targets.length === 1
     ? { selection: [], focus: one, surface: "palette" }
     : { selection: targets, focus: null, surface: "palette" };
@@ -103,7 +107,7 @@ export async function runForAssistant(
       change: undefined,
     };
   }
-  const ctx = contextFor(request.targets);
+  const ctx = contextFor(request);
   const label = labelOf(command, ctx, english);
   try {
     const tried = await commands.attempt(request.command, ctx);

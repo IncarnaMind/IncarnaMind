@@ -369,7 +369,7 @@ test("a Folder made and the leases moved into it are one request: the card, the 
   await app.close();
 });
 
-test("open a Document beside this one splits to the right and says so in one line, with no Undo", async () => {
+test("open a Document beside this one splits to the right and says so in one line, with no Undo; this Note is still the one asked from", async () => {
   const { app, window } = await launchApp(dataDir, { fakeChat: true });
   await dismissChatSetup(window);
   await useLocalChatModel(window);
@@ -387,6 +387,8 @@ test("open a Document beside this one splits to the right and says so in one lin
   // The Note the User asked from stays where it was.
   await expect(window.getByTestId("tab-group").first()).toContainText("Deal notes");
   await screenshot(window, "commands-open-beside-en");
+  const checked = await askInAssistant(window, "Check this Note");
+  await expect(checked.getByTestId("command-changes-title")).toHaveText("Done: Check");
   await app.close();
 });
 

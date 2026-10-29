@@ -85,6 +85,7 @@ const request = (command: Command) => {
     answerId: "answer",
     toolCallId: "call",
     run: "run",
+    mindId: null,
     command: command.id,
     targets: kind && isTarget(kind) ? [{ kind, id: "one" }] : [],
   };
@@ -94,7 +95,7 @@ describe("The assistant's commands are the window's one list (#1421)", () => {
   // protects=every command of ⌘K the assistant may run is offered to it, with what the entry says it acts on and does, and none it may not; fails_when=a new command needs an assistant-side change, or an excluded one is offered as runnable; no_claim=what each command does.
   test("every command the assistant may run is offered, as its entry says", () => {
     offerEverything();
-    const offered = new Map(window.offeredCommands().map((entry) => [entry.id, entry]));
+    const offered = new Map(window.offeredCommands(null).map((entry) => [entry.id, entry]));
     for (const command of registry.commands.all()) {
       const entry = offered.get(command.id);
       if (!isTheAssistants(command)) {
@@ -136,6 +137,55 @@ describe("The assistant's commands are the window's one list (#1421)", () => {
     expect(walked.length).toBeGreaterThan(100);
   });
 
+  // protects=with nothing found, a command acts on the Note the Question was asked from, even while a Document opened beside it is in front ("Check this Note" after "open … beside this one"); fails_when=it isn't offered, or acts on the Document; no_claim=what the check finds.
+  test("with nothing found, a command acts on the Note asked from, even with a Document in front", async () => {
+    const { useAppStore } = await import("../../src/renderer/src/store");
+    const check = registry.commands.get("mind.check");
+    if (!check) throw new Error("No Check command.");
+    const run = vi.fn();
+    stubbed.push({ command: check, when: check.when, enabled: check.enabled, run: check.run });
+    check.run = run;
+    useAppStore.setState({
+      layout: {
+        groups: [
+          {
+            id: "left",
+            tabs: [{ id: "t1", item: { kind: "mind", mindId: "note" } }],
+            activeTabId: "t1",
+            width: 1,
+          },
+          {
+            id: "right",
+            tabs: [{ id: "t2", item: { kind: "document", documentId: "one" } }],
+            activeTabId: "t2",
+            width: 1,
+          },
+        ],
+        focusedGroupId: "right",
+        reopenable: 0,
+      } as never,
+    });
+    try {
+      expect(window.offeredCommands(null).map((each) => each.id)).not.toContain("mind.check");
+      expect(window.offeredCommands("note").map((each) => each.id)).toContain("mind.check");
+      const { result } = await window.runForAssistant({
+        requestId: "request",
+        answerId: "answer",
+        toolCallId: "call",
+        run: "run",
+        mindId: "note",
+        command: "mind.check",
+        targets: [],
+      });
+      expect(result).toEqual({ ran: true, changed: false });
+      expect(run).toHaveBeenCalledWith(
+        expect.objectContaining({ focus: { kind: "mind", id: "note" } }),
+      );
+    } finally {
+      useAppStore.setState({ layout: null });
+    }
+  });
+
   // protects=a command added to the list is the assistant's at once, with no assistant-side change; fails_when=it isn't offered or doesn't run; no_claim=any real command.
   test("a command added to the list is the assistant's at once", async () => {
     const ran = vi.fn();
@@ -148,7 +198,9 @@ describe("The assistant's commands are the window's one list (#1421)", () => {
       run: ran,
     });
     try {
-      expect(window.offeredCommands().find((each) => each.id === "test.addedLater")).toMatchObject({
+      expect(
+        window.offeredCommands(null).find((each) => each.id === "test.addedLater"),
+      ).toMatchObject({
         on: ["document"],
         yours: null,
       });
@@ -157,6 +209,7 @@ describe("The assistant's commands are the window's one list (#1421)", () => {
         answerId: "answer",
         toolCallId: "call",
         run: "run",
+        mindId: null,
         command: "test.addedLater",
         targets: [{ kind: "document", id: "one" }],
       });
@@ -199,7 +252,7 @@ describe("The assistant's commands are the window's one list (#1421)", () => {
   // protects=the commands the core runs itself, with arguments the window would ask the User for, are entries of the same list where ⌘K has one; fails_when=the core's and the window's names drift apart; no_claim=what the core's commands do.
   test("the commands the core runs are the list's own entries, where ⌘K has one", () => {
     offerEverything();
-    const offered = new Set(window.offeredCommands().map((each) => each.id));
+    const offered = new Set(window.offeredCommands(null).map((each) => each.id));
     const listed = Object.keys(catalogue.CORE_COMMANDS)
       .filter(isCommandId)
       .filter((id) => registry.commands.get(id));

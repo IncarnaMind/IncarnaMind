@@ -280,6 +280,7 @@ export function commandTools(options: CommandToolsOptions): {
           answerId: options.answerId,
           runId: options.runId,
           toolCallId,
+          mindId: options.focusedMindId,
         });
         const ask = askOf(command, { changed, renames });
         checked.set(toolCallId, command);

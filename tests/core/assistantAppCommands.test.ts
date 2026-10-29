@@ -151,8 +151,8 @@ describe("The window's commands run in the window, as ⌘K runs them (#1421)", {
       commands: OFFERED,
     });
 
-    expect(asked.map(({ command, targets }) => ({ command, targets }))).toEqual([
-      { command: "mind.check", targets: [] },
+    expect(asked.map(({ command, targets, mindId }) => ({ command, targets, mindId }))).toEqual([
+      { command: "mind.check", targets: [], mindId: mind.id },
     ]);
     expect(commandCalls(answer)[0]?.command?.window).toEqual({ changed: false });
   });

@@ -216,7 +216,7 @@ export async function askInAssistant(
       ...input,
       conversationId: useConversations.getState().openId,
       onScreen: documentsOnScreen(),
-      commands: offeredCommands(),
+      commands: offeredCommands(input.mindId),
     });
     if (
       !result.asked &&
@@ -313,13 +313,25 @@ export async function regenerateAnswer(
       ...(clearScope && { clearScope }),
       ...(model && { model }),
       onScreen: documentsOnScreen(),
-      commands: offeredCommands(),
+      commands: offeredCommands(askedFrom(answerId)),
     });
     settleAsk(answerId, result);
     sayLeftOut(result);
   } catch (error) {
     settleAsk(answerId, null, error);
   }
+}
+
+/** The Note the Question of an Answer of the open conversation was asked from, while it is there. */
+function askedFrom(answerId: string): string | null {
+  const { messages } = useConversations.getState();
+  const answer = messages.find((message) => message.id === answerId);
+  const question =
+    answer?.kind === "answer"
+      ? messages.find((message) => message.id === answer.questionId)
+      : undefined;
+  const from = question?.kind === "question" ? question.askedFrom : null;
+  return from && !from.deleted ? from.mindId : null;
 }
 
 /** Stops an Answer of the open conversation being written, keeping what it has. */

@@ -120,7 +120,7 @@ async function windowCommandsFor(core: Core, mindId: string): Promise<OfferedCom
       reopenable: 0,
     } as never,
   });
-  return offeredCommands();
+  return offeredCommands(mindId);
 }
 
 interface Seen {
