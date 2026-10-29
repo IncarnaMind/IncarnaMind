@@ -1975,7 +1975,6 @@ export function createCore(adapters: CoreAdapters): Core {
   };
 
   const checks = createChecks({
-    carriesAll: () => adapters.answerPaths?.carriesAll?.() ?? false,
     language: () => settings.get().language,
     content,
     requireMind: (mindId) => {

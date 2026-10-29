@@ -18,7 +18,7 @@ export interface Arm {
   /** Each model request while the arm runs, as it is sent. */
   request?(params: LanguageModelV4CallOptions): LanguageModelV4CallOptions;
   /** Answer paths every model takes or doesn't while the arm runs; unset: the lists'. */
-  paths?: { writesThenCites?: boolean; retrievesFirst?: boolean; carriesAll?: boolean };
+  paths?: { writesThenCites?: boolean; retrievesFirst?: boolean };
 }
 
 // An arm that compares one Answer path keeps every other as the Tool loop has it from its first
@@ -39,12 +39,6 @@ export const ARMS: readonly Arm[] = [
     id: "loop",
     label: "the Tool loop from its first call, whatever the lists say",
     paths: { retrievesFirst: false },
-  },
-  {
-    id: "carries-all",
-    label:
-      "every call as before #1634's cuts: each Passage whole, and calculate offered to every check",
-    paths: { carriesAll: true },
   },
   {
     id: "retrieve-first",
@@ -74,7 +68,6 @@ export function armSwitch() {
   const answerPaths: AnswerPathsOverride = {
     writesThenCites: () => current?.paths?.writesThenCites,
     retrievesFirst: () => current?.paths?.retrievesFirst,
-    carriesAll: () => current?.paths?.carriesAll,
   };
   return {
     chatModels:
