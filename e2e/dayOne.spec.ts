@@ -173,16 +173,17 @@ for (const language of ["en", "zh-CN"] as const) {
     await expect(window.getByTestId("open-library")).toHaveCount(0);
     await shot(window, `day-one-note-${language}-900`);
 
-    // The Note is in ⌘K, and the counts hold at 1,600 px.
+    // The counts hold at 1,600 px, and the Note is in ⌘K.
+    await setWindowSize(app, window, 1600, 1000);
+    await expect(notes.getByTestId("sidebar-section-count")).toHaveText("1");
+    await expect(documents.getByTestId("sidebar-section-count")).toHaveText("1");
+    await shot(window, `day-one-note-${language}-1600`);
     await window.keyboard.press("ControlOrMeta+k");
     await expect(window.getByTestId("palette-search")).toBeFocused();
     await window.keyboard.type("tides");
     await expect(window.getByTestId("palette-item").first()).toBeVisible();
     await window.keyboard.press("Escape");
-    await setWindowSize(app, window, 1600, 1000);
-    await expect(notes.getByTestId("sidebar-section-count")).toHaveText("1");
-    await expect(documents.getByTestId("sidebar-section-count")).toHaveText("1");
-    await shot(window, `day-one-note-${language}-1600`);
+    await expect(window.getByTestId("palette")).toHaveCount(0);
     await app.close();
   });
 }
