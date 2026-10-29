@@ -112,7 +112,7 @@ function TableNameField({ name, onDone }: { name: string; onDone(next: string | 
         if (event.key === "Enter" && !event.nativeEvent.isComposing) {
           event.preventDefault();
           end(true);
-        } else if (event.key === "Escape") {
+        } else if (event.key === "Escape" && !event.nativeEvent.isComposing) {
           event.preventDefault();
           end(false);
         }
@@ -397,7 +397,7 @@ export function ComparisonTableView({ node, editor }: ReactNodeViewProps) {
               {name}
             </span>
           )}
-          {` · ${meta}`}
+          <span className="comparison-meta" data-testid="comparison-meta">{` · ${meta}`}</span>
         </span>
         <span className="comparison-status">
           {(hasProblems || filters.size > 0) && (
@@ -548,7 +548,7 @@ export function ComparisonTableView({ node, editor }: ReactNodeViewProps) {
           model={tableModel}
           onClose={() => useComparisonTables.getState().closeAddDocuments()}
         />
-      )}{" "}
+      )}
       {problem && (
         <div contentEditable={false} data-comparison-ui className="comparison-problem">
           {problem.reason === "not-ready" ? (

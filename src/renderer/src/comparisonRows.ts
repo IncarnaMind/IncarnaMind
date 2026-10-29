@@ -91,7 +91,6 @@ export async function removeRow(handle: ComparisonTableHandle, documentId: strin
   useComparisonTables.getState().focusRow(handle.tableId, removed.focusDocumentId);
 }
 
-/** A row moved to a place among the rows, its cells with it. */
 export async function moveRow(
   handle: ComparisonTableHandle,
   documentId: string,
@@ -127,7 +126,6 @@ export async function moveRow(
   useComparisonTables.getState().focusRow(handle.tableId, documentId);
 }
 
-/** A row moved one place up or down. */
 export async function stepRow(
   handle: ComparisonTableHandle,
   documentId: string,
@@ -138,7 +136,6 @@ export async function stepRow(
   await moveRow(handle, documentId, to);
 }
 
-/** A row's Document beside the table, at its start. */
 export function openRowDocument(documentId: string): void {
   openDocumentBeside(documentId);
 }

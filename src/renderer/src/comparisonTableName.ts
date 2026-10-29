@@ -9,7 +9,6 @@ import { useComparisonTables } from "./comparisonTableState";
 import { comparisonTableAt } from "./editor/comparisonCommands";
 import { asOneStep, offerEditorUndo } from "./editor/editorUndo";
 
-/** Saves the table's name as one line, its space trimmed, as one step of the note's Undo. */
 export function changeComparisonTitle(editor: Editor, tableId: string, value: string): void {
   if (!editor.isEditable) return;
   const pos = comparisonTableAt(editor, tableId);
@@ -24,7 +23,9 @@ export function changeComparisonTitle(editor: Editor, tableId: string, value: st
     );
     return true;
   });
-  if (!changed) return;
+  // A row moving in another window may have had this change dropped by the structure lock.
+  const renamed = editor.state.doc.nodeAt(pos);
+  if (!changed || !renamed || comparisonTitleOf(renamed.attrs) !== title) return;
   offerEditorUndo(editor, (t) =>
     t("comparison.table.renamed", { name: title || t("comparison.title") }),
   );

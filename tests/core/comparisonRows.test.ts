@@ -4,7 +4,7 @@
  * is one structure change that Undo and Redo take back and do again, and a
  * table keeps at least one row and at most a hundred.
  */
-import { describe, expect, test } from "vitest";
+import { describe, expect, test, vi } from "vitest";
 import * as Y from "yjs";
 import { COMPARISON_TABLE_NODE, InvalidInputError, MIND_CONTENT_FIELD } from "../../src/core";
 import { setUpWithDocuments } from "../helpers/citations";
@@ -156,6 +156,64 @@ describe("A comparison table's rows, all written by the core", () => {
     });
     await client.settled();
     expect(comparisonRowsIn(client)).toEqual(before);
+  });
+
+  test("rows taken back and put back while their fill is held leave every row to fill afterwards", async () => {
+    let release = () => {};
+    const held = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const model = cellModel(undefined, held, (asking) => asking.document === "Lumeric");
+    const { core, client, mind, documents } = await setUpWithDocuments(model, SUPPLIERS);
+    const tableId = await compare(core, client, {
+      mindId: mind.id,
+      documentIds: documents.slice(0, 2).map((document) => document.id),
+      questions: [QUESTION],
+    });
+    const third = documents[2];
+    if (!third) throw new Error("No third Document.");
+
+    // The added row's cells are held mid-answer, and the row goes and comes back meanwhile.
+    const added = await core.addComparisonRows({
+      mindId: mind.id,
+      clientId: "window-a",
+      tableId,
+      documentIds: [third.id],
+    });
+    const ended = fillEnded(core, tableId);
+    await core.fillComparisonTable({ mindId: mind.id, tableId, documentIds: added.documentIds });
+    await vi.waitFor(() => expect(model.doStreamCalls.length).toBeGreaterThan(0));
+    await core.undoComparisonStructure({
+      mindId: mind.id,
+      clientId: "window-a",
+      tableId,
+      step: added.step,
+    });
+    await client.settled();
+    expect(rowNames(client)).toEqual([documents[0]?.name, documents[1]?.name]);
+    await core.redoComparisonStructure({
+      mindId: mind.id,
+      clientId: "window-a",
+      tableId,
+      step: added.step,
+    });
+    await client.settled();
+    expect(rowNames(client)).toHaveLength(3);
+    release();
+    await ended;
+    await client.settled();
+
+    // The whole table fills every row after that, the row put back among them.
+    const again = fillEnded(core, tableId);
+    await core.fillComparisonTable({ mindId: mind.id, tableId });
+    await again;
+    await client.settled();
+    expect(comparisonRowsIn(client).map((row) => row.cells[0]?.status)).toEqual([
+      "done",
+      "done",
+      "done",
+    ]);
+    expect(comparisonRowsIn(client)[2]?.cells[0]?.text).toBe("30 days");
   });
 
   test("a row removed comes back whole with Undo, and the last row can't be removed", async () => {

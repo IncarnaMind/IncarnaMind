@@ -2547,7 +2547,7 @@ test("the counts say what found nothing and what failed, each a filter, in Engli
 
   // Chinese says the same, and its Clear filter does the same.
   await bridge(window).language("zh-CN");
-  await expect(table.getByTestId("comparison-count-nothing")).toHaveText("1 项未找到");
+  await expect(table.getByTestId("comparison-count-nothing")).toHaveText("1 个未找到");
   await expect(table.getByTestId("comparison-count-failed")).toHaveText("3 个失败");
   await pointAndClick(window, table.getByTestId("comparison-count-nothing"));
   await expect(table.getByTestId("comparison-showing")).toHaveText("显示 3 个文档中的 1 个");

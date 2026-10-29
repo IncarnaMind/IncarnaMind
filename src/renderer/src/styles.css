@@ -9920,19 +9920,22 @@
     white-space: nowrap;
   }
   .comparison-title {
-    display: inline-flex;
+    display: flex;
     flex: 0 1 auto;
     min-width: 160px;
     align-items: baseline;
-    gap: 0;
     overflow: hidden;
-    text-overflow: ellipsis;
     white-space: nowrap;
 
     strong {
       font-weight: 600;
       color: var(--color-ink);
     }
+  }
+  /* Its own box keeps the space before "· N Documents" and lets the name give way first. */
+  .comparison-meta {
+    flex: none;
+    white-space: pre;
   }
   .comparison-name {
     min-width: 0;

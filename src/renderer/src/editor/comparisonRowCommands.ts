@@ -7,7 +7,6 @@ export interface RowHere {
   /** Where it is among all the rows: the second row is 1. */
   index: number;
   label: string;
-  /** The row's Document, from the table. */
   documentId: string;
 }
 
@@ -39,7 +38,6 @@ export function comparisonRowHere(
   return found;
 }
 
-/** How many rows a table has. */
 export function comparisonRowCount(editor: Editor, tableId: string): number {
   let count = 0;
   tableIn(editor, tableId)?.forEach((row) => {
@@ -62,7 +60,6 @@ export function comparisonRowStep(
   return to >= 0 && to < rows ? to : null;
 }
 
-/** The rows' Documents, in their order. */
 export function comparisonRowDocuments(editor: Editor, tableId: string): string[] {
   const documents: string[] = [];
   tableIn(editor, tableId)?.forEach((row) => {

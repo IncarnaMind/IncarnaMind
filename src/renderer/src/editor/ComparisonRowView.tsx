@@ -151,7 +151,8 @@ export function ComparisonRowView({ node, editor, getPos }: ReactNodeViewProps) 
       if (live) openRowDocument(documentId);
       return;
     }
-    if (event.key === "Delete" && rows > 1) {
+    // Backspace as well: a MacBook has no Delete except under fn.
+    if ((event.key === "Delete" || event.key === "Backspace") && rows > 1) {
       event.preventDefault();
       void removeRow(handle, documentId);
       return;

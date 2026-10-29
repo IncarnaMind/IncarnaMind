@@ -265,34 +265,22 @@ const chartView = ReactNodeViewRenderer(ChartView, {
  * their own pointer and keys, so the editor doesn't select or type over them;
  * its cells are content the editor draws, never typed in.
  */
+const comparisonStopEvent = ({ event }: { event: Event }) => {
+  const target = event.target;
+  if (!(target instanceof Element) || !target.closest("[data-comparison-ui]")) return false;
+  if (event.type.startsWith("drag") || event.type === "drop") return false;
+  const undo =
+    event instanceof KeyboardEvent &&
+    (event.metaKey || event.ctrlKey) &&
+    /^[zy]$/i.test(event.key) &&
+    !(target instanceof HTMLInputElement);
+  return !undo;
+};
+
 const comparisonViews = {
-  table: ReactNodeViewRenderer(ComparisonTableView, {
-    stopEvent: ({ event }) => {
-      const target = event.target;
-      if (!(target instanceof Element) || !target.closest("[data-comparison-ui]")) return false;
-      if (event.type.startsWith("drag") || event.type === "drop") return false;
-      const undo =
-        event instanceof KeyboardEvent &&
-        (event.metaKey || event.ctrlKey) &&
-        /^[zy]$/i.test(event.key) &&
-        !(target instanceof HTMLInputElement);
-      return !undo;
-    },
-  }),
+  table: ReactNodeViewRenderer(ComparisonTableView, { stopEvent: comparisonStopEvent }),
   // A row's head takes its own pointer and keys: its menu, Open, Delete and its drag.
-  row: ReactNodeViewRenderer(ComparisonRowView, {
-    stopEvent: ({ event }) => {
-      const target = event.target;
-      if (!(target instanceof Element) || !target.closest("[data-comparison-ui]")) return false;
-      if (event.type.startsWith("drag") || event.type === "drop") return false;
-      const undo =
-        event instanceof KeyboardEvent &&
-        (event.metaKey || event.ctrlKey) &&
-        /^[zy]$/i.test(event.key) &&
-        !(target instanceof HTMLInputElement);
-      return !undo;
-    },
-  }),
+  row: ReactNodeViewRenderer(ComparisonRowView, { stopEvent: comparisonStopEvent }),
   cell: comparisonCellView,
 };
 

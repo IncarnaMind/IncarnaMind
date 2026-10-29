@@ -32,7 +32,7 @@ export function rowProblems(row: ProseMirrorNode, hidden: ReadonlySet<string>): 
   return counts;
 }
 
-/** Whether a row shows with the counts the User clicked: it has a cell of each one. */
+/** Whether a row shows with the counts the User clicked: it has a cell of any of them. */
 export function rowShows(
   row: ProseMirrorNode,
   hidden: ReadonlySet<string>,
@@ -40,7 +40,7 @@ export function rowShows(
 ): boolean {
   if (filters.size === 0) return true;
   const counts = rowProblems(row, hidden);
-  return [...filters].every((problem) => counts[problem] > 0);
+  return [...filters].some((problem) => counts[problem] > 0);
 }
 
 /** How many of a table's rows show with these counts clicked. */
