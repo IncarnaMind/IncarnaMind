@@ -290,7 +290,7 @@
   "wordImport.spec.ts": 67,
   "wordLook.spec.ts": 44,
   "wordLookFit.spec.ts": 23,
-  "wordLookSpeed.spec.ts": 90,
+  "wordLookSpeed.spec.ts": 200,
   "wordLookTables.spec.ts": 16,
   "wordLookTabs.spec.ts": 32,
   "wordPaste.spec.ts": 4,
