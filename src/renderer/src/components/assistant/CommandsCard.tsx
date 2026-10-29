@@ -216,15 +216,18 @@ function YoursLine({ what }: { what: Yours }) {
       <ShieldLineIcon aria-hidden="true" className="mind-changes-icon" />
       <p className="mind-changes-line">
         <span className="mind-changes-title">{t(words.said)}</span>
-        <Dot />
-        <button
-          type="button"
-          data-testid="command-yours-open"
-          onClick={() => openYours(what)}
-          className="mind-changes-review"
-        >
-          {t(words.open)}
-        </button>
+        {/* The dot goes with its button when the line wraps. */}
+        <span className="whitespace-nowrap">
+          <Dot />
+          <button
+            type="button"
+            data-testid="command-yours-open"
+            onClick={() => openYours(what)}
+            className="mind-changes-review"
+          >
+            {t(words.open)}
+          </button>
+        </span>
       </p>
     </div>
   );

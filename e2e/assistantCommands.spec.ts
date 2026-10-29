@@ -427,11 +427,12 @@ test("Local mode is the User's: nothing changes, and one button opens Privacy", 
   await app.close();
 });
 
-test("in Chinese, Local mode's line and its button are in Chinese", async () => {
+test("in Chinese, Local mode's line and its button are in Chinese, and fit a narrow window", async () => {
   const { app, window } = await launchApp(dataDir, { fakeChat: true });
   await dismissChatSetup(window);
   await useLocalChatModel(window);
   await setUp(app, window, "zh-CN");
+  await setWindowSize(app, window, 900, 700);
 
   const answer = await askInAssistant(window, "打开本地模式");
 
@@ -440,7 +441,12 @@ test("in Chinese, Local mode's line and its button are in Chinese", async () => 
     "哪些内容留在这台电脑上、同意和隐私由你来改，我不能改。在“设置 › 隐私”里。",
   );
   await expect(line.getByTestId("command-yours-open")).toHaveText("打开隐私设置");
-  await screenshot(window, "commands-yours-zh");
+  const [box, width] = await Promise.all([
+    line.boundingBox(),
+    window.evaluate(() => globalThis.innerWidth),
+  ]);
+  expect(box && box.x + box.width <= width).toBe(true);
+  await screenshot(window, "commands-yours-zh-narrow");
   await app.close();
 });
 
