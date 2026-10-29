@@ -1933,6 +1933,35 @@ export const migrations: readonly Migration[] = [
       );
     `,
   },
+  {
+    version: 112,
+    description: "A cited page whose drawing failed waits to be drawn again (#2161)",
+    sql: `
+      -- tries: how many drawings of the page failed (src/core/citedPages.ts). A failed one no
+      -- longer takes the row away: it waits, and is tried again at the next start, at another
+      -- Citation of its Location, or when its page is asked for, until 3 have failed; another
+      -- Citation starts the count again. A page a failed drawing took away before waits again,
+      -- the newest of its Location, unless one waits or is saved; the start-up clean-up lets
+      -- it go if nothing cites it.
+      ALTER TABLE cited_pages ADD COLUMN tries INTEGER NOT NULL DEFAULT 0;
+      UPDATE cited_pages
+      SET deleted_at = NULL, tries = 1, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+      WHERE id IN (
+        SELECT gone.id FROM cited_pages AS gone
+        WHERE gone.deleted_at IS NOT NULL AND gone.image_type IS NULL
+          AND NOT EXISTS (
+            SELECT 1 FROM cited_pages AS other
+            WHERE other.document_id = gone.document_id
+              AND other.content_hash = gone.content_hash
+              AND other.page_from = gone.page_from
+              AND other.page_to = gone.page_to
+              AND other.area = gone.area
+              AND (other.deleted_at IS NULL
+                OR (other.image_type IS NULL AND other.rowid > gone.rowid))
+          )
+      );
+    `,
+  },
 ];
 
 /**
