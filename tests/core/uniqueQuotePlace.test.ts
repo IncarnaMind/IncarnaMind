@@ -1,6 +1,12 @@
 import { expect, test } from "vitest";
 import { locateQuote } from "../../src/core/answers/citations";
-import { answerEnded, citingModel, setUpWithDocuments, shownPassages } from "../helpers/citations";
+import {
+  answerEnded,
+  citeFeedback,
+  citingModel,
+  setUpWithDocuments,
+  shownPassages,
+} from "../helpers/citations";
 import { scriptedModel } from "../helpers/models";
 import { docxOf } from "../helpers/office";
 import { buildPdf } from "../helpers/pdf";
@@ -130,6 +136,61 @@ for (const language of ["en", "zh-CN"] as const) {
     if (answer?.kind !== "answer") throw new Error("No Answer");
     expect(answer.citations).toHaveLength(1);
     expect(answer.citations[0]).toMatchObject({ quote: row, pageFrom: 2, pageTo: 2 });
+  });
+  test(`a wrong page places only a unique quote through the public Core, ${language}`, async () => {
+    const other = language === "en" ? "Revision C CURRENT" : "修订 C 当前有效";
+    const invented =
+      language === "en" ? "This sentence is not in the Document." : "这句话不在文档中。";
+    const file = {
+      name: "Revisions-misplaced.pdf",
+      contents: buildPdf([
+        language === "en" ? { lines: [before] } : { chineseLines: [before] },
+        language === "en"
+          ? { lines: [current, row, other, row] }
+          : { chineseLines: [current, row, other, row] },
+      ]),
+    };
+    const ask = async (quote: string) => {
+      const model = citingModel({
+        query: "Revisions",
+        records: (passages) => [{ marker: 1, passage: passages[0]?.id, location: "p. 1", quote }],
+        answer: "The current row[^1].",
+      });
+      const { core } = await setUpWithDocuments(model, [file]);
+      const asked = await core.askInConversation({ text: "Quote the current row." });
+      if (!asked.asked) throw new Error("Question not asked");
+      const ended = await answerEnded(core, asked.answerId);
+      if (ended.event !== "finished") throw new Error("The Answer failed");
+      const answer = (await core.getConversation(asked.conversation.id)).messages.find(
+        (message) => message.id === asked.answerId,
+      );
+      if (answer?.kind !== "answer") throw new Error("No Answer");
+      return { answer, ended, model };
+    };
+
+    const unique = await ask(`${current}\n${row}`);
+    expect(unique.ended.payload.citations).toHaveLength(1);
+    expect(unique.ended.payload.citations[0]).toMatchObject({
+      check: "found",
+      pageFrom: 2,
+      pageTo: 2,
+      quote: `${current}\n${row}`,
+    });
+    expect(citeFeedback(unique.model)).not.toContain("copy it exactly");
+
+    const ambiguous = await ask(row);
+    expect(ambiguous.ended.payload.rejectedRecords).toMatchObject([
+      { marker: 1, reason: "quote-context" },
+    ]);
+    expect(ambiguous.answer.citations).toEqual([]);
+    expect(citeFeedback(ambiguous.model)).toContain(
+      "quote enough surrounding words to identify one place",
+    );
+
+    const absent = await ask(invented);
+    expect(absent.ended.payload.citations).toHaveLength(1);
+    expect(absent.ended.payload.citations[0]).toMatchObject({ check: "not-found", pageFrom: 1 });
+    expect(citeFeedback(absent.model)).toContain("copy it exactly");
   });
   test(`locating a repeated quote never chooses the first Unit, ${language}`, () => {
     expect(

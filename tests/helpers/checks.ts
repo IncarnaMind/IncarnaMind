@@ -117,11 +117,15 @@ export const sentenceOf = (call: ModelCall) => {
 };
 
 /** The numbers of the listed sentences ("[3] …") that have a plan. */
-function plannedNumbers(prompt: string, plans: Record<string, Plan>): number[] {
-  return prompt.split("\n").flatMap((line) => {
-    const listed = /^\[(\d+)\] (.*)$/.exec(line);
-    return listed?.[2] !== undefined && listed[2] in plans ? [Number(listed[1])] : [];
-  });
+/** Each listed sentence's decision: a claim when there is a plan for it. */
+function plannedDecisions(prompt: string, plans: Record<string, Plan>): Record<string, string> {
+  return Object.fromEntries(
+    prompt.split("\n").flatMap((line) => {
+      const listed = /^\[(\d+)\] (.*)$/.exec(line);
+      if (listed?.[1] === undefined || listed[2] === undefined) return [];
+      return [[listed[1], listed[2] in plans ? "claim" : "no"]];
+    }),
+  );
 }
 
 /** The strict judgement's instructions, which ask for the sentence's detail and the quote's before the word. */
@@ -246,7 +250,7 @@ export const checkGenerate =
   (plans: Record<string, Plan>, evidence: string = JSON.stringify({ passage: null })) =>
   (call: GenerateCall): GeneratedReply => {
     if (call.system.startsWith("You sort the sentences")) {
-      return { text: JSON.stringify({ claims: plannedNumbers(call.prompt, plans) }) };
+      return { text: JSON.stringify(plannedDecisions(call.prompt, plans)) };
     }
     if (call.system.startsWith("A sentence the User wrote says more")) {
       return { text: plans[SENTENCE.exec(call.prompt)?.[1] ?? ""]?.part ?? "" };

@@ -27,6 +27,7 @@ import { officeProperties } from "./formats/coreProperties";
 import { readWebPage, SAVED_PICTURE } from "./formats/web";
 import { isPackageKind, packageSizeError } from "./formats/zip";
 import { keywordText } from "./keywords";
+import { joinCjkLineWraps } from "./lineWrap";
 import { type BuiltPassage, buildPassages } from "./passages";
 import { documentTitle } from "./title";
 import { unreadMessage } from "./unreadMessage";
@@ -55,9 +56,10 @@ import { unreadMessage } from "./unreadMessage";
  * workbook records the hidden sheets and rows past the limit it left out).
  * 14: #1818 (PDF form fields are included in the pages' text). 15:
  * #2042 (a Document's name is in a keyword index of its own, not in each
- * Passage's row; see `NAME_INDEX_CURRENT_SINCE`).
+ * Passage's row; see `NAME_INDEX_CURRENT_SINCE`). 16: #2110 (a PDF line break
+ * beside CJK text or full-width punctuation is joined).
  */
-export const PROCESSING_VERSION = 15;
+export const PROCESSING_VERSION = 16;
 
 /**
  * Per kind, the oldest version whose Passages and Units are still what this
@@ -74,10 +76,11 @@ export const PROCESSING_VERSION = 15;
  * which record the hidden sheets and rows past the limit they left out, their
  * Units as they were; version 14 only PDFs', whose pages include form fields.
  * Version 15 changed no Passage or Unit, only the keyword index (see
- * `NAME_INDEX_CURRENT_SINCE`).
+ * `NAME_INDEX_CURRENT_SINCE`). Version 16 only PDFs', whose wrapped CJK lines
+ * are joined while other text and embeddings stay as they are.
  */
 export const CURRENT_SINCE: Readonly<Record<DocumentKind, number>> = {
-  pdf: 14,
+  pdf: 16,
   text: 5,
   markdown: 5,
   docx: 7,
@@ -559,7 +562,17 @@ async function processBytes(
   try {
     const extracted = await extractText(kind, bytes, reading, password, readPicture);
     const firstPages = extracted.units.slice(0, REFERENCE_PAGES).map((unit) => unit.text);
-    const pages = kind === "pdf" ? stripBoilerplate(extracted.units) : extracted.units;
+    // The running headers go while a page's lines are the ones extraction joined as they
+    // always were; the wider join comes after, where it reaches the model.
+    const stripped = kind === "pdf" ? stripBoilerplate(extracted.units) : extracted.units;
+    // Only a page pdf.js read has lines that break a sentence; a scanned page's rows are its
+    // layout, and joining two of them would merge a table's rows (and move its anchors).
+    const pages =
+      kind === "pdf"
+        ? stripped.map((unit) =>
+            unit.label?.scan ? unit : { ...unit, text: joinCjkLineWraps(unit.text) },
+          )
+        : stripped;
     const { pageCount, unread, parts } = extracted;
     const passages = buildPassages(pages).map((passage) => ({
       ...passage,

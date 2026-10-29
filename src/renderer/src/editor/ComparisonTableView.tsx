@@ -1,17 +1,18 @@
 import { NodeViewContent, NodeViewWrapper, type ReactNodeViewProps } from "@tiptap/react";
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { type KeyboardEvent, useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { ComparisonQuestion, RunStop } from "../../../core/api";
 import {
   cellStop,
   cellToFill,
   comparisonCellOf,
   comparisonQuestionsOf,
+  comparisonTitleOf,
   MAX_COMPARISON_QUESTIONS,
+  MAX_COMPARISON_TITLE,
   visibleComparisonQuestions,
 } from "../../../shared/comparisons";
-import { mindName } from "../../../shared/naming";
 import { readProposalAttribute } from "../../../shared/proposals";
-import { addColumn, moveColumn, resizeColumn, showColumn } from "../comparisonColumns";
+import { addColumn, moveColumn, resizeColumn } from "../comparisonColumns";
 import { fittedColumnWidth } from "../comparisonColumnWidth";
 import {
   expandComparisonTable,
@@ -20,7 +21,15 @@ import {
   stopComparisonTable,
   useComparisons,
 } from "../comparisons";
+import { changeComparisonTitle, endTableRename, startTableRename } from "../comparisonTableName";
+import {
+  comparisonTableHandles,
+  type RowProblem,
+  useComparisonTables,
+} from "../comparisonTableState";
+import { ComparisonAddDocuments } from "../components/ComparisonAddDocuments";
 import { ExportLineIcon, PlusLineIcon } from "../components/lineIcons";
+import { useObjectMenu } from "../components/ObjectMenu";
 import { ProblemLine } from "../components/ProblemLine";
 import { ReadinessLine } from "../components/providers/ChatReadinessNotice";
 import { runStopParts } from "../cost";
@@ -36,7 +45,8 @@ import {
   ColumnQuestionField,
   ComparisonColumnHeading,
 } from "./ComparisonColumnHeading";
-import { ComparisonHiddenColumnsMenu } from "./ComparisonHiddenColumnsMenu";
+import { ComparisonTableMenu } from "./ComparisonTableMenu";
+import { problemCounts, shownRowCount } from "./comparisonRowCounts";
 import { CollapseIcon, ExpandIcon, TableIcon } from "./icons";
 import { useMindId } from "./mindContext";
 
@@ -69,6 +79,48 @@ const typingFocused = (): boolean => {
   // A field inside the note takes Escape; the note's own editor is what the table collapses over.
   return !(active instanceof HTMLElement && active.matches('[data-testid="mind-editor"]'));
 };
+
+const NO_PROBLEMS: ReadonlySet<RowProblem> = new Set();
+
+/** The table's name, typed in place: Enter or leaving it saves, Esc keeps the old name. */
+function TableNameField({ name, onDone }: { name: string; onDone(next: string | null): void }) {
+  const t = useT();
+  const [value, setValue] = useState(name);
+  const field = useRef<HTMLInputElement>(null);
+  const ended = useRef(false);
+  useEffect(() => {
+    field.current?.focus();
+    field.current?.select();
+  }, []);
+  const end = (save: boolean) => {
+    if (ended.current) return;
+    ended.current = true;
+    onDone(save ? value : null);
+  };
+  return (
+    <input
+      ref={field}
+      data-testid="comparison-name-field"
+      className="comparison-name-field"
+      aria-label={t("comparison.table.nameField")}
+      placeholder={t("comparison.title")}
+      maxLength={MAX_COMPARISON_TITLE}
+      value={value}
+      onChange={(event) => setValue(event.target.value)}
+      onKeyDown={(event: KeyboardEvent<HTMLInputElement>) => {
+        event.stopPropagation();
+        if (event.key === "Enter" && !event.nativeEvent.isComposing) {
+          event.preventDefault();
+          end(true);
+        } else if (event.key === "Escape" && !event.nativeEvent.isComposing) {
+          event.preventDefault();
+          end(false);
+        }
+      }}
+      onBlur={() => end(true)}
+    />
+  );
+}
 
 /**
  * Expand (DESIGN.md, Comparison table): the table fills the Mind's card
@@ -148,16 +200,34 @@ export function ComparisonTableView({ node, editor }: ReactNodeViewProps) {
   const waiting = useTasks((state) => tableTask(state, tableId) !== null);
   const expanded = useComparisons((state) => state.expanded === tableId);
   const problem = useComparisons((state) => state.problems[tableId]);
-  const mindTitle = useAppStore((state) => {
-    const mind = state.minds.find((each) => each.id === mindId);
-    return mind ? mindName(mind) : "";
-  });
+  const addingDocuments = useComparisonTables((state) => state.adding === tableId);
+  const renaming = useComparisonTables((state) => state.renaming === tableId);
+  const filters = useComparisonTables((state) => state.filters.get(tableId) ?? NO_PROBLEMS);
+  const tableMenu = useObjectMenu({ kind: "comparisonTable", id: tableId });
+  const rowDocuments = (() => {
+    const ids: string[] = [];
+    node.forEach((row) => {
+      ids.push(String(row.attrs.documentId ?? ""));
+    });
+    return ids;
+  })();
+  const tableModel =
+    typeof node.attrs.providerId === "string" && typeof node.attrs.modelId === "string"
+      ? { providerId: node.attrs.providerId, modelId: node.attrs.modelId }
+      : null;
   const wrapper = useRef<HTMLDivElement>(null);
+  const head = useRef<HTMLDivElement>(null);
   const [adding, setAdding] = useState(false);
   const [resizing, setResizing] = useState<{ questionId: string; width: number } | null>(null);
   const [drag, setDrag] = useState<{ questionId: string; slot: number | null } | null>(null);
   const hiddenIds = new Set(hidden.map((column) => column.id));
   const { total, settled, toFill, stop } = cellCounts(node, hiddenIds);
+  const counts = problemCounts(node, hiddenIds);
+  const hasProblems = counts.nothing > 0 || counts.failed > 0;
+  const shown = shownRowCount(node, hiddenIds, filters);
+  const name = comparisonTitleOf(node.attrs) || t("comparison.title");
+  const meta = `${t(node.childCount === 1 ? "comparison.documents.one" : "comparison.documents.other", { count: node.childCount })} × ${t(questions.length === 1 ? "comparison.questions.one" : "comparison.questions.other", { count: questions.length })}`;
+  const title = `${name} · ${meta}`;
   const hiddenKey = hidden.map((column) => column.id).join("\n");
   const lastShown = questions.at(-1)?.id ?? null;
   // The cells are drawn in the document's order, which is the Questions': a hidden column's
@@ -189,19 +259,34 @@ export function ComparisonTableView({ node, editor }: ReactNodeViewProps) {
       editor.off("transaction", apply);
     };
   }, [editor, hiddenKey, lastShown]);
+  // A row hides itself from the counts the User clicked: it needs the columns its table hides.
+  useEffect(() => {
+    useComparisonTables
+      .getState()
+      .setHiddenColumns(tableId, hiddenKey === "" ? [] : hiddenKey.split("\n"));
+  }, [tableId, hiddenKey]);
+  // A filter left on with nothing to show would hide every row and leave no count to
+  // press to bring them back, so it clears once no problem cell is left and no fill runs.
+  useEffect(() => {
+    if (filling || hasProblems || filters.size === 0) return;
+    useComparisonTables.getState().clearFilter(tableId);
+  }, [tableId, filling, hasProblems, filters.size]);
   const language = useLanguage();
   const openSettings = useAppStore((state) => state.openSettings);
   const editable = editor.isEditable;
   const ref = { mindId, tableId };
   const handle = { editor, mindId, tableId };
 
+  useEffect(() => {
+    const entry = { editor, mindId, tableId };
+    comparisonTableHandles.set(tableId, entry);
+    return () => {
+      if (comparisonTableHandles.get(tableId) === entry) comparisonTableHandles.delete(tableId);
+    };
+  }, [tableId, editor, mindId]);
+
   useExpandInPlace(wrapper, expanded, () => expandComparisonTable(null));
   useEffect(loadFillingComparisons, []);
-
-  const title = [
-    t("comparison.title"),
-    `${t(node.childCount === 1 ? "comparison.documents.one" : "comparison.documents.other", { count: node.childCount })} × ${t(questions.length === 1 ? "comparison.questions.one" : "comparison.questions.other", { count: questions.length })}`,
-  ].join(" · ");
 
   const resolve = (outcome: "accept" | "reject") => {
     if (proposal) resolveProposalsIn(editor, mindId, [proposal.id], outcome);
@@ -272,16 +357,100 @@ export function ComparisonTableView({ node, editor }: ReactNodeViewProps) {
       data-no-columns={questions.length === 0 ? "true" : undefined}
       className="comparison-table"
     >
-      <div contentEditable={false} data-comparison-ui className="comparison-head">
+      {/* biome-ignore lint/a11y/noStaticElementInteractions: the table's title line takes F2, which renames it; the name field inside takes the keys while it is open. */}
+      <div
+        ref={head}
+        contentEditable={false}
+        data-comparison-ui
+        data-testid="comparison-head"
+        tabIndex={editable ? 0 : undefined}
+        {...(editable ? tableMenu.rowProps : {})}
+        onKeyDown={(event: KeyboardEvent<HTMLDivElement>) => {
+          if (!editable) return;
+          tableMenu.rowProps.onKeyDown(event);
+          if (event.defaultPrevented || renaming) return;
+          if (event.key === "F2") {
+            event.preventDefault();
+            startTableRename(tableId);
+          }
+        }}
+        className="comparison-head"
+      >
         {expanded && <TableIcon className="size-4 shrink-0 text-ink-meta" />}
         <span data-testid="comparison-title" className="comparison-title" title={title}>
-          {expanded ? (
-            <>
-              <strong>{t("comparison.title")}</strong>
-              {mindTitle ? ` · ${mindTitle}` : ""}
-            </>
+          {renaming ? (
+            <TableNameField
+              name={comparisonTitleOf(node.attrs)}
+              onDone={(next) => {
+                endTableRename();
+                if (next !== null) changeComparisonTitle(editor, tableId, next);
+              }}
+            />
           ) : (
-            title
+            // biome-ignore lint/a11y/noStaticElementInteractions: a double-click renames it, as F2 on the title line does.
+            <span
+              className="comparison-name"
+              data-testid="comparison-name"
+              title={t("comparison.table.renameTip")}
+              onDoubleClick={() => editable && useComparisonTables.getState().startRename(tableId)}
+            >
+              {name}
+            </span>
+          )}
+          <span className="comparison-meta" data-testid="comparison-meta">{` · ${meta}`}</span>
+        </span>
+        <span className="comparison-status">
+          {(hasProblems || filters.size > 0) && (
+            <span aria-hidden="true" className="comparison-sep">
+              ·
+            </span>
+          )}
+          {counts.nothing > 0 && (
+            <button
+              type="button"
+              data-testid="comparison-count-nothing"
+              className="comparison-count"
+              aria-pressed={filters.has("nothing")}
+              title={t("comparison.status.nothingTip")}
+              onClick={() => useComparisonTables.getState().toggleFilter(tableId, "nothing")}
+            >
+              {t("comparison.status.nothing", { count: counts.nothing })}
+            </button>
+          )}
+          {counts.nothing > 0 && counts.failed > 0 && (
+            <span aria-hidden="true" className="comparison-sep">
+              ·
+            </span>
+          )}
+          {counts.failed > 0 && (
+            <button
+              type="button"
+              data-testid="comparison-count-failed"
+              className="comparison-count"
+              aria-pressed={filters.has("failed")}
+              title={t("comparison.status.failedTip")}
+              onClick={() => useComparisonTables.getState().toggleFilter(tableId, "failed")}
+            >
+              {t("comparison.status.failed", { count: counts.failed })}
+            </button>
+          )}
+          {filters.size > 0 && (
+            <>
+              <span aria-hidden="true" className="comparison-sep">
+                ·
+              </span>
+              <span data-testid="comparison-showing" className="comparison-showing">
+                {t("comparison.status.showing", { shown, total: node.childCount })}
+              </span>
+              <button
+                type="button"
+                data-testid="comparison-clear-filter"
+                className="comparison-action"
+                onClick={() => useComparisonTables.getState().clearFilter(tableId)}
+              >
+                {t("comparison.status.clearFilter")}
+              </button>
+            </>
           )}
         </span>
         {filling ? (
@@ -332,12 +501,7 @@ export function ComparisonTableView({ node, editor }: ReactNodeViewProps) {
           </span>
         )}
         <span className="comparison-head-end">
-          {editable && hidden.length > 0 && (
-            <ComparisonHiddenColumnsMenu
-              hidden={hidden}
-              onShow={(questionId) => void showColumn(handle, questionId)}
-            />
-          )}
+          {editable && <ComparisonTableMenu handle={handle} hidden={hidden} />}
           {addButton("head")}
           {expanded && (
             <button
@@ -375,6 +539,16 @@ export function ComparisonTableView({ node, editor }: ReactNodeViewProps) {
           )}
         </span>
       </div>
+      {editable && addingDocuments && (
+        <ComparisonAddDocuments
+          handle={handle}
+          anchor={head.current ?? wrapper.current ?? document.body}
+          documentIds={rowDocuments}
+          questions={questions.length}
+          model={tableModel}
+          onClose={() => useComparisonTables.getState().closeAddDocuments()}
+        />
+      )}
       {problem && (
         <div contentEditable={false} data-comparison-ui className="comparison-problem">
           {problem.reason === "not-ready" ? (

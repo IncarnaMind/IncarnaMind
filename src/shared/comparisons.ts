@@ -24,6 +24,8 @@ export const MAX_COMPARISON_DOCUMENTS = 100;
 export const MAX_COMPARISON_TEXT = 500;
 /** The longest a column's own heading may be; longer than a heading reads in a table. */
 export const MAX_COMPARISON_LABEL = 80;
+/** The longest a table's own name may be: it names a file an export writes. */
+export const MAX_COMPARISON_TITLE = 120;
 /** How narrow and how wide a column's edge can be dragged, in pixels. */
 export const MIN_COMPARISON_COLUMN_WIDTH = 96;
 export const MAX_COMPARISON_COLUMN_WIDTH = 560;
@@ -76,6 +78,14 @@ export function comparisonQuestionsOf(attributes: Attributes): ComparisonQuestio
   return questions;
 }
 
+/** A table's own name, as one line; empty when the User hasn't named it. */
+export function comparisonTitleOf(attributes: Attributes): string {
+  const title = attributes.title;
+  return typeof title === "string"
+    ? title.replace(/\s+/g, " ").trim().slice(0, MAX_COMPARISON_TITLE)
+    : "";
+}
+
 /** The columns a table draws: a hidden column keeps its Answers and its place, unshown. */
 export function visibleComparisonQuestions(
   questions: readonly ComparisonQuestion[],
@@ -120,6 +130,29 @@ export function cellToFill(cell: Pick<ComparisonCellAttributes, "status" | "prob
     cell.problem !== "nothing-to-search" &&
     cell.problem !== "source-removed"
   );
+}
+
+/**
+ * What a cell without an Answer adds to the title line's counts: "nothing"
+ * when the Document has nothing that answers (or answered at a scale that
+ * can't be used as written), "failed" when the fill couldn't write it. A cell
+ * whose Document is out of the table's evidence adds to neither: its row
+ * says why, or the User chose to leave the file out.
+ */
+export function comparisonCountOf(problem: ComparisonProblem | null): "nothing" | "failed" | null {
+  if (problem === null) return null;
+  switch (problem) {
+    case "not-found":
+    case "nothing-to-search":
+    case "scale-changed":
+      return "nothing";
+    case "left-out":
+    case "not-cited":
+    case "source-removed":
+      return null;
+    default:
+      return "failed";
+  }
 }
 
 /**

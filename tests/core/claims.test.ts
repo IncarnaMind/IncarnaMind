@@ -3,7 +3,7 @@
  * (#97, src/core/answers/checks/claims.ts).
  */
 import { describe, expect, test } from "vitest";
-import { paragraphsOf, readClaimNumbers } from "../../src/core/answers/checks/claims";
+import { paragraphsOf, readClaimDecisions } from "../../src/core/answers/checks/claims";
 
 const page = (number: number, ...lines: string[]) => ({
   page: number,
@@ -83,18 +83,33 @@ describe("A PDF's lines become paragraphs", () => {
 
 describe("The claims the model names", () => {
   test.each([
-    ['{"claims": [1, 3, 4]}', [1, 3, 4]],
-    ['Here they are:\n```json\n{"claims": ["2", 5]}\n```', [2, 5]],
-    ['{"claims": []}', []],
-    ['{"claims": [1.5, "x", 2]}', [2]],
-  ])("reads %j", (reply, numbers) => {
-    expect(readClaimNumbers(reply)).toEqual(numbers);
+    [
+      '{"1": "claim", "2": "no", "3": "claim"}',
+      [1, 2, 3],
+      [
+        [1, true],
+        [2, false],
+        [3, true],
+      ],
+    ],
+    [
+      'Here they are:\n```json\n{"2": "Claim", "5": " no "}\n```',
+      [2, 5],
+      [
+        [2, true],
+        [5, false],
+      ],
+    ],
+    ['{"1": "claim", "2": "maybe", "9": "claim"}', [1, 2, 3], [[1, true]]],
+    ['{"1": "claim", "2": true}', [1, 2], [[1, true]]],
+  ])("reads %j", (reply, numbers, decisions) => {
+    expect(readClaimDecisions(reply, numbers)).toEqual(new Map(decisions as [number, boolean][]));
   });
 
-  test.each(["No claims.", '{"sentences": [1]}', '{"claims": 3}', "{not json}"])(
+  test.each(["No claims.", '{"claims": [1, 2]}', '{"7": "claim"}', "[1, 2]", "{not json}"])(
     "reads nothing from %j",
     (reply) => {
-      expect(readClaimNumbers(reply)).toBeNull();
+      expect(readClaimDecisions(reply, [1, 2])).toBeNull();
     },
   );
 });

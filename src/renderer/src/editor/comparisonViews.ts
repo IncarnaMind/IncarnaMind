@@ -10,63 +10,6 @@ import { useAppStore } from "../store";
 const ownDrawing = (contentDOM: HTMLElement) => (mutation: { target: Node; type: string }) =>
   mutation.type !== "selection" && !contentDOM.contains(mutation.target);
 
-/** The live Document a row is, or null once it was deleted. */
-const liveDocument = (documentId: unknown) =>
-  useAppStore.getState().documents.find((document) => document.id === documentId) ?? null;
-
-/**
- * A comparison table's row (#98): its Document's name, sticky as the table
- * scrolls sideways, then its cells. A deleted Document's row says its
- * source was removed.
- */
-export const comparisonRowView: NodeViewRenderer = ({ node: first }) => {
-  let node: ProseMirrorNode = first;
-  const dom = document.createElement("div");
-  dom.className = "comparison-row";
-  dom.setAttribute("role", "row");
-  dom.dataset.testid = "comparison-row";
-  const head = document.createElement("div");
-  head.className = "comparison-document";
-  head.setAttribute("role", "rowheader");
-  head.contentEditable = "false";
-  const name = document.createElement("span");
-  name.className = "comparison-document-name";
-  const removed = document.createElement("span");
-  removed.className = "comparison-document-removed";
-  removed.dataset.testid = "comparison-source-removed";
-  head.append(name, removed);
-  const contentDOM = document.createElement("div");
-  contentDOM.className = "comparison-row-cells";
-  dom.append(head, contentDOM);
-
-  const draw = () => {
-    const live = liveDocument(node.attrs.documentId);
-    const shown = live?.name ?? String(node.attrs.documentName ?? "");
-    name.textContent = shown;
-    name.title = shown;
-    removed.textContent = live ? "" : translateNow("comparison.cell.sourceRemoved");
-    removed.hidden = live !== null;
-    dom.dataset.removed = live ? "false" : "true";
-  };
-  draw();
-  const unsubscribe = useAppStore.subscribe((state, before) => {
-    if (state.documents !== before.documents || state.settings !== before.settings) draw();
-  });
-
-  return {
-    dom,
-    contentDOM,
-    update(next) {
-      if (next.type !== node.type) return false;
-      node = next;
-      draw();
-      return true;
-    },
-    ignoreMutation: ownDrawing(contentDOM),
-    destroy: unsubscribe,
-  };
-};
-
 /**
  * A comparison table's cell: its Answer, Citations and all, never typed in;
  * "Waiting…" until its turn, "Reading…" once it is being written, then its

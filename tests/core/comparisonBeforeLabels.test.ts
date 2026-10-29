@@ -69,7 +69,7 @@ describe("a Mind written before a comparison table's columns had a label", () =>
     // Read as it was: each column is named by its whole Question, in the table and in Markdown.
     const saved = await restarted.saveComparisonExport({ mindId: mind.id, tableId: TABLE });
     if (saved.status !== "saved") throw new Error(`Not saved: ${saved.status}`);
-    expect(saved.file.name).toBe("Tides.xlsx");
+    expect(saved.file.name).toBe("Comparison table.xlsx");
     const { sheets } = await readWorkbook(
       new Uint8Array(await readFile(saved.file.path)),
       undefined,
