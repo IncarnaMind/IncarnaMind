@@ -6,6 +6,7 @@ import {
   CITATION_NODE,
   CLAIM_CHECK_MARK,
   type ClaimCheckAttributes,
+  type ClaimCheckBasis,
   type ClaimCorrectionChoice,
   GENERATED_MARK,
   type RecordAiUseInput,
@@ -125,6 +126,24 @@ function blockIdAt(doc: ProseMirrorNode, from: number): string | null {
   return typeof id === "string" ? id : null;
 }
 
+function afterCorrection(plan: CorrectionPlan, check: ClaimCheckBasis): ClaimCheckBasis {
+  const owns =
+    check.state === "contradicted" && check.correction?.from === plan.claim.check.correction?.from;
+  return {
+    ...check,
+    text: plan.text,
+    ...(owns && {
+      state: "supported" as const,
+      reason: null,
+      detail: null,
+      evidence: plan.choice.evidence,
+      correction: null,
+      unsupported: null,
+      calculation: null,
+    }),
+  };
+}
+
 function apply(editor: Editor, mindId: string, plans: CorrectionPlan[]): number {
   if (plans.length === 0) return 0;
   const { state } = editor;
@@ -157,15 +176,19 @@ function apply(editor: Editor, mindId: string, plans: CorrectionPlan[]): number 
     const from = mapped(plan.from);
     tr.addMark(from, from + plan.choice.wording.length, generated.create());
     const checked: ClaimCheckAttributes = {
-      ...plan.claim.check,
-      state: "supported",
-      reason: null,
-      detail: null,
-      text: plan.text,
-      evidence: plan.choice.evidence,
-      correction: null,
-      unsupported: null,
-      calculation: null,
+      ...afterCorrection(plan, plan.claim.check),
+      ...(plan.claim.check.figures && {
+        figures: plan.claim.check.figures.map((figure) => ({
+          ...figure,
+          ...afterCorrection(plan, figure),
+        })),
+      }),
+      ...(plan.claim.check.remainder !== undefined && {
+        remainder:
+          plan.claim.check.remainder === null
+            ? null
+            : afterCorrection(plan, plan.claim.check.remainder),
+      }),
     };
     markText(tr, mapped(plan.claim.from), mapped(plan.claim.to), checked);
   }

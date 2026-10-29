@@ -10,7 +10,7 @@ import {
 import { readVerdict } from "../../src/core/answers/checks/prompt";
 import { markedSentences } from "../../src/core/answers/checks/sentences";
 import { readClaimCheck, restsOn } from "../../src/shared/claimChecks";
-import { checkGenerate, checkingModel, type Plan } from "../helpers/checks";
+import { checkGenerate, checkingModel, type Plan, requestedFigures } from "../helpers/checks";
 import { type SourceFile, setUpWithDocuments, shownPassages } from "../helpers/citations";
 import { createTempDataFolder, startCore } from "../helpers/core";
 import { addAndProcess, writeSourceFile } from "../helpers/documents";
@@ -35,6 +35,30 @@ async function checkWith(
 ): Promise<ClaimCheckResult> {
   const { core } = await setUpWithDocuments(checkingModel({ [claim]: plan }), files);
   return core.checkClaim({ claim });
+}
+
+async function markWith(plan: Plan, claim = CLAIM, files: readonly SourceFile[] = [REPORT]) {
+  const { core, client, mind } = await setUpWithDocuments(checkingModel({ [claim]: plan }), files);
+  const block = {
+    type: "paragraph",
+    attrs: { id: "correction-block" },
+    content: [{ type: "text", text: claim }],
+  };
+  writeMind(client, [block]);
+  await client.settled();
+  await core.checkSentences({
+    requestId: "correction-request",
+    mindId: mind.id,
+    action: "check-against-documents",
+    from: { blockId: "correction-block", offset: 0 },
+    to: { blockId: "correction-block", offset: claim.length },
+  });
+  const { state } = await core.openMind(mind.id);
+  const reopened = new Y.Doc();
+  Y.applyUpdate(reopened, state);
+  const [marked] = markedSentences(reopened.getXmlFragment(MIND_CONTENT_FIELD));
+  if (!marked) throw new Error("The checked sentence has no mark.");
+  return marked.check;
 }
 
 describe("A correction in a check reply", () => {
@@ -99,34 +123,78 @@ describe("A correction from the public core", () => {
   });
 
   test("persists on the claim mark when the Mind is reopened", async () => {
-    const { core, client, mind } = await setUpWithDocuments(
-      checkingModel({ [CLAIM]: contradicted() }),
-      [REPORT],
-    );
-    const block = {
-      type: "paragraph",
-      attrs: { id: "correction-block" },
-      content: [{ type: "text", text: CLAIM }],
-    };
-    writeMind(client, [block]);
-    await client.settled();
+    const marked = await markWith(contradicted());
 
-    await core.checkSentences({
-      requestId: "correction-request",
-      mindId: mind.id,
-      action: "check-against-documents",
-      from: { blockId: "correction-block", offset: 0 },
-      to: { blockId: "correction-block", offset: CLAIM.length },
-    });
-
-    const { state } = await core.openMind(mind.id);
-    const reopened = new Y.Doc();
-    Y.applyUpdate(reopened, state);
-    const [marked] = markedSentences(reopened.getXmlFragment(MIND_CONTENT_FIELD));
-    expect(marked?.check.correction).toMatchObject({
+    expect(marked.correction).toMatchObject({
       from: "36.8%",
       choices: [{ wording: "38.6%", evidence: { quote: QUOTE, check: "found" } }],
     });
+    expect(marked.figures?.[0]?.correction).toEqual(marked.correction);
+  });
+
+  test("stays null when a figure's deciding value differs from the correction", async () => {
+    const quote = "Revenue was £21, previously £22.";
+    const marked = await markWith(
+      {
+        ...contradicted("The report gives another value.\nChange 1: £20\nTo 1: £22"),
+        quote,
+        number: "£21",
+      },
+      "Revenue was £20.",
+      [{ name: "Revenue.md", contents: quote }],
+    );
+
+    expect(marked).toMatchObject({ state: "contradicted", correction: null });
+  });
+
+  test("stays null rather than attaching a later figure's correction to the first", async () => {
+    const claim = "Revenue was £20 and profit was £30.";
+    const quote = "Revenue was £21 and profit was £31.";
+    const marked = await markWith(
+      {
+        verdict: "contradicted",
+        quote,
+        reply: (call) => {
+          const searches = call.results.filter((result) => result.tool === "search_documents");
+          if (searches.length === 0) {
+            return { calls: [{ tool: "search_documents", input: { query: claim } }] };
+          }
+          if (!call.results.some((result) => result.tool === "cite")) {
+            const passage = shownPassages(searches.at(-1)?.text ?? "").find((each) =>
+              each.text.includes(quote),
+            );
+            if (!passage) throw new Error("The fixture has no result Passage.");
+            return {
+              calls: [
+                {
+                  tool: "cite",
+                  input: { citations: [{ marker: 1, passage: passage.id, quote }] },
+                },
+              ],
+            };
+          }
+          const items = requestedFigures(call).map(({ id, shown, reading }) => ({
+            id,
+            verdict: "contradicted",
+            scope: "same",
+            topic: "found",
+            roles: "same",
+            says: null,
+            reading,
+            relation: "equals",
+            source: { citation: 1, number: shown === "£20" ? "£21" : "£31" },
+            calculation: null,
+          }));
+          return {
+            text: `Verdict: contradicted\nChange 1: £30\nTo 1: £31 [^1]\nFigures: ${JSON.stringify({ items, remainder: null })}`,
+          };
+        },
+      },
+      claim,
+      [{ name: "Results.md", contents: quote }],
+    );
+
+    expect(marked).toMatchObject({ state: "contradicted", correction: null });
   });
 
   test.each([
@@ -169,6 +237,36 @@ describe("A correction from the public core", () => {
       },
       claim,
       [{ name: "Q3 results.md", contents: quote }],
+    );
+
+    expect(result).toMatchObject({ verdict: "contradicted", correction: null });
+  });
+
+  test("stays null when a replacement duplicates the surrounding English period", async () => {
+    const claim = "Gross margin fell to 36.8% in Q2.";
+    const quote = "Gross margin fell to 38.6% in Q2.";
+    const result = await checkWith(
+      {
+        ...contradicted("The report gives another rate.\nChange 1: 36.8%\nTo 1: 38.6% in Q2"),
+        quote,
+      },
+      claim,
+      [{ name: "Q2 results.md", contents: quote }],
+    );
+
+    expect(result).toMatchObject({ verdict: "contradicted", correction: null });
+  });
+
+  test("stays null when a replacement duplicates the surrounding Chinese period", async () => {
+    const claim = "第二季度毛利率降至36.8%。";
+    const quote = "毛利率降至38.6%（第二季度）。";
+    const result = await checkWith(
+      {
+        ...contradicted("报告给出另一个季度。\nChange 1: 36.8%\nTo 1: 38.6%（第二季度）"),
+        quote,
+      },
+      claim,
+      [{ name: "第二季度业绩.md", contents: quote }],
     );
 
     expect(result).toMatchObject({ verdict: "contradicted", correction: null });

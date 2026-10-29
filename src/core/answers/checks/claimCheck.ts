@@ -802,7 +802,42 @@ export function createClaimCheck(deps: ClaimCheckDependencies) {
         session.finalCitation,
         scoped.documentDate,
       );
-      if (!corrected) return checked;
+      if (!corrected || checked.remainder === undefined) return checked;
+      const results = [
+        ...(checked.figures ?? []).map((figure) => figure.result),
+        ...(checked.remainder ? [checked.remainder] : []),
+      ];
+      if (
+        results.filter((result) => result.verdict === "contradicted").length !== 1 ||
+        results.some(
+          (result) => result.verdict !== "supported" && result.verdict !== "contradicted",
+        )
+      )
+        return checked;
+      const owners = (checked.figures ?? []).filter((figure) => {
+        if (figure.result.verdict !== "contradicted") return false;
+        const deciding =
+          figure.sourceInput?.number.chars ?? figure.result.calculation?.figure.shown;
+        return (
+          deciding !== undefined &&
+          corrected.correction.from.includes(figure.reading.chars) &&
+          corrected.correction.choices.every((choice) => choice.wording.includes(deciding))
+        );
+      });
+      const first = (checked.figures ?? []).find(
+        (figure) => figure.result.verdict === "contradicted",
+      );
+      if (first && (owners.length !== 1 || owners[0]?.id !== first.id)) return checked;
+      if (
+        !first &&
+        (checked.remainder?.verdict !== "contradicted" ||
+          !readFigureReply(
+            figureReplyText(reply, setAside),
+            request.figures ?? [],
+            request.claim,
+          )?.remainder?.text.includes(corrected.correction.from))
+      )
+        return checked;
       const decision = {
         evidence: corrected.evidence,
         correction: corrected.correction,
@@ -810,7 +845,7 @@ export function createClaimCheck(deps: ClaimCheckDependencies) {
       };
       let assigned = false;
       const checkedFigures = checked.figures?.map((figure) => {
-        if (assigned || figure.result.verdict !== "contradicted") return figure;
+        if (assigned || figure.id !== first?.id) return figure;
         assigned = true;
         return { ...figure, result: { ...figure.result, ...decision } };
       });
@@ -1340,19 +1375,19 @@ function namedPeriods(text: string): string[] {
     if (match.index === undefined) continue;
     words.push({ from: match.index, to: match.index + match[0].length });
   }
-  const candidates = new Set<string>();
+  const candidates: string[] = [];
   for (const [index, word] of words.entries()) {
     for (const end of words.slice(index, index + 4)) {
-      candidates.add(text.slice(word.from, end.to));
+      candidates.push(text.slice(word.from, end.to));
     }
   }
   for (let end = 0; end < text.length; end++) {
     if (!/[年季度月]/u.test(text[end] ?? "")) continue;
     for (let start = Math.max(0, end - 24); start < end; start++) {
-      candidates.add(text.slice(start, end + 1));
+      candidates.push(text.slice(start, end + 1));
     }
   }
-  return [...candidates]
+  return candidates
     .filter(isPeriod)
     .map((period) => period.normalize("NFKC").toLocaleLowerCase())
     .sort();
@@ -1384,6 +1419,10 @@ function correctionFor(
       choice.wording === "" ||
       choice.wording === read.from ||
       !keepsNamedPeriods(read.from, choice.wording) ||
+      !keepsNamedPeriods(
+        claim,
+        claim.slice(0, first) + choice.wording + claim.slice(first + read.from.length),
+      ) ||
       wordings.has(choice.wording)
     )
       return null;

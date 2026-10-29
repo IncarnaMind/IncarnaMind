@@ -9,6 +9,7 @@ import {
   type CitationAttributes,
   CLAIM_CHECK_MARK,
   type ClaimCheckAttributes,
+  type FigureCheckAttributes,
   FOOTNOTE_NODE,
   GENERATED_MARK,
   MIND_CONTENT_FIELD,
@@ -27,6 +28,7 @@ import {
 } from "../../src/renderer/src/editor/claimChecks";
 import { noteExtensions } from "../../src/renderer/src/editor/noteSchema";
 import { useNotices } from "../../src/renderer/src/notices";
+import { readFigures } from "../../src/shared/figures";
 import { INLINE_NODE } from "../../src/shared/sentences";
 
 const { recordAiUse } = vi.hoisted(() => ({ recordAiUse: vi.fn(() => Promise.resolve([])) }));
@@ -206,6 +208,48 @@ describe("Correct a contradiction from the Documents", () => {
         blockIds: ["block-one"],
       }),
     ]);
+  });
+
+  test("settles the owning figure and updates every child to the corrected sentence", () => {
+    const text = "The rate is 36.8%.";
+    const reading = readFigures("36.8%", { language: "en" })[0];
+    if (!reading) throw new Error("The fixture has no figure.");
+    const figure: FigureCheckAttributes = {
+      ...check("figure", text),
+      id: "figure-1",
+      locator: {
+        kind: "text",
+        from: { blockId: "block-one", offset: 12 },
+        to: { blockId: "block-one", offset: 17 },
+      },
+      reading,
+      calculated: null,
+      sourceInput: null,
+      roundedFrom: null,
+      difference: null,
+      footing: [],
+    };
+    const attrs = { ...check("one", text), figures: [figure], remainder: null };
+    const { editor } = editorWith([
+      {
+        type: "paragraph",
+        attrs: { id: "block-one" },
+        content: [marked(text, attrs)],
+      },
+    ]);
+
+    expect(applyCorrection(editor, "mind", claim(editor, "one"))).toBe(true);
+
+    const corrected = claim(editor, "one");
+    expect(corrected.shown.state).toBe("supported");
+    expect(corrected.check.figures).toHaveLength(1);
+    expect(corrected.check.figures?.[0]).toMatchObject({
+      state: "supported",
+      text: `The rate is 38.6% ${INLINE_NODE}.`,
+      evidence: { documentId: "report" },
+      correction: null,
+    });
+    expect(corrected.check.remainder).toBeNull();
   });
 
   test("puts a new Citation at the sentence's end, not between the corrected value and its context", () => {
