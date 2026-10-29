@@ -98,14 +98,16 @@ export interface VerifyOptions {
   wordRefusal(path: string): Promise<WordRefusalReason | null>;
   /**
    * Imports someone else's Word file as a Mind named for its Document, the file's original in
-   * the Library (#720), and resolves once every Block is in it.
+   * the Library (#720): the Mind once its first Blocks are in it, and `written` once all are.
    */
   importWord(input: {
     path: string;
     folderId: string | null;
     documentId: string;
     name: string;
-  }): Promise<{ ok: true; mind: Mind } | { ok: false; refusal: WordRefusalReason }>;
+  }): Promise<
+    { ok: true; mind: Mind; written: Promise<void> } | { ok: false; refusal: WordRefusalReason }
+  >;
   defaultModel(): ChatModelChoice | null;
   prepare(choice: ChatModelChoice | null): Promise<Prepared>;
   evidenceScope(mindId: string, allDocuments: boolean, verification: Verification): MindCheckScope;
@@ -349,20 +351,24 @@ export function createVerify(options: VerifyOptions) {
     const { name } = options.document(document.id);
     const made = await options.importWord({ path, folderId, documentId: document.id, name });
     if (!made.ok) return { ok: false, reason: "word", refusal: made.refusal };
+    // Recorded before the rest is written, so an import a quit cut short still verifies.
     content.edit(made.mind.id, (blocks) => {
-      const doc = blocks.doc;
-      if (!doc) return;
-      const ids = blocks.toArray().flatMap((each) => {
-        const id = each instanceof Y.XmlElement ? each.getAttribute(BLOCK_ID_ATTRIBUTE) : null;
-        return typeof id === "string" ? [id] : [];
-      });
-      setTextOrigin(doc, ids, "checked-document");
-      writeVerification(doc.getMap(MIND_SETTINGS_FIELD), {
+      if (!blocks.doc) return;
+      writeVerification(blocks.doc.getMap(MIND_SETTINGS_FIELD), {
         documentId: document.id,
         documentName: name,
         pages: {},
         claims: null,
       });
+    });
+    await made.written;
+    content.edit(made.mind.id, (blocks) => {
+      if (!blocks.doc) return;
+      const ids = blocks.toArray().flatMap((each) => {
+        const id = each instanceof Y.XmlElement ? each.getAttribute(BLOCK_ID_ATTRIBUTE) : null;
+        return typeof id === "string" ? [id] : [];
+      });
+      setTextOrigin(blocks.doc, ids, "checked-document");
     });
     return { ok: true, mind: made.mind, documentId: document.id };
   }

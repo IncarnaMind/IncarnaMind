@@ -2149,8 +2149,7 @@ export function createCore(adapters: CoreAdapters): Core {
         },
       );
       if (!imported.ok) return imported;
-      await wordImports.written(imported.mind.id);
-      return { ok: true, mind: imported.mind };
+      return { ok: true, mind: imported.mind, written: wordImports.written(imported.mind.id) };
     },
     watch: {
       minds: () => minds.list().map((mind) => ({ id: mind.id, folderId: mind.folderId })),

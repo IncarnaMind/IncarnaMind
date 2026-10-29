@@ -39,7 +39,7 @@ import {
   UNCOMMENTED_REPORT,
   verifyWordFile as verified,
 } from "../helpers/verifiedWord";
-import { tracked } from "../helpers/word";
+import { paragraph, tracked, wordFile } from "../helpers/word";
 
 /** Each claim's sentence and its mark's state, as the editor shows it now. */
 async function shownChecks(core: Core, client: MindClient) {
@@ -137,6 +137,16 @@ describe("Verify a Word file someone else wrote", () => {
       [DIFFERS, "unsupported"],
       [COMMENTED, "unsupported"],
     ]);
+  });
+
+  test("a long file is whole in its Mind when Verify returns, so a claim at its end is found", async () => {
+    const { core, report } = await setUp();
+    const filler = Array.from({ length: 450 }, (_, at) => paragraph(`Line ${at + 1}.`));
+    await writeFile(report, wordFile({ body: [...filler, paragraph(CONTRADICTED)].join("") }));
+    const { mind, client } = await verified(core, report);
+
+    expect(client.blocks.length).toBe(451);
+    expect(await core.findClaims(request(mind.id))).toEqual({ kind: "found", claims: 1 });
   });
 
   test("a paragraph the User writes in its Mind isn't one of its claims", async () => {
