@@ -5531,13 +5531,15 @@ export type ClaimCheckResult = ClaimJudgment & {
 
 /**
  * What a sentence already cites: a Citation's quote, and its Document as it was cited. With
- * `documentId` (or `contentHash`) the check names the Document as it is named now.
+ * `documentId` (or `contentHash`) the check names the Document as it is named now; with
+ * `passageId`, of the version it quotes, the check reads that Passage itself (#1459).
  */
 export interface CitedQuote {
   documentName: string;
   quote: string;
   documentId?: string;
   contentHash?: string;
+  passageId?: string;
 }
 
 /** What the claim-check function checks (`checkClaim`). */
@@ -6531,6 +6533,15 @@ export interface MindSnippet {
 export interface MindContentSnapshot {
   mindId: string;
   state: Uint8Array;
+  /** Where its table cells hold figures the one Check reads, so a reader judges them as the editor does (#1459). */
+  cellFigures: CellFigurePlace[];
+}
+
+/** A figure's place in a table's cell: its paragraph's Block, and where it starts and ends there. */
+export interface CellFigurePlace {
+  blockId: string;
+  from: number;
+  to: number;
 }
 
 /**

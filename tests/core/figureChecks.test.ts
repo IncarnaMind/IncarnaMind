@@ -296,6 +296,7 @@ async function checkWith(options: {
     documents: {
       searchableCount: () => 1,
       searchableLanguages: () => [],
+      searchableBySize: () => [{ id: source.documentId, name: source.documentName }],
       savedBySearch: () => false,
       citationSource: (id) => (id === source.passageId ? source : null),
       pageTexts: () => options.units ?? [{ page: 1, text: body, kind: "page", label: null }],
@@ -1003,6 +1004,169 @@ test("a source left without its sheet's unit line is asked for with calculate's 
   expect(asked?.prompt).toContain("give that line as unitQuote");
   expect(result.figures?.[0]?.result.verdict).toBe("supported");
 });
+
+test.each([
+  { language: "en", heading: "Region\t2026 sales (£)", row: "West\t9537361", shown: "£9,537,361" },
+  {
+    language: "zh-CN",
+    heading: "地区\t2026 年销售额（英镑）",
+    row: "西区\t9537361",
+    shown: "9,537,361 英镑",
+  },
+])(
+  "a yearly row's bare cell under its column's currency is asked for that line, then Supported: $language",
+  async ({ heading, row, shown }) => {
+    const body = `${heading}\n${row}`;
+    const units: UnitText[] = [
+      {
+        page: 1,
+        text: body,
+        kind: "rows",
+        label: { sheet: "2026", from: 1, to: 2, rows: [1, 2], column: 0 },
+      },
+    ];
+    const bare = {
+      ...item(),
+      source: { citation: 1, number: "9537361", reading: null, unitQuote: null },
+    };
+    const fixed = { ...bare, source: { ...bare.source, unitQuote: heading } };
+    const { result, calls } = await checkWith({
+      figures: [target("f1", shown, "West 2026")],
+      body,
+      units,
+      quotes: [row, heading],
+      text: reply([bare]),
+      askedAgain: { note: "can't be read", text: reply([fixed]) },
+    });
+    const asked = calls.find((call) => call.prompt.includes("can't be read"));
+    expect(asked?.prompt).toContain("give that line as unitQuote");
+    expect(result.figures?.[0]?.result.verdict).toBe("supported");
+  },
+);
+
+const rowsOf = (body: string): UnitText[] => [
+  {
+    page: 1,
+    text: body,
+    kind: "rows",
+    label: { sheet: "Budget", from: 1, to: 3, rows: [1, 2, 3], column: 0 },
+  },
+];
+
+// A scale its source doesn't state ("million" over a row's "thousand tonnes") is the scale
+// guard's Unsupported, with its own words, as any scale the Documents never state is.
+test.each([
+  {
+    body: "项目\t2024年\t2025年\t单位\n收入\t100\t120\t万元",
+    quote: "收入\t100\t120\t万元",
+    figure: () => cell("f1", "100", "2024年\n收入 | 100 | 120\n单位：万元"),
+    number: "100",
+    unitQuote: null as string | null,
+    said: "supported",
+    verdict: "supported",
+  },
+  {
+    body: "项目\t2024年\t2025年\t单位\n收入\t100\t120\t万元",
+    quote: "收入\t100\t120\t万元",
+    figure: () => cell("f1", "100", "2024年\n收入 | 100 | 120\n单位：万元"),
+    number: "100",
+    unitQuote: "单位" as string | null,
+    said: "supported",
+    verdict: "supported",
+  },
+  {
+    body: "项目\t2024年\t2025年\t单位\n收入\t100\t120\t万元",
+    quote: "收入\t100\t120\t万元",
+    figure: () => cell("f1", "120", "2025年\n收入 | 100 | 120\n单位：万元"),
+    number: "120",
+    unitQuote: "单位" as string | null,
+    said: "supported",
+    verdict: "supported",
+  },
+  {
+    body: "项目\t2024年\t2025年\t单位\n成本\t70\t78\t万元",
+    quote: "成本\t70\t78\t万元",
+    figure: () => target("f1", "70万元", "成本 2024年", "zh-CN"),
+    number: "70",
+    unitQuote: null as string | null,
+    said: "supported",
+    verdict: "supported",
+  },
+  {
+    body: "Item\t2024\t2025\tUnit\nCost\t70\t78\tthousand tonnes",
+    quote: "Cost\t70\t78\tthousand tonnes",
+    figure: () => target("f1", "70 thousand tonnes", "Cost 2024"),
+    number: "70",
+    unitQuote: null as string | null,
+    said: "supported",
+    verdict: "supported",
+  },
+  {
+    body: "Item\t2024\t2025\tUnit\nCost\t70\t78\tthousand tonnes",
+    quote: "Cost\t70\t78\tthousand tonnes",
+    figure: () => target("f1", "78 million tonnes", "Cost 2025"),
+    number: "78",
+    unitQuote: null as string | null,
+    said: "contradicted",
+    verdict: "unsupported",
+  },
+])(
+  "a quoted row's unit cell states the unit of each number in its row, with no unit line asked for: $number → $verdict",
+  async ({ body, quote, figure, number, unitQuote, said, verdict }) => {
+    const { result, calls } = await checkWith({
+      figures: [figure()],
+      body,
+      units: rowsOf(body),
+      quotes: unitQuote ? [quote, unitQuote] : [quote],
+      text: reply([
+        { ...item(), verdict: said, source: { citation: 1, number, reading: null, unitQuote } },
+      ]),
+    });
+    expect(calls.some((call) => call.prompt.includes("can't be read"))).toBe(false);
+    expect(result.figures?.[0]?.result.verdict).toBe(verdict);
+  },
+);
+
+test("a bare cell under the note's own “(£m)” that the Documents don't state is Unsupported, with no reading named", async () => {
+  const figure = cell("f1", "999", "Q3 2026 (£m)");
+  expect(figure.reading.ambiguous.map((each) => each.kind)).toEqual(["scale"]);
+  const { result } = await checkWith({
+    figures: [figure],
+    body: SEGMENTS,
+    units: segments(),
+    quotes: ["Clothing\t300\t310"],
+    text: reply([{ ...item(), verdict: "unsupported", topic: "not found", source: null }]),
+  });
+  expect(result.figures?.[0]?.result.verdict).toBe("unsupported");
+});
+
+test.each([
+  { again: "42", verdict: "contradicted" },
+  { again: "78", verdict: "not-checked" },
+])(
+  "a figure called contradicted with a source number equal to it is asked for its own row's number, and never Supported: $again",
+  async ({ again, verdict }) => {
+    const body = "Item\t2024\t2025\nCost\t70\t78\nProfit\t30\t42";
+    const given = (citation: number, number: string) => ({
+      ...item(),
+      verdict: "contradicted",
+      source: { citation, number, reading: null, unitQuote: null },
+    });
+    const { result, calls } = await checkWith({
+      figures: [target("f1", "78", "Profit 2025")],
+      body,
+      units: rowsOf(body),
+      quotes: ["Cost\t70\t78", "Profit\t30\t42"],
+      text: reply([given(1, "78")]),
+      askedAgain: {
+        note: "you call it contradicted",
+        text: reply([given(again === "42" ? 2 : 1, again)]),
+      },
+    });
+    expect(calls.some((call) => call.prompt.includes("you call it contradicted"))).toBe(true);
+    expect(result.figures?.[0]?.result.verdict).toBe(verdict);
+  },
+);
 
 test.each([
   { text: "I'm sorry, I can't help with that.", reason: "refused" },

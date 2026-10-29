@@ -654,7 +654,10 @@ export function figureSchedule(input: FigureScheduleInput): FigureSchedule {
         : figureCheckShown({ ...state.child, ...finding, context: state.child.context }, state.now);
     else if (state?.owner) {
       const parent = state.owner.check;
-      const legacy = claimCheckShown({ ...parent, figures: undefined }, state.now);
+      const legacy = claimCheckShown(
+        { ...parent, figures: undefined },
+        { ...state.now, figured: !parent.figures?.length && occurrence.table !== undefined },
+      );
       if (
         legacy.state === "needs-recheck" ||
         legacy.state === "kept" ||

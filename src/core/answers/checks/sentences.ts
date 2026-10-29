@@ -26,7 +26,7 @@ import {
   type WaitingSentences,
 } from "../../api";
 import { layout, textBlocks } from "../../proposals/write";
-import { figuresInMind } from "./figureOccurrences";
+import { type FigureOccurrence, figuresInMind, inTableCell } from "./figureOccurrences";
 
 const BREAK = "hardBreak";
 
@@ -57,7 +57,7 @@ export interface SelectedSentence {
   context: string;
   /** What its Citations quote. */
   cited: CitedQuote[];
-  figures?: CheckFigure[];
+  figures?: FigureOccurrence[];
 }
 
 export type SelectedSentences =
@@ -119,8 +119,9 @@ export function checkText(sentence: SelectedSentence) {
   };
 }
 
-function indexFigures(blocks: Y.XmlFragment): ReadonlyMap<string, CheckFigure[]> {
-  const index = new Map<string, CheckFigure[]>();
+/** The figures a check reads in each of the Mind's Blocks, by Block id. */
+export function figuresByBlock(blocks: Y.XmlFragment): ReadonlyMap<string, FigureOccurrence[]> {
+  const index = new Map<string, FigureOccurrence[]>();
   for (const figure of figuresInMind(blocks)) {
     const id =
       figure.locator.kind === "text" ? figure.locator.from.blockId : figure.locator.blockId;
@@ -131,7 +132,53 @@ function indexFigures(blocks: Y.XmlFragment): ReadonlyMap<string, CheckFigure[]>
   return index;
 }
 
-const inSpan = (figures: readonly CheckFigure[], from: number, to: number) =>
+/**
+ * What a Mind's stored checks are compared with of its figures now: each figure's context, and
+ * whether a marked table cell holds any (`ClaimCheckNow.figured`).
+ */
+export function figuresNow(blocks: Y.XmlFragment): {
+  figureContexts: Map<string, string>;
+  figured(marked: { element: Y.XmlElement; from: number; to: number }): boolean;
+} {
+  const found = figuresInMind(blocks);
+  const byBlock = new Map<string, FigureOccurrence[]>();
+  for (const figure of found) {
+    if (figure.locator.kind !== "text") continue;
+    const id = figure.locator.from.blockId;
+    byBlock.set(id, [...(byBlock.get(id) ?? []), figure]);
+  }
+  return {
+    figureContexts: new Map(found.map((figure) => [figure.id, figure.context])),
+    figured: ({ element, from, to }) => {
+      const blockId = element.getAttribute(BLOCK_ID_ATTRIBUTE);
+      return (
+        typeof blockId === "string" && inTableCell(inSpan(byBlock.get(blockId) ?? [], from, to))
+      );
+    },
+  };
+}
+
+/** A paragraph's sentence as its check reads it: its words, its paragraph, its Citations and its figures. */
+export function sentenceOf(
+  element: Y.XmlElement,
+  blockId: string,
+  span: { from: number; to: number },
+  figures: ReadonlyMap<string, readonly FigureOccurrence[]>,
+): SelectedSentence {
+  const text = textOf(element);
+  return {
+    element,
+    blockId,
+    from: span.from,
+    to: span.to,
+    text: text.slice(span.from, span.to),
+    context: text,
+    cited: citedIn(element, span.from, span.to),
+    figures: inSpan(figures.get(blockId) ?? [], span.from, span.to),
+  };
+}
+
+const inSpan = <Figure extends CheckFigure>(figures: readonly Figure[], from: number, to: number) =>
   figures.filter(
     (figure) =>
       figure.locator.kind === "chart" ||
@@ -140,7 +187,7 @@ const inSpan = (figures: readonly CheckFigure[], from: number, to: number) =>
 
 function chartSentence(
   element: Y.XmlElement,
-  figures: readonly CheckFigure[],
+  figures: readonly FigureOccurrence[],
 ): SelectedSentence | null {
   const blockId = element.getAttribute(BLOCK_ID_ATTRIBUTE);
   if (typeof blockId !== "string" || chartPoints(readChart(element.getAttributes())).length === 0)
@@ -185,22 +232,25 @@ function changesIn(element: Y.XmlElement, from: number, to: number): string[] {
   return [...found];
 }
 
+/** What a Citation, by its attributes, quotes; null for one with no quote. */
+export function citedQuoteOf(attributes: Readonly<Record<string, unknown>>): CitedQuote | null {
+  const { documentId, documentName, contentHash, passageId, quote } = attributes;
+  if (typeof quote !== "string" || quote === "") return null;
+  return {
+    documentName: typeof documentName === "string" ? documentName : "",
+    quote,
+    ...(typeof documentId === "string" && { documentId }),
+    ...(typeof contentHash === "string" && { contentHash }),
+    ...(typeof passageId === "string" && { passageId }),
+  };
+}
+
 /** What the Citations in `from`..`to` of a Block quote. */
 function citedIn(element: Y.XmlElement, from: number, to: number): CitedQuote[] {
   return layout(element).flatMap(({ node, start }) => {
     if (start < from || start >= to || !(node instanceof Y.XmlElement)) return [];
     if (node.nodeName !== CITATION_NODE) return [];
-    const { documentId, documentName, contentHash, quote } = node.getAttributes() as Attributes;
-    return typeof quote === "string" && quote !== ""
-      ? [
-          {
-            documentName: typeof documentName === "string" ? documentName : "",
-            quote,
-            ...(typeof documentId === "string" && { documentId }),
-            ...(typeof contentHash === "string" && { contentHash }),
-          },
-        ]
-      : [];
+    return citedQuoteOf(node.getAttributes()) ?? [];
   });
 }
 
@@ -213,7 +263,7 @@ export function selectedSentences(
   stretches: readonly TextStretch[],
 ): SelectedSentences {
   const all = textBlocks(blocks, { charts: true });
-  const figures = indexFigures(blocks);
+  const figures = figuresByBlock(blocks);
   const idOf = (element: Y.XmlElement) => element.getAttribute(BLOCK_ID_ATTRIBUTE);
   const sentences: SelectedSentence[] = [];
   const waiting: WaitingSentences = { sentences: [], changeIds: [] };
@@ -257,16 +307,7 @@ export function selectedSentences(
           waiting.changeIds.push(...changes.filter((id) => !waiting.changeIds.includes(id)));
           continue;
         }
-        sentences.push({
-          element,
-          blockId,
-          from: span.from,
-          to: span.to,
-          text: text.slice(span.from, span.to),
-          context: text,
-          cited: citedIn(element, span.from, span.to),
-          figures: inSpan(figures.get(blockId) ?? [], span.from, span.to),
-        });
+        sentences.push(sentenceOf(element, blockId, span, figures));
       }
     }
   }
@@ -277,7 +318,7 @@ export function selectedSentences(
 
 /** Every sentence of the Mind's paragraphs, in order, but those holding a change still waiting. */
 export function everySentence(blocks: Y.XmlFragment): SelectedSentence[] {
-  const figures = indexFigures(blocks);
+  const figures = figuresByBlock(blocks);
   return textBlocks(blocks, { charts: true }).flatMap(({ element, busy }) => {
     const blockId = element.getAttribute(BLOCK_ID_ATTRIBUTE);
     if (busy || typeof blockId !== "string") return [];
@@ -286,22 +327,10 @@ export function everySentence(blocks: Y.XmlFragment): SelectedSentence[] {
       return sentence && changesIn(element, 0, 1).length === 0 ? [sentence] : [];
     }
     if (element.nodeName !== "paragraph") return [];
-    const text = textOf(element);
     return sentenceSpansIn(element).flatMap((span) =>
       changesIn(element, span.from, span.to).length > 0
         ? []
-        : [
-            {
-              element,
-              blockId,
-              from: span.from,
-              to: span.to,
-              text: text.slice(span.from, span.to),
-              context: text,
-              cited: citedIn(element, span.from, span.to),
-              figures: inSpan(figures.get(blockId) ?? [], span.from, span.to),
-            },
-          ],
+        : [sentenceOf(element, blockId, span, figures)],
     );
   });
 }

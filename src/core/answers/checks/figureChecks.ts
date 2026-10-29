@@ -1,6 +1,6 @@
 import { aggregateFigureResults } from "../../../shared/figureChecks";
-import { type FigureUnit, readFigures } from "../../../shared/figures";
-import { evaluateFormula, showResult } from "../../../shared/formula";
+import { readFigures } from "../../../shared/figures";
+import { evaluateFormula, sameNumber, showResult } from "../../../shared/formula";
 import { escapedInStrings } from "../../../shared/jsonText";
 import type {
   CalculatedFigure,
@@ -18,6 +18,7 @@ import { isRecord } from "../../errors";
 import { type CalculationSession, documentFigureContext, whole } from "../calculations";
 import { agreesAtShownPrecision } from "./calculated";
 import { type ReadVerdict, readsAsRefusal, readVerdict } from "./prompt";
+import type { BoundNumber } from "./units";
 
 export interface FigureReplyItem extends ReadVerdict {
   id: string;
@@ -264,7 +265,7 @@ export interface FigureCheckOptions {
   unitReason(
     figure: string,
     citations: readonly Citation[],
-    bound: readonly { chars: string; unit: FigureUnit }[],
+    bound: readonly BoundNumber[],
   ): UnsupportedReason | null;
   signal: AbortSignal;
 }
@@ -355,6 +356,13 @@ function inSourceFrame(
 }
 
 /** A Figures line's source, read as `calculate` reads an input: its number, or why it can't be read. */
+/** Whether a source number equals the figure in any way the figure can be read. */
+export function givesItsOwnNumber(target: CheckFigure, input: FigureInput): boolean {
+  return [target.reading, ...target.reading.ambiguous.flatMap((each) => each.readings)].some(
+    (reading) => sameNumber(reading.value, input.number.value),
+  );
+}
+
 export function readFigureSource(
   calculations: Pick<CalculationSession, "number">,
   target: CheckFigure,
@@ -393,7 +401,8 @@ export async function checkFigureReply(options: FigureCheckOptions): Promise<Cla
     const ambiguities = target.reading.ambiguous.filter((reading) => reading.kind !== "range");
     const selected = ambiguities[0]?.readings[(item.reading ?? 0) - 1];
     // Bare digits under the note's own "(£m)" need no reading named: their source's frame
-    // settles which one they are (`inSourceFrame`), as it does for the model.
+    // settles which one they are (`inSourceFrame`), as it does for the model. With no source,
+    // an Unsupported one needs no reading either.
     const framedLater = ambiguities.length === 1 && ambiguities[0]?.kind === "scale";
     if (
       (ambiguities.length > 0 && target.reading.ambiguous.length > 1) ||
@@ -453,7 +462,7 @@ export async function checkFigureReply(options: FigureCheckOptions): Promise<Cla
           ? frameOf(calculation.inputs, calculation.unit)
           : null,
     );
-    if (framedLater && !selected && framed === target) {
+    if (framedLater && !selected && framed === target && (sourceInput || calculation)) {
       rows.push({ ...finding(target), source: cited, result: unavailable("unread") });
       continue;
     }
@@ -539,6 +548,7 @@ export async function checkFigureReply(options: FigureCheckOptions): Promise<Cla
         // An exchange rate names the currency it converts into.
         unit:
           number.unit.kind === "rate" ? { kind: "currency", code: number.unit.of } : number.unit,
+        scale: number.scale,
       })),
     );
     if (bare || unit) {
@@ -549,6 +559,12 @@ export async function checkFigureReply(options: FigureCheckOptions): Promise<Cla
         result:
           unit && judged.verdict === "unsupported" ? { ...judged, unsupported: unit } : judged,
       });
+      continue;
+    }
+    // The model found the Document giving something else, yet bound a number equal to the
+    // figure: another row's, or one in a unit the reader doesn't see. It is never Supported.
+    if (agrees && item.verdict === "contradicted") {
+      rows.push({ ...base, sourceInput, result: unavailable("unread") });
       continue;
     }
     const difference = target.reading.value - compared.value;

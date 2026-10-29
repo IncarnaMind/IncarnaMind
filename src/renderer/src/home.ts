@@ -118,7 +118,7 @@ export function useMindNoteStates(
       .readMindContents(ids)
       .then((snapshots) => {
         const found = new Map<string, NoteReading>();
-        for (const { mindId, state } of snapshots) {
+        for (const { mindId, state, cellFigures } of snapshots) {
           const doc = new Y.Doc();
           try {
             Y.applyUpdate(doc, state);
@@ -126,6 +126,7 @@ export function useMindNoteStates(
               mindId,
               readNoteState({
                 doc,
+                cellFigures,
                 documents,
                 keptCitationTexts,
                 folderId: folders.get(mindId) ?? null,

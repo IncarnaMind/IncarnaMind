@@ -24,12 +24,7 @@
 
 import { generateText } from "ai";
 import { type CaseCitation, caseCitations, isOpinionOf } from "../../../shared/caseCitations";
-import {
-  type Figure,
-  type FigureContext,
-  type FigureUnit,
-  readFigures,
-} from "../../../shared/figures";
+import { type Figure, type FigureContext, readFigures } from "../../../shared/figures";
 import { type MessageKey, type MessageParams, translate } from "../../../shared/i18n";
 import { sentenceSpans } from "../../../shared/sentences";
 import type {
@@ -48,6 +43,7 @@ import type {
   ThirdPartyReason,
   UnsupportedReason,
 } from "../../api";
+import type { CitationSource } from "../../documents";
 import type { Evidence, EvidenceScope } from "../../documents/evidence";
 import type { Language } from "../../language";
 import { calculates, givesStructuredOutput } from "../../providers/capabilities";
@@ -61,7 +57,7 @@ import {
   givenList,
   whole,
 } from "../calculations";
-import { type AnswerDocuments, createCitationSession } from "../citations";
+import { type AnswerDocuments, createCitationSession, documentNamedAmong } from "../citations";
 import {
   type AnswerEngine,
   type AnswerTools,
@@ -76,6 +72,7 @@ import {
   checkFigureReply,
   figureJudgment,
   figureReplyText,
+  givesItsOwnNumber,
   readFigureReply,
   readFigureSource,
   uncheckedFigureResults,
@@ -100,7 +97,7 @@ import {
   STRICT_INSTRUCTIONS,
 } from "./prompt";
 import { searchAgain } from "./searchAgain";
-import { unitNotStated } from "./units";
+import { type BoundNumber, unitNotStated } from "./units";
 
 export interface ClaimCheckDependencies {
   /** The interface language: what a check's sentence is written in. */
@@ -110,15 +107,24 @@ export interface ClaimCheckDependencies {
   documents: Pick<AnswerDocuments, "citationSource" | "pageTexts" | "documentDate"> & {
     searchableCount(documentIds: readonly string[] | null): number;
     searchableLanguages(documentIds: readonly string[] | null): DocumentLanguage[];
+    /** The Documents with Passages to search, with their names: what a search names one by. */
+    searchableBySize(documentIds: readonly string[] | null): { id: string; name: string }[];
     savedBySearch(documentId: string): boolean;
   };
+}
+
+/** A Citation the sentence has, as its check reads it: `passageId` when it quotes the Document as it is now. */
+export interface CheckedCitation {
+  documentName: string;
+  quote: string;
+  passageId?: string;
 }
 
 export interface ClaimCheckRequest {
   claim: string;
   figures?: readonly CheckFigure[];
   context?: string;
-  cited?: readonly { documentName: string; quote: string }[];
+  cited?: readonly CheckedCitation[];
   scope: EvidenceScope;
   model: PreparedChatModel;
   /** The Run reads the document being checked (#97): it is third-party from its start. */
@@ -245,7 +251,12 @@ function figuresReplied(
                 ]
               : [];
           const source = readFigureSource(calculations, target, item.source);
-          return "problem" in source ? [`${target.reading.chars}: ${source.problem}`] : [];
+          if ("problem" in source) return [`${target.reading.chars}: ${source.problem}`];
+          return item.verdict === "contradicted" && givesItsOwnNumber(target, source.input)
+            ? [
+                `${target.reading.chars}: you call it contradicted, but its source gives the same number, ${source.input.number.chars}; give as source the number the Document gives for its own subject, period, column and unit, or the verdict that number gives.`,
+              ]
+            : [];
         });
         const remainder = read.remainder?.citation;
         if (remainder && !recorded(remainder))
@@ -272,6 +283,27 @@ function figuresReplied(
   ];
 }
 
+function citedSources(
+  cited: readonly CheckedCitation[],
+  scope: EvidenceScope,
+  documents: ClaimCheckDependencies["documents"],
+): CitationSource[] {
+  const found = new Map<string, CitationSource>();
+  for (const { passageId } of cited) {
+    const source = passageId ? documents.citationSource(passageId) : null;
+    if (
+      !source ||
+      source.documentDeleted ||
+      source.notCited ||
+      scope.excluded.has(source.documentId) ||
+      (scope.documentIds !== null && !scope.documentIds.includes(source.documentId))
+    )
+      continue;
+    found.set(source.passageId, source);
+  }
+  return [...found.values()];
+}
+
 export function createClaimCheck(deps: ClaimCheckDependencies) {
   return async function checkClaim(request: ClaimCheckRequest): Promise<ClaimCheckResult> {
     const { scope, signal } = request;
@@ -282,8 +314,20 @@ export function createClaimCheck(deps: ClaimCheckDependencies) {
     const workings = new Map<string, PassageSearchResult[]>();
     const scoped: AnswerDocuments = {
       searchableCount: () => deps.documents.searchableCount(scope.documentIds),
-      async search(query, searchSignal) {
-        const found = await deps.evidence.search(query, scope, searchSignal);
+      // A search may name one Document, as an Answer's may: the one a Citation quotes, often.
+      documentNamed: (name) =>
+        documentNamedAmong(
+          deps.documents
+            .searchableBySize(scope.documentIds)
+            .filter((each) => !scope.excluded.has(each.id)),
+          name,
+        ),
+      async search(query, searchSignal, within) {
+        const found = await deps.evidence.search(
+          query,
+          within ? { ...scope, documentIds: [...within] } : scope,
+          searchSignal,
+        );
         // A web search's result never settles a citation of a court decision.
         const passages =
           decisions.length === 0
@@ -312,6 +356,24 @@ export function createClaimCheck(deps: ClaimCheckDependencies) {
       documentDate: (documentId) => deps.documents.documentDate(documentId),
     };
     const session = createCitationSession(scoped, { onRecord: () => undefined });
+    // The words a Citation quotes don't say where they stand: a sheet row's year is in its
+    // sheet's name and heading row, which the check reads only in the Passage itself (#1459).
+    const citedPassages = citedSources(request.cited ?? [], scope, deps.documents);
+    for (const passage of citedPassages) read.set(passage.documentId, passage.contentHash);
+    const citedShown =
+      citedPassages.length > 0
+        ? session.show(
+            citedPassages.map((source) => ({
+              ...source,
+              seq: 0,
+              position: 0,
+              windowFrom: 0,
+              windowTo: 0,
+            })),
+          )
+        : null;
+    // The Passages a Citation quotes are shown from the scope, so a verdict on them has looked.
+    const looked = () => searches > 0 || citedShown !== null;
     const { model } = request;
     const calculating = model.support === "tools" && calculates(model.capabilities);
     const recorded = new Set<number>();
@@ -408,7 +470,7 @@ export function createClaimCheck(deps: ClaimCheckDependencies) {
     const unstatedUnit = (
       citations: readonly Citation[],
       claim = request.claim,
-      bound?: readonly { chars: string; unit: FigureUnit }[],
+      bound?: readonly BoundNumber[],
     ): { why: UnsupportedReason; quote: Citation | null } | null => {
       const checked = citations.map((citation) => {
         const text = (from: number | null, to: number | null) =>
@@ -601,7 +663,12 @@ export function createClaimCheck(deps: ClaimCheckDependencies) {
           calculating,
           (request.figures?.length ?? 0) > 0,
         ),
-      messages: [{ role: "user", content: claimPrompt({ ...request, language: deps.language() }) }],
+      messages: [
+        {
+          role: "user",
+          content: claimPrompt({ ...request, citedShown, language: deps.language() }),
+        },
+      ],
       question: request.claim,
       model: model.model,
       documents: tools,
@@ -621,13 +688,13 @@ export function createClaimCheck(deps: ClaimCheckDependencies) {
         {
           name: "search-first",
           check: (text) =>
-            searches === 0 && readVerdict(text) ? { claims: [], note: SEARCH_FIRST } : null,
+            !looked() && readVerdict(text) ? { claims: [], note: SEARCH_FIRST } : null,
         },
         searchAgain(() => searches),
         ...figuresReplied(
           request,
           figures,
-          () => searches > 0,
+          looked,
           (marker) => session.tools.hasRecord?.(marker) ?? false,
         ),
         {
@@ -658,7 +725,7 @@ export function createClaimCheck(deps: ClaimCheckDependencies) {
     if (request.figures?.length) {
       if (!finished || reply.trim() === "") return notChecked("empty");
       if (readsAsRefusal(reply)) return notChecked("refused");
-      if (searches === 0) return notChecked("unread");
+      if (!looked()) return notChecked("unread");
       // A saved figure is worked out again from its own inputs, wherever the model searched.
       const saved = new Map(
         request.figures
@@ -756,7 +823,7 @@ export function createClaimCheck(deps: ClaimCheckDependencies) {
       readVerdict(reply) ??
       (withVerdict === undefined ? null : readVerdict(`${withVerdict}\n\n${reply}`));
     if (!verdict) return notChecked(refused ? "refused" : "malformed");
-    if (searches === 0) return notChecked("unread");
+    if (!looked()) return notChecked("unread");
     if (await requiresCalculation(verdict))
       return confirmationFailure ? failedCheck(confirmationFailure) : notChecked("no-evidence");
     const byCalculation: ClaimCheckResult | null = worked

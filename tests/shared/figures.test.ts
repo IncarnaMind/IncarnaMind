@@ -1074,6 +1074,34 @@ describe("stated units", () => {
     ]);
   });
 
+  test("a heading's currency alone in brackets states it: “2026 sales (£)”, “Amount (USD)”", () => {
+    expect(stated("Region\t2026 sales (£)", EN)).toEqual([
+      { chars: "(£)", scale: 1, scaleWord: null, unit: { kind: "currency", code: "GBP" } },
+    ]);
+    expect(stated("Amount (USD)", EN)).toMatchObject([
+      { chars: "(USD)", scale: 1, unit: { kind: "currency", code: "USD" } },
+    ]);
+    expect(stated("Revenue (£m)", EN)).toMatchObject([{ scale: 1000000, unit: { code: "GBP" } }]);
+    expect(stated("Sales (see note 3)", EN)).toEqual([]);
+  });
+
+  test("a heading's or a row's own scale and unit words state them: “Unit: million tonnes”, “thousand tonnes”", () => {
+    const tonnes = (scale: number, chars: string) => ({
+      chars,
+      scale,
+      scaleWord: chars.split(" ")[0],
+      unit: { kind: "other", word: "tonnes" },
+    });
+    expect(stated("Unit: million tonnes", EN)).toEqual([tonnes(1000000, "million tonnes")]);
+    expect(stated("Cost\t70\t78\tthousand tonnes", EN)).toEqual([tonnes(1000, "thousand tonnes")]);
+    expect(stated("Cost | 70 | 78 | million tonnes", EN)).toEqual([
+      tonnes(1000000, "million tonnes"),
+    ]);
+    expect(stated("Output (thousand tonnes)", EN)).toEqual([tonnes(1000, "thousand tonnes")]);
+    expect(stated("Output reached 78 million tonnes", EN)).toEqual([]);
+    expect(stated("A million people came", EN)).toEqual([]);
+  });
+
   test("a Chinese header states a scale and a currency", () => {
     expect(stated("单位：万元")).toEqual([
       {

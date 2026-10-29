@@ -111,7 +111,7 @@ const FIGURE_INSTRUCTIONS = [
   "For the requested figures, append exactly one final line beginning Figures: followed by one JSON object. Do not add more Verdict lines and do not omit a requested id.",
   'Its shape is {"items":[{"id":"the exact requested id","verdict":"supported","scope":"same","topic":"found","roles":"same","says":null,"reading":null,"relation":"equals","source":{"citation":1,"number":"4979.6","reading":null,"unitQuote":null},"calculation":null}],"remainder":null}.',
   "Give every requested id exactly once, and no other id. Each verdict is supported, unsupported or contradicted; scope same or wider; topic found or not found; roles same or differs; says is a plain sentence or null. Covered and uncovered may name short parts, or be null.",
-  "Match the exact subject, period, column, unit and obligation of each occurrence from its own context. Equal values alone never support a match. Use topic not found, scope wider or roles differs when appropriate, not a numeric match from another subject or period.",
+  "Match the exact subject, period, column, unit and obligation of each occurrence from its own context. Equal values alone never support a match. Use topic not found, scope wider or roles differs when appropriate, not a numeric match from another subject or period. For a contradicted occurrence, source is the number the Document gives for that same subject, period, column and unit, never an equal number from another row or column.",
   'If an occurrence offers one ambiguity with readings, give reading as its one-based offered own reading, choosing only from that list using its context; each reading says what the number would mean, and a table\'s caption or column heading that states a scale or currency ("(£m)", "单位：百万元") says it of the table\'s cells. This is separate from source.reading. Never supply a value yourself. Leave multiple unresolved ambiguities unchecked; never combine choices. A range remains a range, never an endpoint choice. An unambiguous occurrence needs no reading.',
   'For a value stated directly in a quote recorded by cite, source names its citation marker and number, the number exactly as that quote writes it ("4979.6", "1.2亿"); give position, its one-based place among the quote\'s numbers, only when the quote writes the same number twice. reading is the one-based reader choice only when needed. When the quoted number has no unit or scale of its own and its Passage states one ("All figures in £m", "单位：万元"), unitQuote is that line, word for word. Record every quote with cite before you write the Figures line. Never type a value the quote doesn\'t write.',
   "For a calculation made in this run, set calculation to its calculate marker and source to null. A saved formula can instead be checked from its saved inputs when both are null. Retained Analysis code or a receipt is not a newly executed calculation: do not invent a formula or claim it was recalculated.",
@@ -181,6 +181,8 @@ export function claimPrompt(input: {
   claim: string;
   context?: string;
   cited?: readonly { documentName: string; quote: string }[];
+  /** The Passages those Citations quote, as the search Tool shows Passages. */
+  citedShown?: string | null;
   language: Language;
   figures?: readonly CheckFigure[];
 }): string {
@@ -198,6 +200,7 @@ export function claimPrompt(input: {
       ? [
           "The User cites this for it. Check the claim itself, not only that the quote is there:",
           ...cited.map((each) => `- ${each.documentName}: “${each.quote}”`),
+          ...(input.citedShown ? ["", "The Passages it quotes:", input.citedShown] : []),
           "",
         ]
       : []),

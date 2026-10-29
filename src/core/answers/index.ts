@@ -196,6 +196,7 @@ import { type ChangedScale, changedScale, changedScaleNote } from "./changedScal
 import {
   type AnswerDocuments,
   createCitationSession,
+  documentNamedAmong,
   type QuoteInput,
   withoutDeadMarkers,
   withoutFootnoteDefinitions,
@@ -803,17 +804,7 @@ function inScope(
     pageTexts: (documentId, contentHash, from, to) =>
       documents.pageTexts(documentId, contentHash, from, to),
     documentDate: (documentId) => documents.documentDate(documentId),
-    documentNamed: (name) => {
-      const key = (text: string) => text.replace(/\s+/g, " ").trim().toLocaleLowerCase();
-      const wanted = key(name.replace(/\s*\(“[^”]*”\)\s*$/, ""));
-      const all = documents.searchableBySize(documentIds);
-      return (
-        all.find((each) => key(each.name) === wanted)?.id ??
-        all.find((each) => key(each.name).includes(wanted) || wanted.includes(key(each.name)))
-          ?.id ??
-        null
-      );
-    },
+    documentNamed: (name) => documentNamedAmong(documents.searchableBySize(documentIds), name),
   };
 }
 

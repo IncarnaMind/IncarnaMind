@@ -11,7 +11,13 @@ import {
 } from "../../../shared/charts";
 import { type FigureContext, readFigures } from "../../../shared/figures";
 import { targetHash } from "../../../shared/proposals";
-import { CALCULATED_FIGURE_NODE, CHART_NODE, type CheckFigure, type TextStretch } from "../../api";
+import {
+  CALCULATED_FIGURE_NODE,
+  type CellFigurePlace,
+  CHART_NODE,
+  type CheckFigure,
+  type TextStretch,
+} from "../../api";
 import { plainText } from "../../mindText";
 import { layout, textBlocks } from "../../proposals/write";
 import { nodeOf } from "../blocks";
@@ -70,6 +76,15 @@ function tableContext(element: Y.XmlElement, grids: Map<Y.XmlElement, SourceGrid
   ].join("\n");
   const rowLabel = grid[rowIndex]?.[0]?.text ?? "";
   const rowText = (grid[rowIndex] ?? []).map((slot) => slot?.text ?? "").join(" | ");
+  // A row that only names a group ("Revenue:", its other cells empty) heads the rows below it, so
+  // a "Total" under it is that group's.
+  const section =
+    grid
+      .slice(0, rowIndex)
+      .reverse()
+      .find(
+        ([first, ...rest]) => first?.text && !first.header && rest.every((slot) => !slot?.text),
+      )?.[0]?.text ?? "";
   const before = table.prevSibling;
   const caption =
     before instanceof Y.XmlElement && before.nodeName !== "table" ? plainText(before) : "";
@@ -82,7 +97,7 @@ function tableContext(element: Y.XmlElement, grids: Map<Y.XmlElement, SourceGrid
       columnLabel,
       header: cell.nodeName === "tableHeader",
     },
-    header: [columnLabel, rowText, caption].filter(Boolean).join("\n"),
+    header: [columnLabel, section, rowText, caption].filter(Boolean).join("\n"),
   };
 }
 
@@ -118,7 +133,15 @@ function inSentence(
       } satisfies TextStretch,
     };
   };
-  const common = table ? { table: table.place, label: table.place.rowLabel } : {};
+  // A cell is named by its row and its column, so the check reads which year it is for.
+  const common = table
+    ? {
+        table: table.place,
+        label: [table.place.rowLabel, ...table.place.columnLabel.split("\n")]
+          .filter(Boolean)
+          .join(" · "),
+      }
+    : {};
   // A court decision's citation ("512 S.W.3d 101 (Tex. 2017)") holds no figure to tie out.
   const cases = citedCases(raw);
   const found: FigureOccurrence[] = readFigures(raw, { ...note, header: table?.header ?? null })
@@ -227,6 +250,28 @@ function inChart(element: Y.XmlElement): FigureOccurrence[] {
       },
     ];
   });
+}
+
+/**
+ * Whether these figures are a table's cell's, however deep in it (a list or a quote there too):
+ * a whole-sentence check of such a cell read it without its row and column (#1459).
+ */
+export const inTableCell = (figures: readonly FigureOccurrence[] | undefined): boolean =>
+  figures?.some((figure) => figure.table !== undefined) ?? false;
+
+/** Each place a figure the one Check reads sits in a table's cell, by Block: what `inTableCell` finds. */
+export function tableCellFigurePlaces(blocks: Y.XmlFragment): CellFigurePlace[] {
+  return figuresInMind(blocks).flatMap((figure) =>
+    figure.table !== undefined && figure.locator.kind === "text"
+      ? [
+          {
+            blockId: figure.locator.from.blockId,
+            from: figure.locator.from.offset,
+            to: figure.locator.to.offset,
+          },
+        ]
+      : [],
+  );
 }
 
 export function figuresInMind(blocks: Y.XmlFragment): FigureOccurrence[] {

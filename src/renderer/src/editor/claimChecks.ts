@@ -9,7 +9,9 @@ import type { Node as ProseMirrorNode } from "@tiptap/pm/model";
 import { type EditorState, Plugin, PluginKey } from "@tiptap/pm/state";
 import { Decoration, DecorationSet, type EditorView } from "@tiptap/pm/view";
 import {
+  BLOCK_ID_ATTRIBUTE,
   CALCULATED_FIGURE_NODE,
+  type CellFigurePlace,
   CHART_NODE,
   CLAIM_CHECK_MARK,
   type ClaimCheckAttributes,
@@ -121,6 +123,8 @@ export interface ClaimSpan {
   to: number;
   /** The whole sentences the marked text is in, as they read now. */
   sentence: { from: number; to: number; text: string };
+  /** A paragraph's sentences: its Block and where they are in its text, as the core places figures. */
+  place?: { blockId: string; from: number; to: number };
 }
 
 /** Every check in the document, top to bottom. */
@@ -173,11 +177,13 @@ export function claimSpans(doc: ProseMirrorNode): ClaimSpan[] {
       const touched = sentences.filter((span) => span.from < to && span.to > from);
       const start = Math.min(from, touched[0]?.from ?? from);
       const end = Math.max(to, touched.at(-1)?.to ?? to);
+      const blockId = block.attrs[BLOCK_ID_ATTRIBUTE];
       spans.push({
         check,
         from: startOf(from),
         to: endOf(to),
         sentence: { from: startOf(start), to: endOf(end), text: text.slice(start, end) },
+        ...(typeof blockId === "string" && { place: { blockId, from: start, to: end } }),
       });
     }
     return false;
@@ -188,10 +194,22 @@ export function claimSpans(doc: ProseMirrorNode): ClaimSpan[] {
 /** What a check is compared with besides its sentence: the Documents' versions and the Mind's Folder. */
 export interface ClaimContext {
   figureContexts?: ReadonlyMap<string, string> | null;
+  /** Where each figure the one Check reads in a table's cells is, by Block: its start and end in the Block's text. */
+  figurePlaces?: ReadonlyMap<string, readonly (readonly [number, number])[]> | null;
   /** Each live Document's current version, by id; null while they aren't known. */
   versions: ReadonlyMap<string, string> | null;
   folderId: string | null;
   scope: SearchScope | null;
+}
+
+/** `ClaimContext.figurePlaces` from where the core reads figures in table cells. */
+export function figurePlacesOf(
+  cells: readonly CellFigurePlace[],
+): Map<string, (readonly [number, number])[]> {
+  const places = new Map<string, (readonly [number, number])[]>();
+  for (const { blockId, from, to } of cells)
+    places.set(blockId, [...(places.get(blockId) ?? []), [from, to]]);
+  return places;
 }
 
 /** A check where it is, and how it shows: never one the User keeps as their own view, which shows nothing. */
@@ -222,7 +240,18 @@ export function claimsOf(
   const claims: ShownClaim[] = [];
   const kept: KeptMark[] = [];
   for (const span of claimSpans(doc)) {
-    let shown = claimCheckShown(span.check, { ...context, text: span.sentence.text });
+    const { place } = span;
+    const figured =
+      context.figurePlaces && place
+        ? (context.figurePlaces.get(place.blockId) ?? []).some(
+            ([from, to]) => from >= place.from && to <= place.to,
+          )
+        : undefined;
+    let shown = claimCheckShown(span.check, {
+      ...context,
+      text: span.sentence.text,
+      ...(figured !== undefined && { figured }),
+    });
     if (span.kind === "chart") {
       const node = doc.nodeAt(span.from);
       const chart = readChart(node?.attrs ?? {});
@@ -354,7 +383,8 @@ export function setClaimContext(view: EditorView, context: ClaimContext): void {
     now?.versions === context.versions &&
     now.folderId === context.folderId &&
     sameScopes &&
-    now.figureContexts === context.figureContexts
+    now.figureContexts === context.figureContexts &&
+    now.figurePlaces === context.figurePlaces
   )
     return;
   view.dispatch(view.state.tr.setMeta(CONTEXT, context).setMeta("addToHistory", false));

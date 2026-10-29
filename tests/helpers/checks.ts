@@ -21,9 +21,13 @@ export interface Plan {
   verdict?: "supported" | "unsupported" | "contradicted";
   /** The line it cites, from the Passage that holds it. */
   quote?: string;
+  /** The number of `quote` that backs the sentence's figure, as written: its first of a kind when absent. */
+  number?: string;
+  /** The line of the quote's Passage that states that number's unit, as the model gives it. */
+  unitQuote?: string;
   says?: string;
-  /** Its reply instead, once it has searched. */
-  reply?: ScriptedReply;
+  /** Its reply instead, once it has searched; given the call, for one that names its figures. */
+  reply?: ScriptedReply | ((call: ModelCall) => ScriptedReply);
   /** What it says when asked to confirm a contradiction it found. */
   judgement?: "conflict" | "same" | "neither";
   /** Its reply to the strict judgement, a contradiction's second; `judgement` when absent. */
@@ -57,8 +61,13 @@ interface PlannedFigure {
 const SENTENCE = /<sentence>\n([\s\S]*?)\n<\/sentence>/;
 const FIGURES = /<figures>\n([\s\S]*?)\n<\/figures>/;
 
-/** The figures of the sentence a check Run is asked to bind, each with its id and shown text. */
-export function requestedFigures(call: ModelCall): { id: string; shown: string }[] {
+/**
+ * The figures of the sentence a check Run is asked to bind, each with its id, its shown text and,
+ * for one it may be read more than one way, its first reading, as a model names one.
+ */
+export function requestedFigures(
+  call: ModelCall,
+): { id: string; shown: string; reading: number | null }[] {
   const match = FIGURES.exec(call.prompt);
   if (!match?.[1]) return [];
   const value: unknown = JSON.parse(match[1]);
@@ -66,15 +75,20 @@ export function requestedFigures(call: ModelCall): { id: string; shown: string }
   return value.map((figure: unknown) => {
     if (!isRecord(figure) || typeof figure.id !== "string" || typeof figure.shown !== "string")
       throw new Error("The fixture received an invalid figure.");
-    return { id: figure.id, shown: figure.shown };
+    const unsettled = Array.isArray(figure.ambiguities) && figure.ambiguities.length > 0;
+    return { id: figure.id, shown: figure.shown, reading: unsettled ? 1 : null };
   });
 }
 
 /** The sentence a check Run is asked about. */
-/** An Unsupported verdict as a check writes it, with the Figures line its requested figures need. */
-export function unsupportedReply(call: ModelCall): string {
+/**
+ * An Unsupported verdict as a check writes it, with `said` (its reason and Covered lines) and the
+ * Figures line its requested figures need.
+ */
+export function unsupportedReply(call: ModelCall, said?: string): string {
+  const verdict = said ? `Verdict: unsupported\n${said}` : "Verdict: unsupported";
   const figures = requestedFigures(call);
-  if (figures.length === 0) return "Verdict: unsupported";
+  if (figures.length === 0) return verdict;
   const items = figures.map(({ id }) => ({
     id,
     verdict: "unsupported",
@@ -87,7 +101,7 @@ export function unsupportedReply(call: ModelCall): string {
     source: null,
     calculation: null,
   }));
-  return `Verdict: unsupported\nFigures: ${JSON.stringify({ items, remainder: null })}`;
+  return `${verdict}\nFigures: ${JSON.stringify({ items, remainder: null })}`;
 }
 
 export const sentenceOf = (call: ModelCall) => {
@@ -131,8 +145,9 @@ export function checkReply(call: ModelCall, plans: Record<string, Plan>): Script
     return { calls: [{ tool: "search_documents", input: { query: again.query } }] };
   }
   const plan = again?.plan ?? planned;
-  if (plan.reply) return plan.reply;
-  const shown = shownPassages(searches.at(-1)?.text ?? "");
+  if (plan.reply) return typeof plan.reply === "function" ? plan.reply(call) : plan.reply;
+  // What its search found, and the Passages its sentence's Citations quote, given with the sentence.
+  const shown = [...shownPassages(searches.at(-1)?.text ?? ""), ...shownPassages(call.prompt)];
   const { calculation } = plan;
   if (calculation && !call.results.some((result) => result.tool === "calculate")) {
     const passageOf = (quote: string) => shown.find((each) => each.text.includes(quote))?.id;
@@ -158,12 +173,29 @@ export function checkReply(call: ModelCall, plans: Record<string, Plan>): Script
   const figures = requestedFigures(call);
   if (figures.length === 0) return { text: verdict };
   if (!calculation) {
-    if (!quote) return { text: verdict };
+    // With nothing quoted, each figure is one no Passage states.
+    if (!quote) {
+      const items = figures.map(({ id }) => ({
+        id,
+        verdict: "unsupported",
+        scope: "same",
+        topic: "not found",
+        roles: "same",
+        says: null,
+        reading: null,
+        relation: "equals",
+        source: null,
+        calculation: null,
+      }));
+      return { text: `${verdict}\nFigures: ${JSON.stringify({ items, remainder: null })}` };
+    }
     // Each figure from the cited quote's number of its own kind of unit, or its first.
     const numbers = readFigures(quote, documentFigureContext([{ text: quote }]));
-    const items = figures.map(({ id, shown }) => {
+    const items = figures.map(({ id, shown, reading }) => {
       const kind = readFigures(shown, documentFigureContext([{ text: shown }]))[0]?.unit.kind;
-      const source = numbers.find((each) => each.unit.kind === kind) ?? numbers[0];
+      const source = plan.number
+        ? { chars: plan.number }
+        : (numbers.find((each) => each.unit.kind === kind) ?? numbers[0]);
       return {
         id,
         verdict: source ? (plan.verdict ?? "unsupported") : "unsupported",
@@ -171,9 +203,15 @@ export function checkReply(call: ModelCall, plans: Record<string, Plan>): Script
         topic: source ? "found" : "not found",
         roles: "same",
         says: null,
-        reading: null,
+        reading,
         relation: "equals",
-        source: source ? { citation: 1, number: source.chars } : null,
+        source: source
+          ? {
+              citation: 1,
+              number: source.chars,
+              ...(plan.unitQuote && { unitQuote: plan.unitQuote }),
+            }
+          : null,
         calculation: null,
       };
     });

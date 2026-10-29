@@ -200,7 +200,9 @@ export type RecheckReason =
   | "new-version"
   | "document-removed"
   | "scope"
-  | "search-scope";
+  | "search-scope"
+  /** Checked before each of its figures was checked with its own source (#1459). */
+  | "figures";
 
 /** A check as it shows now; "kept": the User keeps the sentence as their own view, and it shows nothing. */
 export type ClaimCheckShown =
@@ -213,6 +215,8 @@ export type ClaimCheckShown =
 /** What a check is compared with. */
 export interface ClaimCheckNow {
   figureContexts?: ReadonlyMap<string, string> | null;
+  /** The sentence is a table cell holding figures the one Check checks each with its own source; unknown when absent. */
+  figured?: boolean;
   /** The sentence as it reads now: all of the sentences its marked text is in. */
   text: string;
   /** Each live Document's current version, by id; null while they aren't known. */
@@ -333,7 +337,18 @@ function basisShown(check: ClaimCheckBasis, now: ClaimCheckNow): ClaimCheckShown
 }
 
 export function claimCheckShown(check: ClaimCheckAttributes, now: ClaimCheckNow): ClaimCheckShown {
-  if (!check.figures?.length || check.kept) return basisShown(check, now);
+  if (!check.figures?.length || check.kept) {
+    const shown = basisShown(check, now);
+    // A verdict stored before each figure got its own never read a table cell's row and column,
+    // so a right cell could stand as Unsupported (#1459): it is checked again, not kept.
+    return now.figured === true &&
+      check.action === "check-against-documents" &&
+      (shown.state === "supported" ||
+        shown.state === "unsupported" ||
+        shown.state === "contradicted")
+      ? { state: "needs-recheck", why: "figures" }
+      : shown;
+  }
   const figures = check.figures.map((figure) => figureCheckShown(figure, now));
   return aggregateFigureStates(
     figures,

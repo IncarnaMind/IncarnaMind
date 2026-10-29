@@ -925,6 +925,8 @@ export const en = {
   "claim.recheck.document-removed": "A Document it was checked against was deleted.",
   "claim.recheck.scope": "The note is in another Folder now.",
   "claim.recheck.search-scope": "The note’s Search scope has changed since.",
+  "claim.recheck.figures":
+    "It was checked before each of its figures was checked with its own source.",
   "health.label": "Claims and Citations",
   "health.found.one": "1 Citation found",
   "health.found": "{count} Citations found",
@@ -4001,6 +4003,8 @@ export const en = {
     "Needs re-check: the note is in another Folder now.",
   "export.comment.sentence.needs-recheck.search-scope":
     "Needs re-check: the note’s Search scope has changed since.",
+  "export.comment.sentence.needs-recheck.figures":
+    "Needs re-check: checked before each of its figures was checked with its own source.",
   "export.html.notes": "Notes",
   "export.html.back": "Back to text",
   "export.citation.location": "{document}, {location}",

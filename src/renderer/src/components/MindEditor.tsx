@@ -46,7 +46,7 @@ import { checklistLabel } from "../editor/checklistLabel";
 import { useCardPlace } from "../editor/checkPlace";
 import { CitationClusters } from "../editor/citationClusters";
 import { CitationNumbers, redrawFootnotes, setCitationForm } from "../editor/citationNumbers";
-import { ClaimChecks, setClaimContext } from "../editor/claimChecks";
+import { ClaimChecks, figurePlacesOf, setClaimContext } from "../editor/claimChecks";
 import { useClickBelowNote } from "../editor/clickBelowNote";
 import { comparisonCellView, comparisonRowView } from "../editor/comparisonViews";
 import { CopyCitations } from "../editor/copyCitations";
@@ -499,10 +499,29 @@ function MindEditorView({
         : null,
     [schedule, doc],
   );
+  const figurePlaces = useMemo(
+    () =>
+      schedule && schedule.basis === fingerprintOfMind(doc)
+        ? figurePlacesOf(
+            schedule.rows.flatMap(({ locator, place }) =>
+              locator.kind === "text" && place.table
+                ? [
+                    {
+                      blockId: locator.from.blockId,
+                      from: locator.from.offset,
+                      to: locator.to.offset,
+                    },
+                  ]
+                : [],
+            ),
+          )
+        : null,
+    [schedule, doc],
+  );
   useEffect(() => {
     if (!editor.isDestroyed)
-      setClaimContext(editor.view, { versions, folderId, scope, figureContexts });
-  }, [editor, versions, folderId, scope, figureContexts]);
+      setClaimContext(editor.view, { versions, folderId, scope, figureContexts, figurePlaces });
+  }, [editor, versions, folderId, scope, figureContexts, figurePlaces]);
 
   // The Citations and References in the Mind's citation style (#289), formatted off the
   // window's thread, and the footnotes numbered again when the style counts Citations otherwise.

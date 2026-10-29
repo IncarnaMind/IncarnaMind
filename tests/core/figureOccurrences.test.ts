@@ -183,6 +183,35 @@ test("a row unit cell reaches its numeric cell through the existing reader", () 
   ).toBe(true);
 });
 
+test("a row that only names a group heads the rows below it in their context", () => {
+  const figures = figuresInMind(
+    stored({
+      type: "table",
+      attrs: { id: "t1" },
+      content: [
+        row(cell("h1", "Item", true), cell("h2", "2024", true), cell("h3", "2025", true)),
+        row(cell("a", "Revenue:"), cell("b", ""), cell("c", "")),
+        row(cell("d", "Total"), cell("e", "100"), cell("f", "120")),
+        row(cell("g", "Cost:"), cell("h", ""), cell("i", "")),
+        row(cell("j", "Total"), cell("k", "70"), cell("l", "78")),
+      ],
+    }),
+  );
+  expect(figures.map((each) => each.context.split("\n").slice(0, 2))).toEqual([
+    ["2024", "Revenue:"],
+    ["2025", "Revenue:"],
+    ["2024", "Cost:"],
+    ["2025", "Cost:"],
+  ]);
+  expect(figures[0]?.table).toMatchObject({ rowLabel: "Total" });
+  expect(figures.map((each) => each.label)).toEqual([
+    "Total · 2024",
+    "Total · 2025",
+    "Total · 2024",
+    "Total · 2025",
+  ]);
+});
+
 const value = (number: number | null): ChartValue => ({
   shown: number === null ? "missing" : String(number),
   value: number,
