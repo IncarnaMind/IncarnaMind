@@ -8,7 +8,12 @@
 import type { Embedder } from "../core";
 import { createChannelEmbedder, type EmbedderResponse } from "../core/embedding/channel";
 import embedderProcessPath from "./embedderProcess?modulePath";
-import { startEngineProcess } from "./engineProcess";
+import { type EngineProcess, startEngineProcess } from "./engineProcess";
+
+export const EMBEDDING_PROCESS: EngineProcess = {
+  modulePath: embedderProcessPath,
+  serviceName: "IncarnaMind embedding",
+};
 
 export interface UtilityProcessEmbedderOptions {
   /** Runs the deterministic fake model instead of the real one (smoke tests). */
@@ -19,11 +24,7 @@ export function createUtilityProcessEmbedder(
   options: UtilityProcessEmbedderOptions = {},
 ): Embedder {
   return createChannelEmbedder(() => {
-    const child = startEngineProcess(
-      embedderProcessPath,
-      options.fake ? ["--fake"] : [],
-      "IncarnaMind embedding",
-    );
+    const child = startEngineProcess(EMBEDDING_PROCESS, options.fake ? ["--fake"] : []);
     return {
       send: (request) => child.postMessage(request),
       onResponse: (listener) =>
