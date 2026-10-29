@@ -125,6 +125,7 @@ export {
   type OllamaModels,
 } from "./providers/ollamaModels";
 export type { RerankingModelFactory, RerankingModelSpec } from "./providers/rerank";
+export { dataUseForService } from "./providers/serviceDataUse";
 export { blockReference, messageReference, parseReference } from "./references";
 export { BUILT_IN_RERANKING_MODEL, type RerankingModelDefinition } from "./reranking";
 export { fileWrite } from "./runs/effects";

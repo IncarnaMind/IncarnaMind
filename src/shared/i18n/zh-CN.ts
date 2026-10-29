@@ -2201,7 +2201,7 @@ export const zhCN = {
   "providers.form.region": "区域",
   "providers.region.cn": "中国",
   "providers.region.intl": "国际",
-  "providers.form.dataUse": "数据使用：{summary}",
+  "providers.form.dataUse": "{summary}",
   "providers.form.dataUseLink": "数据使用",
   "providers.form.details": "详情",
   "providers.form.pricing": "价格",
