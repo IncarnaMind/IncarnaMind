@@ -2345,32 +2345,53 @@ function besideNumber(text: string, from: number, to: number): boolean {
 /**
  * What standard units measure, as Documents write them in English and Chinese. A count ("employees",
  * "家", "岁") is no measure: what a Document counts is its own business, not a unit it must state.
+ * A symbol is one letter or one character, which a word can hide; the rest are words.
  */
-const MEASURES: Readonly<Record<string, { latin: string; han: string }>> = {
+const MEASURES: Readonly<Record<string, { symbols: string; words: string }>> = {
   mass: {
-    latin: "t|tonnes?|tons?|kt|Mt|kg|kilograms?|g|grams?|mg|lbs?|ounces?|oz|k?tCO2e?|MtCO2e",
-    han: "吨|千克|公斤|克",
+    symbols: "t|g|吨|克",
+    words: "tonnes?|tons?|kt|Mt|kg|kilograms?|grams?|mg|lbs?|ounces?|oz|k?tCO2e?|MtCO2e|千克|公斤",
   },
   length: {
-    latin:
-      "km|kilomet(?:re|er)s?|m|met(?:re|er)s?|cm|centimet(?:re|er)s?|mm|millimet(?:re|er)s?|miles?|ft|feet|foot|inch(?:es)?",
-    han: "公里|千米|厘米|毫米|米",
+    symbols: "m|米",
+    words:
+      "km|kilomet(?:re|er)s?|met(?:re|er)s?|cm|centimet(?:re|er)s?|mm|millimet(?:re|er)s?|miles?|ft|feet|foot|inch(?:es)?|公里|千米|厘米|毫米",
   },
   area: {
-    latin:
-      "m2|m²|㎡|km2|km²|sq\\.? ?ft|sq\\.? ?m|square (?:feet|foot|met(?:re|er)s?|kilomet(?:re|er)s?)|acres?|hectares?|ha",
-    han: "平方公里|平方米|平米|公顷|亩|㎡",
+    symbols: "亩",
+    words:
+      "m2|m²|㎡|km2|km²|sq\\.? ?ft|sq\\.? ?m|square (?:feet|foot|met(?:re|er)s?|kilomet(?:re|er)s?)|acres?|hectares?|ha|平方公里|平方米|平米|公顷",
   },
   volume: {
-    latin: "m3|m³|cubic met(?:re|er)s?|lit(?:re|er)s?|l|barrels?|bbl",
-    han: "立方米|升|桶",
+    symbols: "l|升|桶",
+    words: "m3|m³|cubic met(?:re|er)s?|lit(?:re|er)s?|barrels?|bbl|立方米",
   },
-  power: { latin: "kW|MW|GW|(?:kilo|mega|giga)watts?", han: "千瓦|兆瓦|吉瓦" },
-  energy: { latin: "kWh|MWh|GWh|TWh|(?:kilo|mega|giga)watt[- ]hours?", han: "千瓦时|兆瓦时" },
+  power: { symbols: "", words: "kW|MW|GW|(?:kilo|mega|giga)watts?|千瓦|兆瓦|吉瓦" },
+  energy: { symbols: "", words: "kWh|MWh|GWh|TWh|(?:kilo|mega|giga)watt[- ]hours?|千瓦时|兆瓦时" },
 };
 
-const measureWords = ({ latin, han }: { latin: string; han: string }) =>
-  new RegExp(`(?<![A-Za-z])(?:${latin})(?![A-Za-z])|${han}`, "i");
+// A symbol states its measure only where it belongs to a figure or a unit line: a word can hide it ("don't", 克服).
+const UNIT_AFTER_NUMBER = `${NUMBER_CHAR.source}[ \\u00a0]?`;
+const symbolPattern = (symbols: string) =>
+  symbols
+    .split("|")
+    .map((symbol) => (/^[A-Za-z]$/.test(symbol) ? `${symbol}(?![A-Za-z])` : symbol))
+    .join("|");
+
+const measureRule = ({ symbols, words }: { symbols: string; words: string }) => {
+  const word = `(?<![A-Za-z])(?:${words})(?![A-Za-z])`;
+  const symbol = symbolPattern(symbols);
+  if (!symbol) return new RegExp(word, "i");
+  return new RegExp(
+    [
+      word,
+      `${UNIT_AFTER_NUMBER}(?:${symbol})`,
+      `[(（]\\s*(?:${symbol})(?:\\s*[/⁄]\\s*[^)）\\n]{0,4})?\\s*[)）]`,
+      `(?:(?:金额|货币|数量)?单位|(?<![A-Za-z])units?)\\s*[:：]?\\s*(?:${symbol})`,
+    ].join("|"),
+    "i",
+  );
+};
 
 // The sign counts after letters ("YoY%", "Chgpp"); a word only where no letter runs into it ("apps").
 const WRITES: Readonly<Record<string, RegExp>> = {
@@ -2378,7 +2399,7 @@ const WRITES: Readonly<Record<string, RegExp>> = {
   points:
     /个百分点|百分点|个基点|基点|个点|(?:pp|bp)(?![A-Za-z])|(?<![A-Za-z])(?:percentage[ \n]points?|points?|pts?|ppts?|pps|bps|basis[ \n]points?|p\.p\.)(?![A-Za-z])/i,
   ...Object.fromEntries(
-    Object.entries(MEASURES).map(([name, words]) => [name, measureWords(words)]),
+    Object.entries(MEASURES).map(([name, units]) => [name, measureRule(units)]),
   ),
 };
 
@@ -2386,15 +2407,16 @@ const WRITES: Readonly<Record<string, RegExp>> = {
 export function measureOf(unit: FigureUnit): string | null {
   if (unit.kind === "percent" || unit.kind === "points") return unit.kind;
   if (unit.kind !== "other") return null;
-  const found = Object.entries(MEASURES).find(([, { latin, han }]) =>
-    new RegExp(`^(?:${latin}|${han})$`, "i").test(unit.word),
+  const found = Object.entries(MEASURES).find(([, { symbols, words }]) =>
+    new RegExp(`^(?:${[symbols, words].filter(Boolean).join("|")})$`, "i").test(unit.word),
   );
   return found?.[0] ?? null;
 }
 
 /**
- * Whether `text` writes any unit of `measure`: a column heading ("Output (t)", "YoY%"), a unit line
- * ("单位：吨", "单位：百分比") or a word ("tonnes"). Converting one unit into another isn't attempted.
+ * Whether `text` writes any unit of `measure`: a word ("tonnes"), a symbol right after its figure
+ * ("54,000 t", "54,000吨"), in a column heading ("(t)", "YoY%") or on a unit line ("Units: t",
+ * "单位：吨"). Converting one unit into another isn't attempted.
  */
 export function writesMeasure(text: string, measure: string): boolean {
   return WRITES[measure]?.test(text) ?? false;

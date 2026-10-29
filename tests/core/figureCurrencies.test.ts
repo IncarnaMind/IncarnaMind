@@ -156,6 +156,36 @@ describe("A unit the Document doesn't state (#1452)", () => {
   });
 });
 
+describe("A one-letter or one-character unit symbol (#2225)", () => {
+  // protects=a symbol is stated only where it belongs to a figure or a unit line, not as a letter inside a word ("t" in "don't", "m" in "I'm") or a character inside a word (克 in 克服, 米 in 大米, T in （T恤）), in English and Chinese; fails_when="54,000 tonnes" against "We don't ship 54,000 a year." or "54,000吨" against "克服困难，产量54,000" passes; no_claim=whether the figure is right.
+  test.each([
+    ["The mill's output was 54,000 tonnes.", "We don't ship 54,000 a year.", "54,000"],
+    ["The route was 54 kilometres.", "I'm sure the route was 54.", "54"],
+    ["The mill's output was 54,000 tonnes.", "款式（T恤）\t54,000", "54,000"],
+    ["产量为54,000吨。", "克服困难，产量54,000", "54,000"],
+    ["路线长54公里。", "大米\t54", "54"],
+  ])("%s against %j gives %s", (claim, cited, amount) => {
+    expect(unitNotStated(claim, read(cited))).toMatchObject({ kind: "unit", amount });
+  });
+
+  // protects=a symbol genuinely attached to a figure, or on a unit line, states the measure in any shape: no space ("54,000t"), a scale word ("5.4万吨"), a fullwidth heading ("（T）"), a rate heading ("(t/yr)", "（吨/年）"), a capital letter, another figure's unit, or a space before a Chinese character; fails_when=any of these is Unsupported; no_claim=the value.
+  test.each([
+    ["The mill's output was 54,000 tonnes.", "Output was 54,000t."],
+    ["The mill's output was 54,000 tonnes.", "Output （T）\t54,000"],
+    ["The mill's output was 54,000 tonnes.", "Output (t/yr)\t54,000"],
+    ["产量为54,000吨。", "产量（吨/年）\t54,000"],
+    ["The mill's output was 54,000 tonnes.", "Units: t\nOutput\t54,000"],
+    ["The mill's output was 54,000 tonnes.", "Output: 54,000. Last year: 42,000 t."],
+    ["The route was 54 kilometres.", "Distance: 54. The return leg was 27 m."],
+    ["产量为54,000吨。", "2025年产量5.4万吨\n2024年产量54,000"],
+    ["产量为54,000吨。", "产量 54,000 吨"],
+    ["产量为54,000吨。", "单位：吨\n产量\t54,000"],
+    ["路线长54公里。", "今年新增路段54米，路线长54。"],
+  ])("%s against %j isn't flagged", (claim, cited) => {
+    expect(unitNotStated(claim, read(cited))).toBeNull();
+  });
+});
+
 describe("Checking a figure in another currency or unit", { timeout: 30_000 }, () => {
   const LETTER = {
     name: "Offer letter.txt",
@@ -390,4 +420,47 @@ describe("Checking the cases a review found (#1452)", { timeout: 60_000 }, () =>
       expect(await checkAlone(claim)).toMatchObject({ verdict: "supported" });
     },
   );
+});
+
+describe("A letter or character inside a word through the core (#2225)", {
+  timeout: 30_000,
+}, () => {
+  const supported = (quote: string) => ({ verdict: "supported" as const, quote, says: quote });
+  const checkIn = async (
+    claim: string,
+    document: { name: string; contents: string },
+    language: "en" | "zh-CN" = "en",
+  ) => {
+    const setup = await setUpWithDocuments(checkingModel({ [claim]: supported("54,000") }), [
+      document,
+    ]);
+    if (language !== "en") await setup.core.updateSettings({ user: { language } });
+    return setup.core.checkClaim({ claim });
+  };
+
+  // protects=through the core, a letter or one character inside a word states no unit, in English and Chinese, and the reason names the plain number the Document gives; fails_when=Supported, or a reason naming the unit; no_claim=whether the figure is right.
+  test("a letter inside a word doesn't state tonnes", async () => {
+    expect(
+      await checkIn("The mill's output was 54,000 tonnes.", {
+        name: "Mill output.txt",
+        contents: "Mill output\nWe don't ship 54,000 a year.\n",
+      }),
+    ).toMatchObject({
+      verdict: "unsupported",
+      unsupported: { reason: "The Document gives 54,000, not 54,000 tonnes." },
+    });
+  });
+
+  test("a character inside a word doesn't state tonnes", async () => {
+    expect(
+      await checkIn(
+        "产量为54,000吨。",
+        { name: "产量.txt", contents: "产量\n克服困难，产量54,000\n" },
+        "zh-CN",
+      ),
+    ).toMatchObject({
+      verdict: "unsupported",
+      unsupported: { reason: "文档写的是 54,000，不是 54,000吨。" },
+    });
+  });
 });
