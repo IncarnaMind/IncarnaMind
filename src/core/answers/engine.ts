@@ -1746,8 +1746,8 @@ async function* toolLoop(
     yield* release(keptText.length);
     yield* flag(keptText);
   }
-  async function* endAnswer(): AsyncGenerator<AnswerEngineEvent> {
-    if (!request.documents.wroteIntoMind?.()) {
+  async function* endAnswer(afterRefusal = false): AsyncGenerator<AnswerEngineEvent> {
+    if (!afterRefusal && !request.documents.wroteIntoMind?.()) {
       const figured = request.documents.citeFigures?.(keptText) ?? keptText;
       yield* textEdits(keptText, figured);
       keptText = figured;
@@ -2005,7 +2005,7 @@ async function* toolLoop(
         }
         yield* release(keptText.length);
         yield* flagged(settled);
-        yield* endAnswer();
+        yield* endAnswer(refused !== null);
         return;
       }
     }

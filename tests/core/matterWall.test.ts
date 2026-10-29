@@ -1,7 +1,12 @@
 import { describe, expect, test } from "vitest";
 import type { Core, Document, SearchScope } from "../../src/core";
-import { askAssistant, lastResult } from "../helpers/assistant";
-import { answerEnded, recordSearches, setUpWithDocuments } from "../helpers/citations";
+import { askAssistant } from "../helpers/assistant";
+import {
+  answerEnded,
+  recordSearches,
+  setUpWithDocuments,
+  shownPassages,
+} from "../helpers/citations";
 import { startCore } from "../helpers/core";
 import type { MindClient } from "../helpers/mindClient";
 import { editMind, question } from "../helpers/minds";
@@ -86,11 +91,29 @@ describe("A Folder that keeps its work inside it", () => {
 
   test("refuses to read another Folder's Note and names only its own", async () => {
     const modelCalls: ModelCall[] = [];
-    const { core, mind, clientA, noteB, model } = await setUp((call) => {
+    const { core, mind, clientA, noteB } = await setUp((call) => {
       modelCalls.push(call);
-      if (call.results.length === 0)
+      if (!call.results.some((result) => result.tool === "search_documents")) {
+        return { calls: [{ tool: "search_documents", input: { query: "notice" } }] };
+      }
+      if (!call.results.some((result) => result.tool === "read_mind")) {
         return { calls: [{ tool: "read_mind", input: { mind: "Client B note" } }] };
-      return { text: "Done." };
+      }
+      if (!call.results.some((result) => result.tool === "cite")) {
+        const passage = shownPassages(
+          call.results.find((result) => result.tool === "search_documents")?.text ?? "",
+        )[0];
+        if (!passage) throw new Error("The search gave no Passage.");
+        return {
+          calls: [
+            {
+              tool: "cite",
+              input: { citations: [{ marker: 1, passage: passage.id, quote: passage.text }] },
+            },
+          ],
+        };
+      }
+      return { text: "Done [^1]." };
     });
     await core.updateLibraryGroup(clientA.id, {
       name: clientA.name,
@@ -102,8 +125,11 @@ describe("A Folder that keeps its work inside it", () => {
 
     expect(answer.text).toBe("This Folder keeps its work inside it.");
 
-    expect(lastResult(model)).toContain("This Folder keeps its work inside it.");
-    expect(lastResult(model)).not.toContain("Termination notice: 30 days.");
+    const results = modelCalls
+      .flatMap((call) => call.results.map((result) => result.text))
+      .join("\n");
+    expect(results).toContain("This Folder keeps its work inside it.");
+    expect(results).not.toContain("Termination notice: 30 days.");
     expect(modelCalls.map((call) => call.system).join("\n")).not.toContain(noteB.title);
   });
 
