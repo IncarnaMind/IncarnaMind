@@ -444,7 +444,8 @@ export function writtenByAnswer(
     const from = originOf(doc, idOf(element))?.from;
     return from?.anchor.kind === "message" && from.anchor.messageId === answerId;
   };
-  const range = top.filter(fromAnswer);
+  // Its title heading (`ownTitleOf`) is written again only when the new text brings a heading of its own.
+  const range = top.filter((element) => fromAnswer(element) && (heading || !isOwnTitle(element)));
   const [first] = top;
   if (range.length === 0) return null;
   if (heading && first && first.nodeName === "heading" && !fromAnswer(first)) range.unshift(first);
