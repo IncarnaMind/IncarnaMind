@@ -5,12 +5,13 @@ import {
   type Figure,
   type FigureContext,
   type FigureUnit,
+  measureOf,
   namedCurrencies,
   type Reading,
   readFigures,
   readingsOf,
   readStatedUnits,
-  writesUnit,
+  writesMeasure,
 } from "../../../shared/figures";
 import { documentFigureContext } from "../calculations";
 
@@ -42,7 +43,7 @@ const isShare = (unit: FigureUnit) => unit.kind === "percent" || unit.kind === "
 const hasUnit = (figure: Figure) =>
   currenciesOf(figure).length > 0 ||
   isShare(figure.unit) ||
-  figure.unit.kind === "other" ||
+  measureOf(figure.unit) !== null ||
   figure.scaleWord !== null;
 
 // A count or a measure ("14号2室", "3楼") is never an amount written at another scale (#2189).
@@ -81,7 +82,6 @@ const writtenShare = (figure: Figure) =>
   figure.value *
   10 ** (/‰/.test(figure.chars) ? 3 : /基点|bps?\b|basis/i.test(figure.chars) ? 4 : 2);
 
-// A number read with a unit its Document states apart from it shows that unit: "54 (USD millions)".
 function givenAs(number: Figure, reading: Reading): string {
   if (
     reading.scale === number.scale &&
@@ -94,10 +94,11 @@ function givenAs(number: Figure, reading: Reading): string {
 
 /**
  * The figure's unit, when its Citations give a number of its value otherwise: an amount in another
- * currency, or a plain number for a figure with a unit (tonnes, a percent) that neither the cited
- * text nor its Document writes anywhere. Null when they give it the figure's unit, or when it can't
- * be told: a sign that may stand for the figure's currency, which its Document names, agrees; two
- * unit words ("tonnes", "t") and money against a count are the model's to judge.
+ * currency, or a plain number for a figure in a measure (tonnes, a percent) of which neither the
+ * cited text nor its Document writes any unit. Null when they give it the figure's unit, or when it
+ * can't be told: a sign that may stand for the figure's currency, which its Document names, agrees,
+ * and so does a plain number where the Document names that currency; two units of one measure
+ * ("tonnes", "t"), a count ("54家") and money against a count are the model's to judge.
  */
 function givenOtherwise(
   figure: Figure,
@@ -137,23 +138,32 @@ function givenOtherwise(
       return each.inDocument.has(code);
     };
     const inCurrency = equal.filter(({ reading }) => reading.unit.kind === "currency");
-    const agrees = inCurrency.some(
-      ({ each, number, reading }) =>
-        (reading.unit.kind === "currency" && codes.has(reading.unit.code)) ||
-        currenciesOfSign(number).some((code) => codes.has(code) && named(each, code)),
+    const agrees = equal.some(({ each, number, reading }) =>
+      reading.unit.kind === "currency"
+        ? codes.has(reading.unit.code) ||
+          currenciesOfSign(number).some((code) => codes.has(code) && named(each, code))
+        : reading.unit.kind === "plain" && [...codes].some((code) => named(each, code)),
     );
     return agrees ? null : given(inCurrency);
   }
-  if (figure.unit.kind !== "other" && !isShare(figure.unit)) return null;
+  const measure = measureOf(figure.unit);
+  if (measure === null) return null;
   if (equal.some(({ reading }) => reading.unit.kind === figure.unit.kind)) return null;
   const plain = valued(isShare(figure.unit) ? writtenShare(figure) : figure.value).filter(
     ({ number }) => readingsOf(number).every(({ unit }) => unit.kind === "plain"),
   );
-  const unit = figure.unit;
   const written = plain.some(
-    ({ each }) => writesUnit(each.cited, unit) || writesUnit(each.text.document(), unit),
+    ({ each }) =>
+      writesMeasure(each.cited, measure) || writesMeasure(each.text.document(), measure),
   );
   return written ? null : given(plain);
+}
+
+/** A number a figure was compared with: as its quote writes it, in its unit and scale. */
+export interface BoundNumber {
+  chars: string;
+  unit: FigureUnit;
+  scale: number;
 }
 
 /**
@@ -163,26 +173,15 @@ function givenOtherwise(
  * another scale of the same written number; another currency for the same amount; or a unit on a
  * number they give plain and never write the unit of (#1452). Null when it gives none. A figure
  * they don't state is the model's to judge, unless `bound` names the numbers it was compared
- * with: then their units and scales are what the Citations give it, equal or not.
+ * with: then their units and scales are what the Citations give it, equal or not. A figure in
+ * `worked` came out of a calculation: no cited amount of its value is its source, so only its
+ * currency on a plain number and its scale are checked.
  */
-/** `text` with `figures`, read from it, blanked: a figure a calculation decided isn't its Citations' to state (#1452). */
-export const withoutFigures = (text: string, figures: readonly Pick<Figure, "start" | "end">[]) =>
-  figures.reduce(
-    (out, { start, end }) => out.slice(0, start) + " ".repeat(end - start) + out.slice(end),
-    text,
-  );
-
-/** A number a figure was compared with: as its quote writes it, in its unit and scale. */
-export interface BoundNumber {
-  chars: string;
-  unit: FigureUnit;
-  scale: number;
-}
-
 export function unitNotStated(
   claim: string,
   citations: readonly CheckedText[],
   bound?: readonly BoundNumber[],
+  worked: readonly Pick<Figure, "start" | "end">[] = [],
 ): UnitNotStated | null {
   const own = documentFigureContext([{ text: claim }]);
   if (citations.length === 0 || !readFigures(claim, own).some(hasUnit)) return null;
@@ -258,7 +257,8 @@ export function unitNotStated(
         };
       }
     }
-    const otherwise = givenOtherwise(figure, read, bound);
+    const decided = worked.some(({ start, end }) => start < figure.end && figure.start < end);
+    const otherwise = decided ? null : givenOtherwise(figure, read, bound);
     if (otherwise) return otherwise;
     if (same.length === 0) continue;
     if (isShare(figure.unit)) {

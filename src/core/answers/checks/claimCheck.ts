@@ -97,7 +97,7 @@ import {
   STRICT_INSTRUCTIONS,
 } from "./prompt";
 import { searchAgain } from "./searchAgain";
-import { type BoundNumber, unitNotStated, withoutFigures } from "./units";
+import { type BoundNumber, unitNotStated } from "./units";
 
 export interface ClaimCheckDependencies {
   /** The interface language: what a check's sentence is written in. */
@@ -471,6 +471,7 @@ export function createClaimCheck(deps: ClaimCheckDependencies) {
       citations: readonly Citation[],
       claim = request.claim,
       bound?: readonly BoundNumber[],
+      worked?: readonly Figure[],
     ): { why: UnsupportedReason; quote: Citation | null } | null => {
       const checked = citations.map((citation) => {
         const text = (from: number | null, to: number | null) =>
@@ -485,7 +486,7 @@ export function createClaimCheck(deps: ClaimCheckDependencies) {
           document: () => text(null, null),
         };
       });
-      const found = unitNotStated(claim, checked, bound);
+      const found = unitNotStated(claim, checked, bound, worked);
       if (!found) return null;
       const t = (key: MessageKey, params?: MessageParams) =>
         translate(deps.language(), key, params);
@@ -902,10 +903,6 @@ export function createClaimCheck(deps: ClaimCheckDependencies) {
     if (signal.aborted) return notChecked("stopped");
     if (isFailed(evidence)) return failedCheck(evidence.failed);
     if (!evidence) return notChecked("no-evidence");
-    const unworked = withoutFigures(
-      request.claim,
-      checked.map(({ number }) => number),
-    );
     const unitProblem = unstatedUnit(
       [
         evidence,
@@ -914,7 +911,9 @@ export function createClaimCheck(deps: ClaimCheckDependencies) {
           calculation.figure.inputs.map((input) => input.citation),
         ),
       ],
-      unworked,
+      request.claim,
+      undefined,
+      checked.map(({ number }) => number),
     );
     const unit = unitProblem?.why ?? null;
     if (unit && (verdict.verdict !== "contradicted" || onlyCalculation))
