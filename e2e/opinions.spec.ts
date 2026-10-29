@@ -12,6 +12,7 @@ import type {
 import { writeMindCheck } from "../src/shared/mindCheck";
 import { writeOpinionSentences } from "../src/shared/opinions";
 import { writeVerification } from "../src/shared/verification";
+import { wordFile, paragraph as wordParagraph } from "../tests/helpers/word";
 import {
   addDocuments,
   checkCard,
@@ -621,11 +622,11 @@ for (const language of ["en", "zh-CN"] as const) {
 
       await setWindowSize(app, window, 900, 900);
       const changedFolder = join(sources, "Changes");
-      const changedFile = join(changedFolder, "Moved source.md");
+      const changedFile = join(changedFolder, "Moved source.docx");
       const changedQuote = words.fact.trim();
-      const oldText = `# Context\n\nA separate statement.\n\n# Results\n\n${changedQuote}\n`;
+      const oldText = wordParagraph("A separate statement.") + wordParagraph(changedQuote);
       await mkdir(changedFolder);
-      await writeFile(changedFile, oldText);
+      await writeFile(changedFile, wordFile({ body: oldText }));
       await linkFolderFromSidebar(app, window, changedFolder);
       await expectReadyDocuments(window, 3);
       const changedDocument = (
@@ -640,8 +641,8 @@ for (const language of ["en", "zh-CN"] as const) {
             documentId,
             quote,
             contentHash,
-            pageFrom: 2,
-            pageTo: 2,
+            pageFrom: 1,
+            pageTo: 1,
           }),
         {
           documentId: changedDocument.id,
@@ -649,7 +650,12 @@ for (const language of ["en", "zh-CN"] as const) {
           contentHash: changedDocument.contentHash,
         },
       );
-      expect(original).toMatchObject({ check: "found", pageFrom: 2, pageTo: 2 });
+      expect(original).toMatchObject({
+        check: "found",
+        pageFrom: 1,
+        pageTo: 1,
+        location: { kind: "section", paragraphs: { from: 2, to: 2 } },
+      });
       const oldCitation: CitationAttributes = {
         ...citation,
         passageId: original.passageId,
@@ -681,7 +687,10 @@ for (const language of ["en", "zh-CN"] as const) {
       await newMind(window);
       await setContent(window, [changedBlock(true)]);
       await expect(window.getByTestId("mind-editor").getByTestId("citation-chip")).toHaveCount(1);
-      await writeFile(changedFile, `# Archive\n\nAnother statement.\n\n${oldText}`);
+      await writeFile(
+        changedFile,
+        wordFile({ body: wordParagraph("Another statement.") + oldText }),
+      );
       const changedAt = new Date("2026-10-21T12:00:00Z");
       await utimes(changedFile, changedAt, changedAt);
       await expect
@@ -729,6 +738,10 @@ for (const language of ["en", "zh-CN"] as const) {
           )
           .toBe(changedQuote);
         await expect(viewer.locator("[data-quote-highlight]").first()).toBeInViewport();
+        const movedLabel = language === "en" ? "¶\u00a03" : "第 3 段";
+        const movedParagraph = viewer.locator("section.docx > article p").nth(2);
+        await expect(movedParagraph).toHaveText(changedQuote);
+        await expect(movedParagraph.locator("[data-quote-highlight]")).toHaveCount(1);
         await expect
           .poll(() =>
             window.evaluate(
@@ -744,16 +757,28 @@ for (const language of ["en", "zh-CN"] as const) {
             ),
           )
           .toMatchObject({
-            pageFrom: 3,
-            pageTo: 3,
-            citation: { contentHash: oldCitation.contentHash, pageFrom: 2, pageTo: 2 },
+            pageFrom: 1,
+            pageTo: 1,
+            quote: changedQuote,
+            citation: {
+              contentHash: oldCitation.contentHash,
+              pageFrom: 1,
+              pageTo: 1,
+              location: { kind: "section", paragraphs: { from: 2, to: 2 } },
+              label: movedLabel,
+            },
           });
+        await screenshot(window, `opinions-moved-source-${language}-900`);
+        const sourceTab = window.getByTestId("document-tab").first();
+        await sourceTab.hover();
+        await pointAndClick(window, sourceTab.getByTestId("tab-close"));
+        await expect(viewer).toHaveCount(0);
+        await expect(window.getByTestId("mind-editor")).toBeVisible();
         expect(
           await window
             .getByTestId("mind-editor")
             .evaluate((dom) => (dom as unknown as { editor: Editor }).editor.getJSON()),
         ).toEqual(beforeOpen);
-        await screenshot(window, `opinions-moved-source-${language}-900`);
       }
     } finally {
       await app.close();
