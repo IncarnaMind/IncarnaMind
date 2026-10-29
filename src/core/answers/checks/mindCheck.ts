@@ -47,6 +47,7 @@ import type {
   FindMindClaimsResult,
   MindCheckPlan,
 } from "../../api";
+import { CHART_NODE } from "../../api";
 import { parseModel } from "../../edits";
 import { InvalidInputError, isRecord } from "../../errors";
 import type { MindContent } from "../../mindContent";
@@ -174,6 +175,10 @@ export function createMindCheck(options: MindCheckOptions) {
   > {
     const known = sorted.get(mindId) ?? new Map<string, readonly ClaimPartPlan[]>();
     sorted.set(mindId, known);
+    for (const sentence of fresh) {
+      if (sentence.element.nodeName === CHART_NODE)
+        known.set(sentence.text, [{ kind: "fact", span: { start: 0, end: sentence.text.length } }]);
+    }
     const unsorted = fresh.filter((sentence) => !known.has(sentence.text));
     if (unsorted.length > 0) {
       const found = await claimsAmong(
@@ -480,13 +485,12 @@ export function createMindCheck(options: MindCheckOptions) {
             each.occurrence === claim.occurrence,
         );
         if (!sentence) return [];
-        const previousParts = markedSentences(blocks).find(
+        const owners = markedSentences(blocks).filter(
           (each) =>
-            each.element === sentence.element &&
-            each.from < sentence.to &&
-            each.to > sentence.from &&
-            each.check.text === sentence.text,
-        )?.check.parts;
+            each.element === sentence.element && each.from < sentence.to && each.to > sentence.from,
+        );
+        const previousParts = owners.find((each) => each.check.text === sentence.text)?.check.parts;
+        const priorParts = owners.length === 1 ? owners[0]?.check.parts : undefined;
         const parts =
           sorted.get(mindId)?.get(sentence.text) ??
           previousParts?.map(({ span, kind }) => ({ span, kind }));
@@ -514,15 +518,9 @@ export function createMindCheck(options: MindCheckOptions) {
           ...(parts && { parts: pendingParts(parts, previousParts) }),
         };
         const selected = input.figureIds === null ? null : new Set(input.figureIds);
-        const previous =
-          markedSentences(blocks).find(
-            (known) =>
-              known.element === sentence.element &&
-              known.from < sentence.to &&
-              known.to > sentence.from,
-          )?.check ?? null;
+        const previous = owners[0]?.check ?? null;
         const pending = sentence.figures?.length
-          ? beginFigureCheck(previous, mark, sentence.figures, selected)
+          ? beginFigureCheck(previous, mark, sentence.figures, selected, sentence.projection)
           : mark;
         markSentence(sentence.element, sentence.from, sentence.to, pending);
         return [
@@ -539,7 +537,9 @@ export function createMindCheck(options: MindCheckOptions) {
             cited: options.citedNow(sentence.cited),
             scope: within.scope,
             ...(parts && { parts }),
+            ...(input.figureIds !== null && { figureIds: input.figureIds }),
             ...(previousParts && { previous: previousParts }),
+            ...(priorParts && { priorParts }),
           },
         ];
       });

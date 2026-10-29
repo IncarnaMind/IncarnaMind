@@ -33,7 +33,9 @@ import {
   type ChatModelChoice,
   type CheckSentencesResult,
   type ClaimCheckAttributes,
+  type ClaimCheckPart,
   type ClaimCheckResult,
+  type ClaimPartPlan,
   type Document,
   type DocumentStatus,
   type DocumentText,
@@ -58,7 +60,13 @@ import type { ClaimCheckRequest } from "./claimCheck";
 import { claimsAmong } from "./findClaims";
 import { recordOpinions } from "./opinions";
 import { pendingParts, runChecks } from "./runChecks";
-import { everySentence, markedSentences, markSentence, type SelectedSentence } from "./sentences";
+import {
+  checkText,
+  everySentence,
+  markedSentences,
+  markSentence,
+  type SelectedSentence,
+} from "./sentences";
 import { documentBlocks, tableClaim } from "./verifyTables";
 
 /** A Document whose text is read: its Passages can be searched and its pages read. */
@@ -99,6 +107,7 @@ export interface VerifyOptions {
     blocks: Y.XmlFragment,
     mindId: string,
     sourceText?: string,
+    priorParts?: readonly ClaimCheckPart[],
   ): ClaimCheckAttributes;
   /** Keeps the text of the evidence the Mind's checks show (#79). */
   retainEvidence(mindId: string): void;
@@ -146,10 +155,10 @@ function parseRequest(input: unknown) {
   };
 }
 
-function claimOf(sentence: SelectedSentence): { claim: string; context: string } | undefined {
+function claimOf(sentence: SelectedSentence): ReturnType<typeof checkText> | undefined {
   const row = tableClaim(sentence);
   if (row === "not-a-claim") return undefined;
-  return row ?? { claim: sentence.text, context: sentence.context };
+  return row ?? checkText(sentence);
 }
 
 export function createVerify(options: VerifyOptions) {
@@ -247,9 +256,10 @@ export function createVerify(options: VerifyOptions) {
               blockId: sentence.blockId,
               text: sentence.text,
               occurrence: sentence.occurrence,
-              ...(sentence.said === sentence.text && {
-                parts: [...(found.parts.get(index) ?? [])],
-              }),
+              parts:
+                sentence.said === sentence.text
+                  ? [...(found.parts.get(index) ?? [])]
+                  : [{ kind: "fact" as const, span: { start: 0, end: sentence.text.length } }],
             },
           ]
         : [],
@@ -305,13 +315,12 @@ export function createVerify(options: VerifyOptions) {
             each.occurrence === (claim.occurrence ?? 0),
         );
         if (!sentence) return [];
-        const previous = markedSentences(blocks).find(
+        const owners = markedSentences(blocks).filter(
           (mark) =>
-            mark.element === sentence.element &&
-            mark.from < sentence.to &&
-            mark.to > sentence.from &&
-            mark.check.text === sentence.text,
-        )?.check.parts;
+            mark.element === sentence.element && mark.from < sentence.to && mark.to > sentence.from,
+        );
+        const previous = owners.find((mark) => mark.check.text === sentence.text)?.check.parts;
+        const priorParts = owners.length === 1 ? owners[0]?.check.parts : undefined;
         const marked: ClaimCheckAttributes = {
           id: randomUUID(),
           request: requestId,
@@ -334,21 +343,45 @@ export function createVerify(options: VerifyOptions) {
           checkedAt: startedAt,
           ...(claim.parts && { parts: pendingParts(claim.parts, previous) }),
         };
-        // Each figure gets its own result, as the one Check gives it.
-        const figures = sentence.figures?.length ? sentence.figures : undefined;
+        const said = claimOf(sentence) ?? { claim: sentence.text, context: sentence.context };
+        const contextualRow = said.claim !== sentence.text;
+        const row =
+          sentence.element.parent instanceof Y.XmlElement ? sentence.element.parent.parent : null;
+        const rowFigures =
+          contextualRow && row instanceof Y.XmlElement && row.nodeName === "tableRow"
+            ? sentences
+                .filter(
+                  (each) =>
+                    each.element.parent instanceof Y.XmlElement &&
+                    each.element.parent.parent === row,
+                )
+                .flatMap((each) => each.figures ?? [])
+            : sentence.figures;
+        const figures = rowFigures?.length ? rowFigures : undefined;
+        const parts: readonly ClaimPartPlan[] | undefined = contextualRow
+          ? [{ kind: "fact", span: { start: 0, end: said.claim.length } }]
+          : claim.parts;
         markSentence(
           sentence.element,
           sentence.from,
           sentence.to,
-          figures ? beginFigureCheck(null, marked, figures, null) : marked,
+          figures
+            ? beginFigureCheck(
+                null,
+                marked,
+                figures,
+                null,
+                contextualRow ? undefined : sentence.projection,
+              )
+            : marked,
         );
-        const said = claimOf(sentence) ?? { claim: sentence.text, context: sentence.context };
         return [
           {
             id: marked.id,
             ...said,
-            ...(claim.parts && { parts: claim.parts }),
+            ...(parts && { parts }),
             ...(previous && { previous }),
+            ...(priorParts && { priorParts }),
             ...(figures && { figures }),
           },
         ];

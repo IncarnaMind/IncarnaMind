@@ -14,12 +14,20 @@ import {
   CLAIM_CHECK_MARK,
   type ClaimCheckAttributes,
 } from "../../src/core/api";
-import { ClaimChecks, claimsOf, paragraphPlaces } from "../../src/renderer/src/editor/claimChecks";
+import {
+  ClaimChecks,
+  claimPlaces,
+  claimsOf,
+  paragraphPlaces,
+} from "../../src/renderer/src/editor/claimChecks";
 import { sentencesToCheck } from "../../src/renderer/src/editor/healthCounts";
 import { noteExtensions } from "../../src/renderer/src/editor/noteSchema";
 import { opinionSentenceRanges, opinionsIn } from "../../src/renderer/src/editor/opinionLocations";
+import { calculatedFigureNode } from "../../src/shared/calculatedFigures";
 import { claimCheckShown } from "../../src/shared/claimChecks";
 import { partWithResult, pendingPart } from "../../src/shared/claimParts";
+import { FORMULA_VERSION } from "../../src/shared/formula";
+import { inlineRange, inlineSpan } from "../../src/shared/inlineText";
 import { writeOpinionSentences } from "../../src/shared/opinions";
 import { INLINE_NODE } from "../../src/shared/sentences";
 import { checkGenerate, checkReply } from "../helpers/checks";
@@ -46,6 +54,64 @@ const cases = [
   { text: "Revenue rose 8%; we think this is risky.", opinion: "we think this is risky" },
   { text: "收入上涨8%；我们认为这有风险。", opinion: "我们认为这有风险" },
 ];
+
+function atom(id: string) {
+  return calculatedFigureNode(
+    {
+      label: "Growth",
+      formula: "",
+      inputs: [],
+      value: 0.25,
+      unit: { kind: "percent" },
+      approximate: false,
+      shown: "25.0%",
+      show: { language: "en", as: "percent", decimals: 1, scale: null },
+      literals: [],
+      engine: FORMULA_VERSION,
+      written: null,
+      analysis: { analysis: 1, result: "growth" },
+    },
+    id,
+    "analysis-run",
+  );
+}
+
+test.each([
+  ["Revenue ", "; we think this is risky.", "we think this is risky"],
+  ["收入", "；我们认为这有风险。", "我们认为这有风险"],
+])(
+  "expanded atom and literal opinion share one exact checked frame: %s",
+  (before, after, opinion) => {
+    const shown = "25.0%";
+    const text = before + shown + after;
+    const check = checkOf(text, opinion);
+    const mark = [{ type: CLAIM_CHECK_MARK, attrs: check }];
+    const doc = schema.nodeFromJSON({
+      type: "doc",
+      content: [
+        {
+          type: "paragraph",
+          attrs: { id: "p" },
+          content: [
+            { type: "text", text: before, marks: mark },
+            { type: CITATION_NODE, attrs: citation },
+            atom("growth"),
+            { type: "text", text: after, marks: mark },
+          ],
+        },
+      ],
+    });
+    const blocks = blocksOf(doc);
+    expect(everySentence(blocks)[0]?.text).toBe(text);
+    expect(checkedSentences(blocks)[0]?.sentence).toBe(text);
+    expect(claimsOf(doc, context).claims[0]?.shown).toEqual({ state: "supported" });
+    const omitted = opinionsIn(doc, new Y.Doc())[0];
+    expect(omitted?.range).toEqual({
+      from: before.length + 3 + after.indexOf(opinion),
+      to: before.length + 3 + after.indexOf(opinion) + opinion.length,
+    });
+  },
+);
 
 function checkOf(text: string, opinion: string): ClaimCheckAttributes {
   const at = text.indexOf(opinion);
@@ -379,3 +445,55 @@ for (const [before, after] of [
     expect(current?.sentence.text).toBe(after);
     expect(current?.shown).toEqual({ state: "supported" });
   });
+
+test.each(["Values ", "数值"])(
+  "repeated displayed figures retain exact native positions after reload: %s",
+  (before) => {
+    const doc = schema.nodeFromJSON({
+      type: "doc",
+      content: [
+        {
+          type: "paragraph",
+          attrs: { id: "p" },
+          content: [
+            { type: "text", text: before },
+            { type: CITATION_NODE, attrs: citation },
+            atom("first"),
+            { type: "text", text: " + " },
+            atom("second"),
+            { type: "text", text: "." },
+          ],
+        },
+      ],
+    });
+    const blocks = blocksOf(doc);
+    const copy = new Y.Doc();
+    const source = blocks.doc;
+    if (!source) throw new Error("Missing current Note document");
+    Y.applyUpdate(copy, Y.encodeStateAsUpdate(source));
+    const [sentence] = everySentence(copy.getXmlFragment("mind"));
+    expect(sentence?.text).toBe(`${before}25.0% + 25.0%.`);
+    expect(sentence?.figures?.map(({ id }) => id)).toEqual(["first", "second"]);
+    const projection = sentence?.projection;
+    if (!projection) throw new Error("Missing current sentence projection");
+    expect(inlineSpan(projection, before.length + 1, before.length + 2)).toEqual({
+      start: before.length,
+      end: before.length + 5,
+    });
+    expect(inlineSpan(projection, before.length + 5, before.length + 6)).toEqual({
+      start: before.length + 8,
+      end: before.length + 13,
+    });
+    const paragraph = doc.firstChild;
+    if (!paragraph) throw new Error("Missing current paragraph");
+    const places = claimPlaces(paragraph, 0);
+    expect(inlineRange(places, before.length + 8, before.length + 13)).toEqual({
+      from: before.length + 6,
+      to: before.length + 7,
+    });
+    expect(paragraphPlaces(paragraph, 0).text).toBe(
+      `${before}${INLINE_NODE}${INLINE_NODE} + ${INLINE_NODE}.`,
+    );
+    copy.destroy();
+  },
+);

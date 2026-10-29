@@ -11,8 +11,8 @@ export function opinionLocations(doc: ProseMirrorNode) {
     occurrence: number;
     from: number;
     to: number;
-    starts: number[];
-    ends: number[];
+    starts: (number | null)[];
+    ends: (number | null)[];
   }[] = [];
   doc.descendants((block, pos) => {
     if (!block.isTextblock) return true;
@@ -58,7 +58,9 @@ export function opinionsIn(note: ProseMirrorNode, doc: Y.Doc) {
   return omittedOpinions(current, marks, readOpinionSentences(doc)).flatMap((opinion) => {
     const from = opinion.starts[opinion.span.start];
     const to = opinion.ends[opinion.span.end - 1];
-    return from === undefined || to === undefined ? [] : [{ ...opinion, range: { from, to } }];
+    return typeof from !== "number" || typeof to !== "number"
+      ? []
+      : [{ ...opinion, range: { from, to } }];
   });
 }
 

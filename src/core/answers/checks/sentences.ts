@@ -7,8 +7,17 @@
 import * as Y from "yjs";
 import { readCalculatedFigureEvidence } from "../../../shared/calculatedFigures";
 import { chartCheckText, chartPoints, readChart } from "../../../shared/charts";
+import { citationAttributesOf } from "../../../shared/citations";
 import { keptOn, readClaimCheck } from "../../../shared/claimChecks";
-import { readClaimParts } from "../../../shared/claimParts";
+import { partCitations, readClaimParts } from "../../../shared/claimParts";
+import {
+  type InlineTextPiece,
+  type InlineTextProjection,
+  inlineRange,
+  inlineSpan,
+  projectInlineText,
+  sliceInlineText,
+} from "../../../shared/inlineText";
 import { readProposalAttribute, readProposalRef } from "../../../shared/proposals";
 import { INLINE_NODE, sentenceSpans } from "../../../shared/sentences";
 import {
@@ -17,6 +26,7 @@ import {
   CHART_NODE,
   type CheckFigure,
   CITATION_NODE,
+  type CitationAttributes,
   type CitedQuote,
   CLAIM_CHECK_MARK,
   type ClaimCheckAttributes,
@@ -60,6 +70,7 @@ export interface SelectedSentence {
   /** What its Citations quote. */
   cited: CitedQuote[];
   figures?: FigureOccurrence[];
+  projection?: InlineTextProjection;
 }
 
 export type SelectedSentences =
@@ -92,26 +103,50 @@ export function sentenceSpansIn(element: Y.XmlElement) {
   );
 }
 
+function inlinePieces(element: Y.XmlElement): InlineTextPiece[] {
+  return layout(element).map(({ node, start, size }): InlineTextPiece => {
+    const place = { from: start, to: start + size };
+    if (node instanceof Y.XmlText)
+      return {
+        kind: "text",
+        text: (node.toDelta() as Run[])
+          .map((run) => (typeof run.insert === "string" ? run.insert : INLINE_NODE))
+          .join(""),
+        ...place,
+      };
+    if (node.nodeName === CITATION_NODE) return { kind: "citation", ...place };
+    if (node.nodeName === BREAK) return { kind: "break", ...place };
+    const figure =
+      node.nodeName === CALCULATED_FIGURE_NODE
+        ? readCalculatedFigureEvidence(node.getAttributes())
+        : null;
+    return { kind: "atom", ...place, ...(figure && { shown: figure.figure.shown }) };
+  });
+}
+
+function projectedRange(
+  projection: InlineTextProjection,
+  pieces: readonly InlineTextPiece[],
+  from: number,
+  to: number,
+): InlineTextProjection | null {
+  const citations = pieces.filter((piece) => piece.kind === "citation");
+  while (citations.some((piece) => piece.from === from)) from++;
+  while (citations.some((piece) => piece.to === to)) to--;
+  const span = inlineSpan(projection, from, to);
+  return span ? sliceInlineText(projection, span.start, span.end) : null;
+}
+
 export function wordsOf(element: Y.XmlElement, from = 0, to = textOf(element).length): string {
   if (element.nodeName === CHART_NODE) return textOf(element);
-  let words = textOf(element).slice(from, to);
-  for (const { node, start } of layout(element).reverse()) {
-    if (!(node instanceof Y.XmlElement) || start < from || start >= to) continue;
-    if (node.nodeName === CITATION_NODE) {
-      words = words.slice(0, start - from) + words.slice(start - from + 1);
-      continue;
-    }
-    if (node.nodeName !== CALCULATED_FIGURE_NODE) continue;
-    const figure = readCalculatedFigureEvidence(node.getAttributes());
-    if (figure)
-      words = words.slice(0, start - from) + figure.figure.shown + words.slice(start - from + 1);
-  }
-  return words;
+  const pieces = inlinePieces(element);
+  return projectedRange(projectInlineText(pieces), pieces, from, to)?.text ?? "";
 }
 
 export function checkText(sentence: SelectedSentence) {
   return {
-    claim: wordsOf(sentence.element, sentence.from, sentence.to),
+    claim: sentence.projection?.text ?? wordsOf(sentence.element, sentence.from, sentence.to),
+    ...(sentence.projection && { projection: sentence.projection }),
     // A table cell's words alone don't say what its figure is; its row and column headings do.
     context:
       (sentence.figures?.[0]?.label !== undefined ? sentence.figures[0]?.context : undefined) ??
@@ -167,9 +202,8 @@ export function sentenceOf(
   figures: ReadonlyMap<string, readonly FigureOccurrence[]>,
 ): SelectedSentence {
   const frame = claimFrame(element);
-  const start = frame.starts.findIndex((at) => at >= span.from);
-  const after = frame.ends.findIndex((at) => at > span.to);
-  const text = start < 0 ? "" : frame.text.slice(start, after < 0 ? undefined : after);
+  const projection = projectedRange(frame.projection, frame.pieces, span.from, span.to);
+  const text = projection?.text ?? "";
   return {
     element,
     blockId,
@@ -180,6 +214,7 @@ export function sentenceOf(
     context: frame.text,
     cited: citedIn(element, span.from, span.to),
     figures: inSpan(figures.get(blockId) ?? [], span.from, span.to),
+    ...(projection && { projection }),
   };
 }
 
@@ -261,50 +296,33 @@ function citedIn(element: Y.XmlElement, from: number, to: number): CitedQuote[] 
 }
 
 function claimFrame(element: Y.XmlElement) {
-  let text = "";
-  const starts: number[] = [];
-  const ends: number[] = [];
-  const citations: number[] = [];
-  const figures: number[] = [];
-  for (const { node, start } of layout(element)) {
-    if (node instanceof Y.XmlElement && node.nodeName === CITATION_NODE) {
-      citations.push(start);
-      continue;
-    }
-    if (node instanceof Y.XmlElement && node.nodeName === CALCULATED_FIGURE_NODE)
-      figures.push(text.length);
-    const words =
-      node instanceof Y.XmlText
-        ? (node.toDelta() as Run[])
-            .map((run) => (typeof run.insert === "string" ? run.insert : INLINE_NODE))
-            .join("")
-        : node.nodeName === BREAK
-          ? "\n"
-          : INLINE_NODE;
-    for (let index = 0; index < words.length; index++) {
-      starts.push(start + index);
-      ends.push(start + index + 1);
-    }
-    text += words;
-  }
-  const spans = sentenceSpans(text, figures).map((span, index, all) => {
-    const from = starts[span.from] ?? 0;
-    const to = ends[span.to - 1] ?? from;
-    const next = starts[all[index + 1]?.from ?? text.length] ?? Infinity;
+  const pieces = inlinePieces(element);
+  const projection = projectInlineText(pieces);
+  const { text } = projection;
+  const citations = pieces.filter((piece) => piece.kind === "citation");
+  const spans = sentenceSpans(text).flatMap((span, index, all) => {
+    const range = inlineRange(projection, span.from, span.to);
+    const sliced = sliceInlineText(projection, span.from, span.to);
+    if (!range || !sliced) return [];
+    const { from, to } = range;
+    const next = projection.starts[all[index + 1]?.from ?? text.length] ?? Infinity;
     const extent = citations
-      .filter((at) => at >= to && at < next)
-      .reduce((end, at) => Math.max(end, at + 1), to);
-    return {
-      start: span.from,
-      end: span.to,
-      from,
-      to,
-      extent,
-      text: text.slice(span.from, span.to),
-      cited: citedIn(element, from, extent),
-    };
+      .filter((cite) => cite.from >= to && cite.to <= next)
+      .reduce((end, cite) => Math.max(end, cite.to), to);
+    return [
+      {
+        start: span.from,
+        end: span.to,
+        from,
+        to,
+        extent,
+        text: sliced.text,
+        projection: sliced,
+        cited: citedIn(element, from, extent),
+      },
+    ];
   });
-  return { text, starts, ends, spans };
+  return { text, pieces, projection, spans };
 }
 
 /**
@@ -373,6 +391,7 @@ export function selectedSentences(
           text: words,
           context: text,
           cited: span.cited,
+          projection: span.projection,
           figures: inSpan(figures.get(blockId) ?? [], span.from, span.to),
         });
       }
@@ -412,6 +431,7 @@ export function everySentence(blocks: Y.XmlFragment): SelectedSentence[] {
               text: words,
               context: text,
               cited: span.cited,
+              projection: span.projection,
               figures: inSpan(figures.get(blockId) ?? [], span.from, span.to),
             },
           ];
@@ -595,8 +615,18 @@ export function checkedSentences(
  * Each Citation's sentence as checks read it, by the Citation's id: what a person's own check of
  * it rests on (#1933), as the editor reads it.
  */
-export function citationSentences(blocks: Y.XmlFragment): Map<string, string> {
-  const found = new Map<string, string>();
+export function citationSentences(blocks: Y.XmlFragment): Map<
+  string,
+  {
+    sentence: string;
+    citation: Partial<CitationAttributes>;
+    element: Y.XmlElement;
+  }
+> {
+  const found = new Map<
+    string,
+    { sentence: string; citation: Partial<CitationAttributes>; element: Y.XmlElement }
+  >();
   for (const { element } of textBlocks(blocks)) {
     const citations = layout(element).filter(
       ({ node }) => node instanceof Y.XmlElement && node.nodeName === CITATION_NODE,
@@ -607,7 +637,19 @@ export function citationSentences(blocks: Y.XmlFragment): Map<string, string> {
     for (const { node, start } of citations) {
       const id = node instanceof Y.XmlElement ? node.getAttribute(BLOCK_ID_ATTRIBUTE) : null;
       const span = spans.find((each) => each.from <= start && start < each.to);
-      if (typeof id === "string" && span) found.set(id, text.slice(span.from, span.to));
+      if (typeof id === "string" && span && node instanceof Y.XmlElement)
+        found.set(id, {
+          sentence: text.slice(span.from, span.to),
+          citation: { ...citationAttributesOf(node.getAttributes()), id },
+          element,
+        });
+    }
+  }
+  for (const { element, sentence, check } of checkedSentences(blocks)) {
+    for (const citation of check.parts?.flatMap(partCitations) ?? []) {
+      if (!("id" in citation) || typeof citation.id !== "string" || found.has(citation.id))
+        continue;
+      found.set(citation.id, { sentence, citation, element });
     }
   }
   return found;

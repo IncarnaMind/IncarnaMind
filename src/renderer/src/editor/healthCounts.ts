@@ -31,8 +31,8 @@ import {
 import { readFigures } from "../../../shared/figures";
 import { sentenceKey } from "../../../shared/mindCheck";
 import { readProposalAttribute } from "../../../shared/proposals";
-import { isClaim, sentenceSpans } from "../../../shared/sentences";
-import { keptSpans, paragraphPlaces, type ShownClaim, shownClaims } from "./claimChecks";
+import { isClaim } from "../../../shared/sentences";
+import { claimPlaces, keptSpans, type ShownClaim, shownClaims } from "./claimChecks";
 import { BLOCK_ID_ATTRIBUTE } from "./noteSchema";
 
 export const HEALTH_PARTS = [
@@ -167,7 +167,7 @@ function eachSentence(
     if (!node.isTextblock) return true;
     if (node.type.name !== "paragraph") return false;
     const blockId = doc.resolve(pos + 1).node(1).attrs[BLOCK_ID_ATTRIBUTE];
-    const { text, starts, ends, inline } = paragraphPlaces(node, pos, proposed);
+    const { sentences, inline } = claimPlaces(node, pos, proposed);
     const citations = inline.flatMap(({ node: child, at, pos: place }) =>
       child.type.name === CITATION_NODE
         ? [{ attributes: child.attrs as CitationAttributes, at, pos: place }]
@@ -175,18 +175,14 @@ function eachSentence(
     );
     const table = inTable(doc, pos);
     const figures = inline.filter(({ node }) => node.type.name === CALCULATED_FIGURE_NODE);
-    for (const span of sentenceSpans(
-      text,
-      figures.map(({ at }) => at),
-    )) {
-      const from = starts[span.from] ?? pos;
-      const to = ends[span.to - 1] ?? from;
+    for (const span of sentences) {
+      const { from, to } = span;
       const claim = input.claims.find((each) => each.from < to && each.to > from) ?? null;
-      const words = text.slice(span.from, span.to);
+      const words = span.text;
       const state = checkedSentence({
         text: words,
         hasFigures:
-          figures.some(({ at }) => at >= span.from && at < span.to) ||
+          figures.some(({ at }) => at >= span.start && at < span.end) ||
           (MAY_HOLD_FIGURE.test(words) && readFigures(words).length > 0),
         check: claim?.shown ?? null,
         skipped:
@@ -198,7 +194,7 @@ function eachSentence(
         to,
         text: words,
         claim,
-        citations: citations.filter((each) => each.at >= span.from && each.at < span.to),
+        citations: citations.filter((each) => each.pos >= from && each.pos < to),
         blockId,
         inTable: table,
         state,

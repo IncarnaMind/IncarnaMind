@@ -82,6 +82,7 @@ export interface WrittenCheckOptions {
     at: string,
     blocks: Y.XmlFragment,
     mindId: string,
+    sourceText?: string,
   ): ClaimCheckAttributes;
   /** Reads the Mind's content, where what the assistant wrote already is. */
   read<T>(mindId: string, look: (blocks: Y.XmlFragment) => T): T;
@@ -713,7 +714,7 @@ export function createWrittenCheck(options: WrittenCheckOptions) {
       detail: null,
       providerId: prepared.provider.id,
       modelId: prepared.modelId,
-      text: sentence.text,
+      text: reads.get(sentence)?.claim ?? sentence.text,
       evidence: null,
       says: null,
       unsupported: null,
@@ -728,7 +729,7 @@ export function createWrittenCheck(options: WrittenCheckOptions) {
     const begun = (sentence: Sentence): ClaimCheckAttributes => {
       const figures = reads.get(sentence)?.figures;
       return figures?.length
-        ? beginFigureCheck(null, markOf(sentence), figures, null)
+        ? beginFigureCheck(null, markOf(sentence), figures, null, reads.get(sentence)?.projection)
         : markOf(sentence);
     };
     const failed = (sentence: Sentence, reason: ClaimCheckFailure, detail: string | null) => {
@@ -774,7 +775,7 @@ export function createWrittenCheck(options: WrittenCheckOptions) {
       }
       done.checked++;
       const mark = (note: Y.XmlFragment) =>
-        options.withResult(begun(sentence), result, at, note, mindId);
+        options.withResult(begun(sentence), result, at, note, mindId, reads.get(sentence)?.claim);
       if (result.verdict === "supported") {
         landings.push({ sentence, nodes: null, mark });
         return;
