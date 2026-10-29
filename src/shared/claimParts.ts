@@ -1,22 +1,30 @@
 import type {
   CalculatedFigure,
   CheckedVersion,
+  CheckFigure,
   Citation,
   CitationAttributes,
   CitationCheckReason,
   ClaimCalculation,
   ClaimCheckAttributes,
+  ClaimCheckBasis,
   ClaimCheckFailure,
   ClaimCheckPart,
   ClaimCheckResult,
+  ClaimJudgment,
   ClaimPartCoverage,
+  ClaimPartFigure,
+  ClaimPartJudgment,
   ClaimPartPlan,
   ClaimVerdict,
   EvidenceExclusion,
+  FigureCheckResult,
   LeftOutDocument,
   UnsupportedReason,
 } from "../core/api";
 import { citationAttributesOf, parseQuotedWords } from "./citations";
+import { aggregateFigureResults, readFigureFinding } from "./figureChecks";
+import { type InlineTextProjection, inlineRange, inlineSpan } from "./inlineText";
 import { parseLocation } from "./locations";
 
 export const CLAIM_CHECK_FAILURES: readonly ClaimCheckFailure[] = [
@@ -141,6 +149,7 @@ function citationOf(value: unknown): CitationAttributes | null {
     quote: read.quote ?? null,
     check,
     checkReason,
+    ...(typeof value.id === "string" && value.id && { id: value.id }),
     ...(read.verdict !== undefined && { verdict: read.verdict }),
     ...(quotedWords && { quotedWords }),
     ...((value.keptOver === null || typeof value.keptOver === "string") && {
@@ -192,6 +201,53 @@ export function readPartPlans(value: unknown, sentence: string): ClaimPartPlan[]
   return parts;
 }
 
+export function figuresByPart(
+  sentence: string,
+  plans: readonly ClaimPartPlan[],
+  figures: readonly CheckFigure[],
+  projection?: InlineTextProjection,
+): CheckFigure[][] | null {
+  if (projection && projection.text !== sentence) return null;
+  if (projection && plans.some((plan) => !inlineRange(projection, plan.span.start, plan.span.end)))
+    return null;
+  const owned = plans.map((): CheckFigure[] => []);
+  const ids = new Set<string>();
+  for (const figure of figures) {
+    if (ids.has(figure.id)) return null;
+    ids.add(figure.id);
+    if (
+      !projection &&
+      plans.length === 1 &&
+      plans[0]?.kind === "fact" &&
+      plans[0].span.start === 0 &&
+      plans[0].span.end === sentence.length
+    ) {
+      owned[0]?.push(figure);
+      continue;
+    }
+    if (figure.locator.kind === "chart") {
+      if (
+        plans.length !== 1 ||
+        plans[0]?.kind !== "fact" ||
+        plans[0].span.start !== 0 ||
+        plans[0].span.end !== sentence.length
+      )
+        return null;
+      owned[0]?.push(figure);
+      continue;
+    }
+    const span =
+      projection && inlineSpan(projection, figure.locator.from.offset, figure.locator.to.offset);
+    if (!span) return null;
+    const owner = plans.findIndex(
+      (plan) => plan.span.start <= span.start && plan.span.end >= span.end,
+    );
+    if (owner < 0) return null;
+    owned[owner]?.push(figure);
+  }
+  return owned;
+}
+
 function coverageOf(value: unknown): ClaimPartCoverage | null {
   if (
     !isRecord(value) ||
@@ -226,6 +282,79 @@ function coverageOf(value: unknown): ClaimPartCoverage | null {
   };
 }
 
+function judgmentOf(value: unknown): ClaimPartJudgment | null {
+  if (!isRecord(value)) return null;
+  const versions = readCheckedVersions(value.versions);
+  const excluded = readExcludedDocuments(value.excluded);
+  if (
+    !Array.isArray(value.versions) ||
+    versions.length !== value.versions.length ||
+    !Array.isArray(value.excluded) ||
+    excluded.length !== value.excluded.length ||
+    (value.kept !== undefined && value.kept !== true) ||
+    ["request", "checkedAt"].some(
+      (key) => value[key] !== undefined && typeof value[key] !== "string",
+    ) ||
+    ["providerId", "modelId"].some(
+      (key) => value[key] !== undefined && value[key] !== null && typeof value[key] !== "string",
+    )
+  )
+    return null;
+  const common = {
+    versions,
+    excluded,
+    ...(value.kept === true && { kept: true as const }),
+    ...(typeof value.request === "string" && { request: value.request }),
+    ...(typeof value.checkedAt === "string" && { checkedAt: value.checkedAt }),
+    ...((value.providerId === null || typeof value.providerId === "string") && {
+      providerId: value.providerId,
+    }),
+    ...((value.modelId === null || typeof value.modelId === "string") && {
+      modelId: value.modelId,
+    }),
+  };
+  if (value.verdict === "checking") return { ...common, verdict: "checking" };
+  if (value.verdict === "not-checked") {
+    const reason = CLAIM_CHECK_FAILURES.find((reason) => reason === value.reason);
+    return reason && (value.detail === null || typeof value.detail === "string")
+      ? { ...common, verdict: "not-checked", reason, detail: value.detail }
+      : null;
+  }
+  const verdict = VERDICTS.find((verdict) => verdict === value.verdict);
+  const evidence =
+    value.evidence === null ? null : checkedCitation(citationOf(value.evidence) ?? undefined);
+  const unsupported = readUnsupportedReason(value.unsupported);
+  const calculation = readClaimCalculation(value.calculation);
+  if (
+    !verdict ||
+    (value.evidence !== null && evidence === null) ||
+    (value.says !== null && typeof value.says !== "string") ||
+    (value.unsupported !== null && unsupported === null) ||
+    (value.calculation !== null && calculation === null) ||
+    (isRecord(value.unsupported) &&
+      value.unsupported.quoted !== undefined &&
+      citationOf(value.unsupported.quoted) === null) ||
+    calculation?.figure.inputs.some(
+      (input) =>
+        citationOf(input.citation) === null ||
+        (input.unitStatement && citationOf(input.unitStatement.citation) === null),
+    ) ||
+    typeof value.citedCaseUnchecked !== "boolean" ||
+    typeof value.citedCaseFound !== "boolean"
+  )
+    return null;
+  return {
+    ...common,
+    verdict,
+    evidence,
+    says: text(value.says),
+    unsupported,
+    calculation,
+    citedCaseUnchecked: value.citedCaseUnchecked,
+    citedCaseFound: value.citedCaseFound,
+  };
+}
+
 export function readClaimParts(
   value: unknown,
   sentence: string,
@@ -234,6 +363,7 @@ export function readClaimParts(
   const plans = readPartPlans(value, sentence);
   if (!plans || !Array.isArray(value)) return null;
   const parts: ClaimCheckPart[] = [];
+  const figureIds = new Set<string>();
   for (const [index, each] of (value as unknown[]).entries()) {
     const plan = plans[index];
     if (!plan || !isRecord(each)) return null;
@@ -293,6 +423,24 @@ export function readClaimParts(
       return null;
     const coverage = each.coverage === undefined ? undefined : coverageOf(each.coverage);
     if (coverage === null) return null;
+    if (each.kept !== undefined && each.kept !== true) return null;
+    const figures: ClaimPartFigure[] = [];
+    if (each.figures !== undefined) {
+      if (!Array.isArray(each.figures) || each.figures.length === 0) return null;
+      for (const raw of each.figures) {
+        const finding = readFigureFinding(raw);
+        const result = isRecord(raw) ? judgmentOf(raw.result) : null;
+        if (!finding || !result || figureIds.has(finding.id)) return null;
+        figureIds.add(finding.id);
+        figures.push({ ...finding, result });
+      }
+    }
+    const remainder = each.remainder == null ? each.remainder : judgmentOf(each.remainder);
+    if (
+      (each.remainder !== undefined && each.figures === undefined) ||
+      (each.remainder != null && !remainder)
+    )
+      return null;
     parts.push({
       ...plan,
       verdict,
@@ -308,6 +456,9 @@ export function readClaimParts(
       citedCaseUnchecked: each.citedCaseUnchecked,
       citedCaseFound: each.citedCaseFound,
       ...(coverage && { coverage }),
+      ...(each.kept === true && { kept: true }),
+      ...(each.figures !== undefined && { figures }),
+      ...(remainder !== undefined && { remainder }),
     });
   }
   return parts;
@@ -337,16 +488,64 @@ export function partWithResult(
   evidence?: readonly CitationAttributes[],
   coverage?: ClaimPartCoverage,
 ): ClaimCheckPart {
+  if (result.figures?.length) {
+    const aggregate = aggregateFigureResults(result.figures, result.remainder);
+    result = {
+      ...result,
+      ...aggregate,
+      versions: [
+        ...new Map(
+          [...result.versions, ...aggregate.versions].map((version) => [
+            JSON.stringify(version),
+            version,
+          ]),
+        ).values(),
+      ],
+      excluded: [
+        ...new Map(
+          [...result.excluded, ...aggregate.excluded].map((left) => [JSON.stringify(left), left]),
+        ).values(),
+      ],
+    };
+  }
   const citations = [
     ...(result.verdict !== "not-checked" && result.evidence ? [result.evidence] : []),
     ...(evidence ?? []),
+    ...(result.figures
+      ? partCitations({
+          ...pendingPart(plan),
+          figures: result.figures,
+          ...(result.remainder !== undefined && { remainder: result.remainder }),
+        })
+      : []),
   ];
-  const kept = [
-    ...new Map(citations.map((citation) => [JSON.stringify(citation), citation])).values(),
-  ];
+  const receipt = new Map<string, CitationAttributes>();
+  for (const given of citations) {
+    const citation: CitationAttributes = citationOf(given) ?? given;
+    const key = JSON.stringify([
+      citation.passageId,
+      citation.documentId,
+      citation.documentName,
+      citation.contentHash,
+      citation.pageFrom,
+      citation.pageTo,
+      parseLocation(citation.location),
+      citation.quote,
+      citation.check,
+      citation.checkReason,
+      citation.verdict,
+      citation.quotedWords,
+      citation.keptOver,
+    ]);
+    if (!receipt.has(key) || citation.id) receipt.set(key, citation);
+  }
+  const kept = [...receipt.values()];
   return {
     ...pendingPart(plan),
     verdict: result.verdict,
+    ...(result.kept && { kept: true }),
+    ...(result.figures && { figures: result.figures }),
+    ...(result.remainder !== undefined && { remainder: result.remainder }),
     decidingEvidence: result.verdict !== "not-checked" && result.evidence ? 0 : null,
     versions: [...result.versions],
     excluded: [...result.excluded],
@@ -422,6 +621,36 @@ function notCheckedPart(
 }
 
 export function resultFromParts(parts: readonly ClaimCheckPart[]): ClaimCheckResult {
+  parts = parts.map((part) => {
+    if (!part.figures?.length || part.verdict === "checking") return part;
+    const figures = part.figures.map((figure) => {
+      const result = resultFromParts([
+        partWithResult(
+          part,
+          terminalJudgment(figure.result),
+          partCitations({ ...pendingPart(part), figures: [figure] }),
+        ),
+      ]);
+      const { parts: _parts, figures: _figures, remainder: _remainder, ...judgment } = result;
+      return {
+        ...figure,
+        result: { ...judgment, ...judgmentMetadata(figure.result) },
+      } satisfies FigureCheckResult;
+    });
+    const remainder = part.remainder ? terminalJudgment(part.remainder) : part.remainder;
+    return partWithResult(
+      part,
+      {
+        ...aggregateFigureResults(figures, remainder),
+        versions: part.versions,
+        excluded: part.excluded,
+        figures,
+        ...(remainder !== undefined && { remainder }),
+      },
+      part.evidence,
+      part.coverage,
+    );
+  });
   const versions = [
     ...new Map(
       parts
@@ -471,7 +700,7 @@ export function resultFromParts(parts: readonly ClaimCheckPart[]): ClaimCheckRes
         evidence: [],
       };
     }
-    if (part.verdict === null) return { part: canonical, evidence: [] };
+    if (part.verdict === null || part.kept) return { part: canonical, evidence: [] };
     let verdict = part.verdict;
     if (part.calculation?.agrees === false) verdict = "contradicted";
     if (coverage && verdict === "supported") {
@@ -520,15 +749,59 @@ export function resultFromParts(parts: readonly ClaimCheckPart[]): ClaimCheckRes
       ((verdict === "supported" || verdict === "contradicted") && evidence.length === 0);
     return { part: incomplete ? notCheckedPart(resolved, "no-evidence") : resolved, evidence };
   });
-  const common = { parts: outcomes.map(({ part }) => part), versions, excluded };
+  const native = outcomes.flatMap(({ part }) =>
+    (part.figures ?? []).map((figure) => ({ ...figure, result: terminalJudgment(figure.result) })),
+  );
+  const remainders = outcomes.flatMap(({ part }) => {
+    if (part.kind !== "fact") return [];
+    if (!part.figures?.length) return [part];
+    return part.remainder ? [partWithResult(part, terminalJudgment(part.remainder))] : [];
+  });
+  const remainderResult = native.length && remainders.length ? resultFromParts(remainders) : null;
+  const remainder = remainderResult
+    ? (() => {
+        const {
+          parts: _parts,
+          figures: _figures,
+          remainder: _remainder,
+          ...judgment
+        } = remainderResult;
+        return judgment;
+      })()
+    : null;
+  const common = {
+    parts: outcomes.map(({ part }) => part),
+    versions,
+    excluded,
+    ...(native.length > 0 && {
+      figures: native,
+      ...(outcomes.some(({ part }) => part.figures?.length && part.remainder === undefined)
+        ? {}
+        : { remainder }),
+    }),
+  };
   const failed = (reason: ClaimCheckFailure, detail: string | null = null): ClaimCheckResult => ({
     ...common,
     verdict: "not-checked",
     reason,
     detail,
   });
-  const checked = outcomes.filter(({ part }) => part.verdict !== null);
-  if (checked.length === 0) return failed("malformed");
+  if (new Set(native.map((figure) => figure.id)).size !== native.length) return failed("malformed");
+  const checked = outcomes.filter(({ part }) => part.verdict !== null && !part.kept);
+  if (checked.length === 0)
+    return outcomes.some(({ part }) => part.kept)
+      ? {
+          ...common,
+          verdict: "supported",
+          kept: true,
+          evidence: null,
+          says: null,
+          unsupported: null,
+          calculation: null,
+          citedCaseUnchecked: false,
+          citedCaseFound: false,
+        }
+      : failed("malformed");
   const failures = checked.filter(({ part }) => part.verdict === "not-checked");
   const failure =
     failures.find(({ part }) => part.reason !== "no-evidence" && part.reason !== "malformed") ??
@@ -599,5 +872,177 @@ export function partCitations(part: ClaimCheckPart): (CitationAttributes | Citat
     ]) ?? []),
     ...(part.coverage?.domainEvidence ?? []),
     ...(part.coverage?.members.flatMap((member) => member.evidence) ?? []),
+    ...(part.figures ?? []).flatMap((figure) => [
+      ...(figure.source ? [figure.source] : []),
+      ...(figure.sourceInput
+        ? [
+            figure.sourceInput.citation,
+            ...(figure.sourceInput.unitStatement
+              ? [figure.sourceInput.unitStatement.citation]
+              : []),
+          ]
+        : []),
+      ...(figure.calculated?.figure.inputs ?? []).flatMap((input) => [
+        input.citation,
+        ...(input.unitStatement ? [input.unitStatement.citation] : []),
+      ]),
+      ...(figure.sourceFooting ?? []).flatMap((axis) =>
+        axis.inputs.flatMap((input) => [
+          input.citation,
+          ...(input.unitStatement ? [input.unitStatement.citation] : []),
+        ]),
+      ),
+      ...("evidence" in figure.result && figure.result.evidence ? [figure.result.evidence] : []),
+      ...("calculation" in figure.result
+        ? (figure.result.calculation?.figure.inputs.flatMap((input) => [
+            input.citation,
+            ...(input.unitStatement ? [input.unitStatement.citation] : []),
+          ]) ?? [])
+        : []),
+      ...("unsupported" in figure.result && figure.result.unsupported?.quoted
+        ? [figure.result.unsupported.quoted]
+        : []),
+    ]),
+    ...(part.remainder && "evidence" in part.remainder
+      ? [
+          ...(part.remainder.evidence ? [part.remainder.evidence] : []),
+          ...(part.remainder.unsupported?.quoted ? [part.remainder.unsupported.quoted] : []),
+          ...(part.remainder.calculation?.figure.inputs.flatMap((input) => [
+            input.citation,
+            ...(input.unitStatement ? [input.unitStatement.citation] : []),
+          ]) ?? []),
+        ]
+      : []),
   ];
+}
+
+function terminalJudgment(result: ClaimPartJudgment): ClaimJudgment {
+  return result.verdict === "checking"
+    ? {
+        verdict: "not-checked",
+        reason: "malformed",
+        detail: null,
+        versions: result.versions,
+        excluded: result.excluded,
+      }
+    : result;
+}
+
+function judgmentMetadata(result: ClaimPartJudgment) {
+  return {
+    ...(result.request !== undefined && { request: result.request }),
+    ...(result.checkedAt !== undefined && { checkedAt: result.checkedAt }),
+    ...(result.providerId !== undefined && { providerId: result.providerId }),
+    ...(result.modelId !== undefined && { modelId: result.modelId }),
+  };
+}
+
+function storedJudgment(basis: ClaimCheckBasis, result: ClaimPartJudgment): ClaimCheckBasis {
+  const { kept: _kept, parts: _parts, ...old } = basis;
+  const common = {
+    ...old,
+    ...judgmentMetadata(result),
+    versions: result.versions,
+    excluded: result.excluded,
+    ...(result.kept && { kept: true as const }),
+  };
+  return result.verdict === "checking" || result.verdict === "not-checked"
+    ? {
+        ...common,
+        state: result.verdict,
+        reason: result.verdict === "not-checked" ? result.reason : null,
+        detail: result.verdict === "not-checked" ? result.detail : null,
+        evidence: null,
+        says: null,
+        unsupported: null,
+        calculation: null,
+        citedCaseUnchecked: false,
+        citedCaseFound: false,
+      }
+    : {
+        ...common,
+        state: result.verdict,
+        reason: null,
+        detail: null,
+        evidence: result.evidence,
+        says: result.says,
+        unsupported: result.unsupported,
+        calculation: result.calculation,
+        citedCaseUnchecked: result.citedCaseUnchecked,
+        citedCaseFound: result.citedCaseFound,
+      };
+}
+
+export function checkWithParts(
+  check: ClaimCheckAttributes,
+  parts: readonly ClaimCheckPart[],
+): ClaimCheckAttributes {
+  const projected = resultFromParts(parts);
+  const pending = parts.some(
+    (part) =>
+      part.verdict === "checking" ||
+      part.figures?.some((figure) => figure.result.verdict === "checking") ||
+      part.remainder?.verdict === "checking",
+  );
+  const stored = (pending ? [...parts] : (projected.parts ?? [])).map((part) => ({
+    ...part,
+    ...(part.figures && {
+      figures: part.figures.map((figure) => ({
+        ...figure,
+        result: {
+          ...figure.result,
+          request: figure.result.request === undefined ? check.request : figure.result.request,
+          checkedAt:
+            figure.result.checkedAt === undefined ? check.checkedAt : figure.result.checkedAt,
+          providerId:
+            figure.result.providerId === undefined ? check.providerId : figure.result.providerId,
+          modelId: figure.result.modelId === undefined ? check.modelId : figure.result.modelId,
+        },
+      })),
+    }),
+    ...(part.remainder && {
+      remainder: {
+        ...part.remainder,
+        request: part.remainder.request === undefined ? check.request : part.remainder.request,
+        checkedAt:
+          part.remainder.checkedAt === undefined ? check.checkedAt : part.remainder.checkedAt,
+        providerId:
+          part.remainder.providerId === undefined ? check.providerId : part.remainder.providerId,
+        modelId: part.remainder.modelId === undefined ? check.modelId : part.remainder.modelId,
+      },
+    }),
+  }));
+  const { figures: _figures, remainder: _remainder, ...basis } = check;
+  const parent = storedJudgment(
+    basis,
+    pending
+      ? { verdict: "checking", versions: projected.versions, excluded: projected.excluded }
+      : projected,
+  );
+  const native = stored.flatMap((part) => part.figures ?? []);
+  if (native.length === 0) return { ...parent, parts: stored };
+  const figures = native.map((figure) => {
+    const { result: _result, ...finding } = figure;
+    return { ...finding, ...storedJudgment({ ...basis, id: figure.id }, figure.result) };
+  });
+  const remainderPending = stored.some(
+    (part) =>
+      part.kind === "fact" &&
+      (part.figures?.length ? part.remainder?.verdict === "checking" : part.verdict === "checking"),
+  );
+  return {
+    ...parent,
+    parts: stored,
+    figures,
+    ...(projected.remainder !== undefined && {
+      remainder: remainderPending
+        ? storedJudgment(
+            { ...basis, id: `${basis.id}:remainder` },
+            { verdict: "checking", versions: projected.versions, excluded: projected.excluded },
+          )
+        : projected.remainder === null
+          ? null
+          : storedJudgment({ ...basis, id: `${basis.id}:remainder` }, projected.remainder),
+    }),
+  };
 }

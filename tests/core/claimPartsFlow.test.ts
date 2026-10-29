@@ -27,6 +27,7 @@ const CASES = [
     mixed: "We think this is risky because costs rose 40%.",
     pure: "We think this is risky.",
     quote: "Costs rose 40%.",
+    reworded: "Costs rose by 40%.",
   },
   {
     language: "zh-CN",
@@ -35,6 +36,7 @@ const CASES = [
     mixed: "我们认为这有风险，因为成本上涨了40%。",
     pure: "我们认为这有风险。",
     quote: "成本上涨了40%。",
+    reworded: "成本的涨幅为40%。",
   },
 ] as const;
 
@@ -50,6 +52,7 @@ async function setUpParts(example: (typeof CASES)[number]) {
   const plans: Record<string, Plan> = {
     [example.fact]: { verdict: "supported", quote: example.quote },
     [example.quote]: { verdict: "supported", quote: example.quote },
+    [example.reworded]: { verdict: "supported", quote: example.quote },
     [example.opinion]: { verdict: "unsupported" },
     [example.pure]: { verdict: "unsupported" },
   };
@@ -60,6 +63,7 @@ async function setUpParts(example: (typeof CASES)[number]) {
     ],
     [example.pure, [part(example.pure, example.pure, "opinion")]],
     [example.quote, [part(example.quote, example.quote, "fact")]],
+    [example.reworded, [part(example.reworded, example.reworded, "fact")]],
   ]);
   const model = scriptedModel(
     (call) => {
@@ -104,6 +108,58 @@ async function setUpParts(example: (typeof CASES)[number]) {
 
 for (const example of CASES)
   describe(example.language, () => {
+    test("edited wording is sorted afresh while its unchanged owned receipt keeps its id", async () => {
+      const setup = await setUpParts(example);
+      setup.write(example.quote);
+      await setup.client.settled();
+      await setup.check();
+      await setup.client.settled();
+      const before = claimSpans(readMind(setup.client))[0]?.check;
+      const id = before?.parts?.[0]?.evidence[0]?.id;
+      expect(typeof id).toBe("string");
+      const sortsBefore = setup.sorts.length;
+      editMind(setup.client, (blocks) =>
+        blocks.map((block) => ({
+          ...block,
+          content: block.content?.map((node) =>
+            node.type === "text" ? { ...node, text: example.reworded } : node,
+          ),
+        })),
+      );
+      await setup.client.settled();
+      await setup.check();
+      await setup.client.settled();
+      const after = claimSpans(readMind(setup.client))[0]?.check;
+      expect(setup.sorts.length).toBeGreaterThan(sortsBefore);
+      expect(after?.state).toBe("supported");
+      expect(after?.parts?.[0]?.span).toEqual({ start: 0, end: example.reworded.length });
+      expect(after?.parts?.[0]?.evidence[0]?.id).toBe(id);
+      expect(after?.text).toBe(example.reworded);
+    });
+
+    test("Note result writes own distinct receipt ids and keeps unchanged receipts on recheck", async () => {
+      const setup = await setUpParts(example);
+      setup.write(`${example.quote} ${example.quote}`);
+      await setup.client.settled();
+      await setup.check();
+      await setup.client.settled();
+      const ids = claimSpans(readMind(setup.client)).map(
+        (span) => span.check.parts?.[0]?.evidence[0]?.id,
+      );
+      expect(ids).toHaveLength(2);
+      expect(ids.every((id) => typeof id === "string" && id.length > 0)).toBe(true);
+      expect(new Set(ids).size).toBe(2);
+      await setup.check();
+      await setup.client.settled();
+      expect(
+        claimSpans(readMind(setup.client)).map((span) => span.check.parts?.[0]?.evidence[0]?.id),
+      ).toEqual(ids);
+      const reopened = await connectToMind(setup.core, setup.mind.id);
+      expect(
+        claimSpans(readMind(reopened)).map((span) => span.check.parts?.[0]?.evidence[0]?.id),
+      ).toEqual(ids);
+    });
+
     test("one mixed sentence keeps its fact when Check anyway checks only the opinion", async () => {
       const setup = await setupForMixed();
       const before = claimSpans(readMind(setup.client));
@@ -113,6 +169,8 @@ for (const example of CASES)
       const opinion = opinionsIn(readMind(setup.client), setup.client.doc)[0];
       if (!opinion) throw new Error("No omitted opinion in the checked fixture.");
       const factBefore = before[0]?.check.parts?.find((part) => part.kind === "fact");
+      expect(factBefore?.figures).toHaveLength(1);
+      expect(factBefore?.figures?.[0]?.reading.chars).toBe("40%");
       const countBefore = setup.calls.filter(
         (call) => isCheckRun(call) && call.results.length === 0,
       ).length;

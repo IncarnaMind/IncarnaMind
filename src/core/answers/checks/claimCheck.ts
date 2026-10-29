@@ -26,6 +26,7 @@ import { generateText } from "ai";
 import { type CaseCitation, caseCitations, isOpinionOf } from "../../../shared/caseCitations";
 import { type Figure, type FigureContext, readFigures } from "../../../shared/figures";
 import { type MessageKey, type MessageParams, translate } from "../../../shared/i18n";
+import type { InlineTextProjection } from "../../../shared/inlineText";
 import { sentenceSpans } from "../../../shared/sentences";
 import type {
   CheckedVersion,
@@ -128,6 +129,8 @@ export interface CheckedCitation {
 
 export interface ClaimCheckRequest {
   claim: string;
+  projection?: InlineTextProjection;
+  figureIds?: readonly string[];
   // A legal prefix can govern later literal parts without being repeated in them (#2002).
   originalClaim?: string;
   figures?: readonly CheckFigure[];

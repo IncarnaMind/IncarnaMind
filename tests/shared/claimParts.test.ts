@@ -5,16 +5,26 @@ import type {
   ClaimCheckPart,
   ClaimCheckResult,
   ClaimPartPlan,
+  FigureCheckResult,
 } from "../../src/core/api";
 import { claimCheckShown, readClaimCheck, restsOn } from "../../src/shared/claimChecks";
 import {
+  checkWithParts,
   coverageCount,
+  figuresByPart,
   partWithResult,
   pendingPart,
   readClaimParts,
   readPartPlans,
   resultFromParts,
 } from "../../src/shared/claimParts";
+import {
+  beginFigureCheck,
+  emptyFigureFinding,
+  settleFigureCheck,
+} from "../../src/shared/figureChecks";
+import { readFigures } from "../../src/shared/figures";
+import { projectInlineText } from "../../src/shared/inlineText";
 
 const source = (id = "source"): Citation => ({
   passageId: `passage-${id}`,
@@ -786,4 +796,205 @@ describe("one sentence projection", () => {
       }),
     ).toEqual({ state: "needs-recheck", why: "document-removed" });
   });
+});
+
+describe.each(["Revenue 10. Profit 10. We should wait.", "收入10。利润10。我们应该等待。"])(
+  "native figures owned by literal parts: %s",
+  (sentence) => {
+    const split = sentence.indexOf(sentence.startsWith("Revenue") ? "Profit" : "利润");
+    const opinion = sentence.indexOf(sentence.startsWith("Revenue") ? "We" : "我们");
+    const plans: ClaimPartPlan[] = [
+      { kind: "fact", span: { start: 0, end: split } },
+      { kind: "fact", span: { start: split, end: opinion } },
+      { kind: "opinion", span: { start: opinion, end: sentence.length } },
+    ];
+    const first = plans[0] ?? plan;
+    const second = plans[1] ?? plan;
+    const omitted = plans[2] ?? plan;
+    const projection = projectInlineText([
+      { kind: "text", text: sentence, from: 0, to: sentence.length },
+    ]);
+    const native = (
+      id: string,
+      start: number,
+      verdict: "supported" | "contradicted" = "supported",
+    ): FigureCheckResult => {
+      const reading = readFigures("10", { language: "en" })[0];
+      if (!reading) throw new Error("Missing fixture reading");
+      return {
+        ...emptyFigureFinding({
+          id,
+          reading,
+          calculated: null,
+          locator: {
+            kind: "text",
+            from: { blockId: "block", offset: start },
+            to: { blockId: "block", offset: start + 2 },
+          },
+        }),
+        source: source(id),
+        result: result(verdict, id),
+      };
+    };
+    const a = native("first", sentence.indexOf("10"));
+    const b = native("second", sentence.indexOf("10", sentence.indexOf("10") + 2), "contradicted");
+    const checked = () => [
+      partWithResult(first, { ...result(), figures: [a], remainder: null }),
+      partWithResult(second, { ...result("contradicted"), figures: [b], remainder: null }),
+      pendingPart(omitted),
+    ];
+    const owner = (parts = checked()) => checkWithParts({ ...mark(), text: sentence }, parts);
+
+    test("partitions repeated values by exact occurrence and round trips canonical native results", () => {
+      expect(
+        figuresByPart(sentence, plans, [a, b], projection)?.map((figures) =>
+          figures.map(({ id }) => id),
+        ),
+      ).toEqual([["first"], ["second"], []]);
+      expect(figuresByPart(sentence, [first], [b])).toBeNull();
+      const written = owner();
+      expect(written.state).toBe("contradicted");
+      expect(written.figures?.map(({ id, locator }) => ({ id, locator }))).toEqual(
+        [a, b].map(({ id, locator }) => ({ id, locator })),
+      );
+      expect(written.remainder).toBeNull();
+      expect(readClaimCheck(JSON.parse(JSON.stringify(written)))).toEqual(written);
+      expect(restsOn(written).some((citation) => citation.documentId === "second")).toBe(true);
+    });
+
+    test("keeping a numerical owner preserves the independent factual remainder and omitted opinion", () => {
+      const parts = [
+        partWithResult(first, { ...result(), figures: [a], remainder: null }),
+        partWithResult(second, result("unsupported", "qualitative")),
+        pendingPart(omitted),
+      ];
+      const numeric = parts[0];
+      if (!numeric?.figures) throw new Error("Missing fixture owner");
+      numeric.figures = numeric.figures.map((figure) => ({
+        ...figure,
+        result: { ...figure.result, kept: true },
+      }));
+      const written = owner(parts);
+      expect(written.state).toBe("unsupported");
+      expect(written.remainder?.state).toBe("unsupported");
+      expect(written.parts?.[2]?.verdict).toBeNull();
+      expect(written.remainder?.text).toBe(sentence);
+    });
+
+    test("all kept figures have no stale scalar remainder", () => {
+      const numeric = partWithResult(
+        { kind: "fact", span: { start: 0, end: sentence.length } },
+        {
+          ...result(),
+          figures: [a, b].map((figure) => ({
+            ...figure,
+            result: { ...figure.result, kept: true },
+          })),
+          remainder: null,
+        },
+      );
+      const written = owner([numeric]);
+      expect(written.kept).toBe(true);
+      expect(written.remainder).toBeNull();
+      expect(
+        claimCheckShown(written, {
+          text: sentence,
+          versions: new Map(),
+          folderId: null,
+          scope: null,
+        }).state,
+      ).toBe("kept");
+    });
+
+    test("a found neighbor never supplies the missing proof of another native figure", () => {
+      const absent = {
+        ...b,
+        source: null,
+        result: { ...result("supported", "second"), evidence: null },
+      };
+      const projected = resultFromParts([
+        partWithResult(first, { ...result(), figures: [a, absent], remainder: null }),
+      ]);
+      expect(projected).toMatchObject({ verdict: "not-checked", reason: "no-evidence" });
+      expect(projected.figures?.find(({ id }) => id === "second")?.result).toMatchObject({
+        verdict: "not-checked",
+        reason: "no-evidence",
+      });
+    });
+
+    test("one selected pending figure settles without changing a kept sibling or other factual outcome", () => {
+      const prior = owner();
+      const priorParts =
+        prior.parts?.map((part) => ({
+          ...part,
+          ...(part.figures && {
+            figures: part.figures.map((figure) =>
+              figure.id === "first"
+                ? { ...figure, result: { ...figure.result, kept: true as const } }
+                : figure,
+            ),
+          }),
+        })) ?? [];
+      const kept = checkWithParts(prior, priorParts);
+      const basis = {
+        ...kept,
+        request: "next",
+        checkedAt: "2026-10-29T00:00:00.000Z",
+        providerId: "next-provider",
+        modelId: "next-model",
+        state: "checking" as const,
+        parts: kept.parts?.map((part) => ({
+          ...part,
+          ...(part.kind === "fact" && { verdict: "checking" as const }),
+        })),
+      };
+      const pending = beginFigureCheck(kept, basis, [a, b], new Set(["second"]), projection);
+      expect(pending.figures?.find(({ id }) => id === "first")?.kept).toBe(true);
+      expect(pending.figures?.find(({ id }) => id === "first")).toMatchObject({
+        request: "request",
+        checkedAt: "2026-10-28T00:00:00.000Z",
+        providerId: null,
+        modelId: null,
+      });
+      expect(pending.figures?.find(({ id }) => id === "second")).toMatchObject({
+        request: "next",
+        checkedAt: "2026-10-29T00:00:00.000Z",
+        providerId: "next-provider",
+        modelId: "next-model",
+      });
+      expect(pending.figures?.find(({ id }) => id === "second")?.state).toBe("checking");
+      expect(resultFromParts(pending.parts ?? [])).toMatchObject({
+        verdict: "not-checked",
+        reason: "malformed",
+      });
+      const stopped = settleFigureCheck(pending, (check) => ({
+        ...check,
+        state: "not-checked",
+        reason: "stopped",
+        detail: null,
+      }));
+      expect(stopped.figures?.find(({ id }) => id === "first")?.kept).toBe(true);
+      expect(stopped.figures?.find(({ id }) => id === "second")).toMatchObject({
+        state: "not-checked",
+        reason: "stopped",
+      });
+      expect(stopped.parts?.[2]?.verdict).toBeNull();
+      expect(readClaimCheck(JSON.parse(JSON.stringify(stopped)))).toEqual(stopped);
+    });
+  },
+);
+
+test("an expanded atom cannot be split between literal owners", () => {
+  const projection = projectInlineText([{ kind: "atom", from: 0, to: 1, shown: "10.0%" }]);
+  expect(
+    figuresByPart(
+      projection.text,
+      [
+        { kind: "fact", span: { start: 0, end: 2 } },
+        { kind: "fact", span: { start: 2, end: 5 } },
+      ],
+      [],
+      projection,
+    ),
+  ).toBeNull();
 });

@@ -5480,6 +5480,9 @@ export interface ClaimPartCoverage {
 
 export interface ClaimCheckPart extends ClaimPartPlan {
   verdict: ClaimVerdict | "not-checked" | "checking" | null;
+  kept?: true;
+  figures?: ClaimPartFigure[];
+  remainder?: ClaimPartJudgment | null;
   evidence: CitationAttributes[];
   decidingEvidence?: number | null;
   says: string | null;
@@ -5493,6 +5496,19 @@ export interface ClaimCheckPart extends ClaimPartPlan {
   citedCaseFound: boolean;
   coverage?: ClaimPartCoverage;
 }
+
+export type ClaimPartJudgment = (
+  | ClaimJudgment
+  | {
+      verdict: "checking";
+      versions: CheckedVersion[];
+      excluded: LeftOutDocument[];
+      kept?: true;
+    }
+) &
+  Partial<Pick<ClaimCheckBasis, "request" | "checkedAt" | "providerId" | "modelId">>;
+
+export type ClaimPartFigure = FigureFinding & { result: ClaimPartJudgment };
 
 export interface OpinionSentence {
   id: string;
@@ -5517,6 +5533,7 @@ export type UnlockDocumentResult =
 export type ClaimJudgment =
   | {
       verdict: ClaimVerdict;
+      kept?: true;
       parts?: ClaimCheckPart[];
       /**
        * For "supported" and "contradicted": the Passage that decides it, as a
@@ -5545,6 +5562,7 @@ export type ClaimJudgment =
     }
   | {
       verdict: "not-checked";
+      kept?: true;
       parts?: ClaimCheckPart[];
       reason: ClaimCheckFailure;
       /** "failed": the provider's message. */
@@ -5706,7 +5724,7 @@ export interface ClaimCheckBasis {
   /** The model that checked it; null on a mark made before it was kept. */
   providerId: string | null;
   modelId: string | null;
-  /** The sentence as it was checked: an inline node as U+FFFC, a line break as "\n". */
+  /** The sentence as checked; part ranges index this exact text. */
   text: string;
   /** "supported" and "contradicted": the Passage that decides it, as a Citation found. */
   evidence: CitationAttributes | null;

@@ -22,6 +22,7 @@
  *    next run doesn't send them again.
  */
 import { randomUUID } from "node:crypto";
+import * as Y from "yjs";
 import {
   addedCouldChange,
   checkedSentence,
@@ -69,6 +70,7 @@ import {
   type SelectedSentence,
 } from "./sentences";
 import type { MindCheckScope, VerifyOptions } from "./verify";
+import { tableClaim } from "./verifyTables";
 
 export interface MindCheckOptions extends RunChecksOptions {
   content: Pick<MindContent, "read" | "edit" | "readSettings" | "editSettings">;
@@ -267,6 +269,65 @@ export function createMindCheck(options: MindCheckOptions) {
     allDocuments ||
     (fresh.length === 0 && again.length > 0 && again.every((each) => widened.has(each)));
 
+  function sentencesForFigures(
+    sentences: readonly SelectedSentence[],
+    marks: ReturnType<typeof markedSentences>,
+    ids: readonly string[],
+  ): SelectedSentence[] {
+    const selected = new Set(ids);
+    const result: SelectedSentence[] = [];
+    for (const sentence of sentences) {
+      if (!sentence.figures?.some((figure) => selected.has(figure.id))) continue;
+      const candidates = marks.flatMap((mark) => {
+        if (
+          !mark.check.figures?.some(
+            (figure) =>
+              selected.has(figure.id) &&
+              sentence.figures?.some((current) => current.id === figure.id),
+          )
+        )
+          return [];
+        const owner = sentences.find(
+          (each) => each.element === mark.element && each.from < mark.to && each.to > mark.from,
+        );
+        if (
+          !owner ||
+          !mark.check.figures.some(
+            (figure) =>
+              figure.locator.kind === "text" && figure.locator.from.blockId !== owner.blockId,
+          )
+        )
+          return [];
+        const rowClaim = tableClaim(owner);
+        return rowClaim !== null && rowClaim !== "not-a-claim" ? [owner] : [];
+      });
+      const owner = candidates.length === 1 ? candidates[0] : undefined;
+      const row =
+        owner?.element.parent instanceof Y.XmlElement ? owner.element.parent.parent : null;
+      const routed =
+        owner && row instanceof Y.XmlElement && row.nodeName === "tableRow"
+          ? {
+              ...owner,
+              figures: sentences
+                .filter(
+                  (each) =>
+                    each.element.parent instanceof Y.XmlElement &&
+                    each.element.parent.parent === row,
+                )
+                .flatMap((each) => each.figures ?? []),
+            }
+          : sentence;
+      if (
+        !result.some(
+          (each) =>
+            each.element === routed.element && each.from === routed.from && each.to === routed.to,
+        )
+      )
+        result.push(routed);
+    }
+    return result;
+  }
+
   /** The sentences a run in `mode` sends now. */
   function sending(
     mindId: string,
@@ -305,7 +366,6 @@ export function createMindCheck(options: MindCheckOptions) {
             mark.element === sentence.element && mark.from < sentence.to && mark.to > sentence.from,
         );
       if (figureIds !== null) {
-        const selected = new Set(figureIds);
         const known = new Set(
           sentences.flatMap((sentence) => sentence.figures?.map((figure) => figure.id) ?? []),
         );
@@ -313,9 +373,7 @@ export function createMindCheck(options: MindCheckOptions) {
           throw new InvalidInputError({ key: "error.mindCheck.request" });
         return {
           fresh: [],
-          again: sentences.filter((sentence) =>
-            sentence.figures?.some((figure) => selected.has(figure.id)),
-          ),
+          again: sentencesForFigures(sentences, marks, figureIds),
           keys,
           skipped,
           widened,
@@ -476,7 +534,11 @@ export function createMindCheck(options: MindCheckOptions) {
     const unread = options.unread(scope.wanted);
     // The User may have written on while the model named the claims: each is found again by its words.
     const queued = content.edit(mindId, (blocks) => {
-      const now = everySentence(blocks);
+      const current = everySentence(blocks);
+      const now =
+        input.figureIds === null
+          ? current
+          : sentencesForFigures(current, markedSentences(blocks), input.figureIds);
       const marked = claims.flatMap((claim): QueuedClaim[] => {
         const sentence = now.find(
           (each) =>
@@ -518,27 +580,44 @@ export function createMindCheck(options: MindCheckOptions) {
           ...(parts && { parts: pendingParts(parts, previousParts) }),
         };
         const selected = input.figureIds === null ? null : new Set(input.figureIds);
+        const rowClaim = sentence.figures?.some(
+          (figure) =>
+            figure.locator.kind === "text" && figure.locator.from.blockId !== sentence.blockId,
+        )
+          ? tableClaim(sentence)
+          : null;
+        const row = rowClaim !== null && rowClaim !== "not-a-claim" ? rowClaim : null;
         const previous = owners[0]?.check ?? null;
         const pending = sentence.figures?.length
-          ? beginFigureCheck(previous, mark, sentence.figures, selected, sentence.projection)
+          ? beginFigureCheck(
+              previous,
+              mark,
+              sentence.figures,
+              selected,
+              row ? undefined : sentence.projection,
+            )
           : mark;
         markSentence(sentence.element, sentence.from, sentence.to, pending);
         return [
           {
             id: mark.id,
-            ...checkText(
-              selected === null
-                ? sentence
-                : {
-                    ...sentence,
-                    figures: sentence.figures?.filter((figure) => selected.has(figure.id)),
-                  },
-            ),
+            ...(row ? { ...row, figures: sentence.figures } : checkText(sentence)),
             cited: options.citedNow(sentence.cited),
             scope: within.scope,
-            ...(parts && { parts }),
+            ...(row
+              ? { parts: [{ kind: "fact" as const, span: { start: 0, end: row.claim.length } }] }
+              : parts && { parts }),
             ...(input.figureIds !== null && { figureIds: input.figureIds }),
-            ...(previousParts && { previous: previousParts }),
+            ...(previousParts && {
+              previous: row
+                ? previousParts.length === 1 &&
+                  previousParts[0]?.kind === "fact" &&
+                  previousParts[0].span.start === 0 &&
+                  previousParts[0].span.end === sentence.text.length
+                  ? [{ ...previousParts[0], span: { start: 0, end: row.claim.length } }]
+                  : undefined
+                : previousParts,
+            }),
             ...(priorParts && { priorParts }),
           },
         ];

@@ -1,9 +1,11 @@
 import {
+  figuresByPart,
   partWithResult,
   pendingPart,
   readPartPlans,
   resultFromParts,
 } from "../../../shared/claimParts";
+import { emptyFigureFinding } from "../../../shared/figureChecks";
 import type {
   ClaimCheckFailure,
   ClaimCheckPart,
@@ -40,6 +42,13 @@ export function createPartCheck(deps: ClaimCheckDependencies) {
     let plans: readonly ClaimPartPlan[] | null | undefined =
       request.parts === undefined ? undefined : readPartPlans(request.parts, request.claim);
     if (plans === null) return failed("malformed");
+    if (request.projection && request.projection.text !== request.claim) return failed("malformed");
+    if (
+      plans === undefined &&
+      request.figures?.length &&
+      request.figures.every((figure) => figure.locator.kind === "chart")
+    )
+      plans = [full];
     if (plans === undefined) {
       const sorted = await claimsAmong(request.model, [request.claim], "own", request.signal);
       if (sorted.kind === "cancelled") return failed("stopped");
@@ -54,14 +63,27 @@ export function createPartCheck(deps: ClaimCheckDependencies) {
       request.parts === undefined && plans.every((part) => part.kind === "opinion");
     if (request.only && !plans.some((part) => sameSpan(part.span, request.only ?? full.span)))
       return failed("malformed");
+    const owned = figuresByPart(request.claim, plans, request.figures ?? [], request.projection);
+    if (!owned) return failed("malformed");
+    if (request.figureIds?.some((id) => !request.figures?.some((figure) => figure.id === id)))
+      return failed("malformed");
     const parts: ClaimCheckPart[] = [];
     let stopped: { reason: ClaimCheckFailure; detail: string | null } | null = null;
-    for (const plan of plans) {
+    for (const [index, plan] of plans.entries()) {
       const previous = request.previous?.find(
         (part) => part.kind === plan.kind && sameSpan(part.span, plan.span),
       );
-      const selected = request.only !== undefined && sameSpan(plan.span, request.only);
-      if (request.only && !selected) {
+      const allFigures = owned[index] ?? [];
+      const figures = request.figureIds
+        ? allFigures.filter((figure) => request.figureIds?.includes(figure.id))
+        : allFigures;
+      const selected =
+        (request.only !== undefined && sameSpan(plan.span, request.only)) ||
+        (request.figureIds !== undefined && figures.length > 0);
+      if (
+        (request.only && !selected) ||
+        (request.figureIds && !figures.some((figure) => request.figureIds?.includes(figure.id)))
+      ) {
         parts.push(
           previous ??
             (plan.kind === "opinion"
@@ -95,10 +117,36 @@ export function createPartCheck(deps: ClaimCheckDependencies) {
       const result = await atomic({
         ...request,
         claim: request.claim.slice(plan.span.start, plan.span.end),
+        figures: figures.length ? figures : undefined,
+        projection: undefined,
         originalClaim: request.originalClaim ?? request.claim,
         context: [request.context, request.claim].filter(Boolean).join("\n\n"),
       });
-      parts.push(partWithResult(plan, result, result.checkedEvidence, result.coverage));
+      if (request.figureIds && previous?.figures && result.figures) {
+        const incoming = new Map(result.figures.map((figure) => [figure.id, figure]));
+        const kept = allFigures.map(
+          (figure) =>
+            incoming.get(figure.id) ??
+            previous.figures?.find((old) => old.id === figure.id) ?? {
+              ...emptyFigureFinding(figure),
+              result: {
+                verdict: "not-checked" as const,
+                reason: "unread" as const,
+                detail: null,
+                versions: [],
+                excluded: [],
+              },
+            },
+        );
+        const merged = {
+          ...partWithResult(plan, result, result.checkedEvidence, result.coverage),
+          figures: kept,
+          ...(previous.remainder !== undefined && { remainder: previous.remainder }),
+        };
+        parts.push(merged);
+      } else {
+        parts.push(partWithResult(plan, result, result.checkedEvidence, result.coverage));
+      }
       if (
         result.verdict === "not-checked" &&
         [

@@ -20,6 +20,7 @@ import {
 } from "../core/api";
 import {
   CLAIM_CHECK_FAILURES,
+  checkWithParts,
   partCitations,
   readCheckedVersions,
   readClaimCalculation,
@@ -141,6 +142,7 @@ function readCheckBasis(value: unknown): ClaimCheckBasis | null {
 export function readClaimCheck(value: unknown): ClaimCheckAttributes | null {
   const basis = readCheckBasis(value);
   if (!basis || !isRecord(value)) return null;
+  if (basis.parts) return checkWithParts(basis, basis.parts);
   const figures: FigureCheckAttributes[] = [];
   if (value.figures != null) {
     if (!Array.isArray(value.figures)) return null;

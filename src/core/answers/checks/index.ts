@@ -28,7 +28,12 @@ import type * as Y from "yjs";
 import { caseCitations } from "../../../shared/caseCitations";
 import { type LiveDocument, withShownName } from "../../../shared/citations";
 import { restsOn } from "../../../shared/claimChecks";
-import { partWithResult, pendingPart, resultFromParts } from "../../../shared/claimParts";
+import {
+  checkWithParts,
+  partWithResult,
+  pendingPart,
+  resultFromParts,
+} from "../../../shared/claimParts";
 import {
   beginFigureCheck,
   readFigureFinding,
@@ -36,6 +41,7 @@ import {
 } from "../../../shared/figureChecks";
 import { mindScopeIn } from "../../../shared/mindScope";
 import { folderScope, oneFolderOf } from "../../../shared/searchScope";
+import { namePartCitations } from "../../../shared/signOffs";
 import { judgesUnreliably } from "../../../shared/smallModel";
 import { recordCheckUnread } from "../../../shared/unreadFiles";
 import {
@@ -280,6 +286,7 @@ const evidenceOf = (citation: CitationAttributes | null): CitationAttributes | n
     quote: citation.quote,
     check: citation.check,
     checkReason: citation.checkReason,
+    ...(citation.id && { id: citation.id }),
   };
 
 const withQuoted = ({ quoted, ...why }: UnsupportedReason): UnsupportedReason => {
@@ -326,6 +333,7 @@ function withResult(
   result: ClaimCheckResult,
   at: string,
   sourceText = check.text,
+  priorParts: readonly ClaimCheckPart[] = check.parts ?? [],
 ): ClaimCheckAttributes {
   // Verify anchors a whole row to its first cell (#1368); its contextual claim has different offsets.
   if (result.parts && sourceText !== check.text) {
@@ -341,7 +349,8 @@ function withResult(
       ]),
     };
   }
-  if (result.parts) result = { ...result, ...resultFromParts(result.parts) };
+  if (result.parts)
+    return checkWithParts({ ...check, checkedAt: at }, namePartCitations(result.parts, priorParts));
   const { figures: _figures, remainder: _remainder, ...basis } = check;
   const next = withJudgment(basis, result, at);
   const { parts: _parts, ...childBasis } = basis;
@@ -422,7 +431,7 @@ const stopped = (check: ClaimCheckAttributes): ClaimCheckAttributes => {
     reason: "stopped",
   }));
   if (!check.parts) return settled;
-  const parts = check.parts.map(
+  const parts = (settled.parts ?? check.parts).map(
     (part): ClaimCheckPart =>
       part.verdict === "checking"
         ? { ...part, verdict: "not-checked", reason: "stopped", detail: null }
@@ -441,6 +450,7 @@ export function createChecks(options: ChecksOptions) {
     blocks: Y.XmlFragment,
     mindId: string,
     sourceText = check.text,
+    priorParts?: readonly ClaimCheckPart[],
   ): ClaimCheckAttributes {
     return withResult(
       check,
@@ -454,6 +464,7 @@ export function createChecks(options: ChecksOptions) {
       },
       at,
       sourceText,
+      priorParts,
     );
   }
   /** The requests running, by id: how to stop each, and its Mind. */
@@ -689,15 +700,13 @@ export function createChecks(options: ChecksOptions) {
             sentence.to !== owner.sentence.to)
         )
           return [];
-        const prior =
-          owner?.check ??
-          markedSentences(blocks).find(
-            (each) =>
-              each.element === sentence.element &&
-              each.from < sentence.to &&
-              each.to > sentence.from &&
-              each.check.text === sentence.text,
-          )?.check;
+        const priorOwners = markedSentences(blocks).filter(
+          (each) =>
+            each.element === sentence.element && each.from < sentence.to && each.to > sentence.from,
+        );
+        const physicalPrior =
+          owner?.check ?? (priorOwners.length === 1 ? priorOwners[0]?.check : undefined);
+        const prior = physicalPrior?.text === sentence.text ? physicalPrior : undefined;
         const previous = owner?.parts ?? prior?.parts;
         const plans = previous?.map(({ span, kind }) => ({ span, kind }));
         const parts =
@@ -740,7 +749,7 @@ export function createChecks(options: ChecksOptions) {
               mark.to > sentence.from,
           )?.check ?? null;
         const pending = sentence.figures?.length
-          ? beginFigureCheck(priorFigures, check, sentence.figures, null)
+          ? beginFigureCheck(priorFigures, check, sentence.figures, null, sentence.projection)
           : check;
         markSentence(sentence.element, sentence.from, sentence.to, pending);
         if (input.part) removeOpinion(blocks, input.part.id);
@@ -752,6 +761,9 @@ export function createChecks(options: ChecksOptions) {
             ...(plans && { parts: plans }),
             ...(input.part && { only: input.part.span }),
             ...(previous && { previous }),
+            ...((owner?.parts ?? physicalPrior?.parts) && {
+              priorParts: owner?.parts ?? physicalPrior?.parts,
+            }),
           },
         ];
       });
@@ -768,6 +780,7 @@ export function createChecks(options: ChecksOptions) {
       if (signal.aborted) break;
       const result = await claimCheck({
         claim: sentence.claim,
+        ...(sentence.projection && { projection: sentence.projection }),
         context: sentence.context,
         ...(sentence.figures && { figures: sentence.figures }),
         cited: citedNow(sentence.cited),
@@ -785,7 +798,7 @@ export function createChecks(options: ChecksOptions) {
       recordJudged(options.recordAiUse, mindId, ready.prepared, result, at);
       const kept = content.edit(mindId, (blocks) =>
         updateCheck(blocks, sentence.id, (check) =>
-          noteResult(check, result, at, blocks, mindId, sentence.claim),
+          noteResult(check, result, at, blocks, mindId, sentence.claim, sentence.priorParts),
         ),
       );
       if (kept) retainEvidence(mindId);
@@ -839,7 +852,7 @@ export function createChecks(options: ChecksOptions) {
     prepare,
     prepareQuietly,
     claimCheck,
-    withResult,
+    withResult: noteResult,
     retainEvidence,
     track,
   });

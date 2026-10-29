@@ -54,6 +54,8 @@ export const claimsAtOnce = (prepared: PreparedChatModel): number =>
 export interface QueuedClaim {
   id: string;
   claim: string;
+  projection?: ClaimCheckRequest["projection"];
+  figureIds?: readonly string[];
   context: string;
   cited?: ClaimCheckRequest["cited"];
   figures?: ClaimCheckRequest["figures"];
@@ -62,6 +64,7 @@ export interface QueuedClaim {
   parts?: readonly ClaimPartPlan[];
   only?: ClaimPartSpan;
   previous?: readonly ClaimCheckPart[];
+  priorParts?: readonly ClaimCheckPart[];
 }
 
 export interface RunChecksOptions {
@@ -74,6 +77,7 @@ export interface RunChecksOptions {
     blocks: Y.XmlFragment,
     mindId: string,
     sourceText?: string,
+    priorParts?: readonly ClaimCheckPart[],
   ): ClaimCheckAttributes;
   /** Keeps the text of the evidence the Mind's checks show (#79). */
   retainEvidence(mindId: string): void;
@@ -115,7 +119,7 @@ export async function runChecks(
         checkedAt: at,
       }));
       if (!check.parts) return settled;
-      const parts = check.parts.map(
+      const parts = (settled.parts ?? check.parts).map(
         (part): ClaimCheckPart =>
           part.verdict === "checking" ? { ...part, verdict: "not-checked", reason, detail } : part,
       );
@@ -128,6 +132,8 @@ export async function runChecks(
     async (claim) => {
       const result = await options.claimCheck({
         claim: claim.claim,
+        ...(claim.projection && { projection: claim.projection }),
+        ...(claim.figureIds && { figureIds: claim.figureIds }),
         context: claim.context,
         ...(claim.cited && { cited: claim.cited }),
         ...(claim.parts && { parts: claim.parts }),
@@ -153,7 +159,15 @@ export async function runChecks(
           if (outcome.value.verdict !== "not-checked") checked++;
           recordJudged(options.recordAiUse, mindId, prepared, outcome.value, at);
           write(claim.id, (each, blocks) =>
-            options.withResult(each, outcome.value, at, blocks, mindId, claim.claim),
+            options.withResult(
+              each,
+              outcome.value,
+              at,
+              blocks,
+              mindId,
+              claim.claim,
+              claim.priorParts,
+            ),
           );
         } else if (outcome.status === "not-checked") {
           write(claim.id, notChecked(outcome.stop.reason));
