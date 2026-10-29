@@ -215,17 +215,12 @@ const EXAMPLE_TITLE = {
   "zh-CN": "授信委员会报告（草稿）",
 } as const;
 
-for (const [language, question, asks, count] of [
-  [
-    "en",
-    "Summarise the two main documents.",
-    "Which two Documents do you mean?",
-    "Your Library has 3",
-  ],
-  ["zh-CN", "总结两份主要文档。", "你指的是哪两份文档？", "资料库里有 3 份"],
+for (const [language, question, count] of [
+  ["en", "Summarise the two main documents.", "Your Library has one Document"],
+  ["zh-CN", "总结两份主要文档。", "资料库里只有"],
 ] as const) {
-  // protects=with three Documents in the Library, two of them the example's and one the User's, “the two main documents” asks which two in one line and says the Library's whole count (#1333); fails_when=the reply asks for two among a count the Library contradicts, or says the Library holds one; no_claim=how a real model words it (the hand test on Claude Haiku 5.5).
-  test(`in ${language === "en" ? "English" : "Chinese"}, “the two main documents” is asked for, and the Library's count is its own (#1333)`, async () => {
+  // protects=with one Document of the User's and the example's two, “the two main documents” sees one, the User's own, and never the example's two or a Library of three (#1942, #1333); fails_when=the reply asks which two among the example's Documents, or says the Library holds three; no_claim=how a real model words it (the hand test on Claude Haiku 5.5).
+  test(`in ${language === "en" ? "English" : "Chinese"}, “the two main documents” sees the User's one, not the example's two (#1942)`, async () => {
     const { app, window } = await launchApp(dataDir, { fakeChat: true, examples: true });
     await dismissChatSetup(window);
     await useLocalChatModel(window);
@@ -244,7 +239,7 @@ for (const [language, question, asks, count] of [
     await expect(
       window.getByTestId("document-list-item").filter({ hasText: name }),
     ).toHaveAttribute("data-status", "ready", { timeout: 30_000 });
-    // Three Documents in the Library: the two the example made, and this one.
+    // Three Documents in the Library in all: the two the example made, and this one.
     await expect
       .poll(async () =>
         (await coreOf(window)).evaluate(async (core) => (await core.listDocuments()).length),
@@ -255,11 +250,11 @@ for (const [language, question, asks, count] of [
     const answer = await askInAssistant(window, question);
 
     const said = answer.getByTestId("assistant-answer-text");
-    await expect(said).toContainText(asks);
     await expect(said).toContainText(count);
     await expect(said).toContainText(name);
-    await expect(said).not.toContainText(/only one Document/i);
-    await expect(said).not.toContainText("只有一份文档");
+    await expect(said).not.toContainText("Which two Documents do you mean?");
+    await expect(said).not.toContainText("你指的是哪两份文档？");
+    await expect(said).not.toContainText(/Library has 3|资料库里有 3/);
     if (SCREENSHOTS) {
       await window.screenshot({ path: join(SCREENSHOTS, `library-count-${language}.png`) });
     }
