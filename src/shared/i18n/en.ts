@@ -833,6 +833,7 @@ export const en = {
   "claim.state.not-checked": "Not checked",
   "claim.state.needs-recheck": "Needs a look · Needs re-check",
   "claim.state.notFound": "Needs a look · Not found",
+  "claim.state.recordCite": "Needs a look · Record cite",
   "claim.why.unsupported": "Unsupported",
   "claim.why.contradicted": "Contradicted",
   "claim.why.needs-recheck": "Needs re-check",
@@ -973,6 +974,7 @@ export const en = {
   "claim.recheck.search-scope": "The note’s Search scope has changed since.",
   "claim.recheck.figures":
     "It was checked before each of its figures was checked with its own source.",
+  "claim.recheck.referent": "The record cite its Id. or supra refers back to has changed.",
   "health.label": "Claims and Citations",
   "health.found.one": "1 Citation found",
   "health.found": "{count} Citations found",
@@ -4060,6 +4062,8 @@ export const en = {
     "Needs re-check: the note’s Search scope has changed since.",
   "export.comment.sentence.needs-recheck.figures":
     "Needs re-check: checked before each of its figures was checked with its own source.",
+  "export.comment.sentence.needs-recheck.referent":
+    "Needs re-check: the record cite its Id. or supra refers back to has changed.",
   "export.comment.recordCite.result": "{raw}: {outcome}",
   "export.comment.recordCite.passage": "Passage: {passage}",
   "export.comment.recordCite.candidates": "Documents to choose from: {candidates}",

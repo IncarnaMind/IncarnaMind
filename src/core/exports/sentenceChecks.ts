@@ -1,7 +1,7 @@
 import type * as Y from "yjs";
 import { checkedScope, claimCheckShown, coveredPart, saysNotFound } from "../../shared/claimChecks";
 import { type ScopeKind, scopeName } from "../../shared/searchScope";
-import { checkedSentences, figuresNow } from "../answers/checks/sentences";
+import { checkedSentences, figuresNow, recordCiteNote } from "../answers/checks/sentences";
 import type { CitationAttributes, RecordCiteResult, SearchScope } from "../api";
 import type { FailedSentence, RecordCiteComment } from "../mindText";
 
@@ -22,7 +22,7 @@ function recordCiteComments(
   context: SentenceCheckContext,
 ): RecordCiteComment[] {
   const sourceOf = (cite: Partial<CitationAttributes>) =>
-    context.sourceOf({ ...cite, documentName: undefined, contentHash: undefined });
+    context.sourceOf({ ...cite, contentHash: undefined });
   return cites.map((cite) => {
     const sourced =
       cite.documentId !== undefined ||
@@ -54,6 +54,7 @@ export function failedSentences(
 ): Map<string, FailedSentence> {
   const failed = new Map<string, FailedSentence>();
   const { figureContexts, figured } = figuresNow(fragment);
+  const note = recordCiteNote(fragment);
   for (const marked of checkedSentences(fragment)) {
     const { check, sentence, cited } = marked;
     const { id } = check;
@@ -64,6 +65,7 @@ export function failedSentences(
       versions: context.versions,
       folderId: context.folderId,
       scope: context.scope,
+      note: note(marked.place),
     });
     if (shown.state === "contradicted") {
       const { calculation } = check;

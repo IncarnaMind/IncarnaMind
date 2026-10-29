@@ -285,7 +285,9 @@ export function addDepositionAnchors<T extends UnitText>(units: readonly T[]): T
     ) {
       return unit;
     }
-    const regions = regionsFromText(unit);
+    // A "Page N" line is a deposition's page only over numbered lines: elsewhere it is an ordinary
+    // running header, which cleanup takes off as before.
+    const regions = regionsFromText(unit).filter((region) => region.rows.length > 0);
     if (regions.length === 0) return unit;
     const added = regions.flatMap((region) => [
       ...(region.marker ? [region.marker] : []),

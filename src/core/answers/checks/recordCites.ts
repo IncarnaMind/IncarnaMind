@@ -20,6 +20,7 @@ import { classifyProviderError } from "../../providers/providerErrors";
 import { type RecordCiteSource, recordCiteLibrary } from "../../recordCites/documents";
 import {
   type NoteParagraph,
+  referredThrough,
   resolverInput,
   sentenceRecordCites,
 } from "../../recordCites/referents";
@@ -228,7 +229,12 @@ async function checkRecordCites(
     request.signal,
     deps.language(),
   );
-  return judged.recordCites;
+  const first = cites.length - own;
+  return judged.recordCites.map((result, index) =>
+    cites[first + index]?.referent === undefined
+      ? result
+      : { ...result, via: referredThrough(cites, first + index) },
+  );
 }
 
 /** Why a sentence wasn't checked that keeps its record cites from being sent too. */

@@ -17,10 +17,12 @@ import {
   type ClaimCheckAttributes,
   type SearchScope,
 } from "../../../core/api";
+import type { NoteParagraph, RecordCiteNote } from "../../../core/recordCites/referents";
 import { chartCheckText, chartPoints, readChart } from "../../../shared/charts";
 import {
   type ClaimCheckShown,
   claimCheckShown,
+  claimMarkState,
   figureCheckShown,
   type KeptMark,
   readClaimCheck,
@@ -192,6 +194,32 @@ export function claimSpans(doc: ProseMirrorNode): ClaimSpan[] {
   return spans;
 }
 
+/** The Note's paragraphs as the core's record cites read them (`recordCiteParagraphs`). */
+function noteParagraphs(doc: ProseMirrorNode): NoteParagraph[] {
+  const paragraphs: NoteParagraph[] = [];
+  doc.descendants((block, pos) => {
+    if (!block.isTextblock) return true;
+    const blockId = block.attrs[BLOCK_ID_ATTRIBUTE];
+    if (block.type.name === "paragraph" && typeof blockId === "string")
+      paragraphs.push({ blockId, text: paragraphPlaces(block, pos).text });
+    return false;
+  });
+  return paragraphs;
+}
+
+/** The Note as a check's `Id.` and `supra` read it now, its paragraphs read once and only if needed. */
+function noteOf(doc: ProseMirrorNode): (span: ClaimSpan) => RecordCiteNote {
+  let paragraphs: NoteParagraph[] | undefined;
+  const read = () => {
+    paragraphs ??= noteParagraphs(doc);
+    return paragraphs;
+  };
+  return ({ place }) => ({
+    paragraphs: read,
+    ...(place && { place: { blockId: place.blockId, from: place.from } }),
+  });
+}
+
 /** What a check is compared with besides its sentence: the Documents' versions and the Mind's Folder. */
 export interface ClaimContext {
   figureContexts?: ReadonlyMap<string, string> | null;
@@ -240,6 +268,7 @@ export function claimsOf(
 ): Pick<ClaimState, "claims" | "kept"> {
   const claims: ShownClaim[] = [];
   const kept: KeptMark[] = [];
+  const note = noteOf(doc);
   for (const span of claimSpans(doc)) {
     const { place } = span;
     const figured =
@@ -252,6 +281,7 @@ export function claimsOf(
       ...context,
       text: span.sentence.text,
       ...(figured !== undefined && { figured }),
+      note: note(span),
     });
     if (span.kind === "chart") {
       const node = doc.nodeAt(span.from);
@@ -339,6 +369,9 @@ export const sameCoverage = (a: Coverage, b: Coverage | null | undefined): boole
   a.canWiden === b.canWiden &&
   a.range?.from === b.range?.from &&
   a.range?.to === b.range?.to;
+
+/** What a check's margin glyph shows (`claimMarkState`). */
+export const markOf = (claim: ShownClaim) => claimMarkState(claim.shown.state, claim.check);
 
 /** The checks in the editor, as they show now. Empty without `ClaimChecks`. */
 export function shownClaims(state: EditorState): readonly ShownClaim[] {

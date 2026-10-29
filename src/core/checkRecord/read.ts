@@ -26,7 +26,12 @@ import {
 } from "../../shared/signOffs";
 import { textOriginOf } from "../../shared/textOrigins";
 import { groupsOf, isProposed } from "../aiUseStatement/figures";
-import { checkedSentences, citationSentences, figuresNow } from "../answers/checks/sentences";
+import {
+  checkedSentences,
+  citationSentences,
+  figuresNow,
+  recordCiteNote,
+} from "../answers/checks/sentences";
 import {
   ANSWER_BLOCK,
   BLOCK_ID_ATTRIBUTE,
@@ -225,11 +230,12 @@ export function readRecord(sources: RecordSources): {
   const scope = fragment.doc ? mindScopeOf(fragment.doc) : null;
   const versions = new Map(documents.map((document) => [document.id, document.contentHash]));
   const { figureContexts, figured } = figuresNow(fragment);
+  const note = recordCiteNote(fragment);
 
   const sentences: SentenceItem[] = [];
   const recordCites: RecordCiteItem[] = [];
   const requests: string[] = [];
-  for (const { element, from, to, check, sentence, cited } of checkedSentences(fragment)) {
+  for (const { element, from, to, check, sentence, cited, place } of checkedSentences(fragment)) {
     requests.push(check.request);
     const result = sentenceResultOf(
       claimCheckShown(check, {
@@ -239,6 +245,7 @@ export function readRecord(sources: RecordSources): {
         scope,
         figureContexts,
         figured: figured({ element, from, to }),
+        note: note(place),
       }),
       check,
       cited.length,

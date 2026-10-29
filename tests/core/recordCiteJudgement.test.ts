@@ -79,6 +79,44 @@ describe("support judgement for one exact record-cite passage", () => {
     ).toEqual({ outcome: "supported" });
   });
 
+  test("a reply that changes its Judgement, hedges it or goes on after it is unreadable", async () => {
+    for (const text of [
+      "Judgement: unsupported\nWait, actually.\nJudgement: supported",
+      "Judgement: supported, partly",
+      "Judgement: supported\nThe Passage also names the date.",
+      "Judgement: partly supported",
+    ]) {
+      vi.mocked(generateText).mockResolvedValueOnce({ text } as never);
+      expect(
+        await judgeRecordCite(
+          model,
+          "The claim",
+          "Exact lines",
+          new AbortController().signal,
+          "en",
+        ),
+      ).toEqual({ unreadable: true });
+    }
+  });
+
+  test("one Judgement line that ends the reply reads, in bold or with a stop", async () => {
+    for (const text of [
+      "The Passage states it.\n**Judgement:** supported.",
+      "The Passage states it.\nJudgement: **supported**\n",
+    ]) {
+      vi.mocked(generateText).mockResolvedValueOnce({ text } as never);
+      expect(
+        await judgeRecordCite(
+          model,
+          "The claim",
+          "Exact lines",
+          new AbortController().signal,
+          "en",
+        ),
+      ).toEqual({ outcome: "supported" });
+    }
+  });
+
   test("an answer in the contradiction check's words is unreadable, never partial", async () => {
     vi.mocked(generateText).mockResolvedValue({ text: "conflict" } as never);
     expect(

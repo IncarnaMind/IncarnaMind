@@ -5494,6 +5494,11 @@ export interface RecordCiteResult {
   uncovered?: string;
   /** Documents the User must choose between; never a silent first match. */
   candidates?: { id: string; name: string }[];
+  /**
+   * For an `Id.` or `supra`: the cites it was read through, nearest first, as written; empty when
+   * it referred to none. When they read otherwise now, the sentence needs re-check.
+   */
+  via?: string[];
   nearby?: {
     location: CitationLocation;
     pageFrom: number;

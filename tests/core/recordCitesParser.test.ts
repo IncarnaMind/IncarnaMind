@@ -233,7 +233,7 @@ describe("invalid record cites", () => {
     "Id. at 47:0",
     "Id. at 47:5–4",
   ])("returns out-of-range for %s", (raw) => {
-    expect(parseRecordCite(raw)).toEqual({ status: "error", raw, reason: "out-of-range" });
+    expect(parseRecordCite(raw)).toMatchObject({ status: "error", raw, reason: "out-of-range" });
   });
 });
 
@@ -346,7 +346,63 @@ describe("record-cite scanning", () => {
     const decision = "Hallmark v. Rio Grande, 512 S.W.3d 101 (Tex. 2017)";
     expect(
       recordCiteTokens(`Smith Dep. 45:3–4; ${decision}; Id. at 105.`).map((each) => each.kind),
-    ).toEqual(["cite", "case", "cite"]);
+    ).toEqual(["cite", "authority", "cite"]);
+  });
+
+  test("lists statutes, regulations, rules, Restatements and inline nodes as other authorities", () => {
+    for (const authority of [
+      "42 U.S.C. § 1983",
+      "29 C.F.R. § 1604.11(a)",
+      "Fed. R. Civ. P. 56(a)",
+      "Restatement (Second) of Contracts § 90 (1981)",
+      "the Citation \uFFFC",
+    ]) {
+      expect(
+        recordCiteTokens(`Smith Dep. 45:3. ${authority}. Id.`).map((each) => each.kind),
+      ).toContain("authority");
+    }
+  });
+
+  test("a supra naming no record item is another authority's, never a record cite", () => {
+    expect(recordCiteTokens("Smith, supra note 3, at 46.").map((each) => each.kind)).toEqual([
+      "authority",
+    ]);
+    expect(raws("Smith Dep., supra, at 45:3–4.")).toEqual(["Smith Dep., supra, at 45:3–4"]);
+    expect(cites("Smith Dep., supra, at 45:3–4.")[0]?.result).toMatchObject({
+      kind: "supra",
+      sourceAlias: "smith dep",
+      location: depositionLocation(45, 45, 3, 4),
+    });
+  });
+
+  test("a short form followed by a pin cite it can't read is malformed", () => {
+    for (const text of ["Smith Dep., supra note 3, at 46.", "Id. § 4.", "Ex. 7, supra n.2."]) {
+      expect(cites(text)[0]?.result).toMatchObject({ status: "error", reason: "malformed" });
+    }
+  });
+
+  test("a word that ends the sentence before is never part of a source's name", () => {
+    expect(raws("He said no. Smith Dep. 45:3.")).toEqual(["Smith Dep. 45:3"]);
+    expect(raws("It was paid by Acme Inc. Smith Dep. 45:3.")).toEqual(["Smith Dep. 45:3"]);
+    expect(raws("A loan from Lake Co. Smith Dep. 45:3.")).toEqual(["Smith Dep. 45:3"]);
+    expect(raws("He agreed (Acme Inc. Dep. 12:3).")).toEqual(["Acme Inc. Dep. 12:3"]);
+  });
+
+  test("reads full-width digits, colon and hyphen, keeping the cite as written", () => {
+    for (const written of [
+      "Smith Dep. ４５:３-４",
+      "Smith Dep. 45：3-4",
+      "Smith Dep. ４５：３－４",
+    ]) {
+      const text = `证人确认（${written}）。`;
+      const [found] = cites(text);
+      expect(found?.raw).toBe(written);
+      expect(found && text.slice(found.from, found.to)).toBe(written);
+      expect(found?.result).toMatchObject({
+        status: "parsed",
+        location: depositionLocation(45, 45, 3, 4),
+      });
+    }
   });
 
   test("gives the spans a sentence break must not fall in", () => {

@@ -62,6 +62,7 @@ import {
   keptAsView,
   markedSentences,
   markSentence,
+  recordCiteNote,
   type SelectedSentence,
 } from "./sentences";
 import type { MindCheckScope, VerifyOptions } from "./verify";
@@ -204,6 +205,7 @@ export function createMindCheck(options: MindCheckOptions) {
     const scope = content.readSettings(mindId, mindScopeIn);
     const changeable = content.read(mindId, (blocks) => {
       const { figureContexts, figured } = figuresNow(blocks);
+      const note = recordCiteNote(blocks);
       return checkedSentences(blocks).flatMap((marked) =>
         addedCouldChange(
           marked.check,
@@ -214,6 +216,7 @@ export function createMindCheck(options: MindCheckOptions) {
             scope,
             figureContexts,
             figured: figured(marked),
+            note: note(marked.place),
           }),
         )
           ? [marked.check]
@@ -266,6 +269,7 @@ export function createMindCheck(options: MindCheckOptions) {
     const added = mode === "added" ? addedSince(mindId) : null;
     return content.read(mindId, (blocks) => {
       const { figureContexts } = figuresNow(blocks);
+      const note = recordCiteNote(blocks);
       // Every sentence is read; the one count decides which have a check to make, whatever makes a claim (#1909).
       const sentences = everySentence(blocks);
       const keys = new Set(
@@ -314,6 +318,7 @@ export function createMindCheck(options: MindCheckOptions) {
                   scope,
                   figureContexts,
                   figured: inTableCell(sentence.figures),
+                  note: note({ blockId: sentence.blockId, from: sentence.from }),
                 })
               : null,
             skipped: skipped.has(sentenceKey(sentence.text)),
@@ -362,6 +367,7 @@ export function createMindCheck(options: MindCheckOptions) {
                 scope,
                 figureContexts,
                 figured: inTableCell(sentence.figures),
+                note: note({ blockId: sentence.blockId, from: sentence.from }),
               })
             : null,
           skipped: skipped.has(sentenceKey(sentence.text)),

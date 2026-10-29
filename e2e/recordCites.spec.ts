@@ -215,7 +215,8 @@ async function setup(window: Page, language: "en" | "zh-CN") {
     { text: TEXT, attrs },
   );
   await expect(window.getByTestId("claim-mark")).toHaveCount(1);
-  await expect(window.getByTestId("claim-mark")).toHaveAttribute("data-check", "supported");
+  // Its overall check is Supported, but a cite that is Choose or Not found never sits under that glyph.
+  await expect(window.getByTestId("claim-mark")).toHaveAttribute("data-check", "unsupported");
   return { mindId, duplicateA, duplicateB };
 }
 
@@ -256,7 +257,7 @@ test("every record cite stays visible in raw order, opens its physical passage, 
   const card = await openCard(window);
   const t = (key: MessageKey, params?: MessageParams) => translate("en", key, params);
 
-  await expect(card.getByTestId("claim-badge")).toHaveText(t("claim.state.supported"));
+  await expect(card.getByTestId("claim-badge")).toHaveText(t("claim.state.recordCite"));
   await expect(card.getByTestId("claim-add-citation")).toHaveText(t("claim.addAsCitation"));
   const entries = card.getByTestId("record-cite");
   await expect(entries).toHaveCount(4);
@@ -320,7 +321,7 @@ test("every record cite stays visible in raw order, opens its physical passage, 
   await expect(card.getByTestId("record-cite-problem")).toHaveCount(0);
   await expect(chooseEntry).toHaveAttribute("data-document-id", duplicateB.id);
   await expect(chooseEntry).not.toHaveAttribute("data-outcome", "choose");
-  await expect(card.getByTestId("claim-badge")).toHaveText(t("claim.state.supported"));
+  await expect(card.getByTestId("claim-badge")).toHaveText(t("claim.state.recordCite"));
   await expect(entries).toHaveCount(4);
   await expect
     .poll(() => chooseEntry.evaluate((entry) => entry.contains(document.activeElement)))

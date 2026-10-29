@@ -1,6 +1,12 @@
 import { describe, expect, test } from "vitest";
 import type { ClaimCheckAttributes, RecordCiteResult } from "../../src/core/api";
-import { claimCheckShown, readClaimCheck, restsOn } from "../../src/shared/claimChecks";
+import type { NoteParagraph } from "../../src/core/recordCites/referents";
+import {
+  claimCheckShown,
+  claimMarkState,
+  readClaimCheck,
+  restsOn,
+} from "../../src/shared/claimChecks";
 import { translate } from "../../src/shared/i18n";
 import { formatLocation } from "../../src/shared/locations";
 
@@ -140,6 +146,92 @@ describe("record-cite results in a claim-check mark", () => {
     // A key with no value in a mark kept Tie out figures from seeing its checks end.
     expect(Object.keys(readClaimCheck(check) ?? {})).not.toContain("recordCites");
     expect(restsOn(check)).toEqual([]);
+  });
+});
+
+describe("an Id. or supra as the text it refers back to changes", () => {
+  const claim = "Then he left the room. Id. at 46:1.";
+  const idCite: RecordCiteResult = {
+    raw: "Id. at 46:1",
+    from: claim.indexOf("Id."),
+    to: claim.length - 1,
+    outcome: "supported",
+    via: ["Smith Dep. 45:3"],
+  };
+  const check = { ...attributes([idCite]), text: claim };
+  const shownWith = (before: string, note = true) =>
+    claimCheckShown(check, {
+      text: claim,
+      versions: null,
+      folderId: null,
+      scope: null,
+      ...(note && {
+        note: {
+          paragraphs: (): NoteParagraph[] => [
+            { blockId: "before", text: before },
+            { blockId: "this", text: claim },
+          ],
+          place: { blockId: "this", from: 0 },
+        },
+      }),
+    });
+
+  test("keeps its result while the cite it refers back to reads as it did", () => {
+    expect(shownWith("He admitted it (Smith Dep. 45:3).")).toEqual({ state: "supported" });
+  });
+
+  test("needs re-check when that cite or what stands between them changes", () => {
+    for (const before of [
+      "He admitted it (Jones Dep. 45:3).",
+      "He admitted it (Smith Dep. 45:3). He signed (Ex. 7 at 2).",
+      "He admitted it (Smith Dep. 45:3). The law is 42 U.S.C. § 1983.",
+      "He admitted it.",
+    ]) {
+      expect(shownWith(before)).toEqual({ state: "needs-recheck", why: "referent" });
+    }
+  });
+
+  test("a sentence edited is Edited first, and without the Note nothing is assumed", () => {
+    expect(
+      claimCheckShown(check, {
+        text: "Then he left. Id. at 46:1.",
+        versions: null,
+        folderId: null,
+        scope: null,
+      }),
+    ).toEqual({ state: "needs-recheck", why: "edited" });
+    expect(shownWith("He admitted it (Jones Dep. 45:3).", false)).toEqual({ state: "supported" });
+  });
+
+  test("round-trips what it was read through", () => {
+    expect(readClaimCheck(check)?.recordCites?.[0]?.via).toEqual(["Smith Dep. 45:3"]);
+  });
+});
+
+describe("the margin glyph of a sentence with record cites", () => {
+  const cite = (outcome: RecordCiteResult["outcome"]): RecordCiteResult => ({
+    raw: "Smith Dep. 45:3",
+    outcome,
+  });
+
+  test("never shows Supported over a cite that is Unsupported, Not found or Choose", () => {
+    for (const outcome of ["unsupported", "not-found", "choose"] as const) {
+      expect(claimMarkState("supported", attributes([cite("supported"), cite(outcome)]))).toBe(
+        "unsupported",
+      );
+    }
+  });
+
+  test("shows the sentence's own state otherwise", () => {
+    expect(
+      claimMarkState(
+        "supported",
+        attributes([cite("supported"), cite("partly"), cite("not-checked")]),
+      ),
+    ).toBe("supported");
+    expect(claimMarkState("supported", attributes())).toBe("supported");
+    expect(claimMarkState("contradicted", attributes([cite("not-found")]))).toBe("contradicted");
+    expect(claimMarkState("needs-recheck", attributes([cite("choose")]))).toBe("needs-recheck");
   });
 });
 

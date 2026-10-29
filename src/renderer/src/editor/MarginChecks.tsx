@@ -11,7 +11,7 @@ import { ClaimMark } from "./ClaimCheckCard";
 import { ClaimOutline } from "./ClaimOutline";
 import { useCardPlace } from "./checkPlace";
 import { textBlockEdited } from "./citationNumbers";
-import { type ShownClaim, shownClaims } from "./claimChecks";
+import { markOf, type ShownClaim, shownClaims } from "./claimChecks";
 import { figurePlace } from "./figurePlaces";
 import type { ClaimMarkState } from "./icons";
 import { scrollMindTo } from "./reviewPick";
@@ -149,7 +149,7 @@ export function MarginChecks({
         } catch {
           continue;
         }
-        const state = claim.shown.state;
+        const state = markOf(claim);
         const mark: Mark = {
           key: `claim:${claim.check.id}`,
           state,

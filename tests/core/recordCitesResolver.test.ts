@@ -792,14 +792,14 @@ describe("record-cite source resolution", () => {
       id: "other-exhibit",
     };
     const results = resolveRecordCites({
-      cites: linkedCites("Smith Dep. 45:3; Ex. 7 at 3; Smith, supra"),
+      cites: linkedCites("Smith Dep. 45:3; Ex. 7 at 3; Smith Dep., supra"),
       documents: [smith, exhibit],
       choices,
       deposition: depositionMapper,
     });
 
     expect(results[2]).toMatchObject({
-      raw: "Smith, supra",
+      raw: "Smith Dep., supra",
       outcome: "found",
       documentId: "smith",
       passage: "Smith answer",

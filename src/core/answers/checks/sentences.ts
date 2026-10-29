@@ -26,7 +26,7 @@ import {
   type WaitingSentences,
 } from "../../api";
 import { layout, textBlocks } from "../../proposals/write";
-import type { NoteParagraph } from "../../recordCites/referents";
+import type { NoteParagraph, RecordCiteNote, RecordCitePlace } from "../../recordCites/referents";
 import { type FigureOccurrence, figuresInMind, inTableCell } from "./figureOccurrences";
 
 const BREAK = "hardBreak";
@@ -326,6 +326,16 @@ export function recordCiteParagraphs(blocks: Y.XmlFragment): NoteParagraph[] {
   });
 }
 
+/** The Note as a sentence's `Id.` and `supra` read it when its check is shown: its paragraphs read once, and only if one needs them. */
+export function recordCiteNote(blocks: Y.XmlFragment): (place?: RecordCitePlace) => RecordCiteNote {
+  let paragraphs: NoteParagraph[] | undefined;
+  const read = () => {
+    paragraphs ??= recordCiteParagraphs(blocks);
+    return paragraphs;
+  };
+  return (place) => ({ paragraphs: read, ...(place && { place }) });
+}
+
 /** Every sentence of the Mind's paragraphs, in order, but those holding a change still waiting. */
 export function everySentence(blocks: Y.XmlFragment): SelectedSentence[] {
   const figures = figuresByBlock(blocks);
@@ -473,7 +483,7 @@ export function keptAsView(
  */
 export function checkedSentences(
   blocks: Y.XmlFragment,
-): (MarkedSentence & { sentence: string; cited: CitedQuote[] })[] {
+): (MarkedSentence & { sentence: string; cited: CitedQuote[]; place?: RecordCitePlace })[] {
   return markedSentences(blocks).map((marked) => {
     const { element, from, to } = marked;
     const text = textOf(element);
@@ -481,7 +491,13 @@ export function checkedSentences(
     const touched = sentenceSpansIn(element).filter((span) => span.from < to && span.to > from);
     const start = Math.min(from, touched[0]?.from ?? from);
     const end = Math.max(to, touched.at(-1)?.to ?? to);
-    return { ...marked, sentence: text.slice(start, end), cited: citedIn(element, start, end) };
+    const blockId = element.getAttribute(BLOCK_ID_ATTRIBUTE);
+    return {
+      ...marked,
+      sentence: text.slice(start, end),
+      cited: citedIn(element, start, end),
+      ...(typeof blockId === "string" && { place: { blockId, from: start } }),
+    };
   });
 }
 

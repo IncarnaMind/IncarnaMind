@@ -819,6 +819,7 @@ export const zhCN = {
   "claim.state.not-checked": "未核对",
   "claim.state.needs-recheck": "需要留意：需重新核对",
   "claim.state.notFound": "需要留意：未找到",
+  "claim.state.recordCite": "需要留意：记录引用",
   "claim.why.unsupported": "无依据",
   "claim.why.contradicted": "与文档矛盾",
   "claim.why.needs-recheck": "需重新核对",
@@ -951,6 +952,7 @@ export const zhCN = {
   "claim.recheck.scope": "这篇笔记已移到别的文件夹。",
   "claim.recheck.search-scope": "这篇笔记的搜索范围已更改。",
   "claim.recheck.figures": "核对它时，其中的数字尚未逐个对照各自的来源。",
+  "claim.recheck.referent": "其中 Id. 或 supra 所指的记录引用已改动。",
   "health.label": "说法和引用",
   "health.found.one": "1 处引用已找到",
   "health.found": "{count} 处引用已找到",
@@ -3894,6 +3896,8 @@ export const zhCN = {
   "export.comment.sentence.needs-recheck.search-scope": "需重新核对：这篇笔记的搜索范围已更改。",
   "export.comment.sentence.needs-recheck.figures":
     "需重新核对：核对它时，其中的数字尚未逐个对照各自的来源。",
+  "export.comment.sentence.needs-recheck.referent":
+    "需重新核对：其中 Id. 或 supra 所指的记录引用已改动。",
   "export.comment.recordCite.result": "{raw}：{outcome}",
   "export.comment.recordCite.passage": "段落：{passage}",
   "export.comment.recordCite.candidates": "可选文档：{candidates}",

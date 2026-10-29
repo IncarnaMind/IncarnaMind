@@ -1,4 +1,5 @@
 import { describe, expect, test } from "vitest";
+import { stripBoilerplate } from "../../src/core/documents/boilerplate";
 import {
   addDepositionAnchors,
   type DepositionLocation,
@@ -96,11 +97,25 @@ describe("Printed deposition source anchors (#1709)", () => {
     const oldKept = pdfPage(2, "Q. Not a new layout\n2 Not inherited");
     const mapped = addDepositionAnchors([labelled, oldKept]);
 
+    expect(mapped[0]).toBe(labelled);
     expect(mapped[1]).toBe(oldKept);
-    expect(depositionAnchors(mapped[0]).map((anchor) => anchor.target)).toEqual([
-      "deposition:page:45",
-    ]);
     expect(resolveDeposition(mapped, cite(45, 1))).toEqual({ status: "not-found" });
+  });
+
+  test("an ordinary PDF's Page N footers stay boilerplate, so its Passages are unchanged", () => {
+    const bodies = [
+      "Revenue grew in every region.",
+      "Costs were flat against the plan.",
+      "Cash rose after the bond sale.",
+      "The board approved the dividend.",
+    ];
+    const report = bodies.map((body, index) =>
+      pdfPage(index + 1, ["ACME Corp Annual Report", body, `Page ${index + 1}`].join("\n")),
+    );
+
+    const cleaned = stripBoilerplate(addDepositionAnchors(report));
+    expect(cleaned).toEqual(stripBoilerplate(report));
+    expect(cleaned.map((page) => page.text)).toEqual(bodies);
   });
 
   test("a header above margin line 1 is Not found, never lines shifted by one", () => {

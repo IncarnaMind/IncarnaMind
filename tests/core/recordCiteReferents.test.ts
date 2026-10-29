@@ -31,8 +31,52 @@ describe("what an Id. or a supra refers to", () => {
     ]);
   });
 
-  test("an Id. with nothing before it refers to no record item", () => {
+  test("an Id. with nothing before it refers to no record item, and is listed only at a deposition's lines", () => {
     expect(linked("Id. at 7 says so.")).toEqual([]);
+    expect(linked("Id. at 47:5-9. He left.")).toEqual(["Id. at 47:5-9 → null"]);
+  });
+
+  test("a statute, a regulation, a Restatement or an inline node ends the chain", () => {
+    for (const between of [
+      "The law is 42 U.S.C. § 1983.",
+      "See 29 C.F.R. § 1604.11(a).",
+      "The rule \uFFFC applies.",
+      "Restatement (Second) of Contracts § 90 (1981).",
+    ]) {
+      expect(linked(`He said yes (Smith Dep. 45:3). ${between} Smith said no. Id.`)).toEqual([
+        "Smith Dep. 45:3",
+      ]);
+      expect(linked(`He said yes (Smith Dep. 45:3). ${between} Id. at 46:1.`)).toEqual([
+        "Smith Dep. 45:3",
+      ]);
+    }
+    expect(linked("(Smith Dep. 45:3). Restatement (Second) of Contracts § 90. Id. § 4.")).toEqual([
+      "Smith Dep. 45:3",
+    ]);
+  });
+
+  test("a Citation chip beside a record cite in its sentence cites the same place", () => {
+    expect(linked("ECF No. 41 at 3 states the deadline \uFFFC. Id. at 2 states another.")).toEqual([
+      "ECF No. 41 at 3",
+      "Id. at 2 → 0",
+    ]);
+  });
+
+  test("a supra of another authority is never a record cite and ends the chain", () => {
+    expect(
+      linked("He said yes (Smith Dep. 45:3). Courts disagree. Smith, supra note 3, at 46."),
+    ).toEqual(["Smith Dep. 45:3"]);
+    expect(linked("(Smith Dep. 45:3). Hallmark, supra, at 105. Id. at 106.")).toEqual([
+      "Smith Dep. 45:3",
+    ]);
+  });
+
+  test("a short form with a pin cite it can't read is kept, unread, never read without it", () => {
+    const found = linkRecordCites(
+      recordCiteTokens("(Smith Dep. 45:3). Id. § 4. Smith Dep., supra note 3, at 46."),
+    );
+    expect(found.map((cite) => cite.raw)).toEqual(["Smith Dep. 45:3", "Id.", "Smith Dep., supra"]);
+    expect(found.slice(1).map((cite) => cite.result.status)).toEqual(["error", "error"]);
   });
 
   test("an Id. after a cite that can't be read still refers to it, so it can't be placed either", () => {
@@ -67,10 +111,10 @@ describe("what an Id. or a supra refers to", () => {
   });
 
   test("a supra two earlier sources could be is left unplaced", () => {
-    expect(linked("(Smith Dep. 45:3; Smith Decl. ¶ 3; Smith, supra)")).toEqual([
-      "Smith Dep. 45:3",
+    expect(linked("(Smith Decl. ¶ 3; Smith Decl. Ex. 2 at 1; Smith Decl., supra)")).toEqual([
       "Smith Decl. ¶ 3",
-      "Smith, supra → null",
+      "Smith Decl. Ex. 2 at 1",
+      "Smith Decl., supra → null",
     ]);
   });
 });
@@ -121,7 +165,20 @@ describe("a sentence's record cites read from its Note", () => {
     expect(sentenceRecordCites(claim, { blockId: "more", from: 9 }, () => note).own).toBe(1);
     expect(sentenceRecordCites(claim, undefined, () => note).own).toBe(1);
     const twice = [...note, { blockId: "copy", text: claim }];
-    expect(sentenceRecordCites(claim, undefined, () => twice).own).toBe(0);
+    expect(sentenceRecordCites(claim, undefined, () => twice).cites).toMatchObject([
+      { raw: "Id. at 46:1–2", referent: null },
+    ]);
+  });
+
+  test("an Id. after a statute in an earlier paragraph is the statute's", () => {
+    const statute: NoteParagraph[] = [
+      { blockId: "said", text: "He said yes (Smith Dep. 45:3)." },
+      { blockId: "law", text: "The law is 42 U.S.C. § 1983." },
+      { blockId: "no", text: "Smith said no. Id." },
+    ];
+    expect(
+      sentenceRecordCites("Smith said no. Id.", { blockId: "no", from: 0 }, () => statute),
+    ).toEqual({ cites: [], own: 0 });
   });
 
   test("checks read the same in any order: nothing of an earlier check is used", () => {

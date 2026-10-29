@@ -1003,6 +1003,17 @@ describe("sentences whose check isn't good, in an imported file (#900)", () => {
           passage: "The point appears nearby instead.",
         },
       },
+      {
+        raw: "Jones Dep. 12:1–4",
+        outcome: "unsupported",
+        documentId: "a-deleted-deposition",
+        documentName: "Jones Deposition",
+        contentHash: "its-last-version",
+        location: { kind: "page", from: 2, to: 2, lines: { from: 1, to: 4 } },
+        pageFrom: 2,
+        pageTo: 2,
+        passage: "The deleted deposition's lines.",
+      },
     ];
     const marked = checked(sentence, "supported", null, null, { recordCites });
     editMind(client, ([first, second]) => [
@@ -1034,6 +1045,7 @@ describe("sentences whose check isn't good, in an imported file (#900)", () => {
     expect(textOf(comments)).toContain("Passage: The deposition supports the sentence.");
     expect(textOf(comments)).toContain("Dkt. 41 at 6: Not found");
     expect(textOf(comments)).toContain("Nearby suggestion: Tides, p. 7 · lines 5–9");
+    expect(textOf(comments)).toContain("Jones Deposition, p. 2");
     const ids = (name: string) =>
       [...document.matchAll(new RegExp(`<w:${name} w:id="(\\d+)"`, "g"))].map((match) => match[1]);
     expect(ids("commentRangeStart").sort()).toEqual(ids("commentRangeEnd").sort());

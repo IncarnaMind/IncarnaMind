@@ -1,12 +1,13 @@
+import type { JSONContent } from "@tiptap/core";
 import { expect, test } from "vitest";
 import type { ClaimCheckAttributes } from "../../src/core";
-import { claimSpans } from "../../src/renderer/src/editor/claimChecks";
+import { claimSpans, claimsOf } from "../../src/renderer/src/editor/claimChecks";
 import { readRecordCiteChoices, recordCiteSettingsOf } from "../../src/shared/recordCiteChoices";
 import { INLINE_NODE } from "../../src/shared/sentences";
 import { checkingModel } from "../helpers/checks";
 import { setUpWithDocuments } from "../helpers/citations";
 import { connectToMind } from "../helpers/mindClient";
-import { readMind, writeMind } from "../helpers/minds";
+import { editMind, readMind, writeMind } from "../helpers/minds";
 import { buildPdf } from "../helpers/pdf";
 
 const SOURCE = "ECF No. 41 at 3 states the deadline.";
@@ -155,7 +156,23 @@ test("Check this Note reads a later Id. on the cite before it, in whatever order
     outcome: "supported",
     documentId: document.id,
     location: { kind: "page", from: 2, to: 2 },
+    via: ["ECF No. 41 at 3"],
   });
+  const context = { versions: null, folderId: folder.id, scope: null };
+  const shownNext = () =>
+    claimsOf(readMind(client), context).claims.find((claim) => claim.check.text === NEXT)?.shown;
+  expect(shownNext()).toEqual({ state: "supported" });
+
+  editMind(client, ([, next]) => [
+    {
+      type: "paragraph",
+      attrs: { id: "source" },
+      content: [{ type: "text", text: "ECF No. 42 at 3 states the deadline." }],
+    },
+    next as JSONContent,
+  ]);
+  await client.settled();
+  expect(shownNext()).toEqual({ state: "needs-recheck", why: "referent" });
 });
 
 test("contradiction watch restores Id. from the original cited sentence", async () => {

@@ -24,6 +24,7 @@ import {
   type SearchScope,
   type UnsupportedReason,
 } from "../core/api";
+import { type RecordCiteNote, shortFormsThrough } from "../core/recordCites/referents";
 import { aggregateFigureStates, figureProblem, readFigureFinding } from "./figureChecks";
 import type { MessageKey } from "./i18n";
 import { parseLocation } from "./locations";
@@ -184,6 +185,9 @@ function recordCitesOf(value: unknown): RecordCiteResult[] | undefined {
         ...(text(each.passage) !== null ? { passage: text(each.passage) as string } : {}),
         ...(text(each.covered) ? { covered: text(each.covered) as string } : {}),
         ...(text(each.uncovered) ? { uncovered: text(each.uncovered) as string } : {}),
+        ...(Array.isArray(each.via) && each.via.every((cite) => typeof cite === "string")
+          ? { via: each.via as string[] }
+          : {}),
         ...(Array.isArray(each.candidates)
           ? {
               candidates: each.candidates.flatMap((candidate) =>
@@ -283,7 +287,9 @@ export type RecheckReason =
   | "scope"
   | "search-scope"
   /** Checked before each of its figures was checked with its own source (#1459). */
-  | "figures";
+  | "figures"
+  /** What one of its `Id.` or `supra` refers back to reads otherwise now (#1709). */
+  | "referent";
 
 /** A check as it shows now; "kept": the User keeps the sentence as their own view, and it shows nothing. */
 export type ClaimCheckShown =
@@ -306,6 +312,23 @@ export interface ClaimCheckNow {
   folderId: string | null;
   /** The Search scope the User set for the Mind now (`mindScopeOf`); null for none. */
   scope: SearchScope | null;
+  /** The Note the sentence is in, for what its `Id.` and `supra` refer back to now; unknown when absent. */
+  note?: RecordCiteNote;
+}
+
+/** Whether a sentence's `Id.` or `supra` refers back through other cites now than when it was checked. */
+function referentsMoved(check: ClaimCheckBasis, now: ClaimCheckNow): boolean {
+  const checked = (check.recordCites ?? []).flatMap((cite) => (cite.via ? [cite.via] : []));
+  if (!now.note || checked.length === 0) return false;
+  const current = shortFormsThrough(now.text, now.note);
+  return (
+    current.length !== checked.length ||
+    checked.some(
+      (via, index) =>
+        via.length !== current[index]?.length ||
+        via.some((cite, at) => cite !== current[index]?.[at]),
+    )
+  );
 }
 
 function scopeChanged(searched: ClaimCheckScope, now: ClaimCheckNow): boolean {
@@ -416,6 +439,7 @@ function basisShown(check: ClaimCheckBasis, now: ClaimCheckNow): ClaimCheckShown
   if (comparableSentence(now.text) !== comparableSentence(check.text)) {
     return { state: "needs-recheck", why: "edited" };
   }
+  if (referentsMoved(check, now)) return { state: "needs-recheck", why: "referent" };
   if (check.kept) return { state: "kept" };
   if (now.versions) {
     const relied = new Set(restsOn(check).map((each) => each.documentId));
@@ -446,6 +470,27 @@ function basisShown(check: ClaimCheckBasis, now: ClaimCheckNow): ClaimCheckShown
   return { state: check.state };
 }
 
+/** A sentence's own record cite that doesn't back it where it points (#1709). */
+const RECORD_MISSES: ReadonlySet<RecordCiteResult["outcome"]> = new Set([
+  "unsupported",
+  "not-found",
+  "choose",
+]);
+
+/**
+ * What a check's margin glyph shows: its sentence's state, but Unsupported rather than Supported
+ * while one of the sentence's own record cites is Unsupported, Not found or Choose (#1709).
+ */
+export function claimMarkState<State extends ClaimCheckShown["state"]>(
+  state: State,
+  check: Pick<ClaimCheckAttributes, "recordCites">,
+): State | "unsupported" {
+  return state === "supported" &&
+    (check.recordCites ?? []).some((cite) => RECORD_MISSES.has(cite.outcome))
+    ? "unsupported"
+    : state;
+}
+
 export function claimCheckShown(check: ClaimCheckAttributes, now: ClaimCheckNow): ClaimCheckShown {
   if (!check.figures?.length || check.kept) {
     const shown = basisShown(check, now);
@@ -458,6 +503,12 @@ export function claimCheckShown(check: ClaimCheckAttributes, now: ClaimCheckNow)
         shown.state === "contradicted")
       ? { state: "needs-recheck", why: "figures" }
       : shown;
+  }
+  if (
+    comparableSentence(now.text) === comparableSentence(check.text) &&
+    referentsMoved(check, now)
+  ) {
+    return { state: "needs-recheck", why: "referent" };
   }
   const figures = check.figures.map((figure) => figureCheckShown(figure, now));
   return aggregateFigureStates(
