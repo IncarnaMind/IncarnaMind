@@ -167,6 +167,24 @@ export function claimPlaces(
   return { ...projection, inline, sentences };
 }
 
+/**
+ * Where characters `from`–`to` of a check's sentence, as its check read it, are in the document;
+ * null when the sentence has moved or changed.
+ */
+export function placeInSentence(
+  state: EditorState,
+  claim: Pick<ClaimSpan, "sentence">,
+  { from, to }: { from: number; to: number },
+): { from: number; to: number } | null {
+  const $start = state.doc.resolve(claim.sentence.from);
+  if (!$start.parent.isTextblock) return null;
+  const places = claimPlaces($start.parent, $start.start() - 1);
+  const at = places.starts.indexOf(claim.sentence.from);
+  if (at < 0 || places.text.slice(at, at + claim.sentence.text.length) !== claim.sentence.text)
+    return null;
+  return inlineRange(places, at + from, at + to);
+}
+
 /** A check where it is in the editor now. */
 export interface ClaimSpan {
   kind?: "chart";

@@ -34,7 +34,7 @@ import { INLINE_NODE, sentenceSpans } from "../../shared/sentences";
 import { checkAgain, useChecks } from "./checks";
 import { makeMine } from "./editor/aiText";
 import { citationsOf } from "./editor/alreadyCited";
-import { claimPlaces, type ShownClaim, shownClaims } from "./editor/claimChecks";
+import { claimPlaces, placeInSentence, type ShownClaim, shownClaims } from "./editor/claimChecks";
 import { asOneStep, offerEditorUndo } from "./editor/editorUndo";
 import { writeSentenceCheck } from "./editor/figurePlaces";
 import { requestEdit, useEdits } from "./editWithAi";
@@ -285,21 +285,6 @@ export function keepAsView(editor: Editor, claim: ShownClaim): void {
   offerEditorUndo(editor, (t) => t("claim.keptAsView"));
 }
 
-/** Where the characters a figure fix changes are in the document; null when the sentence has moved. */
-function placeInSentence(
-  editor: Editor,
-  claim: ShownClaim,
-  fix: Pick<FigureFix, "from" | "to">,
-): { from: number; to: number } | null {
-  const $start = editor.state.doc.resolve(claim.sentence.from);
-  if (!$start.parent.isTextblock) return null;
-  const places = claimPlaces($start.parent, $start.start() - 1);
-  const at = places.starts.indexOf(claim.sentence.from);
-  if (at < 0 || places.text.slice(at, at + claim.sentence.text.length) !== claim.sentence.text)
-    return null;
-  return inlineRange(places, at + fix.from, at + fix.to);
-}
-
 /**
  * Puts back the check a Use took the sentence's mark from, once Undo has
  * brought its number back: every check over the sentence goes, as the
@@ -334,7 +319,7 @@ export function applyFigure(editor: Editor, mindId: string, doc: Y.Doc, claim: S
   const calculation = claim.check.calculation;
   const fix = figureFix(calculation, claim.sentence.text);
   if (!fix || !calculation) return;
-  const place = placeInSentence(editor, claim, fix);
+  const place = placeInSentence(editor.state, claim, fix);
   const words = place === null ? null : claimWordsAt(editor.state.doc, place.from, place.to);
   if (place === null || words !== calculation.stated) {
     useNotices.getState().showError(new Error(translateNow("claim.useFigure.moved")));
@@ -370,7 +355,7 @@ export function applyDocumentWording(
   }
   const quote = part.unsupported.quoted?.quote ?? part.evidence[0]?.quote;
   if (!quote) return;
-  const place = placeInSentence(editor, claim, { from: part.span.start, to: part.span.end });
+  const place = placeInSentence(editor.state, claim, { from: part.span.start, to: part.span.end });
   if (!place) {
     useNotices.getState().showError(new Error(translateNow("error.check.partChanged")));
     return;
@@ -404,7 +389,10 @@ export function documentWordingAt(editor: Editor) {
         !(part.unsupported.quoted?.quote ?? part.evidence[0]?.quote)
       )
         continue;
-      const place = placeInSentence(editor, claim, { from: part.span.start, to: part.span.end });
+      const place = placeInSentence(editor.state, claim, {
+        from: part.span.start,
+        to: part.span.end,
+      });
       if (
         place &&
         place.from <= selection.from &&

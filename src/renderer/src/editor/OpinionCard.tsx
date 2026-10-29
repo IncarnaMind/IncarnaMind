@@ -8,7 +8,7 @@ import { useT } from "../i18n";
 import { ClaimPartRows } from "./ClaimPartRows";
 import { focusFirstAction, keepFocusInside } from "./cardFocus";
 import { useCardPlace } from "./checkPlace";
-import { claimCardPlace } from "./claimCardPlace";
+import { badgeCorner, claimCardPlace } from "./claimCardPlace";
 import { shownClaims } from "./claimChecks";
 import { checkOpinion, useOpinionChecks } from "./opinionChecks";
 import { Popover } from "./Popover";
@@ -63,6 +63,7 @@ export function OpinionCard({
       anchor={anchor}
       placement="bottom-end"
       middleware={() => claimCardPlace(anchor)}
+      follows={() => badgeCorner(anchor)}
       initialFocus={{
         current: focus ? { focus: () => focusFirstAction(card.current, editor.view.dom) } : null,
       }}

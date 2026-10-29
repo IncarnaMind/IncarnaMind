@@ -48,15 +48,17 @@ export function movedClearOfBadge(
   return lower >= GAP ? { y: lower } : null;
 }
 
+/** The corner of the page that holds its check badge, which a card keeps clear of. */
+export function badgeCorner(anchor: Element | VirtualElement): Element | null | undefined {
+  const context = anchor instanceof Element ? anchor : anchor.contextElement;
+  return context?.closest(".mind-tab-page")?.querySelector(".mind-foot-badge");
+}
+
 function clearOfBadge(anchor: Element | VirtualElement): Middleware {
   return {
     name: "clearOfBadge",
     fn({ x, y, rects }) {
-      const context = anchor instanceof Element ? anchor : anchor.contextElement;
-      const badge = context
-        ?.closest(".mind-tab-page")
-        ?.querySelector(".mind-foot-badge .check-badge")
-        ?.getBoundingClientRect();
+      const badge = badgeCorner(anchor)?.querySelector(".check-badge")?.getBoundingClientRect();
       if (!badge) return {};
       const { width, height } = rects.floating;
       return movedClearOfBadge({ x, y, width, height }, rects.reference.y, badge) ?? {};

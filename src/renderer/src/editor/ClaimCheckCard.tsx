@@ -27,6 +27,7 @@ import { savedPageSource } from "../../../shared/webSource";
 import { useAddedDocuments } from "../addedDocuments";
 import {
   addAsCitation,
+  addPartCitations,
   checkAgain,
   closeOpenClaim,
   removeClaimMark,
@@ -70,12 +71,12 @@ import {
 import { type CitationDecision, citationDecision, citationsOf } from "./alreadyCited";
 import { ChangedCitations } from "./ChangedSourceNotice";
 import { ClaimOutline } from "./ClaimOutline";
-import { ClaimPartRows } from "./ClaimPartRows";
+import { ClaimPartRows, citesMore, type PartCitations } from "./ClaimPartRows";
 import { focusFirstAction, keepFocusInside } from "./cardFocus";
 import { useCardPlace } from "./checkPlace";
 import type { NumberedCitation } from "./citationNumbers";
 import { useReadableQuote } from "./citationScan";
-import { claimCardPlace } from "./claimCardPlace";
+import { badgeCorner, claimCardPlace } from "./claimCardPlace";
 import { claimPartRows, type ShownClaim } from "./claimChecks";
 import { ClaimMarkIcon, type ClaimMarkState } from "./icons";
 import { checkOpinion, opinionChecks } from "./opinionChecks";
@@ -160,7 +161,10 @@ export function ClaimMark({
     state === "supported" && claim.kind !== "chart"
       ? citationDecision(editor.state, claim)
       : NO_DECISION;
-  const plus = decision.kind === "add" && !claimPartRows(claim.check);
+  const rows = claimPartRows(claim.check);
+  const plus = rows
+    ? state === "supported" && citesMore(editor.state, claim, rows)
+    : decision.kind === "add";
   const added = useAddedDocuments((store) => store.byMind[mindId]?.[claim.check.id]?.length ?? 0);
   const heading = t(checkStateKey(editor, claim));
 
@@ -297,6 +301,7 @@ export function ClaimMark({
             anchor={button}
             placement="bottom-end"
             middleware={() => claimCardPlace(button)}
+            follows={() => badgeCorner(button)}
             onDismiss={(how) => {
               if (how === "escape" && openedByKeyboard.current) returnToNote();
               dismiss();
@@ -338,6 +343,21 @@ export function ClaimMark({
               onReplace={() => {
                 if (decision.kind === "replace") replaceCitation(editor, decision);
                 done(true);
+              }}
+              partCitations={{
+                claim,
+                onAdd: (parts) => {
+                  addPartCitations(editor, claim, parts);
+                  done(true);
+                },
+                onWiden: (part) => {
+                  widenCitation(editor, part);
+                  done(true);
+                },
+                onReplace: (part) => {
+                  replaceCitation(editor, part);
+                  done(true);
+                },
               }}
               onCheckAgain={(allDocuments) => {
                 void checkAgain(editor, mindId, doc, claim, allDocuments);
@@ -512,6 +532,7 @@ function ClaimCard({
   onAdd,
   onWiden,
   onReplace,
+  partCitations,
   onCheckAgain,
   onCheckPart,
   onUseWording,
@@ -543,6 +564,7 @@ function ClaimCard({
   onAdd(): void;
   onWiden(): void;
   onReplace(): void;
+  partCitations: PartCitations;
   onCheckAgain(allDocuments?: boolean): void;
   onCheckPart(span: ClaimPartSpan): void;
   onUseWording(part: ClaimCheckPart): void;
@@ -573,7 +595,14 @@ function ClaimCard({
   const fromPassage = !calculation || (state === "contradicted" && calculation.agrees);
   // An unsupported sentence keeps the nearest line when it says something different (#770).
   const differs = state === "unsupported" && check.evidence !== null;
-  const decisionMissing = state === "unsupported" && check.citedCaseUnchecked;
+  const partRows = claimPartRows(check);
+  const unsupportedParts = partRows?.filter((part) => part.verdict === "unsupported") ?? [];
+  // A parts card blames a court decision only when it is why every unsupported part is.
+  const decisionMissing =
+    state === "unsupported" &&
+    (partRows
+      ? unsupportedParts.length > 0 && unsupportedParts.every((part) => part.citedCaseUnchecked)
+      : check.citedCaseUnchecked);
   const ownWorkings =
     state === "unsupported" && check.excluded.some((left) => left.reason === "own-workings");
   const covers =
@@ -594,7 +623,13 @@ function ClaimCard({
   const citedQuote = already?.attributes.quote ? already.attributes : evidence;
   const quote = useReadableQuote(citedQuote);
   const where = location ? formatLocation(location, t) : null;
-  const decisionUnchecked = decided && check.citedCaseUnchecked;
+  const decisionUnchecked = partRows
+    ? partRows.some(
+        (part) =>
+          (part.verdict === "supported" || part.verdict === "contradicted") &&
+          part.citedCaseUnchecked,
+      )
+    : decided && check.citedCaseUnchecked;
   const decisionHeld =
     check.citedCaseFound &&
     (state === "supported" || state === "contradicted" || state === "unsupported") &&
@@ -618,7 +653,6 @@ function ClaimCard({
   const checkedIn = decided || state === "unsupported";
   const cuttable = fixes && uncoveredOf(claim) !== null;
   const pastCap = shown.state === "not-checked" && shown.reason === "too-many";
-  const partRows = claimPartRows(check);
   const reason =
     shown.state === "not-checked"
       ? t(`claim.reason.${shown.reason}`, {
@@ -689,6 +723,7 @@ function ClaimCard({
             onCheck={onCheckPart}
             onUseWording={onUseWording}
             scope={check.scope}
+            citations={partCitations}
             onOpen={onOpen}
             working={(partCalculation) => <Working calculation={partCalculation} onOpen={onOpen} />}
           />

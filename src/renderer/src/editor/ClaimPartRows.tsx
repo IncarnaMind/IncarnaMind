@@ -1,4 +1,5 @@
 import type { Editor } from "@tiptap/core";
+import type { EditorState } from "@tiptap/pm/state";
 import type { ReactNode } from "react";
 import { useContext, useLayoutEffect, useRef, useState } from "react";
 import type {
@@ -20,8 +21,10 @@ import { useLanguage, useT } from "../i18n";
 import { openCitedFollowing, quoteSaysSo } from "../openCited";
 import { useScopeName } from "../scopeDocuments";
 import { useAppStore } from "../store";
+import { type CitationDecision, partDecisions } from "./alreadyCited";
 import { focusFirstAction } from "./cardFocus";
 import { useReadableQuote } from "./citationScan";
+import type { ShownClaim } from "./claimChecks";
 import { ClaimMarkIcon } from "./icons";
 import { SignOffsContext } from "./mindContext";
 import { SignOffLine, SignOffToggle } from "./SignOff";
@@ -34,6 +37,7 @@ import {
   useDocumentVersions,
   usePersonId,
 } from "./signOffActions";
+import { CitationChip, OpenCitation } from "./UnsupportedCited";
 
 function hasKnownDomain(coverage: ClaimPartCoverage): boolean {
   return (
@@ -136,6 +140,102 @@ function PartCitation({
   );
 }
 
+/** A card's rows: each part, and each member of a quantified part's domain, under its part's words. */
+function cardRows(parts: readonly ClaimCheckPart[]) {
+  return parts.flatMap<{ part: ClaimCheckPart; label: string | null }>((part) => {
+    if (!part.coverage) return [{ part, label: null }];
+    const members = part.coverage.members.map((member) => ({
+      part: { ...part, verdict: member.verdict, evidence: member.evidence, coverage: undefined },
+      label: member.label,
+    }));
+    return hasKnownDomain(part.coverage)
+      ? members
+      : [{ part: { ...part, coverage: undefined }, label: null }, ...members];
+  });
+}
+
+/** Whether a row of the sentence's card can add a Citation of what it found. */
+export const citesMore = (
+  state: EditorState,
+  claim: ShownClaim,
+  parts: readonly ClaimCheckPart[],
+) =>
+  cardRows(parts).some(({ part }) =>
+    partDecisions(state, claim, part).some(({ decision }) => decision.kind === "add"),
+  );
+
+/** What a marked sentence's card does with the Citations of what its parts found (#2174). */
+export interface PartCitations {
+  claim: ShownClaim;
+  onAdd(parts: readonly ClaimCheckPart[]): void;
+  onWiden(decision: Extract<CitationDecision, { kind: "widen" }>): void;
+  onReplace(decision: Extract<CitationDecision, { kind: "replace" }>): void;
+}
+
+/**
+ * A supported row's Citations, by the sentence card's rules: the one it already
+ * has, or Widen or Replace the one there. Add as Citation sits on its result line.
+ */
+function PartCiting({
+  citing,
+  citations,
+  onOpen,
+}: {
+  citing: readonly CitationDecision[];
+  citations: PartCitations;
+  onOpen(): void;
+}) {
+  const t = useT();
+  const already = [
+    ...new Map(
+      citing.flatMap((decision) =>
+        decision.kind === "already" ? [[decision.citation.number, decision.citation] as const] : [],
+      ),
+    ).values(),
+  ];
+  const widen = citing.filter((decision) => decision.kind === "widen");
+  const replace = citing.filter((decision) => decision.kind === "replace");
+  return (
+    <>
+      {already.map((citation) => (
+        <OpenCitation
+          key={citation.number}
+          citation={citation}
+          label={t("claim.alreadyCited.open", { number: citation.number })}
+          onOpen={onOpen}
+        >
+          <span data-testid="claim-part-already-cited">{t("claim.alreadyCited")}</span>
+          <CitationChip citation={citation} testId="claim-part-already-chip" />
+        </OpenCitation>
+      ))}
+      {widen.length > 0 && (
+        <button
+          type="button"
+          data-testid="claim-part-widen-citation"
+          className="citation-card-action"
+          onClick={() => {
+            for (const decision of widen) citations.onWiden(decision);
+          }}
+        >
+          {t("claim.widenCitation")}
+        </button>
+      )}
+      {replace.length > 0 && (
+        <button
+          type="button"
+          data-testid="claim-part-replace-citation"
+          className="citation-card-action"
+          onClick={() => {
+            for (const decision of replace) citations.onReplace(decision);
+          }}
+        >
+          {t("claim.replaceCitation")}
+        </button>
+      )}
+    </>
+  );
+}
+
 function PartRow({
   editor,
   id,
@@ -149,6 +249,8 @@ function PartRow({
   lookedIn,
   checking,
   stale,
+  citing,
+  citations,
 }: {
   editor: Editor;
   id: string;
@@ -162,9 +264,22 @@ function PartRow({
   checking: boolean;
   stale: boolean;
   working?(calculation: ClaimCalculation): ReactNode;
+  citing: readonly CitationDecision[];
+  citations?: PartCitations;
 }) {
   const t = useT();
+  const documents = useAppStore((store) =>
+    store.status.kind === "ready" ? store.documents : null,
+  );
   const omitted = !stale && part.kind === "opinion" && part.verdict === null;
+  const held =
+    part.citedCaseFound &&
+    (part.verdict === "supported" ||
+      part.verdict === "contradicted" ||
+      part.verdict === "unsupported")
+      ? part.evidence.find((citation) => citationLocation(citation) !== null)
+      : undefined;
+  const heldAt = held ? citationLocation(held) : null;
   const state = stale ? "needs-recheck" : part.verdict;
   const target = { kind: "check", id: `${id}:${part.span.start}:${part.span.end}` } as const;
   const menu = useObjectMenu(target);
@@ -206,6 +321,16 @@ function PartRow({
               ? t("claim.part.checking")
               : t(`claim.state.${state}`)}
         </span>
+        {citations && citing.some((decision) => decision.kind === "add") && (
+          <button
+            type="button"
+            data-testid="claim-part-add-citation"
+            className="citation-card-action claim-part-add"
+            onClick={() => citations.onAdd([part])}
+          >
+            {t("claim.addAsCitation")}
+          </button>
+        )}
       </p>
       {reason && (
         <p className="citation-card-note" data-testid="claim-part-reason">
@@ -223,6 +348,14 @@ function PartRow({
             {t("claim.citedCaseUnchecked")}
           </p>
         )}
+      {held && heldAt && (
+        <p className="citation-card-note" data-testid="claim-part-court-decision-held">
+          {t("claim.courtDecision.held", {
+            document: shownDocumentName(held, documents) ?? "",
+            location: formatLocation(heldAt, t),
+          })}
+        </p>
+      )}
       {part.says && part.verdict === "contradicted" && (
         <p className="claim-card-says">{part.says}</p>
       )}
@@ -245,6 +378,7 @@ function PartRow({
         />
       ))}
       {part.calculation && working?.(part.calculation)}
+      {citations && <PartCiting citing={citing} citations={citations} onOpen={onOpen} />}
       {wording && (
         <button
           type="button"
@@ -294,6 +428,7 @@ export function ClaimPartRows({
   scope,
   checking = false,
   stale = false,
+  citations,
 }: {
   editor: Editor;
   id: string;
@@ -306,6 +441,8 @@ export function ClaimPartRows({
   checking?: boolean;
   stale?: boolean;
   working?(calculation: ClaimCalculation): ReactNode;
+  /** A marked sentence's rows add, widen or replace the Citations of what they found. */
+  citations?: PartCitations;
 }) {
   const t = useT();
   const language = useLanguage();
@@ -320,17 +457,16 @@ export function ClaimPartRows({
   }, [expanded]);
   const looked = useScopeName(scope ? checkedScope(scope) : null);
   const lookedIn = looked?.name ?? t("composer.scope.all");
-  const rows = parts.flatMap<{ part: ClaimCheckPart; label: string | null }>((part) => {
-    if (!part.coverage) return [{ part, label: null }];
-    const members = part.coverage.members.map((member) => ({
-      part: { ...part, verdict: member.verdict, evidence: member.evidence, coverage: undefined },
-      label: member.label,
-    }));
-    return hasKnownDomain(part.coverage)
-      ? members
-      : [{ part: { ...part, coverage: undefined }, label: null }, ...members];
-  });
+  const rows = cardRows(parts);
   const visible = expanded ? rows : rows.slice(0, 4);
+  const citing = rows.map(({ part }) =>
+    citations && !stale && !checking
+      ? partDecisions(editor.state, citations.claim, part).map(({ decision }) => decision)
+      : [],
+  );
+  const addable = rows.flatMap(({ part }, index) =>
+    citing[index]?.some((decision) => decision.kind === "add") ? [part] : [],
+  );
   return (
     <>
       {parts.flatMap((part) => {
@@ -360,8 +496,18 @@ export function ClaimPartRows({
           </div>,
         ];
       })}
+      {citations && addable.length >= 2 && (
+        <button
+          type="button"
+          data-testid="claim-parts-add-all"
+          className="citation-card-action citation-card-action--primary"
+          onClick={() => citations.onAdd(addable)}
+        >
+          {t("claim.addAllAsCitations")}
+        </button>
+      )}
       <ol ref={list} className="claim-parts" data-testid="claim-parts">
-        {visible.map(({ part, label }) => (
+        {visible.map(({ part, label }, index) => (
           <PartRow
             editor={editor}
             key={`${part.span.start}:${part.span.end}:${label ?? ""}`}
@@ -376,6 +522,8 @@ export function ClaimPartRows({
             lookedIn={lookedIn}
             checking={checking}
             stale={stale}
+            citing={citing[index] ?? []}
+            citations={citations}
           />
         ))}
       </ol>

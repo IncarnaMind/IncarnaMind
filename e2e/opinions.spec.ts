@@ -255,7 +255,7 @@ for (const language of ["en", "zh-CN"] as const) {
               ]),
             ),
           ]);
-          await expect(window.getByTestId("claim-mark")).not.toContainText("+");
+          await expect(window.getByTestId("claim-mark")).toContainText("+");
           const sourceParts = await partsOfCheck(window, "multisource-check");
           await pointAndClick(window, window.getByTestId("claim-mark"));
           const sourceCard = window.getByTestId("claim-card");
@@ -337,7 +337,7 @@ for (const language of ["en", "zh-CN"] as const) {
         const health = await checkCard(window);
         await expect(health.getByTestId("opinions-line").first()).toContainText(words.omitted);
         await expect(window.getByTestId("claim-mark")).toHaveCount(1);
-        await expect(window.getByTestId("claim-mark")).not.toContainText("+");
+        await expect(window.getByTestId("claim-mark")).toContainText("+");
         await pointAndClick(window, health.getByTestId("opinions-show").first());
         const card = window.getByTestId("claim-card");
         await allRowsVisible(window, 2);
@@ -517,8 +517,9 @@ for (const language of ["en", "zh-CN"] as const) {
         await card.getByTestId("claim-parts-more").focus();
         await window.keyboard.press("Enter");
         await expect(card.getByTestId("claim-part")).toHaveCount(6);
+        // The first row it shows takes the focus, at its first action: its Add as Citation.
         await expect(
-          card.getByTestId("claim-part").nth(4).getByTestId("claim-part-citation"),
+          card.getByTestId("claim-part").nth(4).getByTestId("claim-part-add-citation"),
         ).toBeFocused();
         await screenshot(window, `opinions-more-${language}-${width}`);
         await pointAndClick(
@@ -562,7 +563,7 @@ for (const language of ["en", "zh-CN"] as const) {
         ]);
         await window.getByTestId("claim-mark").click();
         await expect(card.getByTestId("claim-parts-coverage")).toContainText(
-          language === "en" ? "Covers 3 of 4 (quarters)" : "覆盖 4 项中的 3 项（季度）",
+          language === "en" ? "Covers 3 of the 4 quarters" : "覆盖 4 项中的 3 项",
         );
         await allRowsVisible(window, 4);
         await expect(
@@ -621,6 +622,9 @@ for (const language of ["en", "zh-CN"] as const) {
             citedCaseUnchecked: true,
           };
           await setContent(window, [paragraph("case", both, cases)]);
+          // Opened once the page's check badge shows, as a User sees it, so the card can keep clear of it.
+          const badge = window.locator(".mind-foot-badge .check-badge").first();
+          await expect(badge).toBeVisible();
           await window.getByTestId("claim-mark").click();
           await expect(card.getByTestId("claim-cited-case-unchecked")).toHaveText(
             translate(language, "claim.citedCaseUnchecked"),
@@ -628,6 +632,15 @@ for (const language of ["en", "zh-CN"] as const) {
           const rows = card.getByTestId("claim-part");
           await expect(rows.first().getByTestId("claim-part-cited-case-unchecked")).toBeVisible();
           await expect(rows.last().getByTestId("claim-part-cited-case-unchecked")).toHaveCount(0);
+          const badgeBox = await badge.boundingBox();
+          const box = await card.boundingBox();
+          if (!badgeBox || !box) throw new Error("The card or the badge has no size.");
+          expect(
+            box.y + box.height <= badgeBox.y ||
+              box.x + box.width <= badgeBox.x ||
+              box.x >= badgeBox.x + badgeBox.width ||
+              box.y >= badgeBox.y + badgeBox.height,
+          ).toBe(true);
           await window.keyboard.press("Escape");
         }
 

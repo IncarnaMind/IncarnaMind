@@ -5410,6 +5410,12 @@
     align-items: center;
     gap: 6px;
   }
+  /* A row's Add as Citation sits at the end of its result line, so the rows keep their height. */
+  .citation-card-action.claim-part-add {
+    height: 24px;
+    margin-inline-start: auto;
+    padding: 0 8px;
+  }
   .claim-part-citation {
     display: flex;
     flex-direction: column;

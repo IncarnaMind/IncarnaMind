@@ -1,5 +1,5 @@
 import type { EditorState } from "@tiptap/pm/state";
-import type { CitationAttributes, CitationCheck } from "../../../core/api";
+import type { CitationAttributes, CitationCheck, ClaimCheckPart } from "../../../core/api";
 import { continuesCitation, overlapsCitation } from "../../../shared/citationOverlap";
 import { quotedWordsFoundIn } from "../../../shared/citations";
 import { type NumberedCitation, numberedCitations } from "./citationNumbers";
@@ -34,6 +34,29 @@ export type CitationDecision =
 export function citationDecision(state: EditorState, claim: ShownClaim): CitationDecision {
   const { evidence, calculation } = claim.check;
   if (!evidence || calculation) return { kind: "none" };
+  return decisionFor(state, claim, evidence);
+}
+
+/**
+ * What a supported part's row offers for each Passage its check found, by the
+ * sentence's rules (#2174): a part worked out by a calculation offers none.
+ */
+export function partDecisions(
+  state: EditorState,
+  claim: ShownClaim,
+  part: ClaimCheckPart,
+): { evidence: CitationAttributes; decision: CitationDecision }[] {
+  if (part.verdict !== "supported" || part.calculation) return [];
+  return part.evidence
+    .filter((evidence) => evidence.check === "found")
+    .map((evidence) => ({ evidence, decision: decisionFor(state, claim, evidence) }));
+}
+
+function decisionFor(
+  state: EditorState,
+  claim: ShownClaim,
+  evidence: CitationAttributes,
+): CitationDecision {
   const cited = citationsOf(state, claim).filter(
     ({ attributes }) =>
       attributes.documentId !== null && attributes.documentId === evidence.documentId,
