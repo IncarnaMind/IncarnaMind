@@ -12,6 +12,7 @@ import {
   type WindowLayout,
 } from "../../src/core/api";
 import type { Translate } from "../../src/renderer/src/objects";
+import { translate } from "../../src/shared/i18n";
 import { isFreed } from "../helpers/freed";
 import { undoLines } from "../helpers/undoLines";
 
@@ -339,6 +340,10 @@ describe("changes the User can take back", () => {
       countsOwnFiles: group.countsOwnFiles,
       keepInside: true,
     });
+    expect(said(top())).toBe("Turned on inside-only work for Research");
+    expect(undoLines((key, params) => translate("zh-CN", key, params)).said(top())).toBe(
+      "已开启“Research”只在本文件夹内工作",
+    );
     expect(method("updateLibraryGroup")).toHaveBeenLastCalledWith("g", {
       name: group.name,
       description: group.description,

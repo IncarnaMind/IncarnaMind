@@ -3,6 +3,7 @@ import { join } from "node:path";
 import { expect, test } from "@playwright/test";
 import {
   addDocuments,
+  askInAssistant,
   coreOf,
   createDataFolder,
   dismissChatSetup,
@@ -15,6 +16,7 @@ import {
   setLanguage,
   setWindowSize,
   sidebarFolder,
+  useLocalChatModel,
 } from "./app";
 
 const SCREENSHOTS = process.env.INCARNAMIND_SCREENSHOTS;
@@ -140,6 +142,11 @@ for (const language of ["en", "zh-CN"] as const) {
     await expect(toggle).toHaveAttribute("aria-checked", "false");
     await toggle.click();
     await expect(folder.getByTestId("folder-wall")).toBeVisible();
+    await expect(window.getByTestId("undo-message")).toHaveText(
+      language === "en"
+        ? "Turned on inside-only work for Client A"
+        : "已开启“客户甲”只在本文件夹内工作",
+    );
     const chip = window.getByTestId("composer-scope").getByTestId("scope-chip");
     await expect(chip).toHaveAttribute("data-walled", "true");
     await expect(chip).toContainText(folderName);
@@ -176,3 +183,45 @@ for (const language of ["en", "zh-CN"] as const) {
     await app.close();
   });
 }
+
+test("a walled Conversation with no Note open keeps its composer behind the wall", async () => {
+  await writeFile(join(sources, "Client A lease.txt"), "Termination notice: 90 days.\n");
+  await writeFile(join(sources, "Other lease.txt"), "Termination notice: 60 days.\n");
+  const { app, window } = await launchApp(dataDir, { fakeChat: true });
+  await dismissChatSetup(window);
+  await useLocalChatModel(window);
+  await setWindowSize(app, window, 1200, 800);
+  await addDocuments(window, [
+    join(sources, "Client A lease.txt"),
+    join(sources, "Other lease.txt"),
+  ]);
+  await (await coreOf(window)).evaluate(async (core) => {
+    const documents = await core.listDocuments();
+    const folder = await core.createLibraryGroup({ name: "Client A", description: "" });
+    const own = documents.find((document) => document.name === "Client A lease");
+    if (own) await core.assignDocumentGroup(own.id, folder.id);
+    await core.updateLibraryGroup(folder.id, {
+      name: "Client A",
+      description: "",
+      keepInside: true,
+    });
+  });
+  await newMind(window, { title: true });
+  await nameMind(window, "Client A note");
+  await (await coreOf(window)).evaluate(async (core) => {
+    const mind = (await core.listMinds()).find((each) => each.title === "Client A note");
+    const folder = (await core.getLibrary()).groups.find((each) => each.name === "Client A");
+    if (mind && folder) await core.moveToFolder({ mindIds: [mind.id], folderId: folder.id });
+  });
+  await motionSettled(window);
+  await askInAssistant(window, "What is the notice?");
+  // The Note closes; the Conversation, filed in Client A, stays open in the assistant.
+  await window.getByTestId("mind-editor").first().click();
+  await window.keyboard.press("ControlOrMeta+w");
+  await expect(window.getByTestId("mind-editor")).toHaveCount(0);
+  const chip = window.getByTestId("composer-scope").getByTestId("scope-chip");
+  await expect(chip).toHaveAttribute("data-walled", "true");
+  await expect(chip).toContainText("Client A");
+  await expect(window.getByTestId("composer-scope-all")).toHaveCount(0);
+  await app.close();
+});

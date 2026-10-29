@@ -45,6 +45,7 @@ import {
   useAnswerBeingWritten,
   useConversations,
   useHasMessage,
+  useOpenConversation,
 } from "../conversations";
 import { core } from "../core";
 import { type Dragged, type Dropped, useDropTarget } from "../dragDrop";
@@ -64,13 +65,14 @@ import {
   useWebMissing,
   useWebReach,
 } from "../research";
-import type { ScopeChoice } from "../scope";
+import { type ScopeChoice, scopeWithin } from "../scope";
 import { useFolderHoldsDocuments } from "../scopeDocuments";
 import { skillDescription } from "../skills";
 import { useAppStore } from "../store";
 import { tellTask, useTasks } from "../tasks";
 import { takeBackLast, tellable } from "../taskTell";
 import { taskName } from "../taskText";
+import { useTurnWall } from "../turnWall";
 import { AnswerAnnouncer } from "./AnswerAnnouncer";
 import { AskedQuoteChips } from "./AskedQuotes";
 import { AskProblem } from "./AskProblem";
@@ -158,12 +160,9 @@ export function Composer({
     (state) => state.minds.find((each) => each.id === (source?.mindId ?? mindId))?.folderId ?? null,
   );
   const folderHolds = useFolderHoldsDocuments(folderId);
-  const walled = useAppStore(
-    (state) =>
-      folderId !== null &&
-      state.library?.groups.some((group) => group.id === folderId && group.keepInside === true) ===
-        true,
-  );
+  const conversationId = useOpenConversation()?.id ?? null;
+  const wallId = useTurnWall({ mindId: source?.mindId ?? mindId, conversationId });
+  const walled = wallId !== null;
   const before = useScopeBefore(scopeDoc);
   const folderName = useAppStore(
     (state) => state.library?.groups.find((each) => each.id === folderId)?.name ?? null,
@@ -178,10 +177,7 @@ export function Composer({
           count: leftOutCount,
         });
   // What the chips show: what the core will search (#1359). Asking sends `composerScope`.
-  const scope =
-    walled && folderId !== null
-      ? folderScope(folderId)
-      : mindSearchScope(scopeDraft.scope, folderId, folderHolds);
+  const scope = scopeWithin(wallId, mindSearchScope(scopeDraft.scope, folderId, folderHolds));
   // The Mind in focus changes under the one composer: what was typed with no Mind goes with the
   // User into the Mind that opens, whose draft is empty, and the quotes waiting with it go
   // whatever that draft holds; the rest of its state starts over.
@@ -273,7 +269,7 @@ export function Composer({
   };
   /** Keeps the scope the User chose; the Mind's own follows it to another Folder. */
   const withinWall = (next: SearchScope) => {
-    if (walled && folderId !== null) return folderScope(folderId);
+    if (wallId !== null) return folderScope(wallId);
     const state = useAppStore.getState();
     const walls = new Set(
       (state.library?.groups ?? []).filter((group) => group.keepInside).map((group) => group.id),
@@ -531,6 +527,7 @@ export function Composer({
         name: first.trim().slice(0, 60) || t("composer.paste.name"),
         text: paste.text,
         mindId: source?.mindId ?? mindId,
+        conversationId,
       });
       const composer = useComposer.getState();
       const now = composer.draft(key);

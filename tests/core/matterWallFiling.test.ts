@@ -337,6 +337,33 @@ describe("a Citation checked again names the Note it is for", () => {
   });
 });
 
+describe("a walled Conversation with no Note open", () => {
+  test("is behind its Folder's wall: the composer's wall, its search and a paste saved there", async () => {
+    const s = await setUp();
+    const first = await askAssistant(s.core, { text: "What is the notice?", mindId: s.noteA.id });
+    const place = { mindId: null, conversationId: first.conversationId };
+    expect(await s.core.wallOfTurn(place)).toBe(s.folderA.id);
+    expect(await s.core.wallOfTurn({ mindId: s.noteX.id, conversationId: null })).toBeNull();
+
+    const from = s.calls.length;
+    await askAssistant(s.core, { text: "And the notice again?", ...place });
+    const found = s.calls
+      .slice(from)
+      .flatMap((call) => call.results.map((each) => each.text))
+      .join("\n");
+    expect(found).toContain("Client A notice");
+    expect(found).not.toContain("Memo one");
+
+    const saved = await s.core.saveTextAsDocument({
+      name: "Pasted offer",
+      text: "The notice of the settlement offer zeta: 4 million omega.",
+      ...place,
+    });
+    const { assignments } = await s.core.getLibrary();
+    expect(assignments.find((each) => each.documentId === saved.id)?.groupId).toBe(s.folderA.id);
+  });
+});
+
 describe("a long paste saved as a Document from a Note's composer", () => {
   const OFFER = "The notice of the settlement offer zeta: 4 million omega.";
 
@@ -346,6 +373,7 @@ describe("a long paste saved as a Document from a Note's composer", () => {
       name: "Pasted offer",
       text: OFFER,
       mindId: s.noteA.id,
+      conversationId: null,
     });
     const { assignments } = await s.core.getLibrary();
     expect(assignments.find((each) => each.documentId === saved.id)).toMatchObject({
@@ -376,6 +404,7 @@ describe("a long paste saved as a Document from a Note's composer", () => {
       name: "Pasted",
       text: OFFER,
       mindId: s.noteX.id,
+      conversationId: null,
     });
     const { assignments } = await s.core.getLibrary();
     expect(assignments.find((each) => each.documentId === saved.id)?.groupId ?? null).toBeNull();

@@ -285,6 +285,7 @@ describe("Files IncarnaMind wrote aren't evidence", () => {
     expect(empty.ownFile).toBeNull();
     const pasted = await core.saveTextAsDocument({
       mindId: null,
+      conversationId: null,
       name: "Field notes",
       text: "Spring tides flooded the harbour steps at Whitby.",
     });

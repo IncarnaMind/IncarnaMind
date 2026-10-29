@@ -350,6 +350,7 @@ export const en = {
   "folder.wall.notFiled":
     "Nothing new was made: this work stays inside its Folder, which can’t be found now. Your notes are unchanged.",
   "error.folder.wall": "This Folder keeps its work inside it.",
+  "error.turnPlace": "This needs to know which note or conversation it’s in.",
   "error.citation.recheckNote": "A Citation can only be checked again for the note it is in.",
   "error.folder.wallMove":
     "Not moved: a Folder that keeps its work inside it can’t have its work moved in or out by the assistant. You can still move it yourself.",

@@ -63,11 +63,13 @@ describe("Documents", { timeout: 30_000 }, () => {
 
     const first = await core.saveTextAsDocument({
       mindId: null,
+      conversationId: null,
       name: "Pasted: notes/1",
       text: ENGLISH_NOTES,
     });
     const second = await core.saveTextAsDocument({
       mindId: null,
+      conversationId: null,
       name: "Pasted: notes/1",
       text: "Other words.",
     });
@@ -78,7 +80,7 @@ describe("Documents", { timeout: 30_000 }, () => {
     expect(second.path).toMatch(/\/Saved text\/Pasted notes 1 2\.md$/);
     expect(await readFile(first.path as string, "utf8")).toBe(`${ENGLISH_NOTES}\n`);
     await expect(
-      core.saveTextAsDocument({ mindId: null, name: "x", text: "  \n" }),
+      core.saveTextAsDocument({ mindId: null, conversationId: null, name: "x", text: "  \n" }),
     ).rejects.toThrow(InvalidInputError);
   });
 

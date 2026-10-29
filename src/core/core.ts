@@ -123,6 +123,7 @@ import {
   type SearchScope,
   type SelectedPart,
   type Task,
+  type TurnPlace,
   type UnlockDocumentInput,
   type UnreadFile,
   type Unsubscribe,
@@ -1460,6 +1461,25 @@ export function createCore(adapters: CoreAdapters): Core {
     wallOfDocument(documentId)?.name ?? null;
   const folderOfNote = (mindId: string | null): string | null =>
     mindId !== null && mindExists(mindId) ? minds.get(mindId).folderId : null;
+  /** A Note and a conversation as the API takes them: an id or null each, neither left out. */
+  const parseTurnPlace = (input: unknown): TurnPlace => {
+    const idOf = (value: unknown) => {
+      if (value === null) return null;
+      if (typeof value === "string" && value !== "") return value;
+      throw new InvalidInputError({ key: "error.turnPlace" });
+    };
+    const place = isRecord(input) ? input : {};
+    return { mindId: idOf(place.mindId), conversationId: idOf(place.conversationId) };
+  };
+  /**
+   * The wall of a Question asked from `mindId`, else in `conversationId` with no Note open: the
+   * Note's Folder, else the conversation's, judged against today's walls (#1934).
+   */
+  const turnWall = ({ mindId, conversationId }: TurnPlace): string | null => {
+    if (mindId !== null) return walledFolder(mindId);
+    if (conversationId === null) return null;
+    return walledFolderId(conversations.get(conversationId).folderId);
+  };
   const walledFolder = (mindId: string | null): string | null => {
     const folderId = mindId !== null && mindExists(mindId) ? minds.get(mindId).folderId : null;
     return walledFolderId(folderId);
@@ -4274,12 +4294,12 @@ export function createCore(adapters: CoreAdapters): Core {
     },
     keepWebPageLook: async (documentId) => webPages.keepLook(documentId),
     fetchWebPageAgain: async (documentId, options) => webPages.fetchAgain(documentId, options),
+    wallOfTurn: async (input) => turnWall(parseTurnPlace(input)),
     saveTextAsDocument: async (input) => {
       if (!isRecord(input) || typeof input.text !== "string" || input.text.trim() === "") {
         throw new InvalidInputError("There is no text to save.");
       }
-      const from = typeof input.mindId === "string" ? input.mindId : null;
-      const filed = filedWithin(walledFolder(from), null);
+      const filed = filedWithin(turnWall(parseTurnPlace(input)), null);
       if (filed === null) throw new InvalidInputError({ key: "error.folder.notFiled" });
       const title = typeof input.name === "string" ? input.name : "";
       const folder = join(dataDir, "Saved text");

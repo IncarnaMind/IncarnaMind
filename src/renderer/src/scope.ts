@@ -8,7 +8,13 @@ import type {
   Tag,
 } from "../../core/api";
 import type { MessageKey } from "../../shared/i18n";
-import { holdsText, SCOPE_KINDS, type ScopeKind, scopeIds } from "../../shared/searchScope";
+import {
+  folderScope,
+  holdsText,
+  SCOPE_KINDS,
+  type ScopeKind,
+  scopeIds,
+} from "../../shared/searchScope";
 import { buildFolderTree, flattenFolderTree } from "./folders";
 import { matchName, queryWords } from "./matcher";
 
@@ -262,3 +268,7 @@ export function scopeChips(library: ScopeLibrary, scope: SearchScope): ScopeChip
     }),
   ];
 }
+
+/** What the composer searches: its wall's Folder alone behind a wall (`useTurnWall`), else `otherwise`. */
+export const scopeWithin = (wall: string | null, otherwise: SearchScope): SearchScope =>
+  wall === null ? otherwise : folderScope(wall);

@@ -1848,6 +1848,12 @@ export interface CitationToRecheck {
   contentHash?: string | null;
 }
 
+/** Where a Question is asked: its Note, else its conversation; null for none. */
+export interface TurnPlace {
+  mindId: string | null;
+  conversationId: string | null;
+}
+
 export interface RecheckCitationInput extends CitationToRecheck {
   /**
    * The Note the Citation is in, or going into; null for one shown in no Note (an Answer in the
@@ -9872,18 +9878,22 @@ export interface CoreApi {
   /**
    * Keeps text the User pasted as a Markdown Document, so Answers can cite it.
    * The file is written in the data folder ("Saved text"), never next to the
-   * User's files, and added on its own like any file (no Folder, but behind a wall in its Folder). A name taken
+   * User's files, and added on its own like any file: in no Folder, but in the walled Folder of
+   * the Note, or of the conversation with no Note open, it was pasted in (`wallOfTurn`). A name taken
    * already gets a number. Throws InvalidInputError for text with no words.
    */
-  saveTextAsDocument(input: {
-    name: string;
-    text: string;
-    /**
-     * The Note whose composer it was pasted in; null for none. From a Note in a walled Folder it
-     * is filed in that Folder, as everything made behind the wall is (#1934).
-     */
-    mindId: string | null;
-  }): Promise<Document>;
+  saveTextAsDocument(
+    input: {
+      name: string;
+      text: string;
+    } & TurnPlace,
+  ): Promise<Document>;
+  /**
+   * The walled Folder a Question asked here would be behind, as Answers judge it (#1934): the
+   * Note's, else the conversation's when no Note is open; null outside every wall. What the
+   * composer shows and files follows it.
+   */
+  wallOfTurn(input: TurnPlace): Promise<string | null>;
   /**
    * Saves a web page as a Document (#261): its readable text, without
    * navigation, ads or scripts, kept as a snapshot that Citations point at
@@ -11579,6 +11589,7 @@ const methods: Record<CoreApiMethod, true> = {
   keepWebPageLook: true,
   fetchWebPageAgain: true,
   saveTextAsDocument: true,
+  wallOfTurn: true,
   listDocuments: true,
   renameDocument: true,
   deleteDocument: true,

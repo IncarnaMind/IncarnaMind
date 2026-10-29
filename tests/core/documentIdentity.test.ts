@@ -347,7 +347,12 @@ describe("The files IncarnaMind keeps are in the data folder, wherever it is", {
     const first = startCore(dataDir);
     const saved = await first.saveWebPage({ address: "https://reader.example/tea", html: ARTICLE });
     if (saved.outcome !== "saved") throw new Error("The page wasn't saved.");
-    const text = await first.saveTextAsDocument({ mindId: null, name: "Pasted", text: SPRING });
+    const text = await first.saveTextAsDocument({
+      mindId: null,
+      conversationId: null,
+      name: "Pasted",
+      text: SPRING,
+    });
     await waitForProcessing(first, [saved.document.id, text.id]);
     await first.close();
     const kept = places(dataDir).filter((row) => row.source_kind === "data-folder");

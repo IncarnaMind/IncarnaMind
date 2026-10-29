@@ -931,11 +931,13 @@ describe("sentences whose check isn't good, in an imported file (#900)", () => {
       await core.updateSettings({ user: { language } });
       const okoro = await core.saveTextAsDocument({
         mindId: null,
+        conversationId: null,
         name: "Okoro agreement",
         text: "Notice.",
       });
       const adeyemi = await core.saveTextAsDocument({
         mindId: null,
+        conversationId: null,
         name: "Adeyemi agreement",
         text: "Leave.",
       });
