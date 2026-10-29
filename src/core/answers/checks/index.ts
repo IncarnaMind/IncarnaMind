@@ -28,6 +28,11 @@ import type * as Y from "yjs";
 import { caseCitations } from "../../../shared/caseCitations";
 import { type LiveDocument, withShownName } from "../../../shared/citations";
 import { restsOn } from "../../../shared/claimChecks";
+import {
+  beginFigureCheck,
+  readFigureFinding,
+  settleFigureCheck,
+} from "../../../shared/figureChecks";
 import { mindScopeIn } from "../../../shared/mindScope";
 import { folderScope, oneFolderOf } from "../../../shared/searchScope";
 import { judgesUnreliably } from "../../../shared/smallModel";
@@ -42,8 +47,10 @@ import {
   type CitedQuote,
   type ClaimCheckAction,
   type ClaimCheckAttributes,
+  type ClaimCheckBasis,
   type ClaimCheckResult,
   type ClaimCheckScope,
+  type ClaimJudgment,
   type ContradictionCheckPlan,
   claimCheckActions,
   type Document,
@@ -66,6 +73,7 @@ import {
   isRecord,
   LocalModeError,
 } from "../../errors";
+import { augmentFigureFooting } from "../../figureSchedule";
 import type { Language } from "../../language";
 import type { MindContent } from "../../mindContent";
 import { parseMindId } from "../../minds";
@@ -74,7 +82,14 @@ import { parseSearchScope } from "../../scope";
 import type { AnswerEngine } from "../engine";
 import { type ClaimCheckDependencies, createClaimCheck, recordJudged } from "./claimCheck";
 import { createMindCheck, type MindCheckOptions } from "./mindCheck";
-import { markedSentences, markSentence, selectedSentences, updateCheck } from "./sentences";
+import {
+  markedSentences as allMarks,
+  checkText,
+  markedSentences,
+  markSentence,
+  selectedSentences,
+  updateCheck,
+} from "./sentences";
 import { createVerify, type NoDocuments, type VerifyOptions } from "./verify";
 import { createContradictionWatch, type WatchOptions } from "./watch";
 import { createWrittenCheck, type WrittenCheckOptions } from "./written";
@@ -242,11 +257,7 @@ const withQuoted = ({ quoted, ...why }: UnsupportedReason): UnsupportedReason =>
 };
 
 /** A result written onto its mark. */
-function withResult(
-  check: ClaimCheckAttributes,
-  result: ClaimCheckResult,
-  at: string,
-): ClaimCheckAttributes {
+function withJudgment(check: ClaimCheckBasis, result: ClaimJudgment, at: string): ClaimCheckBasis {
   const common = { versions: result.versions, excluded: result.excluded, checkedAt: at };
   return result.verdict === "not-checked"
     ? { ...check, ...common, state: "not-checked", reason: result.reason, detail: result.detail }
@@ -265,11 +276,105 @@ function withResult(
       };
 }
 
+function withResult(
+  check: ClaimCheckAttributes,
+  result: ClaimCheckResult,
+  at: string,
+): ClaimCheckAttributes {
+  const { figures: _figures, remainder: _remainder, ...basis } = check;
+  const next = withJudgment(basis, result, at);
+  if (!result.figures)
+    return check.figures
+      ? settleFigureCheck(check, (child) =>
+          result.verdict === "not-checked"
+            ? withJudgment(child, result, at)
+            : { ...child, state: "not-checked", reason: "malformed", detail: null, checkedAt: at },
+        )
+      : next;
+  const figures = result.figures.flatMap((figure) => {
+    const finding = readFigureFinding(figure);
+    return finding
+      ? [{ ...withJudgment({ ...basis, id: finding.id }, figure.result, at), ...finding }]
+      : [];
+  });
+  if (figures.length !== result.figures.length)
+    return settleFigureCheck(check, (child) => ({
+      ...child,
+      state: "not-checked",
+      reason: "malformed",
+      detail: null,
+      checkedAt: at,
+    }));
+  if (!check.figures)
+    return {
+      ...next,
+      figures,
+      ...(result.remainder !== undefined && {
+        remainder:
+          result.remainder === null
+            ? null
+            : withJudgment({ ...basis, id: `${basis.id}:remainder` }, result.remainder, at),
+      }),
+    };
+  const pending = check.figures.filter(
+    (child) => child.request === check.request && child.state === "checking",
+  );
+  const received = new Map(figures.map((child) => [child.id, child]));
+  if (
+    received.size !== figures.length ||
+    received.size !== pending.length ||
+    pending.some((child) => !received.has(child.id))
+  )
+    return settleFigureCheck(check, (child) => ({
+      ...child,
+      state: "not-checked",
+      reason: "malformed",
+      detail: null,
+      checkedAt: at,
+    }));
+  const remainderPending =
+    check.remainder?.request === check.request && check.remainder.state === "checking";
+  return {
+    ...next,
+    figures: check.figures.map((child) => received.get(child.id) ?? child),
+    ...(remainderPending
+      ? result.remainder === undefined
+        ? {}
+        : {
+            remainder:
+              result.remainder === null
+                ? null
+                : withJudgment(check.remainder ?? basis, result.remainder, at),
+          }
+      : check.remainder === undefined
+        ? {}
+        : { remainder: check.remainder }),
+  };
+}
+
 const stopped = (check: ClaimCheckAttributes): ClaimCheckAttributes =>
-  check.state === "checking" ? { ...check, state: "not-checked", reason: "stopped" } : check;
+  settleFigureCheck(check, (basis) => ({ ...basis, state: "not-checked", reason: "stopped" }));
 
 export function createChecks(options: ChecksOptions) {
   const { content, chat } = options;
+
+  function noteResult(
+    check: ClaimCheckAttributes,
+    result: ClaimCheckResult,
+    at: string,
+    blocks: Y.XmlFragment,
+    mindId: string,
+  ): ClaimCheckAttributes {
+    return withResult(
+      check,
+      augmentFigureFooting(blocks, result, options.documents, {
+        versions: options.watch.documentVersions(),
+        folderId: options.mindFolder(mindId),
+        scope: content.readSettings(mindId, mindScopeIn),
+      }),
+      at,
+    );
+  }
   /** The requests running, by id: how to stop each, and its Mind. */
   const running = new Map<string, { controller: AbortController; mindId: string }>();
   const claimCheck = createClaimCheck(options);
@@ -460,11 +565,20 @@ export function createChecks(options: ChecksOptions) {
           excluded: [],
           checkedAt: startedAt,
         };
-        markSentence(sentence.element, sentence.from, sentence.to, check);
+        const previous =
+          allMarks(blocks).find(
+            (mark) =>
+              mark.element === sentence.element &&
+              mark.from < sentence.to &&
+              mark.to > sentence.from,
+          )?.check ?? null;
+        const pending = sentence.figures?.length
+          ? beginFigureCheck(previous, check, sentence.figures, null)
+          : check;
+        markSentence(sentence.element, sentence.from, sentence.to, pending);
         return {
           id: check.id,
-          claim: sentence.text,
-          context: sentence.context,
+          ...checkText(sentence),
           cited: sentence.cited,
         };
       });
@@ -481,6 +595,7 @@ export function createChecks(options: ChecksOptions) {
       const result = await claimCheck({
         claim: sentence.claim,
         context: sentence.context,
+        ...(sentence.figures && { figures: sentence.figures }),
         cited: citedNow(sentence.cited),
         scope: evidenceScope,
         model: ready.prepared,
@@ -492,7 +607,7 @@ export function createChecks(options: ChecksOptions) {
       const at = options.now().toISOString();
       recordJudged(options.recordAiUse, mindId, ready.prepared, result, at);
       const kept = content.edit(mindId, (blocks) =>
-        updateCheck(blocks, sentence.id, (check) => withResult(check, result, at)),
+        updateCheck(blocks, sentence.id, (check) => noteResult(check, result, at, blocks, mindId)),
       );
       if (kept) retainEvidence(mindId);
     }
@@ -572,7 +687,7 @@ export function createChecks(options: ChecksOptions) {
     recordUnread,
     isRunning: (requestId) => running.has(requestId),
     claimCheck,
-    withResult,
+    withResult: noteResult,
     retainEvidence,
     settleStopped,
     track,

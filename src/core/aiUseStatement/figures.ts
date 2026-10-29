@@ -17,6 +17,7 @@ import { toolCallsOf } from "../../shared/toolCalls";
 import { checkUnreadOf, unreadFileNamesOf } from "../../shared/unreadFiles";
 import { countFor, countText, firstWords } from "../../shared/wordCount";
 import { isEdited, textAttribute } from "../answers/blocks";
+import { figuresInMind } from "../answers/checks/figureOccurrences";
 import { checkedSentences } from "../answers/checks/sentences";
 import {
   type AiUseEntry,
@@ -242,6 +243,8 @@ export function readFigures(sources: FigureSources): AiUseFigures {
         if (inline.kind === "text") {
           if (inline.ai) aiText += inline.text;
           else otherText += inline.text;
+        } else if (inline.kind === "figure") {
+          otherText += inline.figure.shown;
         } else if (inline.kind === "citation") {
           const attributes = attributesOf.get(inline.footnote);
           if (attributes) citations[checkKeys[citationState(attributes, documents, kept).check]]++;
@@ -322,12 +325,16 @@ export function readFigures(sources: FigureSources): AiUseFigures {
     notChecked: 0,
   };
   const versions = new Map(documents.map((document) => [document.id, document.contentHash]));
+  const figureContexts = new Map(
+    figuresInMind(fragment).map((figure) => [figure.id, figure.context]),
+  );
   const checked: CheckedSentence[] = [];
   const requests: string[] = [];
   for (const { check, sentence, cited } of checkedSentences(fragment)) {
     requests.push(check.request);
     const shown = claimCheckShown(check, {
       text: sentence,
+      figureContexts,
       versions,
       folderId: sources.folderId,
       scope: fragment.doc ? mindScopeOf(fragment.doc) : null,

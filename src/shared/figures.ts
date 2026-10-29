@@ -66,6 +66,8 @@ export interface Reading {
    * worked out from the figure is shown with as many.
    */
   decimals: number;
+  /** Last shown place in base units; null for exact fractions, undefined for legacy or unrepresentable precision. */
+  precision?: number | null;
 }
 
 /**
@@ -1015,7 +1017,7 @@ const STATEMENTS: readonly RegExp[] = [
     "dg",
   ),
   new RegExp(
-    `(?<![${CN_NUMERAL_CHARS}\\d.,])(?<before>人民币|RMB)?(?<scale>亿|千万|百万|万|千)(?<unit>${CN_UNIT_WORDS})`,
+    `(?<![${CN_NUMERAL_CHARS}\\d.,百千万亿])(?<before>人民币|RMB)?(?<scale>亿|千万|百万|万|千)(?<unit>${CN_UNIT_WORDS})`,
     "dg",
   ),
   /(?<![A-Za-z])in (?<scale>thousands|millions|billions)(?: of (?<cur>U\.?S\.? dollars|US dollars|Hong Kong dollars|HK dollars|dollars|euros|[Rr]enminbi|RMB|yuan|pounds sterling|pounds|yen))?(?![A-Za-z])/dgi,
@@ -1150,6 +1152,11 @@ interface Digits {
 }
 
 const decimalsOf = (number: Digits): number => Math.max(0, number.digits.length - number.point);
+
+function precisionOf(number: Digits, exponent: number): number | undefined {
+  const precision = 10 ** (exponent - decimalsOf(number));
+  return Number.isFinite(precision) && precision > 0 ? precision : undefined;
+}
 
 /** The double nearest to the digits × 10^exponent, as a spreadsheet reads the same number written out. */
 function decimalValue(number: Digits, exponent: number, negative: boolean): number {
@@ -1992,6 +1999,7 @@ function readingOf(draft: Draft, written?: Written, number: Digits = draft.core.
     scaleWord: draft.scaleAt && written ? written(draft.scaleAt) : draft.scaleWord,
     unit,
     decimals: fraction !== null ? 0 : decimalsOf(number),
+    precision: fraction !== null ? null : precisionOf(number, draft.exponent + draft.unitExponent),
   };
 }
 
@@ -2026,6 +2034,7 @@ function statedReadings(draft: Draft, statements: readonly Statement[]): Reading
       scaleWord: statement.scaleWord,
       unit,
       decimals: decimalsOf(draft.core.number),
+      precision: precisionOf(draft.core.number, statement.exponent + unitExponent),
     });
   }
   return readings;

@@ -52,12 +52,12 @@ const WORDS = {
     rest: "Check",
     badgeWords: "11 need a look",
     badgeName: "11 need a look",
-    afterBadgeWords: "22 need a look",
-    afterBadgeName: "22 need a look",
+    afterBadgeWords: "12 need a look",
+    afterBadgeName: "12 need a look",
     toCheck: "11 claims not checked yet",
     tableCells: "10 table cells",
     found: "22 Citations found",
-    unsupported: "22 claims need a look",
+    unsupported: "12 claims need a look",
     ask: "Check this note’s 11 claims against your Documents?",
     notNow: "Not now",
     uncited: "1 claim supported · 1 claim with no Citation",
@@ -69,12 +69,12 @@ const WORDS = {
     rest: "核对",
     badgeWords: "需要留意 11 处",
     badgeName: "需要留意 11 处",
-    afterBadgeWords: "需要留意 22 处",
-    afterBadgeName: "需要留意 22 处",
+    afterBadgeWords: "需要留意 12 处",
+    afterBadgeName: "需要留意 12 处",
     toCheck: "11 条说法待核对",
     tableCells: "10 个表格单元格",
     found: "22 处引用已找到",
-    unsupported: "22 条说法需要留意",
+    unsupported: "12 条说法需要留意",
     ask: "要对照你的文档，核对这篇笔记中的 11 条说法吗？",
     notNow: "暂不",
     uncited: "1 条说法有依据 · 1 条说法没有引用",
@@ -176,7 +176,8 @@ for (const language of ["en", "zh-CN"] as const) {
     await expect(answer.getByTestId("self-check-left-action")).toHaveCount(0);
     const done = await checkCard(window);
     await expect(done.getByTestId("health-toCheck")).toHaveCount(0);
-    // The 21 unsupported cells still show, so the card never says everything is checked (#1909).
+    // What needs a look still shows, so the card never says everything is checked (#1909): the
+    // ten cells checked now are Supported, each figure bound to the row its label names.
     await expect(done.getByTestId("health-unsupported")).toContainText(words.unsupported);
     await expect(done.getByTestId("health-all-checked")).toHaveCount(0);
     await expect(window.getByTestId("check-badge-open")).toHaveAccessibleName(

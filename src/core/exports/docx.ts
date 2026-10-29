@@ -834,6 +834,9 @@ export class DocxWriter {
         case "break":
           xml += "<w:r><w:br/></w:r>";
           break;
+        case "figure":
+          xml += run(item.figure.shown, { bold: context.bold });
+          break;
         case "citation":
           if (context.note) {
             // A word of the footnote's text, apart from the one before it.

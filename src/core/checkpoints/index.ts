@@ -16,7 +16,9 @@
  */
 import { randomUUID } from "node:crypto";
 import * as Y from "yjs";
+import { figureRunsFor, installFigureRuns } from "../../shared/figureRuns";
 import { resolveProposals } from "../../shared/proposals";
+import { nodeOf, topLevelBlocks } from "../answers/blocks";
 import { addCitedUnits, addCitedVersions, type CitedUnits } from "../answers/citedVersions";
 import {
   ANSWER_BLOCK,
@@ -46,6 +48,7 @@ export interface CheckpointsOptions {
   now(): string;
   content: Pick<MindContent, "storedState" | "peek" | "edit" | "contentVersion">;
   retention: Pick<VersionRetention, "retain" | "release">;
+  rebuildFigureRetention(mindId: string): void;
   /** The Mind's id, once it is known to exist, not deleted, and of a kind this version writes. */
   requireMind(mindId: unknown): string;
   changed(mindId: string): void;
@@ -160,6 +163,7 @@ export function createCheckpoints(options: CheckpointsOptions) {
   const save = (mindInput: unknown, reasonInput: unknown): Checkpoint => {
     const reason = parseReason(reasonInput);
     const mindId = options.requireMind(mindInput);
+    options.rebuildFigureRetention(mindId);
     const state = content.storedState(mindId);
     const doc = docOf(state);
     try {
@@ -254,27 +258,38 @@ export function createCheckpoints(options: CheckpointsOptions) {
         );
       }
       const old = docOfCheckpoint(mindId, checkpointId);
+      const preview = docOf(content.storedState(mindId));
       try {
-        // An Answer being written would go on into Blocks the restore replaces.
-        for (const answerId of content.peek(mindId, streamingAnswers)) {
-          options.stopAnswer(mindId, answerId);
-        }
-        const before = save(mindId, "restore");
-        const restored = old
-          .getXmlFragment(MIND_CONTENT_FIELD)
-          .toArray()
-          .flatMap((node) => (node instanceof Y.XmlHook ? [] : [node.clone()]));
-        content.edit(mindId, (blocks) => {
+        const restoreBlocks = (blocks: Y.XmlFragment) => {
+          const restored = old
+            .getXmlFragment(MIND_CONTENT_FIELD)
+            .toArray()
+            .flatMap((node) => (node instanceof Y.XmlHook ? [] : [node.clone()]));
           blocks.delete(0, blocks.length);
           blocks.insert(0, restored);
           // As History showed it: without the changes still waiting in it then, but someone's
           // from the Word file it was imported from, which stay theirs to resolve (#108).
           resolveProposals(blocks, (change) => !change.id.startsWith(WORD_CHANGE_ID), "reject");
+        };
+        const previewBlocks = preview.getXmlFragment(MIND_CONTENT_FIELD);
+        restoreBlocks(previewBlocks);
+        const runs = figureRunsFor(old, topLevelBlocks(previewBlocks).map(nodeOf));
+        installFigureRuns(preview, runs);
+        // An Answer being written would go on into Blocks the restore replaces.
+        for (const answerId of content.peek(mindId, streamingAnswers)) {
+          options.stopAnswer(mindId, answerId);
+        }
+        const before = save(mindId, "restore");
+        content.edit(mindId, (blocks) => {
+          if (!blocks.doc) throw new Error("The Mind has no content document.");
+          installFigureRuns(blocks.doc, runs);
+          restoreBlocks(blocks);
         });
         // One that was being written when the Checkpoint was saved comes back stopped.
         options.settleAnswers(mindId);
         return { before };
       } finally {
+        preview.destroy();
         old.destroy();
       }
     },

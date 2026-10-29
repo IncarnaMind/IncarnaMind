@@ -1,6 +1,7 @@
 import type * as Y from "yjs";
 import { checkedScope, claimCheckShown, coveredPart, saysNotFound } from "../../shared/claimChecks";
 import { type ScopeKind, scopeName } from "../../shared/searchScope";
+import { figuresInMind } from "../answers/checks/figureOccurrences";
 import { checkedSentences } from "../answers/checks/sentences";
 import type { CitationAttributes, SearchScope } from "../api";
 import type { FailedSentence } from "../mindText";
@@ -23,10 +24,14 @@ export function failedSentences(
   context: SentenceCheckContext,
 ): Map<string, FailedSentence> {
   const failed = new Map<string, FailedSentence>();
+  const figureContexts = new Map(
+    figuresInMind(fragment).map((figure) => [figure.id, figure.context]),
+  );
   for (const { check, sentence, cited } of checkedSentences(fragment)) {
     const { id } = check;
     const shown = claimCheckShown(check, {
       text: sentence,
+      figureContexts,
       versions: context.versions,
       folderId: context.folderId,
       scope: context.scope,
