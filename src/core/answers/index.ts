@@ -934,9 +934,12 @@ export function createAnswers(options: AnswersOptions) {
     `${model.providerId}\n${model.modelId}\n${prepared.revision ?? ""}`;
 
   const contextCitationsFor = (mindId: string | null, wallId?: string | null): ContextCitations => {
-    const allowed = wallId
-      ? options.resolveScope(folderScope(wallId))
-      : options.resolveScope(NO_SCOPE, mindId);
+    const allowed =
+      wallId === UNKNOWN_WALL
+        ? []
+        : wallId
+          ? options.resolveScope(folderScope(wallId))
+          : options.resolveScope(NO_SCOPE, mindId);
     return createContextCitations((documentId) => allowed === null || allowed.includes(documentId));
   };
 
@@ -3168,6 +3171,10 @@ export function createAnswers(options: AnswersOptions) {
    * Writes the Answer of a Question in a conversation, added or emptied in `turn`, from
    * the messages before it, the Mind it reads and its Search scope as it is now.
    */
+  const UNKNOWN_WALL = "unknown";
+  const wallOfTurn = (question: { wallId?: string | null }): string | null =>
+    question.wallId === undefined ? UNKNOWN_WALL : options.walledFolderId(question.wallId);
+
   function startInConversation(
     turn: Turn,
     ready: { model: ChatModelChoice; consentNeeded: boolean },
@@ -3182,27 +3189,13 @@ export function createAnswers(options: AnswersOptions) {
     const help = mind ? (options.meetingHelp?.(mind.mindId, question.text) ?? null) : null;
     const callOnly = help !== null && HELP_DOCUMENTS[help] === null;
     // Each press of a help button stands alone: an earlier suggestion would only steer this one.
-    const wallId = mind
-      ? options.walledFolder(mind.mindId)
-      : turn.question.wallId !== undefined
-        ? options.walledFolderId(turn.question.wallId)
-        : options.walledFolderId(conversation.folderId);
+    const wallId = mind ? options.walledFolder(mind.mindId) : wallOfTurn(turn.question);
     let turnWall: string | null = null;
     const permitted = documentIds === null ? null : new Set(documentIds);
     const outsideTurns = new Set<string>();
     const withWalls = turn.earlier.map((message) => {
       if (message.kind === "question") {
-        turnWall =
-          (message.wallId !== undefined ? options.walledFolderId(message.wallId) : undefined) ??
-          (message.askedFrom
-            ? options.walledFolderId(filedIn(message.scope, message.askedFrom))
-            : options.walledFolderId(conversation.folderId));
-        // A walled Note's scope is always explicit: a null one belongs to before it was walled.
-        const beforeWall =
-          message.askedFrom !== null &&
-          message.scope === null &&
-          options.walledFolder(message.askedFrom.mindId) !== null;
-        if (beforeWall) turnWall = "outside";
+        turnWall = wallOfTurn(message);
         if (
           (wallId !== null && message.scope?.folderIds.some((id) => id !== wallId)) ||
           message.scope?.documentIds.some((id) => permitted?.has(id) === false) ||
@@ -3222,6 +3215,7 @@ export function createAnswers(options: AnswersOptions) {
       : withWalls
           .filter(
             ({ message, wall }) =>
+              wall !== UNKNOWN_WALL &&
               wall === wallId &&
               !outsideTurns.has(message.kind === "question" ? message.id : message.questionId),
           )
@@ -3344,9 +3338,12 @@ export function createAnswers(options: AnswersOptions) {
   ): { quoted: Quoted[]; leftOut: AskedQuote[] } {
     const quoted: Quoted[] = [];
     const leftOut: AskedQuote[] = [];
-    const allowed = wallId
-      ? options.resolveScope(folderScope(wallId))
-      : options.resolveScope(NO_SCOPE, mindId);
+    const allowed =
+      wallId === UNKNOWN_WALL
+        ? []
+        : wallId
+          ? options.resolveScope(folderScope(wallId))
+          : options.resolveScope(NO_SCOPE, mindId);
     const documents = options.documents.names();
     for (const asked of quotes) {
       if (allowed !== null && !allowed.includes(asked.documentId)) {
@@ -3426,11 +3423,14 @@ export function createAnswers(options: AnswersOptions) {
 
   /** The Documents of a Search scope as it is now, and whether it covers none to search. */
   const scopeNow = (scope: SearchScope | null, mindId: string | null, wallId?: string | null) => {
-    const documentIds = wallId
-      ? options.resolveScope(folderScope(wallId))
-      : (options.resolveScope(scope ?? NO_SCOPE, mindId) ??
-        options.unscopedDocuments?.(mindId) ??
-        null);
+    const documentIds =
+      wallId === UNKNOWN_WALL
+        ? []
+        : wallId
+          ? options.resolveScope(folderScope(wallId))
+          : (options.resolveScope(scope ?? NO_SCOPE, mindId) ??
+            options.unscopedDocuments?.(mindId) ??
+            null);
     const emptyScope = documentIds !== null && options.documents.searchableCount(documentIds) === 0;
     return { documentIds, emptyScope };
   };
@@ -3623,12 +3623,12 @@ export function createAnswers(options: AnswersOptions) {
         const { documentIds, emptyScope } = scopeNow(
           scope,
           question.mind?.id ?? null,
-          readyMind ? null : options.walledFolderId(added.turn.question.wallId ?? null),
+          readyMind ? null : wallOfTurn(added.turn.question),
         );
         const checked = checkQuotes(
           question.quotes,
           question.mind?.id ?? null,
-          readyMind ? null : options.walledFolderId(added.turn.question.wallId ?? null),
+          readyMind ? null : wallOfTurn(added.turn.question),
         );
         const readyTurn = options.conversations.restartAnswer(
           turn.answer.id,
@@ -3679,11 +3679,7 @@ export function createAnswers(options: AnswersOptions) {
       const { documentIds, emptyScope } = scopeNow(
         question.scope,
         from && !from.deleted ? from.mindId : null,
-        mind
-          ? null
-          : question.wallId !== undefined
-            ? options.walledFolderId(question.wallId)
-            : options.walledFolderId(turn.conversation.folderId),
+        mind ? null : wallOfTurn(question),
       );
       return startInConversation(
         turn,
@@ -3692,11 +3688,7 @@ export function createAnswers(options: AnswersOptions) {
         emptyScope,
         mind,
         onScreen,
-        checkQuotes(
-          question.quotes,
-          from?.mindId ?? null,
-          mind ? null : (question.wallId ?? options.walledFolderId(turn.conversation.folderId)),
-        ),
+        checkQuotes(question.quotes, from?.mindId ?? null, mind ? null : wallOfTurn(question)),
         remake,
       );
     },
