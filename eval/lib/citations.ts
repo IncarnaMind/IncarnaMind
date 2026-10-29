@@ -18,6 +18,7 @@ import {
   type AnswerFinished,
   type AnswerUsage,
   BLOCK_ID_ATTRIBUTE,
+  CALCULATED_FIGURE_NODE,
   CITATION_NODE,
   type CitationAttributes,
   type CitationCheck,
@@ -34,6 +35,7 @@ import {
 } from "../../src/core";
 import { outputTokensFor } from "../../src/core/providers/ollamaModels";
 import { noteExtensions } from "../../src/renderer/src/editor/noteSchema";
+import { figureShownText } from "../../src/shared/calculatedFigures";
 import { SIMPLIFIED } from "../../src/shared/hanVariants";
 import { normaliseText } from "../../src/shared/text";
 import { type ChatSettings, chatProviderOf, type EvalConfig } from "./config";
@@ -91,6 +93,9 @@ export interface CitationRecord {
   outcome: CitationOutcome;
   /** The pages (Units) of the Passage the Citation names; null when unknown. */
   passagePages: [number, number] | null;
+  /** The Passage and the Document the Citation names, by id; absent in a result file from before. */
+  passageId?: string | null;
+  documentId?: string | null;
   /**
    * Where the quote is in its Document under the looser normalisation: the
    * first page (Unit) that holds it, or two consecutive ones; null when it
@@ -139,7 +144,14 @@ export interface AnswerRecord {
    * it needs none (unanswerable); absent without a recording.
    */
   expected?: ExpectedCounts | null;
-  /** The Answer's full text, a block to a paragraph, each Citation as its marker ("[^1]"). */
+  /** The Note the Answer was asked in; absent in a result file from before. */
+  mindId?: string;
+  /** Its Calculated figures, as the Answer shows them; absent in a result file from before. */
+  figures?: { marker: number; label: string; shown: string }[];
+  /**
+   * The Answer's full text, a block to a paragraph, each Citation as its
+   * marker ("[^1]") and each Calculated figure as the Answer shows it.
+   */
   text: string;
   /**
    * Set only for an unanswerable Question: whether the phrase rule (./declines)
@@ -278,6 +290,10 @@ export function sentencesOf<T>(
   return sentences;
 }
 
+/** An inline node other than text or a Citation, as the editor shows it: a Calculated figure's result. */
+const inlineText = (node: ProseMirrorNode): string =>
+  node.type.name === CALCULATED_FIGURE_NODE ? figureShownText(node.attrs) : " ";
+
 /** The Answer's sentences, with the Citations anchored in each. Headings and code are left out. */
 function answerSentences(
   answer: ProseMirrorNode,
@@ -294,7 +310,7 @@ function answerSentences(
       else if (child.type.name === CITATION_NODE) {
         text += MARK;
         citations.push(child.attrs as CitationAttributes);
-      } else text += " ";
+      } else text += inlineText(child);
     });
     sentences.push(...sentencesOf(text, citations, language));
     return false;
@@ -312,7 +328,7 @@ function answerText(answer: ProseMirrorNode): string {
     node.forEach((child) => {
       if (child.isText) text += child.text ?? "";
       else if (child.type.name === CITATION_NODE) text += `[^${++marker}]`;
-      else text += " ";
+      else text += inlineText(child);
     });
     blocks.push(text.trim());
     return false;
@@ -352,6 +368,25 @@ function looseText(text: string): string {
 
 type PageText = { page: number | null; text: string };
 
+/**
+ * Whether a quote is on the pages (Units) a Citation cites, under the looser
+ * normalisation; a Citation with no pages cites the whole Document.
+ */
+export function onCitedPages(
+  quote: string,
+  pageFrom: number | null,
+  pageTo: number | null,
+  pages: readonly PageText[],
+): boolean {
+  const needle = looseText(quote);
+  if (!needle) return false;
+  const cited = pages.filter(
+    ({ page }) =>
+      pageFrom === null || pageTo === null || (page !== null && page >= pageFrom && page <= pageTo),
+  );
+  return looseText(cited.map((page) => page.text).join("\n")).includes(needle);
+}
+
 /** What became of a Citation (see `CitationOutcome`), given its Document's stored pages. */
 export function outcomeOf(
   citation: Pick<CitationAttributes, "check" | "checkReason" | "quote" | "pageFrom" | "pageTo">,
@@ -361,17 +396,10 @@ export function outcomeOf(
   if (citation.check !== "not-found") return "cant-check";
   if (citation.checkReason === "pages-outside-passage" || citation.checkReason === "too-many-pages")
     return "page-range";
-  const quote = looseText(citation.quote ?? "");
-  if (!quote) return "not-in-document";
-  const { pageFrom, pageTo } = citation;
-  const cited = pages.filter(
-    ({ page }) =>
-      pageFrom === null || pageTo === null || (page !== null && page >= pageFrom && page <= pageTo),
-  );
-  const onPages = (some: readonly PageText[]) =>
-    looseText(some.map((page) => page.text).join("\n")).includes(quote);
-  if (onPages(cited)) return "false-not-found";
-  return onPages(pages) ? "wrong-page" : "not-in-document";
+  const quote = citation.quote ?? "";
+  if (!looseText(quote)) return "not-in-document";
+  if (onCitedPages(quote, citation.pageFrom, citation.pageTo, pages)) return "false-not-found";
+  return onCitedPages(quote, null, null, pages) ? "wrong-page" : "not-in-document";
 }
 
 /** Each Document's pages under the looser normalisation, by the array `pageTexts` gave. */
@@ -607,6 +635,8 @@ export async function askOne(
         outcome: outcomeOf(checked, pages),
         passagePages: citation.passageId ? library.passagePages(citation.passageId) : null,
         quoteOn: quotePages(checked.quote, pages),
+        passageId: citation.passageId ?? null,
+        documentId: citation.documentId ?? null,
       };
     }),
   );
@@ -638,6 +668,12 @@ export async function askOne(
         citations,
       ),
     }),
+    mindId: mind.id,
+    figures: (finished?.figures ?? []).map(({ marker, label, shown }) => ({
+      marker,
+      label,
+      shown,
+    })),
     text,
     sentences: sentences.map((sentence) => ({
       text: sentence.text,

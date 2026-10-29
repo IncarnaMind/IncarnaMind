@@ -1,0 +1,26 @@
+[
+  {
+    "sha256": "774d17c3ef8b4a3eb3103e8c23f3138be25528a6f20033211957baf60690ff30",
+    "kind": "email",
+    "document": "mamba",
+    "why": "The first author's address, printed under the authors' names on the paper's first page (arXiv:2312.00752, CC BY 4.0)."
+  },
+  {
+    "sha256": "3a67529e6f5400dddd970cb3012f1dc2c63c51561769e0f36fa3c4babc549ebf",
+    "kind": "email",
+    "document": "mamba",
+    "why": "The second author's address, printed under the authors' names on the paper's first page (arXiv:2312.00752, CC BY 4.0)."
+  },
+  {
+    "sha256": "49aaa25b28c2517fc27c4408956415907ef74ae376e9ea49ce839cbd287aec07",
+    "kind": "email",
+    "document": "scotus-biden-nebraska",
+    "why": "The Court's Public Information Office, which the slip opinion's notice asks readers to tell of errors (a public office's address, 17 U.S.C. 105)."
+  },
+  {
+    "sha256": "6d27e0f359a0aa468869c440a5b8cb4153137c8ef389d9825b35738407d39549",
+    "kind": "email",
+    "document": "cern-soil-elements",
+    "why": "The data paper's corresponding author, printed as its contact on the first page (CC BY 4.0)."
+  }
+]

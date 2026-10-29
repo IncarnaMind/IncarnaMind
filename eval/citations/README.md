@@ -1,9 +1,148 @@
-# The citation benchmark's set
+# The citation benchmark
 
-The Documents, the Questions and the gold answers that the citation benchmark asks every model,
-through the app's own Answers path (#1999, part 1). It is test data only: no client, employer or
-personal data, and every Document is in the library under a licence or statute that allows it to be
-published here.
+A public, reproducible answer to "do AI citations hold up?" (#1999). Each model answers the same 150
+Questions about public Documents, in English and Chinese, through the app's own Answers path, and
+every Answer is scored four ways, per model and language:
+
+- **Quote found**: the Citation's quote is really at the Location it cites. The scorer reads the
+  Document's text again, under a looser normalisation than the app's own check, so a miss of the
+  check shows too. Deterministic.
+- **Supported**: the Passage the Citation names supports its sentence, as two independent model
+  judges say with one fixed prompt; where they disagree, a person settles it, and the disagreements
+  are listed.
+- **Figure right**: every figure the reference answer gives is written in the Answer, at its unit's
+  scale ("$1.88 trillion" gives 1,875.6 billion; "129.4万亿元" gives 1,294,272亿元). An Answer that
+  gives a superseded figure in place of the current one is counted apart. Deterministic.
+- **With the check**: of each miss above, whether the app's check flagged it (a Citation's "Quote
+  not found", or a sentence that Check this Note found unsupported or contradicted), what it let
+  through, and what it got wrong itself: "Quote not found" on a quote that is there, and cited
+  sentences flagged with no miss in them.
+
+The results page leads with the misses, and every number on it links to the run file it is counted
+from.
+
+## Rerunning it
+
+Every command runs from the repository root. Each process gets a temporary home and data folder of
+its own (the evaluation's home guard sees to it); nothing reads or writes the app's data folder.
+
+```sh
+npm run eval:citations:estimate   # what each model's full run is expected to cost, and the most
+npm run eval:citations            # one model answers every Question (paid with a cloud model)
+npm run eval:citations:judge      # two judges read every Citation (paid)
+npm run eval:citations:score      # every score and RESULTS.md, from the files alone (free)
+npm run eval:citations:scan       # no key, personal data or unlisted Document in any file (free)
+```
+
+1. **Estimate.** `npm run eval:citations:estimate` prints, for each planned model, the tokens and
+   US dollars its run and its judging are expected to take, and the most they may, at the app's own
+   catalog prices. A model whose run has started is estimated from what its Questions took.
+   `INCARNAMIND_EVAL_CITATIONS_MODELS=anthropic/claude-haiku-5-5,kimi/kimi-k2.6@intl` estimates
+   other models.
+2. **Run.** The model is set with the `INCARNAMIND_EVAL_CHAT_*` variables, as for `npm run eval`
+   (`eval/README.md`); setting them is the consent to send the Questions, the Passages and the
+   Answers' sentences to it. A model with a price needs a cap, and the run refuses to start when
+   the estimate passes it:
+
+   ```sh
+   INCARNAMIND_EVAL_CHAT_KIND=anthropic INCARNAMIND_EVAL_CHAT_MODEL=claude-haiku-5-5 \
+   INCARNAMIND_EVAL_CITATIONS_CAP_USD=5 npm run eval:citations
+   ```
+
+   Each Question is asked once, in a Note of its own, on a library of the twelve Documents added as
+   the app adds them (embeddings off, keyword search reranked by the built-in model, as by default).
+   Then the Answer's Note is checked as Check this Note checks it, on the same model. The run file
+   is written after every Answer.
+3. **Judge.** Name the two judges as the chat model is named, with `INCARNAMIND_EVAL_JUDGE_*` and
+   `INCARNAMIND_EVAL_SECOND_JUDGE_*`: two models of other families than the run's. Neither may judge
+   its own model's runs, and the cap holds for them too. Their verdicts go into `judgements/`, one
+   file per run and judge, a line a Citation.
+4. **Settle.** `npm run eval:citations:score` lists the Citations the judges disagree on in
+   `disagreements.json`. A person reads each Passage and writes the verdict into `settled.json`:
+   `{"<run file>": {"en-014#1": {"verdict": "supported", "why": "…", "date": "2027-01-20"}}}`.
+5. **Score.** `npm run eval:citations:score` writes `scores.json` and `RESULTS.md` beside the runs.
+   It calls no model, so it gives the same numbers every time from the same files.
+6. **Scan.** `npm run eval:citations:scan` fails on any key (by the shapes services give them, and
+   any value the shell holds under a key's name), e-mail address, phone number, home folder path or
+   Document the set doesn't list, in the set, the runs, the judgements and the results. An address
+   a Document's publisher printed in it (an author's, a court's press office) passes only by its
+   entry in `scan-allowed.json`, which names it by its SHA-256 and says why. `npm test` runs the
+   scan over `eval/citations/`.
+
+| Variable | Default | |
+|---|---|---|
+| `INCARNAMIND_EVAL_CITATIONS_CAP_USD` | none | The most a run, or the judging, may spend, in US dollars, its earlier spending included. Required for a model with a price. Before each Question the run reserves the most it may cost, and stops rather than pass the cap. |
+| `INCARNAMIND_EVAL_CITATIONS_LANGUAGES` | `en,zh` | The languages to run, a run file each. |
+| `INCARNAMIND_EVAL_CITATIONS_CHECK` | `on` | `off` leaves each Answer's Note unchecked, so "with the check" reads only the Citations' own check. |
+| `INCARNAMIND_EVAL_CITATIONS_RUNS` | `eval/citations/runs` | The folder of the run files, the judgements, the settlements, the scores and the results page. |
+| `INCARNAMIND_EVAL_CITATIONS_SCRIPTED` | off | `1` asks the smoke tests' scripted chat model instead, and judges with two scripted stand-ins: a check of the pipeline at no cost, never published numbers. |
+| `INCARNAMIND_EVAL_QUESTIONS` | all | Only these Questions, by id, as for `npm run eval`. |
+
+`INCARNAMIND_EVAL_ANSWER_TIMEOUT_S`, `INCARNAMIND_EVAL_RERANK_DEPTH`, `INCARNAMIND_EVAL_MAX_PASSAGES`,
+`INCARNAMIND_EVAL_RERANK_CPU` and the Ollama settings work as for `npm run eval`, and each run file
+records them.
+
+### A run that stops
+
+A run stops before a Question the cap couldn't cover, and at a provider's answer no later Question
+gets past (a refused key, no credit, an unknown model), saying why in its file. Run the same command
+again: it keeps every Answer that finished, stopped or ran out of time, since those were paid for,
+asks again only those that failed, and counts what the failed ones cost against the cap. A run file
+made with another model, set, settings or commit isn't resumed; the command says so and asks for
+another folder.
+
+### The run files
+
+One per model and language, `<kind>-<model>.<language>.json`, with the set's version and hashes,
+the exact model id and endpoint, where the Questions were sent, the date, the app's version and
+commit, the settings (the catalog price the cost was worked out at among them), the computer, and
+each Document's stored text hashed. For each Answer: its text, sentences, Citations (quote,
+Document, Location, the app's check of it, the Passage it names), Calculated figures, searches,
+the check of its Note sentence by sentence, the tokens of the Answer and of the check, their cost
+and their time. A provider's error is kept with any key it quotes taken out.
+
+## The cost
+
+The estimate assumes what the app's Answers path was measured to take on the mixed sample set: an
+Answer about 40,000 tokens in and 1,300 out, 70% of the input from the provider's prompt cache, and
+the check of its Note about five claims at 16,700 in and 330 out each. Judging assumes three
+Citations an Answer, each about 1,500 tokens in and 120 out per judge. "At most" takes four times
+the tokens with no cache, as the largest measured Answer did. Prices are the app's catalog's on
+2026-10-29; Claude Opus 5.5 and Gemini 3.1 Pro stand in for the judges until they are chosen.
+
+| Model | The run, expected | The judges, expected | At most, both |
+|---|---|---|---|
+| Claude Sonnet 5.5 | $17.59 | $5.78 | $177.08 |
+| Claude Haiku 5.5 | $0.95 | $5.78 | $14.34 |
+| GPT-6 Luna | $0.95 | $5.78 | $14.34 |
+| GPT-6.1 Sol | $17.59 | $5.78 | $177.08 |
+| Gemini 3.8 Flash | $7.09 | $5.78 | $70.02 |
+| Kimi K2.6 (International) | $9.48 | $5.78 | $85.68 |
+| DeepSeek V4 Pro | $4.82 | $5.78 | $57.59 |
+| qwen3.5:4b on Ollama | none | $5.78 | $5.78 |
+| **All** | **$58.46** | **$46.22** | **$601.91** |
+
+## The pipeline check
+
+`pipeline-check/` holds the whole pipeline run at no cost, to show it works end to end: every
+Question asked of the scripted chat model, and 10 Questions asked of qwen3.5:4b on Ollama, both
+judged by the scripted stand-ins, then scored and scanned. Its `RESULTS.md` says at its top that
+these are not published numbers: the scripted model searches and cites the first line that shares a
+word with the Question, so its scores say only that each step runs.
+
+## Publishing
+
+The published runs go into `runs/`, with their judgements, settlements, `scores.json` and
+`RESULTS.md`. Before they are published: every planned model has both languages' runs, every
+Citation is judged by two model judges and every disagreement settled, the runs come from a commit
+with no uncommitted changes, and `npm run eval:citations:scan` passes. Rerunning a model gives
+scores within the variance the results page states once a model has been run twice.
+
+## The set
+
+The Documents, the Questions and the gold answers the benchmark asks every model. It is test data
+only: no client, employer or personal data, and every Document is in the library under a licence or
+statute that allows it to be published here.
 
 The set freezes on 2026-12-15. Until then a Question or a quote may be corrected; after it, the set
 is fixed and a run says which version it answered.
@@ -14,9 +153,10 @@ is fixed and a run says which version it answered.
   Locations.
 - `checkSet.ts`: loads both and checks every gold quote at its Location against what processing
   stores, with the app's own quote and Location code. `tests/eval/citationsSet.test.ts` runs it with
-  `npm test`.
+  `npm test`, checks that no Question or gold quote is written in the app's prompts or their
+  examples, and runs the scan.
 
-## The Documents
+### The Documents
 
 Twelve Documents in English and Chinese, 435 pages. Six are the real Documents #2019 added to
 `data/real`, referenced from there and not copied; six are added for this set in `documents/`. Each
@@ -45,7 +185,7 @@ Supreme People's Court print are prints of the official pages, made for this set
 their text; the 2023 communiqué's print was made the same way for `data/real/`. The page's own text
 is the Document.
 
-### Why each may be published here
+#### Why each may be published here
 
 | Key | Basis, in the licence's or the statute's words |
 |---|---|
@@ -61,7 +201,7 @@ is the Document.
 There are no company filings, whose copyright is often unclear: the Treasury's financial statements
 stand in for a filing.
 
-### The pairs that disagree
+#### The pairs that disagree
 
 - **Two years of one report.** `nbs-communique-2023` and `nbs-communique-2024` report the same
   indicators for 2023 and 2024, so the same phrase ("全年国内生产总值", "全年社会消费品零售总额")
@@ -72,7 +212,7 @@ stand in for a filing.
   GDP from 1,260,582 to 1,294,272 hundred million yuan, and each sector's value added and share. It
   prints both columns, so the preliminary figure is a decoy a right answer must not give.
 
-## The Questions
+### The Questions
 
 150 Questions: 75 asked in English and 75 in Simplified Chinese, 15 of them cross-lingual (9 asked in
 English about Chinese Documents, 6 asked in Chinese about English Documents). They hold 196 gold
@@ -88,7 +228,7 @@ quotes, 175 figures and 10 decoys.
 | `absent` | 10 | The Documents do not answer: the right result is to say so and cite nothing. |
 | `superseded` | 10 | A figure an earlier Document gives and a later one replaces: the answer gives the current figure and must not give the decoy. |
 
-## The gold
+### The gold
 
 One Question per line in `questions.jsonl`:
 
@@ -119,7 +259,7 @@ is quoted in Chinese and an English one in English. A quote is matched the way t
 Citation's quote: after NFKC, letters' case, quote marks and dashes are unified, whitespace beside
 Chinese characters is dropped, and a word broken at a line end is joined.
 
-## How the gold was checked
+### How the gold was checked
 
 Two checks, both recorded in the set:
 
@@ -145,12 +285,7 @@ Two checks, both recorded in the set:
    `absent` Question really is unanswered by the library. A Question whose answer did not pass was
    corrected and checked again; `checked` records the day it passed.
 
-## Licence
-
-The code in this folder is Apache-2.0, like the app. The Questions and their gold answers are
-CC BY 4.0. Each Document stays under its own licence or statute, as the table above says.
-
-## Known quirks of the prints
+### Known quirks of the prints
 
 - The prints keep many Chinese characters as Kangxi-radical code points (人, 比, 生 and others). The
   app's quote normalisation folds them to the characters the page shows, and the gold quotes are
@@ -162,3 +297,9 @@ CC BY 4.0. Each Document stays under its own licence or statute, as the table ab
   not the benchmark's, and it is recorded here so a reader of the results knows.
 - The CIA Reading Room record has no text layer. It is in the library as a Document a run must cope
   with, and no Question rests on it.
+
+## Licence
+
+The code in this folder is Apache-2.0, like the app. The Questions, their gold answers, the run
+files, the judgements, the scores and the results pages are CC BY 4.0. Each Document stays under
+its own licence or statute, as the table above says.
