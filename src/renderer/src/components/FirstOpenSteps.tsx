@@ -24,6 +24,7 @@ import { useLanguage, useT } from "../i18n";
 import { openModelSetup } from "../modelSetup";
 import { stepsShownOf } from "../nudges";
 import { revealAssistant } from "../quietAssistant";
+import { readyRowOf } from "../readyRow";
 import { allExamples, isOwnDocument, useAppStore } from "../store";
 import { useUnreadFiles } from "../unreadFiles";
 import { ExampleBanner } from "./GettingStarted";
@@ -249,15 +250,14 @@ export function FirstOpenSteps({ mindId }: { mindId: string }) {
             </p>
             <ReadyLine
               question={ready?.question ?? null}
-              waitingFor={
-                askingReady ? (ready?.waitingFor ?? readyWaiting) : (ready?.waitingFor ?? null)
-              }
+              waitingFor={ready?.waitingFor ?? null}
+              pressedFor={askingReady ? readyWaiting : null}
               asking={live && askingReady}
               reading={reading}
               unread={unread}
               testId={only("first-open-ready")}
               problem={live ? problem : undefined}
-              busy={asking || writing || askingReady}
+              busy={asking || writing}
               onAsk={() => {
                 if (!ready) return;
                 focusNext.current = true;
@@ -384,6 +384,7 @@ function useFittedLine(text: string, atWords: boolean, room: RefObject<HTMLEleme
 function ReadyLine({
   question,
   waitingFor,
+  pressedFor,
   asking,
   reading,
   unread,
@@ -394,6 +395,7 @@ function ReadyLine({
 }: {
   question: string | null;
   waitingFor: string | null;
+  pressedFor: string | null;
   asking: boolean;
   reading: string | null;
   unread: ReturnType<typeof useUnreadFiles>;
@@ -405,25 +407,37 @@ function ReadyLine({
   const t = useT();
   const room = useRef<HTMLDivElement>(null);
   const stopRef = useRef<HTMLButtonElement>(null);
-  const wasAsking = useRef(false);
-  const stops = asking && waitingFor !== null;
+  const askRef = useRef<HTMLButtonElement>(null);
+  const wasAsking = useRef(asking);
+  const row = readyRowOf({
+    question,
+    waitingFor,
+    asking,
+    pressedFor,
+    reading,
+    unread: unread.length,
+    busy,
+  });
+  // The pressed button goes as the wait starts and comes back if it stops: the focus goes with it.
   useEffect(() => {
-    if (stops && !wasAsking.current) stopRef.current?.focus();
-    wasAsking.current = stops;
-  }, [stops]);
+    if (asking === wasAsking.current) return;
+    wasAsking.current = asking;
+    if (asking) stopRef.current?.focus();
+    else if (row.kind === "question") askRef.current?.focus();
+  }, [asking, row.kind]);
   const label = question === null ? "" : t("firstOpen.step.question.ready", { question });
   const [ref, shown] = useFittedLine(label, useLanguage() !== "zh-CN", room);
   let line: ReactNode;
-  if (asking && waitingFor !== null)
+  if (row.kind === "waiting")
     line = (
       <>
         <span
           data-testid={testId === undefined ? undefined : `${testId}-waiting`}
           role="status"
-          title={waitingFor}
+          title={row.document}
           className="min-w-0 truncate text-[13px] leading-5 text-ink-secondary"
         >
-          {t("firstOpen.step.question.reading", { document: waitingFor })}
+          {t("firstOpen.step.question.reading", { document: row.document })}
         </span>
         <LineAction
           action={{
@@ -435,15 +449,16 @@ function ReadyLine({
         />
       </>
     );
-  else if (question !== null)
+  else if (row.kind === "question")
     line = (
       <>
         <button
+          ref={askRef}
           type="button"
           data-testid={testId}
           aria-label={label}
           title={label}
-          disabled={busy}
+          disabled={row.disabled}
           onClick={onAsk}
           // A button keeps its size in a row; this one gives way so its line can cut, not overflow.
           style={{ flexShrink: 1, minWidth: 0 }}
@@ -458,18 +473,21 @@ function ReadyLine({
         </span>
       </>
     );
-  else if (reading !== null)
+  else if (row.kind === "reading")
     line = (
-      <span title={reading} className="min-w-0 truncate text-[13px] leading-5 text-ink-secondary">
-        {t("firstOpen.step.question.reading", { document: reading })}
+      <span
+        title={row.document}
+        className="min-w-0 truncate text-[13px] leading-5 text-ink-secondary"
+      >
+        {t("firstOpen.step.question.reading", { document: row.document })}
       </span>
     );
-  else if (unread.length > 0)
+  else if (row.kind === "unread")
     line =
       testId === undefined ? (
         // The unseen states hold the line's height; the line the User can act on is the live one.
         <span className="truncate text-[13px] leading-5 text-ink-secondary">
-          {t(unread.length === 1 ? "unread.count.one" : "unread.count", { count: unread.length })}
+          {t(row.count === 1 ? "unread.count.one" : "unread.count", { count: row.count })}
         </span>
       ) : (
         <UnreadFilesLine files={unread} testId={`${testId}-unread`} />

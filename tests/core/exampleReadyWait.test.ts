@@ -171,11 +171,12 @@ test("a deleted example Document takes the Question away, with nothing to wait f
     timeout: 30_000,
   });
   const [document] = await exampleDocumentsOf(core);
-  await core.deleteDocument(document?.id as string);
+  if (!document) throw new Error("The example has no Documents.");
+  await core.deleteDocument(document.id);
   // Gone, not still reading: no button, rather than twenty seconds of "Reading…" and a refusal.
   await vi.waitFor(async () => expect(await core.readyQuestion()).toBeNull(), { timeout: 30_000 });
   await expect(core.askExampleReadyQuestion()).rejects.toMatchObject({
-    wording: { key: "error.examples.unreadable" },
+    wording: { key: "error.examples.gone" },
   });
 });
 
@@ -201,9 +202,10 @@ test("a Document deleted while it waits says why, rather than still reading", as
     expect(now?.waitingFor).not.toBeNull();
   });
   const waiting = core.askExampleReadyQuestion();
-  await core.deleteDocument(document?.id as string);
+  if (!document) throw new Error("The example has no Documents.");
+  await core.deleteDocument(document.id);
   await expect(waiting).rejects.toMatchObject({
-    wording: { key: "error.examples.unreadable" },
+    wording: { key: "error.examples.gone" },
   });
 });
 
@@ -213,19 +215,20 @@ test("a Document of the User's own named like the example's is never cited as th
     timeout: 30_000,
   });
   const sources = await createTempDataFolder();
-  const name = NAMES[0] as string;
-  const [own] = await core
-    .addDocuments([
-      await writeSourceFile(sources, `${name}.md`, `# ${name}\n\nThe User's own file.\n`),
-    ])
-    .then(({ documents }) => documents);
+  const name = NAMES[0];
+  if (name === undefined) throw new Error("The example has no ready Question.");
+  const { documents: added } = await core.addDocuments([
+    await writeSourceFile(sources, `${name}.md`, `# ${name}\n\nThe User's own file.\n`),
+  ]);
+  const own = added[0];
+  if (!own) throw new Error("The User's file wasn't added.");
   const asked = await core.askExampleReadyQuestion();
   const { messages } = await core.getConversation(asked.conversationId);
   const answer = messages.find((each) => each.kind === "answer");
   const cited = answer?.kind === "answer" ? answer.citations.map((each) => each.documentId) : [];
   expect(cited).toHaveLength(2);
-  expect(cited).not.toContain(own?.id);
-  expect(await core.isExampleDocument(own?.id as string)).toBe(false);
+  expect(cited).not.toContain(own.id);
+  expect(await core.isExampleDocument(own.id)).toBe(false);
 });
 
 test("an example Document with no text to read takes the Question away", async () => {
@@ -236,7 +239,15 @@ test("an example Document with no text to read takes the Question away", async (
     examples,
   );
   // A scan whose pages read no text: the Question goes before it is ever a dead button.
-  await vi.waitFor(async () => expect(await core.readyQuestion()).toBeNull(), { timeout: 30_000 });
+  await vi.waitFor(
+    async () => {
+      const listed = await exampleDocumentsOf(core);
+      expect(listed.length).toBeGreaterThan(0);
+      expect(listed.every((each) => each.status === "no-text")).toBe(true);
+    },
+    { timeout: 30_000 },
+  );
+  expect(await core.readyQuestion()).toBeNull();
   await expect(core.askExampleReadyQuestion()).rejects.toMatchObject({
     wording: { key: "error.examples.unreadable" },
   });
@@ -246,7 +257,15 @@ test("a Document that can't be read takes the Question away, and asking says why
   const examples = await examplesFolder(() => new TextEncoder().encode("%PDF-1.4 not a PDF"));
   const core = await startWith({}, examples);
   // No button to press: the card shows the unread-files line instead.
-  await vi.waitFor(async () => expect(await core.readyQuestion()).toBeNull(), { timeout: 30_000 });
+  await vi.waitFor(
+    async () => {
+      const listed = await exampleDocumentsOf(core);
+      expect(listed.length).toBeGreaterThan(0);
+      expect(listed.every((each) => each.status === "failed")).toBe(true);
+    },
+    { timeout: 30_000 },
+  );
+  expect(await core.readyQuestion()).toBeNull();
   await expect(core.askExampleReadyQuestion()).rejects.toMatchObject({
     wording: { key: "error.examples.unreadable" },
   });

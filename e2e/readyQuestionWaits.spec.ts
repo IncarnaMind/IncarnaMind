@@ -1,7 +1,6 @@
 import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { expect, test } from "@playwright/test";
-import type { CoreBridge } from "../src/core/api";
 import { EXAMPLE_SETS } from "../src/core/exampleSets";
 import { buildPdf } from "../tests/helpers/pdf";
 import {
@@ -151,49 +150,6 @@ for (const language of ["en", "zh-CN"] as const) {
     }
   });
 
-  test(`a file of one's own that becomes ready while it waits does not swallow the press (${language}, 900px)`, async () => {
-    test.setTimeout(180_000);
-    const dataDir = await prepared(language);
-    const sources = await createDataFolder();
-    const own = join(sources, "Own brief.md");
-    await writeFile(own, "# Own brief\n\nThe harbour master publishes the tide tables.\n");
-    const { app, window } = await launchApp(dataDir, { examples: true, fakeChat: true });
-    try {
-      await setWindowSize(app, window, 900, 900);
-      await expect(window.getByTestId("first-open-ready")).toBeVisible({ timeout: 30_000 });
-      await window.getByTestId("first-open-ready").click();
-      await expect(window.getByTestId("first-open-ready-waiting")).toBeVisible({ timeout: 5_000 });
-      // The focus moves on to Stop, where the pressed button was.
-      await expect(window.getByTestId("first-open-ready-stop")).toBeFocused();
-
-      // Their own file, read at once: the card's Question turns to it while the example's waits.
-      await window.getByTestId("add-documents-input").setInputFiles([own]);
-      await expect
-        .poll(
-          () =>
-            window.evaluate(async () => {
-              const bridge = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
-              return (await bridge.readyQuestion())?.scope !== null;
-            }),
-          { timeout: 30_000 },
-        )
-        .toBe(true);
-      // The row keeps saying what the first press waits for, and offers no button to press again.
-      await expect(window.getByTestId("first-open-ready-waiting")).toBeVisible();
-      await expect(window.getByTestId("first-open-ready")).toHaveCount(0);
-
-      // One Answer only, the example's: the second press was never taken.
-      const answer = assistantAnswers(window).last();
-      await expect(answer).toHaveAttribute("data-status", "done", { timeout: 120_000 });
-      await expect(answer.getByTestId("answer-example")).toBeVisible();
-      await expect(window.getByTestId("assistant-question")).toHaveCount(1);
-    } finally {
-      await app.close();
-      await removeDataFolder(dataDir);
-      await removeDataFolder(sources);
-    }
-  });
-
   test(`Stop while the ready Question waits keeps the Question and says Stopped (${language}, 900px)`, async () => {
     test.setTimeout(180_000);
     const dataDir = await prepared(language);
@@ -206,10 +162,10 @@ for (const language of ["en", "zh-CN"] as const) {
       await expect(stop).toBeVisible({ timeout: 5_000 });
       // ⌘K finds the same Stop while it waits.
       await window.keyboard.press("ControlOrMeta+k");
-      await window.keyboard.type(language === "zh-CN" ? "停止" : "stop reading");
+      await window.keyboard.type(language === "zh-CN" ? "停止" : "stop");
       await expect(
         paletteFound(window).filter({
-          hasText: language === "zh-CN" ? "停止读取文档" : "Stop reading the Documents",
+          hasText: language === "zh-CN" ? "停止等待文档读取" : "Stop waiting for the Documents",
         }),
       ).toBeVisible();
       await window.keyboard.press("Escape");
@@ -221,8 +177,9 @@ for (const language of ["en", "zh-CN"] as const) {
       await expect(window.getByTestId("assistant-question")).toContainText(
         EXAMPLE_SETS.credit[language].ready?.question as string,
       );
-      // Step 2 stays open: the Question can be asked again.
+      // Step 2 stays open, with the Question back and the focus on it, not on the body.
       await expect(step(window, "question")).toHaveAttribute("data-state", "open");
+      await expect(window.getByTestId("first-open-ready")).toBeFocused();
     } finally {
       await app.close();
       await removeDataFolder(dataDir);

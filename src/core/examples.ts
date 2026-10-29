@@ -129,8 +129,8 @@ const draftBlocks = (set: ExampleSet): NodeJSON[] => (set.draft ? markdownToBloc
 /**
  * What the default example's ready Answer can do now: be written with its checked Citations
  * (`ready`); wait, because a Document it cites is still being read (`reading`); never be written,
- * because a Document it cites couldn't be read (`unreadable`); or there is no example to answer
- * from (`absent`).
+ * because a Document it cites couldn't be read (`unreadable`) or was deleted (`gone`); or there is
+ * no example to answer from (`absent`).
  */
 export type ExampleReadyState =
   | {
@@ -142,6 +142,7 @@ export type ExampleReadyState =
     }
   | { kind: "reading"; document: string }
   | { kind: "unreadable"; document: string }
+  | { kind: "gone"; document: string }
   | { kind: "absent" };
 
 /** Each of the draft's Blocks as Markdown, as the Mind holds it: to tell whether the User changed it. */
@@ -243,7 +244,6 @@ export function createExamples(options: ExamplesOptions) {
         waitingFor ??= quote.document;
         continue;
       }
-      // The file couldn't be read, or a scan held no text: nothing will answer from it.
       if (!hasText(document) || document.status === "no-text") return null;
     }
     return { question: ready.question, waitingFor };
@@ -287,7 +287,7 @@ export function createExamples(options: ExamplesOptions) {
     const citations: MarkedCitation[] = [];
     for (const [index, quote] of ready.quotes.entries()) {
       const document = documents.find((each) => each.name === quote.document);
-      if (!document) return { kind: "unreadable", document: quote.document };
+      if (!document) return { kind: "gone", document: quote.document };
       if (document.status === "queued" || document.status === "extracting") {
         return { kind: "reading", document: quote.document };
       }

@@ -269,7 +269,6 @@ export const assistantCommands: readonly Command[] = [
     run: stopWriting,
   },
   {
-    // The ready Question's Stop, while its Answer waits for its Documents to be read.
     id: "ready.stop",
     label: "command.ready.stop",
     group: "main",

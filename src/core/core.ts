@@ -3854,6 +3854,12 @@ export function createCore(adapters: CoreAdapters): Core {
           values: { document: state.document },
         });
       }
+      if (state.kind === "gone") {
+        throw new InvalidInputError({
+          key: "error.examples.gone",
+          values: { document: state.document },
+        });
+      }
       if (state.kind === "absent") throw new InvalidInputError({ key: "error.examples.absent" });
       if (timedOut) throw new InvalidInputError({ key: "error.examples.reading" });
       const example = examples.readyQuestion();
