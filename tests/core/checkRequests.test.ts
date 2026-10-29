@@ -59,13 +59,12 @@ function checkRequests(model: MockLanguageModelV4) {
   };
 }
 
-/** Resolves once `count` have arrived; a run that never gets there goes on after `ms` and fails its assertion. */
-function gathering(count: number, ms = 2_000) {
+/** Resolves once `count` have arrived: a limit that keeps them apart never opens it, and the test times out. */
+function gathering(count: number) {
   let arrived = 0;
   let release = () => {};
   const all = new Promise<void>((resolve) => {
     release = resolve;
-    setTimeout(resolve, ms);
   });
   return {
     all,
