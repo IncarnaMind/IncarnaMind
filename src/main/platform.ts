@@ -765,7 +765,7 @@ export function createElectronAdapters(log: Logger): CoreAdapters {
     }),
     log,
     audioCapture: audioCapture(log),
-    capturePage: createCitedPageCapture({ rendererUrl: process.env.ELECTRON_RENDERER_URL }),
+    capturePage: createCitedPageCapture({ rendererUrl: process.env.ELECTRON_RENDERER_URL, log }),
     analysisRuntime: analysisRuntime(log),
     paths: {
       dataDir,
