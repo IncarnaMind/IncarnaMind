@@ -186,7 +186,9 @@ function readCheckBasis(value: unknown): ClaimCheckBasis | null {
     scope: scopeOf(value.scope),
     versions: versionsOf(value.versions),
     excluded: excludedOf(value.excluded),
-    readDocuments: readDocumentsOf(value.readDocuments),
+    ...(value.readDocuments !== undefined && {
+      readDocuments: readDocumentsOf(value.readDocuments),
+    }),
     checkedAt: text(value.checkedAt) ?? "",
     ...(value.kept === true && { kept: true }),
   };

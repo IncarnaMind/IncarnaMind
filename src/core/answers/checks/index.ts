@@ -264,18 +264,20 @@ const withQuoted = ({ quoted, ...why }: UnsupportedReason): UnsupportedReason =>
 
 /** A result written onto its mark. */
 function withJudgment(check: ClaimCheckBasis, result: ClaimJudgment, at: string): ClaimCheckBasis {
+  const { readDocuments: _gone, ...rest } = check;
+  const basis: ClaimCheckBasis =
+    result.readDocuments === undefined ? rest : { ...rest, readDocuments: result.readDocuments };
   const common = { versions: result.versions, excluded: result.excluded, checkedAt: at };
   return result.verdict === "not-checked"
     ? {
-        ...check,
+        ...basis,
         ...common,
         state: "not-checked",
         reason: result.reason,
         detail: result.detail,
-        readDocuments: result.readDocuments,
       }
     : {
-        ...check,
+        ...basis,
         ...common,
         state: result.verdict,
         reason: null,
@@ -286,7 +288,6 @@ function withJudgment(check: ClaimCheckBasis, result: ClaimJudgment, at: string)
         calculation: result.calculation,
         citedCaseUnchecked: result.citedCaseUnchecked,
         citedCaseFound: result.citedCaseFound,
-        readDocuments: result.readDocuments,
       };
 }
 
@@ -302,14 +303,17 @@ function withResult(
       ? settleFigureCheck(check, (child) =>
           result.verdict === "not-checked"
             ? withJudgment(child, result, at)
-            : {
-                ...child,
-                state: "not-checked",
-                reason: "malformed",
-                detail: null,
-                checkedAt: at,
-                readDocuments: undefined,
-              },
+            : withJudgment(
+                child,
+                {
+                  verdict: "not-checked",
+                  reason: "malformed",
+                  detail: null,
+                  versions: result.versions,
+                  excluded: result.excluded,
+                },
+                at,
+              ),
         )
       : next;
   const figures = result.figures.flatMap((figure) => {

@@ -251,6 +251,9 @@ export function checkReply(call: ModelCall, plans: Record<string, Plan>): Script
 export const checkGenerate =
   (plans: Record<string, Plan>, evidence: string = JSON.stringify({ passage: null })) =>
   (call: GenerateCall): GeneratedReply => {
+    if (call.system.startsWith("Classify whether a sentence says something is absent")) {
+      return { text: plans[call.prompt]?.absence === true ? "yes" : "no" };
+    }
     if (call.system.startsWith("You sort the sentences")) {
       return { text: JSON.stringify(plannedDecisions(call.prompt, plans)) };
     }

@@ -259,9 +259,7 @@ describe("The Answer instructions", { timeout: 30_000 }, () => {
 
       expect(text).toContain("I didn't find");
       if (mode === "tools") {
-        expect(text).toContain(
-          "Document absence needs read_document: read the pages where the requested fact would be, not an arbitrary three-page range.",
-        );
+        expect(text).toContain("Absence needs read_document where X would be.");
       } else {
         expect(text).toContain("Never claim Document absence.");
       }

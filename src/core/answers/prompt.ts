@@ -340,7 +340,7 @@ export function signInNeededInstructions(connectorNames: readonly string[]): str
  */
 function notCovered(cite: boolean, reads = false): string {
   const absence = reads
-    ? "Document absence needs read_document: read the pages where the requested fact would be, not an arbitrary three-page range."
+    ? "Absence needs read_document where X would be."
     : "Never claim Document absence.";
   return `If the Documents don't cover the Question, say "I didn't find X in “Doc”" ("未在“Doc”中找到 X"). ${absence} You may add what the Passages do say that comes closest${cite ? ", cited" : ""}, then stop: never fill the gap from your own knowledge, so no figure, date or name that isn't in a Passage. Only a general Question that isn't about the User's Documents (a concept or a method) may be answered from your own knowledge, in a paragraph that starts "Not from your Documents:" ("以下内容不是来自你的文档："), with no figures${cite ? " and no markers" : ""}.`;
 }
