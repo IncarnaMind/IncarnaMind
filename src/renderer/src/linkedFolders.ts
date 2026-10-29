@@ -124,7 +124,7 @@ export function rowStateLabel(
       return {
         short: t("linkedFolders.state.empty"),
         compact: t("linkedFolders.state.empty.compact"),
-        full: t("linkedFolders.state.empty.full"),
+        full: t("linkedFolders.state.empty.full", { formats: t("library.drop.formats") }),
       };
     case "idle":
       return null;
