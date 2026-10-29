@@ -1,4 +1,6 @@
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { createServer } from "node:http";
+import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { type ElectronApplication, expect, type Locator, type Page, test } from "@playwright/test";
@@ -1754,6 +1756,80 @@ test("with no key, the ChatGPT plan comes first, the Claude account second, and 
   }
 });
 
+for (const language of ["en", "zh-CN"] as const) {
+  test(`a silent model app settles to not heard from, never to missing, and Check again finds it (${language})`, async () => {
+    // The app's probe gives up after two seconds and then asks again once; a server that holds
+    // its answer, as a loaded computer's app may, is asked a second time only after the first
+    // look ran out. Two silent looks settle the card: it says it wasn't heard from, offers no
+    // Get, and keeps Check again, which finds the app once it answers.
+    const waiting: (() => void)[] = [];
+    let answers = false;
+    let asked = 0;
+    const server = createServer((request, response) => {
+      request.resume();
+      if (request.url !== "/api/tags") {
+        response.writeHead(404);
+        response.end();
+        return;
+      }
+      asked += 1;
+      const answer = () => {
+        response.writeHead(200, { "content-type": "application/json" });
+        response.end(JSON.stringify({ models: [{ name: "qwen3.5:4b", model: "qwen3.5:4b" }] }));
+      };
+      if (answers) answer();
+      else waiting.push(answer);
+    });
+    await new Promise<void>((done) => server.listen(0, "127.0.0.1", done));
+    const { port } = server.address() as AddressInfo;
+    const { app, window } = await launchApp(dataDir, {
+      fakeChat: true,
+      examples: true,
+      ollama: `http://127.0.0.1:${port}`,
+    });
+    try {
+      await setWindowSize(app, window, 1100, 900);
+      await setLanguage(window, language);
+      const card = await askFirstQuestion(window);
+      const way = card.getByTestId("way-local");
+      const status = way.getByTestId("ollama-status");
+      // The first frame, before anything has been looked at.
+      await expect(status).toHaveAttribute("data-looking", "true");
+      await expect(way).toContainText(translate(language, "providers.ollama.checking"));
+      await expect(way).not.toContainText(translate(language, "setup.way.local.install"));
+      await expect(way).not.toContainText(translate(language, "setup.way.local.notRunning"));
+      await expect(card.getByTestId("ollama-get")).toHaveCount(0);
+
+      // A second request is the first look given up on: the card still says it is looking.
+      await expect.poll(() => asked, { timeout: 20_000 }).toBeGreaterThanOrEqual(2);
+      await expect(status).toHaveAttribute("data-looking", "true");
+      await expect(way).toContainText(translate(language, "providers.ollama.checking"));
+      await expect(card.getByTestId("ollama-get")).toHaveCount(0);
+
+      // Both looks are silent: it settles, out of looking, saying it wasn't heard from — not
+      // that the app is missing, so there is no Get, and Check again stays.
+      await expect(status).not.toHaveAttribute("data-looking", "true", { timeout: 25_000 });
+      await expect(status).toHaveAttribute("data-read", "no-answer");
+      await expect(way).toContainText(translate(language, "providers.ollama.noAnswer"));
+      await expect(way).not.toContainText(translate(language, "setup.way.local.install"));
+      await expect(way).not.toContainText(translate(language, "setup.way.local.notRunning"));
+      await expect(card.getByTestId("ollama-get")).toHaveCount(0);
+      await expect(card.getByTestId("ollama-check-again")).toBeEnabled();
+
+      // The app answers now: Check again finds it.
+      answers = true;
+      for (const answer of waiting.splice(0)) answer();
+      await pointAndClick(window, card.getByTestId("ollama-check-again"));
+      await expect(way).toContainText(translate(language, "setup.way.local.running"), {
+        timeout: 15_000,
+      });
+    } finally {
+      await app.close();
+      server.close();
+    }
+  });
+}
+
 test("nothing at all: installing a model on this computer is offered, the example still opens, and Set up later gives the words back", async () => {
   const { app, window } = await launchApp(dataDir, {
     fakeChat: true,
@@ -1764,6 +1840,9 @@ test("nothing at all: installing a model on this computer is offered, the exampl
     await setWindowSize(app, window, 1100, 900);
     await interceptOpenExternal(app);
     const card = await askFirstQuestion(window);
+    // A refused address is an answer: it is not running, so Get is offered (a silent look
+    // settles to not heard from instead, with Check again and no Get).
+    await expect(card.getByTestId("ollama-status")).toHaveAttribute("data-read", "not-running");
     await expect(card.getByTestId("way-local")).toContainText("Install a model on this computer…");
     await expect(card.getByTestId("way-local")).toContainText("Needs the free Ollama app");
     await card.getByTestId("ollama-get").click();
