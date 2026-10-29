@@ -351,7 +351,10 @@ export function createExamples(options: ExamplesOptions) {
       const attributes: ClaimCheckAttributes = {
         // Written again once its Documents are read, the check keeps the identity it had, so a
         // card the reader already opened stays open and shows what was found.
-        id: earlier?.text === check.sentence ? earlier.id : randomUUID(),
+        id:
+          earlier?.text === check.sentence && earlier.action === "check-against-documents"
+            ? earlier.id
+            : randomUUID(),
         request: randomUUID(),
         action: "check-against-documents",
         state: check.verdict,
