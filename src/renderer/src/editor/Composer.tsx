@@ -530,7 +530,7 @@ export function Composer({
     if (mind && current.tell) {
       const said = current.text.trim();
       if (!said || !tellable(aimed)) {
-        if (!aimed) setTellProblem(t("error.task.tell"));
+        if (!aimed && !targetProblem) setTellProblem(t("error.task.tell"));
         return;
       }
       setTellProblem(null);
@@ -698,7 +698,7 @@ export function Composer({
         return;
       }
     }
-    if (event.key === "Escape" && target) {
+    if (event.key === "Escape" && (target || targetProblem)) {
       // Back to asking; the next Esc is the plan card's or the assistant's.
       event.preventDefault();
       update({ tell: undefined });
@@ -782,6 +782,7 @@ export function Composer({
           action={{
             label: t("task.tell.remove"),
             onClick: () => {
+              setTellProblem(null);
               update({ tell: undefined });
               field.current?.focus();
             },
