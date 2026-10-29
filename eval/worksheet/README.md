@@ -18,14 +18,14 @@ Import each fixture into a fresh app profile. For the raster, wait for the real 
 
 Use Claude Haiku 5.5 and Sonnet 5.5, three Answers per model/format, on main before changing behavior and again on the branch. Use a $5 total task cap and retain every completed run or failure, including spend. Supplement with the same Question translated into Chinese, one Answer per model/format. No expected numeric answer is supplied in the Question.
 
-Score separately:
+Score separately. `score.ts` applies these rules to a retained run, including figure inputs and computed totals; `tests/eval/worksheetScore.test.ts` holds the calibration controls.
 
 - Current arithmetic: 0.075 × 2 = 0.150, 0.050 × 2 = 0.100, total 0.250 kg, equal to the current limit. Record the requested 250 g conversion separately if omitted.
 - Attribution: inspect every current input, subtotal and total Citation for page 2 and enough row/role context. A bare value or unlabelled string of numbers fails this criterion, even when found and numerically correct.
-- Comparison: reject a claim that only policy/limit changed. The bead unit mass and control-weight quantity also changed. Record explicit changed-input coverage separately from false exhaustive claims; the neutral Question does not demand an exhaustive change list.
+- Comparison: reject a claim that only policy/limit changed. The bead unit mass and control-weight quantity also changed. Record explicit changed-input coverage separately from false exhaustive claims; the neutral Question does not demand an exhaustive change list. `score.ts` surfaces every sentence naming both the policy and the load as a candidate; a person reads those candidates because word lists miss paraphrases and flag correct contrasts.
 - Source navigation: open an input Citation and check the original row, rather than a same-valued date digit, limit or superseded subtotal. Check Chinese quotations too.
 - Add to note: compare quote, Document id, content hash and page attributes before and after saving.
 
-Calibrate the attribution review against five controls: accept full current page-2 rows; reject superseded page-1 weight subtotal 0.150 as current bead subtotal; reject superseded bead subtotal 0.250 as current total; reject the policy/limit-only conclusion; accept a page-1 row explicitly used for the superseded comparison. Quote-found still measures presence, not sentence support.
+Calibrate the attribution review against five controls: accept full current page-2 rows; reject superseded page-1 weight subtotal 0.150 as current bead subtotal; reject superseded bead subtotal 0.250 as current total; judge the policy/limit-only conclusion from the candidates `score.ts` surfaces; accept a page-1 row explicitly used for the superseded comparison. Quote-found still measures presence, not sentence support.
 
 The fixture is a development case with no held-out set. Small repeated samples do not establish general model reliability. Record actual model ids, source hashes, code revisions, counts, spend and limitations in the pull request.

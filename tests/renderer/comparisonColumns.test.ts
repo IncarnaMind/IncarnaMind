@@ -6,22 +6,29 @@ import {
   type Citation,
   type ClaimCheckResult,
   type ComparisonProblem,
+  type ComparisonStopRequest,
   type CoreEvents,
+  type Document,
   MIND_CONTENT_FIELD,
+  type Settings,
 } from "../../src/core";
-import { createElement, type NodeJSON } from "../../src/core/answers/blocks";
+import { createElement, type NodeJSON, nodeOf } from "../../src/core/answers/blocks";
 import type { ComparisonCellHandle } from "../../src/renderer/src/comparisonCellHandle";
 import { useComparisonCells } from "../../src/renderer/src/comparisonCellState";
 import {
   comparisonCellCopySlice,
   comparisonCellLocation,
+  comparisonCellsAllReviewed,
   comparisonCellsSelected,
   comparisonCellText,
   editComparisonCell,
   startComparisonCellEdit,
   toggleComparisonCellsReviewed,
 } from "../../src/renderer/src/comparisonCells";
-import { refillComparison } from "../../src/renderer/src/comparisonRefill";
+import {
+  refillableComparisonCells,
+  refillComparison,
+} from "../../src/renderer/src/comparisonRefill";
 import {
   comparisonCellAt,
   comparisonCellRange,
@@ -29,9 +36,13 @@ import {
 } from "../../src/renderer/src/comparisonSelection";
 import { comparisonTableAt } from "../../src/renderer/src/editor/comparisonCommands";
 import { citationsIn, copiedText } from "../../src/renderer/src/editor/copyNotes";
+import { useAppStore } from "../../src/renderer/src/store";
 import { comparisonCellOf } from "../../src/shared/comparisons";
 import {
-  comparisonCellReviewed,
+  addSignOff,
+  comparisonCellBasis,
+  comparisonCellContent,
+  comparisonCellSignOff,
   comparisonCellTarget,
   signOffsOf,
 } from "../../src/shared/signOffs";
@@ -51,12 +62,32 @@ function comparisonCellSignOffs(doc: Y.Doc, target: CellTarget) {
   return signOffsOf(doc).filter((record) => record.target.id === wanted.id);
 }
 
-function reviewed(doc: Y.Doc, target: CellTarget): boolean {
-  return comparisonCellReviewed(
+const ADA = { name: "Ada Lovelace", personId: "person-ada" };
+
+/** How the cell's mark shows in the editor now, for `personId`: checked, changed since, or none. */
+function markIn(editor: Editor, doc: Y.Doc, target: CellTarget, personId: string | null = null) {
+  const location = comparisonCellLocation(cellHandle(editor, target.documentId, target.questionId));
+  if (!location) throw new Error("The cell is gone.");
+  return comparisonCellSignOff(
     signOffsOf(doc),
     comparisonCellTarget(target.tableId, target.documentId, target.questionId),
+    comparisonCellContent(location.cell.toJSON()),
+    new Map(useAppStore.getState().documents.map((each) => [each.id, each.contentHash])),
+    personId,
   );
 }
+
+/** The User as Settings name them, and the cited Documents at their versions now. */
+function signedInWith(documents: { id: string; contentHash: string }[]): void {
+  useAppStore.setState({
+    settings: { author: ADA.name, user: { personId: ADA.personId } } as unknown as Settings,
+    documents: documents as unknown as Document[],
+  });
+  onTestFinished(() => useAppStore.setState({ settings: null, documents: [] }));
+}
+
+const reviewed = (editor: Editor, doc: Y.Doc, target: CellTarget): boolean =>
+  markIn(editor, doc, target)?.state === "checked";
 
 /** Each fill the window asked the core for, as the column commands ask it. */
 const fills = vi.hoisted(() => ({
@@ -75,6 +106,8 @@ const checks = vi.hoisted(() => ({
   calls: [] as CheckClaimInput[],
   handler: null as ((input: CheckClaimInput) => Promise<ClaimCheckResult>) | null,
 }));
+
+const stops = vi.hoisted(() => ({ calls: [] as ComparisonStopRequest[] }));
 
 /** The core the window's structure commands ask, when a test bound it to one. */
 const bridge = vi.hoisted(() => ({
@@ -120,7 +153,9 @@ vi.mock("../../src/renderer/src/core", () => ({
       fills.calls.push(input);
       return { started: true, tableId: input.tableId };
     },
-    stopComparisonTable: async () => undefined,
+    stopComparisonTable: async (input: ComparisonStopRequest) => {
+      stops.calls.push(input);
+    },
     checkClaim: async (input: CheckClaimInput) => {
       checks.calls.push(input);
       if (!checks.handler) throw new Error("No claim-check result scripted.");
@@ -317,8 +352,10 @@ describe("A targeted refill in the editor", () => {
     const table = pos === null ? null : editor.state.doc.nodeAt(pos);
     expect(table?.child(0).child(0).attrs.fillId).toBe(call?.pass);
 
+    stops.calls.length = 0;
     editor.commands.undo();
     expect(editor.getJSON()).toEqual(before);
+    expect(stops.calls).toEqual([{ mindId: "mind-1", tableId: "table-1", pass: call?.pass }]);
   });
 
   test("Undo after the Core writes the replacement restores the whole old cell", async () => {
@@ -509,9 +546,11 @@ describe("Comparison cells", () => {
       selected: { "table-1": { anchor: first, cells: selected } },
     });
     expect(comparisonCellsSelected(handle)).toEqual(selected);
-    expect(toggleComparisonCellsReviewed(handle, selected)).toBe(true);
+    expect(toggleComparisonCellsReviewed(handle, selected, ADA)).toBe(true);
     for (const target of selected) {
-      expect(reviewed(client.doc, { kind: "cell", tableId: "table-1", ...target })).toBe(true);
+      expect(reviewed(editor, client.doc, { kind: "cell", tableId: "table-1", ...target })).toBe(
+        true,
+      );
       expect(
         comparisonCellSignOffs(client.doc, { kind: "cell", tableId: "table-1", ...target }),
       ).toMatchObject([
@@ -520,11 +559,13 @@ describe("Comparison cells", () => {
           at: expect.any(String),
           contentHash: expect.any(String),
           deletedAt: null,
+          name: ADA.name,
+          personId: ADA.personId,
         },
       ]);
     }
     expect(
-      reviewed(client.doc, {
+      reviewed(editor, client.doc, {
         kind: "cell",
         tableId: "table-1",
         documentId: "doc-a",
@@ -543,6 +584,93 @@ describe("Comparison cells", () => {
         comparisonCellSignOffs(client.doc, { kind: "cell", tableId: "table-1", ...target })[0]
           ?.deletedAt,
       ).toBeNull();
+  });
+
+  // protects=a hand edit keeps every person's "Checked by me" on the cell, shown as checked before it changed, with who made it and the Document's version, and Undo shows it checked again (#1933); fails_when=the edit deletes a mark or a mark has no name, person or version; no_claim=the card's words, which the smoke spec covers.
+  test("a hand edit keeps everyone's mark as checked before it changed, and Undo shows it checked again", async () => {
+    cellStateForTest();
+    signedInWith([{ id: "doc-a", contentHash: "doc-a-hash" }]);
+    const { editor, client } = await boundTable();
+    const handle = cellHandle(editor);
+    const target = {
+      kind: "cell",
+      tableId: "table-1",
+      documentId: "doc-a",
+      questionId: "q1",
+    } as const;
+    expect(toggleComparisonCellsReviewed(handle, [target])).toBe(true);
+    const location = comparisonCellLocation(handle);
+    if (!location) throw new Error("The cell is gone.");
+    addSignOff(client.doc, {
+      id: "mark-bob",
+      target: comparisonCellTarget("table-1", "doc-a", "q1"),
+      at: "2026-10-27T09:00:00.000Z",
+      contentHash: comparisonCellBasis(comparisonCellContent(location.cell.toJSON())),
+      deletedAt: null,
+      name: "Bob Marley",
+      personId: "person-bob",
+    });
+    expect(comparisonCellSignOffs(client.doc, target)).toMatchObject([
+      { name: "Bob Marley" },
+      { name: ADA.name, personId: ADA.personId, versions: { "doc-a": "doc-a-hash" } },
+    ]);
+    expect(comparisonCellsAllReviewed(handle, [target])).toBe(true);
+
+    checks.handler = async () => claimResult(null);
+    await expect(editComparisonCell(handle, "Sixty days")).resolves.toBe(true);
+    expect(comparisonCellSignOffs(client.doc, target)).toHaveLength(2);
+    expect(markIn(editor, client.doc, target, ADA.personId)).toMatchObject({
+      state: "changed",
+      mine: true,
+    });
+    expect(markIn(editor, client.doc, target, "person-bob")).toMatchObject({
+      state: "changed",
+      name: "Bob Marley",
+    });
+    expect(comparisonCellsAllReviewed(handle, [target])).toBe(false);
+
+    editor.commands.undo();
+    expect(markIn(editor, client.doc, target, ADA.personId)?.state).toBe("checked");
+    expect(comparisonCellsAllReviewed(handle, [target])).toBe(true);
+  });
+
+  // protects=a newer version of the cited Document shows the cell's mark as changed, so "Checked by me" shows unticked and a bulk refill reaches the cell again (#1933); fails_when=the mark still counts as checked against a Document that changed; no_claim=how the version is read from the Library.
+  test("a newer version of the cited Document shows the cell's mark as changed", async () => {
+    cellStateForTest();
+    signedInWith([{ id: "doc-a", contentHash: "doc-a-hash" }]);
+    const { editor } = await boundTable();
+    const handle = cellHandle(editor);
+    const marked = { documentId: "doc-a", questionId: "q1" };
+    const other = { documentId: "doc-b", questionId: "q1" };
+    expect(toggleComparisonCellsReviewed(handle, [marked])).toBe(true);
+    expect(refillableComparisonCells(handle, "refill", [marked, other])).toEqual([other]);
+
+    useAppStore.setState({
+      documents: [{ id: "doc-a", contentHash: "doc-a-v2" }] as unknown as Document[],
+    });
+    expect(comparisonCellsAllReviewed(handle, [marked])).toBe(false);
+    expect(refillableComparisonCells(handle, "refill", [marked, other])).toEqual([marked, other]);
+  });
+
+  // protects=the core and the editor read a cell's mark from the same words and Citations, so a mark made in the editor protects the cell in the core's bulk refill; fails_when=the two read different hashes for one cell; no_claim=the refill itself.
+  test("the core and the editor read a cell's mark the same way", async () => {
+    const { editor, client } = await boundTable();
+    const location = comparisonCellLocation(cellHandle(editor));
+    const table = client.doc
+      .getXmlFragment(MIND_CONTENT_FIELD)
+      .toArray()
+      .find(
+        (element): element is Y.XmlElement =>
+          element instanceof Y.XmlElement && element.getAttribute("id") === "table-1",
+      );
+    const row = table?.toArray()[0];
+    const cell = row instanceof Y.XmlElement ? row.toArray()[0] : undefined;
+    if (!location || !(cell instanceof Y.XmlElement)) throw new Error("The cell is gone.");
+    const fromEditor = comparisonCellContent(location.cell.toJSON());
+    expect(fromEditor.citations).toHaveLength(1);
+    expect(comparisonCellBasis(comparisonCellContent(nodeOf(cell)))).toBe(
+      comparisonCellBasis(fromEditor),
+    );
   });
 
   test("a hand edit keeps a supported Citation, preserves a literal marker and is one Undo step", async () => {
@@ -615,7 +743,7 @@ describe("Comparison cells", () => {
       });
     const pending = editComparisonCell(handle, "30 days");
     expect(useComparisonCells.getState().checking["table-1:doc-a:q1"]).toBe(true);
-    expect(toggleComparisonCellsReviewed(handle, comparisonCellsSelected(handle))).toBe(true);
+    expect(toggleComparisonCellsReviewed(handle, comparisonCellsSelected(handle), ADA)).toBe(true);
     editor.commands.undo();
     finish(claimResult(citationFor("doc-a", "Thirty days.")));
     await expect(pending).resolves.toBe(false);

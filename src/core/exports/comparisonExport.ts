@@ -8,7 +8,8 @@ import { citationState, citedLocation, shownDocumentName } from "../../shared/ci
 import { comparisonQuestionsOf, comparisonTitleOf } from "../../shared/comparisons";
 import { type MessageKey, type MessageParams, translate } from "../../shared/i18n";
 import { readableQuoteText } from "../../shared/readableQuote";
-import { findBlock } from "../answers/blocks";
+import { comparisonCellContent, comparisonCellMarksNow, signOffsOf } from "../../shared/signOffs";
+import { findBlock, nodeOf } from "../answers/blocks";
 import { type CitationAttributes, COMPARISON_TABLE_NODE } from "../api";
 import { NotFoundError } from "../errors";
 import { safeFileName } from "../fileNames";
@@ -50,6 +51,7 @@ export function createComparisonExport(deps: ComparisonExportDependencies) {
       const documents = deps.liveDocuments();
       const kept = deps.keptCitationTexts();
       const live = new Set(documents.map((document) => document.id));
+      const versions = new Map(documents.map((document) => [document.id, document.contentHash]));
       const attributesOf = new Map<Footnote, Partial<CitationAttributes>>();
       let hiddenColumns = 0;
       let title = "";
@@ -60,6 +62,7 @@ export function createComparisonExport(deps: ComparisonExportDependencies) {
         hiddenColumns = comparisonQuestionsOf(table.getAttributes()).filter(
           (question) => question.hidden === true,
         ).length;
+        const marks = fragment.doc ? signOffsOf(fragment.doc) : [];
         const options: ReadOptions = {
           includeQuestions: false,
           footnote: (attributes) => {
@@ -72,6 +75,14 @@ export function createComparisonExport(deps: ComparisonExportDependencies) {
           comparisonText: t,
           documentRemoved: (documentId) => !live.has(documentId),
           leaveOutHiddenColumns: true,
+          cellSignOffs: (target, cell) =>
+            comparisonCellMarksNow(
+              marks,
+              target,
+              comparisonCellContent(nodeOf(cell)),
+              versions,
+              null,
+            ),
           // A table still waiting as a change is exported as it is shown.
           review: reviewReading(fragment),
         };
@@ -81,6 +92,7 @@ export function createComparisonExport(deps: ComparisonExportDependencies) {
       const { book, unverified } = comparisonBook({
         reading,
         title: title || t("comparison.title"),
+        language,
         textLanguage: deps.citationStyle(mind.id).textLanguage,
         t,
         facts: (footnote) => {

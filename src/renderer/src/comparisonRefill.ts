@@ -1,6 +1,11 @@
 import type { ComparisonCellRef, ComparisonFillMode } from "../../core/api";
 import { comparisonCellOf, comparisonRefillable } from "../../shared/comparisons";
-import { comparisonCellReviewed, comparisonCellTarget, signOffsOf } from "../../shared/signOffs";
+import {
+  comparisonCellChecked,
+  comparisonCellContent,
+  comparisonCellTarget,
+  signOffsOf,
+} from "../../shared/signOffs";
 import type { ComparisonHandle } from "./comparisonColumnState";
 import { fillComparisonTable, stopComparisonTable } from "./comparisons";
 import { comparisonCellInRow, comparisonTableIn } from "./editor/comparisonCommands";
@@ -10,7 +15,7 @@ import {
   snapshotComparisonRefill,
 } from "./editor/comparisonFillCommands";
 import { offerEditorUndo } from "./editor/editorUndo";
-import { noteDocOf } from "./editor/signOffActions";
+import { liveVersions, noteDocOf } from "./editor/signOffActions";
 import { useNotices } from "./notices";
 
 export type ComparisonRefillStart =
@@ -35,17 +40,21 @@ export function refillableComparisonCells(
   );
   const doc = noteDocOf(handle.editor);
   const signOffs = doc ? signOffsOf(doc) : [];
+  const versions = liveVersions();
   const stateOf = (target: ComparisonCellRef) => {
     let state: ReturnType<typeof comparisonCellOf> | null = null;
     found.table.forEach((row) => {
       if (row.attrs.documentId !== target.documentId) return;
       const at = comparisonCellInRow(row, target.questionId);
       if (at) {
+        const cell = row.child(at.index);
         state = {
-          ...comparisonCellOf(row.child(at.index).attrs),
-          reviewed: comparisonCellReviewed(
+          ...comparisonCellOf(cell.attrs),
+          reviewed: comparisonCellChecked(
             signOffs,
             comparisonCellTarget(handle.tableId, target.documentId, target.questionId),
+            comparisonCellContent(cell.toJSON()),
+            versions,
           ),
         };
       }
@@ -91,7 +100,7 @@ export function refillComparison(
       }),
     undefined,
     () => {
-      void stopComparisonTable({ mindId: handle.mindId, tableId: handle.tableId });
+      void stopComparisonTable({ mindId: handle.mindId, tableId: handle.tableId, pass });
       restoreComparisonRefill(handle.editor, handle.tableId, before);
     },
   );
