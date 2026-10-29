@@ -4,6 +4,7 @@ import { CHATGPT_SERVICE } from "../../../core/providers/chatgpt/service";
 import { core } from "../core";
 import { useGap, useT } from "../i18n";
 import { useAppStore } from "../store";
+import { ProviderDataUseNotice } from "./providers/ProviderDataUseNotice";
 import {
   buttonClass,
   dialogActionsClass,
@@ -93,6 +94,7 @@ export function ConsentDialog() {
               ))}
             </ul>
           </div>
+          <ProviderDataUseNotice service={request.flow.service} />
           {request.flow.id === "connectors" && (
             <p className={dialogTextClass}>
               {/* A local Connector's service is "connector:<id>"; a remote one's is its server's origin. */}
