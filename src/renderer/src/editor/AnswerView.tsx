@@ -46,7 +46,7 @@ import {
   useKeyRefusals,
   useKeySavedSince,
 } from "../keyRefusals";
-import { requestModelMenu, useModelPickedSince } from "../modelMenu";
+import { requestModelMenu, retryModel } from "../modelMenu";
 import { useModelNames, useServiceName } from "../modelNames";
 import { useStoppedByPlanLimit } from "../planLimits";
 import { ANSWER_PROBLEMS, failedAnswerLine, retry } from "../problems";
@@ -311,6 +311,7 @@ export function AnswerError({
   failedAt = null,
   onRetry,
   onRetryWith,
+  modelNow = null,
   chooseHere = false,
   onOpenSettings,
 }: {
@@ -327,8 +328,10 @@ export function AnswerError({
    */
   failedAt?: string | null;
   onRetry?: (() => void) | undefined;
-  /** Asks again with the model the User picked in the composer since the failure (#1848). */
+  /** Asks again with the model the composer shows now, when it isn't the one that failed (#1848). */
   onRetryWith?: ((model: ChatModelChoice) => void) | undefined;
+  /** The model the composer's chip shows now. */
+  modelNow?: ChatModelChoice | null;
   /** The composer's model menu is here: "Choose another model" opens it, not Settings. */
   chooseHere?: boolean;
   onOpenSettings(page: SettingsPage): void;
@@ -344,7 +347,7 @@ export function AnswerError({
   const [shownAt] = useState(() => new Date().toISOString());
   const billingOpened = useBillingOpenedSince(providerId, failedAt ?? shownAt);
   const keySaved = useKeySavedSince(providerId, failedAt ?? shownAt);
-  const pickedModel = useModelPickedSince(failedAt ?? shownAt, { providerId, modelId });
+  const pickedModel = retryModel({ providerId, modelId }, modelNow);
   const declineEnded = useDeclineEnded(
     providerInUse?.service?.id ?? null,
     kind === "consent-declined" && onRetry !== undefined,
