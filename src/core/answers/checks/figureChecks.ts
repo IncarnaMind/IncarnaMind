@@ -209,6 +209,10 @@ export function uncheckedFigureResults(
   return { ...aggregateFigureResults(rows, undefined), figures: rows, remainder: undefined };
 }
 
+/**
+ * A wider word, another party or another topic takes a Supported verdict's support away; for a
+ * contradiction the parties the other way round are what contradicts, and its quote is judged.
+ */
 export function figureJudgment(
   reply: ReadVerdict,
   evidence: Citation | null,
@@ -217,9 +221,8 @@ export function figureJudgment(
 ): ClaimJudgment {
   if (
     reply.verdict === "unsupported" ||
-    reply.scope !== "same" ||
-    reply.roles !== "same" ||
-    reply.topic !== "found"
+    (reply.verdict === "supported" &&
+      (reply.scope === "wider" || reply.roles === "differs" || reply.topic === "not found"))
   )
     return {
       verdict: "unsupported",
@@ -258,6 +261,8 @@ export interface FigureCheckOptions {
   caseFlags(evidence: Citation | null): CaseFlags;
   costs(marker: number): ReadonlySet<string>;
   remainder(reply: FigureReplyRemainder): Promise<ClaimJudgment>;
+  /** The reply's own verdict on the whole sentence, judged as a remainder is; null when it gives none. */
+  sentence: (() => Promise<ClaimJudgment>) | null;
   /**
    * Why a figure's unit, currency or scale isn't backed by these Citations or their Documents
    * (#1798), given the numbers it was compared with (`bound`).
@@ -355,7 +360,6 @@ function inSourceFrame(
   };
 }
 
-/** A Figures line's source, read as `calculate` reads an input: its number, or why it can't be read. */
 /** Whether a source number equals the figure in any way the figure can be read. */
 export function givesItsOwnNumber(target: CheckFigure, input: FigureInput): boolean {
   return [target.reading, ...target.reading.ambiguous.flatMap((each) => each.readings)].some(
@@ -363,6 +367,7 @@ export function givesItsOwnNumber(target: CheckFigure, input: FigureInput): bool
   );
 }
 
+/** A Figures line's source, read as `calculate` reads an input: its number, or why it can't be read. */
 export function readFigureSource(
   calculations: Pick<CalculationSession, "number">,
   target: CheckFigure,
@@ -385,8 +390,20 @@ export async function checkFigureReply(options: FigureCheckOptions): Promise<Cla
     detail: null,
     ...options.facts(),
   });
+  const settle = async (
+    rows: readonly FigureCheckResult[],
+    rest: ClaimJudgment | null | undefined,
+  ): Promise<ClaimCheckResult> => {
+    const remainder = await withSentence(rows, rest, options.sentence);
+    if (options.signal.aborted) return uncheckedFigureResults(requested, unavailable("stopped"));
+    return { ...aggregateFigureResults(rows, remainder), figures: [...rows], remainder };
+  };
   const parsed = readFigureReply(options.reply, requested, options.claim);
-  if (!parsed) return uncheckedFigureResults(requested, unavailable("malformed"));
+  if (!parsed)
+    return settle(
+      requested.map((figure) => ({ ...finding(figure), result: unavailable("malformed") })),
+      undefined,
+    );
   calculations.check();
   const items = new Map(parsed.items.map((item) => [item.id, item]));
   const rows: FigureCheckResult[] = [];
@@ -490,15 +507,15 @@ export async function checkFigureReply(options: FigureCheckOptions): Promise<Cla
       ],
     };
     const flags = options.caseFlags(evidence);
+    const unbacked = (quoted: Citation | null) =>
+      figureJudgment({ ...item, verdict: "unsupported" }, quoted, facts, flags);
     if (!sourceInput && !calculation) {
-      const result =
-        item.verdict === "unsupported" &&
-        !target.calculated &&
-        item.source === null &&
-        item.calculation === null
-          ? figureJudgment(item, null, facts, flags)
-          : unavailable();
-      rows.push({ ...base, result });
+      // A figure the model doesn't call Supported, with no source that can be read, is one its
+      // quotes don't hold: Unsupported in its own right, and not asked about again (#2184).
+      rows.push({
+        ...base,
+        result: item.verdict !== "supported" && !target.calculated ? unbacked(null) : unavailable(),
+      });
       continue;
     }
     if (
@@ -507,7 +524,7 @@ export async function checkFigureReply(options: FigureCheckOptions): Promise<Cla
       item.scope !== "same" ||
       item.roles !== "same"
     ) {
-      rows.push({ ...base, sourceInput, result: figureJudgment(item, evidence, facts, flags) });
+      rows.push({ ...base, sourceInput, result: unbacked(evidence) });
       continue;
     }
     const compared =
@@ -599,12 +616,37 @@ export async function checkFigureReply(options: FigureCheckOptions): Promise<Cla
       },
     });
   }
-  const remainder =
+  const rest =
     parsed.remainder === null
       ? null
       : parsed.remainder
         ? await options.remainder(parsed.remainder)
         : undefined;
   if (options.signal.aborted) return uncheckedFigureResults(requested, unavailable("stopped"));
-  return { ...aggregateFigureResults(rows, remainder), figures: rows, remainder };
+  return settle(rows, rest);
+}
+
+const STRICTNESS: Record<ClaimJudgment["verdict"], number> = {
+  contradicted: 0,
+  unsupported: 1,
+  "not-checked": 2,
+  supported: 3,
+};
+
+/**
+ * The rest of the sentence's words, given the reply's own verdict on the whole sentence. A
+ * figure's result can only make that verdict stricter, never weaker (#2184): a contradiction no
+ * figure shows rests on the sentence's other words, such as its parties, period or unit, however
+ * the model wrote its remainder. A Supported verdict settles nothing the figures and the
+ * remainder don't, so a missing remainder still leaves the sentence not checked.
+ */
+async function withSentence(
+  rows: readonly FigureCheckResult[],
+  rest: ClaimJudgment | null | undefined,
+  sentence: FigureCheckOptions["sentence"],
+): Promise<ClaimJudgment | null | undefined> {
+  if (!sentence || aggregateFigureResults(rows, rest).verdict === "contradicted") return rest;
+  const judged = await sentence();
+  if (judged.verdict === "supported") return rest;
+  return rest && STRICTNESS[rest.verdict] <= STRICTNESS[judged.verdict] ? rest : judged;
 }
