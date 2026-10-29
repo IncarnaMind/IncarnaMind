@@ -16,11 +16,30 @@ export const opinionChecks = (editor: Editor, doc: Y.Doc) => opinionsIn(editor.s
 
 export type OpinionCheck = ReturnType<typeof opinionChecks>[number];
 
+const sameOpinions = (a: readonly OpinionCheck[], b: readonly OpinionCheck[]) =>
+  a.length === b.length &&
+  a.every((each, index) => {
+    const other = b[index];
+    return (
+      other !== undefined &&
+      each.id === other.id &&
+      each.text === other.text &&
+      each.span.start === other.span.start &&
+      each.span.end === other.span.end &&
+      each.range.from === other.range.from &&
+      each.range.to === other.range.to
+    );
+  });
+
 export function useOpinionChecks(editor: Editor, doc: Y.Doc): readonly OpinionCheck[] {
   const [opinions, setOpinions] = useState(() => opinionChecks(editor, doc));
   useEffect(() => {
+    // Each keystroke runs this twice, from the editor and from Yjs: an unchanged list keeps its
+    // array, so the cards and the badge that read it don't render again.
     const update = () => {
-      if (!editor.isDestroyed) setOpinions(opinionChecks(editor, doc));
+      if (editor.isDestroyed) return;
+      const next = opinionChecks(editor, doc);
+      setOpinions((previous) => (sameOpinions(previous, next) ? previous : next));
     };
     update();
     editor.on("transaction", update);
