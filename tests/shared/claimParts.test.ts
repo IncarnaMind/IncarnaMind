@@ -155,6 +155,38 @@ describe("ordered claim part codec", () => {
     });
   });
 
+  // protects=a contradicted part shows beside a part stopped or still being checked, and one with no valid evidence never shows as Contradicted, though an unsupported sibling still shows (#2002); fails_when=a stopped or unfinished part hides the contradiction, or a contradiction with nothing behind it gets a mark; no_claim=how the card lays the rows out.
+  test.each([
+    ["stopped", "stopped" as const],
+    ["still being checked", null],
+  ])("a contradicted part wins over a part %s", (_, reason) => {
+    const second: ClaimPartPlan = { span: { start: 13, end: 25 }, kind: "fact" };
+    const other =
+      reason === null
+        ? pendingPart(second)
+        : partWithResult(second, {
+            verdict: "not-checked",
+            reason,
+            detail: null,
+            versions: [],
+            excluded: [],
+          });
+    expect(resultFromParts([part("contradicted"), other])).toMatchObject({
+      verdict: "contradicted",
+    });
+    expect(resultFromParts([other, part("contradicted")])).toMatchObject({
+      verdict: "contradicted",
+    });
+  });
+
+  test("a contradicted part with no valid evidence is no contradiction, and an unsupported sibling still shows", () => {
+    const empty = { ...part("contradicted"), evidence: [] };
+    expect(resultFromParts([empty])).toMatchObject({ verdict: "not-checked" });
+    expect(resultFromParts([empty, part("unsupported")])).toMatchObject({
+      verdict: "unsupported",
+    });
+  });
+
   test("legacy marks retain their existing fields", () => {
     expect(readClaimCheck(mark())).toEqual(mark());
     expect(readClaimCheck({ ...mark(), parts: null })).toEqual(mark());
