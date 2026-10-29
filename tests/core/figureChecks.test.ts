@@ -1375,3 +1375,44 @@ test("a quoted heading states the scale and currency the bare digits lack", asyn
   expect(result.figures?.[0]?.sourceInput?.unitStatement).not.toBeNull();
   expect(result.figures?.[0]?.result.verdict).toBe("supported");
 });
+
+test("a correction is not offered beside a supported calculated figure", async () => {
+  const sentence = "Revenue was £20 and growth was £10.";
+  const items = [
+    { ...item("revenue"), verdict: "contradicted", source: { citation: 1, number: "£21" } },
+    { ...item("growth"), source: null, calculation: 1 },
+  ];
+  const { result } = await checkWith({
+    claim: sentence,
+    figures: [target("revenue", "£20", sentence), target("growth", "£10", sentence)],
+    body: "Revenue was £21. Growth was £10.",
+    calculations: [
+      {
+        marker: 1,
+        label: "Growth",
+        formula: "source",
+        stated: "£10",
+        relation: "equals",
+        inputs: [{ name: "source", label: "Growth", citation: 1, position: 2 }],
+      },
+    ],
+    text: `Verdict: contradicted\nChange 1: £20\nTo 1: £21 [^1]\nFigures: ${JSON.stringify({ items, remainder: null })}`,
+  });
+
+  expect(result).toMatchObject({ verdict: "contradicted", correction: null });
+});
+
+test("a correction is not offered for a figure with table context", async () => {
+  const sentence = "Revenue was £20.";
+  const { result } = await checkWith({
+    claim: sentence,
+    figures: [target("f1", "£20", `Revenue | 2025\n${sentence}`)],
+    body: "Revenue was £21.",
+    text: `Verdict: contradicted\nChange 1: £20\nTo 1: £21 [^1]\nFigures: ${JSON.stringify({
+      items: [{ ...item(), verdict: "contradicted", source: { citation: 1, number: "£21" } }],
+      remainder: null,
+    })}`,
+  });
+
+  expect(result).toMatchObject({ verdict: "contradicted", correction: null });
+});

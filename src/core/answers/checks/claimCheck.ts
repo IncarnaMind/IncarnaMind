@@ -814,6 +814,18 @@ export function createClaimCheck(deps: ClaimCheckDependencies) {
         )
       )
         return checked;
+      if (
+        (checked.figures ?? []).some(
+          (figure) =>
+            figure.calculated ||
+            ("calculation" in figure.result && figure.result.calculation) ||
+            figure.locator.kind !== "text" ||
+            figure.context !== request.claim ||
+            figure.footing.length > 0 ||
+            (figure.sourceFooting?.length ?? 0) > 0,
+        )
+      )
+        return checked;
       const owners = (checked.figures ?? []).filter((figure) => {
         if (
           figure.result.verdict !== "contradicted" ||
