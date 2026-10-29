@@ -1,7 +1,7 @@
 import type { MockLanguageModelV4 } from "ai/test";
 import { describe, expect, test } from "vitest";
 import * as Y from "yjs";
-import type { Core } from "../../src/core";
+import { type Core, GENERATED_MARK } from "../../src/core";
 import { EDIT_INSTRUCTIONS } from "../../src/core/edits/prompt";
 import { waitingProblemOf } from "../../src/renderer/src/changeProblems";
 import { waitsForUser } from "../../src/shared/askedChanges";
@@ -10,7 +10,7 @@ import { askAssistant, changesIn, lastResult, mindCalls } from "../helpers/assis
 import { answerEnded } from "../helpers/citations";
 import { createTempDataFolder, startCore } from "../helpers/core";
 import { connectToMind, type MindClient } from "../helpers/mindClient";
-import { heading, note, shownWithChanges, writeMind } from "../helpers/minds";
+import { heading, note, resolveChanges, shownWithChanges, writeMind } from "../helpers/minds";
 import {
   claimCheckReply,
   type ModelCall,
@@ -232,6 +232,107 @@ describe("The assistant revises its own changes still waiting", { timeout: 30_00
       "+ The paper is about spring tides, and how the moon drives them.",
     ]);
     expect(changesIn(second)).toEqual([expect.objectContaining({ revised: true, proposals: 2 })]);
+  });
+
+  // protects=a Mind the assistant made from text with no heading of its own (the app puts the title above it) can be written anew as a whole by edit_mind with content, as it can when the text starts with its own heading; fails_when=it is refused because of the title heading, or the title is lost; no_claim=how well a real model lengthens it.
+  test.each([
+    {
+      when: "while the first change still waits",
+      accept: false,
+      shown: ["+ Tide notes", "+ The paper is about spring tides, and how the moon drives them."],
+    },
+    {
+      when: "after the first change applied",
+      accept: true,
+      shown: ["Tide notes", "The paper is about spring tides{+, and how the moon drives them+}."],
+    },
+  ])(
+    "new text for a Mind made from text with no heading of its own, $when",
+    async ({ accept, shown }) => {
+      const longer = "The paper is about spring tides, and how the moon drives them.";
+      const model = scriptedModel((call): ScriptedReply => {
+        if (asked(call).endsWith("write a summary page")) {
+          return called(call, "create_mind")
+            ? { text: "Made “Tide notes”." }
+            : {
+                calls: [
+                  {
+                    tool: "create_mind",
+                    input: { title: "Tide notes", content: "The paper is about spring tides." },
+                  },
+                ],
+              };
+        }
+        return called(call, "edit_mind")
+          ? { text: "Rewrote the summary in “Tide notes”." }
+          : { calls: [{ tool: "edit_mind", input: { mind: "Tide notes", content: longer } }] };
+      });
+      const { core, mind } = await setUp(model);
+      const first = await askAssistant(core, { text: "write a summary page", mindId: mind.id });
+      const page = await madeBy(core, first);
+      await page.settled();
+      if (accept) {
+        await resolveChanges(page, "accept");
+        await page.settled();
+      }
+
+      const second = await askAssistant(core, {
+        text: "make it longer",
+        mindId: mind.id,
+        conversationId: first.conversationId,
+      });
+
+      await page.settled();
+      expect(lastResult(model)).not.toMatch(/Nothing was changed/);
+      expect(shownWithChanges(page)).toEqual(shown);
+      expect(changesIn(second)).toHaveLength(1);
+    },
+  );
+
+  // protects=a title the User typed in or edited stays the User's text: new text over it is refused, with the reason; fails_when=the assistant's content replaces it; no_claim=none beyond protects.
+  test("new text over a title the User edited is refused, and the title stays", async () => {
+    const model = scriptedModel((call): ScriptedReply => {
+      if (asked(call).endsWith("write a summary page")) {
+        return called(call, "create_mind")
+          ? { text: "Made “Tide notes”." }
+          : {
+              calls: [
+                {
+                  tool: "create_mind",
+                  input: { title: "Tide notes", content: "The paper is about spring tides." },
+                },
+              ],
+            };
+      }
+      return called(call, "edit_mind")
+        ? { text: "It could not change the title." }
+        : {
+            calls: [
+              {
+                tool: "edit_mind",
+                input: { mind: "Tide notes", content: "The paper is about neap tides." },
+              },
+            ],
+          };
+    });
+    const { core, mind } = await setUp(model);
+    const first = await askAssistant(core, { text: "write a summary page", mindId: mind.id });
+    const page = await madeBy(core, first);
+    await resolveChanges(page, "accept");
+    await page.settled();
+    const title = (page.blocks.get(0) as Y.XmlElement).get(0) as Y.XmlText;
+    page.doc.transact(() => title.insert(title.length, "!", { [GENERATED_MARK]: null }));
+    await page.settled();
+
+    await askAssistant(core, {
+      text: "change it",
+      mindId: mind.id,
+      conversationId: first.conversationId,
+    });
+
+    await page.settled();
+    expect(lastResult(model)).toMatch(/content only replaces your own text/);
+    expect(shownWithChanges(page)).toEqual(["Tide notes!", "The paper is about spring tides."]);
   });
 
   // protects=asked to change all of a Mind where its own waiting text sits beside the User's, the assistant is told to name the section, and revises only its own; fails_when=the User's text is changed, or nothing is done; no_claim=none beyond protects.

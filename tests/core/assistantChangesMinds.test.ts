@@ -329,7 +329,8 @@ describe("The assistant changes Minds as Proposals", { timeout: 30_000 }, () => 
     expect(tidesPage.firstChild?.toJSON()).toEqual({
       type: "heading",
       attrs: expect.objectContaining({ level: 1 }),
-      content: [{ type: "text", text: "Tide notes" }],
+      // The title is the assistant's own text, so a later rewrite of the Note's text can keep it (#1898).
+      content: [{ type: "text", text: "Tide notes", marks: [{ type: "generated" }] }],
     });
     const resumeClient = await connectToMind(core, resume?.mindId ?? "");
     expect(shownWithChanges(resumeClient)).toEqual(["+ 张瑜简历总结", "+ 教育背景。"]);
