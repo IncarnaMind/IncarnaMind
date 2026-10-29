@@ -3309,12 +3309,14 @@ export function createAnswers(options: AnswersOptions) {
   // Only the Document's own name and words are kept and sent: what the caller gave is only looked for.
   function checkQuotes(
     quotes: readonly AskedQuote[],
-    scope: SearchScope | null,
     mindId: string | null,
+    wallId?: string | null,
   ): { quoted: Quoted[]; leftOut: AskedQuote[] } {
     const quoted: Quoted[] = [];
     const leftOut: AskedQuote[] = [];
-    const allowed = options.resolveScope(scope ?? NO_SCOPE, mindId);
+    const allowed = wallId
+      ? options.resolveScope(folderScope(wallId))
+      : options.resolveScope(NO_SCOPE, mindId);
     const documents = options.documents.names();
     for (const asked of quotes) {
       if (allowed !== null && !allowed.includes(asked.documentId)) {
@@ -3558,7 +3560,7 @@ export function createAnswers(options: AnswersOptions) {
     async askInConversation(question: QuestionInput): Promise<ConversationAskResult> {
       const scope = options.searchedScope(question.scope, question.mind?.id ?? null);
       const mind = mindToRead(question.mind?.id ?? null, question.focus, question.text);
-      const quotes = checkQuotes(question.quotes, scope, question.mind?.id ?? null);
+      const quotes = checkQuotes(question.quotes, question.mind?.id ?? null);
       const answerModel =
         question.model && options.providerExists(question.model.providerId)
           ? question.model
@@ -3584,7 +3586,11 @@ export function createAnswers(options: AnswersOptions) {
           question.mind?.id ?? null,
           options.walledFolderId(added.turn.conversation.folderId),
         );
-        const checked = checkQuotes(question.quotes, scope, question.mind?.id ?? null);
+        const checked = checkQuotes(
+          question.quotes,
+          question.mind?.id ?? null,
+          options.walledFolderId(added.turn.conversation.folderId),
+        );
         const readyTurn = options.conversations.restartAnswer(
           turn.answer.id,
           ready.model,
@@ -3643,7 +3649,11 @@ export function createAnswers(options: AnswersOptions) {
         emptyScope,
         mind,
         onScreen,
-        checkQuotes(question.quotes, question.scope, from?.mindId ?? null),
+        checkQuotes(
+          question.quotes,
+          from?.mindId ?? null,
+          options.walledFolderId(turn.conversation.folderId),
+        ),
         remake,
       );
     },

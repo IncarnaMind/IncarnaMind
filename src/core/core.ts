@@ -1559,7 +1559,8 @@ export function createCore(adapters: CoreAdapters): Core {
               documentIds: (filter) => documents.ids(filter),
             })
           : resolveScope({ folderIds: [], tagIds: [], documentIds: input.ids }, mindId);
-        if (input.ids.some((id) => allowed?.includes(id) !== true)) refuse();
+        const existing = new Set(documents.ids({}));
+        if (input.ids.some((id) => existing.has(id) && allowed?.includes(id) !== true)) refuse();
       }
       if (input.command === "document.moveTo" || input.command === "mind.moveTo") {
         const target = library

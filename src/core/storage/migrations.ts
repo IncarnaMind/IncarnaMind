@@ -1945,7 +1945,7 @@ export const migrations: readonly Migration[] = [
     `,
   },
   {
-    version: 113,
+    version: 115,
     description: "A Folder can keep its work inside it (#1934)",
     sql: `
       -- 1: a Folder's Notes, Answers and checks may read only its own Documents.
