@@ -4361,6 +4361,7 @@ export const en = {
     "IncarnaMind couldn’t read the words you selected to ask about. Select them again.",
   "error.question.quotes.tooMany":
     "A Question can be about {count} selections at most. Remove some, then ask again.",
+  "error.question.model": "That model can’t be used. Choose another model.",
   "error.mindStyle.invalid": "That isn’t a font and a text size IncarnaMind has.",
   "error.privacy.usageDataLocalMode":
     "Usage data stays off: “Keep everything on this computer” is on.",
