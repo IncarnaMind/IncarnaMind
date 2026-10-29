@@ -11,7 +11,8 @@
  * adds a folder's PDFs. From the window's list (#1421): "Make a Folder called Leases and move the
  * leases into it" (新建一个叫“租约”的文件夹，把租约移进去) moves what it found into the Folder it
  * names, made for it; "Open the X beside this one" (在旁边打开“X”) opens the Document it found to
- * the side; "Check this Mind" (核对这篇笔记) checks the Mind in front; "Put the documents about
+ * the side; "Check this Note" (核对这篇笔记) checks the Note in front; "Bring back the X I deleted"
+ * (把删掉的“X”恢复) restores what it found in Recently deleted; "Put the documents about
  * rent together" (把关于租金的文档放在一起) has Organize sort every Document in no Folder toward
  * "Rent"; and "Turn on Local mode" (打开本地模式) asks for what is the User's alone. Each then
  * replies with the first sentence of what its calls returned, or nothing after one whose card is
@@ -47,7 +48,7 @@ const said = (prompt: Prompt): Reply => {
 
 function findThen(
   prompt: Prompt,
-  query: { kind: "document" | "mind"; name?: string },
+  query: { kind: "document" | "mind" | "deleted"; name?: string },
   act: (found: Found[]) => Record<string, unknown> | null,
 ): Reply {
   const listed = lastResult(prompt, "list_commands");
@@ -72,6 +73,7 @@ const BESIDE = /\bopen the (.+?) beside this one\b|在旁边打开“(.+?)”/i;
 const CHECK = /\bcheck this (?:mind|note)\b|核对这篇笔记/i;
 const ORGANIZE_ABOUT = /\bput the documents about (.+?) together\b|把关于(.+?)的文档放在一起/i;
 const LOCAL_MODE = /\bturn on local mode\b|打开本地模式/i;
+const RESTORE = /\bbring back the (.+?) i deleted\b|把删掉的“(.+?)”恢复/i;
 
 function runOnce(prompt: Prompt, input: Record<string, unknown>): Reply {
   if (lastResult(prompt, "run_command") !== undefined) return said(prompt);
@@ -172,6 +174,13 @@ export function commandsReply(
       folder: capitalized(topic),
       about: topic,
     });
+  }
+  const restore = RESTORE.exec(question);
+  if (restore) {
+    return findThen(prompt, { kind: "deleted", name: restore[1] ?? restore[2] ?? "" }, (found) => ({
+      command: "deleted.restore",
+      ids: found.map((each) => each.id),
+    }));
   }
   if (LOCAL_MODE.test(question)) {
     return runOnce(prompt, { command: "settings.change", setting: "localMode", value: "on" });

@@ -15,7 +15,7 @@ import { type CheckedCommand, type CommandsHost, IN_APP } from "./run";
 export const YOURS_SAID: Readonly<Record<Yours, string>> = {
   keys: "Keys and sign-ins are the User's to change, never yours. They're in Settings › Models.",
   privacy:
-    "Keeping everything on this computer (Local mode), consent, privacy and what leaves the computer are the User's to change, never yours. They're in Settings › Privacy.",
+    "“Keep everything on this computer” (Local mode), consent and what goes to cloud services are the User's to change, never yours. They're in Settings › Privacy.",
   approvals:
     "What you may do without asking is the User's to change, never yours. It's in Settings › Privacy.",
   spending:

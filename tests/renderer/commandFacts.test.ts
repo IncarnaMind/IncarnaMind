@@ -54,6 +54,20 @@ describe("What the assistant's commands did, in words (#1421)", () => {
     expect(undoable([privacy])).toBe(false);
   });
 
+  // protects=what came back from Recently deleted says so, in both languages, and Undo can take it back; fails_when=it reads as a delete or offers no Undo; no_claim=which items.
+  test("what came back from Recently deleted says so", () => {
+    const restored = done({
+      command: "deleted.restore",
+      items: [{ kind: "deleted", id: "d3", name: "Q3 memo" }],
+    });
+    expect(runText(en, [restored])).toBe("Restored 1 item from Recently deleted");
+    expect(runText(zh, [restored])).toBe("已从回收站恢复 1 项");
+    expect(undoable([restored])).toBe(true);
+    expect(doneText(zh, done({ command: "deleted.deletePermanently", yours: "permanent" }))).toBe(
+      "彻底删除只能由你来做，我不能做。在“回收站”里。",
+    );
+  });
+
   // protects=a setting changed names the setting and its value as Settings shows them; fails_when=it shows the raw names; no_claim=every setting.
   test("a setting changed names it as Settings does", () => {
     const motion = done({

@@ -4320,6 +4320,7 @@ export const en = {
   "error.commands.noWindow": "This command runs in a window, and no window asked for it.",
   "error.commands.offered": "The window’s commands couldn’t be read.",
   "error.commands.windowAnswer": "The window’s answer about a command couldn’t be read.",
+  "error.commands.noDeleted": "Nothing in Recently deleted has the id {id}.",
   "commands.found.document": "Found {count} Documents",
   "commands.found.document.one": "Found 1 Document",
   "commands.found.mind": "Found {count} notes",
@@ -4379,7 +4380,7 @@ export const en = {
   "commands.yours.keys":
     "Keys and sign-ins are yours to change, not mine. They’re in Settings › Models.",
   "commands.yours.privacy":
-    "What stays on this computer, consent and privacy are yours to change, not mine. They’re in Settings › Privacy.",
+    "“Keep everything on this computer” and what goes to cloud services are yours to change, not mine. They’re in Settings › Privacy.",
   "commands.yours.approvals":
     "What I may do without asking is yours to change, not mine. It’s in Settings › Privacy.",
   "commands.yours.spending":
@@ -4409,6 +4410,13 @@ export const en = {
   "commands.ask.change.other": "{command}: {count} items?",
   "commands.ask.change.other.one": "{command}: “{name}”?",
   "command.openBeside": "Open in a split on the right",
+  "commands.found.deleted": "Found {count} in Recently deleted",
+  "commands.found.deleted.one": "Found 1 in Recently deleted",
+  "commands.found.none.deleted": "Nothing in Recently deleted matches",
+  "commands.finding.deleted": "Looking in Recently deleted…",
+  "commands.running.restore": "Restoring…",
+  "commands.done.restore": "Restored {count} items from Recently deleted",
+  "commands.done.restore.one": "Restored 1 item from Recently deleted",
   "commands.more": "and {count} more",
   "commands.running.rename": "Renaming…",
   "commands.running.moveTo": "Moving…",

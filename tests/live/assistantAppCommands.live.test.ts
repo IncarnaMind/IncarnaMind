@@ -75,6 +75,7 @@ const DOCUMENTS = [
     contents: "# Agreement\n\nThe landlord lets the flat; the rent is due monthly.\n",
   },
   { name: "Board minutes.md", contents: "# Board minutes\n\nThe board approved the budget.\n" },
+  { name: "Q3 memo.md", contents: "# Q3 memo\n\nThe quarter closed ahead of plan.\n" },
 ];
 
 /** The app's own look at a model in Ollama, with its context kept to 8,192 tokens at most. */
@@ -134,6 +135,8 @@ interface Seen {
 }
 
 interface Library {
+  /** The Documents in the Library, by name, not those in Recently deleted. */
+  documents: string[];
   folders: Record<string, string[]>;
   userFiled: string[];
   tags: string[];
@@ -154,6 +157,7 @@ async function libraryOf(core: Core, mindId: string): Promise<Library> {
   ]);
   const nameOf = (id: string) => documents.find((each) => each.id === id)?.name ?? id;
   return {
+    documents: documents.map((each) => each.name).sort(),
     folders: Object.fromEntries(
       library.groups.map((group) => [
         group.name,
@@ -235,6 +239,14 @@ const deleteAsked: Check = (seen) => {
   expect(seen.after.tags).toContain("Old");
 };
 
+const restored =
+  (name: string): Check =>
+  (seen) => {
+    expect(ran(seen).some((done) => done.command === "deleted.restore")).toBe(true);
+    expect(seen.before.documents).not.toContain(name);
+    expect(seen.after.documents).toContain(name);
+  };
+
 const noCommand: Check = (seen) => {
   expect(ran(seen)).toEqual([]);
   expect(seen.window).toEqual([]);
@@ -280,6 +292,11 @@ const REQUESTS: { id: string; text: string; check: Check }[] = [
   { id: "delete-tag-en", text: "Get rid of the Old tag", check: deleteAsked },
   { id: "question-en", text: "Which lease has the higher rent?", check: noCommand },
   {
+    id: "restore-en",
+    text: "I deleted the Q3 memo by mistake. Can you get it back?",
+    check: restored("Q3 memo"),
+  },
+  {
     id: "several-en",
     text: "Make a Rentals folder, put the leases in it and open Mill Lane next to this note",
     check: both(madeAndFiled("Rentals"), openedBeside("Lease Mill Lane")),
@@ -290,6 +307,7 @@ const REQUESTS: { id: string; text: string; check: Check }[] = [
   { id: "privacy-zh", text: "改成只在本机处理，不要用云端", check: yours("privacy") },
   { id: "style-zh", text: "这篇笔记的引用格式改用 APA", check: style(/apa/) },
   { id: "organize-zh", text: "把讲租金的文档归到一起", check: organized },
+  { id: "restore-zh", text: "我不小心把 Q3 memo 删了，帮我找回来", check: restored("Q3 memo") },
 ];
 
 async function ask(core: Core, text: string, mindId: string, commands: OfferedCommand[]) {
@@ -374,6 +392,8 @@ describe.each(LIVE)("The assistant does what the User can in the app, live: $nam
           DOCUMENTS.map((each) => writeSourceFile(sources, each.name, each.contents)),
         ),
       );
+      const memo = documents.find((each) => each.name === "Q3 memo");
+      if (memo) await core.deleteDocuments([memo.id]);
       const old = await core.createTag({ name: "Old" });
       const minutes = documents.find((each) => each.name === "Board minutes");
       if (minutes) await core.addTagToDocuments([minutes.id], old.id);

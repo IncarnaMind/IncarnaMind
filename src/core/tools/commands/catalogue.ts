@@ -12,6 +12,7 @@ import { InvalidInputError } from "../../errors";
 import type { Findable } from "./find";
 import { FOLDER_CHECKERS } from "./folders";
 import { organizeChecker } from "./organize";
+import { restoreChecker } from "./restore";
 import {
   type CheckedCommand,
   type Checker,
@@ -149,6 +150,12 @@ export const CORE_COMMANDS = {
     does: "app",
     takes: `ids: ${RECENTLY_DELETED}`,
     check: FOLDER_CHECKERS["tag.delete"],
+  },
+  "deleted.restore": {
+    on: "deleted",
+    does: "app",
+    takes: "ids: what list_commands found in Recently deleted; each goes back where it was",
+    check: restoreChecker,
   },
   "documents.addFromFolder": {
     on: "library",

@@ -6,7 +6,16 @@
  */
 import { displayName } from "../../../shared/documentNames";
 import { mindName } from "../../../shared/naming";
-import type { CommandsFound, CommandTarget, Document, LibrarySnapshot, Mind, Tag } from "../../api";
+import type {
+  CommandsFound,
+  CommandTarget,
+  DeletedItem,
+  DeletedKind,
+  Document,
+  LibrarySnapshot,
+  Mind,
+  Tag,
+} from "../../api";
 
 /** What is found, as the model reads it and a command acts on it. */
 export interface Found {
@@ -19,7 +28,18 @@ export interface Found {
   tags: string[];
   /** A saved web page: its name is its title, which someone else wrote. */
   webPage: boolean;
+  /** In Recently deleted: what it was, and its `dates.added` is when it was deleted. */
+  deletedKind?: DeletedKind;
 }
+
+/** What a deleted thing with no name is called, as Recently deleted shows it. */
+const UNTITLED: Readonly<Record<DeletedKind, string>> = {
+  mind: "Untitled",
+  conversation: "Untitled conversation",
+  document: "Untitled",
+  folder: "Untitled Folder",
+  tag: "Untitled Tag",
+};
 
 export interface FindInput {
   kind: CommandTarget;
@@ -33,13 +53,18 @@ export interface Findable {
   minds: readonly Mind[];
   library: Pick<LibrarySnapshot, "groups" | "assignments">;
   tags: readonly Tag[];
+  /** What waits in Recently deleted, newest first. */
+  deleted: readonly DeletedItem[];
 }
 
 const normal = (text: string) => text.normalize("NFKC").replace(/\s+/g, " ").trim().toLowerCase();
 
 const day = (iso: string | null) => (iso ? iso.slice(0, 10) : null);
 
-export function all(kind: CommandTarget, { documents, minds, library, tags }: Findable): Found[] {
+export function all(
+  kind: CommandTarget,
+  { documents, minds, library, tags, deleted }: Findable,
+): Found[] {
   const folders = new Map(library.groups.map((group) => [group.id, group.name]));
   const filedIn = new Map(library.assignments.map((each) => [each.documentId, each.groupId]));
   const tagNames = new Map(tags.map((tag) => [tag.id, tag.name]));
@@ -55,6 +80,13 @@ export function all(kind: CommandTarget, { documents, minds, library, tags }: Fi
   });
   if (kind === "folder") return library.groups.map((group) => named(group.id, group.name));
   if (kind === "tag") return tags.map((tag) => named(tag.id, tag.name));
+  if (kind === "deleted") {
+    return deleted.map((item) => ({
+      ...named(item.id, item.name || UNTITLED[item.kind]),
+      dates: { added: day(item.deletedAt) ?? "", created: null, modified: null },
+      deletedKind: item.kind,
+    }));
+  }
   if (kind === "mind") {
     return minds.map((mind) => ({
       kind,
@@ -109,6 +141,9 @@ export const foundOf = (input: FindInput, count: number): CommandsFound => ({
 /** One found thing as the model reads it: its id, then its name and what it is filed under. */
 export function foundLine(found: Found, inFocus: string | null): string {
   if (found.kind === "folder" || found.kind === "tag") return `- ${found.id}: “${found.name}”`;
+  if (found.kind === "deleted") {
+    return `- ${found.id}: “${found.name}” (${found.deletedKind ?? "item"}, deleted ${found.dates?.added ?? ""})`;
+  }
   const facts = [
     ...(found.dates
       ? [

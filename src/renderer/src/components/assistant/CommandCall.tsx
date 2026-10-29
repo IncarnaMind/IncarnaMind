@@ -12,6 +12,7 @@ import {
   OpenBesideLineIcon,
   PencilLineIcon,
   PlusLineIcon,
+  RestoreLineIcon,
   SearchLineIcon,
   SettingsLineIcon,
   ShieldLineIcon,
@@ -42,6 +43,7 @@ const ICONS: Readonly<Record<string, ComponentType<{ className?: string }>>> = {
   "settings.change": SettingsLineIcon,
   "mind.openBeside": OpenBesideLineIcon,
   "document.openBeside": OpenBesideLineIcon,
+  "deleted.restore": RestoreLineIcon,
 };
 
 /** A call's icon: its command's own, else the window's command's, else a tick for one done. */

@@ -390,13 +390,13 @@ test("open a Document beside this one splits to the right and says so in one lin
   await app.close();
 });
 
-test("Check this Mind runs the check as ⌘K does, and the reply says Done", async () => {
+test("Check this Note runs the check as ⌘K does, and the reply says Done", async () => {
   const { app, window } = await launchApp(dataDir, { fakeChat: true });
   await dismissChatSetup(window);
   await useLocalChatModel(window);
   await setUp(app, window);
 
-  const answer = await askInAssistant(window, "Check this Mind");
+  const answer = await askInAssistant(window, "Check this Note");
 
   await expect(answer.getByTestId("command-changes-title")).toHaveText("Done: Check");
   await expect(answer.getByTestId("command-changes-undo")).toHaveCount(0);
@@ -413,7 +413,7 @@ test("Local mode is the User's: nothing changes, and one button opens Privacy", 
 
   const line = answer.getByTestId("command-yours");
   await expect(line).toContainText(
-    "What stays on this computer, consent and privacy are yours to change, not mine. They’re in Settings › Privacy.",
+    "“Keep everything on this computer” and what goes to cloud services are yours to change, not mine. They’re in Settings › Privacy.",
   );
   await expect(answer.getByTestId("approval-card")).toHaveCount(0);
   await screenshot(window, "commands-yours-en");
@@ -438,7 +438,7 @@ test("in Chinese, Local mode's line and its button are in Chinese, and fit a nar
 
   const line = answer.getByTestId("command-yours");
   await expect(line).toContainText(
-    "哪些内容留在这台电脑上、同意和隐私由你来改，我不能改。在“设置 › 隐私”里。",
+    "“所有内容都留在这台电脑上”和哪些内容发送到云服务，由你来改，我不能改。在“设置 › 隐私”里。",
   );
   await expect(line.getByTestId("command-yours-open")).toHaveText("打开隐私设置");
   const [box, width] = await Promise.all([

@@ -1636,13 +1636,20 @@ export function createCore(adapters: CoreAdapters): Core {
       host: commandsHost,
       findable: async () => {
         const { core } = commandsHost;
-        const [listed, mindsNow, libraryNow, tagsNow] = await Promise.all([
+        const [listed, mindsNow, libraryNow, tagsNow, deletedNow] = await Promise.all([
           core.listDocuments(),
           core.listMinds(),
           core.getLibrary(),
           core.listTags(),
+          core.listDeleted(),
         ]);
-        return { documents: listed, minds: mindsNow, library: libraryNow, tags: tagsNow };
+        return {
+          documents: listed,
+          minds: mindsNow,
+          library: libraryNow,
+          tags: tagsNow,
+          deleted: deletedNow,
+        };
       },
       steps: commandSteps,
     },

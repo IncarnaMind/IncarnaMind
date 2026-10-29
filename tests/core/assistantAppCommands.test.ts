@@ -146,7 +146,7 @@ describe("The window's commands run in the window, as ⌘K runs them (#1421)", {
     const asked = windowOf(core, () => ({ ran: true, changed: false }));
 
     const answer = await askAssistant(core, {
-      text: "Check this Mind",
+      text: "Check this Note",
       mindId: mind.id,
       commands: OFFERED,
     });
@@ -459,6 +459,35 @@ describe("Folders, Organize, styles and settings run in the core, each one Undo 
     expect((await core.getMindCitationStyle(mind.id)).style).toBe("apa");
     await core.undoCommands(runOf(answer));
     expect(await core.getMindCitationStyle(mind.id)).toEqual(before);
+  });
+
+  // protects="bring back the Q3 commentary I deleted" finds it in Recently deleted by its name and puts it back where it was, asking nothing, and one Undo deletes it again; fails_when=it asks, another item comes back, or Undo leaves it in the Library; no_claim=a real model's choice of name.
+  test("what is in Recently deleted comes back by its name, and Undo deletes it again", async () => {
+    const model = calling(find("Q3", "deleted"), run("deleted.restore"));
+    const { core, mind, documents } = await setUpWithDocuments(model, DOCUMENTS);
+    const q3 = documents.find((each) => each.name.startsWith("Q3"));
+    const lease = documents.find((each) => each.name.startsWith("Lease Mill"));
+    if (!q3 || !lease) throw new Error("No Documents.");
+    await core.deleteDocuments([q3.id, lease.id]);
+    const approved = approvals(core, "deny");
+    const live = async () => (await core.listDocuments()).map((each) => each.id);
+
+    const answer = await askAssistant(core, {
+      text: "Bring back the Q3 commentary I deleted",
+      mindId: mind.id,
+      commands: OFFERED,
+    });
+
+    expect(approved).toEqual([]);
+    expect(await live()).toContain(q3.id);
+    expect(await live()).not.toContain(lease.id);
+    expect(commandCalls(answer).at(-1)?.command).toMatchObject({
+      command: "deleted.restore",
+      items: [{ kind: "deleted", id: q3.id, name: "Q3 commentary" }],
+    });
+    await core.undoCommands(runOf(answer));
+    expect(await live()).not.toContain(q3.id);
+    expect((await core.listDeleted()).map((each) => each.id)).toContain(q3.id);
   });
 
   // protects=deleting a Folder or a Tag asks first, as every delete the assistant starts does; fails_when=either goes without Allow; no_claim=Recently deleted's own tests.

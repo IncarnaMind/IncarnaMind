@@ -72,6 +72,8 @@ export type CommandsCore = Pick<
   | "getOutputSettings"
   | "setOutputLocation"
   | "listChatModels"
+  | "listDeleted"
+  | "deleteConversation"
 >;
 
 export const COMMAND_EXPORT_FORMATS = ["docx", "pdf", "markdown", "html"] as const;

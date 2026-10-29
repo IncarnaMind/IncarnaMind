@@ -43,8 +43,8 @@ export type MenuCommandId = keyof typeof MENU_COMMANDS;
 export const isCommandId = (value: unknown): value is CommandId =>
   typeof value === "string" && /^[\w-]+\.[\w.-]+$/.test(value);
 
-/** What the assistant finds by name and acts on by id (#1110, #1421). */
-export const COMMAND_TARGETS = ["document", "mind", "folder", "tag"] as const;
+/** What the assistant finds by name and acts on by id (#1110, #1421): what's in Recently deleted too. */
+export const COMMAND_TARGETS = ["document", "mind", "folder", "tag", "deleted"] as const;
 export type CommandTarget = (typeof COMMAND_TARGETS)[number];
 
 /**

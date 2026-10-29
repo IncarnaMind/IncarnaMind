@@ -29,6 +29,7 @@ const DONE: Readonly<Partial<Record<CommandId, [MessageKey, MessageKey]>>> = {
   "folder.delete": ["commands.done.delete.folder.one", "commands.done.delete.folder"],
   "tag.rename": ["commands.done.rename.tag.one", "commands.done.rename.tag"],
   "tag.delete": ["commands.done.delete.tag.one", "commands.done.delete.tag"],
+  "deleted.restore": ["commands.done.restore.one", "commands.done.restore"],
 };
 
 /** A move into a Folder the command made: "Made “Leases” and moved 3 Documents into it". */
@@ -52,6 +53,7 @@ const RUNNING: Readonly<Partial<Record<CommandId, MessageKey>>> = {
   "mind.export": "commands.running.export",
   "documents.addFromFolder": "commands.running.add",
   "documents.organize": "commands.running.organize",
+  "deleted.restore": "commands.running.restore",
 };
 
 /** Where each of what only the User changes is, and the button that opens it. */
@@ -274,9 +276,11 @@ export function commandCallText(t: Translate, call: AnswerToolCall): string {
           ? "commands.finding.folder"
           : kind === "tag"
             ? "commands.finding.tag"
-            : kind === "window"
-              ? "commands.finding.window"
-              : "commands.finding.document",
+            : kind === "deleted"
+              ? "commands.finding.deleted"
+              : kind === "window"
+                ? "commands.finding.window"
+                : "commands.finding.document",
     );
   }
   if (call.command) return doneText(t, call.command);

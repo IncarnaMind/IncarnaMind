@@ -2,6 +2,7 @@ import { afterEach, beforeAll, describe, expect, test, vi } from "vitest";
 import type { Command } from "../../src/renderer/src/commands/registry";
 import {
   COMMAND_TARGETS,
+  type CommandTarget,
   isCommandId,
   type OfferedCommand,
   YOURS,
@@ -67,7 +68,8 @@ function offerEverything(): Map<string, ReturnType<typeof vi.fn>> {
 
 const neverOf = (command: Command) => (command.assistant ? command.assistant.never : undefined);
 
-const isTarget = (kind: string) => COMMAND_TARGETS.some((each) => each === kind);
+const isTarget = (kind: string): kind is CommandTarget =>
+  COMMAND_TARGETS.some((each) => each === kind);
 
 /** The assistant's: in ⌘K, not marked as never its own, and acting on the window or on what it finds. */
 const isTheAssistants = (command: Command) =>
@@ -84,10 +86,7 @@ const request = (command: Command) => {
     toolCallId: "call",
     run: "run",
     command: command.id,
-    targets:
-      kind && (kind === "document" || kind === "mind" || kind === "folder" || kind === "tag")
-        ? [{ kind, id: "one" }]
-        : [],
+    targets: kind && isTarget(kind) ? [{ kind, id: "one" }] : [],
   };
 };
 
@@ -221,6 +220,7 @@ describe("The assistant's commands are the window's one list (#1421)", () => {
         "mind.style",
         "tag.delete",
         "tag.rename",
+        "deleted.restore",
       ].sort(),
     );
     for (const id of listed) expect(offered.has(id), id).toBe(true);
