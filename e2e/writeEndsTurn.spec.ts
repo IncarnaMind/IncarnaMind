@@ -43,6 +43,8 @@ const WORDS = {
     reply: "Add the tide line, then reply",
     wroteOne: "Wrote 1 paragraph",
     wroteTwo: "Wrote 2 paragraphs",
+    titleOne: "Wrote 1 paragraph in",
+    titleTwo: "Wrote 2 paragraphs in",
     look: "1 needs a look",
   },
   "zh-CN": {
@@ -51,6 +53,8 @@ const WORDS = {
     reply: "加上潮汐那一句，然后回复",
     wroteOne: "写入了 1 个段落",
     wroteTwo: "写入了 2 个段落",
+    titleOne: "中已写入 1 个段落",
+    titleTwo: "中已写入 2 个段落",
     look: "1 处需要留意",
   },
 } as const;
@@ -97,7 +101,7 @@ for (const language of ["en", "zh-CN"] as const) {
     // A clean write: the line is the whole Answer, with no count.
     editor = await inNewNote(window);
     const clean = await askInAssistant(window, words.line);
-    await expect(clean.getByTestId("mind-changes-title")).toContainText(words.wroteOne);
+    await expect(clean.getByTestId("mind-changes-title")).toContainText(words.titleOne);
     await expect(clean.getByTestId("mind-changes-undo")).toBeVisible();
     await expect(clean.getByTestId("assistant-answer-text")).toHaveCount(0);
     await expect(clean.getByTestId("mind-changes-look")).toHaveCount(0);
@@ -110,7 +114,7 @@ for (const language of ["en", "zh-CN"] as const) {
     editor = await inNewNote(window);
     const flagged = await askInAssistant(window, words.notes);
     await expect(flagged.getByTestId("assistant-answer-text")).toHaveCount(0);
-    await expect(flagged.getByTestId("mind-changes-title")).toContainText(words.wroteTwo);
+    await expect(flagged.getByTestId("mind-changes-title")).toContainText(words.titleTwo);
     await expect(flagged.getByTestId("mind-changes-look")).toHaveText(words.look);
     const line = editor.getByTestId("applied-line");
     await expect(line.getByTestId("applied-count")).toHaveText(words.wroteTwo);
