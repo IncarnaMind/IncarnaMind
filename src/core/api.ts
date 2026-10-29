@@ -1,5 +1,6 @@
 import type {
   AssignmentChange,
+  AssignmentState,
   DocumentBatch,
   DocumentGroupAssignment,
   LibraryClassifier,
@@ -14,10 +15,12 @@ import type { UiUsageEvent } from "./usageEvents";
 
 export type {
   AssignmentChange,
+  AssignmentState,
   AutomaticTaggingReason,
   ClassificationStatus,
   DocumentBatch,
   DocumentGroupAssignment,
+  DocumentTagging,
   LibraryClassifier,
   LibraryGroup,
   LibraryGroupInput,
@@ -291,7 +294,7 @@ export interface MovedItem {
  * What a move did: each Mind, Document and conversation it moved, with where it
  * was. Those already in the Folder are listed too, with the Folder as `from`.
  * Undoing moves each Mind and conversation back to its `from`, and puts back
- * each Document's `previous`.
+ * each Document's `change`.
  */
 export interface FolderMove {
   folderId: string | null;
@@ -300,9 +303,9 @@ export interface FolderMove {
   conversations: MovedItem[];
 }
 
-/** A Document a move moved, with its assignment before (null: none), for `restoreAssignment`. */
+/** A Document a move moved, with its place and tagging before and after, for `restoreAssignment`. */
 export interface MovedDocument extends MovedItem {
-  previous: DocumentGroupAssignment | null;
+  change: AssignmentChange;
 }
 
 /**
@@ -5809,7 +5812,10 @@ export interface AnswerSteps {
   askedAgainFor?: ClaimedTool[];
   /** Written in advance for the example (`askExampleReadyQuestion`): no model wrote it, and nothing was searched. */
   example?: true;
-  /** It covered only some of the Documents in scope, and offers the rest. Absent: all of them. */
+  /**
+   * It covered only some of the Documents in scope, or one of those a name fits, and offers the
+   * rest. Absent: all of them.
+   */
   coverage?: AnswerCoverage;
   /**
    * Documents in its Search scope were still being read (Queued or Extracting) when it ended, so
@@ -5838,12 +5844,14 @@ export interface AnswerSteps {
 
 /**
  * What an Answer covered of the Documents in scope, when not all of them: the
- * main few the Question asked for ("main"), or the largest of more than one
- * summary covers well ("largest"); by name as they were then. `rest`: the
- * others' ids, which a second Question can be asked from.
+ * main few the Question asked for ("main"), the largest of more than one
+ * summary covers well ("largest"), or the one Document it read by a name the
+ * Question gives that other Documents' names or titles have too ("named",
+ * #1512); by name as they were then. `rest`: the others' ids, which a second
+ * Question can be asked from: for "named", the others the name fits.
  */
 export interface AnswerCoverage {
-  kind: "main" | "largest";
+  kind: "main" | "largest" | "named";
   used: { id: string; name: string }[];
   rest: string[];
 }
@@ -9098,22 +9106,22 @@ export interface CoreApi {
   dismissAutomaticOffNotice(): Promise<void>;
   /**
    * A manual choice, including Not in a Folder (null), wins over in-flight classification.
-   * Returns the assignment before, for `restoreAssignment` (null: it had none).
+   * Returns the change it made, its place and tagging before and after, for `restoreAssignment`.
    */
-  assignDocumentGroup(
-    documentId: string,
-    groupId: string | null,
-  ): Promise<DocumentGroupAssignment | null>;
+  assignDocumentGroup(documentId: string, groupId: string | null): Promise<AssignmentChange>;
   /**
-   * Puts a Document's assignment back as it was (null: none), with who chose it, so an
-   * automatic choice stays automatic and Organize may change it again, and a Suggested
-   * Folder is a suggestion again, which also takes back its rejection: Organize may offer that
-   * Folder for the Document again. Other rejections stay.
+   * Puts a Document's place and tagging back as `before` had them, with who chose it, so an
+   * automatic choice stays automatic and Organize may change it again, and a Suggested Folder is
+   * a suggestion again, which also takes back its rejection: Organize may offer that Folder for
+   * the Document again. Other rejections stay. Each row goes back only while it still equals what
+   * the change left there (`after`); a later move, run or re-tag wins and that row is left alone.
+   * Returns the change it made, its real rows before and after, or null when it moved neither row.
    */
   restoreAssignment(
     documentId: string,
-    previous: Omit<DocumentGroupAssignment, "documentId"> | null,
-  ): Promise<void>;
+    before: AssignmentState,
+    after: AssignmentState,
+  ): Promise<AssignmentChange | null>;
   /**
    * Makes these Documents' Suggested Folders the User's choices, which
    * Organize never changes. Documents with none waiting are left alone; an
@@ -9132,7 +9140,7 @@ export interface CoreApi {
    * (null), all or none: an unknown Mind, Document, conversation or Folder changes
    * nothing and throws. A Document's move is a manual choice, which Organize keeps.
    * Returns where each was, for Undo: each Mind and conversation moved back to its
-   * `from`, and each Document's `previous` assignment put back with `restoreAssignment`.
+   * `from`, and each Document's `change` put back with `restoreAssignment`.
    * "minds.changed", "library.assignments" and "conversations.changed" follow, once each.
    */
   moveToFolder(move: FolderMoveInput): Promise<FolderMove>;

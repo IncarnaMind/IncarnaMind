@@ -2,7 +2,7 @@ import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { expect, test } from "vitest";
 import { type Core, DATABASE_FILE } from "../../src/core";
-import { PROCESSING_VERSION } from "../../src/core/documents/processing";
+import { CURRENT_SINCE, PROCESSING_VERSION } from "../../src/core/documents/processing";
 import { createFakeTextRecognizer } from "../../src/core/documents/scan/fake";
 import { drawPdfPages } from "../../src/core/library/pdfImages";
 import { openDatabase } from "../../src/core/storage";
@@ -392,7 +392,7 @@ test("reading a scanned template preserves widgets and anchors, including kept p
     const db = openDatabase(join(dataDir, DATABASE_FILE));
     try {
       db.run("UPDATE documents SET processing_version = ? WHERE id = ?", [
-        BigInt(PROCESSING_VERSION - 1),
+        BigInt(CURRENT_SINCE.pdf - 1),
         document.id,
       ]);
       if (removeFields)
@@ -424,7 +424,7 @@ test("older ready PDFs are re-read at startup so existing Documents gain their f
   await first.close();
   const db = openDatabase(join(dataDir, DATABASE_FILE));
   try {
-    db.run("UPDATE documents SET processing_version = ?", [BigInt(PROCESSING_VERSION - 1)]);
+    db.run("UPDATE documents SET processing_version = ?", [BigInt(CURRENT_SINCE.pdf - 1)]);
     db.run("UPDATE document_pages SET text = 'Inspection record'");
     db.run("UPDATE passages SET text = 'Inspection record'");
     db.run("DELETE FROM passages_fts");
@@ -479,7 +479,7 @@ test("a partial PDF shows reading, not its old failure, while it is read again",
   const db = openDatabase(join(dataDir, DATABASE_FILE));
   try {
     db.run("UPDATE documents SET processing_version = ? WHERE id = ?", [
-      BigInt(PROCESSING_VERSION - 1),
+      BigInt(CURRENT_SINCE.pdf - 1),
       document.id,
     ]);
   } finally {

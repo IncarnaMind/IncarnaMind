@@ -8,7 +8,13 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, test, vi } from "vitest";
-import { type Core, DATABASE_FILE, type Document, InvalidInputError } from "../../src/core";
+import {
+  type Core,
+  DATABASE_FILE,
+  type Document,
+  type DocumentGroupAssignment,
+  InvalidInputError,
+} from "../../src/core";
 import { fuseRankingScores } from "../../src/core/documents/search";
 import { openDatabase } from "../../src/core/storage";
 import { organizeState } from "../../src/renderer/src/libraryPage";
@@ -44,6 +50,9 @@ const MODEL_FILES = { "onnx/model.onnx": 40_000, "tokenizer.json": 6_000 };
 
 /** A server on this computer: no consent is asked. */
 const LOCAL_SERVER = "http://127.0.0.1:9/v1";
+
+/** An assignment without the Document's tagging row it was read with. */
+const withoutTagging = ({ tagging: _tagging, ...item }: DocumentGroupAssignment) => item;
 
 const orders = () =>
   new Uint8Array(readFileSync(new URL("../fixtures/formats/Orders.csv", import.meta.url)));
@@ -337,11 +346,16 @@ describe("Turning embeddings on leaves every Document's Organize state as it was
       expect(assignment).toMatchObject({ groupId: group.id, status: "classified" });
       return assignment;
     });
+    if (!before) throw new Error("No assignment.");
 
     await turnOnEmbeddings(core);
     await embeddedAgain(core, embedder);
 
-    expect((await core.getLibrary()).assignments).toEqual([before]);
+    // Embedding the Document again writes its row, so the tagging row it was read with is newer;
+    // the place it is in, and where its tagging is, are what the assignment keeps.
+    const after = (await core.getLibrary()).assignments;
+    expect(after.map(withoutTagging)).toEqual([withoutTagging(before)]);
+    expect(after[0]?.tagging?.status).toBe(before.tagging?.status);
   });
 
   test("a re-embed that fails, retried, is filed as it would be on main", async () => {

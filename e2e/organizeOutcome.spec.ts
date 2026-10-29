@@ -301,15 +301,25 @@ test("Organize says which Documents it couldn't sort and why, when sorting is do
     // says so, in its row and in the title line, rather than going quiet.
     await (await coreOf(window)).evaluate(async (core) => {
       const note = (await core.listDocuments()).find((each) => each.name === "Note 1");
-      if (!note) throw new Error("No Document named Note 1.");
-      await core.restoreAssignment(note.id, {
-        groupId: null,
-        source: "automatic",
-        suggested: false,
-        status: "failed",
-        error: null,
-        model: null,
-      });
+      const { assignments } = await core.getLibrary();
+      const held = assignments.find((each) => each.documentId === note?.id);
+      if (!note || !held) throw new Error("No Document named Note 1.");
+      const { documentId: _id, tagging, ...after } = held;
+      await core.restoreAssignment(
+        note.id,
+        {
+          assignment: {
+            groupId: null,
+            source: "automatic",
+            suggested: false,
+            status: "failed",
+            error: null,
+            model: null,
+          },
+          tagging: null,
+        },
+        { assignment: after, tagging: tagging ?? null },
+      );
     });
     await expect(library.getByTestId("library-not-sorted-count")).toHaveText("1 not sorted");
     await expect(
@@ -322,15 +332,24 @@ test("Organize says which Documents it couldn't sort and why, when sorting is do
       const [documents, libraryNow] = await Promise.all([core.listDocuments(), core.getLibrary()]);
       const note = documents.find((each) => each.name === "Note 1");
       const reports = libraryNow.groups.find((each) => each.name === "Reports");
-      if (!note || !reports) throw new Error("No Document or Folder to suggest.");
-      await core.restoreAssignment(note.id, {
-        groupId: reports.id,
-        source: "automatic",
-        suggested: true,
-        status: "classified",
-        error: null,
-        model: null,
-      });
+      const held = libraryNow.assignments.find((each) => each.documentId === note?.id);
+      if (!note || !reports || !held) throw new Error("No Document or Folder to suggest.");
+      const { documentId: _id, tagging, ...after } = held;
+      await core.restoreAssignment(
+        note.id,
+        {
+          assignment: {
+            groupId: reports.id,
+            source: "automatic",
+            suggested: true,
+            status: "classified",
+            error: null,
+            model: null,
+          },
+          tagging: null,
+        },
+        { assignment: after, tagging: tagging ?? null },
+      );
     });
     // Automatic Organize is off (a cloud key's default): the Reject must settle the failed run
     // for the Document's own tagging, or the sidebar goes on saying it couldn't be tagged.
@@ -421,6 +440,7 @@ test("Organize says which Documents it couldn't sort and why, when sorting is do
         return {
           held,
           tagging: note?.tagging ?? null,
+          taggingError: note?.taggingError ?? null,
           folder: groups.find((each) => each.id === held?.groupId)?.name ?? null,
         };
       });
@@ -453,7 +473,15 @@ test("Organize says which Documents it couldn't sort and why, when sorting is do
         status: "failed",
         error: { kind: "provider", message: DECISION_FAILURE },
       },
+      // Undo restores the Document's own failure and its reason, not a stale "tagged".
+      tagging: "failed",
+      taggingError: { kind: "provider", message: DECISION_FAILURE },
     });
+    await setLanguage(window, "zh-CN");
+    await expect(noteRow.getByTestId("library-sort-failed")).toHaveText(
+      `未能再次整理：${DECISION_FAILURE}`,
+    );
+    await setLanguage(window, "en");
     await window.keyboard.press("ControlOrMeta+Shift+z");
     await expect(noteRow).toHaveCount(0);
     await expect(library.getByTestId("library-sort-failed")).toHaveCount(0);
@@ -463,7 +491,40 @@ test("Organize says which Documents it couldn't sort and why, when sorting is do
     await expect(sidebarFolder(window, "Reports").getByTestId("browse-count")).toHaveText("18");
     expect(await noteNow()).toMatchObject({
       held: { groupId: null, suggested: false, status: "classified", error: null },
+      tagging: "tagged",
+      taggingError: null,
     });
+    // A retag the User asks for after that Reject is the tagger's own: its Undo puts the failed run
+    // back and leaves the retag's failure standing (#1928).
+    failing = true;
+    await (await coreOf(window)).evaluate(async (core) => {
+      const note = (await core.listDocuments()).find((each) => each.name === "Note 1");
+      if (!note) throw new Error("No Document named Note 1.");
+      await core.retagDocuments([note.id]);
+    });
+    await expect.poll(async () => (await noteNow()).tagging, { timeout: 30_000 }).toBe("failed");
+    await leaveText(window);
+    await window.keyboard.press("ControlOrMeta+z");
+    await expect(noteRow).toHaveCount(1);
+    await expect(noteRow.getByTestId("library-sort-failed")).toHaveText(
+      `Couldn’t sort again: ${DECISION_FAILURE}`,
+    );
+    expect(await noteNow()).toMatchObject({
+      folder: "Reports",
+      held: {
+        suggested: true,
+        status: "failed",
+        error: { kind: "provider", message: DECISION_FAILURE },
+      },
+      // The retag came after the Reject, so Undo leaves its failure alone.
+      tagging: "failed",
+      taggingError: { message: DECISION_FAILURE },
+    });
+    await setLanguage(window, "zh-CN");
+    await expect(noteRow.getByTestId("library-sort-failed")).toHaveText(
+      `未能再次整理：${DECISION_FAILURE}`,
+    );
+    await setLanguage(window, "en");
     failing = false;
   } finally {
     server.close();
@@ -564,6 +625,114 @@ test("deleting the last Document Organize couldn't sort leaves no Review behind,
     await expect(library.getByTestId("library-not-sorted-count")).toHaveText("2 个未整理");
     await expect(library.getByTestId("library-sorted")).toHaveCount(0);
     await expect(loose.getByTestId("library-not-sorted")).toHaveCount(2);
+  } finally {
+    server.close();
+    await app.close();
+  }
+});
+
+test("a first move takes the tagging it settles, and a retag between Undo and Redo stands through both", async () => {
+  test.setTimeout(180_000);
+  let failing = false;
+  const { server } = await decisionServer(undefined, { delayMs: 12_000, failFor: () => failing });
+  const { app, window } = await launchApp(dataDir);
+  try {
+    await dismissChatSetup(window);
+    await setWindowSize(app, window, 1600, 900);
+    const port = (server.address() as AddressInfo).port;
+    const briefNow = async () =>
+      (await coreOf(window)).evaluate(async () => {
+        const core = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
+        const brief = (await core.listDocuments()).find((each) => each.name === "Brief 1");
+        const { assignments, groups } = await core.getLibrary();
+        const held = assignments.find((each) => each.documentId === brief?.id) ?? null;
+        return {
+          held,
+          tagging: brief?.tagging ?? null,
+          taggingError: brief?.taggingError ?? null,
+          folder: groups.find((each) => each.id === held?.groupId)?.name ?? null,
+        };
+      });
+
+    // Tagging with AI runs by itself, and no Folder exists yet, so Organize has no assignment for it.
+    await window.evaluate(async (url) => {
+      const core = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
+      await core.createTag({ name: "Bills", description: "Bills and invoices" });
+      await core.saveLibrarySettings({
+        classifier: { kind: "ollama", baseUrl: url, modelId: "tev1:0.8b" },
+        automatic: true,
+      });
+    }, `http://127.0.0.1:${port}`);
+    await writeFile(join(sources, "Brief 1.txt"), "Brief 1 about the harbour budget.");
+    await addDocuments(window, [join(sources, "Brief 1.txt")]);
+    await expect.poll(async () => (await briefNow()).tagging, { timeout: 30_000 }).toBe("tagging");
+    await window.evaluate(async () => {
+      const core = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
+      await core.createLibraryGroup({ name: "Finance", description: "Money." });
+    });
+
+    // The first move settles the tagging the tagger had going, and the change carries it.
+    await window.getByTestId("open-library").click();
+    const library = window.getByTestId("library");
+    const loose = section(library, "not-in-a-folder");
+    const row = loose.getByTestId("library-document").filter({
+      has: window.getByRole("button", { name: "Brief 1", exact: true }),
+    });
+    await expect(row).toHaveCount(1);
+    await pointAt(window, row);
+    await pointAndClick(window, row.getByTestId("document-file-menu"));
+    await pointAndClick(
+      window,
+      window
+        .getByTestId("document-file-actions")
+        .filter({ visible: true })
+        .getByTestId("document.moveTo"),
+    );
+    const picker = window.getByTestId("move-to-picker");
+    await expect(picker.getByTestId("move-to-search")).toBeFocused();
+    await window.keyboard.type("Finance");
+    await window.keyboard.press("Enter");
+    await expect(picker).toBeHidden();
+    await expect.poll(async () => (await briefNow()).folder, { timeout: 30_000 }).toBe("Finance");
+    expect(await briefNow()).toMatchObject({ tagging: "waiting-for-provider" });
+    await expect(window.getByTestId("undo-line")).toContainText("Moved “Brief 1” to Finance");
+    await setLanguage(window, "zh-CN");
+    await expect(window.getByTestId("undo-line")).toContainText("已将“Brief 1”移动到“Finance”");
+    await setLanguage(window, "en");
+
+    // ⌘Z gives back the place it had and the tagging the move took.
+    await leaveText(window);
+    await window.keyboard.press("ControlOrMeta+z");
+    await expect.poll(async () => (await briefNow()).held, { timeout: 30_000 }).toBeNull();
+    await expect.poll(async () => (await briefNow()).tagging, { timeout: 30_000 }).toBe("tagging");
+
+    // The User asks for a retag while the Document is in no Folder, and its provider fails.
+    failing = true;
+    await window.evaluate(async () => {
+      const core = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
+      const brief = (await core.listDocuments()).find((each) => each.name === "Brief 1");
+      if (!brief) throw new Error("No Document named Brief 1.");
+      await core.retagDocuments([brief.id]);
+    });
+    await expect.poll(async () => (await briefNow()).tagging, { timeout: 60_000 }).toBe("failed");
+
+    // ⇧⌘Z gives the Folder back, and leaves the newer retag alone: it is later work.
+    await leaveText(window);
+    await window.keyboard.press("ControlOrMeta+Shift+z");
+    await expect.poll(async () => (await briefNow()).folder, { timeout: 30_000 }).toBe("Finance");
+    expect(await briefNow()).toMatchObject({
+      tagging: "failed",
+      taggingError: { message: DECISION_FAILURE },
+    });
+
+    // ⌘Z again: what the Redo stored leaves the retag standing through that Undo too.
+    await window.keyboard.press("ControlOrMeta+z");
+    await expect.poll(async () => (await briefNow()).held, { timeout: 30_000 }).toBeNull();
+    expect(await briefNow()).toMatchObject({
+      tagging: "failed",
+      taggingError: { message: DECISION_FAILURE },
+    });
+    failing = false;
   } finally {
     server.close();
     await app.close();
