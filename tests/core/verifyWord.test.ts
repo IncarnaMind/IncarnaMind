@@ -149,6 +149,24 @@ describe("Verify a Word file someone else wrote", () => {
     expect(await core.findClaims(request(mind.id))).toEqual({ kind: "found", claims: 1 });
   });
 
+  test("a Mind that doesn't get every Block of the file isn't reported as verified", async () => {
+    const { core, report } = await setUp();
+    const filler = Array.from({ length: 3500 }, (_, at) => paragraph(`Line ${at + 1}.`));
+    await writeFile(report, wordFile({ body: filler.join("") }));
+    const stop = core.on("minds.changed", (minds) => {
+      const made = minds.find((each) => each.title === "Checking: Harbour report");
+      if (!made) return;
+      stop();
+      void core.deleteMind(made.id);
+    });
+
+    expect(await core.verifyDocument({ path: report })).toEqual({
+      ok: false,
+      reason: "word",
+      refusal: "unreadable",
+    });
+  });
+
   test("a paragraph the User writes in its Mind isn't one of its claims", async () => {
     const set = await setUp();
     const { mind, client } = await verified(set.core, set.report);

@@ -175,8 +175,8 @@ export function createWordImports(options: WordImportsOptions) {
   const keeping = new Set<string>();
   /** Minds whose Blocks are being written now, so a Mind never has two writers. */
   const writing = new Set<string>();
-  /** Each import going on, by its Mind, until every Block is written. */
-  const going = new Map<string, Promise<void>>();
+  /** Each import started since the app opened, by its Mind: whether it wrote every Block. */
+  const going = new Map<string, Promise<boolean>>();
   let closed = false;
   /** The file the import screen checked last, read whole, so importing it doesn't read it again. */
   let checked: ReadFile | null = null;
@@ -211,9 +211,9 @@ export function createWordImports(options: WordImportsOptions) {
 
   /**
    * Writes the import's Blocks from `from` on, a batch at a time, after those
-   * already written; marks the import complete once all are. Stops if the
-   * Mind is deleted meanwhile, and does nothing for a Mind that already has a
-   * writer.
+   * already written; marks the import complete once all are, and says whether
+   * it did. Stops if the Mind is deleted meanwhile, and does nothing for a
+   * Mind that already has a writer.
    */
   const writeBlocks = async (
     mindId: string,
@@ -221,8 +221,8 @@ export function createWordImports(options: WordImportsOptions) {
     origin: WordOrigin,
     from: number,
     first: boolean,
-  ) => {
-    if (writing.has(mindId)) return;
+  ): Promise<boolean> => {
+    if (writing.has(mindId)) return false;
     writing.add(mindId);
     try {
       const total = structure.blocks.length;
@@ -233,8 +233,10 @@ export function createWordImports(options: WordImportsOptions) {
         // Other work runs between batches.
         if (!first) await new Promise<void>((resolve) => setImmediate(resolve));
         first = false;
-        if (closed) return;
-        if (!db.get("SELECT 1 FROM minds WHERE id = ? AND deleted_at IS NULL", [mindId])) return;
+        if (closed) return false;
+        if (!db.get("SELECT 1 FROM minds WHERE id = ? AND deleted_at IS NULL", [mindId])) {
+          return false;
+        }
         const batch = structure.blocks.slice(done, done + size);
         size = Math.min(size * 2, WORD_IMPORT_MOST);
         const written = done;
@@ -264,6 +266,7 @@ export function createWordImports(options: WordImportsOptions) {
         [at, at, mindId],
       );
       log.info("word.import.done", { blocks: total });
+      return true;
     } finally {
       writing.delete(mindId);
     }
@@ -317,14 +320,13 @@ export function createWordImports(options: WordImportsOptions) {
     structure: WordStructure,
     origin: WordOrigin,
     from: number,
-  ): Promise<void> => {
-    const run: Promise<void> = writeBlocks(mindId, structure, origin, from, from === 0)
-      .catch((error: unknown) => {
-        log.error("word.import.failed", { error: error instanceof Error ? error.name : "unknown" });
-      })
-      .finally(() => {
-        if (going.get(mindId) === run) going.delete(mindId);
-      });
+  ): Promise<boolean> => {
+    const writer = going.get(mindId);
+    if (writing.has(mindId) && writer) return writer;
+    const run = writeBlocks(mindId, structure, origin, from, from === 0).catch((error: unknown) => {
+      log.error("word.import.failed", { error: error instanceof Error ? error.name : "unknown" });
+      return false;
+    });
     going.set(mindId, run);
     return run;
   };
@@ -450,9 +452,15 @@ export function createWordImports(options: WordImportsOptions) {
       };
     },
 
-    /** Resolves once every Block of the Mind's import is written; at once when none is going on. */
-    written(mindId: string): Promise<void> {
-      return going.get(mindId) ?? Promise.resolve();
+    /** Whether the Mind's import wrote every Block, once it has stopped: done, failed or its Mind deleted. */
+    written(mindId: string): Promise<boolean> {
+      const writer = going.get(mindId);
+      if (writer) return writer;
+      const row = db.get<{ completed_at: string | null }>(
+        "SELECT completed_at FROM word_packages WHERE mind_id = ? AND deleted_at IS NULL",
+        [mindId],
+      );
+      return Promise.resolve(row?.completed_at != null);
     },
 
     /** See `CoreApi.addWordOriginal`. */

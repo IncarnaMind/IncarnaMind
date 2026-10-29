@@ -98,7 +98,7 @@ export interface VerifyOptions {
   wordRefusal(path: string): Promise<WordRefusalReason | null>;
   /**
    * Imports someone else's Word file as a Mind named for its Document, the file's original in
-   * the Library (#720): the Mind once its first Blocks are in it, and `written` once all are.
+   * the Library (#720): the Mind once its first Blocks are in it, and `written`, whether all are.
    */
   importWord(input: {
     path: string;
@@ -106,7 +106,7 @@ export interface VerifyOptions {
     documentId: string;
     name: string;
   }): Promise<
-    { ok: true; mind: Mind; written: Promise<void> } | { ok: false; refusal: WordRefusalReason }
+    { ok: true; mind: Mind; written: Promise<boolean> } | { ok: false; refusal: WordRefusalReason }
   >;
   defaultModel(): ChatModelChoice | null;
   prepare(choice: ChatModelChoice | null): Promise<Prepared>;
@@ -361,7 +361,8 @@ export function createVerify(options: VerifyOptions) {
         claims: null,
       });
     });
-    await made.written;
+    // Claims found in a Mind missing some of the file would leave the rest unchecked for good.
+    if (!(await made.written)) return { ok: false, reason: "word", refusal: "unreadable" };
     content.edit(made.mind.id, (blocks) => {
       if (!blocks.doc) return;
       const ids = blocks.toArray().flatMap((each) => {
