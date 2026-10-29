@@ -17,6 +17,8 @@ export const OBJECT_KINDS = [
   "citation",
   "chart",
   "comparisonColumn",
+  "comparisonTable",
+  "comparisonRow",
   "answer",
   "check",
   "block",

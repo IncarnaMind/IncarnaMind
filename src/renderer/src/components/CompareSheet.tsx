@@ -24,6 +24,7 @@ import { useLanguage, useT } from "../i18n";
 import { modelInUseOf, useModelInUse } from "../modelInUse";
 import { useSelectedOn } from "../selection";
 import { useAppStore } from "../store";
+import { ComparisonDocumentList } from "./ComparisonDocumentList";
 import { ChevronDownLineIcon, PlusLineIcon } from "./lineIcons";
 import { ProblemLine } from "./ProblemLine";
 import { ReadinessLine } from "./providers/ChatReadinessNotice";
@@ -354,21 +355,11 @@ export function CompareSheet({
               {t("comparison.sheet.noDocuments")}
             </ProblemLine>
           ) : (
-            <ul className="compare-sheet-list">
-              {documents.map((document) => (
-                <li key={document.id}>
-                  <label className="compare-sheet-document" title={document.name}>
-                    <input
-                      type="checkbox"
-                      data-testid="compare-sheet-document"
-                      checked={sheet.checked.includes(document.id)}
-                      onChange={() => toggle(document.id)}
-                    />
-                    <span className="truncate">{document.name}</span>
-                  </label>
-                </li>
-              ))}
-            </ul>
+            <ComparisonDocumentList
+              documents={documents}
+              checked={new Set(sheet.checked)}
+              onToggle={toggle}
+            />
           )}
           {documentsHint && (
             <p

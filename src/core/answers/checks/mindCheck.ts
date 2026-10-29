@@ -167,7 +167,13 @@ export function createMindCheck(options: MindCheckOptions) {
     prepared: PreparedChatModel,
     signal: AbortSignal,
   ): Promise<
-    | { kind: "found"; claims: SelectedSentence[]; left: SelectedSentence[] }
+    | {
+        kind: "found";
+        claims: SelectedSentence[];
+        left: SelectedSentence[];
+        /** Sentences no reply decided: they stay to check, and the next run asks about them again. */
+        undecided: SelectedSentence[];
+      }
     | Exclude<ClaimsFound, { kind: "found" }>
   > {
     const known = sorted.get(mindId) ?? { claims: new Set<string>(), left: new Set<string>() };
@@ -188,14 +194,23 @@ export function createMindCheck(options: MindCheckOptions) {
       );
       if (found.kind !== "found") return found;
       for (const [index, sentence] of unsorted.entries()) {
-        (found.claims.has(index) ? known.claims : known.left).add(sentenceKey(sentence.text));
+        const key = sentenceKey(sentence.text);
+        // The same words twice are one sentence to the run: named a claim once, it is checked.
+        if (found.claims.has(index)) {
+          known.claims.add(key);
+          known.left.delete(key);
+        } else if (!found.undecided.has(index) && !known.claims.has(key)) known.left.add(key);
       }
     }
-    const named = (sentence: SelectedSentence) => known.claims.has(sentenceKey(sentence.text));
+    const decided = (sentence: SelectedSentence, as: Set<string>) =>
+      as.has(sentenceKey(sentence.text));
     return {
       kind: "found",
-      claims: fresh.filter(named),
-      left: fresh.filter((sentence) => !named(sentence)),
+      claims: fresh.filter((sentence) => decided(sentence, known.claims)),
+      left: fresh.filter((sentence) => decided(sentence, known.left)),
+      undecided: fresh.filter(
+        (sentence) => !decided(sentence, known.claims) && !decided(sentence, known.left),
+      ),
     };
   }
 
@@ -445,10 +460,15 @@ export function createMindCheck(options: MindCheckOptions) {
     if (signal.aborted) return { kind: "cancelled" };
 
     let claims = again;
+    const unexamined = new Set(content.readSettings(mindId, readMindCheck)?.unexamined ?? []);
     if (fresh.length > 0) {
       const found = await sort(mindId, fresh, ready.prepared, signal);
       if (found.kind !== "found") return found;
       for (const sentence of found.left) skipped.add(sentenceKey(sentence.text));
+      for (const sentence of [...found.claims, ...found.left]) {
+        unexamined.delete(sentenceKey(sentence.text));
+      }
+      for (const sentence of found.undecided) unexamined.add(sentenceKey(sentence.text));
       claims = [...found.claims, ...again];
     }
 
@@ -537,6 +557,7 @@ export function createMindCheck(options: MindCheckOptions) {
           sentences,
           stop,
           skipped: [...skipped].filter((key) => keys.has(key)),
+          unexamined: [...unexamined].filter((key) => keys.has(key)),
         }),
       );
     return {

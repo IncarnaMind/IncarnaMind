@@ -151,6 +151,15 @@ registerMenu("comparisonColumn", [
   "comparison.column.remove",
 ]);
 
+registerMenu("comparisonTable", ["comparison.table.addDocuments", "comparison.table.rename"]);
+
+registerMenu("comparisonRow", [
+  "comparisonRow.open",
+  "comparisonRow.moveUp",
+  "comparisonRow.moveDown",
+  "comparisonRow.remove",
+]);
+
 registerMenu("chart", [
   "chart.table",
   "chart.kind.bar",

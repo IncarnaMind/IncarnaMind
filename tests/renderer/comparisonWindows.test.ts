@@ -49,6 +49,8 @@ function mockModules() {
       },
       moveComparisonColumn: (input: Parameters<Core["moveComparisonColumn"]>[0]) =>
         coreNow().moveComparisonColumn(input),
+      moveComparisonRow: (input: Parameters<Core["moveComparisonRow"]>[0]) =>
+        coreNow().moveComparisonRow(input),
     },
     files: {},
   };
@@ -114,6 +116,7 @@ async function boundMind(): Promise<{ core: Core; mindId: string }> {
 interface WindowGraph {
   core: { applyMindUpdate: Core["applyMindUpdate"] };
   columns: typeof import("../../src/renderer/src/comparisonColumns");
+  rows: typeof import("../../src/renderer/src/comparisonRows");
   editorHelper: typeof import("../helpers/editor");
   open(mindId: string): Promise<{ doc: Y.Doc; close: () => void }>;
 }
@@ -125,8 +128,9 @@ async function freshWindow(): Promise<WindowGraph> {
   vi.doMock("../../src/renderer/src/clientId", () => ({ clientId: `window-${++windowsOpened}` }));
   vi.doMock("../../src/renderer/src/core", mockModules);
   const coreModule = await import("../../src/renderer/src/core");
-  const [columns, , editorHelper, mindCopies] = await Promise.all([
+  const [columns, rows, , editorHelper, mindCopies] = await Promise.all([
     import("../../src/renderer/src/comparisonColumns"),
+    import("../../src/renderer/src/comparisonRows"),
     // Imported for what it registers: the window's own listener for a structure change.
     import("../../src/renderer/src/comparisons"),
     import("../helpers/editor"),
@@ -135,6 +139,7 @@ async function freshWindow(): Promise<WindowGraph> {
   return {
     core: coreModule.core,
     columns,
+    rows,
     editorHelper,
     open: (mindId) =>
       new Promise((resolve, reject) => {
@@ -171,6 +176,28 @@ const cellText = (editor: Editor, questionId: string) => {
     .forEach((cell) => {
       if (cell.attrs.questionId === questionId) words = cell.textContent;
     });
+  return words;
+};
+
+const rowDocuments = (editor: Editor) => {
+  const pos = comparisonTableAt(editor, "table-1");
+  const documents: string[] = [];
+  editor.state.doc.nodeAt(pos ?? 0)?.forEach((row) => {
+    documents.push(String(row.attrs.documentId ?? ""));
+  });
+  return documents;
+};
+
+/** The words of a Question's cell in the row of one Document. */
+const cellTextIn = (editor: Editor, documentId: string, questionId: string) => {
+  const pos = comparisonTableAt(editor, "table-1");
+  let words = "";
+  editor.state.doc.nodeAt(pos ?? 0)?.forEach((row) => {
+    if (String(row.attrs.documentId ?? "") !== documentId) return;
+    row.forEach((cell) => {
+      if (cell.attrs.questionId === questionId) words = cell.textContent;
+    });
+  });
   return words;
 };
 
@@ -243,5 +270,62 @@ test("two windows: the second's edit reaches the core before the first's move, a
   for (const editor of [firstEditor, secondEditor]) {
     expect(cellText(editor, "q1")).toContain("by the second window");
     expect(cellText(editor, "q1")).not.toContain("during the move");
+  }
+});
+
+/**
+ * The same two windows for a row (#1837): a row moved in the first waits for
+ * the second's cell edit to reach the core, and takes that edit with it.
+ */
+test("two windows: a row's move waits for the other window's edit, which lands in the moved row", async () => {
+  const { mindId } = await boundMind();
+  const firstGraph = await freshWindow();
+  const secondGraph = await freshWindow();
+  const first = await firstGraph.open(mindId);
+  const second = await secondGraph.open(mindId);
+  onTestFinished(first.close);
+  onTestFinished(second.close);
+  const firstEditor = firstGraph.editorHelper.boundEditorTo(first.doc);
+  const secondEditor = secondGraph.editorHelper.boundEditorTo(second.doc);
+
+  let releaseSends = () => {};
+  const sendGate = new Promise<void>((resolve) => {
+    releaseSends = resolve;
+  });
+  const applySecond = secondGraph.core.applyMindUpdate;
+  secondGraph.core.applyMindUpdate = async (mindIdToApply, update) => {
+    await sendGate;
+    return applySecond(mindIdToApply, update);
+  };
+  typeInCell(secondGraph, secondEditor, " by the second window");
+  expect(secondEditor.getText()).toContain("by the second window");
+
+  bridge.acked = 0;
+  let releaseAcks = () => {};
+  bridge.ackGate = new Promise<void>((resolve) => {
+    releaseAcks = resolve;
+  });
+  const moving = firstGraph.rows.moveRow(
+    { editor: firstEditor, mindId, tableId: "table-1" },
+    "doc-a",
+    1,
+  );
+  await vi.waitFor(() => expect(bridge.acked).toBeGreaterThan(0));
+
+  // The second window's lock holds the table: its edit made now is dropped.
+  const before = secondEditor.getJSON();
+  typeInCell(secondGraph, secondEditor, " during the move");
+  expect(secondEditor.getJSON()).toEqual(before);
+
+  releaseAcks();
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  releaseSends();
+  await moving;
+
+  await vi.waitFor(() => expect(rowDocuments(firstEditor)).toEqual(["doc-b", "doc-a"]));
+  await vi.waitFor(() => expect(rowDocuments(secondEditor)).toEqual(["doc-b", "doc-a"]));
+  for (const editor of [firstEditor, secondEditor]) {
+    expect(cellTextIn(editor, "doc-a", "q1")).toContain("by the second window");
+    expect(cellTextIn(editor, "doc-a", "q1")).not.toContain("during the move");
   }
 });
