@@ -33,11 +33,10 @@ import { exampleMindIds, useAppStore } from "../../store";
 import { interleave, type ThreadStart, threadTasks } from "../../taskGroups";
 import { loadTasks, useTasks } from "../../tasks";
 import { aimAt } from "../../taskTell";
-import { useTipRoom } from "../../tips";
 import { SearchIcon } from "../icons";
 import { PlanLineIcon, SearchLineIcon, SparkLineIcon } from "../lineIcons";
 import { AddToMindPicker } from "./AddToMindPicker";
-import { TipRoom, WritingLine } from "./AnswerActions";
+import { WritingLine } from "./AnswerActions";
 import { LiveLine } from "./AnswerSteps";
 import { type AnswerKeeping, AssistantAnswer } from "./AssistantAnswer";
 import { MeetingStarters } from "./MeetingStarters";
@@ -121,7 +120,6 @@ export function ConversationThread({
   // A Research topic asked, or a Task started, grows it too; a Task's every step doesn't move it.
   const started = tasks.length;
   const askedAt = plan?.askedAt;
-  const tipRoomOpen = useTipRoom("add-answer", null);
   useThreadScroll(log, {
     asking: asking !== null,
     holdOff: sought !== null,
@@ -289,7 +287,6 @@ export function ConversationThread({
               ) : undefined
             }
           />
-          {focusedMindId !== null && tipRoomOpen && <TipRoom />}
         </div>
       )}
       {picking && (
