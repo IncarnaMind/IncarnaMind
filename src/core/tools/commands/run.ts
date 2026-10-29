@@ -412,7 +412,7 @@ async function deleteAll(
       done.push(ref);
     }
   } catch (error) {
-    if (done.length > 0) await restore(done);
+    if (done.length > 0) await restore(done, { reopen: true });
     throw error;
   }
 }
