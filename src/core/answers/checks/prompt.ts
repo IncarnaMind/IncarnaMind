@@ -527,6 +527,12 @@ function coverageOf(value: unknown): ReadCoverage | null {
   return { unit, quantifier, complete, members: checked, domainEvidence: domain };
 }
 
+/** A Coverage field that says there is none is no Coverage line, as for a sentence with no domain. */
+const declaresCoverage = <T>(value: T | null | undefined): value is T =>
+  value !== undefined &&
+  value !== null &&
+  !(typeof value === "string" && NO_PHRASE.test(value.trim()));
+
 const jsonField = (value: string): unknown => {
   try {
     return JSON.parse(value);
@@ -567,7 +573,7 @@ function jsonVerdict(reply: string): ReadVerdict | null {
       topic: topicOf(typeof topic === "string" ? `Topic: ${topic}` : undefined),
       roles: rolesOf(typeof roles === "string" ? `Roles: ${roles}` : undefined),
       ...(evidence !== undefined && { evidence: markersOf(evidence) }),
-      ...(coverage !== undefined && { coverage: coverageOf(coverage) }),
+      ...(declaresCoverage(coverage) && { coverage: coverageOf(coverage) }),
       ...((reasonKind === "forecast-certainty" || reasonKind === "unbacked-cause") && {
         reasonKind,
       }),
@@ -667,7 +673,7 @@ export function readVerdict(reply: string): ReadVerdict | null {
         )?.[1];
         return {
           ...(evidence !== undefined && { evidence: markersOf(jsonField(evidence)) }),
-          ...(coverage !== undefined && { coverage: coverageOf(jsonField(coverage)) }),
+          ...(declaresCoverage(coverage) && { coverage: coverageOf(jsonField(coverage)) }),
           ...((reasonKind === "forecast-certainty" || reasonKind === "unbacked-cause") && {
             reasonKind,
           }),

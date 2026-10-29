@@ -22,6 +22,8 @@ type Outcome = {
     inputs: { name: string; quote: string; number: string }[];
   };
   repair?: Outcome["calculation"];
+  /** An empty calculate list sent beside the cite, as Claude Haiku 5.5 sends one. */
+  emptyCalculate?: boolean;
 };
 
 const INCREASES = "SUM(MAX(SIGN(r2023-r2022),0),MAX(SIGN(r2024-r2023),0),MAX(SIGN(r2025-r2024),0))";
@@ -70,6 +72,7 @@ async function check(
                 })),
               },
             },
+            ...(outcome.emptyCalculate ? [{ tool: "calculate", input: { figures: [] } }] : []),
           ],
         };
       }
@@ -918,6 +921,44 @@ describe("structural part and declared-count readers", () => {
     expect(
       readVerdict('Verdict: supported\nCoverage: {"unit":"stores","members":[]}')?.coverage,
     ).toBeNull();
+  });
+});
+
+describe.each(["en", "zh-CN"] as const)("%s reply lines that declare nothing", (language) => {
+  const claim = language === "en" ? "The North store sold 120 units." : "北店售出120件商品。";
+
+  // protects=an empty calculate list beside a cite works nothing out, so the quote alone decides a sentence it states (#2002); fails_when=the empty list counts as failed arithmetic and leaves the sentence Not checked; no_claim=how often a real model sends one.
+  test("an empty calculate list beside a cite leaves the quote to decide", async () => {
+    const { result } = await check(
+      claim,
+      [{ kind: "fact", text: claim }],
+      {
+        [claim]: { quotes: [claim], emptyCalculate: true },
+      },
+      language,
+    );
+    expect(result.verdict).toBe("supported");
+  });
+
+  // protects=a Coverage line that says there is none reads as no Coverage line, so an ordinary sentence's verdict stands (#2002); fails_when=Coverage: none or 无 turns the verdict into Not checked; no_claim=a malformed domain, which stays malformed.
+  test("a Coverage line of none is no Coverage line", async () => {
+    const none = language === "en" ? "none" : "无";
+    const { result } = await check(
+      claim,
+      [{ kind: "fact", text: claim }],
+      {
+        [claim]: {
+          quotes: [],
+          sourceQuotes: [
+            language === "en" ? "The South store sold 80 units." : "南店售出80件商品。",
+          ],
+          reply: `Verdict: unsupported\nScope: none, same\nTopic: not found\nRoles: none, same\nNo Passage gives the North store's sales.\nEvidence: []\nCoverage: ${none}`,
+        },
+      },
+      language,
+    );
+    expect(result.verdict).toBe("unsupported");
+    expect(readVerdict(`Verdict: unsupported\nCoverage: ${none}`)).not.toHaveProperty("coverage");
   });
 });
 

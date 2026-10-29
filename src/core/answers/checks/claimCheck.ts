@@ -432,6 +432,9 @@ export function createClaimCheck(deps: ClaimCheckDependencies) {
           stated.clear();
         },
         calculate(given: readonly unknown[], options?: CiteOptions) {
+          // An empty list works nothing out: Claude Haiku 5.5 sends one beside a plain cite, and the
+          // quote alone decides such a sentence (#2002).
+          if (given.length === 0) return figures.calculate(given, options);
           attempts++;
           if (calculationFailures >= 2)
             return "The calculation and its repair were refused. Finish the check and say the arithmetic could not be checked.";
@@ -465,7 +468,7 @@ export function createClaimCheck(deps: ClaimCheckDependencies) {
               citation ? figureContext(citation) : {},
             );
           });
-          invalidInput = given.length === 0 || named.size !== given.length || unbound !== undefined;
+          invalidInput = named.size !== given.length || unbound !== undefined;
           if (invalidInput) {
             stated.clear();
             calculationFailures++;
