@@ -173,7 +173,10 @@ export function createRecentlyDeleted(options: {
   tags: TagsStore;
   library: ReturnType<typeof createLibrary>;
   mindsChanged(): void;
-  mindsRestored(mindIds: readonly string[]): void;
+  /** The Minds a restore brought back, and whether their tabs come back with them (Undo). */
+  mindsRestored(mindIds: readonly string[], reopen: boolean): void;
+  /** Minds gone for good: what the layout kept for their tabs goes. */
+  mindsForgotten(mindIds: readonly string[]): void;
   conversationsChanged(): void;
   tagsChanged(): void;
   tagged(documentIds: string[]): void;
@@ -297,7 +300,9 @@ export function createRecentlyDeleted(options: {
     },
 
     /** See `CoreApi.restore`. */
-    restore(input: unknown): void {
+    restore(input: unknown, restoreOptions?: unknown): void {
+      // Over the bridge the call isn't type-checked: anything but a true `reopen` restores quietly.
+      const reopen = isRecord(restoreOptions) && restoreOptions.reopen === true;
       const refs = parseRefs(input, "restore");
       const since = earliestRestorable(now());
       const done = db.transaction(() => {
@@ -376,7 +381,7 @@ export function createRecentlyDeleted(options: {
       });
       for (const { id, deletedAt } of done.mindsDeletedAt) content.restored(id, deletedAt);
       if (done.minds) options.mindsChanged();
-      if (done.mindIds.length > 0) options.mindsRestored(done.mindIds);
+      if (done.mindIds.length > 0) options.mindsRestored(done.mindIds, reopen);
       if (done.conversations) options.conversationsChanged();
       if (done.documents.length > 0) {
         documents.restored(done.documents);
@@ -390,7 +395,10 @@ export function createRecentlyDeleted(options: {
       if (done.tagged.size > 0) options.tagged([...done.tagged]);
     },
 
-    /** Deletes permanently what has waited `RECENTLY_DELETED_DAYS`; run once at start-up. */
+    /**
+     * Deletes permanently what has waited `RECENTLY_DELETED_DAYS`; run once at start-up. What the
+     * layout kept for their tabs needs no dropping: it is this session's, and none is kept yet.
+     */
     expire(): void {
       purgeExpired(db, now(), documentText);
     },
@@ -421,7 +429,9 @@ export function createRecentlyDeleted(options: {
         }
       });
       // Only once purged for good: a rollback keeps the Minds, and what still waits in them.
-      for (const { kind, id } of refs) if (kind === "mind") content.forget(id);
+      const minds = refs.flatMap(({ kind, id }) => (kind === "mind" ? [id] : []));
+      for (const mindId of minds) content.forget(mindId);
+      if (minds.length > 0) options.mindsForgotten(minds);
     },
   };
 }

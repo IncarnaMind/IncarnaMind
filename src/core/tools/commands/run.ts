@@ -544,7 +544,7 @@ const CHECKERS: Readonly<Record<AssistantCommandId, Checker>> = {
         done: { items },
         step: {
           undo: async () => {
-            await core.restore(refs);
+            await core.restore(refs, { reopen: true });
             return null;
           },
           redo: remove,
