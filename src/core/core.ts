@@ -833,6 +833,7 @@ export function createCore(adapters: CoreAdapters): Core {
     stopAnswer: (mindId, answerId) => answers.stop({ mindId, answerId }),
     settleAnswers: (mindId) => answers.settleOrphans(mindId),
     reportError: (error) => console.error(error),
+    personId: () => settings.get().user.personId ?? null,
   });
   // Background work (automatic tagging, Organize's classification, saving cited pages): one
   // job at a time, giving way to Answers.
@@ -2065,6 +2066,7 @@ export function createCore(adapters: CoreAdapters): Core {
         versions: new Map(documents.list().map((document) => [document.id, document.contentHash])),
         folderId: mind.folderId,
         scope,
+        personId: settings.get().user.personId,
       });
     });
   }
@@ -2259,6 +2261,7 @@ export function createCore(adapters: CoreAdapters): Core {
     paper: systemPaper,
     now,
     figures: (mindId) => readFigureSchedule(mindId).rows,
+    personId: () => settings.get().user.personId,
   });
   const ownFileOf = (options: ExportMindOptions): OwnFileKind =>
     options.format === "source-pack" ? "source-pack" : "export";
@@ -3775,6 +3778,8 @@ export function createCore(adapters: CoreAdapters): Core {
     listCheckpoints: async (mindId) => checkpoints.list(mindId),
     compareCheckpoints: async (input) => checkpoints.compare(input),
     restoreCheckpoint: async (mindId, checkpointId) => checkpoints.restore(mindId, checkpointId),
+    renameCheckpoint: async (mindId, checkpointId, name) =>
+      checkpoints.rename(mindId, checkpointId, name),
     askInConversation: async (input) =>
       answers.askInConversation(conversations.parseQuestion(input)),
     askExampleReadyQuestion: async () => {
@@ -4782,6 +4787,9 @@ export function createCore(adapters: CoreAdapters): Core {
       return exported;
     },
     saveMindExport: async (mindId, options) => {
+      // The export reads the Note before its first await, so this is the text the file holds,
+      // whatever the User writes while it is made.
+      const read = typeof mindId === "string" ? content.storedState(mindId) : null;
       const {
         fileName,
         fromWord: _,
@@ -4800,8 +4808,22 @@ export function createCore(adapters: CoreAdapters): Core {
         ownFileOf(options),
       );
       if (saved.status !== "saved") return saved;
+      // Sent as Word or PDF (#1933): History keeps the Note as it went, with the file's name.
+      let sentKept = true;
+      if (read && (options.format === "docx" || options.format === "pdf")) {
+        try {
+          checkpoints.sent(mindId, saved.file.name, read);
+        } catch (error) {
+          // The file is saved all the same: the result line says History couldn't keep it.
+          sentKept = false;
+          console.error(
+            `export: History couldn't keep Mind ${mindId} as it was sent as ${saved.file.name}`,
+            error,
+          );
+        }
+      }
       await rememberExportChoices(counts, null);
-      return { ...saved, ...counts, word };
+      return { ...saved, ...counts, word, sentKept };
     },
     saveCheckRecord: async (mindId) => {
       const saved: { format: CheckRecordFormat; file: SavedFile }[] = [];

@@ -127,6 +127,11 @@ export interface Footnote {
   link?: string;
   /** Its check failed, which a Word file can say in a comment (#107). */
   failed?: FailedCheck;
+  /**
+   * People's own checks of it (#1933), each a line under its source: "Checked by Ada · 28 Oct
+   * 2026", or "… before it changed" for one made before its text, quote or version did.
+   */
+  checked?: readonly string[];
 }
 
 /** How a Citation's check failed (#107). */
@@ -241,6 +246,8 @@ export type Inline = (
       of?: string;
       /** The footnotes of its Citations whose check failed. */
       failed?: Footnote[];
+      /** As a note: its Citations' people's checks (`Footnote.checked`). */
+      checked?: readonly string[];
     }
 ) &
   Pendings;
@@ -249,6 +256,8 @@ export type Inline = (
 export interface BibliographyItem {
   label: StyledRun[] | null;
   runs: StyledRun[];
+  /** People's own checks of the source's Citations, a line each (`Footnote.checked`). */
+  checked?: readonly string[];
 }
 
 export interface TableCell {

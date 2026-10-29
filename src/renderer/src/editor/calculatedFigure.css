@@ -124,3 +124,13 @@
   background: var(--color-warning-wash);
   border-radius: 6px;
 }
+.calculated-figure-card .sign-off-line {
+  margin-top: 10px;
+  padding-left: 18px;
+}
+.calculated-figure-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 10px;
+}

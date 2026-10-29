@@ -534,7 +534,8 @@ export class DocxWriter {
           paragraph(
             { indent: hang, hanging: hang },
             (item.label ? `${this.styled(item.label)}<w:r><w:tab/></w:r>` : "") +
-              this.styled(item.runs),
+              this.styled(item.runs) +
+              checkedRuns(item.checked),
           ),
         )
         .join("")
@@ -574,7 +575,8 @@ export class DocxWriter {
     if (!item.note || context.note) return this.styled(item.runs, context.note) + marker;
     const shared = item.of !== undefined && !item.inserted && !item.deleted && !context.pending;
     const key = shared ? `style\n${item.of}` : null;
-    const text = item.runs.map((each) => each.text).join("") + marker;
+    const text =
+      item.runs.map((each) => each.text).join("") + marker + (item.checked?.join("\n") ?? "");
     const first = key === null ? undefined : this.notes.get(key);
     // A style's own form for a repeat ("Id.", a short note) differs from the first note's: it wins.
     if (first?.text === text) {
@@ -583,7 +585,11 @@ export class DocxWriter {
     }
     const id = this.target.ids.take("footnote");
     this.footnotes.push(
-      footnote(id, run(" ") + this.styled(item.runs, true) + marker, this.styles.footnote),
+      footnote(
+        id,
+        run(" ") + this.styled(item.runs, true) + marker + checkedRuns(item.checked),
+        this.styles.footnote,
+      ),
     );
     if (key !== null && !first) this.notes.set(key, { id, text, reused: false });
     return footnoteReference(id, this.styles.footnote.reference);
@@ -878,7 +884,7 @@ export class DocxWriter {
     version: string | null,
   ): string {
     const key = shared
-      ? `numbered\n${documentId ?? ""}\n${version ?? ""}\n${citation.source}\n${citation.unverified}\n${citation.link ?? ""}`
+      ? `numbered\n${documentId ?? ""}\n${version ?? ""}\n${citation.source}\n${citation.unverified}\n${citation.link ?? ""}\n${citation.checked?.join("\n") ?? ""}`
       : null;
     const first = key === null ? undefined : this.notes.get(key);
     if (first) {
@@ -886,7 +892,13 @@ export class DocxWriter {
       return this.noteNumber(first.id);
     }
     const id = this.target.ids.take("footnote");
-    this.footnotes.push(footnote(id, this.source(citation, " "), this.styles.footnote));
+    this.footnotes.push(
+      footnote(
+        id,
+        this.source(citation, " ") + checkedRuns(citation.checked),
+        this.styles.footnote,
+      ),
+    );
     if (key !== null) this.notes.set(key, { id, text: "", reused: false });
     return footnoteReference(id, this.styles.footnote.reference);
   }
@@ -1406,3 +1418,6 @@ function styles(
     "</w:styles>"
   );
 }
+
+const checkedRuns = (lines: readonly string[] | undefined): string =>
+  (lines ?? []).map((line) => `<w:r><w:br/></w:r>${run(line)}`).join("");

@@ -7,11 +7,13 @@ import type {
   FigureScheduleRow,
 } from "../core/api";
 import type { Language } from "../core/language";
+import { formatDateTime } from "./dates";
 import type { Figure, FigureUnit, Reading } from "./figures";
 import { formulaText } from "./formula";
 import { type MessageKey, translate } from "./i18n";
+import { checkedByMe } from "./signOffs";
 
-export type FigureFilter = "all" | "look" | "supported" | "not-checked";
+export type FigureFilter = "all" | "look" | "supported" | "not-checked" | "not-mine";
 export interface ScheduleLine {
   id: string;
   parent: FigureScheduleRow;
@@ -30,7 +32,7 @@ export const lineRef = (mindId: string, line: ScheduleLine) => ({
 
 export function figureGroup(
   row: FigureScheduleRow,
-): Exclude<FigureFilter, "all"> | "checking" | "kept" {
+): Exclude<FigureFilter, "all" | "not-mine"> | "checking" | "kept" {
   const state = row.shown.state;
   return state === "supported" ||
     state === "not-checked" ||
@@ -119,7 +121,13 @@ export function scheduleLines(
   expanded: ReadonlySet<string>,
 ): ScheduleLine[] {
   const ranks = { look: 0, "not-checked": 1, checking: 2, kept: 3, supported: 4 };
-  const parents = schedule.rows.filter((row) => filter === "all" || figureGroup(row) === filter);
+  const parents = schedule.rows.filter((row) =>
+    filter === "all"
+      ? true
+      : filter === "not-mine"
+        ? !checkedByMe(row.signOff)
+        : figureGroup(row) === filter,
+  );
   if (statusSort)
     parents.sort((a, b) => ranks[figureGroup(a)] - ranks[figureGroup(b)] || a.number - b.number);
   return parents.flatMap((parent) => [
@@ -289,6 +297,33 @@ export const toCheckAgain = (rows: readonly FigureScheduleRow[]): FigureSchedule
 /** Of the chosen rows, those Keep as my view keeps: every one not kept already. */
 export const toKeep = (rows: readonly FigureScheduleRow[]): FigureScheduleRow[] =>
   rows.filter((row) => row.shown.state !== "kept");
+
+/**
+ * What "Checked by me" does to the chosen rows: marks those the User hasn't checked as they are
+ * now, or, when they have checked every one, takes their marks off (`off`).
+ */
+export function toSignOff(rows: readonly FigureScheduleRow[]): {
+  rows: FigureScheduleRow[];
+  off: boolean;
+} {
+  const unmarked = rows.filter((row) => !checkedByMe(row.signOff));
+  return unmarked.length > 0 ? { rows: unmarked, off: false } : { rows: [...rows], off: true };
+}
+
+/** Who checked the figure themselves and when (#1933), for the schedule's Checked by column. */
+export function checkedByText(row: Pick<FigureScheduleRow, "signOff">, language: Language): string {
+  const mark = row.signOff;
+  if (!mark) return "";
+  const name = mark.name ?? "";
+  if (mark.state === "changed")
+    return mark.mine
+      ? translate(language, "figures.checkedBy.changed")
+      : translate(language, "figures.checkedBy.changedTheirs", { name });
+  const time = formatDateTime(mark.at, language);
+  return mark.mine
+    ? translate(language, "figures.checkedBy.mine", { time })
+    : translate(language, "figures.checkedBy.theirs", { name, time });
+}
 
 /** A row that isn't checked yet shows no source, value or Difference. */
 export const notCheckedYet = (row: FigureScheduleRow): boolean =>

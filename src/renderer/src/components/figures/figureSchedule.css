@@ -119,8 +119,8 @@
   display: grid;
   grid-template-columns:
     20px minmax(96px, 1.1fr) minmax(70px, 0.8fr) minmax(120px, 1.4fr) minmax(84px, 0.9fr)
-    minmax(100px, 1fr) 24px;
-  grid-template-areas: "n fg val src df st act" ". why why why why why .";
+    minmax(100px, 1fr) minmax(88px, 0.9fr) 24px;
+  grid-template-areas: "n fg val src df st by act" ". why why why why why why .";
   column-gap: 10px;
   padding: 0 12px 0 16px;
   align-items: start;
@@ -358,6 +358,15 @@
   line-height: 16px;
   color: var(--color-warning);
 }
+/* The User's own check (#1933): a person's, in ink, never a check's colours. */
+.figure-checked-by {
+  grid-area: by;
+  min-width: 0;
+  color: var(--color-ink-secondary);
+}
+.figure-checked-by[data-state="changed"] {
+  color: var(--color-ink-meta);
+}
 .figure-actions {
   grid-area: act;
   display: flex;
@@ -404,10 +413,32 @@
 .figure-link:hover .figure-link-name {
   text-decoration: underline;
 }
+/* Without room for its own column, who checked a figure is a line of its row, as on a phone. */
+@container figure-schedule (max-width: 759px) {
+  .figure-grid {
+    grid-template-columns:
+      20px minmax(96px, 1.1fr) minmax(70px, 0.8fr) minmax(120px, 1.4fr) minmax(84px, 0.9fr)
+      minmax(100px, 1fr) 24px;
+    grid-template-areas: "n fg val src df st act" ". by by by by by ." ". why why why why why .";
+  }
+  .figure-columns {
+    grid-template-areas: "n fg val src df st act";
+  }
+  .figure-columns .figure-checked-by,
+  .figure-row .figure-checked-by.is-empty {
+    display: none;
+  }
+  .figure-row .figure-checked-by::before {
+    content: attr(data-label) " ";
+    margin-right: 4px;
+    color: var(--color-ink-meta);
+    font-size: 12px;
+  }
+}
 @container figure-schedule (max-width: 619px) {
   .figure-grid {
     grid-template-columns: 20px minmax(0, 1fr) auto 24px;
-    grid-template-areas: "n fg st act" ". val df df" ". src src src" ". why why why";
+    grid-template-areas: "n fg st act" ". val df df" ". src src src" ". by by by" ". why why why";
     column-gap: 8px;
     row-gap: 2px;
     padding-left: 12px;
@@ -443,7 +474,9 @@
 }
 @container figure-schedule (max-width: 420px) {
   .figure-row {
-    grid-template-areas: "n fg st act" ". val val val" ". df df df" ". src src src" ". why why why";
+    grid-template-areas:
+      "n fg st act" ". val val val" ". df df df" ". src src src" ". by by by"
+      ". why why why";
   }
   .figure-heading-top {
     grid-template-columns: minmax(0, 1fr);

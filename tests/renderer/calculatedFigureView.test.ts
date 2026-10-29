@@ -386,6 +386,7 @@ test("shared figure commands use the same callbacks and refuse another row or a 
     copyFormula: vi.fn(),
     convertToText: vi.fn(),
     remove: vi.fn(),
+    here: () => ({}),
   };
   figureHandle.current = handle;
   const context = { surface: "mind" as const, selection: [], focus: null };

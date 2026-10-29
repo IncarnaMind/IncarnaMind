@@ -46,6 +46,7 @@ import {
 import { CheckMarkIcon, ClaimMarkIcon } from "./icons";
 import { CheckedWhen, RunningText } from "./MindCheckLine";
 import { useRunModel } from "./ModelChip";
+import { useSignOffCounts } from "./signOffActions";
 import { UncoveredLine } from "./UncoveredLine";
 import { COUNT_IDLE_MS } from "./WordCount";
 
@@ -265,6 +266,7 @@ export function HealthCard({
     problem?.kind === "no-documents" ? (problem.chosen ?? null) : null,
   );
   const format = (value: number) => new Intl.NumberFormat(language).format(value);
+  const signedOff = useSignOffCounts(editor);
 
   const label = (part: HealthPart, count: number) => partLabel(t, part, count, format(count));
 
@@ -392,6 +394,19 @@ export function HealthCard({
           >
             {t("figures.openSchedule")}
           </button>
+        </p>
+      )}
+      {/* The User's own checks (#1933), on a line of their own: never a check result. */}
+      {(signedOff.checked > 0 || signedOff.changed > 0) && (
+        <p data-testid="health-sign-offs" className="mind-health-line">
+          {signedOff.checked > 0 && t("signOff.count.mine", { count: format(signedOff.checked) })}
+          {signedOff.checked > 0 && signedOff.changed > 0 && (
+            <span className="mind-health-sep" aria-hidden="true">
+              {" · "}
+            </span>
+          )}
+          {signedOff.changed > 0 &&
+            t("signOff.count.changed", { count: format(signedOff.changed) })}
         </p>
       )}
       {summary?.kind === "all" && (

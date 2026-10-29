@@ -9,9 +9,11 @@ import {
 } from "../../../shared/calculatedFigures";
 import { commonCitationStyle } from "../../../shared/citationStyles";
 import { calculatedCitations, calculatedSources } from "../../../shared/figureRuns";
+import { checkedByMe } from "../../../shared/signOffs";
 import { useMindFormatting } from "../citationFormatting";
 import { useStyleCatalogue } from "../citationStylePicker";
 import { registerMenu } from "../commands/menus";
+import type { CommandContext } from "../commands/registry";
 import { ObjectMenu, useObjectMenu } from "../components/ObjectMenu";
 import { copyText } from "../copied";
 import { useT } from "../i18n";
@@ -22,16 +24,19 @@ import { citationWorkSignature } from "./citationClusters";
 import { figureNumberOf } from "./citationNumbers";
 import { figureShownIn } from "./claimChecks";
 import { type FigureHandle, figureHandle } from "./figureHandle";
-import { MindIdContext } from "./mindContext";
+import { MindIdContext, SignOffsContext } from "./mindContext";
 import { Popover } from "./Popover";
 import { useCitationPeek } from "./peek";
 import { focusQuietly, isQuietFocus } from "./quietFocus";
 import { StyledRuns } from "./StyledRuns";
+import { calculatedFigureSignOff, currentSigner, setFigureSignOffs } from "./signOffActions";
 import "./calculatedFigure.css";
 
 registerMenu("check", [
   "figure.open",
   "figure.copyFormula",
+  "figure.signOff",
+  "figure.signOffRemove",
   "figure.convertToText",
   "figure.remove",
 ]);
@@ -115,6 +120,7 @@ export function CalculatedFigureView({
     copyFormula,
     convertToText: () => edit(true),
     remove: () => edit(false),
+    here: () => hereRef.current,
   };
   const latest = useRef(actions);
   latest.current = actions;
@@ -127,22 +133,47 @@ export function CalculatedFigureView({
       copyFormula: () => latest.current.copyFormula(),
       convertToText: () => latest.current.convertToText(),
       remove: () => latest.current.remove(),
+      here: () => hereRef.current,
     };
     figureHandle.current = active;
     return () => {
       if (figureHandle.current === active) figureHandle.current = null;
     };
   }, [open, attributes]);
+  // The User's own "Checked by me" on the figure (#1933), in a Note they can change.
+  const { rows } = useContext(SignOffsContext);
+  const signOff = attributes ? calculatedFigureSignOff(rows, attributes.id) : null;
+  const canSignOff = mindId !== null && editor.isEditable && signOff !== null;
+  const toggleSignOff = () => {
+    const signer = currentSigner();
+    if (!signOff || !mindId || !signer) return;
+    try {
+      setFigureSignOffs(
+        { mindId, basis: null, copy: null },
+        [signOff],
+        checkedByMe(signOff.now),
+        signer,
+      );
+    } catch (error) {
+      useAppStore.getState().reportError(error);
+    }
+  };
   const target = { kind: "check" as const, id: attributes?.id ?? "" };
   const menu = useObjectMenu(target);
   const here = {
     "figure.open": actions.open,
     "figure.copyFormula": actions.copyFormula,
+    ...(canSignOff &&
+      (checkedByMe(signOff?.now ?? null)
+        ? { "figure.signOffRemove": toggleSignOff }
+        : { "figure.signOff": toggleSignOff })),
     ...(editor.isEditable && {
       "figure.convertToText": actions.convertToText,
       "figure.remove": actions.remove,
     }),
   };
+  const hereRef = useRef<CommandContext["here"]>(here);
+  hereRef.current = here;
   if (!attributes)
     return (
       <NodeViewWrapper as="span" contentEditable={false}>
@@ -239,6 +270,8 @@ export function CalculatedFigureView({
               sources={evidence?.sources ?? null}
               problem={!!evidence?.error}
               onCopyFormula={copyFormula}
+              signOff={signOff?.now ?? null}
+              onSignOff={canSignOff ? toggleSignOff : null}
             />
           </Popover>,
           editor.view.dom.ownerDocument.body,

@@ -81,6 +81,7 @@ import {
   ComposerDockContext,
   MindIdContext,
   PageSlotsContext,
+  SignOffsContext,
 } from "../editor/mindContext";
 import { ListMenu } from "../editor/NumberingMenu";
 import { NoteKeymap } from "../editor/noteKeymap";
@@ -99,6 +100,7 @@ import { ReviewPick } from "../editor/reviewPick";
 import { ScopePicker } from "../editor/ScopePicker";
 import { type SelectionAction, SelectionMenu } from "../editor/SelectionMenu";
 import { SlashMenu } from "../editor/SlashMenu";
+import { useSignOffs } from "../editor/signOffActions";
 import { compareSlashItem, noteSlashItems, skillSlashItems } from "../editor/slashItems";
 import { Suggestions } from "../editor/suggestions";
 import { TableMenu } from "../editor/TableMenu";
@@ -506,6 +508,14 @@ function MindEditorView({
   );
   const scope = useMindScope(doc);
   const schedule = useFigureSchedule(mindId, doc);
+  const signOffRecords = useSignOffs(doc);
+  const signOffs = useMemo(
+    () => ({
+      records: signOffRecords,
+      rows: schedule && schedule.basis === fingerprintOfMind(doc) ? schedule.rows : null,
+    }),
+    [signOffRecords, schedule, doc],
+  );
   const figureContexts = useMemo(
     () =>
       schedule && schedule.basis === fingerprintOfMind(doc)
@@ -831,104 +841,108 @@ function MindEditorView({
 
   return (
     <MindIdContext.Provider value={mindId}>
-      {slots.top &&
-        createPortal(
-          <>
-            <WordImportProgress doc={doc} />
-            <OriginalNotAdded mindId={mindId} />
-          </>,
-          slots.top,
-        )}
-      {slots.menu &&
-        createPortal(
-          <>
-            {reviewing && slots.reviewShown !== "beside" && (
-              <ReviewFold editor={editor} mindId={mindId} />
-            )}
-            <PageMenu
+      <SignOffsContext.Provider value={signOffs}>
+        {slots.top &&
+          createPortal(
+            <>
+              <WordImportProgress doc={doc} />
+              <OriginalNotAdded mindId={mindId} />
+            </>,
+            slots.top,
+          )}
+        {slots.menu &&
+          createPortal(
+            <>
+              {reviewing && slots.reviewShown !== "beside" && (
+                <ReviewFold editor={editor} mindId={mindId} />
+              )}
+              <PageMenu
+                editor={editor}
+                doc={doc}
+                mindId={mindId}
+                verification={verification}
+                readOnly={readOnly}
+              />
+            </>,
+            slots.menu,
+          )}
+        {slots.review &&
+          reviewing &&
+          (slots.reviewShown === "beside" || slots.reviewShown === "over") &&
+          createPortal(
+            <ReviewPane editor={editor} mindId={mindId} over={slots.reviewShown === "over"} />,
+            slots.review,
+          )}
+        {/* The quiet first open shows the example's text alone (#856). */}
+        {slots.count &&
+          countShown &&
+          !(firstOpen && isExample) &&
+          createPortal(<WordCount editor={editor} doc={doc} />, slots.count)}
+        {slots.badge &&
+          createPortal(
+            <CheckBadge
               editor={editor}
               doc={doc}
               mindId={mindId}
               verification={verification}
+              quiet={firstOpen && isExample}
+              figures={schedule?.counts.total ?? 0}
+            />,
+            slots.badge,
+          )}
+        {readOnly && <MindNotice kind="read-only" />}
+        <div
+          ref={frame}
+          className={`mind-editor-frame ${guide ? "mind-editor-frame--guide" : ""} ${wordLook?.className ?? ""}`}
+        >
+          {wordLook && <style>{wordLook.css}</style>}
+          {wordLook && <WordTableFades frame={frame} />}
+          {!readOnly && <ProposalBars editor={editor} mindId={mindId} />}
+          <EditorContent editor={editor} />
+          {!readOnly && <EndHint editor={editor} text={hintText} onAsk={askOnLine} />}
+          <MarginChecks editor={editor} mind={{ id: mindId, doc }} />
+          {!readOnly && <TableMenu editor={editor} />}
+          {!readOnly && <ListMenu editor={editor} />}
+          <FootnoteArea editor={editor} citationView={citationView} />
+          {(style !== "numbered" || styleChoice.bibliography) && (
+            <ReferencesBlock
+              mindId={mindId}
+              editor={editor}
               readOnly={readOnly}
+              byDefault={styleChoice.chosen === null && style !== "numbered"}
             />
-          </>,
-          slots.menu,
+          )}
+          {!readOnly &&
+            styleChoice.chosen === null &&
+            style === "numbered" &&
+            !styleChoice.promptDismissed && (
+              <CitationStylePrompt mindId={mindId} editor={editor} doc={doc} />
+            )}
+        </div>
+        {guide && <StartGuide mindId={mindId} />}
+        {sheetSlot &&
+          comparing &&
+          !readOnly &&
+          createPortal(<CompareSheet mindId={mindId} doc={doc} editor={editor} />, sheetSlot)}
+        {!readOnly && <BlockHandle editor={editor} />}
+        {!readOnly && <SelectionMenu editor={editor} ai={aiActions} edit={editField} />}
+        {!readOnly && <LinkBubble editor={editor} />}
+        {findShown && (
+          <FindBar editor={editor} onClose={() => useMindTools.getState().hideFind()} />
         )}
-      {slots.review &&
-        reviewing &&
-        (slots.reviewShown === "beside" || slots.reviewShown === "over") &&
-        createPortal(
-          <ReviewPane editor={editor} mindId={mindId} over={slots.reviewShown === "over"} />,
-          slots.review,
+        {outlineShown && (
+          <MindOutline editor={editor} onClose={() => useMindTools.getState().hideOutline()} />
         )}
-      {/* The quiet first open shows the example's text alone (#856). */}
-      {slots.count &&
-        countShown &&
-        !(firstOpen && isExample) &&
-        createPortal(<WordCount editor={editor} doc={doc} />, slots.count)}
-      {slots.badge &&
-        createPortal(
-          <CheckBadge
+        <FootnotePopover editor={editor} citationView={citationView} />
+        {editingMath !== null && (
+          <MathEditor
+            key={editingMath}
             editor={editor}
-            doc={doc}
-            mindId={mindId}
-            verification={verification}
-            quiet={firstOpen && isExample}
-            figures={schedule?.counts.total ?? 0}
-          />,
-          slots.badge,
-        )}
-      {readOnly && <MindNotice kind="read-only" />}
-      <div
-        ref={frame}
-        className={`mind-editor-frame ${guide ? "mind-editor-frame--guide" : ""} ${wordLook?.className ?? ""}`}
-      >
-        {wordLook && <style>{wordLook.css}</style>}
-        {wordLook && <WordTableFades frame={frame} />}
-        {!readOnly && <ProposalBars editor={editor} mindId={mindId} />}
-        <EditorContent editor={editor} />
-        {!readOnly && <EndHint editor={editor} text={hintText} onAsk={askOnLine} />}
-        <MarginChecks editor={editor} mind={{ id: mindId, doc }} />
-        {!readOnly && <TableMenu editor={editor} />}
-        {!readOnly && <ListMenu editor={editor} />}
-        <FootnoteArea editor={editor} citationView={citationView} />
-        {(style !== "numbered" || styleChoice.bibliography) && (
-          <ReferencesBlock
-            mindId={mindId}
-            editor={editor}
-            readOnly={readOnly}
-            byDefault={styleChoice.chosen === null && style !== "numbered"}
+            pos={editingMath}
+            onClose={() => setEditingMath(null)}
           />
         )}
-        {!readOnly &&
-          styleChoice.chosen === null &&
-          style === "numbered" &&
-          !styleChoice.promptDismissed && (
-            <CitationStylePrompt mindId={mindId} editor={editor} doc={doc} />
-          )}
-      </div>
-      {guide && <StartGuide mindId={mindId} />}
-      {sheetSlot &&
-        comparing &&
-        !readOnly &&
-        createPortal(<CompareSheet mindId={mindId} doc={doc} editor={editor} />, sheetSlot)}
-      {!readOnly && <BlockHandle editor={editor} />}
-      {!readOnly && <SelectionMenu editor={editor} ai={aiActions} edit={editField} />}
-      {!readOnly && <LinkBubble editor={editor} />}
-      {findShown && <FindBar editor={editor} onClose={() => useMindTools.getState().hideFind()} />}
-      {outlineShown && (
-        <MindOutline editor={editor} onClose={() => useMindTools.getState().hideOutline()} />
-      )}
-      <FootnotePopover editor={editor} citationView={citationView} />
-      {editingMath !== null && (
-        <MathEditor
-          key={editingMath}
-          editor={editor}
-          pos={editingMath}
-          onClose={() => setEditingMath(null)}
-        />
-      )}
+      </SignOffsContext.Provider>
     </MindIdContext.Provider>
   );
 }

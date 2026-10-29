@@ -94,11 +94,13 @@ import { plainText } from "../../mindText";
 import { insertBlocks } from "../../noteAdding";
 import {
   citationsDropped,
+  keepingTitle,
   type OwnApplied,
   type OwnWaiting,
   ownAppliedIn,
   ownAppliedTexts,
   ownAsked,
+  ownTitleOf,
   ownWaitingTexts,
   replaceApplied,
   replaceOwn,
@@ -2101,9 +2103,10 @@ export function mindTools(options: MindToolsOptions): { tools: Tool[]; settle():
             `Nothing was changed in “${mind.name}”: content only replaces your own text there, still waiting or as you wrote it. To change the User's text, give instruction instead.`,
           );
         }
+        const newText = minds.read(mind.id, (blocks) => keepingTitle(blocks, over, markdown));
         const before = minds.read(mind.id, (blocks) => stretchText(blocks, stretch));
         const beforeLanguage = detectLanguage(before);
-        const contentLanguage = detectLanguage(markdown);
+        const contentLanguage = detectLanguage(newText);
         const previousTranslation =
           over.kind === "own" &&
           minds.read(mind.id, (note) =>
@@ -2114,11 +2117,11 @@ export function mindTools(options: MindToolsOptions): { tools: Tool[]; settle():
           (beforeLanguage && contentLanguage && beforeLanguage !== contentLanguage)
             ? ("translate" as const)
             : undefined;
-        const written = writeOver(toolCallId, mind, over, markdown, canCallAgain?.() ?? true, {
+        const written = writeOver(toolCallId, mind, over, newText, canCallAgain?.() ?? true, {
           action,
         });
         const checked = await checkWritten(toolCallId, written, signal);
-        const went = ` (${lengths(before, markdown)})`;
+        const went = ` (${lengths(before, newText)})`;
         return [
           over.kind === "own"
             ? revisedText(mind, written.change, went)
@@ -2292,6 +2295,7 @@ export function mindTools(options: MindToolsOptions): { tools: Tool[]; settle():
     folderId = options.folderId,
   ): ChangeableMind => {
     const made = minds.create(title, folderId, !startsWithHeading);
+    if (!startsWithHeading) minds.edit(made.id, (note) => ownTitleOf(note, options.origin));
     settled.add(made.id);
     return made;
   };

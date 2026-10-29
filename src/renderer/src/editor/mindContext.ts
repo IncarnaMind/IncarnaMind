@@ -1,4 +1,6 @@
 import { createContext, useContext } from "react";
+import type { FigureScheduleRow } from "../../../core/api";
+import type { SignOffRecord } from "../../../shared/signOffs";
 
 /** The Mind an editor shows, for its node views (Questions and Answers ask the core about it). */
 export const MindIdContext = createContext<string | null>(null);
@@ -49,6 +51,15 @@ export const CompareSheetSlotContext = createContext<HTMLElement | null>(null);
  * Citation is part of the footnote and has no number of its own; null in the text.
  */
 export const InFootnoteContext = createContext<string | null>(null);
+
+/**
+ * The Note's own check marks (#1933), and its figure schedule's rows while they are of the text
+ * as it is (null otherwise), for the cards and the badge that show them.
+ */
+export const SignOffsContext = createContext<{
+  records: readonly SignOffRecord[];
+  rows: readonly FigureScheduleRow[] | null;
+}>({ records: [], rows: null });
 
 export function useMindId(): string {
   const mindId = useContext(MindIdContext);

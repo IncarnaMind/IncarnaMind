@@ -8,6 +8,7 @@ import { join, resolve } from "node:path";
 import { type ElectronApplication, _electron as electron, expect, test } from "@playwright/test";
 import { launchEnvironment } from "../../e2e/launchEnvironment";
 import type { CoreBridge } from "../../src/core/api";
+import { homeEnv } from "../../tests/helpers/home";
 import { buildPdf } from "../../tests/helpers/pdf";
 
 test("production packaged Library renders and classifies an image-only PDF", async () => {
@@ -16,6 +17,7 @@ test("production packaged Library renders and classifies an image-only PDF", asy
       "dist/mac-arm64/IncarnaMind.app/Contents/MacOS/IncarnaMind",
   );
   const dataDir = await mkdtemp(join(tmpdir(), "incarnamind-packaged-"));
+  const home = await mkdtemp(join(tmpdir(), "incarnamind-packaged-home-"));
   const requests: { model: string; images?: string[] }[] = [];
   const server = createServer(async (request, response) => {
     let raw = "";
@@ -46,7 +48,11 @@ test("production packaged Library renders and classifies an image-only PDF", asy
   });
   await new Promise<void>((done) => server.listen(0, "127.0.0.1", done));
   // The flag suppresses update checks. This production build has no fake embedder/chat.
-  const env = launchEnvironment({ INCARNAMIND_DATA_DIR: dataDir, INCARNAMIND_TEST_HOOKS: "1" });
+  const env = launchEnvironment({
+    ...homeEnv(home),
+    INCARNAMIND_DATA_DIR: dataDir,
+    INCARNAMIND_TEST_HOOKS: "1",
+  });
   let app: ElectronApplication | undefined;
   try {
     // The fresh test profile has no credentials; keep macOS Keychain out of this
@@ -103,6 +109,7 @@ test("production packaged Library renders and classifies an image-only PDF", asy
       server.closeAllConnections();
       await new Promise<void>((done) => server.close(() => done()));
       await rm(dataDir, { recursive: true, force: true, maxRetries: 3 });
+      await rm(home, { recursive: true, force: true, maxRetries: 3 });
     }
   }
 });

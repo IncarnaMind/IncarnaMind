@@ -94,6 +94,9 @@ function runsHtml(runs: readonly StyledRun[], isLink: LinkTest): string {
 const unverifiedHtml = (labels: PrintLabels) =>
   ` <span class="unverified">${escapeHtml(labels.unverified)}</span>`;
 
+export const checkedHtml = (lines: readonly string[] | undefined): string =>
+  (lines ?? []).map((line) => `<br><span class="checked-by">${escapeHtml(line)}</span>`).join("");
+
 /** A Citation's source, as its footnote says it; a web page's address is a link. */
 export function sourceHtml(
   footnote: Footnote,
@@ -219,7 +222,7 @@ class PrintWriter {
             const label = item.label
               ? `<span class="label">${runsHtml(item.label, this.isLink)}</span> `
               : "";
-            return `<p class="entry">${label}${runsHtml(item.runs, this.isLink)}</p>`;
+            return `<p class="entry">${label}${runsHtml(item.runs, this.isLink)}${checkedHtml(item.checked)}</p>`;
           })
           .join("");
         const hanging = block.hangingIndent ? " hanging" : "";
@@ -335,7 +338,8 @@ class PrintWriter {
             html += this.citations.marker(item.footnote, number);
           } else {
             html += this.marker(
-              sourceHtml(item.footnote, this.labels, this.isLink),
+              sourceHtml(item.footnote, this.labels, this.isLink) +
+                checkedHtml(item.footnote.checked),
               state.lastWasNote,
             );
             lastWasNote = true;
@@ -348,7 +352,10 @@ class PrintWriter {
         case "cite": {
           const marker = item.unverified ? unverifiedHtml(this.labels) : "";
           if (item.note && !inNote) {
-            html += this.marker(runsHtml(item.runs, this.isLink) + marker, state.lastWasNote);
+            html += this.marker(
+              runsHtml(item.runs, this.isLink) + marker + checkedHtml(item.checked),
+              state.lastWasNote,
+            );
             lastWasNote = true;
           } else html += runsHtml(item.runs, this.isLink) + marker;
           break;
