@@ -226,6 +226,14 @@ describe("What the judge says the sentence is about (#2194)", () => {
     );
     expect(CLAIM_CHECK_INSTRUCTIONS).toContain("Only a claim about a mind counts.");
   });
+
+  // protects=the judge reads "mind" in the record's Tool names and fields as the Note it judges, where that word is; fails_when=the instructions say the record calls a Note a Mind, which its words no longer do; no_claim=how a real model then reads it.
+  test("the instructions say where the record says mind", () => {
+    expect(CLAIM_CHECK_INSTRUCTIONS).toContain(
+      "The record's Tool names and fields say mind for a Note.",
+    );
+    expect(CLAIM_CHECK_INSTRUCTIONS).not.toContain("A Note is called a Mind in the record.");
+  });
 });
 
 describe("The judge is told which revision is a change (#2194)", () => {
