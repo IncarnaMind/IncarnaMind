@@ -205,8 +205,6 @@ export function resolveProposals(
   /** Where each request's first top-level Block removed by a reject was: what it revised goes back there. */
   const removedAt = new Map<string, number>();
   const removedFrom = new Map<string, string | null>();
-  /** The top-level Blocks this reject takes out: no revision that kept one may put it back. */
-  const rejectedIds = new Set<string>();
   const rejectedIn = new Map<string, Set<string>>();
   const rejected = (request: string, top: string | null) => {
     if (outcome !== "reject" || !top) return;
@@ -276,8 +274,6 @@ export function resolveProposals(
           if (parent === blocks) {
             removedAt.set(attribute.request, index);
             removedFrom.set(attribute.request, answerOf(child));
-            const id = idOf(child);
-            if (id !== null) rejectedIds.add(id);
           }
           parent.delete(index, 1);
           continue;
@@ -289,14 +285,11 @@ export function resolveProposals(
   };
 
   visit(blocks, null, null);
-  /** Records a reject has done with, forgotten once nothing reads them any more. */
-  const spent: string[] = [];
   const restored = settleRevisions(
     blocks,
     new Set([...resolved.values()].map((each) => each.request)),
     outcome,
     removedAt,
-    spent,
   );
   // What a rejected revision brings back that the same Answer wrote goes too, so an Answer that
   // revised the text it had just written is taken back whole, while an earlier Answer's text
@@ -310,10 +303,6 @@ export function resolveProposals(
     }
   }
   if (sameAnswer.size > 0) resolveProposals(blocks, (ref) => sameAnswer.has(ref.id), "reject");
-  // Forgotten only now: deleting a record marks what it kept as deleted, which the loop above reads.
-  const revisions = revisionsOf(blocks);
-  for (const request of spent) revisions?.delete(request);
-  forgetRevised(blocks, rejectedIds);
   if (blocks.doc) {
     // A change written over Blocks gave them its origin (`setOriginsOf`): taken out, it gives theirs back.
     for (const [request, tops] of rejectedIn) {
@@ -379,8 +368,9 @@ export function keepRevised(
 /**
  * Puts back what a revision by `request` replaced, after the Block that was
  * before it, unless a change of it still waits or they are back already: a
- * reject undone and done again puts them back once. Returns what it put back,
- * each with the Answer it came from when it was replaced.
+ * reject undone and done again puts them back once. Forgets the revision then,
+ * so nothing can put the Blocks back after the User turns them down. Returns
+ * what it put back, each with the Answer it came from when it was replaced.
  */
 export function restoreRevised(
   blocks: Y.XmlFragment,
@@ -410,63 +400,33 @@ export function restoreRevised(
       : anchor >= 0
         ? anchor + 1
         : Math.min(fallback ?? blocks.length, blocks.length);
-  blocks.insert(
-    at,
-    elements.map((element) => element.clone()),
-  );
+  const copies = elements.map((element) => element.clone());
+  blocks.insert(at, copies);
   const from = revision.get(REVISED_FROM);
-  return elements.map((element, index) => {
+  revisionsOf(blocks)?.delete(request);
+  return copies.map((element, index) => {
     const answer = Array.isArray(from) ? from[index] : null;
     return { element, from: typeof answer === "string" ? answer : null };
   });
 }
 
 /**
- * Forgets the revisions that kept any of the Blocks `rejected`: kept, one would put back Blocks
- * the User has just turned down (#1903).
- */
-function forgetRevised(blocks: Y.XmlFragment, rejected: ReadonlySet<string>): void {
-  if (rejected.size === 0) return;
-  const revisions = revisionsOf(blocks);
-  if (!revisions) return;
-  const pending = pendingProposals(blocks);
-  for (const request of [...revisions.keys()]) {
-    // A revision still waiting has not spent its record.
-    if (pending.some((each) => each.request === request)) continue;
-    const kept = revisions.get(request)?.get(REVISED_BLOCKS);
-    if (!(kept instanceof Y.Array)) continue;
-    const taken = kept
-      .toArray()
-      .some((element) => element instanceof Y.XmlElement && rejected.has(idOf(element) ?? ""));
-    if (taken) revisions.delete(request);
-  }
-}
-
-/**
  * What revisions of the resolved requests replaced: back once all their new Blocks are rejected,
- * gone once any is accepted. Returns what came back, by the request whose revision it was, and
- * names in `spent` the records a reject has done with, to forget once nothing reads them.
+ * gone once any is accepted. Returns what came back, by the request whose revision it was.
  */
 function settleRevisions(
   blocks: Y.XmlFragment,
   requests: ReadonlySet<string>,
   outcome: "accept" | "reject",
   removedAt: ReadonlyMap<string, number>,
-  spent: string[],
 ): Map<string, ReturnType<typeof restoreRevised>> {
   const restored = new Map<string, ReturnType<typeof restoreRevised>>();
   const revisions = revisionsOf(blocks);
   if (!revisions || revisions.size === 0) return restored;
   for (const request of requests) {
     if (!revisions.has(request)) continue;
-    if (outcome === "accept") {
-      revisions.delete(request);
-      continue;
-    }
-    restored.set(request, restoreRevised(blocks, request, removedAt.get(request)));
-    // Rejected, with what it replaced back, the record has done its work: kept, it would bring
-    // that text back after the User had turned it down since (#1903).
-    if (!pendingProposals(blocks).some((each) => each.request === request)) spent.push(request);
+    if (outcome === "accept") revisions.delete(request);
+    else restored.set(request, restoreRevised(blocks, request, removedAt.get(request)));
   }
   return restored;
 }
