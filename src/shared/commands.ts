@@ -67,8 +67,9 @@ export type Yours = (typeof YOURS)[number];
 /**
  * A command of the window's list, as the assistant is offered it (#1421): its name in English,
  * for the model, and what the window knows of it. `on` null: it acts on the window in front.
- * `deletes`: it sends things to Recently deleted; `final`: it can't be taken back; `listens`: it
- * can turn on the microphone or the computer's sound; `yours`: it is the User's alone.
+ * `deletes`: it sends things to Recently deleted; `final`: it can't be taken back, so it asks first
+ * (stopping a recording, which only ends capture, isn't); `listens`: it can turn on the microphone
+ * or the computer's sound; `yours`: it is the User's alone.
  */
 export interface OfferedCommand {
   id: CommandId;

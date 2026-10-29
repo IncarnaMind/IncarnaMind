@@ -133,6 +133,11 @@ export interface Command {
   assistant?: false | { never: Yours };
   /** It can turn on the microphone or the computer's sound: the assistant asks first (#1421). */
   listens?: true;
+  /**
+   * It only ends a recording, which can't send anything or start listening: the assistant runs it
+   * without asking, though it can't be taken back (#1421).
+   */
+  endsCapture?: true;
   run(ctx: CommandContext): void | Undoable | Promise<Undoable | void>;
 }
 

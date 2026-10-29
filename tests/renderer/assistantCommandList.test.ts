@@ -114,7 +114,7 @@ describe("The assistant's commands are the window's one list (#1421)", () => {
         purpose: command.purpose ? expect.any(String) : null,
         on: command.appliesTo ? command.appliesTo.filter(isTarget) : null,
         deletes: command.destructive === true && command.reversible === true,
-        final: command.reversible !== true,
+        final: command.reversible !== true && command.endsCapture !== true,
         listens: command.listens === true,
         yours: null,
       } as OfferedCommand);
@@ -330,7 +330,7 @@ describe("The assistant's commands are the window's one list (#1421)", () => {
     expect(offered.get("mind.openBeside")?.yours).toBeNull();
   });
 
-  // protects=what the core asks before running a window command comes from the real list's marks: every one that can turn recording on, can't be taken back or deletes asks, and the rest of what acts on the window runs at once; fails_when=a mark is lost between the list and the core's policy; no_claim=the card's words.
+  // protects=what the core asks before running a window command comes from the real list's marks: every one that can turn recording on, can't be taken back or deletes asks, stopping a recording doesn't, and the rest of what acts on the window runs at once; fails_when=a mark is lost between the list and the core's policy; no_claim=the card's words.
   test("the core asks first from the real list's own marks", async () => {
     offerEverything();
     const { parseOfferedCommands } = await import("../../src/core/tools/commands/offered");
@@ -359,14 +359,14 @@ describe("The assistant's commands are the window's one list (#1421)", () => {
     }
     expect(asks.get("meeting.record")).toBe("listen");
     expect(asks.get("memo.record")).toBe("listen");
-    expect(asks.get("meeting.stop")).toBe("final");
+    expect(asks.get("meeting.stop")).toBeNull();
     expect(asks.get("mind.check")).toBeNull();
     for (const command of registry.commands.all()) {
       const ask = asks.get(command.id);
       if (ask === undefined || command.assistant) continue;
       const expected = command.listens
         ? "listen"
-        : command.reversible !== true
+        : command.reversible !== true && command.endsCapture !== true
           ? "final"
           : command.destructive
             ? "change"

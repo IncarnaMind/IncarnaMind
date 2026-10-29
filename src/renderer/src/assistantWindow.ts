@@ -60,7 +60,7 @@ function entryOf(command: Command, front: CommandContext): OfferedCommand | null
     purpose: command.purpose ? english(command.purpose) : null,
     on,
     deletes: command.destructive === true && command.reversible === true,
-    final: command.reversible !== true,
+    final: command.reversible !== true && command.endsCapture !== true,
     listens: command.listens === true,
     yours,
   };

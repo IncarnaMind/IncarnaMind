@@ -202,6 +202,7 @@ export const meetingCommands: readonly Command[] = [
   {
     id: "meeting.stop",
     label: "meetings.command.stop",
+    endsCapture: true,
     group: "main",
     // Nothing recorded is lost, but a stopped Meeting can't be picked up again.
     reversible: { confirm: "meetings.command.stopConfirm" },
