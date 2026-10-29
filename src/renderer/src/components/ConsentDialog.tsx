@@ -94,7 +94,6 @@ export function ConsentDialog() {
               ))}
             </ul>
           </div>
-          <ProviderDataUseNotice service={request.flow.service} />
           {request.flow.id === "connectors" && (
             <p className={dialogTextClass}>
               {/* A local Connector's service is "connector:<id>"; a remote one's is its server's origin. */}
@@ -131,6 +130,7 @@ export function ConsentDialog() {
               {t("consent.dialog.allow")}
             </button>
           </div>
+          <ProviderDataUseNotice service={request.flow.service} />
         </div>
       )}
     </dialog>

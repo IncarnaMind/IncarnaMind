@@ -2202,7 +2202,7 @@ export const zhCN = {
   "providers.region.cn": "中国",
   "providers.region.intl": "国际",
   "providers.form.dataUse": "数据使用：{summary}",
-  "providers.form.dataUseLink": "数据使用",
+  "providers.form.dataUseLink": "条款",
   "providers.form.details": "详情",
   "providers.form.pricing": "价格",
   "providers.form.keyPage": "打开{provider}的密钥页面",
