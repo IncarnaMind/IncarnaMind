@@ -223,7 +223,8 @@ describe("an export that can't be saved", () => {
     recordWordImportProgress(client.doc, 0, 1);
     await client.settled();
     await expect(core.saveMindExport(mindId, { format: "docx" })).rejects.toMatchObject({
-      message: "This note is still being imported from its Word file.",
+      message:
+        "This note is still being imported from its Word file. Try again when the import finishes.",
       wording: { key: "error.export.wordImporting" },
     });
 
@@ -234,7 +235,7 @@ describe("an export that can't be saved", () => {
     }
     await expect(core.saveMindExport(mindId, { format: "docx" })).rejects.toMatchObject({
       message:
-        "The Word file this note was imported from is missing from IncarnaMind’s data folder.",
+        "The Word file this note was imported from is missing from IncarnaMind’s data folder. Export in another format instead.",
       wording: { key: "error.export.wordPackageMissing" },
     });
 

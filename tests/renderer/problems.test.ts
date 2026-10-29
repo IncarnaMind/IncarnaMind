@@ -329,25 +329,49 @@ describe("a failed Answer's problem line", () => {
 });
 
 describe("why a file couldn't be saved", () => {
-  const key = (message: string): MessageKey | null => saveFailureReason(message);
+  const key = (message: string): MessageKey | null => saveFailureReason(message)?.key ?? null;
 
   test.each([
     ["EACCES: permission denied, open '/Library/x.docx'", "export.failed.readOnly"],
     ["EROFS: read-only file system, open '/Volumes/x/a.docx'", "export.failed.readOnly"],
     ["EPERM: operation not permitted, open '/x/a.docx'", "export.failed.readOnly"],
-    ["attempt to write a readonly database", "export.failed.readOnly"],
+    ["attempt to write a readonly database", "export.failed.dataNotWritable"],
     ["ENOSPC: no space left on device, write", "export.failed.full"],
     ["EDQUOT: disk quota exceeded", "export.failed.full"],
     ["database or disk is full", "export.failed.full"],
+    ["EIO: i/o error, write", "export.failed.diskError"],
     ["disk I/O error", "export.failed.diskError"],
     ["database is locked", "export.failed.busy"],
+    ["database is busy", "export.failed.busy"],
     ["ENOENT: no such file or directory, open '/gone/a.docx'", "export.failed.gone"],
     ["ENOTDIR: not a directory, open '/Tides.docx/a'", "export.failed.gone"],
     ["ENAMETOOLONG: name too long, open '/x/a.docx'", "export.failed.nameTooLong"],
     ["EEXIST: file already exists, open '/x/a.docx'", "export.failed.exists"],
+    ["EISDIR: illegal operation on a directory, open '/x/a.docx'", "export.failed.isFolder"],
+    ["EMFILE: too many open files, open '/x/a.docx'", "export.failed.tooManyFiles"],
+    ["ENFILE: file table overflow, open '/x/a.docx'", "export.failed.tooManyFiles"],
+    ["EXDEV: cross-device link not permitted, rename '/a/b.docx'", "export.failed.otherDevice"],
+    ["EFBIG: file too large, write", "export.failed.tooBig"],
+    ["SQLITE_CANTOPEN: unable to open database file", "export.failed.dataFolder"],
+    ["database disk image is malformed", "export.failed.corrupt"],
   ] as const)("%s says why in plain words", (message, reason) => {
     expect(key(message)).toBe(reason);
     expect(translate("zh-CN", reason), reason).toMatch(/[\p{Script=Han}]/u);
+  });
+
+  test("a file another program holds open is named, so the User knows which one to close", () => {
+    expect(
+      saveFailureReason("EBUSY: resource busy or locked, open 'C:\\Users\\x\\Tides.docx'"),
+    ).toEqual({ key: "export.failed.fileBusy", values: { file: "Tides.docx" } });
+    expect(saveFailureReason("EBUSY: resource busy or locked, open '/Users/x/Tides.docx'")).toEqual(
+      {
+        key: "export.failed.fileBusy",
+        values: { file: "Tides.docx" },
+      },
+    );
+    expect(saveFailureReason("EBUSY: resource busy or locked")).toEqual({
+      key: "export.failed.fileBusyUnnamed",
+    });
   });
 
   test("anything else is left to the system's own words", () => {
@@ -360,6 +384,15 @@ describe("why a file couldn't be saved", () => {
     );
     for (const reason of reasons) {
       expect(translate("zh-CN", reason), reason).toMatch(/[\p{Script=Han}]/u);
+    }
+  });
+
+  test("the sentences a notice says read in Chinese too", () => {
+    const sentences = (Object.keys(en) as MessageKey[]).filter((name) =>
+      name.startsWith("error.system."),
+    );
+    for (const sentence of sentences) {
+      expect(translate("zh-CN", sentence), sentence).toMatch(/[\p{Script=Han}]/u);
     }
   });
 

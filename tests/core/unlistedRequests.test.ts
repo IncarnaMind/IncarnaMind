@@ -27,6 +27,7 @@ import { addAndProcess, createSourceFolder, writeSourceFile } from "../helpers/d
 import { connectToMind } from "../helpers/mindClient";
 import { heading, note, question, readMind, writeMind } from "../helpers/minds";
 import {
+  claimCheckReply,
   type ModelCall,
   type ScriptedReply,
   scriptedModel,
@@ -270,8 +271,24 @@ describe("A model no list names, or one in a flow no list admits it to", {
     if (!turn.asked) throw new Error("The Question wasn't asked.");
     await answerEnded(fixing.core, turn.answerId);
 
+    const claiming = "I've added the summary to the note.";
+    const reasked = scriptedModel(
+      (call: ModelCall): ScriptedReply => ({
+        text: call.prompt.includes("but no Tool did that") ? "I didn't add it." : claiming,
+      }),
+      { generate: (call) => claimCheckReply(call, [{ sentence: claiming, kind: "added" }]) },
+    );
+    const asking = await setUpWithDocuments(reasked, [TIDES]);
+    const claimed = await asking.core.askInConversation({
+      text: "add a summary",
+      mindId: asking.mind.id,
+    });
+    if (!claimed.asked) throw new Error("The Question wasn't asked.");
+    await answerEnded(asking.core, claimed.answerId);
+
     expect(JSON.stringify(requests(model))).not.toMatch(/\bMinds?\b/);
     expect(JSON.stringify(requests(retried))).not.toMatch(/\bMinds?\b/);
+    expect(JSON.stringify(requests(reasked))).not.toMatch(/\bMinds?\b/);
     expect(DRAFT_INSTRUCTIONS).not.toMatch(/\bMinds?\b/);
   });
 });

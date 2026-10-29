@@ -526,6 +526,6 @@ function CheckIcon() {
 
 /** Why a file couldn't be written or opened, in a few words: ours when we know, else the system's. */
 function reasonOf(message: string, t: ReturnType<typeof useT>): string {
-  const key = saveFailureReason(message);
-  return key ? t(key) : message;
+  const reason = saveFailureReason(message);
+  return reason ? t(reason.key, reason.values) : message;
 }
