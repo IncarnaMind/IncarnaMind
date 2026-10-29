@@ -175,7 +175,7 @@ export function checkReply(call: ModelCall, plans: Record<string, Plan>): Script
       calls: [{ tool: "cite", input: { citations: [{ marker: 1, passage: passage?.id, quote }] } }],
     };
   }
-  const verdict = `Verdict: ${plan.verdict}${plan.absence === undefined ? "" : `\nAbsence: ${plan.absence}`}${plan.says ? `\n${plan.says} [^1]` : ""}`;
+  const verdict = `Verdict: ${plan.verdict}${plan.absence === undefined ? "" : `\nAbsence: ${plan.absence ? "yes" : "no"}`}${plan.says ? `\n${plan.says} [^1]` : ""}`;
   const figures = requestedFigures(call);
   if (figures.length === 0) return { text: verdict };
   if (!calculation) {
@@ -251,9 +251,6 @@ export function checkReply(call: ModelCall, plans: Record<string, Plan>): Script
 export const checkGenerate =
   (plans: Record<string, Plan>, evidence: string = JSON.stringify({ passage: null })) =>
   (call: GenerateCall): GeneratedReply => {
-    if (call.system.startsWith("Classify whether a sentence says something is absent")) {
-      return { text: plans[call.prompt]?.absence === true ? "yes" : "no" };
-    }
     if (call.system.startsWith("You sort the sentences")) {
       return { text: JSON.stringify(plannedDecisions(call.prompt, plans)) };
     }

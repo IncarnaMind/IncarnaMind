@@ -8,24 +8,17 @@ import { readFigures } from "../../src/shared/figures";
 import { checkGenerate, checkReply } from "../helpers/checks";
 import { setUpWithDocuments } from "../helpers/citations";
 import { readMind, writeMind } from "../helpers/minds";
-import { type GeneratedReply, scriptedModel } from "../helpers/models";
+import { scriptedModel } from "../helpers/models";
 import { buildPdf } from "../helpers/pdf";
 
 const CLAIM = "The lease has no break clause.";
 const CLAUSE = "Either party may end this lease with 30 days' notice.";
 
-function absenceModel(
-  verdict: "supported" | "contradicted",
-  wholeReads: number[],
-  reportedAbsence: boolean | undefined,
-) {
+function absenceModel(verdict: "supported" | "contradicted", wholeReads: number[]) {
   return scriptedModel(
-    (call) => checkReply(call, { [CLAIM]: { verdict: "supported", absence: reportedAbsence } }),
+    (call) => checkReply(call, { [CLAIM]: { verdict: "supported", absence: true } }),
     {
       generate: (call) => {
-        if (call.system.startsWith("Classify whether a sentence says something is absent")) {
-          return { text: "yes" };
-        }
         if (call.system.startsWith("Read the whole Documents")) {
           wholeReads.push(1);
           if (verdict === "supported") return { text: JSON.stringify({ verdict }) };
@@ -38,21 +31,54 @@ function absenceModel(
   );
 }
 
+const TERM = "The lease runs for three years.";
+const LEASE = {
+  name: "Lease.pdf",
+  contents: buildPdf([{ lines: ["Term", TERM] }, { lines: ["Break clause", CLAUSE] }]),
+};
+
+/**
+ * A check of `claim` that searches, cites the lease's term and writes `fields` below its Supported
+ * verdict, or `fields` alone when they are a JSON reply. Asked anything else but the whole read, it
+ * gives `fields` too; each request is kept in `requests`.
+ */
+function leaseModel(claim: string, fields: string, wholeReads: number[], requests: string[] = []) {
+  const plan = { verdict: "supported", quote: TERM } as const;
+  return scriptedModel(
+    (call) => {
+      requests.push(call.system);
+      const scripted = checkReply(call, { [claim]: plan });
+      if (!("text" in scripted)) return scripted;
+      return { text: fields.startsWith("{") ? fields : `Verdict: supported\n${fields}` };
+    },
+    {
+      generate: (call) => {
+        requests.push(call.system);
+        if (!call.system.startsWith("Read the whole Documents")) {
+          return call.system.startsWith("You sort the sentences")
+            ? checkGenerate({ [claim]: plan })(call)
+            : { text: fields };
+        }
+        wholeReads.push(1);
+        const passage = /id="([^"]+)"/.exec(call.prompt)?.[1];
+        return { text: JSON.stringify({ verdict: "contradicted", passage, quote: CLAUSE }) };
+      },
+    },
+  );
+}
+
 describe("Checking an absence sentence", () => {
   test("a true absence is Supported only after the whole Document is read, with its pages kept", async () => {
     const wholeReads: number[] = [];
-    const { core, documents } = await setUpWithDocuments(
-      absenceModel("supported", wholeReads, true),
-      [
-        {
-          name: "Lease.pdf",
-          contents: buildPdf([
-            { lines: ["Term", "The lease runs for three years."] },
-            { lines: ["Rent", "The tenant pays rent monthly."] },
-          ]),
-        },
-      ],
-    );
+    const { core, documents } = await setUpWithDocuments(absenceModel("supported", wholeReads), [
+      {
+        name: "Lease.pdf",
+        contents: buildPdf([
+          { lines: ["Term", "The lease runs for three years."] },
+          { lines: ["Rent", "The tenant pays rent monthly."] },
+        ]),
+      },
+    ]);
 
     const result = await core.checkClaim({ claim: CLAIM });
 
@@ -111,25 +137,6 @@ describe("Checking an absence sentence", () => {
     expect(claimSpans(readMind(client))[0]?.check.readDocuments).toEqual([]);
   });
 
-  test.each([
-    { name: "false", reported: false },
-    { name: "missing", reported: undefined },
-  ])("an Absence: $name line never lets Supported stand on search alone", async ({ reported }) => {
-    const wholeReads: number[] = [];
-    const { core } = await setUpWithDocuments(absenceModel("supported", wholeReads, reported), [
-      {
-        name: "Lease.pdf",
-        contents: buildPdf([{ lines: ["Term", "The lease runs for three years."] }]),
-      },
-    ]);
-
-    const result = await core.checkClaim({ claim: CLAIM });
-
-    expect(result).toMatchObject({ verdict: "supported", evidence: null });
-    expect(result.readDocuments).toHaveLength(1);
-    expect(wholeReads).toHaveLength(1);
-  });
-
   test("a sentence with a saved figure still needs the whole read before Supported", async () => {
     const claim = "The company never disclosed the $5 million loan.";
     const quote = "The company disclosed a $5 million loan on 14 May 2026.";
@@ -137,17 +144,14 @@ describe("Checking an absence sentence", () => {
     if (!reading) throw new Error("The absence fixture has no figure.");
     const wholeReads: number[] = [];
     const model = scriptedModel(
-      (call) => checkReply(call, { [claim]: { verdict: "supported", absence: false, quote } }),
+      (call) => checkReply(call, { [claim]: { verdict: "supported", absence: true, quote } }),
       {
         generate: (call) => {
-          if (call.system.startsWith("Classify whether a sentence says something is absent")) {
-            return { text: "yes" };
-          }
           if (call.system.startsWith("Read the whole Documents")) {
             wholeReads.push(1);
             return { text: JSON.stringify({ verdict: "supported" }) };
           }
-          return checkGenerate({ [claim]: { verdict: "supported", absence: false, quote } })(call);
+          return checkGenerate({ [claim]: { verdict: "supported", absence: true, quote } })(call);
         },
       },
     );
@@ -176,8 +180,9 @@ describe("Checking an absence sentence", () => {
     expect(wholeReads).toHaveLength(1);
   });
 
-  test("one unreadable page makes the whole-scope absence Not checked, never Supported", async () => {
+  test("a scan with an unreadable page has nothing to search: Unsupported, with nothing sent", async () => {
     const wholeReads: number[] = [];
+    const requests: string[] = [];
     const scan = readFileSync(join(import.meta.dirname, "../fixtures/scans/en-clean.jpg"));
     const textRecognition = createFakeTextRecognizer({
       script: {
@@ -188,20 +193,21 @@ describe("Checking an absence sentence", () => {
       },
     });
     const { core } = await setUpWithDocuments(
-      absenceModel("supported", wholeReads, true),
+      leaseModel(CLAIM, "Absence: yes", wholeReads, requests),
       [{ name: "Lease.pdf", contents: buildPdf([{ scan }, { scan }]) }],
       { textRecognizer: textRecognition },
     );
 
     const result = await core.checkClaim({ claim: CLAIM });
 
-    expect(result).toMatchObject({ verdict: "not-checked", reason: "absence-read-limit" });
+    expect(result).toMatchObject({ verdict: "unsupported", evidence: null });
+    expect(requests.filter((system) => system.startsWith("You check one sentence"))).toEqual([]);
     expect(wholeReads).toHaveLength(0);
   });
 
   test("an unreadable PDF beside a readable one makes the scope Not checked, never Supported", async () => {
     const wholeReads: number[] = [];
-    const { core } = await setUpWithDocuments(absenceModel("supported", wholeReads, true), [
+    const { core } = await setUpWithDocuments(absenceModel("supported", wholeReads), [
       {
         name: "Lease.pdf",
         contents: buildPdf([{ lines: ["The lease runs for three years."] }]),
@@ -217,7 +223,7 @@ describe("Checking an absence sentence", () => {
 
   test("a false absence is Contradicted with the clause found by the whole read", async () => {
     const wholeReads: number[] = [];
-    const { core } = await setUpWithDocuments(absenceModel("contradicted", wholeReads, true), [
+    const { core } = await setUpWithDocuments(absenceModel("contradicted", wholeReads), [
       {
         name: "Lease.pdf",
         contents: buildPdf([
@@ -276,73 +282,89 @@ describe("Checking an absence sentence", () => {
     expect(wholeReads).toHaveLength(1);
   });
 
-  test("no Documents leaves an absence Not checked, never Unsupported from an empty search", async () => {
-    const wholeReads: number[] = [];
-    const { core } = await setUpWithDocuments(absenceModel("supported", wholeReads, true), []);
-
-    const result = await core.checkClaim({ claim: CLAIM });
-
-    expect(result).toMatchObject({ verdict: "not-checked", reason: "absence-read-limit" });
-    expect(wholeReads).toHaveLength(0);
-  });
-
-  test.each<{ name: string; answer: GeneratedReply; read: boolean }>([
-    { name: "“Yes.”", answer: { text: "Yes." }, read: true },
-    { name: "“是”", answer: { text: "是" }, read: true },
-    { name: "a structured yes", answer: { text: '{"answer":"yes"}' }, read: true },
+  test.each<{ name: string; reply: string; shown: "whole read" | "search" | "not checked" }>([
+    { name: "Absence: yes", reply: "Absence: yes", shown: "whole read" },
+    { name: "Absence: **Yes.**", reply: "Absence: **Yes.**", shown: "whole read" },
     {
-      name: "a yes after thinking",
-      answer: { text: "<think>It says a clause is missing.</think>\nyes" },
-      read: true,
+      name: "asserts_absence true",
+      reply: '{"verdict":"supported","asserts_absence":true}',
+      shown: "whole read",
     },
-    { name: "a reply cut off while thinking", answer: { text: "", cutOff: true }, read: true },
-    { name: "a reply that is neither", answer: { text: "Possibly." }, read: true },
-    { name: "“No.”", answer: { text: "No." }, read: false },
-    { name: "“否”", answer: { text: "否" }, read: false },
+    { name: "Absence: no", reply: "Absence: no", shown: "search" },
+    {
+      name: "asserts_absence false",
+      reply: '{"verdict":"supported","asserts_absence":false}',
+      shown: "search",
+    },
+    {
+      name: "a line that corrects itself",
+      reply: "Absence: No. Wait, yes: it asserts the clause is absent.",
+      shown: "not checked",
+    },
+    { name: "no and yes on one line", reply: "Absence: no yes", shown: "not checked" },
+    { name: "two lines that disagree", reply: "Absence: no\nAbsence: yes", shown: "not checked" },
+    {
+      name: "a field that corrects itself",
+      reply: '{"verdict":"supported","asserts_absence":"no, wait, yes"}',
+      shown: "not checked",
+    },
   ])(
-    "a classifier answer of $name decides whether search alone may support it",
-    async ({ answer, read }) => {
+    "the judge's $name decides whether search alone may support an absence",
+    async ({ reply, shown }) => {
       const wholeReads: number[] = [];
-      const plan = { verdict: "supported", quote: "The lease runs for three years." } as const;
-      const model = scriptedModel((call) => checkReply(call, { [CLAIM]: plan }), {
-        generate: (call) => {
-          if (call.system.startsWith("Classify whether a sentence says something is absent"))
-            return answer;
-          if (call.system.startsWith("Read the whole Documents")) {
-            wholeReads.push(1);
-            const passage = /id="([^"]+)"/.exec(call.prompt)?.[1];
-            return { text: JSON.stringify({ verdict: "contradicted", passage, quote: CLAUSE }) };
-          }
-          return checkGenerate({ [CLAIM]: plan })(call);
-        },
-      });
-      const { core } = await setUpWithDocuments(model, [
-        {
-          name: "Lease.pdf",
-          contents: buildPdf([
-            { lines: ["Term", "The lease runs for three years."] },
-            { lines: ["Break clause", CLAUSE] },
-          ]),
-        },
-      ]);
+      const { core } = await setUpWithDocuments(leaseModel(CLAIM, reply, wholeReads), [LEASE]);
 
       const result = await core.checkClaim({ claim: CLAIM });
 
-      if (read) {
+      if (shown === "whole read") {
         expect(result).toMatchObject({
           verdict: "contradicted",
           evidence: { quote: CLAUSE, check: "found", pageFrom: 2, pageTo: 2 },
         });
         expect(wholeReads).toHaveLength(1);
+      } else if (shown === "search") {
+        expect(result).toMatchObject({ verdict: "supported", evidence: { quote: TERM } });
+        expect(wholeReads).toHaveLength(0);
       } else {
-        expect(result).toMatchObject({
-          verdict: "supported",
-          evidence: { quote: "The lease runs for three years.", check: "found" },
-        });
+        expect(result).toMatchObject({ verdict: "not-checked", reason: "malformed" });
         expect(wholeReads).toHaveLength(0);
       }
     },
   );
+
+  test.each([
+    "Absence: The sentence does not assert an absence.",
+    "Absence: **Answer:** no",
+    "Absence: nope",
+  ])(
+    "an ordinary sentence keeps its result and Citation when its Absence field reads “%s”",
+    async (field) => {
+      const wholeReads: number[] = [];
+      const { core } = await setUpWithDocuments(leaseModel(TERM, field, wholeReads), [LEASE]);
+
+      const result = await core.checkClaim({ claim: TERM });
+
+      expect(result).toMatchObject({
+        verdict: "supported",
+        evidence: { quote: TERM, check: "found", pageFrom: 1, pageTo: 1 },
+      });
+      expect(result.readDocuments).toBeUndefined();
+      expect(wholeReads).toHaveLength(0);
+    },
+  );
+
+  test("a plain Supported fact takes three model requests: search, cite and verdict", async () => {
+    const requests: string[] = [];
+    const { core } = await setUpWithDocuments(leaseModel(TERM, "Absence: no", [], requests), [
+      LEASE,
+    ]);
+
+    const result = await core.checkClaim({ claim: TERM });
+
+    expect(result).toMatchObject({ verdict: "supported", evidence: { quote: TERM } });
+    // Processing the Document asks for its Tags; that request is no part of the check.
+    expect(requests.filter((system) => !system.startsWith("You sort Documents"))).toHaveLength(3);
+  });
 
   test("a clause the search found contradicts an absence on a scope too long to read whole", async () => {
     const wholeReads: number[] = [];
@@ -422,7 +444,7 @@ describe("Checking an absence sentence", () => {
 
   test("a scope over 40 pages is Not checked instead of guessed from search results", async () => {
     const wholeReads: number[] = [];
-    const { core } = await setUpWithDocuments(absenceModel("supported", wholeReads, true), [
+    const { core } = await setUpWithDocuments(absenceModel("supported", wholeReads), [
       {
         name: "Lease.pdf",
         contents: buildPdf(

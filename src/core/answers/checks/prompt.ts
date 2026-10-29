@@ -60,7 +60,7 @@ const reply = (language: Language, calculate: boolean) =>
   [
     "Reply in exactly this form, the verdict word in English:",
     "Verdict: supported, unsupported or contradicted",
-    'Absence: true only when the sentence asserts that a clause, disclosure, figure, approval, event or fact is absent ("The lease has no break clause"); otherwise false.',
+    'Absence: yes only when the sentence asserts that a clause, disclosure, figure, approval, event or fact is absent ("The lease has no break clause"); otherwise no. One word, on this line alone.',
     'Scope: the sentence\'s own word for the Passage\'s party or term, then same or wider ("Scope: tenants, wider" for "the Tenant"; "Scope: none, same" when the sentence names none). "wider" when that word is a general one for a wider group than the Passage\'s; "same" otherwise: the Passage\'s own word for its party ("the Tenant" for "the Tenant"), a name for it or another word for the very same party ("Ms Patel" for "the Tenant").',
     'Topic: found or not found. "found" when a Passage is about the sentence\'s own subject and detail, even when it gives another value or only part of it; "not found" when none is, though one may be about a neighbouring topic (rent, for a parking fee).',
     // The words are an anchor for the model, not a list the app matches. Worded without them,
@@ -381,16 +381,6 @@ export function readJudgement(reply: string): "conflict" | "same" | "neither" | 
   return word ? (word.toLowerCase() as "conflict" | "same" | "neither") : null;
 }
 
-const YES_NO = /^[\p{P}\p{S}\s]*(?:(yes|no)\b|(是|否|不是))/iu;
-
-/** A yes-or-no reply's answer, without its thinking, case or punctuation; null when it gives neither. */
-export function readYesNo(reply: string): boolean | null {
-  const match = YES_NO.exec(reply.replace(THINKING, ""));
-  const word = (match?.[1] ?? match?.[2])?.toLowerCase();
-  if (word === undefined) return null;
-  return word === "yes" || word === "是";
-}
-
 /** A record from the model's reply to that request, or null when it gives none. */
 export function readEvidence(
   reply: string,
@@ -418,8 +408,12 @@ export function readEvidence(
  */
 export interface ReadVerdict {
   verdict: ClaimVerdict;
-  /** True when the sentence asserts the absence itself; absent on older replies. */
-  absence?: boolean;
+  /**
+   * Whether the sentence asserts an absence, as the reply's Absence field says: "unclear" when
+   * the field gives yes but not as its one plain answer ("No. Wait, yes"); null when it gives
+   * no yes at all and no plain no (missing, or prose).
+   */
+  absence: AbsenceAnswer;
   says: string | null;
   covered: string | null;
   uncovered: string | null;
@@ -446,7 +440,7 @@ const NOT_COVERED = /^[\s>*_#`"'“”-]*(?:not covered|uncovered|未涵盖)[\s*
 const SCOPE = /^[\s>*_#`"'“”-]*(?:scope|范围)[\s*_]*[:：](.*)$/i;
 const TOPIC = /^[\s>*_#`"'“”-]*(?:topic|主题)[\s*_]*[:：][\s*_"'“”`]*(found|not found)\b/i;
 const ROLES = /^[\s>*_#`"'“”-]*(?:roles|角色)[\s*_]*[:：](.*)$/i;
-const ABSENCE = /^[\s>*_#`"'“”-]*(?:absence|缺失)[\s*_]*[:：][\s*_]*(true|false)\b/i;
+const ABSENCE = /^[\s>*_#`"'“”-]*(?:absence|缺失)[\s*_]*[:：](.*)$/i;
 const CALCULATION = /^[\s>*_#`'"“”-]*(?:calculation|计算)[\s*_]*[:：][\s*_]*(.*)$/i;
 const FIELDS = [COVERED, NOT_COVERED, SCOPE, TOPIC, ROLES, ABSENCE, CALCULATION];
 const MAX_PHRASE = 120;
@@ -463,13 +457,28 @@ function jsonVerdict(reply: string): ReadVerdict | null {
   try {
     const value: unknown = JSON.parse(reply.slice(start, end + 1));
     if (typeof value !== "object" || value === null) return null;
-    const { verdict, says, covered, uncovered, scope, topic, roles, absence, calculations } =
-      value as Record<string, unknown>;
+    const {
+      verdict,
+      says,
+      covered,
+      uncovered,
+      scope,
+      topic,
+      roles,
+      asserts_absence: asserted,
+      calculations,
+    } = value as Record<string, unknown>;
     const known = VERDICTS.find((each) => each === String(verdict).toLowerCase());
     if (!known) return null;
     return {
       verdict: known,
-      ...(absence === true ? { absence: true } : absence === false ? { absence: false } : {}),
+      absence: absenceOf(
+        typeof asserted === "boolean"
+          ? [asserted ? "yes" : "no"]
+          : typeof asserted === "string"
+            ? [asserted]
+            : [],
+      ),
       says: typeof says === "string" ? cleanSays(says) : null,
       covered: typeof covered === "string" ? phraseOf(covered) : null,
       uncovered: typeof uncovered === "string" ? phraseOf(uncovered) : null,
@@ -522,6 +531,28 @@ const topicOf = (line: string | undefined): ReadVerdict["topic"] => {
   return words === "found" || words === "not found" ? words : null;
 };
 
+export type AbsenceAnswer = "yes" | "no" | "unclear" | null;
+
+const PLAIN_ANSWER = /^(?:yes|no|是|否)$/i;
+const NAMES_YES = /\byes\b|是/i;
+
+/**
+ * Every Absence field of a reply read as one answer: "yes" or "no" only when each says that
+ * word alone, and they agree. A model that corrects itself gives two, and then neither counts.
+ */
+function absenceOf(values: readonly string[]): AbsenceAnswer {
+  const plain = values.map((value) =>
+    value.replace(MARKERS, "").replace(PHRASE_EDGES, "").toLowerCase(),
+  );
+  if (plain.length > 0 && plain.every((value) => PLAIN_ANSWER.test(value))) {
+    const yes = plain.every((value) => value === "yes" || value === "是");
+    const no = plain.every((value) => value === "no" || value === "否");
+    if (yes) return "yes";
+    if (no) return "no";
+  }
+  return plain.some((value) => NAMES_YES.test(value)) ? "unclear" : null;
+}
+
 /** An unsupported verdict's reason is one sentence: a longer one isn't kept. */
 const withShortReason = (read: ReadVerdict | null): ReadVerdict | null =>
   read?.verdict === "unsupported" && (read.says?.length ?? 0) > MAX_REASON
@@ -563,9 +594,7 @@ export function readVerdict(reply: string): ReadVerdict | null {
     const next = after.find((each) => !FIELDS.some((field) => field.test(each)));
     return withShortReason({
       verdict,
-      absence: fields.some((each) => ABSENCE.test(each))
-        ? fields.some((each) => ABSENCE.exec(each)?.[1]?.toLowerCase() === "true")
-        : undefined,
+      absence: absenceOf(fields.flatMap((each) => ABSENCE.exec(each)?.[1] ?? [])),
       says: cleanSays(rest || (next ?? "")),
       covered: phrase(COVERED),
       uncovered: phrase(NOT_COVERED),

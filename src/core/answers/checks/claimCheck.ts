@@ -67,7 +67,7 @@ import {
   type DocumentLanguage,
 } from "../engine";
 import type { TurnCheck } from "../turnChecks";
-import { checkAbsence, classifyAbsence } from "./absence";
+import { checkAbsence } from "./absence";
 import { agreesWith, statedFigure } from "./calculated";
 import { needsCalculation } from "./calculationGate";
 import {
@@ -81,6 +81,7 @@ import {
 } from "./figureChecks";
 import { figuresMatch, nearestLine } from "./nearest";
 import {
+  type AbsenceAnswer,
   CONFIRM_INSTRUCTIONS,
   COVERED_EVIDENCE_INSTRUCTIONS,
   checkInstructions,
@@ -602,21 +603,15 @@ export function createClaimCheck(deps: ClaimCheckDependencies) {
         opinions.documentIds.has(evidence.documentId ?? ""),
     });
     const absenceFor = async (
-      declared: boolean,
+      absence: AbsenceAnswer,
       searched: ClaimCheckResult["verdict"],
     ): Promise<ClaimCheckResult | null> => {
       // A search that found and cited the thing contradicts its absence as any sentence is
       // contradicted: the whole read decides only whether search may say Supported.
       if (searched === "contradicted") return null;
-      let absenceClaim = declared;
-      if (!absenceClaim && searched === "supported") {
-        try {
-          absenceClaim = await classifyAbsence(request);
-        } catch (error) {
-          return failedCheck(classifyProviderError(error));
-        }
-      }
-      if (!absenceClaim) return null;
+      // The model may have meant an absence, and search alone never backs one.
+      if (absence === "unclear") return searched === "supported" ? notChecked("malformed") : null;
+      if (absence !== "yes") return null;
       if (signal.aborted) return notChecked("stopped");
       return checkAbsence({
         request,
@@ -630,49 +625,6 @@ export function createClaimCheck(deps: ClaimCheckDependencies) {
       });
     };
 
-    if (scoped.searchableCount() === 0 && signal.aborted) {
-      return {
-        verdict: "unsupported",
-        evidence: null,
-        says: null,
-        unsupported: null,
-        calculation: null,
-        citedCaseUnchecked: caseCitations(request.claim).length > 0,
-        citedCaseFound: false,
-        ...facts(),
-      };
-    }
-    if (scoped.searchableCount() === 0) {
-      let absenceClaim: boolean;
-      try {
-        absenceClaim = await classifyAbsence(request);
-      } catch (error) {
-        return failedCheck(classifyProviderError(error));
-      }
-      if (absenceClaim) {
-        const absence = await checkAbsence({
-          request,
-          documents: deps.documents,
-          session,
-          versions: read,
-          facts,
-          citedCase,
-          notChecked,
-          failedCheck,
-        });
-        if (absence) return absence;
-      }
-      return {
-        verdict: "unsupported",
-        evidence: null,
-        says: null,
-        unsupported: null,
-        calculation: null,
-        citedCaseUnchecked: caseCitations(request.claim).length > 0,
-        citedCaseFound: false,
-        ...facts(),
-      };
-    }
     const figureContext = (citation: Citation) =>
       documentFigureContext(
         scoped.pageTexts(citation.documentId, citation.contentHash, null, null),
@@ -874,7 +826,7 @@ export function createClaimCheck(deps: ClaimCheckDependencies) {
           return result;
         },
       });
-      const absence = await absenceFor(readVerdict(reply)?.absence === true, figureResult.verdict);
+      const absence = await absenceFor(readVerdict(reply)?.absence ?? null, figureResult.verdict);
       return absence ?? figureResult;
     }
     if (confirmationFailure) return failedCheck(confirmationFailure);
@@ -908,7 +860,7 @@ export function createClaimCheck(deps: ClaimCheckDependencies) {
       (withVerdict === undefined ? null : readVerdict(`${withVerdict}\n\n${reply}`));
     if (!verdict) return notChecked(refused ? "refused" : "malformed");
     if (!looked()) return notChecked("unread");
-    const absence = await absenceFor(verdict.absence === true, verdict.verdict);
+    const absence = await absenceFor(verdict.absence, verdict.verdict);
     if (absence) return absence;
     if (await requiresCalculation(verdict))
       return confirmationFailure ? failedCheck(confirmationFailure) : notChecked("no-evidence");

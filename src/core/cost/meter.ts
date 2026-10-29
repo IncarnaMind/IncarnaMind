@@ -109,11 +109,10 @@ const ITEM_COSTS: Record<NonNullable<RunEstimateInput["each"]>, ItemCost> = {
    * run's one call naming the claims shared out. Measured on a memo checked
    * with Claude Haiku 5.5 (tests/fixtures/cost/recorded-checks.json). Its own
    * recorded calls, not Answers', which carry more of the Documents: those made
-   * one estimate seven times its run's cost (#973). A Supported reply also
-   * classifies whether the sentence claims absence before it can stand.
+   * one estimate seven times its run's cost (#973).
    */
   check: {
-    calls: 3.35,
+    calls: 2.35,
     call: {
       inputTokens: 8_260,
       cachedInputTokens: 2_903,

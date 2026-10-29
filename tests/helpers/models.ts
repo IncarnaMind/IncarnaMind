@@ -377,17 +377,6 @@ export function scriptedModel(
           warnings: [],
         };
       }
-      if (
-        !generate &&
-        systemOf(options.prompt).startsWith("Classify whether a sentence says something is absent")
-      ) {
-        return {
-          content: [{ type: "text", text: "no" }],
-          finishReason: { unified: "stop", raw: undefined },
-          usage,
-          warnings: [],
-        };
-      }
       if (!generate) throw new Error("This scripted model only streams.");
       const reply = generate({
         system: systemOf(options.prompt),

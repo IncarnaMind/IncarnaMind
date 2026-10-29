@@ -25,6 +25,7 @@
 
 import { randomUUID } from "node:crypto";
 import type * as Y from "yjs";
+import { caseCitations } from "../../../shared/caseCitations";
 import { type LiveDocument, withShownName } from "../../../shared/citations";
 import { restsOn } from "../../../shared/claimChecks";
 import {
@@ -814,6 +815,20 @@ export function createChecks(options: ChecksOptions) {
         options.scopeDocuments(parsed.scope, null),
         parsed.checked,
       );
+      // Nothing to check against: nothing backs it, and nothing is sent.
+      if (options.documents.searchableCount(scope.documentIds) === 0) {
+        return {
+          verdict: "unsupported",
+          evidence: null,
+          says: null,
+          unsupported: null,
+          calculation: null,
+          citedCaseUnchecked: caseCitations(parsed.claim).length > 0,
+          citedCaseFound: false,
+          versions: [],
+          excluded: [],
+        };
+      }
       const checksDocument =
         (parsed.checked.documentIds?.length ?? 0) + (parsed.checked.contentHashes?.length ?? 0) > 0;
       return claimCheck({

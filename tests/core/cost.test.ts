@@ -1076,8 +1076,6 @@ describe("The estimate before a check run (#973)", () => {
       "The harbour office opens at nine.",
       "The ferry leaves twice a day.",
       "The lighthouse was built in 1867.",
-      "The service desk closes at five.",
-      "The boat was painted red.",
     ].join(" ");
     const block = note(text);
     writeMind(client, [block]);
@@ -1094,7 +1092,7 @@ describe("The estimate before a check run (#973)", () => {
 
     const estimate = await core.estimateRun({ items: 10, each: "check" });
 
-    expect(estimate).toMatchObject({ calls: 34, tokens: 34 * 5_100 });
+    expect(estimate).toMatchObject({ calls: 24, tokens: 24 * 5_100 });
   });
 });
 

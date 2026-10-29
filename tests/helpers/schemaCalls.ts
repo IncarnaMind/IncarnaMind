@@ -1,5 +1,4 @@
 import { generateText, Output } from "ai";
-import { classifyAbsence } from "../../src/core/answers/checks/absence";
 import { unbackedClaims } from "../../src/core/answers/claimedChanges";
 import {
   type AnswerEngineEvent,
@@ -11,14 +10,12 @@ import { retryQuotes } from "../../src/core/answers/quoteRetry";
 import { citeUnmarked } from "../../src/core/answers/unmarkedQuotes";
 import { createWindowBudget } from "../../src/core/answers/window";
 import { chatGroupClassifier } from "../../src/core/library/classifier";
-import { resolveCapabilities } from "../../src/core/providers/capabilities";
 import type { ChatLanguageModel } from "../../src/core/providers/models";
 import { suggestionSchema } from "../../src/core/suggestions/prompt";
 import { chatClassifier } from "../../src/core/tags/classify";
 
 /** Every call under src/core that makes a model reply to a schema, and the names of the schemas it sends. */
 export const SCHEMA_CALLS = {
-  "answers/checks/absence.ts": ["absence"],
   "answers/claimedChanges.ts": ["change-claims"],
   "answers/engine.ts": ["answer"],
   "answers/figureRetry.ts": ["calculations"],
@@ -80,11 +77,6 @@ export async function callEverySchema(model: ChatLanguageModel): Promise<AnswerE
   await unbackedClaims("Done, the summary is on the page.", [], [], null, {
     model,
     names: () => null,
-    signal,
-  });
-  await classifyAbsence({
-    claim: "The lease has no break clause.",
-    model: { model, capabilities: resolveCapabilities({ catalog: {} }) },
     signal,
   });
   const tags = [{ id: "t-report", name: "Report", description: "A report of findings" }];
