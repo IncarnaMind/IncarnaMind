@@ -583,10 +583,12 @@ test("the line that says nothing changed goes when a Document is edited, moved o
     await checkCard(window);
     await pointAndClick(window, check);
     await expect(check).toHaveAttribute("title", "Nothing changed", { timeout: 20_000 });
-    // The press plans again, and can find a sentence the title, worked out a moment before, did
-    // not know of: it checks it, and a finished check never says "nothing changed". Only a press
-    // on what that left can say it, so press again, waiting each check out, and open the card
-    // again if one closed it.
+    // The press that planned may have found nothing changed itself: the line is on, and a second
+    // press would only say it again.
+    if (await unchanged.isVisible()) return;
+    // Otherwise it checked, and a finished check never says "nothing changed": only a press on
+    // what that left can say it, so press again, waiting each check out, and open the card again
+    // if one closed it.
     await expect(async () => {
       await checkCard(window);
       await pointAndClick(window, check);
