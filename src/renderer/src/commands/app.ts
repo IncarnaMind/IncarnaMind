@@ -201,6 +201,7 @@ const appCommands: readonly Command[] = [
   ...paletteCommands,
   {
     id: "chatgpt.continue",
+    assistant: { never: "keys" },
     label: "chatgpt.continue",
     group: "main",
     reversible: true,
@@ -212,6 +213,7 @@ const appCommands: readonly Command[] = [
   },
   {
     id: "claude.signIn",
+    assistant: { never: "keys" },
     label: "claudePlan.signIn",
     group: "main",
     reversible: true,
@@ -400,6 +402,7 @@ const appCommands: readonly Command[] = [
   {
     // Suggest as I write (#282): on asks for consent first, as the switch in Settings does.
     id: "suggestions.toggle",
+    assistant: { never: "privacy" },
     label: (_ctx, t) =>
       t(
         useAppStore.getState().settings?.user.suggestWhileWriting

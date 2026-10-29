@@ -227,6 +227,7 @@ export const meetingCommands: readonly Command[] = [
   },
   {
     id: "meeting.deleteAudio",
+    assistant: { never: "permanent" },
     label: "meetings.command.deleteAudio",
     group: "danger",
     destructive: true,

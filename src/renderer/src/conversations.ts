@@ -15,6 +15,7 @@ import { settleAsk, useAnswers } from "./answers";
 import { applyWhatWasAsked } from "./askedChanges";
 import { watchCommands } from "./assistantCommands";
 import { watchMindsMadeBy } from "./assistantMinds";
+import { offeredCommands } from "./assistantWindow";
 import { composerKey, useComposer } from "./composer";
 import { core } from "./core";
 import { translateNow } from "./i18n";
@@ -215,6 +216,7 @@ export async function askInAssistant(
       ...input,
       conversationId: useConversations.getState().openId,
       onScreen: documentsOnScreen(),
+      commands: offeredCommands(),
     });
     if (
       !result.asked &&
@@ -311,6 +313,7 @@ export async function regenerateAnswer(
       ...(clearScope && { clearScope }),
       ...(model && { model }),
       onScreen: documentsOnScreen(),
+      commands: offeredCommands(),
     });
     settleAsk(answerId, result);
     sayLeftOut(result);

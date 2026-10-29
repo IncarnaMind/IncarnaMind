@@ -1,16 +1,17 @@
 /**
- * Whether a command the assistant runs asks the User first (#1110, ADR-0013): decided here
- * alone, from what its entry in `ASSISTANT_COMMANDS` says it does and what the check found, never
- * by the command's own code. It runs at once only when it changes a few things inside
- * IncarnaMind, which Undo takes back, or saves a file in the Output location itself.
- * Everything else asks, with Allow or Don't allow and never "always":
- * - a file saved anywhere else, and a folder's files read;
+ * Whether a command the assistant runs asks the User first (#1110, #1421, ADR-0013): decided here
+ * alone, from what the command's entry says it does and what the check found, never by the
+ * command's own code. It runs at once only when it changes a few things inside IncarnaMind,
+ * which Undo takes back, acts on the window in front, or saves a file in the Output location
+ * itself. Everything else asks, with Allow or Don't allow and never "always":
+ * - a file saved anywhere else, a folder's files read, and a new Output location;
  * - every delete, whatever the Answer read: a web page's title or a Document's text could ask for it;
+ * - a command of the window's that can't be taken back;
  * - a change that would take the Answer's changes past `COMMAND_AT_ONCE`.
+ * One that is the User's alone never asks: it runs nothing.
  */
 
 import { runsByDefault } from "../../../shared/approvalRules";
-import { ASSISTANT_COMMANDS, isAppCommand } from "../../../shared/commands";
 import {
   COMMAND_AT_ONCE,
   type CommandAsk,
@@ -52,28 +53,29 @@ export const renamesOf = (items: readonly CommandItem[]): CommandRename[] =>
 /** What the User is asked before the call runs; null: it runs at once. */
 export function askOf(checked: CheckedCommand, context: CommandContext): CommandAsk | null {
   const { command } = checked;
-  const { does, deletes } = ASSISTANT_COMMANDS[command];
+  if (checked.yours) return null;
   if (checked.outside) return checked.outside;
-  if (isAppCommand(command)) {
-    const reason = deletes
-      ? "delete"
-      : context.changed + checked.items.length > COMMAND_AT_ONCE
-        ? "many"
-        : null;
-    if (reason) {
-      return {
-        kind: "change",
-        command,
-        reason,
-        count: checked.items.length,
-        items: checked.items.slice(0, NAMES_SHOWN).map((item) => asKnown(item, context.renames)),
-        into: checked.into,
-        changed: context.changed,
-      };
-    }
+  const items = () =>
+    checked.items.slice(0, NAMES_SHOWN).map((item) => asKnown(item, context.renames));
+  if (checked.final) return { kind: "final", command, items: items() };
+  const reason = checked.deletes
+    ? "delete"
+    : checked.changes && context.changed + checked.items.length > COMMAND_AT_ONCE
+      ? "many"
+      : null;
+  if (reason) {
+    return {
+      kind: "change",
+      command,
+      reason,
+      count: checked.items.length,
+      items: items(),
+      into: checked.into,
+      changed: context.changed,
+    };
   }
   // Nothing outside to show, and only an in-app change or the Output location runs at once.
-  if ((does === "app" || does === "export") && checked.effects.every(runsByDefault)) return null;
+  if (checked.effects.every(runsByDefault)) return null;
   throw new Error(`${checked.command} would do what nothing can ask the User about.`);
 }
 

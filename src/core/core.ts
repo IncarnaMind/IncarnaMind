@@ -308,6 +308,7 @@ import { createSpeakerModel } from "./transcription/speakerModel";
 import { createUnsavedChanges } from "./unsavedChanges";
 import { createUsageData } from "./usageData";
 import { addedCounts, trackUsage } from "./usageTracking";
+import { createWindowCommands } from "./windowCommands";
 import { createWordImports } from "./wordImports";
 import { ensureWorkspace } from "./workspace";
 
@@ -1278,6 +1279,7 @@ export function createCore(adapters: CoreAdapters): Core {
   });
 
   const questions = createQuestions(events);
+  const windowCommands = createWindowCommands(events);
 
   // Requests to one service kept apart, as its operator asks: Look up and Find sources share them.
   const paceTimers = adapters.paceTimers ?? realTimers;
@@ -1512,6 +1514,7 @@ export function createCore(adapters: CoreAdapters): Core {
       return api;
     },
     outputFolder: async () => outputs.settings().location,
+    window: (request, signal) => windowCommands.run(request, signal),
     exportMind: async (mindId, format, folder, approved, marking) => {
       const options = optionsFor(format, settings.get().user.exportOptions);
       let written = options;
@@ -4744,6 +4747,7 @@ export function createCore(adapters: CoreAdapters): Core {
     listApprovalRequests: async () => approvals.requests(),
     listUserQuestions: async () => questions.list(),
     answerUserQuestion: async (requestId, answer) => questions.answer(requestId, answer),
+    answerWindowCommand: async (requestId, result) => windowCommands.answer(requestId, result),
     respondToApproval: async (requestId, decision, options) =>
       approvals.respond(requestId, decision, options),
 

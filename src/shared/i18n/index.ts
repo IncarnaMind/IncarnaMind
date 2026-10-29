@@ -19,6 +19,9 @@ const dictionaries: { readonly [L in Language]: Dictionary } = {
 /** Names that can be Chinese or Latin, so a space beside one depends on the name (docs/agents/zh-CN.md). */
 const NAMES = ["agent", "provider", "format", "names", "person", "label"] as const;
 
+export const isMessageKey = (value: unknown): value is MessageKey =>
+  typeof value === "string" && Object.hasOwn(en, value);
+
 export function translate(language: Language, key: MessageKey, params?: MessageParams): string {
   const template = dictionaries[language][key];
   if (!params) return template;

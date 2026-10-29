@@ -6,6 +6,7 @@ import {
   MENU_COMMANDS,
   type MenuCommandId,
   type ShortcutKeys,
+  type Yours,
 } from "../../../shared/commands";
 import type { MessageKey } from "../../../shared/i18n";
 import type { ObjectKind, ObjectRef, Translate, Undoable } from "../objects";
@@ -122,6 +123,13 @@ export interface Command {
   enabled?(ctx: CommandContext): true | { reason: MessageKey };
   /** Undone with ⌘Z, or asked about first, naming what will be lost (rule 4). */
   reversible: true | { confirm: MessageKey };
+  /**
+   * Whether the assistant may run it (#1421). Left out, it may, as ⌘K runs it, on what it acts on
+   * (`appliesTo`): it asks first when it deletes (`destructive`) or can't be taken back
+   * (`reversible`). `false`: it acts on the assistant itself or on where the keyboard is, which
+   * an Answer can't. `{ never }`: it is the User's alone; the assistant says where they change it.
+   */
+  assistant?: false | { never: Yours };
   run(ctx: CommandContext): void | Undoable | Promise<Undoable | void>;
 }
 
@@ -191,14 +199,31 @@ export const commands = {
    * the undo stack, and is what it resolves to.
    */
   async run(id: CommandId, given: Partial<CommandContext> = {}): Promise<Undoable | undefined> {
+    const tried = await commands.attempt(id, given);
+    const change = tried.ran ? tried.change : undefined;
+    if (change) useUndo.getState().push(change);
+    return change;
+  },
+
+  /**
+   * Runs a command as `run` does, but hands back what it changed rather than putting it on the
+   * undo stack, for the caller to put with other changes; or why it didn't run.
+   */
+  async attempt(
+    id: CommandId,
+    given: Partial<CommandContext> = {},
+  ): Promise<
+    { ran: true; change: Undoable | undefined } | { ran: false; why: "not-offered" | MessageKey }
+  > {
     const command = registered.get(id);
     if (!command) throw new Error(`There is no command ${id}.`);
     const ctx = { ...NO_CONTEXT, ...given };
-    if (!offered(command, ctx) || !isEnabled(command, ctx)) return undefined;
+    if (!offered(command, ctx)) return { ran: false, why: "not-offered" };
+    const enabled = command.enabled?.(ctx) ?? true;
+    if (enabled !== true) return { ran: false, why: enabled.reason };
     const done: unknown = await command.run(ctx);
     // What a row's own action (`here`) hands back, such as a frame's handle, is no change to undo.
     const change = typeof done === "object" && done !== null ? (done as Undoable) : undefined;
-    if (change) useUndo.getState().push(change);
-    return change;
+    return { ran: true, change };
   },
 };

@@ -49,6 +49,7 @@ import type {
   MindFocus,
   MindRead,
   MovedItem,
+  OfferedCommand,
   ProviderError,
   ProviderErrorKind,
   SearchScope,
@@ -60,6 +61,7 @@ import { isSignInRouteProblem } from "../providers/signInRoutes";
 import { parseSearchScope } from "../scope";
 import { isChatModelChoice } from "../settings";
 import type { Database, SqlValue } from "../storage";
+import { parseOfferedCommands } from "../tools/commands/offered";
 import { excerptOf, findTerms, searchTerms, termQuery } from "../wordSearch";
 import { indexText, plainText } from "./search";
 
@@ -74,6 +76,8 @@ export interface QuestionInput {
   focus: MindFocus | null;
   /** The Documents open on screen, by id, the focused group's first; not kept with the Question. */
   onScreen: string[];
+  /** The asking window's commands (#1421); not kept with the Question. */
+  commands: OfferedCommand[];
   quotes: AskedQuote[];
   scope: SearchScope | null;
   model: ChatModelChoice | null;
@@ -874,6 +878,7 @@ export function createConversations(db: Database, now: () => string) {
         mind,
         focus: mind ? where : null,
         onScreen: parseOnScreen(input.onScreen),
+        commands: parseOfferedCommands(input.commands),
         quotes: parseQuotes(input.quotes),
         scope: parseSearchScope(input.scope),
         model: model ?? null,
@@ -889,7 +894,7 @@ export function createConversations(db: Database, now: () => string) {
      * focus, or to none.
      */
     add(
-      input: Omit<QuestionInput, "onScreen">,
+      input: Omit<QuestionInput, "onScreen" | "commands">,
       answerModel: ChatModelChoice | null,
       read: AnswerRead | null,
     ): AddedTurn {
@@ -1063,6 +1068,7 @@ export function createConversations(db: Database, now: () => string) {
       /** The Tool calls the Answer made, as it stands before it is written again. */
       toolCalls: AnswerToolCall[];
       onScreen: string[];
+      commands: OfferedCommand[];
       /** The model to write it with instead of the Question's own, when the caller chose one. */
       model: ChatModelChoice | null;
     } {
@@ -1086,6 +1092,7 @@ export function createConversations(db: Database, now: () => string) {
         question: toQuestion(question),
         toolCalls: storedList<AnswerToolCall>(answer.tool_calls),
         onScreen: parseOnScreen(input.onScreen),
+        commands: parseOfferedCommands(input.commands),
         model: input.model ?? null,
       };
     },

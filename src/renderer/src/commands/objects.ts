@@ -1,9 +1,10 @@
-import type { LinkedFolder } from "../../../core/api";
+import type { LinkedFolder, TabItem } from "../../../core/api";
 import { displayName } from "../../../shared/documentNames";
 import { core, files } from "../core";
 import { useDocumentPasswords } from "../documentPasswords";
 import { showFileLabelKey, userFile } from "../fileInfo";
 import { countNow, translateNow } from "../i18n";
+import { currentTabOf } from "../layoutSlice";
 import { bridgeFrom, type LibraryBridge } from "../libraryBridges";
 import { fileStatusLabel, folderName } from "../linkedFolders";
 import { useRequests } from "../requests";
@@ -17,6 +18,19 @@ import { documentsOf, everyDocument, idsOf, onlyOne } from "./targets";
 const store = () => useAppStore.getState();
 const reportError = (error: unknown) => store().reportError(error);
 const RENAME_KEYS = "F2";
+
+/** In the group right of the one in front, made if there is room: VS Code's Open to the Side. */
+const openBeside = (item: TabItem) =>
+  void store().changeLayout({ type: "open", item, preview: false, where: { in: "side" } });
+
+/** For one thing that isn't the one in front: that one is split with Split to the right. */
+const besideFront = (ctx: CommandContext, kind: "mind" | "document"): boolean => {
+  const [id] = idsOf(ctx, kind);
+  const front = currentTabOf(store().layout)?.item;
+  const shown =
+    front?.kind === "mind" ? front.mindId : front?.kind === "document" ? front.documentId : null;
+  return onlyOne(ctx) && id !== undefined && id !== shown;
+};
 
 /** The Mind a Mind's row, or the tab showing it, stands for. */
 const mindOf = (ctx: CommandContext) => {
@@ -97,6 +111,15 @@ export const mindCommands: readonly Command[] = [
     reversible: true,
     run: (ctx) => store().openMind(idsOf(ctx, "mind")[0] ?? "", { newTab: true }),
   },
+  {
+    id: "mind.openBeside",
+    label: "command.openBeside",
+    group: "open",
+    appliesTo: ["mind"],
+    when: (ctx) => besideFront(ctx, "mind"),
+    reversible: true,
+    run: (ctx) => openBeside({ kind: "mind", mindId: idsOf(ctx, "mind")[0] ?? "" }),
+  },
   // Exporting (Export as…, Export options…) is in ./exports.
   {
     id: "mind.moveTo",
@@ -157,6 +180,15 @@ export const documentCommands: readonly Command[] = [
       store().openDocument({ documentId: idsOf(ctx, "document")[0] ?? "" }, { as: "here" }),
   },
   {
+    id: "document.openBeside",
+    label: "command.openBeside",
+    group: "open",
+    appliesTo: ["document"],
+    when: (ctx) => besideFront(ctx, "document"),
+    reversible: true,
+    run: (ctx) => openBeside({ kind: "document", documentId: idsOf(ctx, "document")[0] ?? "" }),
+  },
+  {
     id: "document.openMind",
     label: "document.openMind",
     group: "open",
@@ -170,6 +202,7 @@ export const documentCommands: readonly Command[] = [
   },
   {
     id: "document.ask",
+    assistant: false,
     label: (ctx, t) =>
       many(ctx) ? t("library.ask.documents", { count: countNow(many(ctx)) }) : t("documents.ask"),
     group: "main",
@@ -347,6 +380,7 @@ export const folderCommands: readonly Command[] = [
   },
   {
     id: "folder.ask",
+    assistant: false,
     label: "library.ask.folder",
     group: "main",
     appliesTo: ["folder"],
@@ -489,6 +523,7 @@ const rowMoveTo = (ctx: CommandContext) =>
 export const mixedSelectionCommands: readonly Command[] = [
   {
     id: "selection.moveTo",
+    assistant: false,
     label: (ctx, t) => t("selection.moveTo", { count: countNow(ctx.selection.length) }),
     rowKeys: "CmdOrCtrl+Shift+M",
     group: "move",
@@ -500,6 +535,7 @@ export const mixedSelectionCommands: readonly Command[] = [
   },
   {
     id: "selection.delete",
+    assistant: false,
     label: (ctx, t) => t("selection.delete", { count: countNow(ctx.selection.length) }),
     rowKeys: "CmdOrCtrl+Backspace",
     group: "danger",
@@ -593,6 +629,7 @@ export const linkedFolderCommands: readonly Command[] = [
   },
   {
     id: "linkedFolder.unlink",
+    assistant: { never: "permanent" },
     label: "linkedFolders.unlinkAction",
     group: "danger",
     destructive: true,

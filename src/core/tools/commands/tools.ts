@@ -1,38 +1,43 @@
 /**
- * The commands' Tools (#1110, ADR-0013): the assistant does what the User could do with the
- * app's commands. `list_commands` finds the Documents or Minds a command would act on, matched
- * exactly, and says which commands apply; `run_command` runs one. Only the commands marked for
- * the assistant (`ASSISTANT_COMMANDS`) can run. What a call does decides whether it asks the User
- * first (./policy): a few changes inside IncarnaMind run at once and the Run's changes are one
- * step of Undo; the rest wait for the User at the Answer's gate (`check`).
+ * The commands' Tools (#1110, #1421, ADR-0013): the assistant does what the User could do with
+ * the app's commands, the window's list that ⌘K shows. `list_commands` finds the Documents,
+ * Minds, Folders or Tags a command would act on, matched exactly, and says which commands apply;
+ * for "window", the commands that act on the window in front. `run_command` runs one: the core's
+ * own (./catalogue), or the window's, which the window runs as ⌘K does. What a call does decides
+ * whether it asks the User first (./policy): a few changes inside IncarnaMind run at once and the
+ * Run's changes are one step of Undo; the rest wait for the User at the Answer's gate (`check`).
+ * A command that only acts on the window, or that is the User's alone, ends the turn: the card
+ * under the reply says in one line what it did, or where the User changes it.
  */
-import {
-  ASSISTANT_COMMANDS,
-  type AssistantCommandId,
-  isAppCommand,
-} from "../../../shared/commands";
+import { COMMAND_TARGETS, type CommandTarget, type OfferedCommand } from "../../../shared/commands";
 import {
   COMMAND_AT_ONCE,
   type CommandAsk,
   type CommandDone,
   type CommandProblem,
   type CommandsFound,
-  type CommandTarget,
   type UserAnswer,
   type UserQuestion,
 } from "../../api";
 import { TranslatableError } from "../../errors";
 import { COMMAND_TOOLS, type Tool, type ToolProviderInfo } from "../index";
+import {
+  CORE_COMMANDS,
+  type CoreCommandId,
+  checkCommand,
+  commandEffects,
+  coreCommandsOn,
+  isCoreCommand,
+} from "./catalogue";
 import { type Findable, type FindInput, find, foundLine, foundOf } from "./find";
 import { askOf, type CommandRename, renamesOf } from "./policy";
 import {
   type CheckedCommand,
   COMMAND_EXPORT_FORMATS,
   type CommandsHost,
-  checkCommand,
-  commandEffects,
   parseCommandInput,
 } from "./run";
+import { SETTING_NAMES } from "./settings";
 import type { CommandSteps } from "./steps";
 
 const PROVIDER: ToolProviderInfo = { kind: "commands", id: "commands", name: "Commands" };
@@ -40,33 +45,29 @@ const PROVIDER: ToolProviderInfo = { kind: "commands", id: "commands", name: "Co
 /** How many found things the model reads; past that it is asked to narrow the search. */
 const MAX_LISTED = 100;
 
-const ARGUMENTS: Readonly<Record<AssistantCommandId, string>> = {
-  "document.rename": "ids: one Document; name: its new name",
-  "document.moveTo": "ids; folder: a Folder's name, made if there is none",
-  "document.tags": "ids; tag: a Tag's name, made if there is none",
-  "document.delete": "ids: sent to Recently deleted, where the User can restore them",
-  "mind.rename": "ids: one Mind; name: its new name",
-  "mind.moveTo": "ids; folder: a Folder's name, made if there is none",
-  "mind.delete": "ids: sent to Recently deleted, where the User can restore them",
-  "mind.export": `ids: one Mind; format: ${COMMAND_EXPORT_FORMATS.join(", ")}; folder: an absolute path, or none for the Output location; marks: "mark" or "leave", only when the User's request says whether a Word file marks the text IncarnaMind wrote`,
-  "documents.addFromFolder":
-    "folder: an absolute path or ~/…; kinds: file extensions such as pdf, or none for every kind",
-};
+const coreLine = (id: CoreCommandId) => `${id} (${CORE_COMMANDS[id].takes})`;
 
-const commandsOn = (kind: CommandTarget | "library") =>
-  (Object.keys(ASSISTANT_COMMANDS) as AssistantCommandId[]).filter(
-    (command) => ASSISTANT_COMMANDS[command].on === kind,
+const windowLine = (entry: OfferedCommand) =>
+  `${entry.id} (“${entry.label}”${entry.purpose ? `: ${entry.purpose}` : ""}${entry.deletes ? "; to Recently deleted, asks first" : entry.final ? "; can't be undone, asks first" : ""})`;
+
+/** The core's commands for a kind, then the window's that act on it and that the core doesn't run. */
+function commandsFor(kind: CommandTarget, offered: readonly OfferedCommand[]): string {
+  const windows = offered.filter(
+    (entry) => entry.yours === null && entry.on?.includes(kind) && !isCoreCommand(entry.id),
   );
-
-const commandList = (kind: CommandTarget | "library") =>
-  commandsOn(kind)
-    .map((command) => `${command} (${ARGUMENTS[command]})`)
-    .join("; ");
+  return [...coreCommandsOn(kind).map(coreLine), ...windows.map(windowLine)].join("; ");
+}
 
 const nouns: Record<CommandTarget, [string, string]> = {
   document: ["Document", "Documents"],
   mind: ["Mind", "Minds"],
+  folder: ["Folder", "Folders"],
+  tag: ["Tag", "Tags"],
 };
+
+/** What only the User changes (#1421), as the model is told how to ask for it. */
+const YOURS_RULE =
+  "Never yours to change: keys and sign-ins, consent, Local mode, Privacy and what leaves the computer, what you may do without asking, the monthly spending cap, and deleting for good. For a request for one, call run_command with settings.change and that setting (localMode, consent, privacy, webSearch, apiKey, signIn, approvals, monthlyCap, …), or with the window's own command for it: nothing runs, and the User is shown where they change it.";
 
 export interface CommandToolsOptions {
   host: CommandsHost;
@@ -78,9 +79,13 @@ export interface CommandToolsOptions {
   namesWebPage: boolean;
   /** The renames of the Conversation's earlier Answers, oldest first (`renamesIn`). */
   renames: readonly CommandRename[];
+  /** The Answer the calls are part of: the window that asked for it runs the window's commands. */
+  answerId: string;
   /** The Run the calls are part of: its changes are one step of Undo in `steps`. */
   runId: string;
   steps: CommandSteps;
+  /** The asking window's commands, as it offered them (#1421); empty: only the core's own. */
+  offered: readonly OfferedCommand[];
   /** Asks the User in the tray for a command that needs an answer to go on; none: it can't ask. */
   ask?: (toolCallId: string, question: UserQuestion, signal: AbortSignal) => Promise<UserAnswer>;
   found(toolCallId: string, found: CommandsFound): void;
@@ -96,6 +101,9 @@ const problemOf = (command: string, error: unknown): CommandProblem => ({
   message: error instanceof Error ? error.message : String(error),
   wording: error instanceof TranslatableError ? error.wording : null,
 });
+
+const isTarget = (value: unknown): value is CommandTarget =>
+  COMMAND_TARGETS.some((each) => each === value);
 
 export function commandTools(options: CommandToolsOptions): {
   tools: Tool[];
@@ -122,6 +130,8 @@ export function commandTools(options: CommandToolsOptions): {
   const counted = new Map<string, number>();
   const renames = [...options.renames];
   let readTitles = options.namesWebPage;
+  /** What the model read of the calls that end the turn: those of the window's, and the User's own. */
+  const oneLine = new Set<string>();
   // A model calls several at once: two that would each make the same Tag or Folder must not race.
   let turn: Promise<unknown> = Promise.resolve();
   const inTurn = <T>(run: () => Promise<T>): Promise<T> => {
@@ -129,14 +139,18 @@ export function commandTools(options: CommandToolsOptions): {
     turn = next.catch(() => undefined);
     return next;
   };
+  const windowCommands = options.offered.filter(
+    (entry) => entry.on === null && entry.yours === null && !isCoreCommand(entry.id),
+  );
+  const yoursCommands = options.offered.filter((entry) => entry.yours !== null);
 
   const listTool: Tool = {
     name: COMMAND_TOOLS.list,
-    description: `Finds the User's Documents or Minds for a command, and the commands that apply to them. It matches exactly: a name that holds the words given, a Tag, a Folder (all that are given), never by meaning. Act only on what it found, by id, with ${COMMAND_TOOLS.run}.`,
+    description: `Finds the User's Documents, Minds, Folders or Tags for a command, and the commands that apply to them. It matches exactly: a name that holds the words given, a Tag, a Folder (all that are given), never by meaning. Act only on what it found, by id, with ${COMMAND_TOOLS.run}. With kind "window", it lists the commands that act on the window in front instead: opening, splitting and closing tabs, Settings at a page, recording, checking the Mind in front, exporting and the rest of what ⌘K offers.`,
     inputSchema: {
       type: "object",
       properties: {
-        kind: { type: "string", enum: ["document", "mind"] },
+        kind: { type: "string", enum: [...COMMAND_TARGETS, "window"] },
         name: { type: "string", description: "Words the name holds." },
         tag: { type: "string", description: "A Tag's name." },
         folder: { type: "string", description: "A Folder's name." },
@@ -149,8 +163,21 @@ export function commandTools(options: CommandToolsOptions): {
     effects: () => [{ action: "read", scope: { kind: "library" } }],
     untrustedResult: false,
     async call(input, { toolCallId }) {
+      if (!isTarget(input.kind)) {
+        options.found(toolCallId, { kind: "window", count: windowCommands.length, by: {} });
+        return [
+          windowCommands.length === 0
+            ? "The window offers no command now."
+            : `Commands for the window in front: ${windowCommands.map(windowLine).join("; ")}.`,
+          ...(yoursCommands.length > 0
+            ? [
+                `The User's alone, which only tell them where they change it: ${yoursCommands.map((entry) => `${entry.id} (“${entry.label}”)`).join("; ")}.`,
+              ]
+            : []),
+        ].join("\n");
+      }
       const query: FindInput = {
-        kind: input.kind === "mind" ? "mind" : "document",
+        kind: input.kind,
         name: given(input.name),
         tag: given(input.tag),
         folder: given(input.folder),
@@ -169,22 +196,32 @@ export function commandTools(options: CommandToolsOptions): {
         ...(found.length > shown.length
           ? [`…and ${found.length - shown.length} more: narrow it by name, Tag or Folder.`]
           : []),
-        `Commands for ${many}: ${commandList(query.kind)}.`,
+        `Commands for ${many}: ${commandsFor(query.kind, options.offered)}.`,
       ].join("\n");
     },
   };
 
   const runTool: Tool = {
     name: COMMAND_TOOLS.run,
-    description: `Runs one of the app's commands for the User, on ${nouns.document[1]} or ${nouns.mind[1]} ${COMMAND_TOOLS.list} found, by id. For Documents: ${commandList("document")}. For Minds: ${commandList("mind")}. To add files: ${commandList("library")}. A change inside IncarnaMind runs at once and the User can undo it. These wait for the User to allow them: a file saved anywhere but the Output location itself, files added from a folder, every delete, and a change that would take this answer past ${COMMAND_AT_ONCE} things changed. Say only what each call returned.`,
+    description: [
+      `Runs one of the app's commands for the User, as ⌘K would, on what ${COMMAND_TOOLS.list} found, by id. For Documents: ${coreCommandsOn("document").map(coreLine).join("; ")}. For Minds: ${coreCommandsOn("mind").map(coreLine).join("; ")}. For Folders: ${coreCommandsOn("folder").map(coreLine).join("; ")}. For Tags: ${coreCommandsOn("tag").map(coreLine).join("; ")}. For the Library: ${coreCommandsOn("library").map(coreLine).join("; ")}. Settings: ${coreLine("settings.change")}.`,
+      `${COMMAND_TOOLS.list} gives the other commands that apply to what it found, and with kind "window" those that act on the window in front; run any of them by its id the same way.`,
+      `A change inside IncarnaMind runs at once and the User can undo it. These wait for the User to allow them: a file saved anywhere but the Output location itself, files added from a folder, a new Output location, every delete, a command that can't be undone, and a change that would take this answer past ${COMMAND_AT_ONCE} things changed.`,
+      YOURS_RULE,
+      "Say only what each call returned.",
+    ].join(" "),
     inputSchema: {
       type: "object",
       properties: {
-        command: { type: "string", enum: Object.keys(ASSISTANT_COMMANDS) },
+        command: {
+          type: "string",
+          description: `A command's id, as given here or by ${COMMAND_TOOLS.list}.`,
+        },
         ids: { type: "array", items: { type: "string" } },
         name: { type: "string" },
         folder: { type: "string" },
         tag: { type: "string" },
+        about: { type: "string" },
         format: { type: "string", enum: [...COMMAND_EXPORT_FORMATS] },
         marks: {
           type: "string",
@@ -193,6 +230,11 @@ export function commandTools(options: CommandToolsOptions): {
             'For a Word export: set only when the User\'s request says whether to mark the text IncarnaMind wrote ("without the AI marks"). Never choose for them.',
         },
         kinds: { type: "array", items: { type: "string" } },
+        style: { type: "string" },
+        font: { type: "string" },
+        size: { type: "string" },
+        setting: { type: "string", enum: SETTING_NAMES },
+        value: { type: "string" },
       },
       required: ["command"],
       additionalProperties: false,
@@ -201,6 +243,7 @@ export function commandTools(options: CommandToolsOptions): {
     providerTool: COMMAND_TOOLS.run,
     effects: commandEffects,
     untrustedResult: false,
+    endsTurn: (result) => oneLine.has(result),
     async call(_input, { toolCallId, signal }) {
       const command = checked.get(toolCallId);
       checked.delete(toolCallId);
@@ -209,7 +252,7 @@ export function commandTools(options: CommandToolsOptions): {
       let ran: Awaited<ReturnType<CheckedCommand["run"]>>;
       try {
         ran = await inTurn(() =>
-          command.run(ask ? (question) => ask(toolCallId, question, signal) : null),
+          command.run(ask ? (question) => ask(toolCallId, question, signal) : null, signal),
         );
       } catch (error) {
         changed -= counted.get(toolCallId) ?? 0;
@@ -221,6 +264,7 @@ export function commandTools(options: CommandToolsOptions): {
       renames.push(...renamesOf(ran.done.items));
       if (ran.step) options.steps.add(options.runId, ran.step);
       options.ran(toolCallId, { ...ran.done, command: command.command, run: options.runId });
+      if (command.yours || ran.done.window) oneLine.add(ran.said);
       return ran.said;
     },
   };
@@ -229,11 +273,17 @@ export function commandTools(options: CommandToolsOptions): {
     tools: [listTool, runTool],
     async check(toolCallId, input) {
       try {
-        const command = await checkCommand(parseCommandInput(input), options.host);
+        const command = await checkCommand(parseCommandInput(input), options.host, {
+          offered: options.offered,
+          findable: options.findable,
+          answerId: options.answerId,
+          runId: options.runId,
+          toolCallId,
+        });
         const ask = askOf(command, { changed, renames });
         checked.set(toolCallId, command);
         if (ask) asks.set(toolCallId, ask);
-        else if (isAppCommand(command.command)) {
+        else if (command.changes) {
           changed += command.items.length;
           counted.set(toolCallId, command.items.length);
         }

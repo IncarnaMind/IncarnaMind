@@ -116,6 +116,7 @@ import {
   type MindChange,
   type MindFocus,
   type MindProblem,
+  type OfferedCommand,
   type ProviderError,
   QUESTION_BLOCK,
   type QuoteRetry,
@@ -400,7 +401,7 @@ export interface AnswerConversations {
    * written, which reads `read`.
    */
   add(
-    input: Omit<QuestionInput, "onScreen">,
+    input: Omit<QuestionInput, "onScreen" | "commands">,
     answerModel: ChatModelChoice | null,
     read: AnswerRead | null,
     emit?: boolean,
@@ -415,6 +416,8 @@ export interface AnswerConversations {
     question: ConversationQuestion;
     toolCalls: AnswerToolCall[];
     onScreen: string[];
+    /** The asking window's commands (#1421). */
+    commands: OfferedCommand[];
     /** The model the caller chose to write it with instead of the Question's own (#1848). */
     model: ChatModelChoice | null;
   };
@@ -1008,6 +1011,8 @@ export function createAnswers(options: AnswersOptions) {
     > & {
       /** What the commands of the Conversation's earlier Answers renamed, oldest first. */
       renames: readonly CommandRename[];
+      /** The asking window's commands, which it runs for the Answer (#1421). */
+      commands?: readonly OfferedCommand[];
       /** The calls of the Conversation's earlier Answers, oldest first: a follow-up may be answered from their searches (#1796). */
       earlierCalls?: readonly AnswerToolCall[];
     };
@@ -2323,7 +2328,9 @@ export function createAnswers(options: AnswersOptions) {
               namesWebPage: options.documents.searchableNames(documentIds, LISTED_DOCUMENTS)
                 .webPage,
               renames: input.assistant.renames,
+              answerId,
               runId: randomUUID(),
+              offered: input.assistant.commands ?? [],
               steps: commands.steps,
               ...(askInTray && { ask: askInTray }),
               found: (toolCallId, found) => commandsFound.set(toolCallId, found),
@@ -2738,7 +2745,11 @@ export function createAnswers(options: AnswersOptions) {
           ? {
               turnChecks,
               shownUpTo: heldBack,
-              mayEndBlank: changedAMind,
+              // A command that only acted on the window, or that is the User's alone, ends the
+              // turn: its card is the reply (#1421).
+              mayEndBlank: () =>
+                changedAMind() ||
+                [...commandsDone.values()].some((done) => done.window !== undefined || done.yours),
               blankReply: () => {
                 if (!endedAfterRefusal()) return null;
                 const language = answerLanguage(context.question);
@@ -3125,6 +3136,7 @@ export function createAnswers(options: AnswersOptions) {
     mind: MindToRead | null,
     onScreen: readonly string[],
     { quoted, leftOut }: { quoted: Quoted[]; leftOut: AskedQuote[] },
+    commands: readonly OfferedCommand[],
     remake: string | null = null,
   ): ConversationAskResult {
     const { conversation, question, answer } = turn;
@@ -3227,6 +3239,7 @@ export function createAnswers(options: AnswersOptions) {
         ),
         remake,
         renames: renamesIn(turn.earlier),
+        commands,
         touched: touchedIn(turn.earlier),
         earlierCalls: turn.earlier.flatMap((message) =>
           message.kind === "answer" ? message.toolCalls : [],
@@ -3520,6 +3533,7 @@ export function createAnswers(options: AnswersOptions) {
           readyMind,
           question.onScreen,
           checked,
+          question.commands,
         );
       } catch (error) {
         if (!published) options.conversations.discard(added);
@@ -3532,7 +3546,7 @@ export function createAnswers(options: AnswersOptions) {
       const asked = options.conversations.questionOf(input);
       const everyDocument = isRecord(input) && input.clearScope === true;
       if (everyDocument) options.conversations.clearScope(asked.question.id);
-      const { answerId, question, toolCalls, onScreen, model } =
+      const { answerId, question, toolCalls, onScreen, commands, model } =
         options.conversations.questionOf(input);
       const ready = await readyModel(model ?? question.model, question.forcedSkill);
       if ("asked" in ready) return ready;
@@ -3562,6 +3576,7 @@ export function createAnswers(options: AnswersOptions) {
         mind,
         onScreen,
         checkQuotes(question.quotes),
+        commands,
         remake,
       );
     },

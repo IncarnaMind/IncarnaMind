@@ -8,7 +8,14 @@
  * exports the Mind in focus, to the folder after "to" when there is one, marking the text IncarnaMind
  * wrote ("with the AI marks") or not ("without the AI marks") when it says so, and "Delete this Mind"
  * sends it to Recently deleted; "Add the PDFs in /path"
- * adds a folder's PDFs. Each then replies with the first sentence of what its calls returned.
+ * adds a folder's PDFs. From the window's list (#1421): "Make a Folder called Leases and move the
+ * leases into it" (新建一个叫“租约”的文件夹，把租约移进去) moves what it found into the Folder it
+ * names, made for it; "Open the X beside this one" (在旁边打开“X”) opens the Document it found to
+ * the side; "Check this Mind" (核对这篇笔记) checks the Mind in front; "Put the documents about
+ * rent together" (把关于租金的文档放在一起) has Organize sort every Document in no Folder toward
+ * "Rent"; and "Turn on Local mode" (打开本地模式) asks for what is the User's alone. Each then
+ * replies with the first sentence of what its calls returned, or nothing after one whose card is
+ * the reply.
  */
 import { lastResult, type Prompt, type Reply, toolResults } from "./prompt";
 
@@ -59,6 +66,20 @@ const DELETE_ID = /\bdelete the document with id (\S+?)[.?!]*$/i;
 const DELETE_MIND = /\bdelete this mind\b/i;
 const EXPORT = /\bexport this mind as word(?: (with|without) the ai marks)?(?: to (\S+?))?[.?!]*$/i;
 const ADD = /\badd the pdfs in (\S+?)[.?!]*$/i;
+const FOLDER_AND_MOVE =
+  /\bmake a folder called (.+?) and move the (.+?)s? into it\b|新建一个叫“(.+?)”的文件夹，把(.+?)移进去/i;
+const BESIDE = /\bopen the (.+?) beside this one\b|在旁边打开“(.+?)”/i;
+const CHECK = /\bcheck this (?:mind|note)\b|核对这篇笔记/i;
+const ORGANIZE_ABOUT = /\bput the documents about (.+?) together\b|把关于(.+?)的文档放在一起/i;
+const LOCAL_MODE = /\bturn on local mode\b|打开本地模式/i;
+
+/** Runs one command with nothing to find first, then says what it returned. */
+function runOnce(prompt: Prompt, input: Record<string, unknown>): Reply {
+  if (lastResult(prompt, "run_command") !== undefined) return said(prompt);
+  return { tool: "run_command", input };
+}
+
+const capitalized = (text: string) => text.charAt(0).toUpperCase() + text.slice(1);
 
 /** The scripted assistant's choice with the commands' Tools: a call, the reply, or null. */
 export function commandsReply(
@@ -67,6 +88,16 @@ export function commandsReply(
   names: readonly string[],
 ): Reply | null {
   if (!names.includes("run_command")) return null;
+  const made = FOLDER_AND_MOVE.exec(question);
+  if (made) {
+    const folder = made[1] ?? made[3] ?? "";
+    const name = made[2] ?? made[4] ?? "";
+    return findThen(prompt, { kind: "document", name }, (found) => ({
+      command: "document.moveTo",
+      ids: found.map((each) => each.id),
+      folder,
+    }));
+  }
   const rename = RENAME.exec(question);
   if (rename) {
     const name = rename[1] ?? rename[2] ?? "";
@@ -126,6 +157,25 @@ export function commandsReply(
           }
         : null;
     });
+  }
+  const beside = BESIDE.exec(question);
+  if (beside) {
+    return findThen(prompt, { kind: "document", name: beside[1] ?? beside[2] ?? "" }, (found) =>
+      found[0] ? { command: "document.openBeside", ids: [found[0].id] } : null,
+    );
+  }
+  if (CHECK.test(question)) return runOnce(prompt, { command: "mind.check" });
+  const about = ORGANIZE_ABOUT.exec(question);
+  if (about) {
+    const topic = (about[1] ?? about[2] ?? "").trim();
+    return runOnce(prompt, {
+      command: "documents.organize",
+      folder: capitalized(topic),
+      about: topic,
+    });
+  }
+  if (LOCAL_MODE.test(question)) {
+    return runOnce(prompt, { command: "settings.change", setting: "localMode", value: "on" });
   }
   const add = ADD.exec(question);
   if (add) {

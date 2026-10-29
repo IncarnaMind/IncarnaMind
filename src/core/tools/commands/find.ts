@@ -1,7 +1,8 @@
 /**
  * What `list_commands` finds (#1110): the User's Documents or Minds whose names hold the words
- * given, or that carry the Tag or are in the Folder named, matched exactly (ignoring case and
- * spacing), never by meaning, so a command touches only what plainly matches.
+ * given, or that carry the Tag or are in the Folder named, and their Folders and Tags by name
+ * (#1421), matched exactly (ignoring case and spacing), never by meaning, so a command touches
+ * only what plainly matches.
  */
 import { displayName } from "../../../shared/documentNames";
 import { mindName } from "../../../shared/naming";
@@ -38,11 +39,23 @@ const normal = (text: string) => text.normalize("NFKC").replace(/\s+/g, " ").tri
 
 const day = (iso: string | null) => (iso ? iso.slice(0, 10) : null);
 
-function all(kind: CommandTarget, { documents, minds, library, tags }: Findable): Found[] {
+/** Every one of a kind, as the model reads it. */
+export function all(kind: CommandTarget, { documents, minds, library, tags }: Findable): Found[] {
   const folders = new Map(library.groups.map((group) => [group.id, group.name]));
   const filedIn = new Map(library.assignments.map((each) => [each.documentId, each.groupId]));
   const tagNames = new Map(tags.map((tag) => [tag.id, tag.name]));
   const folderOf = (id: string | null | undefined) => (id ? (folders.get(id) ?? null) : null);
+  const named = (id: string, name: string): Found => ({
+    kind,
+    id,
+    name,
+    dates: null,
+    folder: null,
+    tags: [],
+    webPage: false,
+  });
+  if (kind === "folder") return library.groups.map((group) => named(group.id, group.name));
+  if (kind === "tag") return tags.map((tag) => named(tag.id, tag.name));
   if (kind === "mind") {
     return minds.map((mind) => ({
       kind,
@@ -72,8 +85,9 @@ function all(kind: CommandTarget, { documents, minds, library, tags }: Findable)
 /** What matches every one given of a name, a Tag and a Folder: all of the kind with none given. */
 export function find(input: FindInput, findable: Findable): Found[] {
   const name = input.name ? normal(input.name) : null;
-  const tag = input.tag ? normal(input.tag) : null;
-  const folder = input.folder ? normal(input.folder) : null;
+  const filed = input.kind === "document" || input.kind === "mind";
+  const tag = filed && input.tag ? normal(input.tag) : null;
+  const folder = filed && input.folder ? normal(input.folder) : null;
   return all(input.kind, findable).filter(
     (each) =>
       (name === null || normal(each.name).includes(name)) &&
@@ -95,6 +109,7 @@ export const foundOf = (input: FindInput, count: number): CommandsFound => ({
 
 /** One found thing as the model reads it: its id, then its name and what it is filed under. */
 export function foundLine(found: Found, inFocus: string | null): string {
+  if (found.kind === "folder" || found.kind === "tag") return `- ${found.id}: “${found.name}”`;
   const facts = [
     ...(found.dates
       ? [

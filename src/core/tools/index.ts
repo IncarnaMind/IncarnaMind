@@ -94,6 +94,11 @@ export interface Tool {
   /** Calls it; resolves with what the model reads, rejects when it fails (the model is told why). */
   call(input: Record<string, unknown>, context: ToolCallContext): Promise<string>;
   /**
+   * Whether a call that resolved with this result ends the turn: when every call of a step does,
+   * no model reply follows, and what the call shows stands as the reply. Absent: never.
+   */
+  endsTurn?(result: string): boolean;
+  /**
    * Hears a call's input while the model is still writing it, as the JSON text
    * so far, before `call`: for a Tool that shows its work as it goes, such as
    * the Minds' Tools writing a Mind's new text (#202). Only for a Tool whose

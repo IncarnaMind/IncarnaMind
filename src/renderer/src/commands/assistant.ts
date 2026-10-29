@@ -183,6 +183,7 @@ export const assistantCommands: readonly Command[] = [
   {
     // ⌘J, as in Cursor: the assistant's composer, wherever the User is.
     id: "composer.focus",
+    assistant: false,
     label: "command.composer.focus",
     shortcut: { keys: "CmdOrCtrl+J" },
     group: "main",
@@ -194,6 +195,7 @@ export const assistantCommands: readonly Command[] = [
   {
     // The conversation it leaves stays in History (#258).
     id: "assistant.newChat",
+    assistant: false,
     label: "assistant.newChat",
     shortcut: { keys: "CmdOrCtrl+Shift+O" },
     group: "main",
@@ -203,6 +205,7 @@ export const assistantCommands: readonly Command[] = [
   },
   {
     id: "answer.addToNote",
+    assistant: false,
     label: "command.answer.addToNote",
     shortcut: { keys: "CmdOrCtrl+Shift+A" },
     group: "main",
@@ -215,6 +218,7 @@ export const assistantCommands: readonly Command[] = [
   {
     // Not "answer.copy": that is the Copy in the menu of an Answer in a Mind written before.
     id: "assistant.copyAnswer",
+    assistant: false,
     label: "command.answer.copy",
     shortcut: { keys: "CmdOrCtrl+Shift+C" },
     group: "edit",
@@ -229,6 +233,7 @@ export const assistantCommands: readonly Command[] = [
   },
   {
     id: "assistant.regenerateAnswer",
+    assistant: false,
     label: "command.answer.regenerate",
     group: "main",
     // As Regenerate in a Mind: the Answer is written again in its place.
@@ -242,6 +247,7 @@ export const assistantCommands: readonly Command[] = [
   },
   {
     id: "answer.useAllDocuments",
+    assistant: false,
     label: "command.answer.useAll",
     group: "main",
     // Its new text is one change in the Mind it wrote, which that Mind's Undo takes back.
@@ -257,6 +263,7 @@ export const assistantCommands: readonly Command[] = [
   {
     // The composer's Stop, which its send button is while an Answer is written.
     id: "answer.stop",
+    assistant: false,
     label: "command.answer.stop",
     group: "main",
     // What was written stays, and Regenerate writes it again.
@@ -268,6 +275,7 @@ export const assistantCommands: readonly Command[] = [
   },
   {
     id: "assistant.writeNote",
+    assistant: false,
     label: "assistant.writeNote",
     group: "main",
     // Filling the empty Mind in front is one step of its Undo; what a Mind it makes holds is too.
@@ -278,6 +286,7 @@ export const assistantCommands: readonly Command[] = [
   },
   {
     id: "answer.addCredit",
+    assistant: { never: "keys" },
     label: "answer.error.addCredit",
     group: "main",
     reversible: true,
@@ -290,6 +299,7 @@ export const assistantCommands: readonly Command[] = [
   },
   {
     id: "answer.useAnotherKey",
+    assistant: { never: "keys" },
     label: "answer.error.useAnotherKey",
     group: "main",
     reversible: true,
@@ -312,6 +322,7 @@ export const assistantCommands: readonly Command[] = [
   },
   {
     id: "assistant.clear",
+    assistant: false,
     label: "assistant.clear",
     group: "danger",
     // To Recently deleted, with Undo.
