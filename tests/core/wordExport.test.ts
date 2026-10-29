@@ -1006,6 +1006,35 @@ describe("Blocks added, deleted and moved", () => {
     );
   });
 
+  test("the Saved line counts the file's footnotes, the imported file's own included (#2193)", async () => {
+    const { core, mindId, client } = await setUp({
+      body: paragraph(
+        `${run("Text.")}<w:r><w:rPr><w:rStyle w:val="FootnoteReference"/></w:rPr><w:footnoteReference w:id="1"/></w:r>`,
+      ),
+      footnotes: `<w:footnote w:id="1"><w:p>${run("Old.")}</w:p></w:footnote>`,
+    });
+    const tides = await tidesDocument(core);
+    const at = (page: number): JSONContent => ({
+      ...citation(tides),
+      attrs: { ...citation(tides).attrs, pageFrom: page, pageTo: page },
+    });
+    editMind(client, (blocks) => [
+      ...blocks,
+      { type: "paragraph", content: [text("One. "), at(1)] },
+      { type: "paragraph", content: [text("Two. "), at(1)] },
+      { type: "paragraph", content: [text("Three. "), at(2)] },
+    ]);
+    await client.settled();
+    const result = await core.exportMind(mindId, { format: "docx" });
+    // The file's own note, then one for p. 1 and one for p. 2.
+    expect(result.footnotes).toBe(3);
+    const document = unzip(result.data).get("word/document.xml")?.toString("utf8") ?? "";
+    const ids = new Set(
+      [...document.matchAll(/<w:footnoteReference w:id="(\d+)"\/>/g)].map((match) => match[1]),
+    );
+    expect(ids.size).toBe(3);
+  });
+
   test("in a citation style, a new Citation is written in the text and the Bibliography goes at the end", async () => {
     const { core, mindId, client } = await setUp({ body: paragraph("Intro.") });
     const tides = await tidesDocument(core);
