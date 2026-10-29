@@ -62,7 +62,7 @@ import {
   readProposalRef,
 } from "../shared/proposals";
 import type { ScopeKind } from "../shared/searchScope";
-import { comparisonCellReviewed, comparisonCellTarget, signOffsOf } from "../shared/signOffs";
+import { comparisonCellTarget } from "../shared/signOffs";
 import { readWordAtom, wordAtomText } from "../shared/wordFiles";
 import {
   ANSWER_BLOCK,
@@ -89,6 +89,8 @@ import {
   PROPOSAL_INSERT_MARK,
   type ProposalRequest,
   QUESTION_BLOCK,
+  type SignOffNow,
+  type SignOffTarget,
   type StyledRun,
   SUBSCRIPT_MARK,
   SUPERSCRIPT_MARK,
@@ -354,6 +356,8 @@ export interface ReadOptions {
    * reader keeps them, as hiding is display only.
    */
   leaveOutHiddenColumns?: boolean;
+  /** People's marks on a comparison table's cell, as each shows now (#1933). Absent: none are read. */
+  cellSignOffs?(target: SignOffTarget, cell: Y.XmlElement): SignOffNow[];
   /**
    * Read for a Word file's review (#107, see `reviewReading`): what changes still
    * waiting add is read too, and each part of one is marked (`Pendings`), and
@@ -751,7 +755,7 @@ export type ComparisonCellReading = (
   | { kind: "answer"; content: Block[]; failure?: string }
   | { kind: "words"; text: string }
   | { kind: "empty" }
-) & { edited?: boolean; reviewed?: boolean };
+) & { edited?: boolean; signOffs?: SignOffNow[] };
 
 /** A comparison table as read (#98): its Questions, then a row per Document, a cell per Question. */
 export interface ComparisonReading {
@@ -770,7 +774,6 @@ export function readComparisonTable(table: Y.XmlElement, options: ReadOptions): 
   const columns = comparisonQuestionsOf(table.getAttributes());
   const questions = options.leaveOutHiddenColumns ? visibleComparisonQuestions(columns) : columns;
   const tableId = stringAttribute(table, "id");
-  const signOffs = table.doc ? signOffsOf(table.doc) : [];
   const rows: ComparisonReading["rows"] = [];
   for (const row of table.toArray()) {
     if (!(row instanceof Y.XmlElement) || row.nodeName !== COMPARISON_ROW_NODE) continue;
@@ -787,16 +790,13 @@ export function readComparisonTable(table: Y.XmlElement, options: ReadOptions): 
       cells: questions.map((question): ComparisonCellReading => {
         const element = cells.get(question.id);
         if (!element) return { kind: "empty" };
-        const state = {
-          ...comparisonCellOf(element.getAttributes()),
-          reviewed: comparisonCellReviewed(
-            signOffs,
-            comparisonCellTarget(tableId, documentId, question.id),
-          ),
-        };
+        const state = comparisonCellOf(element.getAttributes());
+        const signOffs =
+          options.cellSignOffs?.(comparisonCellTarget(tableId, documentId, question.id), element) ??
+          [];
         const marks = {
           ...(state.edited && { edited: true }),
-          ...(state.reviewed && { reviewed: true }),
+          ...(signOffs.length > 0 && { signOffs }),
         };
         if (
           state.status === "done" ||

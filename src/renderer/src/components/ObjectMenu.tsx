@@ -83,7 +83,7 @@ export function useObjectMenu(
   return {
     buttonProps: key !== null ? { "data-object-menu": key } : {},
     rowProps: {
-      "data-object-row": "",
+      "data-object-row": key ?? "",
       onContextMenu(event: MouseEvent<HTMLElement>) {
         const row = event.currentTarget;
         // Not from a menu or picker drawn from this row but sitting elsewhere in the page, nor an inner row's.

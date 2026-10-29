@@ -303,6 +303,8 @@ export interface CatalogOverrides {
 
 /** A model recommended for Ollama on this computer, with what the server doesn't report reliably. */
 export interface LocalModel {
+  /** The model's display name; its tag stays available on hover. */
+  name: string;
   /** Its Ollama tag, e.g. "qwen3.5:4b". */
   tag: string;
   /** Total parameters, in billions; for a mixture of experts, `activeParameters` are those used per token. */
