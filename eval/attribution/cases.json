@@ -1,0 +1,2578 @@
+{
+  "version": 1,
+  "issue": 2003,
+  "syntheticOnly": true,
+  "checkAtISO": "2026-10-29T12:00:00.000Z",
+  "profiles": [
+    {
+      "id": "N01-en",
+      "inScopeSourceIds": [
+        "annual-2023-en",
+        "annual-2024-en"
+      ],
+      "outsideScopeSourceIds": []
+    },
+    {
+      "id": "N01-zh-CN",
+      "inScopeSourceIds": [
+        "annual-2023-zh-CN",
+        "annual-2024-zh-CN"
+      ],
+      "outsideScopeSourceIds": []
+    },
+    {
+      "id": "N02-en",
+      "inScopeSourceIds": [
+        "annual-2023-en",
+        "annual-2024-en"
+      ],
+      "outsideScopeSourceIds": []
+    },
+    {
+      "id": "N02-zh-CN",
+      "inScopeSourceIds": [
+        "annual-2023-zh-CN",
+        "annual-2024-zh-CN"
+      ],
+      "outsideScopeSourceIds": []
+    },
+    {
+      "id": "N03-en",
+      "inScopeSourceIds": [
+        "annual-2023-en",
+        "annual-2024-en"
+      ],
+      "outsideScopeSourceIds": []
+    },
+    {
+      "id": "N03-zh-CN",
+      "inScopeSourceIds": [
+        "annual-2023-zh-CN",
+        "annual-2024-zh-CN"
+      ],
+      "outsideScopeSourceIds": []
+    },
+    {
+      "id": "N04-en",
+      "inScopeSourceIds": [
+        "ambiguous-north-en",
+        "ambiguous-south-en"
+      ],
+      "outsideScopeSourceIds": []
+    },
+    {
+      "id": "N04-zh-CN",
+      "inScopeSourceIds": [
+        "ambiguous-north-zh-CN",
+        "ambiguous-south-zh-CN"
+      ],
+      "outsideScopeSourceIds": []
+    },
+    {
+      "id": "S01-en",
+      "inScopeSourceIds": [
+        "speaker-correct-en"
+      ],
+      "outsideScopeSourceIds": []
+    },
+    {
+      "id": "S01-zh-CN",
+      "inScopeSourceIds": [
+        "speaker-correct-zh-CN"
+      ],
+      "outsideScopeSourceIds": []
+    },
+    {
+      "id": "S02-en",
+      "inScopeSourceIds": [
+        "speaker-wrong-en"
+      ],
+      "outsideScopeSourceIds": []
+    },
+    {
+      "id": "S02-zh-CN",
+      "inScopeSourceIds": [
+        "speaker-wrong-zh-CN"
+      ],
+      "outsideScopeSourceIds": []
+    },
+    {
+      "id": "S03-en",
+      "inScopeSourceIds": [
+        "speaker-unknown-en"
+      ],
+      "outsideScopeSourceIds": []
+    },
+    {
+      "id": "S03-zh-CN",
+      "inScopeSourceIds": [
+        "speaker-unknown-zh-CN"
+      ],
+      "outsideScopeSourceIds": []
+    },
+    {
+      "id": "C01-en",
+      "inScopeSourceIds": [
+        "c01-en",
+        "c01-decoy-en"
+      ],
+      "outsideScopeSourceIds": []
+    },
+    {
+      "id": "C01-zh-CN",
+      "inScopeSourceIds": [
+        "c01-zh-CN",
+        "c01-decoy-zh-CN"
+      ],
+      "outsideScopeSourceIds": []
+    },
+    {
+      "id": "C02-en",
+      "inScopeSourceIds": [
+        "c02-en",
+        "c02-decoy-en"
+      ],
+      "outsideScopeSourceIds": []
+    },
+    {
+      "id": "C02-zh-CN",
+      "inScopeSourceIds": [
+        "c02-zh-CN",
+        "c02-decoy-zh-CN"
+      ],
+      "outsideScopeSourceIds": []
+    },
+    {
+      "id": "C03-en",
+      "inScopeSourceIds": [
+        "c03-en",
+        "c03-decoy-en"
+      ],
+      "outsideScopeSourceIds": []
+    },
+    {
+      "id": "C03-zh-CN",
+      "inScopeSourceIds": [
+        "c03-zh-CN",
+        "c03-decoy-zh-CN"
+      ],
+      "outsideScopeSourceIds": []
+    },
+    {
+      "id": "C04-en",
+      "inScopeSourceIds": [
+        "c04-en",
+        "c04-decoy-en"
+      ],
+      "outsideScopeSourceIds": []
+    },
+    {
+      "id": "C04-zh-CN",
+      "inScopeSourceIds": [
+        "c04-zh-CN",
+        "c04-decoy-zh-CN"
+      ],
+      "outsideScopeSourceIds": []
+    },
+    {
+      "id": "C05-en",
+      "inScopeSourceIds": [
+        "c05-en",
+        "c05-decoy-en"
+      ],
+      "outsideScopeSourceIds": []
+    },
+    {
+      "id": "C05-zh-CN",
+      "inScopeSourceIds": [
+        "c05-zh-CN",
+        "c05-decoy-zh-CN"
+      ],
+      "outsideScopeSourceIds": []
+    },
+    {
+      "id": "C06-en",
+      "inScopeSourceIds": [
+        "qualified-access-en"
+      ],
+      "outsideScopeSourceIds": []
+    },
+    {
+      "id": "C06-zh-CN",
+      "inScopeSourceIds": [
+        "qualified-access-zh-CN"
+      ],
+      "outsideScopeSourceIds": []
+    },
+    {
+      "id": "T01-en",
+      "inScopeSourceIds": [
+        "rate-old-en",
+        "rate-new-en"
+      ],
+      "outsideScopeSourceIds": []
+    },
+    {
+      "id": "T01-zh-CN",
+      "inScopeSourceIds": [
+        "rate-old-zh-CN",
+        "rate-new-zh-CN"
+      ],
+      "outsideScopeSourceIds": []
+    },
+    {
+      "id": "T02-en",
+      "inScopeSourceIds": [
+        "rate-old-en",
+        "rate-new-en"
+      ],
+      "outsideScopeSourceIds": []
+    },
+    {
+      "id": "T02-zh-CN",
+      "inScopeSourceIds": [
+        "rate-old-zh-CN",
+        "rate-new-zh-CN"
+      ],
+      "outsideScopeSourceIds": []
+    },
+    {
+      "id": "T03-en",
+      "inScopeSourceIds": [
+        "rate-old-en"
+      ],
+      "outsideScopeSourceIds": [
+        "rate-new-en"
+      ]
+    },
+    {
+      "id": "T03-zh-CN",
+      "inScopeSourceIds": [
+        "rate-old-zh-CN"
+      ],
+      "outsideScopeSourceIds": [
+        "rate-new-zh-CN"
+      ]
+    },
+    {
+      "id": "T04-en",
+      "inScopeSourceIds": [
+        "rate-file-metadata-en"
+      ],
+      "outsideScopeSourceIds": []
+    },
+    {
+      "id": "T04-zh-CN",
+      "inScopeSourceIds": [
+        "rate-file-metadata-zh-CN"
+      ],
+      "outsideScopeSourceIds": []
+    },
+    {
+      "id": "T05-en",
+      "inScopeSourceIds": [
+        "rate-stale-boundary-en"
+      ],
+      "outsideScopeSourceIds": []
+    },
+    {
+      "id": "T05-zh-CN",
+      "inScopeSourceIds": [
+        "rate-stale-boundary-zh-CN"
+      ],
+      "outsideScopeSourceIds": []
+    },
+    {
+      "id": "T06-en",
+      "inScopeSourceIds": [
+        "rate-undated-en"
+      ],
+      "outsideScopeSourceIds": []
+    },
+    {
+      "id": "T06-zh-CN",
+      "inScopeSourceIds": [
+        "rate-undated-zh-CN"
+      ],
+      "outsideScopeSourceIds": []
+    },
+    {
+      "id": "T07-en",
+      "inScopeSourceIds": [
+        "rate-fresh-window-en"
+      ],
+      "outsideScopeSourceIds": []
+    },
+    {
+      "id": "T07-zh-CN",
+      "inScopeSourceIds": [
+        "rate-fresh-window-zh-CN"
+      ],
+      "outsideScopeSourceIds": []
+    }
+  ],
+  "sources": [
+    {
+      "id": "ambiguous-north-en",
+      "language": "en",
+      "title": "2024 Annual Report",
+      "format": "markdown",
+      "text": "# 2024 Annual Report\n\nNorth division. Revenue for 2024 was GBP 12 million.",
+      "sha256": "34a66d37f843cba4c27b298e2f1b608da1c2334e3f3d25a1db31c4b9e8cad1f7"
+    },
+    {
+      "id": "ambiguous-north-zh-CN",
+      "language": "zh-CN",
+      "title": "2024年报",
+      "format": "markdown",
+      "text": "# 2024年报\n\n北部分部。2024年的收入为1200万英镑。",
+      "sha256": "e72d27a205bd6ce240a67b3274ef1ca76ca9c510f3d1ac27d97b5118bd85d696"
+    },
+    {
+      "id": "ambiguous-south-en",
+      "language": "en",
+      "title": "2024 Annual Report",
+      "format": "markdown",
+      "text": "# 2024 Annual Report\n\nSouth division. Revenue for 2024 was GBP 20 million.",
+      "sha256": "c8ea78377175047a511b1fa18e62e55e0e0b66e442fa40723f54a131749ba3cc"
+    },
+    {
+      "id": "ambiguous-south-zh-CN",
+      "language": "zh-CN",
+      "title": "2024年报",
+      "format": "markdown",
+      "text": "# 2024年报\n\n南部分部。2024年的收入为2000万英镑。",
+      "sha256": "9b0efd5fb1929a04d0b5745d29aded9703c8cde56f323e5ef7f6931cf8683f1c"
+    },
+    {
+      "id": "annual-2023-en",
+      "language": "en",
+      "title": "2023 Annual Report",
+      "format": "markdown",
+      "text": "# 2023 Annual Report\n\nRevenue for 2023 was GBP 12 million.",
+      "sha256": "3473cd9395a75590698b7240b47286c55495dfa90598933255e8149196998f09"
+    },
+    {
+      "id": "annual-2023-zh-CN",
+      "language": "zh-CN",
+      "title": "2023年报",
+      "format": "markdown",
+      "text": "# 2023年报\n\n2023年的收入为1200万英镑。",
+      "sha256": "11caecd4f2d7001fabcb6576443874841ad9cc1b51e15b7d4b8117ac87552e83"
+    },
+    {
+      "id": "annual-2024-en",
+      "language": "en",
+      "title": "2024 Annual Report",
+      "format": "markdown",
+      "text": "# 2024 Annual Report\n\nThis report describes the staff training completed in 2024.",
+      "sha256": "03149463bf0b3ecc04b52609322ded5add935ea1755f8357b0e79921ee91ca52"
+    },
+    {
+      "id": "annual-2024-zh-CN",
+      "language": "zh-CN",
+      "title": "2024年报",
+      "format": "markdown",
+      "text": "# 2024年报\n\n本报告介绍了2024年完成的员工培训。",
+      "sha256": "1c1feca1e1835152b4ec895924a57951df47f6c9b8d8c215bf523cdfdc80aae5"
+    },
+    {
+      "id": "c01-decoy-en",
+      "language": "en",
+      "title": "Other project note",
+      "format": "markdown",
+      "text": "A different project was a success. Another plant is safe. A different ferry will run. Its bridge is open.",
+      "sha256": "d5d016707db078ed24686b710ba5206eb7507135477643a191eac88893bdf87a"
+    },
+    {
+      "id": "c01-decoy-zh-CN",
+      "language": "zh-CN",
+      "title": "另一项目说明",
+      "format": "markdown",
+      "text": "另一个项目取得了成功。另一家工厂安全。另一班渡轮会开航。那座桥开放。",
+      "sha256": "2adfa9f8d41f8cb8d38af5b438f0defd106f8fa2c23df103dec9bacf6452c854"
+    },
+    {
+      "id": "c01-en",
+      "language": "en",
+      "title": "Plan interview",
+      "format": "markdown",
+      "text": "# Plan interview\n\nMira said, ‘I would never call the plan a success. It failed.’",
+      "sha256": "b3574611c933bd8ae226f538b6ad43d9abf7bdb244d81461ba2a90935a0975dc"
+    },
+    {
+      "id": "c01-zh-CN",
+      "language": "zh-CN",
+      "title": "计划访谈",
+      "format": "markdown",
+      "text": "# 计划访谈\n\n米拉说：“我绝不会称这个计划成功。它失败了。”",
+      "sha256": "729f4e56ef764dff2b9ddce56ae6c9fcc726c7c0d50b7a51a6b8dbcae4911961"
+    },
+    {
+      "id": "c02-decoy-en",
+      "language": "en",
+      "title": "Other project note",
+      "format": "markdown",
+      "text": "A different project was a success. Another plant is safe. A different ferry will run. Its bridge is open.",
+      "sha256": "d5d016707db078ed24686b710ba5206eb7507135477643a191eac88893bdf87a"
+    },
+    {
+      "id": "c02-decoy-zh-CN",
+      "language": "zh-CN",
+      "title": "另一项目说明",
+      "format": "markdown",
+      "text": "另一个项目取得了成功。另一家工厂安全。另一班渡轮会开航。那座桥开放。",
+      "sha256": "2adfa9f8d41f8cb8d38af5b438f0defd106f8fa2c23df103dec9bacf6452c854"
+    },
+    {
+      "id": "c02-en",
+      "language": "en",
+      "title": "Plant inspection",
+      "format": "markdown",
+      "text": "# Plant inspection\n\nThe description ‘safe’ is false. The plant is unsafe and must remain closed.",
+      "sha256": "cbc34c2d451acd0375815bd0821eb1f4f0f7f9cd7693c840338fd3a59dc22974"
+    },
+    {
+      "id": "c02-zh-CN",
+      "language": "zh-CN",
+      "title": "工厂检查",
+      "format": "markdown",
+      "text": "# 工厂检查\n\n“安全”的说法不成立。该工厂不安全，必须继续关闭。",
+      "sha256": "3ad909ee17e63d2e124ed322dd3b40526e2aec6b463392478c5e540471c5d03a"
+    },
+    {
+      "id": "c03-decoy-en",
+      "language": "en",
+      "title": "Other project note",
+      "format": "markdown",
+      "text": "A different project was a success. Another plant is safe. A different ferry will run. Its bridge is open.",
+      "sha256": "d5d016707db078ed24686b710ba5206eb7507135477643a191eac88893bdf87a"
+    },
+    {
+      "id": "c03-decoy-zh-CN",
+      "language": "zh-CN",
+      "title": "另一项目说明",
+      "format": "markdown",
+      "text": "另一个项目取得了成功。另一家工厂安全。另一班渡轮会开航。那座桥开放。",
+      "sha256": "2adfa9f8d41f8cb8d38af5b438f0defd106f8fa2c23df103dec9bacf6452c854"
+    },
+    {
+      "id": "c03-en",
+      "language": "en",
+      "title": "Monday ferry notice",
+      "format": "markdown",
+      "text": "# Monday ferry notice\n\nThe ferry will run on Monday only if the wind warning is lifted. The warning remains in force, so the ferry will not run on Monday.",
+      "sha256": "5e41aeeead25407267187654ab73ff1523e093294eabac264f260be61128eaaf"
+    },
+    {
+      "id": "c03-zh-CN",
+      "language": "zh-CN",
+      "title": "周一渡轮通知",
+      "format": "markdown",
+      "text": "# 周一渡轮通知\n\n渡轮周一会开航，但前提是大风预警解除。目前预警仍然有效，因此渡轮周一不会开航。",
+      "sha256": "e399e27b5789ab8a69234beb36599add9184edb126e36718199dde8710083100"
+    },
+    {
+      "id": "c04-decoy-en",
+      "language": "en",
+      "title": "Other project note",
+      "format": "markdown",
+      "text": "A different project was a success. Another plant is safe. A different ferry will run. Its bridge is open.",
+      "sha256": "d5d016707db078ed24686b710ba5206eb7507135477643a191eac88893bdf87a"
+    },
+    {
+      "id": "c04-decoy-zh-CN",
+      "language": "zh-CN",
+      "title": "另一项目说明",
+      "format": "markdown",
+      "text": "另一个项目取得了成功。另一家工厂安全。另一班渡轮会开航。那座桥开放。",
+      "sha256": "2adfa9f8d41f8cb8d38af5b438f0defd106f8fa2c23df103dec9bacf6452c854"
+    },
+    {
+      "id": "c04-en",
+      "language": "en",
+      "title": "Permit meeting",
+      "format": "markdown",
+      "text": "# Permit meeting\n\nProposal: ‘All permits are approved.’ Decision: reject that proposal. Permit A and Permit B are the only permits under review, and both remain unapproved.",
+      "sha256": "58cae568e1292859cc7c5b54dbf6e037519d64833a452393040ce4c4d2e611a7"
+    },
+    {
+      "id": "c04-zh-CN",
+      "language": "zh-CN",
+      "title": "许可证会议",
+      "format": "markdown",
+      "text": "# 许可证会议\n\n提案：“所有许可证均已获批。”决定：否决该提案。甲证和乙证是本次审议的全部许可证，两者均未获批。",
+      "sha256": "c8366db1dfcb566db2c32bcdcbdbe5d03adc68f20095c4c27d79d88c4a5e0708"
+    },
+    {
+      "id": "c05-decoy-en",
+      "language": "en",
+      "title": "Other project note",
+      "format": "markdown",
+      "text": "A different project was a success. Another plant is safe. A different ferry will run. Its bridge is open.",
+      "sha256": "d5d016707db078ed24686b710ba5206eb7507135477643a191eac88893bdf87a"
+    },
+    {
+      "id": "c05-decoy-zh-CN",
+      "language": "zh-CN",
+      "title": "另一项目说明",
+      "format": "markdown",
+      "text": "另一个项目取得了成功。另一家工厂安全。另一班渡轮会开航。那座桥开放。",
+      "sha256": "2adfa9f8d41f8cb8d38af5b438f0defd106f8fa2c23df103dec9bacf6452c854"
+    },
+    {
+      "id": "c05-en",
+      "language": "en",
+      "title": "Bridge status",
+      "format": "markdown",
+      "text": "# Bridge status\n\nIn 2024, the council described the bridge as ‘open’. The bridge closed on 1 October 2026 and remains closed as of 29 October 2026.",
+      "sha256": "c3737b2c7618f0ea315682aa6c8d0f4bf83ba0db607b8bba9d9105ed2c7540f1"
+    },
+    {
+      "id": "c05-zh-CN",
+      "language": "zh-CN",
+      "title": "桥梁状态",
+      "format": "markdown",
+      "text": "# 桥梁状态\n\n2024年，市议会称这座桥“开放”。该桥于2026年10月1日关闭，截至2026年10月29日仍然关闭。",
+      "sha256": "568325d1fa7323bca040180cbfff59b2a68eaefe240f905c837eb44ff486b326"
+    },
+    {
+      "id": "qualified-access-en",
+      "language": "en",
+      "title": "Museum access notice",
+      "format": "markdown",
+      "text": "# Museum access notice\n\nAccess is free for children under 12 only. Adults pay GBP 8.",
+      "sha256": "14fcf13c8866f1b3617db47ec44460b738aacf99dc4ca8c0620344f7d4598293"
+    },
+    {
+      "id": "qualified-access-zh-CN",
+      "language": "zh-CN",
+      "title": "博物馆入场通知",
+      "format": "markdown",
+      "text": "# 博物馆入场通知\n\n仅12岁以下儿童可免费入场。成人需支付8英镑。",
+      "sha256": "b22fd832f0157eae83649c583dae214556f75d0e4acfc99af62c9fd66733223a"
+    },
+    {
+      "id": "rate-file-metadata-en",
+      "language": "en",
+      "title": "Deposit note",
+      "format": "markdown",
+      "text": "# Deposit note\n\nIn March 2024, the deposit rate was 4%.",
+      "sha256": "9e9e5382cb0e59e4d58fb3da694f3948d2e63549d32722df633e28dea9e89ec4",
+      "fileCreatedAt": "2026-10-27T09:00:00.000Z",
+      "fileModifiedAt": "2026-10-29T09:00:00.000Z"
+    },
+    {
+      "id": "rate-file-metadata-zh-CN",
+      "language": "zh-CN",
+      "title": "存款说明",
+      "format": "markdown",
+      "text": "# 存款说明\n\n2024年3月，存款利率为4%。",
+      "sha256": "a382c9e8c294d891d8141add9bd89d30b9ce06fe66e32dd9a5ee959bc8bbd749",
+      "fileCreatedAt": "2026-10-27T09:00:00.000Z",
+      "fileModifiedAt": "2026-10-29T09:00:00.000Z"
+    },
+    {
+      "id": "rate-new-en",
+      "language": "en",
+      "title": "Rate notice — October 2026",
+      "format": "markdown",
+      "text": "# Rate notice — October 2026\n\nFrom 1 October 2026, the base rate is 3%. This replaces the 5% rate and remains in force as of 29 October 2026.",
+      "sha256": "c1d79e1356d5fa40570ccdba3962ccb1fc3114d83fa8ff9775a1aa03d8e21419",
+      "fileModifiedAt": "2026-10-01T10:00:00.000Z"
+    },
+    {
+      "id": "rate-new-zh-CN",
+      "language": "zh-CN",
+      "title": "利率通知——2026年10月",
+      "format": "markdown",
+      "text": "# 利率通知——2026年10月\n\n自2026年10月1日起，基准利率为3%，取代此前5%的利率。截至2026年10月29日，该利率仍然有效。",
+      "sha256": "a8cdc2ca4a82f1c150cfac24a123356e4ba0834d2eccf0efba7423007183e5d3",
+      "fileModifiedAt": "2026-10-01T10:00:00.000Z"
+    },
+    {
+      "id": "rate-old-en",
+      "language": "en",
+      "title": "Rate notice — March 2023",
+      "format": "markdown",
+      "text": "# Rate notice — March 2023\n\nAs of March 2023, the base rate was 5%.",
+      "sha256": "27387b1270d3c3707f0533337c542dd0a9df8c0e63ce2d77877cd2c6f0a29c45",
+      "fileModifiedAt": "2026-10-28T10:00:00.000Z"
+    },
+    {
+      "id": "rate-old-zh-CN",
+      "language": "zh-CN",
+      "title": "利率通知——2023年3月",
+      "format": "markdown",
+      "text": "# 利率通知——2023年3月\n\n截至2023年3月，基准利率为5%。",
+      "sha256": "fe292668e0aa9e77006a8041b46f35e2780fde2ac4d8f8e475e0f83cfa533179",
+      "fileModifiedAt": "2026-10-28T10:00:00.000Z"
+    },
+    {
+      "id": "speaker-correct-en",
+      "language": "en",
+      "title": "Deal meeting record",
+      "format": "markdown",
+      "text": "# Deal meeting record\n\nZhang said, ‘The deal is off.’\nLi said, ‘The financing review continues.’",
+      "sha256": "1fec7eb2a14d990c85bfbf33f56ade0d782e02b5abea83495bdb5eb10a083746"
+    },
+    {
+      "id": "speaker-correct-zh-CN",
+      "language": "zh-CN",
+      "title": "交易会议记录",
+      "format": "markdown",
+      "text": "# 交易会议记录\n\n张三说：“交易取消了。”\n李四说：“融资审核仍在继续。”",
+      "sha256": "ccc06ea2f703920b824da661cc00bd1251cb34c24ecd2bf42481040f9b56ea9d"
+    },
+    {
+      "id": "speaker-unknown-en",
+      "language": "en",
+      "title": "Unidentified meeting record",
+      "format": "markdown",
+      "text": "# Unidentified meeting record\n\nSpeaker 1 said, ‘The deal is off.’\nSpeaker 2 said, ‘The financing review continues.’",
+      "sha256": "8b36e403c0468c9bbab1c31efe72ab95ca019436f15201401fd996fabd0a479f"
+    },
+    {
+      "id": "speaker-unknown-zh-CN",
+      "language": "zh-CN",
+      "title": "身份未确认的会议记录",
+      "format": "markdown",
+      "text": "# 身份未确认的会议记录\n\n发言者1说：“交易取消了。”\n发言者2说：“融资审核仍在继续。”",
+      "sha256": "97da764242a128fc138b9d22efe108b56e9a2bd47e3933e1d3f70efc460eb88b"
+    },
+    {
+      "id": "speaker-wrong-en",
+      "language": "en",
+      "title": "Acquisition meeting record",
+      "format": "markdown",
+      "text": "# Acquisition meeting record\n\nLi said, ‘The deal is off.’\nZhang said, ‘The financing review continues.’",
+      "sha256": "e29f532f1208fa853d85c1d2d3d68474c03f1fef67c78988dc336c8085877555"
+    },
+    {
+      "id": "speaker-wrong-zh-CN",
+      "language": "zh-CN",
+      "title": "收购会议记录",
+      "format": "markdown",
+      "text": "# 收购会议记录\n\n李四说：“交易取消了。”\n张三说：“融资审核仍在继续。”",
+      "sha256": "6b25494b18d33b876f3b9d65e73462f89074e98528211586fa3a595f0439e3d2"
+    },
+    {
+      "id": "rate-stale-boundary-en",
+      "language": "en",
+      "title": "Rate statement — September 2025",
+      "format": "markdown",
+      "text": "# Rate statement — September 2025\n\nFor the period 1–30 September 2025, the base rate was 5%.",
+      "sha256": "3faa590196111686c93c95062d7245a6f723593b9731877a219a165ee9d24b79",
+      "fileCreatedAt": "2026-10-28T09:00:00.000Z",
+      "fileModifiedAt": "2026-10-29T09:00:00.000Z"
+    },
+    {
+      "id": "rate-undated-en",
+      "language": "en",
+      "title": "Base rate note",
+      "format": "markdown",
+      "text": "# Base rate note\n\nThe base rate is 5%.",
+      "sha256": "9bb894f016ffd45a223de578883296ab87ee15c72124e08205540cc177b52b27",
+      "fileCreatedAt": "2026-10-28T09:00:00.000Z",
+      "fileModifiedAt": "2026-10-29T09:00:00.000Z"
+    },
+    {
+      "id": "rate-fresh-window-en",
+      "language": "en",
+      "title": "Rate statement — March 2026",
+      "format": "markdown",
+      "text": "# Rate statement — March 2026\n\nFor the period 1–31 March 2026, the base rate was 5%.",
+      "sha256": "ee38802b7438d8c420f9349922ae5a56ef3389b6bbe1997dc0e2e7eac9927c50",
+      "fileCreatedAt": "2026-10-28T09:00:00.000Z",
+      "fileModifiedAt": "2026-10-29T09:00:00.000Z"
+    },
+    {
+      "id": "rate-stale-boundary-zh-CN",
+      "language": "zh-CN",
+      "title": "利率说明——2025年9月",
+      "format": "markdown",
+      "text": "# 利率说明——2025年9月\n\n在2025年9月1日至30日期间，基准利率为5%。",
+      "sha256": "c068cd038c1391b189ff8cd36e54a00accec53ab5f8274b63998692f66ceffad",
+      "fileCreatedAt": "2026-10-28T09:00:00.000Z",
+      "fileModifiedAt": "2026-10-29T09:00:00.000Z"
+    },
+    {
+      "id": "rate-undated-zh-CN",
+      "language": "zh-CN",
+      "title": "基准利率说明",
+      "format": "markdown",
+      "text": "# 基准利率说明\n\n基准利率为5%。",
+      "sha256": "0a421361930a24d6acdbdd631485162130965b05dc120b628f5450feb7e38c9d",
+      "fileCreatedAt": "2026-10-28T09:00:00.000Z",
+      "fileModifiedAt": "2026-10-29T09:00:00.000Z"
+    },
+    {
+      "id": "rate-fresh-window-zh-CN",
+      "language": "zh-CN",
+      "title": "利率说明——2026年3月",
+      "format": "markdown",
+      "text": "# 利率说明——2026年3月\n\n在2026年3月1日至31日期间，基准利率为5%。",
+      "sha256": "25fc92e32c98e028f8470ffb21d45e3c50c56089df09979ab2a53933afd9fd77",
+      "fileCreatedAt": "2026-10-28T09:00:00.000Z",
+      "fileModifiedAt": "2026-10-29T09:00:00.000Z"
+    }
+  ],
+  "cases": [
+    {
+      "id": "N01-en",
+      "pairId": "N01",
+      "language": "en",
+      "family": "named-source",
+      "text": "According to the 2023 Annual Report, revenue for 2023 was GBP 12 million.",
+      "profileId": "N01-en",
+      "tags": [
+        "correct-name",
+        "source-decoy",
+        "period-exact"
+      ],
+      "gold": {
+        "nativeVerdict": "supported",
+        "rationale": "The explicitly named report contains the same stated-period fact.",
+        "sourceEvidence": [
+          {
+            "sourceId": "annual-2023-en",
+            "quote": "Revenue for 2023 was GBP 12 million.",
+            "rangeUTF16": {
+              "start": 22,
+              "end": 58
+            },
+            "role": "named-source-and-fact"
+          }
+        ],
+        "facetTargets": [
+          {
+            "facet": "source",
+            "span": {
+              "start": 0,
+              "end": 35
+            },
+            "literal": "According to the 2023 Annual Report"
+          }
+        ],
+        "nativeFigureAnchors": [
+          {
+            "span": {
+              "start": 58,
+              "end": 72
+            },
+            "literal": "GBP 12 million"
+          }
+        ],
+        "sourceCorrection": null
+      }
+    },
+    {
+      "id": "N01-zh-CN",
+      "pairId": "N01",
+      "language": "zh-CN",
+      "family": "named-source",
+      "text": "据2023年报，2023年的收入为1200万英镑。",
+      "profileId": "N01-zh-CN",
+      "tags": [
+        "correct-name",
+        "source-decoy",
+        "period-exact"
+      ],
+      "gold": {
+        "nativeVerdict": "supported",
+        "rationale": "The explicitly named report contains the same stated-period fact.",
+        "sourceEvidence": [
+          {
+            "sourceId": "annual-2023-zh-CN",
+            "quote": "2023年的收入为1200万英镑。",
+            "rangeUTF16": {
+              "start": 10,
+              "end": 27
+            },
+            "role": "named-source-and-fact"
+          }
+        ],
+        "facetTargets": [
+          {
+            "facet": "source",
+            "span": {
+              "start": 0,
+              "end": 7
+            },
+            "literal": "据2023年报"
+          }
+        ],
+        "nativeFigureAnchors": [
+          {
+            "span": {
+              "start": 17,
+              "end": 24
+            },
+            "literal": "1200万英镑"
+          }
+        ],
+        "sourceCorrection": null
+      }
+    },
+    {
+      "id": "N02-en",
+      "pairId": "N02",
+      "language": "en",
+      "family": "named-source",
+      "text": "According to the 2024 Annual Report, revenue for 2023 was GBP 12 million.",
+      "profileId": "N02-en",
+      "tags": [
+        "wrong-name",
+        "right-fact",
+        "never-supported"
+      ],
+      "gold": {
+        "nativeVerdict": "unsupported",
+        "rationale": "The figure is right in the other report. A source mismatch does not prove that the quantity is false.",
+        "sourceEvidence": [
+          {
+            "sourceId": "annual-2023-en",
+            "quote": "Revenue for 2023 was GBP 12 million.",
+            "rangeUTF16": {
+              "start": 22,
+              "end": 58
+            },
+            "role": "fact-in-different-document"
+          }
+        ],
+        "facetTargets": [
+          {
+            "facet": "source",
+            "span": {
+              "start": 0,
+              "end": 35
+            },
+            "literal": "According to the 2024 Annual Report"
+          }
+        ],
+        "nativeFigureAnchors": [
+          {
+            "span": {
+              "start": 58,
+              "end": 72
+            },
+            "literal": "GBP 12 million"
+          }
+        ],
+        "sourceCorrection": {
+          "concept": "change-named-source",
+          "label": "Change to the 2023 Annual Report",
+          "target": {
+            "start": 17,
+            "end": 35
+          },
+          "replacement": "2023 Annual Report",
+          "citationSourceId": "annual-2023-en",
+          "mechanism": "existing AI edit; one Undo; preserve the factual wording"
+        }
+      }
+    },
+    {
+      "id": "N02-zh-CN",
+      "pairId": "N02",
+      "language": "zh-CN",
+      "family": "named-source",
+      "text": "据2024年报，2023年的收入为1200万英镑。",
+      "profileId": "N02-zh-CN",
+      "tags": [
+        "wrong-name",
+        "right-fact",
+        "never-supported"
+      ],
+      "gold": {
+        "nativeVerdict": "unsupported",
+        "rationale": "The figure is right in the other report. A source mismatch does not prove that the quantity is false.",
+        "sourceEvidence": [
+          {
+            "sourceId": "annual-2023-zh-CN",
+            "quote": "2023年的收入为1200万英镑。",
+            "rangeUTF16": {
+              "start": 10,
+              "end": 27
+            },
+            "role": "fact-in-different-document"
+          }
+        ],
+        "facetTargets": [
+          {
+            "facet": "source",
+            "span": {
+              "start": 0,
+              "end": 7
+            },
+            "literal": "据2024年报"
+          }
+        ],
+        "nativeFigureAnchors": [
+          {
+            "span": {
+              "start": 17,
+              "end": 24
+            },
+            "literal": "1200万英镑"
+          }
+        ],
+        "sourceCorrection": {
+          "concept": "change-named-source",
+          "label": "改为2023年报",
+          "target": {
+            "start": 1,
+            "end": 7
+          },
+          "replacement": "2023年报",
+          "citationSourceId": "annual-2023-zh-CN",
+          "mechanism": "existing AI edit; one Undo; preserve the factual wording"
+        }
+      }
+    },
+    {
+      "id": "N03-en",
+      "pairId": "N03",
+      "language": "en",
+      "family": "named-source",
+      "text": "According to the 2025 Annual Report, revenue for 2023 was GBP 12 million.",
+      "profileId": "N03-en",
+      "tags": [
+        "missing-name",
+        "right-fact",
+        "never-supported"
+      ],
+      "gold": {
+        "nativeVerdict": "unsupported",
+        "rationale": "No scoped Document has the named 2025 report identity. A different report cannot silently substitute.",
+        "sourceEvidence": [
+          {
+            "sourceId": "annual-2023-en",
+            "quote": "Revenue for 2023 was GBP 12 million.",
+            "rangeUTF16": {
+              "start": 22,
+              "end": 58
+            },
+            "role": "nearby-fact-not-named-document"
+          }
+        ],
+        "facetTargets": [
+          {
+            "facet": "source",
+            "span": {
+              "start": 0,
+              "end": 35
+            },
+            "literal": "According to the 2025 Annual Report"
+          }
+        ],
+        "nativeFigureAnchors": [
+          {
+            "span": {
+              "start": 58,
+              "end": 72
+            },
+            "literal": "GBP 12 million"
+          }
+        ],
+        "sourceCorrection": null
+      }
+    },
+    {
+      "id": "N03-zh-CN",
+      "pairId": "N03",
+      "language": "zh-CN",
+      "family": "named-source",
+      "text": "据2025年报，2023年的收入为1200万英镑。",
+      "profileId": "N03-zh-CN",
+      "tags": [
+        "missing-name",
+        "right-fact",
+        "never-supported"
+      ],
+      "gold": {
+        "nativeVerdict": "unsupported",
+        "rationale": "No scoped Document has the named 2025 report identity. A different report cannot silently substitute.",
+        "sourceEvidence": [
+          {
+            "sourceId": "annual-2023-zh-CN",
+            "quote": "2023年的收入为1200万英镑。",
+            "rangeUTF16": {
+              "start": 10,
+              "end": 27
+            },
+            "role": "nearby-fact-not-named-document"
+          }
+        ],
+        "facetTargets": [
+          {
+            "facet": "source",
+            "span": {
+              "start": 0,
+              "end": 7
+            },
+            "literal": "据2025年报"
+          }
+        ],
+        "nativeFigureAnchors": [
+          {
+            "span": {
+              "start": 17,
+              "end": 24
+            },
+            "literal": "1200万英镑"
+          }
+        ],
+        "sourceCorrection": null
+      }
+    },
+    {
+      "id": "N04-en",
+      "pairId": "N04",
+      "language": "en",
+      "family": "named-source",
+      "text": "According to the 2024 Annual Report, revenue for 2024 was GBP 12 million.",
+      "profileId": "N04-en",
+      "tags": [
+        "ambiguous-name",
+        "duplicate-title",
+        "scope-differs"
+      ],
+      "gold": {
+        "nativeVerdict": "unsupported",
+        "rationale": "Two scoped Documents share the literal name. The approved ambiguity rule is Unsupported/Needs a look and an explicit choice, never first fuzzy match or a coincidentally matching value.",
+        "sourceEvidence": [
+          {
+            "sourceId": "ambiguous-north-en",
+            "quote": "North division. Revenue for 2024 was GBP 12 million.",
+            "rangeUTF16": {
+              "start": 22,
+              "end": 74
+            },
+            "role": "first-candidate"
+          },
+          {
+            "sourceId": "ambiguous-south-en",
+            "quote": "South division. Revenue for 2024 was GBP 20 million.",
+            "rangeUTF16": {
+              "start": 22,
+              "end": 74
+            },
+            "role": "second-candidate"
+          }
+        ],
+        "facetTargets": [
+          {
+            "facet": "source",
+            "span": {
+              "start": 0,
+              "end": 35
+            },
+            "literal": "According to the 2024 Annual Report"
+          }
+        ],
+        "nativeFigureAnchors": [
+          {
+            "span": {
+              "start": 58,
+              "end": 72
+            },
+            "literal": "GBP 12 million"
+          }
+        ],
+        "sourceCorrection": null
+      }
+    },
+    {
+      "id": "N04-zh-CN",
+      "pairId": "N04",
+      "language": "zh-CN",
+      "family": "named-source",
+      "text": "据2024年报，2024年的收入为1200万英镑。",
+      "profileId": "N04-zh-CN",
+      "tags": [
+        "ambiguous-name",
+        "duplicate-title",
+        "scope-differs"
+      ],
+      "gold": {
+        "nativeVerdict": "unsupported",
+        "rationale": "Two scoped Documents share the literal name. The approved ambiguity rule is Unsupported/Needs a look and an explicit choice, never first fuzzy match or a coincidentally matching value.",
+        "sourceEvidence": [
+          {
+            "sourceId": "ambiguous-north-zh-CN",
+            "quote": "北部分部。2024年的收入为1200万英镑。",
+            "rangeUTF16": {
+              "start": 10,
+              "end": 32
+            },
+            "role": "first-candidate"
+          },
+          {
+            "sourceId": "ambiguous-south-zh-CN",
+            "quote": "南部分部。2024年的收入为2000万英镑。",
+            "rangeUTF16": {
+              "start": 10,
+              "end": 32
+            },
+            "role": "second-candidate"
+          }
+        ],
+        "facetTargets": [
+          {
+            "facet": "source",
+            "span": {
+              "start": 0,
+              "end": 7
+            },
+            "literal": "据2024年报"
+          }
+        ],
+        "nativeFigureAnchors": [
+          {
+            "span": {
+              "start": 17,
+              "end": 24
+            },
+            "literal": "1200万英镑"
+          }
+        ],
+        "sourceCorrection": null
+      }
+    },
+    {
+      "id": "S01-en",
+      "pairId": "S01",
+      "language": "en",
+      "family": "speaker",
+      "text": "Zhang said that the deal was off.",
+      "profileId": "S01-en",
+      "tags": [
+        "correct-speaker",
+        "attributed-statement",
+        "do-not-omit-as-opinion"
+      ],
+      "gold": {
+        "nativeVerdict": "supported",
+        "rationale": "The record expressly attributes this utterance to the named speaker. It is an attributed fact, not the writer’s own view.",
+        "sourceEvidence": [
+          {
+            "sourceId": "speaker-correct-en",
+            "quote": "Zhang said, ‘The deal is off.’",
+            "rangeUTF16": {
+              "start": 23,
+              "end": 53
+            },
+            "role": "speaker-and-utterance",
+            "speaker": "Zhang"
+          }
+        ],
+        "facetTargets": [
+          {
+            "facet": "speaker",
+            "span": {
+              "start": 0,
+              "end": 10
+            },
+            "literal": "Zhang said"
+          }
+        ],
+        "nativeFigureAnchors": [],
+        "sourceCorrection": null
+      }
+    },
+    {
+      "id": "S01-zh-CN",
+      "pairId": "S01",
+      "language": "zh-CN",
+      "family": "speaker",
+      "text": "张三说交易取消了。",
+      "profileId": "S01-zh-CN",
+      "tags": [
+        "correct-speaker",
+        "attributed-statement",
+        "do-not-omit-as-opinion"
+      ],
+      "gold": {
+        "nativeVerdict": "supported",
+        "rationale": "The record expressly attributes this utterance to the named speaker. It is an attributed fact, not the writer’s own view.",
+        "sourceEvidence": [
+          {
+            "sourceId": "speaker-correct-zh-CN",
+            "quote": "张三说：“交易取消了。”",
+            "rangeUTF16": {
+              "start": 10,
+              "end": 22
+            },
+            "role": "speaker-and-utterance",
+            "speaker": "张三"
+          }
+        ],
+        "facetTargets": [
+          {
+            "facet": "speaker",
+            "span": {
+              "start": 0,
+              "end": 3
+            },
+            "literal": "张三说"
+          }
+        ],
+        "nativeFigureAnchors": [],
+        "sourceCorrection": null
+      }
+    },
+    {
+      "id": "S02-en",
+      "pairId": "S02",
+      "language": "en",
+      "family": "speaker",
+      "text": "Zhang said that the deal was off.",
+      "profileId": "S02-en",
+      "tags": [
+        "wrong-speaker",
+        "right-words",
+        "attributed-statement",
+        "never-supported"
+      ],
+      "gold": {
+        "nativeVerdict": "unsupported",
+        "rationale": "Only Li is documented as the speaker. There is no explicit denial that Zhang ever said it; use existing near-miss Unsupported, not an invented contradiction.",
+        "sourceEvidence": [
+          {
+            "sourceId": "speaker-wrong-en",
+            "quote": "Li said, ‘The deal is off.’",
+            "rangeUTF16": {
+              "start": 30,
+              "end": 57
+            },
+            "role": "different-speaker",
+            "speaker": "Li"
+          }
+        ],
+        "facetTargets": [
+          {
+            "facet": "speaker",
+            "span": {
+              "start": 0,
+              "end": 10
+            },
+            "literal": "Zhang said"
+          }
+        ],
+        "nativeFigureAnchors": [],
+        "sourceCorrection": null
+      }
+    },
+    {
+      "id": "S02-zh-CN",
+      "pairId": "S02",
+      "language": "zh-CN",
+      "family": "speaker",
+      "text": "张三说交易取消了。",
+      "profileId": "S02-zh-CN",
+      "tags": [
+        "wrong-speaker",
+        "right-words",
+        "attributed-statement",
+        "never-supported"
+      ],
+      "gold": {
+        "nativeVerdict": "unsupported",
+        "rationale": "Only Li is documented as the speaker. There is no explicit denial that Zhang ever said it; use existing near-miss Unsupported, not an invented contradiction.",
+        "sourceEvidence": [
+          {
+            "sourceId": "speaker-wrong-zh-CN",
+            "quote": "李四说：“交易取消了。”",
+            "rangeUTF16": {
+              "start": 10,
+              "end": 22
+            },
+            "role": "different-speaker",
+            "speaker": "李四"
+          }
+        ],
+        "facetTargets": [
+          {
+            "facet": "speaker",
+            "span": {
+              "start": 0,
+              "end": 3
+            },
+            "literal": "张三说"
+          }
+        ],
+        "nativeFigureAnchors": [],
+        "sourceCorrection": null
+      }
+    },
+    {
+      "id": "S03-en",
+      "pairId": "S03",
+      "language": "en",
+      "family": "speaker",
+      "text": "Zhang said that the deal was off.",
+      "profileId": "S03-en",
+      "tags": [
+        "unknown-speaker",
+        "right-words",
+        "never-supported"
+      ],
+      "gold": {
+        "nativeVerdict": "unsupported",
+        "rationale": "An anonymous label is not proof of Zhang’s identity; do not guess a real person.",
+        "sourceEvidence": [
+          {
+            "sourceId": "speaker-unknown-en",
+            "quote": "Speaker 1 said, ‘The deal is off.’",
+            "rangeUTF16": {
+              "start": 31,
+              "end": 65
+            },
+            "role": "unresolved-speaker",
+            "speaker": "Speaker 1"
+          }
+        ],
+        "facetTargets": [
+          {
+            "facet": "speaker",
+            "span": {
+              "start": 0,
+              "end": 10
+            },
+            "literal": "Zhang said"
+          }
+        ],
+        "nativeFigureAnchors": [],
+        "sourceCorrection": null
+      }
+    },
+    {
+      "id": "S03-zh-CN",
+      "pairId": "S03",
+      "language": "zh-CN",
+      "family": "speaker",
+      "text": "张三说交易取消了。",
+      "profileId": "S03-zh-CN",
+      "tags": [
+        "unknown-speaker",
+        "right-words",
+        "never-supported"
+      ],
+      "gold": {
+        "nativeVerdict": "unsupported",
+        "rationale": "An anonymous label is not proof of Zhang’s identity; do not guess a real person.",
+        "sourceEvidence": [
+          {
+            "sourceId": "speaker-unknown-zh-CN",
+            "quote": "发言者1说：“交易取消了。”",
+            "rangeUTF16": {
+              "start": 14,
+              "end": 28
+            },
+            "role": "unresolved-speaker",
+            "speaker": "发言者1"
+          }
+        ],
+        "facetTargets": [
+          {
+            "facet": "speaker",
+            "span": {
+              "start": 0,
+              "end": 3
+            },
+            "literal": "张三说"
+          }
+        ],
+        "nativeFigureAnchors": [],
+        "sourceCorrection": null
+      }
+    },
+    {
+      "id": "C01-en",
+      "pairId": "C01",
+      "language": "en",
+      "family": "out-of-context",
+      "text": "Mira called the plan ‘a success’.",
+      "profileId": "C01-en",
+      "tags": [
+        "context-reversal-negative",
+        "reversal-denominator",
+        "explicit-negative-characterization"
+      ],
+      "gold": {
+        "nativeVerdict": "contradicted",
+        "rationale": "Surrounding text explicitly reverses or denies the same subject/detail; both statements cannot hold in the stated context.",
+        "sourceEvidence": [
+          {
+            "sourceId": "c01-en",
+            "quote": "a success",
+            "rangeUTF16": {
+              "start": 58,
+              "end": 67
+            },
+            "role": "literal-quote",
+            "expectedCitationCheck": "found"
+          },
+          {
+            "sourceId": "c01-en",
+            "quote": "Mira said, ‘I would never call the plan a success. It failed.’",
+            "rangeUTF16": {
+              "start": 18,
+              "end": 80
+            },
+            "role": "decisive-surrounding-context"
+          }
+        ],
+        "facetTargets": [],
+        "nativeFigureAnchors": [],
+        "sourceCorrection": null
+      }
+    },
+    {
+      "id": "C01-zh-CN",
+      "pairId": "C01",
+      "language": "zh-CN",
+      "family": "out-of-context",
+      "text": "米拉称这个计划“成功”。",
+      "profileId": "C01-zh-CN",
+      "tags": [
+        "context-reversal-negative",
+        "reversal-denominator",
+        "explicit-negative-characterization"
+      ],
+      "gold": {
+        "nativeVerdict": "contradicted",
+        "rationale": "Surrounding text explicitly reverses or denies the same subject/detail; both statements cannot hold in the stated context.",
+        "sourceEvidence": [
+          {
+            "sourceId": "c01-zh-CN",
+            "quote": "成功",
+            "rangeUTF16": {
+              "start": 22,
+              "end": 24
+            },
+            "role": "literal-quote",
+            "expectedCitationCheck": "found"
+          },
+          {
+            "sourceId": "c01-zh-CN",
+            "quote": "米拉说：“我绝不会称这个计划成功。它失败了。”",
+            "rangeUTF16": {
+              "start": 8,
+              "end": 31
+            },
+            "role": "decisive-surrounding-context"
+          }
+        ],
+        "facetTargets": [],
+        "nativeFigureAnchors": [],
+        "sourceCorrection": null
+      }
+    },
+    {
+      "id": "C02-en",
+      "pairId": "C02",
+      "language": "en",
+      "family": "out-of-context",
+      "text": "The inspection report says that the plant is ‘safe’.",
+      "profileId": "C02-en",
+      "tags": [
+        "context-reversal-negative",
+        "reversal-denominator",
+        "explicit-negation"
+      ],
+      "gold": {
+        "nativeVerdict": "contradicted",
+        "rationale": "Surrounding text explicitly reverses or denies the same subject/detail; both statements cannot hold in the stated context.",
+        "sourceEvidence": [
+          {
+            "sourceId": "c02-en",
+            "quote": "safe",
+            "rangeUTF16": {
+              "start": 37,
+              "end": 41
+            },
+            "role": "literal-quote",
+            "expectedCitationCheck": "found"
+          },
+          {
+            "sourceId": "c02-en",
+            "quote": "The description ‘safe’ is false. The plant is unsafe and must remain closed.",
+            "rangeUTF16": {
+              "start": 20,
+              "end": 96
+            },
+            "role": "decisive-surrounding-context"
+          }
+        ],
+        "facetTargets": [],
+        "nativeFigureAnchors": [],
+        "sourceCorrection": null
+      }
+    },
+    {
+      "id": "C02-zh-CN",
+      "pairId": "C02",
+      "language": "zh-CN",
+      "family": "out-of-context",
+      "text": "检查报告称该工厂“安全”。",
+      "profileId": "C02-zh-CN",
+      "tags": [
+        "context-reversal-negative",
+        "reversal-denominator",
+        "explicit-negation"
+      ],
+      "gold": {
+        "nativeVerdict": "contradicted",
+        "rationale": "Surrounding text explicitly reverses or denies the same subject/detail; both statements cannot hold in the stated context.",
+        "sourceEvidence": [
+          {
+            "sourceId": "c02-zh-CN",
+            "quote": "安全",
+            "rangeUTF16": {
+              "start": 9,
+              "end": 11
+            },
+            "role": "literal-quote",
+            "expectedCitationCheck": "found"
+          },
+          {
+            "sourceId": "c02-zh-CN",
+            "quote": "“安全”的说法不成立。该工厂不安全，必须继续关闭。",
+            "rangeUTF16": {
+              "start": 8,
+              "end": 33
+            },
+            "role": "decisive-surrounding-context"
+          }
+        ],
+        "facetTargets": [],
+        "nativeFigureAnchors": [],
+        "sourceCorrection": null
+      }
+    },
+    {
+      "id": "C03-en",
+      "pairId": "C03",
+      "language": "en",
+      "family": "out-of-context",
+      "text": "The notice says that the ferry ‘will run’ on Monday.",
+      "profileId": "C03-en",
+      "tags": [
+        "context-reversal-negative",
+        "reversal-denominator",
+        "condition-false-and-outcome-denied"
+      ],
+      "gold": {
+        "nativeVerdict": "contradicted",
+        "rationale": "Surrounding text explicitly reverses or denies the same subject/detail; both statements cannot hold in the stated context.",
+        "sourceEvidence": [
+          {
+            "sourceId": "c03-en",
+            "quote": "will run",
+            "rangeUTF16": {
+              "start": 33,
+              "end": 41
+            },
+            "role": "literal-quote",
+            "expectedCitationCheck": "found"
+          },
+          {
+            "sourceId": "c03-en",
+            "quote": "The ferry will run on Monday only if the wind warning is lifted. The warning remains in force, so the ferry will not run on Monday.",
+            "rangeUTF16": {
+              "start": 23,
+              "end": 154
+            },
+            "role": "decisive-surrounding-context"
+          }
+        ],
+        "facetTargets": [],
+        "nativeFigureAnchors": [],
+        "sourceCorrection": null
+      }
+    },
+    {
+      "id": "C03-zh-CN",
+      "pairId": "C03",
+      "language": "zh-CN",
+      "family": "out-of-context",
+      "text": "通知说渡轮周一“会开航”。",
+      "profileId": "C03-zh-CN",
+      "tags": [
+        "context-reversal-negative",
+        "reversal-denominator",
+        "condition-false-and-outcome-denied"
+      ],
+      "gold": {
+        "nativeVerdict": "contradicted",
+        "rationale": "Surrounding text explicitly reverses or denies the same subject/detail; both statements cannot hold in the stated context.",
+        "sourceEvidence": [
+          {
+            "sourceId": "c03-zh-CN",
+            "quote": "会开航",
+            "rangeUTF16": {
+              "start": 14,
+              "end": 17
+            },
+            "role": "literal-quote",
+            "expectedCitationCheck": "found"
+          },
+          {
+            "sourceId": "c03-zh-CN",
+            "quote": "渡轮周一会开航，但前提是大风预警解除。目前预警仍然有效，因此渡轮周一不会开航。",
+            "rangeUTF16": {
+              "start": 10,
+              "end": 49
+            },
+            "role": "decisive-surrounding-context"
+          }
+        ],
+        "facetTargets": [],
+        "nativeFigureAnchors": [],
+        "sourceCorrection": null
+      }
+    },
+    {
+      "id": "C04-en",
+      "pairId": "C04",
+      "language": "en",
+      "family": "out-of-context",
+      "text": "The meeting record confirms, ‘All permits are approved.’",
+      "profileId": "C04-en",
+      "tags": [
+        "context-reversal-negative",
+        "reversal-denominator",
+        "quoted-proposal-rejected"
+      ],
+      "gold": {
+        "nativeVerdict": "contradicted",
+        "rationale": "The record explicitly rejects the quoted assertion and identifies a nonempty complete permit domain whose members are unapproved; this is incompatible, not a missing-condition-only case.",
+        "sourceEvidence": [
+          {
+            "sourceId": "c04-en",
+            "quote": "All permits are approved.",
+            "rangeUTF16": {
+              "start": 29,
+              "end": 54
+            },
+            "role": "literal-quote",
+            "expectedCitationCheck": "found"
+          },
+          {
+            "sourceId": "c04-en",
+            "quote": "Proposal: ‘All permits are approved.’ Decision: reject that proposal. Permit A and Permit B are the only permits under review, and both remain unapproved.",
+            "rangeUTF16": {
+              "start": 18,
+              "end": 172
+            },
+            "role": "decisive-surrounding-context"
+          }
+        ],
+        "facetTargets": [],
+        "nativeFigureAnchors": [],
+        "sourceCorrection": null
+      }
+    },
+    {
+      "id": "C04-zh-CN",
+      "pairId": "C04",
+      "language": "zh-CN",
+      "family": "out-of-context",
+      "text": "会议记录确认：“所有许可证均已获批。”",
+      "profileId": "C04-zh-CN",
+      "tags": [
+        "context-reversal-negative",
+        "reversal-denominator",
+        "quoted-proposal-rejected"
+      ],
+      "gold": {
+        "nativeVerdict": "contradicted",
+        "rationale": "The record explicitly rejects the quoted assertion and identifies a nonempty complete permit domain whose members are unapproved; this is incompatible, not a missing-condition-only case.",
+        "sourceEvidence": [
+          {
+            "sourceId": "c04-zh-CN",
+            "quote": "所有许可证均已获批。",
+            "rangeUTF16": {
+              "start": 13,
+              "end": 23
+            },
+            "role": "literal-quote",
+            "expectedCitationCheck": "found"
+          },
+          {
+            "sourceId": "c04-zh-CN",
+            "quote": "提案：“所有许可证均已获批。”决定：否决该提案。甲证和乙证是本次审议的全部许可证，两者均未获批。",
+            "rangeUTF16": {
+              "start": 9,
+              "end": 57
+            },
+            "role": "decisive-surrounding-context"
+          }
+        ],
+        "facetTargets": [],
+        "nativeFigureAnchors": [],
+        "sourceCorrection": null
+      }
+    },
+    {
+      "id": "C05-en",
+      "pairId": "C05",
+      "language": "en",
+      "family": "out-of-context",
+      "text": "As of 29 October 2026, the council describes the bridge as ‘open’.",
+      "profileId": "C05-en",
+      "tags": [
+        "context-reversal-negative",
+        "reversal-denominator",
+        "past-quotation-current-reversal"
+      ],
+      "gold": {
+        "nativeVerdict": "contradicted",
+        "rationale": "Surrounding text explicitly reverses or denies the same subject/detail; both statements cannot hold in the stated context.",
+        "sourceEvidence": [
+          {
+            "sourceId": "c05-en",
+            "quote": "open",
+            "rangeUTF16": {
+              "start": 63,
+              "end": 67
+            },
+            "role": "literal-quote",
+            "expectedCitationCheck": "found"
+          },
+          {
+            "sourceId": "c05-en",
+            "quote": "In 2024, the council described the bridge as ‘open’. The bridge closed on 1 October 2026 and remains closed as of 29 October 2026.",
+            "rangeUTF16": {
+              "start": 17,
+              "end": 147
+            },
+            "role": "decisive-surrounding-context"
+          }
+        ],
+        "facetTargets": [],
+        "nativeFigureAnchors": [],
+        "sourceCorrection": null
+      }
+    },
+    {
+      "id": "C05-zh-CN",
+      "pairId": "C05",
+      "language": "zh-CN",
+      "family": "out-of-context",
+      "text": "截至2026年10月29日，市议会称这座桥“开放”。",
+      "profileId": "C05-zh-CN",
+      "tags": [
+        "context-reversal-negative",
+        "reversal-denominator",
+        "past-quotation-current-reversal"
+      ],
+      "gold": {
+        "nativeVerdict": "contradicted",
+        "rationale": "Surrounding text explicitly reverses or denies the same subject/detail; both statements cannot hold in the stated context.",
+        "sourceEvidence": [
+          {
+            "sourceId": "c05-zh-CN",
+            "quote": "开放",
+            "rangeUTF16": {
+              "start": 22,
+              "end": 24
+            },
+            "role": "literal-quote",
+            "expectedCitationCheck": "found"
+          },
+          {
+            "sourceId": "c05-zh-CN",
+            "quote": "2024年，市议会称这座桥“开放”。该桥于2026年10月1日关闭，截至2026年10月29日仍然关闭。",
+            "rangeUTF16": {
+              "start": 8,
+              "end": 60
+            },
+            "role": "decisive-surrounding-context"
+          }
+        ],
+        "facetTargets": [],
+        "nativeFigureAnchors": [],
+        "sourceCorrection": null
+      }
+    },
+    {
+      "id": "C06-en",
+      "pairId": "C06",
+      "language": "en",
+      "family": "out-of-context",
+      "text": "The notice says that ‘Access is free’ for children under 12 only.",
+      "profileId": "C06-en",
+      "tags": [
+        "context-positive-control",
+        "qualification-preserved",
+        "no-false-contradiction"
+      ],
+      "gold": {
+        "nativeVerdict": "supported",
+        "rationale": "The claim retains the limiting scope. A condition or narrower Source alone is not an incompatible assertion.",
+        "sourceEvidence": [
+          {
+            "sourceId": "qualified-access-en",
+            "quote": "Access is free for children under 12 only.",
+            "rangeUTF16": {
+              "start": 24,
+              "end": 66
+            },
+            "role": "qualification-preserved"
+          }
+        ],
+        "facetTargets": [],
+        "nativeFigureAnchors": [
+          {
+            "span": {
+              "start": 57,
+              "end": 59
+            },
+            "literal": "12"
+          }
+        ],
+        "sourceCorrection": null
+      }
+    },
+    {
+      "id": "C06-zh-CN",
+      "pairId": "C06",
+      "language": "zh-CN",
+      "family": "out-of-context",
+      "text": "通知说，仅12岁以下儿童可“免费入场”。",
+      "profileId": "C06-zh-CN",
+      "tags": [
+        "context-positive-control",
+        "qualification-preserved",
+        "no-false-contradiction"
+      ],
+      "gold": {
+        "nativeVerdict": "supported",
+        "rationale": "The claim retains the limiting scope. A condition or narrower Source alone is not an incompatible assertion.",
+        "sourceEvidence": [
+          {
+            "sourceId": "qualified-access-zh-CN",
+            "quote": "仅12岁以下儿童可免费入场。",
+            "rangeUTF16": {
+              "start": 11,
+              "end": 25
+            },
+            "role": "qualification-preserved"
+          }
+        ],
+        "facetTargets": [],
+        "nativeFigureAnchors": [
+          {
+            "span": {
+              "start": 5,
+              "end": 7
+            },
+            "literal": "12"
+          }
+        ],
+        "sourceCorrection": null
+      }
+    },
+    {
+      "id": "T01-en",
+      "pairId": "T01",
+      "language": "en",
+      "family": "time",
+      "text": "As of March 2023, the base rate was 5%.",
+      "profileId": "T01-en",
+      "tags": [
+        "old-explicit-period",
+        "newer-inside-different-claim-period",
+        "no-false-contradiction"
+      ],
+      "gold": {
+        "nativeVerdict": "supported",
+        "rationale": "The explicit historical claim is backed for its own period; a different later period is not a contradiction.",
+        "sourceEvidence": [
+          {
+            "sourceId": "rate-old-en",
+            "quote": "As of March 2023, the base rate was 5%.",
+            "rangeUTF16": {
+              "start": 28,
+              "end": 67
+            },
+            "role": "explicit-stated-period",
+            "period": "2023-03"
+          }
+        ],
+        "facetTargets": [
+          {
+            "facet": "time",
+            "span": {
+              "start": 0,
+              "end": 16
+            },
+            "literal": "As of March 2023"
+          }
+        ],
+        "nativeFigureAnchors": [
+          {
+            "span": {
+              "start": 36,
+              "end": 38
+            },
+            "literal": "5%"
+          }
+        ],
+        "sourceCorrection": null
+      }
+    },
+    {
+      "id": "T01-zh-CN",
+      "pairId": "T01",
+      "language": "zh-CN",
+      "family": "time",
+      "text": "截至2023年3月，基准利率为5%。",
+      "profileId": "T01-zh-CN",
+      "tags": [
+        "old-explicit-period",
+        "newer-inside-different-claim-period",
+        "no-false-contradiction"
+      ],
+      "gold": {
+        "nativeVerdict": "supported",
+        "rationale": "The explicit historical claim is backed for its own period; a different later period is not a contradiction.",
+        "sourceEvidence": [
+          {
+            "sourceId": "rate-old-zh-CN",
+            "quote": "截至2023年3月，基准利率为5%。",
+            "rangeUTF16": {
+              "start": 17,
+              "end": 35
+            },
+            "role": "explicit-stated-period",
+            "period": "2023-03"
+          }
+        ],
+        "facetTargets": [
+          {
+            "facet": "time",
+            "span": {
+              "start": 0,
+              "end": 9
+            },
+            "literal": "截至2023年3月"
+          }
+        ],
+        "nativeFigureAnchors": [
+          {
+            "span": {
+              "start": 15,
+              "end": 17
+            },
+            "literal": "5%"
+          }
+        ],
+        "sourceCorrection": null
+      }
+    },
+    {
+      "id": "T02-en",
+      "pairId": "T02",
+      "language": "en",
+      "family": "time",
+      "text": "The base rate is currently 5%.",
+      "profileId": "T02-en",
+      "tags": [
+        "newer-conflict-inside-scope",
+        "current-explicit-newer-context",
+        "file-date-inversion"
+      ],
+      "gold": {
+        "nativeVerdict": "contradicted",
+        "rationale": "The scoped newer notice explicitly replaces 5% with 3% and states it remains in force on the fixed check date. File-modified ordering deliberately points the other way.",
+        "sourceEvidence": [
+          {
+            "sourceId": "rate-old-en",
+            "quote": "As of March 2023, the base rate was 5%.",
+            "rangeUTF16": {
+              "start": 28,
+              "end": 67
+            },
+            "role": "older-value",
+            "period": "2023-03"
+          },
+          {
+            "sourceId": "rate-new-en",
+            "quote": "From 1 October 2026, the base rate is 3%. This replaces the 5% rate and remains in force as of 29 October 2026.",
+            "rangeUTF16": {
+              "start": 30,
+              "end": 141
+            },
+            "role": "newer-current-conflict",
+            "period": "2026-10-01/2026-10-29"
+          }
+        ],
+        "facetTargets": [
+          {
+            "facet": "time",
+            "span": {
+              "start": 17,
+              "end": 26
+            },
+            "literal": "currently"
+          }
+        ],
+        "nativeFigureAnchors": [
+          {
+            "span": {
+              "start": 27,
+              "end": 29
+            },
+            "literal": "5%"
+          }
+        ],
+        "sourceCorrection": null
+      }
+    },
+    {
+      "id": "T02-zh-CN",
+      "pairId": "T02",
+      "language": "zh-CN",
+      "family": "time",
+      "text": "目前基准利率为5%。",
+      "profileId": "T02-zh-CN",
+      "tags": [
+        "newer-conflict-inside-scope",
+        "current-explicit-newer-context",
+        "file-date-inversion"
+      ],
+      "gold": {
+        "nativeVerdict": "contradicted",
+        "rationale": "The scoped newer notice explicitly replaces 5% with 3% and states it remains in force on the fixed check date. File-modified ordering deliberately points the other way.",
+        "sourceEvidence": [
+          {
+            "sourceId": "rate-old-zh-CN",
+            "quote": "截至2023年3月，基准利率为5%。",
+            "rangeUTF16": {
+              "start": 17,
+              "end": 35
+            },
+            "role": "older-value",
+            "period": "2023-03"
+          },
+          {
+            "sourceId": "rate-new-zh-CN",
+            "quote": "自2026年10月1日起，基准利率为3%，取代此前5%的利率。截至2026年10月29日，该利率仍然有效。",
+            "rangeUTF16": {
+              "start": 18,
+              "end": 71
+            },
+            "role": "newer-current-conflict",
+            "period": "2026-10-01/2026-10-29"
+          }
+        ],
+        "facetTargets": [
+          {
+            "facet": "time",
+            "span": {
+              "start": 0,
+              "end": 2
+            },
+            "literal": "目前"
+          }
+        ],
+        "nativeFigureAnchors": [
+          {
+            "span": {
+              "start": 7,
+              "end": 9
+            },
+            "literal": "5%"
+          }
+        ],
+        "sourceCorrection": null
+      }
+    },
+    {
+      "id": "T03-en",
+      "pairId": "T03",
+      "language": "en",
+      "family": "time",
+      "text": "The base rate is currently 5%.",
+      "profileId": "T03-en",
+      "tags": [
+        "newer-outside-scope",
+        "old-relative-time",
+        "scope-privacy-hard-control"
+      ],
+      "gold": {
+        "nativeVerdict": "unsupported",
+        "rationale": "The only scoped statement period ended in March 2023, over twelve calendar months before the injected 29 October 2026 check. A later file timestamp is not a statement period, and the newer outside-scope notice cannot be used.",
+        "sourceEvidence": [
+          {
+            "sourceId": "rate-old-en",
+            "quote": "As of March 2023, the base rate was 5%.",
+            "rangeUTF16": {
+              "start": 28,
+              "end": 67
+            },
+            "role": "only-scoped-old-value",
+            "period": "2023-03"
+          }
+        ],
+        "facetTargets": [
+          {
+            "facet": "time",
+            "span": {
+              "start": 17,
+              "end": 26
+            },
+            "literal": "currently"
+          }
+        ],
+        "nativeFigureAnchors": [
+          {
+            "span": {
+              "start": 27,
+              "end": 29
+            },
+            "literal": "5%"
+          }
+        ],
+        "sourceCorrection": null
+      }
+    },
+    {
+      "id": "T03-zh-CN",
+      "pairId": "T03",
+      "language": "zh-CN",
+      "family": "time",
+      "text": "目前基准利率为5%。",
+      "profileId": "T03-zh-CN",
+      "tags": [
+        "newer-outside-scope",
+        "old-relative-time",
+        "scope-privacy-hard-control"
+      ],
+      "gold": {
+        "nativeVerdict": "unsupported",
+        "rationale": "The only scoped statement period ended in March 2023, over twelve calendar months before the injected 29 October 2026 check. A later file timestamp is not a statement period, and the newer outside-scope notice cannot be used.",
+        "sourceEvidence": [
+          {
+            "sourceId": "rate-old-zh-CN",
+            "quote": "截至2023年3月，基准利率为5%。",
+            "rangeUTF16": {
+              "start": 17,
+              "end": 35
+            },
+            "role": "only-scoped-old-value",
+            "period": "2023-03"
+          }
+        ],
+        "facetTargets": [
+          {
+            "facet": "time",
+            "span": {
+              "start": 0,
+              "end": 2
+            },
+            "literal": "目前"
+          }
+        ],
+        "nativeFigureAnchors": [
+          {
+            "span": {
+              "start": 7,
+              "end": 9
+            },
+            "literal": "5%"
+          }
+        ],
+        "sourceCorrection": null
+      }
+    },
+    {
+      "id": "T04-en",
+      "pairId": "T04",
+      "language": "en",
+      "family": "time",
+      "text": "In March 2024, the deposit rate was 4%.",
+      "profileId": "T04-en",
+      "tags": [
+        "file-date-metadata",
+        "explicit-historical-period",
+        "no-date-promotion"
+      ],
+      "gold": {
+        "nativeVerdict": "supported",
+        "rationale": "The body fixes March 2024. File creation/modification timestamps are not assertion periods.",
+        "sourceEvidence": [
+          {
+            "sourceId": "rate-file-metadata-en",
+            "quote": "In March 2024, the deposit rate was 4%.",
+            "rangeUTF16": {
+              "start": 16,
+              "end": 55
+            },
+            "role": "stated-period-not-file-date",
+            "period": "2024-03"
+          }
+        ],
+        "facetTargets": [
+          {
+            "facet": "time",
+            "span": {
+              "start": 0,
+              "end": 13
+            },
+            "literal": "In March 2024"
+          }
+        ],
+        "nativeFigureAnchors": [
+          {
+            "span": {
+              "start": 36,
+              "end": 38
+            },
+            "literal": "4%"
+          }
+        ],
+        "sourceCorrection": null
+      }
+    },
+    {
+      "id": "T04-zh-CN",
+      "pairId": "T04",
+      "language": "zh-CN",
+      "family": "time",
+      "text": "2024年3月，存款利率为4%。",
+      "profileId": "T04-zh-CN",
+      "tags": [
+        "file-date-metadata",
+        "explicit-historical-period",
+        "no-date-promotion"
+      ],
+      "gold": {
+        "nativeVerdict": "supported",
+        "rationale": "The body fixes March 2024. File creation/modification timestamps are not assertion periods.",
+        "sourceEvidence": [
+          {
+            "sourceId": "rate-file-metadata-zh-CN",
+            "quote": "2024年3月，存款利率为4%。",
+            "rangeUTF16": {
+              "start": 8,
+              "end": 24
+            },
+            "role": "stated-period-not-file-date",
+            "period": "2024-03"
+          }
+        ],
+        "facetTargets": [
+          {
+            "facet": "time",
+            "span": {
+              "start": 0,
+              "end": 7
+            },
+            "literal": "2024年3月"
+          }
+        ],
+        "nativeFigureAnchors": [
+          {
+            "span": {
+              "start": 13,
+              "end": 15
+            },
+            "literal": "4%"
+          }
+        ],
+        "sourceCorrection": null
+      }
+    },
+    {
+      "id": "T05-en",
+      "pairId": "T05",
+      "language": "en",
+      "family": "time",
+      "text": "The base rate is currently 5%.",
+      "profileId": "T05-en",
+      "tags": [
+        "stale-strictly-over-12-calendar-months",
+        "file-date-not-proof"
+      ],
+      "gold": {
+        "nativeVerdict": "unsupported",
+        "rationale": "The September 2025 statement period ended strictly over twelve calendar months before the fixed check; therefore current/now is Unsupported.",
+        "sourceEvidence": [
+          {
+            "sourceId": "rate-stale-boundary-en",
+            "quote": "For the period 1–30 September 2025, the base rate was 5%.",
+            "rangeUTF16": {
+              "start": 35,
+              "end": 92
+            },
+            "role": "exact-stated-period",
+            "period": "September 2025"
+          }
+        ],
+        "facetTargets": [
+          {
+            "facet": "time",
+            "span": {
+              "start": 17,
+              "end": 26
+            },
+            "literal": "currently"
+          }
+        ],
+        "nativeFigureAnchors": [
+          {
+            "span": {
+              "start": 27,
+              "end": 29
+            },
+            "literal": "5%"
+          }
+        ],
+        "sourceCorrection": null
+      }
+    },
+    {
+      "id": "T05-zh-CN",
+      "pairId": "T05",
+      "language": "zh-CN",
+      "family": "time",
+      "text": "目前基准利率为5%。",
+      "profileId": "T05-zh-CN",
+      "tags": [
+        "stale-strictly-over-12-calendar-months",
+        "file-date-not-proof"
+      ],
+      "gold": {
+        "nativeVerdict": "unsupported",
+        "rationale": "The September 2025 statement period ended strictly over twelve calendar months before the fixed check; therefore current/now is Unsupported.",
+        "sourceEvidence": [
+          {
+            "sourceId": "rate-stale-boundary-zh-CN",
+            "quote": "在2025年9月1日至30日期间，基准利率为5%。",
+            "rangeUTF16": {
+              "start": 17,
+              "end": 42
+            },
+            "role": "exact-stated-period",
+            "period": "2025年9月"
+          }
+        ],
+        "facetTargets": [
+          {
+            "facet": "time",
+            "span": {
+              "start": 0,
+              "end": 2
+            },
+            "literal": "目前"
+          }
+        ],
+        "nativeFigureAnchors": [
+          {
+            "span": {
+              "start": 7,
+              "end": 9
+            },
+            "literal": "5%"
+          }
+        ],
+        "sourceCorrection": null
+      }
+    },
+    {
+      "id": "T06-en",
+      "pairId": "T06",
+      "language": "en",
+      "family": "time",
+      "text": "The base rate is currently 5%.",
+      "profileId": "T06-en",
+      "tags": [
+        "no-stated-period",
+        "file-date-not-proof"
+      ],
+      "gold": {
+        "nativeVerdict": "unsupported",
+        "rationale": "The Source has no stated period. Even a fresh file-created/modified timestamp cannot make the bare current claim Supported.",
+        "sourceEvidence": [
+          {
+            "sourceId": "rate-undated-en",
+            "quote": "The base rate is 5%.",
+            "rangeUTF16": {
+              "start": 18,
+              "end": 38
+            },
+            "role": "no-stated-period"
+          }
+        ],
+        "facetTargets": [
+          {
+            "facet": "time",
+            "span": {
+              "start": 17,
+              "end": 26
+            },
+            "literal": "currently"
+          }
+        ],
+        "nativeFigureAnchors": [
+          {
+            "span": {
+              "start": 27,
+              "end": 29
+            },
+            "literal": "5%"
+          }
+        ],
+        "sourceCorrection": null
+      }
+    },
+    {
+      "id": "T06-zh-CN",
+      "pairId": "T06",
+      "language": "zh-CN",
+      "family": "time",
+      "text": "目前基准利率为5%。",
+      "profileId": "T06-zh-CN",
+      "tags": [
+        "no-stated-period",
+        "file-date-not-proof"
+      ],
+      "gold": {
+        "nativeVerdict": "unsupported",
+        "rationale": "The Source has no stated period. Even a fresh file-created/modified timestamp cannot make the bare current claim Supported.",
+        "sourceEvidence": [
+          {
+            "sourceId": "rate-undated-zh-CN",
+            "quote": "基准利率为5%。",
+            "rangeUTF16": {
+              "start": 10,
+              "end": 18
+            },
+            "role": "no-stated-period"
+          }
+        ],
+        "facetTargets": [
+          {
+            "facet": "time",
+            "span": {
+              "start": 0,
+              "end": 2
+            },
+            "literal": "目前"
+          }
+        ],
+        "nativeFigureAnchors": [
+          {
+            "span": {
+              "start": 7,
+              "end": 9
+            },
+            "literal": "5%"
+          }
+        ],
+        "sourceCorrection": null
+      }
+    },
+    {
+      "id": "T07-en",
+      "pairId": "T07",
+      "language": "en",
+      "family": "time",
+      "text": "The base rate is currently 5%.",
+      "profileId": "T07-en",
+      "tags": [
+        "within-12-calendar-months-positive",
+        "no-newer-scoped-value"
+      ],
+      "gold": {
+        "nativeVerdict": "supported",
+        "rationale": "The March 2026 statement period ended within twelve calendar months before the fixed check and there is no newer scoped differing value; therefore current/now is Supported.",
+        "sourceEvidence": [
+          {
+            "sourceId": "rate-fresh-window-en",
+            "quote": "For the period 1–31 March 2026, the base rate was 5%.",
+            "rangeUTF16": {
+              "start": 31,
+              "end": 84
+            },
+            "role": "exact-stated-period",
+            "period": "March 2026"
+          }
+        ],
+        "facetTargets": [
+          {
+            "facet": "time",
+            "span": {
+              "start": 17,
+              "end": 26
+            },
+            "literal": "currently"
+          }
+        ],
+        "nativeFigureAnchors": [
+          {
+            "span": {
+              "start": 27,
+              "end": 29
+            },
+            "literal": "5%"
+          }
+        ],
+        "sourceCorrection": null
+      }
+    },
+    {
+      "id": "T07-zh-CN",
+      "pairId": "T07",
+      "language": "zh-CN",
+      "family": "time",
+      "text": "目前基准利率为5%。",
+      "profileId": "T07-zh-CN",
+      "tags": [
+        "within-12-calendar-months-positive",
+        "no-newer-scoped-value"
+      ],
+      "gold": {
+        "nativeVerdict": "supported",
+        "rationale": "The March 2026 statement period ended within twelve calendar months before the fixed check and there is no newer scoped differing value; therefore current/now is Supported.",
+        "sourceEvidence": [
+          {
+            "sourceId": "rate-fresh-window-zh-CN",
+            "quote": "在2026年3月1日至31日期间，基准利率为5%。",
+            "rangeUTF16": {
+              "start": 17,
+              "end": 42
+            },
+            "role": "exact-stated-period",
+            "period": "2026年3月"
+          }
+        ],
+        "facetTargets": [
+          {
+            "facet": "time",
+            "span": {
+              "start": 0,
+              "end": 2
+            },
+            "literal": "目前"
+          }
+        ],
+        "nativeFigureAnchors": [
+          {
+            "span": {
+              "start": 7,
+              "end": 9
+            },
+            "literal": "5%"
+          }
+        ],
+        "sourceCorrection": null
+      }
+    }
+  ]
+}
