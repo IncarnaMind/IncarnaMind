@@ -26,7 +26,10 @@ describe("Plain factual assertion request protocol", () => {
       frames.push(call);
       const searched = call.results.find((result) => result.tool === "search_documents");
       if (!searched) {
-        return { calls: [{ tool: "search_documents", input: { query: row.claim } }] };
+        return {
+          text: `Parts: ${JSON.stringify([{ fact: row.claim }])}`,
+          calls: [{ tool: "search_documents", input: { query: row.claim } }],
+        };
       }
       if (!call.results.some((result) => result.tool === "cite")) {
         const passage = shownPassages(searched.text).find((each) => each.text.includes(row.quote));
