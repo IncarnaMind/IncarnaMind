@@ -611,7 +611,7 @@ function requestTargets(
   }
   if (questionIds?.length === 0 || documentIds?.length === 0 || cells?.length === 0) return [];
   const targets: ComparisonTarget[] = [];
-  if (cells === null) {
+  if (cells === null || questionIds !== null || documentIds !== null) {
     for (const questionId of questionIds ?? [undefined]) {
       for (const documentId of documentIds ?? [undefined]) {
         targets.push({
@@ -911,7 +911,7 @@ export function createComparisons(options: ComparisonsOptions) {
                 problem: outcome.value.problem,
                 message: outcome.value.message ?? null,
                 resetsAt: null,
-                blocks: EMPTY_CELL,
+                blocks: cell.before?.blocks ?? EMPTY_CELL,
               };
         break;
       case "failed":
@@ -935,7 +935,7 @@ export function createComparisons(options: ComparisonsOptions) {
         };
         break;
     }
-    if (outcome.status === "done" && cell.mode !== "fill") {
+    if (outcome.status === "done" && outcome.value.kind === "answer" && cell.mode !== "fill") {
       patch.edited = null;
       patch.reviewed = null;
     }

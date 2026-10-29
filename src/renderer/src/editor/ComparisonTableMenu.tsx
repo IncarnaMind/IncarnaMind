@@ -57,7 +57,7 @@ export function ComparisonTableMenu({
           <ComparisonRefillEstimate
             handle={handle}
             mode="refill-all"
-            requested={comparisonCellsInTable(handle, true)}
+            requested={comparisonCellsInTable(handle, false)}
             label={(count) =>
               t(
                 count === 1 ? "comparison.refill.allCells.one" : "comparison.refill.allCells.other",
@@ -70,7 +70,7 @@ export function ComparisonTableMenu({
           <ComparisonRefillEstimate
             handle={handle}
             mode="refill-problems"
-            requested={comparisonCellsInTable(handle, true)}
+            requested={comparisonCellsInTable(handle, false)}
             label={(count) =>
               t(
                 count === 1

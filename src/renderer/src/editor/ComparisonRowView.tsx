@@ -227,7 +227,7 @@ export function ComparisonRowView({ node, editor, getPos }: ReactNodeViewProps) 
                   handle={handle}
                   mode="refill"
                   scope="row"
-                  requested={comparisonCellsInTable(handle, true).filter(
+                  requested={comparisonCellsInTable(handle, false).filter(
                     (cell) => cell.documentId === documentId,
                   )}
                 />

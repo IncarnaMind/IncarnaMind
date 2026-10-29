@@ -136,6 +136,69 @@ describe("A targeted comparison refill", () => {
     expect(cellElement(client, tableId, second.id).toString()).toBe(otherBefore);
   });
 
+  test("a failed explicit refill keeps the old Answer and its sign-off", async () => {
+    let missing = false;
+    const model = cellModel(() => (missing ? { text: "NOT_FOUND" } : null));
+    const { core, client, mind, documents, tableId, questionId } = await setup(model);
+    const [first] = documents;
+    if (!first) throw new Error("The Document is missing.");
+    client.doc.transact(() => {
+      const cell = cellElement(client, tableId, first.id);
+      cell.setAttribute("edited", "true");
+      cell.setAttribute("fillId", "pass-missing");
+      reviewCell(client, tableId, first.id, questionId);
+      cell.delete(0, cell.length);
+      cell.insert(0, [
+        createElement({ type: "paragraph", content: [{ type: "text", text: "My answer" }] }),
+      ]);
+    });
+    missing = true;
+    const ended = fillEnded(core, tableId);
+    const result = await core.fillComparisonTable({
+      mindId: mind.id,
+      tableId,
+      cells: [{ documentId: first.id, questionId }],
+      mode: "refill",
+      pass: "pass-missing",
+    });
+    if (!result.started) throw new Error("The refill did not start.");
+    await ended;
+    await client.settled();
+
+    const cell = cellElement(client, tableId, first.id);
+    expect(cell.getAttribute("status")).toBe("failed");
+    expect(cell.getAttribute("problem")).toBe("not-found");
+    expect(cell.getAttribute("edited")).toBe("true");
+    expect(cell.toString()).toContain("My answer");
+    expect(reviewed(client, tableId, first.id, questionId)).toBe(true);
+    expect(removedAt(client, first.id)).toBeNull();
+  });
+
+  test("exact cells and a column scope fill together, not one without the other", async () => {
+    const asked: ReturnType<typeof cellAsked>[] = [];
+    const model = cellModel((_call, cell) => {
+      asked.push(cell);
+      return null;
+    });
+    const { core, client, mind, documents, tableId, questionId } = await setup(model);
+    const [first] = documents;
+    if (!first) throw new Error("The Document is missing.");
+    asked.length = 0;
+    const ended = fillEnded(core, tableId);
+    const result = await core.fillComparisonTable({
+      mindId: mind.id,
+      tableId,
+      questionIds: [questionId],
+      cells: [{ documentId: first.id, questionId }],
+      mode: "refill",
+    });
+    if (!result.started) throw new Error("The refill did not start.");
+    await ended;
+    await client.settled();
+
+    expect([...new Set(asked.map((call) => call.document))].sort()).toEqual(["Acme", "Brandt"]);
+  });
+
   test("Stop restores the old Answer and marks instead of leaving a waiting or empty cell", async () => {
     let release = () => {};
     const held = new Promise<void>((resolve) => {

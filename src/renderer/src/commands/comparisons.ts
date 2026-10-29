@@ -411,7 +411,7 @@ export const comparisonCommands: readonly Command[] = [
         refillComparison(
           found.handle,
           "refill",
-          comparisonCellsInTable(found.handle, true).filter(
+          comparisonCellsInTable(found.handle, false).filter(
             (cell) => cell.documentId === found.here.documentId,
           ),
           "row",
@@ -448,7 +448,7 @@ export const comparisonCommands: readonly Command[] = [
     run: (ctx) => {
       const here = tableHere(ctx);
       if (here) {
-        refillComparison(here, "refill-all", comparisonCellsInTable(here, true));
+        refillComparison(here, "refill-all", comparisonCellsInTable(here, false));
       }
     },
   },
@@ -462,7 +462,7 @@ export const comparisonCommands: readonly Command[] = [
     run: (ctx) => {
       const here = tableHere(ctx);
       if (here) {
-        refillComparison(here, "refill-problems", comparisonCellsInTable(here, true));
+        refillComparison(here, "refill-problems", comparisonCellsInTable(here, false));
       }
     },
   },
@@ -478,7 +478,7 @@ export const comparisonCommands: readonly Command[] = [
         refillComparison(
           handle,
           "refill",
-          comparisonCellsInTable(handle, true).filter((cell) => cell.questionId === question.id),
+          comparisonCellsInTable(handle, false).filter((cell) => cell.questionId === question.id),
           "column",
         ),
       ),
@@ -489,7 +489,7 @@ export const comparisonCommands: readonly Command[] = [
     checked: (ctx) => {
       const here = columnHere(ctx);
       const cells = here
-        ? comparisonCellsInTable(here.handle, true).filter(
+        ? comparisonCellsInTable(here.handle, false).filter(
             (cell) => cell.questionId === here.question.id,
           )
         : [];
@@ -501,7 +501,7 @@ export const comparisonCommands: readonly Command[] = [
     enabled: (ctx) => {
       const here = columnHere(ctx);
       if (!here) return unavailable;
-      return comparisonCellsInTable(here.handle, true).some(
+      return comparisonCellsInTable(here.handle, false).some(
         (cell) =>
           cell.questionId === here.question.id &&
           comparisonCellOf(comparisonCellLocation({ ...here.handle, ...cell })?.cell.attrs ?? {})
@@ -514,7 +514,7 @@ export const comparisonCommands: readonly Command[] = [
       actColumn(ctx, ({ handle, question }) =>
         toggleComparisonCellsReviewed(
           handle,
-          comparisonCellsInTable(handle, true).filter((cell) => cell.questionId === question.id),
+          comparisonCellsInTable(handle, false).filter((cell) => cell.questionId === question.id),
         ),
       ),
   },

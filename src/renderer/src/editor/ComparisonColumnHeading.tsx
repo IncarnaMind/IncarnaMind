@@ -291,7 +291,7 @@ export function ComparisonColumnHeading({
                 <ComparisonRefillEstimate
                   handle={handle}
                   mode="refill"
-                  requested={comparisonCellsInTable(handle, true).filter(
+                  requested={comparisonCellsInTable(handle, false).filter(
                     (cell) => cell.questionId === question.id,
                   )}
                 />
