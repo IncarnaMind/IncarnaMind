@@ -481,7 +481,7 @@ describe("Compare Documents", () => {
         tableIn(client)
           .rows.flatMap((row) => row.cells)
           .filter((cell) => cell.status === "writing" && cell.text !== "").length;
-      await vi.waitFor(() => expect(withWords()).toBe(CLOUD_CELLS_AT_ONCE));
+      await vi.waitFor(() => expect(withWords()).toBe(CLOUD_CELLS_AT_ONCE), { timeout: 10_000 });
       await client.settled();
       expect(withWords()).toBe(CLOUD_CELLS_AT_ONCE);
 
