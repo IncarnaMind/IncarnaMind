@@ -42,6 +42,7 @@ import { MetaLine } from "../components/MetaLine";
 import { ObjectMenu, useObjectMenu } from "../components/ObjectMenu";
 import { LineAction } from "../components/ProblemLine";
 import { rowActionButtonClass } from "../components/sidebarRows";
+import { useCheckSecondLook } from "../components/useCheckSecondLook";
 import { askInAssistant } from "../conversations";
 import { openFigureSchedule } from "../figures";
 import { useFindSources } from "../findSources";
@@ -451,6 +452,22 @@ function Working({ calculation, onOpen }: { calculation: ClaimCalculation; onOpe
 }
 
 /**
+ * What a Supported verdict can still miss (#1927): a duty written as a
+ * permission, or the reverse. It goes once a second look by Jev covers the
+ * check (#1926).
+ */
+function CheckLimitLine() {
+  const t = useT();
+  const secondLook = useCheckSecondLook();
+  if (secondLook) return null;
+  return (
+    <p data-testid="claim-limit" className="citation-card-note">
+      {t("claim.limit")}
+    </p>
+  );
+}
+
+/**
  * A sentence check's card: its state and the sentence it is about; for a
  * Passage found, the Document and Location with the quote washed in the
  * state's colour, and Add as Citation when it isn't cited yet, or "Already
@@ -822,11 +839,7 @@ function ClaimCard({
             : t("claim.checkedIn", { scope: lookedIn })}
         </p>
       )}
-      {state === "supported" && (
-        <p data-testid="claim-limit" className="citation-card-note">
-          {t("claim.limit")}
-        </p>
-      )}
+      {state === "supported" && <CheckLimitLine />}
       {check.excluded.map((left) => {
         const document = documents.find((each) => each.id === left.documentId);
         const name = left.documentName || document?.name || "";
