@@ -24,7 +24,7 @@ const NAMES = QUOTES.map((quote) => quote.document);
 
 /** A recognizer whose pages are read only when the test releases them: the reading, held still. */
 function heldRecognizer(): { recognizer: TextRecognizer; release(): void } {
-  const lines = [CREDIT.ready?.answer ?? "", ...QUOTES.map((quote) => quote.quote)];
+  const lines = QUOTES.map((quote) => quote.quote);
   const fake = createFakeTextRecognizer({ script: { pages: { "1": { lines } } } });
   let release: () => void = () => undefined;
   const held = new Promise<void>((resolve) => {
@@ -114,7 +114,8 @@ test("Stop while it waits keeps the Question and a stopped Answer, with no text"
     examples,
   );
   const waiting = core.askExampleReadyQuestion();
-  await new Promise((settle) => setTimeout(settle, 150));
+  // Its first look at the Documents is done: the wait it is in is the one Stop ends.
+  await vi.waitFor(async () => expect((await core.readyQuestion())?.waitingFor).not.toBeNull());
   await core.stopExampleReadyQuestion();
   const asked = await waiting;
   expect(asked.stopped).toBe(true);
@@ -142,7 +143,7 @@ test("a read that never ends says so, rather than waiting for ever", async () =>
     examples,
   );
   await expect(core.askExampleReadyQuestion()).rejects.toMatchObject({
-    name: "InvalidInputError",
+    wording: { key: "error.examples.reading" },
   });
   release();
 });
