@@ -11,12 +11,7 @@ const root = resolve(__dirname, "../..");
 function builtExecutable(): string {
   if (process.platform === "win32") return join(root, "dist", "win-unpacked", "IncarnaMind.exe");
   if (process.platform === "linux") return join(root, "dist", "linux-unpacked", "incarnamind");
-  return join(
-    root,
-    "dist",
-    process.arch === "arm64" ? "mac-arm64" : "mac",
-    "IncarnaMind.app/Contents/MacOS/IncarnaMind",
-  );
+  return join(root, "dist", "mac-arm64", "IncarnaMind.app/Contents/MacOS/IncarnaMind");
 }
 
 export const packagedExecutable = process.env.INCARNAMIND_PACKAGED_APP || builtExecutable();
