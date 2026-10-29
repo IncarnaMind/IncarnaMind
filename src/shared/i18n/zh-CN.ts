@@ -342,6 +342,8 @@ export const zhCN = {
   "folder.wall.notFiled":
     "未新建任何内容：这项工作只在所在文件夹内进行，但现在找不到该文件夹。笔记没有变化。",
   "error.folder.wall": "只在本文件夹内工作。",
+  "error.folder.wallMove":
+    "未移动：只在本文件夹内工作的文件夹，助手不能移入或移出其中的内容。你仍可以自己移动。",
   "error.folder.notFiled":
     "未新建任何内容：这项工作只在所在文件夹内进行，但现在找不到该文件夹。笔记没有变化。",
   "error.folder.keepInside": "keepInside 必须是 true 或 false。",
@@ -3189,6 +3191,8 @@ export const zhCN = {
   "research.ask.library": "资料库",
   "research.ask.title.one": "把 1 个网页保存到新文件夹",
   "research.ask.title.other": "把 {count} 个网页保存到新文件夹",
+  "research.ask.titleInto.one": "把 1 个网页保存到“{folder}”",
+  "research.ask.titleInto.other": "把 {count} 个网页保存到“{folder}”",
   "research.ask.folder": "文件夹",
   "research.ask.folderNew": "{name}（新建）",
   "research.ask.pages": "网页",
@@ -3267,6 +3271,7 @@ export const zhCN = {
   "task.status.notReady": "暂时无法使用它的模型",
   "task.status.stopped": "已停止",
   "task.status.failed": "未能完成",
+  "task.problem.keptInside": "未能完成：所在文件夹已不存在",
   "task.pause": "暂停",
   "task.resume": "继续",
   "task.stop": "停止",

@@ -23,7 +23,7 @@ const FILES = [
 
 const searched = (call: ModelCall) => call.results.some((each) => each.tool === "search_documents");
 
-/** Adds files when asked to; else searches, then makes a note when asked to, else says `token`. */
+/** Adds or moves when asked to; else searches, then makes a note when asked to, else says `token`. */
 function script(token: string) {
   return (call: ModelCall): ScriptedReply => {
     const adding = /Add the files in (\S+)/.exec(call.prompt);
@@ -32,6 +32,12 @@ function script(token: string) {
       return { calls: [{ tool: "run_command", input }] };
     }
     if (adding) return { text: token };
+    const moving = /Move (mind|document) ([0-9a-f-]{36}) to (\w+)/.exec(call.prompt);
+    if (moving && !call.results.some((each) => each.tool === "run_command")) {
+      const input = { command: `${moving[1]}.moveTo`, ids: [moving[2]], folder: moving[3] };
+      return { calls: [{ tool: "run_command", input }] };
+    }
+    if (moving) return { text: token };
     if (!searched(call))
       return { calls: [{ tool: "search_documents", input: { query: "notice" } }] };
     const asked = call.prompt.trimEnd().split("\n\n").at(-1) ?? "";
@@ -80,6 +86,7 @@ async function setUp(walls: { a?: boolean; b?: boolean } = { a: true, b: true })
   return {
     ...setup,
     calls,
+    leaseA: named("Client A"),
     memoOne: named("Memo one"),
     memoTwo: named("Memo two"),
     folderA,
@@ -179,6 +186,40 @@ describe("what the assistant makes behind a Folder wall", () => {
       groupId: s.folderA.id,
       source: "user",
     });
+  });
+
+  test("the assistant moves nothing out of a wall, not even into a Folder the move makes", async () => {
+    const s = await setUp();
+    const memo = await s.core.createMind({ title: "Privileged memo", folderId: s.folderA.id });
+    const out = await askAssistant(s.core, {
+      text: `Move mind ${memo.id} to General`,
+      mindId: s.noteA.id,
+    });
+    const outbox = await askAssistant(s.core, {
+      text: `Move document ${s.leaseA.id} to Outbox`,
+      mindId: s.noteA.id,
+    });
+    const refusal = translate("en", "error.folder.wallMove");
+    for (const answer of [out, outbox]) {
+      expect(JSON.stringify(answer.toolCalls)).toContain(refusal);
+    }
+    expect((await s.core.listMinds()).find((mind) => mind.id === memo.id)?.folderId).toBe(
+      s.folderA.id,
+    );
+    const { groups, assignments } = await s.core.getLibrary();
+    expect(groups.map((group) => group.name)).not.toContain("Outbox");
+    expect(assignments.find((each) => each.documentId === s.leaseA.id)?.groupId).toBe(s.folderA.id);
+  });
+
+  test("outside every wall, a move into a new Folder still runs", async () => {
+    const s = await setUp();
+    await askAssistant(s.core, {
+      text: `Move document ${s.memoOne.id} to Outbox`,
+      mindId: s.noteX.id,
+    });
+    const { groups, assignments } = await s.core.getLibrary();
+    const outbox = groups.find((group) => group.name === "Outbox");
+    expect(assignments.find((each) => each.documentId === s.memoOne.id)?.groupId).toBe(outbox?.id);
   });
 
   test("a Conversation behind no wall files a new Note as before", async () => {

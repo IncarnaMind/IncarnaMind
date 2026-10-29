@@ -351,6 +351,8 @@ export const en = {
   "folder.wall.notFiled":
     "Nothing new was made: this work stays inside its Folder, which can’t be found now. Your notes are unchanged.",
   "error.folder.wall": "This Folder keeps its work inside it.",
+  "error.folder.wallMove":
+    "Not moved: a Folder that keeps its work inside it can’t have its work moved in or out by the assistant. You can still move it yourself.",
   "error.folder.notFiled":
     "Nothing new was made: this work stays inside its Folder, which can’t be found now. Your notes are unchanged.",
   "error.folder.keepInside": "keepInside must be true or false.",
@@ -3327,6 +3329,8 @@ export const en = {
   "research.ask.library": "Library",
   "research.ask.title.one": "Save 1 web page to a new Folder",
   "research.ask.title.other": "Save {count} web pages to a new Folder",
+  "research.ask.titleInto.one": "Save 1 web page to “{folder}”",
+  "research.ask.titleInto.other": "Save {count} web pages to “{folder}”",
   "research.ask.folder": "Folder",
   "research.ask.folderNew": "{name} (new)",
   "research.ask.pages": "Pages",
@@ -3406,6 +3410,7 @@ export const en = {
   "task.status.notReady": "Its model can’t be used now",
   "task.status.stopped": "Stopped",
   "task.status.failed": "Couldn’t finish",
+  "task.problem.keptInside": "Couldn’t finish: its Folder is gone",
   "task.pause": "Pause",
   "task.resume": "Resume",
   "task.stop": "Stop",

@@ -1627,9 +1627,14 @@ export function createCore(adapters: CoreAdapters): Core {
         const existing = new Set(documents.ids({}));
         if (input.ids.some((id) => existing.has(id) && allowed?.includes(id) !== true)) refuse();
       }
+      // A move files what it moves, so it goes where `filedWithin` would file it or not at all: a
+      // walled turn's only into its wall, never into a Folder the move makes (#1934).
       if (input.command === "document.moveTo" || input.command === "mind.moveTo") {
-        const target = library.folders().find((folder) => same(folder.name, input.folder ?? ""));
-        if (target?.keepInside && target.id !== wallId) refuse();
+        const target =
+          library.folders().find((folder) => same(folder.name, input.folder ?? ""))?.id ?? null;
+        if (filedWithin(wallId, target)?.folderId !== target) {
+          throw new InvalidInputError({ key: "error.folder.wallMove" });
+        }
       }
     },
     outputFolder: async () => outputs.settings().location,
@@ -2018,6 +2023,8 @@ export function createCore(adapters: CoreAdapters): Core {
     },
     library: {
       folderExists: (folderId) => library.folders().some((folder) => folder.id === folderId),
+      folderName: (folderId) =>
+        library.folders().find((folder) => folder.id === folderId)?.name ?? null,
       folderNames: () => library.folders().map((folder) => folder.name),
       createFolder: (name, description) => library.create({ name, description }).id,
       file: (documentIds, folderId) => {

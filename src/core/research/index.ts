@@ -81,6 +81,8 @@ interface ResearchInput {
   writeInto: ResearchTarget;
   /** It made its own Mind at its Start, so the draft's Folder is that Mind's too. */
   ownMind: boolean;
+  /** The Folder wall it was started behind; null: outside every wall. */
+  wallId: string | null;
   scope: SearchScope | null;
   providerId: string;
   modelId: string;
@@ -137,8 +139,6 @@ export interface ResearchOptions extends FinishOptions {
   walledFolder(mindId: string | null): string | null;
   /** The Folder itself when it is walled now; null for any other, or none. */
   walledFolderId(folderId: string | null): string | null;
-  /** Where a Mind made behind the wall `wallId`, or outside every wall, is filed; null: it can't be. */
-  filedWithin(wallId: string | null, asked: string | null): { folderId: string | null } | null;
   /** The Documents a Search scope covers; with none, the User's own (`scopeDocuments`). */
   scopeDocuments(scope: SearchScope | null, mindId: string | null): string[] | null;
   /** What research from a Mind searches, by the one rule (`mindSearchScope`); null: every Document. */
@@ -240,6 +240,8 @@ function inputOf(input: unknown): ResearchInput | null {
     sources: { web: sources.web, library: sources.library },
     writeInto: target,
     ownMind: input.ownMind === true,
+    // A Task started before Folders could be walled was started outside every wall.
+    wallId: typeof input.wallId === "string" ? input.wallId : null,
     scope: within,
     providerId,
     modelId,
@@ -721,6 +723,7 @@ export function createResearch(options: ResearchOptions) {
         sources,
         writeInto,
         ownMind,
+        wallId: wall,
         scope,
         providerId: ready.model.providerId,
         modelId: ready.model.modelId,
