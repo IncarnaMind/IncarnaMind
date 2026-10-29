@@ -4940,6 +4940,7 @@ export const en = {
   "assistant.pill": "Ask anything",
   "sidebar.examples": "Examples",
   "sidebar.documents": "Documents",
+  "sidebar.notes": "Notes",
   "examples.banner.label": "About this example",
   "examples.banner.title": "This is an example note.",
   "examples.banner.body":

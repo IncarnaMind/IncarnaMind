@@ -4698,6 +4698,7 @@ export const zhCN = {
   "assistant.pill": "提问",
   "sidebar.examples": "示例",
   "sidebar.documents": "文档",
+  "sidebar.notes": "笔记",
   "examples.banner.label": "关于这个示例",
   "examples.banner.title": "这是一个示例笔记。",
   "examples.banner.body":

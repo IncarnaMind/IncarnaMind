@@ -273,7 +273,15 @@ export function DocumentsSection() {
           </SidebarSection>
         )}
         {!quiet && <SidebarTags />}
-        {foldExamples && exampleMindId && <ExampleRow mindId={exampleMindId} />}
+        {foldExamples && exampleMindId && (
+          <SidebarSection
+            testId="example-section"
+            title={t("sidebar.examples")}
+            headingTestId="example-title"
+          >
+            <ExampleRow mindId={exampleMindId} />
+          </SidebarSection>
+        )}
       </div>
       <LinkFolderDialog />
       <TagNamesTip />

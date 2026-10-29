@@ -5,6 +5,7 @@ import type { CoreBridge } from "../src/core/api";
 import { buildPdf } from "../tests/helpers/pdf";
 import {
   acceptPlainTextKeys,
+  askInAssistant,
   createDataFolder,
   dismissChatSetup,
   launchApp,
@@ -13,6 +14,7 @@ import {
   removeDataFolder,
   setLanguage,
   setWindowSize,
+  useLocalChatModel,
 } from "./app";
 
 /**
@@ -35,8 +37,8 @@ test.afterEach(async () => {
 });
 
 const WORDS = {
-  en: { documents: "Documents", tags: "Tags" },
-  "zh-CN": { documents: "文档", tags: "标签" },
+  en: { documents: "Documents", tags: "Tags", notes: "Notes", examples: "Examples" },
+  "zh-CN": { documents: "文档", tags: "标签", notes: "笔记", examples: "示例" },
 } as const;
 
 const PDFS = ["Tides.pdf", "Seabirds.pdf", "Ledger.pdf"];
@@ -124,6 +126,64 @@ for (const language of ["en", "zh-CN"] as const) {
     await setWindowSize(app, window, 1600, 1000);
     await expect(list.getByTestId("sidebar-section-count")).toHaveText("3");
     await shot(window, `day-one-${language}-1600`);
+  });
+}
+
+for (const language of ["en", "zh-CN"] as const) {
+  test(`a Note from an Answer is counted under Notes, apart from Documents (${language})`, async () => {
+    test.setTimeout(180_000);
+    const words = WORDS[language];
+    const path = join(sources, "Tides.pdf");
+    await writeFile(
+      path,
+      buildPdf([{ lines: ["The Moon raises two bulges of water on the Earth."] }]),
+    );
+    const { app, window } = await launchApp(dataDir, {
+      examples: true,
+      fakeChat: true,
+      home: sources,
+    });
+    await setWindowSize(app, window, 900, 900);
+    await dismissChatSetup(window);
+    await useLocalChatModel(window);
+    await setLanguage(window, language);
+    await addFiles(window, [path]);
+
+    // The note is written from an Answer, as a newcomer does: one Note and one Document.
+    const answer = await askInAssistant(window, "How do tides rise?");
+    await answer.getByTestId("answer-write-note").click();
+    await expect(answer.getByTestId("answer-added-undo")).toBeVisible();
+    await expect(window.getByTestId("mind-row")).toHaveCount(1);
+
+    // Each heading counts the rows under it: the Note is not counted as a Document.
+    const notes = window.getByTestId("notes-section");
+    await expect(notes.getByTestId("notes-title")).toContainText(words.notes);
+    await expect(notes.getByTestId("sidebar-section-count")).toHaveText("1");
+    await expect(notes.getByTestId("mind-row")).toHaveCount(1);
+    const documents = window.getByTestId("not-in-a-folder-section");
+    await expect(documents.getByTestId("not-in-a-folder-title")).toContainText(words.documents);
+    await expect(documents.getByTestId("sidebar-section-count")).toHaveText("1");
+    await expect(documents.getByTestId("document-list-item")).toHaveCount(1);
+    await expect(documents.getByTestId("mind-row")).toHaveCount(0);
+    // Still day one: the example has folded to one row under its own heading, and the Library waits.
+    const example = window.getByTestId("example-section");
+    await expect(example.getByTestId("example-title")).toContainText(words.examples);
+    await expect(example.getByTestId("example-row")).toHaveCount(1);
+    await expect(documents.getByTestId("example-row")).toHaveCount(0);
+    await expect(window.getByTestId("open-library")).toHaveCount(0);
+    await shot(window, `day-one-note-${language}-900`);
+
+    // The Note is in ⌘K, and the counts hold at 1,600 px.
+    await window.keyboard.press("ControlOrMeta+k");
+    await expect(window.getByTestId("palette-search")).toBeFocused();
+    await window.keyboard.type("tides");
+    await expect(window.getByTestId("palette-item").first()).toBeVisible();
+    await window.keyboard.press("Escape");
+    await setWindowSize(app, window, 1600, 1000);
+    await expect(notes.getByTestId("sidebar-section-count")).toHaveText("1");
+    await expect(documents.getByTestId("sidebar-section-count")).toHaveText("1");
+    await shot(window, `day-one-note-${language}-1600`);
+    await app.close();
   });
 }
 

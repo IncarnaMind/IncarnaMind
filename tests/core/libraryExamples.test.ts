@@ -1,10 +1,13 @@
 import { resolve } from "node:path";
 import { describe, expect, test, vi } from "vitest";
-import type { ConversationAnswer } from "../../src/core";
+import type { ConversationAnswer, Core } from "../../src/core";
 import { askAssistant } from "../helpers/assistant";
+import { answerEnded } from "../helpers/citations";
 import { createTempDataFolder, startCore } from "../helpers/core";
 import { addAndProcess, writeSourceFile } from "../helpers/documents";
 import { classifierModel } from "../helpers/library";
+import { connectToMind } from "../helpers/mindClient";
+import { editMind, note, question, writeMind } from "../helpers/minds";
 import type { ModelCall } from "../helpers/models";
 import { scriptedModel, scriptedModels } from "../helpers/models";
 
@@ -290,6 +293,131 @@ describe("the examples' Documents", () => {
       .filter((call) => call.source === "commands")
       .at(-1)?.command;
     expect(lastCommand?.items.map((item) => item.id)).toEqual([own.id]);
+    core.close();
+  });
+
+  /** The example's Documents, once the app has read them. */
+  async function exampleDocuments(core: Core) {
+    const examples = await core.getExamples();
+    if (examples.linkedFolderId === null) return [];
+    return vi.waitFor(
+      async () => {
+        const read = await core.listDocuments({ linkedFolderId: examples.linkedFolderId });
+        expect(read.length).toBeGreaterThan(0);
+        expect(read.every((each) => each.status === "ready")).toBe(true);
+        return read;
+      },
+      { timeout: 30_000 },
+    );
+  }
+
+  test("a Question in the User's own Note searches their Documents, the examples' left out (#1942)", async () => {
+    const searched: string[] = [];
+    let system = "";
+    const model = scriptedModel((call: ModelCall) => {
+      system = system || call.system;
+      const found = call.results.find((each) => each.tool === "search_documents");
+      if (found) {
+        searched.push(found.text);
+        return { text: "Done." };
+      }
+      return { calls: [{ tool: "search_documents", input: { query: "Northwind Retail" } }] };
+    });
+    const core = startCore(await createTempDataFolder(), {
+      paths: { dataDir: await createTempDataFolder(), examples: EXAMPLES },
+      createChatModel: scriptedModels(model).createChatModel,
+      systemLanguages: () => ["en-US"],
+    });
+    await core.saveChatProvider({ kind: "ollama", modelId: "main-model" });
+    await core.createExamples();
+    const examples = await exampleDocuments(core);
+    expect(examples.length).toBeGreaterThan(0);
+    const [own] = await addAndProcess(core, [
+      await writeSourceFile(
+        await createTempDataFolder(),
+        "northwind-notes.txt",
+        "Northwind Retail results, in my own words.",
+      ),
+    ]);
+    if (!own) throw new Error("No Document added.");
+
+    const mind = await core.createMind({ title: "My note" });
+    const client = await connectToMind(core, mind.id);
+    const asked = question("What does Northwind Retail say?");
+    writeMind(client, [note("My own note."), asked]);
+    await client.settled();
+    const result = await core.askQuestion({ mindId: mind.id, questionId: asked.attrs.id });
+    if (!result.asked) throw new Error("The Question wasn't asked.");
+    await answerEnded(core, result.answerId);
+
+    // The search reached the User's own Document, and none of the example's.
+    expect(searched.length).toBeGreaterThan(0);
+    for (const text of searched) {
+      expect(text).toContain('document="northwind-notes"');
+      expect(text).not.toContain("Northwind Retail · Q3 2026 results");
+    }
+    // And the Answer was told about the User's one Document alone.
+    expect(system).toContain("The User has added 1 Document");
+    expect(system).not.toContain("Northwind Retail · Q3 2026 results");
+    core.close();
+  });
+
+  test("a Question in the example's own Answer still searches its Documents (#1942)", async () => {
+    const searched: string[] = [];
+    const model = scriptedModel((call: ModelCall) => {
+      const found = call.results.find((each) => each.tool === "search_documents");
+      if (found) {
+        searched.push(found.text);
+        return { text: "Done." };
+      }
+      return { calls: [{ tool: "search_documents", input: { query: "leverage" } }] };
+    });
+    const core = startCore(await createTempDataFolder(), {
+      paths: { dataDir: await createTempDataFolder(), examples: EXAMPLES },
+      createChatModel: scriptedModels(model).createChatModel,
+      systemLanguages: () => ["en-US"],
+    });
+    await core.saveChatProvider({ kind: "ollama", modelId: "main-model" });
+    const made = await core.createExamples();
+    await exampleDocuments(core);
+    if (!made.mindId) throw new Error("The example has no Mind.");
+    const client = await connectToMind(core, made.mindId);
+    const asked = question("What was the leverage?");
+    editMind(client, (blocks) => [...blocks, asked]);
+    await client.settled();
+    const result = await core.askQuestion({ mindId: made.mindId, questionId: asked.attrs.id });
+    if (!result.asked) throw new Error("The Question wasn't asked.");
+    await answerEnded(core, result.answerId);
+
+    expect(searched.join(" ")).toContain("Northwind Retail");
+    core.close();
+  });
+
+  test("before the User's first Document, their own Note searches none of the examples (#1942)", async () => {
+    let system = "";
+    const model = scriptedModel((call: ModelCall) => {
+      system = system || call.system;
+      return { text: "Nothing in your Documents says that." };
+    });
+    const core = startCore(await createTempDataFolder(), {
+      paths: { dataDir: await createTempDataFolder(), examples: EXAMPLES },
+      createChatModel: scriptedModels(model).createChatModel,
+      systemLanguages: () => ["en-US"],
+    });
+    await core.saveChatProvider({ kind: "ollama", modelId: "main-model" });
+    await core.createExamples();
+    await exampleDocuments(core);
+    const mind = await core.createMind({ title: "My note" });
+    const client = await connectToMind(core, mind.id);
+    const asked = question("What does Northwind Retail say?");
+    writeMind(client, [note("My own note."), asked]);
+    await client.settled();
+    const result = await core.askQuestion({ mindId: mind.id, questionId: asked.attrs.id });
+    if (!result.asked) throw new Error("The Question wasn't asked.");
+    await answerEnded(core, result.answerId);
+
+    expect(system).toContain("None of the User's own Documents can be searched yet");
+    expect(system).not.toContain("Northwind Retail · Q3 2026 results");
     core.close();
   });
 });

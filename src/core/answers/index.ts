@@ -744,8 +744,8 @@ const messageOf = (error: unknown) => (error instanceof Error ? error.message : 
 export interface DocumentsForAnswers
   extends Pick<AnswerDocuments, "citationSource" | "pageTexts" | "documentDate"> {
   searchableCount(documentIds: readonly string[] | null): number;
-  /** How many live Documents the Library holds: every Document it lists, searchable or not. */
-  libraryCount(): number;
+  /** The Library's count as its page shows it: the User's own Documents once they have one. */
+  libraryCount(): { total: number; examples: boolean };
   /** Every live Document's names: what a Citation in the Question context names its Document by. */
   names(): readonly LiveDocument[];
   /**
@@ -1017,11 +1017,16 @@ export function createAnswers(options: AnswersOptions) {
     const scoped = callDocuments !== null || (input.scoped ?? input.documentIds !== null);
     const outside = input.outside === true;
     // Only an Answer the User reads is told the Library's whole count (#1333): a cell's or an agent's is its scope's alone.
+    const counted = options.documents.libraryCount();
     const library: LibraryDocuments | undefined = outside
       ? undefined
       : {
-          total: options.documents.libraryCount(),
-          examples: input.assistant !== undefined && !scoped && input.documentIds !== null,
+          total: counted.total,
+          examples:
+            counted.examples &&
+            input.assistant !== undefined &&
+            !scoped &&
+            input.documentIds !== null,
         };
     const asked =
       input.outside === true || callDocuments !== null
@@ -3326,12 +3331,15 @@ export function createAnswers(options: AnswersOptions) {
 
   /**
    * What an Answer to `question` is written from: its context, and its Search
-   * scope as it is now, resolved to the Documents it covers now.
+   * scope as it is now, resolved to the Documents it covers now. A Question
+   * with no scope searches the User's own Documents, the examples' left out
+   * once the User has one (#1942), as a Question in the assistant does.
    */
-  const askedWith = (context: QuestionContext, question: Y.XmlElement) => {
-    const documentIds = options.resolveScope(searchScopeOf(question.getAttributes()));
+  const askedWith = (context: QuestionContext, question: Y.XmlElement, mindId: string) => {
+    const chosen = searchScopeOf(question.getAttributes());
+    const documentIds = options.resolveScope(chosen) ?? options.unscopedDocuments?.(mindId) ?? null;
     const emptyScope = documentIds !== null && options.documents.searchableCount(documentIds) === 0;
-    return { context, documentIds, emptyScope };
+    return { context, documentIds, emptyScope, scoped: hasSearchScope(chosen) };
   };
 
   async function ask(
@@ -3381,7 +3389,7 @@ export function createAnswers(options: AnswersOptions) {
           ids,
         );
         const asked = {
-          ...askedWith(context, question.element),
+          ...askedWith(context, question.element, mindId),
           contextReasons: origins.map((source) => ({ via: "context" as const, source })),
         };
         const attributes: Partial<AnswerAttributes> = {

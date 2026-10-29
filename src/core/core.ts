@@ -1565,7 +1565,16 @@ export function createCore(adapters: CoreAdapters): Core {
     },
     documents: {
       searchableCount: (documentIds) => documents.searchableCount(documentIds ?? undefined),
-      libraryCount: () => documents.ids({}).length,
+      // The Library's count is what the User's own list shows: the examples' Documents count only
+      // until the User has one of their own (#1942).
+      libraryCount: () => {
+        const example = new Set(examples.made().documentIds);
+        const all = documents.ids({});
+        const own = all.filter((id) => !example.has(id));
+        return own.length > 0
+          ? { total: own.length, examples: false }
+          : { total: all.length, examples: example.size > 0 };
+      },
       names: () => documents.names(),
       searchableNames: (documentIds, limit) =>
         documents.searchableNames(documentIds ?? undefined, limit),
