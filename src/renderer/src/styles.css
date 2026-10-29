@@ -7649,13 +7649,6 @@
     overflow: hidden;
     text-overflow: ellipsis;
   }
-  /*
-   * Under the Answer's own box, in the margin kept for it, so the Answer's size doesn't change and
-   * nothing moves when the tip comes. A later Question takes it back.
-   */
-  .assistant-answer:has(> .assistant-answer-tip-room):not(:has(~ .assistant-question)) {
-    margin-bottom: 28px;
-  }
   /* A narrow assistant keeps the words of Write as a note and the named Add to note: Copy drops its words and keeps its icon and name. */
   @container assistant (max-width: 320px) {
     .assistant-answer .assistant-answer-action--collapses {
@@ -7666,14 +7659,6 @@
     .assistant-answer-action--collapses > .assistant-answer-action-label {
       display: none;
     }
-  }
-  .assistant-answer-tip-room {
-    position: absolute;
-    inset: calc(100% + 4px) 0 auto;
-    min-height: 24px;
-  }
-  .assistant-answer:has(~ .assistant-question) > .assistant-answer-tip-room {
-    display: none;
   }
   .assistant-answer-actions > .assistant-answer-status {
     padding: 0 6px;
