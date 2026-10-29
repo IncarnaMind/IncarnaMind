@@ -748,7 +748,7 @@ function readTable(table: Y.XmlElement, options: ReadOptions): TableCell[][] {
 
 /** A comparison table's cell as read: its Answer, or what it says in the Answer's place. */
 export type ComparisonCellReading = (
-  | { kind: "answer"; content: Block[] }
+  | { kind: "answer"; content: Block[]; failure?: string }
   | { kind: "words"; text: string }
   | { kind: "empty" }
 ) & { edited?: boolean; reviewed?: boolean };
@@ -798,8 +798,18 @@ export function readComparisonTable(table: Y.XmlElement, options: ReadOptions): 
           ...(state.edited && { edited: true }),
           ...(state.reviewed && { reviewed: true }),
         };
-        if (state.status === "done") {
-          return { kind: "answer", content: readChildren(element.toArray(), options), ...marks };
+        if (
+          state.status === "done" ||
+          (state.status === "failed" && plainText(element).trim() !== "")
+        ) {
+          const problem = state.problem ? cellProblemMessage(state.problem, state.message) : null;
+          return {
+            kind: "answer",
+            content: readChildren(element.toArray(), options),
+            ...marks,
+            ...(state.status === "failed" &&
+              problem && { failure: say(problem.key, problem.params) }),
+          };
         }
         if (!state.problem) return { kind: "words", text: "…", ...marks };
         const { key, params } = cellProblemMessage(state.problem, state.message);
@@ -852,7 +862,11 @@ function readComparison(
         cell(words(row.name)),
         ...row.cells.map((each) =>
           cell(
-            each.kind === "answer" ? each.content : each.kind === "words" ? words(each.text) : [],
+            each.kind === "answer"
+              ? [...each.content, ...(each.failure ? words(each.failure) : [])]
+              : each.kind === "words"
+                ? words(each.text)
+                : [],
           ),
         ),
       ]),

@@ -35,6 +35,7 @@ export interface ComparisonSheetInput {
 const markNotes = (cell: ComparisonCellReading, t: ComparisonSheetInput["t"]): string[] => [
   ...(cell.edited ? [t("comparison.cell.edited")] : []),
   ...(cell.reviewed ? [t("comparison.cell.reviewed")] : []),
+  ...(cell.kind === "answer" && cell.failure ? [cell.failure] : []),
 ];
 
 const CHECK_WORDS: Readonly<Record<CitationCheck, MessageKey>> = {

@@ -1,6 +1,35 @@
-import { expect, test } from "vitest";
+import { expect, test, vi } from "vitest";
+import { refillableComparisonCells } from "../../src/renderer/src/comparisonRefill";
 import { comparisonCellsInTable } from "../../src/renderer/src/comparisonSelection";
 import { headlessEditor } from "../helpers/editor";
+
+vi.mock("../../src/renderer/src/core", () => ({ core: { on: () => () => {} } }));
+
+test("a one-row column refill does not count an edited cell as eligible", () => {
+  const editor = headlessEditor();
+  editor.commands.insertContent({
+    type: "comparisonTable",
+    attrs: { id: "table", questions: [{ id: "question", text: "Question" }] },
+    content: [
+      {
+        type: "comparisonRow",
+        attrs: { documentId: "document" },
+        content: [
+          {
+            type: "comparisonCell",
+            attrs: { questionId: "question", status: "done", edited: true },
+            content: [{ type: "paragraph" }],
+          },
+        ],
+      },
+    ],
+  });
+  const handle = { editor, tableId: "table", mindId: "mind" };
+  const requested = [{ documentId: "document", questionId: "question" }];
+
+  expect(refillableComparisonCells(handle, "refill", requested)).toHaveLength(1);
+  expect(refillableComparisonCells(handle, "refill", requested, "column")).toHaveLength(0);
+});
 
 test("refill candidates exclude hidden columns unless browsing includes them", () => {
   const editor = headlessEditor();

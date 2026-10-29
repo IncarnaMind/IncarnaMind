@@ -1,3 +1,4 @@
+import { readFile } from "node:fs/promises";
 import { describe, expect, test, vi } from "vitest";
 import * as Y from "yjs";
 import {
@@ -7,6 +8,8 @@ import {
   MIND_SIGN_OFFS_FIELD,
 } from "../../src/core";
 import { createElement } from "../../src/core/answers/blocks";
+import { cellIndex } from "../../src/core/documents/formats/sheetLayout";
+import { readWorkbook } from "../../src/core/documents/formats/xlsx";
 import { comparisonQuestionsOf } from "../../src/shared/comparisons";
 import {
   addSignOff,
@@ -147,10 +150,6 @@ describe("A targeted comparison refill", () => {
       cell.setAttribute("edited", "true");
       cell.setAttribute("fillId", "pass-missing");
       reviewCell(client, tableId, first.id, questionId);
-      cell.delete(0, cell.length);
-      cell.insert(0, [
-        createElement({ type: "paragraph", content: [{ type: "text", text: "My answer" }] }),
-      ]);
     });
     missing = true;
     const ended = fillEnded(core, tableId);
@@ -169,9 +168,21 @@ describe("A targeted comparison refill", () => {
     expect(cell.getAttribute("status")).toBe("failed");
     expect(cell.getAttribute("problem")).toBe("not-found");
     expect(cell.getAttribute("edited")).toBe("true");
-    expect(cell.toString()).toContain("My answer");
+    expect(cell.toString()).toContain("90 days");
     expect(reviewed(client, tableId, first.id, questionId)).toBe(true);
     expect(removedAt(client, first.id)).toBeNull();
+
+    const saved = await core.saveComparisonExport({ mindId: mind.id, tableId });
+    if (saved.status !== "saved") throw new Error(`Export failed: ${saved.status}`);
+    const { sheets } = await readWorkbook(
+      new Uint8Array(await readFile(saved.file.path)),
+      undefined,
+      {},
+    );
+    const exported = JSON.stringify(sheets);
+    expect(exported).toContain("90 days");
+    expect(exported).toContain("Termination notice: 90 days.");
+    expect(sheets[0]?.layout?.notes.get(cellIndex(2, 1))).toContain("not found");
   });
 
   test("exact cells and a column scope fill together, not one without the other", async () => {
