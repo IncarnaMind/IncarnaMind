@@ -274,6 +274,10 @@ function regionsFromAnchors(unit: UnitText): Region[] {
   ];
 }
 
+/** Whether a Unit holds a deposition's printed lines, each with its anchor. */
+export const hasPrintedLines = (unit: UnitText): boolean =>
+  (unit.anchors ?? []).some((anchor) => LINE_TARGET.test(anchor.target));
+
 /** Adds source anchors without changing text or any existing anchor. */
 export function addDepositionAnchors<T extends UnitText>(units: readonly T[]): T[] {
   return units.map((unit) => {

@@ -51,6 +51,36 @@ describe("deposition anchors through document processing", () => {
     );
   });
 
+  test("a Chinese deposition's numbered lines are never joined as wrapped lines", async () => {
+    const dataDir = await createTempDataFolder();
+    const source = await createSourceFolder();
+    const core = startCore(dataDir);
+    const path = await writeSourceFile(
+      source,
+      "wang-deposition.pdf",
+      buildPdf([{ lines: ["Page 45"], chineseLines: ["1 问：他当时说", "2 答：是的"] }]),
+    );
+    const [document] = await addAndProcess(core, [path]);
+    if (!document) throw new Error("The deposition was not added.");
+    const [page] = queryDatabase<{ text: string; anchors: string | null }>(
+      dataDir,
+      "SELECT text, anchors FROM document_pages WHERE document_id = ?",
+      [document.id],
+    );
+    const anchors = JSON.parse(page?.anchors ?? "[]") as {
+      start: number;
+      end: number;
+      target: string;
+    }[];
+    const line = (target: string) => {
+      const anchor = anchors.find((each) => each.target === target);
+      return anchor ? page?.text.slice(anchor.start, anchor.end) : undefined;
+    };
+    expect(line("deposition:line:45:1")).toContain("他当时说");
+    expect(line("deposition:line:45:1")).not.toContain("是的");
+    expect(line("deposition:line:45:2")).toContain("是的");
+  });
+
   test("plain text keeps its existing line semantics and gains no deposition anchors", async () => {
     const dataDir = await createTempDataFolder();
     const source = await createSourceFolder();
