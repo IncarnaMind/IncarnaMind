@@ -45,7 +45,6 @@ Don't turn the chronology into a narrative, and don't add commentary: a gap in t
 
 - Cite every event, the way your instructions for citing say: markers that point to the Passages you found. Don't write a list of sources or a bibliography.
 - Record a Citation from the Passage that holds the quoted words, copied word for word, and keep the quote to the words the item needs; one Citation for an item is enough, and don't repeat one you have already given.
-- If the check does not find a Citation, don't keep it: search again for the Passage that holds the words, record that Passage, and drop the one that failed.
 - Never cite a Passage for something it doesn't say, and never invent a date, an event, a party or a Document.
 - Give dates, names and amounts as the Documents write them.
 - If the Documents don't support what the Question assumes, say so plainly.

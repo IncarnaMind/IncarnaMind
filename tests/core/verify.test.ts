@@ -16,6 +16,7 @@ import { verificationOf } from "../../src/shared/verification";
 import {
   checkGenerate,
   checkingModel,
+  checkReply,
   isCheckRun,
   type Plan,
   sentenceOf,
@@ -163,6 +164,33 @@ describe("Verify a document", () => {
       says: "Tides says harbours publish them every year, not every week.",
       evidence: { documentId: tides?.id, quote: PLANS[CONTRADICTED]?.quote, check: "found" },
     });
+  });
+
+  test("a sentence no reply decides, even asked again, is checked as a claim (#1682)", async () => {
+    const sorts: string[] = [];
+    const model = scriptedModel((call) => checkReply(call, PLANS), {
+      generate: (call) => {
+        const reply = checkGenerate(PLANS)(call);
+        if (!call.system.startsWith("You sort the sentences") || !("text" in reply)) return reply;
+        sorts.push(call.prompt);
+        const decisions = JSON.parse(reply.text) as Record<string, string>;
+        const listed = call.prompt.split("\n").find((line) => line.endsWith(UNSUPPORTED));
+        const number = listed && /^\[(\d+)\]/.exec(listed)?.[1];
+        if (number) delete decisions[number];
+        return { text: JSON.stringify(decisions) };
+      },
+    });
+    const { core, report } = await setUp(model);
+    const { mind, client } = await verified(core, report);
+
+    expect(await core.findClaims(request(mind.id))).toEqual({ kind: "found", claims: 3 });
+    expect(sorts).toHaveLength(2);
+    await client.settled();
+    expect(verificationOf(client.doc)?.claims?.map((claim) => claim.text)).toEqual([
+      SUPPORTED,
+      CONTRADICTED,
+      UNSUPPORTED,
+    ]);
   });
 
   test("the PDF, and a copy of it at another path, never appear as evidence", async () => {
@@ -566,7 +594,7 @@ describe("Verify a document", () => {
     const model = scriptedModel(
       () => ({ text: "Verdict: unsupported", pause: { after: 0, until: held } }),
       {
-        generate: () => ({ text: JSON.stringify({ claims: [1, 2, 3] }) }),
+        generate: () => ({ text: JSON.stringify({ 1: "claim", 2: "claim", 3: "claim", 4: "no" }) }),
       },
     );
     const { core, report } = await setUp(model);

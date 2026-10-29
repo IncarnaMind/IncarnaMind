@@ -547,8 +547,6 @@ export interface ListedDocuments {
 export interface LibraryDocuments {
   /** How many live Documents the Library holds: every one it lists, searchable or not. */
   total: number;
-  /** Some of them are an example IncarnaMind made's Documents, which this Answer leaves out. */
-  examples: boolean;
 }
 
 /** A Document name on one line of its own, and not too long. */
@@ -634,9 +632,6 @@ function documentNames({ total, names }: ListedDocuments): string {
   ].join("\n");
 }
 
-const EXAMPLES_LEFT_OUT =
-  "Documents of an example IncarnaMind made are in the Library too, and aren't the User's own work: leave them out.";
-
 /**
  * The Library's own count, when it holds more Documents than this Answer can use (#1333):
  * told only its scope's one, models said the Library held one.
@@ -679,7 +674,7 @@ export function documentInstructions(
   {
     writeFirst = false,
     minds = false,
-    library = { total: listed.total, examples: false },
+    library = { total: listed.total },
   }: { writeFirst?: boolean; minds?: boolean; library?: LibraryDocuments } = {},
 ): string {
   const dated = datedDocumentsNote(passages);
@@ -690,10 +685,7 @@ export function documentInstructions(
     bracketedAmountsNote(passages),
   ].filter(Boolean);
   const added = addedLine(listed.total, library.total, scoped);
-  const rest = [
-    ...(library.examples ? [EXAMPLES_LEFT_OUT] : []),
-    ...(library.total > listed.total ? [libraryNote(library.total, scoped)] : []),
-  ];
+  const rest = library.total > listed.total ? [libraryNote(library.total, scoped)] : [];
   switch (mode) {
     case "no-documents":
       return "";

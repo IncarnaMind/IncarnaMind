@@ -83,13 +83,22 @@ const docOf = (...blocks: JSONContent[]) => schema.nodeFromJSON({ type: "doc", c
 /** The Mind's health as its header counts it. */
 function healthOf(
   doc: ProseMirrorNode,
-  { skipped = [], kept }: { skipped?: readonly string[]; kept?: readonly KeptMark[] } = {},
+  {
+    skipped = [],
+    unexamined = [],
+    kept,
+  }: {
+    skipped?: readonly string[];
+    unexamined?: readonly string[];
+    kept?: readonly KeptMark[];
+  } = {},
 ): NoteHealth {
   const claims = claimsOf(doc, { versions: null, folderId: null, scope: null });
   return noteHealth(doc, {
     claims: claims.claims,
     citationCheck: (attributes) => attributes.check,
     skipped: new Set(skipped),
+    unexamined: new Set(unexamined),
     kept: kept ?? claims.kept,
   });
 }
@@ -256,6 +265,25 @@ describe("A Mind's health", () => {
 
     expect(healthOf(doc).toCheck).toHaveLength(3);
     expect(healthOf(doc, { skipped: [sentenceKey(opinion)] }).toCheck).toHaveLength(2);
+  });
+
+  test("a sentence the last whole-Mind check didn't examine is still to check, and counted as not examined until a check marks it (#1682)", () => {
+    const missed = "The harbour master keeps a log of every arrival.";
+    const marked = "Spring tides come at full moon.";
+    const doc = docOf(
+      paragraph(checked(marked, "supported")),
+      paragraph(text(missed)),
+      paragraph(text("Neap tides come at the quarter moons.")),
+    );
+    const unexamined = [sentenceKey(missed), sentenceKey(marked)];
+
+    const health = healthOf(doc, { unexamined });
+    expect(health.toCheck).toHaveLength(2);
+    expect(health.unexamined).toHaveLength(1);
+    expect(health.toCheck).toContain(health.unexamined[0]);
+    expect(healthOf(doc).unexamined).toHaveLength(0);
+    const checkedSince = docOf(paragraph(checked(missed, "unsupported")));
+    expect(healthOf(checkedSince, { unexamined }).unexamined).toHaveLength(0);
   });
 
   test("a sentence is in one part only: a claim with a Citation or no Citation is counted once", () => {

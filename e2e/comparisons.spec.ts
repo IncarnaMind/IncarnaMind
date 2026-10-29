@@ -11,6 +11,7 @@ import {
   createDataFolder,
   dismissChatSetup,
   launchApp,
+  motionSettled,
   newMind,
   pointAndClick,
   pointAt,
@@ -151,6 +152,27 @@ const cellTexts = (table: Locator) =>
         ),
       ),
     );
+
+/**
+ * Waits until every one of `cells` cells has its outcome. A fill starts a moment after
+ * the table is made or rows are added, so an absent progress line does not mean it ended.
+ */
+const fillSettled = async (table: Locator, cells: number) => {
+  await expect
+    .poll(
+      async () => {
+        const statuses = await table
+          .getByTestId("comparison-cell")
+          .evaluateAll((each) => each.map((cell) => cell.getAttribute("data-status")));
+        return (
+          statuses.length === cells &&
+          statuses.every((status) => status === "done" || status === "failed")
+        );
+      },
+      { timeout: 30_000 },
+    )
+    .toBe(true);
+};
 
 test("Compare Documents from “/”: 3 Documents × 2 Questions fill as a change to accept, a busy provider waited out, every cell cited and checked; Accept all, Reject all and ⌘Z", async () => {
   const { app, window } = await launchApp(dataDir, { fakeChat: true });
@@ -355,7 +377,7 @@ test("“+ Question” adds a column that fills; Expand fills the card with the 
   await pointAndClick(window, table.getByTestId("comparison-export-excel"));
   const result = window.getByTestId("export-result");
   await expect(result).toHaveAttribute("data-state", "saved", { timeout: 20_000 });
-  await expect(result).toContainText("Shortlist contract terms.xlsx");
+  await expect(result).toContainText("Comparison table.xlsx");
   await screenshot(window, "compare-excel-saved-en-1600");
   // Esc collapses the table first; the line stays until the next Esc.
   await window.keyboard.press("Escape");
@@ -372,7 +394,7 @@ test("“+ Question” adds a column that fills; Expand fills the card with the 
   await screenshot(window, "compare-excel-palette-en-1600");
   await window.keyboard.press("Enter");
   await expect(result).toHaveAttribute("data-state", "saved", { timeout: 20_000 });
-  await expect(result).toContainText("Shortlist contract terms 2.xlsx");
+  await expect(result).toContainText("Comparison table 2.xlsx");
   await screenshot(window, "compare-excel-saved-keyboard-en-1600");
   await window.keyboard.press("Escape");
 
@@ -893,9 +915,7 @@ test("a cell whose amount changed scale says what the Document gives, offers Fil
     timeout: 20_000,
   });
   const [book, evidence] = (
-    await readWorkbook(
-      new Uint8Array(await readFile(join(sources, "Shortlist contract terms.xlsx"))),
-    )
+    await readWorkbook(new Uint8Array(await readFile(join(sources, "Comparison table.xlsx"))))
   ).sheets;
   const at = (cells: { row: number; column: number; value: string }[] | undefined, row: number) =>
     cells?.find((cell) => cell.row === row && cell.column === 1)?.value;
@@ -1442,11 +1462,12 @@ test("a column moves by menu, keys and drag, and hides and shows from the table'
   await expect(window.getByTestId("undo-message")).toContainText("Hid “Termination notice”");
   await expect(table.getByTestId("comparison-question")).toHaveCount(1);
   await expect(headingAt(table, 0)).toHaveText("Liability cap");
-  await pointAndClick(window, table.getByTestId("comparison-hidden-menu"));
-  const hiddenMenu = window.getByTestId("comparison-hidden-actions");
-  await expect(hiddenMenu.getByRole("menuitem")).toHaveCount(1);
-  await expect(hiddenMenu.getByRole("menuitem").first()).toContainText("Show “Termination notice”");
-  await pointAndClick(window, hiddenMenu.getByRole("menuitem").first());
+  await pointAndClick(window, table.getByTestId("comparison-table-menu"));
+  const hiddenMenu = window.getByTestId("comparison-table-actions");
+  const showFirst = hiddenMenu.locator('[data-testid^="comparison-column-show-"]');
+  await expect(showFirst).toHaveCount(1);
+  await expect(showFirst.first()).toContainText("Show “Termination notice”");
+  await pointAndClick(window, showFirst.first());
   await expect(table.getByTestId("comparison-question")).toHaveCount(2);
   await expect(headingAt(table, 0)).toHaveText("Termination notice");
   await expect(window.getByTestId("undo-message")).toContainText("Showed “Termination notice”");
@@ -1468,14 +1489,12 @@ test("a column moves by menu, keys and drag, and hides and shows from the table'
   await window.keyboard.press("Enter");
   await expect(table.getByTestId("comparison-question")).toHaveCount(1);
   await bridge(window).language("zh-CN");
-  await expect(table.getByTestId("comparison-hidden-menu")).toHaveAttribute(
-    "aria-label",
-    "已隐藏的列（1）",
+  await pointAndClick(window, table.getByTestId("comparison-table-menu"));
+  const zhHidden = window.getByTestId("comparison-table-actions");
+  await expect(zhHidden).toContainText("已隐藏的列（1）");
+  await expect(zhHidden.locator('[data-testid^="comparison-column-show-"]').first()).toContainText(
+    "显示“Termination notice”",
   );
-  await pointAndClick(window, table.getByTestId("comparison-hidden-menu"));
-  await expect(
-    window.getByTestId("comparison-hidden-actions").getByRole("menuitem").first(),
-  ).toContainText("显示“Termination notice”");
   await window.keyboard.press("Escape");
   await window.getByTestId("mind-editor").first().focus();
   await window.keyboard.press("ControlOrMeta+z");
@@ -1514,9 +1533,9 @@ test("a column moves by menu, keys and drag, and hides and shows from the table'
     window.getByTestId("palette").locator('[data-key="command:comparison.column.showHidden"]'),
   ).toBeVisible();
   await window.keyboard.press("Enter");
-  const showMenu = window.getByTestId("comparison-hidden-actions");
+  const showMenu = window.getByTestId("comparison-table-actions");
   await expect(showMenu).toBeVisible();
-  await window.keyboard.press("Enter");
+  await pointAndClick(window, showMenu.locator('[data-testid^="comparison-column-show-"]').first());
   await expect(table.getByTestId("comparison-question")).toHaveCount(2);
   await expect(window.getByTestId("undo-message")).toContainText("Showed “Termination notice”");
 
@@ -1570,12 +1589,16 @@ for (const language of ["en", "zh-CN"] as const) {
       await window.keyboard.press("ControlOrMeta+z");
     };
     const menu = async (column: number, item: string) => {
-      await headingAt(table, column).focus();
-      await pointAndClick(window, headingAt(table, column).getByTestId("comparison-column-menu"));
-      await pointAndClick(
-        window,
-        headingAt(table, column).locator('[role="menu"]').getByTestId(item),
-      );
+      const heading = headingAt(table, column);
+      await heading.focus();
+      // A heading is redrawn, and the table can scroll to it, after a move: a click aimed at its
+      // box a moment earlier can land in a cell instead, whose Citation card then covers the
+      // heading. A click that waits for the button to keep its box and take the pointer lands on
+      // the button; the menu is then open before the item is clicked.
+      await heading.getByTestId("comparison-column-menu").click();
+      const opened = heading.locator('[role="menu"]');
+      await expect(opened).toBeVisible();
+      await opened.getByTestId(item).click();
     };
     const base = await state();
 
@@ -1643,9 +1666,21 @@ for (const language of ["en", "zh-CN"] as const) {
 
     // Move, then hide: ⌘Z shows the column, ⌘Z again moves it back.
     await menu(0, "comparison.column.moveRight");
+    // The core writes the move, and the headings are redrawn in its order: wait for the drawn
+    // order by name, or a redraw between the menu's own two clicks leaves the second place on a
+    // heading whose menu is not the one opened.
+    await expect
+      .poll(async () => (await state()).headings)
+      .toEqual(["Liability cap", "Termination notice", "Governing law"]);
     await menu(1, "comparison.column.hide");
+    // Which column the hide took, not just how many are left.
+    await expect
+      .poll(async () => (await state()).headings)
+      .toEqual(["Liability cap", "Governing law"]);
     await undo();
-    await expect(table.getByTestId("comparison-question")).toHaveCount(3);
+    await expect
+      .poll(async () => (await state()).headings)
+      .toEqual(["Liability cap", "Termination notice", "Governing law"]);
     await undo();
     await expect.poll(state).toEqual(base);
   });
@@ -1682,8 +1717,14 @@ test("⌘K shows hidden columns even when every column is hidden, in English and
 
   // The picker shows one column at a time; both come back.
   for (const count of [1, 2]) {
-    await pointAndClick(window, table.getByTestId("comparison-hidden-menu"));
-    await window.keyboard.press("Enter");
+    await pointAndClick(window, table.getByTestId("comparison-table-menu"));
+    await pointAndClick(
+      window,
+      window
+        .getByTestId("comparison-table-actions")
+        .locator('[data-testid^="comparison-column-show-"]')
+        .first(),
+    );
     await expect(table.getByTestId("comparison-question")).toHaveCount(count);
   }
 });
@@ -1819,10 +1860,13 @@ test("a hidden column is out of Fill's count until it is shown, in English and C
   await expect(table.getByTestId("comparison-fill")).toHaveCount(0);
 
   // Shown, Fill offers them again.
-  await pointAndClick(window, table.getByTestId("comparison-hidden-menu"));
+  await pointAndClick(window, table.getByTestId("comparison-table-menu"));
   await pointAndClick(
     window,
-    window.getByTestId("comparison-hidden-actions").getByRole("menuitem").first(),
+    window
+      .getByTestId("comparison-table-actions")
+      .locator('[data-testid^="comparison-column-show-"]')
+      .first(),
   );
   await expect(table.getByTestId("comparison-question")).toHaveCount(3);
   await expect(table.getByTestId("comparison-fill")).toHaveText("Fill 3 cells");
@@ -1836,10 +1880,13 @@ test("a hidden column is out of Fill's count until it is shown, in English and C
     headingAt(table, 1).locator('[role="menu"]').getByTestId("comparison.column.hide"),
   );
   await expect(table.getByTestId("comparison-fill")).toHaveCount(0);
-  await pointAndClick(window, table.getByTestId("comparison-hidden-menu"));
+  await pointAndClick(window, table.getByTestId("comparison-table-menu"));
   await pointAndClick(
     window,
-    window.getByTestId("comparison-hidden-actions").getByRole("menuitem").first(),
+    window
+      .getByTestId("comparison-table-actions")
+      .locator('[data-testid^="comparison-column-show-"]')
+      .first(),
   );
   await expect(table.getByTestId("comparison-fill")).toHaveText("补全 3 个单元格");
   await bridge(window).language("en");
@@ -1909,7 +1956,7 @@ test("a column's edge resizes it and the width and a hidden column stay with the
   await pointAndClick(window, first.getByTestId("comparison-column-menu"));
   await pointAndClick(window, first.locator('[role="menu"]').getByTestId("comparison.column.hide"));
   await expect(table.getByTestId("comparison-question")).toHaveCount(1);
-  await expect(table.getByTestId("comparison-hidden-menu")).toBeVisible();
+  await expect(table.getByTestId("comparison-table-menu")).toBeVisible();
 
   // Kept with the Note: after a reload the column is still sized and the other still hidden.
   await window.reload();
@@ -1920,7 +1967,7 @@ test("a column's edge resizes it and the width and a hidden column stay with the
   await expect
     .poll(async () => Math.round(await widthOf(headingAt(reloaded, 0))))
     .toBe(Math.round(secondWidth));
-  await expect(reloaded.getByTestId("comparison-hidden-menu")).toBeVisible();
+  await expect(reloaded.getByTestId("comparison-table-menu")).toBeVisible();
 
   // The sheet leaves the hidden column out with no line, keeps the width, and the app says the count.
   // Export options says it before the file is written.
@@ -1980,13 +2027,13 @@ test("a column's edge resizes it and the width and a hidden column stay with the
   await expect(dialog.getByTestId("export-hidden-columns")).toHaveText("已排除 1 个隐藏列");
   await pointAndClick(window, dialog.getByTestId("export-options-close"));
   await expect(dialog).toBeHidden();
-  await expect(reloaded.getByTestId("comparison-hidden-menu")).toHaveAttribute(
-    "aria-label",
-    "已隐藏的列（1）",
-  );
-  await pointAndClick(window, reloaded.getByTestId("comparison-hidden-menu"));
+  await pointAndClick(window, reloaded.getByTestId("comparison-table-menu"));
+  await expect(window.getByTestId("comparison-table-actions")).toContainText("已隐藏的列（1）");
   await expect(
-    window.getByTestId("comparison-hidden-actions").getByRole("menuitem").first(),
+    window
+      .getByTestId("comparison-table-actions")
+      .locator('[data-testid^="comparison-column-show-"]')
+      .first(),
   ).toContainText("显示“Termination notice”");
   await window.keyboard.press("Escape");
 
@@ -1994,7 +2041,7 @@ test("a column's edge resizes it and the width and a hidden column stay with the
   await setWindowSize(app, window, 900, 860);
   const scroller = window.locator(".mind-scroller").first();
   const [menuBox, frame] = [
-    await reloaded.getByTestId("comparison-hidden-menu").boundingBox(),
+    await reloaded.getByTestId("comparison-table-menu").boundingBox(),
     await scroller.boundingBox(),
   ];
   if (!menuBox || !frame) throw new Error("The menu or the card isn't on screen.");
@@ -2231,4 +2278,307 @@ test("two windows on one Note: the second sees a move, its Undo takes nothing of
     .toEqual(["Liability cap", "Termination notice"]);
   const log = await readFile(join(dataDir, "logs", "incarnamind.log"), "utf8");
   expect(log).not.toContain("did not answer");
+});
+
+/** The names of a table's rows, in the order it draws them. */
+const rowNames = (table: Locator) =>
+  table
+    .locator(".comparison-document-name")
+    .evaluateAll((names) => names.map((name) => (name.textContent ?? "").trim()));
+
+/** The rows the table shows, when a count is clicked. */
+const shownRows = (table: Locator) => table.locator('[data-testid="comparison-row"]:visible');
+
+test("a table gains Documents later: the picker ticks its own, its line counts only the new cells, and ⌘Z takes the rows out", async () => {
+  test.setTimeout(180_000);
+  const { app, window } = await launchApp(dataDir, { fakeChat: true });
+  await dismissChatSetup(window);
+  await setWindowSize(app, window, 1440, 860);
+  await acceptPlainTextKeys(window);
+  await bridge(window).cloudModel();
+  await bridge(window).cap();
+  // Five Documents at once: the three the table is made from, and two it gains later.
+  const paths: string[] = [];
+  for (const [name, text] of Object.entries(SUPPLIERS)) {
+    const path = join(sources, name);
+    await writeFile(path, text);
+    paths.push(path);
+  }
+  for (const [name, text] of [
+    ["Aldermoor Term Sheet.txt", "Aldermoor Term Sheet.\nTermination notice: 45 days.\n"],
+    ["Brackwater Term Sheet.txt", "Brackwater Term Sheet.\nTermination notice: 15 days.\n"],
+  ] as const) {
+    const path = join(sources, name);
+    await writeFile(path, text);
+    paths.push(path);
+  }
+  await addDocuments(window, paths);
+
+  const sheet = await openSheetFromSlash(window);
+  await expect(sheet.getByTestId("compare-sheet-document")).toHaveCount(5);
+  await typeQuestions(window, ["Termination notice"]);
+  for (const name of ["Aldermoor Term Sheet", "Brackwater Term Sheet"]) {
+    await pointAndClick(window, sheet.locator("label", { hasText: name }).locator("input"));
+  }
+  await expect(sheet.getByTestId("compare-sheet-counted")).toHaveText("3 of 5");
+  await pointAndClick(window, sheet.getByTestId("compare-sheet-make"));
+  const table = window.getByTestId("comparison-table");
+  await fillSettled(table, 3);
+  await pointAndClick(window, table.getByTestId("comparison-accept-all"));
+  await expect(table).not.toHaveAttribute("data-pending", "true");
+  // ⌘K reaches Add Documents from the table's title line.
+  await table.getByTestId("comparison-head").focus();
+  await window.keyboard.press("ControlOrMeta+k");
+  await window.keyboard.type("Add Documents");
+  await expect(
+    window.getByTestId("palette").locator('[data-key="command:comparison.table.addDocuments"]'),
+  ).toBeVisible();
+  await window.keyboard.press("Escape");
+  // Every cell answered: nothing to look at, so no counts.
+  await expect
+    .poll(async () => (await cellTexts(table)).flat().some((text) => text.includes("Reading…")))
+    .toBe(false);
+  await expect(table.getByTestId("comparison-count-nothing")).toHaveCount(0);
+  await expect(table.getByTestId("comparison-count-failed")).toHaveCount(0);
+  const before = await cellTexts(table);
+
+  await pointAndClick(window, table.getByTestId("comparison-table-menu"));
+  await pointAndClick(
+    window,
+    window.getByTestId("comparison-table-actions").getByTestId("comparison.table.addDocuments"),
+  );
+  const picker = window.getByTestId("comparison-add-documents");
+  await expect(picker).toBeVisible();
+  // The table's own Documents are ticked and greyed.
+  await expect(picker.locator('input[data-testid="comparison-add-document"]')).toHaveCount(5);
+  await expect(picker.locator('input[data-testid="comparison-add-document"]:checked')).toHaveCount(
+    3,
+  );
+  await expect(picker.locator('input[data-testid="comparison-add-document"]:disabled')).toHaveCount(
+    3,
+  );
+  await pointAndClick(window, picker.locator("label", { hasText: "Aldermoor" }).locator("input"));
+  await pointAndClick(window, picker.locator("label", { hasText: "Brackwater" }).locator("input"));
+  await expect(picker.getByTestId("comparison-add-estimate")).toHaveText(
+    /^2 cells to fill · About \$[\d.,]+ · [\d.,]+[KMB]? tokens/,
+  );
+  await expect(picker.getByTestId("comparison-add-confirm")).toHaveText("Add 2 Documents");
+  await screenshot(window, "compare-add-documents-en-1440");
+  // Narrow, the picker stays inside the window.
+  await setWindowSize(app, window, 900, 860);
+  await motionSettled(window);
+  const pickerBox = await picker.boundingBox();
+  const width = await window.evaluate(() => globalThis.innerWidth);
+  if (!pickerBox) throw new Error("The picker isn't on screen.");
+  expect(pickerBox.x).toBeGreaterThanOrEqual(0);
+  expect(pickerBox.x + pickerBox.width).toBeLessThanOrEqual(width + 1);
+  await screenshot(window, "compare-add-documents-en-900");
+  await setWindowSize(app, window, 1440, 860);
+  await pointAndClick(window, picker.getByTestId("comparison-add-confirm"));
+
+  await expect(window.getByTestId("undo-message")).toContainText("Added 2 Documents");
+  await expect(table.getByTestId("comparison-row")).toHaveCount(5);
+  // The fill starts after the rows are added, so wait for its Answers rather than for a
+  // progress line that is still absent the moment before it starts.
+  const addedAnswers = async () =>
+    (await cellTexts(table)).slice(3).map((cells) => cells[0]?.replace(/(\s+\d+)+\s*$/, ""));
+  await expect.poll(addedAnswers, { timeout: 30_000 }).toEqual(["45 days", "15 days"]);
+  // Only the new rows were asked: the Answers already there are as they were.
+  expect((await cellTexts(table)).slice(0, 3)).toEqual(before);
+  await fillSettled(table, 5);
+  await expect.poll(() => rowNames(table)).toContain("Aldermoor Term Sheet");
+
+  await window.getByTestId("mind-editor").first().focus();
+  await window.keyboard.press("ControlOrMeta+z");
+  await expect(table.getByTestId("comparison-row")).toHaveCount(3);
+  await window.keyboard.press("ControlOrMeta+Shift+z");
+  await expect(table.getByTestId("comparison-row")).toHaveCount(5);
+
+  // In Chinese the picker says what it is and what it will add.
+  await bridge(window).language("zh-CN");
+  await pointAndClick(window, table.getByTestId("comparison-table-menu"));
+  await expect(
+    window.getByTestId("comparison-table-actions").getByTestId("comparison.table.addDocuments"),
+  ).toHaveText("添加文档…");
+  await pointAndClick(
+    window,
+    window.getByTestId("comparison-table-actions").getByTestId("comparison.table.addDocuments"),
+  );
+  await expect(picker).toContainText("添加文档");
+  await window.keyboard.press("Escape");
+  await bridge(window).language("en");
+});
+
+test("rows are removed and moved by menu, keys and drag, each undone, and a row's Document opens beside the table", async () => {
+  test.setTimeout(180_000);
+  const { app, window } = await launchApp(dataDir, { fakeChat: true });
+  await dismissChatSetup(window);
+  await setWindowSize(app, window, 1600, 860);
+  await acceptPlainTextKeys(window);
+  await useLocalChatModel(window);
+  const table = await filledSuppliersTable(window);
+  const heads = table.locator(".comparison-document");
+  const names = await rowNames(table);
+
+  // ⌘K reaches the row's actions from its head.
+  await heads.first().focus();
+  await window.keyboard.press("ControlOrMeta+k");
+  await window.keyboard.type("Remove row");
+  await expect(
+    window.getByTestId("palette").locator('[data-key="command:comparisonRow.remove"]'),
+  ).toBeVisible();
+  await window.keyboard.press("Escape");
+
+  // Delete on the focused row's head takes it out; the undo line names it.
+  await heads.first().focus();
+  await window.keyboard.press("Delete");
+  await expect(table.getByTestId("comparison-row")).toHaveCount(2);
+  await expect(window.getByTestId("undo-message")).toContainText("Removed “Corvane Agreement”");
+  await window.keyboard.press("ControlOrMeta+z");
+  await expect(table.getByTestId("comparison-row")).toHaveCount(3);
+  expect(await rowNames(table)).toEqual(names);
+
+  // Its menu moves it down, and up, each one step of Undo.
+  await pointAndClick(window, heads.first().getByTestId("comparison-row-menu"));
+  const rowMenu = window.locator('[data-testid="comparison-row-actions"]:popover-open');
+  await expect(rowMenu.getByRole("menuitem").nth(0)).toContainText("Open");
+  await expect(rowMenu.getByRole("menuitem").nth(1)).toContainText("Move up");
+  await expect(rowMenu.getByRole("menuitem").nth(2)).toContainText("Move down");
+  await expect(rowMenu.getByRole("menuitem").nth(3)).toContainText("Remove row");
+  await pointAndClick(window, rowMenu.getByTestId("comparisonRow.moveDown"));
+  await expect.poll(() => rowNames(table)).toEqual([names[1], names[0], names[2]]);
+  await window.keyboard.press("ControlOrMeta+z");
+  await expect.poll(() => rowNames(table)).toEqual(names);
+
+  // The keys move the row too.
+  const moveDown =
+    process.platform === "darwin" ? "Alt+Shift+ArrowDown" : "Control+Shift+ArrowDown";
+  await heads.first().focus();
+  await window.keyboard.press(moveDown);
+  await expect.poll(() => rowNames(table)).toEqual([names[1], names[0], names[2]]);
+  await window.keyboard.press("ControlOrMeta+z");
+  await expect.poll(() => rowNames(table)).toEqual(names);
+
+  // Dragged by its head, it lands below the last row.
+  const start = await pointAt(window, heads.first());
+  const last = await heads.nth(2).boundingBox();
+  if (!last) throw new Error("The last row isn't on screen.");
+  await window.mouse.down();
+  await window.mouse.move(start.x, last.y + last.height - 4, { steps: 14 });
+  await window.mouse.up();
+  await expect.poll(() => rowNames(table)).toEqual([names[1], names[2], names[0]]);
+  await screenshot(window, "compare-rows-dragged-en-1600");
+  await window.getByTestId("mind-editor").first().focus();
+  await window.keyboard.press("ControlOrMeta+z");
+  await expect.poll(() => rowNames(table)).toEqual(names);
+
+  // Open shows the row's Document beside the table.
+  await pointAndClick(window, heads.first().getByTestId("comparison-row-open"));
+  await expect(window.getByTestId("viewer-header")).toBeVisible({ timeout: 20_000 });
+});
+
+test("the table is renamed in place, and its name is the Excel file's and sheet's name", async () => {
+  test.setTimeout(180_000);
+  const { app, window } = await launchApp(dataDir, { fakeChat: true });
+  await dismissChatSetup(window);
+  await setWindowSize(app, window, 1440, 860);
+  await acceptPlainTextKeys(window);
+  await useLocalChatModel(window);
+  await useOutputLocation(window, sources);
+  const table = await filledSuppliersTable(window);
+
+  const name = table.getByTestId("comparison-name");
+  await expect(table.getByTestId("comparison-title")).toContainText("Comparison table ·");
+  await name.dblclick();
+  const field = table.getByTestId("comparison-name-field");
+  await expect(field).toBeFocused();
+  await field.fill("Refinancing offers");
+  await field.press("Enter");
+  await expect(table.getByTestId("comparison-title")).toContainText(
+    "Refinancing offers · 3 Documents × 2 Questions",
+  );
+  await expect(window.getByTestId("undo-message")).toContainText("Renamed to “Refinancing offers”");
+
+  // F2 renames it too; Esc keeps the name.
+  await table.getByTestId("comparison-head").focus();
+  await window.keyboard.press("F2");
+  await expect(field).toBeFocused();
+  await field.fill("Not this");
+  await field.press("Escape");
+  await expect(table.getByTestId("comparison-title")).toContainText("Refinancing offers ·");
+
+  // ⌘Z takes the name back, and ⇧⌘Z does it again.
+  await table.getByTestId("comparison-head").focus();
+  await window.keyboard.press("ControlOrMeta+z");
+  await expect(table.getByTestId("comparison-title")).toContainText("Comparison table ·");
+  await window.keyboard.press("ControlOrMeta+Shift+z");
+  await expect(table.getByTestId("comparison-title")).toContainText("Refinancing offers ·");
+
+  // Expanded, the title line keeps its name, and the export is named after it.
+  await pointAndClick(window, table.getByTestId("comparison-expand"));
+  await expect(table.getByTestId("comparison-title")).toContainText(
+    "Refinancing offers · 3 Documents × 2 Questions",
+  );
+  await screenshot(window, "compare-renamed-expanded-en-1440");
+  await pointAndClick(window, table.getByTestId("comparison-export-excel"));
+  const result = window.getByTestId("export-result");
+  await expect(result).toHaveAttribute("data-state", "saved", { timeout: 20_000 });
+  await expect(result).toContainText("Refinancing offers.xlsx");
+  const written = new Uint8Array(await readFile(join(sources, "Refinancing offers.xlsx")));
+  const book = await readWorkbook(written, undefined, {});
+  expect(book.sheets.map((sheet) => sheet.name)).toEqual(["Refinancing offers", "Sources"]);
+});
+
+test("the counts say what found nothing and what failed, each a filter, in English and Chinese", async () => {
+  test.setTimeout(180_000);
+  const { app, window } = await launchApp(dataDir, { fakeChat: true });
+  await dismissChatSetup(window);
+  await setWindowSize(app, window, 1600, 860);
+  await acceptPlainTextKeys(window);
+  await bridge(window).cloudModel();
+  await addSuppliers(window);
+
+  const sheet = await openSheetFromSlash(window);
+  await typeQuestions(window, ["Termination notice", "Liability cap", "Budget (out of credit)"]);
+  await pointAndClick(window, sheet.getByTestId("compare-sheet-make"));
+  const table = window.getByTestId("comparison-table");
+  await fillSettled(table, 9);
+  await pointAndClick(window, table.getByTestId("comparison-accept-all"));
+
+  const nothing = table.getByTestId("comparison-count-nothing");
+  const failed = table.getByTestId("comparison-count-failed");
+  await expect(nothing).toHaveText("1 found nothing");
+  await expect(failed).toHaveText("3 failed");
+  await expect(nothing).toHaveAttribute("aria-pressed", "false");
+  await expect(shownRows(table)).toHaveCount(3);
+
+  await pointAndClick(window, nothing);
+  await expect(nothing).toHaveAttribute("aria-pressed", "true");
+  await expect(table.getByTestId("comparison-showing")).toHaveText("Showing 1 of 3 Documents");
+  await expect(shownRows(table)).toHaveCount(1);
+  await screenshot(window, "compare-status-filter-en-1600");
+  await pointAndClick(window, table.getByTestId("comparison-clear-filter"));
+  await expect(shownRows(table)).toHaveCount(3);
+  await expect(table.getByTestId("comparison-showing")).toHaveCount(0);
+
+  // Chinese says the same, and its Clear filter does the same.
+  await bridge(window).language("zh-CN");
+  await expect(table.getByTestId("comparison-count-nothing")).toHaveText("1 个未找到");
+  await expect(table.getByTestId("comparison-count-failed")).toHaveText("3 个失败");
+  await pointAndClick(window, table.getByTestId("comparison-count-nothing"));
+  await expect(table.getByTestId("comparison-showing")).toHaveText("显示 3 个文档中的 1 个");
+  await expect(table.getByTestId("comparison-clear-filter")).toHaveText("清除筛选");
+  await pointAndClick(window, table.getByTestId("comparison-clear-filter"));
+  await expect(shownRows(table)).toHaveCount(3);
+  // Narrow, the title line and its counts stay inside the card.
+  await setWindowSize(app, window, 900, 860);
+  await expect(table.getByTestId("comparison-count-nothing")).toBeVisible();
+  const [headBox, cardBox] = [
+    await table.getByTestId("comparison-head").boundingBox(),
+    await window.locator(".mind-scroller").first().boundingBox(),
+  ];
+  if (!headBox || !cardBox) throw new Error("The title line or the card isn't on screen.");
+  expect(headBox.x + headBox.width).toBeLessThanOrEqual(cardBox.x + cardBox.width + 1);
+  await screenshot(window, "compare-status-zh-900");
+  await bridge(window).language("en");
 });
