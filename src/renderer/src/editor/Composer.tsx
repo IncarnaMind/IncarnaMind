@@ -221,8 +221,8 @@ export function Composer({
   /** The selection the composer is saying what to change in (Edit with AI…, ⌘J with a selection). */
   const editing = useEdits((state) => state.editing[key]);
   /** The Research plan open in the tray (#130): what is typed changes it. */
-  const plan = useResearch((state) => (mindId ? state.plans[mindId] : undefined));
-  const researching = mind !== null && draft.research === true;
+  const plan = useResearch((state) => state.plans[key]);
+  const researching = draft.research === true;
   const analysing = draft.analyse === true && !researching;
   /** Tell it… (#130): the running Task what is typed goes to. */
   const told = useTasks((state) => (draft.tell ? state.tasks[draft.tell] : undefined));
@@ -315,8 +315,6 @@ export function Composer({
     const from = at - query.length - 1;
     if (dismissed.current === from) return null;
     const kind = match[1] === "@" ? "scope" : "skill";
-    // A slash is just a slash while there is nothing to choose: no Skill, and no Mind to research for.
-    if (kind === "skill" && enabledSkills.length === 0 && !mind) return null;
     return { kind, query, from, to: at };
   };
 
@@ -541,12 +539,12 @@ export function Composer({
       }
       return;
     }
-    if (mind && (plan || current.research)) {
+    if (plan || current.research) {
       const topic = current.text.trim();
       if (!topic) return;
       update({ text: "", research: false });
-      if (plan) void changePlan(mind.mindId, topic, modelInUseOf(mind.doc));
-      else openResearch(mind.mindId, topic, modelInUseOf(mind.doc), webReach === "ready");
+      if (plan) void changePlan(key, topic, modelInUseOf(mind?.doc ?? null));
+      else openResearch(key, topic, modelInUseOf(mind?.doc ?? null), webReach === "ready");
       return;
     }
     // An Answer is being written, or its Question is on its way: Enter waits for it, as in
@@ -659,9 +657,9 @@ export function Composer({
       void ask();
       return;
     }
-    if (event.key === "Enter" && isCommand(event) && plan && mind) {
+    if (event.key === "Enter" && isCommand(event) && plan) {
       event.preventDefault();
-      void startResearch(mind.mindId, modelInUseOf(mind.doc));
+      void startResearch(key, modelInUseOf(mind?.doc ?? null));
       return;
     }
     // The waiting ask in the tray, nearest the keyboard: ⌘↵ allows, ⌘⌫ (with nothing typed) denies.
@@ -702,9 +700,9 @@ export function Composer({
       setTellProblem(null);
       return;
     }
-    if (event.key === "Escape" && plan && mind) {
+    if (event.key === "Escape" && plan) {
       event.preventDefault();
-      cancelResearch(mind.mindId);
+      cancelResearch(key);
       return;
     }
     if (event.key === "Escape" && researching) {
@@ -1082,7 +1080,7 @@ export function Composer({
             <SkillChoiceList
               ref={list}
               id={listId}
-              onResearch={mind ? chooseResearch : undefined}
+              onResearch={chooseResearch}
               researchHint={researchHint}
               skills={enabledSkills}
               describe={(each) => skillDescription(each, t)}

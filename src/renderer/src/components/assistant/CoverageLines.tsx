@@ -10,7 +10,8 @@ import { LineAction } from "../ProblemLine";
  * and an offer of the rest, asked again in a new Answer under this one, which
  * stays as it is: "I'll summarise the 8 largest of your 14 Documents
  * now. · Summarise the other 6", "I took “10-K” and “Facility agreement” as
- * the main ones. · Use others".
+ * the main ones. · Use others", "I read “Minutes Q3”; 1 other Document
+ * matches. · Use others".
  */
 export function CoverageLine({
   answer,
@@ -27,13 +28,18 @@ export function CoverageLine({
   const said = saidInLine(t, (t, cut) =>
     coverage.kind === "largest"
       ? t("coverage.largest", { count: used.length, total: used.length + rest.length })
-      : used.length === 1
-        ? t("coverage.main.one", { document: `“${cut(used[0]?.name ?? "")}”` })
-        : t("coverage.main", {
-            documents: new Intl.ListFormat(language, { type: "conjunction" }).format(
-              used.map((each) => `“${cut(each.name)}”`),
-            ),
-          }),
+      : coverage.kind === "named"
+        ? t(rest.length === 1 ? "coverage.named.one" : "coverage.named", {
+            document: `“${cut(used[0]?.name ?? "")}”`,
+            count: rest.length,
+          })
+        : used.length === 1
+          ? t("coverage.main.one", { document: `“${cut(used[0]?.name ?? "")}”` })
+          : t("coverage.main", {
+              documents: new Intl.ListFormat(language, { type: "conjunction" }).format(
+                used.map((each) => `“${cut(each.name)}”`),
+              ),
+            }),
   );
   const askAgain = () =>
     void askInAssistant({

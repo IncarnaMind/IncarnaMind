@@ -141,5 +141,5 @@ A comparison table's column has a short **label**, its heading, beside its Quest
 
 A not-found sentence can be checked against the whole text of one Document or Folder the User picks, rather than only the Passages ranked search supplies. The mark records the exact coverage so a partial read never claims that nothing exists in the unread part.
 
-- **Content schema version 31** adds the `check-against-document` action and `read: { pages, of }` to the `claimCheck` mark. `pages` counts only completely read pages, and `of` is the picked scope's total. An older version's editor would treat the mark as an ordinary check and drop its coverage, so it opens these Minds read-only. Older content is version 31 content as it is.
+- **Content schema version 38** adds the `check-against-document` action and `read: { pages, of }` to the `claimCheck` mark. `pages` counts only completely read pages, and `of` is the picked scope's total. An older version's editor would treat the mark as an ordinary check and drop its coverage, so it opens these Minds read-only. Older content is version 38 content as it is.
 - **No table, no migration.** Nothing outside the Mind's Yjs document changes.

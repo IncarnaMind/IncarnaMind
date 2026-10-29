@@ -24,6 +24,9 @@ export const MAX_COMPARISON_DOCUMENTS = 100;
 export const MAX_COMPARISON_TEXT = 500;
 /** The longest a column's own heading may be; longer than a heading reads in a table. */
 export const MAX_COMPARISON_LABEL = 80;
+/** How narrow and how wide a column's edge can be dragged, in pixels. */
+export const MIN_COMPARISON_COLUMN_WIDTH = 96;
+export const MAX_COMPARISON_COLUMN_WIDTH = 560;
 const HEADING_CHARS = 40;
 
 function shortened(question: string): string {
@@ -71,6 +74,13 @@ export function comparisonQuestionsOf(attributes: Attributes): ComparisonQuestio
     });
   }
   return questions;
+}
+
+/** The columns a table draws: a hidden column keeps its Answers and its place, unshown. */
+export function visibleComparisonQuestions(
+  questions: readonly ComparisonQuestion[],
+): ComparisonQuestion[] {
+  return questions.filter((question) => question.hidden !== true);
 }
 
 const STATUSES: readonly ComparisonCellStatus[] = ["waiting", "writing", "done", "failed"];

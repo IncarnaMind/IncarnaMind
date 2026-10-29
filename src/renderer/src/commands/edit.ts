@@ -1,6 +1,7 @@
 import { useEffect } from "react";
 import type { EditMenuState } from "../../../shared/bridge";
 import { files } from "../core";
+import { redoFromMenu, undoFromMenu } from "../editor/comparisonStructureUndo";
 import { noteAround } from "../editor/noteKeymap";
 import { useT } from "../i18n";
 import type { Translate } from "../objects";
@@ -58,7 +59,9 @@ export const editCommands: readonly Command[] = [
     run(ctx) {
       const place = placeOf(ctx);
       if (place === "note") {
-        if (noteHere(document.activeElement)?.commands.undo()) return;
+        const note = noteHere(document.activeElement);
+        if (note && undoFromMenu(note)) return;
+        if (note?.commands.undo()) return;
         return useUndo.getState().undo();
       }
       // A field's own undo, the system Edit menu's editing command, which only execCommand reaches.
@@ -77,7 +80,9 @@ export const editCommands: readonly Command[] = [
     run(ctx) {
       const place = placeOf(ctx);
       if (place === "note") {
-        if (noteHere(document.activeElement)?.commands.redo()) return;
+        const note = noteHere(document.activeElement);
+        if (note && redoFromMenu(note)) return;
+        if (note?.commands.redo()) return;
         return useUndo.getState().redo();
       } else if (place === "field") document.execCommand("redo");
       else return useUndo.getState().redo();

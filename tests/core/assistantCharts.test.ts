@@ -195,13 +195,17 @@ function writeThenCite(content: string) {
   return scriptedModel((call): ScriptedReply => {
     const search = call.results.find((each) => each.tool === "search_documents");
     if (!search) return { calls: [{ tool: "search_documents", input: { query: "revenue" } }] };
-    if (called(call, "add_to_mind")) return { text: "" };
-    return {
-      calls: [
-        { tool: "add_to_mind", input: { chart: { kind: "bar", title: "Revenue" }, content } },
-        { tool: "cite", input: { citations: citationsIn(search) } },
-      ],
+    const add = {
+      tool: "add_to_mind",
+      input: { chart: { kind: "bar", title: "Revenue" }, content },
     };
+    const adds = call.results.filter((each) => each.tool === "add_to_mind");
+    // Told its table has no Citation (#1415), it writes it again as it was.
+    if (adds.length === 1 && adds[0]?.text.includes("content has no Citation")) {
+      return { calls: [add] };
+    }
+    if (adds.length > 0) return { text: "" };
+    return { calls: [add, { tool: "cite", input: { citations: citationsIn(search) } }] };
   });
 }
 
@@ -282,7 +286,7 @@ describe("A chart only draws what is cited", { timeout: 60_000 }, () => {
     await client.settled();
 
     expect(blocksOf(readMind(client)).types).toEqual(["paragraph", "table"]);
-    expect(changesIn(answer)[0]?.chartNotDrawn).toBe("uncited");
+    expect(changesIn(answer)[0]).toMatchObject({ chartNotDrawn: "uncited", uncited: true });
   });
 });
 

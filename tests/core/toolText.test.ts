@@ -290,6 +290,31 @@ describe("Which text is tool-call text", () => {
     }
   });
 
+  // protects=a Tool's name and a colon at a line's start, then JSON, is a block as a call is, and its records come back; fails_when=the record is lost and the figure it backs goes Not checked, or prose with a colon loses words; no_claim=none beyond protects.
+  test("a name and a colon at a line's start, then JSON, is a block too", () => {
+    const written = [
+      "Verdict: supported",
+      "The Document states net debt of £5,704m [^1].",
+      "",
+      'cite: [{"marker":1,"passage":"P1","location":"§ Results","quote":"Net debt was £5,704m."}]',
+      "",
+      'Figures: {"items":[],"remainder":null}',
+    ].join("\n");
+    const { text, records } = takeToolText(written);
+    expect(text).toBe(
+      'Verdict: supported\nThe Document states net debt of £5,704m [^1].\n\nFigures: {"items":[],"remainder":null}',
+    );
+    expect(records).toEqual([
+      { marker: 1, passage: "P1", location: "§ Results", quote: "Net debt was £5,704m." },
+    ]);
+    for (const kept of [
+      "They cite: [1] and more.",
+      "We cite: no record here.",
+      'Note: {"a": 1} stays.',
+    ])
+      expect(takeToolText(kept).text).toBe(kept);
+  });
+
   // protects=two blocks side by side on a line leave the line and paragraph breaks after them; fails_when=the next line is joined to the sentence; no_claim=none beyond protects.
   test("blocks side by side keep the breaks after them", () => {
     expect(takeToolText('S.<cite>[{"a":1}]</cite><cite>[{"a":2}]</cite>\n- item').text).toBe(

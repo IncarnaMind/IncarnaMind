@@ -9,7 +9,12 @@
 import { getSchema } from "@tiptap/core";
 import { yXmlFragmentToProseMirrorRootNode } from "@tiptap/y-tiptap";
 import type * as Y from "yjs";
-import { type KeptCitationText, MIND_CONTENT_FIELD, type UnreadFile } from "../../core/api";
+import {
+  type CellFigurePlace,
+  type KeptCitationText,
+  MIND_CONTENT_FIELD,
+  type UnreadFile,
+} from "../../core/api";
 import type { Language } from "../../core/language";
 import { allOrigins } from "../../shared/blockOrigins";
 import { citationState, type LiveDocument } from "../../shared/citations";
@@ -19,7 +24,7 @@ import type { MessageKey, MessageParams } from "../../shared/i18n";
 import { mindCheckOf } from "../../shared/mindCheck";
 import { mindScopeOf } from "../../shared/mindScope";
 import { checkUnreadOf } from "../../shared/unreadFiles";
-import { claimsOf, type ShownClaim } from "./editor/claimChecks";
+import { claimsOf, figurePlacesOf, type ShownClaim } from "./editor/claimChecks";
 import { type NoteHealth, noteHealth } from "./editor/healthCounts";
 import { BLOCK_ID_ATTRIBUTE, noteExtensions } from "./editor/noteSchema";
 
@@ -61,7 +66,7 @@ export interface NoteState {
 export function noteStateOf(health: NoteHealth, unread = 0, narrowUnread = 0): NoteState | null {
   const unreadMatters = narrowUnread > 0;
   if (health.checkable === 0) return null;
-  const look = health.unsupported.length + health.contradicted.length + health.notFound.length;
+  const look = health.lookClaims.length;
   const base = {
     checkedAt: health.checkedAt,
     unread: 0,
@@ -177,11 +182,14 @@ let schema: ReturnType<typeof getSchema> | undefined;
  */
 export function readNoteState({
   doc,
+  cellFigures,
   documents,
   keptCitationTexts,
   folderId,
 }: {
   doc: Y.Doc;
+  /** Where its table cells hold figures, as the core reads them (`MindContentSnapshot`). */
+  cellFigures: readonly CellFigurePlace[];
   documents: readonly LiveDocument[] | null;
   keptCitationTexts: readonly KeptCitationText[];
   folderId: string | null;
@@ -195,6 +203,7 @@ export function readNoteState({
         : new Map(documents.map((document) => [document.id, document.contentHash])),
     folderId,
     scope: mindScopeOf(doc),
+    figurePlaces: figurePlacesOf(cellFigures),
   });
   const health = noteHealth(root, {
     claims,

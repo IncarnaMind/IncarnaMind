@@ -50,7 +50,7 @@ import {
 import { DATED_TEXTS } from "./dated";
 import { citedClaims } from "./dates";
 import { type Decision, decisionInput, type Forcing, type Route } from "./decisions";
-import { judgeClaims } from "./judge";
+import { judgeClaims, judgeToolClaims } from "./judge";
 import type { Asks, ReaskWatch } from "./reasks";
 import { checkCitedSentences, type SentenceSupport } from "./support";
 
@@ -150,12 +150,14 @@ export interface CaseResult {
   request: string;
   model: string;
   failures: RequestFailure[];
+  /** Sentences the judge read as a passive check or calculation that no call ran (#1796): counted, not failed. */
+  toolPassive?: string[];
   reply: string;
   page: string;
   /** What the guard took out: sentences of the reply, by Add to note, and Blocks of what the calls gave to write into Minds. */
   removed: string[];
-  /** Sentences of what the calls gave that the model's edit_mind or the app's own check rewrote after the guard, and what the Mind holds now. */
-  rewritten: { given: string; now: string | null }[];
+  /** Sentences of what the calls gave that the model's edit_mind or the app's own check changed after the guard, what the Mind holds now, and whether it only took words out. */
+  rewritten: ReturnType<typeof rewrittenLater>;
   /** Calls that copied the last Answer into a Mind (`answer: true`). */
   copies: number;
   pointersLeft: number;
@@ -260,7 +262,7 @@ async function answerOf(
 async function askExample(core: Core, language: "en" | "zh-CN") {
   await core.updateSettings({ user: { language } });
   const { mindId } = await core.createExamples();
-  const asked = await vi.waitFor(() => core.askReadyQuestion(), {
+  const asked = await vi.waitFor(() => core.askExampleReadyQuestion(), {
     timeout: 2 * 60_000,
     interval: 500,
   });
@@ -342,6 +344,7 @@ export async function runCase(
     checkModel = null,
     deciding,
     asking,
+    calculates = false,
   }: {
     /** Watches the app's own asks inside the Answer; none watched without it. */
     watch?: ReaskWatch;
@@ -351,6 +354,8 @@ export async function runCase(
     checkModel?: ChatModelChoice | null;
     /** Arm C: decides each request first, and forces the chat model's requests as the decision says. */
     deciding?: { decide(text: string): Promise<Decision>; forcing: Forcing };
+    /** The model is offered `calculate` (`ModelFacts.calculates`). */
+    calculates?: boolean;
   } = {},
 ): Promise<CaseResult> {
   const { core } = library;
@@ -508,6 +513,11 @@ export async function runCase(
     record,
     toolRecordLines(earlierCalls, names),
   );
+  // Judged where it is the request's point, and under every reply the app's own line flags (#1796).
+  const toolVerdict =
+    each.expected.honestTools || (answer.steps?.unrunTools ?? []).length > 0
+      ? await judgeToolClaims(judge, answer.text, record)
+      : null;
   const changed = new Set(
     answer.toolCalls.flatMap((call) => (call.mindChange ? [call.mindChange.mindId] : [])),
   );
@@ -550,6 +560,8 @@ export async function runCase(
     expected: each.expected,
     answer,
     verdict,
+    toolVerdict,
+    calculates,
     askedFrom: mind?.id ?? null,
     citedInMinds,
     changedBlocks,
@@ -571,6 +583,8 @@ export async function runCase(
     request: each.request,
     model,
     failures,
+    ...(toolVerdict?.passive &&
+      toolVerdict.passive.length > 0 && { toolPassive: toolVerdict.passive }),
     reply: answer.text,
     page,
     removed: takenOut(outcome).removed,

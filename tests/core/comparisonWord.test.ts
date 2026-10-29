@@ -68,5 +68,64 @@ describe("A comparison table exported", () => {
     expect(headerLine).toContain(`| ${LONG_QUESTION} |`);
     expect(headerLine).toContain("| Result |");
     expect(headerLine).not.toContain("…");
+    expect((await core.previewMindExport(mind.id, { format: "docx" })).hiddenColumns).toBe(0);
+  });
+
+  // protects=a hidden column is left out of Word and Markdown, and the file says nothing about it, while a column the User sized is wider than the Document column; fails_when=a hidden column's heading or Answers appear, the file mentions a hidden column, or a set width does not reach the Word table; no_claim=Word's and Markdown's own rendering.
+  test("leaves a hidden column out with no line, and lays the columns out at the widths the User set", async () => {
+    const core = startCore(await createTempDataFolder());
+    onTestFinished(() => core.close());
+    const mind = await core.createMind({ title: "Suppliers" });
+    const client = await connectToMind(core, mind.id);
+    const sized: NodeJSON = {
+      ...table,
+      attrs: {
+        ...table.attrs,
+        questions: [
+          { id: "q1", text: LONG_QUESTION, width: 420 },
+          { id: "q2", text: "Operating result", label: "Result", hidden: true },
+        ],
+      },
+    };
+    client.doc.transact(() =>
+      client.doc.getXmlFragment(MIND_CONTENT_FIELD).push([createElement(sized)]),
+    );
+    await client.settled();
+
+    const document = part(
+      unzip((await core.exportMind(mind.id, { format: "docx" })).data),
+      "word/document.xml",
+    );
+    const wordTable = /<w:tbl>[\s\S]*?<\/w:tbl>/.exec(document)?.[0] ?? "";
+    const headerRow = /<w:tr>[\s\S]*?<\/w:tr>/.exec(wordTable)?.[0] ?? "";
+    expect(
+      [...headerRow.matchAll(/<w:tc>([\s\S]*?)<\/w:tc>/g)].map((cell) => textOf(cell[1] as string)),
+    ).toEqual(["Document", LONG_QUESTION]);
+    const grid = [...wordTable.matchAll(/<w:gridCol w:w="(\d+)"\/>/g)].map((found) =>
+      Number(found[1]),
+    );
+    expect(grid).toHaveLength(2);
+    expect(grid[1]).toBeGreaterThan(grid[0] as number);
+    // The file leaves the column out and says nothing about it.
+    expect(textOf(document.replace(wordTable, ""))).not.toContain("hidden column");
+    expect(textOf(document)).not.toContain("Result");
+
+    const markdown = Buffer.from(
+      (await core.exportMind(mind.id, { format: "markdown" })).data,
+    ).toString("utf8");
+    const headerLine = markdown.split("\n").find((line) => line.startsWith("| Document |")) ?? "";
+    expect(headerLine).not.toContain("Result");
+    expect(markdown).not.toContain("hidden column");
+    // The app is told the count instead, as the export's preview does.
+    const preview = await core.previewMindExport(mind.id, { format: "docx" });
+    expect(preview.hiddenColumns).toBe(1);
+
+    // Chinese too: the file says nothing about the column.
+    await core.updateSettings({ user: { language: "zh-CN" } });
+    const zhMarkdown = Buffer.from(
+      (await core.exportMind(mind.id, { format: "markdown" })).data,
+    ).toString("utf8");
+    expect(zhMarkdown).not.toContain("Result");
+    expect(zhMarkdown).not.toContain("隐藏列");
   });
 });

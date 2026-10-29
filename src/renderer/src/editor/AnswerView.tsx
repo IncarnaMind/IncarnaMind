@@ -4,6 +4,7 @@ import {
   type AnswerToolCall,
   type ApprovalRequest,
   BLOCK_ID_ATTRIBUTE,
+  type ChatModelChoice,
   type ProviderErrorKind,
   type SignInRouteProblem,
   SKILL_SCRIPT_LIMITS,
@@ -45,7 +46,7 @@ import {
   useKeyRefusals,
   useKeySavedSince,
 } from "../keyRefusals";
-import { requestModelMenu } from "../modelMenu";
+import { requestModelMenu, retryModel } from "../modelMenu";
 import { useModelNames, useServiceName } from "../modelNames";
 import { useStoppedByPlanLimit } from "../planLimits";
 import { ANSWER_PROBLEMS, failedAnswerLine, retry } from "../problems";
@@ -309,6 +310,9 @@ export function AnswerError({
   details,
   failedAt = null,
   onRetry,
+  onRetryWith,
+  modelNow = null,
+  chooseHere = false,
   onOpenSettings,
 }: {
   kind: ProviderErrorKind;
@@ -324,6 +328,12 @@ export function AnswerError({
    */
   failedAt?: string | null;
   onRetry?: (() => void) | undefined;
+  /** Asks again with the model the composer shows now, when it isn't the one that failed (#1848). */
+  onRetryWith?: ((model: ChatModelChoice) => void) | undefined;
+  /** The model the composer's chip shows now. */
+  modelNow?: ChatModelChoice | null;
+  /** The composer's model menu is here: "Choose another model" opens it, not Settings. */
+  chooseHere?: boolean;
   onOpenSettings(page: SettingsPage): void;
 }) {
   const t = useT();
@@ -337,6 +347,7 @@ export function AnswerError({
   const [shownAt] = useState(() => new Date().toISOString());
   const billingOpened = useBillingOpenedSince(providerId, failedAt ?? shownAt);
   const keySaved = useKeySavedSince(providerId, failedAt ?? shownAt);
+  const pickedModel = retryModel({ providerId, modelId }, modelNow);
   const declineEnded = useDeclineEnded(
     providerInUse?.service?.id ?? null,
     kind === "consent-declined" && onRetry !== undefined,
@@ -398,39 +409,47 @@ export function AnswerError({
       />
     );
   }
-  const action = removeFromMenu
-    ? { label: t("answer.error.removeFromMenu"), onClick: removeFromMenu }
-    : kind === "auth" && keySaved && onRetry
-      ? { label: t("answer.error.askAgain"), onClick: onRetry }
-      : kind === "auth"
-        ? {
-            label: t("answer.error.checkKey"),
-            onClick: () =>
-              void useKeyRefusals.getState().check(providerId, modelId ?? "", failedAt),
-          }
-        : fix.kind === "settings"
-          ? { label: t(fix.label), onClick: () => onOpenSettings(fix.page) }
-          : fix.kind === "sign-in"
+  const chooseModel = fix.kind === "settings" && fix.page === "models";
+  const action =
+    chooseModel && pickedModel && onRetryWith
+      ? { label: t("answer.error.askAgain"), onClick: () => onRetryWith(pickedModel) }
+      : removeFromMenu
+        ? { label: t("answer.error.removeFromMenu"), onClick: removeFromMenu }
+        : kind === "auth" && keySaved && onRetry
+          ? { label: t("answer.error.askAgain"), onClick: onRetry }
+          : kind === "auth"
             ? {
-                label: t(fix.label),
+                label: t("answer.error.checkKey"),
                 onClick: () =>
-                  void signInAgain(onOpenSettings).then((signedIn) => {
-                    if (signedIn) onRetry?.();
-                  }),
+                  void useKeyRefusals.getState().check(providerId, modelId ?? "", failedAt),
               }
-            : fix.kind === "link"
-              ? // The main process opens it in the User's browser.
-                {
-                  label: `${t(fix.label)} ↗`,
-                  onClick: () => {
-                    if (kind === "out-of-credit")
-                      useKeyRefusals.getState().openBilling(providerId, fix.url);
-                    else window.open(fix.url, "_blank", "noreferrer");
-                  },
+            : fix.kind === "settings"
+              ? {
+                  label: t(fix.label),
+                  onClick: () =>
+                    chooseModel && chooseHere ? requestModelMenu() : onOpenSettings(fix.page),
                 }
-              : fix.kind === "retry" && onRetry
-                ? { label: t(fix.label), onClick: onRetry }
-                : undefined;
+              : fix.kind === "sign-in"
+                ? {
+                    label: t(fix.label),
+                    onClick: () =>
+                      void signInAgain(onOpenSettings).then((signedIn) => {
+                        if (signedIn) onRetry?.();
+                      }),
+                  }
+                : fix.kind === "link"
+                  ? // The main process opens it in the User's browser.
+                    {
+                      label: `${t(fix.label)} ↗`,
+                      onClick: () => {
+                        if (kind === "out-of-credit")
+                          useKeyRefusals.getState().openBilling(providerId, fix.url);
+                        else window.open(fix.url, "_blank", "noreferrer");
+                      },
+                    }
+                  : fix.kind === "retry" && onRetry
+                    ? { label: t(fix.label), onClick: onRetry }
+                    : undefined;
   return (
     <div contentEditable={false} data-testid="answer-error" data-error-kind={kind}>
       <ProblemLine

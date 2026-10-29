@@ -50,34 +50,34 @@ const WORDS = {
     line: "Checked 12 sentences · 10 claims not checked yet",
     lineAfter: "· 0 claims not checked yet",
     rest: "Check",
-    badgeWords: "11 need a look",
-    badgeName: "11 need a look",
-    afterBadgeWords: "22 need a look",
-    afterBadgeName: "22 need a look",
+    badgeWords: "Not checked",
+    badgeName: "Not checked",
+    afterBadgeWords: "1 needs a look",
+    afterBadgeName: "1 needs a look",
     toCheck: "11 claims not checked yet",
     tableCells: "10 table cells",
     found: "22 Citations found",
-    unsupported: "22 need a look",
+    unsupported: "1 claim needs a look",
     ask: "Check this note’s 11 claims against your Documents?",
     notNow: "Not now",
-    allChecked: "Everything checked",
+    uncited: "1 claim supported · 1 claim with no Citation",
   },
   "zh-CN": {
     request: "添加核对用的收入表格",
     line: "已核对 12 句 · 10 条说法待核对",
     lineAfter: "· 0 条说法待核对",
     rest: "核对",
-    badgeWords: "需要留意 11 处",
-    badgeName: "需要留意 11 处",
-    afterBadgeWords: "需要留意 22 处",
-    afterBadgeName: "需要留意 22 处",
+    badgeWords: "未核对",
+    badgeName: "未核对",
+    afterBadgeWords: "需要留意 1 处",
+    afterBadgeName: "需要留意 1 处",
     toCheck: "11 条说法待核对",
     tableCells: "10 个表格单元格",
     found: "22 处引用已找到",
-    unsupported: "22 处需要留意",
+    unsupported: "1 条说法需要留意",
     ask: "要对照你的文档，核对这篇笔记中的 11 条说法吗？",
     notNow: "暂不",
-    allChecked: "已全部核对",
+    uncited: "1 条说法有依据 · 1 条说法没有引用",
   },
 } as const;
 
@@ -176,7 +176,9 @@ for (const language of ["en", "zh-CN"] as const) {
     await expect(answer.getByTestId("self-check-left-action")).toHaveCount(0);
     const done = await checkCard(window);
     await expect(done.getByTestId("health-toCheck")).toHaveCount(0);
-    // The 21 unsupported cells still show, so the card never says everything is checked (#1909).
+    // What needs a look still shows, so the card never says everything is checked (#1909): every
+    // cell is Supported, each figure bound to the row its label names, after the write as after
+    // the Check (#1459), and the Note's old sentence with no Citation needs a look.
     await expect(done.getByTestId("health-unsupported")).toContainText(words.unsupported);
     await expect(done.getByTestId("health-all-checked")).toHaveCount(0);
     await expect(window.getByTestId("check-badge-open")).toHaveAccessibleName(
@@ -187,7 +189,7 @@ for (const language of ["en", "zh-CN"] as const) {
     await window.keyboard.press("Escape");
     await expect(done).toHaveCount(0);
 
-    // A clean check: one sentence the Documents support, and the card says everything is checked.
+    // A clean check: one sentence the Documents support, still to cite, so the card names that (#1941).
     await newMind(window);
     const clean = window.getByTestId("mind-editor");
     await clean.click();
@@ -204,7 +206,8 @@ for (const language of ["en", "zh-CN"] as const) {
     const allDone = await checkCard(window);
     await expect(allDone.getByTestId("health-toCheck")).toHaveCount(0);
     await expect(allDone.getByTestId("health-unsupported")).toHaveCount(0);
-    await expect(allDone.getByTestId("health-all-checked")).toContainText(words.allChecked);
+    await expect(allDone.getByTestId("health-all-checked")).toHaveCount(0);
+    await expect(allDone.getByTestId("health-summary")).toContainText(words.uncited);
     await screenshot(window, `check-counts-all-${language}`);
     await app.close();
   });

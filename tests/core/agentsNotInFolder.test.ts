@@ -7,7 +7,7 @@
 import { join } from "node:path";
 import { beforeAll, describe, expect, it } from "vitest";
 import type { Core } from "../../src/core";
-import { NOT_IN_A_FOLDER_ID } from "../../src/core/api";
+import { type DocumentGroupAssignment, NOT_IN_A_FOLDER_ID } from "../../src/core/api";
 import { buildAgentShim, connectLegacyAgent, resultText, startAgentsCore } from "../helpers/agents";
 import {
   addAndProcess,
@@ -18,6 +18,12 @@ import {
 import { replyingModel } from "../helpers/models";
 
 const note = (title: string, sentence: string) => `# ${title}\n\n${sentence}\n`;
+
+/** An assignment as a change carries it: its fields and the Document's tagging row. */
+const stateOf = (item: DocumentGroupAssignment) => {
+  const { documentId: _id, tagging, ...assignment } = item;
+  return { assignment, tagging: tagging ?? null };
+};
 
 interface SearchOut {
   passages: { passageId: string; documentId: string; cite: string | null }[];
@@ -117,7 +123,7 @@ describe("an agent that may read Not in a Folder", () => {
     };
     for (const documentId of [reef.id, pilot.id, budget.id]) {
       expect(await refused("read_passages", { documentId })).toMatch(
-        /No such Passage, Document, note or Citation/,
+        /No such passage, Document, note or Citation/,
       );
     }
     await refused("read_passages", { passageId: elsewhere.passageId });
@@ -184,14 +190,22 @@ describe("an agent that may read Not in a Folder", () => {
     if (!late) throw new Error("The Document wasn't added.");
     expect(await found(agent)).toEqual([reef.id, budget.id, late.id].sort());
     // A Suggested Folder counts as its Folder while it waits.
-    await core.restoreAssignment(late.id, {
-      groupId: coast.id,
-      source: "automatic",
-      suggested: true,
-      status: "classified",
-      error: null,
-      model: null,
-    });
+    const held = (await core.getLibrary()).assignments.find((each) => each.documentId === late.id);
+    await core.restoreAssignment(
+      late.id,
+      {
+        assignment: {
+          groupId: coast.id,
+          source: "automatic",
+          suggested: true,
+          status: "classified",
+          error: null,
+          model: null,
+        },
+        tagging: null,
+      },
+      held ? stateOf(held) : { assignment: null, tagging: null },
+    );
     expect(await found(agent)).toEqual([reef.id, budget.id].sort());
     // Deleted: gone.
     await core.deleteDocument(reef.id);

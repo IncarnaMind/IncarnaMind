@@ -389,10 +389,13 @@ describe("exporting a Mind", () => {
       numbered: true,
       unverifiedCitations: 2,
       questions: 1,
+      hiddenColumns: 0,
       fromWord: false,
       theirChanges: 0,
       unreadFiles: 0,
       unreadFileNames: false,
+      citationPlace: "footnotes",
+      markAiText: false,
     });
   });
 
@@ -688,7 +691,7 @@ describe("exporting a Mind", () => {
     expect(exported).toMatchObject({ fileName: "A Note.md", citations: 0, questions: 1 });
   });
 
-  describe("the file is named as the app shows the Mind", () => {
+  describe("the file is named after the note (#1945)", () => {
     const nameOf = async (title: string, blocks: JSONContent[], format: "markdown" | "docx") => {
       const { core, mind, client } = await setUp(title);
       writeMind(client, blocks);
@@ -713,16 +716,16 @@ describe("exporting a Mind", () => {
       expect(await nameOf("", [], "markdown")).toBe("Untitled.md");
     });
 
-    test("the first line is cleaned for a file name and cut", async () => {
+    test("the first line is cleaned for a file name, and cut only where a file name can't hold it", async () => {
       expect(await nameOf("", [note("Tides: spring/neap?")], "docx")).toBe(
         "Tides spring neap.docx",
       );
       const long = await nameOf("", [note("tide ".repeat(40))], "markdown");
-      expect(long.length).toBeLessThanOrEqual(64);
-      expect(long.endsWith(" tide.md")).toBe(true);
+      expect(long.length).toBeLessThanOrEqual(122);
+      expect(long.endsWith("tide.md")).toBe(true);
     });
 
-    test("a long first line ends at a clause, never on 'plus' or half a sentence (#769)", async () => {
+    test("a whole sentence names the file as it reads, without the mark it ends on", async () => {
       expect(
         await nameOf(
           "",
@@ -733,7 +736,9 @@ describe("exporting a Mind", () => {
           ],
           "docx",
         ),
-      ).toBe("The employee gets 27 days of paid holiday per year.docx");
+      ).toBe(
+        "The employee gets 27 days of paid holiday per year, plus bank holidays and the notice period after probation.docx",
+      );
       expect(
         await nameOf(
           "",
@@ -745,7 +750,7 @@ describe("exporting a Mind", () => {
           "docx",
         ),
       ).toBe(
-        "员工每年享有二十七天带薪年假，另外还享有法定节假日，试用期结束后双方需要提前一个月书面通知对方，否则视为违约.docx",
+        "员工每年享有二十七天带薪年假，另外还享有法定节假日，试用期结束后双方需要提前一个月书面通知对方，否则视为违约，需要承担相应的赔偿责任并支付违约金.docx",
       );
     });
 
@@ -756,7 +761,7 @@ describe("exporting a Mind", () => {
       expect(name.length).toBeLessThanOrEqual(123);
     });
 
-    test("a Mind of Notes added from an Answer is named by their first line, never by the instruction that gave them (#1174)", async () => {
+    test("a heading an Answer wrote names the file, not the instruction that gave it (#1174, #1945)", async () => {
       const { core, mind } = await setUp("");
       await core.addToNote({
         mindId: mind.id,

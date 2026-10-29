@@ -6,6 +6,7 @@ import { MIND_CONTENT_FIELD, MIND_PROPOSAL_REQUESTS_FIELD } from "../../src/core
 import { noteExtensions } from "../../src/renderer/src/editor/noteSchema";
 import { proposalsIn } from "../../src/renderer/src/editor/proposalReview";
 import {
+  appliedWaiting,
   changedParagraphs,
   decideProposals,
   pendingProposals,
@@ -319,5 +320,25 @@ describe("Accepting, rejecting and undoing one change moves every count together
 
     expect(waitingChanges(blocks)).toBe(1);
     expect(changedParagraphs(blocks, ours)).toBe(1);
+  });
+});
+
+describe("The count an applied row draws (#1358)", () => {
+  test("counts what the apply left waiting, and settles once the Mind's copy has it", () => {
+    // The Mind's copy still lists the 2 the apply took with the 1 it left: 1 waits, but not yet settled.
+    expect(appliedWaiting(["taken-1", "taken-2", "left"], ["taken-1", "taken-2"])).toEqual({
+      count: 1,
+      settled: false,
+    });
+    // The copy has the apply: the same 1 waits, now drawn.
+    expect(appliedWaiting(["left"], ["taken-1", "taken-2"])).toEqual({ count: 1, settled: true });
+    // Nothing is left: no count.
+    expect(appliedWaiting(["taken-1", "taken-2"], ["taken-1", "taken-2"])).toEqual({
+      count: 0,
+      settled: false,
+    });
+    expect(appliedWaiting([], ["taken-1", "taken-2"])).toEqual({ count: 0, settled: true });
+    // No apply recorded: every waiting change counts, as the held line says.
+    expect(appliedWaiting(["waiting"], undefined)).toEqual({ count: 1, settled: true });
   });
 });

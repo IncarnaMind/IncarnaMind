@@ -3,12 +3,16 @@
  * more than two Documents, asks which ones, the two newest ticked, then writes a summary of those
  * chosen into the Mind in focus. Skipped, it goes on with the two newest and says so.
  * "Summarise the main ones" asks as Claude Haiku 5.5 did: one choice, one ticked, Other… allowed.
+ * "Summarise the two main documents" (总结两份主要文档), when the Answer can use fewer than two
+ * of the Library's Documents, asks which two and says the Library's count (#1333).
  */
 import { lastResult, type Prompt, type Reply, systemOf } from "./prompt";
 
 const MAIN_DOCUMENTS =
   /\bsummari[sz]e the (?:main|key|important) documents\b|总结.*(?:主要|重要).*文档/i;
 const MAIN_ONES = /\bsummari[sz]e the main ones\b/i;
+const TWO_MAIN =
+  /\bsummari[sz]e (?:the )?two (?:main|key|important) documents\b|总结(?:一下)?(?:两份|两个)主要(?:的)?(?:文档|文件)/i;
 const FOR_THE_BOARD = /\bfor the board\b|董事会/i;
 
 // Each option says why it may be chosen, as the Tool asks and Claude Sonnet 5.5 does.
@@ -25,9 +29,20 @@ const DESCRIPTIONS_ZH = [
   "这里最早的一份，今年没有改动。",
 ];
 
-const namesIn = (system: string): string[] => {
-  const list = /names, newest first:\n((?:- .+\n?)+)/.exec(system)?.[1] ?? "";
-  return [...list.matchAll(/^- (.+)$/gm)].map((match) => match[1]?.trim() ?? "");
+const LISTED =
+  /^(?:Its name|Their names, newest first|The names of the \d+ added most recently):\n((?:- .+\n?)+)/m;
+export const namesIn = (system: string): string[] => {
+  const list = LISTED.exec(system)?.[1] ?? "";
+  return [...list.matchAll(/^- (.+)$/gm)]
+    .map((match) => match[1]?.trim() ?? "")
+    .filter((name) => !name.startsWith("…"));
+};
+
+/** The Library's count, as the instructions give it when it holds more Documents than the scope (#1333). */
+const LIBRARY_COUNT = /The User's Library holds (\d+) Documents?\b/;
+const libraryIn = (system: string): number | null => {
+  const found = LIBRARY_COUNT.exec(system)?.[1];
+  return found === undefined ? null : Number(found);
 };
 
 const chosenIn = (result: string): string[] =>
@@ -38,6 +53,20 @@ export function asksReply(
   question: string,
   names: readonly string[],
 ): Reply | null {
+  if (TWO_MAIN.test(question)) {
+    const documents = namesIn(systemOf(prompt));
+    const library = libraryIn(systemOf(prompt));
+    // Fewer than the two it names can be used: ask which, and give the Library's own count.
+    if (documents.length < 2 && library !== null && library > documents.length) {
+      const [only] = documents;
+      return {
+        text: /\p{Script=Han}/u.test(question)
+          ? `你指的是哪两份文档？资料库里有 ${library} 份${only ? `，这里只能搜索“${only}”` : ""}。`
+          : `Which two Documents do you mean? Your Library has ${library}, and ${only ? `“${only}” is the only one I can search here` : "none of them can be searched here"}.`,
+      };
+    }
+    return null;
+  }
   const single = MAIN_ONES.test(question);
   if (!names.includes("ask_user") || !(single || MAIN_DOCUMENTS.test(question))) return null;
   const documents = namesIn(systemOf(prompt));

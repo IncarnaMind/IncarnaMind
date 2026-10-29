@@ -22,6 +22,7 @@ import {
   makeTagOnDocument,
   newMind,
   openAdvancedModels,
+  openServiceList,
   openSettings,
   removeDataFolder,
   setLanguage,
@@ -114,7 +115,7 @@ test("first run: choosing a provider with a key is the consent for what runs by 
   await window.keyboard.type("What is due?");
   await window.keyboard.press("Enter");
   const setup = window.getByTestId("model-setup");
-  await setup.getByTestId("setup-key").click();
+  await openServiceList(window, setup);
   const form = setup.getByTestId("provider-form");
   await form
     .locator("label")
@@ -157,7 +158,8 @@ test("first run: choosing a provider with a key is the consent for what runs by 
   await expect(window.getByTestId("consent-dialog")).toBeHidden();
   expect(await consentAsked()).toEqual([]);
 
-  // Settings › Privacy: OpenAI says once that it was allowed when it was chosen, for every use.
+  // Settings › Privacy: OpenAI was allowed when it was chosen, for the uses that run by
+  // themselves — Tags and sorting. Page images are a flow of their own and still ask.
   const settings = await openSettings(window, "privacy");
   const service = settings.getByTestId("data-service");
   await expect(service).toHaveCount(1);
@@ -166,7 +168,15 @@ test("first run: choosing a provider with a key is the consent for what runs by 
     "Some uses aren’t allowed yet",
   );
   await service.getByTestId("data-service-decision-details").click();
-  for (const flow of ["chat", "edits", "checks", "document-check", "suggestions", "tagging"]) {
+  for (const flow of [
+    "chat",
+    "edits",
+    "checks",
+    "document-check",
+    "suggestions",
+    "tagging",
+    "classification",
+  ]) {
     await expect(service.locator(`[data-testid="data-flow"][data-flow-id="${flow}"]`)).toHaveCount(
       1,
     );
@@ -218,7 +228,7 @@ test("before a model is chosen, a new Document's tagging waits with its line, an
   await expect(item).toHaveAttribute("data-tagging", "waiting-for-provider");
   await makeTagOnDocument(window, "Invoice 43");
   const status = window.getByTestId("tagging-waiting");
-  await expect(status).toContainText("No AI model for Tags");
+  await expect(status.getByTestId("status-label")).toHaveText("Tags need an AI model");
   await expect(status).toHaveAttribute("title", "Tags come once you choose an AI model.");
   await expect(window.getByTestId("consent-dialog")).toBeHidden();
   expect(await consentAsked()).toEqual([]);

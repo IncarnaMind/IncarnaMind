@@ -153,6 +153,12 @@ describe("fitting a name on one line", () => {
     expect(fitName(name, room(12))).toBe("员工每年享有多少天带薪…");
   });
 
+  test("a Chinese line may cut at a character, as its readers accept", () => {
+    const name = "港口每月发布一次潮汐表冬季疏浚之后更新";
+    expect(fitName(name, room(10), false)).toBe("港口每月发布一次潮…");
+    expect(fitName(name, room(10))).toBe("港口每月发布一次…");
+  });
+
   test("a word too long for the line is cut inside it", () => {
     expect(fitName("x".repeat(50), room(10))).toBe(`${"x".repeat(9)}…`);
   });

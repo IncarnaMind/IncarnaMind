@@ -79,7 +79,8 @@ const EN = {
   language: "en" as const,
   claim: "The lease allows pets up to 15 kg.",
   quote: "The lease allows pets up to 15 kg",
-  document: "Lease.md",
+  // A named Document can be read directly, before the ranked cut-off this fixture measures.
+  document: "Document-0.md",
 };
 const ZH = {
   language: "zh-CN" as const,

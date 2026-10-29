@@ -168,13 +168,21 @@ test("a first run opens on the credit paper with no model set up: its Citations 
   const assistant = window.getByTestId("assistant");
   await expect(assistant).toBeHidden();
   const ready = step(window, "question").getByTestId("first-open-ready");
-  await expect(ready).toHaveText(
-    "Ask: “What does the facilities agreement say about the leverage limit?”",
-  );
+  // The whole Question is the line's name and its tooltip; a narrower line would cut it at a
+  // word's end, and clicking asks it whole.
+  const askLabel = "Ask: “What leverage does the agreement allow?”";
+  await expect(ready).toHaveAttribute("aria-label", askLabel);
+  await expect(ready).toHaveAttribute("title", askLabel);
+  const shownAsk = await ready.innerText();
+  if (shownAsk !== askLabel) {
+    expect(shownAsk.endsWith("…"), "cut").toBe(true);
+    expect(askLabel.startsWith(shownAsk.slice(0, -1))).toBe(true);
+    expect(askLabel.slice(shownAsk.length - 1), "a word's end").toMatch(/^\s/u);
+  }
   await pointAndClick(window, ready);
   await expect(assistant).toBeVisible();
   await expect(assistant.getByTestId("assistant-question")).toContainText(
-    "What does the facilities agreement say about the leverage limit?",
+    "What leverage does the agreement allow?",
   );
   const readyAnswer = assistantAnswers(window).last();
   await expect(readyAnswer).toHaveAttribute("data-status", "done");
@@ -289,7 +297,9 @@ test("the footer asks for a model to tag only once a Document of the User's own 
     if (document) await bridge.addTagToDocuments([document.id], tag.id);
   });
   await expect(notice).toBeVisible();
-  await expect(notice).toContainText("No AI model for Tags");
+  await expect(notice).toContainText("Tags need an AI model");
+  // One 28px line, never wrapping: the whole sentence is on hover (#763).
+  await expect(notice).toHaveAttribute("title", "Tags come once you choose an AI model.");
   await expect(notice.getByTestId("tagging-waiting-setup")).toHaveText("Choose…");
   await setLanguage(window, "zh-CN");
   await expect(notice).toContainText("打标签需要 AI 模型");
@@ -428,7 +438,7 @@ test("the steps card's first step offers Add files… and Link a folder… at on
   });
   await expect(steps).not.toContainText("准备好了。");
   await pointAndClick(window, steps.getByTestId("first-open-choose-model"));
-  await expect(window.getByTestId("model-setup")).toContainText("选择你的 AI");
+  await expect(window.getByTestId("model-setup")).toContainText("设置你的 AI");
   await useLocalChatModel(window);
   await expect(steps).toContainText("准备好了。");
   await continueSetup(window);
@@ -480,7 +490,7 @@ test("in Chinese, the ready Question is the Chinese example's, answered with no 
   await markSteps(window, { indexed: true });
 
   const ready = step(window, "question").getByTestId("first-open-ready");
-  await expect(ready).toHaveText("提问：“贷款协议对杠杆率上限是怎么规定的？”");
+  await expect(ready).toHaveText("提问：贷款协议对杠杆率上限是怎么规定的？");
   await expect(step(window, "question")).toContainText("输入你自己的问题");
   const card = await window.getByTestId("first-open-steps").boundingBox();
   const button = await ready.boundingBox();
@@ -495,6 +505,146 @@ test("in Chinese, the ready Question is the Chinese example's, answered with no 
   await expect(step(window, "question")).toContainText("已提过问题");
   // Not a Question of the User's own: the usage-data ask still waits for one.
   expect((await gettingStarted(window)).askedOwn).toBe(false);
+  await app.close();
+});
+
+const OWN_FILES = [
+  {
+    language: "en",
+    name: "Project brief.md",
+    text: "# Project brief\n\nThe project brief sets out the harbour plan.\n",
+    asks: "Ask: “What does ‘Project brief’ say?”",
+    question: "What does ‘Project brief’ say?",
+  },
+  {
+    language: "zh-CN",
+    name: "项目简报.md",
+    text: "# 项目简报\n\n项目简报写明了港口计划。\n",
+    asks: "提问：“项目简报”讲了什么？",
+    question: "“项目简报”讲了什么？",
+  },
+] as const;
+
+for (const { language, name, text, asks, question } of OWN_FILES) {
+  test(`a file added from step 1 is what the ready Question asks about, and its Answer cites it (${language}, #2084)`, async () => {
+    const file = join(sources, name);
+    await writeFile(file, text);
+    const { app, window } = await launchApp(dataDir, { examples: true, fakeChat: true });
+    await setWindowSize(app, window, 1440, 900);
+    await setLanguage(window, language);
+    await useLocalChatModel(window);
+    const files = step(window, "files");
+    await expect(files).toHaveAttribute("data-state", "open");
+    await interceptOpenDialog(app, file);
+    await pointAndClick(window, files.getByTestId("first-open-add-files"));
+
+    // Read, the file is the one step 2 offers a Question about.
+    const ready = step(window, "question").getByTestId("first-open-ready");
+    await expect(ready).toHaveText(asks, { timeout: 30_000 });
+    for (const width of [900, 1600]) {
+      await setWindowSize(app, window, width, 800);
+      const shown = await ready.boundingBox();
+      const card = await window.getByTestId("first-open-steps").boundingBox();
+      expect(shown && card && shown.x + shown.width <= card.x + card.width).toBe(true);
+    }
+    await setWindowSize(app, window, 1440, 900);
+    await pointAndClick(window, ready);
+
+    // Its Answer reads that file, and cites it: the example's Question was never asked.
+    await expect(window.getByTestId("assistant-question").last()).toContainText(question);
+    const answer = assistantAnswers(window).last();
+    await expect(answer).toHaveAttribute("data-status", "done", { timeout: 30_000 });
+    const chip = answer.getByTestId("citation-chip").first();
+    await expect(chip).toBeVisible();
+    await pointAndClick(window, chip);
+    await expect(
+      window.getByTestId("citation-card").getByText(name.replace(/\.md$/, ""), { exact: true }),
+    ).toBeVisible();
+    // The Answer that arrived is what ticks the step, not the click.
+    await expect(step(window, "question")).toHaveAttribute("data-state", "done");
+    await app.close();
+  });
+}
+
+test("the first own Question starts a fresh conversation, without the example's turns (#2084)", async () => {
+  const file = join(sources, "Harbour brief.md");
+  await writeFile(
+    file,
+    "# Harbour brief\n\nThe harbour master publishes the tide tables every spring.\n",
+  );
+  const { app, window } = await launchApp(dataDir, { examples: true, fakeChat: true });
+  await setWindowSize(app, window, 1440, 900);
+  await useLocalChatModel(window);
+  await expectReadyDocuments(window, 2);
+  await markSteps(window, { indexed: true });
+  // The example's Answer in an open conversation first.
+  await pointAndClick(window, step(window, "question").getByTestId("first-open-ready"));
+  await expect(assistantAnswers(window).last()).toHaveAttribute("data-status", "done", {
+    timeout: 30_000,
+  });
+  await expect(window.getByTestId("assistant-question")).toHaveCount(1);
+  await markSteps(window, { askedReady: false });
+
+  // Their own file makes the ready Question theirs; asking it leaves the example's turns behind.
+  await window.getByTestId("add-documents-input").setInputFiles([file]);
+  const ready = step(window, "question").getByTestId("first-open-ready");
+  await expect(ready).toHaveAttribute("title", /Harbour brief/, { timeout: 30_000 });
+  await pointAndClick(window, ready);
+  await expect(window.getByTestId("assistant-question")).toHaveCount(1);
+  await expect(window.getByTestId("assistant-question")).toContainText(
+    "What does ‘Harbour brief’ say?",
+  );
+  await expect(window.getByTestId("assistant-answer")).toHaveCount(1);
+  await expect(window.getByTestId("assistant-answer").getByTestId("answer-example")).toHaveCount(0);
+  await app.close();
+});
+
+test("a Question that can't be asked says why in the card's row, where it was clicked (#2084)", async () => {
+  const file = join(sources, "Harbour brief.md");
+  await writeFile(
+    file,
+    "# Harbour brief\n\nThe harbour master publishes the tide tables every spring.\n",
+  );
+  const { app, window } = await launchApp(dataDir, { examples: true, fakeChat: true });
+  await setWindowSize(app, window, 1440, 900);
+  await acceptPlainTextKeys(window);
+  // A model off this computer with local mode on: asking is refused before anything is sent.
+  await window.evaluate(async () => {
+    const bridge = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
+    await bridge.saveChatProvider({ kind: "openai", apiKey: "sk-test", modelId: "gpt-6-luna" });
+    await bridge.setLocalOnly(true);
+  });
+  await window.getByTestId("add-documents-input").setInputFiles([file]);
+  const ready = step(window, "question").getByTestId("first-open-ready");
+  await expect(ready).toHaveAttribute("title", /Harbour brief/, { timeout: 30_000 });
+  await pointAndClick(window, ready);
+  const card = window.getByTestId("first-open-steps");
+  await expect(card.getByTestId("first-open-ready-not-ready")).toBeVisible();
+  // The example Note's composer is the one on screen; it is not where this problem goes.
+  await expect(window.getByTestId("composer-not-ready")).toHaveCount(0);
+  await app.close();
+});
+
+test("while the ready Question's Answer streams, its button waits and asks once (#2084)", async () => {
+  // The scripted model answers a Question that says "slowly" slowly enough to see the button.
+  const file = join(sources, "Harbour times slowly.md");
+  await writeFile(
+    file,
+    "# Harbour times\n\nHarbours publish the times of high water every 12 months.\n",
+  );
+  const { app, window } = await launchApp(dataDir, { examples: true, fakeChat: true });
+  await setWindowSize(app, window, 1440, 900);
+  await useLocalChatModel(window);
+  await window.getByTestId("add-documents-input").setInputFiles([file]);
+  const ready = step(window, "question").getByTestId("first-open-ready");
+  await expect(ready).toHaveAttribute("title", /Harbour times slowly/, { timeout: 30_000 });
+  await pointAndClick(window, ready);
+  const answer = assistantAnswers(window).last();
+  await expect(answer).toHaveAttribute("data-status", "streaming");
+  await expect(ready).toBeDisabled();
+  await expect(answer).toHaveAttribute("data-status", "done", { timeout: 30_000 });
+  await expect(window.getByTestId("assistant-question")).toHaveCount(1);
+  await expect(step(window, "question")).toHaveAttribute("data-state", "done");
   await app.close();
 });
 
@@ -675,12 +825,12 @@ test("on a fresh install, a first checked Citation from the User's own file take
     );
     await step("Enter", () => window.keyboard.press("Enter"));
     const card = window.getByTestId("model-setup");
-    await step("Paste an API key", () => pointAndClick(window, card.getByTestId("setup-key")));
-    const form = card.getByTestId("provider-form");
-    await expect(form.getByLabel(/^API key/)).toBeFocused();
+    const field = card.getByTestId("setup-key");
+    await step("Paste an API key", () => pointAndClick(window, field));
+    await expect(field).toBeFocused();
     await step("paste the key", () => window.keyboard.insertText("sk-ant-a-key-from-the-company"));
-    await step("Use this key", () => pointAndClick(window, form.getByTestId("provider-use-key")));
-    await step("Continue", () => continueSetup(window));
+    await step("Enter", () => window.keyboard.press("Enter"));
+    await step("Use this", () => continueSetup(window));
 
     const citation = assistantAnswers(window).last().getByTestId("citation").first();
     await expect(citation).toHaveAttribute("data-check", "found", { timeout: 20_000 });
@@ -741,7 +891,7 @@ test("finishing the steps with no model asks for one in the card, never says You
   await pointAndClick(window, steps.getByTestId("first-open-choose-model"));
   const setup = window.getByTestId("model-setup");
   await expect(window.getByTestId("assistant")).toBeVisible();
-  await expect(setup.getByRole("heading", { level: 2 })).toHaveText("Choose your AI");
+  await expect(setup.getByRole("heading", { level: 2 })).toHaveText("Set up your AI");
   await useLocalChatModel(window);
   await expect(steps).toContainText("You’re set up.");
   await expect(steps.getByTestId("first-open-next").first()).toBeVisible();
@@ -760,22 +910,20 @@ test("by keyboard alone: Choose a model takes the focus into the setup, and a sa
   await choose.focus();
   await window.keyboard.press("Enter");
   const setup = window.getByTestId("model-setup");
-  await expect(setup.locator(":focus")).toHaveCount(1);
-  // The ChatGPT plan comes first where this computer can keep its sign-in; then the key.
-  const plan = setup.getByTestId("setup-chatgpt");
-  if (await plan.evaluate((button) => button === document.activeElement)) {
-    await window.keyboard.press("Tab");
-    // What goes to ChatGPT, behind Details, comes between the two.
-    await expect(setup.getByTestId("setup-chatgpt-sends-details")).toBeFocused();
-    await window.keyboard.press("Tab");
-  }
+  // The key field takes the focus as the card opens (#1922).
   await expect(setup.getByTestId("setup-key")).toBeFocused();
-  await window.keyboard.press("Enter");
-  await expect(setup.getByLabel(/^API key/)).toBeFocused();
   await window.keyboard.insertText("sk-ant-a-key-from-the-company");
   await window.keyboard.press("Enter");
-  // The card lists what each job uses, with Continue under the focus: Enter goes on.
-  await expect(setup.getByTestId("setup-continue")).toBeFocused();
+  // Steps 2 and 3 follow, each one key away: Tab to Use this, Enter, and on to the next step.
+  const transcription = setup.getByTestId("setup-transcription");
+  await expect(transcription).toBeFocused();
+  await window.keyboard.press("Tab");
+  await expect(setup.getByTestId("setup-transcription-use")).toBeFocused();
+  await window.keyboard.press("Enter");
+  const sorting = setup.getByTestId("models-sorting");
+  await expect(sorting).toBeFocused();
+  await window.keyboard.press("Tab");
+  await expect(setup.getByTestId("setup-sorting-use")).toBeFocused();
   await window.keyboard.press("Enter");
   await expect(setup).toHaveCount(0);
   await expect(window.getByTestId("first-open-steps")).toContainText("You’re set up.");

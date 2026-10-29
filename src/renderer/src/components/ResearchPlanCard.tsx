@@ -4,7 +4,7 @@ import { type ChatModelChoice, DEFAULT_MIND_KIND, type RunEstimate } from "../..
 import { mindName } from "../../../shared/naming";
 import { MAX_RESEARCH_STEPS, researchItems, researchMinutes } from "../../../shared/research";
 import { keysLabel } from "../commands/keys";
-import { useComposer } from "../composer";
+import { NO_MIND, useComposer } from "../composer";
 import { core } from "../core";
 import { formatMoney } from "../cost";
 import { AnswerError } from "../editor/AnswerView";
@@ -58,11 +58,13 @@ const isCommand = (event: { metaKey: boolean; ctrlKey: boolean }) =>
  * composer's model; Cancel (Esc) and Start (⌘↵). It has no model chooser:
  * the composer's model chip is its model.
  */
-export function ResearchPlanCard({ mindId }: { mindId: string }) {
+export function ResearchPlanCard({ mindId }: { mindId: string | null }) {
   const t = useT();
-  const card = useResearch((state) => state.plans[mindId]);
+  // With no Mind in focus, the plan is the composer's own until Start makes a new Mind for it.
+  const key = mindId ?? NO_MIND;
+  const card = useResearch((state) => state.plans[key]);
   const seat = useComposer((state) => state.seat);
-  const doc = seat?.mindId === mindId ? seat.doc : null;
+  const doc = seat !== null && seat.mindId === mindId ? seat.doc : null;
   const model = useModelInUse(doc);
   const chosen = useOwnModel(doc);
   const web = useWebReach(model);
@@ -84,9 +86,9 @@ export function ResearchPlanCard({ mindId }: { mindId: string }) {
     card.planning || card.starting || steps.length === 0 || (!searchesWeb && !card.sources.library);
 
   const start = () => {
-    if (!blocked) void startResearch(mindId, model);
+    if (!blocked) void startResearch(key, model);
   };
-  const cancel = () => cancelResearch(mindId);
+  const cancel = () => cancelResearch(key);
   const onKeyDown = (event: KeyboardEvent<HTMLElement>) => {
     if (event.nativeEvent.isComposing) return;
     if (event.key === "Escape" && !event.defaultPrevented) {
@@ -101,10 +103,10 @@ export function ResearchPlanCard({ mindId }: { mindId: string }) {
     if (event.nativeEvent.isComposing || event.metaKey || event.ctrlKey || event.altKey) return;
     if (event.key === "Enter" && !event.shiftKey) {
       event.preventDefault();
-      if (addStep(mindId, index)) focusStep.current = index + 1;
+      if (addStep(key, index)) focusStep.current = index + 1;
     } else if (event.key === "Backspace" && card.steps[index] === "" && card.steps.length > 1) {
       event.preventDefault();
-      removeStep(mindId, index);
+      removeStep(key, index);
       focusStep.current = Math.max(0, index - 1);
     }
   };
@@ -149,7 +151,7 @@ export function ResearchPlanCard({ mindId }: { mindId: string }) {
                   placeholder={card.steps.length === 1 ? t("research.plan.firstStep") : undefined}
                   disabled={card.planning}
                   onChange={(event) =>
-                    setStep(mindId, index, event.target.value.replace(/\s*\n\s*/g, " "))
+                    setStep(key, index, event.target.value.replace(/\s*\n\s*/g, " "))
                   }
                   onKeyDown={onStepKey(index)}
                   className="research-plan-field"
@@ -161,7 +163,7 @@ export function ResearchPlanCard({ mindId }: { mindId: string }) {
                     aria-label={t("research.plan.removeStep", { number: index + 1 })}
                     title={t("research.plan.removeStep", { number: index + 1 })}
                     disabled={card.planning}
-                    onClick={() => removeStep(mindId, index)}
+                    onClick={() => removeStep(key, index)}
                     className="research-plan-remove"
                   >
                     <RemoveIcon className="size-2.5" />
@@ -182,7 +184,7 @@ export function ResearchPlanCard({ mindId }: { mindId: string }) {
             type="button"
             data-testid="research-plan-add"
             onClick={() => {
-              if (addStep(mindId, card.steps.length - 1)) focusStep.current = card.steps.length;
+              if (addStep(key, card.steps.length - 1)) focusStep.current = card.steps.length;
             }}
             className="research-plan-add"
           >
@@ -200,7 +202,7 @@ export function ResearchPlanCard({ mindId }: { mindId: string }) {
                 pressed={searchesWeb}
                 disabled={web !== "ready"}
                 onToggle={() =>
-                  updatePlan(mindId, { sources: { ...card.sources, web: !card.sources.web } })
+                  updatePlan(key, { sources: { ...card.sources, web: !card.sources.web } })
                 }
               />
               <SourceToggle
@@ -208,7 +210,7 @@ export function ResearchPlanCard({ mindId }: { mindId: string }) {
                 label={t("research.plan.library")}
                 pressed={card.sources.library}
                 onToggle={() =>
-                  updatePlan(mindId, {
+                  updatePlan(key, {
                     sources: { ...card.sources, library: !card.sources.library },
                   })
                 }
@@ -222,7 +224,7 @@ export function ResearchPlanCard({ mindId }: { mindId: string }) {
           </div>
         </div>
       </div>
-      <PlanProblem mindId={mindId} card={card} model={model} chosen={chosen} />
+      <PlanProblem mindId={key} card={card} model={model} chosen={chosen} />
       <div className="research-plan-foot">
         <Estimate
           steps={Math.max(1, steps.length)}
@@ -335,8 +337,11 @@ function WebLine({ reach, model }: { reach: WebReach; model: ChatModelChoice | n
   );
 }
 
-/** "Write into: this Mind ▾": the Mind the assistant reads, other recent Minds, or a new one. */
-function WriteInto({ mindId, card }: { mindId: string; card: Card }) {
+/**
+ * "Write into: this Mind ▾": the Mind the assistant reads, other recent Minds, or a
+ * new one (the only way in without a Mind in focus).
+ */
+function WriteInto({ mindId, card }: { mindId: string | null; card: Card }) {
   const t = useT();
   const minds = useAppStore((state) => state.minds);
   const menu = usePopoverMenu();
@@ -351,7 +356,7 @@ function WriteInto({ mindId, card }: { mindId: string; card: Card }) {
     .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
     .slice(0, OTHER_MINDS);
   const choose = (writeInto: Card["writeInto"]) => {
-    updatePlan(mindId, { writeInto });
+    updatePlan(mindId ?? NO_MIND, { writeInto });
     menu.close();
   };
   const checked = (id: string | null) =>
@@ -377,7 +382,7 @@ function WriteInto({ mindId, card }: { mindId: string; card: Card }) {
       >
         {menu.open && (
           <>
-            {[mindId, ...others.map((each) => each.id)].map((id) => (
+            {[...(mindId === null ? [] : [mindId]), ...others.map((each) => each.id)].map((id) => (
               <button
                 key={id}
                 type="button"

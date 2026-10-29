@@ -117,7 +117,7 @@ test("Verify a PDF: its Mind opens beside it, its claims are checked, and the co
   await expect(check).toHaveText("Check 4 claims");
   await expect(ask).toContainText("Check it against your Documents?");
   await expect(window.getByTestId("check-badge-open")).toHaveAccessibleName(
-    "Sentences and Citations: 4 claims not checked yet",
+    "Claims and Citations: 4 claims not checked yet",
   );
   // A model on this computer costs nothing: no estimate.
   await expect(ask.getByTestId("verify-estimate")).toHaveCount(0);
@@ -143,7 +143,8 @@ test("Verify a PDF: its Mind opens beside it, its claims are checked, and the co
   await expect(marks(window).and(window.locator('[data-check="contradicted"]'))).toHaveCount(1);
   await expect(marks(window).and(window.locator('[data-check="unsupported"]'))).toHaveCount(1);
   const notChecked = marks(window).and(window.locator('[data-check="not-checked"]'));
-  await expect(notChecked).toHaveAccessibleName("Sentence check: Not checked");
+  // A claim not checked yet has no mark on the page: its card opens from the row and from the shortcut.
+  await expect(notChecked).toBeHidden();
   await screenshot(window, "verify-results-en");
 
   // Where its text came from is in the page's ⋯ menu.
@@ -152,8 +153,10 @@ test("Verify a PDF: its Mind opens beside it, its claims are checked, and the co
   await window.keyboard.press("Escape");
   await expect(pageMenu).toBeHidden();
 
-  // The claim the model failed on says why, with Check again.
-  await pointAndClick(window, notChecked);
+  // The claim the model failed on says why, with Check again, opened from its row's sentence.
+  await pointAndClick(window, (await checkCard(window)).getByTestId("verify-notChecked"));
+  await expect(editor).toBeFocused();
+  await window.keyboard.press("ControlOrMeta+Shift+KeyK");
   const claimCard = window.getByTestId("claim-card");
   await expect(claimCard.getByTestId("claim-reason")).toHaveText("The model declined to check it.");
   await window.keyboard.press("Escape");

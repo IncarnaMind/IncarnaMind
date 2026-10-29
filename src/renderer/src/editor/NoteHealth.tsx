@@ -14,6 +14,7 @@ import {
   setOpenClaim,
   useChecks,
 } from "../checks";
+import { MetaLine } from "../components/MetaLine";
 import { type ProblemAction, ProblemLine } from "../components/ProblemLine";
 import {
   ReadinessExplanation,
@@ -24,6 +25,7 @@ import { UnreadFilesLine } from "../components/UnreadFilesLine";
 import { useComposer } from "../composer";
 import { useContradictionLine } from "../contradictions";
 import { errorMessage } from "../errors";
+import { openFigureSchedule } from "../figures";
 import { useLanguage, useT } from "../i18n";
 import { startMindCheck, useMindCheck, useMindCheckRun } from "../mindCheck";
 import { type NoteState, unreadForCard } from "../noteState";
@@ -35,20 +37,24 @@ import { AnswerError } from "./AnswerView";
 import { useCardPlace } from "./checkPlace";
 import { coverageOf, keptSpans, sameCoverage, shownClaims } from "./claimChecks";
 import {
-  everythingChecked,
   type NoteHealth as Health,
   type HealthPart,
+  type HealthSummary,
+  healthSummary,
   noteHealth,
 } from "./healthCounts";
 import { CheckMarkIcon, ClaimMarkIcon } from "./icons";
 import { CheckedWhen, RunningText } from "./MindCheckLine";
 import { useRunModel } from "./ModelChip";
+import { useSignOffCounts } from "./signOffActions";
 import { UncoveredLine } from "./UncoveredLine";
 import { COUNT_IDLE_MS } from "./WordCount";
 
 const NO_HEALTH: Health = {
   found: [],
   notFound: [],
+  lookClaims: [],
+  lookNotFound: [],
   unsupported: [],
   contradicted: [],
   toCheck: [],
@@ -59,6 +65,7 @@ const NO_HEALTH: Health = {
   tableCells: [],
   noCitation: [],
   checkable: 0,
+  supported: 0,
   checkedAt: null,
 };
 
@@ -93,6 +100,10 @@ export function partLabel(
       return count === 1 ? t("health.notFound.one") : t("health.notFound", params);
     case "unsupported":
       return count === 1 ? t("health.needLook.one") : t("health.needLook", params);
+    case "contradicted":
+      return count === 1 ? t("health.contradicted.one") : t("health.contradicted", params);
+    case "noCitation":
+      return count === 1 ? t("health.noCitation.one") : t("health.noCitation", params);
     case "toCheck":
       return t(count === 1 ? "health.toCheck.one" : "health.toCheck", params);
     case "notChecked":
@@ -101,6 +112,48 @@ export function partLabel(
     default:
       return t(`health.${part}`, params);
   }
+}
+
+/** The summary's parts: what a check found, and what is left of it, in D276's words. */
+function summaryParts(
+  summary: HealthSummary,
+  t: ReturnType<typeof useT>,
+  format: (value: number) => string,
+): string[] {
+  const shown = (value: number) => format(value);
+  const parts: string[] = [];
+  if (summary.supported > 0) {
+    parts.push(
+      t(summary.supported === 1 ? "health.supported.one" : "health.supported", {
+        count: shown(summary.supported),
+      }),
+    );
+  }
+  const look = summary.look.claims;
+  if (look > 0) {
+    const reasons = (["contradicted", "unsupported", "notFound"] as const)
+      .filter((reason) => summary.look[reason] > 0)
+      .map((reason) => {
+        const count = summary.look[reason];
+        return t(
+          count === 1 ? `health.look.reason.${reason}.one` : `health.look.reason.${reason}`,
+          { count: shown(count) },
+        );
+      });
+    parts.push(
+      t(look === 1 ? "health.look.one" : "health.look", {
+        count: shown(look),
+        reasons: reasons.join(t("health.look.separator")),
+      }),
+    );
+  }
+  if (summary.toCheck > 0) {
+    parts.push(partLabel(t, "toCheck", summary.toCheck, shown(summary.toCheck)));
+  }
+  if (summary.noCitation > 0) {
+    parts.push(partLabel(t, "noCitation", summary.noCitation, shown(summary.noCitation)));
+  }
+  return parts;
 }
 
 /** Each part's small mark, as the margin draws its state; none for sentences with no Citation. */
@@ -172,12 +225,14 @@ export function HealthCard({
   mindId,
   health,
   state,
+  figures,
 }: {
   editor: Editor;
   doc: Y.Doc;
   mindId: string;
   health: Health;
   state: NoteState | null;
+  figures: number;
 }) {
   const t = useT();
   const language = useLanguage();
@@ -211,6 +266,7 @@ export function HealthCard({
     problem?.kind === "no-documents" ? (problem.chosen ?? null) : null,
   );
   const format = (value: number) => new Intl.NumberFormat(language).format(value);
+  const signedOff = useSignOffCounts(editor);
 
   const label = (part: HealthPart, count: number) => partLabel(t, part, count, format(count));
 
@@ -242,10 +298,26 @@ export function HealthCard({
       : shownClaims(editor.state).find((each) => each.sentence.from <= at && at < each.sentence.to);
     if (!claim) return;
     setCheckCardOpen(place, false);
+    if (claim.kind === "chart") {
+      void openFigureSchedule(mindId).catch(useAppStore.getState().reportError);
+      return;
+    }
     setOpenClaim(place, claim.check.id);
   };
 
   const rows = ROWS.filter((part) => health[part].length > 0);
+  const summary = healthSummary(health, {
+    running: running !== undefined,
+    problem: problem !== undefined,
+    unread: state?.unreadMatters === true ? state.unread : 0,
+  });
+  // The summary's line keeps its place from the moment a run starts here, empty until its
+  // result lands, so the card keeps one height as a check's results arrive (#1312, #1941).
+  const summarySpace =
+    summary === null &&
+    problem === undefined &&
+    health.checkable > 0 &&
+    (running !== undefined || ranHere || health.checking.length > 0);
   const close = {
     label: t("checks.close"),
     testId: "checks-problem-close",
@@ -305,14 +377,51 @@ export function HealthCard({
           {t("health.tableCells", { count: format(health.tableCells.length) })}
         </p>
       )}
-      {everythingChecked(health, {
-        running: running !== undefined,
-        problem: problem !== undefined,
-      }) && (
-        <p data-testid="health-all-checked" className="mind-health-line mind-health-note">
+      {figures > 0 && (
+        <p data-testid="health-figures" className="mind-health-line">
+          {figures === 1 ? t("figures.count.one") : t("figures.count", { count: format(figures) })}
+          <span className="mind-health-sep" aria-hidden="true">
+            {" · "}
+          </span>
+          <button
+            type="button"
+            className="mind-health-link"
+            data-testid="health-open-schedule"
+            onClick={() => {
+              setCheckCardOpen(place, false);
+              void openFigureSchedule(mindId).catch(useAppStore.getState().reportError);
+            }}
+          >
+            {t("figures.openSchedule")}
+          </button>
+        </p>
+      )}
+      {/* The User's own checks (#1933), on a line of their own: never a check result. */}
+      {(signedOff.checked > 0 || signedOff.changed > 0) && (
+        <p data-testid="health-sign-offs" className="mind-health-line">
+          {signedOff.checked > 0 && t("signOff.count.mine", { count: format(signedOff.checked) })}
+          {signedOff.checked > 0 && signedOff.changed > 0 && (
+            <span className="mind-health-sep" aria-hidden="true">
+              {" · "}
+            </span>
+          )}
+          {signedOff.changed > 0 &&
+            t("signOff.count.changed", { count: format(signedOff.changed) })}
+        </p>
+      )}
+      {summary?.kind === "all" && (
+        <p data-testid="health-all-checked" className="mind-health-summary">
           {t("health.allChecked")}
         </p>
       )}
+      {summary?.kind === "left" && (
+        <MetaLine
+          data-testid="health-summary"
+          className="mind-health-summary"
+          parts={summaryParts(summary.summary, t, format)}
+        />
+      )}
+      {summarySpace && <p aria-hidden="true" className="mind-health-summary" />}
       {/* One line of note, in one place, from the moment the check starts: the sentence it is
           on, then when it was checked. Rows above it never move as the run ends (#1312). It
           stays once a run has started here: a run ends a moment before its record reaches the
@@ -454,9 +563,7 @@ export function HealthCard({
           resetsAt={problem.error.resetsAt ?? null}
           signInRoute={problem.error.signInRoute ?? null}
           details={problem.error.message}
-          onRetry={() =>
-            void startMindCheck(mindId, problem.mode, { allDocuments: problem.allDocuments })
-          }
+          onRetry={problem.retry}
           onOpenSettings={openSettings}
         />
       )}

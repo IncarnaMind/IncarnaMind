@@ -42,6 +42,7 @@ import { createSentryCrashReporter } from "./crashReports";
 import { documentsFolder } from "./documentsFolder";
 import { createUtilityProcessEmbedder } from "./embedder";
 import { createElectronAudioCapture } from "./meetings/capture";
+import { createModelRuntimeFolder } from "./modelRuntimeFolder";
 import { createFakeOllamaApp, createOllamaApp } from "./ollamaApp";
 import { createPageLook } from "./pageLook";
 import { createElectronPictures } from "./pictures";
@@ -764,7 +765,7 @@ export function createElectronAdapters(log: Logger): CoreAdapters {
     }),
     log,
     audioCapture: audioCapture(log),
-    capturePage: createCitedPageCapture({ rendererUrl: process.env.ELECTRON_RENDERER_URL }),
+    capturePage: createCitedPageCapture({ rendererUrl: process.env.ELECTRON_RENDERER_URL, log }),
     analysisRuntime: analysisRuntime(log),
     paths: {
       dataDir,
@@ -791,6 +792,11 @@ export function createElectronAdapters(log: Logger): CoreAdapters {
     keychain: createSafeStorageKeychain(dataDir),
     browser: systemBrowser,
     shell: fileShell,
+    modelRuntimeFolder: createModelRuntimeFolder({
+      platform: process.platform,
+      home: homeFolder(),
+      env: process.env,
+    }),
     ollamaApp: ollamaApp(),
     ...(scriptedOllama && { ollamaModels: scriptedOllama }),
     ...(scriptedServers && { localServers: scriptedServers }),
