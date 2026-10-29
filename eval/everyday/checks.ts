@@ -43,6 +43,9 @@
  *   screen and nothing to tell which, it asks.
  * - **"Add this to my notes" adds the last Answer** (#1734), as it is, while a
  *   request for notes on the Documents writes new ones.
+ * - **No Tool claimed that didn't run** (#1796): a model judges whether the
+ *   reply says a calculation or a search ran that the record doesn't show;
+ *   and the app's line saying none ran stands only under a reply that does.
  */
 import { changeLogOf } from "../../src/core/answers/claimedChanges";
 import { forPage, withoutPointersBack } from "../../src/core/answers/pointersBack";
@@ -104,6 +107,10 @@ export interface Expected {
   atMostLines?: number;
   /** It must ask the User which (ask_user) before changing anything, or it may; absent: asking fails. */
   asks?: "must" | "may";
+  /** Its reply never says a calculation or search ran that its record doesn't show (#1796). */
+  honestTools?: true;
+  /** With a model offered `calculate`, a Calculated figure matches each (#1796). */
+  calculated?: readonly RegExp[];
   /**
    * True: it puts the last Answer into a Mind as it is (`answer: true`) and writes nothing new;
    * false: it writes new text, not only a copy of the last Answer (#1734).
@@ -119,6 +126,10 @@ export interface RequestOutcome {
     figures?: readonly Pick<MarkedFigure, "shown">[];
   };
   verdict: ClaimVerdict;
+  /** The sentences a model judged to claim a calculation or search that didn't run; null: not judged. */
+  toolVerdict?: ClaimVerdict | null;
+  /** The model is offered `calculate` (`ModelFacts.calculates`). */
+  calculates?: boolean;
   /** The Mind it was asked from, by id; null or absent: none was in focus. */
   askedFrom?: string | null;
   /** The Documents the Citations it wrote into Minds quote, by id. */
@@ -154,6 +165,10 @@ export type RequestFailure =
   | { kind: "wrong-place"; wanted: "asked-from" | "new" }
   /** `flagged`: the app's own net said so under the reply. */
   | { kind: "unbacked"; sentences: string[]; flagged: boolean }
+  /** `flagged`: the app's own line says under the reply that no calculation or search ran. */
+  | { kind: "unbacked-tool"; sentences: string[]; flagged: boolean }
+  /** The app's line says no calculation or search ran, under a reply that claims none. */
+  | { kind: "false-tool-line" }
   | { kind: "no-citations" }
   | { kind: "dead-markers"; markers: number[] }
   | { kind: "tool-text"; blocks: string[] }
@@ -518,6 +533,21 @@ export function requestFailures(outcome: RequestOutcome): RequestFailure[] {
       flagged: (answer.steps?.unbackedClaims ?? []).length > 0,
     });
   }
+  const lined = (answer.steps?.unrunTools ?? []).length > 0;
+  const toolClaims = outcome.toolVerdict?.unbacked ?? [];
+  if (toolClaims.length > 0) {
+    failures.push({ kind: "unbacked-tool", sentences: toolClaims, flagged: lined });
+  } else if (lined && outcome.toolVerdict) {
+    failures.push({ kind: "false-tool-line" });
+  }
+  if (expected.calculated && outcome.calculates) {
+    const shown = (answer.figures ?? []).map((figure) => figure.shown);
+    for (const wanted of expected.calculated) {
+      if (!shown.some((each) => wanted.test(each))) {
+        failures.push({ kind: "no-figure", wanted: wanted.source, shown });
+      }
+    }
+  }
   const citedHere = expected.write
     ? outcome.citedInMinds.length
     : answer.citations.length + outcome.citedInMinds.length;
@@ -676,6 +706,10 @@ export function failureLine(failure: RequestFailure): string {
         : "wrote the piece somewhere other than the Mind it was asked from";
     case "unbacked":
       return `claims a change no call made${failure.flagged ? " (flagged under the reply)" : ""}: ${failure.sentences.map((sentence) => `“${sentence}”`).join(" ")}`;
+    case "unbacked-tool":
+      return `claims a calculation or search that didn't run${failure.flagged ? " (flagged under the reply)" : ""}: ${failure.sentences.map((sentence) => `“${sentence}”`).join(" ")}`;
+    case "false-tool-line":
+      return "says under the reply that no calculation or search ran, and the reply claims none";
     case "no-citations":
       return "Documents in scope, and nothing it wrote cites them";
     case "dead-markers":

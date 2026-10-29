@@ -131,7 +131,8 @@ describe("Answers cite Passages", { timeout: 30_000 }, () => {
       check: "found",
       checkReason: null,
     };
-    expect(onlyCitation(client, answerId)).toEqual(expected);
+    // Its own id, which "Checked by me" names it by (#1933).
+    expect(onlyCitation(client, answerId)).toEqual({ ...expected, id: expect.any(String) });
     expect(finished).toMatchObject({
       status: "done",
       citations: [expected],
@@ -1048,7 +1049,9 @@ describe("Citations in the Mind", { timeout: 30_000 }, () => {
     const pasted = readMind(reader).lastChild;
     expect(pasted?.type.name).toBe("paragraph");
     expect(pasted?.textContent).toBe("Spring tides come at new and full moon .");
-    expect(pasted?.child(1).attrs).toEqual({ ...cited, proposal: null });
+    // A copy of the Answer's Citation, with an id of its own (#1933).
+    expect(pasted?.child(1).attrs).toEqual({ ...cited, id: expect.any(String), proposal: null });
+    expect(pasted?.child(1).attrs.id).not.toBe(cited.id);
     // The Answer keeps its own.
     expect(onlyCitation(reader, answerId)).toEqual(cited);
 

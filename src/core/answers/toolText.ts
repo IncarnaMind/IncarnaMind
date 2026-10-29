@@ -36,10 +36,13 @@ const JSON_START = '(?:\\[\\s*[{\\]]|\\{\\s*(?:"|&quot;|\\}))';
 const escapeRegExp = (text: string) => text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 const alternatives = (names: readonly string[]) => names.map(escapeRegExp).join("|");
 
-/** Where a block starts: a Tool's tag (group 1) or its name and an opening bracket (group 2). */
+/**
+ * Where a block starts: a Tool's tag (group 1), its name and an opening bracket (group 2), or,
+ * at the start of a line, its name and a colon ("cite: [...]", group 3).
+ */
 const openerPattern = (names: readonly string[], json: string) =>
   new RegExp(
-    `(?:${OPEN}(${alternatives(names)})${ATTRIBUTES}${CLOSE}|(?<![\\w-])(${alternatives(names)})\\()\\s*(?=${json})`,
+    `(?:${OPEN}(${alternatives(names)})${ATTRIBUTES}${CLOSE}|(?<![\\w-])(${alternatives(names)})\\(|(?<![^\\n])[ \\t]*(${alternatives(names)})[ \\t]*:)\\s*(?=${json})`,
     "gi",
   );
 
@@ -65,16 +68,18 @@ function blocksIn(text: string, names: readonly string[]): Block[] {
   for (const each of text.matchAll(openerPattern(names, JSON_START))) {
     if (each.index < (apart.at(-1)?.to ?? 0)) continue;
     const call = each[1] === undefined;
-    const tag = (each[1] ?? each[2] ?? "").toLowerCase();
+    const tag = (each[1] ?? each[2] ?? each[3] ?? "").toLowerCase();
     const start = each.index + each[0].length;
     const json = jsonEnd(text, start);
     const paragraph = text.indexOf("\n\n", start);
-    // A tag's block runs to its closing tag; a call's to the bracket right after its JSON.
-    const closer = call
-      ? json === undefined
+    // A tag's block runs to its closing tag; a call's to the bracket right after its JSON, and
+    // a name with a colon's to the end of its JSON.
+    const closer =
+      each[3] !== undefined || (call && json === undefined)
         ? null
-        : closerPattern(tag, true).exec(text.slice(json))
-      : closerPattern(tag, false).exec(text.slice(start));
+        : call && json !== undefined
+          ? closerPattern(tag, true).exec(text.slice(json))
+          : closerPattern(tag, false).exec(text.slice(start));
     const end =
       !call && closer
         ? start + closer.index

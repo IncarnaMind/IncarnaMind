@@ -2,6 +2,7 @@ import { mkdirSync } from "node:fs";
 import { mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { tmpdir, userInfo } from "node:os";
 import { join } from "node:path";
+import { deflateRawSync } from "node:zlib";
 import * as Y from "yjs";
 import { cleanApiKey } from "../shared/apiKey";
 import { isCitationStyleId, withRecentStyle } from "../shared/citationStyles";
@@ -24,6 +25,7 @@ import {
   setCitationStyle,
 } from "../shared/mindCitationStyle";
 import { mindModelOf } from "../shared/mindModel";
+import { mindScopeIn } from "../shared/mindScope";
 import {
   DEFAULT_MIND_STYLE,
   exportedFamily,
@@ -35,7 +37,7 @@ import {
 } from "../shared/mindStyle";
 import { mindName } from "../shared/naming";
 import { paperFor } from "../shared/printDocument";
-import { resolveProposals, restoreRevised } from "../shared/proposals";
+import { resolveProposals, restoreRevised, targetHash } from "../shared/proposals";
 import { readyQuestionOf } from "../shared/readyQuestion";
 import { isPaperOrBook } from "../shared/references";
 import { RESEARCH_TASK } from "../shared/research";
@@ -52,6 +54,7 @@ import { createAiUseStatement } from "./aiUseStatement";
 import { createAiSdkAnswerEngine, createAnswers } from "./answers";
 import { createAskedChanges } from "./answers/applyAsked";
 import { createChecks } from "./answers/checks";
+import { tableCellFigurePlaces } from "./answers/checks/figureOccurrences";
 import { AFTER_NEW_VERSION_MS, CLAIM_TIME_LIMIT_MS } from "./answers/checks/watch";
 import {
   citeSelection,
@@ -62,11 +65,13 @@ import {
   recheckWhereSelected,
 } from "./answers/citations";
 import {
+  addCitedUnit,
   addCitedUnits,
   addCitedVersions,
   type CitedUnits,
   type CitedVersions,
   eachCitation,
+  figureCitations,
   isCited,
 } from "./answers/citedVersions";
 import { createCiting } from "./answers/citing";
@@ -79,6 +84,7 @@ import {
   type ChatProviderKind,
   type CheckRecordFailure,
   type CheckRecordFormat,
+  CONTENT_SCHEMA_VERSION,
   type ConversationAskResult,
   type CoreApi,
   type CoreEventSource,
@@ -92,6 +98,7 @@ import {
   type MarkAiTextChoice,
   type Meeting,
   type MeetingHelpKind,
+  MIND_CONTENT_FIELD,
   type Mind,
   type MindCitationStyle,
   type MindContentSnapshot,
@@ -113,6 +120,7 @@ import {
 } from "./api";
 import { createApprovals } from "./approvals";
 import { createBackgroundQueue } from "./backgroundQueue";
+import { describeModel } from "./chatModelNames";
 import { createCheckpoints } from "./checkpoints";
 import { createCheckRecord } from "./checkRecord";
 import { createCitationStyles } from "./citationStyles";
@@ -138,7 +146,12 @@ import { readPageSetup } from "./documents/formats/docxPages";
 import { createOwnFiles } from "./documents/ownFiles";
 import { createPdfPasswords } from "./documents/pdfPasswords";
 import { READING_SPEED } from "./documents/readingSpeed";
-import { createVersionRetention, type VersionRetention } from "./documents/retention";
+import {
+  createVersionRetention,
+  NOTE_FIGURE_CHECKPOINT_PREFIX,
+  noteFigureCheckpointOwner,
+  type VersionRetention,
+} from "./documents/retention";
 import {
   BUILT_IN_TEXT_RECOGNITION_MODEL,
   createTextRecognitionModel,
@@ -171,9 +184,12 @@ import { createExamples } from "./examples";
 import { createLocalExecutor } from "./execution";
 import { createExports, type ExportsDependencies } from "./exports";
 import { createComparisonExport } from "./exports/comparisonExport";
+import { figureScheduleBook } from "./exports/figureScheduleBook";
 import { exportLabels } from "./exports/labels";
 import { renderMarkdown } from "./exports/markdown";
 import { setTextOnlyDocuments, textOnlyDocuments } from "./exports/sharedPictures";
+import { writeXlsx } from "./exports/xlsx";
+import { figureSchedule } from "./figureSchedule";
 import { createFileLock } from "./fileLock";
 import { safeFileName, writeNewFile } from "./fileNames";
 import { createFolders } from "./folders";
@@ -201,7 +217,7 @@ import { type MemoCue, memoTitle } from "./meetings/memo";
 import { createSpeakerPass } from "./meetings/speakerPass";
 import { createTranscripts } from "./meetings/transcript";
 import { accessFor, isKnownKind } from "./mindAccess";
-import { createMindContent } from "./mindContent";
+import { contentVersionOf, createMindContent, hasPendingMindChanges } from "./mindContent";
 import { createMindIndex, lineUnderName } from "./mindIndex";
 import {
   createMinds,
@@ -212,6 +228,7 @@ import {
   parseMindId,
 } from "./minds";
 import { firstLineOf, readBlocks, textStart, theirChangesReading } from "./mindText";
+import { createModelRuntimeFolderNotice } from "./modelRuntimeFolder";
 import { createNoteAdding, insertBlocks } from "./noteAdding";
 import { createNoteConversations } from "./noteConversations";
 import { createOutputFiles } from "./outputFiles";
@@ -316,6 +333,14 @@ export interface Core extends CoreApi, CoreEventSource {
    * NotFoundError for anything else.
    */
   openDocumentImage(documentId: string, path: string): Promise<DocumentImage>;
+  /**
+   * Rewrites the keyword rows of Documents an older version indexed, one
+   * Document per transaction, on the Document-processing worker and never on
+   * this thread (#2042). The host calls it once the first window is up, so a
+   * start never waits for it; a Document that another upgrade rule reads is
+   * left to that read. Calling it again while it runs does nothing.
+   */
+  upgradeKeywordIndex(): void;
   /**
    * The number a workbook's cell stores when its shown text isn't that
    * number written plainly (0.04213 for "4.2%"), from the Document's
@@ -560,20 +585,27 @@ export function createCore(adapters: CoreAdapters): Core {
       const renamed = minds.setAutoTitle(mindId, content.peek(mindId, firstLineOf));
       if (minds.markEdited(mindId) || renamed) mindsChanged();
     },
-    { unsaved: unsaved.mindUnsaved },
+    {
+      unsaved: unsaved.mindUnsaved,
+      persisted: (mindId) => rebuildFigureRetention(mindId),
+    },
   );
   const noteConversations = createNoteConversations({
     content,
     mindIds: () => minds.list().map((mind) => mind.id),
   });
   // A Mind waiting in Recently deleted comes back with its Citations, so it counts until it is purged.
-  const eachCitingMind = (visit: (blocks: Y.XmlFragment) => void, exceptMindId?: string) => {
+  const eachCitingMind = (
+    visit: (blocks: Y.XmlFragment, mindId: string) => void,
+    exceptMindId?: string,
+  ) => {
     for (const mind of db.all<{ id: string; deleted_at: string | null }>(
       "SELECT id, deleted_at FROM minds WHERE purged_at IS NULL",
     )) {
       if (mind.id === exceptMindId) continue;
-      if (mind.deleted_at === null) content.peek(mind.id, visit);
-      else content.peekDeleted(mind.id, visit);
+      const look = (blocks: Y.XmlFragment) => visit(blocks, mind.id);
+      if (mind.deleted_at === null) content.peek(mind.id, look);
+      else content.peekDeleted(mind.id, look);
     }
   };
   const mindIndex = createMindIndex({
@@ -745,18 +777,63 @@ export function createCore(adapters: CoreAdapters): Core {
   });
   const privacy = createPrivacy({ settings, crashReporter: adapters.crashReporter, usageData });
   const privacyChanged = () => events.emit("privacy.changed", privacy.status());
+  const modelRuntimeFolder = createModelRuntimeFolderNotice(
+    db,
+    adapters.modelRuntimeFolder,
+    adapters.shell,
+    adapters.log,
+  );
   const platform = process.platform;
   const retention = createVersionRetention(db, now);
+  const rebuildFigureRetention = (mindId: string) => {
+    if (
+      content.isLoaded(mindId) &&
+      content.read(mindId, (blocks) => blocks.doc !== null && hasPendingMindChanges(blocks.doc))
+    )
+      return;
+    content.readPersisted(mindId, (doc) => {
+      if (contentVersionOf(doc) > CONTENT_SCHEMA_VERSION || hasPendingMindChanges(doc)) return;
+      let citations: ReturnType<typeof figureCitations>;
+      try {
+        citations = figureCitations(doc.getXmlFragment(MIND_CONTENT_FIELD));
+      } catch (error) {
+        console.error(`Mind ${mindId}: retaining calculated figure sources failed`, error);
+        return;
+      }
+      const documents = new Set(
+        citations.flatMap(({ documentId }) => (typeof documentId === "string" ? [documentId] : [])),
+      );
+      const units: CitedUnits[] = [];
+      for (const citation of citations) addCitedUnit(citation, documents, units);
+      const versions = units.flatMap(({ documentId, contentHash, pageFrom, pageTo }) =>
+        contentHash ? [{ documentId, contentHash, pageFrom, pageTo }] : [],
+      );
+      db.transaction(() => {
+        retention.retain("note-figure", mindId, versions);
+        retention.retain("checkpoint", noteFigureCheckpointOwner(mindId), versions);
+      });
+    });
+  };
+  for (const { id } of db.all<{ id: string }>(
+    `SELECT m.id FROM minds m WHERE m.purged_at IS NOT NULL AND EXISTS (
+       SELECT 1 FROM retained_versions r WHERE r.deleted_at IS NULL AND
+         ((r.kind = 'note-figure' AND r.owner_id = m.id)
+          OR (r.kind = 'checkpoint' AND r.owner_id = ? || m.id)))`,
+    [NOTE_FIGURE_CHECKPOINT_PREFIX],
+  ))
+    rebuildFigureRetention(id);
   const checkpoints = createCheckpoints({
     db,
     now,
     content,
     retention,
+    rebuildFigureRetention,
     requireMind: (mindId) => writableMind(mindId).id,
     changed: (mindId) => events.emit("checkpoints.changed", { mindId }),
     stopAnswer: (mindId, answerId) => answers.stop({ mindId, answerId }),
     settleAnswers: (mindId) => answers.settleOrphans(mindId),
     reportError: (error) => console.error(error),
+    personId: () => settings.get().user.personId ?? null,
   });
   // Background work (automatic tagging, Organize's classification, saving cited pages): one
   // job at a time, giving way to Answers.
@@ -857,8 +934,16 @@ export function createCore(adapters: CoreAdapters): Core {
     const pagesCited = citedPages.collector();
     if (collectVersions || pagesCited) {
       const cited: CitedVersions = new Map();
-      eachCitingMind((fragment) => {
-        if (collectVersions) addCitedVersions(fragment, cited);
+      let complete = true;
+      eachCitingMind((fragment, mindId) => {
+        if (collectVersions) {
+          try {
+            addCitedVersions(fragment, cited);
+          } catch (error) {
+            complete = false;
+            console.error(`Mind ${mindId}: reading retained source dependencies failed`, error);
+          }
+        }
         if (pagesCited) eachCitation(fragment, pagesCited.cite);
       });
       // First, so a version only a page that went retained goes now too.
@@ -866,7 +951,7 @@ export function createCore(adapters: CoreAdapters): Core {
         conversations.eachCitation(pagesCited.cite);
         pagesCited.collect();
       }
-      if (collectVersions) {
+      if (collectVersions && complete) {
         conversations.addCitedVersions(cited);
         retention.addRetainedVersions(cited);
         const quoted = (documentId: string, contentHash: string) =>
@@ -1612,6 +1697,11 @@ export function createCore(adapters: CoreAdapters): Core {
       publish: publishConversation,
       discard: (added) => conversations.discard(added),
       questionOf: (input) => conversations.questionOf(input),
+      setQuestionModel: (questionId, model) => {
+        const question = conversations.setQuestionModel(questionId, model);
+        if (question) events.emit("conversation.message", question);
+        return question;
+      },
       clearScope: (questionId) => {
         const question = conversations.clearScope(questionId);
         if (question) events.emit("conversation.message", question);
@@ -1869,7 +1959,12 @@ export function createCore(adapters: CoreAdapters): Core {
     const { folderId } = minds.get(mindId);
     const { chineseText, cited } = content.read(mindId, (blocks) => {
       const versions: CitedVersions = new Map();
-      addCitedVersions(blocks, versions);
+      try {
+        addCitedVersions(blocks, versions);
+      } catch (error) {
+        // The style is chosen from the Documents read so far; the export says what it can't write.
+        console.error(`Mind ${mindId}: reading the Documents its Citations cite failed`, error);
+      }
       return {
         chineseText: writtenInChinese(textStart(blocks, LANGUAGE_SAMPLE)),
         cited: [...versions.keys()],
@@ -1959,6 +2054,23 @@ export function createCore(adapters: CoreAdapters): Core {
     return mind;
   };
 
+  function readFigureSchedule(mindId: string) {
+    const mind = minds.get(mindId);
+    const scope = content.readSettings(mind.id, mindScopeIn);
+    return content.read(mind.id, (blocks) => {
+      return figureSchedule({
+        mindId: mind.id,
+        name: mindName(mind) || translate(settings.get().language, "mind.untitled"),
+        basis: targetHash(blocks.toString()),
+        blocks,
+        versions: new Map(documents.list().map((document) => [document.id, document.contentHash])),
+        folderId: mind.folderId,
+        scope,
+        personId: settings.get().user.personId,
+      });
+    });
+  }
+
   const checks = createChecks({
     language: () => settings.get().language,
     content,
@@ -2032,6 +2144,7 @@ export function createCore(adapters: CoreAdapters): Core {
         documents.searchableJoinedAfter(documentIds ?? undefined, since, folderId),
       names: () => documents.names(),
       searchableLanguages: (documentIds) => documents.searchableLanguages(documentIds ?? undefined),
+      searchableBySize: (documentIds) => documents.searchableBySize(documentIds ?? undefined),
       savedBySearch: (documentId) => documents.getMany([documentId])[0]?.web?.origin === "search",
       citationSource: (passageId) => documents.citationSource(passageId),
       pageTexts: (documentId, contentHash, from, to) =>
@@ -2147,6 +2260,8 @@ export function createCore(adapters: CoreAdapters): Core {
     printer: adapters.printer ?? null,
     paper: systemPaper,
     now,
+    figures: (mindId) => readFigureSchedule(mindId).rows,
+    personId: () => settings.get().user.personId,
   });
   const ownFileOf = (options: ExportMindOptions): OwnFileKind =>
     options.format === "source-pack" ? "source-pack" : "export";
@@ -3642,6 +3757,7 @@ export function createCore(adapters: CoreAdapters): Core {
       }
       const access = accessFor(mind.kind, content.contentVersion(mind.id));
       if (access === "read-only") return { mind, access, state: content.storedState(mind.id) };
+      rebuildFigureRetention(mind.id);
       answers.settleOrphans(mind.id);
       checks.settleStale(mind.id);
       return { mind, access, state: content.state(mind.id) };
@@ -3662,6 +3778,8 @@ export function createCore(adapters: CoreAdapters): Core {
     listCheckpoints: async (mindId) => checkpoints.list(mindId),
     compareCheckpoints: async (input) => checkpoints.compare(input),
     restoreCheckpoint: async (mindId, checkpointId) => checkpoints.restore(mindId, checkpointId),
+    renameCheckpoint: async (mindId, checkpointId, name) =>
+      checkpoints.rename(mindId, checkpointId, name),
     askInConversation: async (input) =>
       answers.askInConversation(conversations.parseQuestion(input)),
     askExampleReadyQuestion: async () => {
@@ -3735,16 +3853,21 @@ export function createCore(adapters: CoreAdapters): Core {
           if (error instanceof NotFoundError) continue;
           throw error;
         }
-        found.push({ mindId, state: content.storedState(mindId) });
+        found.push({
+          mindId,
+          state: content.storedState(mindId),
+          cellFigures: content.peek(mindId, tableCellFigurePlaces),
+        });
       }
       return found;
     },
+    upgradeKeywordIndex: () => documents.upgradeKeywordIndex(),
     // The Library lists the examples until the User has a Document of their own (#1942), so a first
     // search looks in them; from the first Document of the User's own on, they are left out before
     // the search's limit, so they never take one of its places.
     searchDocumentText: async (query, options) => {
       const example = examples.made().documentIds;
-      const own = documents.list().some((each) => !example.includes(each.id));
+      const own = documents.hasDocumentOutside(example);
       return documents.searchText(query, {
         ...options,
         ...(own ? { excludeDocumentIds: example } : {}),
@@ -4108,6 +4231,28 @@ export function createCore(adapters: CoreAdapters): Core {
     compareDocuments: (input) => inFlow("comparison", () => comparisons.compareDocuments(input)),
     fillComparisonTable: (input) =>
       inFlow("comparison", () => comparisons.fillComparisonTable(input)),
+    moveComparisonColumn: (input) =>
+      inFlow("comparison", async () => comparisons.moveColumn(input)),
+    editComparisonColumn: (input) =>
+      inFlow("comparison", async () => comparisons.editColumn(input)),
+    insertComparisonColumn: (input) =>
+      inFlow("comparison", async () => comparisons.insertColumn(input)),
+    duplicateComparisonColumn: (input) =>
+      inFlow("comparison", async () => comparisons.duplicateColumn(input)),
+    removeComparisonColumn: (input) =>
+      inFlow("comparison", async () => comparisons.removeColumn(input)),
+    resizeComparisonColumn: (input) =>
+      inFlow("comparison", async () => comparisons.resizeColumn(input)),
+    setComparisonColumnHidden: (input) =>
+      inFlow("comparison", async () => comparisons.hideColumn(input)),
+    undoComparisonStructure: (input) =>
+      inFlow("comparison", () => comparisons.undoStructure(input)),
+    redoComparisonStructure: (input) =>
+      inFlow("comparison", () => comparisons.redoStructure(input)),
+    watchComparisonMind: (input) => comparisons.watchMind(input),
+    unwatchComparisonMind: (input) => comparisons.unwatchMind(input),
+    acknowledgeComparisonStructure: (input) => comparisons.acknowledge(input),
+    forgetComparisonWindow: (input) => comparisons.forgetWindow(input),
     stopComparisonTable: (input) => comparisons.stop(input),
     listFillingComparisons: async () => comparisons.filling(),
     listTasks: async () => tasks.list(),
@@ -4145,6 +4290,7 @@ export function createCore(adapters: CoreAdapters): Core {
     planMindCheck: (mindId, mode, allDocuments) => checks.planMindCheck(mindId, mode, allDocuments),
     findMindClaims: (input) => inFlow("check-mind", () => checks.findMindClaims(input)),
     checkMind: (input) => inFlow("check-mind", () => checks.checkMind(input)),
+    getFigureSchedule: async (mindId) => readFigureSchedule(mindId),
     documentsAddedSinceChecks: async (mindId) => checks.documentsAddedSinceChecks(mindId),
 
     getSecretStorage: async () => secrets.status(),
@@ -4283,6 +4429,8 @@ export function createCore(adapters: CoreAdapters): Core {
 
     listNetworkTraffic: () => privacy.listTraffic(),
     getPrivacySettings: async () => privacy.status(),
+    getModelRuntimeFolder: () => modelRuntimeFolder.present(),
+    showModelRuntimeFolder: () => modelRuntimeFolder.show(),
     updatePrivacySettings: async (patch) => {
       const { changed, settings: updated } = privacy.update(patch);
       if (changed) privacyChanged();
@@ -4366,7 +4514,13 @@ export function createCore(adapters: CoreAdapters): Core {
       }
     },
     assignDocumentGroup: async (id, groupId) => library.assign(id, groupId),
-    restoreAssignment: async (id, previous) => library.restoreAssignment(id, previous),
+    restoreAssignment: async (id, before, after) => {
+      const change = library.restoreAssignment(id, before, after);
+      // A Document whose tagging goes back to pending has its turn again: the one it had was
+      // dropped while Organize held it (#1928).
+      if (change?.after.tagging?.status === "pending") tagger.resume();
+      return change;
+    },
     restore: async (refs) => recentlyDeleted.restore(refs),
     undoCommands: async (run) => commandSteps.undo(run),
     redoCommands: async (run) => commandSteps.redo(run),
@@ -4630,6 +4784,9 @@ export function createCore(adapters: CoreAdapters): Core {
       return exported;
     },
     saveMindExport: async (mindId, options) => {
+      // The export reads the Note before its first await, so this is the text the file holds,
+      // whatever the User writes while it is made.
+      const read = typeof mindId === "string" ? content.storedState(mindId) : null;
       const {
         fileName,
         fromWord: _,
@@ -4648,8 +4805,22 @@ export function createCore(adapters: CoreAdapters): Core {
         ownFileOf(options),
       );
       if (saved.status !== "saved") return saved;
+      // Sent as Word or PDF (#1933): History keeps the Note as it went, with the file's name.
+      let sentKept = true;
+      if (read && (options.format === "docx" || options.format === "pdf")) {
+        try {
+          checkpoints.sent(mindId, saved.file.name, read);
+        } catch (error) {
+          // The file is saved all the same: the result line says History couldn't keep it.
+          sentKept = false;
+          console.error(
+            `export: History couldn't keep Mind ${mindId} as it was sent as ${saved.file.name}`,
+            error,
+          );
+        }
+      }
       await rememberExportChoices(counts, null);
-      return { ...saved, ...counts, word };
+      return { ...saved, ...counts, word, sentKept };
     },
     saveCheckRecord: async (mindId) => {
       const saved: { format: CheckRecordFormat; file: SavedFile }[] = [];
@@ -4679,14 +4850,29 @@ export function createCore(adapters: CoreAdapters): Core {
         failures,
       };
     },
+    saveFigureScheduleExport: async (mindId) => {
+      const schedule = readFigureSchedule(mindId);
+      if (schedule.progress) throw new InvalidInputError({ key: "error.figure.checking" });
+      const providers = await chat.list();
+      const book = figureScheduleBook(schedule, {
+        language: settings.get().language,
+        modelName: (model) =>
+          describeModel(providers, model.providerId, model.modelId)?.name ?? model.modelId,
+      });
+      const bytes = writeXlsx(book, deflateRawSync, { author: "IncarnaMind", created: now() });
+      const name = translate(settings.get().language, "figures.exportName", {
+        name: schedule.name,
+      });
+      return saveExport(`${safeFileName(name, "Note")}.xlsx`, bytes);
+    },
     saveComparisonExport: async (input) => {
       const ref: Record<string, unknown> = isRecord(input) ? input : {};
-      const { fileName, data, unverifiedCitations } = comparisonExport.workbook(
+      const { fileName, data, unverifiedCitations, hiddenColumns } = comparisonExport.workbook(
         ref.mindId,
         ref.tableId,
       );
       const saved = await saveExport(fileName, data);
-      return saved.status === "saved" ? { ...saved, unverifiedCitations } : saved;
+      return saved.status === "saved" ? { ...saved, unverifiedCitations, hiddenColumns } : saved;
     },
     saveSkillExport: async (skillId) => {
       const { fileName, data } = await skills.exportZip(skillId);

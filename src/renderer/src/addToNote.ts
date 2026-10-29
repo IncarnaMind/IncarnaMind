@@ -29,12 +29,14 @@ import {
   type Conversation,
   type ConversationAnswer,
   MIND_CONTENT_FIELD,
+  MIND_FIGURE_RUNS_FIELD,
   MIND_SETTINGS_FIELD,
 } from "../../core/api";
 import { messageReference } from "../../core/references";
 import { asGenerated } from "../../shared/aiText";
 import type { NodeJSON } from "../../shared/blockJson";
 import { setOrigins } from "../../shared/blockOrigins";
+import { figureRunsOfAnswer, installFigureRuns } from "../../shared/figureRuns";
 import { holdsNothing } from "../../shared/madeMind";
 import { carryAnswerScope } from "../../shared/mindScope";
 import { cutTitle, mindName, numberedName } from "../../shared/naming";
@@ -109,7 +111,7 @@ export function addInEditor(
     useAppStore.getState().reportError(error);
     return null;
   }
-  const done = asOneStep(editor, () => {
+  const change = () => {
     const added = editor.commands.command(({ tr }) => {
       const fragment = Fragment.from(nodes);
       tr.replaceWith(place.from, place.to, fragment);
@@ -120,7 +122,9 @@ export function addInEditor(
     });
     if (added) inTheSameStep();
     return added;
-  });
+  };
+  const doc = ySyncPluginKey.getState(editor.state)?.doc;
+  const done = asOneStep(editor, () => (doc ? doc.transact(change, ySyncPluginKey) : change()));
   if (!done) return null;
   const first = editor.view.nodeDOM(place.from);
   if (first instanceof HTMLElement) first.scrollIntoView({ block: "nearest" });
@@ -142,6 +146,10 @@ async function addToReadMind(added: AddedAnswer, mindId: string): Promise<boolea
   // As the editor's own change, so the note's Undo takes the scope back with the Blocks.
   const bringScope = () => {
     yUndoPluginKey.getState(editor.state)?.undoManager.addToScope(doc.getMap(MIND_SETTINGS_FIELD));
+    yUndoPluginKey
+      .getState(editor.state)
+      ?.undoManager.addToScope(doc.getMap(MIND_FIGURE_RUNS_FIELD));
+    installFigureRuns(doc, figureRunsOfAnswer(added.answer, added.blocks));
     doc.transact(
       () => carryAnswerScope(doc, questionOf(added.answer)?.scope ?? null, folderId ?? null),
       ySyncPluginKey,
@@ -179,6 +187,7 @@ async function addToOtherMind(added: AddedAnswer, mindId: string, openIt: boolea
   const { blockIds } = await core.addToNote({
     mindId,
     blocks: added.blocks,
+    figureRuns: figureRunsOfAnswer(added.answer, added.blocks),
     origin: originOf(added),
     model: added.answer.model,
   });
@@ -216,6 +225,7 @@ const putIn = (mindId: string, added: AddedAnswer) =>
   core.addToNote({
     mindId,
     blocks: added.blocks,
+    figureRuns: figureRunsOfAnswer(added.answer, added.blocks),
     origin: originOf(added),
     model: added.answer.model,
   });

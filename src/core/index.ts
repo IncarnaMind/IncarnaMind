@@ -50,6 +50,7 @@ export type {
   Logger,
   LogValue,
   ModelFile,
+  ModelRuntimeFolder,
   OllamaApp,
   PageLook,
   PagePicture,

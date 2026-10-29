@@ -16,6 +16,8 @@ const checkpoint = (id: string, at: Date, reason: Checkpoint["reason"]): Checkpo
   mindId: "mind",
   reason,
   createdAt: at.toISOString(),
+  name: null,
+  file: null,
 });
 const en = (key: Parameters<typeof translate>[1], params?: Parameters<typeof translate>[2]) =>
   translate("en", key, params);

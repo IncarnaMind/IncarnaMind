@@ -52,7 +52,7 @@ beforeAll(async () => {
 });
 
 describe("the menus", () => {
-  test("a Mind's is Open, Open in new tab, Outline, Export…, Export AI use statement, Export check record…, History, Check this note, Check for contradictions, Style, Make this a Skill, Move to and New Folder with this note, Rename, then Delete after a rule", () => {
+  test("a Mind's is Open, Open in new tab, Outline, Export…, Export AI use statement, Export check record…, History, Check this note, Tie out figures, Check for contradictions, Style, Make this a Skill, Move to and New Folder with this note, Rename, then Delete after a rule", () => {
     const here = {
       "mind.citationStyle": () => undefined,
       "mind.moveTo": () => undefined,
@@ -68,6 +68,7 @@ describe("the menus", () => {
       "mind.checkRecord",
       "mind.history",
       "mind.check",
+      "mind.tieOut",
       "mind.checkContradictions",
       "mind.citationStyle",
       "mind.style",
@@ -91,6 +92,7 @@ describe("the menus", () => {
       "mind.checkRecord",
       "mind.history",
       "mind.check",
+      "mind.tieOut",
       "mind.checkContradictions",
       "mind.style",
       "skill.fromMind",

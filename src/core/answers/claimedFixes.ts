@@ -13,6 +13,7 @@ import { type AnswerToolCall, MIND_CONTENT_FIELD } from "../api";
 import { plainText } from "../mindText";
 import { MIND_TOOLS } from "../tools";
 import { topLevelBlocks } from "./blocks";
+import { sentencesOf } from "./claimStream";
 
 /** A Mind's text before and after the Answer's own changes there. */
 export interface EditedText {
@@ -95,12 +96,6 @@ const PARAGRAPHS = new RegExp(`${NUMBER}\\s*(?:paragraphs?\\b|个段落|段)`, "
 
 const numberOf = (word: string): number =>
   /^\d+$/.test(word) ? Number(word) : (NUMBER_WORDS[word.toLocaleLowerCase()] ?? 0);
-
-const sentencesOf = (reply: string): string[] =>
-  reply
-    .split(/(?<=[.!?])\s+|(?<=[。！？])|\n+/)
-    .map((sentence) => sentence.trim())
-    .filter((sentence) => sentence !== "");
 
 function occurrences(text: string, word: string): number {
   if (/[\p{Script=Han}]/u.test(word)) return text.split(word).length - 1;

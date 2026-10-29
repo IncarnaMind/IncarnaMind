@@ -35,10 +35,13 @@ export function SidebarToggle({ place }: { place: "header" | "band" }) {
     files.titleBar === "inset" && control !== null && (!control.hidden || control.peeking);
   const here = place === "header" ? inHeader : !inHeader;
 
-  // The button the User used was replaced by its twin in the other place: focus stays on a button.
+  // The button the User used was replaced by its twin in the other place, or stayed where it was:
+  // either way the one drawn takes the focus when the sidebar hides with the focus inside it. It
+  // runs after every render, since the same button may stay put while the sidebar's hidden state
+  // turns true.
   useEffect(() => {
     if (here && takeRefocus?.()) button.current?.focus();
-  }, [here, takeRefocus]);
+  });
 
   if (!control || !here) return null;
   const alert = control.hidden && taggingNeedsYou;

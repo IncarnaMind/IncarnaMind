@@ -19,7 +19,7 @@ import {
   withTableBodies,
 } from "./html";
 import type { ExportLabels } from "./labels";
-import { escapeHtml, renderPrintHtml, sourceHtml, webLink } from "./printHtml";
+import { checkedHtml, escapeHtml, renderPrintHtml, sourceHtml, webLink } from "./printHtml";
 
 const HOW_CHECKS_WORK: Readonly<Record<Language, string>> = {
   en: "https://github.com/IncarnaMind/IncarnaMind#what-you-can-do",
@@ -260,7 +260,7 @@ export function renderSharePage(page: SharePage): string {
         const source = sourceHtml({ ...footnote, unverified: false }, labels, webLink);
         const quote = card?.quote ? ` · “${escapeHtml(card.quote)}”` : "";
         const check = card && card.check !== "found" ? ` · ${escapeHtml(card.heading)}` : "";
-        return source + quote + check;
+        return source + quote + check + checkedHtml(footnote.checked);
       },
       marker: (footnote, number) => {
         const card = cards.get(footnote);

@@ -159,6 +159,44 @@ describe("A correction from the public core", () => {
     expect(result).toMatchObject({ verdict: "contradicted", correction: null });
   });
 
+  test("stays null when a replacement changes a period outside the old substring", async () => {
+    const claim = "Gross margin fell to 36.8% in Q2, mostly in online.";
+    const quote = "Gross margin fell to 38.6% in Q3, mostly in online.";
+    const result = await checkWith(
+      {
+        ...contradicted(`The report gives another quarter.\n${correctionLines()}`),
+        quote,
+      },
+      claim,
+      [{ name: "Q3 results.md", contents: quote }],
+    );
+
+    expect(result).toMatchObject({ verdict: "contradicted", correction: null });
+  });
+
+  test("stays null when a Chinese replacement's Citation changes the surrounding period", async () => {
+    const claim = "第二季度毛利率降至36.8%。";
+    const quote = "第三季度毛利率降至38.6%。";
+    const result = await checkWith(
+      {
+        ...contradicted(`报告给出另一个季度。\n${correctionLines()}`),
+        quote,
+      },
+      claim,
+      [{ name: "第三季度业绩.md", contents: quote }],
+    );
+
+    expect(result).toMatchObject({ verdict: "contradicted", correction: null });
+  });
+
+  test("stays null when the replacement is absent from its Citation", async () => {
+    const result = await checkWith(
+      contradicted("The report gives another rate.\nChange 1: 36.8%\nTo 1: 39.4%"),
+    );
+
+    expect(result).toMatchObject({ verdict: "contradicted", correction: null });
+  });
+
   test("stays null when a Chinese replacement changes the named period", async () => {
     const claim = "第二季度毛利率降至36.8%。";
     const quote = "第三季度毛利率降至38.6%。";
@@ -210,6 +248,24 @@ describe("A correction from the public core", () => {
     expect(result).toMatchObject({
       verdict: "contradicted",
       correction: { from: "36.8% in Q2", choices: [{ wording: "38.6% in Q2" }] },
+    });
+  });
+
+  test("keeps a numeric replacement whose Citation names the same surrounding period", async () => {
+    const claim = "Gross margin fell to 36.8% in Q2, mostly in online.";
+    const quote = "Gross margin fell to 38.6% in Q2, mostly in online.";
+    const result = await checkWith(
+      {
+        ...contradicted(`The report gives another rate.\n${correctionLines()}`),
+        quote,
+      },
+      claim,
+      [{ name: "Q2 results.md", contents: quote }],
+    );
+
+    expect(result).toMatchObject({
+      verdict: "contradicted",
+      correction: { from: "36.8%", choices: [{ wording: "38.6%" }] },
     });
   });
 
@@ -423,7 +479,7 @@ describe("A correction persisted on a claim mark", () => {
       ],
     });
     expect(check && restsOn(check)).toEqual(expect.arrayContaining([first, second]));
-    expect(CONTENT_SCHEMA_VERSION).toBe(32);
+    expect(CONTENT_SCHEMA_VERSION).toBe(36);
   });
 
   test("an older mark without one, and a malformed one, read safely", () => {

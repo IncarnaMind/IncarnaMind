@@ -9,8 +9,9 @@ import { makeInTurn, type Undoable, useUndo } from "./undo";
 type Decision = "accept" | "reject";
 
 /** What a step leaves a Document as, so that Undo spares one the User has changed since. */
-const placeOf = (item: DocumentGroupAssignment | undefined) =>
-  item ? `${item.groupId ?? ""}|${item.source}|${item.suggested}` : "";
+const placeOf = (
+  item: Pick<DocumentGroupAssignment, "groupId" | "source" | "suggested"> | null | undefined,
+) => (item ? `${item.groupId ?? ""}|${item.source}|${item.suggested}` : "");
 
 const assignmentsNow = () =>
   new Map(
@@ -63,31 +64,31 @@ function stepOf(
   changes: readonly AssignmentChange[],
   said: Undoable["said"],
 ): Undoable {
+  let held = [...changes];
   return {
     said,
     name: (t) => t(decision === "accept" ? "undo.name.accept" : "undo.name.reject"),
     async undo() {
       const now = assignmentsNow();
       // A Document the User has moved since is theirs now: it stays where they put it.
-      const mine = changes.filter(
-        (each) => placeOf(now.get(each.after.documentId)) === placeOf(each.after),
+      const mine = held.filter(
+        (each) => placeOf(now.get(each.documentId)) === placeOf(each.after.assignment),
       );
-      await Promise.all(
-        mine.map(({ before: { documentId, ...previous } }) =>
-          core.restoreAssignment(documentId, previous),
-        ),
+      const fresh = await Promise.all(
+        mine.map((each) => core.restoreAssignment(each.documentId, each.before, each.after)),
       );
+      held = fresh.filter((each): each is AssignmentChange => each !== null);
       await useAppStore.getState().refreshLibrary();
     },
     async redo() {
       const now = assignmentsNow();
-      const mine = changes.filter(
-        (each) => placeOf(now.get(each.before.documentId)) === placeOf(each.before),
+      const mine = held.filter(
+        (each) => placeOf(now.get(each.documentId)) === placeOf(each.after.assignment),
       );
       if (mine.length === 0) return;
-      await apply(
+      held = await apply(
         decision,
-        mine.map((each) => each.before.documentId),
+        mine.map((each) => each.documentId),
       );
     },
   };

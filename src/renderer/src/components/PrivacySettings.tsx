@@ -13,6 +13,7 @@ import { AiUseSettings } from "./AiUseSettings";
 import { ApprovalsSettings } from "./ApprovalsSettings";
 import { DetailsLine } from "./DetailsLine";
 import { InfoTip } from "./InfoTip";
+import { ModelRuntimeFolderLine } from "./ModelRuntimeFolderLine";
 import { PrivacyServices, SERVICES_UNDO_PLACE } from "./PrivacyServices";
 import { ProblemLine } from "./ProblemLine";
 import { LocalOnlySetting } from "./providers/LocalOnlySetting";
@@ -163,6 +164,7 @@ export function PrivacySettings() {
         <p className={`mt-2 ${rowStatusClass}`}>
           {t(choices?.usageData.available ? "privacy.intro.usageData" : "privacy.intro")}
         </p>
+        <ModelRuntimeFolderLine />
       </section>
 
       <section data-testid="approvals" className="flex flex-col">

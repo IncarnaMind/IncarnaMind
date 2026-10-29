@@ -410,14 +410,24 @@ test("an example's stored Organize assignment owes no progress on restart (#1942
     // As an earlier version left it: waiting to be filed, and never worked on again.
     const exampleId = await first.window.evaluate(async (id) => {
       const core = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
-      await core.restoreAssignment(id, {
-        groupId: null,
-        source: "automatic",
-        suggested: false,
-        status: "pending",
-        error: null,
-        model: null,
-      });
+      // Organize leaves the example's Documents alone, so it has no assignment to put back.
+      const held = (await core.getLibrary()).assignments.find((each) => each.documentId === id);
+      if (held) throw new Error("The example has an assignment already.");
+      await core.restoreAssignment(
+        id,
+        {
+          assignment: {
+            groupId: null,
+            source: "automatic",
+            suggested: false,
+            status: "pending",
+            error: null,
+            model: null,
+          },
+          tagging: null,
+        },
+        { assignment: null, tagging: null },
+      );
       return id;
     }, example.id);
     await first.app.close();

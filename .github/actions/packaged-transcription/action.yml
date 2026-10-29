@@ -3,7 +3,8 @@ description: >
   Runs e2e/packaged against the macOS app already packaged in dist/ (npm run dist:dir, or the
   release's own build): real OCR of upright and rotated scans (#1819), and a recording through
   Chromium's fake microphone transcribed by the real speech engine and model (#1239), its speakers
-  then told apart by the real speaker pass (#138). Needs npm ci first.
+  then told apart by the real speaker pass (#138); and the real reranking model, which must run
+  without ONNX Runtime's telemetry folder (#2145). Needs npm ci first.
 
 runs:
   using: composite

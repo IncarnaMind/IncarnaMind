@@ -1,0 +1,230 @@
+import { describe, expect, test } from "vitest";
+import type {
+  ClaimCheckAttributes,
+  ClaimCheckBasis,
+  FigureCheckAttributes,
+} from "../../src/core/api";
+import { type ClaimCheckNow, claimCheckShown, readClaimCheck } from "../../src/shared/claimChecks";
+import {
+  aggregateFigureStates,
+  beginFigureCheck,
+  readFigureFinding,
+  settleFigureCheck,
+} from "../../src/shared/figureChecks";
+import { readFigures } from "../../src/shared/figures";
+
+const sentence = "Revenue was 10 and profit was 2. / 收入10，利润2。";
+function basis(state: ClaimCheckBasis["state"] = "supported"): ClaimCheckBasis {
+  return {
+    id: "sentence",
+    request: "request",
+    action: "check-against-documents",
+    state,
+    reason: null,
+    detail: null,
+    providerId: "provider",
+    modelId: "model",
+    text: sentence,
+    evidence: null,
+    correction: null,
+    says: null,
+    unsupported: null,
+    calculation: null,
+    citedCaseUnchecked: false,
+    citedCaseFound: false,
+    scope: { folderId: null, widened: true },
+    versions: [],
+    excluded: [],
+    checkedAt: "2026-10-27T00:00:00.000Z",
+  };
+}
+function figure(id: string, state: ClaimCheckBasis["state"] = "supported"): FigureCheckAttributes {
+  const reading = readFigures("10", { language: "en" })[0];
+  if (!reading) throw new Error("No fixture figure.");
+  return {
+    ...basis(state),
+    id,
+    locator: {
+      kind: "text",
+      from: { blockId: "block", offset: 12 },
+      to: { blockId: "block", offset: 14 },
+    },
+    reading,
+    calculated: null,
+    sourceInput: null,
+    roundedFrom: null,
+    difference: null,
+    footing: [],
+  };
+}
+const now: ClaimCheckNow = { text: sentence, versions: new Map(), folderId: null, scope: null };
+const check = (
+  figures: FigureCheckAttributes[],
+  remainder?: ClaimCheckBasis | null,
+): ClaimCheckAttributes => ({
+  ...basis("contradicted"),
+  figures,
+  ...(remainder !== undefined && { remainder }),
+});
+
+describe("one sentence's numerical results", () => {
+  test("one bad figure keeps its sentence needing a look", () => {
+    expect(
+      claimCheckShown(check([figure("revenue"), figure("profit", "contradicted")], null), now),
+    ).toEqual({ state: "contradicted" });
+  });
+  test("keeping the bad figure does not carry the old whole-sentence contradiction into the rest", () => {
+    expect(
+      claimCheckShown(
+        check([figure("revenue"), { ...figure("profit", "contradicted"), kept: true }], null),
+        now,
+      ),
+    ).toEqual({ state: "supported" });
+  });
+  test("a separately unsupported qualitative assertion survives keeping every numerical problem", () => {
+    expect(
+      claimCheckShown(
+        check([{ ...figure("profit", "contradicted"), kept: true }], basis("unsupported")),
+        now,
+      ),
+    ).toEqual({ state: "unsupported" });
+  });
+  test("a missing remainder never becomes proof that there is no other assertion", () => {
+    expect(claimCheckShown(check([figure("revenue")]), now)).toEqual({
+      state: "not-checked",
+      reason: "malformed",
+    });
+    expect(claimCheckShown(check([figure("revenue")], null), now)).toEqual({ state: "supported" });
+    expect(aggregateFigureStates([], null)).toEqual({ state: "not-checked", reason: "malformed" });
+  });
+  test("checking one figure again leaves its kept sibling kept", () => {
+    const sibling = { ...figure("revenue"), kept: true as const };
+    const selected = figure("profit", "checking");
+    const current = check([sibling, selected], null);
+    expect(claimCheckShown(current, now)).toEqual({ state: "checking" });
+    expect(current.figures?.[0]).toEqual(sibling);
+  });
+  test("source agreement and a failed footing remain independent facts", () => {
+    const total = {
+      ...figure("total"),
+      footing: [
+        {
+          axis: "row" as const,
+          id: "total",
+          role: "total" as const,
+          componentIds: ["revenue", "profit"],
+          excludedIds: [],
+          sum: 12,
+          difference: 2,
+          agrees: false,
+        },
+      ],
+    };
+    expect(claimCheckShown(check([total], null), now)).toEqual({ state: "unsupported" });
+    expect(total.state).toBe("supported");
+    expect(claimCheckShown(check([total], null), { ...now, text: "Changed / 已修改" })).toEqual({
+      state: "needs-recheck",
+      why: "edited",
+    });
+  });
+  test("the same stored check survives decoding without losing child results or the explicit remainder", () => {
+    const original = check([figure("revenue"), figure("profit", "contradicted")], null);
+    expect(readClaimCheck(original)).toEqual(original);
+    expect(readClaimCheck(check([figure("revenue")]))).not.toHaveProperty("remainder");
+  });
+  test("malformed, duplicate or non-finite children cannot leave a supported parent", () => {
+    expect(readClaimCheck(check([figure("duplicate"), figure("duplicate")], null))).toBeNull();
+    const malformed = figure("revenue");
+    malformed.reading.value = Number.NaN;
+    expect(readFigureFinding(malformed)).toBeNull();
+    expect(readClaimCheck(check([malformed], null))).toBeNull();
+  });
+});
+
+for (const context of ["Revenue | FY 2025 | £m", "收入 | 2025年 | 百万元"]) {
+  test(`a header or unit edit invalidates its figure: ${context}`, () => {
+    const child = { ...figure("revenue"), context };
+    const marked = check([child], null);
+    expect(
+      claimCheckShown(marked, { ...now, figureContexts: new Map([[child.id, context]]) }),
+    ).toEqual({ state: "supported" });
+    expect(
+      claimCheckShown(marked, {
+        ...now,
+        figureContexts: new Map([[child.id, `${context} changed`]]),
+      }),
+    ).toEqual({ state: "needs-recheck", why: "edited" });
+    // A reader that hasn't read the note's figures yet doesn't call them edited.
+    expect(claimCheckShown(marked, now)).toEqual({ state: "supported" });
+    expect(claimCheckShown(check([{ ...child, kept: true }], null), now)).toEqual({
+      state: "kept",
+    });
+  });
+}
+
+test("a selected check preserves sibling evidence and the independent remainder", () => {
+  const sibling = { ...figure("revenue"), kept: true as const };
+  const selected = figure("profit", "contradicted");
+  const previous = check([sibling, selected], basis("unsupported"));
+  const pending = beginFigureCheck(
+    previous,
+    { ...basis(), request: "new" },
+    [sibling, selected],
+    new Set(["profit"]),
+  );
+  expect(pending.figures?.[0]).toEqual(sibling);
+  expect(pending.figures?.[1]).toMatchObject({ id: "profit", request: "new", state: "checking" });
+  expect(pending.figures?.[1]?.kept).toBeUndefined();
+  expect(pending.remainder).toEqual(previous.remainder);
+  const stopped = settleFigureCheck(pending, (child) => ({
+    ...child,
+    state: "not-checked",
+    reason: "stopped",
+  }));
+  expect(stopped.figures?.[0]).toEqual(sibling);
+  expect(stopped.figures?.[1]).toMatchObject({ state: "not-checked", reason: "stopped" });
+  expect(stopped.remainder).toEqual(previous.remainder);
+});
+
+test("checking one figure of a kept sentence leaves its other figures and prose kept", () => {
+  const first = figure("revenue");
+  const second = figure("profit");
+  const previous = { ...basis("contradicted"), kept: true as const };
+  const pending = beginFigureCheck(
+    previous,
+    { ...basis(), request: "new" },
+    [first, second],
+    new Set(["profit"]),
+  );
+  expect(pending.kept).toBeUndefined();
+  expect(pending.figures?.[0]?.kept).toBe(true);
+  expect(pending.figures?.[1]?.kept).toBeUndefined();
+  expect(pending.remainder?.kept).toBe(true);
+  expect(claimCheckShown(pending, now)).toEqual({ state: "checking" });
+});
+
+test("a legacy whole-sentence verdict cannot verify unselected figures or erase an unknown remainder", () => {
+  const first = figure("revenue");
+  const second = figure("profit");
+  const pending = beginFigureCheck(
+    basis(),
+    { ...basis(), request: "new" },
+    [first, second],
+    new Set(["profit"]),
+  );
+  expect(pending.figures?.[0]).toMatchObject({ state: "not-checked", reason: "unread" });
+  expect(pending.remainder).toBeUndefined();
+});
+
+test("a full check reopens every child and explicitly checks its qualitative remainder", () => {
+  const first = { ...figure("revenue"), kept: true as const };
+  const pending = beginFigureCheck(
+    check([first], null),
+    { ...basis(), request: "new" },
+    [first],
+    null,
+  );
+  expect(pending.figures?.[0]).toMatchObject({ state: "checking", request: "new" });
+  expect(pending.figures?.[0]?.kept).toBeUndefined();
+  expect(pending.remainder).toMatchObject({ state: "checking", request: "new" });
+});

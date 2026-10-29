@@ -370,7 +370,9 @@ function editCall(
     context: selection.context,
     // Explain writes under the passage, not into it: the words around it don't matter.
     ...(!explain && { before: selection.before, after: selection.after }),
-    ...(ask.action === "cut-unsupported" && { quotes: selection.quotes }),
+    ...((ask.action === "cut-unsupported" || ask.action === "follow-citation") && {
+      quotes: selection.quotes,
+    }),
   });
   // The reply is about as long as the passage; a translation into Chinese can count more.
   let maxOutputTokens = Math.min(16_000, Math.max(1_024, Math.ceil(selection.characters * 1.5)));
@@ -870,6 +872,7 @@ export function createEdits(options: EditsOptions) {
         return rewritten;
       });
       if (written.unmadeTable) return nothing({ kind: "no-table", text: reply });
+      if (written.proposals.length === 0) return nothing({ kind: "unchanged" });
       const { droppedCitations, notes } = written;
       const top = topLevelBlocks(blocks);
       const revised = top
