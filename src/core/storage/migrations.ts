@@ -1980,10 +1980,16 @@ export const migrations: readonly Migration[] = [
       ALTER TABLE library_groups ADD COLUMN keep_inside INTEGER NOT NULL DEFAULT 0;
       ALTER TABLE conversation_messages ADD COLUMN wall_id TEXT;
       UPDATE conversation_messages
-      SET wall_id = COALESCE(
-        (SELECT minds.folder_id FROM minds WHERE minds.id = asked_from_mind_id),
-        (SELECT conversations.folder_id FROM conversations WHERE conversations.id = conversation_messages.conversation_id)
-      )
+      SET wall_id = CASE
+        WHEN asked_from_mind_id IS NULL THEN COALESCE(
+          (SELECT conversations.folder_id FROM conversations WHERE conversations.id = conversation_messages.conversation_id),
+          ''
+        )
+        ELSE COALESCE(
+          (SELECT minds.folder_id FROM minds WHERE minds.id = asked_from_mind_id),
+          ''
+        )
+      END
       WHERE kind = 'question' AND wall_id IS NULL;
     `,
   },

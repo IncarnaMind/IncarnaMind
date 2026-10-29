@@ -3192,12 +3192,15 @@ export function createAnswers(options: AnswersOptions) {
     const outsideTurns = new Set<string>();
     const withWalls = turn.earlier.map((message) => {
       if (message.kind === "question") {
+        const recorded =
+          message.wallId !== undefined ? options.walledFolderId(message.wallId) : undefined;
         turnWall =
-          message.wallId !== undefined
-            ? options.walledFolderId(message.wallId)
-            : message.askedFrom
-              ? options.walledFolderId(filedIn(message.scope, message.askedFrom))
-              : options.walledFolderId(conversation.folderId);
+          message.askedFrom && options.mindFolder(message.askedFrom.mindId) === null
+            ? null
+            : (recorded ??
+              (message.askedFrom
+                ? options.walledFolderId(filedIn(message.scope, message.askedFrom))
+                : options.walledFolderId(conversation.folderId)));
         // A walled Note's scope is always explicit: a null one belongs to before it was walled.
         const beforeWall =
           message.askedFrom !== null &&
@@ -3602,13 +3605,13 @@ export function createAnswers(options: AnswersOptions) {
         readOf(mind),
         false,
         (folderId) => {
-          if (mind) return options.mindFolder(mind.mindId);
-          if (scope === null) return folderId;
+          if (mind) return options.mindFolder(mind.mindId) ?? "";
+          if (scope === null) return folderId ?? "";
           return scope.folderIds.length === 1 &&
             scope.tagIds.length === 0 &&
             scope.documentIds.length === 0
-            ? (scope.folderIds[0] ?? null)
-            : null;
+            ? (scope.folderIds[0] ?? "")
+            : "";
         },
       );
       const { turn } = added;

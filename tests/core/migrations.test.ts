@@ -236,6 +236,22 @@ describe("Migrations", () => {
       "INSERT INTO conversation_messages (seq, id, conversation_id, position, kind, text, asked_from_mind_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
       [2, "q2", "conv-a", 2, "question", "Second", null, at, at],
     );
+    db.run(
+      "INSERT INTO minds (id, title, auto_title, folder_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)",
+      ["mind-b", "B", "B", null, at, at],
+    );
+    db.run(
+      "INSERT INTO conversations (seq, id, title, auto_title, folder_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+      [2, "conv-c", "", "", null, at, at],
+    );
+    db.run(
+      "INSERT INTO conversation_messages (seq, id, conversation_id, position, kind, text, asked_from_mind_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+      [3, "q3", "conv-c", 1, "question", "Third", "mind-b", at, at],
+    );
+    db.run(
+      "INSERT INTO conversation_messages (seq, id, conversation_id, position, kind, text, asked_from_mind_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+      [4, "q4", "conv-c", 2, "question", "Fourth", null, at, at],
+    );
 
     migrate(db);
 
@@ -246,6 +262,8 @@ describe("Migrations", () => {
     ).toEqual([
       { id: "q1", wall_id: "folder-a" },
       { id: "q2", wall_id: "folder-b" },
+      { id: "q3", wall_id: "" },
+      { id: "q4", wall_id: "" },
     ]);
     db.close();
   });
