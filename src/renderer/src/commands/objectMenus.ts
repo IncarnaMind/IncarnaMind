@@ -151,7 +151,20 @@ registerMenu("comparisonColumn", [
   "comparison.column.remove",
 ]);
 
-registerMenu("comparisonTable", ["comparison.table.addDocuments", "comparison.table.rename"]);
+registerMenu("comparisonTable", [
+  "comparison.table.addDocuments",
+  "comparison.table.rename",
+  "comparison.table.refillAll",
+  "comparison.table.refillProblems",
+]);
+
+registerMenu("comparisonCell", [
+  "comparison.cell.open",
+  "comparison.cell.refill",
+  "comparison.cell.edit",
+  "comparison.cell.reviewed",
+  "comparison.cell.copy",
+]);
 
 registerMenu("comparisonRow", [
   "comparisonRow.open",

@@ -62,6 +62,7 @@ import {
   readProposalRef,
 } from "../shared/proposals";
 import type { ScopeKind } from "../shared/searchScope";
+import { comparisonCellReviewed, comparisonCellTarget, signOffsOf } from "../shared/signOffs";
 import { readWordAtom, wordAtomText } from "../shared/wordFiles";
 import {
   ANSWER_BLOCK,
@@ -746,10 +747,11 @@ function readTable(table: Y.XmlElement, options: ReadOptions): TableCell[][] {
 }
 
 /** A comparison table's cell as read: its Answer, or what it says in the Answer's place. */
-export type ComparisonCellReading =
+export type ComparisonCellReading = (
   | { kind: "answer"; content: Block[] }
   | { kind: "words"; text: string }
-  | { kind: "empty" };
+  | { kind: "empty" }
+) & { edited?: boolean; reviewed?: boolean };
 
 /** A comparison table as read (#98): its Questions, then a row per Document, a cell per Question. */
 export interface ComparisonReading {
@@ -767,6 +769,8 @@ export function readComparisonTable(table: Y.XmlElement, options: ReadOptions): 
   const say = options.comparisonText ?? ((key, params) => translate("en", key, params));
   const columns = comparisonQuestionsOf(table.getAttributes());
   const questions = options.leaveOutHiddenColumns ? visibleComparisonQuestions(columns) : columns;
+  const tableId = stringAttribute(table, "id");
+  const signOffs = table.doc ? signOffsOf(table.doc) : [];
   const rows: ComparisonReading["rows"] = [];
   for (const row of table.toArray()) {
     if (!(row instanceof Y.XmlElement) || row.nodeName !== COMPARISON_ROW_NODE) continue;
@@ -783,13 +787,23 @@ export function readComparisonTable(table: Y.XmlElement, options: ReadOptions): 
       cells: questions.map((question): ComparisonCellReading => {
         const element = cells.get(question.id);
         if (!element) return { kind: "empty" };
-        const state = comparisonCellOf(element.getAttributes());
+        const state = {
+          ...comparisonCellOf(element.getAttributes()),
+          reviewed: comparisonCellReviewed(
+            signOffs,
+            comparisonCellTarget(tableId, documentId, question.id),
+          ),
+        };
+        const marks = {
+          ...(state.edited && { edited: true }),
+          ...(state.reviewed && { reviewed: true }),
+        };
         if (state.status === "done") {
-          return { kind: "answer", content: readChildren(element.toArray(), options) };
+          return { kind: "answer", content: readChildren(element.toArray(), options), ...marks };
         }
-        if (!state.problem) return { kind: "words", text: "…" };
+        if (!state.problem) return { kind: "words", text: "…", ...marks };
         const { key, params } = cellProblemMessage(state.problem, state.message);
-        return { kind: "words", text: say(key, params) };
+        return { kind: "words", text: say(key, params), ...marks };
       }),
     });
   }

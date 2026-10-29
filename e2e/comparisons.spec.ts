@@ -18,6 +18,7 @@ import {
   removeDataFolder,
   setLanguage,
   setWindowSize,
+  stubClipboard,
   useLocalChatModel,
   useOutputLocation,
   WORD_KEY,
@@ -973,6 +974,38 @@ const headingAt = (table: Locator, column: number) =>
   table.getByTestId("comparison-question").nth(column);
 const cellAt = (table: Locator, row: number, column: number) =>
   table.getByTestId("comparison-row").nth(row).getByTestId("comparison-cell").nth(column);
+
+async function expectGridRows(table: Locator): Promise<void> {
+  const grid = await table.getByTestId("comparison-row").evaluateAll((rows) =>
+    rows.map((row) =>
+      [
+        row.querySelector(".comparison-document"),
+        ...row.querySelectorAll('[data-testid="comparison-cell"]'),
+      ].map((cell) => {
+        const element = cell as HTMLElement;
+        const box = element.getBoundingClientRect();
+        const parents = [];
+        let parent = element.parentElement;
+        while (parent && !parent.classList.contains("comparison-scroll")) {
+          parents.push({ class: parent.className, display: getComputedStyle(parent).display });
+          parent = parent.parentElement;
+        }
+        return {
+          text: element.innerText.slice(0, 30),
+          top: Math.round(box.top),
+          left: Math.round(box.left),
+          parent: element.parentElement?.className,
+          parents,
+        };
+      }),
+    ),
+  );
+  for (const row of grid) {
+    if (new Set(row.map((cell) => cell.top)).size !== 1) {
+      throw new Error(`A comparison row's cells don't share a grid row: ${JSON.stringify(grid)}`);
+    }
+  }
+}
 
 /** A filled 3 × 2 table of suppliers' terms, accepted, so the columns can be changed. */
 async function filledSuppliersTable(window: Page): Promise<Locator> {
@@ -2566,3 +2599,242 @@ test("the counts say what found nothing and what failed, each a filter, in Engli
   await screenshot(window, "compare-status-zh-900");
   await bridge(window).language("en");
 });
+
+test("a cell opens its Citation, checks hand edits, protects reviewed cells in bulk, refills explicitly, and copies a rectangle with Sources", async () => {
+  test.setTimeout(120_000);
+  const { app, window } = await launchApp(dataDir, { fakeChat: true });
+  await dismissChatSetup(window);
+  await setWindowSize(app, window, 1600, 900);
+  await useLocalChatModel(window);
+  const copied = await stubClipboard(window);
+  const table = await filledSuppliersTable(window);
+  await expectGridRows(table);
+  const first = cellAt(table, 0, 0);
+  await expect(first).toHaveAttribute("tabindex", "0");
+  await expect(cellAt(table, 0, 1)).toHaveAttribute("tabindex", "-1");
+
+  await pointAndClick(window, first);
+  const card = window.getByTestId("comparison-cell-card");
+  await expect(card).toBeVisible();
+  await expect(card).toContainText("Corvane Agreement");
+  await expect(card).toContainText("Termination notice: 90 days.");
+  await expect(card.getByTestId("comparison-refill-estimate")).toContainText("Fill 1 cell again");
+  await screenshot(window, "compare-cell-card-en-1600");
+  await pointAndClick(window, card.getByRole("button", { name: "Open cited page" }));
+  await expect(window.getByTestId("viewer-header")).toBeVisible();
+  await window.keyboard.press("Escape");
+  await expect(card).toHaveCount(0);
+
+  await first.focus();
+  await window.keyboard.press("F2");
+  const input = first.getByTestId("comparison-cell-input");
+  await expect(input).toBeFocused();
+  await input.fill("Termination notice: 90 days.");
+  await window.keyboard.press("Enter");
+  await expect(input).toHaveCount(0);
+  await expect(first.locator(".comparison-cell-content")).toContainText(
+    "Termination notice: 90 days",
+  );
+  await expect(first.locator('.citation-marker[data-check="found"]')).toHaveCount(1, {
+    timeout: 30_000,
+  });
+  await expect(first.locator(".comparison-cell-flags")).toContainText("✎");
+  await expectGridRows(table);
+  await expect(window.getByTestId("undo-message")).toContainText("Edited the cell");
+  await pointAndClick(window, window.getByTestId("undo-action"));
+  await expect(first.locator(".comparison-cell-content")).toContainText("90 days");
+  await expect(first.locator(".comparison-cell-content")).not.toContainText("Termination notice:");
+
+  await first.focus();
+  await window.keyboard.press("F2");
+  await first.getByTestId("comparison-cell-input").fill("Unrelated words");
+  await window.keyboard.press("Enter");
+  await expect(first.getByTestId("comparison-cell-input")).toHaveCount(0);
+  await expect(first.locator(".comparison-cell-content")).toHaveText("Unrelated words");
+  await expect(first.locator(".citation-marker")).toHaveCount(0);
+  await expect(first.locator(".comparison-cell-flags")).toContainText("✎");
+
+  await pointAndClick(window, first.locator(".comparison-cell-menu"));
+  await pointAndClick(window, window.getByRole("menuitemcheckbox", { name: "Checked by me" }));
+  await expect(first.locator(".comparison-cell-flags")).toContainText("✓");
+  await pointAndClick(window, first);
+  await expect(card).toBeVisible();
+  await expect(card).toContainText("Checked by you");
+  await screenshot(window, "compare-cell-checked-en-1600");
+  await pointAndClick(window, card.getByRole("button", { name: "Fill again" }));
+  await expect(card.getByText("Replace your edit?")).toBeVisible();
+  await pointAndClick(window, card.getByRole("button", { name: "Replace", exact: true }));
+  await expect(first.locator('.citation-marker[data-check="found"]')).toHaveCount(1, {
+    timeout: 30_000,
+  });
+  await expect(first.locator(".comparison-cell-content")).toContainText("90 days");
+  await expect(first.locator(".comparison-cell-flags")).toHaveCount(0);
+
+  await pointAndClick(window, first.locator(".comparison-cell-menu"));
+  await pointAndClick(window, window.getByRole("menuitemcheckbox", { name: "Checked by me" }));
+  await pointAndClick(window, cellAt(table, 2, 1), { modifiers: ["ControlOrMeta"] });
+  await pointAndClick(window, first.locator(".comparison-cell-menu"));
+  await pointAndClick(window, window.getByRole("menuitemcheckbox", { name: "Checked by me" }));
+  await expect(first.locator(".comparison-cell-flags")).toHaveCount(0);
+  await pointAndClick(window, first.locator(".comparison-cell-menu"));
+  await pointAndClick(window, window.getByRole("menuitemcheckbox", { name: "Checked by me" }));
+  const row = table.getByTestId("comparison-row").first();
+  await pointAndClick(window, row.locator(".comparison-row-menu"));
+  await expect(window.getByTestId("comparison-refill-estimate")).toContainText("Fill 1 cell again");
+  await pointAndClick(window, window.getByRole("menuitem", { name: "Fill row again" }));
+  await expect(window.getByTestId("undo-message")).toContainText("Fill 1 cell again");
+  await expect(table.getByTestId("comparison-progress")).toHaveCount(0, { timeout: 30_000 });
+  await expect(first.locator(".comparison-cell-flags")).toContainText("✓");
+
+  await pointAndClick(window, table.getByTestId("comparison-table-menu"));
+  const estimates = window.getByTestId("comparison-refill-estimate");
+  await expect(estimates).toHaveCount(2);
+  await expect(estimates.nth(0)).toContainText("Fill all: 6 cells");
+  await expect(estimates.nth(1)).toContainText("Problems: 1 cell");
+  await pointAndClick(window, window.getByRole("menuitem", { name: "Fill all again" }));
+  await expect(window.getByTestId("undo-message")).toContainText("Fill 6 cells again");
+  await expect(table.getByTestId("comparison-progress")).toHaveCount(0, { timeout: 30_000 });
+  await expect(first.locator(".comparison-cell-flags")).toHaveCount(0);
+  await expect(table.locator('.citation-marker[data-check="found"]')).toHaveCount(5);
+  await expectGridRows(table);
+
+  const last = cellAt(table, 1, 1);
+  await expect(last).toHaveAttribute("data-status", "done");
+  await pointAt(window, first);
+  await first.click({ position: { x: 12, y: 12 } });
+  await expect(first).toBeFocused();
+  await pointAndClick(window, last, { modifiers: ["Shift"] });
+  for (const [rowAt, columnAt] of [
+    [0, 0],
+    [0, 1],
+    [1, 0],
+    [1, 1],
+  ] as const) {
+    await expect(cellAt(table, rowAt, columnAt)).toHaveAttribute("aria-selected", "true");
+  }
+  await expect(last).toBeFocused();
+  await expect(card).toHaveCount(0);
+  const cellMenu = last.locator(".comparison-cell-menu");
+  await pointAt(window, cellMenu);
+  await cellMenu.click();
+  await expect(window.getByTestId("comparison-refill-estimate")).toContainText(
+    "Fill 4 cells again",
+  );
+  await pointAndClick(window, window.getByRole("menuitem", { name: "Fill again", exact: true }));
+  await expect(window.getByTestId("undo-message")).toContainText("Fill 4 cells again");
+  await expect(table.getByTestId("comparison-progress")).toHaveCount(0, { timeout: 30_000 });
+  await last.focus();
+  await window.keyboard.press("ControlOrMeta+c");
+  await expect
+    .poll(async () => (await copied())["text/plain"] ?? "")
+    .toContain("Document\tTermination notice\tLiability cap\tSources");
+  const clipboard = await copied();
+  expect(clipboard["text/plain"] ?? "").toContain("Corvane Agreement");
+  expect(clipboard["text/plain"] ?? "").toContain("Halvard MSA");
+  expect(clipboard["text/plain"] ?? "").toContain("Termination notice: 90 days.");
+  expect(clipboard["text/html"] ?? "").toContain("<table");
+  await window.keyboard.press("Escape");
+  await expect(table.locator('[aria-selected="true"]')).toHaveCount(0);
+
+  await setWindowSize(app, window, 900, 760);
+  await pointAndClick(window, table.getByTestId("comparison-expand"));
+  await pointAndClick(window, first);
+  await expect(card).toBeVisible();
+  await screenshot(window, "compare-cell-card-expanded-en-900");
+  await window.keyboard.press("Escape");
+
+  await setWindowSize(app, window, 1600, 900);
+  await bridge(window).language("zh-CN");
+  await pointAndClick(window, first);
+  await expect(card).toContainText("回答");
+  await expect(card.getByRole("button", { name: "编辑", exact: true })).toBeVisible();
+  await expect(card.getByRole("button", { name: "我已核对" })).toBeVisible();
+  await screenshot(window, "compare-cell-card-expanded-zh-1600");
+  await window.keyboard.press("Escape");
+
+  await setWindowSize(app, window, 900, 760);
+  await pointAndClick(window, first);
+  await expect(card).toContainText("回答");
+  await screenshot(window, "compare-cell-card-expanded-zh-900");
+  await pointAndClick(window, card.getByRole("button", { name: "我已核对" }));
+  await pointAndClick(window, first);
+  await expect(card).toContainText("由你核对");
+  await screenshot(window, "compare-cell-checked-zh-900");
+  await expectGridRows(table);
+});
+
+test("Shift-click closes the cell card and selects its range", async () => {
+  const { app, window } = await launchApp(dataDir, { fakeChat: true });
+  await dismissChatSetup(window);
+  await setWindowSize(app, window, 1600, 900);
+  await useLocalChatModel(window);
+  const table = await filledSuppliersTable(window);
+  const first = cellAt(table, 0, 0);
+  const last = cellAt(table, 1, 1);
+  await pointAndClick(window, first);
+  const card = window.getByTestId("comparison-cell-card");
+  await expect(card).toBeVisible();
+
+  await pointAndClick(window, last, { modifiers: ["Shift"] });
+  await expect(card).toHaveCount(0);
+  for (const [rowAt, columnAt] of [
+    [0, 0],
+    [0, 1],
+    [1, 0],
+    [1, 1],
+  ] as const) {
+    await expect(cellAt(table, rowAt, columnAt)).toHaveAttribute("aria-selected", "true");
+  }
+});
+
+for (const { language, refill, count, one } of [
+  { language: "en", refill: "Fill again", count: "Fill 5 cells again", one: "Fill 1 cell again" },
+  {
+    language: "zh-CN",
+    refill: "重新填写",
+    count: "重新填写 5 个单元格",
+    one: "重新填写 1 个单元格",
+  },
+] as const) {
+  test(`Copy and refill follow the visible selection after a deselection (${language})`, async () => {
+    const { app, window } = await launchApp(dataDir, { fakeChat: true });
+    await dismissChatSetup(window);
+    await bridge(window).language(language);
+    await setWindowSize(app, window, 1600, 900);
+    await useLocalChatModel(window);
+    const copied = await stubClipboard(window);
+    const table = await filledSuppliersTable(window);
+    const first = cellAt(table, 0, 0);
+    const deselected = cellAt(table, 0, 1);
+    const last = cellAt(table, 2, 1);
+    await expect(last).toHaveAttribute("data-status", "failed");
+    await pointAndClick(window, first);
+    await pointAndClick(window, last, { modifiers: ["Shift"] });
+    await pointAndClick(window, deselected, { modifiers: ["ControlOrMeta"] });
+    await expect(deselected).toHaveAttribute("aria-selected", "false");
+    for (const [rowAt, columnAt] of [
+      [0, 0],
+      [1, 0],
+      [1, 1],
+    ] as const) {
+      await expect(cellAt(table, rowAt, columnAt)).toHaveAttribute("aria-selected", "true");
+    }
+
+    await window.keyboard.press("ControlOrMeta+c");
+    await expect
+      .poll(async () => (await copied())["text/plain"] ?? "")
+      .toContain("Termination notice: 90 days.");
+    const clipboard = (await copied())["text/plain"] ?? "";
+    expect(clipboard).toContain("Termination notice: 6 months.");
+    expect(clipboard).toContain("Termination notice: 30 days.");
+    expect(clipboard).not.toContain("12 months of fees");
+
+    await pointAndClick(window, last.locator(".comparison-cell-menu"));
+    await pointAndClick(window, window.getByRole("menuitem", { name: refill, exact: true }));
+    await expect(window.getByTestId("undo-message")).toContainText(count);
+    await expect(table.getByTestId("comparison-progress")).toHaveCount(0, { timeout: 30_000 });
+
+    await pointAndClick(window, deselected.locator(".comparison-cell-menu"));
+    await expect(window.getByTestId("comparison-refill-estimate")).toContainText(one);
+  });
+}

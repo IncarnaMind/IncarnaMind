@@ -935,6 +935,19 @@ const STAGES: Record<Staged, Stage> = {
     show: ({ window }, key) => showInNote(window, key, "comparisonRow"),
     opened: ({ window }) => window.getByTestId("viewer-header"),
   },
+  comparisonCell: {
+    inNote: true,
+    make: ({ window }) => mindWithComparison(window),
+    show: ({ window }, key) => showInNote(window, key, "comparisonCell"),
+    name: ({ window }) =>
+      window.getByTestId("comparison-cell").first().locator(".comparison-cell-content").innerText(),
+    renameFrom: {
+      doubleClick: ({ window }) => window.getByTestId("comparison-cell").first(),
+      focus: ({ window }) => window.getByTestId("comparison-cell").first(),
+    },
+    hit: ({ window }) => window.getByTestId("comparison-cell").first(),
+    opened: ({ window }) => window.getByTestId("comparison-cell-card"),
+  },
   check: {
     inNote: true,
     make: ({ window }) => mindWithCheck(window),

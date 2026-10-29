@@ -1,10 +1,12 @@
 import type { ComparisonQuestion } from "../../../core/api";
 import { comparisonLabelOf } from "../../../shared/comparisons";
 import { showColumn } from "../comparisonColumns";
+import { comparisonCellsInTable } from "../comparisonSelection";
 import type { ComparisonTableHandle } from "../comparisonStructure";
 import { ObjectMenu } from "../components/ObjectMenu";
 import { menuItemClass, menuTitleClass } from "../components/ui";
 import { useT } from "../i18n";
+import { ComparisonRefillEstimate } from "./ComparisonRefillEstimate";
 
 /**
  * A comparison table's own ⋯ (#1837): Documents added, its name renamed, and
@@ -26,6 +28,36 @@ export function ComparisonTableMenu({
       className="comparison-action comparison-table-menu"
       tabIndex={-1}
       testId="comparison-table"
+      foot={
+        <>
+          <ComparisonRefillEstimate
+            handle={handle}
+            mode="refill-all"
+            requested={comparisonCellsInTable(handle, true)}
+            label={(count) =>
+              t(
+                count === 1 ? "comparison.refill.allCells.one" : "comparison.refill.allCells.other",
+                {
+                  count,
+                },
+              )
+            }
+          />
+          <ComparisonRefillEstimate
+            handle={handle}
+            mode="refill-problems"
+            requested={comparisonCellsInTable(handle, true)}
+            label={(count) =>
+              t(
+                count === 1
+                  ? "comparison.refill.problemCells.one"
+                  : "comparison.refill.problemCells.other",
+                { count },
+              )
+            }
+          />
+        </>
+      }
       more={
         hidden.length > 0
           ? (close) => (

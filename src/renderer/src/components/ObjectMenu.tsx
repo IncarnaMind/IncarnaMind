@@ -30,6 +30,7 @@ const TEST_ID_PREFIX: Record<ObjectKind, string> = {
   citation: "citation",
   chart: "chart",
   comparisonColumn: "comparison-column",
+  comparisonCell: "comparison-cell",
   comparisonTable: "comparison-table",
   comparisonRow: "comparison-row",
   answer: "answer",
