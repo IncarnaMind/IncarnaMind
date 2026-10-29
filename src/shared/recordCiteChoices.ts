@@ -1,64 +1,43 @@
 import type * as Y from "yjs";
-import type { CitationLocation } from "../core/api";
 import { MIND_SETTINGS_FIELD } from "../core/api";
-import { parseLocation } from "./locations";
 
-export interface RecordCitePlace {
-  blockId: string;
-  from: number;
-  /** The record item's UTF-16 start within its sentence, when locating it in Note history. */
-  citeFrom?: number;
-}
-
-export interface RecordCiteSentence {
-  place: RecordCitePlace;
-  text: string;
-}
-
+/** The Document the User chose for a record cite's source, as it was when they chose it. */
 export interface RecordCiteChoice {
   documentId: string;
   contentHash: string;
-  location: CitationLocation;
 }
 
-export interface RecordCiteChoices {
-  previous: RecordCiteChoice | null;
-  choices: Record<string, RecordCiteChoice>;
-}
-
+/**
+ * One settings key for each source, so two people choosing for two sources at once both keep
+ * their choice when the Note syncs (#1709).
+ */
 const KEY_PREFIX = "recordCites:";
 
 function choiceOf(value: unknown): RecordCiteChoice | null {
   if (typeof value !== "object" || value === null) return null;
-  const { documentId, contentHash, location } = value as {
-    documentId?: unknown;
-    contentHash?: unknown;
-    location?: unknown;
-  };
+  const { documentId, contentHash } = value as { documentId?: unknown; contentHash?: unknown };
   if (typeof documentId !== "string" || documentId === "") return null;
   if (typeof contentHash !== "string" || contentHash === "") return null;
-  const parsed = parseLocation(location);
-  return parsed ? { documentId, contentHash, location: parsed } : null;
+  return { documentId, contentHash };
 }
 
-export function readRecordCiteChoices(settings: Y.Map<unknown>): RecordCiteChoices {
+/** The Note's source choices, by the canonical alias of the source each is for. */
+export function readRecordCiteChoices(settings: Y.Map<unknown>): Record<string, RecordCiteChoice> {
   const choices: Record<string, RecordCiteChoice> = {};
   settings.forEach((value, key) => {
     if (!key.startsWith(KEY_PREFIX)) return;
     const choice = choiceOf(value);
     if (choice) choices[key.slice(KEY_PREFIX.length)] = choice;
   });
-  return { previous: null, choices };
+  return choices;
 }
 
 export function writeRecordCiteChoice(
   settings: Y.Map<unknown>,
   alias: string,
-  choice: RecordCiteChoice | null,
+  choice: RecordCiteChoice,
 ): void {
-  const key = `${KEY_PREFIX}${alias}`;
-  if (choice) settings.set(key, choice);
-  else settings.delete(key);
+  settings.set(`${KEY_PREFIX}${alias}`, { ...choice });
 }
 
 export const recordCiteSettingsOf = (doc: Y.Doc): Y.Map<unknown> => doc.getMap(MIND_SETTINGS_FIELD);

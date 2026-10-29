@@ -6,6 +6,7 @@
  */
 import { type Anchor, cutUnit, type UnitText } from "../../shared/units";
 import type { CitationLocation } from "../api";
+import type { DepositionMapper } from "../recordCites/resolver";
 
 export type DepositionLocation = Extract<CitationLocation, { kind: "page" }>;
 
@@ -106,52 +107,53 @@ function candidates(rows: readonly TextRow[]): Candidate[] {
   });
 }
 
+const isContent = (candidate: Candidate | undefined) =>
+  candidate !== undefined && candidate.inline === null && candidate.margin === null;
+
+/**
+ * Each margin label with the content row beside it, on the one side `step` says, or null when a
+ * label has no free row there or a content row between the first and the last label is left.
+ */
+function pairMargins(parsed: readonly Candidate[], step: 1 | -1): SourceRow[] | null {
+  const used = new Set<number>();
+  const rows: SourceRow[] = [];
+  for (const [index, each] of parsed.entries()) {
+    if (each.margin === null) continue;
+    const content = parsed[index + step];
+    if (!content || !isContent(content) || used.has(index + step)) return null;
+    used.add(index + step);
+    rows.push({ line: each.margin, start: content.start, end: content.end });
+  }
+  return unlabelledBetween(parsed, used) ? null : rows;
+}
+
+function unlabelledBetween(parsed: readonly Candidate[], used: ReadonlySet<number>): boolean {
+  const labels = parsed.flatMap((each, index) => (isContent(each) ? [] : [index]));
+  const first = labels[0] ?? 0;
+  const last = labels.at(-1) ?? 0;
+  for (let index = first + 1; index < last; index++) {
+    if (isContent(parsed[index]) && !used.has(index)) return true;
+  }
+  return false;
+}
+
+/**
+ * The printed lines of one printed page. A line number on a row of its own goes with the row
+ * on one side of it; that side is never guessed: it is taken only when it is the one side that
+ * gives every number a row of its own (#1709). Rows with no numbers get none.
+ */
 function sourceRows(region: TextRegion): SourceRow[] {
   const parsed = candidates(region.content);
-  const hasLabels = parsed.some((each) => each.inline !== null || each.margin !== null);
-  if (!hasLabels) return [];
-
-  const rows = parsed.flatMap((each) =>
+  const inline = parsed.flatMap((each) =>
     each.inline === null ? [] : [{ line: each.inline, start: each.start, end: each.end }],
   );
-  let valid = true;
-  const used = new Set<Candidate>();
-  const open = (candidate: Candidate | undefined) =>
-    candidate && candidate.inline === null && candidate.margin === null ? candidate : null;
-  const margins = parsed.flatMap((each, index) => (each.margin === null ? [] : [index]));
-  const firstMargin = margins[0];
-  const lastMargin = margins.at(-1);
-  const firstContent = open(parsed[(firstMargin ?? -1) - 1]);
-  const beforeFirst =
-    firstContent && /^[QA][.)]\s/.test(firstContent.row.text) ? firstContent : null;
-  const afterFirst = open(parsed[(firstMargin ?? -1) + 1]);
-  const beforeLast = open(parsed[(lastMargin ?? -1) - 1]);
-  const afterLast = open(parsed[(lastMargin ?? -1) + 1]);
-  const direction =
-    afterFirst && !beforeFirst ? "next" : beforeLast && !afterLast ? "previous" : null;
-  parsed.forEach((each, index) => {
-    if (each.margin === null) return;
-    const before = parsed[index - 1];
-    const after = parsed[index + 1];
-    const eligible = (candidate: Candidate | undefined) =>
-      candidate && candidate.inline === null && candidate.margin === null && !used.has(candidate)
-        ? candidate
-        : null;
-    const previous = eligible(before);
-    const next = eligible(after);
-    const content = direction === "next" ? next : direction === "previous" ? previous : null;
-    if (!content) {
-      valid = false;
-      return;
-    }
-    used.add(content);
-    rows.push({ line: each.margin, start: content.start, end: content.end });
-  });
-  const firstLabel = parsed.findIndex((each) => each.inline !== null || each.margin !== null);
-  const unpaired = parsed
-    .slice(firstLabel + 1)
-    .some((each) => each.inline === null && each.margin === null && !used.has(each));
-  return valid && !unpaired ? rows : [];
+  if (!parsed.some((each) => each.margin !== null)) {
+    return unlabelledBetween(parsed, new Set()) ? [] : inline;
+  }
+  const after = pairMargins(parsed, 1);
+  const before = pairMargins(parsed, -1);
+  const margins = after && before ? null : (after ?? before);
+  return margins ? [...inline, ...margins] : [];
 }
 
 function regionsFromText(unit: UnitText): Region[] {
@@ -348,6 +350,36 @@ function sliceRows(unit: UnitText, rows: readonly SourceRow[]): UnitText[] | nul
   return rows.map((row) => cutUnit(unit, row.start, row.end));
 }
 
+type PrintedPages = ReadonlyMap<number, readonly { unit: UnitText; region: Region }[]>;
+
+// A check reads one Document's pages many times over (a cite, its nearby lines, an Id. after
+// it); they are mapped once for each list of Units it reads.
+const mapped = new WeakMap<readonly UnitText[], PrintedPages>();
+
+function printedPages(input: readonly UnitText[]): PrintedPages {
+  const known = mapped.get(input);
+  if (known) return known;
+  const byPage = new Map<number, { unit: UnitText; region: Region }[]>();
+  for (const unit of addDepositionAnchors(input)) {
+    for (const region of regionsFromAnchors(unit)) {
+      const entries = byPage.get(region.page) ?? [];
+      entries.push({ unit, region });
+      byPage.set(region.page, entries);
+    }
+  }
+  mapped.set(input, byPage);
+  return byPage;
+}
+
+/** The last printed line of a printed page, when its lines are numbered from 1 without a gap. */
+export function lastPrintedLine(input: readonly UnitText[], page: number): number | null {
+  const entries = printedPages(input).get(page);
+  const region = entries?.length === 1 ? entries[0]?.region : undefined;
+  if (!region?.consistent || region.rows.length === 0) return null;
+  const last = Math.max(...region.rows.map((row) => row.line));
+  return contiguous(region.rows, 1, last) ? last : null;
+}
+
 /**
  * Resolves printed page/line labels to physical Units and exact, logically ordered slices.
  * The input Location's physical `from`/`to` are not used as printed labels.
@@ -376,15 +408,7 @@ export function resolveDeposition(
     return notFound();
   }
 
-  const units = addDepositionAnchors(input);
-  const byPage = new Map<number, { unit: UnitText; region: Region }[]>();
-  units.forEach((unit) => {
-    for (const region of regionsFromAnchors(unit)) {
-      const entries = byPage.get(region.page) ?? [];
-      entries.push({ unit, region });
-      byPage.set(region.page, entries);
-    }
-  });
+  const byPage = printedPages(input);
   const pageCount = toPage - fromPage + 1;
   if (!Number.isSafeInteger(pageCount) || pageCount < 1) return notFound();
   const pages = [...byPage.keys()]
@@ -449,3 +473,8 @@ export function resolveDeposition(
     units: slices,
   };
 }
+
+export const depositionMapper: DepositionMapper = {
+  resolve: resolveDeposition,
+  lastLine: lastPrintedLine,
+};

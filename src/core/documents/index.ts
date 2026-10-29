@@ -1417,21 +1417,30 @@ export function createDocuments(options: DocumentsOptions) {
       .map(toUnitText);
   }
 
-  /** Whether a Document may hold a Bates identifier; exact Unit validation still decides it. */
-  function batesMatch(documentId: string, prefix: string, identifier: string): boolean {
-    if (keywordSearch(db, `${prefix}-${identifier}`, 1, [documentId]).length > 0) return true;
-    const like = `%${prefix}%${identifier}%`;
-    return (
-      db.get(
-        `SELECT 1 FROM document_pages dp
-         JOIN documents d ON d.id = dp.document_id
-         WHERE dp.document_id = ? AND dp.content_hash = d.content_hash
-           AND dp.deleted_at IS NULL AND d.deleted_at IS NULL
-           AND (dp.text LIKE ? OR dp.label LIKE ?)
-         LIMIT 1`,
-        [documentId, like, like],
-      ) !== undefined
+  /**
+   * The Documents whose text or printed page names may hold a Bates number, from the keyword
+   * index and the page labels: one lookup for the Library, not one for each Document. The cite's
+   * own pages still decide.
+   */
+  function batesHolders(prefix: string, identifier: string): Set<string> {
+    const phrases = [" ", "", "_"].map(
+      (between) => `"${keywordText(`${prefix}${between}${identifier}`).replaceAll('"', '""')}"`,
     );
+    const inText = db.all<{ id: string }>(
+      `SELECT DISTINCT p.document_id AS id FROM passages_fts
+       JOIN passages p ON p.seq = passages_fts.rowid
+       JOIN documents d ON d.id = p.document_id
+       WHERE passages_fts MATCH ? AND p.deleted_at IS NULL AND d.deleted_at IS NULL`,
+      [phrases.join(" OR ")],
+    );
+    const inLabels = db.all<{ id: string }>(
+      `SELECT DISTINCT dp.document_id AS id FROM document_pages dp
+       JOIN documents d ON d.id = dp.document_id
+       WHERE dp.content_hash = d.content_hash AND dp.deleted_at IS NULL AND d.deleted_at IS NULL
+         AND dp.label LIKE ?`,
+      [`%${identifier}%`],
+    );
+    return new Set([...inText, ...inLabels].map((row) => row.id));
   }
 
   /**
@@ -2912,7 +2921,7 @@ export function createDocuments(options: DocumentsOptions) {
       return passagesBySeq(db, fuseRankings(lists, limit, keywordOnly));
     },
 
-    batesMatch,
+    batesHolders,
 
     /** See `CoreApi.searchDocumentText`. */
     searchText(query: unknown, options?: unknown): DocumentTextMatch[] {

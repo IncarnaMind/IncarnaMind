@@ -24,14 +24,8 @@
 
 import { generateText } from "ai";
 import { type CaseCitation, caseCitations, isOpinionOf } from "../../../shared/caseCitations";
-import type { LiveDocument } from "../../../shared/citations";
 import { type Figure, type FigureContext, readFigures } from "../../../shared/figures";
 import { type MessageKey, type MessageParams, translate } from "../../../shared/i18n";
-import type {
-  RecordCiteChoices,
-  RecordCitePlace,
-  RecordCiteSentence,
-} from "../../../shared/recordCiteChoices";
 import { sentenceSpans } from "../../../shared/sentences";
 import type {
   CheckedVersion,
@@ -41,7 +35,6 @@ import type {
   ClaimCheckFailure,
   ClaimCheckResult,
   ClaimJudgment,
-  DocumentTextMatch,
   LeftOutDocument,
   LimitRelation,
   PassageSearchResult,
@@ -51,16 +44,12 @@ import type {
   UnsupportedReason,
 } from "../../api";
 import type { CitationSource } from "../../documents";
-import { resolveDeposition as mapDeposition } from "../../documents/deposition";
 import type { Evidence, EvidenceScope } from "../../documents/evidence";
 import type { Language } from "../../language";
 import { calculates, givesStructuredOutput } from "../../providers/capabilities";
 import type { PreparedChatModel } from "../../providers/chat";
 import { classifyProviderError } from "../../providers/providerErrors";
-import { recordDocuments } from "../../recordCites/documents";
-import { scanRecordCites } from "../../recordCites/parser";
-import { deriveRecordCiteHistory } from "../../recordCites/previous";
-import { resolveRecordCites } from "../../recordCites/resolver";
+import type { RecordCitePlace } from "../../recordCites/referents";
 import {
   answerLanguage,
   type CalculationSession,
@@ -108,7 +97,6 @@ import {
   readVerdict,
   STRICT_INSTRUCTIONS,
 } from "./prompt";
-import { judgeResolvedRecordCites, recordCiteVersions } from "./recordCites";
 import { searchAgain } from "./searchAgain";
 import { type BoundNumber, unitNotStated } from "./units";
 
@@ -118,11 +106,6 @@ export interface ClaimCheckDependencies {
   engine: AnswerEngine;
   evidence: Pick<Evidence, "search">;
   documents: Pick<AnswerDocuments, "citationSource" | "pageTexts" | "documentDate"> & {
-    names?(): readonly LiveDocument[];
-    searchText?(query: string, options: { limit: number }): DocumentTextMatch[];
-    batesMatch?(documentId: string, prefix: string, identifier: string): boolean;
-    recordChoices?(mindId: string | undefined): RecordCiteChoices;
-    recordSentences?(mindId: string | undefined): readonly RecordCiteSentence[];
     searchableCount(documentIds: readonly string[] | null): number;
     searchableLanguages(documentIds: readonly string[] | null): DocumentLanguage[];
     /** The Documents with Passages to search, with their names: what a search names one by. */
@@ -147,21 +130,22 @@ export interface ClaimCheckRequest {
   model: PreparedChatModel;
   /** The Run reads the document being checked (#97): it is third-party from its start. */
   thirdParty?: readonly ThirdPartyReason[];
-  /** The Note whose stored record-cite choices apply; absent for a direct check. */
+  /** The Note the sentence is in, whose source choices and earlier record cites apply. */
   mindId?: string;
-  /** This claim's position in the Note, for `Id.`/`supra`; absent for a direct check. */
+  /** Where the sentence starts in the Note, for what its `Id.` and `supra` refer to. */
   place?: RecordCitePlace;
-  /** The exact Note sentence when the overall claim is normalized for another check. */
+  /** The sentence as the Note has it (an inline node as U+FFFC), when `claim` is reworded. */
   recordClaim?: string;
-  /** Current or proposed Note text used to derive earlier record referents. */
-  recordSentences?: readonly RecordCiteSentence[];
   /** Names the Mind, for a provider's prompt cache. */
   cacheKey?: string;
   signal: AbortSignal;
 }
 
 /** Why a provider's failure left a claim not checked. */
-function failureOf(error: ProviderError): { reason: ClaimCheckFailure; detail: string | null } {
+export function failureOf(error: ProviderError): {
+  reason: ClaimCheckFailure;
+  detail: string | null;
+} {
   switch (error.kind) {
     case "rate-limit":
       return { reason: "rate-limit", detail: null };
@@ -213,61 +197,6 @@ export function recordJudged(
 
 const SEARCH_FIRST =
   "You gave a verdict without searching the User's Documents. Search them with search_documents first, then give your verdict from what you find.";
-
-function recordOccurrences(claim: string, hasPrevious: boolean) {
-  return scanRecordCites(claim, { hasPrevious }).map((occurrence) => ({
-    ...occurrence.result,
-    raw: occurrence.raw,
-    from: occurrence.from,
-    to: occurrence.to,
-  }));
-}
-
-async function withRecordCites(
-  request: ClaimCheckRequest,
-  result: ClaimCheckResult,
-  deps: ClaimCheckDependencies,
-): Promise<ClaimCheckResult> {
-  if (result.verdict === "not-checked") return result;
-  const recordClaim = request.recordClaim ?? request.claim;
-  const occurrences = recordOccurrences(recordClaim, true);
-  if (occurrences.length === 0) return result;
-  const choices = deps.documents.recordChoices?.(request.mindId) ?? {
-    previous: null,
-    choices: {},
-  };
-  const documents = recordDocuments(deps.documents, request.scope);
-  const recordSentences = request.recordSentences
-    ? [...(deps.documents.recordSentences?.(request.mindId) ?? []), ...request.recordSentences]
-    : (deps.documents.recordSentences?.(request.mindId) ?? []);
-  const derived = deriveRecordCiteHistory(
-    recordSentences,
-    request.place,
-    recordClaim,
-    documents,
-    choices.choices,
-    mapDeposition,
-  );
-  const resolved = resolveRecordCites({
-    cites: occurrences,
-    documents,
-    choices: { ...choices, previous: derived.previous },
-    history: derived.history,
-    resolveDeposition: mapDeposition,
-  });
-  const judged = await judgeResolvedRecordCites(
-    resolved,
-    request.model,
-    recordClaim,
-    request.signal,
-    deps.language(),
-  );
-  const versions = new Map(result.versions.map((version) => [version.documentId, version]));
-  for (const version of recordCiteVersions(judged.recordCites)) {
-    if (!versions.has(version.documentId)) versions.set(version.documentId, version);
-  }
-  return { ...result, recordCites: judged.recordCites, versions: [...versions.values()] };
-}
 
 const FIGURES_LINE =
   "Your reply has no Figures line that can be read. Write your whole reply again, ending with the one Figures: line, its JSON object on that line.";
@@ -386,7 +315,7 @@ function citedSources(
 }
 
 export function createClaimCheck(deps: ClaimCheckDependencies) {
-  const checkClaim = async (request: ClaimCheckRequest): Promise<ClaimCheckResult> => {
+  return async function checkClaim(request: ClaimCheckRequest): Promise<ClaimCheckResult> {
     const { scope, signal } = request;
     let searches = 0;
     const read = new Map<string, string>();
@@ -1100,12 +1029,6 @@ export function createClaimCheck(deps: ClaimCheckDependencies) {
       ...citedCase(evidence),
       ...facts(),
     };
-  };
-
-  return async function checkClaimWithRecords(
-    request: ClaimCheckRequest,
-  ): Promise<ClaimCheckResult> {
-    return withRecordCites(request, await checkClaim(request), deps);
   };
 }
 

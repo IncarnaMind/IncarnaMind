@@ -1,9 +1,5 @@
 import type { CitationLocation } from "../../src/core/api";
-import type {
-  BatesRange,
-  RecordCiteKind,
-  RecordCiteParseOptions,
-} from "../../src/core/recordCites/parser";
+import type { BatesRange, RecordCiteKind } from "../../src/core/recordCites/parser";
 
 export interface AcceptedRecordCiteFixture {
   shape: string;
@@ -13,10 +9,7 @@ export interface AcceptedRecordCiteFixture {
   location: CitationLocation | null;
   bates: BatesRange | null;
   reference: "previous" | null;
-  options?: RecordCiteParseOptions;
 }
-
-const previous = { hasPrevious: true } as const;
 
 const directFixture = (
   shape: string,
@@ -55,15 +48,15 @@ const previousFixture = (
   raw: string,
   kind: "id" | "supra",
   location: CitationLocation | null,
+  sourceAlias: string | null = null,
 ): AcceptedRecordCiteFixture => ({
   shape,
   raw,
   kind,
-  sourceAlias: null,
+  sourceAlias,
   location,
   bates: null,
   reference: "previous",
-  options: previous,
 });
 
 const page = (from: number, to = from): CitationLocation => ({ kind: "page", from, to });
@@ -126,7 +119,7 @@ export const ACCEPTED_RECORD_CITE_FIXTURES: readonly AcceptedRecordCiteFixture[]
       "deposition transcript, one page",
       `Dep. Tr. ${45 + index}:3-${12 + index}`,
       "deposition",
-      "dep tr",
+      "dep",
       depositionLocation(45 + index, 45 + index, 3, 12 + index),
     ),
   ),
@@ -154,7 +147,7 @@ export const ACCEPTED_RECORD_CITE_FIXTURES: readonly AcceptedRecordCiteFixture[]
       "plaintiff exhibit with p.",
       `Pl.'s Ex. ${index + 1}, p. ${index + 3}`,
       "exhibit",
-      `pl's ex ${index + 1}`,
+      `pl ex ${index + 1}`,
       page(index + 3),
     ),
   ),
@@ -229,5 +222,14 @@ export const ACCEPTED_RECORD_CITE_FIXTURES: readonly AcceptedRecordCiteFixture[]
   ...ten((index) =>
     previousFixture("Id. with a new page", `Id. at ${7 + index}`, "id", page(7 + index)),
   ),
-  ...ten((index) => previousFixture("supra", index % 2 === 0 ? "supra" : "SUPRA", "supra", null)),
+  ...ten((index) => {
+    const name = names[index] ?? "Smith";
+    return previousFixture(
+      "named supra",
+      `${name} Decl., ${index % 2 === 0 ? "supra" : "SUPRA"}`,
+      "supra",
+      null,
+      `${name.toLocaleLowerCase()} decl`,
+    );
+  }),
 ];

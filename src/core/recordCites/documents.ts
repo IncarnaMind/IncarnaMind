@@ -1,10 +1,9 @@
 import type { LiveDocument } from "../../shared/citations";
 import type { UnitText } from "../../shared/units";
-import type { DocumentTextMatch } from "../api";
 import type { EvidenceScope } from "../documents/evidence";
 import type { RecordCiteDocument } from "./resolver";
 
-interface RecordCiteDocumentSource {
+export interface RecordCiteSource {
   names?(): readonly LiveDocument[];
   pageTexts(
     documentId: string,
@@ -12,38 +11,50 @@ interface RecordCiteDocumentSource {
     from: number | null,
     to: number | null,
   ): readonly UnitText[];
-  searchText?(query: string, options: { limit: number }): DocumentTextMatch[];
-  batesMatch?(documentId: string, prefix: string, identifier: string): boolean;
+  batesHolders?(prefix: string, identifier: string): ReadonlySet<string>;
 }
 
-export function recordDocuments(
-  documents: RecordCiteDocumentSource,
+export interface RecordCiteLibrary {
+  documents: RecordCiteDocument[];
+  batesHolders?(prefix: string, identifier: string): ReadonlySet<string>;
+}
+
+/**
+ * The Documents a check may read record cites in, by name: a Document's pages are read only
+ * once a cite names it, and only once for each check (#1709).
+ */
+export function recordCiteLibrary(
+  source: RecordCiteSource,
   scope: EvidenceScope,
-): RecordCiteDocument[] {
+): RecordCiteLibrary {
   const allowed = scope.documentIds === null ? null : new Set(scope.documentIds);
-  return (documents.names?.() ?? [])
+  const documents = (source.names?.() ?? [])
     .filter(
       (document) =>
         (allowed === null || allowed.has(document.id)) && !scope.excluded.has(document.id),
     )
-    .map((document) => {
+    .map((document): RecordCiteDocument => {
       let units: readonly UnitText[] | undefined;
       return {
         id: document.id,
         name: document.name ?? document.title ?? "",
         contentHash: document.contentHash,
         get units() {
-          units ??= documents.pageTexts(document.id, document.contentHash, null, null);
+          units ??= source.pageTexts(document.id, document.contentHash, null, null);
           return units;
-        },
-        batesMatch(prefix, identifier) {
-          if (documents.batesMatch) return documents.batesMatch(document.id, prefix, identifier);
-          if (!documents.searchText) return true;
-          const matches = documents.searchText(`${prefix}-${identifier}`, { limit: 200 });
-          // A full result page cannot prove absence, so exact Unit validation must decide it.
-          if (matches.length === 200) return true;
-          return matches.some((match) => match.documentId === document.id);
         },
       };
     });
+  const lookup = source.batesHolders;
+  if (!lookup) return { documents };
+  const holders = new Map<string, ReadonlySet<string>>();
+  return {
+    documents,
+    batesHolders(prefix, identifier) {
+      const key = `${prefix}\u0000${identifier}`;
+      const known = holders.get(key) ?? lookup(prefix, identifier);
+      holders.set(key, known);
+      return known;
+    },
+  };
 }

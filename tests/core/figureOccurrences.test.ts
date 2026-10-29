@@ -48,6 +48,17 @@ test.each([
   expect(figuresInSentence(sentence)).toEqual(figures);
 });
 
+test.each([
+  ["Revenue fell 12% (Smith Dep. 45:3–12; Ex. 7 at 3).", ["12%"]],
+  ["Sales were $5 million (ECF No. 41 at 5; Compl. ¶ 14; PL-000123).", ["$5 million"]],
+  ["收入下降 12%（Smith Dep. 45:3–12）。", ["12%"]],
+] as const)("a record cite's numbers say where, not how much: %s", (value, shown) => {
+  const blocks = stored(paragraph("p1", text(value)));
+  const element = blocks.get(0);
+  if (!(element instanceof Y.XmlElement)) throw new Error("Missing fixture paragraph");
+  expect(figuresInSentence(selected(element)).map((each) => each.reading.chars)).toEqual(shown);
+});
+
 const calc = (id: string): NodeJSON =>
   calculatedFigureNode(
     {

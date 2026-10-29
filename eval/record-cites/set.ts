@@ -2,9 +2,9 @@ import { createHash } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { CitationLocation, DocumentKind, RecordCiteResult } from "../../src/core";
-import { resolveDeposition } from "../../src/core/documents/deposition";
+import { depositionMapper } from "../../src/core/documents/deposition";
 import { processFile } from "../../src/core/documents/processing";
-import { scanRecordCites } from "../../src/core/recordCites/parser";
+import { resolverInput, sentenceRecordCites } from "../../src/core/recordCites/referents";
 import {
   type RecordCiteDocument,
   type ResolvableRecordCiteResult,
@@ -52,6 +52,11 @@ export interface RecordSetCase {
   id: string;
   language: "en" | "zh-CN";
   claim: string;
+  /**
+   * The Note the claim is a sentence of, one paragraph each: then the run checks the Note as the
+   * User does, and an `Id.` can refer to a cite in an earlier sentence.
+   */
+  note?: string[];
   documents: string[];
   cites: ExpectedRecordCite[];
   checked: string;
@@ -193,7 +198,12 @@ export async function checkRecordCiteSet(root: string): Promise<RecordSetReport>
       fail(`${test.id}: missing claim, cites or second-reader date`);
       continue;
     }
-    const occurrences = scanRecordCites(test.claim);
+    const note = test.note?.map((text, index) => ({ blockId: `paragraph-${index}`, text }));
+    if (note && !note.some((paragraph) => paragraph.text.includes(test.claim))) {
+      fail(`${test.id}: the claim is not in its Note`);
+    }
+    const { cites, own } = sentenceRecordCites(test.claim, undefined, note && (() => note));
+    const occurrences = cites.slice(cites.length - own);
     if (occurrences.length !== test.cites.length) {
       fail(`${test.id}: scanner finds ${occurrences.length} cites instead of ${test.cites.length}`);
       continue;
@@ -220,16 +230,12 @@ export async function checkRecordCiteSet(root: string): Promise<RecordSetReport>
       return document ? [document] : [];
     });
     const resolved = resolveRecordCites({
-      cites: occurrences.map((occurrence) => ({
-        ...occurrence.result,
-        raw: occurrence.raw,
-        from: occurrence.from,
-        to: occurrence.to,
-      })),
+      cites: cites.map(resolverInput),
       documents: available,
-      choices: { previous: null, choices: {} },
-      resolveDeposition,
-    });
+      choices: {},
+      deposition: depositionMapper,
+      own,
+    }).slice(cites.length - own);
     test.cites.forEach((expected, index) => {
       for (const failure of compareResolved(expected, resolved[index], (id) => id)) {
         fail(`${test.id}/${expected.raw}: ${failure}`);

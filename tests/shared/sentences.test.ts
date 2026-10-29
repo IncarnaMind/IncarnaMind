@@ -84,6 +84,30 @@ describe("The sentences of a paragraph", () => {
     ]);
   });
 
+  test("a sentence of record cites alone belongs to the sentence it supports", () => {
+    expect(sentences("Plaintiff left at noon. Smith Dep. 45:3–12. The next fact.")).toEqual([
+      "Plaintiff left at noon. Smith Dep. 45:3–12.",
+      "The next fact.",
+    ]);
+    expect(sentences("He signed it. See also Def.'s Ex. 7 at 3; Id. at 4.")).toEqual([
+      "He signed it. See also Def.'s Ex. 7 at 3; Id. at 4.",
+    ]);
+    expect(sentences("原告中午离开。（Smith Dep. 45:3–12）。下一句。")).toEqual([
+      "原告中午离开。（Smith Dep. 45:3–12）。",
+      "下一句。",
+    ]);
+    expect(sentences("Smith Dep. 45:3–12. The first sentence cites only.")).toEqual([
+      "Smith Dep. 45:3–12.",
+      "The first sentence cites only.",
+    ]);
+  });
+
+  test("a court decision's citation sentence stays a sentence of its own", () => {
+    expect(
+      sentences("The rule is settled. Hallmark v. Rio Grande, 512 S.W.3d 101 (Tex. 2017)."),
+    ).toEqual(["The rule is settled.", "Hallmark v. Rio Grande, 512 S.W.3d 101 (Tex. 2017)."]);
+  });
+
   test.each(["Dep.", "Compl.", "Decl.", "p.", "Tr."])(
     "an incomplete record abbreviation does not join sentences: %s",
     (abbreviation) => {

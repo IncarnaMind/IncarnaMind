@@ -12,8 +12,8 @@ describe("the public record-cite evaluation set (#1709)", { timeout: 600_000 }, 
     const report = await checkRecordCiteSet(ROOT);
     expect(report.failures, report.failures.join("\n")).toEqual([]);
     expect(report.documents).toBe(7);
-    expect(report.cases).toBe(18);
-    expect(report.cites).toBe(20);
+    expect(report.cases).toBe(29);
+    expect(report.cites).toBe(33);
   });
 
   test("a malformed set names the missing arrays instead of failing at its first case", async () => {

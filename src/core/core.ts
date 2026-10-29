@@ -2143,9 +2143,7 @@ export function createCore(adapters: CoreAdapters): Core {
       joinedAfter: (documentIds, since, folderId) =>
         documents.searchableJoinedAfter(documentIds ?? undefined, since, folderId),
       names: () => documents.names(),
-      searchText: (query, options) => documents.searchText(query, options),
-      batesMatch: (documentId, prefix, identifier) =>
-        documents.batesMatch(documentId, prefix, identifier),
+      batesHolders: (prefix, identifier) => documents.batesHolders(prefix, identifier),
       searchableLanguages: (documentIds) => documents.searchableLanguages(documentIds ?? undefined),
       searchableBySize: (documentIds) => documents.searchableBySize(documentIds ?? undefined),
       savedBySearch: (documentId) => documents.getMany([documentId])[0]?.web?.origin === "search",

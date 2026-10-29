@@ -40,6 +40,8 @@ function unchecked(text: string): ClaimCheckAttributes {
 test.each([
   ["The witness denied it (Smith Dep. 45:3–12).", "The next sentence stays separate."],
   ["笔录确认证人否认了这一点 (Smith Dep. 45:3–12)。", "下一句仍然独立。"],
+  ["The witness denied it. Smith Dep. 45:3–12.", "The next sentence stays separate."],
+  ["笔录确认证人否认了这一点。（Smith Dep. 45:3–12）。", "下一句仍然独立。"],
 ])("a real Note keeps %s and its record cite whole", async (claim, next) => {
   const model = checkingModel({
     [claim]: { verdict: "supported", quote: "The witness denied it", judgement: "same" },
@@ -101,7 +103,7 @@ test.each([
   expect(checks[0]?.text.slice(cite?.from ?? 0, cite?.to ?? 0)).toBe("Smith Dep. 45:3–12");
 });
 
-test("Check this Note puts an earlier recheck before a later fresh Id.", async () => {
+test("Check this Note reads a later Id. on the cite before it, in whatever order it checks them", async () => {
   const model = checkingModel({
     [SOURCE]: { verdict: "unsupported", judgement: "same" },
     [NEXT]: { verdict: "supported", quote: "Second page", judgement: "same" },
@@ -222,8 +224,5 @@ test("contradiction watch restores Id. from the original cited sentence", async 
   await client.settled();
 
   expect(result).toMatchObject({ kind: "checked", claims: 2, checked: 2 });
-  expect(readRecordCiteChoices(recordCiteSettingsOf(client.doc))).toEqual({
-    previous: null,
-    choices: {},
-  });
+  expect(readRecordCiteChoices(recordCiteSettingsOf(client.doc))).toEqual({});
 });

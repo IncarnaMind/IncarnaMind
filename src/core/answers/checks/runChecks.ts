@@ -6,8 +6,6 @@ import { settleFigureCheck } from "../../../shared/figureChecks";
  * time, each result written onto its mark as it comes. The monthly cap or a
  * plan's limit stops the run, and the claims left say why they weren't checked.
  */
-
-import type { RecordCitePlace } from "../../../shared/recordCiteChoices";
 import type {
   ClaimCheckAttributes,
   ClaimCheckResult,
@@ -17,6 +15,7 @@ import type {
 } from "../../api";
 import type { MindContent } from "../../mindContent";
 import type { PreparedChatModel } from "../../providers/chat";
+import type { RecordCitePlace } from "../../recordCites/referents";
 import { RunItemError, runItems } from "../../runs/stop";
 import { type ClaimCheckRequest, recordJudged, runFailureOf } from "./claimCheck";
 import { updateCheck } from "./sentences";
@@ -36,7 +35,8 @@ export interface QueuedClaim {
   context: string;
   cited?: ClaimCheckRequest["cited"];
   figures?: ClaimCheckRequest["figures"];
-  /** This claim's position in the Note, for `Id.`/`supra`. */
+  /** The sentence as the Note has it, and where it starts there, for its record cites. */
+  recordClaim?: string;
   place?: RecordCitePlace;
   /** Where it is checked, when not where the run's other claims are. */
   scope?: ClaimCheckRequest["scope"];
@@ -104,6 +104,7 @@ export async function runChecks(
         model: prepared,
         ...(run.thirdParty && { thirdParty: run.thirdParty }),
         mindId,
+        ...(claim.recordClaim !== undefined && { recordClaim: claim.recordClaim }),
         ...(claim.place && { place: claim.place }),
         cacheKey: mindId,
         signal,

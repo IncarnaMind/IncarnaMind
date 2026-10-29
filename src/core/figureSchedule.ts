@@ -117,8 +117,19 @@ export function augmentFigureFooting(
     }
     return { ...figure, footing, sourceFooting };
   });
+  const aggregate = aggregateFigureResults(figures, result.remainder);
+  // A sentence's record cites are read apart from its figures (#1709): they and the versions
+  // they read stay as the check gave them.
+  const versions = new Map(
+    [...aggregate.versions, ...result.versions].map((version) => [
+      `${version.documentId}\n${version.contentHash}`,
+      version,
+    ]),
+  );
   return {
-    ...aggregateFigureResults(figures, result.remainder),
+    ...aggregate,
+    ...(result.recordCites && { recordCites: result.recordCites }),
+    versions: [...versions.values()],
     figures,
     remainder: result.remainder,
   };

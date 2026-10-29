@@ -236,7 +236,7 @@ _Avoid_: toast, snackbar, notification
 ### Checks
 
 **Record cite**:
-A reference in legal writing to a Document in the record and the exact place it names: a deposition page and lines, exhibit page, docket page, Bates identifier, legal paragraph or recording time, including `Id.` and `supra`. A record-cite check reads that exact Passage and gives the cite its own result, independently of the sentence's overall result.
+A reference in legal writing to a Document in the record and the exact place it names: a deposition's page and lines, an exhibit's or a docket entry's page, a Bates number, a numbered paragraph or a recording's time, and the `Id.` and `supra` that refer back to one. A record-cite check reads exactly that Passage and gives the cite its own result (Supported, Partly, Unsupported, Choose, Not found or Not checked), apart from the sentence's overall result.
 _Avoid_: legal citation (a Citation is the general object in a Note), source
 
 **Citation check**:

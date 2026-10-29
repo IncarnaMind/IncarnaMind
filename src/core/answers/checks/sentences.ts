@@ -26,6 +26,7 @@ import {
   type WaitingSentences,
 } from "../../api";
 import { layout, textBlocks } from "../../proposals/write";
+import type { NoteParagraph } from "../../recordCites/referents";
 import { type FigureOccurrence, figuresInMind, inTableCell } from "./figureOccurrences";
 
 const BREAK = "hardBreak";
@@ -316,21 +317,12 @@ export function selectedSentences(
     : { ok: false, reason: "nothing" };
 }
 
-/** Every sentence in reading order, including uncited sentences and changes still waiting. */
-export function everyRecordSentence(blocks: Y.XmlFragment): SelectedSentence[] {
+/** Every paragraph's text in reading order, changes still waiting included: what record cites refer back through. */
+export function recordCiteParagraphs(blocks: Y.XmlFragment): NoteParagraph[] {
   return textBlocks(blocks).flatMap(({ element }) => {
     const blockId = element.getAttribute(BLOCK_ID_ATTRIBUTE);
     if (element.nodeName !== "paragraph" || typeof blockId !== "string") return [];
-    const text = textOf(element);
-    return sentenceSpans(text).map((span) => ({
-      element,
-      blockId,
-      from: span.from,
-      to: span.to,
-      text: text.slice(span.from, span.to),
-      context: text,
-      cited: citedIn(element, span.from, span.to),
-    }));
+    return [{ blockId, text: textOf(element) }];
   });
 }
 

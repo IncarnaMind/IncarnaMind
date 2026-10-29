@@ -206,11 +206,8 @@ describe("record-cite choices through the core", () => {
       contentHash: setup.second.contentHash,
       passage: expect.stringContaining("Second copy"),
     });
-    expect(readRecordCiteChoices(recordCiteSettingsOf(setup.client.doc))).toMatchObject({
-      previous: null,
-      choices: {
-        "ex 7": { documentId: setup.second.id, contentHash: setup.second.contentHash },
-      },
+    expect(readRecordCiteChoices(recordCiteSettingsOf(setup.client.doc))).toEqual({
+      "ex 7": { documentId: setup.second.id, contentHash: setup.second.contentHash },
     });
 
     await setup.check();
@@ -232,10 +229,7 @@ describe("record-cite choices through the core", () => {
     await setup.client.settled();
 
     await expect(pending).rejects.toMatchObject({ wording: { key: "error.recordCite.notFound" } });
-    expect(readRecordCiteChoices(recordCiteSettingsOf(setup.client.doc))).toEqual({
-      previous: null,
-      choices: {},
-    });
+    expect(readRecordCiteChoices(recordCiteSettingsOf(setup.client.doc))).toEqual({});
   });
 
   test("choosing one of two identical raws re-checks only that occurrence", async () => {
@@ -256,12 +250,12 @@ describe("record-cite choices through the core", () => {
     expect(oneCite(updated, 1)).toMatchObject({ from: second.from, candidates: second.candidates });
     expect(setup.model.doGenerateCalls.length - generateCalls).toBe(1);
     expect(updated.state).toBe("supported");
-    expect(readRecordCiteChoices(recordCiteSettingsOf(setup.client.doc)).previous).toBeNull();
 
     await choose(setup, second, setup.second, Promise.resolve(updated));
-    expect(
-      readRecordCiteChoices(recordCiteSettingsOf(setup.client.doc)).choices["ex 7"],
-    ).toMatchObject({ documentId: setup.second.id, contentHash: setup.second.contentHash });
+    expect(readRecordCiteChoices(recordCiteSettingsOf(setup.client.doc))["ex 7"]).toMatchObject({
+      documentId: setup.second.id,
+      contentHash: setup.second.contentHash,
+    });
   });
 
   test("a deleted chosen Document asks again instead of silently using the survivor", async () => {
@@ -277,35 +271,9 @@ describe("record-cite choices through the core", () => {
       outcome: "choose",
       candidates: [{ id: setup.first.id, name: "Ex. 7 first" }],
     });
-    expect(
-      readRecordCiteChoices(recordCiteSettingsOf(setup.client.doc)).choices["ex 7"],
-    ).toMatchObject({ documentId: setup.second.id });
-  });
-
-  test("a saved Location that no longer matches its Document asks again", async () => {
-    const setup = await setUp();
-    await setup.check();
-    await chooseSecond(setup);
-    writeRecordCiteChoice(recordCiteSettingsOf(setup.client.doc), "ex 7", {
+    expect(readRecordCiteChoices(recordCiteSettingsOf(setup.client.doc))["ex 7"]).toMatchObject({
       documentId: setup.second.id,
-      contentHash: setup.second.contentHash,
-      location: {
-        kind: "page",
-        from: 1,
-        to: 1,
-        printed: { from: "changed", to: "changed" },
-      },
     });
-    await setup.client.settled();
-
-    await setup.check();
-
-    const invalidated = oneCite(await storedCheck(setup.client));
-    expect(invalidated.outcome).toBe("choose");
-    expect(invalidated.candidates).toHaveLength(2);
-    expect(invalidated.candidates?.map((candidate) => candidate.id)).toEqual(
-      expect.arrayContaining([setup.first.id, setup.second.id]),
-    );
   });
 
   test("a changed Document hash invalidates its saved choice", async () => {
@@ -315,9 +283,6 @@ describe("record-cite choices through the core", () => {
     writeRecordCiteChoice(recordCiteSettingsOf(setup.client.doc), "ex 7", {
       documentId: setup.second.id,
       contentHash: "an-older-version",
-      location: oneCite(await storedCheck(setup.client)).location as NonNullable<
-        RecordCiteResult["location"]
-      >,
     });
     await setup.client.settled();
 
@@ -337,10 +302,7 @@ describe("record-cite choices through the core", () => {
       choose(setup, oneCite(stored), setup.second, Promise.resolve(stored)),
     ).rejects.toMatchObject({ wording: { key: "error.recordCite.documentGone" } });
     expect(setup.model.doGenerateCalls).toHaveLength(generateCalls);
-    expect(readRecordCiteChoices(recordCiteSettingsOf(setup.client.doc))).toEqual({
-      previous: null,
-      choices: {},
-    });
+    expect(readRecordCiteChoices(recordCiteSettingsOf(setup.client.doc))).toEqual({});
   });
 
   test("Local mode keeps its own error and writes no source choice", async () => {
@@ -358,10 +320,7 @@ describe("record-cite choices through the core", () => {
     await expect(chooseSecond(setup)).rejects.toMatchObject({
       wording: { key: "error.check.localMode" },
     });
-    expect(readRecordCiteChoices(recordCiteSettingsOf(setup.client.doc))).toEqual({
-      previous: null,
-      choices: {},
-    });
+    expect(readRecordCiteChoices(recordCiteSettingsOf(setup.client.doc))).toEqual({});
   });
 
   test("declined consent keeps its own error and writes no source choice", async () => {
@@ -383,10 +342,7 @@ describe("record-cite choices through the core", () => {
       wording: { key: "error.check.declined" },
     });
     stop();
-    expect(readRecordCiteChoices(recordCiteSettingsOf(setup.client.doc))).toEqual({
-      previous: null,
-      choices: {},
-    });
+    expect(readRecordCiteChoices(recordCiteSettingsOf(setup.client.doc))).toEqual({});
   });
 
   test("a provider failure keeps its translated wording and writes no source choice", async () => {
@@ -412,10 +368,7 @@ describe("record-cite choices through the core", () => {
     await expect(chooseSecond(setup)).rejects.toMatchObject({
       wording: { key: "claim.reason.rate-limit" },
     });
-    expect(readRecordCiteChoices(recordCiteSettingsOf(setup.client.doc))).toEqual({
-      previous: null,
-      choices: {},
-    });
+    expect(readRecordCiteChoices(recordCiteSettingsOf(setup.client.doc))).toEqual({});
   });
 
   test("one unreadable auxiliary reply leaves the overall sentence verdict intact", async () => {
@@ -456,13 +409,10 @@ describe("record-cite choices through the core", () => {
     expect(result.recordCites?.[0]?.candidates?.map((candidate) => candidate.id)).toEqual(
       expect.arrayContaining([setup.first.id, setup.second.id]),
     );
-    expect(readRecordCiteChoices(recordCiteSettingsOf(setup.client.doc))).toEqual({
-      previous: null,
-      choices: {},
-    });
+    expect(readRecordCiteChoices(recordCiteSettingsOf(setup.client.doc))).toEqual({});
   });
 
-  test("a later sentence resolves Id. from the previous successful check", async () => {
+  test("a later sentence's Id. is read on the record cite before it in the Note", async () => {
     const next = "Id. at 2 confirms the second page.";
     const setup = await setUp(CLAIM, {
       [next]: {
@@ -511,10 +461,10 @@ describe("record-cite choices through the core", () => {
       to: { blockId: block.attrs.id, offset: next.length },
     });
     const rechecked = (await storedChecks(setup.client)).find((check) => check.text === next);
-    expect(rechecked?.recordCites?.[0]).toMatchObject({ raw: "Id. at 2", outcome: "not-found" });
+    expect(rechecked?.recordCites ?? []).toEqual([]);
   });
 
-  test("a later Document never becomes the referent of an earlier Id.", async () => {
+  test("an Id. with no record cite before it in the Note isn't a record cite", async () => {
     const first = "Id. at 2 has no earlier source.";
     const setup = await setUp(CLAIM, {
       [first]: {
@@ -541,10 +491,11 @@ describe("record-cite choices through the core", () => {
     });
 
     const checked = (await storedChecks(setup.client)).find((check) => check.text === first);
-    expect(checked?.recordCites?.[0]).toMatchObject({ raw: "Id. at 2", outcome: "not-found" });
+    expect(checked?.state).toBe("unsupported");
+    expect(checked?.recordCites ?? []).toEqual([]);
   });
 
-  test("an ambiguous intervening cite clears the previous referent", async () => {
+  test("an Id. after a cite still waiting for its Document can't be placed", async () => {
     const next = "Id. at 2 has no immediate referent.";
     const setup = await setUp(REPEATED, {
       [next]: {
@@ -634,9 +585,9 @@ describe("record-cite choices through the core", () => {
     expect(oneCite(await storedCheck(setup.client)).outcome).toBe("choose");
 
     await chooseSecond(setup);
-    expect(
-      readRecordCiteChoices(recordCiteSettingsOf(setup.client.doc)).choices.meeting,
-    ).toMatchObject({ documentId: setup.second.id });
+    expect(readRecordCiteChoices(recordCiteSettingsOf(setup.client.doc)).meeting).toMatchObject({
+      documentId: setup.second.id,
+    });
 
     await setup.check();
     expect(oneCite(await storedCheck(setup.client))).toMatchObject({

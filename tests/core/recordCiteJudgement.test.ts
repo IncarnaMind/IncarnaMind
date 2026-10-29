@@ -80,13 +80,7 @@ describe("support judgement for one exact record-cite passage", () => {
         new AbortController().signal,
         "en",
       ),
-    ).toEqual({
-      failed: {
-        kind: "unknown",
-        message: "The check gave no verdict.",
-        wording: { key: "claim.reason.malformed" },
-      },
-    });
+    ).toEqual({ unreadable: true });
   });
 
   test("raw record citations are not judged as factual assertions", async () => {
@@ -223,7 +217,7 @@ describe("support judgement for one exact record-cite passage", () => {
     ]);
     expect(judged.recordCites[1]).toMatchObject({ reason: "malformed" });
     expect(judged.recordCites[1]?.nearby).toBeUndefined();
-    expect(judged.failure).toMatchObject({ wording: { key: "claim.reason.malformed" } });
+    expect(judged.failure).toEqual({ unreadable: true });
     expect(generateText).toHaveBeenCalledTimes(3);
   });
 

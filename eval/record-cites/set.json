@@ -118,7 +118,15 @@
           "raw": "ECF No. 41 at 3",
           "outcome": "supported",
           "document": "regency-ecf-41",
-          "location": { "kind": "page", "from": 3, "to": 3, "printed": { "from": "3", "to": "3" } },
+          "location": {
+            "kind": "page",
+            "from": 3,
+            "to": 3,
+            "printed": {
+              "from": "3",
+              "to": "3"
+            }
+          },
           "passageContains": "Trial briefs are due by September 2, 2021."
         }
       ],
@@ -134,7 +142,15 @@
           "raw": "ECF No. 41 at 3",
           "outcome": "supported",
           "document": "regency-ecf-41",
-          "location": { "kind": "page", "from": 3, "to": 3, "printed": { "from": "3", "to": "3" } },
+          "location": {
+            "kind": "page",
+            "from": 3,
+            "to": 3,
+            "printed": {
+              "from": "3",
+              "to": "3"
+            }
+          },
           "passageContains": "Trial briefs are due by September 2, 2021."
         }
       ],
@@ -150,7 +166,15 @@
           "raw": "ECF No. 41 at 3",
           "outcome": "partly",
           "document": "regency-ecf-41",
-          "location": { "kind": "page", "from": 3, "to": 3, "printed": { "from": "3", "to": "3" } },
+          "location": {
+            "kind": "page",
+            "from": 3,
+            "to": 3,
+            "printed": {
+              "from": "3",
+              "to": "3"
+            }
+          },
           "passageContains": "The June 1, 2021 bench trial is CONTINUED until September 6, 2021",
           "parts": true
         }
@@ -167,10 +191,26 @@
           "raw": "Dkt. 41 at 2",
           "outcome": "unsupported",
           "document": "regency-ecf-41",
-          "location": { "kind": "page", "from": 2, "to": 2, "printed": { "from": "2", "to": "2" } },
+          "location": {
+            "kind": "page",
+            "from": 2,
+            "to": 2,
+            "printed": {
+              "from": "2",
+              "to": "2"
+            }
+          },
           "passageContains": "dispositive motions deadline",
           "nearby": {
-            "location": { "kind": "page", "from": 3, "to": 3, "printed": { "from": "3", "to": "3" } },
+            "location": {
+              "kind": "page",
+              "from": 3,
+              "to": 3,
+              "printed": {
+                "from": "3",
+                "to": "3"
+              }
+            },
             "passageContains": "The dispositive motions deadline is CONTINUED until June 8, 2021."
           }
         }
@@ -187,17 +227,41 @@
           "raw": "ECF No. 41 at 3",
           "outcome": "supported",
           "document": "regency-ecf-41",
-          "location": { "kind": "page", "from": 3, "to": 3, "printed": { "from": "3", "to": "3" } },
+          "location": {
+            "kind": "page",
+            "from": 3,
+            "to": 3,
+            "printed": {
+              "from": "3",
+              "to": "3"
+            }
+          },
           "passageContains": "The dispositive motions deadline is CONTINUED until June 8, 2021."
         },
         {
           "raw": "Id. at 2",
           "outcome": "unsupported",
           "document": "regency-ecf-41",
-          "location": { "kind": "page", "from": 2, "to": 2, "printed": { "from": "2", "to": "2" } },
+          "location": {
+            "kind": "page",
+            "from": 2,
+            "to": 2,
+            "printed": {
+              "from": "2",
+              "to": "2"
+            }
+          },
           "passageContains": "dispositive motions deadline",
           "nearby": {
-            "location": { "kind": "page", "from": 3, "to": 3, "printed": { "from": "3", "to": "3" } },
+            "location": {
+              "kind": "page",
+              "from": 3,
+              "to": 3,
+              "printed": {
+                "from": "3",
+                "to": "3"
+              }
+            },
             "passageContains": "The dispositive motions deadline is CONTINUED until June 8, 2021."
           }
         }
@@ -207,21 +271,37 @@
     {
       "id": "en-supra-supported",
       "language": "en",
-      "claim": "Trial briefs are due by September 2, 2021 (ECF No. 41 at 3; supra).",
+      "claim": "Trial briefs are due by September 2, 2021 (ECF No. 41 at 3; ECF No. 41, supra).",
       "documents": ["regency-ecf-41"],
       "cites": [
         {
           "raw": "ECF No. 41 at 3",
           "outcome": "supported",
           "document": "regency-ecf-41",
-          "location": { "kind": "page", "from": 3, "to": 3, "printed": { "from": "3", "to": "3" } },
+          "location": {
+            "kind": "page",
+            "from": 3,
+            "to": 3,
+            "printed": {
+              "from": "3",
+              "to": "3"
+            }
+          },
           "passageContains": "Trial briefs are due by September 2, 2021."
         },
         {
-          "raw": "supra",
+          "raw": "ECF No. 41, supra",
           "outcome": "supported",
           "document": "regency-ecf-41",
-          "location": { "kind": "page", "from": 3, "to": 3, "printed": { "from": "3", "to": "3" } },
+          "location": {
+            "kind": "page",
+            "from": 3,
+            "to": 3,
+            "printed": {
+              "from": "3",
+              "to": "3"
+            }
+          },
           "passageContains": "Trial briefs are due by September 2, 2021."
         }
       ],
@@ -264,7 +344,19 @@
           "raw": "Whitlock Dep. 45:3–4",
           "outcome": "supported",
           "document": "whitlock-deposition",
-          "location": { "kind": "page", "from": 1, "to": 1, "printed": { "from": "45", "to": "45" }, "lines": { "from": 3, "to": 4 } },
+          "location": {
+            "kind": "page",
+            "from": 1,
+            "to": 1,
+            "printed": {
+              "from": "45",
+              "to": "45"
+            },
+            "lines": {
+              "from": 3,
+              "to": 4
+            }
+          },
           "passageContains": "The September dashboard was not fit for purpose. I accept that."
         }
       ],
@@ -280,7 +372,19 @@
           "raw": "Whitlock Dep. 45:7–46:2",
           "outcome": "supported",
           "document": "whitlock-deposition",
-          "location": { "kind": "page", "from": 1, "to": 2, "printed": { "from": "45", "to": "46" }, "lines": { "from": 7, "to": 2 } },
+          "location": {
+            "kind": "page",
+            "from": 1,
+            "to": 2,
+            "printed": {
+              "from": "45",
+              "to": "46"
+            },
+            "lines": {
+              "from": 7,
+              "to": 2
+            }
+          },
           "passageContains": "By notice dated 6 November 2023. I saw it on 7 November."
         }
       ],
@@ -296,10 +400,34 @@
           "raw": "Whitlock Dep. 45:1–2",
           "outcome": "unsupported",
           "document": "whitlock-deposition",
-          "location": { "kind": "page", "from": 1, "to": 1, "printed": { "from": "45", "to": "45" }, "lines": { "from": 1, "to": 2 } },
+          "location": {
+            "kind": "page",
+            "from": 1,
+            "to": 1,
+            "printed": {
+              "from": "45",
+              "to": "45"
+            },
+            "lines": {
+              "from": 1,
+              "to": 2
+            }
+          },
           "passageContains": "Ravensworth said the dashboard was wrong.",
           "nearby": {
-            "location": { "kind": "page", "from": 1, "to": 1, "printed": { "from": "45", "to": "45" }, "lines": { "from": 3, "to": 8 } },
+            "location": {
+              "kind": "page",
+              "from": 1,
+              "to": 1,
+              "printed": {
+                "from": "45",
+                "to": "45"
+              },
+              "lines": {
+                "from": 3,
+                "to": 8
+              }
+            },
             "passageContains": "The team fixed it by 2 October 2023."
           }
         }
@@ -316,7 +444,15 @@
           "raw": "Ex. 7 at 20",
           "outcome": "supported",
           "document": "robinson-exhibit-7",
-          "location": { "kind": "page", "from": 20, "to": 20, "printed": { "from": "20", "to": "20" } },
+          "location": {
+            "kind": "page",
+            "from": 20,
+            "to": 20,
+            "printed": {
+              "from": "20",
+              "to": "20"
+            }
+          },
           "passageContains": "no later than April 19, 2022."
         }
       ],
@@ -332,7 +468,15 @@
           "raw": "PL-000123",
           "outcome": "supported",
           "document": "regency-production",
-          "location": { "kind": "page", "from": 1, "to": 1, "printed": { "from": "PL 000123", "to": "PL 000123" } },
+          "location": {
+            "kind": "page",
+            "from": 1,
+            "to": 1,
+            "printed": {
+              "from": "PL 000123",
+              "to": "PL 000123"
+            }
+          },
           "passageContains": "Trial briefs are due by September 2, 2021."
         }
       ],
@@ -348,7 +492,15 @@
           "raw": "PL 000123–000124",
           "outcome": "supported",
           "document": "regency-production",
-          "location": { "kind": "page", "from": 1, "to": 2, "printed": { "from": "PL 000123", "to": "PL 000124" } },
+          "location": {
+            "kind": "page",
+            "from": 1,
+            "to": 2,
+            "printed": {
+              "from": "PL 000123",
+              "to": "PL 000124"
+            }
+          },
           "passageContains": "The dispositive motions deadline is CONTINUED until June 8, 2021."
         }
       ],
@@ -364,7 +516,14 @@
           "raw": "Regency Decl. ¶ 2",
           "outcome": "supported",
           "document": "regency-decl-copy",
-          "location": { "kind": "section", "heading": null, "paragraphs": { "from": 2, "to": 2 } },
+          "location": {
+            "kind": "section",
+            "heading": null,
+            "paragraphs": {
+              "from": 2,
+              "to": 2
+            }
+          },
           "passageContains": "2. Trial briefs are due by September 2, 2021."
         }
       ],
@@ -380,7 +539,14 @@
           "raw": "Regency Decl. ¶¶ 2–4",
           "outcome": "supported",
           "document": "regency-decl-copy",
-          "location": { "kind": "section", "heading": null, "paragraphs": { "from": 2, "to": 4 } },
+          "location": {
+            "kind": "section",
+            "heading": null,
+            "paragraphs": {
+              "from": 2,
+              "to": 4
+            }
+          },
           "passageContains": "4. The dispositive motions deadline is CONTINUED until June 8, 2021."
         }
       ],
@@ -396,7 +562,12 @@
           "raw": "Hearing Recording Tr. at 12:05",
           "outcome": "supported",
           "document": "hearing-recording",
-          "location": { "kind": "time", "from": 725000, "to": 730000, "speaker": "Witness" },
+          "location": {
+            "kind": "time",
+            "from": 725000,
+            "to": 730000,
+            "speaker": "Witness"
+          },
           "passageContains": "The September dashboard fix went live on 2 October 2023."
         }
       ],
@@ -412,11 +583,356 @@
           "raw": "Hearing Recording Tr. at 12:00–12:10",
           "outcome": "supported",
           "document": "hearing-recording",
-          "location": { "kind": "time", "from": 720000, "to": 730000, "speaker": "Counsel" },
+          "location": {
+            "kind": "time",
+            "from": 720000,
+            "to": 730000,
+            "speaker": "Counsel"
+          },
           "passageContains": "The September dashboard fix went live on 2 October 2023."
         }
       ],
       "checked": "2026-10-28"
+    },
+    {
+      "id": "en-deposition-single-line",
+      "language": "en",
+      "claim": "The stock figures were not refreshing, and the team fixed it by 2 October 2023 (Whitlock Dep. 45:6).",
+      "documents": ["whitlock-deposition"],
+      "cites": [
+        {
+          "raw": "Whitlock Dep. 45:6",
+          "outcome": "supported",
+          "document": "whitlock-deposition",
+          "location": {
+            "kind": "page",
+            "from": 1,
+            "to": 1,
+            "printed": {
+              "from": "45",
+              "to": "45"
+            },
+            "lines": {
+              "from": 6,
+              "to": 6
+            }
+          },
+          "passageContains": "The team fixed it by 2 October 2023."
+        }
+      ],
+      "checked": "2026-10-29"
+    },
+    {
+      "id": "en-id-lines",
+      "language": "en",
+      "claim": "Ravensworth terminated the agreement by notice dated 6 November 2023, and Kestrel stopped work on 7 November 2023 (Whitlock Dep. 46:1–2; Id. at 46:5–6).",
+      "documents": ["whitlock-deposition"],
+      "cites": [
+        {
+          "raw": "Whitlock Dep. 46:1–2",
+          "outcome": "partly",
+          "document": "whitlock-deposition",
+          "location": {
+            "kind": "page",
+            "from": 2,
+            "to": 2,
+            "printed": {
+              "from": "46",
+              "to": "46"
+            },
+            "lines": {
+              "from": 1,
+              "to": 2
+            }
+          },
+          "passageContains": "By notice dated 6 November 2023.",
+          "parts": true
+        },
+        {
+          "raw": "Id. at 46:5–6",
+          "outcome": "partly",
+          "document": "whitlock-deposition",
+          "location": {
+            "kind": "page",
+            "from": 2,
+            "to": 2,
+            "printed": {
+              "from": "46",
+              "to": "46"
+            },
+            "lines": {
+              "from": 5,
+              "to": 6
+            }
+          },
+          "passageContains": "Yes, on 7 November 2023.",
+          "parts": true
+        }
+      ],
+      "checked": "2026-10-29"
+    },
+    {
+      "id": "en-deposition-list",
+      "language": "en",
+      "claim": "The witness accepted that the September dashboard was not fit for purpose (Whitlock Dep. 45:3–4, 45:7–8).",
+      "documents": ["whitlock-deposition"],
+      "cites": [
+        {
+          "raw": "Whitlock Dep. 45:3–4",
+          "outcome": "supported",
+          "document": "whitlock-deposition",
+          "location": {
+            "kind": "page",
+            "from": 1,
+            "to": 1,
+            "printed": {
+              "from": "45",
+              "to": "45"
+            },
+            "lines": {
+              "from": 3,
+              "to": 4
+            }
+          },
+          "passageContains": "not fit for purpose"
+        },
+        {
+          "raw": "45:7–8",
+          "outcome": "unsupported",
+          "document": "whitlock-deposition",
+          "location": {
+            "kind": "page",
+            "from": 1,
+            "to": 1,
+            "printed": {
+              "from": "45",
+              "to": "45"
+            },
+            "lines": {
+              "from": 7,
+              "to": 8
+            }
+          },
+          "passageContains": "I told them on 2 October that the fix was live."
+        }
+      ],
+      "checked": "2026-10-29"
+    },
+    {
+      "id": "en-prefixed-exhibit-not-found",
+      "language": "en",
+      "claim": "The court ordered the parties to hold a Rule 26(f) conference (Def.'s Ex. 7 at 20).",
+      "documents": ["robinson-exhibit-7"],
+      "cites": [
+        {
+          "raw": "Def.'s Ex. 7 at 20",
+          "outcome": "not-found"
+        }
+      ],
+      "checked": "2026-10-29"
+    },
+    {
+      "id": "en-clock-prose-not-a-cite",
+      "language": "en",
+      "claim": "The hearing resumed at 10:30, and the witness said the September dashboard fix went live on 2 October 2023 (Hearing Recording Tr. at 12:05).",
+      "documents": ["hearing-recording"],
+      "cites": [
+        {
+          "raw": "Hearing Recording Tr. at 12:05",
+          "outcome": "supported",
+          "document": "hearing-recording",
+          "location": {
+            "kind": "time",
+            "from": 725000,
+            "to": 730000,
+            "speaker": "Witness"
+          },
+          "passageContains": "The September dashboard fix went live on 2 October 2023."
+        }
+      ],
+      "checked": "2026-10-29"
+    },
+    {
+      "id": "en-note-citation-sentence",
+      "language": "en",
+      "note": [
+        "The witness accepted that the September dashboard was not fit for purpose. Whitlock Dep. 45:3–4."
+      ],
+      "claim": "The witness accepted that the September dashboard was not fit for purpose. Whitlock Dep. 45:3–4.",
+      "documents": ["whitlock-deposition"],
+      "cites": [
+        {
+          "raw": "Whitlock Dep. 45:3–4",
+          "outcome": "supported",
+          "document": "whitlock-deposition",
+          "location": {
+            "kind": "page",
+            "from": 1,
+            "to": 1,
+            "printed": {
+              "from": "45",
+              "to": "45"
+            },
+            "lines": {
+              "from": 3,
+              "to": 4
+            }
+          },
+          "passageContains": "not fit for purpose"
+        }
+      ],
+      "checked": "2026-10-29"
+    },
+    {
+      "id": "en-note-id-across-sentences",
+      "language": "en",
+      "note": [
+        "The witness accepted that the September dashboard was not fit for purpose (Whitlock Dep. 45:3–4). He told Ravensworth on 2 October that the fix was live. Id. at 45:8."
+      ],
+      "claim": "He told Ravensworth on 2 October that the fix was live. Id. at 45:8.",
+      "documents": ["whitlock-deposition"],
+      "cites": [
+        {
+          "raw": "Id. at 45:8",
+          "outcome": "supported",
+          "document": "whitlock-deposition",
+          "location": {
+            "kind": "page",
+            "from": 1,
+            "to": 1,
+            "printed": {
+              "from": "45",
+              "to": "45"
+            },
+            "lines": {
+              "from": 8,
+              "to": 8
+            }
+          },
+          "passageContains": "I told them on 2 October that the fix was live."
+        }
+      ],
+      "checked": "2026-10-29"
+    },
+    {
+      "id": "zh-note-citation-sentence",
+      "language": "zh-CN",
+      "note": ["证人承认 9 月的仪表盘不符合用途。（Whitlock Dep. 45:3–4）。"],
+      "claim": "证人承认 9 月的仪表盘不符合用途。（Whitlock Dep. 45:3–4）。",
+      "documents": ["whitlock-deposition"],
+      "cites": [
+        {
+          "raw": "Whitlock Dep. 45:3–4",
+          "outcome": "supported",
+          "document": "whitlock-deposition",
+          "location": {
+            "kind": "page",
+            "from": 1,
+            "to": 1,
+            "printed": {
+              "from": "45",
+              "to": "45"
+            },
+            "lines": {
+              "from": 3,
+              "to": 4
+            }
+          },
+          "passageContains": "not fit for purpose"
+        }
+      ],
+      "checked": "2026-10-29"
+    },
+    {
+      "id": "zh-note-id-across-sentences",
+      "language": "zh-CN",
+      "note": [
+        "远岚以 2023 年 11 月 6 日的通知终止了协议（Whitlock Dep. 46:1–2）。科斯特雷尔于 2023 年 11 月 7 日停止工作（Id. at 46:5–6）。"
+      ],
+      "claim": "科斯特雷尔于 2023 年 11 月 7 日停止工作（Id. at 46:5–6）。",
+      "documents": ["whitlock-deposition"],
+      "cites": [
+        {
+          "raw": "Id. at 46:5–6",
+          "outcome": "supported",
+          "document": "whitlock-deposition",
+          "location": {
+            "kind": "page",
+            "from": 2,
+            "to": 2,
+            "printed": {
+              "from": "46",
+              "to": "46"
+            },
+            "lines": {
+              "from": 5,
+              "to": 6
+            }
+          },
+          "passageContains": "Yes, on 7 November 2023."
+        }
+      ],
+      "checked": "2026-10-29"
+    },
+    {
+      "id": "zh-bates-single-supported",
+      "language": "zh-CN",
+      "claim": "处置性动议期限延至 2021 年 6 月 8 日 (PL-000124)。",
+      "documents": ["regency-production"],
+      "cites": [
+        {
+          "raw": "PL-000124",
+          "outcome": "supported",
+          "document": "regency-production",
+          "location": {
+            "kind": "page",
+            "from": 2,
+            "to": 2,
+            "printed": {
+              "from": "PL 000124",
+              "to": "PL 000124"
+            }
+          },
+          "passageContains": "June 8, 2021"
+        }
+      ],
+      "checked": "2026-10-29"
+    },
+    {
+      "id": "zh-docket-wrong-page-nearby",
+      "language": "zh-CN",
+      "claim": "审理简报应于 2021 年 9 月 2 日前提交（ECF No. 41 at 2）。",
+      "documents": ["regency-ecf-41"],
+      "cites": [
+        {
+          "raw": "ECF No. 41 at 2",
+          "outcome": "unsupported",
+          "document": "regency-ecf-41",
+          "location": {
+            "kind": "page",
+            "from": 2,
+            "to": 2,
+            "printed": {
+              "from": "2",
+              "to": "2"
+            }
+          },
+          "passageContains": "dispositive motions deadline",
+          "nearby": {
+            "location": {
+              "kind": "page",
+              "from": 3,
+              "to": 3,
+              "printed": {
+                "from": "3",
+                "to": "3"
+              }
+            },
+            "passageContains": "Trial briefs are due by September 2, 2021."
+          }
+        }
+      ],
+      "checked": "2026-10-29"
     }
   ]
 }

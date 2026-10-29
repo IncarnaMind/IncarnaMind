@@ -1,10 +1,13 @@
 import { describe, expect, test } from "vitest";
-import { resolveDeposition } from "../../src/core/documents/deposition";
-import { parseRecordCite, scanRecordCites } from "../../src/core/recordCites/parser";
+import { depositionMapper } from "../../src/core/documents/deposition";
+import { parseRecordCite, recordCiteTokens } from "../../src/core/recordCites/parser";
+import { linkRecordCites, resolverInput } from "../../src/core/recordCites/referents";
 import type { RecordCiteDocument } from "../../src/core/recordCites/resolver";
 import { resolveChosenRecordCite, resolveRecordCites } from "../../src/core/recordCites/resolver";
 
-const choices = { previous: null, choices: {} };
+const choices = {};
+
+const linkedCites = (text: string) => linkRecordCites(recordCiteTokens(text)).map(resolverInput);
 
 const document = (units: RecordCiteDocument["units"]): RecordCiteDocument => ({
   id: "exhibit-7",
@@ -113,7 +116,7 @@ describe("record-cite source resolution", () => {
     ]);
   });
 
-  test("uses a saved choice by normalized alias and exact physical Location", () => {
+  test("uses a saved choice by its source's alias", () => {
     const first = document([{ page: 4, label: { printed: "3" }, text: "First" }]);
     const second = {
       ...document([{ page: 6, label: { printed: "3" }, text: "Chosen" }]),
@@ -126,18 +129,9 @@ describe("record-cite source resolution", () => {
         cites: [parseRecordCite("Ex. 7 at 3")],
         documents: [first, second],
         choices: {
-          previous: null,
-          choices: {
-            "  EX   7 ": {
-              documentId: "chosen",
-              contentHash: "hash-chosen",
-              location: {
-                kind: "page",
-                from: 6,
-                to: 6,
-                printed: { from: "3", to: "3" },
-              },
-            },
+          "ex 7": {
+            documentId: "chosen",
+            contentHash: "hash-chosen",
           },
         },
       }),
@@ -157,13 +151,9 @@ describe("record-cite source resolution", () => {
       cites: [parseRecordCite("Ex. 7 at 3")],
       documents: [remaining],
       choices: {
-        previous: null,
-        choices: {
-          "ex 7": {
-            documentId: "deleted",
-            contentHash: "deleted-hash",
-            location: { kind: "page", from: 9, to: 9 },
-          },
+        "ex 7": {
+          documentId: "deleted",
+          contentHash: "deleted-hash",
         },
       },
     });
@@ -182,13 +172,9 @@ describe("record-cite source resolution", () => {
       cites: [parseRecordCite("Ex. 7 at 3")],
       documents: [],
       choices: {
-        previous: null,
-        choices: {
-          "ex 7": {
-            documentId: "deleted",
-            contentHash: "deleted-hash",
-            location: { kind: "page", from: 9, to: 9 },
-          },
+        "ex 7": {
+          documentId: "deleted",
+          contentHash: "deleted-hash",
         },
       },
     });
@@ -202,18 +188,9 @@ describe("record-cite source resolution", () => {
       cites: [parseRecordCite("Ex. 7 at 3")],
       documents: [changed],
       choices: {
-        previous: null,
-        choices: {
-          "ex 7": {
-            documentId: "exhibit-7",
-            contentHash: "hash-exhibit-7",
-            location: {
-              kind: "page",
-              from: 4,
-              to: 4,
-              printed: { from: "3", to: "3" },
-            },
-          },
+        "ex 7": {
+          documentId: "exhibit-7",
+          contentHash: "hash-exhibit-7",
         },
       },
     });
@@ -496,13 +473,10 @@ describe("record-cite source resolution", () => {
     };
 
     const results = resolveRecordCites({
-      cites: [
-        parseRecordCite("Smith Dep. 45:3–3"),
-        parseRecordCite("Id. at 46", { hasPrevious: true }),
-      ],
+      cites: linkedCites("Smith Dep. 45:3; Id. at 46"),
       documents: [source],
       choices,
-      resolveDeposition,
+      deposition: depositionMapper,
     });
 
     expect(results[1]).toMatchObject({
@@ -522,18 +496,13 @@ describe("record-cite source resolution", () => {
     });
   });
 
-  test("chains Id., Id. at a new printed page, and supra through the previous item", () => {
+  test("chains Id. and Id. at a new printed page, and a named supra back to its source", () => {
     const source = document([
       { page: 4, label: { printed: "3" }, text: "Three" },
       { page: 9, label: { printed: "7" }, text: "Seven" },
     ]);
     const results = resolveRecordCites({
-      cites: [
-        parseRecordCite("Ex. 7 at 3"),
-        parseRecordCite("Id.", { hasPrevious: true }),
-        parseRecordCite("Id. at 7", { hasPrevious: true }),
-        parseRecordCite("supra", { hasPrevious: true }),
-      ],
+      cites: linkedCites("Ex. 7 at 3; Id.; Id. at 7; Ex. 7, supra"),
       documents: [source],
       choices,
     });
@@ -542,7 +511,7 @@ describe("record-cite source resolution", () => {
       ["found", 4, "Three"],
       ["found", 4, "Three"],
       ["found", 9, "Seven"],
-      ["found", 9, "Seven"],
+      ["found", 4, "Three"],
     ]);
     expect(results[2]).toMatchObject({
       documentId: "exhibit-7",
@@ -550,49 +519,25 @@ describe("record-cite source resolution", () => {
     });
   });
 
-  test("does not invent an Id. referent before a record item or after an ambiguous one", () => {
+  test("an Id. after a cite the User must still choose for can't be placed either", () => {
     const source = document([{ page: 4, label: { printed: "3" }, text: "Three" }]);
     const duplicate = { ...source, id: "duplicate" };
     const results = resolveRecordCites({
-      cites: [
-        parseRecordCite("Id.", { hasPrevious: true }),
-        parseRecordCite("Ex. 7 at 3"),
-        parseRecordCite("supra", { hasPrevious: true }),
-      ],
+      cites: linkedCites("Id.; Ex. 7 at 3; id."),
       documents: [source, duplicate],
       choices,
     });
 
     expect(results).toMatchObject([
-      { raw: "Id.", outcome: "not-found" },
       { raw: "Ex. 7 at 3", outcome: "choose" },
-      { raw: "supra", outcome: "not-found" },
+      { raw: "id.", outcome: "not-found" },
     ]);
   });
 
-  test("restores an isolated Id. from the saved previous record item", () => {
-    const source = document([{ page: 4, label: { printed: "3" }, text: "Previous" }]);
-    expect(
-      resolveRecordCites({
-        cites: [parseRecordCite("Id.", { hasPrevious: true })],
-        documents: [source],
-        choices: {
-          previous: {
-            documentId: "exhibit-7",
-            contentHash: "hash-exhibit-7",
-            location: {
-              kind: "page",
-              from: 4,
-              to: 4,
-              printed: { from: "3", to: "3" },
-            },
-          },
-          choices: {},
-        },
-      }),
-    ).toMatchObject([
-      { outcome: "found", documentId: "exhibit-7", pageFrom: 4, passage: "Previous" },
-    ]);
+  test("a short form with no referent index is not found", () => {
+    expect(resolveRecordCites({ cites: [parseRecordCite("Id.")], documents: [], choices })).toEqual(
+      [{ raw: "Id.", outcome: "not-found" }],
+    );
   });
 
   test("delegates deposition mapping to the injected mapper", () => {
@@ -606,31 +551,33 @@ describe("record-cite source resolution", () => {
       cites: [parseRecordCite("Smith Dep. 45:3–46:2")],
       documents: [source],
       choices,
-      resolveDeposition: (units, location) => {
-        calls.push({
-          documentId: units === source.units ? "smith-deposition" : "wrong",
-          from: location.from,
-          to: location.to,
-        });
-        return {
-          status: "found",
-          location: {
-            kind: "page",
-            from: 8,
-            to: 9,
-            printed: { from: "45", to: "46" },
-            lines: { from: 3, to: 2 },
-          },
-          units: [
-            { page: 8, text: "Exact lines" },
-            { page: 9, text: "across the page break" },
-          ],
-        };
+      deposition: {
+        lastLine: () => null,
+        resolve: (units, location) => {
+          calls.push({
+            documentId: units === source.units ? "smith-deposition" : "wrong",
+            from: location.from,
+            to: location.to,
+          });
+          return {
+            status: "found",
+            location: {
+              kind: "page",
+              from: 8,
+              to: 9,
+              printed: { from: "45", to: "46" },
+              lines: { from: 3, to: 2 },
+            },
+            units: [
+              { page: 8, text: "Exact lines" },
+              { page: 9, text: "across the page break" },
+            ],
+          };
+        },
       },
     });
 
     expect(calls[0]).toEqual({ documentId: "smith-deposition", from: 45, to: 46 });
-    expect(calls.length).toBeGreaterThan(1);
     expect(result).toMatchObject([
       {
         raw: "Smith Dep. 45:3–46:2",
@@ -638,13 +585,6 @@ describe("record-cite source resolution", () => {
         documentId: "smith-deposition",
         documentName: "Smith Deposition.pdf",
         contentHash: "hash-exhibit-7",
-        location: {
-          kind: "page",
-          from: 8,
-          to: 9,
-          printed: { from: "45", to: "46" },
-          lines: { from: 3, to: 2 },
-        },
         pageFrom: 8,
         pageTo: 9,
         passage: "Exact lines\nacross the page break",
@@ -671,7 +611,7 @@ describe("record-cite source resolution", () => {
         cites: [parseRecordCite("Smith Dep. 45:1–2")],
         documents: [source],
         choices,
-        resolveDeposition,
+        deposition: depositionMapper,
       })[0]?.nearby,
     ).toEqual({
       location: {
@@ -719,18 +659,9 @@ describe("record-cite source resolution", () => {
         cites: [parseRecordCite("PL-000123")],
         documents: [first, second],
         choices: {
-          previous: null,
-          choices: {
-            "bates:PL:000123:000123": {
-              documentId: "chosen-production",
-              contentHash: "hash-chosen-production",
-              location: {
-                kind: "page",
-                from: 11,
-                to: 11,
-                printed: { from: "PL 000123", to: "PL 000123" },
-              },
-            },
+          "bates:PL:000123:000123": {
+            documentId: "chosen-production",
+            contentHash: "hash-chosen-production",
           },
         },
       }),
@@ -762,13 +693,9 @@ describe("record-cite source resolution", () => {
         cites: [parseRecordCite("Compl. ¶ 14")],
         documents: [first, second],
         choices: {
-          previous: null,
-          choices: {
-            compl: {
-              documentId: "chosen-complaint",
-              contentHash: "hash-exhibit-7",
-              location: { kind: "section", heading: null, paragraphs: { from: 14, to: 14 } },
-            },
+          compl: {
+            documentId: "chosen-complaint",
+            contentHash: "hash-exhibit-7",
           },
         },
       }),
@@ -782,50 +709,55 @@ describe("record-cite source resolution", () => {
     ]);
   });
 
-  test("revalidates a saved deposition Location through the injected mapper", () => {
+  test("reads a chosen deposition's lines through the mapper", () => {
     const source = { ...document([]), id: "smith-deposition", name: "Smith Deposition.pdf" };
-    const savedLocation = {
-      kind: "page" as const,
-      from: 8,
-      to: 8,
-      printed: { from: "45", to: "45" },
-      lines: { from: 3, to: 12 },
-    };
-    const calls: number[] = [];
+    const copy = { ...source, id: "copy" };
+    const calls: string[] = [];
 
     expect(
       resolveRecordCites({
         cites: [parseRecordCite("Smith Dep. 45:3–12")],
-        documents: [source],
+        documents: [source, copy],
         choices: {
-          previous: null,
-          choices: {
-            "smith dep": {
-              documentId: "smith-deposition",
-              contentHash: "hash-exhibit-7",
-              location: savedLocation,
-            },
-          },
+          "smith dep": { documentId: "smith-deposition", contentHash: "hash-exhibit-7" },
         },
-        resolveDeposition: (_units, location) => {
-          calls.push(location.from);
-          return {
-            status: "found",
-            location,
-            units: [{ page: location.from, text: "Saved exact lines" }],
-          };
+        deposition: {
+          lastLine: () => null,
+          resolve: (units, location) => {
+            calls.push(units === source.units ? "chosen" : "other");
+            return {
+              status: "found",
+              location: { ...location, from: 8, to: 8 },
+              units: [{ page: 8, text: "Chosen exact lines" }],
+            };
+          },
         },
       }),
     ).toMatchObject([
       {
         outcome: "found",
         documentId: "smith-deposition",
-        location: savedLocation,
-        passage: "Saved exact lines",
+        location: { kind: "page", from: 8, to: 8, lines: { from: 3, to: 12 } },
+        passage: "Chosen exact lines",
       },
     ]);
-    expect(calls[0]).toBe(8);
-    expect(calls.length).toBeGreaterThan(1);
+    expect(calls).toContain("chosen");
+  });
+
+  test("a chosen Document that doesn't hold the cite's Location is not used for it", () => {
+    const volumeOne = document([{ page: 4, label: { printed: "3" }, text: "Volume one" }]);
+    const volumeTwo = {
+      ...document([{ page: 210, label: { printed: "210" }, text: "Volume two" }]),
+      id: "volume-two",
+      contentHash: "hash-volume-two",
+    };
+    expect(
+      resolveRecordCites({
+        cites: [parseRecordCite("Ex. 7 at 210")],
+        documents: [volumeOne, volumeTwo],
+        choices: { "ex 7": { documentId: "exhibit-7", contentHash: "hash-exhibit-7" } },
+      })[0],
+    ).toMatchObject({ outcome: "found", documentId: "volume-two" });
   });
 
   test("resolves a chosen candidate by stable id even when its name does not match the alias", () => {
@@ -855,17 +787,11 @@ describe("record-cite source resolution", () => {
       ...document([{ page: 3, label: { printed: "3" }, text: "Exhibit answer" }]),
       id: "other-exhibit",
     };
-    const occurrences = scanRecordCites("Smith Dep. 45:3; Ex. 7 at 3; Smith, supra");
     const results = resolveRecordCites({
-      cites: occurrences.map((occurrence) => ({
-        ...occurrence.result,
-        raw: occurrence.raw,
-        from: occurrence.from,
-        to: occurrence.to,
-      })),
+      cites: linkedCites("Smith Dep. 45:3; Ex. 7 at 3; Smith, supra"),
       documents: [smith, exhibit],
       choices,
-      resolveDeposition,
+      deposition: depositionMapper,
     });
 
     expect(results[2]).toMatchObject({
@@ -922,15 +848,10 @@ describe("record-cite source resolution", () => {
       name: "Smith Deposition.pdf",
     };
     const results = resolveRecordCites({
-      cites: scanRecordCites("Smith Dep. 45:3; Id. at 46:2").map((occurrence) => ({
-        ...occurrence.result,
-        raw: occurrence.raw,
-        from: occurrence.from,
-        to: occurrence.to,
-      })),
+      cites: linkedCites("Smith Dep. 45:3; Id. at 46:2"),
       documents: [smith],
       choices,
-      resolveDeposition,
+      deposition: depositionMapper,
     });
     expect(results[1]).toMatchObject({
       raw: "Id. at 46:2",
@@ -942,15 +863,10 @@ describe("record-cite source resolution", () => {
     const exhibit = document([{ page: 46, label: { printed: "46" }, text: "Whole exhibit" }]);
     expect(
       resolveRecordCites({
-        cites: scanRecordCites("Ex. 7 at 3; Id. at 46:2").map((occurrence) => ({
-          ...occurrence.result,
-          raw: occurrence.raw,
-          from: occurrence.from,
-          to: occurrence.to,
-        })),
+        cites: linkedCites("Ex. 7 at 3; Id. at 46:2"),
         documents: [exhibit],
         choices,
-        resolveDeposition,
+        deposition: depositionMapper,
       })[1],
     ).toMatchObject({ raw: "Id. at 46:2", outcome: "not-found" });
   });
@@ -961,13 +877,9 @@ describe("record-cite source resolution", () => {
       cites: [parseRecordCite("Ex. 7 at 3")],
       documents: [source],
       choices: {
-        previous: null,
-        choices: {
-          "ex 7": {
-            documentId: "exhibit-7",
-            contentHash: "old-hash",
-            location: { kind: "page", from: 4, to: 4, printed: { from: "3", to: "3" } },
-          },
+        "ex 7": {
+          documentId: "exhibit-7",
+          contentHash: "old-hash",
         },
       },
     });
@@ -992,5 +904,115 @@ describe("record-cite source resolution", () => {
         choices,
       }),
     ).toEqual([{ raw: "not a cite", outcome: "not-found" }]);
+  });
+
+  test("reads a Document's pages only once its name is the cite's", () => {
+    const read: string[] = [];
+    const watched = (id: string, name: string, units: RecordCiteDocument["units"]) => ({
+      id,
+      name,
+      contentHash: `${id}-hash`,
+      get units() {
+        read.push(id);
+        return units;
+      },
+    });
+    const results = resolveRecordCites({
+      cites: [parseRecordCite("Ex. 7 at 3")],
+      documents: [
+        watched("exhibit", "Exhibit 7.pdf", [{ page: 3, text: "Exhibit page" }]),
+        watched("other", "Hearing transcript.pdf", [{ page: 3, text: "Other page" }]),
+      ],
+      choices,
+    });
+    expect(results[0]).toMatchObject({ outcome: "found", documentId: "exhibit" });
+    expect(read).not.toContain("other");
+  });
+
+  test("reads only the Documents the keyword index says may hold a Bates number", () => {
+    const read: string[] = [];
+    const production = (id: string, text: string) => ({
+      id,
+      name: `${id}.pdf`,
+      contentHash: `${id}-hash`,
+      get units() {
+        read.push(id);
+        return [{ page: 1, text }];
+      },
+    });
+    const asked: string[] = [];
+    const results = resolveRecordCites({
+      cites: [parseRecordCite("PL-000123")],
+      documents: [production("holder", "PL-000123 Holder page"), production("other", "Other")],
+      choices,
+      batesHolders: (prefix, identifier) => {
+        asked.push(`${prefix}-${identifier}`);
+        return new Set(["holder"]);
+      },
+    });
+    expect(results[0]).toMatchObject({ outcome: "found", documentId: "holder" });
+    expect(new Set(read)).toEqual(new Set(["holder"]));
+    expect(new Set(asked)).toEqual(new Set(["PL-000123"]));
+  });
+
+  test("a single deposition line reads that line alone", () => {
+    const smith = {
+      ...document([
+        { page: 1, kind: "page" as const, text: "Page 45\n2 Before.\n3 The line.\n4 After." },
+      ]),
+      id: "smith",
+      name: "Smith Deposition.pdf",
+    };
+    expect(
+      resolveRecordCites({
+        cites: [parseRecordCite("Smith Dep. 45:3")],
+        documents: [smith],
+        choices,
+        deposition: depositionMapper,
+      })[0],
+    ).toMatchObject({
+      outcome: "found",
+      passage: "The line.",
+      location: { lines: { from: 3, to: 3 } },
+    });
+  });
+
+  test("offers the lines before a cite too, across a page break", () => {
+    const smith = {
+      ...document([
+        { page: 1, kind: "page" as const, text: "Page 45\n1 Earlier one.\n2 Earlier two." },
+        { page: 2, kind: "page" as const, text: "Page 46\n1 The cited line.\n2 After it." },
+      ]),
+      id: "smith",
+      name: "Smith Deposition.pdf",
+    };
+    const [result] = resolveRecordCites({
+      cites: [parseRecordCite("Smith Dep. 46:1")],
+      documents: [smith],
+      choices,
+      deposition: depositionMapper,
+    });
+    expect(result?.nearbyCandidates?.map((each) => [each.location, each.passage])).toEqual([
+      [
+        {
+          kind: "page",
+          from: 2,
+          to: 2,
+          printed: { from: "46", to: "46" },
+          lines: { from: 2, to: 2 },
+        },
+        "After it.",
+      ],
+      [
+        {
+          kind: "page",
+          from: 1,
+          to: 1,
+          printed: { from: "45", to: "45" },
+          lines: { from: 1, to: 2 },
+        },
+        "Earlier one.\nEarlier two.",
+      ],
+    ]);
   });
 });

@@ -353,6 +353,55 @@ test("a matching source total names an omitted source row only from a checked ex
   expect(result.verdict).toBe("unsupported");
 });
 
+test("a sentence's record cites and the versions they read stay through the footing", () => {
+  const blocks = note(
+    table(
+      row(cell("h0", "Item", true), cell("h1", "Amount", true)),
+      row(cell("l1", "A"), cell("a1", "10")),
+      row(cell("lt", "Total"), cell("at", "10")),
+    ),
+  );
+  const source = sourceTable(["Item\tAmount", "A\t10", "Total\t10"]);
+  const results = figuresInMind(blocks).map((occurrence, index): FigureCheckResult => {
+    const input = source.input(index + 2);
+    return {
+      ...finding(occurrence),
+      sourceInput: input,
+      result: {
+        verdict: "supported",
+        evidence: input.citation,
+        says: null,
+        unsupported: null,
+        calculation: null,
+        citedCaseUnchecked: false,
+        citedCaseFound: false,
+        versions: [{ documentId: "accounts", contentHash: "v1" }],
+        excluded: [],
+      },
+    };
+  });
+  const aggregate = aggregateFigureResults(results, null);
+  const recordCites = [{ raw: "Ex. 7 at 3", outcome: "not-found" as const }];
+  const result = augmentFigureFooting(
+    blocks,
+    {
+      ...aggregate,
+      versions: [...aggregate.versions, { documentId: "exhibit", contentHash: "e1" }],
+      recordCites,
+      figures: results,
+      remainder: null,
+    },
+    source.documents,
+  );
+  expect(result.recordCites).toEqual(recordCites);
+  expect(result.versions).toEqual(
+    expect.arrayContaining([
+      { documentId: "accounts", contentHash: "v1" },
+      { documentId: "exhibit", contentHash: "e1" },
+    ]),
+  );
+});
+
 function findBlock(blocks: Y.XmlFragment | Y.XmlElement, id: string): Y.XmlElement {
   const pending = [...blocks.toArray()];
   while (pending.length > 0) {

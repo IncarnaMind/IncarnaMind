@@ -3,7 +3,7 @@ import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { type ElectronApplication, expect, test } from "@playwright/test";
-import { resolveDeposition } from "../../src/core/documents/deposition";
+import { depositionMapper } from "../../src/core/documents/deposition";
 import { BUILT_IN_TEXT_RECOGNITION_MODEL } from "../../src/core/documents/scan/model";
 import { parseRecordCite } from "../../src/core/recordCites/parser";
 import { resolveRecordCites } from "../../src/core/recordCites/resolver";
@@ -156,8 +156,8 @@ test("real OCR stores deposition anchors and resolves a printed range across sca
         units: scanned.pages,
       },
     ],
-    choices: { previous: null, choices: {} },
-    resolveDeposition,
+    choices: {},
+    deposition: depositionMapper,
   });
   if (!resolved) throw new Error("The deposition citation returned no result.");
   expect(resolved).toMatchObject({

@@ -1,5 +1,6 @@
 import { citedCases } from "../../shared/caseCitations";
 import { parseClockTime } from "../../shared/clock";
+import { CURRENCY_ISO_CODES } from "../../shared/figures";
 import type { CitationLocation } from "../api";
 import { recordCiteAlias } from "./alias";
 
@@ -26,10 +27,11 @@ export interface ParsedRecordCite {
   sourceAlias: string | null;
   location: CitationLocation | null;
   bates: BatesRange | null;
+  /** "previous": an `Id.` or `supra`, read on the record item it refers back to. */
   reference: "previous" | null;
 }
 
-export type RecordCiteParseFailureReason = "malformed" | "out-of-range" | "no-earlier-referent";
+export type RecordCiteParseFailureReason = "malformed" | "out-of-range";
 
 export interface RecordCiteParseFailure {
   status: "error";
@@ -39,31 +41,29 @@ export interface RecordCiteParseFailure {
 
 export type RecordCiteParseResult = ParsedRecordCite | RecordCiteParseFailure;
 
-export interface RecordCiteParseOptions {
-  /** Whether the resolver has an earlier record item whose Document and Location are usable. */
-  hasPrevious?: boolean;
-}
-
 export interface RecordCiteOccurrence {
   raw: string;
   /** UTF-16 offsets in the scanned text; `from` is inclusive and `to` exclusive. */
   from: number;
   to: number;
   result: RecordCiteParseResult;
-  /** Zero-based index of the nearest preceding resolvable occurrence, for `Id.` and `supra`. */
-  referent: number | null;
 }
 
+/** A record cite, or a court decision's citation, which ends an `Id.` chain. */
+export type RecordCiteToken =
+  | ({ kind: "cite" } & RecordCiteOccurrence)
+  | { kind: "case"; from: number; to: number };
+
 type Draft = Omit<ParsedRecordCite, "status" | "raw">;
-type ReadShape = (
-  match: RegExpExecArray,
-  options: RecordCiteParseOptions,
-) => Draft | RecordCiteParseFailureReason;
+type Read = Draft | RecordCiteParseFailureReason;
 
 interface RecordCiteShape {
-  pattern: RegExp;
-  read: ReadShape;
-  scanName?: (match: RegExpExecArray) => string;
+  /** The shape from its own keyword on. */
+  body: string;
+  flags: string;
+  /** Whether words before it name its source, and what stands between them and the keyword. */
+  name?: { required: boolean; lead: string };
+  read(match: RegExpExecArray, name: string): Read;
 }
 
 const group = (match: RegExpExecArray, index: number) => match[index] ?? "";
@@ -73,72 +73,115 @@ const positiveInteger = (written: string) => {
   return Number.isSafeInteger(value) && value >= 1 ? value : null;
 };
 
-const positiveRange = (fromWritten: string, toWritten = fromWritten) => {
+const positiveRange = (fromWritten: string, toWritten: string) => {
   const from = positiveInteger(fromWritten);
-  const to = positiveInteger(toWritten);
-  if (from === null || to === null) return "out-of-range" as const;
-  return from <= to ? { from, to } : ("out-of-range" as const);
+  const to = positiveInteger(toWritten || fromWritten);
+  if (from === null || to === null || to < from) return "out-of-range" as const;
+  return { from, to };
 };
 
-const pageLocation = (from: number, to = from): CitationLocation => ({
-  kind: "page",
-  from,
-  to,
-});
+type Located = CitationLocation | "out-of-range";
 
-const direct = (
-  kind: RecordCiteKind,
-  sourceAlias: string | null,
-  location: CitationLocation | null,
-): Draft => ({ kind, sourceAlias, location, bates: null, reference: null });
+const pageRange = (fromWritten: string, toWritten: string): Located => {
+  const pages = positiveRange(fromWritten, toWritten);
+  return pages === "out-of-range" ? pages : { kind: "page", from: pages.from, to: pages.to };
+};
 
-const previous = (
-  kind: "id" | "supra",
-  location: CitationLocation | null,
-  options: RecordCiteParseOptions,
-  sourceAlias: string | null = null,
-): Draft | RecordCiteParseFailureReason =>
-  options.hasPrevious
-    ? { kind, sourceAlias, location, bates: null, reference: "previous" }
-    : "no-earlier-referent";
+const paragraphRange = (fromWritten: string, toWritten: string): Located => {
+  const paragraphs = positiveRange(fromWritten, toWritten);
+  return paragraphs === "out-of-range"
+    ? paragraphs
+    : { kind: "section", heading: null, paragraphs };
+};
 
-const readDeposition: ReadShape = (match) => {
-  const fromPage = positiveInteger(group(match, 3));
-  const fromLine = positiveInteger(group(match, 4));
-  const toPage = group(match, 5) ? positiveInteger(group(match, 5)) : fromPage;
-  const toLine = group(match, 6) ? positiveInteger(group(match, 6)) : fromLine;
+/** Printed pages and lines: "45:3", "45:3–12" and "45:24–46:2"; a single line ends where it starts. */
+const linesRange = (
+  fromPageWritten: string,
+  fromLineWritten: string,
+  toPageWritten: string,
+  toLineWritten: string,
+): Located => {
+  const fromPage = positiveInteger(fromPageWritten);
+  const fromLine = positiveInteger(fromLineWritten);
+  const toPage = toPageWritten ? positiveInteger(toPageWritten) : fromPage;
+  const toLine = toLineWritten ? positiveInteger(toLineWritten) : fromLine;
   if (fromPage === null || fromLine === null || toPage === null || toLine === null) {
     return "out-of-range";
   }
   if (toPage < fromPage || (toPage === fromPage && toLine < fromLine)) return "out-of-range";
-  const source = `${group(match, 1)}${group(match, 1) ? " " : ""}${group(match, 2)}`;
-  return direct("deposition", recordCiteAlias(source), {
+  return {
     kind: "page",
     from: fromPage,
     to: toPage,
-    printed: { from: group(match, 3), to: group(match, 5) || group(match, 3) },
+    printed: { from: fromPageWritten, to: toPageWritten || fromPageWritten },
     lines: { from: fromLine, to: toLine },
-  });
+  };
 };
 
-const readExhibit: ReadShape = (match) => {
-  const page = positiveInteger(group(match, 3));
-  if (page === null) return "out-of-range";
-  const source = `${group(match, 1)}${group(match, 1) ? " " : ""}Ex. ${group(match, 2)}`;
-  return direct("exhibit", recordCiteAlias(source), pageLocation(page));
-};
+const direct = (kind: RecordCiteKind, sourceAlias: string | null, location: Located): Read =>
+  location === "out-of-range"
+    ? location
+    : { kind, sourceAlias, location, bates: null, reference: null };
 
-const readDocket: ReadShape = (match) => {
-  const page = positiveInteger(group(match, 3));
-  if (page === null) return "out-of-range";
-  return direct(
-    "docket",
-    recordCiteAlias(`${group(match, 1)} ${group(match, 2)}`),
-    pageLocation(page),
-  );
-};
+const earlier = (
+  kind: "id" | "supra",
+  location: Located | null,
+  sourceAlias: string | null = null,
+): Read =>
+  location === "out-of-range"
+    ? location
+    : { kind, sourceAlias, location, bates: null, reference: "previous" };
 
-const batesRange = (prefix: string, from: string, to: string): Draft | "out-of-range" => {
+const SIGNAL =
+  /^(?:see|also|cf|accord|compare|contra|quoting|citing|and|or|but|then|e\.g|i\.e)[.,]*$/i;
+const CAPITALIZED = /^\p{Lu}[\p{L}\p{M}\p{N}'’&-]*$/u;
+const INITIAL = /^\p{Lu}\.$/u;
+const DOTTED_POSSESSIVE = /^\p{L}+\.['’]s?$/u;
+const ABBREVIATION =
+  /^(?:am|supp|sec|corr|rev|jr|sr|mr|mrs|ms|dr|pl|pls|def|defs|resp|pet|app|opp|mot|br|mem|aff|jt|hr['’]g|prelim|inj|summ|co|inc|corp|ltd|dep|decl|compl|tr|ex|no)\.$/i;
+const PARTY_POSSESSIVE =
+  /^(?:plaintiffs?|defendants?|petitioners?|respondents?|appellants?|appellees?|government|gov['’]t)['’]s?$/i;
+const NUMBERED = /^(?:ex|exh|exhibit|no|dkt)\.?$/i;
+
+const isNameWord = (word: string, before: string | undefined) =>
+  CAPITALIZED.test(word) ||
+  INITIAL.test(word) ||
+  DOTTED_POSSESSIVE.test(word) ||
+  ABBREVIATION.test(word) ||
+  PARTY_POSSESSIVE.test(word) ||
+  (/^\d+[A-Za-z]?$/.test(word) && before !== undefined && NUMBERED.test(before));
+
+const NAME_TOKEN = /[^\s(（[【「『“"‘;；,，、:：]+/gu;
+const NAME_BOUNDARY = /[(（[【「『“"‘;；,，、:：][^(（[【「『“"‘;；,，、:：]*$/u;
+/** How far before its keyword a source's name may start. */
+const NAME_REACH = 120;
+
+/**
+ * The words at the end of a text that name a source, and where they start: capitalized words,
+ * initials, a party's possessive and the abbreviations of record names. A word that ends a
+ * sentence ("Agreement.") isn't one, so a name never reaches into the sentence before; nor is a
+ * leading signal ("See").
+ */
+function nameAtEnd(text: string): { name: string; at: number } {
+  const boundary = NAME_BOUNDARY.exec(text)?.index ?? -1;
+  const words = [...text.matchAll(NAME_TOKEN)].filter((word) => word.index > boundary);
+  let first = words.length;
+  while (first > 0 && isNameWord(words[first - 1]?.[0] ?? "", words[first - 2]?.[0])) first--;
+  while (first < words.length && SIGNAL.test(words[first]?.[0] ?? "")) first++;
+  const start = words[first];
+  if (!start) return { name: "", at: text.length };
+  return {
+    name: words
+      .slice(first)
+      .map((word) => word[0])
+      .join(" "),
+    at: start.index,
+  };
+}
+
+const aliasOf = (...parts: string[]) => recordCiteAlias(parts.filter(Boolean).join(" "));
+
+const batesRange = (prefix: string, from: string, to: string): Read => {
   const first = Number(from);
   const last = Number(to);
   if (!Number.isSafeInteger(first) || !Number.isSafeInteger(last) || last < first) {
@@ -153,114 +196,156 @@ const batesRange = (prefix: string, from: string, to: string): Draft | "out-of-r
   };
 };
 
-const readParagraph: ReadShape = (match) => {
-  const paragraphs = positiveRange(group(match, 3), group(match, 4) || group(match, 3));
-  if (paragraphs === "out-of-range") return paragraphs;
-  return direct("paragraph", recordCiteAlias(group(match, 1)), {
-    kind: "section",
-    heading: null,
-    paragraphs,
-  });
-};
-
-const readTime: ReadShape = (match) => {
-  const start = parseClockTime(group(match, 2));
-  const end = group(match, 3) ? parseClockTime(group(match, 3)) : start;
-  if (start === null || end === null) return "out-of-range";
-  return direct("time", recordCiteAlias(group(match, 1)), {
-    kind: "time",
-    from: Math.min(start, end),
-    to: Math.max(start, end),
-  });
-};
+const DASH = "\\s*[-–—]\\s*";
+const PAGES = `(?:at|pp?\\.?) (\\d+)(?:${DASH}(\\d+))?`;
+const LINES = `(\\d+) *: *(\\d+)(?:${DASH}(?:(\\d+) *: *)?(\\d+))?`;
+const PARAGRAPHS = `¶¶? ?(\\d+)(?:${DASH}(\\d+))?`;
+const CLOCK = "\\d{1,2}(?::\\d{2}){1,2}";
+// A Bates number has a leading zero or five digits, so "GDP 2019–2020" and "ISO-9001" aren't one.
+const BATES_NUMBER = "(?:0\\d{3,}|\\d{5,})";
+const NOT_BATES = `(?!(?:${CURRENCY_ISO_CODES}|FY|CY|ISO)\\b)`;
+const SPACE = { required: false, lead: " " };
 
 const SHAPES: readonly RecordCiteShape[] = [
   {
-    pattern: /^(?:(.+?) )?(dep\.?(?: tr\.?)?) (\d+) *: *(\d+)(?: *[-–—] *(?:(\d+) *: *)?(\d+))?$/i,
-    read: readDeposition,
-    scanName: (match) => group(match, 1),
+    body: `(?:dep\\.?|deposition)(?: (?:tr\\.?|transcript))? ${LINES}`,
+    flags: "i",
+    name: SPACE,
+    read: (match, name) =>
+      direct(
+        "deposition",
+        aliasOf(name, "dep"),
+        linesRange(group(match, 1), group(match, 2), group(match, 3), group(match, 4)),
+      ),
   },
   {
-    pattern: /^(?:((?:pl|def)\.['’]s) )?ex\.? (\d+),? (?:at|p\.?) (\d+)$/i,
-    read: readExhibit,
+    body: `(?:ex\\.?|exh\\.?|exhibit) (\\d+[A-Za-z]?|[A-Z]{1,2}\\d*),? ${PAGES}`,
+    flags: "i",
+    name: SPACE,
+    read: (match, name) =>
+      direct(
+        "exhibit",
+        aliasOf(name, "ex", group(match, 1)),
+        pageRange(group(match, 2), group(match, 3)),
+      ),
   },
   {
-    pattern: /^(ecf no\.?|dkt\.?) (\d+),? (?:at|p\.?) (\d+)$/i,
-    read: readDocket,
+    body: `(?:ecf(?: no\\.?)?|dkt\\.?(?: no\\.?)?|docket no\\.?) (\\d+),? ${PAGES}`,
+    flags: "i",
+    read: (match) =>
+      direct(
+        "docket",
+        aliasOf("dkt", group(match, 1)),
+        pageRange(group(match, 2), group(match, 3)),
+      ),
   },
   {
-    pattern: /^([A-Z]+)-(\d{4,})$/,
-    read: (match) => batesRange(group(match, 1), group(match, 2), group(match, 2)),
-  },
-  {
-    pattern: /^(?!FY\b|ISO\b)([A-Z]+) (\d{4,}) *[-–—] *(\d{4,})$/,
+    body: `${NOT_BATES}([A-Z]{2,})[-_ ]?(${BATES_NUMBER})${DASH}(?:\\1[-_ ]?)?(${BATES_NUMBER})`,
+    flags: "",
     read: (match) => batesRange(group(match, 1), group(match, 2), group(match, 3)),
   },
   {
-    pattern: /^((?:am\.? )?compl\.?|.+? decl\.?) ¶(¶?) (\d+)(?: *[-–—] *(\d+))?$/i,
-    read: readParagraph,
-    scanName: (match) => group(match, 1).replace(/ decl\.?$/i, ""),
-  },
-  {
-    pattern:
-      /^(.+?) (?:tr\.?|transcript) at (\d{1,2}(?::\d{2}){1,2})(?: *[-–—] *(\d{1,2}(?::\d{2}){1,2}))?$/i,
-    read: readTime,
-    scanName: (match) => group(match, 1),
-  },
-  {
-    pattern:
-      /^[Ii]d\.(?: at (?:(\d+)(?: *: *(\d+)(?: *[-–—] *(?:(\d+) *: *)?(\d+))?)?))?(?! *[-–—:])$/,
-    read: (match, options) => {
-      if (!group(match, 1)) return previous("id", null, options);
-      const fromPage = positiveInteger(group(match, 1));
-      if (fromPage === null) return "out-of-range";
-      if (!group(match, 2)) return previous("id", pageLocation(fromPage), options);
-      const fromLine = positiveInteger(group(match, 2));
-      const toPage = group(match, 3) ? positiveInteger(group(match, 3)) : fromPage;
-      const toLine = group(match, 4) ? positiveInteger(group(match, 4)) : fromLine;
-      if (fromLine === null || toPage === null || toLine === null) return "out-of-range";
-      if (toPage < fromPage || (toPage === fromPage && toLine < fromLine)) {
-        return "out-of-range";
-      }
-      return previous(
-        "id",
-        {
-          kind: "page",
-          from: fromPage,
-          to: toPage,
-          printed: { from: group(match, 1), to: group(match, 3) || group(match, 1) },
-          lines: { from: fromLine, to: toLine },
-        },
-        options,
-      );
+    body: `${NOT_BATES}([A-Z]{2,})(?:[-_](${BATES_NUMBER})|(0\\d{3,}))`,
+    flags: "",
+    read: (match) => {
+      const identifier = group(match, 2) || group(match, 3);
+      return batesRange(group(match, 1), identifier, identifier);
     },
   },
   {
-    pattern: /^(?:(.+?), )?supra\.?$/i,
-    read: (match, options) =>
-      previous("supra", null, options, group(match, 1) ? recordCiteAlias(group(match, 1)) : null),
-    scanName: (match) => group(match, 1),
+    body: `(compl\\.?|complaint|decl\\.?|declaration|aff\\.?|affidavit) ${PARAGRAPHS}`,
+    flags: "i",
+    name: SPACE,
+    read: (match, name) =>
+      direct(
+        "paragraph",
+        aliasOf(name, group(match, 1)),
+        paragraphRange(group(match, 2), group(match, 3)),
+      ),
+  },
+  {
+    body: `(?:tr\\.?|transcript|recording|video|audio) at (${CLOCK})(?:${DASH}(${CLOCK}))?`,
+    flags: "i",
+    name: { required: true, lead: " " },
+    read: (match, name) => {
+      const start = parseClockTime(group(match, 1));
+      const end = group(match, 2) ? parseClockTime(group(match, 2)) : start;
+      if (start === null || end === null || end < start) return "out-of-range";
+      return direct("time", aliasOf(name), { kind: "time", from: start, to: end });
+    },
+  },
+  {
+    body: `[Ii]d\\.(?: at (?:${LINES}|(\\d+)(?:${DASH}(\\d+))?)|,? ${PARAGRAPHS})?`,
+    flags: "",
+    read: (match) =>
+      group(match, 1)
+        ? earlier(
+            "id",
+            linesRange(group(match, 1), group(match, 2), group(match, 3), group(match, 4)),
+          )
+        : group(match, 5)
+          ? earlier("id", pageRange(group(match, 5), group(match, 6)))
+          : group(match, 7)
+            ? earlier("id", paragraphRange(group(match, 7), group(match, 8)))
+            : earlier("id", null),
+  },
+  {
+    body: `supra(?:,? ${PAGES}|,? ${PARAGRAPHS})?`,
+    flags: "i",
+    name: { required: true, lead: ",? " },
+    read: (match, name) =>
+      group(match, 1)
+        ? earlier("supra", pageRange(group(match, 1), group(match, 2)), aliasOf(name))
+        : group(match, 3)
+          ? earlier("supra", paragraphRange(group(match, 3), group(match, 4)), aliasOf(name))
+          : earlier("supra", null, aliasOf(name)),
   },
 ];
+
+const anchored = SHAPES.map(
+  (shape) =>
+    new RegExp(
+      `^${shape.name ? `(?:(.+?)${shape.name.lead})${shape.name.required ? "" : "?"}` : ""}(?:${shape.body})$`,
+      shape.flags,
+    ),
+);
+const scanning = SHAPES.map((shape) => new RegExp(shape.body, `${shape.flags}g`));
+const leads = SHAPES.map((shape) => (shape.name ? new RegExp(`${shape.name.lead}$`) : null));
+
+/** The groups of a shape's body, wherever its name group put them. */
+const bodyOf = (match: RegExpExecArray, named: boolean): RegExpExecArray => {
+  if (!named) return match;
+  const groups = [match[0], ...match.slice(2)] as unknown as RegExpExecArray;
+  groups.index = match.index;
+  groups.input = match.input;
+  return groups;
+};
 
 /**
  * Reads one record cite without resolving its source; failures are values, never exceptions.
  * The resolver maps a deposition's printed page labels to its physical PDF Units.
  */
-export function parseRecordCite(
-  raw: string,
-  options: RecordCiteParseOptions = {},
-): RecordCiteParseResult {
+export function parseRecordCite(raw: string): RecordCiteParseResult {
   const text = raw.trim().replace(/\s+/g, " ");
-  for (const shape of SHAPES) {
-    const match = shape.pattern.exec(text);
+  for (const [index, shape] of SHAPES.entries()) {
+    const match = anchored[index]?.exec(text);
     if (!match) continue;
-    const result = shape.read(match, options);
+    const name = shape.name ? nameAtEnd(group(match, 1)) : null;
+    if (shape.name?.required && !name?.name) continue;
+    const result = shape.read(bodyOf(match, shape.name !== undefined), name?.name ?? "");
     if (typeof result === "string") return { status: "error", raw, reason: result };
     return { status: "parsed", raw, ...result };
   }
   return { status: "error", raw, reason: "malformed" };
 }
+
+// Chinese runs straight on into a cite ("见Ex. 7 at 3"), so only a Latin letter or a digit joins one.
+const insideWord = (text: string, from: number, to: number) =>
+  /[\p{Script=Latin}\p{N}_]$/u.test(text.slice(0, from)) ||
+  /^[\p{Script=Latin}\p{N}_]/u.test(text.slice(to));
+
+/** A cite that goes on past what its shape reads ("Ex. 7 at 3, 5", "PL-000123–125") isn't read in part. */
+const CONTINUES = /^(?:\s*[-–—:]\s*\d|,\s*[\d¶]|\s*[-–—]\s*(?:$|[).,;]))/;
 
 interface Candidate {
   from: number;
@@ -268,92 +353,93 @@ interface Candidate {
   shape: number;
 }
 
-const nameSuffix = (name: string) => {
-  const capitalized = /\p{Lu}[\p{L}\p{M}'’-]*\.?(?: +\p{Lu}[\p{L}\p{M}'’-]*\.?)*$/u.exec(name)?.[0];
-  if (!capitalized) return /[\p{L}\p{M}][\p{L}\p{M}'’-]*\.?$/u.exec(name)?.[0] ?? name;
-  const words = capitalized.split(" ");
-  let first = 0;
-  while (
-    first < words.length &&
-    /^(?:see|also|cf|accord|compare|quoting|citing|and|or|but|then|e\.g)\.?$/i.test(
-      words[first] ?? "",
-    )
-  ) {
-    first++;
+function candidatesIn(text: string): Candidate[] {
+  const candidates: Candidate[] = [];
+  for (const [index, shape] of SHAPES.entries()) {
+    const pattern = scanning[index];
+    if (!pattern) continue;
+    pattern.lastIndex = 0;
+    for (let match = pattern.exec(text); match !== null; match = pattern.exec(text)) {
+      const end = match.index + match[0].length;
+      let from = match.index;
+      const before = text.slice(Math.max(0, match.index - NAME_REACH), match.index);
+      const lead = leads[index]?.exec(before);
+      if (shape.name && lead) {
+        const words = before.slice(0, lead.index);
+        const name = nameAtEnd(words);
+        if (name.name) from = match.index - before.length + name.at;
+      }
+      if (shape.name?.required && from === match.index) continue;
+      if (!insideWord(text, from, end)) candidates.push({ from, to: end, shape: index });
+    }
   }
-  return words.slice(first).join(" ");
-};
-
-const insideWord = (text: string, from: number, to: number) =>
-  /[\p{L}\p{N}_]$/u.test(text.slice(0, from)) || /^[\p{L}\p{N}_]/u.test(text.slice(to));
-
-export interface ScanRecordCiteOptions {
-  /** Whether an earlier resolvable record item exists in the Note, before this text. */
-  hasPrevious?: boolean;
+  return candidates.sort((a, b) => a.from - b.from || b.to - a.to || a.shape - b.shape);
 }
 
-/** Finds citations in reading order, retaining duplicates and their exact UTF-16 ranges. */
-export function scanRecordCites(
-  text: string,
-  options: ScanRecordCiteOptions = {},
-): RecordCiteOccurrence[] {
-  const candidates: Candidate[] = [];
-  for (const [shapeIndex, shape] of SHAPES.entries()) {
-    const source = shape.pattern.source.replace(/^\^/, "").replace(/\$$/, "");
-    const flags = shape.pattern.flags.includes("g")
-      ? shape.pattern.flags
-      : `${shape.pattern.flags}g`;
-    const pattern = new RegExp(source, flags);
-    for (let match = pattern.exec(text); match !== null; match = pattern.exec(text)) {
-      const name = shape.scanName?.(match) ?? "";
-      const leading = name.length - nameSuffix(name).length;
-      const start = match.index + leading;
-      const space = /^ +/.exec(text.slice(start, match.index + match[0].length))?.[0].length ?? 0;
-      const from = start + space;
-      const to = match.index + match[0].length;
-      if (!insideWord(text, from, to)) candidates.push({ from, to, shape: shapeIndex });
+const DEPOSITION = 0;
+/** A further page and lines of the same deposition: "Smith Dep. 45:3–12, 47:1–4". */
+const MORE_LINES = new RegExp(`^[,;] *${LINES}`);
+
+function readCandidate(text: string, candidate: Candidate): RecordCiteOccurrence[] {
+  const raw = text.slice(candidate.from, candidate.to);
+  const head: RecordCiteOccurrence = {
+    raw,
+    from: candidate.from,
+    to: candidate.to,
+    result: parseRecordCite(raw),
+  };
+  const occurrences = [head];
+  let to = candidate.to;
+  if (candidate.shape === DEPOSITION && head.result.status === "parsed") {
+    const { sourceAlias } = head.result;
+    for (let more = MORE_LINES.exec(text.slice(to)); more; more = MORE_LINES.exec(text.slice(to))) {
+      const from = to + more[0].length - more[0].replace(/^[,;] */, "").length;
+      to += more[0].length;
+      const location = linesRange(group(more, 1), group(more, 2), group(more, 3), group(more, 4));
+      const written = text.slice(from, to);
+      occurrences.push({
+        raw: written,
+        from,
+        to,
+        result:
+          location === "out-of-range"
+            ? { status: "error", raw: written, reason: location }
+            : {
+                status: "parsed",
+                raw: written,
+                kind: "deposition",
+                sourceAlias,
+                location,
+                bates: null,
+                reference: null,
+              },
+      });
     }
   }
-  const events = [
-    ...candidates.map((candidate) => ({ ...candidate, decision: false })),
-    ...citedCases(text).map((candidate) => ({ ...candidate, shape: -1, decision: true })),
-  ].sort(
-    (a, b) =>
-      a.from - b.from ||
-      Number(b.decision) - Number(a.decision) ||
-      b.to - a.to ||
-      a.shape - b.shape,
-  );
-
-  const occurrences: RecordCiteOccurrence[] = [];
-  let occupiedTo = -1;
-  let lastResolvable: number | null = options.hasPrevious ? -1 : null;
-  let caseBoundary = false;
-  for (const candidate of events) {
-    if (candidate.decision) {
-      lastResolvable = null;
-      caseBoundary = true;
-      continue;
-    }
-    if (candidate.from < occupiedTo) continue;
-    const raw = text.slice(candidate.from, candidate.to);
-    const result = parseRecordCite(raw, { hasPrevious: lastResolvable !== null });
-    occupiedTo = candidate.to;
-    if (
-      caseBoundary &&
-      result.status === "error" &&
-      result.reason === "no-earlier-referent" &&
-      /^(?:id|supra)\b/i.test(raw)
-    ) {
-      continue;
-    }
-    const referent =
-      result.status === "parsed" && result.reference === "previous" ? lastResolvable : null;
-    occurrences.push({ raw, from: candidate.from, to: candidate.to, result, referent });
-    if (result.status === "parsed") {
-      lastResolvable = occurrences.length - 1;
-      if (result.reference === null) caseBoundary = false;
-    }
+  const last = occurrences.at(-1);
+  if (last && CONTINUES.test(text.slice(to))) {
+    last.result = { status: "error", raw: last.raw, reason: "malformed" };
   }
   return occurrences;
 }
+
+/** The record cites and court decisions' citations in a text, in reading order, none overlapping. */
+export function recordCiteTokens(text: string): RecordCiteToken[] {
+  const cases = citedCases(text);
+  const cites: RecordCiteToken[] = [];
+  let occupiedTo = -1;
+  for (const candidate of candidatesIn(text)) {
+    if (candidate.from < occupiedTo) continue;
+    if (cases.some((each) => candidate.from < each.to && candidate.to > each.from)) continue;
+    const occurrences = readCandidate(text, candidate);
+    occupiedTo = occurrences.at(-1)?.to ?? candidate.to;
+    cites.push(...occurrences.map((occurrence) => ({ kind: "cite" as const, ...occurrence })));
+  }
+  return [...cites, ...cases.map(({ from, to }) => ({ kind: "case" as const, from, to }))].sort(
+    (a, b) => a.from - b.from,
+  );
+}
+
+/** Where record cites are in a text, so a sentence break never falls inside one. */
+export const recordCiteSpans = (text: string): { from: number; to: number }[] =>
+  candidatesIn(text).map(({ from, to }) => ({ from, to }));

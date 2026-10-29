@@ -103,13 +103,31 @@ describe("Printed deposition source anchors (#1709)", () => {
     expect(resolveDeposition(mapped, cite(45, 1))).toEqual({ status: "not-found" });
   });
 
-  test("a header above margin line 1 does not shift the labelled content rows", () => {
+  test("a header above margin line 1 is Not found, never lines shifted by one", () => {
     const unit = pdfPage(
       2,
-      "Page 45\nDeposition caption\n1\nQ. First?\n2\nA. Second.\n3\nQ. Third?",
+      "Page 45\nDeposition caption\n1\nQ. First?\n2\nA. Second.\n3\nQ. Third?\n4\nA. Fourth.",
     );
-    const result = found([unit], cite(45, 2, 45, 3));
-    expect(result.units.map((each) => each.text)).toEqual(["A. Second.", "Q. Third?"]);
+    // Each number could go with the row after it or, the caption taken as line 1, before it.
+    expect(resolveDeposition([unit], cite(45, 3, 45, 4))).toEqual({ status: "not-found" });
+  });
+
+  test("a margin number goes with the one side that gives every number its own row", () => {
+    const after = pdfPage(2, "Page 45\n1\nQ. First?\n2\nA. Second.\n3\nQ. Third?\nFooter");
+    expect(found([after], cite(45, 2, 45, 3)).units.map((each) => each.text)).toEqual([
+      "A. Second.",
+      "Q. Third?",
+    ]);
+    const before = pdfPage(2, "Page 45\nCaption\nQ. First?\n1\nA. Second.\n2\nQ. Third?\n3");
+    expect(found([before], cite(45, 2, 45, 3)).units.map((each) => each.text)).toEqual([
+      "A. Second.",
+      "Q. Third?",
+    ]);
+  });
+
+  test("an unnumbered row between numbered lines is Not found, not added to a line", () => {
+    const unit = pdfPage(2, "Page 45\n1 Q. First?\ncontinued without a number\n2 A. Second.");
+    expect(resolveDeposition([unit], cite(45, 1, 45, 2))).toEqual({ status: "not-found" });
   });
 
   test("one ambiguous margin label invalidates the whole region", () => {

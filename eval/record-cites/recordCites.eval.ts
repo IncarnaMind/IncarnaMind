@@ -2,6 +2,9 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { test } from "vitest";
 import type { ClaimCheckResult, Core } from "../../src/core";
+import { claimSpans } from "../../src/renderer/src/editor/claimChecks";
+import { connectToMind } from "../../tests/helpers/mindClient";
+import { readMind, writeMind } from "../../tests/helpers/minds";
 import { commitOf } from "../lib/commit";
 import { chatProviderOf, readConfig } from "../lib/config";
 import { createWorkerEmbedder } from "../lib/embedder";
@@ -11,7 +14,7 @@ import { createWorkerCrossEncoder } from "../lib/rerank";
 import { watchRequests } from "../repeats/requests";
 import { matchedRecordCites, type RecordCiteRunReport, writeRecordCiteReport } from "./report";
 import { type RecordCaseResult, scoreRecordCase } from "./score";
-import { loadRecordCiteSet } from "./set";
+import { loadRecordCiteSet, type RecordSetCase } from "./set";
 
 const root = fileURLToPath(new URL("../..", import.meta.url));
 
@@ -20,6 +23,57 @@ const spentOf = async (core: Core) =>
   (await core.getCostSummary()).spent
     .filter((each) => each.currency === "USD")
     .reduce((total, each) => total + each.amount, 0);
+
+/**
+ * A case with a Note is checked as the User checks a Note: written as its paragraphs, every
+ * sentence checked, and the claim's sentence read back with its record cites.
+ */
+async function checkInNote(
+  core: Core,
+  test: RecordSetCase & { note: string[] },
+): Promise<ClaimCheckResult | null> {
+  const mind = await core.createMind({ title: test.id });
+  const client = await connectToMind(core, mind.id);
+  const blocks = test.note.map((text, index) => ({
+    type: "paragraph",
+    attrs: { id: `paragraph-${index}` },
+    content: [{ type: "text", text }],
+  }));
+  writeMind(client, blocks);
+  await client.settled();
+  const last = test.note.length - 1;
+  await core.checkSentences({
+    requestId: `record-cites-${test.id}`,
+    mindId: mind.id,
+    action: "check-against-documents",
+    from: { blockId: "paragraph-0", offset: 0 },
+    to: { blockId: `paragraph-${last}`, offset: test.note[last]?.length ?? 0 },
+  });
+  await client.settled();
+  const check = claimSpans(readMind(client)).find((span) => span.check.text === test.claim)?.check;
+  if (!check || check.state === "checking") return null;
+  return check.state === "not-checked"
+    ? {
+        verdict: "not-checked",
+        reason: check.reason ?? "failed",
+        detail: check.detail,
+        versions: check.versions,
+        excluded: check.excluded,
+        ...(check.recordCites && { recordCites: check.recordCites }),
+      }
+    : {
+        verdict: check.state,
+        evidence: null,
+        says: check.says,
+        unsupported: check.unsupported,
+        calculation: check.calculation,
+        citedCaseUnchecked: check.citedCaseUnchecked,
+        citedCaseFound: check.citedCaseFound,
+        versions: check.versions,
+        excluded: check.excluded,
+        ...(check.recordCites && { recordCites: check.recordCites }),
+      };
+}
 
 test("public record-cite evaluation", async () => {
   const started = new Date();
@@ -69,11 +123,14 @@ test("public record-cite evaluation", async () => {
       let result: ClaimCheckResult | null = null;
       let failure: string | null = null;
       try {
-        result = await core.checkClaim({
-          claim: test.claim,
-          scope: { folderIds: [], tagIds: [], documentIds },
-        });
-        if (result.verdict === "not-checked") {
+        result = test.note
+          ? await checkInNote(core, { ...test, note: test.note })
+          : await core.checkClaim({
+              claim: test.claim,
+              scope: { folderIds: [], tagIds: [], documentIds },
+            });
+        if (!result) failure = "the Note's sentence was not checked";
+        if (result?.verdict === "not-checked") {
           failure = [result.reason, result.detail].filter(Boolean).join(": ");
         }
       } catch (error) {
@@ -95,7 +152,8 @@ test("public record-cite evaluation", async () => {
         seconds: (Date.now() - started.getTime()) / 1000,
         commit: commitOf(root),
         model: `${chat.kind}/${chat.modelId}`,
-        pipeline: "the app's public core checkClaim, with record-cite resolution and judgement",
+        pipeline:
+          "the app's public core: checkClaim, or checkSentences on a Note for a case with one, with record-cite resolution and judgement",
       },
       set: {
         documents: documents.length,

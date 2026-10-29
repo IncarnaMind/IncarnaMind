@@ -1,7 +1,8 @@
 import { describe, expect, test } from "vitest";
 import type { CitationLocation } from "../../src/core/api";
-import { resolveDeposition } from "../../src/core/documents/deposition";
-import { parseRecordCite } from "../../src/core/recordCites/parser";
+import { depositionMapper } from "../../src/core/documents/deposition";
+import { parseRecordCite, recordCiteTokens } from "../../src/core/recordCites/parser";
+import { linkRecordCites, resolverInput } from "../../src/core/recordCites/referents";
 import { type RecordCiteDocument, resolveRecordCites } from "../../src/core/recordCites/resolver";
 import type { UnitText } from "../../src/shared/units";
 import {
@@ -267,8 +268,8 @@ describe("ten resolving fixtures of every accepted record-cite shape", () => {
       const [result] = resolveRecordCites({
         cites: [parseRecordCite(fixture.raw)],
         documents: [document],
-        choices: { previous: null, choices: {} },
-        resolveDeposition,
+        choices: {},
+        deposition: depositionMapper,
       });
       expect(result).toMatchObject({
         raw: fixture.raw,
@@ -281,8 +282,8 @@ describe("ten resolving fixtures of every accepted record-cite shape", () => {
     },
   );
 
-  test.each(ACCEPTED_RECORD_CITE_FIXTURES.filter((fixture) => fixture.reference))(
-    "$shape: $raw resolves through the previous record item",
+  test.each(ACCEPTED_RECORD_CITE_FIXTURES.filter((fixture) => fixture.kind === "id"))(
+    "$shape: $raw resolves on the record item before it",
     (fixture) => {
       const nextPage = fixture.location?.kind === "page" ? fixture.location.from : 3;
       const document: RecordCiteDocument = {
@@ -295,17 +296,17 @@ describe("ten resolving fixtures of every accepted record-cite shape", () => {
         ],
       };
       const results = resolveRecordCites({
-        cites: [parseRecordCite("Ex. 7 at 3"), parseRecordCite(fixture.raw, fixture.options)],
+        cites: linkRecordCites(recordCiteTokens(`Ex. 7 at 3; ${fixture.raw}`)).map(resolverInput),
         documents: [document],
-        choices: { previous: null, choices: {} },
-        resolveDeposition,
+        choices: {},
+        deposition: depositionMapper,
       });
       expect(results[1]).toMatchObject({
         raw: fixture.raw,
         outcome: "found",
         documentId: document.id,
         location:
-          fixture.kind === "id" && fixture.location?.kind === "page"
+          fixture.location?.kind === "page"
             ? {
                 kind: "page",
                 from: nextPage,
@@ -313,7 +314,39 @@ describe("ten resolving fixtures of every accepted record-cite shape", () => {
                 printed: { from: String(nextPage), to: String(nextPage) },
               }
             : { kind: "page", from: 3, to: 3, printed: { from: "3", to: "3" } },
-        passage: fixture.kind === "id" && fixture.location ? "Next passage" : "Previous passage",
+        passage: fixture.location ? "Next passage" : "Previous passage",
+      });
+    },
+  );
+
+  test.each(ACCEPTED_RECORD_CITE_FIXTURES.filter((fixture) => fixture.kind === "supra"))(
+    "$shape: $raw resolves on the earlier cite of its source",
+    (fixture) => {
+      const name = fixture.raw.split(" ")[0] ?? "";
+      const declaration: RecordCiteDocument = {
+        id: "declaration",
+        name: `${name} Declaration.pdf`,
+        contentHash: "hash-declaration",
+        units: [page(2, "¶ 3 Previous passage\n¶ 4 Later")],
+      };
+      const exhibit: RecordCiteDocument = {
+        id: "exhibit",
+        name: "Exhibit 7.pdf",
+        contentHash: "hash-exhibit",
+        units: [page(3, "Exhibit passage")],
+      };
+      const results = resolveRecordCites({
+        cites: linkRecordCites(
+          recordCiteTokens(`${name} Decl. ¶ 3; Ex. 7 at 3; ${fixture.raw}`),
+        ).map(resolverInput),
+        documents: [declaration, exhibit],
+        choices: {},
+      });
+      expect(results[2]).toMatchObject({
+        raw: fixture.raw,
+        outcome: "found",
+        documentId: "declaration",
+        passage: "¶ 3 Previous passage",
       });
     },
   );

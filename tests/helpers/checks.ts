@@ -7,7 +7,7 @@ import { documentFigureContext } from "../../src/core/answers/calculations";
 import { recordClaimFacts } from "../../src/core/answers/checks/recordCites";
 import { SEARCH_AGAIN } from "../../src/core/answers/checks/searchAgain";
 import { isRecord } from "../../src/core/errors";
-import { scanRecordCites } from "../../src/core/recordCites/parser";
+import { recordCiteTokens } from "../../src/core/recordCites/parser";
 import { readFigures } from "../../src/shared/figures";
 import { comparableSentence } from "../../src/shared/sentences";
 import { shownPassages } from "./citations";
@@ -254,7 +254,10 @@ export const checkGenerate =
       Object.entries(plans).find(
         ([claim]) =>
           comparableSentence(
-            recordClaimFacts(claim, scanRecordCites(claim, { hasPrevious: true })),
+            recordClaimFacts(
+              claim,
+              recordCiteTokens(claim).filter((token) => token.kind === "cite"),
+            ),
           ) === sentence,
       )?.[1];
     if (call.system.startsWith("You sort the sentences")) {

@@ -6,7 +6,7 @@
  * are the core's `TextPlace` offsets.
  */
 
-import { scanRecordCites } from "../core/recordCites/parser";
+import { recordCiteSpans } from "../core/recordCites/parser";
 import { citedCases } from "./caseCitations";
 
 /** An inline node in a paragraph's text. */
@@ -31,12 +31,34 @@ const ABBREVIATION = /(?:^|\s)(?:mr|mrs|ms|dr|prof|st|sr|jr|vs|etc|fig|no|inc|lt
 /** A company's abbreviation ends a sentence when a court decision's citation follows it: "…bought from Acme Co. Smith v. Jones, …". */
 const COMPANY_ABBREVIATION = /(?:^|\s)(?:inc|ltd|co|corp)\.$/iu;
 
+/** The words a brief puts before its cites: "See also Smith Dep. 45:3–12." */
+const CITATION_SIGNAL =
+  /\b(?:see|also|cf|accord|but|e\.g|compare|with|and|generally|contra)\b\.?,?/giu;
+
+/** Whether a sentence holds record cites and nothing else ("Smith Dep. 45:3–12.", "Id."). */
+function onlyRecordCites(text: string, from: number, to: number, cites: readonly SentenceSpan[]) {
+  const inside = cites
+    .filter((cite) => cite.from >= from && cite.to <= to)
+    .sort((a, b) => a.from - b.from);
+  if (inside.length === 0) return false;
+  let rest = "";
+  let at = from;
+  for (const cite of inside) {
+    rest += text.slice(at, Math.max(at, cite.from));
+    at = Math.max(at, cite.to);
+  }
+  rest += text.slice(at, to);
+  return !hasWords(rest.replace(CITATION_SIGNAL, ""));
+}
+
 /**
  * The sentences of a paragraph's text, in order. A Citation's marker right
  * after a sentence's full stop ("…quarter.[1] Next") belongs to that
  * sentence, though the segmenter starts the next one at it. A court
  * decision's citation stays in one sentence: the segmenter ends one at the
- * "v." and at the "(Tex." inside it.
+ * "v." and at the "(Tex." inside it. So does a record cite, which the
+ * segmenter ends at "Dep." or "Compl."; and a sentence of record cites alone
+ * belongs to the sentence before it, the one it supports (#1709).
  */
 export function sentenceSpans(text: string, figures: readonly number[] = []): SentenceSpan[] {
   if (figures.length > 0) {
@@ -45,7 +67,8 @@ export function sentenceSpans(text: string, figures: readonly number[] = []): Se
     return sentenceSpans(characters.join(""));
   }
   const decisions = citedCases(text);
-  const unbrokenCitations: SentenceSpan[] = [...decisions, ...scanRecordCites(text)];
+  const records = recordCiteSpans(text);
+  const unbrokenCitations: SentenceSpan[] = [...decisions, ...records];
   const spans: SentenceSpan[] = [];
   for (const { segment, index } of segmenter.segment(text)) {
     let from = index;
@@ -71,7 +94,12 @@ export function sentenceSpans(text: string, figures: readonly number[] = []): Se
     } else if (from < to && hasWords(text.slice(from, to))) spans.push({ from, to });
     else if (previous && from < to) previous.to = to;
   }
-  return spans;
+  return spans.reduce<SentenceSpan[]>((kept, span) => {
+    const previous = kept.at(-1);
+    if (previous && onlyRecordCites(text, span.from, span.to, records)) previous.to = span.to;
+    else kept.push(span);
+    return kept;
+  }, []);
 }
 
 /** The text of a sentence as checks compare it: without inline nodes, spaces collapsed. */

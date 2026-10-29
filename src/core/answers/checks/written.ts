@@ -35,7 +35,6 @@ import { randomUUID } from "node:crypto";
 import * as Y from "yjs";
 import { SENTENCES_CHECKED_AT_MOST } from "../../../shared/claimChecks";
 import { beginFigureCheck } from "../../../shared/figureChecks";
-import type { RecordCitePlace, RecordCiteSentence } from "../../../shared/recordCiteChoices";
 import { INLINE_NODE, isClaim, sentenceSpans } from "../../../shared/sentences";
 import { judgesUnreliably } from "../../../shared/smallModel";
 import {
@@ -51,6 +50,7 @@ import {
   type RunStop,
 } from "../../api";
 import type { PreparedChatModel } from "../../providers/chat";
+import type { RecordCitePlace } from "../../recordCites/referents";
 import { RunItemError, runItems } from "../../runs/stop";
 import { inStep } from "../../timing/flows";
 import { type MarkJSON, type NodeJSON, syncContent, topLevelBlocks } from "../blocks";
@@ -169,7 +169,7 @@ function inlineLayout(content: readonly NodeJSON[]): { node: NodeJSON; start: nu
 }
 
 /** The sentences a check reads that the write holds (#1909): every sentence with a Citation, and every claim with none. */
-function checkableSentences(blocks: readonly NodeJSON[], every = false): Sentence[] {
+function checkableSentences(blocks: readonly NodeJSON[]): Sentence[] {
   const found: Sentence[] = [];
   const visit = (nodes: readonly NodeJSON[], path: number[], inCell: boolean) => {
     nodes.forEach((node, index) => {
@@ -188,7 +188,7 @@ function checkableSentences(blocks: readonly NodeJSON[], every = false): Sentenc
           if (inline.type !== CITATION_NODE || start < span.from || start >= span.to) return [];
           return citedQuoteOf(inline.attrs ?? {}) ?? [];
         });
-        if (!every && cited.length === 0 && !isClaim(text)) continue;
+        if (cited.length === 0 && !isClaim(text)) continue;
         found.push({ path: here, from: span.from, to: span.to, text, context, cited, inCell });
       }
     });
@@ -569,7 +569,6 @@ export function createWrittenCheck(options: WrittenCheckOptions) {
     scope: CheckScope,
     signal: AbortSignal,
     place?: RecordCitePlace,
-    recordSentences?: readonly RecordCiteSentence[],
   ): Promise<NodeJSON[] | null> {
     const content = paragraphAt(blocks, sentence.path)?.content ?? [];
     const marked = asMarked(content, sentence.from, sentence.to);
@@ -607,7 +606,6 @@ export function createWrittenCheck(options: WrittenCheckOptions) {
       prepared,
       signal,
       place,
-      recordSentences,
     );
     recordJudged(options.recordAiUse, mindId, prepared, checked, options.now().toISOString());
     return checked.verdict === "supported" ? nodes : null;
@@ -622,7 +620,6 @@ export function createWrittenCheck(options: WrittenCheckOptions) {
     prepared: PreparedChatModel,
     signal: AbortSignal,
     place?: RecordCitePlace,
-    recordSentences?: readonly RecordCiteSentence[],
   ): Promise<ClaimCheckResult> {
     const timedOut = AbortSignal.timeout(options.claimTimeLimitMs);
     const ended = AbortSignal.any([signal, timedOut]);
@@ -637,8 +634,8 @@ export function createWrittenCheck(options: WrittenCheckOptions) {
         scope: scope.scope,
         model: prepared,
         mindId,
+        recordClaim: sentence.text,
         ...(place && { place }),
-        ...(recordSentences && { recordSentences }),
         cacheKey: mindId,
         signal: ended,
       }),
@@ -673,10 +670,6 @@ export function createWrittenCheck(options: WrittenCheckOptions) {
     const { mindId, blocks, signal } = input;
     if (judgesUnreliably(input.prepared)) return null;
     const checkable = checkableSentences(blocks);
-    const recordSentences = checkableSentences(blocks, true).flatMap((sentence) => {
-      const place = recordPlaceOf(sentence, blocks, input.ids);
-      return place ? [{ text: sentence.text, place }] : [];
-    });
     // The claims with no Citation are left to the one count and Check the rest (#1909).
     const sentences = checkable.filter((sentence) => sentence.cited.length > 0);
     if (sentences.length === 0) return null;
@@ -706,7 +699,6 @@ export function createWrittenCheck(options: WrittenCheckOptions) {
           prepared,
           signal,
           recordPlaceOf(sentence, blocks, input.ids),
-          recordSentences,
         );
         const failure = runFailureOf(result);
         if (failure) throw new RunItemError(failure);
@@ -725,15 +717,11 @@ export function createWrittenCheck(options: WrittenCheckOptions) {
               scope,
               signal,
               recordPlaceOf(sentence, blocks, input.ids),
-              recordSentences,
             )
           : null;
         return { result, uncovered, nodes };
       },
-      {
-        concurrency: claimsAtOnce(prepared),
-        signal,
-      },
+      { concurrency: claimsAtOnce(prepared), signal },
     );
     if (signal.aborted) return null;
 

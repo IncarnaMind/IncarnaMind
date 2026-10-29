@@ -20,6 +20,7 @@ import {
 } from "../../api";
 import { plainText } from "../../mindText";
 import { layout, textBlocks } from "../../proposals/write";
+import { recordCiteSpans } from "../../recordCites/parser";
 import { nodeOf } from "../blocks";
 import { documentFigureContext } from "../calculations";
 import { type SelectedSentence, sentenceSpansIn, textOf, wordsOf } from "./sentences";
@@ -142,12 +143,13 @@ function inSentence(
           .join(" · "),
       }
     : {};
-  // A court decision's citation ("512 S.W.3d 101 (Tex. 2017)") holds no figure to tie out.
-  const cases = citedCases(raw);
+  // A court decision's citation ("512 S.W.3d 101 (Tex. 2017)") and a record cite ("Smith Dep.
+  // 45:3–12", "Ex. 7 at 3") hold no figure to tie out: their numbers say where, not how much.
+  const citations = [...citedCases(raw), ...recordCiteSpans(raw)];
   const found: FigureOccurrence[] = readFigures(raw, { ...note, header: table?.header ?? null })
     .filter((reading) => reading.start >= sentence.from && reading.end <= sentence.to)
     .filter(
-      (reading) => !cases.some((each) => reading.start >= each.from && reading.end <= each.to),
+      (reading) => !citations.some((each) => reading.start < each.to && reading.end > each.from),
     )
     .map((reading) => {
       const { span, key, context, stretch } = around(reading.start, reading.end);
