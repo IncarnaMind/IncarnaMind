@@ -186,7 +186,7 @@ test("a new start during an ordinary quit reopens without claiming the downloade
 });
 
 test("a native install owns reopening after quitting is settled", async () => {
-  vi.stubGlobal("process", { ...process, platform: "darwin" });
+  vi.stubGlobal("process", { ...process, platform: "darwin", arch: "arm64" });
   const { updater, failed, started, installed } = await downloaded(0);
   await installed;
   const { autoUpdater: native } = await import("electron");
@@ -198,7 +198,7 @@ test("a native install owns reopening after quitting is settled", async () => {
 });
 
 test("a committed Restart awaiting the native install cannot reopen the old core", async () => {
-  vi.stubGlobal("process", { ...process, platform: "darwin" });
+  vi.stubGlobal("process", { ...process, platform: "darwin", arch: "arm64" });
   const { app } = await import("electron");
   const run = await start({
     response: 0,
@@ -258,7 +258,7 @@ test.each(["throws", "emits", "emits then throws"] as const)(
 );
 
 test("pending native preparation offers no Restart, leaves quitting uncommitted and permits a requested reopen", async () => {
-  vi.stubGlobal("process", { ...process, platform: "darwin" });
+  vi.stubGlobal("process", { ...process, platform: "darwin", arch: "arm64" });
   fixture.prepareNative = false;
   const download = Promise.withResolvers<void>();
   fixture.wrapperDownload = download.promise;
@@ -279,7 +279,7 @@ test("pending native preparation offers no Restart, leaves quitting uncommitted 
 });
 
 test("native preparation releases Ready before settling quitting and invoking the installer", async () => {
-  vi.stubGlobal("process", { ...process, platform: "darwin" });
+  vi.stubGlobal("process", { ...process, platform: "darwin", arch: "arm64" });
   fixture.prepareNative = false;
   const run = await start({ response: 0 });
   await fixture.checked.promise;
@@ -309,7 +309,7 @@ test("native preparation releases Ready before settling quitting and invoking th
 });
 
 test("a native preparation error is reported in the background and leaves the original core callable", async () => {
-  vi.stubGlobal("process", { ...process, platform: "darwin" });
+  vi.stubGlobal("process", { ...process, platform: "darwin", arch: "arm64" });
   fixture.prepareNative = false;
   const background = Promise.withResolvers<void>();
   const warn = vi.spyOn(console, "warn").mockImplementation(() => background.resolve());
@@ -335,7 +335,7 @@ test("a native preparation error is reported in the background and leaves the or
 });
 
 test("an unsigned Mac offers its download without waiting for native preparation", async () => {
-  vi.stubGlobal("process", { ...process, platform: "darwin" });
+  vi.stubGlobal("process", { ...process, platform: "darwin", arch: "arm64" });
   fixture.signed = false;
   fixture.prepareNative = false;
   const run = await downloaded(1);
@@ -364,7 +364,7 @@ test("an Intel Mac is told once for each new version that it can't install it, w
   fixture.prepareNative = false;
   const intelNotice = (version: string) =>
     expect.objectContaining({
-      message: `IncarnaMind ${version} needs a Mac with Apple silicon, so this Mac can’t install it. Your Notes and Documents stay where they are.`,
+      message: `IncarnaMind ${version} needs a Mac with Apple silicon, so this Mac can’t install it. Your notes and Documents stay where they are.`,
       buttons: ["Got it"],
     });
 
@@ -412,7 +412,7 @@ test("an Apple silicon Mac is offered the new version's download, as before", as
 });
 
 test("turning automatic checks off never waits for native preparation or starts the SDK check", async () => {
-  vi.stubGlobal("process", { ...process, platform: "darwin" });
+  vi.stubGlobal("process", { ...process, platform: "darwin", arch: "arm64" });
   fixture.prepareNative = false;
   const run = await start({ response: 0, privacy: false });
   await checkpoint();
@@ -523,7 +523,7 @@ for (const language of ["en", "zh-CN"] as const) {
 }
 
 test("language is cached before the SDK starts and its standard automatic install remains enabled", async () => {
-  vi.stubGlobal("process", { ...process, platform: "darwin" });
+  vi.stubGlobal("process", { ...process, platform: "darwin", arch: "arm64" });
   const settings = Promise.withResolvers<{ language: "en" }>();
   const run = await start({ response: 1, settings: settings.promise });
   await checkpoint();

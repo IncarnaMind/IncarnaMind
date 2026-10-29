@@ -4693,7 +4693,7 @@ export const en = {
   "update.pending.dismiss": "Got it",
   "update.later": "Later",
   "update.intelMac.message":
-    "IncarnaMind {version} needs a Mac with Apple silicon, so this Mac can’t install it. Your Notes and Documents stay where they are.",
+    "IncarnaMind {version} needs a Mac with Apple silicon, so this Mac can’t install it. Your notes and Documents stay where they are.",
   "update.intelMac.dismiss": "Got it",
   "update.failed.title": "The update couldn’t be installed",
   "update.failed.detail":
