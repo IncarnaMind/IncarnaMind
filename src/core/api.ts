@@ -1844,6 +1844,11 @@ export interface RecheckCitationInput {
    * (`changed`).
    */
   contentHash?: string | null;
+  /**
+   * The Note the Citation is going into. A Document kept inside a walled Folder that Note is
+   * outside isn't read again: the check it was made with stands (#1934).
+   */
+  mindId?: string | null;
 }
 
 /**

@@ -2009,6 +2009,46 @@ export const migrations: readonly Migration[] = [
         )
       END
       WHERE kind = 'question' AND folder_asked_in IS NULL;
+
+      -- The Folder of the Note a file IncarnaMind wrote came from, judged against today's walls:
+      -- a copy that comes back as a Document stays behind its Note's wall. NULL: no Note, no
+      -- Folder, or written before this was recorded.
+      ALTER TABLE own_files ADD COLUMN folder_id TEXT;
+      -- That Folder, on each Document a version of such a file became; kept when the User edits
+      -- the file, as own_file is. Derived on each device, so updated_at is left alone.
+      ALTER TABLE documents ADD COLUMN own_file_folder_id TEXT;
+      CREATE TRIGGER documents_own_file_folder_added AFTER INSERT ON documents
+      WHEN EXISTS (
+        SELECT 1 FROM own_files WHERE content_hash = new.content_hash AND deleted_at IS NULL
+          AND folder_id IS NOT NULL
+      ) BEGIN
+        UPDATE documents SET own_file_folder_id = (
+          SELECT folder_id FROM own_files WHERE content_hash = new.content_hash
+            AND deleted_at IS NULL AND folder_id IS NOT NULL
+          ORDER BY updated_at DESC, rowid DESC LIMIT 1
+        ) WHERE id = new.id;
+      END;
+      CREATE TRIGGER documents_own_file_folder_versioned AFTER UPDATE OF content_hash ON documents
+      WHEN EXISTS (
+        SELECT 1 FROM own_files WHERE content_hash = new.content_hash AND deleted_at IS NULL
+          AND folder_id IS NOT NULL
+      ) BEGIN
+        UPDATE documents SET own_file_folder_id = (
+          SELECT folder_id FROM own_files WHERE content_hash = new.content_hash
+            AND deleted_at IS NULL AND folder_id IS NOT NULL
+          ORDER BY updated_at DESC, rowid DESC LIMIT 1
+        ) WHERE id = new.id;
+      END;
+      CREATE TRIGGER own_files_folder_recorded AFTER INSERT ON own_files
+      WHEN new.deleted_at IS NULL AND new.folder_id IS NOT NULL BEGIN
+        UPDATE documents SET own_file_folder_id = new.folder_id
+        WHERE content_hash = new.content_hash AND deleted_at IS NULL;
+      END;
+      CREATE TRIGGER own_files_folder_changed AFTER UPDATE OF folder_id ON own_files
+      WHEN new.deleted_at IS NULL AND new.folder_id IS NOT NULL BEGIN
+        UPDATE documents SET own_file_folder_id = new.folder_id
+        WHERE content_hash = new.content_hash AND deleted_at IS NULL;
+      END;
     `,
   },
 ];

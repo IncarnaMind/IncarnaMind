@@ -5939,6 +5939,7 @@ export const en = {
   "answer.uncitedWrite":
     "What was written in “{mind}” has no Citations, so none of it was checked against your Documents",
   "answer.added": "Added to “{mind}”",
+  "answer.added.outOfWall": "Added to “{mind}” · copied out of “{folder}”",
   "answer.undoKept.one": "Kept the Block you edited",
   "answer.undoKept": "Kept {count} Blocks you edited",
   "answer.table.open": "Open as a table",

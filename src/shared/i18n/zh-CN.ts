@@ -5659,6 +5659,7 @@ export const zhCN = {
   "answer.uncitedReply": "这条回答没有引用，未与文档核对",
   "answer.uncitedWrite": "“{mind}”中写入的内容没有引用，未与文档核对",
   "answer.added": "已添加到“{mind}”",
+  "answer.added.outOfWall": "已添加到“{mind}” · 从“{folder}”中复制",
   "answer.undoKept.one": "保留了 1 个你编辑过的块",
   "answer.undoKept": "保留了 {count} 个你编辑过的块",
   "answer.table.open": "以表格打开",

@@ -374,7 +374,7 @@ describe("Copies of the document being checked aren't evidence", () => {
   });
 });
 
-test("the fingerprint table holds no names or paths, only what was written and when", async () => {
+test("the fingerprint table holds no names or paths, only what was written, from which Folder, and when", async () => {
   const { core, data } = await setUp();
   await exportMind(core, "Tides", NOTE, "markdown");
   const rows = queryDatabase<Record<string, unknown>>(data, "SELECT * FROM own_files");
@@ -383,6 +383,7 @@ test("the fingerprint table holds no names or paths, only what was written and w
       id: expect.stringMatching(/^[0-9a-f-]{36}$/),
       content_hash: expect.stringMatching(/^[0-9a-f]{64}$/),
       kind: "export",
+      folder_id: null,
       created_at: expect.any(String),
       updated_at: expect.any(String),
       deleted_at: null,

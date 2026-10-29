@@ -91,6 +91,7 @@ import {
   type ChatProviderKind,
   type CheckRecordFailure,
   type CheckRecordFormat,
+  type CitationRecheck,
   CONTENT_SCHEMA_VERSION,
   type ConversationAskResult,
   type CoreApi,
@@ -115,6 +116,7 @@ import {
   type OwnFileKind,
   type ProviderError,
   type ReadyQuestion,
+  type RecheckCitationInput,
   type SavedExport,
   type SavedFile,
   type ScannedQuoteInput,
@@ -1435,21 +1437,29 @@ export function createCore(adapters: CoreAdapters): Core {
       ? folderId
       : null;
   };
-  const walledDocument = (documentId: string): string | null =>
+  // The fingerprints of the files IncarnaMind writes (#80).
+  const ownFiles = createOwnFiles(db, now);
+  // Behind a wall: filed in it, or a file IncarnaMind wrote from one of its Notes, wherever that
+  // file was indexed again (a Linked folder holding the Output location).
+  const behindWall = (folderId: string) => [
+    ...library.allDocumentIds(folderId),
+    ...ownFiles.writtenFrom([folderId]),
+  ];
+  const wallOfDocument = (documentId: string) =>
     library
       .folders()
-      .find((folder) => folder.keepInside && library.allDocumentIds(folder.id).includes(documentId))
-      ?.id ?? null;
+      .find((folder) => folder.keepInside && behindWall(folder.id).includes(documentId));
+  const walledDocument = (documentId: string): string | null =>
+    wallOfDocument(documentId)?.id ?? null;
   const walledDocuments = (): string[] =>
     library
       .folders()
       .filter((folder) => folder.keepInside)
-      .flatMap((folder) => library.allDocumentIds(folder.id));
+      .flatMap((folder) => behindWall(folder.id));
   const walledFolderName = (documentId: string): string | null =>
-    library
-      .folders()
-      .find((folder) => folder.keepInside && library.allDocumentIds(folder.id).includes(documentId))
-      ?.name ?? null;
+    wallOfDocument(documentId)?.name ?? null;
+  const folderOfNote = (mindId: string | null): string | null =>
+    mindId !== null && mindExists(mindId) ? minds.get(mindId).folderId : null;
   const walledFolder = (mindId: string | null): string | null => {
     const folderId = mindId !== null && mindExists(mindId) ? minds.get(mindId).folderId : null;
     return walledFolderId(folderId);
@@ -1671,6 +1681,7 @@ export function createCore(adapters: CoreAdapters): Core {
         name: exported.fileName,
         data: exported.data,
         ownFile: ownFileOf(written),
+        fromFolder: folderOfNote(mindId),
         ...(folder !== null && { folder, approved }),
       });
       await rememberExportChoices(exported, oneOff);
@@ -2348,11 +2359,31 @@ export function createCore(adapters: CoreAdapters): Core {
     now: () => adapters.now?.() ?? new Date(),
   });
 
+  /**
+   * A Citation checked again in the Note it goes into: one whose Document is kept inside a walled
+   * Folder that Note is outside isn't read from there, so the check it was made with stands, as
+   * for a Citation made before the wall (#1934).
+   */
+  const recheckIn = (input: RecheckCitationInput): CitationRecheck => {
+    const wall = walledDocument(input.documentId);
+    if (wall === null || wall === walledFolder(input.mindId ?? null)) {
+      return recheckCitation(documents, input);
+    }
+    return {
+      check: "not-found",
+      checkReason: "kept-inside",
+      contentHash: null,
+      passageId: null,
+      pageFrom: input.pageFrom,
+      pageTo: input.pageTo,
+      location: null,
+    };
+  };
   // "Add to note" into a Mind that isn't open (#201), with its Citations checked where they land.
   const noteAdding = createNoteAdding({
     content,
     requireMind: (mindId) => writableMind(mindId).id,
-    recheck: (input) => recheckCitation(documents, input),
+    recheck: recheckIn,
     askedScope: ({ from }) =>
       from.artifactKind === "conversation"
         ? conversations.askedScope(from.artifactId, from.anchor.messageId)
@@ -2376,11 +2407,9 @@ export function createCore(adapters: CoreAdapters): Core {
     now,
   });
 
-  // The fingerprints of the files IncarnaMind writes (#80). A Document already indexed with
-  // the same bytes is marked at once, and every window hears of it.
-  const ownFiles = createOwnFiles(db, now);
-  const recordOwnFile = (data: Uint8Array, kind: OwnFileKind) => {
-    const marked = ownFiles.record(data, kind);
+  // A Document already indexed with the same bytes is marked at once, and every window hears of it.
+  const recordOwnFile = (data: Uint8Array, kind: OwnFileKind, folderId: string | null) => {
+    const marked = ownFiles.record(data, kind, folderId);
     for (const document of documents.getMany(marked)) events.emit("document.status", document);
   };
   const exportDependencies: ExportsDependencies = {
@@ -2535,15 +2564,19 @@ export function createCore(adapters: CoreAdapters): Core {
     linkedFolders: () => documents.linkedFolders.list(),
     recordOwnFile,
   });
-  /** Saves an export in the Output location, as the window's save: what went wrong is a result, not an error. */
+  /**
+   * Saves an export in the Output location, as the window's save: what went wrong is a result, not
+   * an error. `from`: the Note it was written from, whose Folder wall it stays behind; null for none.
+   */
   const saveExport = async (
     name: string,
     data: Uint8Array,
+    from: string | null,
     after: () => void = () => undefined,
     ownFile: OwnFileKind = "export",
   ): Promise<SavedExport> => {
     try {
-      const file = await outputs.save({ name, data, ownFile });
+      const file = await outputs.save({ name, data, ownFile, fromFolder: folderOfNote(from) });
       after();
       return { status: "saved", file };
     } catch (error) {
@@ -3875,18 +3908,18 @@ export function createCore(adapters: CoreAdapters): Core {
         })),
       foldersInScope: folderIdsInScope,
       documentsIn: (folderIds) => {
-        if (folderIds.length === 1 && walledFolderId(folderIds[0] ?? null) !== null) {
-          return library.documentIds(folderIds[0] as string);
-        }
+        const only = walledFolderId(folderIds.length === 1 ? (folderIds[0] ?? null) : null);
+        if (only !== null) return library.documentIds(only);
         const allowed = folderIdsInScope(folderIds);
         const folders = allowed.filter((id) => id !== NOT_IN_A_FOLDER_ID);
         const filed =
           folders.length === 0
             ? []
             : (resolveScope({ folderIds: folders, tagIds: [], documentIds: [] }) ?? []);
-        return allowed.includes(NOT_IN_A_FOLDER_ID)
-          ? [...new Set([...filed, ...library.unfiledDocumentIds()])]
-          : filed;
+        if (!allowed.includes(NOT_IN_A_FOLDER_ID)) return filed;
+        const walled = new Set(walledDocuments());
+        const unfiled = library.unfiledDocumentIds().filter((id) => !walled.has(id));
+        return [...new Set([...filed, ...unfiled])];
       },
       // Without the reranker: it costs about a second a search (ADR-0009), and an agent's
       // search must answer in well under 100 ms.
@@ -4048,7 +4081,7 @@ export function createCore(adapters: CoreAdapters): Core {
         },
         null,
         null,
-        () => minds.get(ready.mindId).folderId ?? "",
+        () => minds.get(mindId).folderId ?? "",
       );
       const answer = conversations.writeAnswer(turn.answer.id, {
         text: state.kind === "ready" && !stopped ? state.answer : "",
@@ -4367,12 +4400,13 @@ export function createCore(adapters: CoreAdapters): Core {
       }
       const page = (value: unknown) =>
         typeof value === "number" && Number.isInteger(value) && value >= 1 ? value : null;
-      return recheckCitation(documents, {
+      return recheckIn({
         documentId: input.documentId,
         quote: typeof input.quote === "string" ? input.quote : "",
         pageFrom: page(input.pageFrom),
         pageTo: page(input.pageTo) ?? page(input.pageFrom),
         contentHash: typeof input.contentHash === "string" ? input.contentHash : null,
+        mindId: typeof input.mindId === "string" ? input.mindId : null,
       });
     },
     citeSelection: async (input) => {
@@ -5034,7 +5068,7 @@ export function createCore(adapters: CoreAdapters): Core {
       // never needed for the file itself: a copy saved while storage refuses every write (#1119)
       // still goes out.
       try {
-        recordOwnFile(exported.data, ownFileOf(options));
+        recordOwnFile(exported.data, ownFileOf(options), folderOfNote(mindId));
         recordExport(options);
       } catch (error) {
         console.error("export: the file couldn't be noted as IncarnaMind's", error);
@@ -5059,6 +5093,7 @@ export function createCore(adapters: CoreAdapters): Core {
       const saved = await saveExport(
         fileName,
         data,
+        typeof mindId === "string" ? mindId : null,
         () => recordExport(options),
         ownFileOf(options),
       );
@@ -5087,7 +5122,7 @@ export function createCore(adapters: CoreAdapters): Core {
       for (const { format, make } of await checkRecord.files(mindId)) {
         try {
           const { fileName, data } = await make();
-          const result = await saveExport(fileName, data);
+          const result = await saveExport(fileName, data, mindId);
           if (result.status !== "saved") return result;
           saved.push({ format, file: result.file });
         } catch (error) {
@@ -5121,7 +5156,7 @@ export function createCore(adapters: CoreAdapters): Core {
       const name = translate(settings.get().language, "figures.exportName", {
         name: schedule.name,
       });
-      return saveExport(`${safeFileName(name, "Note")}.xlsx`, bytes);
+      return saveExport(`${safeFileName(name, "Note")}.xlsx`, bytes, mindId);
     },
     saveComparisonExport: async (input) => {
       const ref: Record<string, unknown> = isRecord(input) ? input : {};
@@ -5129,12 +5164,16 @@ export function createCore(adapters: CoreAdapters): Core {
         ref.mindId,
         ref.tableId,
       );
-      const saved = await saveExport(fileName, data);
+      const saved = await saveExport(
+        fileName,
+        data,
+        typeof ref.mindId === "string" ? ref.mindId : null,
+      );
       return saved.status === "saved" ? { ...saved, unverifiedCitations, hiddenColumns } : saved;
     },
     saveSkillExport: async (skillId) => {
       const { fileName, data } = await skills.exportZip(skillId);
-      return saveExport(fileName, data);
+      return saveExport(fileName, data, null);
     },
     formatCitations: (request) => citationStyles.format(request),
     getMindCitationStyle: async (mindId) => mindCitationStyle(minds.get(mindId).id),

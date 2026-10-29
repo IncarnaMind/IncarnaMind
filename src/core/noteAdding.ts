@@ -144,7 +144,9 @@ export function createNoteAdding(options: NoteAddingOptions) {
       const model: ChatModelChoice | null = isChatModelChoice(input.model) ? input.model : null;
       const proposed = input.proposed === true;
       const blocks = asGenerated(
-        await recheckCitations(citedTables(withoutIds(parsed)), options.recheck),
+        await recheckCitations(citedTables(withoutIds(parsed)), (each) =>
+          options.recheck({ ...each, mindId }),
+        ),
       );
       const request = randomUUID();
       const asked = origin ? options.askedScope(origin) : null;
@@ -202,7 +204,9 @@ export function createNoteAdding(options: NoteAddingOptions) {
       made: ProposalRequest,
     ): Promise<{ proposalId: string; changes: number }> {
       const blocks = asGenerated(
-        await recheckCitations(citedTables(withoutIds(given)), options.recheck),
+        await recheckCitations(citedTables(withoutIds(given)), (each) =>
+          options.recheck({ ...each, mindId }),
+        ),
       );
       return content.edit(mindId, (note) => {
         const earlier = proposalsOf(note, request);

@@ -55,6 +55,7 @@ import {
   unpinCitation,
 } from "../pinnedCitation";
 import { recordUsage, useAppStore } from "../store";
+import { keptInsideName } from "../walls";
 import { pageDate } from "../webPages";
 import { CitationQuotedWords } from "./CitationQuotedWords";
 import {
@@ -151,20 +152,13 @@ export function CitationView({
   );
   const kept = useAppStore((state) => state.keptCitationTexts);
   const conversation = useOpenConversation();
-  const keptInside = useAppStore((state) => {
-    const ownFolder =
-      state.minds.find((mind) => mind.id === mindId)?.folderId ?? conversation?.folderId ?? null;
-    const ownWall = state.library?.groups.find(
-      (group) => group.id === ownFolder && group.keepInside,
-    )?.id;
-    const assignment = state.library?.assignments.find(
-      (each) => each.documentId === attributes.documentId,
-    );
-    const folder = state.library?.groups.find(
-      (group) => group.id === assignment?.groupId && group.keepInside,
-    );
-    return folder && folder.id !== ownWall ? folder.name : null;
-  });
+  const keptInside = useAppStore((state) =>
+    keptInsideName(
+      state.library,
+      attributes.documentId,
+      state.minds.find((mind) => mind.id === mindId)?.folderId ?? conversation?.folderId ?? null,
+    ),
+  );
   /** The Mind's group: the Document opens in the group to its right. */
   const place = useTabPlace();
   const state = citationState(attributes, documents, kept, keptInside);

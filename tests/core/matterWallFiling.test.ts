@@ -6,6 +6,8 @@ import { translate } from "../../src/shared/i18n";
 import { askAssistant } from "../helpers/assistant";
 import { answerEnded, setUpWithDocuments } from "../helpers/citations";
 import { createTempDataFolder, nextEvent, queryDatabase } from "../helpers/core";
+import { connectToMind } from "../helpers/mindClient";
+import { readMind } from "../helpers/minds";
 import { type ModelCall, type ScriptedReply, scriptedModel } from "../helpers/models";
 
 /**
@@ -238,6 +240,59 @@ describe("what the assistant makes behind a Folder wall", () => {
     expect(note?.folderId).toBeNull();
   });
 });
+
+describe("an Answer's Citations copied out of a wall", () => {
+  /** A paragraph citing the lease A with a quote it doesn't hold, checked found when cited. */
+  const cited = (s: Setup) => [
+    {
+      type: "paragraph",
+      content: [
+        { type: "text", text: "The notice is 90 days." },
+        {
+          type: "citation",
+          attrs: {
+            passageId: "passage-1",
+            documentId: s.leaseA.id,
+            documentName: s.leaseA.name,
+            contentHash: s.leaseA.contentHash,
+            pageFrom: null,
+            pageTo: null,
+            quote: "Words that aren't in the lease.",
+            check: "found",
+            checkReason: null,
+          },
+        },
+      ],
+    },
+  ];
+
+  const checksIn = async (s: Setup, mindId: string) => {
+    const checks: unknown[] = [];
+    readMind(await connectToMind(s.core, mindId)).descendants((node) => {
+      if (node.type.name === "citation") checks.push(node.attrs.check);
+    });
+    return checks;
+  };
+
+  test("keep the check they were made with in a Note outside it, and are read again inside", async () => {
+    const s = await setUp();
+    await s.core.addToNote({ mindId: s.noteX.id, blocks: cited(s), origin: null, model: null });
+    expect(await checksIn(s, s.noteX.id)).toEqual(["found"]);
+    const outside = await s.core.recheckCitation({
+      documentId: s.leaseA.id,
+      quote: "Words that aren't in the lease.",
+      pageFrom: null,
+      pageTo: null,
+      mindId: s.noteX.id,
+    });
+    expect(outside).toMatchObject({ contentHash: null, checkReason: "kept-inside" });
+
+    await s.core.addToNote({ mindId: s.noteA.id, blocks: cited(s), origin: null, model: null });
+    expect(await checksIn(s, s.noteA.id)).toEqual(["not-found"]);
+  });
+});
+
+type Setup = Awaited<ReturnType<typeof setUp>>;
 
 describe("earlier turns are judged by the wall, not by this turn's Search scope", () => {
   const scoped = (documentId: string): SearchScope => ({
