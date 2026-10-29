@@ -7,9 +7,9 @@ const ROOT = fileURLToPath(new URL("../..", import.meta.url));
 // Node imports the engine module itself, as the transcription process does once built (#1233): no
 // bundler's interop gives a CommonJS package's exports their names, so they must be found on `default`.
 const LOAD = `
-  const { loadSherpa } = await import("./src/core/transcription/sherpa.ts");
+  const { SHERPA } = await import("./src/core/transcription/sherpa.ts");
   const { createSherpaSeparator } = await import("./src/core/transcription/diarization.ts");
-  const sherpa = await loadSherpa();
+  const sherpa = await SHERPA.load();
   console.log(JSON.stringify({
     createAsync: typeof sherpa.OfflineRecognizer?.createAsync,
     vad: typeof sherpa.Vad,
