@@ -261,8 +261,6 @@ export interface FigureCheckOptions {
   caseFlags(evidence: Citation | null): CaseFlags;
   costs(marker: number): ReadonlySet<string>;
   remainder(reply: FigureReplyRemainder): Promise<ClaimJudgment>;
-  /** The reply's own verdict on the whole sentence, judged as a remainder is; null when it gives none. */
-  sentence: (() => Promise<ClaimJudgment>) | null;
   /**
    * Why a figure's unit, currency or scale isn't backed by these Citations or their Documents
    * (#1798), given the numbers it was compared with (`bound`).
@@ -390,20 +388,8 @@ export async function checkFigureReply(options: FigureCheckOptions): Promise<Cla
     detail: null,
     ...options.facts(),
   });
-  const settle = async (
-    rows: readonly FigureCheckResult[],
-    rest: ClaimJudgment | null | undefined,
-  ): Promise<ClaimCheckResult> => {
-    const remainder = await withSentence(rows, rest, options.sentence);
-    if (options.signal.aborted) return uncheckedFigureResults(requested, unavailable("stopped"));
-    return { ...aggregateFigureResults(rows, remainder), figures: [...rows], remainder };
-  };
   const parsed = readFigureReply(options.reply, requested, options.claim);
-  if (!parsed)
-    return settle(
-      requested.map((figure) => ({ ...finding(figure), result: unavailable("malformed") })),
-      undefined,
-    );
+  if (!parsed) return uncheckedFigureResults(requested, unavailable("malformed"));
   calculations.check();
   const items = new Map(parsed.items.map((item) => [item.id, item]));
   const rows: FigureCheckResult[] = [];
@@ -616,14 +602,14 @@ export async function checkFigureReply(options: FigureCheckOptions): Promise<Cla
       },
     });
   }
-  const rest =
+  const remainder =
     parsed.remainder === null
       ? null
       : parsed.remainder
         ? await options.remainder(parsed.remainder)
         : undefined;
   if (options.signal.aborted) return uncheckedFigureResults(requested, unavailable("stopped"));
-  return settle(rows, rest);
+  return { ...aggregateFigureResults(rows, remainder), figures: rows, remainder };
 }
 
 const STRICTNESS: Record<ClaimJudgment["verdict"], number> = {
@@ -634,19 +620,25 @@ const STRICTNESS: Record<ClaimJudgment["verdict"], number> = {
 };
 
 /**
- * The rest of the sentence's words, given the reply's own verdict on the whole sentence. A
- * figure's result can only make that verdict stricter, never weaker (#2184): a contradiction no
- * figure shows rests on the sentence's other words, such as its parties, period or unit, however
- * the model wrote its remainder. A Supported verdict settles nothing the figures and the
- * remainder don't, so a missing remainder still leaves the sentence not checked.
+ * A sentence's figure-by-figure result, given the check's own verdict on the whole sentence
+ * (`sentence`, asked for only when it can matter). A figure's result can only make that verdict
+ * stricter, never weaker, and Contradicted always wins (#2184): a contradiction no figure shows
+ * rests on the sentence's other words, such as its parties, period or unit, so it takes the
+ * remainder's place, however the model wrote its remainder. A Supported verdict settles nothing
+ * the figures and the remainder don't, so a missing remainder still leaves the sentence not
+ * checked.
  */
-async function withSentence(
-  rows: readonly FigureCheckResult[],
-  rest: ClaimJudgment | null | undefined,
-  sentence: FigureCheckOptions["sentence"],
-): Promise<ClaimJudgment | null | undefined> {
-  if (!sentence || aggregateFigureResults(rows, rest).verdict === "contradicted") return rest;
+export async function withSentenceVerdict(
+  result: ClaimCheckResult,
+  sentence: () => Promise<ClaimJudgment>,
+): Promise<ClaimCheckResult> {
+  const { figures, remainder } = result;
+  if (!figures || result.verdict === "contradicted") return result;
   const judged = await sentence();
-  if (judged.verdict === "supported") return rest;
-  return rest && STRICTNESS[rest.verdict] <= STRICTNESS[judged.verdict] ? rest : judged;
+  if (
+    judged.verdict === "supported" ||
+    (remainder && STRICTNESS[remainder.verdict] <= STRICTNESS[judged.verdict])
+  )
+    return result;
+  return { ...aggregateFigureResults(figures, judged), figures, remainder: judged };
 }

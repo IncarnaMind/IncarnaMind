@@ -76,6 +76,7 @@ import {
   readFigureReply,
   readFigureSource,
   uncheckedFigureResults,
+  withSentenceVerdict,
 } from "./figureChecks";
 import { figuresMatch, nearestLine } from "./nearest";
 import {
@@ -215,8 +216,8 @@ const figureSourcesNote = (problems: readonly string[], unrecorded: readonly num
  * its source gives the very number it contradicts; with a source that can't be read it is
  * Unsupported, since asked to cite a number its quote doesn't hold, Claude Haiku 5.5 often wrote
  * prose in place of its reply (#2184). A remainder is asked for only when the reply's own verdict
- * is Supported: a stricter one stands for the sentence's other words (`withSentence`). `asking`
- * is told each reply asked about.
+ * is Supported: a stricter one stands for the sentence's other words (`withSentenceVerdict`).
+ * `asking` is told each reply asked about.
  */
 function figuresReplied(
   request: ClaimCheckRequest,
@@ -815,7 +816,7 @@ export function createClaimCheck(deps: ClaimCheckDependencies) {
           ? askedAbout
           : written;
       const said = readVerdict(text);
-      return checkFigureReply({
+      const result = await checkFigureReply({
         requested: request.figures,
         claim: request.claim,
         reply: text,
@@ -833,10 +834,12 @@ export function createClaimCheck(deps: ClaimCheckDependencies) {
             remainder.text,
             remainder.citation === null ? null : session.finalCitation(remainder.citation),
           ),
-        sentence: said
-          ? () => judged(said, request.claim, decidingCitation(session.finalCitation))
-          : null,
       });
+      return said && !signal.aborted
+        ? withSentenceVerdict(result, () =>
+            judged(said, request.claim, decidingCitation(session.finalCitation)),
+          )
+        : result;
     }
     if (confirmationFailure) return failedCheck(confirmationFailure);
     if (invalidInput || pending.size > 0) return notChecked("no-evidence");
