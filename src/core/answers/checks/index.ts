@@ -140,6 +140,8 @@ export interface ChecksOptions
   walledFolder(mindId: string | null): string | null;
   /** The wall a Document belongs to, or null when it belongs to none. */
   walledDocument(documentId: string): string | null;
+  /** The name of that wall's Folder, or null when it belongs to none. */
+  walledFolderName(documentId: string): string | null;
   /** What a check from a Mind searches, by the one rule (`mindSearchScope`); null: every Document. */
   searchedScope(scope: SearchScope | null, mindId: string): SearchScope | null;
   /** The file a Mind was imported from (#720), which its own checks never use as evidence. */
@@ -373,25 +375,27 @@ export function createChecks(options: ChecksOptions) {
     at: string,
     blocks: Y.XmlFragment,
     mindId: string,
+    previous: ClaimCheckAttributes | null = null,
   ): ClaimCheckAttributes {
-    const evidence = check.evidence;
+    const before = previous ?? check;
+    const evidence = before.evidence;
     const evidenceWall = evidence?.documentId ? options.walledDocument(evidence.documentId) : null;
     if (
       result.verdict === "not-checked" &&
       result.reason === "kept-inside" &&
-      check.state !== "checking" &&
-      check.state !== "not-checked"
+      before.state !== "checking" &&
+      before.state !== "not-checked"
     ) {
-      return check;
+      return before;
     }
     if (
       result.verdict === "unsupported" &&
-      check.state !== "checking" &&
-      check.state !== "not-checked" &&
+      before.state !== "checking" &&
+      before.state !== "not-checked" &&
       evidenceWall !== null &&
       evidenceWall !== options.walledFolder(mindId)
     ) {
-      return check;
+      return before;
     }
     return withResult(
       check,
@@ -618,6 +622,7 @@ export function createChecks(options: ChecksOptions) {
           id: check.id,
           ...checkText(sentence),
           cited: sentence.cited,
+          previous,
         };
       });
       if (marked.length > 0) recordUnread(blocks, input.requestId, unread);
@@ -645,7 +650,9 @@ export function createChecks(options: ChecksOptions) {
       const at = options.now().toISOString();
       recordJudged(options.recordAiUse, mindId, ready.prepared, result, at);
       const kept = content.edit(mindId, (blocks) =>
-        updateCheck(blocks, sentence.id, (check) => noteResult(check, result, at, blocks, mindId)),
+        updateCheck(blocks, sentence.id, (check) =>
+          noteResult(check, result, at, blocks, mindId, sentence.previous),
+        ),
       );
       if (kept) retainEvidence(mindId);
     }

@@ -3204,7 +3204,11 @@ export function createAnswers(options: AnswersOptions) {
           message.scope === null &&
           options.walledFolder(message.askedFrom.mindId) !== null;
         if (beforeWall) turnWall = "outside";
-        if (message.quotes.some((quote) => permitted?.has(quote.documentId) === false)) {
+        if (
+          (wallId !== null && message.scope?.folderIds.some((id) => id !== wallId)) ||
+          message.scope?.documentIds.some((id) => permitted?.has(id) === false) ||
+          message.quotes.some((quote) => permitted?.has(quote.documentId) === false)
+        ) {
           outsideTurns.add(message.id);
         }
       } else if (

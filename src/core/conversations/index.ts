@@ -481,7 +481,7 @@ function toQuestion(row: MessageRow): ConversationQuestion {
     askedFrom: askedFromOf(row),
     focus: storedFocus(row.focus),
     scope: storedScope(row.scope),
-    wallId: row.wall_id,
+    wallId: row.wall_id ?? undefined,
     model: modelOf(row),
     forcedSkill: row.forced_skill,
     analyse: row.analyse === 1,

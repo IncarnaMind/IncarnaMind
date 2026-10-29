@@ -212,4 +212,41 @@ describe("Migrations", () => {
     expect(db.get("SELECT name FROM sqlite_master WHERE name = 'four'")).toBeUndefined();
     db.close();
   });
+
+  test("a pre-wall Question backfills its Note or Conversation Folder", async () => {
+    const db = openDatabase(join(await createTempDataFolder(), "test.db"));
+    migrate(
+      db,
+      migrations.filter((migration) => migration.version < 114),
+    );
+    const at = "2026-10-01T00:00:00.000Z";
+    db.run(
+      "INSERT INTO minds (id, title, auto_title, folder_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)",
+      ["mind-a", "A", "A", "folder-a", at, at],
+    );
+    db.run(
+      "INSERT INTO conversations (seq, id, title, auto_title, folder_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+      [1, "conv-a", "", "", "folder-b", at, at],
+    );
+    db.run(
+      "INSERT INTO conversation_messages (seq, id, conversation_id, position, kind, text, asked_from_mind_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+      [1, "q1", "conv-a", 1, "question", "First", "mind-a", at, at],
+    );
+    db.run(
+      "INSERT INTO conversation_messages (seq, id, conversation_id, position, kind, text, asked_from_mind_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+      [2, "q2", "conv-a", 2, "question", "Second", null, at, at],
+    );
+
+    migrate(db);
+
+    expect(
+      db.all<{ id: string; wall_id: string | null }>(
+        "SELECT id, wall_id FROM conversation_messages ORDER BY seq",
+      ),
+    ).toEqual([
+      { id: "q1", wall_id: "folder-a" },
+      { id: "q2", wall_id: "folder-b" },
+    ]);
+    db.close();
+  });
 });

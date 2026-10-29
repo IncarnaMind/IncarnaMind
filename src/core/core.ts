@@ -1432,6 +1432,11 @@ export function createCore(adapters: CoreAdapters): Core {
       .folders()
       .find((folder) => folder.keepInside && library.allDocumentIds(folder.id).includes(documentId))
       ?.id ?? null;
+  const walledFolderName = (documentId: string): string | null =>
+    library
+      .folders()
+      .find((folder) => folder.keepInside && library.allDocumentIds(folder.id).includes(documentId))
+      ?.name ?? null;
   const walledFolder = (mindId: string | null): string | null => {
     const folderId = mindId !== null && mindExists(mindId) ? minds.get(mindId).folderId : null;
     return walledFolderId(folderId);
@@ -2243,6 +2248,7 @@ export function createCore(adapters: CoreAdapters): Core {
     mindFolder: (mindId) => minds.get(mindId).folderId,
     walledFolder,
     walledDocument,
+    walledFolderName,
     searchedScope,
     originalOf: (mindId) => wordImports.originalOf(mindId),
     defaultModel: () => settings.get().user.chatModel,

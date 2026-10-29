@@ -1694,7 +1694,7 @@ export function createComparisons(options: ComparisonsOptions) {
   async function addRows(raw: unknown): Promise<ComparisonRowsAdded> {
     const input = parseRowsAdd(raw);
     const mindId = options.requireMind(input.mindId);
-    const counted = new Set(options.evidence(input.documentIds));
+    const counted = new Set(options.evidence(input.documentIds, mindId));
     const documents = options.documents
       .live(input.documentIds)
       .filter((document) => counted.has(document.id))

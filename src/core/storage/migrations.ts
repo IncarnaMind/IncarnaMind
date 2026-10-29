@@ -1979,6 +1979,12 @@ export const migrations: readonly Migration[] = [
       -- 0 by default. Kept with the Folder so it follows the User to other devices.
       ALTER TABLE library_groups ADD COLUMN keep_inside INTEGER NOT NULL DEFAULT 0;
       ALTER TABLE conversation_messages ADD COLUMN wall_id TEXT;
+      UPDATE conversation_messages
+      SET wall_id = COALESCE(
+        (SELECT minds.folder_id FROM minds WHERE minds.id = asked_from_mind_id),
+        (SELECT conversations.folder_id FROM conversations WHERE conversations.id = conversation_messages.conversation_id)
+      )
+      WHERE kind = 'question' AND wall_id IS NULL;
     `,
   },
 ];

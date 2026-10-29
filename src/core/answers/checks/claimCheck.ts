@@ -104,6 +104,8 @@ export interface ClaimCheckDependencies {
   language(): Language;
   /** The wall a Document belongs to, or null when it belongs to none. */
   walledDocument(documentId: string): string | null;
+  /** The name of that wall's Folder, or null when it belongs to none. */
+  walledFolderName(documentId: string): string | null;
   engine: AnswerEngine;
   evidence: Pick<Evidence, "search">;
   documents: Pick<AnswerDocuments, "citationSource" | "pageTexts" | "documentDate"> & {
@@ -324,7 +326,7 @@ export function createClaimCheck(deps: ClaimCheckDependencies) {
       return {
         verdict: "not-checked",
         reason: "kept-inside",
-        detail: kept.source.documentName,
+        detail: deps.walledFolderName(kept.source.documentId) ?? kept.source.documentName,
         versions: [],
         excluded: [],
       };

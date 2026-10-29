@@ -276,6 +276,7 @@ async function checkWith(options: {
   const check = createClaimCheck({
     language: () => "en",
     walledDocument: () => null,
+    walledFolderName: () => null,
     engine: {
       async *generate(request) {
         for await (const event of engine.generate(request)) {
