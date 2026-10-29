@@ -71,7 +71,7 @@ Check this Mind asks the model once which of a Mind's sentences make claims, and
 
 ### 2026-10-29: every sentence gets its own decision when the claims are named (#1682)
 
-The claims request asked the model for the numbers of the sentences that make claims, and the app took every number it didn't list for a sentence that makes no claim, for good. Now the model decides each sentence ("claim" or "no", by its number), a sentence the reply says nothing of is asked about once more alone, and one still undecided isn't taken for one that makes no claim: it stays to check, the next Check asks about it again, and the line under the check says how many sentences it didn't examine.
+The claims request asked the model for the numbers of the sentences that make claims, and the app took every number it didn't list for a sentence that makes no claim, for good. Now the model decides each sentence ("claim" or "no", by its number), the sentences a reply says nothing of are asked about once more, in one request for their batch, and one still undecided isn't taken for one that makes no claim: it stays to check, the next Check asks about it again, and the line under the check says how many sentences it didn't examine.
 
 `npm run eval:claims`, `main` at 401f7af2f against this version, on the same day; 100 independent calls a Mind on Claude Haiku 5.5, 20 on Claude Sonnet 5.5. A claim is counted wrong when a call doesn't name it; a sentence that makes no claim, when a call names it.
 

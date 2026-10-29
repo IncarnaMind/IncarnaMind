@@ -38,8 +38,11 @@ export function readMindCheck(settings: Y.Map<unknown>): MindCheckRun | null {
         ? Math.max(0, value.sentences)
         : 0,
     stop: stopOf(value.stop),
-    skipped: keysOf(value.skipped),
-    unexamined: keysOf(value.unexamined),
+    // A run before #1682 took every sentence the model's reply didn't list for one that makes no
+    // claim, so its "makes no claim" may be a sentence nobody decided: each is sorted once more.
+    ...("unexamined" in value
+      ? { skipped: keysOf(value.skipped), unexamined: keysOf(value.unexamined) }
+      : { skipped: [], unexamined: keysOf(value.skipped) }),
   };
 }
 

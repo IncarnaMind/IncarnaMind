@@ -264,7 +264,7 @@ The result for a sentence when Verify or contradiction watch finds a Passage tha
 _Avoid_: wrong, conflict, false
 
 **Not examined**:
-A sentence the last whole-Note check couldn't tell makes a claim: the model said nothing of it, even asked about it alone a second time. It isn't taken for a sentence that makes no claim: it stays to check, and the next Check asks about it again. The line under the check says how many: "1 sentence not examined" (1 句未能判断是否为说法).
+A sentence the last whole-Note check couldn't tell makes a claim: the model said nothing of it, even asked once more about the sentences its reply left out. It isn't taken for a sentence that makes no claim: it stays to check, and the next Check asks about it again. The line under the check says how many: "1 sentence not examined" (1 句未能判断是否为说法).
 _Avoid_: skipped, left out (an opinion is left out), not checked (a claim whose check failed)
 
 **Needs re-check**:

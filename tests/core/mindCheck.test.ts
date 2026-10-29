@@ -17,7 +17,7 @@ import {
 import { claimSpans } from "../../src/renderer/src/editor/claimChecks";
 import { claimCheckShown } from "../../src/shared/claimChecks";
 import { readFigures } from "../../src/shared/figures";
-import { mindCheckOf, writeMindCheck } from "../../src/shared/mindCheck";
+import { mindCheckOf, sentenceKey, writeMindCheck } from "../../src/shared/mindCheck";
 import { setMindModel } from "../../src/shared/mindModel";
 import {
   checkGenerate,
@@ -87,15 +87,21 @@ const unbackedFigures = (call: ModelCall) =>
     remainder: null,
   })}`;
 
-/** A reply's decisions without those of `sentences`, as the request listed them. */
-function withoutDecisions(call: GenerateCall, reply: string, sentences: readonly string[]) {
-  const decisions = JSON.parse(reply) as Record<string, string>;
-  for (const line of call.prompt.split("\n")) {
+/** The numbers a request listed `sentence` under. */
+const numbersOf = (call: GenerateCall, sentence: string): string[] =>
+  call.prompt.split("\n").flatMap((line) => {
     const listed = /^\[(\d+)\] (.*)$/.exec(line);
-    if (listed?.[1] && listed[2] && sentences.includes(listed[2])) delete decisions[listed[1]];
-  }
-  return decisions;
-}
+    return listed?.[1] && listed[2] === sentence ? [listed[1]] : [];
+  });
+
+/** A reply's decisions without those of `sentences`. */
+const withoutDecisions =
+  (sentences: readonly string[]) => (call: GenerateCall, decisions: Record<string, string>) => {
+    for (const sentence of sentences) {
+      for (const number of numbersOf(call, sentence)) delete decisions[number];
+    }
+    return decisions;
+  };
 
 /** The check Runs made: each starts with a call that has no Tool results yet. */
 const runsIn = (calls: readonly ModelCall[]) =>
@@ -108,8 +114,12 @@ const runsIn = (calls: readonly ModelCall[]) =>
  */
 async function setUp(
   billed?: { usage: ReportedUsage; judged?: ReportedUsage },
-  /** The sentences a reply naming the claims says nothing of, each time it is asked. */
-  undecided?: (asked: number) => readonly string[],
+  /** How a reply naming the claims differs from the plans' decisions, by how many were asked. */
+  decide?: (
+    asked: number,
+    call: GenerateCall,
+    decisions: Record<string, string>,
+  ) => Record<string, string>,
 ) {
   const checks: ModelCall[] = [];
   const finds: GenerateCall[] = [];
@@ -129,10 +139,9 @@ async function setUp(
         const sorting = call.system.startsWith("You sort the sentences");
         if (sorting) finds.push(call);
         const reply = checkGenerate(PLANS)(call);
-        if (sorting && undecided && "text" in reply) {
-          return {
-            text: JSON.stringify(withoutDecisions(call, reply.text, undecided(finds.length))),
-          };
+        if (sorting && decide && "text" in reply) {
+          const decisions = JSON.parse(reply.text) as Record<string, string>;
+          return { text: JSON.stringify(decide(finds.length, call, decisions)) };
         }
         return billed?.judged && "text" in reply && call.system.startsWith("Compare a sentence")
           ? { ...reply, usage: billed.judged }
@@ -368,9 +377,11 @@ describe("Check this note", () => {
     });
   });
 
-  test("a sentence the reply leaves undecided is asked about once more, alone, and checked once decided (#1682)", async () => {
-    const { core, client, mindId, folderId, finds } = await setUp(undefined, (asked) =>
-      asked === 1 ? [PENGUINS] : [],
+  test("a sentence the reply leaves undecided is asked about once more, with its own number, and checked once decided (#1682)", async () => {
+    const { core, client, mindId, folderId, finds } = await setUp(
+      undefined,
+      (asked, call, decisions) =>
+        asked === 1 ? withoutDecisions([PENGUINS])(call, decisions) : decisions,
     );
 
     expect(await core.checkMind(request(mindId, "all"))).toMatchObject({
@@ -388,8 +399,9 @@ describe("Check this note", () => {
 
   test("a sentence no reply decides isn't examined: no mark, not left out as no claim, and the next Check asks about it again (#1682)", async () => {
     let silent = true;
-    const { core, client, mindId, folderId, finds } = await setUp(undefined, () =>
-      silent ? [PENGUINS] : [],
+    const { core, client, mindId, folderId, finds } = await setUp(
+      undefined,
+      (_, call, decisions) => (silent ? withoutDecisions([PENGUINS])(call, decisions) : decisions),
     );
 
     expect(await core.checkMind(request(mindId, "all"))).toMatchObject({
@@ -421,6 +433,52 @@ describe("Check this note", () => {
       (await shownChecks(core, client, mindId, folderId)).map(({ sentence }) => sentence),
     ).toEqual([MOON, YEARLY, PENGUINS]);
     expect(mindCheckOf(client.doc)?.unexamined).toEqual([]);
+  });
+
+  test("a Note checked before every sentence got a decision has its sentences that made no claim sorted once more (#1682)", async () => {
+    const { core, client, mindId, folderId, finds } = await setUp();
+    // A run before #1682 took a sentence its reply didn't list for one that makes no claim.
+    client.doc.getMap(MIND_SETTINGS_FIELD).set("mindCheck", {
+      at: "2026-10-01T09:00:00.000Z",
+      sentences: 0,
+      stop: null,
+      skipped: [sentenceKey(PENGUINS), sentenceKey(QUESTION)],
+    });
+    await client.settled();
+    expect(mindCheckOf(client.doc)).toMatchObject({
+      skipped: [],
+      unexamined: [sentenceKey(PENGUINS), sentenceKey(QUESTION)],
+    });
+
+    await core.checkMind(request(mindId, "changed"));
+    expect(finds[0]?.prompt).toContain(PENGUINS);
+    expect(finds[0]?.prompt).toContain(QUESTION);
+    expect(
+      (await shownChecks(core, client, mindId, folderId)).map(({ sentence }) => sentence),
+    ).toEqual([MOON, YEARLY, PENGUINS]);
+    const run = mindCheckOf(client.doc);
+    expect(run?.unexamined).toEqual([]);
+    expect(run?.skipped).toContain(sentenceKey(QUESTION));
+    expect(run?.skipped).not.toContain(sentenceKey(PENGUINS));
+  });
+
+  test("the same words twice, named a claim once and left out once, are checked and not left out (#1682)", async () => {
+    const { core, client, mindId, folderId } = await setUp(undefined, (_, call, decisions) => {
+      const [, second] = numbersOf(call, MOON);
+      return second ? { ...decisions, [second]: "no" } : decisions;
+    });
+    editMind(client, (blocks) => [
+      ...blocks,
+      { type: "paragraph", attrs: { id: "again" }, content: [text(MOON)] },
+    ]);
+    await client.settled();
+
+    await core.checkMind(request(mindId, "all"));
+    const marked = (await shownChecks(core, client, mindId, folderId)).map(
+      ({ sentence }) => sentence,
+    );
+    expect(marked.filter((sentence) => sentence === MOON)).toHaveLength(2);
+    expect(mindCheckOf(client.doc)?.skipped).not.toContain(sentenceKey(MOON));
   });
 
   test("a short sentence with a shown check counts and is checked, though it makes no claim (#1909)", async () => {

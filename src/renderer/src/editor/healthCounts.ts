@@ -55,7 +55,7 @@ export type HealthPart = (typeof HEALTH_PARTS)[number];
  * `checkable`: every claim a check reads, to check, checking or covered;
  * `supported`: the covered claims a check found supported, the ones with no
  * Citation among them; `checkedAt`: the newest check among the claims one
- * covers, for "Checked {time}" (D266); `unexamined`: the parts of `toCheck`
+ * covers, for "Checked {time}"; `unexamined`: the parts of `toCheck`
  * the last whole-Mind check didn't examine, since no reply said whether they
  * make a claim (#1682).
  */

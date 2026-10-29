@@ -193,8 +193,12 @@ export function createMindCheck(options: MindCheckOptions) {
       );
       if (found.kind !== "found") return found;
       for (const [index, sentence] of unsorted.entries()) {
-        if (found.undecided.has(index)) continue;
-        (found.claims.has(index) ? known.claims : known.left).add(sentenceKey(sentence.text));
+        const key = sentenceKey(sentence.text);
+        // The same words twice are one sentence to the run: named a claim once, it is checked.
+        if (found.claims.has(index)) {
+          known.claims.add(key);
+          known.left.delete(key);
+        } else if (!found.undecided.has(index) && !known.claims.has(key)) known.left.add(key);
       }
     }
     const decided = (sentence: SelectedSentence, as: Set<string>) =>
