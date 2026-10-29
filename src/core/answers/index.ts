@@ -70,7 +70,13 @@ import {
   resolveProposals,
   waitingChanges,
 } from "../../shared/proposals";
-import { filingFolder, hasSearchScope, NO_SCOPE, searchScopeOf } from "../../shared/searchScope";
+import {
+  filingFolder,
+  folderScope,
+  hasSearchScope,
+  NO_SCOPE,
+  searchScopeOf,
+} from "../../shared/searchScope";
 import { normaliseText } from "../../shared/text";
 import { setTextOrigin } from "../../shared/textOrigins";
 import { unrunToolNotes } from "../../shared/unrunTools";
@@ -923,6 +929,13 @@ export function createAnswers(options: AnswersOptions) {
   const modelKey = (model: ChatModelChoice, prepared: PreparedChatModel) =>
     `${model.providerId}\n${model.modelId}\n${prepared.revision ?? ""}`;
 
+  const contextCitationsFor = (mindId: string | null): ContextCitations => {
+    const wallId = options.walledFolder(mindId);
+    if (wallId === null) return createContextCitations();
+    const allowed = options.resolveScope(folderScope(wallId)) ?? [];
+    return createContextCitations((documentId) => allowed.includes(documentId));
+  };
+
   function start(input: {
     home: AnswerHome;
     answerId: string;
@@ -1237,7 +1250,7 @@ export function createAnswers(options: AnswersOptions) {
       : null;
     const passagesOf = (documentId: string) =>
       options.documents.passagesBetween(documentId, 0, Number.MAX_SAFE_INTEGER);
-    const ids = input.ids ?? createContextCitations();
+    const ids = input.ids ?? contextCitationsFor(mindIn);
     const notKept = translate(answerLanguage(context.question), "answer.sourceNotKept");
     const session = createCitationSession(
       searched,
@@ -3089,7 +3102,7 @@ export function createAnswers(options: AnswersOptions) {
     const name = options.readableMindName(mindId);
     if (name === null) return null;
     const documents = options.documents.names();
-    const ids = createContextCitations();
+    const ids = contextCitationsFor(mindId);
     const reading = content.peek(mindId, (blocks) => readMind(blocks, name, focus, documents, ids));
     return { mindId, reading, ids, section: reading.section(MIND_TOKEN_LIMIT, question) };
   }
@@ -3366,7 +3379,7 @@ export function createAnswers(options: AnswersOptions) {
       documentIds: string[] | null;
       emptyScope: boolean;
     };
-    const ids = createContextCitations();
+    const ids = contextCitationsFor(mindId);
     const written = content.edit(
       mindId,
       (blocks): { answerId: string; edited: boolean } & Asked => {
