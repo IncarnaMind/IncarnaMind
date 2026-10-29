@@ -187,7 +187,7 @@ import {
   TranslatableError,
 } from "./errors";
 import { type AnyEventListener, createEventHub } from "./events";
-import { createExamples } from "./examples";
+import { createExamples, type ExampleReadyState } from "./examples";
 import { createLocalExecutor } from "./execution";
 import { createExports, type ExportsDependencies } from "./exports";
 import { createComparisonExport } from "./exports/comparisonExport";
@@ -436,6 +436,14 @@ export interface Core extends CoreApi, CoreEventSource {
 
 /** How long a Question asked during a call waits for the live transcript's newest lines to be indexed (#144). */
 const LIVE_TRANSCRIPT_WAIT_MS = 3_000;
+
+/**
+ * How long asking the example's ready Question waits for its Documents to be read (#2218): long
+ * for a large file on a slow disk, short enough that a read that never ends says so.
+ */
+const EXAMPLE_READY_WAIT_MS = 20_000;
+
+const EXAMPLE_READY_LOOK_MS = 100;
 
 const isBehind = (meeting: Meeting) => meeting.transcript?.state === "behind";
 
@@ -3392,9 +3400,37 @@ export function createCore(adapters: CoreAdapters): Core {
     const exampleDocuments = new Set(examples.made().documentIds);
     return readyQuestionOf({
       own: documents.list().filter((each) => !exampleDocuments.has(each.id)),
-      example: examples.exampleReady(),
+      example: examples.readyQuestion(),
       language: settings.get().language,
     });
+  };
+  const stopReadyWaits = new Set<() => void>();
+  /**
+   * The example's ready Answer as it can be written now, waiting while a Document it cites is
+   * read, so pressing the card's button answers instead of doing nothing (#2218). `stopped`: Stop
+   * came first, so its Answer says Stopped; `timedOut`: the read hadn't finished in time.
+   */
+  const whenExampleReady = async (): Promise<{
+    state: ExampleReadyState;
+    stopped: boolean;
+    timedOut: boolean;
+  }> => {
+    let stopped = false;
+    const stop = () => {
+      stopped = true;
+    };
+    stopReadyWaits.add(stop);
+    try {
+      const deadline = Date.now() + (adapters.exampleReadyWaitMs ?? EXAMPLE_READY_WAIT_MS);
+      for (;;) {
+        const state = examples.readyState();
+        if (stopped || state.kind !== "reading") return { state, stopped, timedOut: false };
+        if (Date.now() >= deadline) return { state, stopped, timedOut: true };
+        await new Promise((settle) => setTimeout(settle, EXAMPLE_READY_LOOK_MS));
+      }
+    } finally {
+      stopReadyWaits.delete(stop);
+    }
   };
   // Started here, not with the rest of the Library, so a Document an earlier version filed as an
   // example's is never worked on again (#1942).
@@ -3980,15 +4016,29 @@ export function createCore(adapters: CoreAdapters): Core {
     askInConversation: async (input) =>
       answers.askInConversation(conversations.parseQuestion(input)),
     askExampleReadyQuestion: async () => {
-      const ready = examples.readyAnswer();
-      if (!ready) {
-        throw new InvalidInputError({ key: "error.examples.reading" });
+      const { state, stopped, timedOut } = await whenExampleReady();
+      if (state.kind === "unreadable") {
+        throw new InvalidInputError({
+          key: "error.examples.unreadable",
+          values: { document: state.document },
+        });
       }
+      if (state.kind === "gone") {
+        throw new InvalidInputError({
+          key: "error.examples.gone",
+          values: { document: state.document },
+        });
+      }
+      if (state.kind === "absent") throw new InvalidInputError({ key: "error.examples.absent" });
+      if (timedOut) throw new InvalidInputError({ key: "error.examples.reading" });
+      const example = examples.readyQuestion();
+      const mindId = state.kind === "ready" ? state.mindId : examples.status().mindId;
+      if (!example || !mindId) throw new InvalidInputError({ key: "error.examples.absent" });
       const { turn } = conversations.add(
         {
           conversationId: null,
-          text: ready.question,
-          mind: { id: ready.mindId, folderId: minds.get(ready.mindId).folderId },
+          text: example.question,
+          mind: { id: mindId, folderId: minds.get(mindId).folderId },
           focus: null,
           scope: null,
           model: null,
@@ -4001,8 +4051,8 @@ export function createCore(adapters: CoreAdapters): Core {
         () => minds.get(ready.mindId).folderId ?? "",
       );
       const answer = conversations.writeAnswer(turn.answer.id, {
-        text: ready.answer,
-        citations: ready.citations,
+        text: state.kind === "ready" && !stopped ? state.answer : "",
+        citations: state.kind === "ready" && !stopped ? state.citations : [],
         figures: [],
         analyses: [],
         toolCalls: [],
@@ -4010,12 +4060,19 @@ export function createCore(adapters: CoreAdapters): Core {
         textOrigin: null,
         read: null,
         steps: { sentAt: null, finishedAt: now(), phases: [], reasoning: null, example: true },
-        outcome: { status: "done", error: null },
+        outcome: { status: stopped ? "stopped" : "done", error: null },
       });
       events.emit("conversation.message", turn.question);
       events.emit("conversation.message", answer ?? turn.answer);
       conversationsChanged();
-      return { conversationId: turn.conversation.id, answerId: turn.answer.id };
+      return {
+        conversationId: turn.conversation.id,
+        answerId: turn.answer.id,
+        stopped,
+      };
+    },
+    stopExampleReadyQuestion: async () => {
+      for (const stop of [...stopReadyWaits]) stop();
     },
     regenerateConversationAnswer: async (input) => answers.regenerateInConversation(input),
     countScopeDocuments: async (scope) => {

@@ -3920,6 +3920,22 @@ export interface ReadyQuestion {
    * asked with a model. Null for the example's, whose Answer is written in advance.
    */
   scope: SearchScope | null;
+  /**
+   * The Document still being read before the Answer can be written, named; null when asking it
+   * answers now. Asking waits for it, saying so, rather than doing nothing (#2218).
+   */
+  waitingFor: string | null;
+}
+
+/**
+ * What asking the example's ready Question did: the conversation its Question and Answer are in.
+ * `stopped`: Stop came while it waited for the example's Documents to be read, so its Answer says
+ * "Stopped" and has no text.
+ */
+export interface ExampleReadyAsked {
+  conversationId: string;
+  answerId: string;
+  stopped: boolean;
 }
 
 /**
@@ -9697,9 +9713,14 @@ export interface CoreApi {
   /**
    * Asks the example's ready Question, whose Answer is written in advance and needs no model, in
    * a new conversation: whatever the User's own Documents are, as in a library that has some
-   * before the example is made. Throws while it isn't made or its Documents aren't all read.
+   * before the example is made. Waits while its Documents are still being read, then writes the
+   * Answer; Stop in the meantime (`stopExampleReadyQuestion`) writes the Question with a stopped
+   * Answer. Throws once the example isn't made, a Document it cites can't be read, or the read
+   * hasn't finished in time.
    */
-  askExampleReadyQuestion(): Promise<{ conversationId: string; answerId: string }>;
+  askExampleReadyQuestion(): Promise<ExampleReadyAsked>;
+  /** Stops a waiting `askExampleReadyQuestion`: its Question is kept, and its Answer says Stopped. */
+  stopExampleReadyQuestion(): Promise<void>;
   /**
    * Writes an Answer of a conversation again, in place, for its Question as it was asked,
    * reading the Mind it was asked from as that Mind is now.
@@ -11498,6 +11519,7 @@ const methods: Record<CoreApiMethod, true> = {
   renameCheckpoint: true,
   askInConversation: true,
   askExampleReadyQuestion: true,
+  stopExampleReadyQuestion: true,
   regenerateConversationAnswer: true,
   countScopeDocuments: true,
   stopConversationAnswer: true,
