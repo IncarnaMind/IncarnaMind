@@ -227,13 +227,13 @@ export interface CreateMindInput {
  *   marks on Citations and figures (`MIND_SIGN_OFFS_FIELD`, #1933). An older
  *   editor would strip the ids and leave the marks on nothing, so it opens
  *   these Notes read-only. Existing content needs no conversion.
- * - 37: a comparison table has a `title` of its own (#1837), its name in the
+ * - 33: a comparison table has a `title` of its own (#1837), its name in the
  *   title line and on its Excel file and sheet. An older version's editor
  *   writes the table back without it when it changes it, so it opens these
- *   Notes read-only. Older content is version 37 content as it is, its table
+ *   Notes read-only. Older content is version 33 content as it is, its table
  *   called "Comparison table" until the User names it.
  */
-export const CONTENT_SCHEMA_VERSION = 37;
+export const CONTENT_SCHEMA_VERSION = 33;
 
 /**
  * The key, in the Mind's settings map (`MIND_SETTINGS_FIELD`), of the content

@@ -141,5 +141,5 @@ A comparison table's column has a short **label**, its heading, beside its Quest
 
 A comparison table has a **title** of its own, its name in the title line and the name its Excel file and sheet are given. A table with none is called "Comparison table", so tables written before this need no migration.
 
-- **Content schema version 37** adds `title` on the table node: at most 120 characters on one line, the User's name for it, kept with the Note and copied with it. An older version's editor writes the table back without it when it changes the table, so it opens these Notes read-only. Older content is version 37 content as it is.
-- **No table, no migration.** Nothing outside the Mind's Yjs document changes.
+- **Content schema version 33** adds `title` on the table node: at most 120 characters on one line, the User's name for it, kept with the Note and copied with it. An older version's editor writes the table back without it when it changes the table, so it opens these Notes read-only. Older content is version 33 content as it is.
+- **No SQL table, no migration.** Nothing outside the Mind's Yjs document changes.
