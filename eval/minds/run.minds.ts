@@ -234,7 +234,7 @@ async function runAll(
   return { results, spent, stopped };
 }
 
-test("requests that change several Minds", async () => {
+test("requests that change several Notes", async () => {
   const log = createLog();
   const config = readConfig(ROOT);
   if (!config.chat) {

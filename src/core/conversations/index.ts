@@ -839,7 +839,7 @@ export function createConversations(db: Database, now: () => string) {
       let mind: QuestionInput["mind"] = null;
       if (mindId !== undefined && mindId !== null) {
         if (typeof mindId !== "string" || mindId === "") {
-          throw new InvalidInputError("A Mind id must be a non-empty string, or null for none.");
+          throw new InvalidInputError("A Note id must be a non-empty string, or null for none.");
         }
         const row = db.get<{ folder_id: string | null }>(
           "SELECT folder_id FROM minds WHERE id = ? AND deleted_at IS NULL",

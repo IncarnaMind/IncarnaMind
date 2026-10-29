@@ -24,7 +24,7 @@ function foundIn(result: string): Found[] {
     id: match[1] ?? "",
     name: match[2] ?? "",
     added: /added (\d{4}-\d{2}-\d{2})/.exec(match[3] ?? "")?.[1] ?? "",
-    focused: (match[3] ?? "").includes("the Mind in focus"),
+    focused: (match[3] ?? "").includes("the Note in focus"),
   }));
 }
 
