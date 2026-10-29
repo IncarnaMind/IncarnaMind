@@ -23,6 +23,7 @@ import { cp, mkdir, rm } from "node:fs/promises";
 import { join, relative, resolve } from "node:path";
 import * as Y from "yjs";
 import { withCitations } from "../shared/blockJson";
+import { readClaimCheck } from "../shared/claimChecks";
 import { sentenceSpans } from "../shared/sentences";
 import {
   contentHash,
@@ -41,6 +42,7 @@ import {
   CITATION_NODE,
   type CitationAttributes,
   type CitationRecheck,
+  CLAIM_CHECK_MARK,
   type ClaimCheckAttributes,
   type Document,
   type ExampleGroup,
@@ -137,6 +139,25 @@ function draftMarkdown(set: ExampleSet): string[] {
 /** A Document whose text is stored, so its Citations can be checked. */
 const hasText = (document: Document) =>
   !["queued", "extracting", "failed"].includes(document.status);
+
+/** One run of a paragraph's text, with the marks it carries. */
+interface CheckRun {
+  insert: unknown;
+  attributes?: Record<string, unknown>;
+}
+
+/** The check on the run at `at` of a paragraph's runs: the one a sentence already has, if any. */
+function checkOn(runs: readonly CheckRun[], at: number): ClaimCheckAttributes | null {
+  let from = 0;
+  for (const run of runs) {
+    const length = typeof run.insert === "string" ? run.insert.length : 1;
+    if (at >= from && at < from + length) {
+      return readClaimCheck(run.attributes?.[CLAIM_CHECK_MARK]);
+    }
+    from += length;
+  }
+  return null;
+}
 
 export function createExamples(options: ExamplesOptions) {
   const stored = (group: ExampleGroup): StoredExamples | null => read(valueKey(group));
@@ -317,23 +338,20 @@ export function createExamples(options: ExamplesOptions) {
   ): void => {
     for (const block of topLevelBlocks(blocks)) {
       if (block.nodeName !== "paragraph") continue;
-      // A paragraph of the draft is one text, written without inline nodes.
-      const text = block
+      const runs = block
         .toArray()
-        .flatMap((child) =>
-          child instanceof Y.XmlText
-            ? (child.toDelta() as { insert: unknown }[]).map((run) =>
-                typeof run.insert === "string" ? run.insert : "",
-              )
-            : [],
-        )
-        .join("");
+        .flatMap((child) => (child instanceof Y.XmlText ? (child.toDelta() as CheckRun[]) : []));
+      // A paragraph of the draft is one text, written without inline nodes.
+      const text = runs.map((run) => (typeof run.insert === "string" ? run.insert : "")).join("");
       const span = sentenceSpans(text).find(
         (each) => text.slice(each.from, each.to) === check.sentence,
       );
       if (!span) continue;
+      const earlier = checkOn(runs, span.from);
       const attributes: ClaimCheckAttributes = {
-        id: randomUUID(),
+        // Written again once its Documents are read, the check keeps the identity it had, so a
+        // card the reader already opened stays open and shows what was found.
+        id: earlier?.text === check.sentence ? earlier.id : randomUUID(),
         request: randomUUID(),
         action: "check-against-documents",
         state: check.verdict,

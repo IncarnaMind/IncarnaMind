@@ -151,6 +151,8 @@ describe("the example Mind", { timeout: 30_000 }, () => {
       }),
     ]);
 
+    const markId = checksOf(doc)[0]?.check.id;
+
     // Once both Documents are read, both Citations are checked: found, on the pages they quote.
     await vi.waitFor(
       async () => {
@@ -172,7 +174,9 @@ describe("the example Mind", { timeout: 30_000 }, () => {
       pageFrom: 1,
     });
 
-    // The draft's wrong figure is marked contradicted, quoting the results where the check found it.
+    // The draft's wrong figure is marked contradicted, quoting the results where the check found it;
+    // it keeps the identity the early mark had, so a card already open stays open.
+    expect(checksOf(read)[0]?.check.id).toBe(markId);
     expect(checksOf(read)).toEqual([
       {
         text: "Gross margin fell to 36.8% in Q3, mostly in online.",
