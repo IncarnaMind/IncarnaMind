@@ -1974,7 +1974,7 @@ export const migrations: readonly Migration[] = [
   {
     version: 114,
     description:
-      "A Document's keyword rows keep a version of their own, never past its Passages' (#2185)",
+      "A Document's keyword rows keep a version of their own, so a rewrite without a read moves no read version (#2185)",
     sql: `
       -- processing_version says which pipeline read a Document's Passages; keywords_version
       -- says which one built its keyword rows. A rewrite without a read moves the second
