@@ -63,9 +63,8 @@ describe("Checking engine modules", () => {
 // no bundler's interop (#1233, #1239). sandbox-runtime, an ES module, loads alike either way
 // (tests/main/sandbox.test.ts).
 const LOAD = `
-  const { checkEngineModules, ONNX_RUNTIME, TOKENIZERS } = await import("./src/core/engineModules.ts");
+  const { CANVAS, checkEngineModules, ONNX_RUNTIME, TOKENIZERS } = await import("./src/core/engineModules.ts");
   const { SHERPA, SHERPA_ADDON } = await import("./src/core/transcription/sherpa.ts");
-  const { CANVAS } = await import("./src/core/documents/scan/picture.ts");
   console.log(JSON.stringify(await checkEngineModules([ONNX_RUNTIME, TOKENIZERS, SHERPA, SHERPA_ADDON, CANVAS])));
 `;
 

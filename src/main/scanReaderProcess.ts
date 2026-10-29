@@ -13,8 +13,12 @@ import type { TextRecognizer } from "../core";
 import { serveTextRecognizer, type TextRecognizerRequest } from "../core/documents/scan/channel";
 import { createFakeTextRecognizer, type FakeScanScript } from "../core/documents/scan/fake";
 import { createOnnxTextRecognizer } from "../core/documents/scan/onnx";
-import { CANVAS } from "../core/documents/scan/picture";
-import { answerEngineCheck, ENGINE_CHECK_ARGUMENT, ONNX_RUNTIME } from "../core/engineModules";
+import {
+  answerEngineCheck,
+  CANVAS,
+  ENGINE_CHECK_ARGUMENT,
+  ONNX_RUNTIME,
+} from "../core/engineModules";
 
 const fake = process.argv.indexOf("--fake");
 const scriptFile = fake === -1 ? undefined : process.argv[fake + 1];

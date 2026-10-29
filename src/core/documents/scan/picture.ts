@@ -1,13 +1,6 @@
 import type { PagePicture, PictureRead, RecognizedLine } from "../../adapters";
-import { engineModule, exportsOf } from "../../engineModules";
+import { CANVAS } from "../../engineModules";
 import { greys } from "./pages";
-
-/** Draws pictures for text recognition. */
-export const CANVAS = engineModule(
-  "@napi-rs/canvas",
-  async () => exportsOf(await import("@napi-rs/canvas")),
-  ["createCanvas", "loadImage"],
-);
 
 // A chart's small print reads better a little larger, and a large photo needs no more than this.
 const SMALLEST_SIDE = 1000;

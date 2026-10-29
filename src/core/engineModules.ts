@@ -68,6 +68,13 @@ export const ONNX_RUNTIME = engineModule("onnxruntime-node", () => import("onnxr
   "Tensor",
 ]);
 
+/** Draws pictures: for text recognition, and for a shared page's pictures in a worker thread. */
+export const CANVAS = engineModule(
+  "@napi-rs/canvas",
+  async () => exportsOf(await import("@napi-rs/canvas")),
+  ["createCanvas", "loadImage"],
+);
+
 export const TOKENIZERS = engineModule(
   "@huggingface/tokenizers",
   () => import("@huggingface/tokenizers"),
