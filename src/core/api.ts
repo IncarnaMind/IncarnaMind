@@ -7160,6 +7160,11 @@ export interface SecretStorageStatus {
 export type OllamaStatus =
   | {
       running: false;
+      /**
+       * Nothing can be said: the probe didn't answer within its time. It may well run, slowly;
+       * only a refused address means it doesn't.
+       */
+      unknown?: true;
       baseUrl: string;
       /** Whether `openOllama` can open its app: false too where this computer can't tell. */
       installed: boolean;
