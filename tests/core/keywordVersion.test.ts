@@ -268,12 +268,12 @@ describe("A Document's keyword version", { timeout: 60_000 }, () => {
   test("a page saved with pictures before version 10 keeps its version while its file is away, and the chart's text is found once it is back", async () => {
     const web = await startSite();
     const dataDir = await createTempDataFolder();
-    const adapters = {
+    const withPictures = {
       ...web.adapters,
       textRecognizer: recognizer(),
       textRecognitionModelSource: NO_MODEL_FILES,
     };
-    const first = startCore(dataDir, adapters);
+    const first = startCore(dataDir, withPictures);
     const result = await first.saveWebPage({ address: `http://127.0.0.1:${web.port}/report` });
     if (result.outcome !== "saved") throw new Error(JSON.stringify(result));
     const page = result.document;
@@ -287,20 +287,26 @@ describe("A Document's keyword version", { timeout: 60_000 }, () => {
         .join("\n"),
     );
 
+    // The file is away, and no model can read its pictures yet: nothing reads the page, and the
+    // rewrite that runs anyway must not say it was read.
     const pagePath = page.path;
     await rename(pagePath, `${pagePath}.away`);
-    const second = startCore(dataDir, adapters);
-    await waitForProcessing(second, [page.id]);
+    const second = startCore(dataDir, web.adapters);
+    expect((await second.listDocuments())[0]?.status).toBe("ready");
     second.upgradeKeywordIndex();
-    await vi.waitFor(() => expect(rowsWith(dataDir, "report")).toBe(0), { timeout: 30_000 });
-    expect(versions(dataDir, page.id)).toEqual({
-      processing_version: 9,
-      keywords_version: PROCESSING_VERSION,
-    });
+    await vi.waitFor(
+      () =>
+        expect(versions(dataDir, page.id)).toEqual({
+          processing_version: 9,
+          keywords_version: PROCESSING_VERSION,
+        }),
+      { timeout: 30_000 },
+    );
     second.close();
 
+    // The file is back, and a model arrived: the page is read for its pictures.
     await rename(`${pagePath}.away`, pagePath);
-    const third = startCore(dataDir, adapters);
+    const third = startCore(dataDir, withPictures);
     await waitForProcessing(third, [page.id]);
     const found = await third.searchPassages("44.9", { mode: "keyword" });
     expect(found.map((row) => row.documentId)).toEqual([page.id]);

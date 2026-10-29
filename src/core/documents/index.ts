@@ -1016,7 +1016,7 @@ export function createDocuments(options: DocumentsOptions) {
       indexName(row.id, row.name);
       // A version that can't be read keeps the rows of its last good one, which still hold the
       // name from an older pipeline; its name match would then count twice (#2042).
-      if (result.outcome !== "ready" && row.processing_version < NAME_INDEX_CURRENT_SINCE) {
+      if (result.outcome !== "ready" && row.keywords_version < NAME_INDEX_CURRENT_SINCE) {
         reindexPassages(row.id);
         // The rows are this version's now; the Passages they were built from, and so the
         // version the next start reads the file for, are not (#2185).
@@ -1100,7 +1100,7 @@ export function createDocuments(options: DocumentsOptions) {
       // NAME_INDEX_CURRENT_SINCE, still holds its name in every Passage's row (#2042). Kept
       // windows and joined in place Passages aren't the rebuilt ones, so the words come from
       // the stored text, never from a rebuilt Passage at the same position.
-      if (unchanged && row.processing_version < NAME_INDEX_CURRENT_SINCE) {
+      if (unchanged && row.keywords_version < NAME_INDEX_CURRENT_SINCE) {
         if (passagesSame) {
           reindexPassages(
             row.id,
