@@ -13,7 +13,7 @@
 // Usage: node scripts/check-package.mjs [dist-folder]   (default: dist)
 // Exit code 1 when a check fails.
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
-import { basename, dirname, join, resolve, sep } from "node:path";
+import { basename, dirname, join, relative, resolve, sep } from "node:path";
 import { listPackage } from "@electron/asar";
 import { speechRuntimes } from "./afterPack.mjs";
 
@@ -152,8 +152,8 @@ for (const file of files.filter(isInstaller)) {
 	}
 }
 
-const intelApps = asars.filter(
-	(asar) => asar.includes(`${sep}mac${sep}`) || asar.includes(`${sep}mac-x64${sep}`),
+const intelApps = asars.filter((asar) =>
+	["mac", "mac-x64"].includes(relative(distDir, asar).split(sep)[0] ?? ""),
 );
 const intelInstallers = files
 	.filter(isInstaller)

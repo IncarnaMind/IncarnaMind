@@ -8,15 +8,18 @@ import { afterEach, beforeEach, expect, test } from "vitest";
 
 const SCRIPT = fileURLToPath(new URL("../../scripts/check-package.mjs", import.meta.url));
 
+let parent = "";
 let folder = "";
 beforeEach(async () => {
-  folder = await mkdtemp(join(tmpdir(), "incarnamind-check-package-"));
+  parent = await mkdtemp(join(tmpdir(), "incarnamind-check-package-"));
+  // A checkout in a folder named like the Intel app's must not read as one.
+  folder = join(parent, "mac");
   await mkdir(join(folder, "app", "out"), { recursive: true });
   await writeFile(join(folder, "app", "package.json"), "{}");
   await writeFile(join(folder, "app", "out", "index.js"), "");
 });
 afterEach(async () => {
-  await rm(folder, { recursive: true, force: true });
+  await rm(parent, { recursive: true, force: true });
 });
 
 async function packApp(platformFolder: string) {
