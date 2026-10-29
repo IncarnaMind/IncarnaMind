@@ -1,0 +1,32 @@
+name: The packaged Windows app's speech engine
+description: >
+  Runs the packaged transcription check against the Windows app already packaged in dist/
+  (the dist:dir script): a recording through Chromium's fake microphone transcribed by the real
+  speech engine and model, then the speech process's loaded ONNX Runtime library (#2152). Needs the
+  dependencies installed first.
+
+runs:
+  using: composite
+  steps:
+    # The speech model is 989 MB, the speaker models 30 MB. Kept between runs, keyed on the pinned
+    # revisions and hashes in their definitions, so a run downloads them only when they change.
+    - name: Restore the downloaded models
+      uses: actions/cache@v5
+      with:
+        path: ${{ runner.temp }}\incarnamind-packaged-models
+        key: incarnamind-packaged-models-windows-${{ hashFiles('src/core/transcription/model.ts', 'src/core/transcription/speakerModel.ts') }}
+    - name: Transcribe a meeting in the packaged app
+      shell: bash
+      env:
+        INCARNAMIND_MODEL_CACHE: ${{ runner.temp }}\incarnamind-packaged-models
+      run: |
+        export INCARNAMIND_PACKAGED_APP="$(node -p 'require("node:path").resolve("dist/win-unpacked/IncarnaMind.exe")')"
+        mkdir -p "$INCARNAMIND_MODEL_CACHE"
+        npm run test:packaged -- transcription.packaged.ts
+    - name: Upload the Playwright trace
+      if: failure()
+      uses: actions/upload-artifact@v7
+      with:
+        name: packaged-speech-windows
+        path: test-results/
+        retention-days: 7

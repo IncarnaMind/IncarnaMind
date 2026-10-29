@@ -1,6 +1,7 @@
 import type { CitationAttributes } from "../../../core/api";
 import { badgeMessage, type CitationState, citationSource } from "../../../shared/citations";
 import { useT } from "../i18n";
+import { ChangedSourceNotice } from "./ChangedSourceNotice";
 import { ChartCheck } from "./ChartCheck";
 
 export function ChartPointCard({
@@ -76,6 +77,7 @@ export function ChartPointCard({
           </>
         )}
       </div>
+      {citation && <ChangedSourceNotice attributes={citation} />}
       {cut && <p className="chart-card-cut">{cut}</p>}
     </div>
   );

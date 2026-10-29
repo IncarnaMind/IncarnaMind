@@ -99,6 +99,12 @@ function useSidebarControl(userHidden: boolean, beforeSlide: (shows: boolean) =>
   const setHidden = useCallback(
     (next: boolean) => {
       if (next === state.current.hidden) return;
+      // Hiding what holds the focus takes it to the button that shows it again, however the
+      // sidebar is hidden: the button, the shortcut, the View menu, or the divider dragged shut.
+      if (next && !refocus.current) {
+        const active = document.activeElement;
+        refocus.current = active instanceof HTMLElement && active.closest("#sidebar") !== null;
+      }
       beforeSlide(!next);
       // Updated here before the core confirms, so the sidebar answers at once.
       previewLayout({ sidebarHidden: next });
@@ -110,10 +116,6 @@ function useSidebarControl(userHidden: boolean, beforeSlide: (shows: boolean) =>
     const active = document.activeElement;
     // Keep the focus where it was: on the button the User used, which may move, or in the page.
     refocus.current = active instanceof HTMLElement && active.dataset.testid === "sidebar-toggle";
-    if (!state.current.hidden && active instanceof HTMLElement && active.closest("#sidebar")) {
-      // Hiding what holds the focus: it goes to the button that shows it again.
-      refocus.current = true;
-    }
     setHidden(!state.current.hidden);
   }, [setHidden]);
   const takeRefocus = useCallback(() => {
@@ -136,10 +138,11 @@ function useSidebarControl(userHidden: boolean, beforeSlide: (shows: boolean) =>
 function useSidebarPeek(hidden: boolean, beforeSlide: (shows: boolean) => void) {
   const [pointer, setPointer] = useState(false);
   const [focus, setFocus] = useState(false);
-  // A peek is the pointer or the keyboard reaching the hidden sidebar: what either was doing while
-  // it showed belongs to what the User is leaving. On macOS the button that hides it sits in its
-  // header, so pressing it by keyboard puts the focus in the panel; kept, that peek would hold the
-  // focus there, and the sidebar would stay over the content it was hidden from.
+  // Sliding the sidebar out is for the pointer or the keyboard reaching it while hidden: what
+  // either was doing while it showed belongs to what the User is leaving. On macOS the button that
+  // hides it sits in its header, so pressing it by keyboard puts the focus in the panel; kept, that
+  // slide-out would hold the focus there, and the sidebar would stay over the content it was
+  // hidden from.
   const wasHidden = useRef(hidden);
   useLayoutEffect(() => {
     if (wasHidden.current === hidden) return;
@@ -147,7 +150,9 @@ function useSidebarPeek(hidden: boolean, beforeSlide: (shows: boolean) => void) 
     setPointer(false);
     setFocus(false);
   }, [hidden]);
-  const peeking = hidden && (pointer || focus);
+  // What was true of the sidebar before it hid says nothing about the one the User is left with,
+  // and on the render that hides it the flags still hold that: only what both meet counts.
+  const peeking = hidden && wasHidden.current === hidden && (pointer || focus);
   const hold = (by: { pointer?: boolean; focus?: boolean }) => {
     const next = hidden && ((by.pointer ?? pointer) || (by.focus ?? focus));
     if (next !== peeking) beforeSlide(next);

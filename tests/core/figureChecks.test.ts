@@ -1143,9 +1143,12 @@ test("multiple own ambiguity axes are never combined by guessing", async () => {
 test.each([undefined, []])(
   "no requested figures keeps the legacy reply contract (%j)",
   async (figures) => {
+    // A sentence its Document states whole, so the check needs no calculation (#1978).
     const { result } = await checkWith({
       figures,
-      text: "Verdict: supported\nScope: same\nTopic: found\nRoles: same\nSays: Revenue in 2024 was £20.",
+      claim: "Revenue in 2024 was £20.",
+      quotes: ["Revenue in 2024 was £20"],
+      text: "Verdict: supported\nScope: same\nTopic: found\nRoles: same\nSays: Revenue in 2024 was £20.\nCalculation: none",
     });
     expect(result.verdict).toBe("supported");
     expect(result).not.toHaveProperty("figures");

@@ -227,6 +227,7 @@ import {
   parseMindId,
 } from "./minds";
 import { firstLineOf, readBlocks, textStart, theirChangesReading } from "./mindText";
+import { createModelRuntimeFolderNotice } from "./modelRuntimeFolder";
 import { createNoteAdding, insertBlocks } from "./noteAdding";
 import { createNoteConversations } from "./noteConversations";
 import { createOutputFiles } from "./outputFiles";
@@ -331,6 +332,14 @@ export interface Core extends CoreApi, CoreEventSource {
    * NotFoundError for anything else.
    */
   openDocumentImage(documentId: string, path: string): Promise<DocumentImage>;
+  /**
+   * Rewrites the keyword rows of Documents an older version indexed, one
+   * Document per transaction, on the Document-processing worker and never on
+   * this thread (#2042). The host calls it once the first window is up, so a
+   * start never waits for it; a Document that another upgrade rule reads is
+   * left to that read. Calling it again while it runs does nothing.
+   */
+  upgradeKeywordIndex(): void;
   /**
    * The number a workbook's cell stores when its shown text isn't that
    * number written plainly (0.04213 for "4.2%"), from the Document's
@@ -767,6 +776,12 @@ export function createCore(adapters: CoreAdapters): Core {
   });
   const privacy = createPrivacy({ settings, crashReporter: adapters.crashReporter, usageData });
   const privacyChanged = () => events.emit("privacy.changed", privacy.status());
+  const modelRuntimeFolder = createModelRuntimeFolderNotice(
+    db,
+    adapters.modelRuntimeFolder,
+    adapters.shell,
+    adapters.log,
+  );
   const platform = process.platform;
   const retention = createVersionRetention(db, now);
   const rebuildFigureRetention = (mindId: string) => {
@@ -1680,6 +1695,11 @@ export function createCore(adapters: CoreAdapters): Core {
       publish: publishConversation,
       discard: (added) => conversations.discard(added),
       questionOf: (input) => conversations.questionOf(input),
+      setQuestionModel: (questionId, model) => {
+        const question = conversations.setQuestionModel(questionId, model);
+        if (question) events.emit("conversation.message", question);
+        return question;
+      },
       clearScope: (questionId) => {
         const question = conversations.clearScope(questionId);
         if (question) events.emit("conversation.message", question);
@@ -3830,12 +3850,13 @@ export function createCore(adapters: CoreAdapters): Core {
       }
       return found;
     },
+    upgradeKeywordIndex: () => documents.upgradeKeywordIndex(),
     // The Library lists the examples until the User has a Document of their own (#1942), so a first
     // search looks in them; from the first Document of the User's own on, they are left out before
     // the search's limit, so they never take one of its places.
     searchDocumentText: async (query, options) => {
       const example = examples.made().documentIds;
-      const own = documents.list().some((each) => !example.includes(each.id));
+      const own = documents.hasDocumentOutside(example);
       return documents.searchText(query, {
         ...options,
         ...(own ? { excludeDocumentIds: example } : {}),
@@ -4375,6 +4396,8 @@ export function createCore(adapters: CoreAdapters): Core {
 
     listNetworkTraffic: () => privacy.listTraffic(),
     getPrivacySettings: async () => privacy.status(),
+    getModelRuntimeFolder: () => modelRuntimeFolder.present(),
+    showModelRuntimeFolder: () => modelRuntimeFolder.show(),
     updatePrivacySettings: async (patch) => {
       const { changed, settings: updated } = privacy.update(patch);
       if (changed) privacyChanged();
@@ -4458,7 +4481,13 @@ export function createCore(adapters: CoreAdapters): Core {
       }
     },
     assignDocumentGroup: async (id, groupId) => library.assign(id, groupId),
-    restoreAssignment: async (id, previous) => library.restoreAssignment(id, previous),
+    restoreAssignment: async (id, before, after) => {
+      const change = library.restoreAssignment(id, before, after);
+      // A Document whose tagging goes back to pending has its turn again: the one it had was
+      // dropped while Organize held it (#1928).
+      if (change?.after.tagging?.status === "pending") tagger.resume();
+      return change;
+    },
     restore: async (refs) => recentlyDeleted.restore(refs),
     undoCommands: async (run) => commandSteps.undo(run),
     redoCommands: async (run) => commandSteps.redo(run),

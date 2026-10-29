@@ -1132,6 +1132,11 @@ export function createCitationSession(
   /** Records naming no Passage the model was given, or no marker: as given, and why. */
   const rejected: RejectedRecord[] = [];
   const searched = new Set<string>();
+  const passageDocuments: string[] = [];
+  const searchedDocuments: string[] = [];
+  const remember = (list: string[], id: string) => {
+    if (!list.includes(id)) list.push(id);
+  };
   let openingGiven = false;
   /** Markers in the final text, in order of first appearance, and those that had no record. */
   const finalMarkers: number[] = [];
@@ -1516,6 +1521,7 @@ export function createCitationSession(
    * `measuring`: only to count what showing them would send, so nothing is recorded as shown.
    */
   function show(found: readonly WindowedPassage[], measuring = false): string {
+    if (!measuring) for (const passage of found) remember(passageDocuments, passage.documentId);
     let unseen = 0;
     const dates = new Map<string, DocumentDate | null>();
     const dateOf = (documentId: string) => {
@@ -1585,6 +1591,7 @@ export function createCitationSession(
             passageCount: 0,
           };
         }
+        remember(searchedDocuments, id);
         within = [id];
       }
       const found = await search(query, signal, within, options);
@@ -1684,6 +1691,16 @@ export function createCitationSession(
     return record ? toCitation(record, record.result) : null;
   };
 
+  /** The Documents the Answer's final Citations name, in the order they first appear. */
+  const citedDocuments = () => {
+    const ids: string[] = [];
+    for (const marker of new Set(finalMarkers)) {
+      const record = records.get(marker);
+      if (record && !ids.includes(record.source.documentId)) ids.push(record.source.documentId);
+    }
+    return ids;
+  };
+
   /** Quotes for calculated figures' inputs (./calculations). */
   const quotes = {
     /** An input keeps its recorded Location: moving it could substitute another revision (#1979). */
@@ -1707,6 +1724,13 @@ export function createCitationSession(
 
   return {
     tools,
+
+    /** The Documents its final Citations name, those its Passages came from, and those it searched by name. */
+    documentsRead: () => ({
+      cited: citedDocuments(),
+      passages: [...passageDocuments],
+      searched: [...searchedDocuments],
+    }),
 
     /**
      * Searches one Document, whatever the Answer's Search scope: a web page

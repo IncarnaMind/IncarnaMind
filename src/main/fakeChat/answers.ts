@@ -41,6 +41,8 @@
  * paragraph pointing to an earlier Answer, and one about "home working"
  * (居家办公) asked beside a Mind ends by setting the Documents apart from it,
  * unless the instructions say that Mind is an example.
+ * One that asks about the minutes (纪要) searches only the first listed Document whose name says
+ * so, by that name, as a model that takes a name for one Document does (#1512).
  * Before its search it reasons, a line that quotes the Question, as a model
  * that thinks does; given the Question's search before its first call (#1633),
  * it answers from those Passages and reasons on that call. A Question asked
@@ -52,6 +54,7 @@
  * by saying which.
  */
 
+import { namesIn } from "./asks";
 import { cellReply, isCell } from "./cells";
 import {
   FORTY_CITATIONS,
@@ -66,6 +69,7 @@ import {
   lastQuestion,
   lastUserText,
   type Prompt,
+  promptText,
   type Reply,
   type StreamPart,
   systemOf,
@@ -118,6 +122,14 @@ const THINKING_ALOUD = /边想边写/;
 const WORKING_NOTES = "等一下，可能还有一份相同的文件。再搜一次确认一下。".repeat(600);
 
 const WITHOUT_SEARCHING = /\bwithout searching\b|不用搜索/i;
+
+/** A Question whose reply says the calculation Tool confirmed a figure, with no `calculate` call (#1796). */
+const CLAIMS_CALCULATION = /\bclaims a calculation\b|声称已计算/i;
+const CLAIMS_CALCULATION_ZH = /声称已计算/;
+const claimAnswer = (said: string) =>
+  CLAIMS_CALCULATION_ZH.test(said)
+    ? "计算工具已确认：杠杆率为 3.26 倍。"
+    : "The calculation tool confirmed 3.26x.";
 
 const INTO_A_REPORT = /\binto a report\b|整理成报告/i;
 
@@ -468,6 +480,13 @@ const BY_QUARTER = /\bby quarter\b|按季度/i;
 const BY_QUARTER_CHINESE = /分季度/;
 const IN_MILLIONS = /\bin millions\b/i;
 
+const MINUTES = /\bminutes\b|纪要/i;
+
+function minutesNamed(prompt: Prompt, question: string): string | undefined {
+  if (!MINUTES.test(question)) return undefined;
+  return namesIn(systemOf(prompt)).find((name) => MINUTES.test(name.replace(/ \(“[^”]*”\)$/, "")));
+}
+
 const SHORT_SUMMARY = /\bshort summary\b|简短的摘要/i;
 const HOME_WORKING = /\bhome working\b|居家办公/i;
 
@@ -581,9 +600,10 @@ export function answerReply(prompt: Prompt, tools: readonly string[]): Reply {
   const given = passagesIn(lastUserText(prompt)).length > 0 && WITHOUT_SEARCHING.test(question);
   const searches = given ? [lastUserText(prompt)] : toolResults(prompt, "search_documents");
   if (searches.length === 0) {
+    const minutes = minutesNamed(prompt, question);
     return {
       tool: "search_documents",
-      input: { query: question },
+      input: { query: question, ...(minutes && { document: minutes }) },
       reasoning: reasoningFor(question),
     };
   }
@@ -609,6 +629,11 @@ function answerFrom(
     const reply = analysisReply(prompt, question, searches.at(-1) ?? "");
     if (reply) return reply;
   }
+  const claimed = prompt
+    .filter((message) => message.role === "user")
+    .map((message) => promptText([message]))
+    .find((text) => CLAIMS_CALCULATION.test(text));
+  if (claimed !== undefined) return { text: claimAnswer(claimed) };
   if (THINKING_ALOUD.test(question)) return { text: WORKING_NOTES };
   if (WITHOUT_CITING.test(question)) return { text: uncitedAnswer(question) };
   if (CITING_AS_TEXT.test(question)) {
