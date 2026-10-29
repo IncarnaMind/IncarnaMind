@@ -22,8 +22,10 @@ import { selectionForEdit } from "./editSelection";
 import { CustomSpacing, FormatMenu } from "./FormatMenu";
 import { footnotePlace, insertFootnote } from "./footnoteSchema";
 import { FORMAT_OPEN, setLineSpacing } from "./formatCommands";
+import { PageBreakIcon } from "./icons";
 import { caretAnchor, LinkField } from "./LinkField";
 import { Popover } from "./Popover";
+import { canInsertPageBreak, insertPageBreak } from "./pageBreakSchema";
 import {
   applyLink,
   asOwnUndoStep,
@@ -254,6 +256,7 @@ export function SelectionMenu({
       oneLine: inOneTextblock(current) && canTurnInto(current),
       // A footnote goes after the selection, in text: not in a Question or code.
       footnote: footnotePlace(current.state) !== null,
+      pageBreak: canInsertPageBreak(current.state),
       ai: actions.current
         .filter((action) => action.available?.(current) ?? true)
         .map((action) => action.id),
@@ -639,6 +642,21 @@ export function SelectionMenu({
               <span aria-hidden="true" className="format-footnote">
                 a<sup>1</sup>
               </span>
+            </button>
+            <button
+              type="button"
+              role="menuitem"
+              aria-disabled={!state.pageBreak}
+              data-testid="format-page-break"
+              title={`${t("editor.pageBreak.insert")} (${shortcutLabel("pageBreak.insert")})`}
+              aria-label={t("editor.pageBreak.insert")}
+              onMouseDown={keepSelection}
+              onClick={() => {
+                if (state.pageBreak) act(() => insertPageBreak(editor));
+              }}
+              className="selection-format"
+            >
+              <PageBreakIcon className="size-4" />
             </button>
             {MARKS.slice(5).map((each) => (
               <FormatButton

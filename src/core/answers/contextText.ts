@@ -377,6 +377,7 @@ function inlineText(inline: Inline): string {
     case "cite":
       return inline.runs.map((run) => run.text).join("");
     case "image":
+    case "pageBreak":
       return "";
   }
 }

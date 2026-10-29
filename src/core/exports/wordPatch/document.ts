@@ -53,8 +53,10 @@ import { type Counterpart, counterpartsOf, type ListPlace, NO_MARKS } from "./mi
 import {
   alignTokens,
   baseTokens,
+  keptKindOf,
   type ParagraphContext,
   sourceOf,
+  special,
   type Token,
   withWordChanges,
   writeParagraph,
@@ -739,9 +741,9 @@ export class DocumentPatch {
     const tokens = this.input.tokensOf(counterpart.node).flatMap((token): Token[] => {
       if (token.kind !== "atom" || !token.source) return [token];
       const node = (counterpart.node.content ?? []).find((each) => sourceOf(each) === token.source);
-      const kind = node ? readWordAtom(node.attrs ?? {}).kind : ("other" as WordAtomKind);
-      if (plan.writes(token.source, counterpart.node, node?.type === "image" ? "picture" : kind))
-        return [token];
+      const kind = node ? keptKindOf(node) : ("other" as WordAtomKind);
+      if (plan.writes(token.source, counterpart.node, kind)) return [token];
+      if (token.inline) return [special(token.inline)];
       if (!node || !plan.written(token.source)) return [];
       plan.copied(node);
       const text = node.type === "image" ? "" : wordAtomText(readWordAtom(node.attrs ?? {}));

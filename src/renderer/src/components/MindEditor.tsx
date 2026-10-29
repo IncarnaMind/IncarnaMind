@@ -87,6 +87,7 @@ import { ListMenu } from "../editor/NumberingMenu";
 import { NoteKeymap } from "../editor/noteKeymap";
 import { noteExtensions } from "../editor/noteSchema";
 import { registerMindEditor } from "../editor/openEditors";
+import { pageBreakView } from "../editor/PageBreakView";
 import { PageMenu } from "../editor/PageMenu";
 import { ProposalBars } from "../editor/ProposalBars";
 import { editorDoc, ProposalReview } from "../editor/proposalReview";
@@ -350,10 +351,14 @@ function MindEditorView({
   const emptyFormula = t("editor.math.empty");
   /** How a footnote's marker is named, in the interface's language as it is now. */
   const footnoteLabel = useRef<FootnoteLabel>(() => "");
-  footnoteLabel.current = (number, text) =>
-    text
-      ? t("editor.footnote.labelWithText", { number, text })
-      : t("editor.footnote.label", { number });
+  footnoteLabel.current = (number, text, endnote) =>
+    endnote
+      ? text
+        ? t("editor.endnote.labelWithText", { number, text })
+        : t("editor.endnote.label", { number })
+      : text
+        ? t("editor.footnote.labelWithText", { number, text })
+        : t("editor.footnote.label", { number });
   /** The position of the formula whose LaTeX is being edited. */
   const [editingMath, setEditingMath] = useState<number | null>(null);
   /** A Mind still filling in from a Word file can't be edited until it has (#104). */
@@ -385,6 +390,7 @@ function MindEditorView({
           chartView,
           wordAtomView,
           wordBlockView,
+          pageBreakView,
         }),
         // Footnotes are numbered as the Mind's citation style counts its Citations (#289).
         CitationNumbers.configure({ form: () => formRef.current }),

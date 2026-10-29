@@ -404,7 +404,7 @@ export class DocxWriter {
   }
 
   /** Inline content in a paragraph of the text: runs, and a footnote's reference for each Citation. */
-  inlineXml(content: readonly Inline[]): string {
+  inlineXml(content: readonly Inline[], { note = false } = {}): string {
     return this.inline(content, {
       indent: 0,
       style: null,
@@ -412,6 +412,7 @@ export class DocxWriter {
       bold: false,
       width: this.textWidth,
       align: null,
+      ...(note && { note: true }),
     });
   }
 
@@ -839,6 +840,9 @@ export class DocxWriter {
           break;
         case "break":
           xml += "<w:r><w:br/></w:r>";
+          break;
+        case "pageBreak":
+          if (!context.note) xml += '<w:r><w:br w:type="page"/></w:r>';
           break;
         case "figure":
           xml += run(item.figure.shown, { bold: context.bold });

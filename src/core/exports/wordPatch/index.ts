@@ -27,6 +27,7 @@ import {
   FOOTNOTE_NODE,
   type FormattedCitations,
   IMAGE_NODE,
+  PAGE_BREAK_NODE,
   type WordExportLoss,
   type WordExportReport,
 } from "../../api";
@@ -56,7 +57,8 @@ import {
   isFurniture,
   mindJson,
 } from "./mind";
-import { WordPackageWriter, WordPartError } from "./package";
+import { notesSplices } from "./notes";
+import { RELATIONSHIP_TYPES, WordPackageWriter, WordPartError } from "./package";
 import { currentTokens, type Token } from "./paragraph";
 import {
   DocumentComments,
@@ -66,6 +68,7 @@ import {
   PatchTarget,
   reserveIds,
 } from "./parts";
+import { applySplices } from "./text";
 
 export interface WordPatchInput {
   /** The package kept when the Mind was imported. */
@@ -208,6 +211,7 @@ export async function exportWordPatch(input: WordPatchInput): Promise<WordPatchR
     const special =
       node.type === CITATION_NODE ||
       node.type === FOOTNOTE_NODE ||
+      node.type === PAGE_BREAK_NODE ||
       node.type === "inlineMath" ||
       (node.type === IMAGE_NODE && !node.attrs?.source);
     return element && special ? readInlineNodes([element], options) : [];
@@ -309,6 +313,35 @@ export async function exportWordPatch(input: WordPatchInput): Promise<WordPatchR
     );
   }
   if (text !== base.text) writer.set(pkg.part, text);
+
+  const endnotes = base.notes.endnote;
+  const endnoteLinks = endnotes ? await writer.relationshipsOf(endnotes.name) : null;
+  const notes = notesSplices({
+    base,
+    current,
+    plan,
+    edited: (footnote) => {
+      const id = footnote.attrs?.id;
+      const source = typeof id === "string" ? wordSourceOf(doc, id) : null;
+      const element = yOf.get(footnote);
+      return !source || !element || wordFingerprint(element) !== source.f;
+    },
+    tokensOf: (content) => currentTokens(content, specialOf, textOf, reading),
+    special: (inline) => docxWriter.inlineXml([inline], { note: true }),
+    link: (kind, href) =>
+      kind === "footnote" || !endnoteLinks
+        ? target.link(href, true)
+        : endnoteLinks.add(RELATIONSHIP_TYPES.hyperlink, href, true),
+    linkStyle: styles.find("character", "Hyperlink"),
+    addLinkStyle: () => styles.id("hyperlink"),
+    ids: target.ids,
+    review,
+    reading,
+  });
+  if (base.notes.footnote) footnotes.edit(base.notes.footnote.text, notes.footnote);
+  if (endnotes && notes.endnote.length > 0) {
+    writer.set(endnotes.name, applySplices(endnotes.text, notes.endnote));
+  }
   footnotes.add(docxWriter.footnotes);
   await footnotes.flush();
   await comments.flush(review.comments);

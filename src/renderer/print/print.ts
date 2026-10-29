@@ -195,6 +195,10 @@ class Paginator {
     const queue = [...blocks];
     for (let block = queue.shift(); block; block = queue.shift()) {
       const page = this.page;
+      if (block.classList.contains("page-break")) {
+        if (page.body.childElementCount > 0) this.page = this.newPage();
+        continue;
+      }
       if (block.classList.contains("pack-page") && page.body.childElementCount > 0) {
         this.page = this.newPage();
         queue.unshift(block);

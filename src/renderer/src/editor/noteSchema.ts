@@ -37,6 +37,7 @@ import {
   TextSize,
 } from "./formatSchema";
 import { Numbering } from "./numbering";
+import { PageBreak } from "./pageBreakSchema";
 import { ProposalAttributes, ProposalDelete, ProposalInsert } from "./proposalSchema";
 import { Answer, MindDocument, Question, QuestionContextFlag } from "./questionSchema";
 import {
@@ -99,6 +100,8 @@ export interface NoteSchemaOptions {
   /** Draws what a Word import kept as it is (#104): in the text, and as Blocks. */
   wordAtomView?: NodeViewRenderer;
   wordBlockView?: NodeViewRenderer;
+  /** Draws page breaks as a line across the text (#746). */
+  pageBreakView?: NodeViewRenderer;
 }
 
 /**
@@ -112,7 +115,7 @@ export interface NoteSchemaOptions {
  * text. Charts, drawn from a table or from cited figures, each value with its
  * Citation (#436). Comparison tables, top-level only (#98). What a Word
  * import kept as it is, and its inline pictures (#104), and the file's look
- * (see `wordSchema`). Paragraph formatting, and text colour, font, size and raise (see
+ * (see `wordSchema`). Page breaks (#746). Paragraph formatting, and text colour, font, size and raise (see
  * `formatSchema`).
  * Proposals the AI made, waiting for the User (see `proposalSchema`).
  * AI text, the words the AI wrote that the User hasn't made their own (see `aiText`).
@@ -135,6 +138,7 @@ export function noteExtensions({
   comparisonViews,
   wordAtomView,
   wordBlockView,
+  pageBreakView,
 }: NoteSchemaOptions = {}): Extensions {
   const onClick = onEditMath && ((_node: unknown, pos: number) => onEditMath(pos));
   const CodeBlock = CodeBlockLowlight.extend({
@@ -188,6 +192,7 @@ export function noteExtensions({
     WordAtom.configure({ view: wordAtomView ?? null }),
     WordBlock.configure({ view: wordBlockView ?? null }),
     InlineImage,
+    PageBreak.configure({ view: pageBreakView ?? null }),
     WordLookAttribute,
     WordRun,
     WordTab,

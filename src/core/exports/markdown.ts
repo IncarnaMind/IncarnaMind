@@ -300,6 +300,9 @@ class MarkdownWriter {
         return `[^${this.number({ kind: "note", text: this.inline(item.content, { table: false, note: true }) })}]`;
       case "image":
         return image(item.image.src, item.image.alt, context);
+      // Markdown has no pages.
+      case "pageBreak":
+        return "";
       case "cite": {
         // A style's note is a footnote of its own; in the text, or in a footnote's text, its words.
         if (item.note && !context.note) {

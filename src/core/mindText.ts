@@ -81,6 +81,7 @@ import {
   DOCUMENT_CHIP_NODE,
   FOOTNOTE_NODE,
   GENERATED_MARK,
+  PAGE_BREAK_NODE,
   PARAGRAPH_FORMAT_ATTRIBUTE,
   type ParagraphFormat,
   PROPOSAL_ATTRIBUTE,
@@ -215,6 +216,8 @@ export type Inline = (
     }
   | { kind: "math"; latex: string }
   | { kind: "break" }
+  /** A page break (#746): where the text after it starts a new page, in a writer with pages. */
+  | { kind: "pageBreak" }
   | { kind: "citation"; footnote: Footnote; work: CitedWork }
   /**
    * A calculated figure (ADR-0021), written as `figure.shown` where a writer has nothing more to
@@ -608,6 +611,7 @@ const INLINE_TYPES: ReadonlySet<string> = new Set([
   CALCULATED_FIGURE_NODE,
   CITATION_NODE,
   FOOTNOTE_NODE,
+  PAGE_BREAK_NODE,
   WORD_ATOM_NODE,
   DOCUMENT_CHIP_NODE,
 ]);
@@ -1041,6 +1045,9 @@ function readInlineElement(
       break;
     case "hardBreak":
       add({ kind: "break" });
+      break;
+    case PAGE_BREAK_NODE:
+      if (!inFootnote) add({ kind: "pageBreak" });
       break;
     case "image":
       add({ kind: "image", image: readImage(child) });

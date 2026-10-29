@@ -1,13 +1,8 @@
-import type { Editor } from "@tiptap/core";
 import { canInsertFootnote, insertFootnote } from "../editor/footnoteSchema";
-import { noteHolding } from "../editor/noteKeymap";
+import { editableNoteAt } from "../editor/noteKeymap";
 import type { Command, CommandContext } from "./registry";
 
-/** The note's keymap gives a command the Block at the cursor as its focus. */
-function noteOf(ctx: CommandContext): Editor | null {
-  const editor = ctx.focus?.kind === "block" ? noteHolding(ctx.focus.id) : null;
-  return editor && !editor.isDestroyed && editor.isEditable ? editor : null;
-}
+const noteOf = (ctx: CommandContext) => editableNoteAt(ctx.focus);
 
 /**
  * Insert footnote (#284), as in Word and Google Docs: ⌥⌘F (Ctrl+Alt+F) adds

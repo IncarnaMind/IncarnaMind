@@ -64,6 +64,7 @@ import {
   tagCommands,
 } from "./objects";
 import { pageCommands } from "./page";
+import { pageBreakCommands } from "./pageBreaks";
 import { paletteCommands } from "./palette";
 import { peekCommands } from "./peek";
 import { proposalCommands } from "./proposals";
@@ -503,6 +504,7 @@ const appCommands: readonly Command[] = [
     run: () => findHandle.current?.previous(),
   },
   ...footnoteCommands,
+  ...pageBreakCommands,
   ...formatCommands,
   ...linkCommands,
   ...bibliographyCommands,

@@ -232,8 +232,16 @@ export interface CreateMindInput {
  *   writes the table back without it when it changes it, so it opens these
  *   Notes read-only. Older content is version 33 content as it is, its table
  *   called "Comparison table" until the User names it.
+ * - 34: a Word file's footnotes and endnotes are the Note's own footnotes
+ *   (#746): `FOOTNOTE_NODE` gains `source` and `endnote`, and its text may hold
+ *   what the import keeps as is (`WORD_ATOM_NODE`); page breaks are
+ *   `PAGE_BREAK_NODE`, in every Note; a column break is an atom of its own
+ *   kind. An older version's editor would strip the attributes and the node,
+ *   so it opens these Notes read-only. A Note imported before keeps its
+ *   read-only notes and breaks until it is opened, when they are converted
+ *   from its kept package (`convertWordParts`).
  */
-export const CONTENT_SCHEMA_VERSION = 33;
+export const CONTENT_SCHEMA_VERSION = 34;
 
 /**
  * The key, in the Mind's settings map (`MIND_SETTINGS_FIELD`), of the content
@@ -1320,8 +1328,21 @@ export const CALCULATED_FIGURE_NODE = "calculatedFigure";
  * across edits. User footnotes and Citations share one numbering, in the
  * order they appear: a Citation's footnote is its reference, and a Citation
  * inside a footnote is part of that footnote's text, with no number of its own.
+ *
+ * A Word file's footnote or endnote is one too (#746): `source` names its
+ * reference in the main document part ("w:footnoteReference#2"), as an atom's
+ * does, and its text may hold what the import keeps as is (`WORD_ATOM_NODE`).
+ * An endnote (`endnote: true`) is numbered on its own, as the file numbers
+ * them, and export writes it back as an endnote.
  */
 export const FOOTNOTE_NODE = "footnote";
+
+/**
+ * The node type of a page break, in any Note (#746): an inline node, drawn as
+ * a line across the text, which export writes as Word's page break. One
+ * imported from a Word file names its XML in `source`, as an atom does.
+ */
+export const PAGE_BREAK_NODE = "pageBreak";
 
 /**
  * The node type of a Document chip, which the User writes with "@" in a Note:
@@ -1355,8 +1376,12 @@ export const IMAGE_NODE = "image";
 
 /**
  * What a kept-as-is atom is. Bookmarks, other ranges (a comment's, an
- * editing permission's, a move's), section breaks and page breaks are
- * invisible; the rest show their text, or a mark of their own.
+ * editing permission's, a move's) and column breaks are invisible; a section
+ * break is a line across the text; the rest show their text, or a mark of
+ * their own. "pageBreak", "footnote" and "endnote" are what a Note imported
+ * before #746 holds until it is converted (`PAGE_BREAK_NODE`, `FOOTNOTE_NODE`),
+ * and a note the Note's footnote can't hold (a table, someone's tracked
+ * change) stays one.
  */
 export type WordAtomKind =
   | "field"
@@ -1378,6 +1403,7 @@ export type WordAtomKind =
   | "range"
   | "sectionBreak"
   | "pageBreak"
+  | "columnBreak"
   | "table"
   | "header"
   | "footer"
@@ -1515,6 +1541,20 @@ export interface WordImportReport {
    * Absent on reports from before #108.
    */
   keptChanges?: Partial<Record<KeptChangeKind, number>>;
+  /** Footnotes, endnotes and page breaks made the Note's own (#746); absent on reports from before. */
+  footnotes?: number;
+  endnotes?: number;
+  pageBreaks?: number;
+}
+
+/**
+ * How a Word file numbers its footnotes and endnotes (#746), from its
+ * settings: Word's number format ("decimal", "lowerRoman", "chicago"…) and
+ * the number the first one takes.
+ */
+export interface WordNoteNumbering {
+  footnote: { format: string; start: number };
+  endnote: { format: string; start: number };
 }
 
 /**

@@ -1,10 +1,14 @@
 import type { NodeViewRenderer } from "@tiptap/core";
 import type { Node as ProseMirrorNode } from "@tiptap/pm/model";
+import type { Decoration } from "@tiptap/pm/view";
 import type { WordAtomAttributes, WordAtomKind } from "../../../core/api";
 import type { MessageKey } from "../../../shared/i18n";
-import { INVISIBLE_WORD_ATOMS, readWordAtom } from "../../../shared/wordFiles";
+import { BREAK_WORD_ATOMS, INVISIBLE_WORD_ATOMS, readWordAtom } from "../../../shared/wordFiles";
 import { languageNow, translateNow } from "../i18n";
 import { pageDate } from "../webPages";
+import { footnoteNumberOf } from "./citationNumbers";
+import { noteMarker } from "./noteLabels";
+import { drawBreak } from "./PageBreakView";
 
 /** Atoms drawn as a box on a line of their own, as Word places them. */
 const BOXED: ReadonlySet<WordAtomKind> = new Set(["textBox", "shape", "smartArt", "chart"]);
@@ -71,7 +75,7 @@ function boxLines(atom: WordAtomAttributes): HTMLElement[] {
   });
 }
 
-/** Draws an atom in the text, by its kind. */
+/** Draws an atom in the text, by its kind; a note's mark with the number it has now, if any. */
 function drawAtom(dom: HTMLElement, atom: WordAtomAttributes): void {
   dom.replaceChildren();
   dom.className = "word-atom";
@@ -80,6 +84,12 @@ function drawAtom(dom: HTMLElement, atom: WordAtomAttributes): void {
   dom.removeAttribute("title");
   dom.removeAttribute("aria-label");
   dom.removeAttribute("role");
+  if (BREAK_WORD_ATOMS.has(atom.kind)) {
+    drawBreak(dom, `wordAtom.kind.${atom.kind}`);
+    dom.dataset.kind = atom.kind;
+    dom.dataset.testid = atom.kind === "sectionBreak" ? "section-break" : "page-break";
+    return;
+  }
   if (INVISIBLE_WORD_ATOMS.has(atom.kind)) {
     dom.classList.add("word-atom-hidden");
     dom.setAttribute("aria-hidden", "true");
@@ -113,15 +123,23 @@ function drawAtom(dom: HTMLElement, atom: WordAtomAttributes): void {
  * Final-30-Word-Import): a field or a control is a quiet chip with its text;
  * a text box, a shape, SmartArt or a chart a box on its own line, its label
  * ("Text box · kept as is") showing on hover or when reached by keyboard; a
- * footnote's mark its number, raised; a comment a small mark; someone else's
- * insertion underlined and deletion struck, read-only for now (#108); bookmarks,
- * ranges and breaks nothing at all. Hovering any of them says what it is.
+ * note the Note's footnote can't hold its mark, raised, numbered with the
+ * footnotes; a comment a small mark; someone else's insertion underlined and
+ * deletion struck, read-only for now (#108); a section break a line across
+ * the text (#746); bookmarks, ranges and column breaks nothing at all.
+ * Hovering any of them says what it is.
  *
  * A plain view: there can be thousands (bookmarks), and none has content.
  */
-export const wordAtomView: NodeViewRenderer = ({ node: initial }) => {
-  const atomOf = (node: ProseMirrorNode) => readWordAtom(node.attrs);
-  let atom = atomOf(initial);
+export const wordAtomView: NodeViewRenderer = ({ node: initial, decorations, editor }) => {
+  const atomOf = (node: ProseMirrorNode, shown: readonly Decoration[]) => {
+    const read = readWordAtom(node.attrs);
+    const number = footnoteNumberOf(shown);
+    return number > 0 && (read.kind === "footnote" || read.kind === "endnote")
+      ? { ...read, label: noteMarker(editor, number, read.kind === "endnote") }
+      : read;
+  };
+  let atom = atomOf(initial, decorations as readonly Decoration[]);
   const display = BOXED.has(atom.kind) || atom.info?.display === true;
   const dom = document.createElement(
     atom.kind === "footnote" || atom.kind === "endnote" ? "sup" : "span",
@@ -130,9 +148,9 @@ export const wordAtomView: NodeViewRenderer = ({ node: initial }) => {
   drawAtom(dom, atom);
   return {
     dom,
-    update(next: ProseMirrorNode) {
+    update(next: ProseMirrorNode, nextDecorations: readonly Decoration[]) {
       if (next.type !== initial.type) return false;
-      const nextAtom = atomOf(next);
+      const nextAtom = atomOf(next, nextDecorations);
       if ((BOXED.has(nextAtom.kind) || nextAtom.info?.display === true) !== display) return false;
       atom = nextAtom;
       drawAtom(dom, atom);

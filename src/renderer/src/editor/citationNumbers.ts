@@ -9,6 +9,7 @@ import {
   CITATION_NODE,
   type CitationAttributes,
   FOOTNOTE_NODE,
+  WORD_ATOM_NODE,
 } from "../../../core/api";
 import { readCalculatedFigureAttributes } from "../../../shared/calculatedFigures";
 import type { CitationForm } from "../../../shared/citationStyles";
@@ -31,7 +32,11 @@ export interface NumberedCitation {
   footnote: boolean;
 }
 
-/** A footnote the User wrote, with its number among the Mind's footnotes, from 1. */
+/**
+ * A footnote the User wrote, with its number among the Mind's footnotes, from
+ * 1; an endnote (#746) is numbered among the endnotes. A Word file's note the
+ * import kept as is (`kept`) counts too, as the file counts it.
+ */
 export interface NumberedFootnote {
   /** Where the footnote node is. */
   pos: number;
@@ -39,7 +44,16 @@ export interface NumberedFootnote {
   /** Its stable ID (`BLOCK_ID_ATTRIBUTE`). */
   id: string;
   node: ProseMirrorNode;
+  endnote: boolean;
+  kept: boolean;
 }
+
+/** A Word file's note kept as is, read-only, which numbers with the footnotes or the endnotes. */
+const keptNote = (node: ProseMirrorNode): "footnote" | "endnote" | null => {
+  if (node.type.name !== WORD_ATOM_NODE) return null;
+  const kind: unknown = node.attrs.kind;
+  return kind === "footnote" || kind === "endnote" ? kind : null;
+};
 
 export interface NumberedFigure {
   pos: number;
@@ -86,6 +100,7 @@ export function numberFootnotes(
   const footnotes: NumberedFootnote[] = [];
   const figures: NumberedFigure[] = [];
   let number = 0;
+  let endnotes = 0;
   let cited = 0;
   doc.forEach((block, offset, index) => {
     const id = block.attrs[BLOCK_ID_ATTRIBUTE];
@@ -93,14 +108,21 @@ export function numberFootnotes(
     let inBlock = 0;
     block.descendants((node, pos) => {
       const name = node.type.name;
-      if (name === FOOTNOTE_NODE) {
-        number += 1;
+      const kept = keptNote(node);
+      if (name === FOOTNOTE_NODE || kept) {
+        const endnote = kept ? kept === "endnote" : node.attrs.endnote === true;
+        const at = endnote ? ++endnotes : ++number;
         const footnoteId: unknown = node.attrs[BLOCK_ID_ATTRIBUTE];
         footnotes.push({
           pos: offset + 1 + pos,
-          number,
-          id: typeof footnoteId === "string" ? footnoteId : `${blockKey}:footnote:${number}`,
+          number: at,
+          id:
+            typeof footnoteId === "string"
+              ? footnoteId
+              : `${blockKey}:${endnote ? "endnote" : "footnote"}:${at}`,
           node,
+          endnote,
+          kept: kept !== null,
         });
         return false;
       }
@@ -149,7 +171,12 @@ const numberedIn = (textBlock: ProseMirrorNode) => {
   const found: ProseMirrorNode[] = [];
   textBlock.forEach((child) => {
     const name = child.type.name;
-    if (name === CITATION_NODE || name === FOOTNOTE_NODE || name === CALCULATED_FIGURE_NODE)
+    if (
+      name === CITATION_NODE ||
+      name === FOOTNOTE_NODE ||
+      name === CALCULATED_FIGURE_NODE ||
+      keptNote(child)
+    )
       found.push(child);
   });
   return found;

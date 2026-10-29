@@ -149,6 +149,11 @@ export class AtomPlan {
     return this.writer.get(source) === owner || COPYABLE.has(kind);
   }
 
+  /** The paragraph or Block that writes the atom's XML, if one does. */
+  ownerOf(source: string): NodeJSON | undefined {
+    return this.writer.get(source);
+  }
+
   /** Whether the atom is written somewhere. */
   written(source: string): boolean {
     return this.writer.has(source) || this.removed.has(source);
