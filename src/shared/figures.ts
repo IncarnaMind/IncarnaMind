@@ -2330,8 +2330,12 @@ function besideNumber(text: string, from: number, to: number): boolean {
   return [before, after].some((char) => char !== undefined && NUMBER_CHAR.test(char));
 }
 
-const WRITES_PERCENT = new RegExp(`${PERCENT_AFTER.source}|百分之`, "i");
-const WRITES_POINTS = new RegExp(`${POINTS_AFTER.source}|${LOOSE_POINTS_AFTER.source}`, "i");
+// "apps" doesn't write "pps": a sign or word counts only where no letter runs into it.
+const WRITES_PERCENT = new RegExp(`(?<![A-Za-z])(?:${PERCENT_AFTER.source})|百分之`, "i");
+const WRITES_POINTS = new RegExp(
+  `(?<![A-Za-z])(?:${POINTS_AFTER.source}|${LOOSE_POINTS_AFTER.source})`,
+  "i",
+);
 
 /**
  * Whether `text` writes `unit` anywhere, as a column heading ("Volume (tonnes)"), a unit line
@@ -2342,7 +2346,11 @@ export function writesUnit(text: string, unit: FigureUnit): boolean {
   if (unit.kind === "percent") return WRITES_PERCENT.test(text);
   if (unit.kind === "points") return WRITES_POINTS.test(text);
   if (unit.kind !== "other") return false;
-  return text.toLowerCase().includes(unit.word.toLowerCase().replace(/(?<=[a-z]{2})e?s$/, ""));
+  const word = unit.word.toLowerCase();
+  if (!/^[a-z]+$/.test(word)) return text.toLowerCase().includes(word);
+  // "cars" is written as "car" or "cars", never inside "care".
+  const forms = [word, `${word}s`, `${word}es`, word.replace(/e?s$/, ""), word.replace(/s$/, "")];
+  return new RegExp(`(?<![a-z])(?:${forms.join("|")})(?![a-z])`, "i").test(text);
 }
 
 /**

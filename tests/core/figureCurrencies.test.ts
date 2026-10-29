@@ -88,6 +88,8 @@ describe("A unit the Document doesn't state (#1452)", () => {
     ["毛利率为百分之十二。", "毛利率\t12", "12"],
     ["The margin rose 12 percentage points.", "The margin rose 12.", "12"],
     ["毛利率上升12个百分点。", "毛利率\t12", "12"],
+    ["The fleet was 54 cars.", "Care homes\t54", "54"],
+    ["Revenue rose 3 pps.", "Our apps grew\t3", "3"],
   ])("%s against %j gives %s", (claim, cited, amount) => {
     expect(unitNotStated(claim, read(cited))).toMatchObject({ kind: "unit", amount });
   });
