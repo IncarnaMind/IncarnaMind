@@ -4,8 +4,8 @@
  * does and has it load its modules through the engine's own loaders (../core/engineModules), loads
  * the OS sandbox's module here, and runs a line of Python in the hidden Analyses window. It writes
  * what it found to <file> as JSON and exits, with 1 when anything didn't load. No model is
- * downloaded. e2e/packaged/engines.packaged.ts runs it, and the release runs that on every app it
- * builds before it uploads one.
+ * downloaded. e2e/packaged/engines.packaged.ts runs it, and the release runs that before it
+ * uploads anything.
  */
 import { constants } from "node:fs";
 import { access, writeFile } from "node:fs/promises";
