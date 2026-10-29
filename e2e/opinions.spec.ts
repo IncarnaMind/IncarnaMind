@@ -309,7 +309,7 @@ for (const language of ["en", "zh-CN"] as const) {
             "mixed",
             mixed,
             checked("mixed-check", mixed, [
-              part(0, words.fact.length, "fact", [citation]),
+              part(0, words.fact.length, "fact", [{ ...citation, id: "mixed-fact-receipt" }]),
               part(words.fact.length, mixed.length, "opinion"),
             ]),
           ),
