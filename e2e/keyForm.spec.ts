@@ -449,7 +449,7 @@ test("the provider's own line on what it does with the data sits under the sente
     await acceptPlainTextKeys(window);
     for (const [value, link, lead] of [
       ["en", "Data use ↗", ""],
-      ["zh-CN", "数据使用 ↗", "数据使用："],
+      ["zh-CN", "条款 ↗", "数据使用："],
     ] as const) {
       await language(window, value);
       const card = await openKeyForm(window);
@@ -467,7 +467,7 @@ test("the provider's own line on what it does with the data sits under the sente
     await expect(line.getByRole("link")).toHaveText("Data use ↗");
     await language(window, "zh-CN");
     await expect(line).toContainText("数据使用：");
-    await expect(line.getByRole("link")).toHaveText("数据使用 ↗");
+    await expect(line.getByRole("link")).toHaveText("条款 ↗");
   } finally {
     await app.close();
   }
