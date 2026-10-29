@@ -4220,6 +4220,28 @@ export function createCore(adapters: CoreAdapters): Core {
     compareDocuments: (input) => inFlow("comparison", () => comparisons.compareDocuments(input)),
     fillComparisonTable: (input) =>
       inFlow("comparison", () => comparisons.fillComparisonTable(input)),
+    moveComparisonColumn: (input) =>
+      inFlow("comparison", async () => comparisons.moveColumn(input)),
+    editComparisonColumn: (input) =>
+      inFlow("comparison", async () => comparisons.editColumn(input)),
+    insertComparisonColumn: (input) =>
+      inFlow("comparison", async () => comparisons.insertColumn(input)),
+    duplicateComparisonColumn: (input) =>
+      inFlow("comparison", async () => comparisons.duplicateColumn(input)),
+    removeComparisonColumn: (input) =>
+      inFlow("comparison", async () => comparisons.removeColumn(input)),
+    resizeComparisonColumn: (input) =>
+      inFlow("comparison", async () => comparisons.resizeColumn(input)),
+    setComparisonColumnHidden: (input) =>
+      inFlow("comparison", async () => comparisons.hideColumn(input)),
+    undoComparisonStructure: (input) =>
+      inFlow("comparison", () => comparisons.undoStructure(input)),
+    redoComparisonStructure: (input) =>
+      inFlow("comparison", () => comparisons.redoStructure(input)),
+    watchComparisonMind: (input) => comparisons.watchMind(input),
+    unwatchComparisonMind: (input) => comparisons.unwatchMind(input),
+    acknowledgeComparisonStructure: (input) => comparisons.acknowledge(input),
+    forgetComparisonWindow: (input) => comparisons.forgetWindow(input),
     stopComparisonTable: (input) => comparisons.stop(input),
     listFillingComparisons: async () => comparisons.filling(),
     listTasks: async () => tasks.list(),
@@ -4817,12 +4839,12 @@ export function createCore(adapters: CoreAdapters): Core {
     },
     saveComparisonExport: async (input) => {
       const ref: Record<string, unknown> = isRecord(input) ? input : {};
-      const { fileName, data, unverifiedCitations } = comparisonExport.workbook(
+      const { fileName, data, unverifiedCitations, hiddenColumns } = comparisonExport.workbook(
         ref.mindId,
         ref.tableId,
       );
       const saved = await saveExport(fileName, data);
-      return saved.status === "saved" ? { ...saved, unverifiedCitations } : saved;
+      return saved.status === "saved" ? { ...saved, unverifiedCitations, hiddenColumns } : saved;
     },
     saveSkillExport: async (skillId) => {
       const { fileName, data } = await skills.exportZip(skillId);

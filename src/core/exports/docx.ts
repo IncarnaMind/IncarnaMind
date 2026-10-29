@@ -483,7 +483,7 @@ export class DocxWriter {
       case "rule":
         return paragraph({ indent, bottomBorder: true }, "");
       case "table":
-        return this.table(block.rows, context);
+        return this.table(block.rows, context, block.widths);
       case "image":
         return paragraph({ style: context.style, indent }, this.image(block.image, context));
       case "chart":
@@ -698,28 +698,46 @@ export class DocxWriter {
   }
 
   /**
-   * A Word table on an even grid. A cell over several rows is merged down
+   * A Word table on an even grid, or, given `widths`, with the columns at the
+   * shares they have on the page. A cell over several rows is merged down
    * (`w:vMerge`): it starts in its first row and continues, empty, in the
    * others, as Word writes one.
    */
-  private table(rows: readonly TableCell[][], context: Context): string {
+  private table(
+    rows: readonly TableCell[][],
+    context: Context,
+    widths?: readonly number[],
+  ): string {
     if (rows.length === 0) return "";
     const layout = tableLayout(rows);
     const { columns } = layout;
-    const column = Math.floor((context.width - context.indent) / columns);
-    const cell = (content: string, span: number, header: boolean, merge: string) =>
-      `<w:tc><w:tcPr><w:tcW w:w="${column * span}" w:type="dxa"/>${span > 1 ? `<w:gridSpan w:val="${span}"/>` : ""}${merge}${header ? '<w:shd w:val="clear" w:color="auto" w:fill="F3F4F6"/>' : ""}</w:tcPr>${content}</w:tc>`;
+    const available = Math.max(1, Math.floor(context.width - context.indent));
+    const shares =
+      widths && widths.length === columns && widths.every((width) => width > 0) ? widths : null;
+    const total = shares ? shares.reduce((sum, width) => sum + width, 0) : columns;
+    const sizes = Array.from({ length: columns }, (_unused, at) =>
+      Math.max(1, Math.floor((available * (shares?.[at] ?? 1)) / total)),
+    );
+    if (shares) {
+      const used = sizes.reduce((sum, size) => sum + size, 0);
+      sizes[columns - 1] = Math.max(1, (sizes[columns - 1] ?? 1) + available - used);
+    }
+    const tableWidth = sizes.reduce((sum, size) => sum + size, 0);
+    const span = (at: number, colspan: number) =>
+      sizes.slice(at, at + colspan).reduce((sum, size) => sum + size, 0);
+    const cell = (content: string, colspan: number, header: boolean, merge: string, at: number) =>
+      `<w:tc><w:tcPr><w:tcW w:w="${span(at, colspan)}" w:type="dxa"/>${colspan > 1 ? `<w:gridSpan w:val="${colspan}"/>` : ""}${merge}${header ? '<w:shd w:val="clear" w:color="auto" w:fill="F3F4F6"/>' : ""}</w:tcPr>${content}</w:tc>`;
 
-    let xml = `<w:tbl><w:tblPr><w:tblStyle w:val="${escapeXml(this.styles.tableGrid)}"/><w:tblW w:w="${column * columns}" w:type="dxa"/>${context.indent ? `<w:tblInd w:w="${context.indent}" w:type="dxa"/>` : ""}</w:tblPr>`;
-    xml += `<w:tblGrid>${`<w:gridCol w:w="${column}"/>`.repeat(columns)}</w:tblGrid>`;
+    let xml = `<w:tbl><w:tblPr><w:tblStyle w:val="${escapeXml(this.styles.tableGrid)}"/><w:tblW w:w="${tableWidth}" w:type="dxa"/>${context.indent ? `<w:tblInd w:w="${context.indent}" w:type="dxa"/>` : ""}</w:tblPr>`;
+    xml += `<w:tblGrid>${sizes.map((size) => `<w:gridCol w:w="${size}"/>`).join("")}</w:tblGrid>`;
     layout.rows.forEach((slots, index) => {
       const header = (rows[index] as TableCell[]).every((each) => each.header);
       xml += `<w:tr>${header ? "<w:trPr><w:tblHeader/></w:trPr>" : ""}`;
-      let filled = 0;
+      let at = 0;
       for (const { cell: each, continued } of slots) {
         if (!each) {
-          xml += cell("<w:p/>", 1, false, "");
-          filled++;
+          xml += cell("<w:p/>", 1, false, "", at);
+          at++;
           continue;
         }
         const merge =
@@ -731,7 +749,7 @@ export class DocxWriter {
               style: null,
               listDepth: 0,
               bold: each.header,
-              width: column * each.colspan,
+              width: span(at, each.colspan),
               align: each.align,
               pending: context.pending,
             });
@@ -741,10 +759,11 @@ export class DocxWriter {
           each.colspan,
           each.header,
           merge,
+          at,
         );
-        filled += each.colspan;
+        at += each.colspan;
       }
-      for (; filled < columns; filled++) xml += cell("<w:p/>", 1, false, "");
+      for (; at < columns; at++) xml += cell("<w:p/>", 1, false, "", at);
       xml += "</w:tr>";
     });
     return `${xml}</w:tbl>`;
