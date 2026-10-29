@@ -694,6 +694,30 @@ describe("The Minds' Tools find what the model names", { timeout: 30_000 }, () =
     },
   );
 
+  // protects=a rewrite that answers with no text and a comment, for a request that doesn't ask to remove, is a failure whose result says the text is as it was; fails_when=the model is left with the comment alone and repeats "already removed"; no_claim=how the model words its reply.
+  test("a rewrite's comment with no text is reported as nothing changed, whatever it says", async () => {
+    const model = scriptedModel((call: ModelCall): ScriptedReply => {
+      if (/<passage>/.test(call.prompt))
+        return { text: "<why>The section was already removed.</why>" };
+      return call.results.length === 0
+        ? { calls: [{ tool: "edit_mind", input: { instruction: "Tidy the section" } }] }
+        : { text: "Done." };
+    });
+    const { core, mind, client } = await setUp(model);
+    writeMind(client, [note("Pay is monthly."), note("Work is full time.")]);
+    await client.settled();
+    const before = shownWithChanges(client);
+
+    await ask(core, { text: "Tidy it", mindId: mind.id });
+
+    await client.settled();
+    expect(shownWithChanges(client)).toEqual(before);
+    expect(lastResult(model)).toContain("The section was already removed.");
+    expect(lastResult(model)).toContain(
+      "the text is as it was: don't say it was changed, removed or already done",
+    );
+  });
+
   // protects=a section the Mind doesn't have is refused with the Mind's headings, so the model can name one on its next call; fails_when=the refusal gives no headings, or something is changed; no_claim=that a real model then names one.
   test("a section the Mind doesn't have is refused with the Mind's own headings", async () => {
     const model = toolModel(

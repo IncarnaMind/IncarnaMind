@@ -857,7 +857,7 @@ function notProposed(
     case "failed":
       return new Refusal(
         { kind: "model", mindId, message: result.error.message },
-        `The change couldn't be made: ${result.error.message} Nothing was proposed.`,
+        `The change couldn't be made: ${result.error.message} Nothing was proposed and the text is as it was: don't say it was changed, removed or already done.`,
       );
     case "cancelled":
       return new Refusal(
