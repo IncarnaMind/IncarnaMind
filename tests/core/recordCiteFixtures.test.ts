@@ -243,7 +243,7 @@ function expectedPassage(fixture: AcceptedRecordCiteFixture): string {
     }
     case "transcript time":
     case "transcript time range":
-      return "Exact answer";
+      return "Bob: Exact answer";
     default:
       return "";
   }
