@@ -1,8 +1,9 @@
 /**
- * A Document's keyword rows carry a version of their own, which never runs
- * past the Passages they were built from (#2185): a Document whose file is
- * missing at start keeps its read version, so it is read again once the file
- * is back, and its rows are rebuilt from the Passages that read makes.
+ * A Document's keyword rows carry a version of their own, and a rewrite that
+ * reads no file never moves the version its Passages were read at (#2185): a
+ * Document whose file is missing at start keeps that version, so it is read
+ * again once the file is back, and its rows are rebuilt from the Passages the
+ * read makes.
  */
 import { readFileSync } from "node:fs";
 import { rename } from "node:fs/promises";
