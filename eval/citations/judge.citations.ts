@@ -17,6 +17,7 @@ import {
   type Judge,
   judgeAll,
   judgementsFile,
+  judgementsUsd,
   modelJudge,
   readJudgements,
   SCRIPTED_JUDGES,
@@ -59,11 +60,9 @@ test("the citation benchmark's judges", async () => {
   // What earlier judging spent counts against the cap too.
   let spent = files
     .flatMap((file) =>
-      judges.flatMap((judge) => [
-        ...readJudgements(judgementsFile(settings.runsDir, file, judge.id)).values(),
-      ]),
+      judges.map((judge) => judgementsUsd(judgementsFile(settings.runsDir, file, judge.id))),
     )
-    .reduce((sum, judgement) => sum + (judgement.usd ?? 0), 0);
+    .reduce((sum, usd) => sum + usd, 0);
   for (const file of files) {
     const run = readRun(join(settings.runsDir, file));
     if (!run) continue;

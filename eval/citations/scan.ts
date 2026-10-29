@@ -131,6 +131,7 @@ export function scanText(
 }
 
 const TEXT_FILE = /\.(?:json|jsonl|md|ts|txt|csv)$/i;
+const JSON_FILE = /\.jsonl?$/i;
 
 const ESCAPED: Readonly<Record<string, string>> = {
   n: "\n",
@@ -241,7 +242,7 @@ export async function scanBenchmark(
         continue;
       }
       const text = readFileSync(path, "utf8");
-      if (!/\.jsonl?$/.test(path)) {
+      if (!JSON_FILE.test(path)) {
         findings.push(...scanText(text, shown(path), { allowed: allowedHashes, secrets }));
         continue;
       }

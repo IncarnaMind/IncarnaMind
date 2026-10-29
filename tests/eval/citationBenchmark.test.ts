@@ -3,11 +3,20 @@
  * (#1999), each with a known hit and a known miss. No model, no network.
  */
 import { createHash } from "node:crypto";
+import { mkdtempSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, test } from "vitest";
 import { type CitationQuestion, loadCitationSet } from "../../eval/citations/checkSet";
 import { capProblem, estimate, priceOf } from "../../eval/citations/cost";
-import { finalVerdict, type Judgement, readVerdict } from "../../eval/citations/judges";
+import {
+  finalVerdict,
+  type Judgement,
+  judgementsUsd,
+  readJudgements,
+  readVerdict,
+} from "../../eval/citations/judges";
 import { resultsPage } from "../../eval/citations/results";
 import type { CitationsRun, RunAnswer, RunCitation } from "../../eval/citations/runs";
 import { keptAnswers, noTokens, resumeProblem, spentUsd } from "../../eval/citations/runs";
@@ -210,6 +219,14 @@ describe("The citation benchmark (#1999)", () => {
     expect(readVerdict("Reasoning… so: supported").verdict).toBe("supported");
     expect(readVerdict("I can't tell.").verdict).toBe("unread");
     expect(readVerdict('{"verdict": "partially supported"}').verdict).toBe("unread");
+
+    // A verdict asked again replaces the unreadable one, but both were paid for.
+    const path = join(mkdtempSync(join(tmpdir(), "judgements-")), "run.judge.jsonl");
+    const line = (verdict: Judgement["verdict"], usd: number) =>
+      JSON.stringify({ ...judged(verdict), key: "en-014#1", usd });
+    writeFileSync(path, `${line("unread", 0.01)}\n${line("supported", 0.02)}\n`);
+    expect(readJudgements(path).get("en-014#1")?.verdict).toBe("supported");
+    expect(judgementsUsd(path)).toBeCloseTo(0.03);
   });
 
   test("with the check: what it catches of each miss, what it lets through, and its own false alarms", () => {

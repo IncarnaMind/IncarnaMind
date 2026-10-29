@@ -198,6 +198,15 @@ export function readJudgements(path: string): Map<string, Judgement> {
   return judged;
 }
 
+/** What every verdict in a judgements file cost, those asked again included, in US dollars. */
+export function judgementsUsd(path: string): number {
+  if (!existsSync(path)) return 0;
+  return readFileSync(path, "utf8")
+    .split("\n")
+    .filter((line) => line.trim())
+    .reduce((sum, line) => sum + ((JSON.parse(line) as Judgement).usd ?? 0), 0);
+}
+
 export interface Settlement {
   verdict: Verdict;
   /** Why, in a sentence: what the person read in the Passage. */
