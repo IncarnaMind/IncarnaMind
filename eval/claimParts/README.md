@@ -1,6 +1,6 @@
 # Claim parts evaluation
 
-Frozen synthetic set for [#2002](https://github.com/IncarnaMind/IncarnaMind/issues/2002): **72 cases / 36 English–Simplified Chinese pairs**, 112 logical Sources and 72 isolated Document profiles. [Before baseline](https://github.com/IncarnaMind/IncarnaMind/issues/2002#issuecomment-6481763531) is posted; **after results: TBD**.
+Frozen synthetic set for [#2002](https://github.com/IncarnaMind/IncarnaMind/issues/2002): **72 cases / 36 English–Simplified Chinese pairs**, 112 logical Sources and 72 isolated Document profiles. [Before baseline](https://github.com/IncarnaMind/IncarnaMind/issues/2002#issuecomment-6481763531) was posted before implementation. The feature pull request carries the complete measured outcomes, including misses and the failed first candidate.
 
 - [cases.json](cases.json) keeps exact sentences, UTF-16 `[start,end)` spans, fact/opinion kinds, expected verdicts, quote expectations, coverage and calculation requirements.
 - [sources.json](sources.json) keeps the Source bank and exact Documents for each profile. Import **only the Documents in the case's `source_profile_id`**. Importing the entire bank invalidates missing-evidence cases. Map logical Source ids to actual imported Document/Passage ids.
@@ -16,6 +16,37 @@ Score inclusion separately from exact returned kind/spans. Compare native part r
 There are **52 factual/mixed native verdict golds and 20 pure-opinion controls**. Independent `checkClaim` on a pure opinion is an explicit check: retain its native outcome as an observation, without scoring against null verdict gold or counting a checked opinion as automatically left out. Score automatic sorting/omission behavior separately. Only returned opinion spans actually left unjudged count as omissions; M01's prefix and suffix each count once.
 
 Acceptance subsets overlap: complete summaries 10, mixed facts 10, pure opinions 20 and unbacked-cause negatives 10. F01's bare future assertion is scored Unsupported against its forecast-only Source, with the exact reason/action in gold. A01 accurately attributes that same forecast and is scored Supported. A02 retains the negative speaker/quote control.
+
+## Observed results
+
+Both final models retained all 72 cases on `1919eafb87a9692eac591a19887c4b73daa9c368`. Kimi was not run: no balance. No gold, Source profile, order or scoring rule changed after freezing.
+
+| Native verdict agreement | Haiku 5.5 before → after | Sonnet 5.5 before → after |
+|---|---:|---:|
+| All factual/mixed cases | 48/52 → 44/52 | 49/52 → 49/52 |
+| Complete summaries | 9/10 → 9/10 | 10/10 → 10/10 |
+| Mixed fact/opinion | 9/10 → 9/10 | 9/10 → 10/10 |
+| Unsupported causal links | 10/10 → 9/10 | 10/10 → 10/10 |
+| Bare forecast | 0/2 → 2/2 | 0/2 → 2/2 |
+| Attributed forecast | 2/2 → 2/2 | 2/2 → 2/2 |
+| False Supported | 2 → 0 | 2 → 0 |
+| Whole-parent accepted calculations | 1/4 → 3/4 | 2/4 → 4/4 |
+
+Both final models classify 72/72 correctly in each sorting view, retain mixed fact/opinion representation in 10/10, and omit all 20 pure opinions. Exact inventories are stricter: Haiku's own/Verify part spans match 33/72 and 31/72, and opinion spans match 43/72 and 50/72; Sonnet's are 38/72, 36/72 and 54/72, 54/72. Punctuation, quote boundaries, member labels and alternative decompositions remain scored as misses.
+
+Raw verdict agreement is not complete proof. Exact frozen proof matches account for 10/16 final Supported results on Haiku and 13/17 on Sonnet. Haiku has five punctuation-only mismatches and one merged causal inventory; Sonnet has three punctuation-only mismatches and one checked causal subquote. Every actual checked quote remains in the measured record. Quantified coverage is persisted for 7/8 Haiku cases and 8/8 Sonnet cases, with actual counts of 3/4 or 2/5; Haiku Q03-en omits its structured inventory. Both models correctly leave all eight quantified cases Unsupported. Strict coverage matches remain 0/8 because the exact frozen spans/labels differ; the missing inventory earns no credit.
+
+Haiku's raw misses are S04-en, M05-zh-CN, A02-en, A02-zh-CN, C02-en, U01-en, U01-zh-CN and I02-en. Its two true Contradicted controls both become Not checked; zero false Contradicted does not mean successful contradiction recall. Sonnet's misses are C02-en and both U01 cases. Failed calculations and unresolved Citations stay Not checked. Both models over-refuse the English causal attribution against its frozen Supported gold; neither accepts the full-series U01 calculation attempts. No result was repaired by changing its gold.
+
+| Native case duration / total requests | Haiku before → after | Sonnet before → after |
+|---|---:|---:|
+| Mean seconds | 4.747 → 7.946 | 7.283 → 14.760 |
+| p95 seconds | 9.093 → 18.477 | 11.648 → 31.146 |
+| Provider requests, including sorting | 259 → 452 | 279 → 527 |
+
+These are per-case durations with actual internal calls, not per-provider-call latency. The rich sorter makes six bounded batches per view; before made one. The first full candidate is also retained: Haiku 23/52 with both sorting views failing, 485 requests and $0.090247380. No Sonnet run was made on that candidate. The final runs cost $0.090435540 and $1.412583600 respectively. Including both baseline runs and that failed candidate, known usage is **$2.330077335 of the $5 cap**, with zero unresolved exposure; all 2,002 request records are terminal and counted. These are usage-based accounting figures, not an invoice.
+
+The published record contains all 360 native observations and 720 sorting rows from the five arms. Missing baseline part fields remain null. The observer's part-shape adapter replayed the original baseline byte-identically; only explicit arm selection changed, and the grading function stayed unchanged. UI mechanics and the four report-only Local-mode cases are separate from this cloud measurement.
 
 ## Integrity
 
