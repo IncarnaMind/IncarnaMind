@@ -744,7 +744,7 @@ describe("record-cite source resolution", () => {
     expect(calls).toContain("chosen");
   });
 
-  test("a chosen Document that doesn't hold the cite's Location is not used for it", () => {
+  test("a chosen Document that doesn't hold the cite's Location asks rather than using another", () => {
     const volumeOne = document([{ page: 4, label: { printed: "3" }, text: "Volume one" }]);
     const volumeTwo = {
       ...document([{ page: 210, label: { printed: "210" }, text: "Volume two" }]),
@@ -757,7 +757,11 @@ describe("record-cite source resolution", () => {
         documents: [volumeOne, volumeTwo],
         choices: { "ex 7": { documentId: "exhibit-7", contentHash: "hash-exhibit-7" } },
       })[0],
-    ).toMatchObject({ outcome: "found", documentId: "volume-two" });
+    ).toEqual({
+      raw: "Ex. 7 at 210",
+      outcome: "choose",
+      candidates: [{ id: "volume-two", name: "Exhibit 7.pdf" }],
+    });
   });
 
   test("resolves a chosen candidate by stable id even when its name does not match the alias", () => {

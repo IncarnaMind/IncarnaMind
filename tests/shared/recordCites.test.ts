@@ -1,6 +1,8 @@
 import { describe, expect, test } from "vitest";
 import type { ClaimCheckAttributes, RecordCiteResult } from "../../src/core/api";
 import { claimCheckShown, readClaimCheck, restsOn } from "../../src/shared/claimChecks";
+import { translate } from "../../src/shared/i18n";
+import { formatLocation } from "../../src/shared/locations";
 
 const location: RecordCiteResult["location"] = {
   kind: "page",
@@ -137,5 +139,24 @@ describe("record-cite results in a claim-check mark", () => {
     const check = attributes();
     expect(readClaimCheck(check)?.recordCites).toBeUndefined();
     expect(restsOn(check)).toEqual([]);
+  });
+});
+
+describe("a deposition cite's Location as the card names it", () => {
+  const across = {
+    kind: "page",
+    from: 8,
+    to: 9,
+    printed: { from: "45", to: "46" },
+    lines: { from: 24, to: 2 },
+  } as const;
+  const one = { ...across, to: 8, printed: { from: "45", to: "45" }, lines: { from: 3, to: 3 } };
+
+  test.each([
+    ["en", across, "p. 45, line 24–p. 46, line 2"],
+    ["en", one, "p. 45 · line 3"],
+    ["zh-CN", across, "第 45 页第 24 行至第 46 页第 2 行"],
+  ] as const)("in %s, %j reads %s", (language, location, shown) => {
+    expect(formatLocation(location, (key, params) => translate(language, key, params))).toBe(shown);
   });
 });

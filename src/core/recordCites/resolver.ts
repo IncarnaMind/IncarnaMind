@@ -560,6 +560,12 @@ const resolveDirect = (
     }
     const match = possible.find((each) => each.document.id === chosen.id);
     if (match) return found(cite, match);
+    // The chosen Document hasn't this Location: another of the source's name may, but only the
+    // User can say so.
+    return choose(
+      cite,
+      possible.map((each) => each.document),
+    );
   }
   const only = possible[0];
   if (possible.length === 1 && only) return found(cite, only);

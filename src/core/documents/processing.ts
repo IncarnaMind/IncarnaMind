@@ -76,9 +76,9 @@ export const PROCESSING_VERSION = 17;
  * which record the hidden sheets and rows past the limit they left out, their
  * Units as they were; version 14 only PDFs', whose pages include form fields.
  * Version 15 changed no Passage or Unit, only the keyword index (see
- * `NAME_INDEX_CURRENT_SINCE`). Version 17 changed only PDFs', whose explicit
- * deposition layouts gain printed-line anchors while their text and Passages
- * stay as they were.
+ * `NAME_INDEX_CURRENT_SINCE`). Version 17 changed only PDFs': a deposition's
+ * explicit "Page N" layout gains printed page and line anchors, and keeps its
+ * "Page N" lines, which cleanup took for running headers.
  */
 export const CURRENT_SINCE: Readonly<Record<DocumentKind, number>> = {
   pdf: 17,

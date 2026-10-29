@@ -713,7 +713,23 @@
               "to": 8
             }
           },
-          "passageContains": "I told them on 2 October that the fix was live."
+          "passageContains": "I told them on 2 October that the fix was live.",
+          "nearby": {
+            "location": {
+              "kind": "page",
+              "from": 1,
+              "to": 1,
+              "printed": {
+                "from": "45",
+                "to": "45"
+              },
+              "lines": {
+                "from": 1,
+                "to": 6
+              }
+            },
+            "passageContains": "not fit for purpose"
+          }
         }
       ],
       "checked": "2026-10-29"
@@ -739,7 +755,7 @@
       "cites": [
         {
           "raw": "Hearing Recording Tr. at 12:05",
-          "outcome": "supported",
+          "outcome": "partly",
           "document": "hearing-recording",
           "location": {
             "kind": "time",
@@ -747,7 +763,8 @@
             "to": 730000,
             "speaker": "Witness"
           },
-          "passageContains": "The September dashboard fix went live on 2 October 2023."
+          "passageContains": "The September dashboard fix went live on 2 October 2023.",
+          "parts": true
         }
       ],
       "checked": "2026-10-29"
@@ -787,13 +804,13 @@
       "id": "en-note-id-across-sentences",
       "language": "en",
       "note": [
-        "The witness accepted that the September dashboard was not fit for purpose (Whitlock Dep. 45:3–4). He told Ravensworth on 2 October that the fix was live. Id. at 45:8."
+        "The witness accepted that the September dashboard was not fit for purpose (Whitlock Dep. 45:3–4). He told Ravensworth on 2 October that the fix was live. Id. at 45:7–8."
       ],
-      "claim": "He told Ravensworth on 2 October that the fix was live. Id. at 45:8.",
+      "claim": "He told Ravensworth on 2 October that the fix was live. Id. at 45:7–8.",
       "documents": ["whitlock-deposition"],
       "cites": [
         {
-          "raw": "Id. at 45:8",
+          "raw": "Id. at 45:7–8",
           "outcome": "supported",
           "document": "whitlock-deposition",
           "location": {
@@ -805,7 +822,7 @@
               "to": "45"
             },
             "lines": {
-              "from": 8,
+              "from": 7,
               "to": 8
             }
           },

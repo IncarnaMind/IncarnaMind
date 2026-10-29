@@ -552,6 +552,18 @@ function readAsChecked(
   return checkText(sentenceOf(element, blockId, place, figures));
 }
 
+/** Where the sentence is in the Note, for what its record cites' `Id.` and `supra` refer to. */
+function notePlace(
+  blocks: Y.XmlFragment,
+  ids: readonly string[],
+  sentence: Sentence,
+): RecordCitePlace | undefined {
+  const element = paragraphIn(blocks, ids, sentence.path);
+  const blockId = element?.getAttribute(BLOCK_ID_ATTRIBUTE);
+  const place = element ? placeOf(element, sentence) : null;
+  return typeof blockId === "string" && place?.same ? { blockId, from: place.from } : undefined;
+}
+
 const notChecked = (
   mark: ClaimCheckAttributes,
   reason: ClaimCheckFailure,
@@ -568,7 +580,6 @@ export function createWrittenCheck(options: WrittenCheckOptions) {
     prepared: PreparedChatModel,
     scope: CheckScope,
     signal: AbortSignal,
-    place?: RecordCitePlace,
   ): Promise<NodeJSON[] | null> {
     const content = paragraphAt(blocks, sentence.path)?.content ?? [];
     const marked = asMarked(content, sentence.from, sentence.to);
@@ -605,7 +616,6 @@ export function createWrittenCheck(options: WrittenCheckOptions) {
       scope,
       prepared,
       signal,
-      place,
     );
     recordJudged(options.recordAiUse, mindId, prepared, checked, options.now().toISOString());
     return checked.verdict === "supported" ? nodes : null;
@@ -614,12 +624,11 @@ export function createWrittenCheck(options: WrittenCheckOptions) {
   /** One sentence's check, given up on once it takes longer than the time limit. */
   async function checkWithin(
     sentence: Sentence,
-    read: ReturnType<typeof checkText>,
+    read: ReturnType<typeof checkText> & { place?: RecordCitePlace },
     mindId: string,
     scope: CheckScope,
     prepared: PreparedChatModel,
     signal: AbortSignal,
-    place?: RecordCitePlace,
   ): Promise<ClaimCheckResult> {
     const timedOut = AbortSignal.timeout(options.claimTimeLimitMs);
     const ended = AbortSignal.any([signal, timedOut]);
@@ -635,7 +644,6 @@ export function createWrittenCheck(options: WrittenCheckOptions) {
         model: prepared,
         mindId,
         recordClaim: sentence.text,
-        ...(place && { place }),
         cacheKey: mindId,
         signal: ended,
       }),
@@ -650,18 +658,6 @@ export function createWrittenCheck(options: WrittenCheckOptions) {
       excluded: [],
     };
   }
-
-  const recordPlaceOf = (
-    sentence: Sentence,
-    blocks: readonly NodeJSON[],
-    ids: readonly string[],
-  ): RecordCitePlace | undefined => {
-    const own = paragraphAt(blocks, sentence.path)?.attrs?.[BLOCK_ID_ATTRIBUTE];
-    const top = sentence.path[0];
-    const fallback = top === undefined ? undefined : ids[top];
-    const blockId = typeof own === "string" ? own : fallback;
-    return blockId ? { blockId, from: sentence.from } : undefined;
-  };
 
   // Null when there was nothing to check, or it couldn't be checked here.
   return (input: CheckWrittenInput) => inStep("written-check", () => checkWritten(input));
@@ -681,7 +677,11 @@ export function createWrittenCheck(options: WrittenCheckOptions) {
     const reads = options.read(mindId, (note) => {
       const figures = figuresByBlock(note);
       return new Map(
-        sending.map((sentence) => [sentence, readAsChecked(note, input.ids, sentence, figures)]),
+        sending.map((sentence) => {
+          const place = notePlace(note, input.ids, sentence);
+          const read = readAsChecked(note, input.ids, sentence, figures);
+          return [sentence, place ? { ...read, place } : read];
+        }),
       );
     });
     input.checking(sending.length);
@@ -691,15 +691,7 @@ export function createWrittenCheck(options: WrittenCheckOptions) {
       sending,
       async (sentence) => {
         const read = reads.get(sentence) ?? { claim: sentence.text, context: sentence.context };
-        const result = await checkWithin(
-          sentence,
-          read,
-          mindId,
-          scope,
-          prepared,
-          signal,
-          recordPlaceOf(sentence, blocks, input.ids),
-        );
+        const result = await checkWithin(sentence, read, mindId, scope, prepared, signal);
         const failure = runFailureOf(result);
         if (failure) throw new RunItemError(failure);
         // Asked to cut what a cell's Citations don't state, Edit with AI rewrote its figure.
@@ -708,16 +700,7 @@ export function createWrittenCheck(options: WrittenCheckOptions) {
             ? result.unsupported.uncovered
             : null;
         const nodes = uncovered
-          ? await cutOf(
-              blocks,
-              mindId,
-              sentence,
-              uncovered,
-              prepared,
-              scope,
-              signal,
-              recordPlaceOf(sentence, blocks, input.ids),
-            )
+          ? await cutOf(blocks, mindId, sentence, uncovered, prepared, scope, signal)
           : null;
         return { result, uncovered, nodes };
       },

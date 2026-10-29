@@ -391,7 +391,7 @@ describe("Re-processing", { timeout: 30_000 }, () => {
     expect(live()).toEqual(before);
     expect(embedder.texts.length).toBe(embeddedBefore);
     expect(queryDatabase(dataDir, "SELECT processing_version FROM documents")).toEqual([
-      { processing_version: PROCESSING_VERSION },
+      { processing_version: NAME_INDEX_CURRENT_SINCE },
     ]);
     // Its name still finds its Passages, which their own words don't.
     const byName = await second.searchPassages("annual report", { mode: "keyword" });
@@ -479,7 +479,7 @@ describe("Re-processing", { timeout: 30_000 }, () => {
     expect(version()).toEqual([{ processing_version: NAME_INDEX_CURRENT_SINCE - 1 }]);
     second.upgradeKeywordIndex();
     await vi.waitFor(() => expect(holdsTheName()).toBe(0), { timeout: 30_000 });
-    expect(version()).toEqual([{ processing_version: PROCESSING_VERSION }]);
+    expect(version()).toEqual([{ processing_version: NAME_INDEX_CURRENT_SINCE }]);
     second.close();
   });
 
@@ -551,7 +551,7 @@ describe("Re-processing", { timeout: 30_000 }, () => {
     await vi.waitFor(
       () =>
         expect(queryDatabase(dataDir, "SELECT processing_version FROM documents")).toEqual(
-          Array(3).fill({ processing_version: PROCESSING_VERSION }),
+          Array(3).fill({ processing_version: NAME_INDEX_CURRENT_SINCE }),
         ),
       { timeout: 30_000 },
     );

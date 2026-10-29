@@ -129,14 +129,14 @@ function compareResolved(
     failures.push(`${actual.outcome} instead of not-found`);
   }
   if (expected.nearby) {
-    if (!actual.nearby) failures.push("no nearby candidate");
-    else {
-      if (!sameJson(actual.nearby.location, expected.nearby.location)) {
-        failures.push(`nearby Location ${JSON.stringify(actual.nearby.location)} is wrong`);
-      }
-      if (!includesText(actual.nearby.passage, expected.nearby.passageContains)) {
-        failures.push(`nearby Passage does not contain ${expected.nearby.passageContains}`);
-      }
+    const { location, passageContains } = expected.nearby;
+    // The check judges each nearby candidate in turn; the key names the one that should back it.
+    const candidate = (actual.nearbyCandidates ?? []).find((each) =>
+      sameJson(each.location, location),
+    );
+    if (!candidate) failures.push(`no nearby candidate at ${JSON.stringify(location)}`);
+    else if (!includesText(candidate.passage, passageContains)) {
+      failures.push(`nearby Passage does not contain ${passageContains}`);
     }
   }
   return failures;

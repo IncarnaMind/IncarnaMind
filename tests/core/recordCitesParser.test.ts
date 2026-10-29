@@ -256,6 +256,9 @@ describe("record-cite scanning", () => {
     "As noted supra, the claim fails.",
     "The independent 4:5 count and the complex 2 at 5.",
     "He said it was valid. Ibid.",
+    "Each user has an id.",
+    "The Video at 1:02 shows it.",
+    "Team Meeting Recording at 10:30 started late.",
   ])("finds no record cite in %s", (text) => {
     expect(cites(text)).toEqual([]);
   });
@@ -299,6 +302,7 @@ describe("record-cite scanning", () => {
     expect(raws("It is in the Agreement. Ex. 7 at 3 says so.")).toEqual(["Ex. 7 at 3"]);
     expect(raws("He signed it (Def.'s Mot., Ex. 7 at 3).")).toEqual(["Ex. 7 at 3"]);
     expect(raws("See Dep. Tr. 45:3-12.")).toEqual(["Dep. Tr. 45:3-12"]);
+    expect(raws("The Smith Dep. 45:3–12 says so.")).toEqual(["Smith Dep. 45:3–12"]);
   });
 
   test("never drops a source's prefix to reach a bare exhibit or complaint", () => {

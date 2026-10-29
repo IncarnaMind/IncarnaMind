@@ -63,10 +63,13 @@ interface RecordCiteShape {
   flags: string;
   /** Whether words before it name its source, and what stands between them and the keyword. */
   name?: { required: boolean; lead: string };
-  read(match: RegExpExecArray, name: string): Read;
+  /** Reads the body's groups, from 1, and the source's name. */
+  read(match: Groups, name: string): Read;
 }
 
-const group = (match: RegExpExecArray, index: number) => match[index] ?? "";
+type Groups = readonly (string | undefined)[];
+
+const group = (match: Groups, index: number) => match[index] ?? "";
 
 const positiveInteger = (written: string) => {
   const value = Number(written);
@@ -143,8 +146,12 @@ const PARTY_POSSESSIVE =
   /^(?:plaintiffs?|defendants?|petitioners?|respondents?|appellants?|appellees?|government|gov['’]t)['’]s?$/i;
 const NUMBERED = /^(?:ex|exh|exhibit|no|dkt)\.?$/i;
 
+/** Words a sentence starts with, capitalized there, that never name a source. */
+const NOT_A_NAME =
+  /^(?:the|a|an|this|that|these|those|his|her|its|our|their|my|your|in|on|at|for|of|to|from|with|by|as|and|or|but|if|when|while)$/i;
+
 const isNameWord = (word: string, before: string | undefined) =>
-  CAPITALIZED.test(word) ||
+  (CAPITALIZED.test(word) && !NOT_A_NAME.test(word)) ||
   INITIAL.test(word) ||
   DOTTED_POSSESSIVE.test(word) ||
   ABBREVIATION.test(word) ||
@@ -264,7 +271,7 @@ const SHAPES: readonly RecordCiteShape[] = [
       ),
   },
   {
-    body: `(?:tr\\.?|transcript|recording|video|audio) at (${CLOCK})(?:${DASH}(${CLOCK}))?`,
+    body: `(?:tr\\.?|transcript) at (${CLOCK})(?:${DASH}(${CLOCK}))?`,
     flags: "i",
     name: { required: true, lead: " " },
     read: (match, name) => {
@@ -312,15 +319,6 @@ const anchored = SHAPES.map(
 const scanning = SHAPES.map((shape) => new RegExp(shape.body, `${shape.flags}g`));
 const leads = SHAPES.map((shape) => (shape.name ? new RegExp(`${shape.name.lead}$`) : null));
 
-/** The groups of a shape's body, wherever its name group put them. */
-const bodyOf = (match: RegExpExecArray, named: boolean): RegExpExecArray => {
-  if (!named) return match;
-  const groups = [match[0], ...match.slice(2)] as unknown as RegExpExecArray;
-  groups.index = match.index;
-  groups.input = match.input;
-  return groups;
-};
-
 /**
  * Reads one record cite without resolving its source; failures are values, never exceptions.
  * The resolver maps a deposition's printed page labels to its physical PDF Units.
@@ -332,7 +330,9 @@ export function parseRecordCite(raw: string): RecordCiteParseResult {
     if (!match) continue;
     const name = shape.name ? nameAtEnd(group(match, 1)) : null;
     if (shape.name?.required && !name?.name) continue;
-    const result = shape.read(bodyOf(match, shape.name !== undefined), name?.name ?? "");
+    // A named shape's name is group 1, so its body's groups follow it.
+    const body = shape.name ? [match[0], ...match.slice(2)] : match;
+    const result = shape.read(body, name?.name ?? "");
     if (typeof result === "string") return { status: "error", raw, reason: result };
     return { status: "parsed", raw, ...result };
   }
@@ -346,6 +346,14 @@ const insideWord = (text: string, from: number, to: number) =>
 
 /** A cite that goes on past what its shape reads ("Ex. 7 at 3, 5", "PL-000123–125") isn't read in part. */
 const CONTINUES = /^(?:\s*[-–—:]\s*\d|,\s*[\d¶]|\s*[-–—]\s*(?:$|[).,;]))/;
+
+const DEPOSITION = 0;
+const ID = SHAPES.findIndex((shape) => shape.body.startsWith("[Ii]d"));
+/** Where an `Id.` starts a cite: a text's or sentence's start, after a bracket, a stop or a signal ("user id." isn't one). */
+const ID_BEFORE =
+  /(?:^|[(（[;；,，.。:：]|\b(?:see|also|cf\.?|accord|but|e\.g\.,?|compare|and|contra))\s*$/i;
+/** A further page and lines of the same deposition: "Smith Dep. 45:3–12, 47:1–4". */
+const MORE_LINES = new RegExp(`^[,;] *${LINES}`);
 
 interface Candidate {
   from: number;
@@ -370,15 +378,13 @@ function candidatesIn(text: string): Candidate[] {
         if (name.name) from = match.index - before.length + name.at;
       }
       if (shape.name?.required && from === match.index) continue;
+      if (index === ID && !ID_BEFORE.test(text.slice(Math.max(0, from - NAME_REACH), from)))
+        continue;
       if (!insideWord(text, from, end)) candidates.push({ from, to: end, shape: index });
     }
   }
   return candidates.sort((a, b) => a.from - b.from || b.to - a.to || a.shape - b.shape);
 }
-
-const DEPOSITION = 0;
-/** A further page and lines of the same deposition: "Smith Dep. 45:3–12, 47:1–4". */
-const MORE_LINES = new RegExp(`^[,;] *${LINES}`);
 
 function readCandidate(text: string, candidate: Candidate): RecordCiteOccurrence[] {
   const raw = text.slice(candidate.from, candidate.to);

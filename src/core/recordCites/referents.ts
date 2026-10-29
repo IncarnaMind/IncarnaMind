@@ -24,8 +24,8 @@ const RECORD_NAME = /\b(?:dep|decl|ex|compl|dkt|aff|tr)\b/;
 const sameSource = (earlier: string | null, named: string) =>
   earlier !== null && named !== "" && (earlier === named || earlier.startsWith(`${named} `));
 
-const aliasOf = (cite: RecordCiteOccurrence) =>
-  cite.result.status === "parsed" ? cite.result.sourceAlias : null;
+const aliasOf = (cite: RecordCiteOccurrence | undefined) =>
+  cite?.result.status === "parsed" ? cite.result.sourceAlias : null;
 
 /**
  * The record cites in reading order, each `Id.` and `supra` linked to the record item it refers
@@ -33,17 +33,18 @@ const aliasOf = (cite: RecordCiteOccurrence) =>
  * before it refers to no record item: neither is a record cite, so neither is listed. Nor is a
  * `supra` whose name no earlier record cite has, unless that name is plainly a record item's.
  */
-export function linkRecordCites<T extends RecordCiteToken>(
-  tokens: readonly T[],
-): (LinkedRecordCite & Omit<Extract<T, { kind: "cite" }>, "kind">)[] {
-  const linked: (LinkedRecordCite & Omit<Extract<T, { kind: "cite" }>, "kind">)[] = [];
+export function linkRecordCites(
+  tokens: readonly RecordCiteToken[],
+): (LinkedRecordCite & { token: number })[] {
+  const linked: (LinkedRecordCite & { token: number })[] = [];
   let last: number | null = null;
-  for (const token of tokens) {
+  for (const [index, token] of tokens.entries()) {
     if (token.kind === "case") {
       last = null;
       continue;
     }
-    const { kind: _, ...cite } = token as Extract<T, { kind: "cite" }>;
+    const { kind: _, ...occurrence } = token;
+    const cite = { ...occurrence, token: index };
     const { result } = cite;
     if (result.status === "parsed" && result.kind === "id") {
       if (last === null) continue;
@@ -58,7 +59,7 @@ export function linkRecordCites<T extends RecordCiteToken>(
           : [],
       );
       if (earlier.length === 0 && !RECORD_NAME.test(named)) continue;
-      const sources = new Set(earlier.map((index) => aliasOf(linked[index] as LinkedRecordCite)));
+      const sources = new Set(earlier.map((index) => aliasOf(linked[index])));
       linked.push({ ...cite, referent: sources.size === 1 ? (earlier.at(-1) ?? null) : null });
     } else {
       linked.push(cite);
@@ -130,7 +131,7 @@ export function sentenceRecordCites(
   place?: RecordCitePlace,
   noteNow?: () => readonly NoteParagraph[],
 ): SentenceRecordCites {
-  const own = recordCiteTokens(claim).map((token) => ({ ...token, own: true }));
+  const own = recordCiteTokens(claim);
   if (!own.some((token) => token.kind === "cite")) return { cites: [], own: 0 };
   const note = noteNow && refersBack(own) ? noteNow() : undefined;
   const position = note ? positionIn(note, claim, place) : null;
@@ -141,9 +142,11 @@ export function sentenceRecordCites(
             .slice(0, position.paragraph)
             .flatMap((paragraph) => recordCiteTokens(paragraph.text)),
           ...recordCiteTokens(note[position.paragraph]?.text.slice(0, position.from) ?? ""),
-        ].map((token) => ({ ...token, own: false }))
+        ]
       : [];
   const linked = linkRecordCites([...before, ...own]);
+  const isOwn = (cite: { token: number } | undefined) =>
+    cite !== undefined && cite.token >= before.length;
   const needed = new Set<number>();
   const need = (index: number) => {
     if (needed.has(index)) return;
@@ -152,17 +155,21 @@ export function sentenceRecordCites(
     if (typeof referent === "number") need(referent);
   };
   linked.forEach((cite, index) => {
-    if (cite.own) need(index);
+    if (isOwn(cite)) need(index);
   });
   const kept = [...needed].sort((a, b) => a - b);
   const renumbered = new Map(kept.map((index, at) => [index, at]));
-  const cites = kept.map((index): LinkedRecordCite => {
-    const { own: _, referent, ...cite } = linked[index] as (typeof linked)[number];
-    return referent === undefined
-      ? cite
-      : { ...cite, referent: referent === null ? null : (renumbered.get(referent) ?? null) };
+  const cites = kept.flatMap((index): LinkedRecordCite[] => {
+    const found = linked[index];
+    if (!found) return [];
+    const { token: _, referent, ...cite } = found;
+    return [
+      referent === undefined
+        ? cite
+        : { ...cite, referent: referent === null ? null : (renumbered.get(referent) ?? null) },
+    ];
   });
-  return { cites, own: kept.filter((index) => linked[index]?.own).length };
+  return { cites, own: kept.filter((index) => isOwn(linked[index])).length };
 }
 
 /** A linked cite as the resolver reads it. */
