@@ -1387,26 +1387,27 @@ export function createCore(adapters: CoreAdapters): Core {
     if (own !== null && walled.has(own)) return folderScope(own);
     return { ...scope, folderIds: scope.folderIds.filter((id) => !walled.has(id)) };
   };
-  const resolveScope = (scope: SearchScope, mindId: string | null = null) => {
+  const resolveScope = (scope: SearchScope | null, mindId: string | null = null) => {
+    const wanted = scope ?? NO_SCOPE;
     const walled = library.folders().filter((folder) => folder.keepInside);
     const own = mindId !== null && mindExists(mindId) ? minds.get(mindId).folderId : null;
     const ownWall = own !== null && walled.some((folder) => folder.id === own);
-    const namedWall = scope.folderIds.some((id) => walled.some((folder) => folder.id === id));
+    const wallIds = wanted.folderIds.filter((id) => walled.some((folder) => folder.id === id));
     const explicitFolderScope =
       mindId === null &&
-      namedWall &&
-      scope.folderIds.every((id) => walled.some((folder) => folder.id === id)) &&
-      scope.tagIds.length === 0 &&
-      scope.documentIds.length === 0;
+      wallIds.length === 1 &&
+      wanted.folderIds.every((id) => walled.some((folder) => folder.id === id)) &&
+      wanted.tagIds.length === 0 &&
+      wanted.documentIds.length === 0;
     if (ownWall || explicitFolderScope) {
-      return resolveSearchScope(ownWall ? constrainedScope(scope, mindId) : scope, {
+      return resolveSearchScope(ownWall ? constrainedScope(wanted, mindId) : wanted, {
         folderTree: (folderId) => folders.subtree(folderId),
         organizedFolderDocuments: (folderId) => library.documentIds(folderId),
         documentIds: (filter) => documents.ids(filter),
       });
     }
-    const constrained = constrainedScope(scope, mindId);
-    if (!ownWall && hasSearchScope(scope) && !hasSearchScope(constrained)) return [];
+    const constrained = constrainedScope(wanted, mindId);
+    if (!ownWall && hasSearchScope(wanted) && !hasSearchScope(constrained)) return [];
     const resolved = resolveSearchScope(constrained, {
       folderTree: (folderId) => folders.subtree(folderId),
       organizedFolderDocuments: (folderId) => library.documentIds(folderId),
@@ -1426,6 +1427,11 @@ export function createCore(adapters: CoreAdapters): Core {
       ? folderId
       : null;
   };
+  const walledDocument = (documentId: string): string | null =>
+    library
+      .folders()
+      .find((folder) => folder.keepInside && library.allDocumentIds(folder.id).includes(documentId))
+      ?.id ?? null;
   const walledFolder = (mindId: string | null): string | null => {
     const folderId = mindId !== null && mindExists(mindId) ? minds.get(mindId).folderId : null;
     return walledFolderId(folderId);
@@ -1789,8 +1795,8 @@ export function createCore(adapters: CoreAdapters): Core {
     },
     // Every window hears of each message as it is added or written.
     conversations: {
-      add: (input, answerModel, read, emit = true) => {
-        const added = conversations.add(input, answerModel, read);
+      add: (input, answerModel, read, emit = true, wallFor) => {
+        const added = conversations.add(input, answerModel, read, wallFor);
         if (emit) publishConversation(added.turn);
         return added;
       },
@@ -2236,6 +2242,7 @@ export function createCore(adapters: CoreAdapters): Core {
     },
     mindFolder: (mindId) => minds.get(mindId).folderId,
     walledFolder,
+    walledDocument,
     searchedScope,
     originalOf: (mindId) => wordImports.originalOf(mindId),
     defaultModel: () => settings.get().user.chatModel,

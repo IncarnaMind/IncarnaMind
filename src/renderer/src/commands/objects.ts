@@ -405,6 +405,7 @@ export const folderCommands: readonly Command[] = [
     id: "folder.keepInside",
     label: "folder.keepInside",
     hint: "folder.keepInside.hint",
+    purpose: "folder.keepInside.hint",
     group: "main",
     appliesTo: ["folder"],
     checked: (ctx) => folderOf(ctx)?.keepInside === true,

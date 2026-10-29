@@ -138,6 +138,8 @@ export interface ChecksOptions
   mindFolder(mindId: string): string | null;
   /** The Folder whose work stays inside it, or null when this Mind is not walled. */
   walledFolder(mindId: string | null): string | null;
+  /** The wall a Document belongs to, or null when it belongs to none. */
+  walledDocument(documentId: string): string | null;
   /** What a check from a Mind searches, by the one rule (`mindSearchScope`); null: every Document. */
   searchedScope(scope: SearchScope | null, mindId: string): SearchScope | null;
   /** The file a Mind was imported from (#720), which its own checks never use as evidence. */
@@ -372,6 +374,17 @@ export function createChecks(options: ChecksOptions) {
     blocks: Y.XmlFragment,
     mindId: string,
   ): ClaimCheckAttributes {
+    const evidence = check.evidence;
+    const evidenceWall = evidence?.documentId ? options.walledDocument(evidence.documentId) : null;
+    if (
+      result.verdict === "unsupported" &&
+      check.state !== "checking" &&
+      check.state !== "not-checked" &&
+      evidenceWall !== null &&
+      evidenceWall !== options.walledFolder(mindId)
+    ) {
+      return check;
+    }
     return withResult(
       check,
       augmentFigureFooting(blocks, result, options.documents, {

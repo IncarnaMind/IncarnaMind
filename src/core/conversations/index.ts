@@ -134,6 +134,7 @@ interface MessageRow {
   text: string;
   asked_from_mind_id: string | null;
   scope: string | null;
+  wall_id: string | null;
   provider_id: string | null;
   model_id: string | null;
   forced_skill: string | null;
@@ -480,6 +481,7 @@ function toQuestion(row: MessageRow): ConversationQuestion {
     askedFrom: askedFromOf(row),
     focus: storedFocus(row.focus),
     scope: storedScope(row.scope),
+    wallId: row.wall_id,
     model: modelOf(row),
     forcedSkill: row.forced_skill,
     analyse: row.analyse === 1,
@@ -665,6 +667,7 @@ export function createConversations(db: Database, now: () => string) {
       askedFrom?: string | null;
       focus?: MindFocus | null;
       scope?: SearchScope | null;
+      wallId?: string | null;
       model: ChatModelChoice | null;
       forcedSkill?: string | null;
       analyse?: boolean;
@@ -677,10 +680,10 @@ export function createConversations(db: Database, now: () => string) {
     const id = randomUUID();
     db.run(
       `INSERT INTO conversation_messages (id, conversation_id, position, kind, question_id, text,
-         asked_from_mind_id, focus, scope, provider_id, model_id, forced_skill, analyse, quotes, status,
+         asked_from_mind_id, focus, scope, wall_id, provider_id, model_id, forced_skill, analyse, quotes, status,
          read_mind_id, read_mind_version, read_partial, created_at, updated_at)
        VALUES (?, ?, (SELECT coalesce(max(position), 0) + 1 FROM conversation_messages
-                      WHERE conversation_id = ?), ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                      WHERE conversation_id = ?), ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         id,
         conversationId,
@@ -691,6 +694,7 @@ export function createConversations(db: Database, now: () => string) {
         fields.askedFrom ?? null,
         fields.focus ? JSON.stringify(fields.focus) : null,
         fields.scope ? JSON.stringify(fields.scope) : null,
+        fields.wallId ?? null,
         fields.model?.providerId ?? null,
         fields.model?.modelId ?? null,
         fields.forcedSkill ?? null,
@@ -892,6 +896,7 @@ export function createConversations(db: Database, now: () => string) {
       input: Omit<QuestionInput, "onScreen">,
       answerModel: ChatModelChoice | null,
       read: AnswerRead | null,
+      wallFor?: (folderId: string | null) => string | null,
     ): AddedTurn {
       const previousConversationUpdatedAt =
         input.conversationId === null
@@ -925,6 +930,7 @@ export function createConversations(db: Database, now: () => string) {
             askedFrom: input.mind?.id ?? null,
             focus: input.focus,
             scope: input.scope,
+            wallId: wallFor?.(get(conversationId).folderId) ?? null,
             model: input.model,
             forcedSkill: input.forcedSkill,
             analyse: input.analyse,

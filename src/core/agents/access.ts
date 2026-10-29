@@ -257,7 +257,7 @@ export interface AgentAccessDeps {
   /** The pairing, if it may call now; otherwise throws `AgentRefusedError`. */
   admit(pairingId: string): AdmittedPairing;
   /** The live Folders. */
-  folders(): { id: string; name: string; keepInside?: boolean }[];
+  folders(): { id: string; name: string; keepInside: boolean }[];
   /** The Folder ids a pairing may read after Folder walls are applied. */
   foldersInScope(folderIds: readonly string[]): string[];
   /** The ids of the live Documents in these Folders; `NOT_IN_A_FOLDER_ID` stands for those in no Folder now. */

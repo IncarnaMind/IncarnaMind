@@ -102,6 +102,8 @@ import { type BoundNumber, unitNotStated } from "./units";
 export interface ClaimCheckDependencies {
   /** The interface language: what a check's sentence is written in. */
   language(): Language;
+  /** The wall a Document belongs to, or null when it belongs to none. */
+  walledDocument(documentId: string): string | null;
   engine: AnswerEngine;
   evidence: Pick<Evidence, "search">;
   documents: Pick<AnswerDocuments, "citationSource" | "pageTexts" | "documentDate"> & {
@@ -307,6 +309,41 @@ function citedSources(
 export function createClaimCheck(deps: ClaimCheckDependencies) {
   return async function checkClaim(request: ClaimCheckRequest): Promise<ClaimCheckResult> {
     const { scope, signal } = request;
+    const outsideCited = (request.cited ?? []).flatMap((citation) => {
+      const source = citation.passageId ? deps.documents.citationSource(citation.passageId) : null;
+      if (!source || deps.walledDocument(source.documentId) === null) return [];
+      const outside =
+        scope.documentIds === null ||
+        !scope.documentIds.includes(source.documentId) ||
+        scope.excluded.has(source.documentId);
+      return outside ? [{ citation, source }] : [];
+    });
+    if (request.cited && request.cited.length > 0 && outsideCited.length === request.cited.length) {
+      const [kept] = outsideCited;
+      if (!kept) throw new Error("An outside Citation is missing.");
+      return {
+        verdict: "supported",
+        evidence: {
+          passageId: kept.source.passageId,
+          documentId: kept.source.documentId,
+          documentName: kept.source.documentName,
+          contentHash: kept.source.contentHash,
+          pageFrom: kept.source.pageFrom,
+          pageTo: kept.source.pageTo,
+          location: null,
+          quote: kept.citation.quote,
+          check: "found",
+          checkReason: null,
+        },
+        says: null,
+        unsupported: null,
+        calculation: null,
+        citedCaseUnchecked: caseCitations(request.claim).length > 0,
+        citedCaseFound: false,
+        versions: [],
+        excluded: [],
+      };
+    }
     let searches = 0;
     const read = new Map<string, string>();
     const excluded = new Map<string, LeftOutDocument>();
@@ -726,22 +763,22 @@ export function createClaimCheck(deps: ClaimCheckDependencies) {
       if (!finished || reply.trim() === "") return notChecked("empty");
       if (readsAsRefusal(reply)) return notChecked("refused");
       if (!looked()) return notChecked("unread");
-      // A saved figure is worked out again from its own inputs, wherever the model searched.
+      // A saved figure is worked out again from its own inputs, within the check's scope.
       const saved = new Map(
-        request.figures
-          .flatMap((figure) =>
-            figure.calculated && !figure.calculated.figure.analysis
-              ? figure.calculated.figure.inputs
-              : [],
-          )
-          .flatMap((input) => [
-            input.citation,
-            ...(input.unitStatement ? [input.unitStatement.citation] : []),
-          ])
-          .flatMap((citation) => {
-            const source = deps.documents.citationSource(citation.passageId);
-            return source ? [[source.passageId, source] as const] : [];
-          }),
+        citedSources(
+          request.figures
+            .flatMap((figure) =>
+              figure.calculated && !figure.calculated.figure.analysis
+                ? figure.calculated.figure.inputs
+                : [],
+            )
+            .flatMap((input) => [
+              input.citation,
+              ...(input.unitStatement ? [input.unitStatement.citation] : []),
+            ]),
+          scope,
+          deps.documents,
+        ).map((source) => [source.passageId, source] as const),
       );
       session.show(
         [...saved.values()].map((source) => ({

@@ -6356,6 +6356,8 @@ export interface ConversationQuestion {
   focus: MindFocus | null;
   /** Its Search scope; null: none, every Document. */
   scope: SearchScope | null;
+  /** The Folder wall it was asked inside; null: outside or before walls were recorded. */
+  wallId?: string | null;
   /** The model picked for it; null: the default. */
   model: ChatModelChoice | null;
   /** The Skill forced on it, by name; null: none. */

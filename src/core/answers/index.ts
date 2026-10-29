@@ -410,6 +410,7 @@ export interface AnswerConversations {
     answerModel: ChatModelChoice | null,
     read: AnswerRead | null,
     emit?: boolean,
+    wallFor?: (folderId: string | null) => string | null,
   ): AddedTurn;
   /** Emits a turn added with `emit: false`, once its Question can be asked. */
   publish(turn: Turn): void;
@@ -3183,15 +3184,20 @@ export function createAnswers(options: AnswersOptions) {
     // Each press of a help button stands alone: an earlier suggestion would only steer this one.
     const wallId = mind
       ? options.walledFolder(mind.mindId)
-      : options.walledFolderId(conversation.folderId);
+      : turn.question.wallId !== undefined
+        ? turn.question.wallId
+        : options.walledFolderId(conversation.folderId);
     let turnWall: string | null = null;
     const permitted = documentIds === null ? null : new Set(documentIds);
     const outsideTurns = new Set<string>();
     const withWalls = turn.earlier.map((message) => {
       if (message.kind === "question") {
-        turnWall = message.askedFrom
-          ? options.walledFolderId(filedIn(message.scope, message.askedFrom))
-          : options.walledFolderId(conversation.folderId);
+        turnWall =
+          message.wallId !== undefined
+            ? message.wallId
+            : message.askedFrom
+              ? options.walledFolderId(filedIn(message.scope, message.askedFrom))
+              : options.walledFolderId(conversation.folderId);
         // A walled Note's scope is always explicit: a null one belongs to before it was walled.
         const beforeWall =
           message.askedFrom !== null &&
@@ -3591,6 +3597,15 @@ export function createAnswers(options: AnswersOptions) {
         answerModel,
         readOf(mind),
         false,
+        (folderId) => {
+          if (mind) return options.walledFolder(mind.mindId);
+          if (scope === null) return options.walledFolderId(folderId);
+          return scope.folderIds.length === 1 &&
+            scope.tagIds.length === 0 &&
+            scope.documentIds.length === 0
+            ? options.walledFolderId(scope.folderIds[0] ?? null)
+            : null;
+        },
       );
       const { turn } = added;
       let published = false;
@@ -3605,12 +3620,12 @@ export function createAnswers(options: AnswersOptions) {
         const { documentIds, emptyScope } = scopeNow(
           scope,
           question.mind?.id ?? null,
-          readyMind ? null : options.walledFolderId(added.turn.conversation.folderId),
+          readyMind ? null : added.turn.question.wallId,
         );
         const checked = checkQuotes(
           question.quotes,
           question.mind?.id ?? null,
-          readyMind ? null : options.walledFolderId(added.turn.conversation.folderId),
+          readyMind ? null : added.turn.question.wallId,
         );
         const readyTurn = options.conversations.restartAnswer(
           turn.answer.id,
@@ -3661,7 +3676,11 @@ export function createAnswers(options: AnswersOptions) {
       const { documentIds, emptyScope } = scopeNow(
         question.scope,
         from && !from.deleted ? from.mindId : null,
-        mind ? null : options.walledFolderId(turn.conversation.folderId),
+        mind
+          ? null
+          : question.wallId !== undefined
+            ? question.wallId
+            : options.walledFolderId(turn.conversation.folderId),
       );
       return startInConversation(
         turn,
@@ -3673,7 +3692,7 @@ export function createAnswers(options: AnswersOptions) {
         checkQuotes(
           question.quotes,
           from?.mindId ?? null,
-          mind ? null : options.walledFolderId(turn.conversation.folderId),
+          mind ? null : (question.wallId ?? options.walledFolderId(turn.conversation.folderId)),
         ),
         remake,
       );

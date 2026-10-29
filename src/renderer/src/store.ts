@@ -1239,7 +1239,7 @@ export const useAppStore = create<AppState>()((set, get) => {
         name: group.name,
         description: group.description,
         countsOwnFiles: group.countsOwnFiles,
-        keepInside: group.keepInside ?? false,
+        keepInside: group.keepInside,
       });
       const before = fields(folder);
       const after = fields(edited);
