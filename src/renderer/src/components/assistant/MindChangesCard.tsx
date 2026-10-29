@@ -17,7 +17,7 @@ import {
 import type { Translate } from "../../objects";
 import { useAppStore } from "../../store";
 import { MindLineIcon, PencilLineIcon } from "../lineIcons";
-import { AskedChangesCard } from "./AskedChangesCard";
+import { AskedChangesCard, LookCount } from "./AskedChangesCard";
 
 /** The names of Minds seen in a card, for a row whose Mind has since been removed. */
 const seenNames = new Map<string, string>();
@@ -98,6 +98,7 @@ export function MindChangesCard({
           <span data-testid="mind-changes-title" className="mind-changes-title">
             {head}
           </span>
+          {rows.length === 1 && only && only.look > 0 && <LookCount row={only} />}
           {headLeft && (
             <>
               {" "}
@@ -178,6 +179,7 @@ export function MindChangesCard({
                   {left}
                 </span>
               )}
+              {row.look > 0 && <LookCount row={row} />}
               <span className="flex-1" />
               {count !== "gone" && (
                 <button

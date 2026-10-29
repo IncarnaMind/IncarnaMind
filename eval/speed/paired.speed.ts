@@ -33,8 +33,10 @@ import {
   runOnArm,
   SET_IDS,
   type SetId,
+  writesSet,
 } from "./paired";
 import {
+  byFlowTable,
   itemTable,
   newFalseSupported,
   outcomeOf,
@@ -107,6 +109,8 @@ function groupsOf(set: SetId, cacheDir: string): PairedGroup[] {
       return everydaySet(ROOT, cacheDir);
     case "checks":
       return checksSet(ROOT);
+    case "writes":
+      return writesSet();
   }
 }
 
@@ -292,6 +296,7 @@ test.skipIf(env("PAIRED") === null)("paired runs: today's path against a new one
     "",
     pairedSection(group.rows, names, margin),
     "",
+    ...(group.rows.some((row) => row.set === "writes") ? [byFlowTable(group.rows, names), ""] : []),
   ]);
   const items = groups.flatMap((group) => [
     `### ${group.title}`,

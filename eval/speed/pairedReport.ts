@@ -191,6 +191,12 @@ export function pairedSection(
     const done = rows.map(run).filter((each) => each.status === "done");
     return `${done.filter((each) => each.answerCalls === 1).length} of ${done.length}`;
   };
+  const endedAt = (run: (row: PairedRow) => ArmRun) => {
+    const writes = rows.map(run).filter((each) => each.endedAtWrite !== null);
+    return writes.length === 0
+      ? "–"
+      : `${writes.filter((each) => each.endedAtWrite).length} of ${writes.length}`;
+  };
   const rule = (each: Guard) =>
     `| ${each.name} | ${each.baseline} | ${each.candidate} | ${each.lost} / ${each.gained} | ${each.holds ? "yes" : "**no**"}${each.allowed > 0 ? ` (${each.allowed} fewer allowed)` : ""} |`;
   return [
@@ -198,15 +204,40 @@ export function pairedSection(
     "|---|---|---|---|",
     `| First sign (median / p90) ${of((run) => run.firstSignMs)}`,
     `| First words ${of((run) => run.firstWordsMs)}`,
+    `| First change in the page ${of((run) => run.firstChangeMs)}`,
     `| Done ${of((run) => run.doneMs)}`,
     `| Model calls (mean) | ${mean(rows.map((row) => row.baseline.modelCalls))} | ${mean(rows.map((row) => row.candidate.modelCalls))} | |`,
     `| Tokens in / out (median) | ${tokens((row) => row.baseline)} | ${tokens((row) => row.candidate)} | |`,
     `| Citations found | ${found((row) => row.baseline)} | ${found((row) => row.candidate)} | |`,
     `| Answered in one call | ${oneCall((row) => row.baseline)} | ${oneCall((row) => row.candidate)} | |`,
+    `| Written-check calls (mean) | ${mean(rows.map((row) => row.baseline.checkCalls))} | ${mean(rows.map((row) => row.candidate.checkCalls))} | |`,
+    `| Change-claim checks (mean) | ${mean(rows.map((row) => row.baseline.claimChecks))} | ${mean(rows.map((row) => row.candidate.claimChecks))} | |`,
+    `| Ended at the write | ${endedAt((row) => row.baseline)} | ${endedAt((row) => row.candidate)} | |`,
     "",
     `| Guard, items both finished | ${a} | ${b} | lost / gained | holds |`,
     "|---|---|---|---|---|",
     ...guards(rows, margin).map(rule),
+  ].join("\n");
+}
+
+/**
+ * The writes set's times by flow and language (#1635): the first change in the page, the end and
+ * the longest Tool input (a write's content streaming), median / 90th percentile, each arm, and
+ * how many of its Answers ended at the write.
+ */
+export function byFlowTable(rows: readonly PairedRow[], names: [string, string]): string {
+  const [a, b] = names;
+  const keys = [...new Set(rows.map((row) => `${row.id}\t${row.language}`))];
+  return [
+    `| Flow | Language | Runs | First change, ${a} | First change, ${b} | Done, ${a} | Done, ${b} | Longest Tool input, ${a} | Longest Tool input, ${b} | Ended at the write, ${a} / ${b} |`,
+    "|---|---|---|---|---|---|---|---|---|---|",
+    ...keys.map((key) => {
+      const [id, language] = key.split("\t");
+      const each = rows.filter((row) => row.id === id && row.language === language);
+      const ended = (run: (row: PairedRow) => ArmRun) =>
+        each.filter((row) => run(row).endedAtWrite === true).length;
+      return `| ${id} | ${language} | ${each.length} | ${spread(each.map((row) => row.baseline.firstChangeMs))} | ${spread(each.map((row) => row.candidate.firstChangeMs))} | ${spread(each.map((row) => row.baseline.doneMs))} | ${spread(each.map((row) => row.candidate.doneMs))} | ${spread(each.map((row) => row.baseline.toolInputMs))} | ${spread(each.map((row) => row.candidate.toolInputMs))} | ${ended((row) => row.baseline)} / ${ended((row) => row.candidate)} |`;
+    }),
   ].join("\n");
 }
 

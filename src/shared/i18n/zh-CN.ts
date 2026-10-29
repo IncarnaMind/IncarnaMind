@@ -5477,6 +5477,8 @@ export const zhCN = {
   "mindChanges.review": "审阅",
   "mindChanges.also": "另外在“{mind}”中建议了 {count} 处修改",
   "mindChanges.also.one": "另外在“{mind}”中建议了 1 处修改",
+  "mindChanges.look": "{count} 处需要留意",
+  "mindChanges.look.one": "1 处需要留意",
   "mindChanges.undone": "已撤销",
   "mindChanges.undo.changedSince": "“{mind}”之后又改过了。“查看改动”在 ⋯ 和 {palette} 里。",
   "mindChanges.undo.changedSince.noReview": "“{mind}”之后又改过了，无法在这里撤销。",

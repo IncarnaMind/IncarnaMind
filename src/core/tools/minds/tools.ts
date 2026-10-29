@@ -1925,7 +1925,11 @@ export function mindTools(options: MindToolsOptions): { tools: Tool[]; settle():
     mind: ChangeableMind,
     written: Written & { change: MindChange },
   ) => {
-    if (input.done === true && outcomeOf(mind, written.change.request) === APPLIES && saysAll(written))
+    if (
+      input.done === true &&
+      outcomeOf(mind, written.change.request) === APPLIES &&
+      saysAll(written)
+    )
       endsTurn?.();
   };
 

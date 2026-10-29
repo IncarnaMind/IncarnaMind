@@ -324,3 +324,47 @@ describe("The Minds an Answer changed", () => {
     );
   });
 });
+
+describe("What its writes' checks flagged (#1635)", () => {
+  // protects=a Mind's row counts every sentence its writes' checks flagged, and keeps the Blocks of those writes, where the count takes the User; fails_when=a write's flags are lost, counted twice, or the Blocks of a clean write are kept as where to look; no_claim=none beyond protects.
+  test("a row adds up the flags of every write there, and keeps where they are", () => {
+    const check = (blocks: string[], look?: number) => ({
+      request: "r",
+      blocks,
+      cited: 2,
+      sent: 2,
+      checked: 2,
+      failed: 0,
+      ...(look !== undefined && { look }),
+    });
+    const [row] = changedMinds({
+      toolCalls: [
+        call("add_to_mind", {
+          mindId: "a",
+          created: false,
+          request: "r1",
+          proposals: 2,
+          paragraphs: 2,
+          selfCheck: check(["b1", "b2"], 1),
+        }),
+        call("add_to_mind", {
+          mindId: "a",
+          created: false,
+          request: "r2",
+          proposals: 1,
+          paragraphs: 1,
+          selfCheck: check(["b3"]),
+        }),
+        call("add_to_mind", {
+          mindId: "a",
+          created: false,
+          request: "r3",
+          proposals: 1,
+          paragraphs: 1,
+          selfCheck: check(["b4"], 2),
+        }),
+      ],
+    });
+    expect(row).toMatchObject({ look: 3, lookIn: ["b1", "b2", "b4"] });
+  });
+});

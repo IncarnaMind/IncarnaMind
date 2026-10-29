@@ -21,6 +21,20 @@ export interface Arm {
   paths?: { writesThenCites?: boolean; retrievesFirst?: boolean };
 }
 
+const WRITES: ReadonlySet<string> = new Set(["add_to_mind", "create_mind", "edit_mind"]);
+
+/** The Minds' write Tools as they were before #1635, offering no `done`: every write gets its closing reply. */
+function withoutDone(params: LanguageModelV4CallOptions): LanguageModelV4CallOptions {
+  return {
+    ...params,
+    tools: params.tools?.map((tool) => {
+      if (tool.type !== "function" || !WRITES.has(tool.name)) return tool;
+      const { done: _done, ...properties } = tool.inputSchema.properties ?? {};
+      return { ...tool, inputSchema: { ...tool.inputSchema, properties } };
+    }),
+  };
+}
+
 // An arm that compares one Answer path keeps every other as the Tool loop has it from its first
 // call: a model the retrieve-first list names would otherwise write first in both citation arms.
 export const ARMS: readonly Arm[] = [
@@ -39,6 +53,12 @@ export const ARMS: readonly Arm[] = [
     id: "loop",
     label: "the Tool loop from its first call, whatever the lists say",
     paths: { retrievesFirst: false },
+  },
+  {
+    id: "write-replies",
+    label:
+      "every write followed by its closing reply, as before #1635 (the write Tools offer no done)",
+    request: withoutDone,
   },
   {
     id: "retrieve-first",

@@ -6,6 +6,7 @@ import {
   inNoteText,
   keptText,
   leftText,
+  lookText,
 } from "../../src/renderer/src/changeFacts";
 import { type MessageKey, type MessageParams, translate } from "../../src/shared/i18n";
 
@@ -169,5 +170,16 @@ describe("The card's second fact: what waits in the Note (#1897)", () => {
     expect(inNoteText(t("en"), null, 0)).toBeNull();
     expect(inNoteText(t("en"), "gone", 0)).toBeNull();
     expect(inNoteText(t("zh-CN"), 2, 2)).toBeNull();
+  });
+});
+
+describe("What a write's check flagged, on the change's line (#1635)", () => {
+  // protects=the line's count of sentences that need a look, one and many, in English and Chinese, in the words the badge uses; fails_when=a count reads otherwise or takes the wrong form for one; no_claim=where the line draws it.
+  test.each([
+    [1, "1 needs a look", "1 处需要留意"],
+    [3, "3 need a look", "3 处需要留意"],
+  ])("%i", (count, english, chinese) => {
+    expect(lookText(t("en"), count)).toBe(english);
+    expect(lookText(t("zh-CN"), count)).toBe(chinese);
   });
 });

@@ -5743,6 +5743,8 @@ export const en = {
   "mindChanges.review": "Review",
   "mindChanges.also": "I also suggested {count} changes in “{mind}”",
   "mindChanges.also.one": "I also suggested 1 change in “{mind}”",
+  "mindChanges.look": "{count} need a look",
+  "mindChanges.look.one": "1 needs a look",
   "mindChanges.undone": "Undone",
   "mindChanges.undo.changedSince": "“{mind}” changed since. Review changes is in ⋯ and {palette}.",
   "mindChanges.undo.changedSince.noReview": "“{mind}” changed since, so this can’t be undone here.",

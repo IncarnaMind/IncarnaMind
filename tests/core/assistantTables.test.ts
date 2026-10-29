@@ -226,6 +226,7 @@ describe("A table the assistant writes into a Mind is a table", { timeout: 30_00
           sent: 1,
           checked: 1,
           failed: 0,
+          look: 1,
         },
       },
     ]);

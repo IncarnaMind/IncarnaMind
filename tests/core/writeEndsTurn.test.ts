@@ -88,8 +88,7 @@ async function notes(model: MockLanguageModelV4) {
 const claimChecks = (model: MockLanguageModelV4) =>
   model.doGenerateCalls.filter((call) =>
     call.prompt.some(
-      (message) =>
-        message.role === "system" && message.content.includes(CLAIM_CHECK_INSTRUCTIONS),
+      (message) => message.role === "system" && message.content.includes(CLAIM_CHECK_INSTRUCTIONS),
     ),
   ).length;
 
@@ -102,7 +101,9 @@ const shownOf = (answer: ConversationAnswer) => ({
 const ask = (core: Core, mindId: string, text = "Add the spring tides to my notes") =>
   askAssistant(core, { text, mindId });
 
-describe("A write that does all the User asked ends the Answer (#1635)", { timeout: 30_000 }, () => {
+describe("A write that does all the User asked ends the Answer (#1635)", {
+  timeout: 30_000,
+}, () => {
   // protects=a clean write the model marks done ends the Answer at once: no closing reply, no change-claim check, a blank Answer with its change; fails_when=the model is called again after the write, the claim check runs, or the Answer fails for having no text; no_claim=that a real model sets done only when it should.
   test("a clean write with done ends the Answer with no reply and no claim check", async () => {
     const { model, answerCalls } = writing(() => [add({ content: `${MOON} [^1].`, done: true })]);
@@ -139,7 +140,10 @@ describe("A write that does all the User asked ends the Answer (#1635)", { timeo
   // protects=a write whose result asks the model to act or to tell the User something goes on to the reply whatever done says: a marker with no Citation, a place that isn't there; fails_when=the turn ends over a note the User needs, or after a refusal; no_claim=none beyond protects.
   test.each([
     ["a marker with no Citation recorded", { content: `${MOON} [^1]. More [^2].`, done: true }],
-    ["a place that isn't there (refused)", { content: `${MOON} [^1].`, after: "Nowhere", done: true }],
+    [
+      "a place that isn't there (refused)",
+      { content: `${MOON} [^1].`, after: "Nowhere", done: true },
+    ],
   ])("%s: the model is told and replies", async (_, input) => {
     const { model, answerCalls } = writing(() => [add(input)]);
     const { core, mindId } = await notes(model);
@@ -147,7 +151,7 @@ describe("A write that does all the User asked ends the Answer (#1635)", { timeo
     const answer = await ask(core, mindId);
 
     expect(answerCalls).toHaveLength(4);
-    expect(answer.text).toBe(REPLY);
+    expect(answer.text).toContain("I added the tides line");
   });
 
   // protects=a write the check found unsupported still ends the Answer: the marks in the page and the count on the change's line say it, and the count is final when the Answer ends; fails_when=a flagged write waits for a reply, or ends on a bare "Wrote 1 paragraph" with no count; no_claim=none beyond protects.

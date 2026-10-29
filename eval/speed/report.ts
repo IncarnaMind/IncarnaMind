@@ -95,11 +95,14 @@ export function requestTable(runs: readonly FlowRun[]): string {
       pair(known(each.map(({ record }) => pick(record))));
     const tokens = (pick: (record: TimingRecord) => number | null) =>
       percentile(known(each.map(({ record }) => pick(record))), 0.5) ?? "–";
-    return `| ${flow} | ${step} | ${model} | ${reasoning} | ${language} | ${each.length} | ${of((record) => record.first_byte_ms)} | ${of((record) => record.first_reasoning_ms)} | ${of((record) => record.first_text_ms)} | ${of((record) => record.end_ms)} | ${tokens((record) => record.input_tokens)} / ${tokens((record) => record.output_tokens)} |`;
+    // From a call's first Tool input to its end: how long a write's input streams (#1635).
+    const toolToEnd = (record: TimingRecord) =>
+      record.first_tool_ms === null ? null : record.end_ms - record.first_tool_ms;
+    return `| ${flow} | ${step} | ${model} | ${reasoning} | ${language} | ${each.length} | ${of((record) => record.first_byte_ms)} | ${of((record) => record.first_reasoning_ms)} | ${of((record) => record.first_text_ms)} | ${of(toolToEnd)} | ${of((record) => record.end_ms)} | ${tokens((record) => record.input_tokens)} / ${tokens((record) => record.output_tokens)} |`;
   });
   return [
-    "| Flow | Step | Model | Reasoning | Language | Requests | First byte (median / p90) | First reasoning | First text | End | Tokens in / out (median) |",
-    "|---|---|---|---|---|---|---|---|---|---|---|",
+    "| Flow | Step | Model | Reasoning | Language | Requests | First byte (median / p90) | First reasoning | First text | First Tool → end | End | Tokens in / out (median) |",
+    "|---|---|---|---|---|---|---|---|---|---|---|---|",
     ...rows,
   ].join("\n");
 }

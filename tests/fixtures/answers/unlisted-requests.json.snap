@@ -951,6 +951,10 @@
        "content": {
         "type": "string",
         "description": "Only for your own text, still waiting or in the Mind as you wrote it: its whole new text, in Markdown, from the section's heading on (it replaces the heading too), with markers like [^1] for Citations recorded with cite. Give it instead of instruction."
+       },
+       "done": {
+        "type": "boolean",
+        "description": "true when this call does all the User asked, so your reply would only say it was done: the page's own line then says what was written, and you write no reply. Leave it out when the request has another part, or the User needs to hear something more (a choice to make, what the Documents don't cover)."
        }
       },
       "additionalProperties": false
@@ -994,6 +998,10 @@
          "title"
         ],
         "additionalProperties": false
+       },
+       "done": {
+        "type": "boolean",
+        "description": "true when this call does all the User asked, so your reply would only say it was done: the page's own line then says what was written, and you write no reply. Leave it out when the request has another part, or the User needs to hear something more (a choice to make, what the Documents don't cover)."
        },
        "content": {
         "type": "string",
@@ -1040,6 +1048,10 @@
          "title"
         ],
         "additionalProperties": false
+       },
+       "done": {
+        "type": "boolean",
+        "description": "true when this call does all the User asked, so your reply would only say it was done: the page's own line then says what was written, and you write no reply. Leave it out when the request has another part, or the User needs to hear something more (a choice to make, what the Documents don't cover)."
        },
        "content": {
         "type": "string",
@@ -1381,6 +1393,10 @@
        "content": {
         "type": "string",
         "description": "Only for your own text, still waiting or in the Mind as you wrote it: its whole new text, in Markdown, from the section's heading on (it replaces the heading too), with markers like [^1] for Citations recorded with cite. Give it instead of instruction."
+       },
+       "done": {
+        "type": "boolean",
+        "description": "true when this call does all the User asked, so your reply would only say it was done: the page's own line then says what was written, and you write no reply. Leave it out when the request has another part, or the User needs to hear something more (a choice to make, what the Documents don't cover)."
        }
       },
       "additionalProperties": false
@@ -1424,6 +1440,10 @@
          "title"
         ],
         "additionalProperties": false
+       },
+       "done": {
+        "type": "boolean",
+        "description": "true when this call does all the User asked, so your reply would only say it was done: the page's own line then says what was written, and you write no reply. Leave it out when the request has another part, or the User needs to hear something more (a choice to make, what the Documents don't cover)."
        },
        "content": {
         "type": "string",
@@ -1470,6 +1490,10 @@
          "title"
         ],
         "additionalProperties": false
+       },
+       "done": {
+        "type": "boolean",
+        "description": "true when this call does all the User asked, so your reply would only say it was done: the page's own line then says what was written, and you write no reply. Leave it out when the request has another part, or the User needs to hear something more (a choice to make, what the Documents don't cover)."
        },
        "content": {
         "type": "string",
@@ -1844,6 +1868,10 @@
        "content": {
         "type": "string",
         "description": "Only for your own text, still waiting or in the Mind as you wrote it: its whole new text, in Markdown, from the section's heading on (it replaces the heading too), with markers like [^1] for Citations recorded with cite. Give it instead of instruction."
+       },
+       "done": {
+        "type": "boolean",
+        "description": "true when this call does all the User asked, so your reply would only say it was done: the page's own line then says what was written, and you write no reply. Leave it out when the request has another part, or the User needs to hear something more (a choice to make, what the Documents don't cover)."
        }
       },
       "additionalProperties": false
@@ -1887,6 +1915,10 @@
          "title"
         ],
         "additionalProperties": false
+       },
+       "done": {
+        "type": "boolean",
+        "description": "true when this call does all the User asked, so your reply would only say it was done: the page's own line then says what was written, and you write no reply. Leave it out when the request has another part, or the User needs to hear something more (a choice to make, what the Documents don't cover)."
        },
        "content": {
         "type": "string",
@@ -1933,6 +1965,10 @@
          "title"
         ],
         "additionalProperties": false
+       },
+       "done": {
+        "type": "boolean",
+        "description": "true when this call does all the User asked, so your reply would only say it was done: the page's own line then says what was written, and you write no reply. Leave it out when the request has another part, or the User needs to hear something more (a choice to make, what the Documents don't cover)."
        },
        "content": {
         "type": "string",
@@ -2267,6 +2303,10 @@
        "content": {
         "type": "string",
         "description": "Only for your own text, still waiting or in the Mind as you wrote it: its whole new text, in Markdown, from the section's heading on (it replaces the heading too), with markers like [^1] for Citations recorded with cite. Give it instead of instruction."
+       },
+       "done": {
+        "type": "boolean",
+        "description": "true when this call does all the User asked, so your reply would only say it was done: the page's own line then says what was written, and you write no reply. Leave it out when the request has another part, or the User needs to hear something more (a choice to make, what the Documents don't cover)."
        }
       },
       "additionalProperties": false
@@ -2310,6 +2350,10 @@
          "title"
         ],
         "additionalProperties": false
+       },
+       "done": {
+        "type": "boolean",
+        "description": "true when this call does all the User asked, so your reply would only say it was done: the page's own line then says what was written, and you write no reply. Leave it out when the request has another part, or the User needs to hear something more (a choice to make, what the Documents don't cover)."
        },
        "content": {
         "type": "string",
@@ -2358,6 +2402,10 @@
          "title"
         ],
         "additionalProperties": false
+       },
+       "done": {
+        "type": "boolean",
+        "description": "true when this call does all the User asked, so your reply would only say it was done: the page's own line then says what was written, and you write no reply. Leave it out when the request has another part, or the User needs to hear something more (a choice to make, what the Documents don't cover)."
        },
        "content": {
         "type": "string",
@@ -2721,6 +2769,10 @@
        "content": {
         "type": "string",
         "description": "Only for your own text, still waiting or in the Mind as you wrote it: its whole new text, in Markdown, from the section's heading on (it replaces the heading too), with markers like [^1] for Citations recorded with cite. Give it instead of instruction."
+       },
+       "done": {
+        "type": "boolean",
+        "description": "true when this call does all the User asked, so your reply would only say it was done: the page's own line then says what was written, and you write no reply. Leave it out when the request has another part, or the User needs to hear something more (a choice to make, what the Documents don't cover)."
        }
       },
       "additionalProperties": false
@@ -2764,6 +2816,10 @@
          "title"
         ],
         "additionalProperties": false
+       },
+       "done": {
+        "type": "boolean",
+        "description": "true when this call does all the User asked, so your reply would only say it was done: the page's own line then says what was written, and you write no reply. Leave it out when the request has another part, or the User needs to hear something more (a choice to make, what the Documents don't cover)."
        },
        "content": {
         "type": "string",
@@ -2812,6 +2868,10 @@
          "title"
         ],
         "additionalProperties": false
+       },
+       "done": {
+        "type": "boolean",
+        "description": "true when this call does all the User asked, so your reply would only say it was done: the page's own line then says what was written, and you write no reply. Leave it out when the request has another part, or the User needs to hear something more (a choice to make, what the Documents don't cover)."
        },
        "content": {
         "type": "string",
@@ -3208,6 +3268,10 @@
        "content": {
         "type": "string",
         "description": "Only for your own text, still waiting or in the Mind as you wrote it: its whole new text, in Markdown, from the section's heading on (it replaces the heading too), with markers like [^1] for Citations recorded with cite. Give it instead of instruction."
+       },
+       "done": {
+        "type": "boolean",
+        "description": "true when this call does all the User asked, so your reply would only say it was done: the page's own line then says what was written, and you write no reply. Leave it out when the request has another part, or the User needs to hear something more (a choice to make, what the Documents don't cover)."
        }
       },
       "additionalProperties": false
@@ -3251,6 +3315,10 @@
          "title"
         ],
         "additionalProperties": false
+       },
+       "done": {
+        "type": "boolean",
+        "description": "true when this call does all the User asked, so your reply would only say it was done: the page's own line then says what was written, and you write no reply. Leave it out when the request has another part, or the User needs to hear something more (a choice to make, what the Documents don't cover)."
        },
        "content": {
         "type": "string",
@@ -3299,6 +3367,10 @@
          "title"
         ],
         "additionalProperties": false
+       },
+       "done": {
+        "type": "boolean",
+        "description": "true when this call does all the User asked, so your reply would only say it was done: the page's own line then says what was written, and you write no reply. Leave it out when the request has another part, or the User needs to hear something more (a choice to make, what the Documents don't cover)."
        },
        "content": {
         "type": "string",

@@ -75,6 +75,7 @@ import { blockAt } from "./editor/writingPlace";
 import { speak } from "./editWithAi";
 import { translateNow as t } from "./i18n";
 import { EDIT_FROM_CORE, FROM_CORE, takeEditUpdates } from "./mindCopies";
+import { showFirstLook } from "./needsLook";
 import { useAppStore } from "./store";
 import { pageUndoPlace, type Undoable, UndoRefused, useUndo } from "./undo";
 
@@ -1032,5 +1033,10 @@ export function actOnAppliedEdit(editor: Editor, action: AppliedAction): void {
     case "remove-kept":
       removeKept(editor);
       return;
+    case "look": {
+      const line = appliedLineIn(editor.state);
+      if (line?.kind === "applied") showFirstLook(editor, line.facts?.lookIn ?? []);
+      return;
+    }
   }
 }

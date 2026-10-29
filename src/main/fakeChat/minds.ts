@@ -43,6 +43,10 @@
  * the packing list" gives its new text, one item changed, one left out and one added.
  * "Summarise my leases without citing" (不加引用地总结我的租约) searches, then writes a summary
  * with no Citation into a new Mind, and again as it was once told it has none (#1415).
+ * "Add the tide line" (加上潮汐那一句) searches, cites the spring tides line and adds it to the Mind
+ * in focus, saying it is done, so the Answer ends with the write (#1635); "Add the tide notes"
+ * (加上潮汐笔记) adds a sentence its check finds unsupported after it; ", then reply" (，然后回复)
+ * leaves done out, and replies as before.
  */
 
 import { answerReply, CITED_ANSWER } from "./answers";
@@ -222,6 +226,8 @@ const firstSentence = (result: string) => /^[^.。]*[.。]?/u.exec(result)?.[0] 
  */
 /** "Say you added the risks" (说你加了风险部分): a reply that claims a write no call made (#1559). */
 const CLAIMS_A_WRITE = /^say you added the risks|^说你加了风险部分/i;
+const TIDE_WRITE =
+  /\badd the tide (line|notes)(, then reply)?|加上潮汐(那一句|笔记)(，然后回复)?/iu;
 const UNCITED_SUMMARY = /\bsummari[sz]e my leases without citing\b|不加引用地总结我的租约/i;
 
 export function mindsReply(prompt: Prompt, asked: string, names: readonly string[]): Reply | null {
@@ -278,6 +284,8 @@ export function mindsReply(prompt: Prompt, asked: string, names: readonly string
   if (MIXED_UNITS_CHART.test(question)) return mixedUnitsChart(prompt, question);
   if (RENT_CHART.test(question)) return tableChart(prompt, RENT);
   if (CHECK_TABLE.test(question)) return checkTable(prompt, question);
+  const tides = TIDE_WRITE.exec(question);
+  if (tides) return tideWrite(prompt, tides);
   if (LEASES_SUMMARY.test(question)) {
     const made = lastResult(prompt, "create_mind") ?? lastResult(prompt, "add_to_mind");
     if (made !== undefined) return { text: firstSentence(made) };
@@ -381,6 +389,29 @@ export function mindsReply(prompt: Prompt, asked: string, names: readonly string
   const title = called?.[1] ?? called?.[2] ?? "Scripted notes";
   const content = `## Summary\n\n${cited ? CITED_ANSWER : "Written by the scripted assistant."}`;
   return { tool: "create_mind", input: { title, content } };
+}
+
+function tideWrite(prompt: Prompt, asked: RegExpExecArray): Reply {
+  const added = lastResult(prompt, "add_to_mind");
+  if (added !== undefined) return { text: firstSentence(added) };
+  const [searched] = toolResults(prompt, "search_documents");
+  if (searched === undefined) return { tool: "search_documents", input: { query: "spring tides" } };
+  const found = passagesIn(searched).flatMap((passage) => {
+    const quote = /Spring tides[^.]*/.exec(passage.text)?.[0];
+    return quote ? [{ passage: passage.id, quote }] : [];
+  });
+  const [line] = found;
+  if (!line) return { text: "The Documents don't say when spring tides come." };
+  if (toolResults(prompt, "cite").length === 0) {
+    return { tool: "cite", input: { citations: [{ marker: 1, ...line }] } };
+  }
+  const notes = asked[1] === "notes" || asked[3] === "笔记";
+  const replies = Boolean(asked[2] ?? asked[4]);
+  const content = [
+    `${line.quote} [^1].`,
+    ...(notes ? ["The harbour floods for no reason every year [^1]."] : []),
+  ].join("\n\n");
+  return { tool: "add_to_mind", input: { content, ...(!replies && { done: true }) } };
 }
 
 function uncitedSummary(prompt: Prompt, question: string): Reply {

@@ -25,7 +25,7 @@ import { BLOCK_ID_ATTRIBUTE } from "../../../core/api";
 import type { Language } from "../../../core/language";
 import type { MessageKey, MessageParams } from "../../../shared/i18n";
 import { type ChangeKind, countChanged } from "../../../shared/proposals";
-import { type ChangeCounts, changeFact } from "../changeFacts";
+import { type ChangeCounts, changeFact, lookText } from "../changeFacts";
 import { SPARK_PATH } from "../components/iconPaths";
 import { anchorOf } from "./arrivedChanges";
 import {
@@ -51,6 +51,7 @@ export const APPLIED_ACTIONS = [
   "apply",
   "discard",
   "remove-kept",
+  "look",
 ] as const;
 export type AppliedAction = (typeof APPLIED_ACTIONS)[number];
 
@@ -603,9 +604,11 @@ function mainLine(line: AppliedLine, options: Options, blocks: ChangedBlocks): H
       line.facts ? changeFact(t, line.facts, null) : appliedText(t, line.blocks),
       "applied-count",
     );
+    const look = line.facts?.look ?? 0;
     const parts: (Node | string)[] = [
       sparkle(),
       what,
+      ...(look > 0 ? [dot(), button("look", lookText(t, look))] : []),
       dot(),
       button("undo", t("edit.applied.undo")),
       keys(options.undoKeys()),

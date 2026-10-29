@@ -18,6 +18,9 @@ export interface ChangeCounts {
   tables: number;
   /** Absent: none. */
   charts?: number;
+  /** Sentences its checks flagged, and the Blocks they are in (`ChangedMind`). Absent: none. */
+  look?: number;
+  lookIn?: readonly string[];
 }
 
 const counted = (t: Translate, count: number, what: "tables" | "paragraphs" | "charts") =>
@@ -125,6 +128,10 @@ function tablesFact(t: Translate, row: ChangeCounts, name: string | null): strin
   if (row.changed === 0) return t("mindChanges.wrote.tables", { mind: name, paragraphs, tables });
   return t("mindChanges.changed.tables", { mind: name, paragraphs, tables });
 }
+
+/** What the writes' checks found unsupported or contradicted, on the change's line (#1635). */
+export const lookText = (t: Translate, count: number): string =>
+  count === 1 ? t("mindChanges.look.one") : t("mindChanges.look", { count });
 
 /**
  * What of its tables was kept as text, what sources were left out, and why a chart asked for

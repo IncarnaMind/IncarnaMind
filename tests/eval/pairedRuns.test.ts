@@ -19,11 +19,16 @@ const RUN: ArmRun = {
   error: null,
   firstSignMs: 10,
   firstWordsMs: 3000,
+  firstChangeMs: null,
   doneMs: 5000,
   modelCalls: 3,
   answerCalls: 3,
   inputTokens: 30_000,
   outputTokens: 900,
+  checkCalls: 0,
+  claimChecks: 0,
+  toolInputMs: null,
+  endedAtWrite: null,
   citations: 2,
   found: 2,
   cited: true,
@@ -139,6 +144,44 @@ describe("the arm switch", () => {
       await generateText({ model: wrapped, instructions: "Answer.", prompt: "Hi" });
     }
     expect(systems).toEqual(["Answer.", "Be brief.", "Answer."]);
+  });
+});
+
+describe("the write-replies arm (#1635)", () => {
+  // protects=the arm that runs writes as before #1635 offers the write Tools without done and leaves every other Tool and field as it was; fails_when=a write Tool keeps done, or another Tool or field changes; no_claim=how a model reads either schema.
+  test("the write Tools offer no done; every other Tool and field is as sent", () => {
+    const schema = (properties: Record<string, { type: string }>) => ({
+      type: "object" as const,
+      properties,
+    });
+    const tools = [
+      {
+        type: "function" as const,
+        name: "add_to_mind",
+        inputSchema: schema({ content: { type: "string" }, done: { type: "boolean" } }),
+      },
+      {
+        type: "function" as const,
+        name: "edit_mind",
+        inputSchema: schema({ part: { type: "string" }, done: { type: "boolean" } }),
+      },
+      {
+        type: "function" as const,
+        name: "lookup_tide",
+        inputSchema: schema({ done: { type: "boolean" } }),
+      },
+    ];
+    const sent = armNamed("write-replies").request?.({ prompt: [], tools, temperature: 0 });
+    expect(sent?.temperature).toBe(0);
+    expect(
+      sent?.tools?.map((tool) =>
+        tool.type === "function" ? [tool.name, Object.keys(tool.inputSchema.properties ?? {})] : [],
+      ),
+    ).toEqual([
+      ["add_to_mind", ["content"]],
+      ["edit_mind", ["part"]],
+      ["lookup_tide", ["done"]],
+    ]);
   });
 });
 

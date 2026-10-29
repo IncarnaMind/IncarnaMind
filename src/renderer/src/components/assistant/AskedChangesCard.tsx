@@ -10,10 +10,18 @@ import {
   useWrittenOnTop,
 } from "../../askedChanges";
 import type { ChangedMind } from "../../changedMinds";
-import { appliedFact, changeFact, inNoteText, keptText, leftText } from "../../changeFacts";
+import {
+  appliedFact,
+  changeFact,
+  inNoteText,
+  keptText,
+  leftText,
+  lookText,
+} from "../../changeFacts";
 import { shortcutLabel } from "../../commands/keymap";
 import { useT } from "../../i18n";
 import { showChanges, showNoteWaiting, useWaitingIn, type WaitingRow } from "../../mindChanges";
+import { showLook } from "../../needsLook";
 import { PencilLineIcon } from "../lineIcons";
 import { useReadMindId } from "./readMind";
 
@@ -124,6 +132,7 @@ function AskedRow({
         <span data-testid="mind-changes-title" className="mind-changes-title">
           {outcome === "held" ? changeFact(t, facts, name) : appliedFact(t, facts, name)}
         </span>
+        {facts.look > 0 && <LookCount row={facts} />}
         {left && (
           <>
             {" "}
@@ -265,6 +274,24 @@ function AppliedActions({
           </button>
         </>
       )}
+    </>
+  );
+}
+
+/** What the write's check flagged, before its actions: it shows the first in the page. */
+export function LookCount({ row }: { row: ChangedMind }) {
+  const t = useT();
+  return (
+    <>
+      <Dot />
+      <button
+        type="button"
+        data-testid="mind-changes-look"
+        onClick={() => showLook(row)}
+        className="mind-changes-review"
+      >
+        {lookText(t, row.look)}
+      </button>
     </>
   );
 }
