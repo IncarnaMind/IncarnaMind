@@ -53,7 +53,8 @@ export interface NoteAddingOptions {
   requireMind(mindId: unknown): string;
   recheck(input: RecheckCitationInput): CitationRecheck;
   /** The Search scope the Question of the Answer Blocks came from was asked with; null for none. */
-  askedScope(origin: BlockOrigin): SearchScope | null;
+  /** The Search scope the Answer at `origin` was asked with, as the Mind `mindId` may keep it. */
+  askedScope(origin: BlockOrigin, mindId: string): SearchScope | null;
   mindFolder(mindId: string): string | null;
   /** Keeps what the AI put into a Mind in the record of AI use. */
   recordAiUse(inputs: RecordAiUseInput[]): void;
@@ -149,7 +150,7 @@ export function createNoteAdding(options: NoteAddingOptions) {
         ),
       );
       const request = randomUUID();
-      const asked = origin ? options.askedScope(origin) : null;
+      const asked = origin ? options.askedScope(origin, mindId) : null;
       const folderId = options.mindFolder(mindId);
 
       const blockIds = content.edit(mindId, (note) => {

@@ -211,11 +211,15 @@ function FolderHead({
           !rename.renaming && (
             <>
               {folder.keepInside === true && (
-                <LockLineIcon
+                <span
                   data-testid="folder-wall"
-                  aria-label={t("folder.keepInside")}
-                  className="size-4 shrink-0 text-ink-meta"
-                />
+                  role="img"
+                  aria-label={t("folder.wall.title")}
+                  title={t("folder.wall.title")}
+                  className="flex shrink-0"
+                >
+                  <LockLineIcon className="size-4 text-ink-meta" />
+                </span>
               )}
               <ObjectMenu
                 target={{ kind: "folder", id: folder.id }}

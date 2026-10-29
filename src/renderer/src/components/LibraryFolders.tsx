@@ -418,11 +418,15 @@ function FolderGroup({
               {folder.name}
             </span>
             {folder.keepInside === true && (
-              <LockLineIcon
+              <span
                 data-testid="folder-wall"
-                aria-label={t("folder.keepInside")}
-                className="size-3.5 shrink-0 text-ink-meta"
-              />
+                role="img"
+                aria-label={t("folder.wall.title")}
+                title={t("folder.wall.title")}
+                className="flex shrink-0"
+              >
+                <LockLineIcon className="size-3.5 text-ink-meta" />
+              </span>
             )}
             <span
               data-testid="browse-count"

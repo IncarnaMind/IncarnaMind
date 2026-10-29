@@ -73,6 +73,7 @@ import { tellTask, useTasks } from "../tasks";
 import { takeBackLast, tellable } from "../taskTell";
 import { taskName } from "../taskText";
 import { useTurnWall } from "../turnWall";
+import { scopeOutsideWalls } from "../walls";
 import { AnswerAnnouncer } from "./AnswerAnnouncer";
 import { AskedQuoteChips } from "./AskedQuotes";
 import { AskProblem } from "./AskProblem";
@@ -270,21 +271,8 @@ export function Composer({
   /** Keeps the scope the User chose; the Mind's own follows it to another Folder. */
   const withinWall = (next: SearchScope) => {
     if (wallId !== null) return folderScope(wallId);
-    const state = useAppStore.getState();
-    const walls = new Set(
-      (state.library?.groups ?? []).filter((group) => group.keepInside).map((group) => group.id),
-    );
-    const documents = new Set(
-      (state.library?.assignments ?? [])
-        .filter((each) => walls.has(each.groupId ?? ""))
-        .map((each) => each.documentId),
-    );
     return chosenScope(
-      {
-        ...next,
-        folderIds: next.folderIds.filter((id) => !walls.has(id)),
-        documentIds: next.documentIds.filter((id) => !documents.has(id)),
-      },
+      scopeOutsideWalls(useAppStore.getState().library, next, null) ?? next,
       folderId,
     );
   };

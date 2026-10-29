@@ -338,6 +338,7 @@ export const zhCN = {
   "folder.keepInside": "只在本文件夹内工作",
   "folder.keepInside.hint": "其中的笔记只使用本文件夹的文档，其他笔记也不会搜索这些文档",
   "folder.wall.refusal": "只在本文件夹内工作。",
+  "folder.wall.title": "只在本文件夹内工作",
   "folder.wall.notFiled":
     "未新建任何内容：这项工作只在所在文件夹内进行，但现在找不到该文件夹。笔记没有变化。",
   "error.folder.wall": "只在本文件夹内工作。",
@@ -3361,7 +3362,6 @@ export const zhCN = {
   "citation.badge.found.transcript": "已在转写稿 {location} 处找到引文",
   "citation.badge.notFound.transcript": "未在转写稿 {location} 处找到引文",
   "citation.badge.cantCheck": "无法核对",
-  "citation.badge.keptInside": "仅在“{folder}”内使用",
   "citation.badge.unsupported": "文档中没有依据",
   "citation.badge.contradicted": "与文档矛盾",
   "citation.reason.quote-not-on-pages": "所引位置的文字中没有这段引文。",

@@ -721,11 +721,9 @@ function CitationCard({
   const reason =
     state.check === "checking"
       ? t("citation.reason.checking")
-      : state.reason === "kept-inside"
-        ? t("citation.reason.kept-inside", { folder: state.keptInside ?? "" })
-        : state.reason
-          ? t(`citation.reason.${state.reason}`)
-          : null;
+      : state.reason
+        ? t(`citation.reason.${state.reason}`)
+        : null;
   const removed = state.reason === "document-removed";
   const quotedWords = state.check === "not-found" && parseQuotedWords(attributes.quotedWords);
   const scanned = useScannedQuote(attributes);
@@ -758,6 +756,11 @@ function CitationCard({
           <span>{badgeText}</span>
         </p>
         {source && <p className="citation-card-source">{source}</p>}
+        {state.keptInside && (
+          <p data-testid="citation-kept-inside" className="citation-card-source">
+            {t("citation.reason.kept-inside", { folder: state.keptInside })}
+          </p>
+        )}
         {withPdfPage && (
           <p data-testid="citation-pdf-page" className="citation-card-source">
             {withPdfPage}

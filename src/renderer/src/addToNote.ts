@@ -56,7 +56,7 @@ import { notePlace } from "./editor/notePlace";
 import type { Words } from "./lineNames";
 import { exampleMindIds, useAppStore } from "./store";
 import { answerUndoPlace, useUndo } from "./undo";
-import { copiedOutOf } from "./walls";
+import { copiedOutOf, scopeOutsideWalls } from "./walls";
 
 /** Where Add to note puts an Answer: a Mind, by id, or a new Mind made from it. */
 export type AddTarget = { kind: "mind"; mindId: string } | { kind: "new" };
@@ -166,7 +166,16 @@ async function addToReadMind(added: AddedAnswer, mindId: string): Promise<boolea
       ?.undoManager.addToScope(doc.getMap(MIND_FIGURE_RUNS_FIELD));
     installFigureRuns(doc, figureRunsOfAnswer(added.answer, added.blocks));
     doc.transact(
-      () => carryAnswerScope(doc, questionOf(added.answer)?.scope ?? null, folderId ?? null),
+      () =>
+        carryAnswerScope(
+          doc,
+          scopeOutsideWalls(
+            useAppStore.getState().library,
+            questionOf(added.answer)?.scope ?? null,
+            folderId ?? null,
+          ),
+          folderId ?? null,
+        ),
       ySyncPluginKey,
     );
   };

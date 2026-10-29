@@ -2404,10 +2404,20 @@ export function createCore(adapters: CoreAdapters): Core {
     content,
     requireMind: (mindId) => writableMind(mindId).id,
     recheck: recheckIn,
-    askedScope: ({ from }) =>
-      from.artifactKind === "conversation"
-        ? conversations.askedScope(from.artifactId, from.anchor.messageId)
-        : null,
+    askedScope: ({ from }, mindId) => {
+      const asked =
+        from.artifactKind === "conversation"
+          ? conversations.askedScope(from.artifactId, from.anchor.messageId)
+          : null;
+      // A Note outside a wall never takes a walled Folder or Document into its scope (#1934).
+      if (asked === null || walledFolder(mindId) !== null) return asked;
+      const walled = new Set(walledDocuments());
+      return {
+        ...asked,
+        folderIds: asked.folderIds.filter((id) => walledFolderId(id) === null),
+        documentIds: asked.documentIds.filter((id) => !walled.has(id)),
+      };
+    },
     mindFolder: (mindId) => minds.get(mindId).folderId,
     recordAiUse: (inputs) => void aiUse.record(inputs),
     now: () => adapters.now?.() ?? new Date(),

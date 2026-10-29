@@ -2,7 +2,7 @@
  * Folder walls as the window sees them (#1934): which walled Folder keeps a Document inside it,
  * judged from where a Note is. The core decides what is read and filed; this only says so.
  */
-import { CITATION_NODE, type LibrarySnapshot } from "../../core/api";
+import { CITATION_NODE, type LibrarySnapshot, type SearchScope } from "../../core/api";
 import type { NodeJSON } from "../../shared/blockJson";
 
 /** What of the Library the walls are read from. */
@@ -44,4 +44,29 @@ export function copiedOutOf(
     if (name !== null) return name;
   }
   return null;
+}
+
+/**
+ * An Answer's Search scope as a Note in `folderId` may keep it: one outside a wall never takes a
+ * walled Folder or Document into its scope (#1934), as the core does for a Note not open.
+ */
+export function scopeOutsideWalls(
+  library: Walls,
+  scope: SearchScope | null,
+  folderId: string | null,
+): SearchScope | null {
+  const walls = new Set(
+    (library?.groups ?? []).filter((group) => group.keepInside).map((group) => group.id),
+  );
+  if (scope === null || (folderId !== null && walls.has(folderId))) return scope;
+  const walled = new Set(
+    (library?.assignments ?? [])
+      .filter((each) => walls.has(each.groupId ?? ""))
+      .map((each) => each.documentId),
+  );
+  return {
+    ...scope,
+    folderIds: scope.folderIds.filter((id) => !walls.has(id)),
+    documentIds: scope.documentIds.filter((id) => !walled.has(id)),
+  };
 }

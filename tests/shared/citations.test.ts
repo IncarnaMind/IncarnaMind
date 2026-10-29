@@ -250,13 +250,16 @@ describe("A Citation's badge", () => {
     );
     expect(state).toMatchObject({
       check: "found",
-      reason: "kept-inside",
+      reason: null,
       documentId: "tides",
       changedAfterCited: false,
       keptInside: "Client A",
     });
-    expect(badgeMessage(state, found, in_("en")).key).toBe("citation.badge.keptInside");
-    expect(badgeMessage(state, found, in_("zh-CN")).params).toEqual({ folder: "Client A" });
+    // The heading stays the result it was made with; "Kept inside" is said once, under the name.
+    expect(badgeMessage(state, found, in_("en")).key).toBe(
+      badgeMessage(citationState(found, [{ id: "tides", contentHash: "abc" }]), found, in_("en"))
+        .key,
+    );
   });
 
   test("finds its Document by ID first, else the first in the list with the same content", () => {

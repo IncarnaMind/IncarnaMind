@@ -68,7 +68,10 @@ export interface CitationState {
   check: CitationCheck;
   /** Why it wasn't found, or can't be checked. */
   reason: CitationCheckReason | null;
-  /** The Folder whose wall keeps this Citation's last result, when there is one. */
+  /**
+   * The walled Folder that keeps its Document inside it, seen from a Note outside: its last result
+   * stands, unread again, and the card says so under the Document's name (#1934).
+   */
   keptInside?: string | null;
   /**
    * The live Document the Citation opens: its own, or one with the same
@@ -214,13 +217,7 @@ export function citationState(
     return { check, reason: null, documentId: live?.id ?? own, changedAfterCited: false };
   }
   if (keptInside) {
-    return {
-      check,
-      reason: "kept-inside",
-      documentId: live?.id ?? own,
-      changedAfterCited: false,
-      keptInside,
-    };
+    return { check, reason, documentId: live?.id ?? own, changedAfterCited: false, keptInside };
   }
   if (!live && citedTextKept(attributes, kept)) {
     return { check, reason, documentId: null, changedAfterCited: false };
@@ -483,9 +480,6 @@ export function badgeMessage(
   t: Translate,
 ): { key: MessageKey; params?: Record<string, string> } {
   const { where, params } = placeOf(attributes, t);
-  if (state.reason === "kept-inside") {
-    return { key: "citation.badge.keptInside", params: { folder: state.keptInside ?? "" } };
-  }
   switch (state.check) {
     case "checking":
       return { key: "citation.badge.checking" };

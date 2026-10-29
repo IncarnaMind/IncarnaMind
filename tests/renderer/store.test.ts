@@ -340,7 +340,7 @@ describe("changes the User can take back", () => {
       countsOwnFiles: group.countsOwnFiles,
       keepInside: true,
     });
-    expect(said(top())).toBe("Turned on inside-only work for Research");
+    expect(said(top())).toBe("“Research” now keeps its work inside it");
     expect(undoLines((key, params) => translate("zh-CN", key, params)).said(top())).toBe(
       "已开启“Research”只在本文件夹内工作",
     );

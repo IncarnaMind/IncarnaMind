@@ -2,7 +2,10 @@ import { writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { describe, expect, test } from "vitest";
 import type { ConversationAnswer, Core, SearchScope } from "../../src/core";
+import { messageReference } from "../../src/core";
 import { translate } from "../../src/shared/i18n";
+import { mindScopeOf } from "../../src/shared/mindScope";
+import { folderScope } from "../../src/shared/searchScope";
 import { askAssistant } from "../helpers/assistant";
 import { answerEnded, setUpWithDocuments } from "../helpers/citations";
 import { createTempDataFolder, nextEvent, queryDatabase } from "../helpers/core";
@@ -361,6 +364,39 @@ describe("a walled Conversation with no Note open", () => {
     });
     const { assignments } = await s.core.getLibrary();
     expect(assignments.find((each) => each.documentId === saved.id)?.groupId).toBe(s.folderA.id);
+  });
+});
+
+describe("an outside Note open on a Conversation that began inside a wall", () => {
+  test("is outside every wall: its turn leaves the walled turns out, and takes no walled scope", async () => {
+    const s = await setUp();
+    const first = await askAssistant(s.core, {
+      text: "What is the notice?",
+      mindId: s.noteA.id,
+      scope: folderScope(s.folderA.id),
+    });
+    expect(
+      await s.core.wallOfTurn({ mindId: s.mind.id, conversationId: first.conversationId }),
+    ).toBeNull();
+    const from = s.calls.length;
+    await askAssistant(s.core, {
+      text: "And here?",
+      mindId: s.mind.id,
+      conversationId: first.conversationId,
+    });
+    expect(carried(s.calls, from)).toBe(false);
+
+    // Added to the outside Note, the walled Answer brings no walled Folder into its scope.
+    await s.core.addToNote({
+      mindId: s.mind.id,
+      blocks: [{ type: "paragraph", content: [{ type: "text", text: "Copied." }] }],
+      origin: {
+        from: messageReference(first.conversationId, first.id),
+        question: "What is the notice?",
+      },
+      model: null,
+    });
+    expect(mindScopeOf((await connectToMind(s.core, s.mind.id)).doc)).toBeNull();
   });
 });
 
