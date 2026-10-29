@@ -43,6 +43,43 @@ const modelWith = (answer: string, plans: Parameters<typeof checkReply>[1]) =>
     generate: checkGenerate(plans),
   });
 
+async function outOfOrderDuplicates() {
+  const waiting: (() => void)[] = [];
+  const plans = {
+    [CLAIM]: { verdict: "supported" as const, quote: QUOTE, judgement: "conflict" as const },
+  };
+  const model = scriptedModel(
+    (call) => {
+      if (!isCheckRun(call)) return { text: `${CLAIM}\n\n${CLAIM}` };
+      if (!call.results.some((result) => result.tool === "cite") || waiting.length >= 2) {
+        return checkReply(call, plans);
+      }
+      let release = () => {};
+      const paused = new Promise<void>((resolve) => {
+        release = () => resolve();
+      });
+      waiting.push(release);
+      return {
+        text: `Verdict: ${waiting.length === 1 ? "contradicted" : "unsupported"}\nCovered: revenue\nNot covered: the amount`,
+        pause: { after: 0, until: paused },
+      };
+    },
+    { generate: checkGenerate(plans) },
+  );
+  const { core } = await setUpWithDocuments(model, [REPORT]);
+  const cloud = await core.saveChatProvider({
+    kind: "anthropic",
+    apiKey: "sk-test",
+    modelId: "claude-haiku-5-5",
+  });
+  if (cloud.service) await core.allowDataFlow("chat", cloud.service.id);
+  const ended = answerEndings(core);
+  const asked = await core.askInConversation({ text: "What was revenue?" });
+  if (!asked.asked) throw new Error("The Question wasn't asked.");
+  await vi.waitFor(() => expect(waiting).toHaveLength(2));
+  return { core, asked, waiting, ended };
+}
+
 describe("Uncited figures in a conversation Answer", () => {
   test("a contradiction is marked with no click, retained, and its usage counted", async () => {
     const model = modelWith(CLAIM, { [CLAIM]: { verdict: "contradicted", quote: QUOTE } });
@@ -139,39 +176,7 @@ describe("Uncited figures in a conversation Answer", () => {
   });
 
   test("identical sentences keep occurrence order when the second check finishes first", async () => {
-    const waiting: (() => void)[] = [];
-    const plans = {
-      [CLAIM]: { verdict: "supported" as const, quote: QUOTE, judgement: "conflict" as const },
-    };
-    const model = scriptedModel(
-      (call) => {
-        if (!isCheckRun(call)) return { text: `${CLAIM}\n\n${CLAIM}` };
-        if (!call.results.some((result) => result.tool === "cite") || waiting.length >= 2) {
-          return checkReply(call, plans);
-        }
-        let release = () => {};
-        const paused = new Promise<void>((resolve) => {
-          release = () => resolve();
-        });
-        waiting.push(release);
-        return {
-          text: `Verdict: ${waiting.length === 1 ? "contradicted" : "unsupported"}\nCovered: revenue\nNot covered: the amount`,
-          pause: { after: 0, until: paused },
-        };
-      },
-      { generate: checkGenerate(plans) },
-    );
-    const { core } = await setUpWithDocuments(model, [REPORT]);
-    const cloud = await core.saveChatProvider({
-      kind: "anthropic",
-      apiKey: "sk-test",
-      modelId: "claude-haiku-5-5",
-    });
-    if (cloud.service) await core.allowDataFlow("chat", cloud.service.id);
-    const ended = answerEndings(core);
-    const asked = await core.askInConversation({ text: "What was revenue?" });
-    if (!asked.asked) throw new Error("The Question wasn't asked.");
-    await vi.waitFor(() => expect(waiting).toHaveLength(2));
+    const { core, asked, waiting, ended } = await outOfOrderDuplicates();
 
     waiting[1]?.();
     await vi.waitFor(async () => {
@@ -201,6 +206,34 @@ describe("Uncited figures in a conversation Answer", () => {
           .find((mark) => mark.type === CLAIM_CHECK_MARK)?.attrs?.state,
     );
     expect(marked).toEqual(["contradicted", "unsupported"]);
+  });
+
+  test("Stop leaves a completed duplicate on its own occurrence", async () => {
+    const { core, asked, waiting, ended } = await outOfOrderDuplicates();
+    waiting[1]?.();
+    await vi.waitFor(async () => {
+      const answer = answerOf(await core.getConversation(asked.conversation.id), asked.answerId);
+      expect(answer.claimChecks?.map((check) => check.state)).toEqual(["checking", "unsupported"]);
+    });
+
+    try {
+      await core.stopConversationAnswer({
+        conversationId: asked.conversation.id,
+        answerId: asked.answerId,
+      });
+      expect(await ended(asked.answerId)).toBe("finished");
+      const answer = answerOf(await core.getConversation(asked.conversation.id), asked.answerId);
+      expect(answer.claimChecks?.map((check) => check.state)).toEqual(["unsupported"]);
+      const marked = answerBlocks(answer).map(
+        (block) =>
+          block.content
+            ?.flatMap((node) => node.marks ?? [])
+            .find((mark) => mark.type === CLAIM_CHECK_MARK)?.attrs?.state,
+      );
+      expect(marked).toEqual([undefined, "unsupported"]);
+    } finally {
+      waiting[0]?.();
+    }
   });
 
   test("a refused regeneration still finishes the superseded Answer", async () => {

@@ -136,6 +136,13 @@ export function createUncitedCheck(options: UncitedCheckOptions) {
     input.checking();
     const request = randomUUID();
     const positions = new Map(candidates.map((sentence, index) => [sentence, index]));
+    const byText = new Map<string, number>();
+    const occurrences = new Map<Sentence, number>();
+    for (const sentence of candidates) {
+      const occurrence = byText.get(sentence.text) ?? 0;
+      occurrences.set(sentence, occurrence);
+      byText.set(sentence.text, occurrence + 1);
+    }
     const startedAt = options.now().toISOString();
     const used = measured(prepared, (usage) => {
       input.usage.inputTokens += usage.inputTokens ?? 0;
@@ -157,6 +164,7 @@ export function createUncitedCheck(options: UncitedCheckOptions) {
         providerId: prepared.provider.id,
         modelId: prepared.modelId,
         text: sentence.text,
+        uncitedOccurrence: occurrences.get(sentence) ?? 0,
         evidence: null,
         says: null,
         unsupported: null,

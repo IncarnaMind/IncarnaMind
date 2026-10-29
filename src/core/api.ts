@@ -5329,6 +5329,8 @@ export interface ClaimCheckAttributes {
   modelId: string | null;
   /** The sentence as it was checked: an inline node as U+FFFC, a line break as "\n". */
   text: string;
+  /** A conversation background check's zero-based occurrence among identical uncited sentences. */
+  uncitedOccurrence?: number;
   /** "supported" and "contradicted": the Passage that decides it, as a Citation found. */
   evidence: CitationAttributes | null;
   /** "supported" and "contradicted": what the Document says, in one plain sentence. */

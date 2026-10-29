@@ -43,10 +43,16 @@ export function answerBlocks(
     ),
   );
   const used = new Set<string>();
+  const occurrences = new Map<string, number>();
   for (const sentence of checkableSentences(generated)) {
-    const check = answer.claimChecks?.find(
-      (each) => each.text === sentence.text && !used.has(each.id),
-    );
+    const occurrence = occurrences.get(sentence.text) ?? 0;
+    occurrences.set(sentence.text, occurrence + 1);
+    const check = answer.claimChecks?.find((each) => {
+      if (each.text !== sentence.text) return false;
+      return each.uncitedOccurrence === undefined
+        ? !used.has(each.id)
+        : each.uncitedOccurrence === occurrence;
+    });
     if (check) used.add(check.id);
     const paragraph = check && paragraphAt(generated, sentence.path);
     if (!check || !paragraph) continue;

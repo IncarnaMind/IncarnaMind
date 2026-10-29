@@ -148,6 +148,9 @@ export function readClaimCheck(value: unknown): ClaimCheckAttributes | null {
     providerId: text(value.providerId),
     modelId: text(value.modelId),
     text: text(value.text) ?? "",
+    ...(typeof value.uncitedOccurrence === "number" &&
+      Number.isInteger(value.uncitedOccurrence) &&
+      value.uncitedOccurrence >= 0 && { uncitedOccurrence: value.uncitedOccurrence }),
     evidence: isRecord(value.evidence) ? (value.evidence as unknown as CitationAttributes) : null,
     says: text(value.says),
     unsupported: unsupportedOf(value.unsupported),
