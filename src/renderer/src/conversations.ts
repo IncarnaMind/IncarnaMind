@@ -150,12 +150,22 @@ export async function openConversation(conversationId: string, answerId?: string
 let readyAsking = false;
 
 /**
+ * The card's ready Question being asked, whose Answer waits for its Documents to be read (#2218):
+ * its row says what it is reading, and offers Stop, until the Answer is there.
+ */
+export const useReadyAsk = create<{ asking: boolean; waitingFor: string | null }>()(() => ({
+  asking: false,
+  waitingFor: null,
+}));
+
+/**
  * Asks the ready Question the card showed (`ready`), so the click asks exactly what the button
  * names: no second read that a Document or language change could have moved on. About the User's
  * own Document it starts a fresh conversation first, so the example's earlier turns are not in the
  * model's context; no Mind is read either, or the example would colour the first Answer about
- * their file. The example's Answer is written in advance, and the core writes it. Resolves to
- * whether it was asked (or waits for a model).
+ * their file. The example's Answer is written in advance, and the core writes it once its
+ * Documents are read: while it waits, the card says so and Stop stops it. Resolves to whether it
+ * was asked (or waits for a model).
  */
 export async function askReadyQuestion(ready: ReadyQuestion): Promise<boolean> {
   // A double-click asks it once.
@@ -167,16 +177,28 @@ export async function askReadyQuestion(ready: ReadyQuestion): Promise<boolean> {
       // Asked like any Question: its step ticks when its Answer arrives, not when it is asked.
       return await askInAssistant({ text: ready.question, mindId: null, scope: ready.scope });
     }
-    const { conversationId } = await core.askExampleReadyQuestion();
-    useAppStore.getState().updateGettingStarted({ askedReady: true });
-    await openConversation(conversationId);
-    return true;
-  } catch (error) {
-    report(error);
-    return false;
+    useReadyAsk.setState({ asking: true, waitingFor: ready.waitingFor });
+    try {
+      const { conversationId, stopped } = await core.askExampleReadyQuestion();
+      // Stopped: its Question and a stopped Answer are kept, and step 2 stays open to ask again.
+      if (!stopped) useAppStore.getState().updateGettingStarted({ askedReady: true });
+      await openConversation(conversationId);
+      return !stopped;
+    } catch (error) {
+      // Why not, and what to do, where the card's button is, rather than a notice that passes.
+      settleAsk(composerKey(null), null, error);
+      return false;
+    } finally {
+      useReadyAsk.setState({ asking: false, waitingFor: null });
+    }
   } finally {
     readyAsking = false;
   }
+}
+
+/** Stop while the ready Question waits for its Documents: its Answer says Stopped. */
+export function stopReadyAsk(): void {
+  core.stopExampleReadyQuestion().catch(report);
 }
 
 function sayLeftOut(result: ConversationAskResult): void {

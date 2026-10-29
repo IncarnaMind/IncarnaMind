@@ -16,7 +16,7 @@ import { focusComposer } from "../commands/assistant";
 import { shortcutLabel } from "../commands/keymap";
 import { type CommandContext, commands, offered } from "../commands/registry";
 import { composerKey } from "../composer";
-import { askReadyQuestion, useConversations } from "../conversations";
+import { askReadyQuestion, stopReadyAsk, useConversations, useReadyAsk } from "../conversations";
 import { AskProblem } from "../editor/AskProblem";
 import { goToCitation } from "../editor/citationMark";
 import { goToMistake } from "../editor/mistakeMark";
@@ -28,7 +28,7 @@ import { allExamples, isOwnDocument, useAppStore } from "../store";
 import { useUnreadFiles } from "../unreadFiles";
 import { ExampleBanner } from "./GettingStarted";
 import { ChatLineIcon, CheckLineIcon, CloseLineIcon, PlusLineIcon } from "./lineIcons";
-import { ProblemLine } from "./ProblemLine";
+import { LineAction, ProblemLine } from "./ProblemLine";
 import { SLOT, Slotted } from "./Slotted";
 import { STEP_BUTTON_CLASS, StepNumber, type StepState } from "./StepNumber";
 import { UnreadFilesLine } from "./UnreadFilesLine";
@@ -132,6 +132,8 @@ export function FirstOpenSteps({ mindId }: { mindId: string }) {
   // Note's composer key is another, so that problem would never be seen there.
   const problem = useAnswers((state) => state.blocked[composerKey(null)]);
   const asking = useConversations((state) => state.asking !== null);
+  const askingReady = useReadyAsk((state) => state.asking);
+  const readyWaiting = useReadyAsk((state) => state.waitingFor);
   const writing = useAnswers((state) => state.writing.size > 0);
   // The newest of the User's own Documents still being read: the row says so while it waits.
   const reading = useAppStore((state) => {
@@ -247,6 +249,8 @@ export function FirstOpenSteps({ mindId }: { mindId: string }) {
             </p>
             <ReadyLine
               question={ready?.question ?? null}
+              waitingFor={(askingReady ? readyWaiting : ready?.waitingFor) ?? null}
+              asking={live && askingReady}
               reading={reading}
               unread={unread}
               testId={only("first-open-ready")}
@@ -377,6 +381,8 @@ function useFittedLine(text: string, atWords: boolean, room: RefObject<HTMLEleme
 
 function ReadyLine({
   question,
+  waitingFor,
+  asking,
   reading,
   unread,
   testId,
@@ -385,6 +391,10 @@ function ReadyLine({
   onAsk,
 }: {
   question: string | null;
+  /** The Document the Answer waits for, while the ready Question is asked (#2218). */
+  waitingFor: string | null;
+  /** That Question is being asked, and its Answer isn't there yet. */
+  asking: boolean;
   reading: string | null;
   unread: ReturnType<typeof useUnreadFiles>;
   testId: string | undefined;
@@ -397,7 +407,27 @@ function ReadyLine({
   const label = question === null ? "" : t("firstOpen.step.question.ready", { question });
   const [ref, shown] = useFittedLine(label, useLanguage() !== "zh-CN", room);
   let line: ReactNode;
-  if (question !== null)
+  // Asked, and its Answer waits for a Document still being read: the row says so, and stops.
+  if (asking && waitingFor !== null)
+    line = (
+      <>
+        <span
+          data-testid={testId === undefined ? undefined : `${testId}-waiting`}
+          title={waitingFor}
+          className="min-w-0 truncate text-[13px] leading-5 text-ink-secondary"
+        >
+          {t("firstOpen.step.question.reading", { document: waitingFor })}
+        </span>
+        <LineAction
+          action={{
+            label: t("firstOpen.step.question.stop"),
+            testId: testId === undefined ? undefined : `${testId}-stop`,
+            onClick: stopReadyAsk,
+          }}
+        />
+      </>
+    );
+  else if (question !== null)
     line = (
       <>
         <button

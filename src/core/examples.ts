@@ -126,6 +126,24 @@ export interface ExamplesOptions {
 /** An example's draft, as the Blocks it is written into its Mind as. */
 const draftBlocks = (set: ExampleSet): NodeJSON[] => (set.draft ? markdownToBlocks(set.draft) : []);
 
+/**
+ * What the default example's ready Answer can do now: be written with its checked Citations
+ * (`ready`); wait, because a Document it cites is still being read (`reading`); never be written,
+ * because a Document it cites couldn't be read (`unreadable`); or there is no example to answer
+ * from (`absent`).
+ */
+export type ExampleReadyState =
+  | {
+      kind: "ready";
+      mindId: string;
+      question: string;
+      answer: string;
+      citations: MarkedCitation[];
+    }
+  | { kind: "reading"; document: string }
+  | { kind: "unreadable"; document: string }
+  | { kind: "absent" };
+
 /** Each of the draft's Blocks as Markdown, as the Mind holds it: to tell whether the User changed it. */
 function draftMarkdown(set: ExampleSet): string[] {
   const scratch = new Y.Doc();
@@ -204,11 +222,28 @@ export function createExamples(options: ExamplesOptions) {
    * The example's own ready Question (#123), while the credit paper is the one shown; null
    * otherwise, as for the earlier version's tea example. The one the first open offers is
    * `readyQuestion`, which names the User's own Document instead as soon as theirs is ready.
+   * `waitingFor` names the Document whose reading its Answer waits for, or null once it can be
+   * written; a Document that can't be read at all takes the Question away, so no press is needed
+   * to learn it (#2218).
    */
-  const exampleReady = (): string | null => {
+  const readyQuestion = (): { question: string; waitingFor: string | null } | null => {
     const examples = stored(DEFAULT_GROUP);
-    if (!examples || !options.mindExists(examples.mindId)) return null;
-    return EXAMPLE_SETS[DEFAULT_GROUP][examples.language].ready?.question ?? null;
+    const ready = examples && EXAMPLE_SETS[DEFAULT_GROUP][examples.language].ready;
+    if (!examples || !ready || !options.mindExists(examples.mindId)) return null;
+    if (!options.linkedFolderExists(examples.linkedFolderId)) return null;
+    const documents = options.documentsIn(examples.linkedFolderId);
+    let waitingFor: string | null = null;
+    for (const quote of ready.quotes) {
+      const document = documents.find((each) => each.name === quote.document);
+      // Not listed yet, or its text is still being read: the Answer waits for it.
+      if (!document || document.status === "queued" || document.status === "extracting") {
+        waitingFor ??= quote.document;
+        continue;
+      }
+      // The file couldn't be read, or holds no text: nothing will answer from it.
+      if (!hasText(document)) return null;
+    }
+    return { question: ready.question, waitingFor };
   };
 
   /**
@@ -236,25 +271,30 @@ export function createExamples(options: ExamplesOptions) {
   };
 
   /**
-   * The ready Question with its Answer and Citations (`askExampleReadyQuestion`),
-   * checked against the Documents now; null while the credit paper isn't
-   * made or its Documents aren't all read.
+   * The ready Question with its Answer and Citations (`askExampleReadyQuestion`), checked
+   * against the Documents now, once every Document it cites has been read; otherwise why not
+   * (`readyQuestion` waits on this while the Documents are read).
    */
-  const readyAnswer = () => {
+  const readyState = (): ExampleReadyState => {
     const examples = stored(DEFAULT_GROUP);
     const ready = examples && EXAMPLE_SETS[DEFAULT_GROUP][examples.language].ready;
-    if (!examples || !ready || !options.mindExists(examples.mindId)) return null;
-    if (!options.linkedFolderExists(examples.linkedFolderId)) return null;
+    if (!examples || !ready || !options.mindExists(examples.mindId)) return { kind: "absent" };
+    if (!options.linkedFolderExists(examples.linkedFolderId)) return { kind: "absent" };
     const documents = options.documentsIn(examples.linkedFolderId);
     const citations: MarkedCitation[] = [];
     for (const [index, quote] of ready.quotes.entries()) {
       const document = documents.find((each) => each.name === quote.document);
-      if (!document || !hasText(document)) return null;
+      if (!document || document.status === "queued" || document.status === "extracting") {
+        return { kind: "reading", document: quote.document };
+      }
+      if (!hasText(document)) return { kind: "unreadable", document: quote.document };
       const result = options.cite({
         documentId: document.id,
         quote: quote.quote,
       });
-      if (!result.passageId || !result.contentHash) return null;
+      if (!result.passageId || !result.contentHash) {
+        return { kind: "unreadable", document: quote.document };
+      }
       citations.push({
         marker: index + 1,
         passageId: result.passageId,
@@ -269,7 +309,13 @@ export function createExamples(options: ExamplesOptions) {
         checkReason: result.checkReason,
       });
     }
-    return { mindId: examples.mindId, question: ready.question, answer: ready.answer, citations };
+    return {
+      kind: "ready",
+      mindId: examples.mindId,
+      question: ready.question,
+      answer: ready.answer,
+      citations,
+    };
   };
 
   /** A Citation's attributes: what is known before it is checked, then the check's result. */
@@ -674,9 +720,9 @@ export function createExamples(options: ExamplesOptions) {
 
     create,
 
-    exampleReady,
+    readyQuestion,
 
-    readyAnswer,
+    readyState,
 
     /**
      * The interface language changed (#709): each example the User hasn't
