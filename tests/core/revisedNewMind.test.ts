@@ -3,7 +3,6 @@ import { describe, expect, test } from "vitest";
 import * as Y from "yjs";
 import { decideAll } from "../../eval/minds/state";
 import { BLOCK_ID_ATTRIBUTE, type ConversationAnswer, type Core } from "../../src/core";
-import { EDIT_INSTRUCTIONS } from "../../src/core/edits/prompt";
 import { changedMinds } from "../../src/renderer/src/changedMinds";
 import { writeAccepted } from "../../src/renderer/src/editor/arrivedChanges";
 import { noteExtensions } from "../../src/renderer/src/editor/noteSchema";
@@ -15,6 +14,7 @@ import { answerEnded } from "../helpers/citations";
 import { createTempDataFolder, startCore } from "../helpers/core";
 import { addAndProcess, createSourceFolder, writeSourceFile } from "../helpers/documents";
 import { boundEditor } from "../helpers/editor";
+import { isEditPrompt } from "../helpers/editPrompt";
 import { connectToMind, type MindClient } from "../helpers/mindClient";
 import { heading, note, shownWithChanges, writeMind } from "../helpers/minds";
 import {
@@ -328,7 +328,7 @@ describe("A Mind that was there, its waiting text revised by a later Answer", {
   async function revised(times: 1 | 2, how: "content" | "instruction" = "content") {
     let revising = false;
     const core = await setUp((call) => {
-      if (call.system === EDIT_INSTRUCTIONS) {
+      if (isEditPrompt(call.system)) {
         const passage = /<passage>\n([\s\S]*?)\n<\/passage>/.exec(call.prompt)?.[1] ?? "";
         return { text: `${passage} ${LONGER_RISK}\n<why>Longer.</why>` };
       }

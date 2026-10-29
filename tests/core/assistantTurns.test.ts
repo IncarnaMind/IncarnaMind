@@ -3,7 +3,6 @@ import { describe, expect, test } from "vitest";
 import type { Core } from "../../src/core";
 import { createElement } from "../../src/core/answers/blocks";
 import { GENERATED_MARK, PROPOSAL_ATTRIBUTE } from "../../src/core/api";
-import { EDIT_INSTRUCTIONS } from "../../src/core/edits/prompt";
 import {
   pendingProposals,
   proposalRequestOf,
@@ -12,6 +11,7 @@ import {
 } from "../../src/shared/proposals";
 import { askAssistant, changesIn, lastResult } from "../helpers/assistant";
 import { createTempDataFolder, startCore } from "../helpers/core";
+import { isEditPrompt } from "../helpers/editPrompt";
 import { connectToMind } from "../helpers/mindClient";
 import { heading, note, shownWithChanges, writeMind } from "../helpers/minds";
 import {
@@ -41,7 +41,7 @@ const asked = ({ options }: ModelCall): string => {
 const called = (call: ModelCall, tool: string) => call.results.some((each) => each.tool === tool);
 
 const editPassage = (call: ModelCall): string | null =>
-  call.system === EDIT_INSTRUCTIONS
+  isEditPrompt(call.system)
     ? (/<passage>\n([\s\S]*?)\n<\/passage>/.exec(call.prompt)?.[1] ?? null)
     : null;
 

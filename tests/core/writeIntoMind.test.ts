@@ -9,7 +9,6 @@ import {
   MIND_ORIGINS_FIELD,
   MIND_REPLACED_ORIGINS_FIELD,
 } from "../../src/core";
-import { EDIT_INSTRUCTIONS } from "../../src/core/edits/prompt";
 import { changedMinds } from "../../src/renderer/src/changedMinds";
 import { writeAccepted } from "../../src/renderer/src/editor/arrivedChanges";
 import { noteExtensions } from "../../src/renderer/src/editor/noteSchema";
@@ -22,6 +21,7 @@ import { askAssistant, changesIn, lastResult, mindCalls } from "../helpers/assis
 import { answerEnded, setUpWithDocuments, shownPassages } from "../helpers/citations";
 import { startCore } from "../helpers/core";
 import { boundEditor } from "../helpers/editor";
+import { isEditPrompt } from "../helpers/editPrompt";
 import { connectToMind, type MindClient } from "../helpers/mindClient";
 import { note, readMind, resolveChanges, shownWithChanges, writeMind } from "../helpers/minds";
 import {
@@ -563,7 +563,7 @@ describe("Use all after Reject all of a later rewrite (#1950)", { timeout: 60_00
   async function rewritten(how: "content" | "instruction") {
     let later = false;
     const model = scriptedModel((call): ScriptedReply => {
-      if (call.system === EDIT_INSTRUCTIONS) {
+      if (isEditPrompt(call.system)) {
         const passage = /<passage>\n([\s\S]*?)\n<\/passage>/.exec(call.prompt)?.[1] ?? "";
         return { text: `${passage} Both are due on the first.\n<why>Longer.</why>` };
       }

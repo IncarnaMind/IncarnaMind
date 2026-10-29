@@ -2,7 +2,6 @@ import type { MockLanguageModelV4 } from "ai/test";
 import { describe, expect, test } from "vitest";
 import * as Y from "yjs";
 import { type Core, GENERATED_MARK } from "../../src/core";
-import { EDIT_INSTRUCTIONS } from "../../src/core/edits/prompt";
 import { waitingProblemOf } from "../../src/renderer/src/changeProblems";
 import { resolveInEditor } from "../../src/renderer/src/editor/proposalReview";
 import { waitsForUser } from "../../src/shared/askedChanges";
@@ -11,6 +10,7 @@ import { askAssistant, changesIn, lastResult, mindCalls } from "../helpers/assis
 import { answerEnded } from "../helpers/citations";
 import { createTempDataFolder, startCore } from "../helpers/core";
 import { boundEditor } from "../helpers/editor";
+import { isEditPrompt } from "../helpers/editPrompt";
 import { connectToMind, type MindClient } from "../helpers/mindClient";
 import {
   exactly,
@@ -51,7 +51,7 @@ const asked = ({ options }: ModelCall): string => {
 
 /** Edit with AI's request, and the passage it asks to rewrite; null for any other request. */
 const editPassage = (call: ModelCall): string | null =>
-  call.system === EDIT_INSTRUCTIONS
+  isEditPrompt(call.system)
     ? (/<passage>\n([\s\S]*?)\n<\/passage>/.exec(call.prompt)?.[1] ?? null)
     : null;
 
