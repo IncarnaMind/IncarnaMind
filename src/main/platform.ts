@@ -154,7 +154,7 @@ const loginShellProcesses = createLoginShellProcesses({
  * In a packaged Linux app, sandbox-runtime's seccomp helper outside app.asar
  * (electron-builder.yml unpacks it), where bubblewrap can run it.
  */
-function seccompHelper(): string | undefined {
+export function seccompHelper(): string | undefined {
   if (process.platform !== "linux" || !app.isPackaged) return undefined;
   const runtime = join("node_modules", "@anthropic-ai", "sandbox-runtime");
   return join(
@@ -357,7 +357,7 @@ function pythonFolder(): string {
     : join(app.getAppPath(), "resources", "python");
 }
 
-function analysisRuntime(log: Logger): AnalysisRuntime {
+export function analysisRuntime(log: Logger): AnalysisRuntime {
   const runtime = createElectronAnalysisRuntime({
     log,
     rendererUrl: process.env.ELECTRON_RENDERER_URL,
