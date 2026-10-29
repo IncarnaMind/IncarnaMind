@@ -6010,7 +6010,7 @@ export const en = {
   "history.noChanges": "No changes: these two versions read the same.",
   "history.restored": "Restored the version from {version}",
   "history.restored.leftOut.one":
-    "Restored the version from {version} · 1 Citation you checked isn’t in it",
+    "Restored the version from {version} · {count} Citation you checked isn’t in it",
   "history.restored.leftOut":
     "Restored the version from {version} · {count} Citations you checked aren’t in it",
   "history.restored.name": "Restore Version",

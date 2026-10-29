@@ -216,9 +216,10 @@ for (const language of ["en", "zh-CN"] as const) {
       await pointAndClick(window, history.getByTestId("history-restore"));
       await expect(history).toBeHidden();
       await expect(chips).toHaveCount(left);
-      const [restored, leftOut] = t("history.restored.leftOut.one", { version: "\u0000" }).split(
-        "\u0000",
-      );
+      const [restored, leftOut] = t("history.restored.leftOut.one", {
+        version: "\u0000",
+        count: 1,
+      }).split("\u0000");
       await expect(window.getByTestId("undo-message")).toContainText(restored ?? "");
       await expect(window.getByTestId("undo-message")).toContainText(leftOut ?? "");
       await screenshot(window, `sign-off-restored-left-out-${language}`);

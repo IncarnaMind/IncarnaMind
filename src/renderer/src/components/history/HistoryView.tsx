@@ -166,9 +166,10 @@ function History({ mindId, onClose }: { mindId: string; onClose(): void }) {
         said: (t) => {
           const version = versionLabel(leftCheckpoint, restoredAt, languageNow(), t);
           if (checkedLeftOut === 0) return t("history.restored", { version });
+          const params = { version, count: checkedLeftOut };
           return checkedLeftOut === 1
-            ? t("history.restored.leftOut.one", { version })
-            : t("history.restored.leftOut", { version, count: checkedLeftOut });
+            ? t("history.restored.leftOut.one", params)
+            : t("history.restored.leftOut", params);
         },
         name: (t) => t("history.restored.name"),
         undo: async () => {
