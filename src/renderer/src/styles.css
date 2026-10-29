@@ -5063,13 +5063,20 @@
 
   /*
    * The footnote area at the end of the Mind, once the User has written a
-   * footnote: every footnote in the one numbering, as in print, under a rule.
+   * footnote: every footnote in the one numbering, as in print, under a short
+   * rule, as Word's separator, unlike the break lines across the text.
    * The User's own are edited in place; a Citation's is its reference, quieter.
    */
   .footnote-area {
     margin-top: 48px;
-    padding-top: 12px;
-    border-top: 1px solid var(--color-rule);
+
+    &::before {
+      content: "";
+      display: block;
+      width: 33%;
+      margin-bottom: 12px;
+      border-top: 1px solid var(--color-rule);
+    }
   }
   .footnote-area-title {
     margin: 0 0 8px;

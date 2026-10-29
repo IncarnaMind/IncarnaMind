@@ -46,15 +46,6 @@ export const CollapseIcon = (props: IconProps) => (
   </Stroke>
 );
 
-/** The foot of one page and the top of the next, a dashed line between: Insert Page Break, as Word's button. */
-export const PageBreakIcon = (props: IconProps) => (
-  <Stroke weight={1.75} {...props}>
-    <path d="M6 3v5h12V3" />
-    <path d="M6 21v-5h12v5" />
-    <path d="M3 12h2.5M9 12h2.5M15 12h2.5M21 12h.01" />
-  </Stroke>
-);
-
 /** An up arrow: ask, at the composer's right end. */
 export const AskArrowIcon = (props: IconProps) => (
   <Stroke weight={1.75} {...props}>

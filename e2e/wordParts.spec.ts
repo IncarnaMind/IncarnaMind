@@ -249,7 +249,7 @@ test("page and section breaks show as a line; a page break deletes like a Block 
   await screenshot(window, "word-page-break-zh");
 
   // At the narrowest window the line still spans the text, its name whole.
-  await setWindowSize(app, window, 900, 700);
+  await setWindowSize(app, window, 900, 1000);
   const narrowLine = await pageBreaks.first().boundingBox();
   const narrowText = await editor.locator("p", { hasText: "Part two." }).boundingBox();
   expect(narrowLine && narrowText && Math.abs(narrowLine.width - narrowText.width) < 2).toBe(true);
@@ -277,6 +277,9 @@ test("⌘↵ puts a page break in a Note of the User's own, and the selection me
   }
   await expect.poll(() => window.evaluate(() => getSelection()?.toString())).toBe("Chapter two.");
   const menu = window.getByTestId("selection-menu");
+  await menu.getByTestId("format-page-break").hover();
+  await motionSettled(window);
+  await screenshot(window, "word-page-break-menu-en");
   await pointAndClick(window, menu.getByTestId("format-page-break"));
   await expect(editor.getByTestId("page-break")).toHaveCount(2);
   await expect(editor.locator("p")).toHaveText(["Chapter one.", "", "Chapter two."]);

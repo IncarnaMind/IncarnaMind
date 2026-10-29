@@ -15,6 +15,7 @@ import {
 import type { MessageKey } from "../../../shared/i18n";
 import { keysHere, shortcutLabel } from "../commands/keymap";
 import { ChevronIcon } from "../components/icons";
+import { PageBreakLineIcon } from "../components/lineIcons";
 import { useT } from "../i18n";
 import { isComposing } from "./composing";
 import { EditField, EditWorking } from "./EditField";
@@ -22,7 +23,6 @@ import { selectionForEdit } from "./editSelection";
 import { CustomSpacing, FormatMenu } from "./FormatMenu";
 import { footnotePlace, insertFootnote } from "./footnoteSchema";
 import { FORMAT_OPEN, setLineSpacing } from "./formatCommands";
-import { PageBreakIcon } from "./icons";
 import { caretAnchor, LinkField } from "./LinkField";
 import { Popover } from "./Popover";
 import { canInsertPageBreak, insertPageBreak, PAGE_BREAK_KEYS } from "./pageBreakSchema";
@@ -656,7 +656,7 @@ export function SelectionMenu({
               }}
               className="selection-format"
             >
-              <PageBreakIcon className="size-4" />
+              <PageBreakLineIcon className="size-4" />
             </button>
             {MARKS.slice(5).map((each) => (
               <FormatButton

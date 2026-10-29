@@ -72,8 +72,10 @@ const sameRows = (a: Rows, b: Rows | null) =>
 
 /**
  * The footnote area at the end of the Mind, once the User has written a
- * footnote: every footnote in the Mind's one numbering, as the export will
- * have them, then a Word file's endnotes, in theirs (#746). The User's own
+ * footnote, under a short rule as Word's separator: every footnote in the
+ * Mind's one numbering, as the export will have them, then a Word file's
+ * endnotes, in theirs, under their heading (#746); the footnotes are headed
+ * only when endnotes follow them. The User's own
  * are edited in place (`FootnoteText`), a Word file's too; a Citation's is
  * its reference and its check, quieter, and a note kept as is its text,
  * read-only. A footnote's number takes the cursor to its marker in the text.
@@ -168,7 +170,9 @@ export function FootnoteArea({
     >
       {rows.footnotes.length > 0 && (
         <>
-          <h2 className="footnote-area-title">{t("editor.footnotes.title")}</h2>
+          {rows.endnotes.length > 0 && (
+            <h2 className="footnote-area-title">{t("editor.footnotes.title")}</h2>
+          )}
           {list(rows.footnotes)}
         </>
       )}
