@@ -4,6 +4,7 @@ import { dirname, join, resolve, sep } from "node:path";
 import { chromium, type ElectronApplication, expect, type Page } from "@playwright/test";
 import { isRecord } from "../src/core/errors";
 import { APP_ARGS, homeEnv, KEYCHAIN_ARGS } from "../tests/helpers/home";
+import { launchEnvironment } from "./launchEnvironment";
 
 export type { LifecycleApps } from "./lifecycleApps";
 export { prepareLifecycleApps } from "./lifecycleApps";
@@ -80,12 +81,10 @@ export function startLifecycleCopy(
   args: string[],
   extraEnv: Record<string, string> = {},
 ): ChildProcess {
-  const env: Record<string, string> = {};
-  for (const [name, value] of Object.entries(process.env)) {
-    if (value !== undefined && !/KEY|TOKEN|SECRET|PASSWORD|CREDENTIAL/i.test(name))
-      env[name] = value;
-  }
-  Object.assign(env, lifecycleHomeEnv(home), {
+  const env = launchEnvironment({
+    ...lifecycleHomeEnv(home),
+    INCARNAMIND_PACKAGED_APP: process.env.INCARNAMIND_PACKAGED_APP,
+    INCARNAMIND_PACKAGED_UPDATED_APP: process.env.INCARNAMIND_PACKAGED_UPDATED_APP,
     INCARNAMIND_DATA_DIR: dataDir,
     INCARNAMIND_TEST_HOOKS: "1",
     INCARNAMIND_TEST_EMBEDDER: "fake",
@@ -94,10 +93,6 @@ export function startLifecycleCopy(
     INCARNAMIND_TEST_CONNECTOR_REGISTRY: "http://127.0.0.1:9",
     ...extraEnv,
   });
-  delete env.ELECTRON_RUN_AS_NODE;
-  delete env.INCARNAMIND_CHATGPT_PROFILE;
-  delete env.ELECTRON_RENDERER_URL;
-  delete env.NODE_OPTIONS;
   if (env.INCARNAMIND_PACKAGED_APP || env.INCARNAMIND_TEST_APP_DIR)
     env.INCARNAMIND_TEST_MAIN_PRELOADS = JSON.stringify(mainPreloads(args).preloads);
   const executable = mainExecutable(env);

@@ -1,16 +1,26 @@
 import type { MockLanguageModelV4 } from "ai/test";
 import { describe, expect, test } from "vitest";
 import * as Y from "yjs";
-import type { Core } from "../../src/core";
+import { type Core, GENERATED_MARK } from "../../src/core";
 import { EDIT_INSTRUCTIONS } from "../../src/core/edits/prompt";
 import { waitingProblemOf } from "../../src/renderer/src/changeProblems";
+import { resolveInEditor } from "../../src/renderer/src/editor/proposalReview";
 import { waitsForUser } from "../../src/shared/askedChanges";
 import { pendingProposals, proposalRequestOf, resolveProposals } from "../../src/shared/proposals";
 import { askAssistant, changesIn, lastResult, mindCalls } from "../helpers/assistant";
 import { answerEnded } from "../helpers/citations";
 import { createTempDataFolder, startCore } from "../helpers/core";
+import { boundEditor } from "../helpers/editor";
 import { connectToMind, type MindClient } from "../helpers/mindClient";
-import { heading, note, shownWithChanges, writeMind } from "../helpers/minds";
+import {
+  exactly,
+  heading,
+  note,
+  readMind,
+  resolveChanges,
+  shownWithChanges,
+  writeMind,
+} from "../helpers/minds";
 import {
   claimCheckReply,
   type ModelCall,
@@ -75,16 +85,6 @@ const waitingFrom = (client: MindClient, request: string) =>
   pendingProposals(client.blocks).filter((each) => each.request === request).length;
 
 const SUMMARY_PAGE = "## Summary\n\nThe paper is about spring tides.";
-
-/** A Mind's top-level Blocks as stored, attributes and all: to tell it is exactly as it was. */
-const exactly = (client: MindClient) =>
-  client.blocks
-    .toArray()
-    .map((block) =>
-      block instanceof Y.XmlElement
-        ? { name: block.nodeName, attributes: block.getAttributes(), text: block.toString() }
-        : null,
-    );
 
 describe("The assistant revises its own changes still waiting", { timeout: 30_000 }, () => {
   // protects=after "write a summary page", "make it longer" lengthens that same waiting summary: the next Question knows what the first Answer made, reads its text marked as waiting, and the Mind holds one summary whose count is the Answer's; fails_when=a second summary is added, the waiting text reads as empty, or the bar and the card disagree; no_claim=how well a real model lengthens it.
@@ -151,6 +151,78 @@ describe("The assistant revises its own changes still waiting", { timeout: 30_00
     );
     expect(second.steps?.unbackedClaims).toBeUndefined();
   });
+
+  // protects=bold and italic of the assistant's waiting text survive "make it longer", and a * _ or ~ it holds as a character comes back as itself; fails_when=the label's asterisks land in the words, or price*volume*margin loses its stars; no_claim=how well a real model lengthens it.
+  test.each([
+    {
+      name: "a bold label stays bold, and its new words are read as written",
+      page: "## Summary\n\n**Role.** The post is senior.",
+      seen: "**Role.** The post is senior.",
+      reply: "## Summary\n\n**Role.** The post is senior and well paid.",
+      shown: "+ Summary / + Role. The post is senior and well paid.",
+      bold: ["Role."],
+    },
+    {
+      name: "a star the User's words hold as a character is shown escaped and kept",
+      page: "## Summary\n\nTotal = price\\*volume\\*margin, see note.",
+      seen: "Total = price\\*volume\\*margin, see note.",
+      reply: "## Summary\n\nTotal = price\\*volume\\*margin, see the note.",
+      shown: "+ Summary / + Total = price*volume*margin, see the note.",
+      bold: [],
+    },
+  ])(
+    "“make it longer” over waiting text: $name",
+    async ({ page: content, seen, reply, shown, bold }) => {
+      const passages: string[] = [];
+      const model = scriptedModel((call): ScriptedReply => {
+        const passage = editPassage(call);
+        if (passage !== null) {
+          passages.push(passage);
+          return { text: `${reply}\n<why>Longer.</why>` };
+        }
+        if (asked(call).endsWith("write a summary page")) {
+          return called(call, "create_mind")
+            ? { text: "Made “Tide notes”." }
+            : { calls: [{ tool: "create_mind", input: { title: "Tide notes", content } }] };
+        }
+        return called(call, "edit_mind")
+          ? { text: "Lengthened the summary." }
+          : {
+              calls: [
+                {
+                  tool: "edit_mind",
+                  input: { mind: "Tide notes", part: "Summary", instruction: "Make it longer" },
+                },
+              ],
+            };
+      });
+      const { core, mind } = await setUp(model);
+
+      const first = await askAssistant(core, { text: "write a summary page", mindId: mind.id });
+      const made = await madeBy(core, first);
+      await askAssistant(core, {
+        text: "make the summary longer",
+        mindId: mind.id,
+        conversationId: first.conversationId,
+      });
+
+      await made.settled();
+      expect(passages).toHaveLength(1);
+      expect(passages[0]).toContain(seen);
+      expect(shownWithChanges(made).join(" / ")).toBe(shown);
+      const runs: { text: string; bold: boolean }[] = [];
+      readMind(made).descendants((node) => {
+        if (node.isText) {
+          runs.push({
+            text: node.text ?? "",
+            bold: node.marks.some((mark) => mark.type.name === "bold"),
+          });
+        }
+      });
+      expect(runs.filter((run) => run.bold).map((run) => run.text)).toEqual(bold);
+      expect(runs.map((run) => run.text).join("")).not.toMatch(/\*\*|\\/);
+    },
+  );
 
   // protects=removing part of the assistant's waiting text removes it there and leaves one version, the rest still the first Answer's, so each card's count is its own; fails_when=the part stays, the rest is lost or moves to the new Answer, or the counts differ; no_claim=none beyond protects.
   test("“remove the part about…” removes it from the waiting text, and the counts agree", async () => {
@@ -232,6 +304,107 @@ describe("The assistant revises its own changes still waiting", { timeout: 30_00
       "+ The paper is about spring tides, and how the moon drives them.",
     ]);
     expect(changesIn(second)).toEqual([expect.objectContaining({ revised: true, proposals: 2 })]);
+  });
+
+  // protects=a Mind the assistant made from text with no heading of its own (the app puts the title above it) can be written anew as a whole by edit_mind with content, as it can when the text starts with its own heading; fails_when=it is refused because of the title heading, or the title is lost; no_claim=how well a real model lengthens it.
+  test.each([
+    {
+      when: "while the first change still waits",
+      accept: false,
+      shown: ["+ Tide notes", "+ The paper is about spring tides, and how the moon drives them."],
+    },
+    {
+      when: "after the first change applied",
+      accept: true,
+      shown: ["Tide notes", "The paper is about spring tides{+, and how the moon drives them+}."],
+    },
+  ])(
+    "new text for a Mind made from text with no heading of its own, $when",
+    async ({ accept, shown }) => {
+      const longer = "The paper is about spring tides, and how the moon drives them.";
+      const model = scriptedModel((call): ScriptedReply => {
+        if (asked(call).endsWith("write a summary page")) {
+          return called(call, "create_mind")
+            ? { text: "Made “Tide notes”." }
+            : {
+                calls: [
+                  {
+                    tool: "create_mind",
+                    input: { title: "Tide notes", content: "The paper is about spring tides." },
+                  },
+                ],
+              };
+        }
+        return called(call, "edit_mind")
+          ? { text: "Rewrote the summary in “Tide notes”." }
+          : { calls: [{ tool: "edit_mind", input: { mind: "Tide notes", content: longer } }] };
+      });
+      const { core, mind } = await setUp(model);
+      const first = await askAssistant(core, { text: "write a summary page", mindId: mind.id });
+      const page = await madeBy(core, first);
+      await page.settled();
+      if (accept) {
+        await resolveChanges(page, "accept");
+        await page.settled();
+      }
+
+      const second = await askAssistant(core, {
+        text: "make it longer",
+        mindId: mind.id,
+        conversationId: first.conversationId,
+      });
+
+      await page.settled();
+      expect(lastResult(model)).not.toMatch(/Nothing was changed/);
+      expect(shownWithChanges(page)).toEqual(shown);
+      expect(changesIn(second)).toHaveLength(1);
+    },
+  );
+
+  // protects=a title the User typed in or edited stays the User's text: new text over it is refused, with the reason; fails_when=the assistant's content replaces it; no_claim=none beyond protects.
+  test("new text over a title the User edited is refused, and the title stays", async () => {
+    const model = scriptedModel((call): ScriptedReply => {
+      if (asked(call).endsWith("write a summary page")) {
+        return called(call, "create_mind")
+          ? { text: "Made “Tide notes”." }
+          : {
+              calls: [
+                {
+                  tool: "create_mind",
+                  input: { title: "Tide notes", content: "The paper is about spring tides." },
+                },
+              ],
+            };
+      }
+      return called(call, "edit_mind")
+        ? { text: "It could not change the title." }
+        : {
+            calls: [
+              {
+                tool: "edit_mind",
+                input: { mind: "Tide notes", content: "The paper is about neap tides." },
+              },
+            ],
+          };
+    });
+    const { core, mind } = await setUp(model);
+    const first = await askAssistant(core, { text: "write a summary page", mindId: mind.id });
+    const page = await madeBy(core, first);
+    await resolveChanges(page, "accept");
+    await page.settled();
+    const title = (page.blocks.get(0) as Y.XmlElement).get(0) as Y.XmlText;
+    page.doc.transact(() => title.insert(title.length, "!", { [GENERATED_MARK]: null }));
+    await page.settled();
+
+    await askAssistant(core, {
+      text: "change it",
+      mindId: mind.id,
+      conversationId: first.conversationId,
+    });
+
+    await page.settled();
+    expect(lastResult(model)).toMatch(/content only replaces your own text/);
+    expect(shownWithChanges(page)).toEqual(["Tide notes!", "The paper is about spring tides."]);
   });
 
   // protects=asked to change all of a Mind where its own waiting text sits beside the User's, the assistant is told to name the section, and revises only its own; fails_when=the User's text is changed, or nothing is done; no_claim=none beyond protects.
@@ -1154,6 +1327,204 @@ describe("Taking back a revision", { timeout: 30_000 }, () => {
 
     expect(exactly(page)).toEqual(before);
   });
+});
+
+describe("Text the User turned down twice stays gone", { timeout: 30_000 }, () => {
+  interface Words {
+    mind: string;
+    user: string;
+    summary: string;
+    section: string;
+    risks: string;
+    longer: string;
+    adding: string;
+    sayMore: string;
+    nothing: string;
+  }
+
+  const WORDS: Record<"en" | "zh-CN", Words> = {
+    en: {
+      mind: "Q3 review",
+      user: "The quarter was very good, and sales were really strong.",
+      summary: "Summary",
+      section: "Risks",
+      risks: "## Risks\n\nLegal review may take longer.",
+      longer: "## Risks\n\nLegal review may take longer than planned.",
+      adding: "Add the risks to the Q3 review",
+      sayMore: "Say more",
+      nothing: "It is all there.",
+    },
+    "zh-CN": {
+      mind: "第三季度复盘",
+      user: "本季度表现很好，销售很强劲。",
+      summary: "概述",
+      section: "风险",
+      risks: "## 风险\n\n法务审核可能更久。",
+      longer: "## 风险\n\n法务审核可能比计划更久。",
+      adding: "把风险加到第三季度复盘里",
+      sayMore: "再详细一点",
+      nothing: "都已经写好了。",
+    },
+  };
+
+  // protects=a rejected revision whose earlier text the User then rejects too stays gone when its Answer is written again: the Mind is as it was after the second reject and nothing waits (#1903); fails_when=the rejected text comes back waiting; no_claim=what a real model writes again.
+  for (const language of ["en", "zh-CN"] as const) {
+    test(`after the revision and that text are rejected, writing it again changes nothing (${language})`, async () => {
+      const { page, words, firstRequest, revisionRequest, regenerate } = await started(language);
+      const beforeRejecting = exactly(page);
+      const editor = boundEditor(page);
+
+      const reject = async (request: string) => {
+        const ids = new Set(
+          pendingProposals(page.blocks)
+            .filter((ref) => ref.request === request)
+            .map((ref) => ref.id),
+        );
+        resolveInEditor(editor, ids, "reject");
+        await page.settled();
+      };
+      const undo = async () => {
+        editor.commands.undo();
+        await page.settled();
+      };
+      const redo = async () => {
+        editor.commands.redo();
+        await page.settled();
+      };
+
+      // Reject all on the revising Answer's card: the first Answer's text comes back waiting.
+      await reject(revisionRequest);
+      expect(pendingProposals(page.blocks).some((ref) => ref.request === firstRequest)).toBe(true);
+      expect(shownWithChanges(page)).toContain(`+ ${words.section}`);
+      const restored = exactly(page);
+      await undo();
+      expect(exactly(page)).toEqual(beforeRejecting);
+      // Reject all again after the Undo, as the User does: the earlier text comes back again.
+      await reject(revisionRequest);
+      expect(exactly(page)).toEqual(restored);
+      await undo();
+      expect(exactly(page)).toEqual(beforeRejecting);
+      await redo();
+      expect(exactly(page)).toEqual(restored);
+
+      // Reject all on the first Answer's card: the risks are gone.
+      await reject(firstRequest);
+      expect(pendingProposals(page.blocks)).toEqual([]);
+      expect(shownWithChanges(page)).not.toContain(`+ ${words.section}`);
+      const gone = exactly(page);
+      await undo();
+      expect(exactly(page)).toEqual(restored);
+      // Reject all again after the Undo: they are gone again.
+      await reject(firstRequest);
+      expect(exactly(page)).toEqual(gone);
+      await undo();
+      expect(exactly(page)).toEqual(restored);
+      await redo();
+      expect(exactly(page)).toEqual(gone);
+
+      await regenerate();
+
+      expect(pendingProposals(page.blocks)).toEqual([]);
+      expect(exactly(page)).toEqual(gone);
+    });
+  }
+
+  // protects=a revision rejected one change at a time keeps its record until its last change, so what it replaced is back afterwards, waiting; fails_when=the first rejection forgets the record and the earlier text is lost; no_claim=none beyond protects.
+  test("rejecting the revision one change at a time still brings the earlier text back", async () => {
+    const { page, words, firstRequest, revisionRequest, firstWaiting } = await started("en");
+    const editor = boundEditor(page);
+    const ids = pendingProposals(page.blocks)
+      .filter((ref) => ref.request === revisionRequest)
+      .map((ref) => ref.id);
+    expect(ids.length).toBeGreaterThan(1);
+    const [first, ...rest] = ids;
+    if (!first) throw new Error("The revision has no changes.");
+    resolveInEditor(editor, new Set([first]), "reject");
+    await page.settled();
+    // Another change of the revision still waits, so nothing of the text it replaced comes back yet.
+    expect(pendingProposals(page.blocks).some((ref) => ref.request === revisionRequest)).toBe(true);
+    expect(pendingProposals(page.blocks).some((ref) => ref.request === firstRequest)).toBe(false);
+    for (const id of rest) {
+      resolveInEditor(editor, new Set([id]), "reject");
+      await page.settled();
+    }
+    expect(pendingProposals(page.blocks).some((ref) => ref.request === revisionRequest)).toBe(
+      false,
+    );
+    expect(
+      pendingProposals(page.blocks).filter((ref) => ref.request === firstRequest),
+    ).toHaveLength(firstWaiting);
+    expect(shownWithChanges(page)).toContain(`+ ${words.section}`);
+  });
+
+  /** The episode the issue names: an Answer adds waiting text to the User's Mind, and the same conversation's next Answer revises it. */
+  async function started(language: "en" | "zh-CN") {
+    const words = WORDS[language];
+    let regenerating = false;
+    const model = scriptedModel((call): ScriptedReply => {
+      if (regenerating) return { text: words.nothing };
+      if (asked(call).endsWith(words.adding)) {
+        return called(call, "add_to_mind")
+          ? { text: "Added them." }
+          : {
+              calls: [{ tool: "add_to_mind", input: { mind: words.mind, content: words.risks } }],
+            };
+      }
+      return called(call, "edit_mind")
+        ? { text: "Said more." }
+        : {
+            calls: [
+              {
+                tool: "edit_mind",
+                input: { mind: words.mind, part: words.section, content: words.longer },
+              },
+            ],
+          };
+    });
+    const core = startCore(await createTempDataFolder(), {
+      createChatModel: scriptedModels(model).createChatModel,
+    });
+    await core.saveChatProvider({ kind: "ollama", modelId: "local-model" });
+    await core.updateSettings({ user: { language } });
+    const mind = await core.createMind({ title: words.mind });
+    const page = await connectToMind(core, mind.id);
+    writeMind(page, [heading(2, words.summary), note(words.user)]);
+    await page.settled();
+
+    const first = await askAssistant(core, { text: words.adding, mindId: mind.id });
+    const firstRequest = changesIn(first)[0]?.request ?? "";
+    await page.settled();
+    const firstWaiting = pendingProposals(page.blocks).filter(
+      (ref) => ref.request === firstRequest,
+    ).length;
+    expect(firstWaiting).toBeGreaterThan(0);
+    const second = await askAssistant(core, {
+      text: words.sayMore,
+      mindId: mind.id,
+      conversationId: first.conversationId,
+    });
+    const revision = changesIn(second)[0];
+    expect(revision).toMatchObject({ mindId: mind.id, revised: true });
+    await page.settled();
+    return {
+      core,
+      page,
+      words,
+      firstRequest,
+      firstWaiting,
+      revisionRequest: revision?.request ?? "",
+      regenerate: async () => {
+        regenerating = true;
+        const result = await core.regenerateConversationAnswer({
+          conversationId: second.conversationId,
+          answerId: second.id,
+        });
+        if (!result.asked) throw new Error("Not asked again.");
+        expect((await answerEnded(core, result.answerId)).event).toBe("finished");
+        await page.settled();
+      },
+    };
+  }
 });
 
 describe("Asking again for a reply that claims a change", { timeout: 30_000 }, () => {

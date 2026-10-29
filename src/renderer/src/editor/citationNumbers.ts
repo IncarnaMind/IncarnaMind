@@ -4,10 +4,13 @@ import { type EditorState, Plugin, PluginKey, type Transaction } from "@tiptap/p
 import { Decoration, DecorationSet, type EditorView } from "@tiptap/pm/view";
 import {
   BLOCK_ID_ATTRIBUTE,
+  CALCULATED_FIGURE_NODE,
+  type CalculatedFigureAttributes,
   CITATION_NODE,
   type CitationAttributes,
   FOOTNOTE_NODE,
 } from "../../../core/api";
+import { readCalculatedFigureAttributes } from "../../../shared/calculatedFigures";
 import type { CitationForm } from "../../../shared/citationStyles";
 
 /**
@@ -38,10 +41,18 @@ export interface NumberedFootnote {
   node: ProseMirrorNode;
 }
 
-/** The Mind's footnotes, numbered together: Citations and the User's own. */
+export interface NumberedFigure {
+  pos: number;
+  /** The note number, or the shared cited ordinal in an in-text style. */
+  number: number;
+  attributes: CalculatedFigureAttributes;
+}
+
+/** The Mind's Citations, calculated figures and the User's footnotes, numbered in one traversal. */
 export interface NumberedFootnotes {
   citations: NumberedCitation[];
   footnotes: NumberedFootnote[];
+  figures: NumberedFigure[];
 }
 
 /** Whether nothing but spaces stands between two Citations, at these positions, of one text block. */
@@ -61,9 +72,11 @@ export function sideBySide(doc: ProseMirrorNode, before: number, after: number):
  * depends on the Mind's citation style (#289): in Numbered, each is a footnote,
  * its reference; in a note style, Citations side by side are one note, one
  * number; in a style that cites in the text, none is a footnote, and Citations
- * are numbered among themselves (their marks in the margin say these numbers),
- * the User's footnotes on their own. A Citation inside a footnote is part of
- * that footnote's text and has no number of its own.
+ * use a cited ordinal for their margin marks, the User's footnotes on their
+ * own. Calculated figures join the footnote
+ * numbers, or the cited ordinal in an in-text style; the latter identifies
+ * their input clusters and doesn't make a footnote. A Citation inside a
+ * footnote is part of that footnote's text and has no number of its own.
  */
 export function numberFootnotes(
   doc: ProseMirrorNode,
@@ -71,6 +84,7 @@ export function numberFootnotes(
 ): NumberedFootnotes {
   const citations: NumberedCitation[] = [];
   const footnotes: NumberedFootnote[] = [];
+  const figures: NumberedFigure[] = [];
   let number = 0;
   let cited = 0;
   doc.forEach((block, offset, index) => {
@@ -87,6 +101,18 @@ export function numberFootnotes(
           number,
           id: typeof footnoteId === "string" ? footnoteId : `${blockKey}:footnote:${number}`,
           node,
+        });
+        return false;
+      }
+      if (name === CALCULATED_FIGURE_NODE) {
+        const attributes = readCalculatedFigureAttributes(node.attrs);
+        if (!attributes) return false;
+        if (form === "in-text") cited += 1;
+        else number += 1;
+        figures.push({
+          pos: offset + 1 + pos,
+          number: form === "in-text" ? cited : number,
+          attributes,
         });
         return false;
       }
@@ -108,7 +134,7 @@ export function numberFootnotes(
       return false;
     });
   });
-  return { citations, footnotes };
+  return { citations, footnotes, figures };
 }
 
 /** Every Citation, top to bottom, numbered among the Mind's footnotes (see `numberFootnotes`). */
@@ -119,21 +145,21 @@ export function numberCitations(
   return numberFootnotes(doc, form).citations;
 }
 
-/** The nodes in a text block that take a footnote's number: Citations and footnotes. */
 const numberedIn = (textBlock: ProseMirrorNode) => {
   const found: ProseMirrorNode[] = [];
   textBlock.forEach((child) => {
     const name = child.type.name;
-    if (name === CITATION_NODE || name === FOOTNOTE_NODE) found.push(child);
+    if (name === CITATION_NODE || name === FOOTNOTE_NODE || name === CALCULATED_FIGURE_NODE)
+      found.push(child);
   });
   return found;
 };
 
 /**
  * Where the text block is (its position before it, after the change) when a
- * change edits only inside one text block and leaves its Citations and
- * footnotes as they were, as typing does; null for any other change. Such a
- * change renumbers nothing, and moves the Citations and footnotes outside the
+ * change edits only inside one text block and leaves its Citations, figures
+ * and footnotes as they were, as typing does; null for any other change. Such a
+ * change renumbers nothing, and moves their markers outside the
  * block only along the document: on screen too, unless the block grows or shrinks.
  */
 export function textBlockEdited(tr: Transaction): number | null {
@@ -157,35 +183,44 @@ export function textBlockEdited(tr: Transaction): number | null {
 }
 
 /**
- * The attribute a Citation's or footnote's number is drawn in. It is part of
+ * The attribute a numbered marker is drawn in. It is part of
  * the decoration's attributes, not just its spec, so renumbering counts as a
  * change and the node's view is updated.
  */
 const NUMBER_ATTRIBUTE = "data-citation-number";
 const FOOTNOTE_NUMBER_ATTRIBUTE = "data-footnote-number";
+const FIGURE_NUMBER_ATTRIBUTE = "data-figure-number";
 
-/** A Citation's number, from the decorations its node view is given; 0 if it has none. */
-export function citationNumberOf(decorations: readonly Decoration[]): number {
+function decoratedNumber(
+  decorations: readonly Decoration[],
+  key: "citationNumber" | "footnoteNumber" | "figureNumber",
+): number {
   for (const decoration of decorations) {
-    const number: unknown = decoration.spec.citationNumber;
+    const number: unknown = decoration.spec[key];
     if (typeof number === "number") return number;
   }
   return 0;
+}
+
+/** A Citation's number, from the decorations its node view is given; 0 if it has none. */
+export function citationNumberOf(decorations: readonly Decoration[]): number {
+  return decoratedNumber(decorations, "citationNumber");
 }
 
 /** A footnote's number, from the decorations its node view is given; 0 if it has none. */
 export function footnoteNumberOf(decorations: readonly Decoration[]): number {
-  for (const decoration of decorations) {
-    const number: unknown = decoration.spec.footnoteNumber;
-    if (typeof number === "number") return number;
-  }
-  return 0;
+  return decoratedNumber(decorations, "footnoteNumber");
 }
 
-/** The Citations and footnotes of a document, numbered, and their numbers as decorations. */
+/** A calculated figure's number from its node-view decorations; 0 if it has none. */
+export function figureNumberOf(decorations: readonly Decoration[]): number {
+  return decoratedNumber(decorations, "figureNumber");
+}
+
+/** The document's numbered markers and their decorations. */
 interface Numbers extends Readonly<NumberedFootnotes> {
   decorations: DecorationSet;
-  /** Raised to redraw every footnote's marker, e.g. in the interface's new language. */
+  /** Raised to redraw footnote and figure markers, e.g. in the interface's new language. */
   generation: number;
   /** How the Mind's citation style counts Citations (see `numberFootnotes`). */
   form: CitationForm;
@@ -200,7 +235,7 @@ const REDRAW = "redrawFootnotes";
 const FORM = "citationForm";
 
 function numbersOf(doc: ProseMirrorNode, generation: number, form: CitationForm): Numbers {
-  const { citations, footnotes } = numberFootnotes(doc, form);
+  const { citations, footnotes, figures } = numberFootnotes(doc, form);
   const node = (pos: number, attrs: Record<string, string>, spec: Record<string, number>) =>
     Decoration.node(pos, pos + (doc.nodeAt(pos)?.nodeSize ?? 1), attrs, spec);
   const decorations = DecorationSet.create(doc, [
@@ -214,8 +249,15 @@ function numbersOf(doc: ProseMirrorNode, generation: number, form: CitationForm)
         { footnoteNumber: number, generation },
       ),
     ),
+    ...figures.map(({ pos, number }) =>
+      node(
+        pos,
+        { [FIGURE_NUMBER_ATTRIBUTE]: String(number) },
+        { figureNumber: number, generation },
+      ),
+    ),
   ]);
-  return { citations, footnotes, decorations, generation, form };
+  return { citations, footnotes, figures, decorations, generation, form };
 }
 
 /**
@@ -232,7 +274,12 @@ export function numberedFootnotes(state: EditorState): readonly NumberedFootnote
   return numbersKey.getState(state)?.footnotes ?? [];
 }
 
-/** Redraws every footnote's marker, e.g. once the interface's language has changed. */
+/** The editor's calculated figures, numbered by the canonical Citation/Footnote traversal. */
+export function numberedFigures(state: EditorState): readonly NumberedFigure[] {
+  return numbersKey.getState(state)?.figures ?? [];
+}
+
+/** Redraws footnote and figure markers, e.g. once the interface's language has changed. */
 export function redrawFootnotes(view: EditorView): void {
   view.dispatch(view.state.tr.setMeta(REDRAW, true));
 }
@@ -285,6 +332,7 @@ export function citationNumbersPlugin(
         return {
           citations: numbers.citations.map((each) => ({ ...each, pos: tr.mapping.map(each.pos) })),
           footnotes: numbers.footnotes.map((each) => ({ ...each, pos: tr.mapping.map(each.pos) })),
+          figures: numbers.figures.map((each) => ({ ...each, pos: tr.mapping.map(each.pos) })),
           decorations: numbers.decorations.map(tr.mapping, tr.doc),
           generation: numbers.generation,
           form: numbers.form,
@@ -298,7 +346,7 @@ export function citationNumbersPlugin(
 }
 
 /**
- * Numbers the Citations and footnotes (see `numberFootnotes`) with a node
+ * Numbers Citations, figures and footnotes (see `numberFootnotes`) with a node
  * decoration each, which reaches the node's view: it shows the number, and
  * redraws when an edit renumbers it. `form` says how the Mind's citation style
  * counts Citations when the editor opens.

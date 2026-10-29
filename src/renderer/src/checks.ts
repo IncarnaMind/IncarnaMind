@@ -10,7 +10,6 @@ import { TextSelection } from "@tiptap/pm/state";
 import type * as Y from "yjs";
 import { create } from "zustand";
 import {
-  type CheckMindMode,
   type CheckSentencesResult,
   CITATION_NODE,
   type CitationAttributes,
@@ -44,7 +43,7 @@ export type CheckProblem =
   /** Check this Mind (#737), in a Mind with no sentence to check. */
   | { kind: "no-claims" }
   /** Check this Mind (#737): the model couldn't name the claims. */
-  | { kind: "find-failed"; error: ProviderError; mode: CheckMindMode; allDocuments: boolean };
+  | { kind: "find-failed"; error: ProviderError; retry(): void };
 
 export interface CheckRunning {
   requestId: string;

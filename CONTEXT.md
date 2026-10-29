@@ -94,6 +94,10 @@ _Avoid_: source, reference
 A number in an Answer or in your text that IncarnaMind worked out from numbers quoted from Documents, by a formula (or, later, an Analysis), rather than the AI working it out itself. It keeps its Inputs, each with its Citation, its formula and its result as shown. The AI writes a marker where it goes and never the number; the interface says "Calculated".
 _Avoid_: computed figure, calculated citation, derived number, formula
 
+**Figure schedule**:
+The figures shown in a Note, each beside its source value, Citation, difference and result from the Note's one Check; calculated figures can be opened to see their Inputs, and totals show whether their parts add up.
+_Avoid_: second check, audit table
+
 **Input**:
 A number a Calculated figure or an Analysis is worked out from: a number in a Citation's quote (with the line that states its scale or currency, when only a heading does), a cell of a sheet (the number it stores, not the one it shows rounded), or a range of a sheet or CSV, in the version of its Document it was read from.
 _Avoid_: argument, variable, source

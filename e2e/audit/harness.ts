@@ -18,6 +18,7 @@ import {
 // Vite's own source-map reader (the audit adds no dependency of its own).
 import { SourceMapConsumer } from "source-map-js";
 import { APP_ARGS, homeEnv, KEYCHAIN_ARGS } from "../../tests/helpers/home";
+import { launchEnvironment } from "../launchEnvironment";
 
 const appDir = resolve(__dirname, "..", "..");
 
@@ -87,21 +88,15 @@ export async function launch(
   }: LaunchOptions = {},
 ): Promise<Launched> {
   const home = tempDir("home");
-  const env: Record<string, string> = {};
-  for (const [name, value] of Object.entries(process.env)) {
-    if (value !== undefined) env[name] = value;
-  }
-  delete env.ELECTRON_RUN_AS_NODE;
-  delete env.INCARNAMIND_TEST_SENTRY_DSN;
-  delete env.INCARNAMIND_TEST_EXAMPLES;
-  delete env.INCARNAMIND_FAKE_CHAT;
-  if (examples) env.INCARNAMIND_TEST_EXAMPLES = "1";
-  if (fakeChat) env.INCARNAMIND_FAKE_CHAT = "1";
-  env.INCARNAMIND_DATA_DIR = dataDir;
-  env.INCARNAMIND_TEST_HOOKS = "1";
-  env.INCARNAMIND_TEST_EMBEDDER = "fake";
-  Object.assign(env, homeEnv(home));
-  Object.assign(env, extraEnv);
+  const env = launchEnvironment({
+    INCARNAMIND_TEST_EXAMPLES: examples ? "1" : undefined,
+    INCARNAMIND_FAKE_CHAT: fakeChat ? "1" : undefined,
+    INCARNAMIND_DATA_DIR: dataDir,
+    INCARNAMIND_TEST_HOOKS: "1",
+    INCARNAMIND_TEST_EMBEDDER: "fake",
+    ...homeEnv(home),
+    ...extraEnv,
+  });
 
   const launchMs = Date.now();
   const app = await electron.launch({
