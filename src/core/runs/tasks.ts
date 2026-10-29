@@ -37,6 +37,7 @@ import type {
   TaskEffect,
   TaskPausedReason,
   TaskProgress,
+  TaskSources,
   TaskStep,
 } from "../api";
 import type { RetainVersion, VersionRetention } from "../documents/retention";
@@ -128,6 +129,8 @@ export interface TaskKind {
   remainingOf?(task: { id: string; mindId: string | null; input: unknown }): string[];
   /** Done, what it did in a few words. */
   summaryOf?(task: { id: string; mindId: string | null; input: unknown }): string | null;
+  /** Where its saved sources went, from the kind's existing journal result. */
+  sourcesOf?(task: { id: string; mindId: string | null; input: unknown }): TaskSources | null;
   /** What the User can ask of it from its progress (#657). Absent: Pause and Stop. */
   readonly actions?: readonly TaskAction[];
   /** What its steps do, in its own words, by key; a step it can't name shows its key. */
@@ -697,6 +700,23 @@ export function createTasks(options: TasksOptions) {
         record,
         journal.steps(record.id).filter((step) => isStep(step.key)),
       );
+    },
+
+    /** The journal's saved sources, approval outcomes and read steering, for a finished Task (#147). */
+    recordDetails(taskId: unknown) {
+      const record = requireTask(taskId);
+      return {
+        sources: kindSays(record, kinds.get(record.kind)?.sourcesOf, null),
+        approvals: journal.steps(record.id).flatMap((step) => {
+          if (!step.key.startsWith(`${RECORD_PREFIX}approve:`)) return [];
+          return isRecord(step.result) && typeof step.result.allowed === "boolean"
+            ? [{ key: step.key, allowed: step.result.allowed }]
+            : [];
+        }),
+        messages: messagesOf(record.id)
+          .filter((message) => message.status === "completed")
+          .map((message) => message.text),
+      };
     },
 
     /** Tell it…: a message for a running Task whose kind reads them, until its next step. */

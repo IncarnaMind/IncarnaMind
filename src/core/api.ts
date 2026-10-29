@@ -4607,6 +4607,26 @@ export interface TaskStep {
  * place when IncarnaMind is quit. Its journal (`runs`, `run_steps`) records
  * each step as started and completed.
  */
+export interface TaskSources {
+  folderId: string;
+  folder: string;
+  documents: number;
+  tags: string[];
+  declined?: boolean;
+}
+
+export interface TaskApprovalOutcome {
+  key: string;
+  allowed: boolean;
+}
+
+/** The finished Task's journal details shown beside its steps and cost (#147). */
+export interface TaskRecordDetails {
+  sources: TaskSources | null;
+  approvals: TaskApprovalOutcome[];
+  messages: string[];
+}
+
 export interface Task {
   id: string;
   /** What runs it: "comparison" fills a comparison table. A kind this version doesn't know stays as it is. */
@@ -9864,6 +9884,8 @@ export interface CoreApi {
   answerTaskAsk(taskId: string, answer: TaskAskAnswer): Promise<Task>;
   /** Every step of a Task, in the order each first started. */
   listTaskSteps(taskId: string): Promise<TaskStep[]>;
+  /** A finished Task's saved sources, approval outcomes and read steering, from its journal (#147). */
+  getTaskRecordDetails(taskId: string): Promise<TaskRecordDetails>;
   /**
    * Tell it…: a message for a running Task whose kind reads them (`actions`
    * has "tell"), queued until its next step starts, which reads it.
@@ -11060,6 +11082,7 @@ const methods: Record<CoreApiMethod, true> = {
   stopTask: true,
   answerTaskAsk: true,
   listTaskSteps: true,
+  getTaskRecordDetails: true,
   tellTask: true,
   untellTask: true,
   getResearchPlan: true,

@@ -17,6 +17,7 @@ import { pauseTask, resumeTask, reviewTask, stopTask, useTasks } from "../../tas
 import { stepLine, taskName } from "../../taskText";
 import { CheckLineIcon } from "../lineIcons";
 import { MetaLine } from "../MetaLine";
+import { TaskRecord } from "./TaskRecord";
 
 /**
  * What a Task's progress offers that its kind brings (#130's plan card, and
@@ -316,12 +317,10 @@ export function TaskProgress({
         </div>
       )}
       {detailsOpen && (
-        <MetaLine
-          id={detailsId}
-          data-testid="task-progress-record"
-          className="task-progress-details"
-          parts={details(task, t, language)}
-        />
+        <div id={detailsId} data-testid="task-progress-record">
+          <MetaLine className="task-progress-details" parts={details(task, t, language)} />
+          <TaskRecord taskId={task.id} />
+        </div>
       )}
       <div data-testid="task-progress-actions" className="task-progress-actions">
         {task.summary && (

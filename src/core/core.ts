@@ -4123,6 +4123,7 @@ export function createCore(adapters: CoreAdapters): Core {
     stopTask: (taskId) => tasks.stop(taskId),
     answerTaskAsk: (taskId, answer) => tasks.answer(taskId, answer),
     listTaskSteps: async (taskId) => tasks.listSteps(taskId),
+    getTaskRecordDetails: async (taskId) => tasks.recordDetails(taskId),
     tellTask: async (taskId, text) => tasks.tell(taskId, text),
     untellTask: async (taskId, messageId) => tasks.untell(taskId, messageId),
     getResearchPlan: async (taskId) => research.planView(taskId),

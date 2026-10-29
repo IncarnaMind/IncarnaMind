@@ -578,6 +578,9 @@ export function createResearch(options: ResearchOptions) {
       return parts.length > 0 ? parts.join(" · ") : null;
     },
     questionOf: (input) => inputOf(input)?.topic ?? null,
+    sourcesOf(task) {
+      return savedOf(journalOf(task.id).get(SAVE_STEP)?.result);
+    },
     reviewOf(task) {
       const step = options.tasks.steps(task.id).find((each) => each.key === DRAFT_STEP);
       const written = step?.status === "completed" ? writtenOf(step.result) : null;

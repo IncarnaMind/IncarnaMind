@@ -7,7 +7,7 @@
 import type { Task } from "../../core/api";
 import type { CommandId } from "../../shared/commands";
 import type { Translate } from "./objects";
-import { stopTask } from "./tasks";
+import { pauseTask, resumeTask, stopTask } from "./tasks";
 
 export interface TaskRowAction {
   key: string;
@@ -38,13 +38,20 @@ export function taskOffers(task: Task | undefined, command: TaskCommand): boolea
 }
 
 export function taskRowActions(task: Task, t: Translate): TaskRowAction[] {
-  if (!taskOffers(task, "stop")) return [];
-  return [
-    {
+  const actions: TaskRowAction[] = [];
+  if (taskOffers(task, "pause")) {
+    actions.push({ key: "pause", label: t("task.pause"), run: () => void pauseTask(task.id) });
+  }
+  if (taskOffers(task, "resume")) {
+    actions.push({ key: "resume", label: t("task.resume"), run: () => void resumeTask(task.id) });
+  }
+  if (taskOffers(task, "stop")) {
+    actions.push({
       key: "stop",
       label: t("task.stop"),
       shortcut: "task.stop",
       run: () => void stopTask(task.id),
-    },
-  ];
+    });
+  }
+  return actions;
 }

@@ -516,6 +516,16 @@ describe("Research", { timeout: 30_000 }, () => {
     expect(tagged?.tags).toEqual([
       expect.objectContaining({ tagId: tea?.id, source: "automatic" }),
     ]);
+    expect(await core.getTaskRecordDetails(task.id)).toEqual({
+      sources: {
+        folderId: filed?.id,
+        folder: "How did tea reach Europe",
+        documents: 1,
+        tags: ["Tea"],
+      },
+      approvals: [{ key: "~approve:save", allowed: true }],
+      messages: [],
+    });
 
     // The draft is a change to accept in the Mind, its Citation found; Review opens it there.
     const changes = await changesIn(core, mind.id);
@@ -630,6 +640,11 @@ describe("Research", { timeout: 30_000 }, () => {
     expect(done).toMatchObject({ status: "done", progress: { done: 2, total: 2 } });
     expect((await core.getLibrary()).groups.map((each) => each.name)).toEqual(["Grocers"]);
     expect((await changesIn(core, mind.id)).texts).toHaveLength(1);
+    expect(await core.getTaskRecordDetails(libraryOnly.id)).toEqual({
+      sources: null,
+      approvals: [],
+      messages: [],
+    });
 
     const silent = scriptedModel(() => ({ text: "I found nothing." }));
     const empty = await setUp(silent);
@@ -671,6 +686,11 @@ describe("Research", { timeout: 30_000 }, () => {
       "Wrote a cited draft as 1 change in “Credit memo”",
     ]);
     expect(done).toMatchObject({ status: "done", summary: "1 change proposed" });
+    expect(await core.getTaskRecordDetails(task.id)).toEqual({
+      sources: { folderId: "", folder: "", documents: 0, tags: [], declined: true },
+      approvals: [{ key: "~approve:save", allowed: false }],
+      messages: ["Keep it to one paragraph"],
+    });
     const { groups, assignments } = await core.getLibrary();
     expect(groups.map((each) => each.name)).toEqual(["Grocers"]);
     const page = (await core.listDocuments()).find((each) => each.kind === "web");

@@ -226,7 +226,7 @@ export function Composer({
   const analysing = draft.analyse === true && !researching;
   /** Tell it… (#130): the running Task what is typed goes to. */
   const told = useTasks((state) => (draft.tell ? state.tasks[draft.tell] : undefined));
-  const target = mind && tellable(told) ? told : undefined;
+  const target = mind && told ? told : undefined;
   /** Why the last message couldn't reach its Task. */
   const [tellProblem, setTellProblem] = useState<string | null>(null);
   const chosenModel = useModelInUse(mind?.doc ?? null);
@@ -525,9 +525,12 @@ export function Composer({
       return;
     }
     const aimed = current.tell ? useTasks.getState().tasks[current.tell] : undefined;
-    if (mind && tellable(aimed)) {
+    if (mind && current.tell) {
       const said = current.text.trim();
-      if (!said) return;
+      if (!said || !tellable(aimed)) {
+        if (!aimed) setTellProblem(t("error.task.tell"));
+        return;
+      }
       setTellProblem(null);
       update({ text: "", tell: undefined });
       try {
@@ -770,6 +773,21 @@ export function Composer({
           }}
         />
       )}
+      {target && !tellable(target) && (
+        <ProblemLine
+          testId="composer-tell-finished"
+          className="composer-problem"
+          action={{
+            label: t("task.tell.remove"),
+            onClick: () => {
+              update({ tell: undefined });
+              field.current?.focus();
+            },
+          }}
+        >
+          {t("task.tell.finished", { task: taskName(target, t) })}
+        </ProblemLine>
+      )}
       {tellProblem && (
         <ProblemLine
           testId="composer-tell-problem"
@@ -883,6 +901,7 @@ export function Composer({
         {target && (
           <TaskTargetChip
             task={target}
+            canTell={tellable(target)}
             onRemove={() => {
               update({ tell: undefined });
               field.current?.focus();

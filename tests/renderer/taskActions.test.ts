@@ -90,13 +90,23 @@ describe("the Tasks popover row's actions", () => {
   const english = (key: Parameters<typeof translate>[1]) => translate("en", key);
   const chinese = (key: Parameters<typeof translate>[1]) => translate("zh-CN", key);
 
-  test("a Task still going offers Stop, named with its key for the tooltip", () => {
-    for (const each of [running, paused, capped, asking]) {
-      const actions = taskActions.taskRowActions(each, english);
-      expect(actions.map((action) => action.key)).toEqual(["stop"]);
-      expect(actions[0]?.label).toBe("Stop");
-      expect(actions[0]?.shortcut).toBe("task.stop");
+  test("a running Task offers Pause then Stop, named with Stop's key for the tooltip", () => {
+    const actions = taskActions.taskRowActions(running, english);
+    expect(actions.map((action) => action.key)).toEqual(["pause", "stop"]);
+    expect(actions.map((action) => action.label)).toEqual(["Pause", "Stop"]);
+    expect(actions[1]?.shortcut).toBe("task.stop");
+  });
+
+  test("a paused Task offers Resume then Stop; one waiting for an answer offers only Stop", () => {
+    for (const each of [paused, capped]) {
+      expect(taskActions.taskRowActions(each, english).map((action) => action.key)).toEqual([
+        "resume",
+        "stop",
+      ]);
     }
+    expect(taskActions.taskRowActions(asking, english).map((action) => action.key)).toEqual([
+      "stop",
+    ]);
   });
 
   test("a finished Task offers none", () => {
@@ -104,7 +114,11 @@ describe("the Tasks popover row's actions", () => {
     expect(taskActions.taskRowActions(stopped, english)).toEqual([]);
   });
 
-  test("what a row's Stop says is in the interface's language", () => {
-    expect(taskActions.taskRowActions(running, chinese)[0]?.label).toBe("停止");
+  test("what a row's actions say is in the interface's language", () => {
+    expect(taskActions.taskRowActions(running, chinese).map((action) => action.label)).toEqual([
+      "暂停",
+      "停止",
+    ]);
+    expect(taskActions.taskRowActions(paused, chinese)[0]?.label).toBe("继续");
   });
 });
