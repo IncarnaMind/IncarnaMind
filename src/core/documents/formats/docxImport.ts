@@ -31,7 +31,7 @@
  */
 import type { MarkJSON, NodeJSON } from "../../../shared/blockJson";
 import { NODE_CHARACTER, targetHash } from "../../../shared/proposals";
-import { readWordAtom } from "../../../shared/wordFiles";
+import { MAX_NOTE_START, readWordAtom } from "../../../shared/wordFiles";
 import { groupWordLists } from "../../../shared/wordLists";
 import { runLookOf } from "../../../shared/wordLook";
 import { DEFAULT_NOTE_NUMBERING } from "../../../shared/wordNotes";
@@ -553,14 +553,20 @@ const FOOTNOTE_MARKS: ReadonlySet<string> = new Set([
   "link",
 ]);
 
-/** Kept-as-is atoms drawn as a box on a line of their own, which a footnote's text can't hold. */
-const BOXED_ATOMS: ReadonlySet<WordAtomKind> = new Set([
+/**
+ * What makes a note stay kept as is: a box on a line of its own, which a
+ * footnote's text can't hold, or someone's tracked change the import couldn't
+ * make a change to accept or reject (a move, an insertion holding a field).
+ */
+const KEPT_IN_NOTE: ReadonlySet<WordAtomKind> = new Set([
   "textBox",
   "shape",
   "smartArt",
   "chart",
   "picture",
   "object",
+  "insertion",
+  "deletion",
 ]);
 
 /** Whether a node read from a note can be in the Note's footnote's text; drops the marks it can't hold. */
@@ -580,7 +586,7 @@ function holdsInFootnote(node: NodeJSON): boolean {
   if (node.type === "hardBreak") return node.attrs?.[PROPOSAL_ATTRIBUTE] === undefined;
   if (node.type !== WORD_ATOM_NODE) return false;
   const atom = readWordAtom(node.attrs ?? {});
-  return !BOXED_ATOMS.has(atom.kind) && atom.info?.display !== true;
+  return !KEPT_IN_NOTE.has(atom.kind) && atom.info?.display !== true;
 }
 
 /**
@@ -646,7 +652,8 @@ function noteNumberingOf(
     );
     return {
       format: format ?? fallback.format,
-      start: Number.isInteger(start) && start >= 0 ? start : fallback.start,
+      start:
+        Number.isInteger(start) && start >= 0 && start <= MAX_NOTE_START ? start : fallback.start,
     };
   };
   return { footnote: read("footnote"), endnote: read("endnote") };

@@ -134,14 +134,17 @@ describe("a Word file's notes are the Note's own footnotes", () => {
     });
   });
 
-  test("a note a footnote can't hold (a table) or with a mark of its own is kept as is", async () => {
+  test("a note a footnote can't hold (a table, someone's move) or with a mark of its own is kept as is", async () => {
     const { client } = await setUp({
       body: paragraph(
-        `${run("Odd")}${noteMark("footnote", 1)}${run(" and starred")}<w:r><w:footnoteReference w:customMarkFollows="1" w:id="2"/><w:t>*</w:t></w:r>`,
+        `${run("Odd")}${noteMark("footnote", 1)}${run(" and starred")}<w:r><w:footnoteReference w:customMarkFollows="1" w:id="2"/><w:t>*</w:t></w:r>${run(" and moved")}${noteMark("footnote", 3)}`,
       ),
       footnotes: [
         `<w:footnote w:id="1">${table([["A", "B"]])}</w:footnote>`,
         note("footnote", 2, ["Starred note."]),
+        note("footnote", 3, [
+          `<w:moveTo w:id="9" w:author="Priya Nair" w:date="2026-10-02T09:00:00Z">${run("Moved here.")}</w:moveTo>`,
+        ]),
       ].join(""),
     });
     const atoms: JSONContent[] = [];
@@ -151,6 +154,7 @@ describe("a Word file's notes are the Note's own footnotes", () => {
     expect(atoms.map((atom) => [atom.attrs?.kind, atom.attrs?.text])).toEqual([
       ["footnote", "A\tB"],
       ["footnote", "Starred note."],
+      ["footnote", "Moved here."],
     ]);
     expect(footnotesOf(client)).toEqual([]);
   });
@@ -396,5 +400,16 @@ describe("note numbers", () => {
     expect(noteLabel(1, { format: "upperLetter", start: 27 })).toBe("AA");
     expect(noteLabel(3, { format: "decimal", start: 1 })).toBe("3");
     expect(noteLabel(3, { format: "somethingNew", start: 1 })).toBe("3");
+    // A damaged file's start is never drawn as an endless label.
+    expect(noteLabel(1, { format: "lowerRoman", start: 1e300 })).toBe(String(1e300));
+  });
+
+  test("a damaged file's first number is read as 1", async () => {
+    const { client } = await setUp({
+      ...brief(),
+      settings:
+        '<w:endnotePr><w:numFmt w:val="lowerRoman"/><w:numStart w:val="1e300"/></w:endnotePr>',
+    });
+    expect(wordNoteNumberingOf(client.doc)?.endnote).toEqual({ format: "lowerRoman", start: 1 });
   });
 });

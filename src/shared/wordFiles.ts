@@ -134,12 +134,18 @@ export function setWordReport(doc: Y.Doc, report: WordImportReport): void {
   wordMap(doc).set("report", report);
 }
 
+/** The highest first number a file's notes are read with: past it, a damaged file's, which starts at 1. */
+export const MAX_NOTE_START = 9999;
+
 const noteNumbering = (value: unknown) => {
   if (!isRecord(value)) return null;
   const { format, start } = value;
   return {
     format: typeof format === "string" && /^[A-Za-z]{1,40}$/.test(format) ? format : "decimal",
-    start: typeof start === "number" && Number.isInteger(start) && start >= 0 ? start : 1,
+    start:
+      typeof start === "number" && Number.isInteger(start) && start >= 0 && start <= MAX_NOTE_START
+        ? start
+        : 1,
   };
 };
 

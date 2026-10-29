@@ -41,10 +41,13 @@ const letters = (value: number) =>
 
 const CHICAGO = ["*", "†", "‡", "§"];
 
+/** Above it, figures: a damaged file's start must not make a label endless. */
+const MAX_LABELLED = 9999;
+
 /** The label of the `ordinal`-th note (from 1) in `numbering`. */
 export function noteLabel(ordinal: number, numbering: { format: string; start: number }): string {
   const value = numbering.start + ordinal - 1;
-  if (value <= 0) return String(value);
+  if (value <= 0 || value > MAX_LABELLED) return String(value);
   switch (numbering.format) {
     case "lowerRoman":
       return roman(value);

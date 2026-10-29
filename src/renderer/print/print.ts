@@ -372,10 +372,39 @@ function blocksOf(source: HTMLElement): HTMLElement[] {
         blocks.push(entry);
       }
     } else {
-      blocks.push(child);
+      blocks.push(...apartAtBreaks(child));
     }
   }
   return blocks;
+}
+
+/**
+ * A block with a page break inside it (in a list item, a quote): the part
+ * before each break, the break, and the rest, so the break starts a page as
+ * one between Blocks does. A list item cut in two keeps one number.
+ */
+function apartAtBreaks(block: HTMLElement): HTMLElement[] {
+  const parts: HTMLElement[] = [];
+  let rest = block;
+  for (
+    let at = rest.querySelector<HTMLElement>(".page-break");
+    at;
+    at = rest.querySelector<HTMLElement>(".page-break")
+  ) {
+    const item = at.closest("li");
+    const items = rest.querySelectorAll(":scope > li").length;
+    const after = cutAt(rest, { node: at, offset: null });
+    at.remove();
+    if (item && after.firstElementChild instanceof HTMLElement) {
+      after.firstElementChild.style.listStyleType = "none";
+    }
+    if (rest instanceof HTMLOListElement && after instanceof HTMLOListElement) {
+      after.start = rest.start + Math.max(0, items - 1);
+    }
+    parts.push(rest, at);
+    rest = after;
+  }
+  return [...parts, rest];
 }
 
 /** Moves a cited page's number badges apart, downwards, where two quotes start on about the same line. */
