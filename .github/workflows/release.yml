@@ -301,8 +301,13 @@ jobs:
       - name: Check the package contents and sizes
         run: npm run check:package
 
-      # The packaged arm64 app reads scans with real OCR (#1819) and transcribes a meeting with its
-      # real speech engine and model, before anything is uploaded (#1239): engines can fail only in the built app.
+      # Every app this runner built, both macOS architectures included, loads each engine module in
+      # the process that runs it and starts Python, before anything is uploaded (#1239): a module can
+      # fail to load only in the built app. The step fails naming the module.
+      - uses: ./.github/actions/packaged-engines
+
+      # The packaged arm64 app also reads scans with real OCR (#1819) and transcribes a meeting with
+      # its real speech engine and model (#1239).
       - if: runner.os == 'macOS'
         uses: ./.github/actions/packaged-transcription
 
