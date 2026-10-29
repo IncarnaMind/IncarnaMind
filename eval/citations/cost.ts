@@ -180,14 +180,14 @@ export function capProblem(
   capUsd: number | null,
   price: Price | null,
   spentUsd: number,
-  nextUsd: number,
+  next: { usd: number; what: string },
 ): string | null {
   if (!price) return null;
   if (capUsd === null) {
     return "This model costs money: set a cap in US dollars (see eval/citations/README.md) before a run.";
   }
-  if (spentUsd + nextUsd > capUsd) {
-    return `The cap is $${capUsd.toFixed(2)}: $${spentUsd.toFixed(2)} spent, and the next step may cost up to $${nextUsd.toFixed(2)}.`;
+  if (spentUsd + next.usd > capUsd) {
+    return `The cap is $${capUsd.toFixed(2)}: $${spentUsd.toFixed(2)} spent, and ${next.what} $${next.usd.toFixed(2)}.`;
   }
   return null;
 }

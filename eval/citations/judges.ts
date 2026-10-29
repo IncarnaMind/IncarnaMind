@@ -247,7 +247,10 @@ export async function judgeAll(
   let judged = 0;
   for (const task of tasks) {
     if (done.has(task.key)) continue;
-    const refused = capProblem(cap.capUsd, judge.price, spent, cap.perCallUsd);
+    const refused = capProblem(cap.capUsd, judge.price, spent, {
+      usd: cap.perCallUsd,
+      what: "the next verdict may cost up to",
+    });
     if (refused) return { spentUsd: spent, judged, stopped: refused };
     const { citation } = task;
     const reply = await judge.judge({

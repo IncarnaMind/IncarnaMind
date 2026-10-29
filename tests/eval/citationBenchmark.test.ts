@@ -295,11 +295,14 @@ describe("The citation benchmark (#1999)", () => {
     const planned = estimate(haiku, 150, { check: true, judges: [] });
     expect(planned.runUsd).toBeGreaterThan(0);
     expect(planned.mostUsd).toBeGreaterThan(planned.runUsd);
-    expect(capProblem(null, price, 0, 1)).toMatch(/set a cap/);
-    expect(capProblem(10, price, 9.5, 1)).toMatch(/The cap is \$10\.00/);
-    expect(capProblem(10, price, 2, 1)).toBeNull();
+    const next = { usd: 1, what: "the next Question may cost up to" };
+    expect(capProblem(null, price, 0, next)).toMatch(/set a cap/);
+    expect(capProblem(10, price, 9.5, next)).toBe(
+      "The cap is $10.00: $9.50 spent, and the next Question may cost up to $1.00.",
+    );
+    expect(capProblem(10, price, 2, next)).toBeNull();
     expect(priceOf({ kind: "ollama", modelId: "qwen3.5:4b" })).toBeNull();
-    expect(capProblem(null, null, 0, 0)).toBeNull();
+    expect(capProblem(null, null, 0, { usd: 0, what: "" })).toBeNull();
   });
 
   test("the scan: keys, held keys, addresses and home paths are found; an allowed address isn't", () => {

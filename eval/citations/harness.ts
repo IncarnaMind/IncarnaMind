@@ -291,7 +291,10 @@ export async function runBenchmark(options: HarnessOptions): Promise<Map<Languag
   const toAsk = plan.reduce((sum, each) => sum + each.questions.length, 0);
   let spent = plan.reduce((sum, each) => sum + (each.earlier ? spentUsd(each.earlier) : 0), 0);
   const expected = estimate(ref, toAsk, { check: options.check, judges: [] });
-  const refused = capProblem(options.capUsd, price, spent, expected.runUsd);
+  const refused = capProblem(options.capUsd, price, spent, {
+    usd: expected.runUsd,
+    what: `the ${toAsk} Questions to ask are expected to cost`,
+  });
   if (refused) throw new Error(`The run doesn't start. ${refused}`);
   log(
     `${label}: ${toAsk} Questions to ask in ${plan.map((each) => `${each.language} (${each.questions.length})`).join(", ")}` +
@@ -380,12 +383,10 @@ export async function runBenchmark(options: HarnessOptions): Promise<Map<Languag
       };
       run.stopped = null;
       for (const question of questions) {
-        const capped = capProblem(
-          options.capUsd,
-          price,
-          spent,
-          reservationUsd(ref, price, options.check),
-        );
+        const capped = capProblem(options.capUsd, price, spent, {
+          usd: reservationUsd(ref, price, options.check),
+          what: "the next Question may cost up to",
+        });
         if (capped) {
           run.stopped = { reason: capped, at: new Date().toISOString() };
           writeRun(path, run);
