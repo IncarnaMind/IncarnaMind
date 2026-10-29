@@ -188,17 +188,24 @@ export function ClaimMark({
   useEffect(() => {
     if (requestedFocus) openedByKeyboard.current = true;
   }, [requestedFocus]);
+  /** The focus fell out of the card when its action went, and waits on the mark for the next one (#2002). */
+  const parked = useRef(false);
   // Another card can take this one's place without dismissing it: a later mouse opening must not steal the focus.
   useEffect(() => {
-    if (!open) openedByKeyboard.current = false;
+    if (!open) {
+      openedByKeyboard.current = false;
+      parked.current = false;
+    }
   }, [open]);
-  // While checking, no enabled action can leave keyboard focus on the anchor instead (#2002).
+  // A new verdict can take the focused action away: the focus would fall to the page, not the Mind.
+  // A mark the User focused keeps the focus when the verdict comes.
   // biome-ignore lint/correctness/useExhaustiveDependencies: a verdict or finished run can replace the available actions.
   useEffect(() => {
     const active = document.activeElement;
-    if (!open || !openedByKeyboard.current || (active !== document.body && active !== button))
-      return;
+    const waiting = parked.current && active === button;
+    if (!open || !openedByKeyboard.current || (active !== document.body && !waiting)) return;
     focusFirstAction(card.current, button);
+    parked.current = document.activeElement === button;
   }, [open, state, running, button]);
   // A card already open under the mouse: the popover only takes the focus as it first shows.
   useEffect(() => {
