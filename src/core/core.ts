@@ -1416,7 +1416,9 @@ export function createCore(adapters: CoreAdapters): Core {
       ? [...folderIds]
       : constrainedScope({ folderIds: [...folderIds], tagIds: [], documentIds: [] }).folderIds;
   const walledFolderId = (folderId: string | null): string | null =>
-    folderId !== null && library.folder(folderId).keepInside ? folderId : null;
+    folderId !== null && folderId !== NOT_IN_A_FOLDER_ID && library.folder(folderId).keepInside
+      ? folderId
+      : null;
   const walledFolder = (mindId: string | null): string | null => {
     const folderId = mindId !== null && mindExists(mindId) ? minds.get(mindId).folderId : null;
     return walledFolderId(folderId);
@@ -1545,7 +1547,7 @@ export function createCore(adapters: CoreAdapters): Core {
     allows: (input: CommandInput, mindId: string | null, wallOverride?: string | null) => {
       const wallId = wallOverride === undefined ? walledFolder(mindId) : wallOverride;
       const refuse = () => {
-        throw new InvalidInputError(translate(settings.get().language, "folder.wall.refusal"));
+        throw new InvalidInputError({ key: "error.folder.wall" });
       };
       if (input.command.startsWith("mind.")) {
         for (const id of input.ids) if (walledFolder(id) !== wallId) refuse();

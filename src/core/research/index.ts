@@ -701,7 +701,7 @@ export function createResearch(options: ResearchOptions) {
       const writeInto: ResearchTarget = asked === null ? { mindId } : chosen;
       const targetMind = "mindId" in writeInto ? writeInto.mindId : mindId;
       if (options.walledFolder(asked) !== options.walledFolder(targetMind)) {
-        throw new InvalidInputError(options.say("folder.wall.refusal"));
+        throw new InvalidInputError({ key: "error.folder.wall" });
       }
       const scope = options.searchedScope(within, targetMind);
       const task = options.tasks.start(RESEARCH_TASK, mindId, {

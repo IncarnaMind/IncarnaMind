@@ -348,6 +348,8 @@ export const en = {
   "folder.keepInside": "Keep this Folder’s work inside it",
   "folder.keepInside.hint": "Its Notes use only its Documents, and other Notes don’t search them",
   "folder.wall.refusal": "This Folder keeps its work inside it.",
+  "error.folder.wall": "This Folder keeps its work inside it.",
+  "error.folder.keepInside": "keepInside must be true or false.",
   "undo.folderWallOn": "Turned on inside-only work for {name}",
   "undo.folderWallOff": "Turned off inside-only work for {name}",
   "tag.rename": "Rename",

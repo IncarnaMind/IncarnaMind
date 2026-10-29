@@ -339,6 +339,8 @@ export const zhCN = {
   "folder.keepInside": "只在本文件夹内工作",
   "folder.keepInside.hint": "其中的笔记只使用本文件夹的文件，其他笔记也不会搜索这些文件",
   "folder.wall.refusal": "此文件夹只在本文件夹内工作。",
+  "error.folder.wall": "此文件夹只在本文件夹内工作。",
+  "error.folder.keepInside": "keepInside 必须是 true 或 false。",
   "undo.folderWallOn": "已开启“{name}”只在本文件夹内工作",
   "undo.folderWallOff": "已关闭“{name}”只在本文件夹内工作",
   "tag.rename": "重命名",
