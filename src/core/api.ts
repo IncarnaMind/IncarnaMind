@@ -4408,6 +4408,8 @@ export interface ExternalService {
   id: string;
   /** What the User sees, e.g. "OpenAI" or "api.deepseek.com". */
   name: string;
+  /** The catalog entry for this service when another API shares the provider, such as reranking. */
+  catalogId?: string;
 }
 
 export interface ChatProvider {
