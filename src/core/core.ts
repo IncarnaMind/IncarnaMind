@@ -1377,9 +1377,12 @@ export function createCore(adapters: CoreAdapters): Core {
     return documents.ids({}).filter((id) => !left.has(id));
   };
   /**
-   * The Documents a Search scope covers; with no scope, the User's own: every Document but the
-   * examples' once they have one, and every Document for an example's own Note (#1942). Every
-   * surface that searches resolves a scope here, so a null one never takes the examples' in again.
+   * The Documents a Search scope covers; with no scope, the User's own: every live Document but
+   * the examples', and every Document when the Note is an example's or no example exists (#1942).
+   * A surface without a Mind passes null and is strict too — a free-standing check, the evidence
+   * search and a scope's count never search the examples, even before the User has one: the
+   * examples are the demo, not her evidence. Every surface that searches resolves a scope here,
+   * so a null one never takes the examples' in again.
    */
   const scopeDocuments = (
     scope: SearchScope | null,

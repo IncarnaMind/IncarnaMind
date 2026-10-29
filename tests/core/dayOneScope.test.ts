@@ -47,8 +47,14 @@ async function examplesReady(core: Core) {
   );
 }
 
-/** A core with the shipped examples and one Document of the User's own. */
-async function setUp(model?: ReturnType<typeof scriptedModel>) {
+/** A core with the shipped examples, and one Document of the User's unless `own` is false. */
+async function setUp({
+  model,
+  own = true,
+}: {
+  model?: ReturnType<typeof scriptedModel>;
+  own?: boolean;
+} = {}) {
   const dataDir = await createTempDataFolder();
   const core = startCore(dataDir, {
     paths: { dataDir, examples: EXAMPLES },
@@ -57,12 +63,13 @@ async function setUp(model?: ReturnType<typeof scriptedModel>) {
   await core.saveChatProvider({ kind: "ollama", modelId: "local-model" });
   await core.createExamples();
   const examples = await examplesReady(core);
+  if (!own) return { core, own: null, examples };
   const sources = await createSourceFolder();
-  const [own] = await addAndProcess(core, [
+  const [hers] = await addAndProcess(core, [
     await writeSourceFile(sources, "northwind-notes.txt", `${HER_ONLY}\n`),
   ]);
-  if (!own) throw new Error("No Document added.");
-  return { core, own, examples };
+  if (!hers) throw new Error("No Document added.");
+  return { core, own: hers, examples };
 }
 
 describe("no Search scope means the User's Documents, not the examples' (#1942)", () => {
@@ -74,8 +81,37 @@ describe("no Search scope means the User's Documents, not the examples' (#1942)"
     core.close();
   });
 
+  test("with only the examples: listed in the Library, never searched (#1942, strict by design)", async () => {
+    const calls: ModelCall[] = [];
+    const model = scriptedModel(
+      (call) => {
+        calls.push(call);
+        return isCheckRun(call) ? checkReply(call, {}) : { text: "Done." };
+      },
+      { generate: checkGenerate({}) },
+    );
+    const { core } = await setUp({ model, own: false });
+    // The Library lists the examples until the User has one of their own ...
+    expect(await core.listDocuments()).toHaveLength(2);
+    // ... but no Search surface counts or searches them: they are the demo, not her evidence.
+    expect(await core.countScopeDocuments(undefined)).toBe(0);
+    expect(await core.searchEvidence("Net debt to EBITDA stood at 3.1 times")).toMatchObject({
+      passages: [],
+      excluded: [],
+    });
+    expect(await core.checkClaim({ claim: CLAIM })).toMatchObject({
+      verdict: "unsupported",
+      evidence: null,
+    });
+    for (const call of calls) {
+      expect(JSON.stringify(call.options.prompt)).not.toContain("Net debt to EBITDA");
+    }
+    core.close();
+  });
+
   test("the evidence search reaches the User's Document only", async () => {
     const { core, own } = await setUp();
+    if (!own) throw new Error("No Document added.");
     // The example's own words, which only it holds.
     expect(await core.searchEvidence("Net debt to EBITDA stood at 3.1 times")).toMatchObject({
       passages: [],
@@ -96,7 +132,7 @@ describe("no Search scope means the User's Documents, not the examples' (#1942)"
       },
       { generate: checkGenerate({}) },
     );
-    const { core } = await setUp(model);
+    const { core } = await setUp({ model });
 
     expect(await core.checkClaim({ claim: CLAIM })).toMatchObject({
       verdict: "unsupported",
@@ -120,7 +156,7 @@ describe("no Search scope means the User's Documents, not the examples' (#1942)"
       },
       { generate: checkGenerate({}) },
     );
-    const { core } = await setUp(model);
+    const { core } = await setUp({ model });
     const mind = await core.createMind({ title: "My note" });
     const client = await connectToMind(core, mind.id);
     const block = paragraph(text(CLAIM));
@@ -156,7 +192,7 @@ describe("no Search scope means the User's Documents, not the examples' (#1942)"
       calls.push(call);
       return { text: JSON.stringify({ text: "a suggestion", quote: "none" }) };
     });
-    const { core } = await setUp(model);
+    const { core } = await setUp({ model });
     await core.updateSettings({ user: { suggestWhileWriting: true } });
     const mind = await core.createMind({ title: "My note" });
     expect(
@@ -190,7 +226,7 @@ describe("no Search scope means the User's Documents, not the examples' (#1942)"
             : { text: "Sure." },
       },
     );
-    const { core } = await setUp(model);
+    const { core } = await setUp({ model });
     const mind = await core.createMind({ title: "My note" });
     const plan: ResearchPlan = { title: "Northwind", steps: ["Search the Library"] };
     const started = await core.startResearch({
