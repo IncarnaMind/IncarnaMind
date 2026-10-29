@@ -523,3 +523,122 @@ describe("Checking a bare $ and ¥ in Chinese text (#2226)", { timeout: 60_000 }
     }
   });
 });
+
+describe("Which dollar a bare $ is, wherever it is written (#2226)", () => {
+  const REPORT = "Revenue was $54m in 2025.\nOur Hong Kong subsidiary paid HK$10m in fees.";
+
+  // protects=only a Document's own words, codes, headings, unit lines or definitions say which dollar a bare "$" is: another figure's "HK$" or "A$" never does; a bare "$" in a heading or unit line ("Amount ($)", "($m)", "金额（$）") is as unknown as one on the number; the full-width "＄" and "￥" read as "$" and "¥"; fails_when="HK$54m" or "A$54,000" passes against a bare "$" beside another figure's sign, "US$54m" gets "not US$54m", a heading's "$" reads as US dollars, or "￥" misses the ¥ reason; no_claim=a real model's verdict.
+  test.each([
+    ["Revenue was HK$54m in 2025.", "Revenue was $54m in 2025.", "which dollar", "$54m", REPORT],
+    ["Revenue was US$54m in 2025.", "Revenue was $54m in 2025.", "which dollar", "$54m", REPORT],
+    [
+      "The rent is A$54,000 a year.",
+      "The rent is $54,000 a year.\nThe bond is A$5,000.",
+      "which dollar",
+      "$54,000",
+    ],
+    [
+      "The rent is A$54,000 a year.",
+      "Item\tAmount ($)\nRent\t54,000",
+      "which dollar",
+      "54,000 ($)",
+    ],
+    ["The rent is US$54,000 a year.", "Rent ($)\t54,000", "which dollar", "54,000 ($)"],
+    ["Revenue was US$54m.", "Results ($m)\nRevenue\t54", "which dollar", "54 ($m)"],
+    ["Revenue was A$54m.", "Results ($m)\nRevenue\t54", "which dollar", "54 ($m)"],
+    ["租金为54,000美元。", "项目\t金额（$）\n租金\t54,000", "which dollar", "54,000 ($)"],
+    ["The rent is A$54,000 a year.", "The rent is ＄54,000 a year.", "which dollar", "＄54,000"],
+    ["服务费用为54,000日元。", "服务费用为￥54,000。", "yuan sign", "￥54,000"],
+    ["The service fee is 54,000 yen.", "服务费用为￥54,000。", "yuan sign", "￥54,000"],
+  ])("%s against %j is %s", (claim, cited, kind, amount, document?: string) => {
+    expect(unitNotStated(claim, read(cited, document ?? cited))).toMatchObject({ kind, amount });
+  });
+
+  test.each([
+    ["The rent is $54,000 a year.", "Item\tAmount ($)\nRent\t54,000", undefined],
+    ["Revenue was US$54m.", "Results (US$m)\nRevenue\t54", undefined],
+    ["The margin was 12%.", "Margin（％）\t12", undefined],
+    [
+      "The fee is 84,000 yen.",
+      "合計金額 ¥84,000",
+      "請求書\n合計金額 ¥84,000\nお支払いは月末までにお願いします。",
+    ],
+  ])("%s against %j isn't flagged", (claim, cited, document) => {
+    expect(unitNotStated(claim, read(cited, document ?? cited))).toBeNull();
+  });
+});
+
+describe("Checking which dollar a bare $ is (#2226)", { timeout: 60_000 }, () => {
+  const plan = (quote: string, verdict: "supported" | "contradicted" = "supported") => ({
+    verdict,
+    quote,
+    says: quote,
+    judgement: "conflict" as const,
+  });
+  const CASES: Readonly<Record<string, readonly [{ name: string; contents: string }, Plan]>> = {
+    "Revenue was HK$54m in 2025.": [
+      {
+        name: "Annual report.txt",
+        contents:
+          "Annual report\nRevenue was $54m in 2025.\nOur Hong Kong subsidiary paid HK$10m in fees.\n",
+      },
+      plan("Revenue was $54m in 2025"),
+    ],
+    "The rent is US$54,000 a year.": [
+      { name: "Rent table.txt", contents: "Rent table\nItem\tAmount ($)\nRent\t54,000\n" },
+      plan("Rent\t54,000"),
+    ],
+    "The rent is $54,000 a year.": [
+      { name: "Rent table.txt", contents: "Rent table\nItem\tAmount ($)\nRent\t54,000\n" },
+      plan("Rent\t54,000"),
+    ],
+    "租金为64,000美元。": [
+      { name: "租金表.txt", contents: "租金表\n项目\t金额（$）\n租金\t64,000\n" },
+      plan("租金\t64,000"),
+    ],
+    "服务费用为54,000日元。": [
+      { name: "费用.txt", contents: "费用\n服务费用为￥54,000。\n" },
+      plan("服务费用为￥54,000", "contradicted"),
+    ],
+  };
+  const alone = async (claim: string, language: "en" | "zh-CN") => {
+    const found = CASES[claim];
+    if (!found) throw new Error(`No case for ${claim}`);
+    const [document, scripted] = found;
+    const { core } = await setUpWithDocuments(checkingModel({ [claim]: scripted }), [document]);
+    if (language !== "en") await core.updateSettings({ user: { language } });
+    return core.checkClaim({ claim });
+  };
+
+  // protects=through the core, in English and Chinese: another figure's "HK$" never says which dollar a bare "$" is, a heading's bare "$" is as unknown as one on the number, and a full-width "￥" in Chinese text is 人民币 even when the model calls the sentence contradicted, while a bare "$" against a bare "$" heading stays supported; fails_when=any of these checks the other way or names the dollar; no_claim=a real model's verdict.
+  test.each(["en", "zh-CN"] as const)("in %s", async (language) => {
+    const zh = language === "zh-CN";
+    const which = (document: string, amount: string) =>
+      zh
+        ? `“${document}”写的是“${amount}”，没有注明币种`
+        : `“${document}” gives “${amount}” without saying which currency`;
+    expect(await alone("Revenue was HK$54m in 2025.", language)).toMatchObject({
+      verdict: "unsupported",
+      unsupported: { reason: which("Annual report", "$54m") },
+    });
+    expect(await alone("The rent is US$54,000 a year.", language)).toMatchObject({
+      verdict: "unsupported",
+      unsupported: { reason: which("Rent table", "54,000 ($)") },
+    });
+    expect(await alone("租金为64,000美元。", language)).toMatchObject({
+      verdict: "unsupported",
+      unsupported: { reason: which("租金表", "64,000 ($)") },
+    });
+    expect(await alone("服务费用为54,000日元。", language)).toMatchObject({
+      verdict: "unsupported",
+      unsupported: {
+        reason: zh
+          ? "“费用”写的是“￥54,000”，中文里 ¥ 指人民币"
+          : "“费用” gives “￥54,000”, and in Chinese text ¥ means 人民币",
+      },
+    });
+    expect(await alone("The rent is $54,000 a year.", language)).toMatchObject({
+      verdict: "supported",
+    });
+  });
+});

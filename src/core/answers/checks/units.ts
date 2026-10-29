@@ -1,17 +1,20 @@
 /** A model reads "54,000" in a UK contract as pounds and calls "£54,000" supported (#1332), so a program decides. */
 import {
   bareDollar,
+  bareDollarStatement,
   currenciesOf,
   currenciesOfSign,
   type Figure,
   type FigureContext,
   type FigureUnit,
+  isDollar,
   measureOf,
   namedCurrencies,
   type Reading,
   readFigures,
   readingsOf,
   readStatedUnits,
+  unsaidDollars,
   writesMeasure,
 } from "../../../shared/figures";
 import { documentFigureContext } from "../calculations";
@@ -70,9 +73,9 @@ interface Read {
   figures: Figure[];
   named: Set<string> | null;
   inDocument: Set<string> | null;
-  /** The currencies it names by which (`namedCurrencies` with `which`), and its Document. */
   which: Set<string> | null;
   whichInDocument: Set<string> | null;
+  language: string | null;
 }
 
 function matchesOf(found: readonly { text: CheckedText | null; start: number }[]) {
@@ -127,7 +130,11 @@ function givenOtherwise(
   const given = (found: Valued, kind: "unit" | "which dollar" | "yuan sign" = "unit") => {
     const [first] = found;
     if (!first) return null;
-    const amount = givenAs(first.number, first.reading);
+    // A bare "$" heading's reading is in no named dollar: "54,000 ($)", never "54,000 (USD)".
+    const unsaid = kind === "which dollar" && first.number.currency === null;
+    const amount = unsaid
+      ? `${first.number.chars} ($${first.reading.scaleWord ?? ""})`
+      : givenAs(first.number, first.reading);
     const matches = matchesOf(
       found.map(({ each, number }) => ({ text: each.text, start: number.start })),
     );
@@ -152,11 +159,17 @@ function givenOtherwise(
     };
     const judged = equal.map((found) => {
       const { each, number, reading } = found;
-      if (reading.unit.kind === "plain")
-        return { found, as: [...codes].some((code) => named(each, code)) ? "agrees" : "plain" };
+      if (reading.unit.kind === "plain") {
+        // A plain number takes a dollar only where its Document says which (#2226).
+        const backed = [...codes].some(
+          (code) =>
+            named(each, code) && (!isDollar(code) || bareDollar(figure) || namesWhich(each, code)),
+        );
+        return { found, as: backed ? "agrees" : "plain" };
+      }
       if (reading.unit.kind !== "currency") return { found, as: "other" };
-      if (bareDollar(number)) {
-        const dollars = currenciesOfSign(number);
+      const dollars = unsaidDollars(number, reading, each.cited, each.context);
+      if (dollars) {
         const said = dollars.filter((code) => namesWhich(each, code));
         if (said.length > 0)
           return { found, as: said.some((code) => codes.has(code)) ? "agrees" : "differs" };
@@ -166,9 +179,12 @@ function givenOtherwise(
       if (codes.has(reading.unit.code)) return { found, as: "agrees" };
       if (currenciesOfSign(number).some((code) => codes.has(code) && named(each, code)))
         return { found, as: "agrees" };
-      const chinese = each.context.language?.startsWith("zh") === true;
-      if (number.currency === "¥" && chinese && reading.unit.code === "CNY" && codes.has("JPY"))
-        return { found, as: "yuan sign" };
+      // "¥" is 人民币 in a Chinese Document and the yen in a Japanese one, whatever one line reads as.
+      if (currenciesOfSign(number).includes("JPY") && codes.has("JPY")) {
+        each.language ??= documentFigureContext([{ text: each.text.document() }]).language ?? "";
+        if (each.language.startsWith("ja")) return { found, as: "agrees" };
+        if (each.language.startsWith("zh")) return { found, as: "yuan sign" };
+      }
       return { found, as: "differs" };
     });
     if (judged.some(({ as }) => as === "agrees")) return null;
@@ -230,6 +246,7 @@ export function unitNotStated(
       inDocument: null,
       which: null,
       whichInDocument: null,
+      language: null,
     };
   });
   const [first] = read;
@@ -280,6 +297,8 @@ export function unitNotStated(
             statement.scale === figure.scale &&
             (figure.unit.kind !== "currency" ||
               (statement.unit.kind === "currency" && statement.unit.code === figure.unit.code) ||
+              // "Results ($m)" states the scale, and leaves which dollar to the currency rule.
+              bareDollarStatement(statement) ||
               same.some(({ unit }) => unit.kind === "currency")),
         ),
       );

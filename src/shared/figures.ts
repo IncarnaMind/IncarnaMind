@@ -208,6 +208,12 @@ function prepare(text: string, midLine = false): Prepared {
   for (const unit of units) {
     if (unit.removed) continue;
     const gap = text.slice(previousEnd, unit.start);
+    // "is ＄54,000": the space normalising drops before a full-width sign still sets it apart.
+    if (/[^\S\n]/.test(gap) && CURRENCY_SIGN.test(unit.char) && s !== "" && !/\s$/.test(s)) {
+      s += " ";
+      from.push(previousEnd);
+      to.push(unit.start);
+    }
     if (LINE_BREAK.test(gap)) lineStarts.add(s.length);
     if (/\s/.test(gap)) spaced.add(s.length);
     if (gap.includes("\t")) tabbed.add(s.length);
@@ -2301,11 +2307,14 @@ const SIGN_CURRENCIES: Readonly<Record<string, readonly string[]>> = {
   "¥": ["CNY", "JPY"],
 };
 
+// "￥" and "＄" are what Chinese input methods type for "¥" and "$" (#2226).
+const signOf = (figure: Figure) => figure.currency?.normalize("NFKC").trim() ?? null;
+
 /** Every currency a figure's own sign stands for in some Document: "$" or "dollars" for any dollar, "元" for yuan, or Hong Kong, Taiwan or Macau dollars. */
-export const currenciesOfSign = (figure: Figure): readonly string[] =>
-  (figure.currency !== null &&
-    (SIGN_CURRENCIES[figure.currency] ?? SIGN_CURRENCIES[figure.currency.toLowerCase()])) ||
-  [];
+export const currenciesOfSign = (figure: Figure): readonly string[] => {
+  const sign = signOf(figure);
+  return (sign !== null && (SIGN_CURRENCIES[sign] ?? SIGN_CURRENCIES[sign.toLowerCase()])) || [];
+};
 
 const longestFirst = (words: readonly string[]) => [...words].sort((a, b) => b.length - a.length);
 const CURRENCY_NAMES = new RegExp(
@@ -2397,7 +2406,7 @@ export function measureOf(unit: FigureUnit): string | null {
  * ("单位：吨", "单位：百分比") or a word ("tonnes"). Converting one unit into another isn't attempted.
  */
 export function writesMeasure(text: string, measure: string): boolean {
-  return WRITES[measure]?.test(text) ?? false;
+  return WRITES[measure]?.test(text.normalize("NFKC")) ?? false;
 }
 
 // A bare "$" or "dollars" says a dollar, not which one, in every language (#2226).
@@ -2409,9 +2418,37 @@ const NAMES_A_DOLLAR = new RegExp(
   "i",
 );
 
-/** Whether `figure`'s own currency is a bare "$" or "dollars", which doesn't say which dollar. */
-export const bareDollar = (figure: Figure): boolean =>
-  figure.currency !== null && BARE_DOLLAR.test(figure.currency.trim());
+export const bareDollar = (figure: Figure): boolean => BARE_DOLLAR.test(signOf(figure) ?? "");
+
+export const isDollar = (code: string): boolean => ANY_DOLLAR.includes(code);
+
+/** Whether `statement` gives a dollar by a bare "$" or "dollars": "Amount ($)", "($m)", "金额（$）". */
+export function bareDollarStatement(statement: StatedUnit): boolean {
+  if (statement.unit.kind !== "currency" || !ANY_DOLLAR.includes(statement.unit.code)) return false;
+  const chars = statement.chars.normalize("NFKC");
+  return (
+    /(?<![A-Za-z])\$|(?<![A-Za-z])dollars?(?![A-Za-z])/i.test(chars) && !NAMES_A_DOLLAR.test(chars)
+  );
+}
+
+/**
+ * Every dollar `reading` of `figure` may be when nothing says which: by its own bare "$", or by a
+ * bare "$" in the heading or unit line of `text` it is read under. Null when it is in a named one.
+ */
+export function unsaidDollars(
+  figure: Figure,
+  reading: Reading,
+  text: string,
+  context: FigureContext,
+): readonly string[] | null {
+  if (reading.unit.kind !== "currency" || !ANY_DOLLAR.includes(reading.unit.code)) return null;
+  if (figure.currency !== null) return bareDollar(figure) ? ANY_DOLLAR : null;
+  const { code } = reading.unit;
+  const stated = readStatedUnits(text, context).filter(
+    ({ unit }) => unit.kind === "currency" && unit.code === code,
+  );
+  return stated.length > 0 && stated.every(bareDollarStatement) ? ANY_DOLLAR : null;
+}
 
 /**
  * The currencies `text` names, by ISO 4217 code: in words ("paid in Pounds Sterling", "币种：人民币"),
@@ -2427,8 +2464,10 @@ export function namedCurrencies(
   figures: readonly Figure[] | null,
   which = false,
 ): Set<string> {
-  // "以港幣支付" names the Hong Kong dollar as "以港币支付" does.
-  const text = written.replace(/\p{Script=Han}/gu, (char) => SIMPLIFIED.get(char) ?? char);
+  // "以港幣支付" names the Hong Kong dollar as "以港币支付" does, and "（＄）" as "($)".
+  const text = written
+    .normalize("NFKC")
+    .replace(/\p{Script=Han}/gu, (char) => SIMPLIFIED.get(char) ?? char);
   const settled = settle(context);
   const codesOf = (word: string) =>
     which && BARE_DOLLAR.test(word.trim()) ? [] : currencyCodes(word, settled);
@@ -2445,12 +2484,13 @@ export function namedCurrencies(
     for (const match of text.matchAll(pattern)) add(codesOf(match[1] ?? ""));
   }
   for (const stated of readStatedUnits(figures ? text : unitLinesOf(text), context)) {
-    if (stated.unit.kind !== "currency") continue;
-    const bare = ANY_DOLLAR.includes(stated.unit.code) && !NAMES_A_DOLLAR.test(stated.chars);
-    if (!(which && bare)) add([stated.unit.code]);
+    if (stated.unit.kind === "currency" && !(which && bareDollarStatement(stated)))
+      add([stated.unit.code]);
   }
+  // Another figure's "HK$10m" says nothing of which dollar a bare "$54m" is.
+  if (which) return named;
   if (figures) {
-    for (const figure of figures) if (!(which && bareDollar(figure))) add(currenciesOf(figure));
+    for (const figure of figures) add(currenciesOf(figure));
     return named;
   }
   const onFigures = new Map<string, string[]>();
