@@ -131,6 +131,30 @@ describe("ordered claim part codec", () => {
     expect(resultFromParts([nil])).toMatchObject({ verdict: "not-checked", reason: "malformed" });
   });
 
+  // protects=a part that couldn't be checked never hides a contradicted or unsupported sibling: the worst result across parts is the sentence's, so it keeps its mark (#2002); fails_when=a rate-limited part turns a contradicted sentence Not checked, with no mark; no_claim=how the card lays the rows out.
+  test("the worst result across parts wins over a part that couldn't be checked", () => {
+    const second: ClaimPartPlan = { span: { start: 13, end: 25 }, kind: "fact" };
+    const limited = partWithResult(second, {
+      verdict: "not-checked",
+      reason: "rate-limit",
+      detail: null,
+      versions: [],
+      excluded: [],
+    });
+    expect(resultFromParts([part("contradicted"), limited])).toMatchObject({
+      verdict: "contradicted",
+      evidence: source(),
+      parts: [{ verdict: "contradicted" }, { verdict: "not-checked", reason: "rate-limit" }],
+    });
+    expect(resultFromParts([limited, part("unsupported")])).toMatchObject({
+      verdict: "unsupported",
+    });
+    expect(resultFromParts([part("supported"), limited])).toMatchObject({
+      verdict: "not-checked",
+      reason: "rate-limit",
+    });
+  });
+
   test("legacy marks retain their existing fields", () => {
     expect(readClaimCheck(mark())).toEqual(mark());
     expect(readClaimCheck({ ...mark(), parts: null })).toEqual(mark());
@@ -384,7 +408,7 @@ describe("one sentence projection", () => {
     expect(projected.parts?.[0]?.evidence).toEqual([deciding, wider]);
   });
 
-  test("failure precedes contradiction, unsupported and supported, with original detail", () => {
+  test("contradiction precedes unsupported, a failure and supported; a failure keeps its detail", () => {
     const failed = partWithResult(plan, {
       verdict: "not-checked",
       reason: "failed",
@@ -393,8 +417,14 @@ describe("one sentence projection", () => {
       excluded: [],
     });
     expect(
-      resultFromParts([part("supported"), part("unsupported"), part("contradicted"), failed]),
-    ).toMatchObject({ verdict: "not-checked", reason: "failed", detail: "Provider stopped." });
+      resultFromParts([part("supported"), part("unsupported"), part("contradicted"), failed])
+        .verdict,
+    ).toBe("contradicted");
+    expect(resultFromParts([part("supported"), failed])).toMatchObject({
+      verdict: "not-checked",
+      reason: "failed",
+      detail: "Provider stopped.",
+    });
     expect(resultFromParts([part("unsupported"), part("contradicted")]).verdict).toBe(
       "contradicted",
     );

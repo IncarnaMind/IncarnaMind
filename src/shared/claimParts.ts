@@ -832,15 +832,17 @@ export function resultFromParts(parts: readonly ClaimCheckPart[]): ClaimCheckRes
           citedCaseFound: false,
         }
       : failed("malformed");
+  // The worst result across the parts is the sentence's: a part that couldn't be checked never
+  // hides a contradicted or unsupported one, and leaves a sentence otherwise supported Not checked.
+  const adverse =
+    checked.find(({ part }) => part.verdict === "contradicted") ??
+    checked.find(({ part }) => part.verdict === "unsupported");
   const failures = checked.filter(({ part }) => part.verdict === "not-checked");
   const failure =
     failures.find(({ part }) => part.reason !== "no-evidence" && part.reason !== "malformed") ??
     failures[0];
-  if (failure) return failed(failure.part.reason ?? "failed", failure.part.detail);
-  const outcome =
-    checked.find(({ part }) => part.verdict === "contradicted") ??
-    checked.find(({ part }) => part.verdict === "unsupported") ??
-    checked[0];
+  if (!adverse && failure) return failed(failure.part.reason ?? "failed", failure.part.detail);
+  const outcome = adverse ?? checked[0];
   if (
     !outcome ||
     (outcome.part.verdict !== "supported" &&
