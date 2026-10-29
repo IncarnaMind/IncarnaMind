@@ -268,6 +268,7 @@
   "undoGaps.spec.ts": 54,
   "undoLongName.spec.ts": 56,
   "undoPill.spec.ts": 86,
+  "undoReopensNote.spec.ts": 80,
   "unreadFiles.spec.ts": 116,
   "unsupportedFixes.spec.ts": 32,
   "unsupportedPart.spec.ts": 23,
