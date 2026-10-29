@@ -33,7 +33,7 @@ import {
   toMarkdown,
   topLevelBlocks,
 } from "./answers/blocks";
-import { markSentence } from "./answers/checks/sentences";
+import { markedSentences, markSentence } from "./answers/checks/sentences";
 import { markdownToBlocks } from "./answers/markdown";
 import {
   ANSWER_BLOCK,
@@ -365,6 +365,7 @@ export function createExamples(options: ExamplesOptions) {
     documents: readonly Document[],
     folderId: string | null,
   ): void => {
+    const marked = markedSentences(blocks);
     for (const block of topLevelBlocks(blocks)) {
       if (block.nodeName !== "paragraph") continue;
       // A paragraph of the draft is one text, written without inline nodes.
@@ -382,8 +383,16 @@ export function createExamples(options: ExamplesOptions) {
         (each) => text.slice(each.from, each.to) === check.sentence,
       );
       if (!span) continue;
+      const earlier = marked.find(
+        (mark) => mark.element === block && mark.from === span.from,
+      )?.check;
       const attributes: ClaimCheckAttributes = {
-        id: randomUUID(),
+        // Written again once its Documents are read, the check keeps the identity it had, so a
+        // card the reader already opened stays open and shows what was found.
+        id:
+          earlier?.text === check.sentence && earlier.action === "check-against-documents"
+            ? earlier.id
+            : randomUUID(),
         request: randomUUID(),
         action: "check-against-documents",
         state: check.verdict,
@@ -572,6 +581,7 @@ export function createExamples(options: ExamplesOptions) {
     mindId: string,
     set: ExampleSet,
     folderId: string,
+    linkedFolderId: string,
     questionId: string,
     answerId: string,
   ) =>
@@ -604,6 +614,22 @@ export function createExamples(options: ExamplesOptions) {
       ]);
       // Unedited: regenerating it with a model of one's own replaces it in place.
       answer.setAttribute("generatedHash", contentHash(answer));
+      // The draft's verdict is written in advance, so its mark is on the page from the first
+      // frame: the Passage that decides it is added once the Documents are read (#2196). Its
+      // scope is the Mind's own Folder, as the check made later has, so the mark reads as the
+      // verdict it is rather than as one whose search scope changed.
+      const documents = options.documentsIn(linkedFolderId);
+      const scope = options.mindFolder(mindId);
+      for (const check of set.checks ?? []) {
+        const document = documents.find((each) => each.name === check.evidence.document);
+        markCheck(
+          blocks,
+          check,
+          citationAttributes(check.evidence, document, null),
+          documents,
+          scope,
+        );
+      }
     });
 
   const create = async (group: ExampleGroup = DEFAULT_GROUP): Promise<Examples> => {
@@ -622,7 +648,7 @@ export function createExamples(options: ExamplesOptions) {
     const mind = options.createMind(set.title);
     const questionId = randomUUID();
     const answerId = randomUUID();
-    populate(mind.id, set, linked.folderId, questionId, answerId);
+    populate(mind.id, set, linked.folderId, linked.id, questionId, answerId);
     options.writeValue(valueKey(group), {
       mindId: mind.id,
       linkedFolderId: linked.id,
@@ -685,7 +711,7 @@ export function createExamples(options: ExamplesOptions) {
     // The old Documents go before the example names the new folder, so nothing reads them as the
     // User's own in between (#2084); nothing waits between the link and "changed" (#914).
     if (!sameFolder) options.unlinkFolder(examples.linkedFolderId);
-    populate(examples.mindId, set, linked.folderId, questionId, answerId);
+    populate(examples.mindId, set, linked.folderId, linked.id, questionId, answerId);
     options.renameMind(examples.mindId, set.title);
     options.writeValue(valueKey(group), {
       mindId: examples.mindId,

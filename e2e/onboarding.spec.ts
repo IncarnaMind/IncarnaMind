@@ -761,6 +761,9 @@ test("a double-click on the ready Question asks it once, and Enter on it moves t
   await expect(pane.getByTestId("claim-mark")).toHaveAttribute("data-check", "contradicted", {
     timeout: 20_000,
   });
+  // The mark is there before the Documents are read (#2196), and the ready Question answers
+  // once they are.
+  await expectReadyDocuments(first.window, 2);
   await markSteps(first.window, { indexed: true });
   await step(first.window, "question").getByTestId("first-open-ready").dblclick();
   await expect(assistantAnswers(first.window).last()).toHaveAttribute("data-status", "done");
@@ -785,6 +788,7 @@ test("a double-click on the ready Question asks it once, and Enter on it moves t
     "contradicted",
     { timeout: 20_000 },
   );
+  await expectReadyDocuments(second.window, 2);
   await markSteps(second.window, { indexed: true });
   await step(second.window, "question").getByTestId("first-open-ready").focus();
   await second.window.keyboard.press("Enter");

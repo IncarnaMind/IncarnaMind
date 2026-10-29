@@ -481,7 +481,7 @@ test("sending empties the composer and shows the Question with its Answer on its
     await expect(input).toBeFocused();
     await expect(questions).toHaveCount(1);
     await expect(questions).toContainText(LONG_QUESTION);
-    await expect(onItsWay.getByTestId("answer-writing")).toHaveText("Reading Untitled…");
+    await expect(onItsWay.getByTestId("answer-writing")).toHaveText("Reading “Untitled”…");
     await expect(onItsWay.getByTestId("answer-stop")).toHaveCount(0);
     await expect(stop).toHaveAccessibleName("Stop the Answer");
     await expect(ask).toHaveCount(0);
