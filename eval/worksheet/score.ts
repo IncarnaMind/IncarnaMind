@@ -31,7 +31,7 @@ export interface WorksheetScore {
   currentRows: Record<Role, boolean>;
   missing: Role[];
   weak: WeakEvidence[];
-  falseOnly: boolean;
+  falseOnlyCandidates: string[];
 }
 
 const compact = (text: string) => text.replace(/\s+/g, " ").trim();
@@ -40,25 +40,21 @@ const metadata = (quote: string) =>
 const fullRow = (citation: Citation, quote: string) =>
   citation.pageFrom === 2 && compact(citation.quote).includes(quote);
 
-const restriction = /\bonly\b|只有|仅|只是|唯一/i;
-const policyTerm = /policy code|policy|政策代码|政策/i;
-const loadTerm = /maximum load|max(?:imum)? load|load limit|最大载荷|载荷限制|最大负载/i;
-const changeTerm =
-  /(?<!un)chang(?:e|es|ed|ing)|differ(?:s|ed|ent|ence)?|affect(?:s|ed)?|变化|改变|变更|变动|变了|更改|不同|差异|受影响/i;
-const negatedOnly =
-  /not\s+only|n't\s+only|并非(?:只是|仅|只有|只)|不是(?:只是|仅|只有|只)|不只是|不仅仅|不仅|不止|不单/i;
+const policyTerm = /policy code|policy|政策代码|政策代碼|政策/i;
+const loadTerm =
+  /maximum load|max(?:imum)? load|load limit|最大载荷|最大載荷|载荷限制|載荷限制|最大负载|最大負載/i;
 
-const falseOnlyClaim = (text: string) =>
-  text.split(/[.!?。！？\n;；]+/).some((clause) => {
-    if (negatedOnly.test(clause)) return false;
-    const [restricted, policy, load] = [restriction, policyTerm, loadTerm].map((term) =>
-      term.exec(clause),
-    );
-    if (!restricted || !policy || !load || !changeTerm.test(clause)) return false;
-    const indexes = [restricted.index, policy.index, load.index];
-    // The claim is the three written together, not a distant "only" that restricts something else.
-    return Math.max(...indexes) - Math.min(...indexes) <= 100;
-  });
+const sentences = (text: string) =>
+  text
+    .split(/(?<=[。！？．])|(?<=[.!?])(?=\s|$)|(?<=\n)/)
+    .map((sentence) => sentence.trim())
+    .filter((sentence) => sentence !== "");
+
+const falseOnlyCandidates = (text: string) =>
+  sentences(text).filter((sentence) => policyTerm.test(sentence) && loadTerm.test(sentence));
+
+const supersededHeading = (line: string) =>
+  /^\s*(?:#{1,6}\s*|[*_]{2})/.test(line) && /superseded|已被替代|已替代/i.test(line);
 
 export function scoreWorksheet(run: WorksheetRun): WorksheetScore {
   const citations = run.answer.citations;
@@ -94,16 +90,13 @@ export function scoreWorksheet(run: WorksheetRun): WorksheetScore {
   const weak: WeakEvidence[] = [];
   const currentLines: string[] = [];
   for (const line of run.answer.text.split("\n")) {
-    if (/superseded|已被替代/i.test(line)) break;
+    if (supersededHeading(line)) break;
     currentLines.push(line);
   }
   for (const citation of citations) {
     const markerText = new RegExp(`\\[\\^${citation.marker}\\]`);
     const lines = currentLines.filter((line) => markerText.test(line));
-    const arithmetic = lines.some((line) =>
-      /glass beads|control weights|玻璃珠|控制砝码|total|合计|×|\[=\d+\]/i.test(line),
-    );
-    if (metadata(citation.quote) || !arithmetic) continue;
+    if (metadata(citation.quote) || lines.length === 0) continue;
     const complete = Object.values(EXPECTED).some((quote) =>
       compact(citation.quote).includes(quote),
     );
@@ -132,7 +125,7 @@ export function scoreWorksheet(run: WorksheetRun): WorksheetScore {
       present ? [] : [role as Role],
     ),
     weak,
-    falseOnly: falseOnlyClaim(run.answer.text),
+    falseOnlyCandidates: falseOnlyCandidates(run.answer.text),
   };
 }
 
@@ -147,7 +140,9 @@ export function summarizeWorksheet(runs: readonly WorksheetScore[]) {
           fullEvidence: runs.filter(
             (run) => run.arm === arm && run.missing.length === 0 && run.weak.length === 0,
           ).length,
-          falseOnly: runs.filter((run) => run.arm === arm && run.falseOnly).length,
+          falseOnlyCandidates: runs.filter(
+            (run) => run.arm === arm && run.falseOnlyCandidates.length > 0,
+          ).length,
         },
       ]),
     ),

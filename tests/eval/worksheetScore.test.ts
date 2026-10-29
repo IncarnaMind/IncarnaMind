@@ -48,7 +48,7 @@ describe("revision worksheet row/role/revision scoring", () => {
     expect(summarizeWorksheet([score]).byArm.candidate).toMatchObject({
       answers: 1,
       fullEvidence: 1,
-      falseOnly: 0,
+      falseOnlyCandidates: 0,
     });
   });
 
@@ -82,6 +82,54 @@ describe("revision worksheet row/role/revision scoring", () => {
     expect(score.currentRows.total).toBe(false);
     expect(score.missing).toEqual(["total"]);
   });
+
+  test("rejects a bare current citation on a line without arithmetic words", () => {
+    const score = scoreWorksheet(
+      run("单位质量 0.075[^4]\nrows[^1][^2][^3]", [
+        ...current,
+        citation("TOTAL 0.250 kg", 2, 3),
+        citation("0.075", 2, 4),
+      ]),
+    );
+    expect(score.weak).toContainEqual({ marker: 4, page: 2, quote: "0.075" });
+    expect(summarizeWorksheet([score]).byArm.candidate?.fullEvidence).toBe(0);
+  });
+
+  test("rejects a bare current citation after an opening sentence mentions the superseded revision", () => {
+    const score = scoreWorksheet(
+      run("Revision A is superseded.\nGlass beads 0.075[^4]\nrows[^1][^2][^3]", [
+        ...current,
+        citation("TOTAL 0.250 kg", 2, 3),
+        citation("0.075", 2, 4),
+      ]),
+    );
+    expect(score.weak).toContainEqual({ marker: 4, page: 2, quote: "0.075" });
+  });
+
+  test("still checks a Chinese opening sentence that mentions 已被替代", () => {
+    const score = scoreWorksheet(
+      run("修订版A已被替代。\n玻璃珠 0.075[^4]\nrows[^1][^2][^3]", [
+        ...current,
+        citation("TOTAL 0.250 kg", 2, 3),
+        citation("0.075", 2, 4),
+      ]),
+    );
+    expect(score.weak).toContainEqual({ marker: 4, page: 2, quote: "0.075" });
+  });
+
+  test.each(["**Superseded values (kept separate)**", "## 已被替代的版本"])(
+    "ignores citations after a heading that starts the superseded section: %s",
+    (heading) => {
+      const score = scoreWorksheet(
+        run(`rows[^1][^2][^3]\n${heading}\nGlass beads 0.075[^4]`, [
+          ...current,
+          citation("TOTAL 0.250 kg", 2, 3),
+          citation("0.075", 1, 4),
+        ]),
+      );
+      expect(score.weak).toEqual([]);
+    },
+  );
 
   test("rejects the superseded weight subtotal as the current bead subtotal", () => {
     const score = scoreWorksheet(
@@ -157,29 +205,44 @@ describe("revision worksheet row/role/revision scoring", () => {
     "唯一的变化是政策代码和最大载荷。",
     "政策代码和最大载荷是唯一的变化。",
     "The only changes are the policy code and the maximum load.",
-  ])("flags the false only-policy/limit conclusion: %s", (text) => {
+  ])("surfaces the only-policy/load claim for judgement: %s", (text) => {
     const score = scoreWorksheet(run(text, []));
-    expect(score.falseOnly).toBe(true);
+    expect(score.falseOnlyCandidates).toEqual([text]);
   });
 
   test.each([
     "并非只有政策代码和最大载荷发生变化，玻璃珠单位质量也变了。",
     "不仅政策代码和最大载荷发生变化，玻璃珠单位质量也变了。",
-    "Not only the policy code changed: the bead unit mass did too.",
-  ])("does not flag a correct contrast: %s", (text) => {
-    expect(scoreWorksheet(run(text, [])).falseOnly).toBe(false);
-  });
-
-  test("still flags a false conclusion after a negated clause", () => {
-    expect(
-      scoreWorksheet(run("并非只有政策代码变化。\n只有政策代码和最大载荷发生变化。", [])).falseOnly,
-    ).toBe(true);
+    "The policy code and the maximum load are not the only changes: the bead unit mass changed too.",
+  ])("surfaces a correct contrast too, because the filter does not judge: %s", (text) => {
+    expect(scoreWorksheet(run(text, [])).falseOnlyCandidates).toEqual([text]);
   });
 
   test.each([
     "The Document states the load limit in kilograms only.",
-    "该行仅供对照，政策代码和最大载荷均为当前值。",
-  ])("does not flag an only that restricts something else: %s", (text) => {
-    expect(scoreWorksheet(run(text, [])).falseOnly).toBe(false);
+    "该行仅供对照，政策代码为当前值。",
+  ])("does not surface a sentence that names only one side: %s", (text) => {
+    expect(scoreWorksheet(run(text, [])).falseOnlyCandidates).toEqual([]);
+  });
+
+  test.each([
+    "修订版B只改了政策代码和最大载荷。",
+    "两版之间只变了政策代码和最大载荷。",
+    "除了政策代码和最大载荷，其他都没有变化。",
+    "只有政策代碼和最大載荷發生變化。",
+    "只有政策代码和最大载荷发生变化．",
+    "只有政策代码（LARCH-31→LARCH-52）和最大载荷（0.400→0.250 千克）发生变化。",
+    "Only the policy code (LARCH-52) and the maximum load (0.250 kg) changed.",
+    "Apart from the policy code and the maximum load, nothing changed.",
+    "Revision B changes just the policy code and the load limit.",
+    "Only the policy code and the maximum load were updated.",
+    "The policy code and the maximum load are all that changed.",
+    "Not only did the bead mass stay the same, but only the policy code and maximum load changed.",
+    "并非玻璃珠变了，只有政策代码和最大载荷发生变化。",
+    "仅政策代碼及最大載荷有變。",
+    "Policy code and load limit were the only edits.",
+    "唯一改動是政策代碼與最大載荷。",
+  ])("surfaces a claim never used in an earlier round: %s", (text) => {
+    expect(scoreWorksheet(run(text, [])).falseOnlyCandidates).toEqual([text]);
   });
 });

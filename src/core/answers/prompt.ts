@@ -439,7 +439,7 @@ export function notCitedNote(passages: string): string {
   return `A Passage marked cite="never" is from the User's own working file. Read it to understand the Question, but never cite it, never offer it as support for or agreement with another Document, and rest nothing on it: a record naming it is refused. Where only such a Passage states something, say in one sentence that only the User's own working file says it, with no marker.`;
 }
 
-const ROW_CONTEXT = "Revision worksheets need every item row and its revision, no bare values.";
+const ROW_CONTEXT = "Revision worksheets need every item row and its revision, no bare values";
 
 const RECORD = `the Passage's id, where the quote is, and a short quote copied exactly from the Passage, without its marks. Where: the page, slide, section, or rows or lines the quote is in, or two in a row, written as the Passage names them (its pages or location, and marks where each new one starts, like [p. 4], [slide 4], [§ 2.1 Sensitivity], [Revenue, rows 2–41] or [lines 51–100]; name rows or lines more narrowly when you can, e.g. "Revenue, rows 12–14"). ${ROW_CONTEXT}`;
 
@@ -456,7 +456,7 @@ const CALCULATE = [
 ].join("\n");
 
 /** Structured output's `calculations`, for a model offered them: what `CALCULATE` is to the Tool loop. */
-const CALCULATIONS = `- calculations: one for each number the Answer works out from numbers in Passages (a difference, sum, average, ratio, share, growth rate, a change in percentage points, a conversion between 万 and 亿 or millions and billions), with [=1] in the answer where the number goes, never the number itself: its marker; its inputs, each a name for the formula, a label with its year or period, the marker of the Citation whose quote holds the number, and the number as it is written there; and a formula over the names in Excel's syntax, such as (b - a) / a, with "as": "percent" for a growth rate or share. When a number's unit or scale is only in a table's heading ("单位：万元"), give that line as unitQuote. Inputs are read in base units with that scale applied: give "scale" ("亿", "billion") for the scale a figure is shown in, never a division by 10000 or 1000. An input keeps its sign as the Passage writes it: an amount in brackets, "(12,500)", is negative, so take a deduction written in brackets off a total by adding it, never by subtracting it. ${ROW_CONTEXT}`;
+const CALCULATIONS = `- calculations: one for each number the Answer works out from numbers in Passages (a difference, sum, average, ratio, share, growth rate, a change in percentage points, a conversion between 万 and 亿 or millions and billions), with [=1] in the answer where the number goes, never the number itself: its marker; its inputs, each a name for the formula, a label with its year or period, the marker of the Citation whose quote holds the number, and the number as it is written there; and a formula over the names in Excel's syntax, such as (b - a) / a, with "as": "percent" for a growth rate or share. When a number's unit or scale is only in a table's heading ("单位：万元"), give that line as unitQuote. Inputs are read in base units with that scale applied: give "scale" ("亿", "billion") for the scale a figure is shown in, never a division by 10000 or 1000. An input keeps its sign as the Passage writes it: an amount in brackets, "(12,500)", is negative, so take a deduction written in brackets off a total by adding it, never by subtracting it. ${ROW_CONTEXT}.`;
 
 /**
  * For a model that answers without Tools and isn't offered `calculations` (#1796): asked to use
