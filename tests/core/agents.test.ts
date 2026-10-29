@@ -305,6 +305,30 @@ describe("outside agents", () => {
     expect(resultText(outside)).toMatch(/No such passage, Document, note or Citation/);
   });
 
+  it("refuses an explicitly named Folder that a wall removed from an existing pairing", async () => {
+    const { core } = await startAgentsCore(replyingModel());
+    const { coast, finance } = await withLibrary(core);
+    await core.setAgentsEnabled(true);
+    const { launch } = await core.connectAgent({
+      name: "Claude Code",
+      folderIds: [coast.id, finance.id],
+    });
+    await core.updateLibraryGroup(coast.id, {
+      name: coast.name,
+      description: coast.description,
+      keepInside: true,
+    });
+    const agent = await connectLegacyAgent(launch);
+
+    const outside = await agent.callTool({
+      name: "search",
+      arguments: { query: "harbour", folderIds: [coast.id] },
+    });
+
+    expect(outside.isError).toBe(true);
+    expect(resultText(outside)).toMatch(/keeps its work inside it/);
+  });
+
   it("are refused at once after unpairing, and their connection closes", async () => {
     const { core, launch, pairing } = await pairedToCoast();
     const agent = await connectLegacyAgent(launch);

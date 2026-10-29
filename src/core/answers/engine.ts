@@ -1945,7 +1945,7 @@ async function* toolLoop(
         // Asked once more, the reply before stands: trying another way now would call its Tools again.
         if (standing !== null) {
           yield* backToFirst(standing);
-          yield* endAnswer();
+          yield* endAnswer(request.refusalSuffix?.() ?? null);
           return;
         }
         // Too long only with a window, so sized to one.
@@ -1964,7 +1964,7 @@ async function* toolLoop(
         if (standing !== null) {
           console.error(`Asking again for a better reply failed: ${event.error.message}`);
           yield* backToFirst(standing);
-          yield* endAnswer();
+          yield* endAnswer(request.refusalSuffix?.() ?? null);
           return;
         }
         yield { type: "failed", error: event.error };
@@ -1980,11 +1980,10 @@ async function* toolLoop(
           taken.text.trim() === "" &&
           standing !== null &&
           !(request.mayEndBlank?.() ?? false) &&
-          (request.blankReply?.() ?? null) === null &&
-          refused === null
+          (request.blankReply?.() ?? null) === null
         ) {
           yield* backToFirst(standing);
-          yield* endAnswer();
+          yield* endAnswer(request.refusalSuffix?.() ?? null);
           return;
         }
         if (mode === "tools" && !request.documents.wroteIntoMind?.()) {

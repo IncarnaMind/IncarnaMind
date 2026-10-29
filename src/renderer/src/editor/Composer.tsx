@@ -269,7 +269,7 @@ export function Composer({
     } else {
       composer.update(key, change);
     }
-    if (change.scope !== undefined) setScope(change.scope);
+    if (change.scope !== undefined && !walled) setScope(change.scope);
   };
   /** Keeps the scope the User chose; the Mind's own follows it to another Folder. */
   const withinWall = (next: SearchScope) => {

@@ -3185,17 +3185,38 @@ export function createAnswers(options: AnswersOptions) {
       ? options.walledFolder(mind.mindId)
       : options.walledFolderId(conversation.folderId);
     let turnWall: string | null = null;
+    const permitted = documentIds === null ? null : new Set(documentIds);
+    const outsideTurns = new Set<string>();
     const withWalls = turn.earlier.map((message) => {
       if (message.kind === "question") {
         turnWall = message.askedFrom
           ? options.walledFolderId(filedIn(message.scope, message.askedFrom))
           : options.walledFolderId(conversation.folderId);
+        // A walled Note's scope is always explicit: a null one belongs to before it was walled.
+        const beforeWall =
+          message.askedFrom !== null &&
+          message.scope === null &&
+          options.walledFolder(message.askedFrom.mindId) !== null;
+        if (beforeWall) turnWall = "outside";
+        if (message.quotes.some((quote) => permitted?.has(quote.documentId) === false)) {
+          outsideTurns.add(message.id);
+        }
+      } else if (
+        message.citations.some((citation) => permitted?.has(citation.documentId) === false)
+      ) {
+        outsideTurns.add(message.questionId);
       }
       return { message, wall: turnWall };
     });
     const earlier = help
       ? []
-      : withWalls.filter((each) => each.wall === wallId).map((each) => each.message);
+      : withWalls
+          .filter(
+            ({ message, wall }) =>
+              wall === wallId &&
+              !outsideTurns.has(message.kind === "question" ? message.id : message.questionId),
+          )
+          .map((each) => each.message);
     // A long Mind is cut to what the conversation's Questions are about, the earlier ones too: a
     // follow-up keeps the part the first one found, and so the same start for the prompt cache.
     const asking = [
@@ -3364,7 +3385,7 @@ export function createAnswers(options: AnswersOptions) {
   ): { name: string; fromAnswer: boolean }[] => {
     const wallId = conversationWall ?? options.walledFolder(mindId);
     const names: { name: string; fromAnswer: boolean }[] = [];
-    for (const mind of options.minds?.list().slice(0, 2 * LISTED_MINDS) ?? []) {
+    for (const mind of options.minds?.list() ?? []) {
       if (wallId ? mind.folderId !== wallId : options.walledFolder(mind.id) !== null) continue;
       if (names.length >= LISTED_MINDS) break;
       if (names.some((each) => each.name === mind.name)) continue;
@@ -3584,12 +3605,12 @@ export function createAnswers(options: AnswersOptions) {
         const { documentIds, emptyScope } = scopeNow(
           scope,
           question.mind?.id ?? null,
-          options.walledFolderId(added.turn.conversation.folderId),
+          readyMind ? null : options.walledFolderId(added.turn.conversation.folderId),
         );
         const checked = checkQuotes(
           question.quotes,
           question.mind?.id ?? null,
-          options.walledFolderId(added.turn.conversation.folderId),
+          readyMind ? null : options.walledFolderId(added.turn.conversation.folderId),
         );
         const readyTurn = options.conversations.restartAnswer(
           turn.answer.id,
@@ -3640,7 +3661,7 @@ export function createAnswers(options: AnswersOptions) {
       const { documentIds, emptyScope } = scopeNow(
         question.scope,
         from && !from.deleted ? from.mindId : null,
-        options.walledFolderId(turn.conversation.folderId),
+        mind ? null : options.walledFolderId(turn.conversation.folderId),
       );
       return startInConversation(
         turn,
@@ -3652,7 +3673,7 @@ export function createAnswers(options: AnswersOptions) {
         checkQuotes(
           question.quotes,
           from?.mindId ?? null,
-          options.walledFolderId(turn.conversation.folderId),
+          mind ? null : options.walledFolderId(turn.conversation.folderId),
         ),
         remake,
       );

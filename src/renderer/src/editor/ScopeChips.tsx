@@ -145,6 +145,7 @@ export function ScopeChips({
               <>
                 {walled && <LockLineIcon className="scope-chip-icon" />}
                 {label}
+                {walled && <span className="sr-only">{title}</span>}
                 {emptyHint}
               </>
             )}

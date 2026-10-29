@@ -300,7 +300,12 @@ import { createRateLimitPause } from "./tags/rateLimit";
 import { createTagger, TAGGING_FLOW_SENDS } from "./tags/tagger";
 import { inFlow } from "./timing/flows";
 import { createTimings } from "./timing/timings";
-import type { CommandInput, CommandsHost, MarkingSettled } from "./tools/commands/run";
+import {
+  type CommandInput,
+  type CommandsHost,
+  type MarkingSettled,
+  same,
+} from "./tools/commands/run";
 import { createCommandSteps } from "./tools/commands/steps";
 import { createWebSearch, WEB_SEARCH_SENDS } from "./tools/web";
 import { createPublicFetch } from "./tools/web/fetcher";
@@ -1415,10 +1420,12 @@ export function createCore(adapters: CoreAdapters): Core {
     folderIds.length === 1 && walledFolderId(folderIds[0] ?? null) !== null
       ? [...folderIds]
       : constrainedScope({ folderIds: [...folderIds], tagIds: [], documentIds: [] }).folderIds;
-  const walledFolderId = (folderId: string | null): string | null =>
-    folderId !== null && folderId !== NOT_IN_A_FOLDER_ID && library.folder(folderId).keepInside
+  const walledFolderId = (folderId: string | null): string | null => {
+    if (folderId === null || folderId === NOT_IN_A_FOLDER_ID) return null;
+    return library.folders().find((folder) => folder.id === folderId)?.keepInside === true
       ? folderId
       : null;
+  };
   const walledFolder = (mindId: string | null): string | null => {
     const folderId = mindId !== null && mindExists(mindId) ? minds.get(mindId).folderId : null;
     return walledFolderId(folderId);
@@ -1563,9 +1570,7 @@ export function createCore(adapters: CoreAdapters): Core {
         if (input.ids.some((id) => existing.has(id) && allowed?.includes(id) !== true)) refuse();
       }
       if (input.command === "document.moveTo" || input.command === "mind.moveTo") {
-        const target = library
-          .folders()
-          .find((folder) => folder.name.toLocaleLowerCase() === input.folder?.toLocaleLowerCase());
+        const target = library.folders().find((folder) => same(folder.name, input.folder ?? ""));
         if (target?.keepInside && target.id !== wallId) refuse();
       }
     },

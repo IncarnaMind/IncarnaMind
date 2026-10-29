@@ -96,7 +96,7 @@ describe("A Folder that keeps its work inside it", () => {
   });
 
   test("does not fall back to every Document when the walled Folder is empty", async () => {
-    const { core, client, mind, clientA, clientB, documentA } = await setUp();
+    const { core, client, mind, clientA, clientB, documentA, searches } = await setUp();
     await core.updateLibraryGroup(clientA.id, {
       name: clientA.name,
       description: clientA.description,
@@ -106,6 +106,7 @@ describe("A Folder that keeps its work inside it", () => {
 
     await ask(core, client, mind.id);
 
+    expect(searches.flat()).toEqual([]);
     expect(
       await core.countScopeDocuments({ folderIds: [clientA.id], tagIds: [], documentIds: [] }),
     ).toBe(0);
@@ -154,6 +155,28 @@ describe("A Folder that keeps its work inside it", () => {
     expect(modelCalls.map((call) => call.system).join("\n")).not.toContain(noteB.title);
   });
 
+  test("names its own Notes after any number of newer outside Notes", async () => {
+    const modelCalls: ModelCall[] = [];
+    const { core, mind, clientA } = await setUp((call) => {
+      modelCalls.push(call);
+      if (call.results.length === 0)
+        return { calls: [{ tool: "search_documents", input: { query: "notice" } }] };
+      return { text: "Done" };
+    });
+    await core.updateLibraryGroup(clientA.id, {
+      name: clientA.name,
+      description: clientA.description,
+      keepInside: true,
+    });
+    for (let index = 0; index < 20; index++) {
+      await core.createMind({ title: `Outside ${index}` });
+    }
+
+    await askAssistant(core, { text: "What can I work on?", mindId: mind.id });
+
+    expect(modelCalls.map((call) => call.system).join("\n")).toContain(mind.title);
+  });
+
   test("leaves earlier turns and the last Answer on the other side of a wall", async () => {
     const modelCalls: ModelCall[] = [];
     const { core, mind, clientA, noteB } = await setUp((call) => {
@@ -177,6 +200,30 @@ describe("A Folder that keeps its work inside it", () => {
     expect(modelCalls.map((call) => call.prompt).join("\n")).not.toContain("Outside 60 days");
     const tools = JSON.stringify(modelCalls.at(-1)?.options.tools ?? []);
     expect(tools).not.toContain('"answer":{"type":"boolean"');
+  });
+
+  test("does not bring back a turn asked before its Note entered the wall", async () => {
+    const modelCalls: ModelCall[] = [];
+    const { core, looseMind, clientA } = await setUp((call) => {
+      modelCalls.push(call);
+      if (call.results.length === 0)
+        return { calls: [{ tool: "search_documents", input: { query: "notice" } }] };
+      return { text: "Outside 60 days" };
+    });
+    const first = await askAssistant(core, { text: "Summarize this", mindId: looseMind.id });
+    await core.updateLibraryGroup(clientA.id, {
+      name: clientA.name,
+      description: clientA.description,
+      keepInside: true,
+    });
+    await core.moveToFolder({ mindIds: [looseMind.id], folderId: clientA.id });
+    await askAssistant(core, {
+      text: "Add that answer here",
+      mindId: looseMind.id,
+      conversationId: first.conversationId,
+    });
+
+    expect(modelCalls.map((call) => call.prompt).join("\n")).not.toContain("Outside 60 days");
   });
 
   test("leaves a quoted Document outside the current wall", async () => {
@@ -262,6 +309,42 @@ describe("A Folder that keeps its work inside it", () => {
     expect(searches.at(-1)).toEqual([documentA.name]);
   });
 
+  test("a readable Note's wall wins over the Conversation's Folder", async () => {
+    const { core, mind, noteB, clientA, clientB, documentA, searches } = await setUp();
+    for (const folder of [clientA, clientB]) {
+      await core.updateLibraryGroup(folder.id, {
+        name: folder.name,
+        description: folder.description,
+        keepInside: true,
+      });
+    }
+    const first = await askAssistant(core, { text: "Summarize this", mindId: noteB.id });
+    const selected = await core.citeSelection({
+      documentId: documentA.id,
+      parts: [{ unit: null, text: "Termination notice: 90 days." }],
+    });
+    const asked = await core.askInConversation({
+      text: "Check this quote",
+      mindId: mind.id,
+      conversationId: first.conversationId,
+      quotes: [
+        {
+          documentId: documentA.id,
+          documentName: documentA.name,
+          quote: selected.quote,
+          pageFrom: selected.pageFrom,
+          pageTo: selected.pageTo,
+          location: selected.location,
+        },
+      ],
+    });
+    if (!asked.asked) throw new Error("The Question wasn't asked.");
+    await answerEnded(core, asked.answerId);
+
+    expect(asked.leftOut).toBeUndefined();
+    expect(searches.at(-1)).toEqual([documentA.name]);
+  });
+
   test("refuses a Research target on the other side of a wall", async () => {
     const { core, mind, clientA, noteB } = await setUp();
     await core.updateLibraryGroup(clientA.id, {
@@ -280,6 +363,54 @@ describe("A Folder that keeps its work inside it", () => {
         scope: NO_SCOPE,
       }),
     ).rejects.toThrow("This Folder keeps its work inside it.");
+  });
+
+  test("Research with no explicit scope reads only the target Note's wall", async () => {
+    const { core, mind, clientA, documentA, documentB, searches } = await setUp((call) => {
+      if (
+        call.tools.includes("search_documents") &&
+        !call.results.some((result) => result.tool === "search_documents")
+      ) {
+        return { calls: [{ tool: "search_documents", input: { query: "notice" } }] };
+      }
+      if (!call.results.some((result) => result.tool === "cite")) {
+        const passage = call.results.flatMap((result) => shownPassages(result.text))[0];
+        if (passage) {
+          return {
+            calls: [
+              {
+                tool: "cite",
+                input: { citations: [{ marker: 1, passage: passage.id, quote: passage.text }] },
+              },
+            ],
+          };
+        }
+      }
+      return { text: "Research notes [^1]." };
+    });
+    await core.updateLibraryGroup(clientA.id, {
+      name: clientA.name,
+      description: clientA.description,
+      keepInside: true,
+    });
+
+    const result = await core.startResearch({
+      mindId: mind.id,
+      topic: "Lease terms",
+      plan: { title: "Lease terms", steps: ["Search the lease"] },
+      sources: { web: false, library: true },
+      writeInto: { mindId: mind.id },
+      scope: NO_SCOPE,
+    });
+    if (!result.started) throw new Error("Research didn't start.");
+    await vi.waitFor(async () => {
+      expect((await core.listTasks()).find((task) => task.id === result.task.id)?.status).toBe(
+        "done",
+      );
+    });
+
+    expect(searches.flat()).toContain(documentA.name);
+    expect(searches.flat()).not.toContain(documentB.name);
   });
 
   test("leaves both walled Folders out of an outside Note's All Documents scope", async () => {

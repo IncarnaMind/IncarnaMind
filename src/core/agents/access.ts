@@ -461,12 +461,13 @@ export function createAgentAccess(deps: AgentAccessDeps, pairingId: string): Age
     if (pairing.folderIds.length === 0) {
       throw new AgentRefusedError("no-folders", t("agents.problem.no-folders"));
     }
-    if (folderIds === undefined) return deps.documentsIn(pairing.folderIds);
+    const effective = deps.foldersInScope(pairing.folderIds);
+    if (folderIds === undefined) return deps.documentsIn(effective);
     if (!Array.isArray(folderIds) || !folderIds.every((id) => typeof id === "string")) {
       throw new AgentRefusedError("invalid", "folderIds must be a list of Folder ids.");
     }
-    if (folderIds.length === 0) return deps.documentsIn(pairing.folderIds);
-    if (!folderIds.every((id) => pairing.folderIds.includes(id))) {
+    if (folderIds.length === 0) return deps.documentsIn(effective);
+    if (!folderIds.every((id) => effective.includes(id))) {
       throw new AgentRefusedError("outside-scope", t("agents.problem.outside-scope"));
     }
     return deps.documentsIn(folderIds);

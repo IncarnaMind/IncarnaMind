@@ -40,7 +40,7 @@ import { citationHandle } from "../commands/handles";
 import { type CommandContext, commands } from "../commands/registry";
 import { ObjectMenu, useObjectMenu } from "../components/ObjectMenu";
 import { useTabPlace } from "../components/tabs/tabItems";
-import { useAnswerBeingWritten } from "../conversations";
+import { useAnswerBeingWritten, useOpenConversation } from "../conversations";
 import { nameWithPlace, useDocumentPlace } from "../documentPlaces";
 import { useGap, useLanguage, useT } from "../i18n";
 import { currentTabOf, groupsMerged } from "../layoutSlice";
@@ -150,8 +150,10 @@ export function CitationView({
     state.status.kind === "ready" ? state.documents : null,
   );
   const kept = useAppStore((state) => state.keptCitationTexts);
+  const conversation = useOpenConversation();
   const keptInside = useAppStore((state) => {
-    const ownFolder = state.minds.find((mind) => mind.id === mindId)?.folderId ?? null;
+    const ownFolder =
+      state.minds.find((mind) => mind.id === mindId)?.folderId ?? conversation?.folderId ?? null;
     const ownWall = state.library?.groups.find(
       (group) => group.id === ownFolder && group.keepInside,
     )?.id;

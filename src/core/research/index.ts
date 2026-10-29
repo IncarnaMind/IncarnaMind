@@ -26,6 +26,7 @@ import {
   MAX_RESEARCH_TOPIC,
   RESEARCH_TASK,
 } from "../../shared/research";
+import { NO_SCOPE } from "../../shared/searchScope";
 import type { CellAnswer } from "../answers";
 import type { QuestionContext } from "../answers/context";
 import type {
@@ -426,9 +427,7 @@ export function createResearch(options: ResearchOptions) {
       said: task.messages(),
     });
     const documentIds = input.sources.library
-      ? input.scope
-        ? options.resolveScope(input.scope, task.mindId ?? null)
-        : null
+      ? options.resolveScope(input.scope ?? NO_SCOPE, task.mindId ?? null)
       : [];
     task.started(key);
     const attempt = task.step(key)?.attempts ?? 1;

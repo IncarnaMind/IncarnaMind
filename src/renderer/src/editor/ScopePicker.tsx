@@ -219,8 +219,15 @@ export function ScopeChoiceList({
   const shown = scopeChoices(library, scope, query).filter(
     (choice) => !kinds || kinds.includes(choice.kind),
   );
-  const isBlocked = (item: ScopeChoice) =>
-    item.walled !== undefined && item.walled !== null && item.walled !== currentWalled;
+  const isBlocked = (item: ScopeChoice) => {
+    if (item.walled === undefined || item.walled === null) return false;
+    if (item.walled !== currentWalled) return true;
+    if (item.kind !== "document") return false;
+    const filings = (assignments ?? []).filter(
+      (each) => each.documentId === item.id && each.groupId === currentWalled,
+    );
+    return !filings.some((each) => each.source === "user");
+  };
   const nothing = kinds
     ? documents.length === 0
     : folders.length + (groups?.length ?? 0) + tags.length + documents.length === 0;
@@ -306,6 +313,7 @@ export function ScopeChoiceList({
                       data-kind={item.kind}
                       data-id={item.id}
                       data-walled="true"
+                      onMouseDown={(event) => event.preventDefault()}
                       onMouseEnter={() => setSelected(index)}
                       className="editor-menu-item scope-picker-item--walled"
                     >

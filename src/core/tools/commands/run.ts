@@ -194,7 +194,7 @@ const markingSaid = (marking: MarkingSettled | null): string => {
   }
 };
 
-const same = (a: string, b: string) =>
+export const same = (a: string, b: string) =>
   a.normalize("NFKC").trim().toLowerCase() === b.normalize("NFKC").trim().toLowerCase();
 
 type Missing =
