@@ -1132,12 +1132,14 @@ describe("Compare Documents", () => {
     });
     const moved = await core.moveComparisonColumn({
       mindId: mind.id,
+      clientId: "test-window",
       tableId,
       questionId: notice.id,
       to: 1,
     });
     stop();
-    expect(moved).toEqual({ index: 1, moved: true });
+    expect(moved).toMatchObject({ index: 1, moved: true });
+    expect(moved.step).not.toBe("");
     await client.settled();
     // One transaction: a reader of the Mind never sees the order without the cells.
     expect(updates).toHaveLength(1);
@@ -1191,6 +1193,7 @@ describe("Compare Documents", () => {
       }
       const moved = await core.moveComparisonColumn({
         mindId: mind.id,
+        clientId: "test-window",
         tableId: result.tableId,
         questionId: notice.id,
         to: 1,
@@ -1212,6 +1215,7 @@ describe("Compare Documents", () => {
       // Undo moves the columns back; each Answer stays under its own Question.
       await core.moveComparisonColumn({
         mindId: mind.id,
+        clientId: "test-window",
         tableId: result.tableId,
         questionId: notice.id,
         to: 0,

@@ -4507,6 +4507,8 @@ export interface ComparisonFillRequest extends ComparisonTableRef {
 
 /** A comparison table's column to move, and where it lands. */
 export interface ComparisonColumnMove extends ComparisonTableRef {
+  /** The window that made it, so only that window's Undo can take it back. */
+  clientId: string;
   /** The column's Question. */
   questionId: string;
   /** Where it lands among all the columns, hidden ones counted: the second column is 1. */
@@ -4518,10 +4520,13 @@ export interface ComparisonColumnMoveResult {
   /** Among all the columns, hidden ones counted: the second column is 1. */
   index: number;
   moved: boolean;
+  /** The core's record of this change, for its Undo and Redo. */
+  step: string;
 }
 
 /** A column's label and Question, edited on the Mind's own content by the core. */
 export interface ComparisonColumnEditRequest extends ComparisonTableRef {
+  clientId: string;
   questionId: string;
   text: string;
   label: string;
@@ -4533,10 +4538,12 @@ export interface ComparisonColumnEdited {
   refilled: boolean;
   questionId: string;
   label: string;
+  step: string;
 }
 
 /** A column put beside another. */
 export interface ComparisonColumnInsertRequest extends ComparisonTableRef {
+  clientId: string;
   /** The column it goes beside. */
   questionId: string;
   side: "left" | "right";
@@ -4546,6 +4553,7 @@ export interface ComparisonColumnInsertRequest extends ComparisonTableRef {
 
 /** A column copied beside itself. */
 export interface ComparisonColumnDuplicateRequest extends ComparisonTableRef {
+  clientId: string;
   questionId: string;
 }
 
@@ -4553,12 +4561,14 @@ export interface ComparisonColumnDuplicateRequest extends ComparisonTableRef {
 export interface ComparisonColumnAdded {
   questionId: string;
   label: string;
-  /** The questions beside it are short enough to fill: a copy with every Answer has none to fill. */
+  /** Its cells wait for an Answer, so the window fills it. */
   fill: boolean;
+  step: string;
 }
 
 /** A column taken out whole. */
 export interface ComparisonColumnRemoveRequest extends ComparisonTableRef {
+  clientId: string;
   questionId: string;
 }
 
@@ -4566,10 +4576,12 @@ export interface ComparisonColumnRemoveRequest extends ComparisonTableRef {
 export interface ComparisonColumnRemoved {
   label: string;
   focusId: string | null;
+  step: string;
 }
 
 /** A column's width in pixels, within the table's bounds. */
 export interface ComparisonColumnWidthRequest extends ComparisonTableRef {
+  clientId: string;
   questionId: string;
   width: number;
 }
@@ -4577,10 +4589,12 @@ export interface ComparisonColumnWidthRequest extends ComparisonTableRef {
 export interface ComparisonColumnWidthSet {
   label: string;
   width: number;
+  step: string;
 }
 
 /** A column hidden from the table, or shown again. */
 export interface ComparisonColumnHiddenRequest extends ComparisonTableRef {
+  clientId: string;
   questionId: string;
   hidden: boolean;
 }
@@ -4590,11 +4604,32 @@ export interface ComparisonColumnHiddenSet {
   questionId: string;
   hidden: boolean;
   focusId: string | null;
+  step: string;
 }
 
-/** Taking back, or doing again, the last structure change of a table. */
+/** A structure change of a table, by the core's record of it and the window that made it. */
+export interface ComparisonStructureRef extends ComparisonTableRef {
+  clientId: string;
+  step: string;
+}
+
+/** Taking back, or doing again, a structure change of a table, by the core's record of it. */
 export interface ComparisonStructureUndoResult {
   moved: boolean;
+  /** It isn't the table's latest structure change, or another window made it. */
+  reason?: "changed";
+}
+
+/** A window watching a Mind's comparison tables, for the flush and lock around a structure change. */
+export interface ComparisonWatch {
+  mindId: string;
+  clientId: string;
+}
+
+/** A window saying its changes for the Mind have reached the core. */
+export interface ComparisonStructureAck {
+  requestId: string;
+  clientId: string;
 }
 
 /**
@@ -4627,6 +4662,7 @@ export interface ComparisonFilling extends ComparisonTableRef {
 
 /** A comparison table whose structure the core is writing ("comparison.structure"). */
 export interface ComparisonStructureWriting extends ComparisonTableRef {
+  requestId: string;
   writing: boolean;
 }
 
@@ -9956,10 +9992,19 @@ export interface CoreApi {
   setComparisonColumnHidden(
     input: ComparisonColumnHiddenRequest,
   ): Promise<ComparisonColumnHiddenSet | null>;
-  /** Takes back the last structure change of the table, as the window's Undo asks. */
-  undoComparisonStructure(input: ComparisonTableRef): Promise<ComparisonStructureUndoResult>;
-  /** Does again the structure change the last Undo took back. */
-  redoComparisonStructure(input: ComparisonTableRef): Promise<ComparisonStructureUndoResult>;
+  /**
+   * Takes back the structure change the window names, if it is still the
+   * table's latest and that window made it.
+   */
+  undoComparisonStructure(input: ComparisonStructureRef): Promise<ComparisonStructureUndoResult>;
+  /** Does again the structure change its Undo took back. */
+  redoComparisonStructure(input: ComparisonStructureRef): Promise<ComparisonStructureUndoResult>;
+  /** A window with the Mind open: it flushes and locks for that Mind's column changes. */
+  watchComparisonMind(input: ComparisonWatch): Promise<void>;
+  /** That window closed the Mind. */
+  unwatchComparisonMind(input: ComparisonWatch): Promise<void>;
+  /** Its changes for the Mind have reached the core; a waiting structure change may go on. */
+  acknowledgeComparisonStructure(input: ComparisonStructureAck): Promise<void>;
   /** Stops filling a comparison table: cells being written stay as they were. */
   stopComparisonTable(input: ComparisonTableRef): Promise<void>;
   /** The comparison tables whose cells are being filled now. */
@@ -11177,6 +11222,9 @@ const methods: Record<CoreApiMethod, true> = {
   setComparisonColumnHidden: true,
   undoComparisonStructure: true,
   redoComparisonStructure: true,
+  watchComparisonMind: true,
+  unwatchComparisonMind: true,
+  acknowledgeComparisonStructure: true,
   stopComparisonTable: true,
   listFillingComparisons: true,
   listTasks: true,

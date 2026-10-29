@@ -1,5 +1,12 @@
 import type { Editor } from "@tiptap/core";
-import { type KeyboardEvent, type PointerEvent, useEffect, useRef, useState } from "react";
+import {
+  type KeyboardEvent,
+  type PointerEvent,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+} from "react";
 import type { ComparisonQuestion } from "../../../core/api";
 import {
   comparisonLabelOf,
@@ -103,6 +110,12 @@ export function ComparisonColumnHeading({
     return () => observer.disconnect();
   }, []);
 
+  // A width Undo put back is drawn at once, so the edge's arrow keys start from it, not a stale width.
+  useLayoutEffect(() => {
+    const element = heading.current;
+    if (element) setDrawnWidth(element.getBoundingClientRect().width);
+  });
+
   useEffect(() => {
     const entry = { editor, mindId, tableId };
     comparisonColumnHandles.set(question.id, entry);
@@ -186,6 +199,7 @@ export function ComparisonColumnHeading({
     const onKey = (event: globalThis.KeyboardEvent) => {
       if (event.key !== "Escape") return;
       event.preventDefault();
+      event.stopPropagation();
       cancel();
     };
     window.addEventListener("pointermove", onMove);
@@ -280,6 +294,7 @@ export function ComparisonColumnHeading({
             label={t("comparison.column.resize")}
             testId="comparison-column-resize"
             width={Math.round(width ?? drawnWidth)}
+            drawn={() => heading.current?.getBoundingClientRect().width ?? 0}
             min={MIN_COMPARISON_COLUMN_WIDTH}
             max={MAX_COMPARISON_COLUMN_WIDTH}
             direction={1}

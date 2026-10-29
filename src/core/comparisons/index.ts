@@ -41,6 +41,7 @@ import {
   createElement,
   findBlock,
   type NodeJSON,
+  nodeOf,
   syncContent,
   topLevelBlocks,
 } from "../answers/blocks";
@@ -68,6 +69,7 @@ import {
   type ComparisonColumnWidthSet,
   type ComparisonProblem,
   type ComparisonResult,
+  type ComparisonStructureRef,
   type ComparisonStructureUndoResult,
   type ComparisonTableRef,
   type CoreEvents,
@@ -252,28 +254,36 @@ function parseRef(input: unknown, what: string): ComparisonTableRef {
 }
 
 function parseColumnMove(input: unknown): ComparisonColumnMove {
-  const ref = parseRef(input, "moveComparisonColumn");
-  const questionId = isRecord(input) ? input.questionId : undefined;
+  const ref = parseColumnId(input, "moveComparisonColumn");
   const to = isRecord(input) ? input.to : undefined;
-  if (typeof questionId !== "string" || questionId === "" || !Number.isInteger(to)) {
+  if (!Number.isInteger(to)) {
     throw new InvalidInputError({ key: "error.comparison.columnIds" });
   }
-  return { ...ref, questionId, to: to as number };
+  return { ...ref, to: to as number };
 }
 
-function parseColumnId(input: unknown, what: string): ComparisonTableRef & { questionId: string } {
+function parseColumnId(
+  input: unknown,
+  what: string,
+): ComparisonTableRef & { clientId: string; questionId: string } {
   const ref = parseRef(input, what);
   const questionId = isRecord(input) ? input.questionId : undefined;
-  if (typeof questionId !== "string" || questionId === "") {
-    throw new InvalidInputError(`${what} needs a column.`);
+  const clientId = isRecord(input) ? input.clientId : undefined;
+  if (
+    typeof questionId !== "string" ||
+    questionId === "" ||
+    typeof clientId !== "string" ||
+    clientId === ""
+  ) {
+    throw new InvalidInputError({ key: "error.comparison.columnRequest" });
   }
-  return { ...ref, questionId };
+  return { ...ref, clientId, questionId };
 }
 
 function parseEdit(input: unknown): ComparisonColumnEditRequest {
   const base = parseColumnId(input, "editComparisonColumn");
   if (!isRecord(input) || typeof input.text !== "string" || typeof input.label !== "string") {
-    throw new InvalidInputError("editComparisonColumn needs a Question and a label.");
+    throw new InvalidInputError({ key: "error.comparison.editRequest" });
   }
   return { ...base, text: input.text, label: input.label };
 }
@@ -284,7 +294,7 @@ function parseInsert(input: unknown): ComparisonColumnInsertRequest {
   const text = isRecord(input) ? input.text : undefined;
   const label = isRecord(input) ? input.label : undefined;
   if ((side !== "left" && side !== "right") || typeof text !== "string") {
-    throw new InvalidInputError("insertComparisonColumn needs a side and a Question.");
+    throw new InvalidInputError({ key: "error.comparison.insertRequest" });
   }
   return { ...base, side, text, ...(typeof label === "string" && { label }) };
 }
@@ -293,7 +303,7 @@ function parseWidth(input: unknown): ComparisonColumnWidthRequest {
   const base = parseColumnId(input, "resizeComparisonColumn");
   const width = isRecord(input) ? input.width : undefined;
   if (typeof width !== "number" || !Number.isFinite(width)) {
-    throw new InvalidInputError("resizeComparisonColumn needs a width.");
+    throw new InvalidInputError({ key: "error.comparison.resizeRequest" });
   }
   return { ...base, width };
 }
@@ -302,13 +312,37 @@ function parseHidden(input: unknown): ComparisonColumnHiddenRequest {
   const base = parseColumnId(input, "setComparisonColumnHidden");
   const hidden = isRecord(input) ? input.hidden : undefined;
   if (typeof hidden !== "boolean") {
-    throw new InvalidInputError("setComparisonColumnHidden needs whether to hide it.");
+    throw new InvalidInputError({ key: "error.comparison.hideRequest" });
   }
   return { ...base, hidden };
 }
 
 function parseDuplicate(input: unknown): ComparisonColumnDuplicateRequest {
   return parseColumnId(input, "duplicateComparisonColumn");
+}
+
+function parseStructure(input: unknown, what: string): ComparisonStructureRef {
+  const ref = parseRef(input, what);
+  const step = isRecord(input) ? input.step : undefined;
+  const clientId = isRecord(input) ? input.clientId : undefined;
+  if (typeof step !== "string" || step === "" || typeof clientId !== "string" || clientId === "") {
+    throw new InvalidInputError({ key: "error.comparison.structureRequest" });
+  }
+  return { ...ref, step, clientId };
+}
+
+function parseWatch(input: unknown): { mindId: string; clientId: string } {
+  const mindId = isRecord(input) ? input.mindId : undefined;
+  const clientId = isRecord(input) ? input.clientId : undefined;
+  if (
+    typeof mindId !== "string" ||
+    mindId === "" ||
+    typeof clientId !== "string" ||
+    clientId === ""
+  ) {
+    throw new InvalidInputError({ key: "error.comparison.watchRequest" });
+  }
+  return { mindId, clientId };
 }
 
 function parseRemove(input: unknown): ComparisonColumnRemoveRequest {
@@ -909,28 +943,43 @@ export function createComparisons(options: ComparisonsOptions) {
   /** One column of a table as a change needs it: its Question and a copy of each row's cell. */
   interface AddressedColumn {
     question: ColumnQuestion;
-    cells: Map<string, Y.XmlElement>;
+    cells: Map<string, NodeJSON>;
   }
 
-  /** One structure change, undone and done again on the table it changed. */
+  /** One structure change, undone and done again on the table it changed, by the window that made it. */
   interface StructureStep {
+    id: string;
+    clientId: string;
     mindId: string;
     tableId: string;
     undo(table: Y.XmlElement): void;
     redo(table: Y.XmlElement): void;
   }
 
-  const structureUndo: StructureStep[] = [];
-  const structureRedo: StructureStep[] = [];
-  /** Structure commands of a table run one after another, in the order the window asked. */
+  /** A table's structure changes still undoable, and those undone, most recent last. */
+  interface TableHistory {
+    steps: Map<string, StructureStep>;
+    applied: string[];
+    undone: string[];
+  }
+
+  /** How many structure changes a table keeps to undo; older step records and their copies go. */
+  const MAX_STRUCTURE_STEPS = 100;
+  const histories = new Map<string, TableHistory>();
+  /** Structure commands of a table run one after another, in the order the windows asked. */
   const structureQueues = new Map<string, Promise<unknown>>();
+  /** The windows with each Mind open: a structure change waits for all of them to flush. */
+  const watchers = new Map<string, Set<string>>();
+  const acks = new Map<string, { pending: Set<string>; done: () => void }>();
 
   const rowsOf = (table: Y.XmlElement) =>
     elements(table).filter((row) => row.nodeName === COMPARISON_ROW_NODE);
   const documentIdOf = (row: Y.XmlElement) => String(row.getAttribute("documentId") ?? "");
   const questionsOf = (table: Y.XmlElement) => comparisonQuestionsOf(table.getAttributes());
-  const setQuestions = (table: Y.XmlElement, questions: readonly ColumnQuestion[]) =>
-    table.setAttribute("questions", questions as never);
+  function setQuestions(table: Y.XmlElement, questions: readonly ColumnQuestion[]): void {
+    const typed = table as Y.XmlElement<{ questions: readonly ColumnQuestion[] }>;
+    typed.setAttribute("questions", questions);
+  }
 
   function cellOf(row: Y.XmlElement, questionId: string): Y.XmlElement | null {
     return (
@@ -945,16 +994,22 @@ export function createComparisons(options: ComparisonsOptions) {
   function captureColumn(table: Y.XmlElement, index: number): AddressedColumn | null {
     const question = questionsOf(table)[index];
     if (!question) return null;
-    const cells = new Map<string, Y.XmlElement>();
+    const cells = new Map<string, NodeJSON>();
     for (const row of rowsOf(table)) {
       const cell = cellOf(row, question.id);
-      if (cell) cells.set(documentIdOf(row), cell.clone());
+      if (cell) cells.set(documentIdOf(row), nodeOf(cell));
     }
     return { question: { ...question }, cells };
   }
 
   function waitingColumn(question: ColumnQuestion): AddressedColumn {
     return { question, cells: new Map() };
+  }
+
+  /** A cell put back by Undo waits for its fill again, rather than saying it is still being written. */
+  function restorable(cell: NodeJSON): NodeJSON {
+    if (cell.attrs?.status !== "writing") return cell;
+    return { ...cell, attrs: { ...cell.attrs, status: "waiting" } };
   }
 
   function insertColumnAt(table: Y.XmlElement, index: number, column: AddressedColumn): void {
@@ -964,9 +1019,10 @@ export function createComparisons(options: ComparisonsOptions) {
     next.splice(at, 0, column.question);
     setQuestions(table, next);
     for (const row of rowsOf(table)) {
-      const cell =
-        column.cells.get(documentIdOf(row)) ?? createElement(cellJSON(column.question.id));
-      row.insert(Math.min(at, row.length), [cell]);
+      const stored = column.cells.get(documentIdOf(row));
+      row.insert(Math.min(at, row.length), [
+        createElement(stored ? restorable(stored) : cellJSON(column.question.id)),
+      ]);
     }
   }
 
@@ -984,9 +1040,10 @@ export function createComparisons(options: ComparisonsOptions) {
       const existing = cellOf(row, current.id) ?? cellOf(row, column.question.id);
       const at = existing ? row.toArray().indexOf(existing) : index;
       if (existing && at >= 0) row.delete(at, 1);
-      const cell =
-        column.cells.get(documentIdOf(row)) ?? createElement(cellJSON(column.question.id));
-      row.insert(Math.min(at < 0 ? index : at, row.length), [cell]);
+      const stored = column.cells.get(documentIdOf(row));
+      row.insert(Math.min(at < 0 ? index : at, row.length), [
+        createElement(stored ? restorable(stored) : cellJSON(column.question.id)),
+      ]);
     }
   }
 
@@ -1023,7 +1080,11 @@ export function createComparisons(options: ComparisonsOptions) {
    * it included; fills write their cells by questionId, so they keep writing
    * into them wherever the move put them.
    */
-  function moveIn(table: Y.XmlElement, questionId: string, to: number): ComparisonColumnMoveResult {
+  function moveIn(
+    table: Y.XmlElement,
+    questionId: string,
+    to: number,
+  ): { index: number; moved: boolean } {
     const questions = questionsOf(table);
     const from = questions.findIndex((question) => question.id === questionId);
     if (from < 0) return { index: -1, moved: false };
@@ -1056,21 +1117,57 @@ export function createComparisons(options: ComparisonsOptions) {
     });
   }
 
+  const historyKey = (mindId: string, tableId: string) => `${mindId}\n${tableId}`;
+
+  function historyOf(mindId: string, tableId: string): TableHistory {
+    const key = historyKey(mindId, tableId);
+    const existing = histories.get(key);
+    if (existing) return existing;
+    const history: TableHistory = { steps: new Map(), applied: [], undone: [] };
+    histories.set(key, history);
+    return history;
+  }
+
+  /**
+   * Every window with the Mind open flushes its changes for it, and holds
+   * that table's edits, before the change copies a cell; the core waits for
+   * each window's word that they have reached it, then writes.
+   */
+  async function barrier<T>(mindId: string, tableId: string, run: () => T): Promise<T> {
+    const requestId = randomUUID();
+    const pending = new Set(watchers.get(mindId) ?? []);
+    options.emit("comparison.structure", { mindId, tableId, requestId, writing: true });
+    if (pending.size > 0) {
+      await new Promise<void>((resolve) => {
+        const timer = setTimeout(() => {
+          acks.delete(requestId);
+          options.reportError(new Error(`A window did not answer a column change of ${tableId}.`));
+          resolve();
+        }, 2000);
+        acks.set(requestId, {
+          pending,
+          done: () => {
+            clearTimeout(timer);
+            acks.delete(requestId);
+            resolve();
+          },
+        });
+      });
+    }
+    try {
+      return run();
+    } finally {
+      options.emit("comparison.structure", { mindId, tableId, requestId, writing: false });
+    }
+  }
+
   function queued<T>(mindId: string, tableId: string, run: () => T): Promise<T> {
-    const earlier = structureQueues.get(tableId) ?? Promise.resolve();
-    const perform = async () => {
-      // Every window's changes already on their way reach the core first, before a cell is copied.
-      await new Promise((resolve) => setTimeout(resolve, 0));
-      options.emit("comparison.structure", { mindId, tableId, writing: true });
-      try {
-        return run();
-      } finally {
-        options.emit("comparison.structure", { mindId, tableId, writing: false });
-      }
-    };
+    const key = historyKey(mindId, tableId);
+    const earlier = structureQueues.get(key) ?? Promise.resolve();
+    const perform = () => barrier(mindId, tableId, run);
     const next = earlier.then(perform, perform);
     structureQueues.set(
-      tableId,
+      key,
       next.then(
         () => undefined,
         () => undefined,
@@ -1079,9 +1176,37 @@ export function createComparisons(options: ComparisonsOptions) {
     return next;
   }
 
-  function remember(step: StructureStep): void {
-    structureUndo.push(step);
-    structureRedo.length = 0;
+  function remember(step: Omit<StructureStep, "id">): string {
+    const id = randomUUID();
+    const history = historyOf(step.mindId, step.tableId);
+    for (const undoneId of history.undone) history.steps.delete(undoneId);
+    history.undone = [];
+    history.steps.set(id, { ...step, id });
+    history.applied.push(id);
+    while (history.applied.length > MAX_STRUCTURE_STEPS) {
+      const dropped = history.applied.shift();
+      if (dropped && !history.undone.includes(dropped)) history.steps.delete(dropped);
+    }
+    return id;
+  }
+
+  function watchMind(mindId: string, clientId: string): void {
+    const watching = watchers.get(mindId) ?? new Set<string>();
+    watching.add(clientId);
+    watchers.set(mindId, watching);
+  }
+
+  function unwatchMind(mindId: string, clientId: string): void {
+    const watching = watchers.get(mindId);
+    if (!watching) return;
+    watching.delete(clientId);
+    if (watching.size === 0) watchers.delete(mindId);
+  }
+
+  function acknowledge(requestId: string, clientId: string): void {
+    const waiting = acks.get(requestId);
+    if (!waiting?.pending.delete(clientId)) return;
+    if (waiting.pending.size === 0) waiting.done();
   }
 
   /**
@@ -1099,7 +1224,13 @@ export function createComparisons(options: ComparisonsOptions) {
         const index = questions.findIndex((question) => question.id === input.questionId);
         const old = questions[index];
         if (!old)
-          return { changed: false, refilled: false, questionId: input.questionId, label: "" };
+          return {
+            changed: false,
+            refilled: false,
+            questionId: input.questionId,
+            label: "",
+            step: "",
+          };
         const text = oneLine(input.text, "A Question", "error.comparison.questionTooLong");
         if (!text) throw new InvalidInputError({ key: "error.comparison.noQuestion" });
         const label = labelLine(input.label);
@@ -1109,13 +1240,15 @@ export function createComparisons(options: ComparisonsOptions) {
             refilled: false,
             questionId: input.questionId,
             label: comparisonLabelOf(old),
+            step: "",
           };
         }
         if (text === old.text) {
           const next = withLabel({ ...old }, label);
           setQuestion(table, input.questionId, next);
-          remember({
+          const step = remember({
             mindId,
+            clientId: input.clientId,
             tableId: input.tableId,
             undo: (current) => setQuestion(current, input.questionId, old),
             redo: (current) => setQuestion(current, input.questionId, next),
@@ -1125,6 +1258,7 @@ export function createComparisons(options: ComparisonsOptions) {
             refilled: false,
             questionId: input.questionId,
             label: comparisonLabelOf(next),
+            step,
           };
         }
         const newQuestionId = randomUUID();
@@ -1137,11 +1271,18 @@ export function createComparisons(options: ComparisonsOptions) {
         };
         const removed = captureColumn(table, index);
         if (!removed)
-          return { changed: false, refilled: false, questionId: input.questionId, label: "" };
+          return {
+            changed: false,
+            refilled: false,
+            questionId: input.questionId,
+            label: "",
+            step: "",
+          };
         let state = waitingColumn(question);
         replaceColumnAt(table, index, state);
-        remember({
+        const step = remember({
           mindId,
+          clientId: input.clientId,
           tableId: input.tableId,
           undo: (current) => {
             const at = questionsOf(current).findIndex((each) => each.id === newQuestionId);
@@ -1160,6 +1301,7 @@ export function createComparisons(options: ComparisonsOptions) {
           refilled: true,
           questionId: newQuestionId,
           label: comparisonLabelOf(question),
+          step,
         };
       }),
     );
@@ -1187,8 +1329,9 @@ export function createComparisons(options: ComparisonsOptions) {
         const at = input.side === "left" ? beside : beside + 1;
         let state = waitingColumn(question);
         insertColumnAt(table, at, state);
-        remember({
+        const step = remember({
           mindId,
+          clientId: input.clientId,
           tableId: input.tableId,
           undo: (current) => {
             const index = questionsOf(current).findIndex((each) => each.id === question.id);
@@ -1198,7 +1341,7 @@ export function createComparisons(options: ComparisonsOptions) {
           },
           redo: (current) => insertColumnAt(current, at, state),
         });
-        return { questionId: question.id, label: comparisonLabelOf(question), fill: true };
+        return { questionId: question.id, label: comparisonLabelOf(question), fill: true, step };
       }),
     );
   }
@@ -1220,27 +1363,25 @@ export function createComparisons(options: ComparisonsOptions) {
           });
         }
         const question: ColumnQuestion = { ...source, id: randomUUID() };
-        const cells = new Map<string, Y.XmlElement>();
+        const cells = new Map<string, NodeJSON>();
         let fill = false;
         for (const row of rowsOf(table)) {
           const cell = cellOf(row, source.id);
           const state = cell ? comparisonCellOf(cell.getAttributes()) : null;
+          const kept = cell ? nodeOf(cell) : null;
           const copy =
-            cell && state && (state.status === "done" || state.status === "failed")
-              ? (() => {
-                  const each = cell.clone();
-                  each.setAttribute("questionId", question.id);
-                  return each;
-                })()
-              : createElement(cellJSON(question.id));
-          if (cellToFill(comparisonCellOf(copy.getAttributes()))) fill = true;
+            kept && state && (state.status === "done" || state.status === "failed")
+              ? { ...kept, attrs: { ...kept.attrs, questionId: question.id } }
+              : cellJSON(question.id);
+          if (cellToFill(comparisonCellOf(copy.attrs ?? {}))) fill = true;
           cells.set(documentIdOf(row), copy);
         }
         const at = index + 1;
         let state = { question, cells };
         insertColumnAt(table, at, state);
-        remember({
+        const step = remember({
           mindId,
+          clientId: input.clientId,
           tableId: input.tableId,
           undo: (current) => {
             const found = questionsOf(current).findIndex((each) => each.id === question.id);
@@ -1250,7 +1391,7 @@ export function createComparisons(options: ComparisonsOptions) {
           },
           redo: (current) => insertColumnAt(current, at, state),
         });
-        return { questionId: question.id, label: comparisonLabelOf(question), fill };
+        return { questionId: question.id, label: comparisonLabelOf(question), fill, step };
       }),
     );
   }
@@ -1265,7 +1406,9 @@ export function createComparisons(options: ComparisonsOptions) {
         const index = questions.findIndex((question) => question.id === input.questionId);
         const removed = questions[index];
         if (!removed) throw new NotFoundError({ key: "error.comparison.notFound" });
-        if (questions.length <= 1) throw new InvalidInputError("A table keeps a column.");
+        if (questions.length <= 1) {
+          throw new InvalidInputError({ key: "error.comparison.lastColumn" });
+        }
         const column = captureColumn(table, index);
         if (!column) throw new NotFoundError({ key: "error.comparison.notFound" });
         removeColumnById(table, removed.id);
@@ -1275,8 +1418,9 @@ export function createComparisons(options: ComparisonsOptions) {
           .reverse()
           .find((question) => question.hidden !== true);
         let state = column;
-        remember({
+        const step = remember({
           mindId,
+          clientId: input.clientId,
           tableId: input.tableId,
           undo: (current) => insertColumnAt(current, index, state),
           redo: (current) => {
@@ -1288,6 +1432,7 @@ export function createComparisons(options: ComparisonsOptions) {
         return {
           label: comparisonLabelOf(removed),
           focusId: after?.id ?? before?.id ?? null,
+          step,
         };
       }),
     );
@@ -1310,13 +1455,14 @@ export function createComparisons(options: ComparisonsOptions) {
         if (old.width === width) return null;
         const next = { ...old, width };
         setQuestion(table, input.questionId, next);
-        remember({
+        const step = remember({
           mindId,
+          clientId: input.clientId,
           tableId: input.tableId,
           undo: (current) => setQuestion(current, input.questionId, old),
           redo: (current) => setQuestion(current, input.questionId, next),
         });
-        return { label: comparisonLabelOf(old), width };
+        return { label: comparisonLabelOf(old), width, step };
       }),
     );
   }
@@ -1345,8 +1491,9 @@ export function createComparisons(options: ComparisonsOptions) {
           .slice(0, index)
           .reverse()
           .find((question) => question.hidden !== true);
-        remember({
+        const step = remember({
           mindId,
+          clientId: input.clientId,
           tableId: input.tableId,
           undo: (current) => setQuestion(current, input.questionId, old),
           redo: (current) => setQuestion(current, input.questionId, next),
@@ -1356,6 +1503,7 @@ export function createComparisons(options: ComparisonsOptions) {
           questionId: input.questionId,
           hidden: input.hidden,
           focusId: input.hidden ? (after?.id ?? before?.id ?? null) : input.questionId,
+          step,
         };
       }),
     );
@@ -1368,47 +1516,77 @@ export function createComparisons(options: ComparisonsOptions) {
       withTable(mindId, input.tableId, (table) => {
         const from = questionsOf(table).findIndex((question) => question.id === input.questionId);
         const moved = moveIn(table, input.questionId, input.to);
-        if (moved.moved && from >= 0) {
-          remember({
-            mindId,
-            tableId: input.tableId,
-            undo: (current) => moveIn(current, input.questionId, from),
-            redo: (current) => moveIn(current, input.questionId, moved.index),
-          });
-        }
-        return moved;
+        if (!moved.moved || from < 0) return { ...moved, step: "" };
+        const step = remember({
+          mindId,
+          clientId: input.clientId,
+          tableId: input.tableId,
+          undo: (current) => moveIn(current, input.questionId, from),
+          redo: (current) => moveIn(current, input.questionId, moved.index),
+        });
+        return { ...moved, step };
       }),
     );
   }
 
+  /**
+   * Takes back the step the window names, if it is still the table's latest
+   * structure change and that window made it: a later change of the same
+   * table, from any window, refuses rather than undoing over it.
+   */
   async function undoStructure(raw: unknown): Promise<ComparisonStructureUndoResult> {
-    const ref = parseRef(raw, "undoComparisonStructure");
+    const ref = parseStructure(raw, "undoComparisonStructure");
     const mindId = options.requireMind(ref.mindId);
     return queued(mindId, ref.tableId, () => {
-      const step = structureUndo.at(-1);
-      if (!step || step.mindId !== mindId || step.tableId !== ref.tableId) {
-        return { moved: false };
+      const history = histories.get(historyKey(mindId, ref.tableId));
+      if (!history || history.applied.at(-1) !== ref.step) {
+        return { moved: false, reason: "changed" };
+      }
+      const step = history.steps.get(ref.step);
+      if (!step || step.clientId !== ref.clientId) {
+        return { moved: false, reason: "changed" };
       }
       withTable(mindId, ref.tableId, (table) => step.undo(table));
-      structureUndo.pop();
-      structureRedo.push(step);
+      history.applied.pop();
+      history.undone.push(step.id);
       return { moved: true };
     });
   }
 
+  /** Does again the step the window names, if it is still the table's latest undone one. */
   async function redoStructure(raw: unknown): Promise<ComparisonStructureUndoResult> {
-    const ref = parseRef(raw, "redoComparisonStructure");
+    const ref = parseStructure(raw, "redoComparisonStructure");
     const mindId = options.requireMind(ref.mindId);
     return queued(mindId, ref.tableId, () => {
-      const step = structureRedo.at(-1);
-      if (!step || step.mindId !== mindId || step.tableId !== ref.tableId) {
-        return { moved: false };
+      const history = histories.get(historyKey(mindId, ref.tableId));
+      if (!history || history.undone.at(-1) !== ref.step) {
+        return { moved: false, reason: "changed" };
+      }
+      const step = history.steps.get(ref.step);
+      if (!step || step.clientId !== ref.clientId) {
+        return { moved: false, reason: "changed" };
       }
       withTable(mindId, ref.tableId, (table) => step.redo(table));
-      structureRedo.pop();
-      structureUndo.push(step);
+      history.undone.pop();
+      history.applied.push(step.id);
       return { moved: true };
     });
+  }
+
+  async function watchComparison(raw: unknown): Promise<void> {
+    const input = parseWatch(raw);
+    watchMind(options.requireMind(input.mindId), input.clientId);
+  }
+
+  async function unwatchComparison(raw: unknown): Promise<void> {
+    const input = parseWatch(raw);
+    unwatchMind(input.mindId, input.clientId);
+  }
+
+  async function acknowledgeStructure(raw: unknown): Promise<void> {
+    if (isRecord(raw) && typeof raw.requestId === "string" && typeof raw.clientId === "string") {
+      acknowledge(raw.requestId, raw.clientId);
+    }
   }
 
   /** Where the table goes: after the Block named, or before it when it is an empty paragraph. */
@@ -1550,6 +1728,9 @@ export function createComparisons(options: ComparisonsOptions) {
     hideColumn: (input: unknown) => setHidden(input),
     undoStructure: (input: unknown) => undoStructure(input),
     redoStructure: (input: unknown) => redoStructure(input),
+    watchMind: (input: unknown) => watchComparison(input),
+    unwatchMind: (input: unknown) => unwatchComparison(input),
+    acknowledge: (input: unknown) => acknowledgeStructure(input),
 
     async stop(input: unknown): Promise<void> {
       const ref = parseRef(input, "stopComparisonTable");
@@ -1569,7 +1750,11 @@ export function createComparisons(options: ComparisonsOptions) {
         const there =
           options.mindExists(mindId) &&
           content.read(mindId, (blocks) => !!tableIn(blocks, tableId));
-        if (!there) options.tasks.stop(task.id).catch(options.reportError);
+        if (!there) {
+          options.tasks.stop(task.id).catch(options.reportError);
+          histories.delete(historyKey(mindId, tableId));
+          structureQueues.delete(historyKey(mindId, tableId));
+        }
       }
     },
 

@@ -6,6 +6,7 @@
  * through the core; the fill each one asks for follows.
  */
 import { MAX_COMPARISON_QUESTIONS } from "../../shared/comparisons";
+import { clientId } from "./clientId";
 import {
   type ComparisonColumnHandle,
   staleAnswerKey,
@@ -18,7 +19,12 @@ import {
   comparisonColumnStep,
   lastComparisonColumn,
 } from "./editor/comparisonColumnCommands";
-import { offerStructureUndo, type StructureChange } from "./editor/comparisonStructureUndo";
+import {
+  offerStructureUndo,
+  releaseStructureStep,
+  reserveStructureStep,
+  type StructureChange,
+} from "./editor/comparisonStructureUndo";
 import { flushMindUpdates } from "./mindCopies";
 import { useAppStore } from "./store";
 
@@ -44,14 +50,16 @@ async function structure<T>(
   ask: () => Promise<T>,
 ): Promise<T | null> {
   await flushMindUpdates(handle.mindId);
-  useComparisonColumns.getState().setBusy(handle.tableId, true);
+  // This window holds the table at once; the core's broadcast holds it in every other window.
+  const request = `window-${crypto.randomUUID()}`;
+  useComparisonColumns.getState().hold(handle.tableId, request);
   try {
     return await ask();
   } catch (error) {
     useAppStore.getState().reportError(error);
     return null;
   } finally {
-    useComparisonColumns.getState().setBusy(handle.tableId, false);
+    useComparisonColumns.getState().release(handle.tableId, request);
   }
 }
 
@@ -107,9 +115,11 @@ export async function saveColumnEdit(
 ): Promise<void> {
   const answers = answersOf(handle, questionId);
   closeColumnField();
+  const seq = reserveStructureStep(handle.editor);
   const edited = await structure(handle, () =>
     core.editComparisonColumn({
       mindId: handle.mindId,
+      clientId,
       tableId: handle.tableId,
       questionId,
       text,
@@ -118,6 +128,7 @@ export async function saveColumnEdit(
   );
   if (!edited?.changed) {
     // Saved nothing, or nothing changed: the field closes and the heading takes the focus back.
+    releaseStructureStep(handle.editor);
     focus(handle, questionId);
     return;
   }
@@ -131,11 +142,16 @@ export async function saveColumnEdit(
         );
     }
   }
-  offerStructureUndo(handle.editor, {
-    mindId: handle.mindId,
-    tableId: handle.tableId,
-    said: (t) => t("comparison.column.edited", { label: edited.label }),
-  } satisfies StructureChange);
+  offerStructureUndo(
+    handle.editor,
+    {
+      mindId: handle.mindId,
+      tableId: handle.tableId,
+      step: edited.step,
+      said: (t) => t("comparison.column.edited", { label: edited.label }),
+    } satisfies StructureChange,
+    seq,
+  );
   focus(handle, edited.questionId);
   if (edited.refilled) fill(handle, [edited.questionId]);
 }
@@ -144,21 +160,31 @@ export async function saveColumnEdit(
 export async function addColumn(handle: ComparisonColumnHandle, text: string): Promise<void> {
   const last = lastComparisonColumn(handle.editor, handle.tableId);
   if (!last) return;
+  const seq = reserveStructureStep(handle.editor);
   const added = await structure(handle, () =>
     core.insertComparisonColumn({
       mindId: handle.mindId,
+      clientId,
       tableId: handle.tableId,
       questionId: last,
       side: "right",
       text,
     }),
   );
-  if (!added) return;
-  offerStructureUndo(handle.editor, {
-    mindId: handle.mindId,
-    tableId: handle.tableId,
-    said: (t) => t("comparison.column.inserted", { label: added.label }),
-  } satisfies StructureChange);
+  if (!added) {
+    releaseStructureStep(handle.editor);
+    return;
+  }
+  offerStructureUndo(
+    handle.editor,
+    {
+      mindId: handle.mindId,
+      tableId: handle.tableId,
+      step: added.step,
+      said: (t) => t("comparison.column.inserted", { label: added.label }),
+    } satisfies StructureChange,
+    seq,
+  );
   focus(handle, added.questionId);
   if (added.fill) fill(handle, [added.questionId]);
 }
@@ -171,9 +197,11 @@ export async function saveColumnInsert(
   text: string,
 ): Promise<void> {
   closeColumnField();
+  const seq = reserveStructureStep(handle.editor);
   const added = await structure(handle, () =>
     core.insertComparisonColumn({
       mindId: handle.mindId,
+      clientId,
       tableId: handle.tableId,
       questionId,
       side,
@@ -182,14 +210,20 @@ export async function saveColumnInsert(
   );
   if (!added) {
     // No column was added: the heading the field was opened on takes the focus back.
+    releaseStructureStep(handle.editor);
     focus(handle, questionId);
     return;
   }
-  offerStructureUndo(handle.editor, {
-    mindId: handle.mindId,
-    tableId: handle.tableId,
-    said: (t) => t("comparison.column.inserted", { label: added.label }),
-  } satisfies StructureChange);
+  offerStructureUndo(
+    handle.editor,
+    {
+      mindId: handle.mindId,
+      tableId: handle.tableId,
+      step: added.step,
+      said: (t) => t("comparison.column.inserted", { label: added.label }),
+    } satisfies StructureChange,
+    seq,
+  );
   focus(handle, added.questionId);
   if (added.fill) fill(handle, [added.questionId]);
 }
@@ -199,19 +233,29 @@ export async function duplicateColumn(
   handle: ComparisonColumnHandle,
   questionId: string,
 ): Promise<void> {
+  const seq = reserveStructureStep(handle.editor);
   const added = await structure(handle, () =>
     core.duplicateComparisonColumn({
       mindId: handle.mindId,
+      clientId,
       tableId: handle.tableId,
       questionId,
     }),
   );
-  if (!added) return;
-  offerStructureUndo(handle.editor, {
-    mindId: handle.mindId,
-    tableId: handle.tableId,
-    said: (t) => t("comparison.column.duplicated", { label: added.label }),
-  } satisfies StructureChange);
+  if (!added) {
+    releaseStructureStep(handle.editor);
+    return;
+  }
+  offerStructureUndo(
+    handle.editor,
+    {
+      mindId: handle.mindId,
+      tableId: handle.tableId,
+      step: added.step,
+      said: (t) => t("comparison.column.duplicated", { label: added.label }),
+    } satisfies StructureChange,
+    seq,
+  );
   focus(handle, added.questionId);
   if (added.fill) fill(handle, [added.questionId]);
 }
@@ -221,20 +265,30 @@ export async function removeColumn(
   handle: ComparisonColumnHandle,
   questionId: string,
 ): Promise<void> {
+  const seq = reserveStructureStep(handle.editor);
   const removed = await structure(handle, () =>
     core.removeComparisonColumn({
       mindId: handle.mindId,
+      clientId,
       tableId: handle.tableId,
       questionId,
     }),
   );
-  if (!removed) return;
-  offerStructureUndo(handle.editor, {
-    mindId: handle.mindId,
-    tableId: handle.tableId,
-    questionId,
-    said: (t) => t("comparison.column.removed", { label: removed.label }),
-  } satisfies StructureChange);
+  if (!removed) {
+    releaseStructureStep(handle.editor);
+    return;
+  }
+  offerStructureUndo(
+    handle.editor,
+    {
+      mindId: handle.mindId,
+      tableId: handle.tableId,
+      step: removed.step,
+      questionId,
+      said: (t) => t("comparison.column.removed", { label: removed.label }),
+    } satisfies StructureChange,
+    seq,
+  );
   focus(handle, removed.focusId);
 }
 
@@ -250,22 +304,32 @@ export async function moveColumn(
 ): Promise<void> {
   const here = comparisonColumnHere(handle.editor, handle.tableId, questionId);
   if (!here || here.index === to) return;
+  const seq = reserveStructureStep(handle.editor);
   const moved = await structure(handle, () =>
     core.moveComparisonColumn({
       mindId: handle.mindId,
+      clientId,
       tableId: handle.tableId,
       questionId,
       to,
     }),
   );
-  if (moved?.moved) {
-    offerStructureUndo(handle.editor, {
+  if (!moved?.moved) {
+    releaseStructureStep(handle.editor);
+    focus(handle, questionId);
+    return;
+  }
+  offerStructureUndo(
+    handle.editor,
+    {
       mindId: handle.mindId,
       tableId: handle.tableId,
+      step: moved.step,
       questionId,
       said: (t) => t("comparison.column.moved", { label: here.label }),
-    } satisfies StructureChange);
-  }
+    } satisfies StructureChange,
+    seq,
+  );
   focus(handle, questionId);
 }
 
@@ -286,21 +350,31 @@ export async function resizeColumn(
   questionId: string,
   width: number,
 ): Promise<void> {
+  const seq = reserveStructureStep(handle.editor);
   const resized = await structure(handle, () =>
     core.resizeComparisonColumn({
       mindId: handle.mindId,
+      clientId,
       tableId: handle.tableId,
       questionId,
       width,
     }),
   );
-  if (!resized) return;
-  offerStructureUndo(handle.editor, {
-    mindId: handle.mindId,
-    tableId: handle.tableId,
-    questionId,
-    said: (t) => t("comparison.column.resized", { label: resized.label }),
-  } satisfies StructureChange);
+  if (!resized) {
+    releaseStructureStep(handle.editor);
+    return;
+  }
+  offerStructureUndo(
+    handle.editor,
+    {
+      mindId: handle.mindId,
+      tableId: handle.tableId,
+      step: resized.step,
+      questionId,
+      said: (t) => t("comparison.column.resized", { label: resized.label }),
+    } satisfies StructureChange,
+    seq,
+  );
 }
 
 /** A column hidden from the table, its cells and Answers kept with the Note. */
@@ -308,21 +382,31 @@ export async function hideColumn(
   handle: ComparisonColumnHandle,
   questionId: string,
 ): Promise<void> {
+  const seq = reserveStructureStep(handle.editor);
   const hidden = await structure(handle, () =>
     core.setComparisonColumnHidden({
       mindId: handle.mindId,
+      clientId,
       tableId: handle.tableId,
       questionId,
       hidden: true,
     }),
   );
-  if (!hidden) return;
-  offerStructureUndo(handle.editor, {
-    mindId: handle.mindId,
-    tableId: handle.tableId,
-    questionId,
-    said: (t) => t("comparison.column.hid", { label: hidden.label }),
-  } satisfies StructureChange);
+  if (!hidden) {
+    releaseStructureStep(handle.editor);
+    return;
+  }
+  offerStructureUndo(
+    handle.editor,
+    {
+      mindId: handle.mindId,
+      tableId: handle.tableId,
+      step: hidden.step,
+      questionId,
+      said: (t) => t("comparison.column.hid", { label: hidden.label }),
+    } satisfies StructureChange,
+    seq,
+  );
   if (hidden.focusId) {
     focus(handle, hidden.focusId);
     return;
@@ -343,21 +427,31 @@ export async function showColumn(
   handle: ComparisonColumnHandle,
   questionId: string,
 ): Promise<void> {
+  const seq = reserveStructureStep(handle.editor);
   const shown = await structure(handle, () =>
     core.setComparisonColumnHidden({
       mindId: handle.mindId,
+      clientId,
       tableId: handle.tableId,
       questionId,
       hidden: false,
     }),
   );
-  if (!shown) return;
-  offerStructureUndo(handle.editor, {
-    mindId: handle.mindId,
-    tableId: handle.tableId,
-    questionId,
-    said: (t) => t("comparison.column.shown", { label: shown.label }),
-  } satisfies StructureChange);
+  if (!shown) {
+    releaseStructureStep(handle.editor);
+    return;
+  }
+  offerStructureUndo(
+    handle.editor,
+    {
+      mindId: handle.mindId,
+      tableId: handle.tableId,
+      step: shown.step,
+      questionId,
+      said: (t) => t("comparison.column.shown", { label: shown.label }),
+    } satisfies StructureChange,
+    seq,
+  );
   focus(handle, shown.focusId);
 }
 

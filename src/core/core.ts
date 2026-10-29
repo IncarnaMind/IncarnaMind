@@ -4122,8 +4122,13 @@ export function createCore(adapters: CoreAdapters): Core {
       inFlow("comparison", async () => comparisons.resizeColumn(input)),
     setComparisonColumnHidden: (input) =>
       inFlow("comparison", async () => comparisons.hideColumn(input)),
-    undoComparisonStructure: (input) => comparisons.undoStructure(input),
-    redoComparisonStructure: (input) => comparisons.redoStructure(input),
+    undoComparisonStructure: (input) =>
+      inFlow("comparison", () => comparisons.undoStructure(input)),
+    redoComparisonStructure: (input) =>
+      inFlow("comparison", () => comparisons.redoStructure(input)),
+    watchComparisonMind: (input) => comparisons.watchMind(input),
+    unwatchComparisonMind: (input) => comparisons.unwatchMind(input),
+    acknowledgeComparisonStructure: (input) => comparisons.acknowledge(input),
     stopComparisonTable: (input) => comparisons.stop(input),
     listFillingComparisons: async () => comparisons.filling(),
     listTasks: async () => tasks.list(),

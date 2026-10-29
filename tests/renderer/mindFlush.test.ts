@@ -10,6 +10,8 @@ const bridge = vi.hoisted(() => ({
   applied: [] as Uint8Array[],
   release: [] as (() => void)[],
   listeners: [] as ((event: { mindId: string; update: Uint8Array }) => void)[],
+  watched: [] as string[],
+  unwatched: [] as string[],
 }));
 
 vi.mock("../../src/renderer/src/core", () => ({
@@ -27,6 +29,12 @@ vi.mock("../../src/renderer/src/core", () => ({
       bridge.applied.push(update);
     },
     closeMind: async () => undefined,
+    watchComparisonMind: async ({ mindId }: { mindId: string }) => {
+      bridge.watched.push(mindId);
+    },
+    unwatchComparisonMind: async ({ mindId }: { mindId: string }) => {
+      bridge.unwatched.push(mindId);
+    },
   },
   files: {},
 }));
@@ -57,5 +65,22 @@ describe("A window's changes to a Mind", () => {
     await waiting;
     expect(flushed).toBe(true);
     expect(bridge.applied).toHaveLength(1);
+  });
+
+  test("two copies of one Mind in a window watch once, and the last close lets go", async () => {
+    bridge.watched.length = 0;
+    bridge.unwatched.length = 0;
+    const open = () =>
+      new Promise<{ copy: OpenedCopy; close: () => void }>((resolve, reject) => {
+        const close = openMindCopy("mind-2", (copy) => resolve({ copy, close }), reject);
+      });
+    const first = await open();
+    const second = await open();
+    expect(bridge.watched).toEqual(["mind-2"]);
+    first.close();
+    expect(bridge.unwatched).toEqual([]);
+    second.close();
+    expect(bridge.unwatched).toEqual(["mind-2"]);
+    expect(bridge.watched).toEqual(["mind-2"]);
   });
 });

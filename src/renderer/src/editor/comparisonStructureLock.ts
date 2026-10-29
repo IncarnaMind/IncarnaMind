@@ -20,13 +20,13 @@ export const ComparisonStructureLock = Extension.create({
           if (!transaction.docChanged) return true;
           // The core's own change arrives as a remote Yjs update: it is what the table waits for.
           if (transaction.getMeta(ySyncPluginKey)?.isChangeOrigin) return true;
-          const busy = useComparisonColumns.getState().busy;
-          if (busy.size === 0) return true;
+          const holds = useComparisonColumns.getState().holds;
+          if (holds.size === 0) return true;
           let blocked = false;
           state.doc.descendants((node, pos) => {
             if (blocked) return false;
             if (node.type.name !== COMPARISON_TABLE_NODE) return true;
-            if (!busy.has(String(node.attrs.id ?? ""))) return false;
+            if ((holds.get(String(node.attrs.id ?? ""))?.size ?? 0) === 0) return false;
             const after = transaction.doc.nodeAt(transaction.mapping.map(pos));
             if (!after || !node.eq(after)) blocked = true;
             return false;

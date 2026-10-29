@@ -32,6 +32,8 @@ interface ResizeRodProps {
   gap?: boolean;
   /** Dragging this far past `min` and letting go calls this (the pane folds away) instead of resizing. */
   onCollapse?(): void;
+  /** The width as it is drawn now, for the arrow keys: a width a change just set may not be the prop yet. */
+  drawn?(): number;
 }
 
 /** How far past its minimum a drag must go to fold the pane away. */
@@ -57,6 +59,7 @@ export function ResizeRod({
   belowBand = false,
   gap = false,
   onCollapse,
+  drawn,
 }: ResizeRodProps) {
   const drag = useRef<{
     start: number;
@@ -103,7 +106,7 @@ export function ResizeRod({
     const delta = event.key === more ? step : event.key === less ? -step : 0;
     if (delta === 0) return;
     event.preventDefault();
-    const next = clamp(width + direction * delta);
+    const next = clamp((drawn?.() ?? width) + direction * delta);
     onPreview(next);
     onCommit(next);
   };

@@ -3039,6 +3039,8 @@ export const en = {
   "comparison.column.duplicated": "Duplicated “{label}”",
   "comparison.column.removed": "Removed “{label}”",
   "comparison.column.moved": "Moved “{label}”",
+  "comparison.column.undoChanged":
+    "The table changed after this column change, so it can’t be undone.",
   "comparison.column.hid": "Hid “{label}”",
   "comparison.column.shown": "Showed “{label}”",
   "comparison.column.resized": "Resized “{label}”",
@@ -4315,8 +4317,17 @@ export const en = {
   "error.comparison.questionTooLong": "A Question can’t be longer than {max} characters.",
   "error.comparison.instructionTooLong":
     "What else the table should show can’t be longer than {max} characters.",
+  "error.comparison.lastColumn": "A comparison table keeps at least one column.",
   "error.comparison.notFound": "That comparison table isn’t in this note.",
   "error.comparison.columnIds": "The columns to fill must be given as a list of their ids.",
+  "error.comparison.columnRequest": "A column change needs the column and the window that made it.",
+  "error.comparison.editRequest": "Changing a column needs its Question and a label.",
+  "error.comparison.insertRequest": "Adding a column needs which side and its Question.",
+  "error.comparison.resizeRequest": "Resizing a column needs its width.",
+  "error.comparison.hideRequest": "Showing or hiding a column needs whether to hide it.",
+  "error.comparison.structureRequest":
+    "Taking back a column change needs the change and the window that made it.",
+  "error.comparison.watchRequest": "Following a note needs the note and the window.",
   "error.edit.noInstruction": "Say what to change, or the language to translate into.",
   "error.edit.instructionTooLong": "What to change can’t be longer than {max} characters.",
   "error.reference.tooLong": "A reference’s field can’t be longer than {max} characters.",
