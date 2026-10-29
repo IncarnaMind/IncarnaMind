@@ -6,7 +6,7 @@
 import type { MessageKey } from "./i18n";
 
 /** Why a file couldn't be written, in a few words: a key, and the file the system's text names. */
-export interface SaveFailureReason {
+export interface SaveReason {
   key: MessageKey;
   values?: Readonly<Record<string, string>>;
 }
@@ -107,15 +107,22 @@ const failureIn = (text: string) => SYSTEM_FAILURES.find(({ match }) => match.te
 /** The dictionary's plain words for a system failure's text; null when it names no code. */
 export const systemReason = (text: string): MessageKey | null => failureIn(text)?.sentence ?? null;
 
-/** The file the system's own words name, as the save line says it: the last part of its path. */
+/**
+ * The file the system's own words name. A rename names the source first and where the file goes
+ * second, and a path may hold the quote its message wraps it in, so the path is what sits between
+ * the first and the last quote of its segment.
+ */
 const fileIn = (text: string): string | null => {
-  const path = /['"]([^'"]+)['"]/.exec(text)?.[1];
+  const arrow = text.lastIndexOf(" -> ");
+  const target = (arrow >= 0 ? text.slice(arrow + 4) : text).trim();
+  const quoted = /(['"])([\s\S]*)\1/.exec(target);
+  const path = quoted?.[2]?.trim();
   const name = path?.split(/[\\/]/).pop()?.trim();
   return name ? name : null;
 };
 
 /** Why a file couldn't be written, in a few words, for "Couldn't save: …"; null when it names no code. */
-export const saveFailureReason = (text: string): SaveFailureReason | null => {
+export const saveFailureReason = (text: string): SaveReason | null => {
   const failure = failureIn(text);
   if (!failure) return null;
   if (!failure.namesFile) return { key: failure.reason };

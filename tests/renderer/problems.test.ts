@@ -360,15 +360,31 @@ describe("why a file couldn't be saved", () => {
   });
 
   test("a file another program holds open is named, so the User knows which one to close", () => {
-    expect(
-      saveFailureReason("EBUSY: resource busy or locked, open 'C:\\Users\\x\\Tides.docx'"),
-    ).toEqual({ key: "export.failed.fileBusy", values: { file: "Tides.docx" } });
-    expect(saveFailureReason("EBUSY: resource busy or locked, open '/Users/x/Tides.docx'")).toEqual(
-      {
-        key: "export.failed.fileBusy",
-        values: { file: "Tides.docx" },
-      },
+    const named = (message: string) => saveFailureReason(message)?.values?.file;
+    expect(named("EBUSY: resource busy or locked, open 'C:\\Users\\x\\Tides.docx'")).toBe(
+      "Tides.docx",
     );
+    expect(named("EBUSY: resource busy or locked, open '/Users/x/Tides.docx'")).toBe("Tides.docx");
+    expect(named("EBUSY: resource busy or locked, open '/Users/x/My Notes/Tides 2.docx'")).toBe(
+      "Tides 2.docx",
+    );
+    expect(named("EBUSY: resource busy or locked, open '/导出/潮汐.docx'")).toBe("潮汐.docx");
+    expect(named("EBUSY: resource busy or locked, open '/exports/Sam's draft.docx'")).toBe(
+      "Sam's draft.docx",
+    );
+    expect(named("EBUSY: resource busy or locked, open 'C:\\Exports\\O'Brien.docx'")).toBe(
+      "O'Brien.docx",
+    );
+    expect(
+      named(
+        "EBUSY: resource busy or locked, rename '/Users/x/.4f1a.partial' -> '/Users/x/Tides.docx'",
+      ),
+    ).toBe("Tides.docx");
+    expect(
+      named(
+        "EBUSY: resource busy or locked, rename '/Users/x/.4f1a.partial' -> '/Users/x/Sam's draft.docx'",
+      ),
+    ).toBe("Sam's draft.docx");
     expect(saveFailureReason("EBUSY: resource busy or locked")).toEqual({
       key: "export.failed.fileBusyUnnamed",
     });
