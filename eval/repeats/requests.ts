@@ -28,6 +28,7 @@ export interface WatchedRequest {
 }
 
 const KINDS: readonly [string, string][] = [
+  ["You sort the sentences of", "claims"],
   ["You check one sentence", "check"],
   ["and gave a verdict without recording", "evidence"],
   ["found it unsupported, and named the part", "covered-evidence"],
@@ -78,14 +79,26 @@ function queryOf(input: string): string {
   }
 }
 
+/** A request that names the claims among a Mind's sentences (#1682): what it was shown and what came back. */
+export interface ClaimsRequest {
+  asked: string;
+  reply: string;
+  inputTokens: number;
+  outputTokens: number;
+  ms: number;
+}
+
 export interface RequestWatch {
   chatModels(inner: ChatModelFactory): ChatModelFactory;
   /** Each sentence's requests since the last call, in order. */
   take(): Map<string, WatchedRequest[]>;
+  /** The requests that named claims since the last call, in order. */
+  takeClaims(): ClaimsRequest[];
 }
 
 export function watchRequests(sentences: readonly string[]): RequestWatch {
   let watched = new Map<string, WatchedRequest[]>();
+  let claims: { request: WatchedRequest; asked: string }[] = [];
 
   function start(prompt: LanguageModelV4Prompt) {
     const { system, asked, queries, handed } = read(prompt);
@@ -104,7 +117,8 @@ export function watchRequests(sentences: readonly string[]): RequestWatch {
       outputTokens: 0,
       ms: 0,
     };
-    if (named.length === 1 && sentence !== undefined) {
+    if (request.kind === "claims") claims.push({ request, asked });
+    else if (named.length === 1 && sentence !== undefined) {
       watched.set(sentence, [...(watched.get(sentence) ?? []), request]);
     }
     return { request, began: performance.now() };
@@ -148,6 +162,17 @@ export function watchRequests(sentences: readonly string[]): RequestWatch {
     take() {
       const taken = watched;
       watched = new Map();
+      return taken;
+    },
+    takeClaims() {
+      const taken = claims.map(({ request, asked }) => ({
+        asked,
+        reply: request.reply,
+        inputTokens: request.inputTokens,
+        outputTokens: request.outputTokens,
+        ms: request.ms,
+      }));
+      claims = [];
       return taken;
     },
   };

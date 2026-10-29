@@ -151,20 +151,33 @@ export function RunningText({
   );
 }
 
-/** When the whole Mind was last checked: "Checked 48 sentences, 2 Oct, 15:20", and what stopped it. */
-export function CheckedWhen({ run }: { run: MindCheckRun }) {
+/**
+ * When the whole Mind was last checked: "Checked 48 sentences, 2 Oct, 15:20", what stopped it,
+ * and how many of its sentences it didn't examine and are still to check (#1682).
+ */
+export function CheckedWhen({ run, unexamined }: { run: MindCheckRun; unexamined: number }) {
   const t = useT();
   const language = useLanguage();
+  const format = (value: number) => new Intl.NumberFormat(language).format(value);
   const when = formatDateTime(run.at, language);
-  const count = new Intl.NumberFormat(language).format(run.sentences);
   const said = t(run.sentences === 1 ? "health.checkedAll.one" : "health.checkedAll", {
-    count,
+    count: format(run.sentences),
     when,
   });
   return (
     <MetaLine
       data-testid="health-checked-all"
-      parts={[said, ...(run.stop ? runStopParts(run.stop, t, language) : [])]}
+      parts={[
+        said,
+        ...(unexamined > 0
+          ? [
+              t(unexamined === 1 ? "health.unexamined.one" : "health.unexamined", {
+                count: format(unexamined),
+              }),
+            ]
+          : []),
+        ...(run.stop ? runStopParts(run.stop, t, language) : []),
+      ]}
     />
   );
 }
