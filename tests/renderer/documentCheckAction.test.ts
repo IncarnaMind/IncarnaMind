@@ -53,7 +53,10 @@ vi.mock("../../src/renderer/src/components/DocumentOrFolderPicker", async () => 
             {
               key: id,
               "data-testid": `pick-${id}`,
-              onClick: () => onChoose({ folderIds: [], tagIds: [], documentIds: [id] }),
+              onClick: () => {
+                onClose();
+                onChoose({ folderIds: [], tagIds: [], documentIds: [id] });
+              },
             },
             id,
           ),

@@ -10,6 +10,7 @@ import {
   useState,
 } from "react";
 import { createPortal } from "react-dom";
+import { registerNativePopover, unregisterNativePopover } from "../editor/Popover";
 import { enterFrom, exitToward } from "../motion";
 import { CheckLineIcon } from "./lineIcons";
 import { menuClass, menuFrameClass, menuItemUnavailableClass, menuTitleClass } from "./ui";
@@ -165,6 +166,7 @@ export function SearchPicker<Id>({
     setScrollTop(0);
     if (!element.matches(":popover-open")) focus.remember();
     element.showPopover();
+    registerNativePopover(element);
     const box = anchor.getBoundingClientRect();
     const width = element.offsetWidth;
     const elementHeight = element.offsetHeight;
@@ -176,6 +178,7 @@ export function SearchPicker<Id>({
         : `${below}px`;
     enterFrom(element, anchor);
     field.current?.focus();
+    return () => unregisterNativePopover(element);
   }, [open, anchor, focus]);
 
   // Closed from outside (its anchor went): hidden.
@@ -322,6 +325,7 @@ export function SearchPicker<Id>({
       }}
       onToggle={(event) => {
         if (event.newState === "closed") {
+          unregisterNativePopover(event.currentTarget);
           // Opened again, it is measured with the list it opens with, not the last search's.
           setQuery("");
           setActive(0);
