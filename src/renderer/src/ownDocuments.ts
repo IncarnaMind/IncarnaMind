@@ -19,11 +19,6 @@ export function useOwnDocuments(): readonly Document[] {
   );
 }
 
-/** Whether the User has a Document of their own: the examples' left out. */
-export const ownsDocuments = (
-  state: Pick<AppState, "documents" | "examples" | "otherExamples">,
-): boolean => state.documents.some((each) => isOwnDocument(each, allExamples(state)));
-
 /**
  * The Documents the Library page lists: the User's own, once they have one;
  * until then the examples', so a Library opened on a first run is not empty

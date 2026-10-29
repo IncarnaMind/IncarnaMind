@@ -11,7 +11,7 @@ import { useFirstOpen } from "../firstOpen";
 import { useLanguage, useT } from "../i18n";
 import { currentTabOf } from "../layoutSlice";
 import { fileStatusLabel, formatCount } from "../linkedFolders";
-import { ownsDocuments, useDayOne, useOwnDocuments } from "../ownDocuments";
+import { useDayOne, useOwnDocuments } from "../ownDocuments";
 import { usePeekKey } from "../peek";
 import { scanningStatus } from "../scanStatus";
 import {
@@ -23,7 +23,7 @@ import {
 } from "../selection";
 import { moveFromMenu, rowDrag, useSidebarMove } from "../sidebarMoves";
 import { useSortMenu } from "../sortMenu";
-import { allExamples, useAppStore } from "../store";
+import { allExamples, isOwnDocument, useAppStore } from "../store";
 import { chipsOf, tagIndex } from "../tagEditing";
 import { isMoveToKey, moveThroughRows, TREE_ROW, useTreeItem } from "../treeKeys";
 import { useRename } from "../useRename";
@@ -91,7 +91,9 @@ export function DocumentsSection() {
   const ownDocuments = useOwnDocuments();
   const dayOne = useDayOne();
   const firstOpen = useFirstOpen();
-  const hasOwnDocuments = useAppStore(ownsDocuments);
+  const hasOwnDocuments = useAppStore((state) =>
+    state.documents.some((each) => isOwnDocument(each, allExamples(state))),
+  );
   const quiet = firstOpen && !hasOwnDocuments;
   // The example folds to one row once the User has a Document of their own (#1944), and only while
   // its Mind is there for that row to open: its Documents and folder stay reachable without one.
@@ -269,9 +271,11 @@ export function DocumentsSection() {
             {t("library.none")}
           </ProblemLine>
         )}
-        {!quiet && hasLinkedFolders && (
+        {/* Linking a folder is using Linked folders, so its section shows at once, empty or still
+            being read, where the rest of the Library waits for the first Document (#763). */}
+        {hasLinkedFolders && (
           <SidebarSection testId="linked-folders-section" title={t("library.sources")}>
-            <LinkedFolderRows hideExamples={foldExamples} />
+            <LinkedFolderRows hideExamples={exampleMindId !== null} />
           </SidebarSection>
         )}
         {!quiet && <SidebarTags />}

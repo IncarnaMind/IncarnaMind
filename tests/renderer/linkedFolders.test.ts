@@ -3,7 +3,6 @@ import type { LinkedFolder } from "../../src/core/api";
 import {
   fileStatusLabel,
   folderName,
-  folderWithNothingToRead,
   formatBytes,
   formatCount,
   formatDuration,
@@ -97,70 +96,12 @@ describe("a Linked folder's row state", () => {
   });
 });
 
-describe("the folder the first open's step says where it went", () => {
-  const linked = (changes: Partial<LinkedFolder> = {}): LinkedFolder => ({
-    id: "contracts",
-    path: "/Users/ada/Contracts",
-    folderId: "folder-contracts",
-    status: "watching",
-    layout: "tree",
-    progress: { files: 0, indexed: 0 },
-    onlineOnly: { files: 0, bytes: 0, downloading: false },
-    unsupportedFiles: 0,
-    createdAt: "2026-10-29T10:00:00.000Z",
-    updatedAt: "2026-10-29T10:00:00.000Z",
-    ...changes,
-  });
-  const none = new Set<string>();
-
-  test("an up-to-date folder with nothing to read is the one, while the User has no Document of their own", () => {
-    expect(folderWithNothingToRead([linked()], none, false)?.id).toBe("contracts");
-    expect(folderWithNothingToRead([linked()], none, true)).toBeNull();
-  });
-
-  test("a folder still being scanned may not have counted its files, and one with files brings a row", () => {
-    expect(folderWithNothingToRead([linked({ status: "scanning" })], none, false)).toBeNull();
-    expect(folderWithNothingToRead([linked()], none, false)).not.toBeNull();
-    expect(
-      folderWithNothingToRead([linked({ progress: { files: 3, indexed: 3 } })], none, false),
-    ).toBeNull();
-    expect(
-      folderWithNothingToRead(
-        [linked({ unsupportedFiles: 2, progress: { files: 0, indexed: 0 } })],
-        none,
-        false,
-      )?.id,
-    ).toBe("contracts");
-  });
-
-  test("the examples' own folder is theirs, and the newest of two is the one", () => {
-    expect(folderWithNothingToRead([linked()], new Set(["contracts"]), false)).toBeNull();
-    const older = linked({ id: "older", createdAt: "2026-10-28T09:00:00.000Z" });
-    const newer = linked({ id: "newer", createdAt: "2026-10-29T09:00:00.000Z" });
-    expect(folderWithNothingToRead([older, newer], none, false)?.id).toBe("newer");
-    expect(folderWithNothingToRead([newer, older], none, false)?.id).toBe("newer");
-  });
-
-  test("what the step says names the folder and where its row will be", () => {
-    expect(
-      en("firstOpen.step.files.linked", { name: "contracts", section: "Folders on disk" }),
-    ).toBe(
-      "Linked “contracts”. Nothing in it to read yet; it will appear under Folders on disk once you add your first Document.",
-    );
-    expect(
-      zh("firstOpen.step.files.linked", { name: "contracts", section: "磁盘上的文件夹" }),
-    ).toBe(
-      "已添加关联文件夹“contracts”。里面还没有可读取的文件；添加第一个文档后，它就会出现在“磁盘上的文件夹”里。",
-    );
-  });
-});
-
 describe("what a Linked folder's row says", () => {
   test("indexing counts with digit grouping, and has a shorter form for a narrow sidebar", () => {
     expect(rowStateLabel({ kind: "indexing", indexed: 120, files: 3214 }, en, "en")).toEqual({
-      short: "Reading 120 of 3,214",
+      short: "Indexing 120 of 3,214",
       compact: "120 of 3,214",
-      full: "Reading 120 of 3,214 files, newest first",
+      full: "Indexing 120 of 3,214 files, newest first",
     });
     expect(rowStateLabel({ kind: "indexing", indexed: 120, files: 3214 }, zh, "zh-CN")).toEqual({
       short: "正在读取 120/3,214 个文件",
@@ -175,11 +116,24 @@ describe("what a Linked folder's row says", () => {
     expect(short({ kind: "paused", indexed: 2, files: 10 })).toBe("Paused");
     expect(short({ kind: "unavailable" })).toBe("Unavailable");
     expect(short({ kind: "online-only", files: 12 })).toBe("12 online-only");
-    expect(short({ kind: "empty" })).toBe("No supported files");
-    expect(rowStateLabel({ kind: "empty" }, en, "en")?.compact).toBe("No files");
+    expect(short({ kind: "empty" })).toBe("Nothing to read yet");
+    expect(rowStateLabel({ kind: "empty" }, en, "en")?.compact).toBe("Nothing yet");
+    // Its tooltip names the kinds it reads.
+    expect(rowStateLabel({ kind: "empty" }, en, "en")?.full).toBe(
+      "Nothing to read yet: IncarnaMind reads PDF, Word, PowerPoint, Excel, Markdown, text files.",
+    );
     expect(short({ kind: "checking" })).toBe("Checking…");
     expect(short({ kind: "downloading", files: 3 })).toBe("Downloading…");
     expect(short({ kind: "idle" })).toBeNull();
+  });
+
+  test("a folder with nothing to read says so under its row, in both languages", () => {
+    expect(en("linkedFolders.nothingToRead.notice", { folder: "contracts" })).toBe(
+      "No files IncarnaMind can read in “contracts” yet. New ones are read as they arrive.",
+    );
+    expect(zh("linkedFolders.nothingToRead.notice", { folder: "contracts" })).toBe(
+      "“contracts”里还没有 IncarnaMind 能读取的文件。之后放进去的文件会自动读取。",
+    );
   });
 
   test("the full words say how far a paused folder got, and count one online-only file as one", () => {

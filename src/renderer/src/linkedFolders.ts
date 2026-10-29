@@ -60,27 +60,6 @@ export function indexingShare(state: LinkedFolderRowState): number | null {
   return Math.max(0, state.indexed / state.files);
 }
 
-/**
- * The Linked folder to say where it went, while the first open keeps the sidebar's
- * Folders away until the User's first Document (#763): the newest of the User's own
- * with nothing to read in it. One still scanning may not have counted its files, and
- * one with files brings Documents, whose section and rows the sidebar then shows.
- */
-export function folderWithNothingToRead(
-  linkedFolders: readonly LinkedFolder[],
-  exampleIds: ReadonlySet<string>,
-  hasOwnDocuments: boolean,
-): LinkedFolder | null {
-  if (hasOwnDocuments) return null;
-  let latest: LinkedFolder | null = null;
-  for (const linked of linkedFolders) {
-    if (exampleIds.has(linked.id)) continue;
-    if (linked.status !== "watching" || linked.progress.files > 0) continue;
-    if (latest === null || linked.createdAt > latest.createdAt) latest = linked;
-  }
-  return latest;
-}
-
 /** A whole number with the language's digit grouping: "3,214". */
 export function formatCount(count: number, language: Language): string {
   return new Intl.NumberFormat(language).format(count);
@@ -145,7 +124,7 @@ export function rowStateLabel(
       return {
         short: t("linkedFolders.state.empty"),
         compact: t("linkedFolders.state.empty.compact"),
-        full: t("linkedFolders.state.empty.full"),
+        full: t("linkedFolders.state.empty.full", { formats: t("library.drop.formats") }),
       };
     case "idle":
       return null;
