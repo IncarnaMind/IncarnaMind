@@ -2,10 +2,16 @@ import type { MockLanguageModelV4 } from "ai/test";
 import { describe, expect, test } from "vitest";
 import * as Y from "yjs";
 import type { Core } from "../../src/core";
+import { MIND_PROPOSAL_REQUESTS_FIELD, MIND_REVISIONS_FIELD } from "../../src/core";
 import { EDIT_INSTRUCTIONS } from "../../src/core/edits/prompt";
 import { waitingProblemOf } from "../../src/renderer/src/changeProblems";
 import { waitsForUser } from "../../src/shared/askedChanges";
-import { pendingProposals, proposalRequestOf, resolveProposals } from "../../src/shared/proposals";
+import {
+  decideProposals,
+  pendingProposals,
+  proposalRequestOf,
+  resolveProposals,
+} from "../../src/shared/proposals";
 import { askAssistant, changesIn, lastResult, mindCalls } from "../helpers/assistant";
 import { answerEnded } from "../helpers/citations";
 import { createTempDataFolder, startCore } from "../helpers/core";
@@ -1154,6 +1160,162 @@ describe("Taking back a revision", { timeout: 30_000 }, () => {
 
     expect(exactly(page)).toEqual(before);
   });
+});
+
+describe("Text the User turned down twice stays gone", { timeout: 30_000 }, () => {
+  interface Words {
+    mind: string;
+    user: string;
+    summary: string;
+    section: string;
+    risks: string;
+    longer: string;
+    adding: string;
+    sayMore: string;
+    nothing: string;
+  }
+
+  const WORDS: Record<"en" | "zh-CN", Words> = {
+    en: {
+      mind: "Q3 review",
+      user: "The quarter was very good, and sales were really strong.",
+      summary: "Summary",
+      section: "Risks",
+      risks: "## Risks\n\nLegal review may take longer.",
+      longer: "## Risks\n\nLegal review may take longer than planned.",
+      adding: "Add the risks to the Q3 review",
+      sayMore: "Say more",
+      nothing: "It is all there.",
+    },
+    "zh-CN": {
+      mind: "第三季度复盘",
+      user: "本季度表现很好，销售很强劲。",
+      summary: "概述",
+      section: "风险",
+      risks: "## 风险\n\n法务审核可能更久。",
+      longer: "## 风险\n\n法务审核可能比计划更久。",
+      adding: "把风险加到第三季度复盘里",
+      sayMore: "再详细一点",
+      nothing: "都已经写好了。",
+    },
+  };
+
+  // protects=a rejected revision whose earlier text the User then rejects too stays gone when its Answer is written again: the Mind is as it was after the second reject and nothing waits (#1903); fails_when=the rejected text comes back waiting; no_claim=what a real model writes again.
+  for (const language of ["en", "zh-CN"] as const) {
+    test(`after the revision and that text are rejected, writing it again changes nothing (${language})`, async () => {
+      const words = WORDS[language];
+      let regenerating = false;
+      const model = scriptedModel((call): ScriptedReply => {
+        if (regenerating) return { text: words.nothing };
+        if (asked(call).endsWith(words.adding)) {
+          return called(call, "add_to_mind")
+            ? { text: "Added them." }
+            : {
+                calls: [{ tool: "add_to_mind", input: { mind: words.mind, content: words.risks } }],
+              };
+        }
+        return called(call, "edit_mind")
+          ? { text: "Said more." }
+          : {
+              calls: [
+                {
+                  tool: "edit_mind",
+                  input: { mind: words.mind, part: words.section, content: words.longer },
+                },
+              ],
+            };
+      });
+      const core = startCore(await createTempDataFolder(), {
+        createChatModel: scriptedModels(model).createChatModel,
+      });
+      await core.saveChatProvider({ kind: "ollama", modelId: "local-model" });
+      await core.updateSettings({ user: { language } });
+      const mind = await core.createMind({ title: words.mind });
+      const page = await connectToMind(core, mind.id);
+      writeMind(page, [heading(2, words.summary), note(words.user)]);
+      await page.settled();
+
+      const first = await askAssistant(core, { text: words.adding, mindId: mind.id });
+      const firstRequest = changesIn(first)[0]?.request ?? "";
+      await page.settled();
+      expect(pendingProposals(page.blocks).length).toBeGreaterThan(0);
+      const second = await askAssistant(core, {
+        text: words.sayMore,
+        mindId: mind.id,
+        conversationId: first.conversationId,
+      });
+      const revision = changesIn(second)[0];
+      expect(revision).toMatchObject({ mindId: mind.id, revised: true });
+      await page.settled();
+      const beforeRejecting = exactly(page);
+
+      const reject = async (request: string) => {
+        const undo = new Y.UndoManager(
+          [
+            page.blocks,
+            page.doc.getMap(MIND_PROPOSAL_REQUESTS_FIELD),
+            page.doc.getMap(MIND_REVISIONS_FIELD),
+          ],
+          { trackedOrigins: new Set(["editor"]) },
+        );
+        page.doc.transact(
+          () => decideProposals(page.blocks, (ref) => ref.request === request, "reject"),
+          "editor",
+        );
+        await page.settled();
+        return undo;
+      };
+
+      // Reject all on the revising Answer's card: the first Answer's text comes back waiting.
+      let rejectingRevision = await reject(revision?.request ?? "");
+      expect(pendingProposals(page.blocks).some((ref) => ref.request === firstRequest)).toBe(true);
+      expect(shownWithChanges(page)).toContain(`+ ${words.section}`);
+      const restored = exactly(page);
+      rejectingRevision.undo();
+      await page.settled();
+      expect(exactly(page)).toEqual(beforeRejecting);
+      // Reject all again after the Undo, as the User does: the earlier text comes back again.
+      rejectingRevision = await reject(revision?.request ?? "");
+      expect(exactly(page)).toEqual(restored);
+      rejectingRevision.undo();
+      await page.settled();
+      expect(exactly(page)).toEqual(beforeRejecting);
+      rejectingRevision.redo();
+      await page.settled();
+      expect(exactly(page)).toEqual(restored);
+
+      // Reject all on the first Answer's card: the risks are gone.
+      let rejectingTheText = await reject(firstRequest);
+      expect(pendingProposals(page.blocks)).toEqual([]);
+      expect(shownWithChanges(page)).not.toContain(`+ ${words.section}`);
+      const gone = exactly(page);
+      rejectingTheText.undo();
+      await page.settled();
+      expect(exactly(page)).toEqual(restored);
+      // Reject all again after the Undo: they are gone again.
+      rejectingTheText = await reject(firstRequest);
+      expect(exactly(page)).toEqual(gone);
+      rejectingTheText.undo();
+      await page.settled();
+      expect(exactly(page)).toEqual(restored);
+      rejectingTheText.redo();
+      await page.settled();
+      expect(exactly(page)).toEqual(gone);
+
+      // Writing the revising Answer again changes nothing, and brings nothing back.
+      regenerating = true;
+      const result = await core.regenerateConversationAnswer({
+        conversationId: second.conversationId,
+        answerId: second.id,
+      });
+      if (!result.asked) throw new Error("Not asked again.");
+      expect((await answerEnded(core, result.answerId)).event).toBe("finished");
+      await page.settled();
+
+      expect(pendingProposals(page.blocks)).toEqual([]);
+      expect(exactly(page)).toEqual(gone);
+    });
+  }
 });
 
 describe("Asking again for a reply that claims a change", { timeout: 30_000 }, () => {
