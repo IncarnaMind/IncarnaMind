@@ -18,6 +18,7 @@ import type {
 } from "../../api";
 import { isRecord } from "../../errors";
 import { givesStructuredOutput } from "../../providers/capabilities";
+import type { PreparedChatModel } from "../../providers/chat";
 import { classifyProviderError } from "../../providers/providerErrors";
 import type { AnswerDocuments, createCitationSession } from "../citations";
 import { answerTemperature } from "../engine";
@@ -83,6 +84,10 @@ function scopeComplete(
 export const CLASSIFY_ABSENCE =
   'Classify whether a sentence says something is absent: a clause, disclosure, figure, approval, event or fact is not present. Answer "yes" only when the sentence asserts that absence itself (for example, "The lease has no break clause" or "公司从未披露这笔贷款"). Otherwise answer "no".';
 
+type AbsenceQuestion = Pick<ClaimCheckRequest, "claim" | "signal"> & {
+  model: Pick<PreparedChatModel, "model" | "capabilities">;
+};
+
 const answerSchema = jsonSchema<{ answer: string }>({
   type: "object",
   properties: { answer: { type: "string", enum: ["yes", "no"] } },
@@ -91,7 +96,7 @@ const answerSchema = jsonSchema<{ answer: string }>({
 });
 
 /** The classifier's yes or no; null when its reply gives neither or was cut off. */
-async function absenceAnswer(request: ClaimCheckRequest): Promise<boolean | null> {
+async function absenceAnswer(request: AbsenceQuestion): Promise<boolean | null> {
   const call = {
     model: request.model.model,
     instructions: CLASSIFY_ABSENCE,
@@ -128,7 +133,7 @@ async function absenceAnswer(request: ClaimCheckRequest): Promise<boolean | null
  * Whether the sentence claims an absence, so Supported needs the whole read. An answer that
  * can't be read as yes or no counts as yes: search alone never backs an absence.
  */
-export async function classifyAbsence(request: ClaimCheckRequest): Promise<boolean> {
+export async function classifyAbsence(request: AbsenceQuestion): Promise<boolean> {
   return (await absenceAnswer(request)) ?? true;
 }
 

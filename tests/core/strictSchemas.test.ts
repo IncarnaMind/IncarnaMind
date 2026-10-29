@@ -139,6 +139,8 @@ function replyTo(body: Record<string, unknown>): Reply {
           calculations: [FIGURE],
         }),
       };
+    case "absence":
+      return { text: JSON.stringify({ answer: "no" }) };
     case "change-claims":
       return { text: JSON.stringify({ claims: [] }) };
     case "calculations":
