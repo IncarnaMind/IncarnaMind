@@ -8,10 +8,12 @@
 //      for byte (#2152).
 //   4. Each app has what Analyses run with (ADR-0023) in python/ beside app.asar, as
 //      packages.json lists it.
+//   5. macOS is Apple silicon only (#2199): no Intel app or installer, and latest-mac.yml, which
+//      the auto-updater reads, offers only arm64 files.
 // Usage: node scripts/check-package.mjs [dist-folder]   (default: dist)
 // Exit code 1 when a check fails.
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
-import { dirname, join, resolve, sep } from "node:path";
+import { basename, dirname, join, resolve, sep } from "node:path";
 import { listPackage } from "@electron/asar";
 import { speechRuntimes } from "./afterPack.mjs";
 
@@ -87,7 +89,6 @@ for (const asar of asars) {
 /** The speech package each app should have, from the folder electron-builder put it in. */
 function speechPackageFor(asar) {
 	if (asar.includes(`${sep}mac-arm64${sep}`)) return "sherpa-onnx-darwin-arm64";
-	if (asar.includes(`${sep}mac${sep}`) || asar.includes(`${sep}mac-x64${sep}`)) return "sherpa-onnx-darwin-x64";
 	if (asar.includes(`${sep}win-unpacked${sep}`)) return "sherpa-onnx-win-x64";
 	if (asar.includes(`${sep}linux-unpacked${sep}`)) return "sherpa-onnx-linux-x64";
 	if (asar.includes(`${sep}linux-arm64-unpacked${sep}`)) return "sherpa-onnx-linux-arm64";
@@ -148,6 +149,27 @@ for (const file of files.filter(isInstaller)) {
 	console.log(`${file}: ${mb(size)}`);
 	if (size > budget) {
 		failures.push(`${file} is ${mb(size)}, over the ${mb(budget)} installer budget`);
+	}
+}
+
+const intelApps = asars.filter(
+	(asar) => asar.includes(`${sep}mac${sep}`) || asar.includes(`${sep}mac-x64${sep}`),
+);
+const intelInstallers = files
+	.filter(isInstaller)
+	.filter((file) => /-mac-(?!arm64\.)/.test(basename(file)));
+for (const intel of [...intelApps, ...intelInstallers]) {
+	failures.push(`${intel} is for Intel Macs, which aren't supported (#2199)`);
+}
+const macUpdates = join(distDir, "latest-mac.yml");
+if (existsSync(macUpdates)) {
+	const offered = [
+		...readFileSync(macUpdates, "utf8").matchAll(/^\s*(?:-\s*)?(?:url|path):\s*(\S+)/gm),
+	].map(([, file]) => file);
+	const notArm = offered.filter((file) => !file.includes("-arm64."));
+	if (offered.length === 0 || notArm.length > 0) {
+		const listed = notArm.join(", ") || "none at all";
+		failures.push(`latest-mac.yml offers files that aren't for Apple silicon: ${listed}`);
 	}
 }
 

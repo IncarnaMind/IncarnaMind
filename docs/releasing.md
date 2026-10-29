@@ -14,7 +14,7 @@ npm run dist         # the installers for the current system; never published
 1. Set the version, commit it and tag it: `npm version 1.2.3`. This updates `package.json` and `package-lock.json`, commits, and creates the tag `v1.2.3`.
 2. Push the commit and the tag: `git push && git push origin v1.2.3`.
 3. The tag starts the **Release** workflow (`.github/workflows/release.yml`). It checks that the tag matches `package.json`, creates a draft GitHub Release, builds, checks each package's contents and size (`npm run check:package`), and only then uploads:
-   - for macOS, a dmg and a zip, each for Apple silicon and Intel;
+   - for macOS, a dmg and a zip for Apple silicon. Macs with an Intel processor aren't supported (#2199): onnxruntime-node has no Intel macOS library, and the package check fails on any Intel app, installer or update file;
    - for Windows, an NSIS installer, signed once SignPath is set up (see Windows signing);
    - for Linux, an AppImage and a .deb. The .deb is the one that runs with Chromium's sandbox on Ubuntu 24.04 and later. It can't update itself: like the unsigned macOS build, it tells the user a new version is out;
    - the `latest*.yml` files that auto-update reads.
