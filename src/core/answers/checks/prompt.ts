@@ -48,7 +48,7 @@ const reply = (language: Language, calculate: boolean) =>
     `Then, for supported or contradicted, one plain sentence in ${LANGUAGE_NAMES[language]}, whatever language the Documents and the User's sentence are in, saying what the Document says, with the markers of the deciding checked quotes at its end. For contradicted, name the thing, and give the Document's value and the sentence's.`,
     `For unsupported, one plain sentence in ${LANGUAGE_NAMES[language]} saying what the Documents don't say.`,
     "Add Evidence: [1, 2] naming exactly the cite markers used for this factual part, or Evidence: [] when none was used. Every named marker must have a checked quote. Record all complementary quotes; never invent a combined quote.",
-    'Only when the sentence explicitly quantifies over a domain (all/every/always/most or a comparison across a stated set), add Coverage: followed by one JSON object: {"unit":"stores","quantifier":"all","complete":true,"members":[{"label":"North","verdict":"supported","evidence":[1]},{"label":"South","verdict":"unsupported","evidence":[]}],"domainEvidence":[2]}. Use quantifier all or most. List every domain member, including missing outcomes; complete is false when the full domain is not established. Domain evidence establishes membership only, never an outcome. A supported/contradicted member needs its own checked outcome quote. Counts come from these members, not a supplied total. Ordinary independent clauses and summaries have no Coverage line.',
+    'For a sentence that quantifies over a domain (all/every/always/most or a comparison across a stated set), always add Coverage: followed by one JSON object, whatever the verdict: {"unit":"stores","quantifier":"all","complete":true,"members":[{"label":"North","verdict":"supported","evidence":[1]},{"label":"South","verdict":"unsupported","evidence":[]}],"domainEvidence":[2]}. Use quantifier all or most. List every domain member, including missing outcomes. complete means the Documents establish the full membership, not that every outcome is supported: a known member with no outcome still keeps complete:true and its unsupported row. Use complete:false only when membership itself is not established; never invent members. Domain evidence establishes membership only, never an outcome. Record its quote and each supported/contradicted member\'s own outcome quote, including when the whole sentence is unsupported. Counts come from these members, not a supplied total. Ordinary independent clauses and summaries have no Coverage line.',
     "For a forecast asserted as certain, add Reason kind: forecast-certainty. For two established events without the asserted causal link, add Reason kind: unbacked-cause. Otherwise omit Reason kind. These fields are your semantic judgment, not words to match in the sentence.",
     `Add two last lines, "Covered: " and "Not covered: ", only when a Passage states part of what this sentence itself says: the same subject and the same detail, the sentence saying more than the Passage (a wider group, an added condition, more days). "Covered: " is a short phrase in ${LANGUAGE_NAMES[language]} for that part ("the speed comparison"), "Not covered: " for the rest, as a phrase of the same kind ("memory and robustness"). A Passage about a neighbouring thing (the rent for a service charge, another period, site or person) states no part of the sentence: then write neither line.`,
     `For supported with a wider scope, the same two last lines: "Covered: " and what the Passage states for its own party, then "Not covered: " and the wider group. For supported with roles that differ, "Covered: " and what the Passage states, then "Not covered: " and what the sentence says otherwise.`,
@@ -73,7 +73,7 @@ const CALCULATE = [
   "A figure the sentence states that no Passage states, but that numbers in the Passages give (a ratio, a growth rate or other change, a share, a sum or a difference), isn't judged in your head:",
   "- find the numbers it comes from, for the same thing, period and units as the sentence;",
   '- call calculate with one figure, marker 1: its inputs, a formula that gives the figure as the sentence states it (for "fell 5%", the fall: (a - b) / a), and stated, the number as the sentence writes it ("1.1x");',
-  '- stated must be the exact quantity characters in the sentence. For a derived count written in words or as a period, name that literal quantity ("three", "三年"), not a digit you substituted. Consecutive increases need a base period and every comparison; count the successful consecutive comparisons with a real formula over the checked annual inputs.\n- an input keeps its sign as the Passage writes it: an amount in brackets, "(12,500)", is negative, so take a deduction written in brackets off a total by adding it (price + fee), never by subtracting it;',
+  '- stated must be the exact quantity characters in the sentence, in the sentence\'s original language. For a derived count written in words or as a period, copy that literal quantity: "three" from an English sentence, "三年" from a Chinese sentence. Never translate it or substitute digits. Consecutive increases need a base period and every comparison; count the successful consecutive comparisons with a real formula over the checked annual inputs.\n- an input keeps its sign as the Passage writes it: an amount in brackets, "(12,500)", is negative, so take a deduction written in brackets off a total by adding it (price + fee), never by subtracting it;',
   "- IncarnaMind works it out and compares it with the sentence's number, to its rounding. Then reply as below.",
   "- A successful calculation settles that derived quantity when its formula, subject, period and units match the sentence. Its result and the name of that quantity need not be printed in the Document. Do not mark them Not covered just because only the inputs are printed. Still judge every other detail of the sentence.",
   "- Count strictly positive changes with SUM(MAX(SIGN(later - earlier), 0), ...) over every required comparison, including the base period. SIGN gives -1, 0 or 1, so a flat step counts as zero. Keep all the checked annual inputs in the receipt.",
@@ -99,7 +99,7 @@ export function checkInstructions(
         ...rules(calculate),
         "",
         "Search the Documents with search_documents for what the sentence claims, in the Documents' language. Search again with other words if the Passages don't decide it; three searches at most.",
-        `For supported or contradicted, before you reply call cite with every deciding quote, each under its own marker: ${RECORD}.`,
+        `Before you reply, call cite with every quote used for the result, each under its own marker: ${RECORD}. This includes covered parts, supported domain members and the domain's membership when the whole sentence is unsupported. Use Evidence: [] only when no quote backs any part; never substitute handwritten markers for recorded Citations.`,
         ...(calculate ? ["", CALCULATE] : []),
         "",
         REPLY,
@@ -112,7 +112,7 @@ export function checkInstructions(
         passages,
         "",
         'Reply with one JSON object: {"answer": "…", "citations": [{"marker": 1, "passage": "P1", "location": "…", "quote": "…"}]}.',
-        `- answer: your reply, in the form below. citations: for supported or contradicted, a record for each deciding quote, each under its own marker: ${RECORD}. None for unsupported.`,
+        `- answer: your reply, in the form below. citations: a record for every quote used, each under its own marker: ${RECORD}. Include covered parts, supported domain members and membership on unsupported results too; use an empty array only when no quote backs any part.`,
         "",
         REPLY,
       ].join("\n");
@@ -169,6 +169,7 @@ export const EVIDENCE_INSTRUCTIONS = [
   "You checked a sentence the User wrote against Passages from the User's Documents, and gave a verdict without recording the Passage that decides it.",
   `Give it now: the Passage's id, where the quote is as the Passage names it, and ${QUOTE}.`,
   'Reply with one JSON object and nothing else: {"passage": "P1", "location": "…", "quote": "…"}. If no Passage decides it, reply {"passage": null}.',
+  'When the request names missing Citation markers, reply instead {"citations":[{"marker":1,"passage":"P1","location":"…","quote":"…"}]}. Include exactly every requested marker once, with its own supporting quote for the evidence or coverage role it was declared for. Do not copy one record across markers or substitute another marker. If a requested record cannot be supplied, give its passage as null; never invent a quote.',
 ].join("\n");
 
 /**
@@ -187,12 +188,20 @@ export function evidencePrompt(input: {
   verdict: ClaimVerdict;
   says: string | null;
   covered?: string | null;
+  markers?: readonly number[];
+  coverage?: ReadCoverage | null;
   passages: readonly { id: string; text: string }[];
 }): string {
   return [
     `<sentence>\n${input.claim.trim()}\n</sentence>`,
     `Your verdict: ${input.verdict}${input.says ? `. ${input.says}` : ""}`,
     ...(input.covered ? [`Covered: ${input.covered}`] : []),
+    ...(input.markers?.length
+      ? [
+          `Missing Citation markers: ${JSON.stringify(input.markers)}`,
+          ...(input.coverage ? [`Your declared coverage: ${JSON.stringify(input.coverage)}`] : []),
+        ]
+      : []),
     "",
     "The Passages:",
     ...input.passages.map((each) => `<passage id="${each.id}">\n${each.text}\n</passage>`),

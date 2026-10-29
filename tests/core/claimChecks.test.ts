@@ -969,8 +969,25 @@ describe("A figure the Documents don't state, worked out (#707)", () => {
 
     expect(calls[0]?.tools.sort()).toEqual(["calculate", "cite", "search_documents"]);
     expect(calls[0]?.system).toContain("isn't judged in your head");
-    const offered = JSON.stringify(calls[0]?.options.tools);
-    expect(offered).toContain("The number as the sentence to check writes it");
+    const offered = calls[0]?.options.tools?.find(
+      (tool) => tool.type === "function" && tool.name === "calculate",
+    );
+    expect(offered).toMatchObject({
+      inputSchema: {
+        properties: {
+          figures: {
+            items: {
+              properties: {
+                stated: {
+                  type: "string",
+                  description: expect.stringContaining("original language"),
+                },
+              },
+            },
+          },
+        },
+      },
+    });
 
     const localCalls: ModelCall[] = [];
     const local = await setUpWithDocuments(checkingModel(plans, localCalls), [BOARD]);

@@ -46,6 +46,7 @@ import type {
   UnsupportedReason,
 } from "../../api";
 import type { Evidence, EvidenceScope } from "../../documents/evidence";
+import { isRecord } from "../../errors";
 import type { Language } from "../../language";
 import { calculates, givesStructuredOutput } from "../../providers/capabilities";
 import type { PreparedChatModel } from "../../providers/chat";
@@ -63,6 +64,7 @@ import {
   type AnswerEngine,
   type AnswerTools,
   answerTemperature,
+  type CitationRecordInput,
   type CiteOptions,
   type DocumentLanguage,
 } from "../engine";
@@ -283,11 +285,22 @@ export function createClaimCheck(deps: ClaimCheckDependencies) {
               });
           }
           const result = figures.calculate(givenList(given), options);
-          invalidInput = given.length === 0 || named.size !== given.length;
+          const unbound = [...named].find(([marker, number]) => {
+            if (!recorded.has(marker)) return false;
+            const citation = figures.figure(marker)?.inputs[0]?.citation;
+            return !statedFigure(
+              request.claim,
+              number.number,
+              citation ? figureContext(citation) : {},
+            );
+          });
+          invalidInput = given.length === 0 || named.size !== given.length || unbound !== undefined;
           if (invalidInput) {
             stated.clear();
             calculationFailures++;
-            return result;
+            return unbound
+              ? `Nothing was recorded for this sentence: stated ${JSON.stringify(unbound[1].number)} is not a readable quantity in the sentence. Copy the exact quantity characters from the sentence in its original language. ${calculationFailures >= 2 ? "The calculation and its repair were refused; finish the check and say the arithmetic could not be checked." : "Repair this input once with calculate."}`
+              : result;
           }
           for (const [marker, number] of named) {
             if (recorded.has(marker)) {
@@ -594,12 +607,30 @@ export function createClaimCheck(deps: ClaimCheckDependencies) {
       ...(verdict.coverage?.members.flatMap((member) => member.evidence) ?? []),
       ...(verdict.coverage?.domainEvidence ?? []),
     ];
+    const rejectedMarkers = new Set(
+      session.summary().rejectedRecords.map((record) => record.marker),
+    );
+    const missing = [
+      ...new Set(namedMarkers.filter((marker) => session.finalCitation(marker) === null)),
+    ];
+    if (
+      missing.length > 0 &&
+      !namedMarkers.some((marker) => {
+        const citation = session.finalCitation(marker);
+        return (citation !== null || rejectedMarkers.has(marker)) && citation?.check !== "found";
+      })
+    ) {
+      const recovered = await askForEvidence(request, verdict, session, signal, null, missing);
+      if (isFailed(recovered)) failed = recovered.failed;
+    }
     const namedCitations = namedMarkers.map((marker) => session.finalCitation(marker));
     namedEvidence = uniqueCitations([
       ...(verdict.evidence === undefined ? foundCitations(session.finalCitation, null) : []),
       ...namedCitations.filter((citation): citation is Citation => citation?.check === "found"),
     ]);
     retainedEvidence = uniqueCitations([...retainedEvidence, ...namedEvidence]);
+    if (signal.aborted) return notChecked("stopped");
+    if (failed) return failedCheck(failed);
     if (namedCitations.some((citation) => citation?.check !== "found"))
       return notChecked("no-evidence");
     if (verdict.coverage) {
@@ -917,6 +948,7 @@ async function askForEvidence(
   session: ReturnType<typeof createCitationSession>,
   signal: AbortSignal,
   covered: string | null = null,
+  markers: readonly number[] = [],
 ): Promise<Citation | null | Failed> {
   const passages = session.shownPassages();
   if (passages.length === 0) return null;
@@ -926,9 +958,9 @@ async function askForEvidence(
     ({ text: reply } = await generateText({
       model: model.model,
       instructions: covered === null ? EVIDENCE_INSTRUCTIONS : COVERED_EVIDENCE_INSTRUCTIONS,
-      prompt: evidencePrompt({ claim: request.claim, ...verdict, covered, passages }),
+      prompt: evidencePrompt({ claim: request.claim, ...verdict, covered, passages, markers }),
       temperature: answerTemperature(model.capabilities.facts.temperature),
-      maxOutputTokens: 600,
+      maxOutputTokens: Math.min(4000, 600 * Math.max(1, markers.length)),
       maxRetries: 1,
       abortSignal: signal,
     }));
@@ -937,12 +969,37 @@ async function askForEvidence(
       console.error(`A check's evidence couldn't be asked for again: ${messageOf(error)}`);
     return { failed: classifyProviderError(error) };
   }
-  const record = readEvidence(reply);
-  if (!record) return null;
-  session.tools.cite([{ marker: EVIDENCE_MARKER, ...record }], { structured: true });
+  const records: CitationRecordInput[] = [];
+  if (markers.length === 0) {
+    const record = readEvidence(reply);
+    if (!record) return null;
+    records.push({ marker: EVIDENCE_MARKER, ...record });
+  } else {
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(reply.slice(reply.indexOf("{"), reply.lastIndexOf("}") + 1));
+    } catch {
+      return null;
+    }
+    if (
+      !isRecord(parsed) ||
+      !Array.isArray(parsed.citations) ||
+      parsed.citations.length !== markers.length
+    )
+      return null;
+    const missing = new Set(markers);
+    for (const given of parsed.citations) {
+      if (!isRecord(given) || typeof given.marker !== "number" || !missing.delete(given.marker))
+        return null;
+      const record = readEvidence(JSON.stringify(given));
+      if (!record) return null;
+      records.push({ marker: given.marker, ...record });
+    }
+  }
+  session.tools.cite(records, { structured: true });
   session.check();
-  const citation = session.finalCitation(EVIDENCE_MARKER);
-  return citation?.check === "found" ? citation : null;
+  const citations = records.map((record) => session.finalCitation(record.marker));
+  return citations.every((citation) => citation?.check === "found") ? (citations[0] ?? null) : null;
 }
 
 // In a whole check a model leant to "contradicted" for near misses: a figure for a related thing,

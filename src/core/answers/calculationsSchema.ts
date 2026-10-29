@@ -115,7 +115,8 @@ export const checkCalculationsSchema = {
       },
       stated: {
         type: "string",
-        description: 'The number as the sentence to check writes it: "1.1x", "12%".',
+        description:
+          'The exact quantity copied from the sentence to check, in its original language: "1.1x", "12%", "three", "三年". Never translate it or replace written words with digits.',
       },
       relation: {
         type: "string",

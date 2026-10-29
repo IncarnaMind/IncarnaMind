@@ -3,7 +3,12 @@
  * (#97, src/core/answers/checks/claims.ts).
  */
 import { describe, expect, test } from "vitest";
-import { paragraphsOf, readClaimNumbers } from "../../src/core/answers/checks/claims";
+import {
+  findClaimsPrompt,
+  paragraphsOf,
+  readClaimNumbers,
+  readClaimParts,
+} from "../../src/core/answers/checks/claims";
 
 const page = (number: number, ...lines: string[]) => ({
   page: number,
@@ -97,4 +102,42 @@ describe("The claims the model names", () => {
       expect(readClaimNumbers(reply)).toBeNull();
     },
   );
+});
+
+describe("The literal parts of numbered JSON input", () => {
+  test.each([
+    ["North opened.\nSouth followed.", "North opened.", "South followed."],
+    ["北店开业。\n南店随后开业。", "北店开业。", "南店随后开业。"],
+  ])("preserves global ids and original line breaks: %s", (text, first, second) => {
+    const sentences = [{ number: 37, text }];
+    expect(JSON.parse(findClaimsPrompt(sentences))).toEqual({ sentences });
+    const parts = readClaimParts(
+      JSON.stringify({
+        sentences: [
+          {
+            number: 37,
+            parts: [
+              { kind: "fact", text: first },
+              { kind: "fact", text: second },
+            ],
+          },
+        ],
+      }),
+      sentences,
+    );
+    expect(parts?.get(37)).toEqual([
+      { kind: "fact", span: { start: 0, end: first.length } },
+      { kind: "fact", span: { start: first.length + 1, end: text.length } },
+    ]);
+    expect(parts?.has(1)).toBe(false);
+  });
+
+  test.each([
+    "The input is JSON, not the numbered draft I expected.",
+    '{"sentences":[{"number":1,"parts":[{"kind":"fact","text":"North opened."}]}]}',
+    '{"sentences":[{"number":37,"parts":[{"kind":"fact","text":"The North store opened."}]}]}',
+    '{"sentences":[]}',
+  ])("keeps an unreadable or rewritten response unresolved: %s", (reply) => {
+    expect(readClaimParts(reply, [{ number: 37, text: "North opened." }])).toBeNull();
+  });
 });

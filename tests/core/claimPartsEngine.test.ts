@@ -5,7 +5,7 @@ import { readEvidence, readVerdict } from "../../src/core/answers/checks/prompt"
 import { wholeNumberWords } from "../../src/shared/numberWords";
 import { listedSentences, sentenceOf } from "../helpers/checks";
 import { setUpWithDocuments, shownPassages } from "../helpers/citations";
-import { type ModelCall, scriptedModel } from "../helpers/models";
+import { type GenerateCall, type ModelCall, scriptedModel } from "../helpers/models";
 
 type Part = { kind: "fact" | "opinion"; text: string };
 type Outcome = {
@@ -13,12 +13,15 @@ type Outcome = {
   sourceQuotes?: string[];
   judgement?: "same" | "conflict" | "neither";
   reply?: string;
+  recovery?: { marker: number; quote: string }[];
+  recoveryError?: { status: number; message: string };
   calculation?: {
     as?: "number" | "currency";
     stated: string;
     formula: string;
     inputs: { name: string; quote: string; number: string }[];
   };
+  repair?: Outcome["calculation"];
 };
 
 const INCREASES = "SUM(MAX(SIGN(r2023-r2022),0),MAX(SIGN(r2024-r2023),0),MAX(SIGN(r2025-r2024),0))";
@@ -32,6 +35,7 @@ async function check(
 ) {
   const calls: ModelCall[] = [];
   const judgements: string[] = [];
+  const recoveries: GenerateCall[] = [];
   const quotes = [
     ...new Set(
       Object.values(outcomes).flatMap(
@@ -59,7 +63,8 @@ async function check(
               input: {
                 citations: outcome.quotes.map((quote, index) => ({
                   marker: index + 1,
-                  passage: shown.find((passage) => passage.text.includes(quote))?.id,
+                  passage:
+                    shown.find((passage) => passage.text.includes(quote))?.id ?? shown[0]?.id,
                   quote,
                 })),
               },
@@ -67,7 +72,9 @@ async function check(
           ],
         };
       }
-      if (outcome.calculation && !call.results.some((result) => result.tool === "calculate")) {
+      const calculated = call.results.filter((result) => result.tool === "calculate").length;
+      const calculation = calculated === 0 ? outcome.calculation : outcome.repair;
+      if (calculation && calculated < (outcome.repair ? 2 : 1)) {
         return {
           calls: [
             {
@@ -79,8 +86,8 @@ async function check(
                     label: "Consecutive annual increases",
                     relation: "equals",
                     as: "number",
-                    ...outcome.calculation,
-                    inputs: outcome.calculation.inputs.map((input) => ({
+                    ...calculation,
+                    inputs: calculation.inputs.map((input) => ({
                       ...input,
                       label: input.name,
                       passage: shown.find((passage) => passage.text.includes(input.quote))?.id,
@@ -95,7 +102,7 @@ async function check(
       return {
         text:
           outcome.reply ??
-          `Verdict: supported\nScope: none, same\nTopic: found\nRoles: none, same\nThe Documents establish this.\nEvidence: ${JSON.stringify(outcome.quotes.map((_, index) => index + 1))}\nCalculation: ${outcome.calculation?.stated ?? "none"}`,
+          `Verdict: supported\nScope: none, same\nTopic: found\nRoles: none, same\nThe Documents establish this.\nEvidence: ${JSON.stringify(outcome.quotes.map((_, index) => index + 1))}\nCalculation: ${outcome.repair?.stated ?? outcome.calculation?.stated ?? "none"}`,
       };
     },
     {
@@ -110,6 +117,26 @@ async function check(
           judgements.push(call.system);
           const target = /<sentence>\n([\s\S]*?)\n<\/sentence>/.exec(call.prompt)?.[1] ?? "";
           return { text: outcomes[target]?.judgement ?? "neither" };
+        }
+        if (call.system.startsWith("You checked a sentence")) {
+          recoveries.push(call);
+          const target = /<sentence>\n([\s\S]*?)\n<\/sentence>/.exec(call.prompt)?.[1] ?? "";
+          const passages = [
+            ...call.prompt.matchAll(/<passage id="([^"]+)">\n([\s\S]*?)\n<\/passage>/g),
+          ];
+          const records = outcomes[target]?.recovery;
+          const failure = outcomes[target]?.recoveryError;
+          if (failure) return { error: failure };
+          if (records)
+            return {
+              text: JSON.stringify({
+                citations: records.map(({ marker, quote }) => ({
+                  marker,
+                  passage: passages.find((passage) => passage[2]?.includes(quote))?.[1] ?? "P999",
+                  quote,
+                })),
+              }),
+            };
         }
         return { text: JSON.stringify({ passage: null }) };
       },
@@ -129,7 +156,7 @@ async function check(
     modelId: "claude-haiku-5-5",
   });
   await core.updateSettings({ user: { language } });
-  return { result: await core.checkClaim({ claim, context }), calls, judgements };
+  return { result: await core.checkClaim({ claim, context }), calls, judgements, recoveries };
 }
 
 describe("literal sentence parts", () => {
@@ -881,4 +908,266 @@ describe("structural part and declared-count readers", () => {
       readVerdict('Verdict: supported\nCoverage: {"unit":"stores","members":[]}')?.coverage,
     ).toBeNull();
   });
+});
+
+describe.each(["en", "zh-CN"] as const)("%s declared evidence recovery", (language) => {
+  const claim =
+    language === "en" ? "Rook operated North and South branches." : "白鸦公司经营北区和南区分店。";
+  const north = language === "en" ? "Rook operated the North branch." : "白鸦公司经营北区分店。";
+  const south = language === "en" ? "Rook operated the South branch." : "白鸦公司经营南区分店。";
+  const reply =
+    "Verdict: supported\nScope: none, same\nTopic: found\nRoles: none, same\nEvidence: [1, 2]\nCalculation: none";
+
+  test("recovers every missing declared record in one request", async () => {
+    const { result, recoveries } = await check(
+      claim,
+      [{ kind: "fact", text: claim }],
+      {
+        [claim]: {
+          quotes: [],
+          sourceQuotes: [north, south],
+          reply,
+          recovery: [
+            { marker: 1, quote: north },
+            { marker: 2, quote: south },
+          ],
+        },
+      },
+      language,
+    );
+    expect(result.verdict).toBe("supported");
+    expect(result.parts?.[0]?.evidence.map((citation) => [citation.quote, citation.check])).toEqual(
+      [
+        [north, "found"],
+        [south, "found"],
+      ],
+    );
+    expect(recoveries).toHaveLength(1);
+    expect(recoveries[0]?.options.maxOutputTokens).toBe(1200);
+  });
+
+  test("preserves a found record while recovering only the missing record", async () => {
+    const { result, recoveries } = await check(
+      claim,
+      [{ kind: "fact", text: claim }],
+      {
+        [claim]: {
+          quotes: [north],
+          sourceQuotes: [north, south],
+          reply,
+          recovery: [{ marker: 2, quote: south }],
+        },
+      },
+      language,
+    );
+    expect(result.verdict).toBe("supported");
+    expect(result.parts?.[0]?.evidence.map((citation) => citation.quote)).toEqual([north, south]);
+    expect(recoveries).toHaveLength(1);
+    expect(recoveries[0]?.options.maxOutputTokens).toBe(600);
+  });
+
+  test.each([
+    [],
+    [{ marker: 1, quote: north }],
+    [
+      { marker: 1, quote: "" },
+      { marker: 2, quote: "" },
+    ],
+    [
+      { marker: 1, quote: north },
+      { marker: 1, quote: south },
+    ],
+    [
+      { marker: 1, quote: north },
+      { marker: 3, quote: south },
+    ],
+    [
+      { marker: 1, quote: north },
+      { marker: 2, quote: "A quote absent from every Document." },
+    ],
+  ])(
+    "missing, duplicate, unexpected or unfound recovered records stay unresolved: %j",
+    async (...recovery) => {
+      const { result, recoveries } = await check(
+        claim,
+        [{ kind: "fact", text: claim }],
+        {
+          [claim]: { quotes: [], sourceQuotes: [north, south], reply, recovery },
+        },
+        language,
+      );
+      expect(result).toMatchObject({ verdict: "not-checked", reason: "no-evidence" });
+      expect(recoveries).toHaveLength(1);
+    },
+  );
+
+  test("an existing rejected record is never replaced by a recovered record", async () => {
+    const { result, recoveries } = await check(
+      claim,
+      [{ kind: "fact", text: claim }],
+      {
+        [claim]: {
+          quotes: ["A quote absent from every Document."],
+          sourceQuotes: [north, south],
+          reply,
+          recovery: [
+            { marker: 1, quote: north },
+            { marker: 2, quote: south },
+          ],
+        },
+      },
+      language,
+    );
+    expect(result).toMatchObject({ verdict: "not-checked", reason: "no-evidence" });
+    expect(recoveries).toHaveLength(0);
+  });
+
+  test("a found neighbor remains visible beside a failed declared record", async () => {
+    const { result, recoveries } = await check(
+      claim,
+      [{ kind: "fact", text: claim }],
+      {
+        [claim]: {
+          quotes: [north, "A quote absent from every Document."],
+          sourceQuotes: [north, south],
+          reply,
+          recovery: [{ marker: 2, quote: south }],
+        },
+      },
+      language,
+    );
+    expect(result).toMatchObject({ verdict: "not-checked", reason: "no-evidence" });
+    expect(result.parts?.[0]?.evidence.map((citation) => [citation.quote, citation.check])).toEqual(
+      [[north, "found"]],
+    );
+    expect(recoveries).toHaveLength(0);
+  });
+
+  test("a recovery provider failure preserves the found neighbor and original failure", async () => {
+    const { result, recoveries } = await check(
+      claim,
+      [{ kind: "fact", text: claim }],
+      {
+        [claim]: {
+          quotes: [north],
+          sourceQuotes: [north, south],
+          reply,
+          recoveryError: { status: 402, message: "Insufficient credits" },
+        },
+      },
+      language,
+    );
+    expect(result).toMatchObject({ verdict: "not-checked", reason: "out-of-credit" });
+    expect(result.parts?.[0]?.evidence.map((citation) => citation.quote)).toEqual([north]);
+    expect(recoveries).toHaveLength(1);
+  });
+
+  test("coverage-only member and domain references all need checked records", async () => {
+    const quantified =
+      language === "en" ? "All of Rook's branches operated." : "白鸦公司的全部分店都在营业。";
+    const domain =
+      language === "en"
+        ? "Rook's branches are North and South."
+        : "白鸦公司的分店为北区和南区分店。";
+    const coverage = {
+      unit: "branches",
+      quantifier: "all",
+      complete: true,
+      members: [
+        { label: "North", verdict: "supported", evidence: [1] },
+        { label: "South", verdict: "supported", evidence: [2] },
+      ],
+      domainEvidence: [3],
+    };
+    const { result, recoveries } = await check(
+      quantified,
+      [{ kind: "fact", text: quantified }],
+      {
+        [quantified]: {
+          quotes: [],
+          sourceQuotes: [north, south, domain],
+          reply: `Verdict: supported\nScope: none, same\nTopic: found\nRoles: none, same\nEvidence: []\nCoverage: ${JSON.stringify(coverage)}\nCalculation: none`,
+          recovery: [
+            { marker: 1, quote: north },
+            { marker: 2, quote: south },
+            { marker: 3, quote: domain },
+          ],
+        },
+      },
+      language,
+    );
+    expect(result.verdict).toBe("supported");
+    expect(result.parts?.[0]?.coverage?.members).toHaveLength(2);
+    expect(result.parts?.[0]?.coverage?.domainEvidence).toMatchObject([
+      { quote: domain, check: "found" },
+    ]);
+    expect(result.parts?.[0]?.evidence).toHaveLength(3);
+    expect(recoveries).toHaveLength(1);
+    expect(recoveries[0]?.options.maxOutputTokens).toBe(1800);
+  });
+
+  test("empty evidence on an unsupported reply invents no record", async () => {
+    const { result, recoveries } = await check(
+      claim,
+      [{ kind: "fact", text: claim }],
+      {
+        [claim]: {
+          quotes: [],
+          sourceQuotes: [north],
+          reply: "Verdict: unsupported\nTopic: not found\nEvidence: []\nCalculation: none",
+        },
+      },
+      language,
+    );
+    expect(result.verdict).toBe("unsupported");
+    expect(result.parts?.[0]?.evidence).toEqual([]);
+    expect(recoveries).toHaveLength(0);
+  });
+});
+
+describe("literal stated quantity repair", () => {
+  const claim = "截至2025年，榆木公司的收入连续三年增长。";
+  const inputs = [10, 12, 14, 16].map((number, index) => ({
+    name: `r${2022 + index}`,
+    number: String(number),
+    quote: `榆木公司${2022 + index}自然年的收入为${number}个单位。`,
+  }));
+
+  test.each([undefined, "three", "三年"])(
+    "an unreadable binding can be repaired only by a literal quantity: %s",
+    async (fixed) => {
+      const calculation = { stated: "three", formula: INCREASES, inputs };
+      const { result, calls } = await check(
+        claim,
+        [{ kind: "fact", text: claim }],
+        {
+          [claim]: {
+            quotes: [],
+            calculation,
+            ...(fixed && { repair: { ...calculation, stated: fixed } }),
+          },
+        },
+        "zh-CN",
+      );
+      const feedback = calls
+        .flatMap((call, index) => call.results.slice(calls[index - 1]?.results.length ?? 0))
+        .filter((reply) => reply.tool === "calculate");
+      expect(feedback[0]?.text).toContain("stated");
+      expect(feedback[0]?.text).toContain('"three"');
+      expect(feedback[0]?.text).not.toMatch(/^Recorded/);
+      expect(feedback).toHaveLength(fixed ? 2 : 1);
+      if (fixed === "三年") {
+        expect(result.verdict).toBe("supported");
+        expect(result.parts?.[0]?.calculation).toMatchObject({
+          agrees: true,
+          stated: "三年",
+          figure: { value: 3 },
+        });
+        expect(result.parts?.[0]?.calculation?.figure.inputs).toHaveLength(4);
+      } else {
+        expect(result).toMatchObject({ verdict: "not-checked", reason: "no-evidence" });
+        expect(result.parts?.[0]?.calculation).toBeNull();
+      }
+    },
+  );
 });
