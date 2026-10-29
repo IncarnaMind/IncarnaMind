@@ -29,7 +29,7 @@ const PLANTED: Readonly<Record<string, string>> = {
   MOONSHOT_API_KEY: `sk-${mark}-4`,
   INCARNAMIND_LIVE_ANTHROPIC_KEY: `sk-ant-api03-${mark}-5`,
   INCARNAMIND_EVAL_CHAT_KEY: `sk-ant-api03-${mark}-6`,
-  HTTPS_PROXY: `http://tester:${mark}-7@127.0.0.1:9`,
+  HTTPS_PROXY: `http://tester:${mark}@127.0.0.1:9`,
 };
 
 async function withPlanted<T>(run: () => Promise<T>): Promise<T> {
