@@ -45,6 +45,7 @@ vi.mock("../../src/renderer/src/editor/healthCounts", () => ({
       from: 1,
       to: 9,
       text: "A cited claim.",
+      claim: null,
       citations: [{ attributes: {}, at: 3, pos: 9 }],
       blockId: "block-1",
       inTable: false,
