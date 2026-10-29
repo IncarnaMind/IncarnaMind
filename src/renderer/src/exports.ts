@@ -95,6 +95,8 @@ export type ExportResult = { tableId?: string } & (
       /** When it was saved, in ms, so a line the User left behind doesn't come back long after. */
       at: number;
       unverified: number;
+      /** The comparison-table columns the file leaves out, for the line to say. */
+      hiddenColumns: number;
       /** The sentences whose check isn't good: how many, and whether they went in as comments. */
       checks: SentenceChecksExported;
       /** The changes waiting that went into a Word file as tracked changes. */
@@ -291,6 +293,7 @@ function savedResult(
       inDefaultFolder: saved.file.inDefaultFolder,
       at: Date.now(),
       unverified: "unverifiedCitations" in saved ? saved.unverifiedCitations : 0,
+      hiddenColumns: "hiddenColumns" in saved ? saved.hiddenColumns : 0,
       checks: "sentenceChecks" in saved ? saved.sentenceChecks : NO_CHECKS,
       tracked: "trackedChanges" in saved ? saved.trackedChanges : 0,
       kept: "word" in saved ? (saved.word?.keptFurniture ?? []) : [],

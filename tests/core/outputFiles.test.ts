@@ -142,6 +142,7 @@ describe("The Output location", () => {
       citations: 0,
       unverifiedCitations: 0,
       questions: 0,
+      hiddenColumns: 0,
       word: null,
       sentenceChecks: {
         contradicted: 0,

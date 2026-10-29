@@ -10007,10 +10007,6 @@
   }
   .comparison-scroll {
     display: grid;
-    grid-template-columns: minmax(132px, 168px) repeat(
-        var(--comparison-columns),
-        minmax(156px, 1fr)
-      );
     overflow-x: auto;
     border: 1px solid var(--color-rule);
     border-radius: 8px;
@@ -10043,9 +10039,61 @@
     word-break: normal;
   }
   .comparison-question {
+    position: relative;
     display: flex;
     align-items: flex-start;
     gap: 4px;
+    user-select: none;
+  }
+  .comparison-question[tabindex] {
+    cursor: grab;
+  }
+  .comparison-question[data-dragging] {
+    cursor: grabbing;
+    opacity: 0.6;
+  }
+  /* Where a dragged column would land: a rule at the edge it lands against. */
+  .comparison-question[data-drop="before"]::before,
+  .comparison-question[data-drop="after"]::after {
+    content: "";
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    z-index: 4;
+    width: 2px;
+    background: var(--color-accent);
+  }
+  .comparison-question[data-drop="before"]::before {
+    left: -1px;
+  }
+  .comparison-question[data-drop="after"]::after {
+    right: -1px;
+  }
+  /* The shared pane divider, on the heading's edge: its rule and grip show while it is used. */
+  .comparison-column-resize {
+    position: absolute;
+    top: 0;
+    right: -4px;
+    bottom: 0;
+    z-index: 3;
+    display: flex;
+    justify-content: center;
+    width: 9px;
+    pointer-events: none;
+  }
+  .comparison-column-resize > .pane-divider {
+    height: 100%;
+    background: transparent;
+    pointer-events: auto;
+  }
+  .comparison-column-resize > .pane-divider:hover,
+  .comparison-column-resize > .pane-divider:active,
+  .comparison-column-resize > .pane-divider:focus-visible {
+    background: var(--color-accent);
+  }
+  html[data-comparison-column-drag] {
+    cursor: grabbing;
+    user-select: none;
   }
   .comparison-question:focus-visible {
     outline: 2px solid var(--color-accent);
@@ -10123,9 +10171,14 @@
   .comparison-row[data-removed="true"] .comparison-document-name {
     color: var(--color-ink-meta);
   }
-  .comparison-question:last-child,
-  .comparison-cell:last-child {
+  .comparison-question[data-last-shown],
+  .comparison-cell[data-last-shown],
+  .comparison-table[data-no-columns] .comparison-corner,
+  .comparison-table[data-no-columns] .comparison-document {
     border-right: 0;
+  }
+  .comparison-cell[hidden] {
+    display: none;
   }
   .comparison-row:last-child > .comparison-document,
   .comparison-row:last-child > .comparison-row-cells > .comparison-cell {

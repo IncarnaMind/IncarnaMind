@@ -19,7 +19,7 @@ import {
   type Settings,
   type TaskKind,
 } from "../core";
-import { DataFromNewerVersionError } from "../core/errors";
+import { DataFromNewerVersionError, isRecord } from "../core/errors";
 import type { Language } from "../core/language";
 import { defaultOllamaUrl } from "../core/providers/kinds";
 import { installedOllamaModels } from "../core/providers/ollama";
@@ -190,6 +190,23 @@ async function testTaskKinds(): Promise<TaskKind[]> {
 }
 
 let core: Core | undefined;
+
+/** The window that watches each comparison table's Mind, by the content it came from. */
+const comparisonClients = new Map<number, string>();
+
+// Any window that shows a Note can watch its comparison tables: when it is gone, the core
+// stops waiting for it.
+app.on("browser-window-created", (_event, created) => {
+  const contentsId = created.webContents.id;
+  created.on("closed", () => {
+    const clientId = comparisonClients.get(contentsId);
+    if (!clientId) return;
+    comparisonClients.delete(contentsId);
+    core
+      ?.forgetComparisonWindow({ clientId })
+      .catch((error: unknown) => logger.exception("app.comparisonWindowForgotten", error));
+  });
+});
 let startupComplete = false;
 let instanceReady = false;
 let closingForUpdate = false;
@@ -257,6 +274,14 @@ function exposeCore(core: Core): void {
   for (const method of coreApiMethods) {
     handle(channelFor(method), (event, ...args) => {
       if (!isFromOurRenderer(event)) throw new Error("Refused a call from an unknown page.");
+      const input = args[0];
+      if (
+        method === "watchComparisonMind" &&
+        isRecord(input) &&
+        typeof input.clientId === "string"
+      ) {
+        comparisonClients.set(event.sender.id, input.clientId);
+      }
       return Reflect.apply(core[method], core, args) as Promise<unknown>;
     });
   }

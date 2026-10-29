@@ -4,6 +4,7 @@ import type { PluginView, Transaction } from "@tiptap/pm/state";
 import type { EditorView } from "@tiptap/pm/view";
 import { ySyncPluginKey } from "@tiptap/y-tiptap";
 import { onTestFinished } from "vitest";
+import type * as Y from "yjs";
 import { MIND_CONTENT_FIELD } from "../../src/core";
 import { noteExtensions } from "../../src/renderer/src/editor/noteSchema";
 import { SmartTypography } from "../../src/renderer/src/editor/typography";
@@ -29,9 +30,18 @@ export function headlessEditor(extensions = editorExtensions()): Editor {
  * changes back to Yjs, which the client sends to the core.
  */
 export function boundEditor(client: MindClient): Editor {
+  return boundEditorTo(client.doc);
+}
+
+/**
+ * A headless editor bound to a Mind's Yjs document, as the Mind editor is: this
+ * module graph's note extensions, so a test with two windows can give each its own
+ * store and lock, and the document a window's own copy holds.
+ */
+export function boundEditorTo(doc: Y.Doc): Editor {
   const editor = headlessEditor([
     ...editorExtensions(),
-    Collaboration.configure({ document: client.doc, field: MIND_CONTENT_FIELD }),
+    Collaboration.configure({ document: doc, field: MIND_CONTENT_FIELD }),
   ]);
   const sync = editor.state.plugins.find((plugin) => plugin.spec.key === ySyncPluginKey);
   const view = {
