@@ -141,6 +141,9 @@ registerMenu("comparisonColumn", [
   "comparison.column.insertLeft",
   "comparison.column.insertRight",
   "comparison.column.duplicate",
+  "comparison.column.moveLeft",
+  "comparison.column.moveRight",
+  "comparison.column.hide",
   "comparison.column.remove",
 ]);
 

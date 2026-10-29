@@ -2,6 +2,7 @@ import { create } from "zustand";
 import type {
   AskedQuote,
   AskInConversationInput,
+  ChatModelChoice,
   Conversation,
   ConversationAnswer,
   ConversationAskResult,
@@ -290,11 +291,12 @@ export function continueSetup(): void {
 
 /**
  * Writes an Answer of the open conversation again; why it couldn't be is kept under its id.
- * `clearScope`: from every Document, its Question's Search scope taken off (#748).
+ * `clearScope`: from every Document, its Question's Search scope taken off (#748). `model`:
+ * with this model, which the Question then keeps (#1848).
  */
 export async function regenerateAnswer(
   answerId: string,
-  { clearScope = false }: { clearScope?: boolean } = {},
+  { clearScope = false, model }: { clearScope?: boolean; model?: ChatModelChoice } = {},
 ): Promise<void> {
   const conversationId = useConversations.getState().openId;
   if (!conversationId) return;
@@ -307,6 +309,7 @@ export async function regenerateAnswer(
       conversationId,
       answerId,
       ...(clearScope && { clearScope }),
+      ...(model && { model }),
       onScreen: documentsOnScreen(),
     });
     settleAsk(answerId, result);

@@ -5,6 +5,7 @@
  */
 import { deflateRawSync } from "node:zlib";
 import { citationState, citedLocation, shownDocumentName } from "../../shared/citations";
+import { comparisonQuestionsOf } from "../../shared/comparisons";
 import { type MessageKey, type MessageParams, translate } from "../../shared/i18n";
 import { mindName } from "../../shared/naming";
 import { readableQuoteText } from "../../shared/readableQuote";
@@ -34,6 +35,8 @@ export interface ComparisonWorkbook {
   fileName: string;
   data: Uint8Array;
   unverifiedCitations: number;
+  /** The columns left out of the file, for the app to say so. */
+  hiddenColumns: number;
 }
 
 export function createComparisonExport(deps: ComparisonExportDependencies) {
@@ -49,9 +52,13 @@ export function createComparisonExport(deps: ComparisonExportDependencies) {
       const kept = deps.keptCitationTexts();
       const live = new Set(documents.map((document) => document.id));
       const attributesOf = new Map<Footnote, Partial<CitationAttributes>>();
+      let hiddenColumns = 0;
       const reading = deps.read(mind.id, (fragment) => {
         const table = findBlock(fragment, COMPARISON_TABLE_NODE, tableId)?.element;
         if (!table) return null;
+        hiddenColumns = comparisonQuestionsOf(table.getAttributes()).filter(
+          (question) => question.hidden === true,
+        ).length;
         const options: ReadOptions = {
           includeQuestions: false,
           footnote: (attributes) => {
@@ -63,6 +70,7 @@ export function createComparisonExport(deps: ComparisonExportDependencies) {
           trimBeforeFootnote: true,
           comparisonText: t,
           documentRemoved: (documentId) => !live.has(documentId),
+          leaveOutHiddenColumns: true,
           // A table still waiting as a change is exported as it is shown.
           review: reviewReading(fragment),
         };
@@ -90,6 +98,7 @@ export function createComparisonExport(deps: ComparisonExportDependencies) {
         fileName: `${name}.xlsx`,
         data: writeXlsx(book, deflateRawSync, { author: "IncarnaMind", created: deps.now() }),
         unverifiedCitations: unverified,
+        hiddenColumns,
       };
     },
   };
