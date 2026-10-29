@@ -76,6 +76,7 @@ import {
   readFigureReply,
   readFigureSource,
   uncheckedFigureResults,
+  verdictMarkers,
   withSentenceVerdict,
 } from "./figureChecks";
 import { figuresMatch, nearestLine } from "./nearest";
@@ -835,9 +836,13 @@ export function createClaimCheck(deps: ClaimCheckDependencies) {
             remainder.citation === null ? null : session.finalCitation(remainder.citation),
           ),
       });
+      // The sentence's contradiction is judged on the quote its own words cite, not a figure's.
+      const cited = verdictMarkers(text)
+        .map((marker) => session.finalCitation(marker))
+        .find((citation) => citation?.check === "found");
       return said && !signal.aborted
         ? withSentenceVerdict(result, () =>
-            judged(said, request.claim, decidingCitation(session.finalCitation)),
+            judged(said, request.claim, cited ?? decidingCitation(session.finalCitation)),
           )
         : result;
     }

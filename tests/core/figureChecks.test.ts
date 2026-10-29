@@ -412,47 +412,6 @@ test("qualitative remainder retains the existing contradiction confirmations", a
   }
 });
 
-test.each([
-  { verdict: "contradicted", judgement: "conflict", sentence: "contradicted", judged: 2 },
-  { verdict: "contradicted", judgement: "same", sentence: "unsupported", judged: 1 },
-  { verdict: "unsupported", judgement: "conflict", sentence: "unsupported", judged: 0 },
-  { verdict: "supported", judgement: "conflict", sentence: "supported", judged: 0 },
-])(
-  "a Supported figure never weakens the reply's own $verdict verdict on the sentence (judged $judgement): $sentence (#2184)",
-  async ({ verdict, judgement, sentence, judged }) => {
-    const { result, confirmations } = await checkWith({
-      figures: [target("f1")],
-      judgement,
-      text: [
-        `Verdict: ${verdict}`,
-        "Scope: none, same",
-        "Topic: found",
-        "Roles: none, same",
-        "The accounts give revenue for 2025 as £21 [^1].",
-        `Figures: ${JSON.stringify({ items: [item()], remainder: null })}`,
-      ].join("\n"),
-    });
-    expect(result.figures?.[0]?.result.verdict).toBe("supported");
-    expect(result.verdict).toBe(sentence);
-    expect(confirmations).toHaveLength(judged);
-  },
-);
-
-test("a figure called contradicted with a source its quote doesn't hold is Unsupported, and isn't asked about (#2184)", async () => {
-  const { result, calls } = await checkWith({
-    figures: [target("f1")],
-    text: reply([
-      {
-        ...item(),
-        verdict: "contradicted",
-        source: { citation: 1, number: "£99", reading: null, unitQuote: null },
-      },
-    ]),
-  });
-  expect(result.figures?.[0]?.result.verdict).toBe("unsupported");
-  expect(calls.some((call) => call.prompt.includes("can't be read"))).toBe(false);
-});
-
 test("a missing remainder cannot make the parent all supported", async () => {
   const { result } = await checkWith({
     figures: [target("f1")],

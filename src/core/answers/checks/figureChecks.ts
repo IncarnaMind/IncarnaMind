@@ -1,3 +1,4 @@
+import { MARKER } from "../../../shared/answerSentences";
 import { aggregateFigureResults } from "../../../shared/figureChecks";
 import { readFigures } from "../../../shared/figures";
 import { evaluateFormula, sameNumber, showResult } from "../../../shared/formula";
@@ -88,6 +89,14 @@ export function figureReplyText(reply: string, setAside: readonly string[]): str
   return earlier?.split(/\r?\n/).some((line) => FIGURES.test(line))
     ? `${earlier}\n${reply}`
     : reply;
+}
+
+/** The markers the reply's own words carry, in order: its Figures line's are its figures'. */
+export function verdictMarkers(reply: string): number[] {
+  return reply
+    .split(/\r?\n/)
+    .filter((line) => !FIGURES.test(line))
+    .flatMap((line) => [...line.matchAll(MARKER)].map((match) => Number(match[1])));
 }
 
 export function readFigureReply(

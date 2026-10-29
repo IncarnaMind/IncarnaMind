@@ -7,13 +7,24 @@
 import type { JSONContent } from "@tiptap/core";
 import { describe, expect, test } from "vitest";
 import { claimSpans } from "../../src/renderer/src/editor/claimChecks";
-import { checkGenerate, isCheckRun, requestedFigures, sentenceOf } from "../helpers/checks";
+import {
+  checkGenerate,
+  isCheckRun,
+  type Plan,
+  requestedFigures,
+  sentenceOf,
+} from "../helpers/checks";
 import { shownPassages } from "../helpers/citations";
 import { createTempDataFolder, startCore } from "../helpers/core";
 import { addAndProcess, writeSourceFile } from "../helpers/documents";
 import { connectToMind } from "../helpers/mindClient";
 import { readMind, writeMind } from "../helpers/minds";
-import { type ModelCall, scriptedModel, scriptedModels } from "../helpers/models";
+import {
+  type GenerateCall,
+  type ModelCall,
+  scriptedModel,
+  scriptedModels,
+} from "../helpers/models";
 
 const AGREEMENT = {
   name: "Staff flat and salary - T. Okoro.md",
@@ -47,12 +58,16 @@ const CONTRACT = {
   ].join("\n"),
 };
 
-/** How the model checks one sentence: its quote, its verdict lines and each figure's item. */
+/**
+ * How the model checks one sentence: the quotes it records, as markers 1, 2, …, its verdict
+ * lines, each figure's item, and how the contradiction's two judgements come out.
+ */
 interface Reply {
-  quote: string;
+  quotes: string[];
   lines: string;
   item: Record<string, unknown>;
   remainder?: Record<string, unknown> | null;
+  judgement?: Plan["judgement"];
 }
 
 /** What a model asked to rewrite its Figures line about a number its quote lacks wrote back. */
@@ -61,11 +76,20 @@ const CANT_REWRITE =
 
 const contradicted = { verdict: "contradicted", scope: "same", topic: "found", roles: "same" };
 
+const SUPPORTED_SALARY = {
+  verdict: "supported",
+  scope: "same",
+  topic: "found",
+  roles: "same",
+  reading: 1,
+  source: { citation: 1, number: "61,500", reading: null, unitQuote: null },
+};
+
 const CASES: Record<string, Reply> = {
   // The address's "14" isn't in the quote the model recorded, and its remainder copies the
   // whole sentence, number and all.
   "The Employee is the landlord of the flat at 14 Mill Lane and the Company the tenant.": {
-    quote: "the Company is the landlord and the Employee the tenant",
+    quotes: ["the Company is the landlord and the Employee the tenant"],
     lines: [
       "Verdict: contradicted",
       "Scope: none, same",
@@ -90,7 +114,7 @@ const CASES: Record<string, Reply> = {
   },
   // The sentence's own wrong figure named as the source, which its quote doesn't hold.
   "乙方月工资为人民币两万元。": {
-    quote: "乙方月工资为人民币一万八千元",
+    quotes: ["乙方月工资为人民币一万八千元"],
     lines: [
       "Verdict: contradicted",
       "Scope: 乙方, same",
@@ -102,7 +126,7 @@ const CASES: Record<string, Reply> = {
   },
   // The parties the other way round, the rent the same.
   "The Company pays the Employee a rent of 950 per month for the flat.": {
-    quote: "The Employee pays the Company a rent of 950 per month.",
+    quotes: ["The Employee pays the Company a rent of 950 per month."],
     lines: [
       "Verdict: contradicted",
       "Scope: none, same",
@@ -118,7 +142,7 @@ const CASES: Record<string, Reply> = {
     },
   },
   "乙方将明川路14号2室出租给甲方。": {
-    quote: "甲方将明川路14号2室出租给乙方，甲方为出租方，乙方为承租方。",
+    quotes: ["甲方将明川路14号2室出租给乙方，甲方为出租方，乙方为承租方。"],
     lines: [
       "Verdict: contradicted",
       "Scope: none, same",
@@ -136,7 +160,7 @@ const CASES: Record<string, Reply> = {
   },
   // The figure the Document states, for another period.
   "The salary is 61,500 per month.": {
-    quote: "The salary is 61,500 per year",
+    quotes: ["The salary is 61,500 per year"],
     lines: [
       "Verdict: contradicted",
       "Scope: none, same",
@@ -155,7 +179,7 @@ const CASES: Record<string, Reply> = {
   // 一万八千 is 两万 at the figure's own shown precision, which is a figure's rounding, not the
   // sentence's: it says the salary is twenty thousand.
   "乙方的月工资是人民币两万元。": {
-    quote: "乙方月工资为人民币一万八千元",
+    quotes: ["乙方月工资为人民币一万八千元"],
     lines: [
       "Verdict: contradicted",
       "Scope: 乙方, same",
@@ -165,12 +189,62 @@ const CASES: Record<string, Reply> = {
     ].join("\n"),
     item: { ...contradicted, source: { citation: 1, number: "一万八千", reading: null } },
   },
+  // The figure's quote backs the figure; the sentence's own quote, under another marker, the
+  // parties the other way round.
+  "The Company pays the Employee a rent of 950 per month.": {
+    quotes: ["a rent of 950 per month", "The Employee pays the Company"],
+    lines: [
+      "Verdict: contradicted",
+      "Scope: none, same",
+      "Topic: found",
+      "Roles: the Company pays the Employee / the Employee pays the Company, differs",
+      "The flat agreement says the Employee pays the Company, not the Company the Employee [^2].",
+    ].join("\n"),
+    item: {
+      verdict: "supported",
+      scope: "same",
+      topic: "found",
+      roles: "same",
+      source: { citation: 1, number: "950", reading: null, unitQuote: null },
+    },
+  },
+  ...Object.fromEntries(
+    (
+      [
+        ["The salary is 61,500 per year, paid monthly in arrears.", "supported", "conflict"],
+        ["The salary is 61,500 per year, paid weekly.", "contradicted", "conflict"],
+        ["The salary is 61,500 per year, paid in two parts.", "contradicted", "same"],
+        ["The salary is 61,500 per year, paid by the parent company.", "unsupported", "conflict"],
+      ] as const
+    ).map(([sentence, verdict, judgement]): [string, Reply] => [
+      sentence,
+      {
+        quotes: [
+          "The salary is 61,500 per year, paid monthly in arrears on the last working day of the month.",
+        ],
+        lines: [
+          `Verdict: ${verdict}`,
+          "Scope: none, same",
+          "Topic: found",
+          "Roles: none, same",
+          "The agreement says the salary is 61,500 per year, paid monthly in arrears [^1].",
+        ].join("\n"),
+        // Its comma may be a decimal point, so the model names its reading, as the request offers.
+        item: SUPPORTED_SALARY,
+        judgement,
+      },
+    ]),
+  ),
 };
 
 /** The asks a check makes about a reply's Figures line, as their notes start. */
 const ASKS = ["can't be read", "you call it contradicted", "gives no remainder", "no Figures line"];
 
-function replying(calls: ModelCall[]) {
+function replying(calls: ModelCall[], judged: GenerateCall[]) {
+  const plans = Object.fromEntries(
+    Object.entries(CASES).map(([sentence, { judgement }]) => [sentence, { judgement }]),
+  );
+  const generate = checkGenerate(plans);
   return scriptedModel(
     (call) => {
       if (!isCheckRun(call)) return { text: "" };
@@ -181,14 +255,22 @@ function replying(calls: ModelCall[]) {
       if (!planned || searches.length === 0)
         return { calls: [{ tool: "search_documents", input: { query: sentence } }] };
       const shown = shownPassages(searches.at(-1)?.text ?? "");
-      const passage = shown.find((each) => each.text.includes(planned.quote));
-      if (!passage) return { text: "Verdict: unsupported" };
+      const passages = planned.quotes.map((quote) =>
+        shown.find((each) => each.text.includes(quote)),
+      );
+      if (passages.some((passage) => !passage)) return { text: "Verdict: unsupported" };
       if (!call.results.some((result) => result.tool === "cite"))
         return {
           calls: [
             {
               tool: "cite",
-              input: { citations: [{ marker: 1, passage: passage.id, quote: planned.quote }] },
+              input: {
+                citations: planned.quotes.map((quote, index) => ({
+                  marker: index + 1,
+                  passage: passages[index]?.id,
+                  quote,
+                })),
+              },
             },
           ],
         };
@@ -204,7 +286,12 @@ function replying(calls: ModelCall[]) {
       const figures = { items, remainder: planned.remainder ?? null };
       return { text: `${planned.lines}\n\nFigures: ${JSON.stringify(figures)}` };
     },
-    { generate: checkGenerate({}) },
+    {
+      generate(call) {
+        if (call.system.startsWith("Compare a sentence")) judged.push(call);
+        return generate(call);
+      },
+    },
   );
 }
 
@@ -216,8 +303,9 @@ const paragraph = (id: string, value: string): JSONContent => ({
 
 async function checkSentence(sentence: string) {
   const calls: ModelCall[] = [];
+  const judged: GenerateCall[] = [];
   const core = startCore(await createTempDataFolder(), {
-    createChatModel: scriptedModels(replying(calls)).createChatModel,
+    createChatModel: scriptedModels(replying(calls, judged)).createChatModel,
   });
   await core.saveChatProvider({ kind: "ollama", modelId: "local-model" });
   const sources = await createTempDataFolder();
@@ -240,7 +328,7 @@ async function checkSentence(sentence: string) {
   const span = claimSpans(readMind(client)).find((each) => each.sentence.text.trim() === sentence);
   const asked = calls.filter((call) => ASKS.some((ask) => call.prompt.includes(ask)));
   core.close();
-  return { check: span?.check, asked };
+  return { check: span?.check, asked, judged };
 }
 
 interface Expected {
@@ -255,7 +343,7 @@ async function expectContradicted({ sentence, figures, asks }: Expected) {
   const { check, asked } = await checkSentence(sentence);
   expect(check).toMatchObject({
     state: "contradicted",
-    evidence: { quote: CASES[sentence]?.quote },
+    evidence: { quote: CASES[sentence]?.quotes[0] },
   });
   expect(check?.figures?.map((figure) => figure.state)).toEqual(figures);
   expect(asked).toHaveLength(asks);
@@ -290,4 +378,46 @@ describe("a sentence whose figure the Documents contradict is Contradicted (#218
     "the Document's own figure for another period, or one at its own rounding: $sentence",
     expectContradicted,
   );
+
+  test("the sentence's contradiction is judged on the quote its own sentence names, not the figure's", async () => {
+    const sentence = "The Company pays the Employee a rent of 950 per month.";
+    const { check, judged } = await checkSentence(sentence);
+    expect(check).toMatchObject({
+      state: "contradicted",
+      evidence: { quote: "The Employee pays the Company" },
+    });
+    expect(check?.figures?.map((figure) => figure.state)).toEqual(["supported"]);
+    expect(judged.map((call) => /<quote>\n(.*)\n<\/quote>/.exec(call.prompt)?.[1])).toEqual([
+      "The Employee pays the Company",
+      "The Employee pays the Company",
+    ]);
+  });
 });
+
+test.each([
+  {
+    sentence: "The salary is 61,500 per year, paid monthly in arrears.",
+    shown: "supported",
+    judgements: 0,
+  },
+  { sentence: "The salary is 61,500 per year, paid weekly.", shown: "contradicted", judgements: 2 },
+  // The judgements don't uphold the contradiction: never Supported, though its figure is.
+  {
+    sentence: "The salary is 61,500 per year, paid in two parts.",
+    shown: "unsupported",
+    judgements: 1,
+  },
+  {
+    sentence: "The salary is 61,500 per year, paid by the parent company.",
+    shown: "unsupported",
+    judgements: 0,
+  },
+])(
+  "a Supported figure never weakens the check's own verdict on the sentence: $sentence (#2184)",
+  async ({ sentence, shown, judgements }) => {
+    const { check, judged } = await checkSentence(sentence);
+    expect(check?.state).toBe(shown);
+    expect(check?.figures?.map((figure) => figure.state)).toEqual(["supported"]);
+    expect(judged).toHaveLength(judgements);
+  },
+);
