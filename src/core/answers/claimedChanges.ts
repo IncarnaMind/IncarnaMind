@@ -49,7 +49,7 @@ const verdictSchema = jsonSchema<{ claims: ClaimVerdict[] }>({
 });
 
 export const CLAIM_CHECK_INSTRUCTIONS = [
-  "You check an AI assistant's reply against IncarnaMind's record of what its Tools did to the User's Notes. A Note is called a Mind in the record.",
+  "You check an AI assistant's reply against IncarnaMind's record of what its Tools did to the User's Notes. The record's Tool names and fields say mind for a Note.",
   "Read every sentence of the reply. For each claim that a Mind was made, written in, added to, changed, shortened, lengthened, replaced or removed from, return it with its kind and whether the record backs it. Return every such claim, backed or not backed.",
   "A change whose state is applied counts as made. A change that only waits for the User does not. A failed call, a denied call and no call change nothing. A revision of text the assistant wrote into a Mind earlier is a change, like any other change to a Mind.",
   "When the record has no Tool calls, or no change to a Mind, every affirmative report of a change is unbacked; never return an empty list just to be cautious. / 如果没有工具调用或没有改动，任何声称已经改动的话都没有依据，必须返回，不能留空。",
@@ -278,7 +278,7 @@ export function unmadeFixesNote(
   const said = [
     ...(unmade.words.length > 0
       ? [
-          `that you fixed ${unmade.words.map((word) => `“${word}”`).join(", ")}, but your edits left ${unmade.words.length === 1 ? "it" : "them"} in the Mind as before`,
+          `that you fixed ${unmade.words.map((word) => `“${word}”`).join(", ")}, but your edits left ${unmade.words.length === 1 ? "it" : "them"} in the Note as before`,
         ]
       : []),
     ...(unmade.count
