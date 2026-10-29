@@ -393,6 +393,50 @@ describe("the examples' Documents", () => {
     core.close();
   });
 
+  test("a Question in the example's Note searches its Documents and the User's own (#1942)", async () => {
+    const searched: string[] = [];
+    const model = scriptedModel((call: ModelCall) => {
+      const found = call.results.find((each) => each.tool === "search_documents");
+      if (found) {
+        searched.push(found.text);
+        return { text: "Done." };
+      }
+      return { calls: [{ tool: "search_documents", input: { query: "Northwind Retail" } }] };
+    });
+    const dataDir = await createTempDataFolder();
+    const core = startCore(dataDir, {
+      paths: { dataDir, examples: EXAMPLES },
+      createChatModel: scriptedModels(model).createChatModel,
+      systemLanguages: () => ["en-US"],
+    });
+    await core.saveChatProvider({ kind: "ollama", modelId: "main-model" });
+    const made = await core.createExamples();
+    await exampleDocuments(core);
+    if (!made.mindId) throw new Error("The example has no Mind.");
+    const [own] = await addAndProcess(core, [
+      await writeSourceFile(
+        await createTempDataFolder(),
+        "northwind-notes.txt",
+        "Northwind Retail results, in my own words.",
+      ),
+    ]);
+    if (!own) throw new Error("No Document added.");
+    const client = await connectToMind(core, made.mindId);
+    const asked = question("What does Northwind Retail say?");
+    editMind(client, (blocks) => [...blocks, asked]);
+    await client.settled();
+    const result = await core.askQuestion({ mindId: made.mindId, questionId: asked.attrs.id });
+    if (!result.asked) throw new Error("The Question wasn't asked.");
+    await answerEnded(core, result.answerId);
+
+    // Every Document, unchanged for the example's own Note: its own and the User's.
+    expect(searched.length).toBeGreaterThan(0);
+    const found = searched.join(" ");
+    expect(found).toContain('document="Northwind Retail · Q3 2026 results"');
+    expect(found).toContain('document="northwind-notes"');
+    core.close();
+  });
+
   test("before the User's first Document, their own Note searches the examples (#1942)", async () => {
     const searched: string[] = [];
     let system = "";
