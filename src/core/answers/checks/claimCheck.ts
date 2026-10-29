@@ -516,6 +516,7 @@ export function createClaimCheck(deps: ClaimCheckDependencies) {
       citations: readonly Citation[],
       claim = request.claim,
       bound?: readonly BoundNumber[],
+      worked?: readonly Figure[],
     ): { why: UnsupportedReason; quote: Citation | null } | null => {
       const checked = citations.map((citation) => {
         const text = (from: number | null, to: number | null) =>
@@ -530,7 +531,7 @@ export function createClaimCheck(deps: ClaimCheckDependencies) {
           document: () => text(null, null),
         };
       });
-      const found = unitNotStated(claim, checked, bound);
+      const found = unitNotStated(claim, checked, bound, worked);
       if (!found) return null;
       const t = (key: MessageKey, params?: MessageParams) =>
         translate(deps.language(), key, params);
@@ -1054,13 +1055,18 @@ export function createClaimCheck(deps: ClaimCheckDependencies) {
     if (!evidence) return notChecked("no-evidence");
     retainedEvidence = uniqueCitations([...retainedEvidence, evidence]);
     const deciding = retainedEvidence;
-    const unitProblem = unstatedUnit([
-      evidence,
-      ...retainedEvidence,
-      ...checked.flatMap(({ calculation }) =>
-        calculation.figure.inputs.map((input) => input.citation),
-      ),
-    ]);
+    const unitProblem = unstatedUnit(
+      [
+        evidence,
+        ...retainedEvidence,
+        ...checked.flatMap(({ calculation }) =>
+          calculation.figure.inputs.map((input) => input.citation),
+        ),
+      ],
+      request.claim,
+      undefined,
+      checked.map(({ number }) => number),
+    );
     const unit = unitProblem?.why ?? null;
     if (unit && (verdict.verdict !== "contradicted" || onlyCalculation))
       return unsupported(unit, unitProblem?.quote ?? null, null);

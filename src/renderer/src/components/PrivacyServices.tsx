@@ -7,6 +7,7 @@ import { decisionOf, groupByService, type ServiceGroup, type ServiceUse } from "
 import { useAppStore } from "../store";
 import { type Undoable, useUndo } from "../undo";
 import { DetailsLine } from "./DetailsLine";
+import { ProviderDataUseNotice } from "./providers/ProviderDataUseNotice";
 import { buttonStyle, rowButtonsClass, rowTextClass, ruledListClass, ruledRowClass } from "./ui";
 
 export const SERVICES_UNDO_PLACE = "settings:privacy:services";
@@ -208,6 +209,7 @@ function ServiceItem({ group }: { group: ServiceGroup }) {
         >
           {line}
         </DetailsLine>
+        <ProviderDataUseNotice service={service} />
       </div>
       <div className={rowButtonsClass}>
         {actions.map((action) => (
