@@ -7,7 +7,7 @@ import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { test } from "vitest";
-import type { ChatModelChoice, Core, DocumentCheckProgress } from "../../src/core";
+import type { ChatModelChoice, Core, DocumentCheckProgress, Money } from "../../src/core";
 import { connectToMind } from "../../tests/helpers/mindClient";
 import { note, writeMind } from "../../tests/helpers/minds";
 import { buildPdf } from "../../tests/helpers/pdf";
@@ -19,6 +19,7 @@ import { createLog } from "../lib/log";
 import { createWorkerCrossEncoder, prepareGpuFile } from "../lib/rerank";
 import { watchPassages } from "./passagesHanded";
 import { marksOf, type Outcome, outcomeOf } from "./repeat";
+import { budgetStop } from "./wholeReadBudget";
 import { WHOLE_READ_SENTENCES, type WholeReadSentence } from "./wholeReadCases";
 import {
   CLAUSE_WORDS,
@@ -30,10 +31,9 @@ import { report, type WholeReadRow } from "./wholeReadScore";
 
 const ROOT = resolve(__dirname, "../..");
 
-const spentOf = async (core: Core) =>
-  (await core.getCostSummary()).spent
-    .filter((each) => each.currency === "USD")
-    .reduce((total, each) => total + each.amount, 0);
+const dollarsOf = (spent: readonly Money[]) =>
+  spent.filter((each) => each.currency === "USD").reduce((total, each) => total + each.amount, 0);
+const spentOf = async (core: Core) => dollarsOf((await core.getCostSummary()).spent);
 
 const CASES: readonly { id: string; language: WholeReadLanguage; size: WholeReadSize }[] = [
   { id: "en-40", language: "en", size: 40 },
@@ -194,12 +194,14 @@ test("check against a Document, read whole", async () => {
             spent,
             seconds,
           });
-          const total = spentBefore + (await spentOf(core));
+          const current = (await core.getCostSummary()).spent;
+          const total = spentBefore + dollarsOf(current);
           log(
             `  ${how} ${repeat} ${sentence.key}: ${outcome}${check?.read ? ` ${check.read.pages}/${check.read.of}` : ""} · $${spent.toFixed(4)} · ${seconds.toFixed(1)} s · $${total.toFixed(3)}`,
           );
-          stopped = total >= budget;
-          if (stopped) log(`Stopped at $${total.toFixed(2)}, past the budget of $${budget}.`);
+          const stop = budgetStop(total, current, budget);
+          stopped = stop !== null;
+          if (stop) log(stop);
         };
         if (searched) {
           for (const [index, sentence] of sentences.entries()) {

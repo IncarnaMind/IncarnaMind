@@ -1,5 +1,5 @@
 import type { JSONContent } from "@tiptap/core";
-import { describe, expect, test } from "vitest";
+import { describe, expect, test, vi } from "vitest";
 import type { ClaimCheckAttributes, CoreAdapters, Document, SearchScope } from "../../src/core";
 import { claimSpans } from "../../src/renderer/src/editor/claimChecks";
 import { readClaimCheck } from "../../src/shared/claimChecks";
@@ -53,7 +53,7 @@ function checkInput(
   block: { attrs: { id: string } },
   claim: string,
   picked: SearchScope,
-  requestId = crypto.randomUUID(),
+  requestId: string = crypto.randomUUID(),
 ) {
   return {
     requestId,
@@ -186,7 +186,7 @@ describe("Check against a Document, read whole", () => {
     expect(progress).toHaveLength(2);
     const check = await onlyMark(client);
     expect(check.state).toBe("supported");
-    expect(check.read).toEqual({ pages: 1, of: 1 });
+    expect(check.read).toEqual({ pages: 0, of: 1 });
     expect(progress.at(-1)).toBe(check.read?.pages);
   });
 
@@ -218,7 +218,7 @@ describe("Check against a Document, read whole", () => {
     expect(progress.at(-1)).toBe(check.read?.of);
   });
 
-  test("reports only the pages the model actually received when a window is fitted", async () => {
+  test("counts a page only when every supplied Passage on it reached the model", async () => {
     const document = buildPdf(
       Array.from({ length: 12 }, (_, page) => ({
         lines: Array.from(
@@ -228,17 +228,18 @@ describe("Check against a Document, read whole", () => {
       })),
     );
     const calls: ModelCall[] = [];
-    const plan = { [EN.claim]: { verdict: "unsupported" as const } };
+    const quote = "Page 1 line 5 has ordinary lease words for this check.";
+    const plan = { [EN.claim]: { verdict: "supported" as const, quote } };
     const ollamaModels: CoreAdapters["ollamaModels"] = {
       describe: async () => ({
         digest: null,
         capabilities: ["completion", "tools"],
-        contextLength: 4096,
+        contextLength: 10240,
         parameters: null,
         support: "tools",
         chat: true,
         remote: false,
-        settings: { numCtx: 4096, outputTokens: 1024, keepAlive: "5m", think: false },
+        settings: { numCtx: 10240, outputTokens: 1024, keepAlive: "5m", think: false },
       }),
       loaded: async () => true,
       running: async () => true,
@@ -259,7 +260,50 @@ describe("Check against a Document, read whole", () => {
 
     expect(JSON.stringify(calls.filter(isCheckRun))).not.toContain("Page 12 line 30");
     const check = await onlyMark(client);
-    expect(check.read?.pages).toBeLessThan(check.read?.of ?? 0);
+    expect(check.state).toBe("supported");
+    expect(check.read).toEqual({ pages: 7, of: 12 });
+  });
+
+  test("plans with the same model-specific windows as the read", async () => {
+    const filler = Array.from(
+      { length: 6000 },
+      (_, index) => `Unrelated lease paragraph ${index} with ordinary words.`,
+    ).join("\n");
+    const { core, client, mind, block, documents } = await setup(
+      [{ name: EN.document, contents: filler }],
+      { [EN.claim]: { verdict: "unsupported" } },
+      EN.claim,
+    );
+    const provider = await core.saveChatProvider({
+      kind: "openai",
+      apiKey: "sk-test",
+      modelId: "gpt-4-turbo",
+    });
+    if (!provider.service) throw new Error("The test provider has no service.");
+    await core.allowDataFlow("document-check", provider.service.id);
+    const model = { providerId: provider.id, modelId: "gpt-4-turbo" };
+    const plan = await core.planDocumentCheck({
+      mindId: mind.id,
+      within: within([documents[0]?.id ?? ""]),
+      model,
+    });
+    if (plan.kind !== "ready" || plan.estimate?.billing !== "per-token") {
+      throw new Error("The whole read has no per-token estimate.");
+    }
+    const requestId = crypto.randomUUID();
+    let reports = 0;
+    core.on("documentCheck.progress", (event) => {
+      if (event.requestId === requestId) reports++;
+    });
+
+    await core.checkSentences({
+      ...checkInput(mind.id, block, EN.claim, within([documents[0]?.id ?? ""]), requestId),
+      model,
+    });
+    await client.settled();
+
+    expect(reports - 1).toBeGreaterThan(1);
+    expect(plan.estimate.calls).toBe((reports - 1) * 3);
   });
 
   test("keeps an earlier on-topic result when a later window finds nothing", async () => {
@@ -301,6 +345,92 @@ describe("Check against a Document, read whole", () => {
     expect(check.state).toBe("unsupported");
     expect(check.unsupported).toMatchObject({ found: true, covered: "pets up to 10 kg" });
     expect(check.read?.pages).toBe(check.read?.of);
+  });
+
+  test("a later unjudged window prevents an earlier partial answer becoming an absence", async () => {
+    const filler = [
+      "Covered clause: pets up to 10 kg are allowed.",
+      ...Array.from(
+        { length: 6000 },
+        (_, index) => `Unrelated lease paragraph ${index} with ordinary words.`,
+      ),
+    ].join("\n");
+    const model = scriptedModel(
+      (call) => {
+        if (
+          isCheckRun(call) &&
+          call.results.some((result) => result.tool === "search_documents") &&
+          !JSON.stringify(call.options.prompt).includes("Covered clause")
+        ) {
+          return { text: "This window has no readable verdict." };
+        }
+        return checkReply(call, {
+          [EN.claim]: {
+            reply: {
+              text: "Verdict: unsupported\nTopic: found\nCovered: pets up to 10 kg\nNot covered: pets up to 15 kg",
+            },
+          },
+        });
+      },
+      { generate: checkGenerate({}) },
+    );
+    const { core, client, mind, block, documents } = await setup(
+      [{ name: EN.document, contents: filler }],
+      {},
+      EN.claim,
+      [],
+      undefined,
+      model,
+    );
+
+    await core.checkSentences(
+      checkInput(mind.id, block, EN.claim, within([documents[0]?.id ?? ""])),
+    );
+
+    expect(await onlyMark(client)).toMatchObject({ state: "not-checked", reason: "malformed" });
+  });
+
+  test("a slower read cannot replace a newer result", async () => {
+    let release = () => {};
+    const paused = new Promise<void>((resolve) => {
+      release = () => resolve();
+    });
+    let held = false;
+    const model = scriptedModel(
+      (call) => {
+        if (isCheckRun(call) && !held && call.results.some((result) => result.tool === "cite")) {
+          held = true;
+          return {
+            text: "Verdict: unsupported\nCovered: pets\nNot covered: the weight limit",
+            pause: { after: 0, until: paused },
+          };
+        }
+        return checkReply(call, { [EN.claim]: { verdict: "supported", quote: EN.quote } });
+      },
+      { generate: checkGenerate({}) },
+    );
+    const { core, client, mind, block, documents } = await setup(
+      [{ name: EN.document, contents: EN.quote }],
+      {},
+      EN.claim,
+      [],
+      undefined,
+      model,
+    );
+
+    const older = core.checkSentences(
+      checkInput(mind.id, block, EN.claim, within([documents[0]?.id ?? ""]), "older"),
+    );
+    await vi.waitFor(() => expect(held).toBe(true));
+    await core.checkSentences(
+      checkInput(mind.id, block, EN.claim, within([documents[0]?.id ?? ""]), "newer"),
+    );
+    expect(await onlyMark(client)).toMatchObject({ request: "newer", state: "supported" });
+
+    release();
+    await older;
+
+    expect(await onlyMark(client)).toMatchObject({ request: "newer", state: "supported" });
   });
 
   test("a partial read leaves the previous mark unchanged when stopped", async () => {

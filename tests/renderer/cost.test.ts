@@ -150,6 +150,22 @@ describe("Cost in words", () => {
     expect(
       estimateLine({ ...estimate, cost: { amount: 1, currency: "USD" } }, t("en"), "en"),
     ).not.toBeNull();
+    for (const amount of [0.4, 1]) {
+      expect(
+        estimateLine(
+          {
+            ...estimate,
+            cost: { amount, currency: "USD" },
+            cap: null,
+            spentTowardCap: null,
+            setAsideTowardCap: null,
+          },
+          t("en"),
+          "en",
+          { always: true },
+        )?.parts,
+      ).toEqual([`About $${amount.toFixed(2)}`, "310K tokens"]);
+    }
     expect(estimateLine({ ...estimate, cost: null }, t("en"), "en")?.parts).toEqual([
       "310K tokens",
       "$12.40 of $20.00 used this month",

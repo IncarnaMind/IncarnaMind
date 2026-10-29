@@ -58,6 +58,7 @@ export interface WholeReadOptions {
   mindFolder(mindId: string): string | null;
   defaultModel(): ChatModelChoice | null;
   prepare: VerifyOptions["prepare"];
+  window(model: ChatModelChoice | null): Promise<PreparedChatModel["window"] | null>;
   estimate(model: ChatModelChoice | null, windows: readonly number[]): RunEstimate | null;
   claimCheck(request: ClaimCheckRequest): Promise<ClaimCheckResult>;
   withResult(
@@ -101,17 +102,28 @@ const pagesOf = ({ pageFrom, pageTo }: WindowedPassage): number[] => {
   return Array.from({ length: Math.max(1, to - pageFrom + 1) }, (_, at) => pageFrom + at);
 };
 
-const coverageOf = (passages: readonly WindowedPassage[]): number =>
-  new Set(
-    passages.flatMap((passage) => pagesOf(passage).map((page) => `${passage.documentId}:${page}`)),
-  ).size;
+const coverageOf = (
+  passages: readonly WindowedPassage[],
+  received: ReadonlySet<string>,
+): number => {
+  const required = new Map<string, Set<string>>();
+  for (const passage of passages) {
+    for (const page of pagesOf(passage)) {
+      const key = `${passage.documentId}:${page}`;
+      const onPage = required.get(key) ?? new Set<string>();
+      onPage.add(passage.passageId);
+      required.set(key, onPage);
+    }
+  }
+  return [...required.values()].filter((onPage) => [...onPage].every((id) => received.has(id)))
+    .length;
+};
 
 const ENDS_READ = new Set(["failed", "consent-revoked", "local-mode"]);
 
-export function windowTokens(model: PreparedChatModel): number {
-  return model.window
-    ? Math.min(WINDOW_TOKENS, Math.floor(model.window.tokens / 4))
-    : WINDOW_TOKENS;
+export function windowTokens(model: Pick<PreparedChatModel, "window"> | null): number {
+  const window = model?.window;
+  return window ? Math.min(WINDOW_TOKENS, Math.floor(window.tokens / 4)) : WINDOW_TOKENS;
 }
 
 function windowsOf(read: ToRead, tokens: number): Window[] {
@@ -156,6 +168,14 @@ const merged = (
 
 export function createWholeRead(options: WholeReadOptions) {
   const { content } = options;
+  const owners = new WeakMap<Y.XmlElement, Map<string, string>>();
+  const claim = (sentence: { element: Y.XmlElement; text: string }, requestId: string) => {
+    const owned = owners.get(sentence.element) ?? new Map<string, string>();
+    owned.set(sentence.text, requestId);
+    owners.set(sentence.element, owned);
+  };
+  const owns = (sentence: { element: Y.XmlElement; text: string }, requestId: string) =>
+    owners.get(sentence.element)?.get(sentence.text) === requestId;
 
   function toRead(
     mindId: string,
@@ -202,9 +222,7 @@ export function createWholeRead(options: WholeReadOptions) {
     signal: AbortSignal,
   ): Promise<{ result: ClaimCheckResult; pages: number } | null> {
     const windows = windowsOf(read, windowTokens(model));
-    const supplied = new Map(
-      read.passages.map(({ passage }) => [passage.passageId, passage] as const),
-    );
+    const supplied = read.passages.map(({ passage }) => passage);
     const received = new Set<string>();
     const versions = new Map<string, CheckedVersion>();
     const excluded = new Map<string, LeftOutDocument>();
@@ -229,12 +247,7 @@ export function createWholeRead(options: WholeReadOptions) {
       for (const id of result.readPassages ?? []) received.add(id);
       for (const each of result.versions) versions.set(each.documentId, each);
       for (const each of result.excluded) excluded.set(each.documentId, each);
-      pages = coverageOf(
-        [...received].flatMap((id) => {
-          const passage = supplied.get(id);
-          return passage ? [passage] : [];
-        }),
-      );
+      pages = coverageOf(supplied, received);
       report(pages);
       if (result.verdict === "supported" || result.verdict === "contradicted") {
         return { result: merged(result, versions, excluded), pages };
@@ -252,7 +265,7 @@ export function createWholeRead(options: WholeReadOptions) {
       }
       last = result;
     }
-    const final = found ?? unjudged ?? last;
+    const final = unjudged ?? found ?? last;
     return final ? { result: merged(final, versions, excluded), pages } : null;
   }
 
@@ -270,17 +283,25 @@ export function createWholeRead(options: WholeReadOptions) {
   }
 
   return {
-    plan(mindId: string, within: SearchScope, model: ChatModelChoice | null): DocumentCheckPlan {
+    async plan(
+      mindId: string,
+      within: SearchScope,
+      model: ChatModelChoice | null,
+    ): Promise<DocumentCheckPlan> {
       const read = toRead(mindId, within);
       if ("kind" in read) return read;
-      const windows = windowsOf(read, WINDOW_TOKENS).map((window) => window.tokens);
+      const chosen = model ?? options.defaultModel();
+      const window = await options.window(chosen);
+      const windows = windowsOf(read, windowTokens(window ? { window } : null)).map(
+        (each) => each.tokens,
+      );
       return {
         kind: "ready",
         documents: read.documents,
         pages: read.pages,
         readable: read.readable,
         tokens: read.tokens,
-        estimate: options.estimate(model ?? options.defaultModel(), windows),
+        estimate: options.estimate(chosen, windows),
       };
     },
 
@@ -318,6 +339,7 @@ export function createWholeRead(options: WholeReadOptions) {
       const startedAt = options.now().toISOString();
       let checked = 0;
       for (const [index, sentence] of selected.sentences.entries()) {
+        claim(sentence, check.requestId);
         const done = await readWhole(check, sentence, read, prepared, signal);
         if (!done || signal.aborted) return { kind: "cancelled" };
         const { result } = done;
@@ -327,7 +349,9 @@ export function createWholeRead(options: WholeReadOptions) {
         const coverage: WholeRead = { pages: done.pages, of: read.pages };
         const kept = content.edit(mindId, (blocks) => {
           const place = marked(blocks, selected.earlier[index] ?? null, stretches, sentence.text);
-          if (!place) return false;
+          if (!place || !owns(sentence, check.requestId)) return false;
+          const current = owners.get(place.element)?.get(sentence.text);
+          if (current !== undefined && current !== check.requestId) return false;
           const fresh: ClaimCheckAttributes = {
             id: place.check?.id ?? options.newId(),
             request: check.requestId,

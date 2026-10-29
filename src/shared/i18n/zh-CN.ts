@@ -727,7 +727,7 @@ export const zhCN = {
   "claim.readNow": "读取",
   "claim.readNotNow": "暂不",
   "claim.readAsk": "读取“{scope}”的 {pages} 页来核对这个句子？",
-  "claim.readCannot": "无法通读所选内容。请选择较小的文档或其中一部分。",
+  "claim.readCannot": "无法通读所选内容。请选择较小的文档。",
   "claim.readNothing": "所选内容没有可读取的文字。",
   "claim.checkedIn": "已对照“{scope}”核对",
   "claim.checkedIn.more": "已对照“{scope}”等 {total} 项核对",

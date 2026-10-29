@@ -5468,7 +5468,7 @@ export interface ContradictionCheckOutcome {
 /** What `checkContradictions` did. */
 export type CheckContradictionsResult =
   | ({ kind: "checked" } & ContradictionCheckOutcome)
-  | Exclude<CheckSentencesResult, { kind: "checked" | "waiting" }>;
+  | Exclude<CheckSentencesResult, { kind: "checked" | "waiting" | "cannot-read" }>;
 
 /**
  * The last check for contradictions a new version of a Document in the Mind's
@@ -5567,7 +5567,10 @@ export type CheckMindResult =
     }
   /** The model couldn't name the claims: nothing was checked. */
   | { kind: "failed"; error: ProviderError }
-  | Exclude<CheckSentencesResult, { kind: "checked" | "no-folder" | "only-cited" | "waiting" }>;
+  | Exclude<
+      CheckSentencesResult,
+      { kind: "checked" | "no-folder" | "only-cited" | "waiting" | "cannot-read" }
+    >;
 
 /**
  * The last whole-Mind check (#737), in the Mind's settings
@@ -5622,7 +5625,10 @@ export interface TextStretch {
 
 /** Why finding or checking a document's claims sent nothing. */
 type VerifyRefusal =
-  | Exclude<CheckSentencesResult, { kind: "checked" } | { kind: "waiting" }>
+  | Exclude<
+      CheckSentencesResult,
+      { kind: "checked" } | { kind: "waiting" } | { kind: "cannot-read" }
+    >
   /** Another document's claims are being found or checked, in that Mind: one run at a time. */
   | { kind: "busy"; mindId: string };
 

@@ -740,7 +740,7 @@ export const en = {
   "claim.readNow": "Read it",
   "claim.readNotNow": "Not now",
   "claim.readAsk": "Read {pages} pages of “{scope}” to check this sentence?",
-  "claim.readCannot": "This can’t be read whole. Choose a smaller Document or a part.",
+  "claim.readCannot": "This can’t be read whole. Choose a smaller Document.",
   "claim.readNothing": "No text to read in this pick.",
   "claim.checkedIn": "Checked against “{scope}”",
   "claim.checkedIn.more": "Checked against “{scope}” and {count} more",

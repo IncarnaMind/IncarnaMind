@@ -133,6 +133,7 @@ export interface ChecksOptions
   chat: {
     readiness(choice: ChatModelChoice | undefined, flow: CheckFlow): Promise<ChatReadiness>;
     prepareModel(choice: ChatModelChoice | undefined, flow: CheckFlow): Promise<PreparedChatModel>;
+    contextWindow(choice: ChatModelChoice | undefined): Promise<PreparedChatModel["window"] | null>;
     /** The service the default chat model sends to; null with none, or one on this computer. */
     defaultService(): ExternalService | null;
   };
@@ -629,6 +630,7 @@ export function createChecks(options: ChecksOptions) {
     },
     evidenceScope: (mindId, documentIds) => options.evidence.scope(documentIds, leftOutOf(mindId)),
     prepare: (choice) => prepare(choice, "document-check"),
+    window: (choice) => chat.contextWindow(choice ?? undefined),
     estimate: options.estimateRead,
     claimCheck,
     withResult,

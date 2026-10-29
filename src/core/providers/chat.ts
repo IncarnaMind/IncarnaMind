@@ -942,6 +942,23 @@ export function createChat(options: {
       );
     },
 
+    /** The window execution will use, without sending a Document or asking for consent. */
+    async contextWindow(choice?: ChatModelChoice): Promise<ContextWindow | null> {
+      const chosen = choice ?? settings.get().user.chatModel;
+      const row = chosen && rowById(chosen.providerId);
+      if (!chosen || !row || !isKnownRow(row)) return null;
+      if (row.kind !== "ollama") {
+        return cloudWindow(capabilitiesOf(row, chosen.modelId)) ?? null;
+      }
+      const profile = await profileFor(row.kind, row.base_url, chosen.modelId);
+      return profile
+        ? {
+            tokens: profile.settings.numCtx,
+            outputTokens: profile.settings.outputTokens,
+          }
+        : null;
+    },
+
     /** A provider's kind, and whether its model runs on this computer (it sends to no service); null when it's gone. */
     describe(id: string): { kind: ChatProviderKind; local: boolean } | null {
       const row = rowById(id);

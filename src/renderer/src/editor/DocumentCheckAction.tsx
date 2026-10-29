@@ -1,5 +1,5 @@
 import type { Editor } from "@tiptap/core";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type * as Y from "yjs";
 import type { DocumentCheckPlan, SearchScope } from "../../../core/api";
 import {
@@ -39,6 +39,7 @@ export function DocumentCheckAction({
   const [plan, setPlan] = useState<DocumentCheckPlan | null>(null);
   const [failure, setFailure] = useState<string | null>(null);
   const [reading, setReading] = useState(false);
+  const latest = useRef(0);
   const requested = useChecks((state) => state.pickDocument[claim.check.id] === true);
   const running = useChecks((state) => state.running[mindId]);
   const progress = useChecks((state) =>
@@ -50,35 +51,50 @@ export function DocumentCheckAction({
     if (requested) setPicking(true);
   }, [requested]);
   useEffect(() => core.on("documentCheck.progress", setDocumentProgress), []);
+  useEffect(
+    () => () => {
+      latest.current++;
+    },
+    [],
+  );
 
   const close = () => {
+    latest.current++;
     setPicking(false);
+    setPlan(null);
+    setFailure(null);
+    setReading(false);
     dismissDocumentPicker(claim.check.id);
   };
   const read = async (picked: SearchScope) => {
     close();
-    setFailure(null);
+    const current = latest.current;
     setReading(true);
     try {
       await checkSentences(editor, mindId, doc, "check-against-document", {
         ranges: [{ from: claim.from, to: claim.to }],
         within: picked,
       });
+    } catch (error) {
+      if (current === latest.current) setFailure(errorMessage(error, t));
     } finally {
-      setReading(false);
-      setPlan(null);
+      if (current === latest.current) {
+        setReading(false);
+        setPlan(null);
+      }
     }
   };
   const choose = async (picked: SearchScope) => {
-    setScope(picked);
     close();
-    setFailure(null);
+    setScope(picked);
+    const current = latest.current;
     try {
       const next = await core.planDocumentCheck({
         mindId,
         within: picked,
         model: modelInUseOf(doc),
       });
+      if (current !== latest.current) return;
       if (next.kind !== "ready") {
         setPlan(next);
         return;
@@ -94,7 +110,7 @@ export function DocumentCheckAction({
         await read(picked);
       }
     } catch (error) {
-      setFailure(errorMessage(error, t));
+      if (current === latest.current) setFailure(errorMessage(error, t));
     }
   };
 
@@ -126,7 +142,9 @@ export function DocumentCheckAction({
         <AskBlock
           testId="document-check-ask"
           question={t("claim.readAsk", { scope: named?.name ?? "", pages: plan.pages })}
-          estimate={plan.estimate ? estimateLine(plan.estimate, t, language) : null}
+          estimate={
+            plan.estimate ? estimateLine(plan.estimate, t, language, { always: true }) : null
+          }
           check={{
             label: t("claim.readNow"),
             testId: "document-check-read",
@@ -135,7 +153,7 @@ export function DocumentCheckAction({
           notNow={{
             label: t("claim.readNotNow"),
             testId: "document-check-cancel",
-            onClick: () => setPlan(null),
+            onClick: close,
           }}
         />
       )}

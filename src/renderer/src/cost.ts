@@ -89,15 +89,19 @@ export interface EstimateLine {
  * (price first, as DESIGN.md's plan card writes it). A run that would cost a
  * dollar or less shows none unless a monthly cap is set, whose month so far
  * is worth seeing (#1941); so does one no price is known for. Null for a
- * plan or a model on this computer, which show nothing.
+ * plan or a model on this computer, which show nothing. `always` is for a
+ * confirmation that has already been chosen, where every known estimate shows.
  */
 export function estimateLine(
   estimate: RunEstimate,
   t: Translate,
   language: Language,
+  options: { always?: boolean } = {},
 ): EstimateLine | null {
   if (estimate.billing !== "per-token") return null;
-  if (!estimate.cap && !(estimate.cost !== null && estimate.cost.amount > 1)) return null;
+  if (!options.always && !estimate.cap && !(estimate.cost !== null && estimate.cost.amount > 1)) {
+    return null;
+  }
   const tokens = t("cost.estimate.tokens", {
     tokens: new Intl.NumberFormat(language, { notation: "compact" }).format(estimate.tokens),
   });
