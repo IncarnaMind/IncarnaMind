@@ -1,10 +1,12 @@
-import { expect, test } from "@playwright/test";
+import { join } from "node:path";
+import { expect, type Page, test } from "@playwright/test";
 import type { CoreBridge } from "../src/core/api";
 import {
   acceptPlainTextKeys,
   createDataFolder,
   dismissChatSetup,
   launchApp,
+  motionSettled,
   newMind,
   pointAndClick,
   removeDataFolder,
@@ -21,6 +23,13 @@ const LANGUAGES = {
   en: { choose: "Choose another model", remove: "Remove from menu", again: "Ask again" },
   "zh-CN": { choose: "换一个模型", remove: "从菜单中移除", again: "重新提问" },
 } as const;
+
+const SCREENSHOTS = process.env.INCARNAMIND_SCREENSHOTS;
+async function screenshot(window: Page, name: string): Promise<void> {
+  if (!SCREENSHOTS) return;
+  await motionSettled(window);
+  await window.screenshot({ path: join(SCREENSHOTS, `${name}.png`) });
+}
 
 let dataDir: string;
 let home: string;
@@ -84,6 +93,7 @@ for (const language of ["en", "zh-CN"] as const) {
       await expect(problem).toContainText("gpt-9-not-found");
       const action = problem.getByTestId("answer-error-action");
       await expect(action).toHaveText(words.remove);
+      await screenshot(window, `ask-again-1-failed-${language}`);
       await pointAndClick(window, action);
       await expect(action).toHaveText(words.choose);
 
@@ -92,10 +102,12 @@ for (const language of ["en", "zh-CN"] as const) {
       await window.keyboard.press("Enter");
       await expect(menu).toBeVisible();
       await expect(window.getByRole("dialog", { name: /Settings|设置/ })).toHaveCount(0);
+      await screenshot(window, `ask-again-2-menu-${language}`);
       await pointAndClick(window, options.filter({ hasText: /Luna/ }));
 
       // The failed Question offers Ask again, and asked again it is answered, still the one Question.
       await expect(action).toHaveText(words.again);
+      await screenshot(window, `ask-again-3-offered-${language}`);
       await action.focus();
       await window.keyboard.press("Enter");
       await expect(problem).toHaveCount(0);
@@ -103,6 +115,7 @@ for (const language of ["en", "zh-CN"] as const) {
       await expect(answer).toHaveCount(1);
       await expect(answer).toHaveAttribute("data-status", "done");
       await expect(window.getByTestId("assistant-question")).toHaveCount(1);
+      await screenshot(window, `ask-again-4-answered-${language}`);
     } finally {
       await app.close();
     }
