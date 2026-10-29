@@ -38,10 +38,7 @@ const hasUnit = (figure: Figure) =>
   currenciesOf(figure).length > 0 || isShare(figure.unit) || figure.scaleWord !== null;
 
 // A count or a measure ("14号2室", "3楼") is never an amount written at another scale (#2189).
-const mayBeAmountOf = (unit: FigureUnit, as: FigureUnit) =>
-  unit.kind === "plain" ||
-  (unit.kind === "currency" && as.kind === "plain") ||
-  JSON.stringify(unit) === JSON.stringify(as);
+const isAmount = (unit: FigureUnit) => unit.kind === "plain" || unit.kind === "currency";
 
 // Separators may stay unsettled: read with the cited text's context, the same digits read the same.
 function figuresToCheck(claim: string, context: FigureContext): Figure[] {
@@ -121,7 +118,7 @@ export function unitNotStated(
     const sameWritten = read.flatMap(({ text, context, figures }) =>
       figures.flatMap((each) => {
         if (each.ambiguous.some(({ kind }) => kind !== "scale")) return [];
-        if (!mayBeAmountOf(each.unit, figure.unit)) return [];
+        if (!isAmount(each.unit)) return [];
         if (bound && !bound.some(({ chars }) => chars === each.chars)) return [];
         const readings = [
           each,
@@ -142,11 +139,8 @@ export function unitNotStated(
           }));
       }),
     );
-    // "20,000元" gives "两万元" itself: no other number on the page is it at another scale.
-    const givesAmount = !bound && same.some(({ unit }) => mayBeAmountOf(unit, figure.unit));
     if (
       !isShare(figure.unit) &&
-      !givesAmount &&
       sameWritten.length > 0 &&
       sameWritten.every(({ scale }) => scale !== figure.scale) &&
       !bound?.some(({ scale }) => scale === figure.scale)

@@ -518,6 +518,18 @@ describe("A Chinese amount in words (#2189)", () => {
     expect(unitNotStated(RENT, read("租金\t2"))).toMatchObject({ kind: "scale", amount: "2" });
   });
 
+  // protects=an amount in another currency is still the same digits at another scale, either way round, and an equal amount elsewhere on the page doesn't cancel the reason; fails_when="2万美元" against "2千元", "2万元" against "2千美元", or "2万元" against "租金	2" beside "押金20,000元" comes back with no reason, or "£2.5m" names the Costs line; no_claim=none beyond protects.
+  test.each([
+    ["乙方每月支付租金2万美元。", "租金2千元", "2千元"],
+    ["乙方每月支付租金2万元。", "租金2千美元", "2千美元"],
+    ["乙方每月支付租金2千美元。", "租金2万元", "2万元"],
+    ["乙方每月支付租金2千元。", "租金2万美元", "2万美元"],
+    ["乙方每月支付租金2万元。", "共2页。押金20,000元。租金\t2", "2"],
+    ["Revenue was £2.5m.", "Revenue\t2.5\nCosts 2,500,000", "2.5"],
+  ])("%s against %j gives %s at another scale", (claim, cited, amount) => {
+    expect(unitNotStated(claim, read(cited))).toMatchObject({ kind: "scale", amount });
+  });
+
   // protects=a figure's row compares it only with the numbers it was bound to: the room number on the same page is not one of them; fails_when=the row says "The Document gives 2, not 人民币两万元"; no_claim=none beyond protects.
   test("a figure's row is compared only with the numbers it was bound to", () => {
     const page = flat("林晓", "20,000").contents;
