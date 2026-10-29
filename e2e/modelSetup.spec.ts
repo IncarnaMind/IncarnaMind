@@ -1757,10 +1757,11 @@ test("with no key, the ChatGPT plan comes first, the Claude account second, and 
 });
 
 for (const language of ["en", "zh-CN"] as const) {
-  test(`a model app slower than the probe is never called missing: the card looks until it knows, then Check again finds it (${language})`, async () => {
+  test(`a silent model app settles to not heard from, never to missing, and Check again finds it (${language})`, async () => {
     // The app's probe gives up after two seconds and then asks again once; a server that holds
     // its answer, as a loaded computer's app may, is asked a second time only after the first
-    // look ran out. Silent is not "missing": the card keeps looking and offers no Get.
+    // look ran out. Two silent looks settle the card: it says it wasn't heard from, offers no
+    // Get, and keeps Check again, which finds the app once it answers.
     const waiting: (() => void)[] = [];
     let answers = false;
     let asked = 0;
@@ -1799,19 +1800,21 @@ for (const language of ["en", "zh-CN"] as const) {
       await expect(way).not.toContainText(translate(language, "setup.way.local.notRunning"));
       await expect(card.getByTestId("ollama-get")).toHaveCount(0);
 
-      // A second request is the first look given up on: the card must still say it is looking.
+      // A second request is the first look given up on: the card still says it is looking.
       await expect.poll(() => asked, { timeout: 20_000 }).toBeGreaterThanOrEqual(2);
       await expect(status).toHaveAttribute("data-looking", "true");
       await expect(way).toContainText(translate(language, "providers.ollama.checking"));
-      await expect(way).not.toContainText(translate(language, "setup.way.local.notRunning"));
       await expect(card.getByTestId("ollama-get")).toHaveCount(0);
 
-      // Both looks are over and neither could tell: Check again may be pressed, and Get is
-      // still not offered.
-      await expect(card.getByTestId("ollama-check-again")).toBeEnabled({ timeout: 25_000 });
-      await expect(status).toHaveAttribute("data-looking", "true");
+      // Both looks are silent: it settles, out of looking, saying it wasn't heard from — not
+      // that the app is missing, so there is no Get, and Check again stays.
+      await expect(status).not.toHaveAttribute("data-looking", "true", { timeout: 25_000 });
+      await expect(status).toHaveAttribute("data-read", "no-answer");
+      await expect(way).toContainText(translate(language, "providers.ollama.noAnswer"));
+      await expect(way).not.toContainText(translate(language, "setup.way.local.install"));
       await expect(way).not.toContainText(translate(language, "setup.way.local.notRunning"));
       await expect(card.getByTestId("ollama-get")).toHaveCount(0);
+      await expect(card.getByTestId("ollama-check-again")).toBeEnabled();
 
       // The app answers now: Check again finds it.
       answers = true;
@@ -1837,6 +1840,9 @@ test("nothing at all: installing a model on this computer is offered, the exampl
     await setWindowSize(app, window, 1100, 900);
     await interceptOpenExternal(app);
     const card = await askFirstQuestion(window);
+    // A refused address is an answer: it is not running, so Get is offered (a silent look
+    // settles to not heard from instead, with Check again and no Get).
+    await expect(card.getByTestId("ollama-status")).toHaveAttribute("data-read", "not-running");
     await expect(card.getByTestId("way-local")).toContainText("Install a model on this computer…");
     await expect(card.getByTestId("way-local")).toContainText("Needs the free Ollama app");
     await card.getByTestId("ollama-get").click();

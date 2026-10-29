@@ -2384,6 +2384,7 @@ export const en = {
     "This system can’t encrypt API keys, so they can’t be saved. Use Ollama or a server that needs no key.",
 
   "providers.ollama.checking": "Looking for Ollama on this computer…",
+  "providers.ollama.noAnswer": "Ollama didn't answer · Check again",
   "providers.ollama.detected": "Ollama is running. Questions and Documents stay on this computer.",
   "providers.ollama.notDetected": "Install and start Ollama from ollama.com to run models here.",
   "providers.ollama.use": "Use local models ({model}, 3.3 GB)",

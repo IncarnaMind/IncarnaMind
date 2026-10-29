@@ -2283,6 +2283,7 @@ export const zhCN = {
     "此系统无法加密 API 密钥，无法保存。可使用 Ollama 或无需密钥的服务器。",
 
   "providers.ollama.checking": "正在查找本机的 Ollama…",
+  "providers.ollama.noAnswer": "Ollama 没有回应 · 重新检查",
   "providers.ollama.detected": "Ollama 正在运行。问题和文档不会离开这台电脑。",
   "providers.ollama.notDetected": "要在本机运行模型，请从 ollama.com 安装并启动 Ollama。",
   "providers.ollama.use": "使用本地模型（{model}，3.3 GB）",
