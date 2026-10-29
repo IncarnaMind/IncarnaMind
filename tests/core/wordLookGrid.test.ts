@@ -76,6 +76,18 @@ describe("a Word file's lines, as its look reads them", () => {
     core.close();
   });
 
+  test("the first section's grid is read where its break sits in a content control", async () => {
+    const { look, core } = await imported(
+      wordFile({
+        body: `<w:sdt><w:sdtContent><w:p><w:pPr><w:sectPr><w:pgSz w:w="11906" w:h="16838"/><w:pgMar w:left="1800" w:right="1800"/><w:docGrid w:type="lines" w:linePitch="312"/></w:sectPr></w:pPr>${text("第一节。")}</w:p></w:sdtContent></w:sdt>${paragraph("第二节。")}`,
+        sectPr: '<w:pgSz w:w="11906" w:h="16838"/><w:docGrid w:linePitch="360"/>',
+      }),
+    );
+    expect(look.linePitch).toBe(15.6);
+    expect(look.width).toBe(415.3);
+    core.close();
+  });
+
   test("an English file with Word's default grid snaps nothing and has no East Asian text", async () => {
     const { look, core } = await imported(
       wordFile({

@@ -1334,12 +1334,15 @@ function paragraphLook(props: ParagraphProps, size: number): WordParagraphLook {
   });
 }
 
-/** The first section's properties: in the pPr of its last paragraph, else the body's, the last section's. */
+/**
+ * The first section's properties: in the pPr of its last paragraph, which may sit in a content
+ * control or custom XML at the body's level, else the body's, the last section's.
+ */
 function firstSection(document: XmlElement): XmlElement | undefined {
   const body = child(document, "w:body");
   if (!body) return undefined;
-  const ending = elements(body).find(
-    (element) => element.name === "w:p" && child(child(element, "w:pPr") ?? EMPTY, "w:sectPr"),
+  const ending = descendants(body, "w:p").find((p) =>
+    child(child(p, "w:pPr") ?? EMPTY, "w:sectPr"),
   );
   return (ending && child(child(ending, "w:pPr") ?? EMPTY, "w:sectPr")) ?? child(body, "w:sectPr");
 }

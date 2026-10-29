@@ -215,6 +215,7 @@ test("the contract's tables: the bordered definitions with a shaded heading row 
   await shot(window, "word-look-tables-contract-1440");
   if (SCREENSHOTS) {
     await setLanguage(window, "zh-CN");
+    await expect(window.getByTestId("page-menu")).toHaveAttribute("aria-label", /的更多操作$/);
     await shot(window, "word-look-tables-contract-zh-1440");
     await setLanguage(window, "en");
   }

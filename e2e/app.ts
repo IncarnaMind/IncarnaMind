@@ -3231,11 +3231,15 @@ export async function takeKeyLatency(window: Page) {
   });
 }
 
-/** How long the Mind takes to open in place until `count` elements match `selector`, and a frame after. */
+/**
+ * How long the Mind takes to open in place until `count` elements match `selector` in its own
+ * pane, never the one it replaces, and a frame after.
+ */
 export async function msToOpen(window: Page, mindId: string, done: string, count: number) {
   return window.evaluate(
     async ({ id, selector, wanted }) => {
       const core = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
+      const inPane = `article[data-mind-id="${CSS.escape(id)}"] ${selector}`;
       const start = performance.now();
       await core.changeLayout("main", {
         type: "open",
@@ -3243,7 +3247,7 @@ export async function msToOpen(window: Page, mindId: string, done: string, count
         where: { in: "place" },
       });
       for (;;) {
-        if (document.querySelectorAll(selector).length >= wanted) break;
+        if (document.querySelectorAll(inPane).length >= wanted) break;
         await new Promise((resolve) => requestAnimationFrame(resolve));
       }
       await new Promise((resolve) => requestAnimationFrame(resolve));
