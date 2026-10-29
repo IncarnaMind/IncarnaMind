@@ -149,6 +149,8 @@ export type FailedSentence = { id: string } & (
       check: "contradicted";
       says: string | null;
       worked: (Pick<ClaimCalculation, "stated" | "relation"> & { shown: string }) | null;
+      /** The Passage that says otherwise, and its Document and Location, as its card shows them. */
+      quoted: { quote: string; source: string } | null;
     }
   | {
       check: "unsupported";

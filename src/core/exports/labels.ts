@@ -91,16 +91,22 @@ export function exportLabels(language: Language): ExportLabels {
       }
       if (sentence.check === "own-workings") return t("export.comment.sentence.ownWorkings");
       if (sentence.check === "contradicted") {
-        if (sentence.says)
-          return t("export.comment.sentence.contradicted", { says: sentence.says });
-        return sentence.worked
-          ? t(
-              sentence.worked.relation
-                ? `export.comment.sentence.contradicted.worked.${sentence.worked.relation}`
-                : "export.comment.sentence.contradicted.worked",
-              sentence.worked,
-            )
-          : t("export.comment.sentence.contradicted.plain");
+        const said = sentence.says
+          ? t("export.comment.sentence.contradicted", { says: sentence.says })
+          : sentence.worked
+            ? t(
+                sentence.worked.relation
+                  ? `export.comment.sentence.contradicted.worked.${sentence.worked.relation}`
+                  : "export.comment.sentence.contradicted.worked",
+                sentence.worked,
+              )
+            : t("export.comment.sentence.contradicted.plain");
+        return sentence.quoted
+          ? t("export.comment.sentence.quoted", {
+              said: said.replace(/[.。]$/u, ""),
+              ...sentence.quoted,
+            })
+          : said;
       }
       if (sentence.nearest)
         return t("export.comment.sentence.unsupported.differs", sentence.nearest);

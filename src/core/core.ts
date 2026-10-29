@@ -2139,6 +2139,19 @@ export function createCore(adapters: CoreAdapters): Core {
         kind: DEFAULT_MIND_KIND,
         folderId,
       }),
+    wordRefusal: async (path) => (await wordImports.check(path)).refusal,
+    async importWord({ path, folderId, documentId, name }) {
+      const imported = await wordImports.import(
+        { path, origin: "someone-else", folderId },
+        {
+          documentId,
+          title: translate(settings.get().language, "verify.mindTitle", { name }),
+        },
+      );
+      if (!imported.ok) return imported;
+      await wordImports.written(imported.mind.id);
+      return { ok: true, mind: imported.mind };
+    },
     watch: {
       minds: () => minds.list().map((mind) => ({ id: mind.id, folderId: mind.folderId })),
       documentVersions: () =>

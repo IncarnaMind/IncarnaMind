@@ -5,12 +5,14 @@
  * 1. `verifyDocument` adds the PDF to the Library, or finds it there, waits
  *    until its text is read, and makes a Mind of it: its paragraphs, and its
  *    tables as tables (#1368), with each Block's page and each table row's,
- *    all of it third-party text (#78). The Mind's settings say which
+ *    all of it third-party text (#78). A Word file (#110) is imported as a
+ *    Mind instead, kept to export back into with the results as comments,
+ *    and added to the Library as its original. The Mind's settings say which
  *    Document it verifies (src/shared/verification.ts).
  * 2. `findClaims` has the model name its sentences that make claims (./claims)
  *    and records them there.
  * 3. `verifyClaims` checks each claim as Check against Documents does, with
- *    the claim-check function, against the Mind's Folder, the PDF, its earlier
+ *    the claim-check function, against the Mind's Folder, the file, its earlier
  *    versions and its copies left out (#80), in Runs third-party from their
  *    start. Each claim's mark shows its result as it comes; the monthly cap or
  *    a plan's limit stops the run, and the claims after it say so (#83). What
@@ -24,6 +26,7 @@ import { beginFigureCheck } from "../../../shared/figureChecks";
 import { isClaim } from "../../../shared/sentences";
 import { setTextOrigin } from "../../../shared/textOrigins";
 import {
+  isVerifiedBlock,
   readVerification,
   type Verification,
   writeVerification,
@@ -46,6 +49,7 @@ import {
   type UnreadFile,
   type VerifyClaimsResult,
   type VerifyDocumentResult,
+  type WordRefusalReason,
 } from "../../api";
 import type { PagePart } from "../../documents/extract";
 import { parseModel } from "../../edits";
@@ -62,6 +66,9 @@ import { documentBlocks, tableClaim } from "./verifyTables";
 
 /** A Document whose text is read: its Passages can be searched and its pages read. */
 const READ: readonly DocumentStatus[] = ["waiting-for-model", "embedding", "ready"];
+
+/** A file Word import takes, or refuses with its reason (an older .doc, macros). */
+const WORD_FILE = /\.(?:docx|docm|doc|dotx|dotm|dot)$/i;
 
 /** The model to verify with, or why there is none (as `checkSentences` says it). */
 type Prepared =
@@ -87,6 +94,18 @@ export interface VerifyOptions {
   readTables(documentId: string): Promise<ReadonlyMap<number, PagePart[]>>;
   readScanned(documentId: string): ScannedText;
   createMind(title: string, folderId: string | null): Mind;
+  /** Why a Word file can't be imported as a Mind; null when it can. */
+  wordRefusal(path: string): Promise<WordRefusalReason | null>;
+  /**
+   * Imports someone else's Word file as a Mind named for its Document, the file's original in
+   * the Library (#720), and resolves once every Block is in it.
+   */
+  importWord(input: {
+    path: string;
+    folderId: string | null;
+    documentId: string;
+    name: string;
+  }): Promise<{ ok: true; mind: Mind } | { ok: false; refusal: WordRefusalReason }>;
   defaultModel(): ChatModelChoice | null;
   prepare(choice: ChatModelChoice | null): Promise<Prepared>;
   evidenceScope(mindId: string, allDocuments: boolean, verification: Verification): MindCheckScope;
@@ -214,7 +233,7 @@ export function createVerify(options: VerifyOptions) {
 
     const sentences = content.read(mindId, (blocks) =>
       everySentence(blocks).flatMap((sentence) => {
-        if (!(sentence.blockId in verification.pages)) return [];
+        if (!blocks.doc || !isVerifiedBlock(blocks.doc, verification, sentence.blockId)) return [];
         const said = claimOf(sentence)?.claim;
         return said !== undefined && isClaim(said)
           ? [{ blockId: sentence.blockId, text: sentence.text, said }]
@@ -315,6 +334,39 @@ export function createVerify(options: VerifyOptions) {
     return { kind: "checked", claims: queued.length, checked, stop };
   }
 
+  /**
+   * A Word file as a Mind imported from it, refused before anything is added, its original the
+   * Document it verifies; every Block is the document being checked.
+   */
+  async function verifyWordFile(
+    path: string,
+    folderId: string | null,
+  ): Promise<VerifyDocumentResult> {
+    const refusal = await options.wordRefusal(path);
+    if (refusal) return { ok: false, reason: "word", refusal };
+    const document = await options.addFile(path, folderId);
+    if (!document) return { ok: false, reason: "word", refusal: "unreadable" };
+    const { name } = options.document(document.id);
+    const made = await options.importWord({ path, folderId, documentId: document.id, name });
+    if (!made.ok) return { ok: false, reason: "word", refusal: made.refusal };
+    content.edit(made.mind.id, (blocks) => {
+      const doc = blocks.doc;
+      if (!doc) return;
+      const ids = blocks.toArray().flatMap((each) => {
+        const id = each instanceof Y.XmlElement ? each.getAttribute(BLOCK_ID_ATTRIBUTE) : null;
+        return typeof id === "string" ? [id] : [];
+      });
+      setTextOrigin(doc, ids, "checked-document");
+      writeVerification(doc.getMap(MIND_SETTINGS_FIELD), {
+        documentId: document.id,
+        documentName: name,
+        pages: {},
+        claims: null,
+      });
+    });
+    return { ok: true, mind: made.mind, documentId: document.id };
+  }
+
   return {
     async verifyDocument(input: unknown): Promise<VerifyDocumentResult> {
       if (!isRecord(input)) throw new InvalidInputError({ key: "error.verify.request" });
@@ -324,6 +376,7 @@ export function createVerify(options: VerifyOptions) {
       }
       const folderId = parseFolderChoice(input.folderId);
       if (folderId !== null) options.requireFolder(folderId);
+      if (WORD_FILE.test(path)) return verifyWordFile(path, folderId);
 
       const document = await options.addFile(path, folderId);
       if (!document) return { ok: false, reason: "unreadable" };

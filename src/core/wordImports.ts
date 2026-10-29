@@ -175,6 +175,8 @@ export function createWordImports(options: WordImportsOptions) {
   const keeping = new Set<string>();
   /** Minds whose Blocks are being written now, so a Mind never has two writers. */
   const writing = new Set<string>();
+  /** Each import going on, by its Mind, until every Block is written. */
+  const going = new Map<string, Promise<void>>();
   let closed = false;
   /** The file the import screen checked last, read whole, so importing it doesn't read it again. */
   let checked: ReadFile | null = null;
@@ -315,10 +317,17 @@ export function createWordImports(options: WordImportsOptions) {
     structure: WordStructure,
     origin: WordOrigin,
     from: number,
-  ): Promise<void> =>
-    writeBlocks(mindId, structure, origin, from, from === 0).catch((error: unknown) => {
-      log.error("word.import.failed", { error: error instanceof Error ? error.name : "unknown" });
-    });
+  ): Promise<void> => {
+    const run: Promise<void> = writeBlocks(mindId, structure, origin, from, from === 0)
+      .catch((error: unknown) => {
+        log.error("word.import.failed", { error: error instanceof Error ? error.name : "unknown" });
+      })
+      .finally(() => {
+        if (going.get(mindId) === run) going.delete(mindId);
+      });
+    going.set(mindId, run);
+    return run;
+  };
 
   return {
     /** See `CoreApi.checkWordFile`. */
@@ -349,8 +358,14 @@ export function createWordImports(options: WordImportsOptions) {
       };
     },
 
-    /** See `CoreApi.importWordFile`. */
-    async import(input: unknown): Promise<ImportWordFileResult> {
+    /**
+     * See `CoreApi.importWordFile`. With `original`, the file is already in the Library as that
+     * Document, and the Mind takes its title (Verify, #110).
+     */
+    async import(
+      input: unknown,
+      original?: { documentId: string; title: string },
+    ): Promise<ImportWordFileResult> {
       if (!isRecord(input)) throw new InvalidInputError("importWordFile expects an object.");
       const path = parsePath(input.path);
       const origin = parseOrigin(input.origin);
@@ -371,12 +386,12 @@ export function createWordImports(options: WordImportsOptions) {
       const sha256 = createHash("sha256").update(bytes).digest("hex");
       keeping.add(sha256);
       const fileName = basename(path);
-      const title = basename(fileName, extname(fileName)).trim();
+      const title = original?.title ?? basename(fileName, extname(fileName)).trim();
       let mind: Mind;
-      let documentId: string | null = null;
+      let documentId: string | null = original?.documentId ?? null;
       try {
         await keepPackage(sha256, bytes);
-        if (input.addOriginal === true)
+        if (!original && input.addOriginal === true)
           documentId = await addOriginal(path, folderId, newVersionOf);
         const at = options.now();
         mind = db.transaction(() => {
@@ -433,6 +448,11 @@ export function createWordImports(options: WordImportsOptions) {
         mind,
         ...(input.addOriginal === true && { originalAdded: documentId !== null }),
       };
+    },
+
+    /** Resolves once every Block of the Mind's import is written; at once when none is going on. */
+    written(mindId: string): Promise<void> {
+      return going.get(mindId) ?? Promise.resolve();
     },
 
     /** See `CoreApi.addWordOriginal`. */

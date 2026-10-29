@@ -5955,11 +5955,14 @@ export interface MindCheckRun {
   unexamined: string[];
 }
 
-/** A document someone else wrote, to verify claim by claim (#97): the window offers PDFs. */
+/**
+ * A document someone else wrote, to verify claim by claim (#97): the window offers PDFs and Word
+ * files (#110).
+ */
 export interface VerifyDocumentInput {
-  /** The file's absolute path: any file the Library reads. */
+  /** The file's absolute path: a PDF, a Word file, or any other file the Library reads. */
   path: string;
-  /** The Folder the Mind goes in, and the PDF too if it is new to the Library; none, or null, for none. */
+  /** The Folder the Mind goes in, and the file too if it is new to the Library; none, or null, for none. */
   folderId?: string | null;
 }
 
@@ -5968,7 +5971,9 @@ export type VerifyDocumentResult =
   /** The Mind holds the document's text, a paragraph to a Block: its claims can be found. */
   | { ok: true; mind: Mind; documentId: string }
   /** No Mind was made: the file can't be read, or holds no text (a scan nothing could read). */
-  | { ok: false; reason: "unreadable" | "no-text" };
+  | { ok: false; reason: "unreadable" | "no-text" }
+  /** No Mind was made: a Word file that can't be imported, for the reason Word import gives. */
+  | { ok: false; reason: "word"; refusal: WordRefusalReason };
 
 /** Finding, or checking, the claims of a Mind made by `verifyDocument`. */
 export interface VerifyClaimsInput {
@@ -10456,8 +10461,11 @@ export interface CoreApi {
   /**
    * Verify (#97): adds a document someone else wrote (a PDF) to the Library,
    * or finds it there, waits until its text is read, and makes a Mind of that
-   * text, a paragraph to a Block, each Block's page recorded. Its text is the
-   * document being checked: third-party (#78), and never its own evidence.
+   * text, a paragraph to a Block, each Block's page recorded. A Word file
+   * (#110) is imported as a Mind instead, as `importWordFile` imports
+   * someone else's, kept to export back into, and resolves once every Block
+   * is in it. Its text is the document being checked: third-party (#78), and
+   * never its own evidence.
    */
   verifyDocument(input: VerifyDocumentInput): Promise<VerifyDocumentResult>;
   /**

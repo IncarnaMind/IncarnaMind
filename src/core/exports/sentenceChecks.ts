@@ -36,7 +36,7 @@ export function failedSentences(
       scope: context.scope,
     });
     if (shown.state === "contradicted") {
-      const { calculation } = check;
+      const { calculation, evidence } = check;
       failed.set(id, {
         id,
         check: "contradicted",
@@ -49,6 +49,9 @@ export function failedSentences(
                 ...(calculation.relation && { relation: calculation.relation }),
               }
             : null,
+        quoted: evidence?.quote
+          ? { quote: evidence.quote, source: context.sourceOf(evidence) }
+          : null,
       });
     } else if (shown.state === "unsupported" && check.citedCaseUnchecked) {
       failed.set(id, { id, check: "cited-case-unchecked", unsupported: true });

@@ -4,6 +4,7 @@ import { useEditorState } from "@tiptap/react";
 import { type ReactNode, useEffect, useLayoutEffect, useRef, useState } from "react";
 import type * as Y from "yjs";
 import {
+  isVerifiedBlock,
   observeVerification,
   type Verification,
   verificationOf,
@@ -41,6 +42,7 @@ import { useRunModel } from "./ModelChip";
 import { Counted } from "./NoteHealth";
 import { ReferencesLine } from "./ReferencesLine";
 import { UncoveredLine } from "./UncoveredLine";
+import { wordPlaceAt } from "./WordOrigin";
 
 /** What a Mind made by "Verify a document…" verifies, as it changes. */
 export function useVerification(doc: Y.Doc): Verification | null {
@@ -67,7 +69,7 @@ const rowOf = (claim: ShownClaim): VerifyRow | undefined =>
   claim.check.state === "not-checked" ? "notChecked" : ROW_OF[claim.shown.state];
 
 /** The checks of the document's sentences: how many there are and are going, and where each state's are. */
-function claimMarks(editor: Editor, pages: Verification["pages"]) {
+function claimMarks(editor: Editor, verified: (blockId: string) => boolean) {
   const { doc } = editor.state;
   let marked = 0;
   let checking = 0;
@@ -80,7 +82,7 @@ function claimMarks(editor: Editor, pages: Verification["pages"]) {
   };
   for (const claim of shownClaims(editor.state)) {
     const id: unknown = doc.resolve(claim.from).parent.attrs.id;
-    if (typeof id !== "string" || !(id in pages)) continue;
+    if (typeof id !== "string" || !verified(id)) continue;
     marked++;
     if (claim.shown.state === "checking") checking++;
     const row = rowOf(claim);
@@ -116,7 +118,8 @@ export function useVerifyState(
   const outcome = useVerify((state) => state.outcomes[mindId]);
   const marks = useEditorState({
     editor,
-    selector: ({ editor: current }) => claimMarks(current, verification.pages),
+    selector: ({ editor: current }) =>
+      claimMarks(current, (blockId) => isVerifiedBlock(doc, verification, blockId)),
     equalityFn: sameMarks,
   });
   const claims = verification.claims;
@@ -174,7 +177,7 @@ const VERIFY_MARKS: Record<VerifyRow, ClaimMarkState> = {
  * #909; the boards Verify-Badge-*): "Check it against this Folder's
  * Documents? [Check 24 claims]" with the estimate on a cloud model, then
  * "Checked 24 claims · 2 need a look" and a row a verdict, each moving to
- * the next such claim with the PDF beside turned to its page; or why there
+ * the next such claim with the file beside turned to its place; or why there
  * is nothing to check.
  */
 export function VerifyCard({
@@ -225,11 +228,14 @@ export function VerifyCard({
     const place = editor.state.doc.resolve(next);
     editor.view.dispatch(editor.state.tr.setSelection(TextSelection.near(place)).scrollIntoView());
     editor.view.focus();
-    // The PDF beside it turns to the claim's page.
+    // The file beside it turns to the claim's page, or to its paragraph in a Word file.
     const id: unknown = place.parent.attrs.id;
     const page = typeof id === "string" ? verification.pages[id] : undefined;
+    const wordPlace = page === undefined ? wordPlaceAt(doc, place) : null;
     if (page !== undefined) {
       openDocumentBeside(verification.documentId, { pageFrom: page, pageTo: page });
+    } else if (wordPlace) {
+      openDocumentBeside(verification.documentId, { wordPlace });
     }
   };
 

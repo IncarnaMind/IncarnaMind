@@ -1,7 +1,8 @@
 /**
- * Verify (#97), the window's side. "Verify a document…" (the + menu, ⌘K)
- * takes a PDF, whose Mind opens with the PDF beside it and has its claims
- * found. The check badge's card then checks them (editor/VerifyLine).
+ * Verify (#97), the window's side. "Check someone else’s PDF or Word file…"
+ * (the + menu, ⌘K) takes a PDF or a Word file (#110), whose Mind opens with
+ * the file beside it and has its claims found. The check badge's card then
+ * checks them (editor/VerifyLine).
  * One run goes at a time: asking again while one runs shows its Mind.
  */
 
@@ -13,6 +14,7 @@ import { translateNow } from "./i18n";
 import { currentMindIdOf } from "./layoutSlice";
 import { modelInUseOf } from "./modelInUse";
 import { useAppStore } from "./store";
+import { refusalKey } from "./wordImport";
 
 /** How a Mind's last run ended, when it says something: why it gave nothing, or what it checked. */
 export type VerifyOutcome =
@@ -111,9 +113,10 @@ export function openDocumentBeside(documentId: string, place: DocumentPlace = {}
 }
 
 /**
- * "Verify a document…": the PDF the User picks becomes a Mind in the Folder of
- * the Mind in front, once its text is read; the Mind opens with the PDF beside
- * it, and its claims are found. While a run goes, its Mind is shown instead.
+ * "Check someone else’s PDF or Word file…": the file the User picks becomes a
+ * Mind in the Folder of the Mind in front, once its text is read; the Mind
+ * opens with the file beside it, and its claims are found. While a run goes,
+ * its Mind is shown instead.
  */
 export async function verifyDocument(): Promise<void> {
   const going = useVerify.getState().running;
@@ -121,7 +124,7 @@ export async function verifyDocument(): Promise<void> {
     showMind(going.mindId);
     return;
   }
-  const path = await files.pickPdfFile();
+  const path = await files.pickFileToVerify();
   if (!path) return;
   const { layout, minds, reportError, showNewMind } = useAppStore.getState();
   const inFront = currentMindIdOf(layout);
@@ -129,7 +132,14 @@ export async function verifyDocument(): Promise<void> {
   try {
     const made = await core.verifyDocument({ path, folderId });
     if (!made.ok) {
-      reportError(new Error(translateNow(`verify.refused.${made.reason}`)));
+      const name = path.split(/[\\/]/).pop() ?? path;
+      reportError(
+        new Error(
+          made.reason === "word"
+            ? translateNow(refusalKey(made.refusal), { name })
+            : translateNow(`verify.refused.${made.reason}`),
+        ),
+      );
       return;
     }
     await showNewMind(made.mind);

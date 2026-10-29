@@ -4,9 +4,12 @@
  * sentences found to make claims, once they are found. Like the Mind's model
  * (`mindModel.ts`) it lives in the Mind's Yjs settings, not in its Blocks, so
  * an older version keeps it as it is and the content schema stays as it is.
+ * A Word file verified (#110) is a Mind imported from it, whose Blocks know
+ * their place in the file instead of a page.
  */
 import type * as Y from "yjs";
 import { MIND_SETTINGS_FIELD } from "../core/api";
+import { wordSourceOf } from "./wordFiles";
 
 const KEY = "verification";
 
@@ -20,7 +23,7 @@ export interface Verification {
   documentId: string;
   /** The Document's name when the Mind was made, for when it is gone. */
   documentName: string;
-  /** The page of the document each Block came from, by Block id. */
+  /** The page of the document each Block came from, by Block id; none for a Word file. */
   pages: Readonly<Record<string, number>>;
   /** The sentences that make claims, once found; null before. */
   claims: readonly VerifiedClaim[] | null;
@@ -64,6 +67,13 @@ export function readVerification(settings: Y.Map<unknown>): Verification | null 
 /** The Verification of a Mind's document. */
 export const verificationOf = (doc: Y.Doc): Verification | null =>
   readVerification(doc.getMap(MIND_SETTINGS_FIELD));
+
+/**
+ * Whether a Block holds the verified document's text, not what the User wrote beside it: a PDF's
+ * Block has its page, a Word file's was imported from the file.
+ */
+export const isVerifiedBlock = (doc: Y.Doc, verification: Verification, blockId: string): boolean =>
+  blockId in verification.pages || wordSourceOf(doc, blockId) !== null;
 
 /** Records what a Mind verifies, in place of what it recorded. */
 export function writeVerification(settings: Y.Map<unknown>, verification: Verification): void {
