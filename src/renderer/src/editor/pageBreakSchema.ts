@@ -4,6 +4,9 @@ import { type EditorState, NodeSelection, TextSelection } from "@tiptap/pm/state
 import { FOOTNOTE_NODE, PAGE_BREAK_NODE, QUESTION_BLOCK } from "../../../core/api";
 import { asOwnUndoStep } from "./selectionCommands";
 
+/** ⌘↵ (Ctrl+Enter), as in Word: the note binds it itself (`PageBreak`). */
+export const PAGE_BREAK_KEYS = "CmdOrCtrl+Enter";
+
 export interface PageBreakOptions {
   /** Draws the break: a faint line across the text, with what it is. */
   view: NodeViewRenderer | null;
@@ -32,18 +35,30 @@ export const canInsertPageBreak = (state: EditorState): boolean => pageBreakPlac
 
 /**
  * Puts a page break where the selection starts, as an Undo step of its own,
- * with the cursor after it, where the next page's text goes. Nothing is
- * replaced: selected text stays, and starts the next page. False if there is
- * no place for one here.
+ * as Word's Ctrl+Enter does: the break ends the line, and what follows it
+ * starts a paragraph of its own, on the next page, with the cursor there; at
+ * a line's start, the break is a line of its own before it, so the line stays
+ * the one it was (a Word file's paragraph, its XML). Nothing is replaced:
+ * selected text stays, and starts the next page. False if there is no place
+ * for one here.
  */
 export function insertPageBreak(editor: Editor): boolean {
   const at = pageBreakPlace(editor.state);
   const type = editor.schema.nodes[PAGE_BREAK_NODE];
-  if (at === null || !type) return false;
+  const paragraph = editor.schema.nodes.paragraph;
+  if (at === null || !type || !paragraph) return false;
+  const { $from } = editor.state.selection;
   return asOwnUndoStep(editor, () =>
     editor.commands.command(({ tr }) => {
-      tr.insert(at, type.create());
-      tr.setSelection(TextSelection.create(tr.doc, at + 1));
+      if ($from.parentOffset === 0) {
+        const line = paragraph.create(null, type.create());
+        tr.insert($from.before(), line);
+        tr.setSelection(TextSelection.near(tr.doc.resolve(at + line.nodeSize)));
+      } else {
+        tr.insert(at, type.create());
+        tr.split(at + 1);
+        tr.setSelection(TextSelection.near(tr.doc.resolve(at + 3)));
+      }
       tr.scrollIntoView();
       return true;
     }),
@@ -68,6 +83,7 @@ function lineOfBreak(state: EditorState): { from: number; to: number } | null {
  * across the text as Word draws it with its marks shown. It is selected as
  * one thing, by a click or the arrows, and Backspace or Delete removes it
  * like any Block, its line too when it is alone on one; ⌘Z brings it back.
+ * ⌘↵ puts one in; where none can go, it is a line break, as it was.
  */
 export const PageBreak = Node.create<PageBreakOptions>({
   name: PAGE_BREAK_NODE,
@@ -115,6 +131,10 @@ export const PageBreak = Node.create<PageBreakOptions>({
       this.editor.view.dispatch(this.editor.state.tr.delete(line.from, line.to).scrollIntoView());
       return true;
     };
-    return { Backspace: deleteLine, Delete: deleteLine };
+    return {
+      Backspace: deleteLine,
+      Delete: deleteLine,
+      "Mod-Enter": () => insertPageBreak(this.editor),
+    };
   },
 });

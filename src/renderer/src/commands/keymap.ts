@@ -126,8 +126,6 @@ export function runShortcut(
     // A list's own keys act on the row the focus is in.
     const here = shortcut.list ? { ...ctx, focus: ctx.focus ?? objectAt(event.target) } : ctx;
     if (!offered(command, here) || !isEnabled(command, here)) continue;
-    const first = shortcut.yields ? commands.get(shortcut.yields) : undefined;
-    if (first && offered(first, here) && isEnabled(first, here)) continue;
     event.preventDefault();
     commands.run(command.id, here).catch(report);
     return true;

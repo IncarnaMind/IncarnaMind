@@ -85,7 +85,7 @@ function drawAtom(dom: HTMLElement, atom: WordAtomAttributes): void {
   dom.removeAttribute("aria-label");
   dom.removeAttribute("role");
   if (BREAK_WORD_ATOMS.has(atom.kind)) {
-    drawBreak(dom, `wordAtom.kind.${atom.kind}`);
+    drawBreak(dom, atom.kind === "sectionBreak" ? "sectionBreak" : "pageBreak");
     dom.dataset.kind = atom.kind;
     dom.dataset.testid = atom.kind === "sectionBreak" ? "section-break" : "page-break";
     return;

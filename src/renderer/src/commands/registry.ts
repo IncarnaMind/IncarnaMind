@@ -60,12 +60,6 @@ export interface Shortcut {
   also?: Keys;
   /** Keys only macOS has (Finder's ⌃⌘N): elsewhere the command has none, and stays in menus and ⌘K. */
   macOnly?: true;
-  /**
-   * The command with the same keys that takes them first where it applies:
-   * ⌘↵ accepts the waiting change the cursor is in, and inserts a page break
-   * anywhere else.
-   */
-  yields?: CommandId;
 }
 
 export interface CommandContext {

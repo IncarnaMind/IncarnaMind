@@ -298,8 +298,6 @@ describe("shortcuts", () => {
         const overlap =
           !blockFirst(one, other) &&
           !blockFirst(other, one) &&
-          one.shortcut?.yields !== other.id &&
-          other.shortcut?.yields !== one.id &&
           (!one.appliesTo ||
             !other.appliesTo ||
             one.appliesTo.some((kind) => other.appliesTo?.includes(kind)));
@@ -461,58 +459,16 @@ describe("keys", () => {
     }
   });
 
-  test("⌘↵ accepts the waiting change the cursor is in, and inserts a page break anywhere else", async () => {
-    const { runShortcut } = await import("../../src/renderer/src/commands/keymap");
-    const pageBreak = commands.get("pageBreak.insert")?.shortcut;
-    expect(pageBreak?.keys).toBe("CmdOrCtrl+Enter");
-    expect(pageBreak?.keys).toBe(commands.get("proposal.accept")?.shortcut?.keys);
-    expect(pageBreak?.yields).toBe("proposal.accept");
-
-    // The same rule, with commands of its own: one yields to the other where that one applies.
-    let inChange = true;
-    const ran: string[] = [];
-    const stops = [
-      commands.register({
-        id: "test.insert",
-        label: "menu.newMind",
-        group: "main",
-        reversible: true,
-        shortcut: { keys: "Ctrl+Alt+\\", yields: "test.accept" },
-        run: () => {
-          ran.push("insert");
-        },
-      }),
-      commands.register({
-        id: "test.accept",
-        label: "menu.newMind",
-        group: "main",
-        reversible: true,
-        shortcut: { keys: "Ctrl+Alt+\\" },
-        when: () => inChange,
-        run: () => {
-          ran.push("accept");
-        },
-      }),
-    ];
-    const globals = globalThis as unknown as { document?: unknown };
-    const page = globals.document;
-    globals.document = { querySelector: () => null };
-    const typed = {
-      ...press("\\", "Backslash", { ctrl: true, alt: true }),
-      target: null,
-      getModifierState: () => false,
-      preventDefault: () => undefined,
-    } as unknown as KeyboardEvent;
-    try {
-      expect(runShortcut(typed, NOWHERE)).toBe(true);
-      inChange = false;
-      expect(runShortcut(typed, NOWHERE)).toBe(true);
-      await Promise.resolve();
-      expect(ran).toEqual(["accept", "insert"]);
-    } finally {
-      for (const stop of stops) stop();
-      globals.document = page;
-    }
+  test("Insert Page Break is in ⌘K, shown with ⌘↵, which the note binds itself after accepting a waiting change", async () => {
+    const { menuKeysLabel } = await import("../../src/renderer/src/commands/keymap");
+    const pageBreak = commands.get("pageBreak.insert");
+    expect(pageBreak?.palette).toBeUndefined();
+    // No window shortcut: in the note, ⌘↵ accepts the change the cursor is in first.
+    expect(pageBreak?.shortcut).toBeUndefined();
+    expect([keysLabel("CmdOrCtrl+Enter", true), keysLabel("CmdOrCtrl+Enter", false)]).toContain(
+      pageBreak && menuKeysLabel(pageBreak),
+    );
+    expect(commands.get("proposal.accept")?.shortcut?.keys).toBe("CmdOrCtrl+Enter");
   });
 
   test("are written as each system writes them", () => {

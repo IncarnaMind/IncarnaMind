@@ -13,7 +13,7 @@ import {
   useState,
 } from "react";
 import type { MessageKey } from "../../../shared/i18n";
-import { shortcutLabel } from "../commands/keymap";
+import { keysHere, shortcutLabel } from "../commands/keymap";
 import { ChevronIcon } from "../components/icons";
 import { useT } from "../i18n";
 import { isComposing } from "./composing";
@@ -25,7 +25,7 @@ import { FORMAT_OPEN, setLineSpacing } from "./formatCommands";
 import { PageBreakIcon } from "./icons";
 import { caretAnchor, LinkField } from "./LinkField";
 import { Popover } from "./Popover";
-import { canInsertPageBreak, insertPageBreak } from "./pageBreakSchema";
+import { canInsertPageBreak, insertPageBreak, PAGE_BREAK_KEYS } from "./pageBreakSchema";
 import {
   applyLink,
   asOwnUndoStep,
@@ -648,7 +648,7 @@ export function SelectionMenu({
               role="menuitem"
               aria-disabled={!state.pageBreak}
               data-testid="format-page-break"
-              title={`${t("editor.pageBreak.insert")} (${shortcutLabel("pageBreak.insert")})`}
+              title={`${t("editor.pageBreak.insert")} (${keysHere(PAGE_BREAK_KEYS)})`}
               aria-label={t("editor.pageBreak.insert")}
               onMouseDown={keepSelection}
               onClick={() => {

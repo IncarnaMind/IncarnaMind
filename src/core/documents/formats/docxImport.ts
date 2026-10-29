@@ -31,6 +31,7 @@
  */
 import type { MarkJSON, NodeJSON } from "../../../shared/blockJson";
 import { NODE_CHARACTER, targetHash } from "../../../shared/proposals";
+import { readWordAtom } from "../../../shared/wordFiles";
 import { groupWordLists } from "../../../shared/wordLists";
 import { runLookOf } from "../../../shared/wordLook";
 import { DEFAULT_NOTE_NUMBERING } from "../../../shared/wordNotes";
@@ -578,9 +579,8 @@ function holdsInFootnote(node: NodeJSON): boolean {
   }
   if (node.type === "hardBreak") return node.attrs?.[PROPOSAL_ATTRIBUTE] === undefined;
   if (node.type !== WORD_ATOM_NODE) return false;
-  const kind = node.attrs?.kind as WordAtomKind;
-  const info = node.attrs?.info as WordAtomInfo | undefined;
-  return !BOXED_ATOMS.has(kind) && info?.display !== true;
+  const atom = readWordAtom(node.attrs ?? {});
+  return !BOXED_ATOMS.has(atom.kind) && atom.info?.display !== true;
 }
 
 /**
@@ -772,13 +772,15 @@ class Reader {
     const numbering = readNumbering(numberingXml, styles);
     const themeXml = await read("/theme");
     const settingsXml = await read("/settings");
-    const look = new LookReader({
-      ...(stylesXml !== undefined && { styles: stylesXml }),
-      ...(numberingXml !== undefined && { numbering: numberingXml }),
-      ...(themeXml !== undefined && { theme: themeXml }),
-      ...(settingsXml !== undefined && { settings: settingsXml }),
-      document,
-    });
+    const lookReader = () =>
+      new LookReader({
+        ...(stylesXml !== undefined && { styles: stylesXml }),
+        ...(numberingXml !== undefined && { numbering: numberingXml }),
+        ...(themeXml !== undefined && { theme: themeXml }),
+        ...(settingsXml !== undefined && { settings: settingsXml }),
+        document,
+      });
+    const look = lookReader();
     const comments = new Map<string, Comment>();
     const commentsXml = await read("/comments");
     for (const comment of commentsXml ? elements(parseXml(commentsXml)) : []) {
@@ -792,6 +794,8 @@ class Reader {
     }
     const noteNumbering = noteNumberingOf(readableXml(settingsXml), child(document, "w:body"));
     const noteParts: Record<NoteKind, NotesReading | null> = { footnote: null, endnote: null };
+    // A note's runs are read with the file's styles, but the Mind's look draws only its body.
+    const noteLook = lookReader();
     for (const kind of ["footnote", "endnote"] as const) {
       const name = partOf(`/${kind}s`);
       const bytes = name && zip.has(name) ? await zip.read(name) : undefined;
@@ -809,7 +813,7 @@ class Reader {
         new Map(),
         new Map(),
         review,
-        look,
+        noteLook,
         noteNumbering,
         `${name}!`,
       );

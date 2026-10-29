@@ -87,7 +87,7 @@ import { ListMenu } from "../editor/NumberingMenu";
 import { NoteKeymap } from "../editor/noteKeymap";
 import { noteExtensions } from "../editor/noteSchema";
 import { registerMindEditor } from "../editor/openEditors";
-import { pageBreakView } from "../editor/PageBreakView";
+import { pageBreakView, relabelBreaks } from "../editor/PageBreakView";
 import { PageMenu } from "../editor/PageMenu";
 import { ProposalBars } from "../editor/ProposalBars";
 import { editorDoc, ProposalReview } from "../editor/proposalReview";
@@ -686,10 +686,12 @@ function MindEditorView({
   );
 
   // When the language changes: relabel. Setting the props also redraws the placeholder,
-  // and the footnotes' markers and checklist boxes are named anew.
+  // and the footnotes' markers, checklist boxes and breaks are named anew.
   useEffect(() => {
     editor.setOptions({ editorProps: editorPropsFor(label, emptyFormula) });
-    if (!editor.isDestroyed) redrawFootnotes(editor.view);
+    if (editor.isDestroyed) return;
+    redrawFootnotes(editor.view);
+    relabelBreaks(editor.view.dom);
   }, [editor, label, emptyFormula]);
 
   // The cursor is where Add to note puts an Answer while the focus is in the editor, or has gone

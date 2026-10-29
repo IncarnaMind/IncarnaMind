@@ -4944,6 +4944,9 @@
       outline-offset: 1px;
     }
   }
+  .page-break-label::before {
+    content: attr(data-label);
+  }
 
   /* A picture in the text, at the size Word drew it, never wider than the text. */
   .mind-image {

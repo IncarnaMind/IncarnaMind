@@ -143,3 +143,13 @@ A comparison table has a **title** of its own, its name in the title line and th
 
 - **Content schema version 33** adds `title` on the table node: at most 120 characters on one line, the User's name for it, kept with the Note and copied with it. An older version's editor writes the table back without it when it changes the table, so it opens these Notes read-only. Older content is version 33 content as it is.
 - **No SQL table, no migration.** Nothing outside the Mind's Yjs document changes.
+
+## Amendment: a Word file's notes and page breaks are the Note's own (2026-10-29, #746)
+
+A Note imported from Word kept its footnotes and endnotes as read-only atoms whose text showed only on hover, and its page breaks as invisible ones. They are the Note's own now, and a page break can go in any Note.
+
+- **Content schema version 34.** A footnote (`FOOTNOTE_NODE`) gains `source`, where its mark is in the Word package, as an atom's is, and `endnote`; its text may hold what the import keeps as is (`WORD_ATOM_NODE`: a field, a bookmark). A page break is `PAGE_BREAK_NODE`, inline, with a `source` when it came from the file. A column break, read as a page break before, is an atom of its own kind. An older version's editor would strip the attributes and the node, so it opens these Notes read-only.
+- **A note's text is the note's, not its paragraph's.** A paragraph's fingerprint (`wordFingerprint`) leaves out the text of a footnote in it; the footnote has a source and a fingerprint of its own in `wordSources`, by its id. Editing a note's text leaves its paragraph as imported, so export writes the paragraph's own bytes and only the note again.
+- **How the file numbers its notes** (the number format and start of footnotes and of endnotes, from its settings or its last section) is kept in the `word` map beside the Blocks (`notes`), one whole value, which an older version ignores.
+- **Notes imported before are converted when opened,** from the kept package, in one change of the core's, which is no Undo step in the editor: each old atom is replaced where it is by what an import reads there now, and a Block that was still as imported is fingerprinted again, so export still finds it unchanged; one the User edited stays edited. A Note whose package is missing keeps its read-only notes. The start-up look backfill converts first too, so it plans the look on the same nodes as an import makes.
+- **No SQL table, no migration.** Nothing outside the Mind's Yjs document changes.

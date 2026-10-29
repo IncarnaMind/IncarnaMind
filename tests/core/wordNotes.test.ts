@@ -215,6 +215,13 @@ describe("a Word file's notes are the Note's own footnotes", () => {
     expect(edited).toContain("Read with clause 10.");
   });
 
+  test("the Saved line counts the edited footnotes as the file's own, and leaves the endnotes out", async () => {
+    const { core, mindId, client } = await setUp(brief());
+    editFootnote(client, "See Hale v Nair, 2019.", (text) => `${text} Affirmed.`);
+    await client.settled();
+    expect((await core.exportMind(mindId, { format: "docx" })).footnotes).toBe(2);
+  });
+
   test("a footnote deleted from the Note goes from the file, its mark and its note", async () => {
     const { core, mindId, client } = await setUp(brief());
     const strip = (node: JSONContent): JSONContent => ({
@@ -310,7 +317,7 @@ describe("a Note imported before its notes were its own", () => {
           const footnote = child.nodeName === FOOTNOTE_NODE;
           const kind = !footnote
             ? "pageBreak"
-            : child.getAttribute("endnote") === true
+            : (child.getAttributes() as Record<string, unknown>).endnote === true
               ? "endnote"
               : "footnote";
           atom.setAttribute("kind", kind);

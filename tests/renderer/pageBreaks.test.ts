@@ -50,25 +50,39 @@ function press(editor: ReturnType<typeof noteWith>, key: "Backspace" | "Delete")
   );
 }
 
-const blocksOf = (editor: ReturnType<typeof noteWith>) =>
-  (editor.getJSON().content ?? []).map((block) =>
+function blocksOf(editor: ReturnType<typeof noteWith>) {
+  const json: JSONContent = editor.getJSON();
+  return (json.content ?? []).map((block) =>
     (block.content ?? []).map((node) => (node.type === "text" ? node.text : node.type)),
   );
+}
 
 describe("a page break", () => {
-  test("goes where the cursor is, in the line, with the cursor after it", () => {
+  test("ends the line where the cursor is, as Word's does: what follows starts a paragraph of its own, with the cursor", () => {
     const editor = noteWith([paragraph(text("Page one. Page two."))]);
     editor.commands.setTextSelection(11);
     expect(insertPageBreak(editor)).toBe(true);
-    expect(blocksOf(editor)).toEqual([["Page one. ", PAGE_BREAK_NODE, "Page two."]]);
-    expect(editor.state.selection.from).toBe(12);
+    expect(blocksOf(editor)).toEqual([["Page one. ", PAGE_BREAK_NODE], ["Page two."]]);
+    const { $from } = editor.state.selection;
+    expect([$from.index(0), $from.parentOffset]).toEqual([1, 0]);
+  });
+
+  test("at a line's start, is a line of its own before it, and the line stays the one it was", () => {
+    const editor = noteWith([paragraph(text("Schedule"))]);
+    const id = editor.state.doc.child(0).attrs.id;
+    editor.commands.setTextSelection(1);
+    insertPageBreak(editor);
+    expect(blocksOf(editor)).toEqual([[PAGE_BREAK_NODE], ["Schedule"]]);
+    expect(editor.state.doc.child(1).attrs.id).toBe(id);
+    expect(editor.state.doc.child(0).attrs.id).not.toBe(id);
+    expect(editor.state.selection.$from.index(0)).toBe(1);
   });
 
   test("goes before selected text, which stays and starts the next page", () => {
     const editor = noteWith([paragraph(text("Keep this together."))]);
     editor.commands.setTextSelection({ from: 6, to: 10 });
     insertPageBreak(editor);
-    expect(blocksOf(editor)).toEqual([["Keep ", PAGE_BREAK_NODE, "this together."]]);
+    expect(blocksOf(editor)).toEqual([["Keep ", PAGE_BREAK_NODE], ["this together."]]);
   });
 
   test("can't go in a table, a Question or code", () => {
@@ -125,8 +139,41 @@ describe("a page break", () => {
     const editor = noteWith([paragraph(text("Typed."))]);
     editor.view.dispatch(editor.state.tr.setSelection(TextSelection.create(editor.state.doc, 7)));
     insertPageBreak(editor);
-    expect(blocksOf(editor)).toEqual([["Typed.", PAGE_BREAK_NODE]]);
+    expect(blocksOf(editor)).toEqual([["Typed.", PAGE_BREAK_NODE], []]);
     editor.commands.undo();
     expect(blocksOf(editor)).toEqual([["Typed."]]);
+  });
+});
+
+describe("⌘↵ in the note", () => {
+  /** ⌘↵ (Ctrl+Enter off macOS) pressed in the note, as the editor's keymaps take it. */
+  function modEnter(editor: ReturnType<typeof noteWith>): boolean {
+    const mac = /Mac/.test(navigator.platform);
+    const event = {
+      key: "Enter",
+      keyCode: 13,
+      shiftKey: false,
+      altKey: false,
+      ctrlKey: !mac,
+      metaKey: mac,
+      preventDefault: () => undefined,
+    } as unknown as KeyboardEvent;
+    return editor.state.plugins.some(
+      (plugin) => plugin.props.handleKeyDown?.call(plugin, editor.view, event) === true,
+    );
+  }
+
+  test("puts a page break where the cursor is", () => {
+    const editor = noteWith([paragraph(text("One. Two."))]);
+    editor.commands.setTextSelection(6);
+    expect(modEnter(editor)).toBe(true);
+    expect(blocksOf(editor)).toEqual([["One. ", PAGE_BREAK_NODE], ["Two."]]);
+  });
+
+  test("where no page break can go, is a line break as before", () => {
+    const editor = noteWith([{ type: "question", content: [text("Who signed?")] }]);
+    editor.commands.setTextSelection(5);
+    expect(modEnter(editor)).toBe(true);
+    expect(blocksOf(editor)).toEqual([["Who ", "hardBreak", "signed?"]]);
   });
 });
