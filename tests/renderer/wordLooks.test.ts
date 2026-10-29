@@ -4,6 +4,7 @@ import { holdWordLook, useWordLooks } from "../../src/renderer/src/wordLooks";
 const pane = (name: string, chosen: string[]) => ({
   shown: "word" as const,
   openOriginal: null,
+  fonts: [],
   choose: () => {
     chosen.push(name);
   },

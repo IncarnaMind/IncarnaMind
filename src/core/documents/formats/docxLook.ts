@@ -28,9 +28,11 @@ import { child, descendants, elements, local, onOff, parseXml, type XmlElement }
 /**
  * How the look was read. A Mind whose look an earlier version read has it
  * cleared (attributes, marks and map) and given again at the next start.
- * From 6 the look keeps only what styles and lists give (`splitDirect`).
+ * From 6 the look keeps only what styles and lists give (`splitDirect`);
+ * from 7 it has the document grid, whether the text is East Asian, and the
+ * looks of a table of contents' lines.
  */
-export const WORD_LOOK_VERSION = 6;
+export const WORD_LOOK_VERSION = 7;
 
 /** The first version that read table styles' conditional formatting. */
 export const CONDITIONAL_FORMATTING_VERSION = 3;
@@ -116,6 +118,7 @@ interface ParagraphProps {
   keepLines?: boolean;
   pageBreakBefore?: boolean;
   widowControl?: boolean;
+  snapToGrid?: boolean;
   numId?: string;
   ilvl?: number;
 }
@@ -388,6 +391,9 @@ function readParagraph(pPr: XmlElement | undefined): ParagraphProps {
         break;
       case "w:widowControl":
         props.widowControl = onOff(element);
+        break;
+      case "w:snapToGrid":
+        props.snapToGrid = onOff(element);
         break;
       case "w:numPr": {
         const numId = child(element, "w:numId")?.attrs["w:val"];
@@ -813,6 +819,8 @@ export class LookReader {
   private readonly theme: ThemeFonts;
   private readonly levels = new Map<string, Map<number, { pPr?: XmlElement; rPr?: XmlElement }>>();
   private readonly width: number | null;
+  private readonly linePitch: number | null;
+  private readonly eastAsian: boolean;
   private readonly defaultTab: number | null;
   private readonly tablesHang: boolean;
   /** Parts the look would read but couldn't parse; the look goes on without them. */
@@ -874,7 +882,10 @@ export class LookReader {
       });
     }
     this.readNumbering(parts.numbering);
-    this.width = textWidth(parts.document);
+    const section = firstSection(parts.document);
+    this.width = textWidth(section);
+    this.linePitch = linePitch(section);
+    this.eastAsian = hasEastAsianText(parts.document);
   }
 
   private readable<T>(
@@ -1190,6 +1201,8 @@ export class LookReader {
       width: this.width,
       defaultTab: this.defaultTab,
       ...(this.tablesHang && { tablesHang: true as const }),
+      ...(this.linePitch !== null && { linePitch: this.linePitch }),
+      ...(this.eastAsian && { eastAsian: true as const }),
       paragraphs: this.paragraphs.entries,
       runs: this.runs.entries,
       tables: this.tables.entries,
@@ -1317,18 +1330,39 @@ function paragraphLook(props: ParagraphProps, size: number): WordParagraphLook {
     keepLines: props.keepLines ? (true as const) : undefined,
     pageBreakBefore: props.pageBreakBefore ? (true as const) : undefined,
     widowControl: props.widowControl === false ? false : undefined,
+    snapToGrid: props.snapToGrid === false ? false : undefined,
   });
 }
 
-function textWidth(document: XmlElement): number | null {
+/** The first section's properties: in the pPr of its last paragraph, else the body's, the last section's. */
+function firstSection(document: XmlElement): XmlElement | undefined {
   const body = child(document, "w:body");
-  if (!body) return null;
-  // A section's properties sit in the pPr of its last paragraph; the last section's in the body.
+  if (!body) return undefined;
   const ending = elements(body).find(
     (element) => element.name === "w:p" && child(child(element, "w:pPr") ?? EMPTY, "w:sectPr"),
   );
-  const sectPr =
-    (ending && child(child(ending, "w:pPr") ?? EMPTY, "w:sectPr")) ?? child(body, "w:sectPr");
+  return (ending && child(child(ending, "w:pPr") ?? EMPTY, "w:sectPr")) ?? child(body, "w:sectPr");
+}
+
+/** Word's default grid ("default") snaps nothing; the others put each line on the grid. */
+const LINE_GRIDS = new Set(["lines", "linesAndChars", "snapToChars"]);
+
+function linePitch(sectPr: XmlElement | undefined): number | null {
+  const grid = sectPr && child(sectPr, "w:docGrid");
+  if (!grid || !LINE_GRIDS.has(grid.attrs["w:type"] ?? "")) return null;
+  const pitch = points(grid.attrs["w:linePitch"]);
+  return pitch !== undefined && pitch > 0 ? pitch : null;
+}
+
+const EAST_ASIAN_TEXT = /[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Hangul}]/u;
+
+function hasEastAsianText(document: XmlElement): boolean {
+  return descendants(document, "w:t").some((t) =>
+    t.children.some((node) => typeof node === "string" && EAST_ASIAN_TEXT.test(node)),
+  );
+}
+
+function textWidth(sectPr: XmlElement | undefined): number | null {
   if (!sectPr) return null;
   const width = Number(child(sectPr, "w:pgSz")?.attrs["w:w"]);
   const margins = child(sectPr, "w:pgMar")?.attrs ?? {};

@@ -45,6 +45,7 @@ import { hasSearchScope, holdsText, mindSearchScope, type ScopeKind } from "../s
 import { SPEAKER_ME, SPEAKER_THEM } from "../shared/speakers";
 import { setUnreadFileNames } from "../shared/unreadFiles";
 import { wordFileOf } from "../shared/wordFiles";
+import { wordFontsOf, wordLookOf } from "../shared/wordLook";
 import { logActivity, silentLogger } from "./activityLog";
 import type { CoreAdapters } from "./adapters";
 import { agentSocketPath, createAgents } from "./agents";
@@ -3764,6 +3765,13 @@ export function createCore(adapters: CoreAdapters): Core {
     addWordOriginal: async (mindId, path) => {
       const mind = writableMind(mindId);
       return wordImports.addOriginal(mind.id, path);
+    },
+    wordFonts: async (mindId) => {
+      const mind = minds.get(mindId);
+      return content.peek(mind.id, (fragment) => {
+        const look = fragment.doc && wordLookOf(fragment.doc);
+        return look ? wordFontsOf(look) : [];
+      });
     },
     listMinds: async () => minds.list(),
     renameMind: async (mindId, title) => {

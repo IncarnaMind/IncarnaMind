@@ -2,6 +2,7 @@ import { join } from "node:path";
 import { expect, type Locator, type Page, test } from "@playwright/test";
 import type { CoreBridge } from "../src/core/api";
 import {
+  askToChange,
   createDataFolder,
   dismissChatSetup,
   focusEditor,
@@ -68,18 +69,6 @@ async function mindWith(window: Page, lines: readonly string[]) {
   const paragraphs = editor.locator(":scope > p");
   await expect(paragraphs).toHaveText(lines.filter((line) => !line.startsWith("#")));
   return { editor, paragraphs };
-}
-
-/** ⌘J over what is selected, saying what to change: in the selection menu's field, or in the composer where the menu can't open (all of the Mind). */
-async function askToChange(window: Page, instruction: string) {
-  await window.keyboard.press("ControlOrMeta+j");
-  await expect
-    .poll(() => window.evaluate(() => document.activeElement?.getAttribute("data-testid")))
-    .toMatch(/^(selection-edit-field|composer-input)$/);
-  await window.keyboard.type(instruction);
-  await window.keyboard.press("Enter");
-  await expect(window.getByTestId("edit-pending")).toHaveCount(0);
-  await expect(window.getByTestId("selection-edit-working")).toHaveCount(0);
 }
 
 async function selectAll(window: Page, editor: Locator) {

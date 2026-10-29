@@ -28,6 +28,7 @@ import { useMindStylePanel } from "../mindStylePanel";
 import { useReviewables, useReviewPanes } from "../reviewPane";
 import { allExamples, useAppStore } from "../store";
 import { openDocumentBeside } from "../verify";
+import { LookMenuItems } from "./LookMenu";
 import { MindCounts } from "./WordCount";
 import { openOriginalAtCaret, useWordFile, wordFileTooltip } from "./WordOrigin";
 
@@ -117,6 +118,7 @@ export function PageMenu({
                       <ChevronRightLineIcon className="size-3.5 shrink-0 text-ink-meta" />
                     </button>
                   )}
+                  {!readOnly && origin?.word && <LookMenuItems mindId={mindId} close={close} />}
                   {!readOnly && offersReview(editor) && (
                     <button
                       type="button"
