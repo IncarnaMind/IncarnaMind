@@ -370,7 +370,9 @@ function editCall(
     context: selection.context,
     // Explain writes under the passage, not into it: the words around it don't matter.
     ...(!explain && { before: selection.before, after: selection.after }),
-    ...(ask.action === "cut-unsupported" && { quotes: selection.quotes }),
+    ...((ask.action === "cut-unsupported" || ask.action === "follow-citation") && {
+      quotes: selection.quotes,
+    }),
   });
   // The reply is about as long as the passage; a translation into Chinese can count more.
   let maxOutputTokens = Math.min(16_000, Math.max(1_024, Math.ceil(selection.characters * 1.5)));

@@ -51,6 +51,11 @@ function taskFor(action: EditAction, instruction: string, cited: string): string
       return "Explain what the passage says.";
     case "instruction":
       return `Do what the User asks: ${instruction}`;
+    case "follow-citation":
+      return [
+        ...(cited ? [`Its markers' Documents now say only this: ${cited}.`] : []),
+        "Change the passage so it agrees with that, altering only the words the new wording changes. Keep every other word, mark and marker exactly as it is, in its place.",
+      ].join(" ");
     case "cut-unsupported":
       return [
         ...(cited ? [`Its markers' sources say only this: ${cited}.`] : []),

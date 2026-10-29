@@ -5002,7 +5002,8 @@ export interface TextPlace {
  * What Edit with AI does with the selected text (#93): improve the writing,
  * shorten it, translate it, explain it in a new paragraph under it, what the
  * User asked for in their own words, or take out the part of a cited sentence
- * its Citations don't support (#1111).
+ * its Citations don't support (#1111), or make the sentence agree with the words its Citations
+ * now quote in a new version of their Document (#99).
  */
 export const editActions = [
   "improve",
@@ -5011,6 +5012,7 @@ export const editActions = [
   "explain",
   "instruction",
   "cut-unsupported",
+  "follow-citation",
 ] as const;
 export type EditAction = (typeof editActions)[number];
 

@@ -995,6 +995,7 @@ export const zhCN = {
   "edit.pending.explain": "正在解释…",
   "edit.pending.instruction": "正在修改…",
   "edit.pending.cut-unsupported": "正在删去无依据的部分…",
+  "edit.pending.follow-citation": "正在更新这句话…",
   "edit.stop": "停止",
   "edit.close": "关闭",
   "edit.problem.unchanged": "没有要修改的地方：模型返回的文字与原文相同。",
@@ -3165,6 +3166,8 @@ export const zhCN = {
   "citation.more": "这个引用的更多操作",
   "citation.regenerate": "重新生成回答",
   "citation.changedAfterCited": "此文档在被引用后有改动。",
+  "citation.changedAfterCited.web":
+    "此网页在你引用后于 {date} 重新抓取。这里显示的是新版本，你引用的版本仍保留。",
   "citation.changed.on": "此文档已于 {date} 更新。",
   "citation.changed.still": "引文仍在原处。",
   "citation.changed.gone": "新版本中已找不到这条引文。",

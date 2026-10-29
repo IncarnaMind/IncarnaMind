@@ -15,7 +15,7 @@ import { citationLocation, formatLocation } from "../../../shared/locations";
 import { ObjectMenu, useObjectMenu } from "../components/ObjectMenu";
 import { rowActionButtonClass } from "../components/sidebarRows";
 import { useLanguage, useT } from "../i18n";
-import { openCited, quoteSaysSo } from "../openCited";
+import { openCitedFollowing, quoteSaysSo } from "../openCited";
 import { useScopeName } from "../scopeDocuments";
 import { useAppStore } from "../store";
 import { focusFirstAction } from "./cardFocus";
@@ -58,7 +58,7 @@ function PartCitation({ citation, onOpen }: { citation: CitationAttributes; onOp
       data-testid="claim-part-citation"
       onClick={() => {
         if (!citation.documentId) return;
-        openCited(
+        void openCitedFollowing(
           { ...citation, documentId: state.documentId ?? citation.documentId },
           { check: state.check, withQuote: quoteSaysSo(state.check), label: where },
         );
