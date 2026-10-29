@@ -1,0 +1,627 @@
+import { describe, expect, test } from "vitest";
+import type {
+  Citation,
+  ClaimCheckAttributes,
+  ClaimCheckPart,
+  ClaimCheckResult,
+  ClaimPartPlan,
+} from "../../src/core/api";
+import { claimCheckShown, readClaimCheck, restsOn } from "../../src/shared/claimChecks";
+import {
+  coverageCount,
+  partWithResult,
+  pendingPart,
+  readClaimParts,
+  readPartPlans,
+  resultFromParts,
+} from "../../src/shared/claimParts";
+
+const source = (id = "source"): Citation => ({
+  passageId: `passage-${id}`,
+  documentId: id,
+  documentName: id,
+  contentHash: `hash-${id}`,
+  pageFrom: 1,
+  pageTo: 1,
+  location: { kind: "page", from: 1, to: 1 },
+  quote: "Revenue rose.",
+  check: "found",
+  checkReason: null,
+});
+const plan: ClaimPartPlan = { span: { start: 0, end: 12 }, kind: "fact" };
+const result = (
+  verdict: "supported" | "unsupported" | "contradicted" = "supported",
+  id = "source",
+): Exclude<ClaimCheckResult, { verdict: "not-checked" }> => ({
+  verdict,
+  evidence: verdict === "unsupported" ? null : source(id),
+  says: null,
+  unsupported:
+    verdict === "unsupported" ? { reason: "Not stated.", covered: null, uncovered: null } : null,
+  calculation: null,
+  citedCaseUnchecked: false,
+  citedCaseFound: false,
+  versions: [{ documentId: id, contentHash: `hash-${id}` }],
+  excluded: [],
+});
+const part = (verdict: "supported" | "unsupported" | "contradicted" = "supported", id = "source") =>
+  partWithResult(plan, result(verdict, id));
+const mark = (parts?: ClaimCheckPart[]): ClaimCheckAttributes => ({
+  id: "check",
+  request: "request",
+  action: "check-against-documents",
+  state: "supported",
+  text: "Revenue rose.",
+  evidence: source(),
+  says: null,
+  unsupported: null,
+  calculation: null,
+  reason: null,
+  detail: null,
+  providerId: null,
+  modelId: null,
+  citedCaseUnchecked: false,
+  citedCaseFound: false,
+  scope: { folderId: null, widened: false },
+  versions: [],
+  excluded: [],
+  checkedAt: "2026-10-28T00:00:00.000Z",
+  ...(parts && { parts }),
+});
+
+describe("ordered claim part codec", () => {
+  test.each(["Revenue rose. We should wait.", "收入增长。我们应该等待。"])(
+    "round trips %s",
+    (text) => {
+      const start = text.indexOf(text.startsWith("Revenue") ? "We" : "我们");
+      const plans: ClaimPartPlan[] = [
+        { kind: "fact", span: { start: 0, end: start } },
+        { kind: "opinion", span: { start, end: text.length } },
+      ];
+      const parts = [partWithResult(plans[0] ?? plan, result()), pendingPart(plans[1] ?? plan)];
+      expect(readPartPlans(plans, text)).toEqual(plans);
+      expect(readClaimParts(JSON.parse(JSON.stringify(parts)), text)).toEqual(parts);
+    },
+  );
+
+  test.each([
+    [{ kind: "fact", span: { start: -1, end: 2 } }],
+    [{ kind: "fact", span: { start: 0.5, end: 2 } }],
+    [{ kind: "fact", span: { start: 0, end: 20 } }],
+    [{ kind: "fact", span: { start: 0, end: 0 } }],
+    [
+      { kind: "fact", span: { start: 0, end: 5 } },
+      { kind: "opinion", span: { start: 4, end: 8 } },
+    ],
+    [{ kind: "other", span: { start: 0, end: 2 } }],
+  ])("rejects malformed plans %j", (...plans) => {
+    expect(readPartPlans(plans, "Revenue rose.")).toBeNull();
+  });
+
+  test("preserves UTF16 offsets without splitting a surrogate pair", () => {
+    expect(readPartPlans([{ kind: "opinion", span: { start: 0, end: 2 } }], "😀好")).not.toBeNull();
+    expect(readPartPlans([{ kind: "opinion", span: { start: 0, end: 1 } }], "😀好")).toBeNull();
+  });
+
+  test("empty sort plans are structural data, never a completed Supported check", () => {
+    expect(readPartPlans([], "Revenue rose.")).toEqual([]);
+    expect(readPartPlans([], "")).toEqual([]);
+    expect(readClaimCheck(mark([]))).toMatchObject({ state: "not-checked", reason: "malformed" });
+  });
+
+  test("pending state is the existing checking state; null facts require a checking owner", () => {
+    expect(pendingPart(plan).verdict).toBe("checking");
+    const nil = { ...pendingPart(plan), verdict: null };
+    expect(readClaimParts([nil], "Revenue rose.")).toBeNull();
+    expect(readClaimParts([nil], "Revenue rose.", "checking")).toEqual([nil]);
+    expect(resultFromParts([pendingPart(plan)])).toMatchObject({
+      verdict: "not-checked",
+      reason: "malformed",
+    });
+    expect(resultFromParts([nil])).toMatchObject({ verdict: "not-checked", reason: "malformed" });
+  });
+
+  test("legacy marks retain their existing fields", () => {
+    expect(readClaimCheck(mark())).toEqual(mark());
+    expect(readClaimCheck({ ...mark(), parts: null })).toEqual(mark());
+  });
+
+  test("malformed part evidence cannot preserve an old Supported parent", () => {
+    const read = readClaimCheck({
+      ...mark(),
+      says: "An old conclusion.",
+      unsupported: { reason: "An old reason.", covered: null, uncovered: null },
+      citedCaseUnchecked: true,
+      citedCaseFound: true,
+      parts: [{ ...part(), evidence: [{ check: "found" }] }],
+    });
+    expect(read).toMatchObject({
+      state: "not-checked",
+      reason: "malformed",
+      evidence: null,
+      says: null,
+      unsupported: null,
+      calculation: null,
+      citedCaseUnchecked: false,
+      citedCaseFound: false,
+    });
+  });
+
+  test("parts determine the compatibility result instead of an old scalar", () => {
+    expect(readClaimCheck(mark([part("contradicted")]))).toMatchObject({ state: "contradicted" });
+  });
+
+  test("an edit that shifts literal part offsets needs a re-check", () => {
+    expect(
+      claimCheckShown(mark([part()]), {
+        text: "Revenue  rose.",
+        versions: null,
+        folderId: null,
+        scope: null,
+      }),
+    ).toEqual({ state: "needs-recheck", why: "edited" });
+  });
+
+  test.each(["forecast-certainty", "unbacked-cause"] as const)(
+    "retains typed reason %s",
+    (kind) => {
+      const rejected = {
+        ...part("unsupported"),
+        unsupported: { kind, reason: "Not backed.", covered: null, uncovered: null },
+      };
+      expect(readClaimParts([rejected], "Revenue rose.")?.[0]?.unsupported?.kind).toBe(kind);
+      expect(
+        readClaimCheck({ ...mark(), unsupported: rejected.unsupported })?.unsupported?.kind,
+      ).toBe(kind);
+    },
+  );
+});
+
+describe("one sentence projection", () => {
+  test("retains complementary sources and unions all versions and exclusions", () => {
+    const first = partWithResult(plan, result("supported", "one"), [source("one"), source("two")]);
+    const second = {
+      ...part("supported", "two"),
+      span: { start: 13, end: 20 },
+      excluded: [{ documentId: "own", documentName: "Own", reason: "own-file" as const }],
+    };
+    const projected = resultFromParts([first, second]);
+    expect(projected.verdict).toBe("supported");
+    expect(projected.parts?.[0]?.evidence).toHaveLength(2);
+    expect(projected.versions).toEqual([
+      result("supported", "one").versions[0],
+      result("supported", "two").versions[0],
+    ]);
+    expect(projected.excluded).toEqual(second.excluded);
+  });
+
+  test("a partial quote is retained without becoming the sentence's deciding evidence", () => {
+    const quote = source("partial");
+    const partial = {
+      ...result("unsupported"),
+      unsupported: {
+        reason: null,
+        covered: "Revenue rose",
+        uncovered: "profit rose",
+        quoted: quote,
+      },
+    };
+    const projected = resultFromParts([partWithResult(plan, partial, [quote])]);
+    expect(projected).toMatchObject({
+      verdict: "unsupported",
+      evidence: null,
+      unsupported: partial.unsupported,
+    });
+    expect(projected.parts?.[0]?.evidence).toEqual([quote]);
+  });
+
+  test("the deciding quote precedes wider calculation input evidence", () => {
+    const deciding = { ...source("one"), quote: "Revenue was £131.9m in 2025" };
+    const wider = {
+      ...deciding,
+      quote: "Revenue was £131.9m in 2025, compared with £118.2m in 2024.",
+    };
+    const projected = resultFromParts([
+      partWithResult(plan, { ...result("contradicted", "one"), evidence: deciding }, [wider]),
+    ]);
+    expect(projected).toMatchObject({ verdict: "contradicted", evidence: deciding });
+    expect(projected.parts?.[0]?.evidence).toEqual([deciding, wider]);
+  });
+
+  test("failure precedes contradiction, unsupported and supported, with original detail", () => {
+    const failed = partWithResult(plan, {
+      verdict: "not-checked",
+      reason: "failed",
+      detail: "Provider stopped.",
+      versions: [],
+      excluded: [],
+    });
+    expect(
+      resultFromParts([part("supported"), part("unsupported"), part("contradicted"), failed]),
+    ).toMatchObject({ verdict: "not-checked", reason: "failed", detail: "Provider stopped." });
+    expect(resultFromParts([part("unsupported"), part("contradicted")]).verdict).toBe(
+      "contradicted",
+    );
+    expect(resultFromParts([part("unsupported"), part()]).verdict).toBe("unsupported");
+  });
+
+  test("partial factual support makes the parent Unsupported while its missing row stays Not found", () => {
+    const missing = part("unsupported");
+    const projected = resultFromParts([part("supported"), missing]);
+    expect(projected).toMatchObject({ verdict: "unsupported", unsupported: { found: true } });
+    expect(missing.unsupported?.found).not.toBe(true);
+    const absent = resultFromParts([part("unsupported"), missing]);
+    expect(absent.verdict).toBe("unsupported");
+    if (absent.verdict === "unsupported") expect(absent.unsupported?.found).not.toBe(true);
+  });
+
+  test("coverage outcome proof counts as partial support, domain context alone does not", () => {
+    const coverage = {
+      unit: "quarters",
+      quantifier: "all" as const,
+      complete: true,
+      members: [{ label: "Q1", verdict: "unsupported" as const, evidence: [] }],
+      domainEvidence: [source("domain")],
+    };
+    const contextOnly = resultFromParts([
+      { ...part("unsupported"), evidence: coverage.domainEvidence, coverage },
+    ]);
+    expect(contextOnly.verdict).toBe("unsupported");
+    if (contextOnly.verdict === "unsupported")
+      expect(contextOnly.unsupported?.found).not.toBe(true);
+    const partial = resultFromParts([
+      {
+        ...part("unsupported"),
+        coverage: {
+          ...coverage,
+          members: [
+            { label: "Q1", verdict: "supported", evidence: [source("outcome")] },
+            ...coverage.members.map((member) => ({ ...member, label: "Q2" })),
+          ],
+        },
+      },
+    ]);
+    expect(partial).toMatchObject({ verdict: "unsupported", unsupported: { found: true } });
+  });
+
+  test("empty or all-omitted inventory is never vacuously Supported", () => {
+    expect(resultFromParts([])).toMatchObject({ verdict: "not-checked", reason: "malformed" });
+    expect(resultFromParts([pendingPart({ ...plan, kind: "opinion" })])).toMatchObject({
+      verdict: "not-checked",
+      reason: "malformed",
+    });
+  });
+
+  test("a Supported child with no found evidence fails closed", () => {
+    expect(resultFromParts([{ ...part(), evidence: [] }])).toMatchObject({
+      verdict: "not-checked",
+      reason: "no-evidence",
+    });
+    expect(
+      resultFromParts([{ ...part(), evidence: [{ ...source(), documentId: "" }] }]),
+    ).toMatchObject({ verdict: "not-checked", reason: "no-evidence" });
+  });
+
+  test.each([
+    ["Revenue rose.", "Costs fell."],
+    ["收入增长。", "成本下降。"],
+  ])("rejected proof cannot leave a green child beside a valid fact in %s %s", (first, last) => {
+    const text = `${first} ${last}`;
+    const bad = {
+      ...part(),
+      span: { start: 0, end: first.length },
+      evidence: [],
+      says: "An old conclusion.",
+      unsupported: { reason: "An old reason.", covered: null, uncovered: null },
+      citedCaseUnchecked: true,
+      citedCaseFound: true,
+    };
+    const good = {
+      ...part("supported", "neighbor"),
+      span: { start: first.length + 1, end: text.length },
+    };
+    const projected = resultFromParts([bad, good]);
+    expect(projected).toMatchObject({ verdict: "not-checked", reason: "no-evidence" });
+    expect(projected.parts?.[0]).toMatchObject({
+      verdict: "not-checked",
+      reason: "no-evidence",
+      detail: null,
+      says: null,
+      unsupported: null,
+      calculation: null,
+      citedCaseUnchecked: false,
+      citedCaseFound: false,
+    });
+    expect(projected.parts?.[1]).toEqual(good);
+    expect(resultFromParts(projected.parts ?? [])).toEqual(projected);
+    const read = readClaimCheck({ ...mark([bad, good]), text, says: "An old conclusion." });
+    expect(read?.parts).toEqual(projected.parts);
+    expect(read).toMatchObject({
+      state: "not-checked",
+      reason: "no-evidence",
+      evidence: null,
+      says: null,
+      unsupported: null,
+      calculation: null,
+      citedCaseUnchecked: false,
+      citedCaseFound: false,
+    });
+  });
+
+  test("an existing failure keeps its original reason while every other child is normalized", () => {
+    const failed = partWithResult(plan, {
+      verdict: "not-checked",
+      reason: "rate-limit",
+      detail: "Provider stopped.",
+      versions: [],
+      excluded: [],
+    });
+    const good = part("supported", "neighbor");
+    const projected = resultFromParts([{ ...part(), evidence: [] }, good, failed]);
+    expect(projected).toMatchObject({
+      verdict: "not-checked",
+      reason: "rate-limit",
+      detail: "Provider stopped.",
+    });
+    expect(projected.parts?.[0]).toMatchObject({ verdict: "not-checked", reason: "no-evidence" });
+    expect(projected.parts?.[1]).toEqual(good);
+    expect(projected.parts?.[2]).toEqual(failed);
+    expect(resultFromParts(projected.parts ?? [])).toEqual(projected);
+  });
+
+  test("coverage names implicit members without invented Note spans, and counts members", () => {
+    const coverage = {
+      unit: "quarters",
+      quantifier: "all" as const,
+      complete: true,
+      members: [1, 2, 3, 4].map((n) => ({
+        label: `Q${n}`,
+        verdict: n < 4 ? ("supported" as const) : ("unsupported" as const),
+        evidence: n < 4 ? [source(`quarter-${n}`)] : [],
+      })),
+      domainEvidence: [source("domain")],
+    };
+    const checked = { ...part(), coverage };
+    expect(coverageCount(coverage)).toEqual({ covered: 3, total: 4 });
+    expect(resultFromParts([checked]).verdict).toBe("unsupported");
+    expect(resultFromParts([checked]).parts?.[0]?.verdict).toBe("unsupported");
+    expect(readClaimParts([checked], "Revenue rose.")?.[0]?.coverage).toEqual(coverage);
+    expect(restsOn(mark([checked])).map((citation) => citation.documentId)).toContain("domain");
+  });
+
+  test("domain context alone cannot prove a member outcome", () => {
+    const coverage = {
+      unit: "quarters",
+      quantifier: "all" as const,
+      complete: true,
+      members: [{ label: "Q1", verdict: "supported" as const, evidence: [] }],
+      domainEvidence: [source("domain")],
+    };
+    expect(resultFromParts([{ ...part(), coverage }])).toMatchObject({
+      verdict: "not-checked",
+      reason: "no-evidence",
+      parts: [
+        {
+          verdict: "not-checked",
+          reason: "no-evidence",
+          coverage: { members: [{ label: "Q1", verdict: "not-checked", evidence: [] }] },
+        },
+      ],
+    });
+    expect(coverageCount(coverage)).toEqual({ covered: 0, total: 1 });
+  });
+
+  test.each(["not-checked", "checking"] as const)(
+    "a %s child cannot retain an unproved green coverage member",
+    (verdict) => {
+      const projected = resultFromParts([
+        {
+          ...part(),
+          verdict,
+          reason: verdict === "not-checked" ? "rate-limit" : null,
+          detail: verdict === "not-checked" ? "Provider stopped." : null,
+          coverage: {
+            unit: "quarters",
+            quantifier: "all",
+            complete: true,
+            members: [{ label: "Q1", verdict: "supported", evidence: [] }],
+            domainEvidence: [source("domain")],
+          },
+        },
+      ]);
+      expect(projected).toMatchObject({
+        verdict: "not-checked",
+        reason: verdict === "not-checked" ? "rate-limit" : "malformed",
+        detail: verdict === "not-checked" ? "Provider stopped." : null,
+        parts: [
+          {
+            verdict: "not-checked",
+            coverage: { members: [{ label: "Q1", verdict: "not-checked", evidence: [] }] },
+          },
+        ],
+      });
+    },
+  );
+
+  test("found outcomes do not establish an absent or failed domain", () => {
+    const coverage = {
+      unit: "quarters",
+      quantifier: "all" as const,
+      complete: true,
+      members: [{ label: "Q1", verdict: "supported" as const, evidence: [source("outcome")] }],
+      domainEvidence: [],
+    };
+    expect(resultFromParts([{ ...part(), coverage }])).toMatchObject({
+      verdict: "unsupported",
+    });
+    expect(
+      resultFromParts([
+        {
+          ...part(),
+          coverage: { ...coverage, domainEvidence: [{ ...source("domain"), check: "not-found" }] },
+        },
+      ]),
+    ).toMatchObject({ verdict: "not-checked", reason: "no-evidence" });
+  });
+
+  test("a strict majority differs from all and retains unknown members in its denominator", () => {
+    const coverage = {
+      unit: "stores",
+      quantifier: "most" as const,
+      complete: true,
+      domainEvidence: [source("domain")],
+      members: [1, 2, 3, 4].map((n) => ({
+        label: `Store ${n}`,
+        verdict: n < 4 ? ("supported" as const) : ("not-checked" as const),
+        evidence: n < 4 ? [source(`store-${n}`)] : [],
+      })),
+    };
+    expect(coverageCount(coverage)).toEqual({ covered: 3, total: 4 });
+    expect(resultFromParts([{ ...part(), coverage }]).verdict).toBe("supported");
+    expect(
+      resultFromParts([{ ...part(), coverage: { ...coverage, quantifier: "all" } }]).verdict,
+    ).toBe("unsupported");
+    expect(
+      resultFromParts([{ ...part(), coverage: { ...coverage, complete: false } }]).verdict,
+    ).toBe("unsupported");
+    const minority = {
+      ...coverage,
+      members: coverage.members.map((member, index) =>
+        index === 2 ? { ...member, verdict: "unsupported" as const, evidence: [] } : member,
+      ),
+    };
+    expect(resultFromParts([{ ...part(), coverage: minority }]).verdict).toBe("unsupported");
+    const contrary = {
+      ...coverage,
+      members: coverage.members.map((member, index) =>
+        index === 3
+          ? { ...member, verdict: "contradicted" as const, evidence: [source("contrary")] }
+          : member,
+      ),
+    };
+    expect(resultFromParts([{ ...part(), coverage: contrary }]).verdict).toBe("supported");
+    expect(readClaimParts([{ ...part(), coverage }], "Revenue rose.")?.[0]?.coverage).toEqual(
+      coverage,
+    );
+  });
+
+  test("every declared proof must be found, even beside a good quote", () => {
+    expect(
+      resultFromParts([
+        { ...part(), evidence: [source(), { ...source("missing"), check: "not-found" }] },
+      ]),
+    ).toMatchObject({ verdict: "not-checked", reason: "no-evidence" });
+  });
+
+  test("the common closure keeps calculation input and unit sources with part evidence", () => {
+    const calculation: NonNullable<ClaimCheckPart["calculation"]> = {
+      stated: "10",
+      agrees: true,
+      figure: {
+        label: "Value",
+        formula: "a",
+        value: 10,
+        unit: { kind: "plain" },
+        approximate: false,
+        shown: "10",
+        show: { language: "en", as: null, decimals: 0, scale: null },
+        literals: [],
+        engine: 1,
+        written: null,
+        inputs: [
+          {
+            name: "a",
+            label: "Value",
+            citation: source("input"),
+            cell: null,
+            number: {
+              chars: "10",
+              at: 0,
+              value: 10,
+              scale: 1,
+              scaleWord: null,
+              unit: { kind: "plain" },
+              decimals: 0,
+              approximate: false,
+              reading: null,
+            },
+            unitStatement: { citation: source("units"), scale: 1, scaleWord: null, currency: null },
+          },
+        ],
+      },
+    };
+    const checked = {
+      ...part(),
+      calculation,
+      unsupported: {
+        reason: "Part covered.",
+        covered: "value",
+        uncovered: "rest",
+        quoted: source("covered"),
+      },
+    };
+    const relied = restsOn(mark([checked])).map((citation) => citation.documentId);
+    expect(relied).toEqual(expect.arrayContaining(["source", "covered", "input", "units"]));
+    expect(resultFromParts([{ ...checked, evidence: [] }]).verdict).toBe("supported");
+    const badUnit = {
+      ...calculation,
+      figure: {
+        ...calculation.figure,
+        inputs: calculation.figure.inputs.map((input) => ({
+          ...input,
+          unitStatement: {
+            citation: { ...source("units"), check: "not-found" as const },
+            scale: 1,
+            scaleWord: null,
+            currency: null,
+          },
+        })),
+      },
+    };
+    expect(resultFromParts([{ ...checked, calculation: badUnit }])).toMatchObject({
+      verdict: "not-checked",
+      reason: "no-evidence",
+      parts: [{ verdict: "not-checked", reason: "no-evidence", calculation: null }],
+    });
+    expect(
+      resultFromParts([{ ...checked, calculation: { ...calculation, agrees: false } }]).parts?.[0]
+        ?.verdict,
+    ).toBe("contradicted");
+    expect(
+      readClaimCheck({
+        ...mark(),
+        calculation,
+        parts: [{ ...checked, calculation: badUnit }],
+      }),
+    ).toMatchObject({ state: "not-checked", reason: "no-evidence", calculation: null });
+    expect(
+      readClaimCheck({ ...mark(), calculation, parts: [{ ...part(), evidence: [null] }] }),
+    ).toMatchObject({ state: "not-checked", reason: "malformed", calculation: null });
+    expect(
+      readClaimParts(
+        [
+          {
+            ...checked,
+            calculation: { ...calculation, figure: { ...calculation.figure, inputs: [null] } },
+          },
+        ],
+        "Revenue rose.",
+      ),
+    ).toBeNull();
+  });
+
+  test("part-only Source removal invalidates the same parent Check", () => {
+    const child = part("supported", "child-source");
+    const checked = readClaimCheck(mark([child]));
+    expect(checked).not.toBeNull();
+    if (!checked) return;
+    expect(
+      claimCheckShown(checked, {
+        text: checked.text,
+        versions: new Map(),
+        folderId: null,
+        scope: null,
+      }),
+    ).toEqual({ state: "needs-recheck", why: "document-removed" });
+  });
+});

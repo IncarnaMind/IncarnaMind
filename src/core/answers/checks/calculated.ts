@@ -13,10 +13,11 @@ import {
   readFigures,
 } from "../../../shared/figures";
 import type { ResultUnit } from "../../../shared/formula";
+import { INTEGER_WORDS, wholeNumberWords } from "../../../shared/numberWords";
 import type { CalculatedFigure, LimitRelation } from "../../api";
 import { documentFigureContext } from "../calculations";
 
-export function figuresInClaim(text: string, context: FigureContext): Figure[] {
+function printedFigures(text: string, context: FigureContext): Figure[] {
   const references = citedCases(text).map((reference, index, citations) => {
     const next = citations[index + 1];
     const suffix = text.slice(reference.to, next?.from);
@@ -29,6 +30,92 @@ export function figuresInClaim(text: string, context: FigureContext): Figure[] {
     (figure) =>
       !references.some((reference) => figure.start >= reference.from && figure.end <= reference.to),
   );
+}
+
+export function figuresInClaim(text: string, context: FigureContext): Figure[] {
+  const counts = periodCounts(text, context);
+  return [
+    ...printedFigures(text, context).filter(
+      (figure) => !counts.some((count) => figure.start < count.end && figure.end > count.start),
+    ),
+    ...counts,
+  ].sort((a, b) => a.start - b.start);
+}
+
+export function periodCounts(text: string, context: FigureContext): Figure[] {
+  const counts: Figure[] = [];
+  const count = (start: number, end: number, value: number, unit: string): Figure => ({
+    start,
+    end,
+    chars: text.slice(start, end),
+    value,
+    scale: 1,
+    scaleWord: null,
+    unit: { kind: "other", word: unit },
+    decimals: 0,
+    currency: null,
+    approximate: false,
+    rangeTo: null,
+    footnote: null,
+    ambiguous: [],
+  });
+  const english = new RegExp(
+    `\\b(${INTEGER_WORDS}|\\d+)(?:[ -]+(?:consecutive|successive))?[ -]+(years?|months?|weeks?|days?|quarters?)\\b`,
+    "gi",
+  );
+  for (const match of text.matchAll(english)) {
+    const named = match[1] ?? "";
+    const value = wholeNumberWords(named) ?? (/^\d+$/.test(named) ? Number(named) : null);
+    const unit = match[2]?.toLowerCase().replace(/s$/, "");
+    if (value === null || !Number.isSafeInteger(value) || !unit) continue;
+    counts.push(count(match.index, match.index + match[0].length, value, unit));
+  }
+  const units: Readonly<Record<string, string>> = {
+    年: "year",
+    个月: "month",
+    月: "month",
+    周: "week",
+    天: "day",
+    日: "day",
+    季度: "quarter",
+  };
+  for (const match of text.matchAll(/年|个月|月|周|天|日|季度/gu)) {
+    const unitAt = match.index;
+    const from = Math.max(0, unitAt - 40);
+    const local = text.slice(from, unitAt + match[0].length);
+    const figure = readFigures(local, {
+      ...context,
+      dates: true,
+      midLine: true,
+      header: null,
+    }).findLast(
+      (figure) =>
+        figure.end === unitAt - from ||
+        (figure.start < unitAt - from && figure.end === local.length),
+    );
+    if (
+      !figure ||
+      figure.ambiguous.length ||
+      !Number.isSafeInteger(figure.value) ||
+      figure.value < 0
+    )
+      continue;
+    const start = from + figure.start;
+    const before = text.slice(0, start);
+    const consecutive = /(?:连续|接连|相继)\s*$/u.test(before);
+    if (/第\s*$/u.test(before)) continue;
+    if (match[0] === "年" && figure.value >= 1000 && !consecutive) continue;
+    if (
+      (match[0] === "月" || match[0] === "日" || match[0] === "季度") &&
+      !consecutive &&
+      !/个\s*$/u.test(before)
+    )
+      continue;
+    if (/(?:公元|民国)\s*$/u.test(before)) continue;
+    const unit = units[match[0]];
+    if (unit) counts.push(count(start, unitAt + match[0].length, figure.value, unit));
+  }
+  return counts;
 }
 
 /**
@@ -46,15 +133,58 @@ export function statedFigure(
   const own = documentFigureContext([{ text: sentence }]);
   const context = own.language ? own : { ...document, header: null };
   const [named] = readFigures(stated, context);
-  if (!named) return null;
+  if (!named) return namedCount(sentence, stated, context);
   return (
-    figuresInClaim(sentence, context).find(
+    printedFigures(sentence, context).find(
       (figure) =>
         figure.ambiguous.length === 0 &&
         figure.value === named.value &&
         (named.unit.kind === "plain" || sameUnit(figure.unit, named.unit)),
-    ) ?? null
+    ) ?? namedCount(sentence, stated, context)
   );
+}
+
+function namedCount(sentence: string, stated: string, context: FigureContext): Figure | null {
+  const start = sentence.indexOf(stated);
+  if (start < 0 || sentence.indexOf(stated, start + stated.length) >= 0) return null;
+  const period = periodCounts(sentence, context).find(
+    (figure) => figure.start === start && figure.end >= start + stated.length,
+  );
+  if (period) return period;
+  const value = wholeNumberWords(stated);
+  if (value !== null) {
+    return {
+      start,
+      end: start + stated.length,
+      chars: stated,
+      value,
+      scale: 1,
+      scaleWord: null,
+      unit: { kind: "plain" },
+      decimals: 0,
+      currency: null,
+      approximate: false,
+      rangeTo: null,
+      footnote: null,
+      ambiguous: [],
+    };
+  }
+  const figures = readFigures(stated, { ...context, dates: true, midLine: true, header: null });
+  const figure = figures.length === 1 ? figures[0] : undefined;
+  if (
+    !figure ||
+    figure.ambiguous.length > 0 ||
+    !Number.isFinite(figure.value) ||
+    !Number.isInteger(figure.value) ||
+    figure.value < 0
+  )
+    return null;
+  if (
+    figure.start !== 0 ||
+    readFigures(stated, { ...context, dates: false, midLine: true, header: null }).length !== 0
+  )
+    return null;
+  return { ...figure, start: start + figure.start, end: start + figure.end };
 }
 
 const sameUnit = (a: FigureUnit, b: FigureUnit): boolean =>

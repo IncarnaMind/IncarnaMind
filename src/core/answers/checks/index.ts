@@ -28,6 +28,7 @@ import type * as Y from "yjs";
 import { caseCitations } from "../../../shared/caseCitations";
 import { type LiveDocument, withShownName } from "../../../shared/citations";
 import { restsOn } from "../../../shared/claimChecks";
+import { partWithResult, pendingPart, resultFromParts } from "../../../shared/claimParts";
 import { mindScopeIn } from "../../../shared/mindScope";
 import { folderScope, oneFolderOf } from "../../../shared/searchScope";
 import { judgesUnreliably } from "../../../shared/smallModel";
@@ -42,8 +43,10 @@ import {
   type CitedQuote,
   type ClaimCheckAction,
   type ClaimCheckAttributes,
+  type ClaimCheckPart,
   type ClaimCheckResult,
   type ClaimCheckScope,
+  type ClaimPartSpan,
   type ContradictionCheckPlan,
   claimCheckActions,
   type Document,
@@ -72,9 +75,18 @@ import { parseMindId } from "../../minds";
 import type { PreparedChatModel } from "../../providers/chat";
 import { parseSearchScope } from "../../scope";
 import type { AnswerEngine } from "../engine";
-import { type ClaimCheckDependencies, createClaimCheck, recordJudged } from "./claimCheck";
+import { type ClaimCheckDependencies, recordJudged } from "./claimCheck";
 import { createMindCheck, type MindCheckOptions } from "./mindCheck";
-import { markedSentences, markSentence, selectedSentences, updateCheck } from "./sentences";
+import { recordOpinions, removeOpinion, unmarkedOpinion } from "./opinions";
+import { createPartCheck } from "./partCheck";
+import { pendingParts } from "./runChecks";
+import {
+  everySentence,
+  markedSentences,
+  markSentence,
+  selectedSentences,
+  updateCheck,
+} from "./sentences";
 import { createVerify, type NoDocuments, type VerifyOptions } from "./verify";
 import { createContradictionWatch, type WatchOptions } from "./watch";
 import { createWrittenCheck, type WrittenCheckOptions } from "./written";
@@ -140,7 +152,7 @@ export interface ChecksOptions
       names(): readonly LiveDocument[];
     };
   engine: AnswerEngine;
-  retention: Pick<VersionRetention, "retain">;
+  retention: Pick<VersionRetention, "retain" | "retainedBy">;
   /** Edit with AI's new text for a passage not in a Mind, for what the assistant writes (#1111). */
   editText: WrittenCheckOptions["editText"];
   now(): Date;
@@ -155,6 +167,25 @@ interface ParsedCheck {
   action: ClaimCheckAction;
   allDocuments: boolean;
   model: ChatModelChoice | null;
+  part?: { id: string; span: ClaimPartSpan };
+}
+
+function parsePart(value: unknown): ParsedCheck["part"] {
+  if (value === undefined) return undefined;
+  if (
+    !isRecord(value) ||
+    typeof value.id !== "string" ||
+    !value.id ||
+    !isRecord(value.span) ||
+    !Number.isInteger(value.span.start) ||
+    !Number.isInteger(value.span.end) ||
+    typeof value.span.start !== "number" ||
+    typeof value.span.end !== "number" ||
+    value.span.start < 0 ||
+    value.span.end <= value.span.start
+  )
+    throw new InvalidInputError({ key: "error.check.partChanged" });
+  return { id: value.id, span: { start: value.span.start, end: value.span.end } };
 }
 
 function parseStretches(value: unknown): TextStretch[] {
@@ -176,6 +207,10 @@ function parseCheck(input: unknown): ParsedCheck {
   }
   const known = claimCheckActions.find((each) => each === action);
   if (!known) throw new InvalidInputError(`Unknown check "${String(action)}".`);
+  const part = parsePart(input.part);
+  if (part && known === "contradiction-watch") {
+    throw new InvalidInputError({ key: "error.check.partChanged" });
+  }
   return {
     requestId,
     mindId: parseMindId(input.mindId),
@@ -185,6 +220,7 @@ function parseCheck(input: unknown): ParsedCheck {
     action: known,
     allDocuments: input.allDocuments === true,
     model: parseModel(input.model),
+    ...(part && { part }),
   };
 }
 
@@ -246,10 +282,36 @@ function withResult(
   check: ClaimCheckAttributes,
   result: ClaimCheckResult,
   at: string,
+  sourceText = check.text,
 ): ClaimCheckAttributes {
+  // Verify anchors a whole row to its first cell (#1368); its contextual claim has different offsets.
+  if (result.parts && sourceText !== check.text) {
+    const evidence = result.parts.flatMap((part) => part.evidence);
+    result = resultFromParts([
+      partWithResult(
+        { span: { start: 0, end: check.text.length }, kind: "fact" },
+        result,
+        evidence,
+      ),
+    ]);
+  }
+  if (result.parts) result = resultFromParts(result.parts);
   const common = { versions: result.versions, excluded: result.excluded, checkedAt: at };
   return result.verdict === "not-checked"
-    ? { ...check, ...common, state: "not-checked", reason: result.reason, detail: result.detail }
+    ? {
+        ...check,
+        ...common,
+        state: "not-checked",
+        reason: result.reason,
+        detail: result.detail,
+        evidence: null,
+        says: null,
+        unsupported: null,
+        calculation: null,
+        citedCaseUnchecked: false,
+        citedCaseFound: false,
+        ...(result.parts && { parts: result.parts }),
+      }
     : {
         ...check,
         ...common,
@@ -262,17 +324,27 @@ function withResult(
         calculation: result.calculation,
         citedCaseUnchecked: result.citedCaseUnchecked,
         citedCaseFound: result.citedCaseFound,
+        ...(result.parts && { parts: result.parts }),
       };
 }
 
-const stopped = (check: ClaimCheckAttributes): ClaimCheckAttributes =>
-  check.state === "checking" ? { ...check, state: "not-checked", reason: "stopped" } : check;
+const stopped = (check: ClaimCheckAttributes): ClaimCheckAttributes => {
+  if (check.state !== "checking") return check;
+  if (!check.parts) return { ...check, state: "not-checked", reason: "stopped" };
+  const parts = check.parts.map(
+    (part): ClaimCheckPart =>
+      part.verdict === "checking"
+        ? { ...part, verdict: "not-checked", reason: "stopped", detail: null }
+        : part,
+  );
+  return withResult(check, resultFromParts(parts), check.checkedAt);
+};
 
 export function createChecks(options: ChecksOptions) {
   const { content, chat } = options;
   /** The requests running, by id: how to stop each, and its Mind. */
   const running = new Map<string, { controller: AbortController; mindId: string }>();
-  const claimCheck = createClaimCheck(options);
+  const claimCheck = createPartCheck(options);
 
   options.consent.registry.register({
     id: "checks",
@@ -319,8 +391,9 @@ export function createChecks(options: ChecksOptions) {
    * figure's inputs included, and lets go of the rest (#79).
    */
   function retainEvidence(mindId: string): void {
-    const versions = content.read(mindId, (blocks) =>
-      markedSentences(blocks).flatMap(({ check }): RetainVersion[] =>
+    const inventory = content.read(mindId, (blocks) => {
+      const marks = markedSentences(blocks);
+      const versions = marks.flatMap(({ check }): RetainVersion[] =>
         restsOn(check).flatMap((evidence) =>
           evidence.documentId && evidence.contentHash
             ? [
@@ -334,9 +407,16 @@ export function createChecks(options: ChecksOptions) {
               ]
             : [],
         ),
-      ),
-    );
-    options.retention.retain("check-result", mindId, versions);
+      );
+      return { versions, complete: marks.every((mark) => mark.partsComplete) };
+    });
+    if (!inventory.complete) {
+      options.watch.log.warn("checks.evidenceInventoryIncomplete", { mindId });
+    }
+    options.retention.retain("check-result", mindId, [
+      ...inventory.versions,
+      ...(!inventory.complete ? options.retention.retainedBy("check-result", mindId) : []),
+    ]);
   }
 
   /** What a sentence cites, each Document named as it is now. */
@@ -413,6 +493,32 @@ export function createChecks(options: ChecksOptions) {
     };
   }
 
+  function partOwner(blocks: Y.XmlFragment, target: NonNullable<ParsedCheck["part"]>) {
+    const marked = markedSentences(blocks).find((each) => each.check.id === target.id);
+    if (marked?.check.state === "checking") {
+      throw new InvalidInputError({ key: "error.check.partChecking" });
+    }
+    const sentence =
+      marked &&
+      everySentence(blocks).find(
+        (each) =>
+          each.element === marked.element &&
+          each.from < marked.to &&
+          each.to > marked.from &&
+          each.text === marked.check.text,
+      );
+    const opinion = marked ? null : unmarkedOpinion(blocks, target.id);
+    const parts = sentence ? marked?.check.parts : opinion?.parts;
+    const own = sentence ?? opinion;
+    const part = parts?.find(
+      (each) => each.span.start === target.span.start && each.span.end === target.span.end,
+    );
+    if (!own || !parts || !part || part.verdict === "checking") {
+      throw new InvalidInputError({ key: "error.check.partChanged" });
+    }
+    return { sentence: own, parts, check: marked?.check };
+  }
+
   async function checkSentences(
     input: ParsedCheck,
     signal: AbortSignal,
@@ -421,6 +527,22 @@ export function createChecks(options: ChecksOptions) {
     const stretches = [{ from: input.from, to: input.to }, ...input.more];
     const read = content.read(mindId, (blocks) => selectedSentences(blocks, stretches));
     if (!read.ok) return { kind: read.reason };
+    if (input.part) {
+      const target = input.part;
+      content.read(mindId, (blocks) => {
+        const owner = partOwner(blocks, target);
+        if (
+          !read.sentences.some(
+            (each) =>
+              each.element === owner.sentence.element &&
+              each.from === owner.sentence.from &&
+              each.to === owner.sentence.to,
+          )
+        ) {
+          throw new InvalidInputError({ key: "error.check.partChanged" });
+        }
+      });
+    }
 
     const { empty, check } = scopeOf(mindId, input.allDocuments);
     if (empty) return empty;
@@ -438,9 +560,38 @@ export function createChecks(options: ChecksOptions) {
       const again = selectedSentences(blocks, stretches);
       if (!again.ok) return [];
       waiting = again.waiting;
-      const marked = again.sentences.map((sentence) => {
+      const owner = input.part ? partOwner(blocks, input.part) : null;
+      const marked = again.sentences.flatMap((sentence) => {
+        if (
+          owner &&
+          (sentence.element !== owner.sentence.element ||
+            sentence.from !== owner.sentence.from ||
+            sentence.to !== owner.sentence.to)
+        )
+          return [];
+        const prior =
+          owner?.check ??
+          markedSentences(blocks).find(
+            (each) =>
+              each.element === sentence.element &&
+              each.from < sentence.to &&
+              each.to > sentence.from &&
+              each.check.text === sentence.text,
+          )?.check;
+        const previous = owner?.parts ?? prior?.parts;
+        const plans = previous?.map(({ span, kind }) => ({ span, kind }));
+        const parts =
+          owner?.parts.map(
+            (part): ClaimCheckPart =>
+              input.part &&
+              part.span.start === input.part.span.start &&
+              part.span.end === input.part.span.end
+                ? { ...pendingPart(part), verdict: "checking" }
+                : part,
+          ) ??
+          (plans && pendingParts(plans, previous));
         const check: ClaimCheckAttributes = {
-          id: randomUUID(),
+          id: input.part?.id ?? randomUUID(),
           request: input.requestId,
           action: input.action,
           state: "checking",
@@ -455,19 +606,27 @@ export function createChecks(options: ChecksOptions) {
           calculation: null,
           citedCaseUnchecked: false,
           citedCaseFound: false,
-          scope,
+          scope: owner?.check?.scope ?? scope,
           versions: [],
           excluded: [],
           checkedAt: startedAt,
+          ...(parts && { parts }),
         };
         markSentence(sentence.element, sentence.from, sentence.to, check);
-        return {
-          id: check.id,
-          claim: sentence.text,
-          context: sentence.context,
-          cited: sentence.cited,
-        };
+        if (input.part) removeOpinion(blocks, input.part.id);
+        return [
+          {
+            id: check.id,
+            claim: sentence.text,
+            context: sentence.context,
+            cited: sentence.cited,
+            ...(plans && { parts: plans }),
+            ...(input.part && { only: input.part.span }),
+            ...(previous && { previous }),
+          },
+        ];
       });
+      recordOpinions(blocks, []);
       if (marked.length > 0) recordUnread(blocks, input.requestId, unread);
       return marked;
     });
@@ -482,6 +641,9 @@ export function createChecks(options: ChecksOptions) {
         claim: sentence.claim,
         context: sentence.context,
         cited: citedNow(sentence.cited),
+        ...("parts" in sentence && sentence.parts && { parts: sentence.parts }),
+        ...("only" in sentence && sentence.only && { only: sentence.only }),
+        ...("previous" in sentence && sentence.previous && { previous: sentence.previous }),
         scope: evidenceScope,
         model: ready.prepared,
         cacheKey: mindId,
@@ -667,7 +829,7 @@ export function createChecks(options: ChecksOptions) {
       );
       // Nothing to check against: nothing backs it, and nothing is sent.
       if (options.documents.searchableCount(scope.documentIds) === 0) {
-        return {
+        const result: ClaimCheckResult = {
           verdict: "unsupported",
           evidence: null,
           says: null,
@@ -678,6 +840,9 @@ export function createChecks(options: ChecksOptions) {
           versions: [],
           excluded: [],
         };
+        return resultFromParts([
+          partWithResult({ kind: "fact", span: { start: 0, end: parsed.claim.length } }, result),
+        ]);
       }
       const checksDocument =
         (parsed.checked.documentIds?.length ?? 0) + (parsed.checked.contentHashes?.length ?? 0) > 0;

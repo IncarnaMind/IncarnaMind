@@ -10,9 +10,14 @@
  * be used instead (#1247). Each is one step of Undo.
  */
 import type { Editor } from "@tiptap/core";
-import type { Node as ProseMirrorNode } from "@tiptap/pm/model";
+import type { Mark as ProseMirrorMark, Node as ProseMirrorNode } from "@tiptap/pm/model";
 import type * as Y from "yjs";
-import { CLAIM_CHECK_MARK, type ClaimCalculation, type ClaimCheckAttributes } from "../../core/api";
+import {
+  CLAIM_CHECK_MARK,
+  type ClaimCalculation,
+  type ClaimCheckAttributes,
+  type ClaimCheckPart,
+} from "../../core/api";
 import { detectLanguage } from "../../core/documents/textLanguage";
 import { checkedScope, saysNotFound } from "../../shared/claimChecks";
 import {
@@ -324,4 +329,67 @@ export function applyFigure(editor: Editor, mindId: string, doc: Y.Doc, claim: S
   );
   const again = shownClaims(editor.state).find((each) => each.check.id === earlier.id);
   if (again) void checkAgain(editor, mindId, doc, again);
+}
+
+export function applyDocumentWording(
+  editor: Editor,
+  claim: ShownClaim,
+  part: ClaimCheckPart,
+): void {
+  if (part.unsupported?.kind !== "forecast-certainty") return;
+  if (
+    claim.check.text !== claim.sentence.text ||
+    claim.shown.state === "needs-recheck" ||
+    claim.shown.state === "checking"
+  ) {
+    useNotices.getState().showError(new Error(translateNow("error.check.partChanged")));
+    return;
+  }
+  const quote = part.unsupported.quoted?.quote ?? part.evidence[0]?.quote;
+  if (!quote) return;
+  const place = placeInSentence(editor, claim, { from: part.span.start, to: part.span.end });
+  if (!place) {
+    useNotices.getState().showError(new Error(translateNow("error.check.partChanged")));
+    return;
+  }
+  const ranges: { from: number; to: number; marks: readonly ProseMirrorMark[] }[] = [];
+  editor.state.doc.nodesBetween(place.from, place.to, (node, pos) => {
+    if (node.isText)
+      ranges.push({
+        from: Math.max(place.from, pos),
+        to: Math.min(place.to, pos + node.nodeSize),
+        marks: node.marks,
+      });
+    return !node.isInline;
+  });
+  const first = ranges[0];
+  if (!first) return;
+  const tr = editor.state.tr;
+  for (const range of ranges.toReversed()) tr.delete(range.from, range.to);
+  tr.insert(first.from, editor.state.schema.text(quote, first.marks));
+  asOneStep(editor, () => editor.view.dispatch(tr));
+  offerEditorUndo(editor, (t) => t("claim.usedDocumentWording"));
+}
+
+export function documentWordingAt(editor: Editor) {
+  const selection = editor.state.selection;
+  for (const claim of shownClaims(editor.state)) {
+    if (claim.shown.state === "needs-recheck" || claim.shown.state === "checking") continue;
+    for (const part of claim.check.parts ?? []) {
+      if (
+        part.unsupported?.kind !== "forecast-certainty" ||
+        !(part.unsupported.quoted?.quote ?? part.evidence[0]?.quote)
+      )
+        continue;
+      const place = placeInSentence(editor, claim, { from: part.span.start, to: part.span.end });
+      if (
+        place &&
+        place.from <= selection.from &&
+        selection.to <= place.to &&
+        selection.from < place.to
+      )
+        return { claim, part };
+    }
+  }
+  return null;
 }

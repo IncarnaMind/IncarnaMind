@@ -203,7 +203,7 @@ function lex(formula: string): Token[] {
   return tokens;
 }
 
-type FunctionName = "SUM" | "AVERAGE" | "MIN" | "MAX" | "ABS" | "ROUND" | "RRI" | "SQRT";
+type FunctionName = "SUM" | "AVERAGE" | "MIN" | "MAX" | "ABS" | "SIGN" | "ROUND" | "RRI" | "SQRT";
 
 const FUNCTIONS: ReadonlyMap<
   string,
@@ -216,6 +216,7 @@ const FUNCTIONS: ReadonlyMap<
       ["MIN", 1, 255, "MIN(a, b, …)"],
       ["MAX", 1, 255, "MAX(a, b, …)"],
       ["ABS", 1, 1, "ABS(x)"],
+      ["SIGN", 1, 1, "SIGN(x)"],
       ["ROUND", 2, 2, "ROUND(x, decimals)"],
       ["RRI", 3, 3, "RRI(periods, start, end)"],
       ["SQRT", 1, 1, "SQRT(x)"],
@@ -815,6 +816,9 @@ function evaluate(
         }
         const a = arg(0);
         switch (node.name) {
+          case "SIGN":
+            if (a.unit.kind === "yes-no") refuse("units", `SIGN can't take ${describe(a)}.`);
+            return result(node, NUMBER_UNIT, a.n > 0 ? 1 : a.n < 0 ? -1 : 0, [a], []);
           case "ABS":
             if (a.unit.kind === "yes-no") refuse("units", `ABS can't take ${describe(a)}.`);
             return result(node, a.unit, Math.abs(a.n), [a], a.scales);

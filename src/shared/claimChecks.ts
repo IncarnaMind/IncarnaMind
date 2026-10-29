@@ -5,22 +5,27 @@
  * that have changed since needs a re-check.
  */
 import {
-  type CalculatedFigure,
-  type CheckedVersion,
   type Citation,
   type CitationAttributes,
-  type ClaimCalculation,
   type ClaimCheckAction,
   type ClaimCheckAttributes,
   type ClaimCheckFailure,
   type ClaimCheckScope,
   type ClaimVerdict,
   claimCheckActions,
-  type EvidenceExclusion,
-  type LeftOutDocument,
   type SearchScope,
   type UnsupportedReason,
 } from "../core/api";
+import {
+  CLAIM_CHECK_FAILURES,
+  partCitations,
+  readCheckedVersions,
+  readClaimCalculation,
+  readClaimParts,
+  readExcludedDocuments,
+  readUnsupportedReason,
+  resultFromParts,
+} from "./claimParts";
 import type { MessageKey } from "./i18n";
 import { folderScope, hasSearchScope, sameScope, storedSearchScope } from "./searchScope";
 import { comparableSentence, isClaim } from "./sentences";
@@ -36,79 +41,10 @@ const STATES: readonly ClaimCheckAttributes["state"][] = [
   "not-checked",
 ];
 
-const FAILURES: readonly ClaimCheckFailure[] = [
-  "refused",
-  "malformed",
-  "empty",
-  "no-evidence",
-  "unread",
-  "rate-limit",
-  "cost-cap",
-  "plan-limit",
-  "out-of-credit",
-  "failed",
-  "stopped",
-  "too-many",
-  "consent-revoked",
-  "local-mode",
-];
-
-const EXCLUSIONS: readonly EvidenceExclusion[] = ["own-file", "own-workings", "checked-document"];
-
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === "object" && value !== null && !Array.isArray(value);
 
 const text = (value: unknown): string | null => (typeof value === "string" ? value : null);
-
-function versionsOf(value: unknown): CheckedVersion[] {
-  if (!Array.isArray(value)) return [];
-  return value.flatMap((each) => {
-    if (!isRecord(each)) return [];
-    const documentId = text(each.documentId);
-    const contentHash = text(each.contentHash);
-    return documentId && contentHash ? [{ documentId, contentHash }] : [];
-  });
-}
-
-function excludedOf(value: unknown): LeftOutDocument[] {
-  if (!Array.isArray(value)) return [];
-  return value.flatMap((each) => {
-    if (!isRecord(each)) return [];
-    const documentId = text(each.documentId);
-    const reason = EXCLUSIONS.find((known) => known === each.reason);
-    return documentId && reason
-      ? [{ documentId, documentName: text(each.documentName) ?? "", reason }]
-      : [];
-  });
-}
-
-/** A figure worked out that decided a check (#707), as its mark keeps it. */
-function calculationOf(value: unknown): ClaimCalculation | null {
-  if (!isRecord(value) || !isRecord(value.figure)) return null;
-  const stated = text(value.stated);
-  const { figure } = value;
-  if (stated === null || !Array.isArray(figure.inputs) || typeof figure.shown !== "string")
-    return null;
-  return {
-    figure: figure as unknown as CalculatedFigure,
-    stated,
-    agrees: value.agrees === true,
-    ...((value.relation === "at most" || value.relation === "at least") && {
-      relation: value.relation,
-    }),
-  };
-}
-
-function unsupportedOf(value: unknown): UnsupportedReason | null {
-  if (!isRecord(value)) return null;
-  return {
-    reason: text(value.reason),
-    covered: text(value.covered),
-    uncovered: text(value.uncovered),
-    ...(value.found === true && { found: true }),
-    ...(isRecord(value.quoted) && { quoted: value.quoted as unknown as CitationAttributes }),
-  };
-}
 
 function scopeOf(value: unknown): ClaimCheckScope {
   if (!isRecord(value)) return { folderId: null, widened: false };
@@ -138,28 +74,65 @@ export function readClaimCheck(value: unknown): ClaimCheckAttributes | null {
   if (!id || !state) return null;
   const action: ClaimCheckAction =
     claimCheckActions.find((each) => each === value.action) ?? "find-support";
-  return {
+  const check: ClaimCheckAttributes = {
     id,
     request: text(value.request) ?? "",
     action,
     state,
-    reason: FAILURES.find((each) => each === value.reason) ?? null,
+    reason: CLAIM_CHECK_FAILURES.find((each) => each === value.reason) ?? null,
     detail: text(value.detail),
     providerId: text(value.providerId),
     modelId: text(value.modelId),
     text: text(value.text) ?? "",
     evidence: isRecord(value.evidence) ? (value.evidence as unknown as CitationAttributes) : null,
     says: text(value.says),
-    unsupported: unsupportedOf(value.unsupported),
-    calculation: calculationOf(value.calculation),
+    unsupported: readUnsupportedReason(value.unsupported),
+    calculation: readClaimCalculation(value.calculation),
     citedCaseUnchecked: value.citedCaseUnchecked === true,
     citedCaseFound: value.citedCaseFound === true,
     scope: scopeOf(value.scope),
-    versions: versionsOf(value.versions),
-    excluded: excludedOf(value.excluded),
+    versions: readCheckedVersions(value.versions),
+    excluded: readExcludedDocuments(value.excluded),
     checkedAt: text(value.checkedAt) ?? "",
     ...(value.kept === true && { kept: true }),
   };
+  if (value.parts !== undefined && value.parts !== null) {
+    const parts = readClaimParts(value.parts, check.text, check.state);
+    check.parts = parts ?? [];
+    if (parts === null) {
+      check.state = "not-checked";
+      check.reason = "malformed";
+      check.detail = null;
+    } else if (check.state !== "checking") {
+      const result = resultFromParts(parts);
+      check.parts = result.parts ?? [];
+      check.state = result.verdict;
+      check.versions = result.versions;
+      check.excluded = result.excluded;
+      if (result.verdict === "not-checked") {
+        check.reason = result.reason;
+        check.detail = result.detail;
+      } else {
+        check.reason = null;
+        check.detail = null;
+        check.evidence = result.evidence;
+        check.says = result.says;
+        check.unsupported = result.unsupported;
+        check.calculation = result.calculation;
+        check.citedCaseUnchecked = result.citedCaseUnchecked;
+        check.citedCaseFound = result.citedCaseFound;
+      }
+    }
+    if (check.state === "not-checked") {
+      check.evidence = null;
+      check.says = null;
+      check.unsupported = null;
+      check.calculation = null;
+      check.citedCaseUnchecked = false;
+      check.citedCaseFound = false;
+    }
+  }
+  return check;
 }
 
 /**
@@ -251,13 +224,18 @@ export function restsOn(check: ClaimCheckAttributes): (CitationAttributes | Cita
     check.evidence,
     check.unsupported?.quoted ?? null,
     ...inputs.flatMap((input) => [input.citation, input.unitStatement?.citation ?? null]),
+    ...(check.parts?.flatMap(partCitations) ?? []),
   ].filter((each): each is CitationAttributes | Citation => each !== null);
 }
 
 /** How a check shows, given the sentence, the Documents and the Mind's Folder and scope as they are now. */
 export function claimCheckShown(check: ClaimCheckAttributes, now: ClaimCheckNow): ClaimCheckShown {
   if (check.state === "checking") return { state: "checking" };
-  if (comparableSentence(now.text) !== comparableSentence(check.text)) {
+  if (
+    check.parts !== undefined
+      ? now.text !== check.text
+      : comparableSentence(now.text) !== comparableSentence(check.text)
+  ) {
     return { state: "needs-recheck", why: "edited" };
   }
   if (check.kept) return { state: "kept" };

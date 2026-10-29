@@ -1,4 +1,4 @@
-import { flip, type Middleware, offset, shift } from "@floating-ui/dom";
+import { flip, type Middleware, offset, shift, type VirtualElement } from "@floating-ui/dom";
 
 /** The room a card keeps from the window's edge and from the check badge. */
 const GAP = 8;
@@ -9,7 +9,7 @@ const GAP = 8;
  * (#1686), which sits at the page's bottom right, where a card opened near
  * the foot would cover it.
  */
-export function claimCardPlace(anchor: Element): Middleware[] {
+export function claimCardPlace(anchor: Element | VirtualElement): Middleware[] {
   return [offset(4), flip(), shift({ padding: GAP }), clearOfBadge(anchor)];
 }
 
@@ -36,12 +36,13 @@ export function movedClearOfBadge(
   return lower >= GAP ? { y: lower } : null;
 }
 
-function clearOfBadge(anchor: Element): Middleware {
+function clearOfBadge(anchor: Element | VirtualElement): Middleware {
   return {
     name: "clearOfBadge",
     fn({ x, y, rects }) {
-      const badge = anchor
-        .closest(".mind-tab-page")
+      const context = anchor instanceof Element ? anchor : anchor.contextElement;
+      const badge = context
+        ?.closest(".mind-tab-page")
         ?.querySelector(".mind-foot-badge .check-badge")
         ?.getBoundingClientRect();
       if (!badge) return {};

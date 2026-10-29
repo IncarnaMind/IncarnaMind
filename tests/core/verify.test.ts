@@ -13,7 +13,14 @@ import { claimSpans } from "../../src/renderer/src/editor/claimChecks";
 import { claimCheckShown } from "../../src/shared/claimChecks";
 import { textOriginOf } from "../../src/shared/textOrigins";
 import { verificationOf } from "../../src/shared/verification";
-import { checkGenerate, checkingModel, isCheckRun, type Plan, sentenceOf } from "../helpers/checks";
+import {
+  checkGenerate,
+  checkingModel,
+  isCheckRun,
+  listedSentences,
+  type Plan,
+  sentenceOf,
+} from "../helpers/checks";
 import { shownPassages } from "../helpers/citations";
 import { createTempDataFolder, manualClock, startCore } from "../helpers/core";
 import { addAndProcess, writeSourceFile } from "../helpers/documents";
@@ -556,7 +563,14 @@ describe("Verify a document", () => {
     const model = scriptedModel(
       () => ({ text: "Verdict: unsupported", pause: { after: 0, until: held } }),
       {
-        generate: () => ({ text: JSON.stringify({ claims: [1, 2, 3] }) }),
+        generate: (call) => ({
+          text: JSON.stringify({
+            sentences: listedSentences(call.prompt).map(({ number, text }) => ({
+              number,
+              parts: number <= 3 ? [{ kind: "fact", text }] : [],
+            })),
+          }),
+        }),
       },
     );
     const { core, report } = await setUp(model);

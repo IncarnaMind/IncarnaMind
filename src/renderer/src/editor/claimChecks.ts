@@ -24,6 +24,7 @@ const ATTRIBUTES: readonly (keyof ClaimCheckAttributes)[] = [
   "request",
   "action",
   "state",
+  "parts",
   "reason",
   "detail",
   "providerId",
@@ -153,6 +154,20 @@ export interface ClaimContext {
   versions: ReadonlyMap<string, string> | null;
   folderId: string | null;
   scope: SearchScope | null;
+}
+
+export function claimPartRows(check: ClaimCheckAttributes): ClaimCheckAttributes["parts"] {
+  return check.parts &&
+    (check.parts.length > 1 ||
+      check.parts.some(
+        (part) =>
+          part.kind === "opinion" ||
+          part.coverage ||
+          part.evidence.length > 1 ||
+          part.unsupported?.kind,
+      ))
+    ? check.parts
+    : undefined;
 }
 
 /** A check where it is, and how it shows: never one the User keeps as their own view, which shows nothing. */

@@ -16,6 +16,7 @@ import {
   type CitationAttributes,
   CLAIM_CHECK_MARK,
   type ClaimCheckAction,
+  type ClaimPartSpan,
   type ProviderError,
 } from "../../core/api";
 import { quotedWordsFoundIn } from "../../shared/citations";
@@ -62,6 +63,7 @@ export interface LeftOut {
   count: number;
   action: ClaimCheckAction;
   allDocuments: boolean;
+  part?: { id: string; span: ClaimPartSpan };
 }
 
 interface ChecksState {
@@ -146,7 +148,12 @@ export async function checkSentences(
   {
     ranges,
     allDocuments = false,
-  }: { ranges?: readonly { from: number; to: number }[]; allDocuments?: boolean } = {},
+    part,
+  }: {
+    ranges?: readonly { from: number; to: number }[];
+    allDocuments?: boolean;
+    part?: { id: string; span: ClaimPartSpan };
+  } = {},
 ): Promise<void> {
   // An older version's mark says "find-support": it is Check against Documents now.
   const action = asked === "find-support" ? "check-against-documents" : asked;
@@ -159,7 +166,7 @@ export async function checkSentences(
   if (!selection) return;
   // The selection closes at its end, as for Edit with AI: its sentences show their marks, and the User writes on.
   const { selection: now } = editor.state;
-  if (now.from === selection.range.from && now.to === selection.range.to) {
+  if (!part && now.from === selection.range.from && now.to === selection.range.to) {
     editor.view.dispatch(
       editor.state.tr.setSelection(TextSelection.create(editor.state.doc, selection.range.to)),
     );
@@ -177,6 +184,7 @@ export async function checkSentences(
       ...(more.length > 0 && { more: more.map(({ from, to }) => ({ from, to })) }),
       action,
       allDocuments,
+      ...(part && { part }),
       model: modelInUseOf(doc),
     });
   } catch (error) {
@@ -187,6 +195,7 @@ export async function checkSentences(
         void checkSentences(editor, mindId, doc, action, {
           ranges: stretches.map((each) => each.range),
           allDocuments,
+          part,
         }),
     };
   } finally {
@@ -207,6 +216,7 @@ export async function checkSentences(
       count: waiting.sentences.length,
       action,
       allDocuments,
+      ...(part && { part }),
     });
   } else if (
     result.kind !== "checked" &&
@@ -222,6 +232,7 @@ export async function checkSentences(
           void checkSentences(editor, mindId, doc, action, {
             ranges: stretches.map((each) => each.range),
             allDocuments: true,
+            part,
           }),
       ),
     );
@@ -254,6 +265,7 @@ export function acceptAndCheck(
   return checkSentences(editor, mindId, doc, leftOut.action, {
     ranges,
     allDocuments: leftOut.allDocuments,
+    part: leftOut.part,
   });
 }
 

@@ -6,6 +6,7 @@
  */
 import * as Y from "yjs";
 import { keptOn, readClaimCheck } from "../../../shared/claimChecks";
+import { readClaimParts } from "../../../shared/claimParts";
 import { readProposalAttribute, readProposalRef } from "../../../shared/proposals";
 import { INLINE_NODE, sentenceSpans } from "../../../shared/sentences";
 import {
@@ -35,6 +36,7 @@ interface Run {
 export interface SelectedSentence {
   element: Y.XmlElement;
   blockId: string;
+  occurrence: number;
   from: number;
   to: number;
   /** As checks read it: an inline node as U+FFFC, a line break as "\n". */
@@ -134,7 +136,11 @@ export function selectedSentences(
       const text = textOf(element);
       const start = index === 0 ? from.offset : 0;
       const end = index === last - first ? to.offset : text.length;
+      const occurrences = new Map<string, number>();
       for (const span of sentenceSpans(text)) {
+        const words = text.slice(span.from, span.to);
+        const occurrence = occurrences.get(words) ?? 0;
+        occurrences.set(words, occurrence + 1);
         const touched =
           start === end
             ? span.from <= start && start <= span.to
@@ -154,9 +160,10 @@ export function selectedSentences(
         sentences.push({
           element,
           blockId,
+          occurrence,
           from: span.from,
           to: span.to,
-          text: text.slice(span.from, span.to),
+          text: words,
           context: text,
           cited: citedIn(element, span.from, span.to),
         });
@@ -174,21 +181,26 @@ export function everySentence(blocks: Y.XmlFragment): SelectedSentence[] {
     const blockId = element.getAttribute(BLOCK_ID_ATTRIBUTE);
     if (busy || element.nodeName !== "paragraph" || typeof blockId !== "string") return [];
     const text = textOf(element);
-    return sentenceSpans(text).flatMap((span) =>
-      changesIn(element, span.from, span.to).length > 0
+    const occurrences = new Map<string, number>();
+    return sentenceSpans(text).flatMap((span) => {
+      const words = text.slice(span.from, span.to);
+      const occurrence = occurrences.get(words) ?? 0;
+      occurrences.set(words, occurrence + 1);
+      return changesIn(element, span.from, span.to).length > 0
         ? []
         : [
             {
               element,
               blockId,
+              occurrence,
               from: span.from,
               to: span.to,
-              text: text.slice(span.from, span.to),
+              text: words,
               context: text,
               cited: citedIn(element, span.from, span.to),
             },
-          ],
-    );
+          ];
+    });
   });
 }
 
@@ -241,6 +253,7 @@ export interface MarkedSentence {
   from: number;
   to: number;
   check: ClaimCheckAttributes;
+  partsComplete: boolean;
 }
 
 /** Every check's mark in the Mind, in order. */
@@ -254,10 +267,23 @@ export function markedSentences(blocks: Y.XmlFragment): MarkedSentence[] {
         const length = typeof run.insert === "string" ? run.insert.length : 1;
         const check = readClaimCheck(run.attributes?.[CLAIM_CHECK_MARK]);
         if (check) {
+          const raw: unknown = run.attributes?.[CLAIM_CHECK_MARK];
+          const rawParts =
+            typeof raw === "object" && raw !== null && "parts" in raw ? raw.parts : null;
+          const partsComplete =
+            rawParts == null || readClaimParts(rawParts, check.text, check.state) !== null;
           const known = found.get(check.id);
-          if (known && known.element === element) known.to = offset + length;
-          else if (!known)
-            found.set(check.id, { element, from: offset, to: offset + length, check });
+          if (known && known.element === element) {
+            known.to = offset + length;
+            known.partsComplete &&= partsComplete;
+          } else if (!known)
+            found.set(check.id, {
+              element,
+              from: offset,
+              to: offset + length,
+              check,
+              partsComplete,
+            });
         }
         offset += length;
       }
@@ -315,14 +341,14 @@ export function updateCheck(
 ): boolean {
   const marked = markedSentences(blocks).find((each) => each.check.id === id);
   if (!marked) return false;
+  const changed = change(marked.check);
   for (const { node } of layout(marked.element)) {
     if (!(node instanceof Y.XmlText)) continue;
     let offset = 0;
     for (const run of node.toDelta() as Run[]) {
       const length = typeof run.insert === "string" ? run.insert.length : 1;
       const check = readClaimCheck(run.attributes?.[CLAIM_CHECK_MARK]);
-      if (check?.id === id)
-        node.format(offset, length, { [CLAIM_CHECK_MARK]: { ...change(check) } });
+      if (check?.id === id) node.format(offset, length, { [CLAIM_CHECK_MARK]: { ...changed } });
       offset += length;
     }
   }

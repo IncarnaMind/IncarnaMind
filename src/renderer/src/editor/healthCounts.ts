@@ -95,6 +95,7 @@ export interface SentenceInput {
   skipped?: ReadonlySet<string>;
   /** The marks the User keeps as their own view, at their places. */
   kept?: readonly KeptMark[];
+  omitted?: readonly KeptMark[];
 }
 
 export interface NoteHealthInput extends SentenceInput {
@@ -152,7 +153,8 @@ function eachSentence(
       const state = checkedSentence({
         text: words,
         check: claim?.shown ?? null,
-        skipped: skipped.has(sentenceKey(words)),
+        skipped:
+          skipped.has(sentenceKey(words)) || keptOn(input.omitted ?? [], { from, to, text: words }),
         kept: keptOn(kept, { from, to, text: words }),
       });
       visit({

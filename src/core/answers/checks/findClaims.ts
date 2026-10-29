@@ -4,7 +4,7 @@
  * sentences stay exactly as they are, so each claim is a sentence of the Mind.
  */
 import { generateText } from "ai";
-import type { ProviderError } from "../../api";
+import type { ClaimPartPlan, ProviderError } from "../../api";
 import type { PreparedChatModel } from "../../providers/chat";
 import { classifyProviderError } from "../../providers/providerErrors";
 import { answerTemperature } from "../engine";
@@ -13,12 +13,16 @@ import {
   FIND_CLAIMS_INSTRUCTIONS,
   FIND_OWN_CLAIMS_INSTRUCTIONS,
   findClaimsPrompt,
-  readClaimNumbers,
+  readClaimParts,
 } from "./claims";
 
 export type ClaimsFound =
   /** The indexes, in `texts`, of the sentences that make claims. */
-  | { kind: "found"; claims: ReadonlySet<number> }
+  | {
+      kind: "found";
+      claims: ReadonlySet<number>;
+      parts: ReadonlyMap<number, readonly ClaimPartPlan[]>;
+    }
   | { kind: "failed"; error: ProviderError }
   | { kind: "cancelled" };
 
@@ -30,13 +34,14 @@ export async function claimsAmong(
   signal: AbortSignal,
 ): Promise<ClaimsFound> {
   const claims = new Set<number>();
+  const parts = new Map<number, readonly ClaimPartPlan[]>();
   for (let start = 0; start < texts.length; start += CLAIM_BATCH) {
     const batch = texts
       .slice(start, start + CLAIM_BATCH)
       .map((text, index) => ({ number: start + index + 1, text }));
-    let numbers: number[] | null = null;
+    let plans: Map<number, readonly ClaimPartPlan[]> | null = null;
     // A reply that names nothing readable is asked for once more.
-    for (let tries = 0; tries < 2 && numbers === null; tries++) {
+    for (let tries = 0; tries < 2 && plans === null; tries++) {
       try {
         const { text } = await generateText({
           model: prepared.model,
@@ -47,21 +52,25 @@ export async function claimsAmong(
           maxRetries: 1,
           abortSignal: signal,
         });
-        numbers = readClaimNumbers(text);
+        plans = readClaimParts(text, batch);
       } catch (error) {
         if (signal.aborted) return { kind: "cancelled" };
         return { kind: "failed", error: classifyProviderError(error) };
       }
     }
-    if (numbers === null) {
+    if (plans === null) {
       return {
         kind: "failed",
-        error: { kind: "no-answer", message: "The model's reply named no sentences." },
+        error: {
+          kind: "no-answer",
+          message: "The model's reply did not describe every sentence's original parts.",
+        },
       };
     }
-    for (const number of numbers) {
-      if (number > start && number <= start + batch.length) claims.add(number - 1);
+    for (const [number, inventory] of plans) {
+      parts.set(number - 1, inventory);
+      if (inventory.some((part) => part.kind === "fact")) claims.add(number - 1);
     }
   }
-  return signal.aborted ? { kind: "cancelled" } : { kind: "found", claims };
+  return signal.aborted ? { kind: "cancelled" } : { kind: "found", claims, parts };
 }

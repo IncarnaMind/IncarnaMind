@@ -1,3 +1,5 @@
+import { OpinionContextMenu } from "../editor/OpinionContextMenu";
+import { checkOpinion, opinionAt } from "../editor/opinionChecks";
 import "katex/dist/katex.min.css";
 import Collaboration from "@tiptap/extension-collaboration";
 import { Focus, Placeholder } from "@tiptap/extensions";
@@ -13,7 +15,7 @@ import { translate } from "../../../shared/i18n";
 import { setMindScope } from "../../../shared/mindScope";
 import { chosenScope } from "../../../shared/searchScope";
 import { askedInThisWindow } from "../askedChanges";
-import { checkSentences } from "../checks";
+import { checkSentences, useChecks } from "../checks";
 import {
   citationForm,
   useCitationFormattingFor,
@@ -585,6 +587,17 @@ function MindEditorView({
       },
       { id: "explain", label: "editor.ai.explain", icon: "?", available, run: run("explain") },
       {
+        id: "check-anyway",
+        label: "claim.checkAnyway",
+        icon: <CheckLineIcon className="size-3.5" />,
+        available: (current) =>
+          !useChecks.getState().running[mindId] && opinionAt(current, doc) !== undefined,
+        run: (current) => {
+          const opinion = opinionAt(current, doc);
+          if (opinion) checkOpinion(current, mindId, doc, opinion, place);
+        },
+      },
+      {
         id: "check-against-documents",
         label: hasDocuments ? "editor.ai.checkAgainstDocuments" : "editor.ai.addDocumentsToCheck",
         icon: <CheckLineIcon className="size-3.5" />,
@@ -602,7 +615,7 @@ function MindEditorView({
         run: (current) => void markSelectionAsMine(current),
       },
     ];
-  }, [mindId, doc, hasDocuments]);
+  }, [mindId, doc, hasDocuments, place]);
 
   useMenuEditLine(editor, mindId, readOnly);
   const editField = useMemo(
@@ -860,6 +873,7 @@ function MindEditorView({
         createPortal(<CompareSheet mindId={mindId} doc={doc} editor={editor} />, sheetSlot)}
       {!readOnly && <BlockHandle editor={editor} />}
       {!readOnly && <SelectionMenu editor={editor} ai={aiActions} edit={editField} />}
+      {!readOnly && <OpinionContextMenu editor={editor} mindId={mindId} doc={doc} />}
       {!readOnly && <LinkBubble editor={editor} />}
       {findShown && <FindBar editor={editor} onClose={() => useMindTools.getState().hideFind()} />}
       {outlineShown && (

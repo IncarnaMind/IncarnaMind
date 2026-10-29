@@ -5374,6 +5374,62 @@
     pointer-events: none;
   }
   /* Which sentence the card is about: its words, two lines at most, under the verdict's title. */
+  .citation-card--parts {
+    max-height: calc(100vh - 16px);
+    overflow-y: auto;
+  }
+  .claim-parts {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+  }
+  .claim-part {
+    position: relative;
+    padding-top: 10px;
+    border-top: 1px solid var(--color-rule);
+  }
+  .claim-part-words {
+    color: var(--color-ink);
+    padding-right: 22px;
+  }
+  .claim-part-result {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .claim-part-citation {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    width: 100%;
+    text-align: start;
+    border-radius: 4px;
+    margin-top: 6px;
+  }
+  .claim-part-source {
+    color: var(--color-ink-meta);
+    max-width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .claim-part-quote {
+    text-align: start;
+    white-space: pre-wrap;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+  }
+  .claim-part-menu {
+    position: absolute;
+    top: 8px;
+    right: 0;
+  }
+
   .claim-card-sentence {
     display: -webkit-box;
     padding-left: 22px;

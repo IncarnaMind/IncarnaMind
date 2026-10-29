@@ -57,6 +57,8 @@ const PLANS: Record<string, Plan> = {
     says: "The harbour office says every week, not every year.",
   },
   [PENGUINS]: { verdict: "unsupported" },
+  [`Big ${MOON}`]: { verdict: "unsupported" },
+  [`Some ${PENGUINS}`]: { verdict: "unsupported" },
 };
 
 const text = (value: string): JSONContent => ({ type: "text", text: value });
@@ -368,7 +370,7 @@ describe("Check this note", () => {
     expect(await core.planMindCheck(mindId, "changed")).toMatchObject({ kind: "unchanged" });
   });
 
-  test("Check again after two claims are edited checks those two only, without naming the claims again", async () => {
+  test("Check again renews only the edited sentences' parts, then checks them", async () => {
     const { core, client, mindId, folderId, checks, finds } = await setUp();
     await core.checkMind(request(mindId, "all"));
     const runsBefore = runsIn(checks).length;
@@ -384,7 +386,7 @@ describe("Check this note", () => {
     expect(await core.planMindCheck(mindId, "changed")).toEqual({
       kind: "ready",
       sentences: 2,
-      findsClaims: false,
+      findsClaims: true,
       inFolder: true,
       model: (await core.getSettings()).user.chatModel,
     });
@@ -392,9 +394,16 @@ describe("Check this note", () => {
       kind: "checked",
       sentences: 2,
     });
-    // Two check Runs, and the model wasn't asked again which sentences claim something.
     expect(runsIn(checks).length - runsBefore).toBe(2);
-    expect(finds).toHaveLength(1);
+    expect(finds).toHaveLength(2);
+    expect(finds[1]?.prompt).toBe(
+      JSON.stringify({
+        sentences: [
+          { number: 1, text: `Big ${MOON}` },
+          { number: 2, text: `Some ${PENGUINS}` },
+        ],
+      }),
+    );
     expect((await shownChecks(core, client, folderId)).map(({ shown }) => shown.state)).toEqual([
       "unsupported",
       "contradicted",
@@ -446,7 +455,7 @@ describe("Check this note", () => {
     });
     await core.checkMind(request(mindId, "changed"));
     expect(finds).toHaveLength(2);
-    expect(finds[1]?.prompt).toBe(`[1] ${added}`);
+    expect(finds[1]?.prompt).toBe(JSON.stringify({ sentences: [{ number: 1, text: added }] }));
   });
 
   test("the monthly cap stops the run: the claims left say “not checked: cost cap”", async () => {
@@ -703,7 +712,7 @@ describe("Check this note", () => {
     });
     await restarted.core.checkMind(request(mindId, "all", "third"));
     expect(finds).toHaveLength(2);
-    expect(finds[1]?.prompt).toBe(`[1] ${added}`);
+    expect(finds[1]?.prompt).toBe(JSON.stringify({ sentences: [{ number: 1, text: added }] }));
   });
 
   test("says why there is nothing to check: no sentences; a Mind in a Folder with no Documents checks every Document (#1359)", async () => {

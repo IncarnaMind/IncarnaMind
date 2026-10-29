@@ -11,6 +11,7 @@ import { useCardPlace } from "./checkPlace";
 import { textBlockEdited } from "./citationNumbers";
 import { type ShownClaim, shownClaims } from "./claimChecks";
 import type { ClaimMarkState } from "./icons";
+import { OpinionCard } from "./OpinionCard";
 
 const MARK_HEIGHT = 18;
 /** Between two marks stacked because their sentences start on the same line (or nearly). */
@@ -231,6 +232,7 @@ export function MarginChecks({
 
   return (
     <div ref={layer} className="margin-checks" data-testid="margin-checks">
+      <OpinionCard editor={editor} mindId={mind.id} doc={mind.doc} />
       {marks.map((mark) => (
         <ClaimMark
           key={mark.key}

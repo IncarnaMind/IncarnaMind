@@ -31,6 +31,7 @@ import {
 import { readMindCheck, sentenceKey, writeMindCheck } from "../../../shared/mindCheck";
 import { mindModelOf } from "../../../shared/mindModel";
 import { mindScopeIn } from "../../../shared/mindScope";
+import { readOpinionSentences, resolveOpinions } from "../../../shared/opinions";
 import { oneFolderOf } from "../../../shared/searchScope";
 import { isClaim } from "../../../shared/sentences";
 import { judgesUnreliably } from "../../../shared/smallModel";
@@ -41,6 +42,7 @@ import type {
   CheckMindResult,
   CitedQuote,
   ClaimCheckAttributes,
+  ClaimPartPlan,
   DocumentsAddedSince,
   FindMindClaimsResult,
   MindCheckPlan,
@@ -51,7 +53,8 @@ import type { MindContent } from "../../mindContent";
 import { parseMindId } from "../../minds";
 import type { PreparedChatModel } from "../../providers/chat";
 import { type ClaimsFound, claimsAmong } from "./findClaims";
-import { type QueuedClaim, type RunChecksOptions, runChecks } from "./runChecks";
+import { recordOpinions, type SortedSentence } from "./opinions";
+import { pendingParts, type QueuedClaim, type RunChecksOptions, runChecks } from "./runChecks";
 import {
   checkedSentences,
   everySentence,
@@ -144,7 +147,7 @@ export function createMindCheck(options: MindCheckOptions) {
    * a run counts the claims exactly, and neither Check nor a later run sends a
    * sentence to be sorted again (#973).
    */
-  const sorted = new Map<string, { claims: Set<string>; left: Set<string> }>();
+  const sorted = new Map<string, Map<string, readonly ClaimPartPlan[]>>();
 
   async function sort(
     mindId: string,
@@ -152,15 +155,12 @@ export function createMindCheck(options: MindCheckOptions) {
     prepared: PreparedChatModel,
     signal: AbortSignal,
   ): Promise<
-    | { kind: "found"; claims: SelectedSentence[]; left: SelectedSentence[] }
+    | { kind: "found"; claims: SortedSentence[]; left: SortedSentence[] }
     | Exclude<ClaimsFound, { kind: "found" }>
   > {
-    const known = sorted.get(mindId) ?? { claims: new Set<string>(), left: new Set<string>() };
+    const known = sorted.get(mindId) ?? new Map<string, readonly ClaimPartPlan[]>();
     sorted.set(mindId, known);
-    const unsorted = fresh.filter((sentence) => {
-      const key = sentenceKey(sentence.text);
-      return !known.claims.has(key) && !known.left.has(key);
-    });
+    const unsorted = fresh.filter((sentence) => !known.has(sentence.text));
     if (unsorted.length > 0) {
       const found = await claimsAmong(
         prepared,
@@ -170,14 +170,26 @@ export function createMindCheck(options: MindCheckOptions) {
       );
       if (found.kind !== "found") return found;
       for (const [index, sentence] of unsorted.entries()) {
-        (found.claims.has(index) ? known.claims : known.left).add(sentenceKey(sentence.text));
+        const parts = found.parts.get(index);
+        if (!parts)
+          return {
+            kind: "failed",
+            error: { kind: "no-answer", message: "The model's reply named no sentences." },
+          };
+        known.set(sentence.text, parts);
       }
     }
-    const named = (sentence: SelectedSentence) => known.claims.has(sentenceKey(sentence.text));
+    const sentences = fresh.map((sentence) => ({
+      ...sentence,
+      parts: known.get(sentence.text) ?? [],
+    }));
+    content.edit(mindId, (blocks) => recordOpinions(blocks, sentences));
+    options.retainEvidence(mindId);
+    const named = (sentence: SortedSentence) => sentence.parts.some((part) => part.kind === "fact");
     return {
       kind: "found",
-      claims: fresh.filter(named),
-      left: fresh.filter((sentence) => !named(sentence)),
+      claims: sentences.filter(named),
+      left: sentences.filter((sentence) => !named(sentence)),
     };
   }
 
@@ -238,6 +250,16 @@ export function createMindCheck(options: MindCheckOptions) {
     return content.read(mindId, (blocks) => {
       // Every sentence is read; the one count decides which have a check to make, whatever makes a claim (#1909).
       const sentences = everySentence(blocks);
+      const opinions = blocks.doc
+        ? resolveOpinions(sentences, readOpinionSentences(blocks.doc))
+        : [];
+      const leftOut = (sentence: SelectedSentence) =>
+        opinions.some(
+          (each) =>
+            each.blockId === sentence.blockId &&
+            each.text === sentence.text &&
+            each.occurrence === sentence.occurrence,
+        );
       const keys = new Set(
         sentences
           .filter((sentence) => isClaim(sentence.text))
@@ -260,13 +282,14 @@ export function createMindCheck(options: MindCheckOptions) {
             check: mark
               ? claimCheckShown(mark.check, { text: sentence.text, versions, folderId, scope })
               : null,
-            skipped: skipped.has(sentenceKey(sentence.text)),
+            skipped: skipped.has(sentenceKey(sentence.text)) || leftOut(sentence),
             kept: keptAsView(marks, sentence),
           });
           if (state.kind === "kept" || state.kind === "checking" || state.kind === "not-claim") {
             continue;
           }
-          if (mark) again.push(sentence);
+          if (mark && (mark.check.text === sentence.text || !isClaim(sentence.text)))
+            again.push(sentence);
           else fresh.push(sentence);
         }
         return { fresh, again, keys, skipped, widened, held: [] };
@@ -300,11 +323,12 @@ export function createMindCheck(options: MindCheckOptions) {
           check: mark
             ? claimCheckShown(mark.check, { text: sentence.text, versions, folderId, scope })
             : null,
-          skipped: skipped.has(sentenceKey(sentence.text)),
+          skipped: skipped.has(sentenceKey(sentence.text)) || leftOut(sentence),
           kept: keptAsView(marks, sentence),
         });
         if (state.kind === "to-check") {
-          if (state.fresh) fresh.push(sentence);
+          if (state.fresh || (mark?.check.text !== sentence.text && isClaim(sentence.text)))
+            fresh.push(sentence);
           else again.push(sentence);
           continue;
         }
@@ -389,9 +413,22 @@ export function createMindCheck(options: MindCheckOptions) {
       const now = everySentence(blocks);
       const marked = claims.flatMap((claim): QueuedClaim[] => {
         const sentence = now.find(
-          (each) => each.blockId === claim.blockId && each.text === claim.text,
+          (each) =>
+            each.blockId === claim.blockId &&
+            each.text === claim.text &&
+            each.occurrence === claim.occurrence,
         );
         if (!sentence) return [];
+        const previous = markedSentences(blocks).find(
+          (each) =>
+            each.element === sentence.element &&
+            each.from < sentence.to &&
+            each.to > sentence.from &&
+            each.check.text === sentence.text,
+        )?.check.parts;
+        const parts =
+          sorted.get(mindId)?.get(sentence.text) ??
+          previous?.map(({ span, kind }) => ({ span, kind }));
         const within = scopeFor(claim);
         const mark: ClaimCheckAttributes = {
           id: randomUUID(),
@@ -413,6 +450,7 @@ export function createMindCheck(options: MindCheckOptions) {
           versions: [],
           excluded: [],
           checkedAt: startedAt,
+          ...(parts && { parts: pendingParts(parts, previous) }),
         };
         markSentence(sentence.element, sentence.from, sentence.to, mark);
         return [
@@ -422,6 +460,8 @@ export function createMindCheck(options: MindCheckOptions) {
             context: sentence.context,
             cited: options.citedNow(sentence.cited),
             scope: within.scope,
+            ...(parts && { parts }),
+            ...(previous && { previous }),
           },
         ];
       });

@@ -45,6 +45,9 @@ import {
 import { CheckMarkIcon, ClaimMarkIcon } from "./icons";
 import { CheckedWhen, RunningText } from "./MindCheckLine";
 import { useRunModel } from "./ModelChip";
+import { OpinionsLine } from "./OpinionsLine";
+import { useOpinionChecks } from "./opinionChecks";
+import { opinionSentenceRanges } from "./opinionLocations";
 import { UncoveredLine } from "./UncoveredLine";
 import { COUNT_IDLE_MS } from "./WordCount";
 
@@ -174,7 +177,7 @@ export function PartMark({ part }: { part: HealthPart | "notChecked" }) {
 }
 
 /** The Mind's health, worked out a moment after it last changed, as the word count is. */
-export function useHealth(editor: Editor, skipped: ReadonlySet<string>): Health {
+export function useHealth(editor: Editor, skipped: ReadonlySet<string>, doc: Y.Doc): Health {
   const documents = useAppStore((state) =>
     state.status.kind === "ready" ? state.documents : null,
   );
@@ -191,6 +194,7 @@ export function useHealth(editor: Editor, skipped: ReadonlySet<string>): Health 
           citationCheck: (attributes: CitationAttributes) =>
             citationState(attributes, documents, kept).check,
           skipped,
+          omitted: opinionSentenceRanges(editor.state.doc, doc),
           kept: keptSpans(editor.state),
         }),
       );
@@ -201,11 +205,13 @@ export function useHealth(editor: Editor, skipped: ReadonlySet<string>): Health 
     };
     count();
     editor.on("transaction", later);
+    doc.on("afterTransaction", later);
     return () => {
       clearTimeout(timer);
       editor.off("transaction", later);
+      doc.off("afterTransaction", later);
     };
-  }, [editor, documents, kept, skipped]);
+  }, [editor, doc, documents, kept, skipped]);
   return health;
 }
 
@@ -234,6 +240,7 @@ export function HealthCard({
   const language = useLanguage();
   const place = useCardPlace(mindId);
   const checkedAll = useMindCheckRun(doc);
+  const opinions = useOpinionChecks(editor, doc);
   const unread = useCheckUnread(editor, doc);
   const narrowUnread = useCheckUnread(editor, doc, { narrowerThanAll: true });
   const asking = useMindCheck((state) => state.asking[mindId] !== undefined);
@@ -356,11 +363,14 @@ export function HealthCard({
             it, so nothing under it moves when the run ends (#1312). */}
         {health.checking.length > 0 && row("checking")}
       </div>
-      {health.kept.length > 0 && (
+      {(health.kept.length > 0 || opinions.length > 0) && (
         <p data-testid="health-kept" className="mind-health-line">
-          {t(health.kept.length === 1 ? "health.kept.one" : "health.kept", {
-            count: format(health.kept.length),
-          })}
+          {health.kept.length > 0 &&
+            t(health.kept.length === 1 ? "health.kept.one" : "health.kept", {
+              count: format(health.kept.length),
+            })}
+          {health.kept.length > 0 && opinions.length > 0 && " · "}
+          <OpinionsLine editor={editor} doc={doc} mindId={mindId} className="" />
         </p>
       )}
       {health.tableCells.length > 0 && (
@@ -390,7 +400,7 @@ export function HealthCard({
           {running ? (
             <RunningText editor={editor} mindId={mindId} testId="card-progress" />
           ) : (
-            checkedAll && <CheckedWhen run={checkedAll} />
+            checkedAll && <CheckedWhen run={checkedAll} editor={editor} doc={doc} mindId={mindId} />
           )}
         </div>
       )}
