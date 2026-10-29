@@ -130,7 +130,7 @@ function editedText(action: string, passage: string, asked: string): string {
     }
     case "follow-citation": {
       const words = /“([^”]*)”/.exec(asked)?.[1] ?? "";
-      const markers = /(?:\s*\[\d+\])+\s*$/.exec(passage)?.[0] ?? "";
+      const markers = (passage.match(/\[\d+\]/g) ?? []).join("");
       return words === "" ? passage : `${words}${markers}`;
     }
     case "explain": {

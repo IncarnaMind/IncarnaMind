@@ -107,8 +107,29 @@ test.afterEach(async () => {
 const contentHashOf = (window: Page, path: string) =>
   window.evaluate(async (wanted) => {
     const bridge = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
-    return (await bridge.listDocuments()).find((each) => each.path === wanted)?.contentHash;
+    const found = (await bridge.listDocuments()).find((each) => each.path === wanted);
+    // A version is the Document's once it is read: until then a Citation can't be looked for in it.
+    return found?.status === "ready" ? found.contentHash : undefined;
   }, path);
+
+/**
+ * Waits until the core reads the Document's current version, so a Citation's quote can be looked
+ * for in it: the version is the Document's before its text is.
+ */
+const untilRead = (window: Page, path: string) =>
+  expect
+    .poll(
+      () =>
+        window.evaluate(async (wanted) => {
+          const bridge = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
+          const found = (await bridge.listDocuments()).find((each) => each.path === wanted);
+          if (found?.status !== "ready") return false;
+          const read = await bridge.readDocumentText(found.id);
+          return read.contentHash === found.contentHash;
+        }, path),
+      { timeout: 15_000 },
+    )
+    .toBe(true);
 
 /** The Citation in the Mind as stored: the version it quotes, its quote, and the version it was kept over. */
 const storedCitation = (editor: Locator) =>
@@ -120,6 +141,21 @@ const storedCitation = (editor: Locator) =>
     const { contentHash, quote, keptOver } = (found ?? {}) as Record<string, unknown>;
     return { contentHash, quote, keptOver: keptOver ?? null };
   });
+
+/** Shows the Citation's card by pointing at it, as a person does; it is put away first if it is already up. */
+async function showCitationCard(window: Page, chip: Locator): Promise<Locator> {
+  const card = window.getByTestId("citation-card");
+  await expect(async () => {
+    if ((await card.count()) > 0) {
+      await window.keyboard.press("Escape");
+      await expect(card).toHaveCount(0, { timeout: 1000 });
+    }
+    await window.mouse.move(0, 0);
+    await pointAt(window, chip);
+    await expect(card).toBeVisible({ timeout: 2000 });
+  }).toPass({ timeout: 20_000 });
+  return card;
+}
 
 /** A Note holding a Citation of a Document that changed before the Answer was added: needs re-check. */
 async function noteWithChangedSource(
@@ -147,6 +183,7 @@ async function noteWithChangedSource(
     await writeFile(files.file, make(NEW));
     await utimes(files.file, CHANGED, CHANGED);
     await expect.poll(() => contentHashOf(window, files.file), { timeout: 15_000 }).not.toBe(cited);
+    await untilRead(window, files.file);
   };
   await change();
   await addToNote(window, answer);
@@ -186,6 +223,7 @@ for (const language of ["en", "zh-CN"] as const) {
       await writeFile(file, amendment(NEW));
       await utimes(file, CHANGED, CHANGED);
       await expect.poll(() => contentHashOf(window, file), { timeout: 15_000 }).not.toBe(cited);
+      await untilRead(window, file);
       const current = await contentHashOf(window, file);
 
       await addToNote(window, answer);
@@ -289,6 +327,9 @@ for (const language of ["en", "zh-CN"] as const) {
       await expect(viewer.locator("[data-quote-highlight]")).toHaveText(NEW);
       // The sentence is asked to follow the new words (Edit with AI), and is one step of Undo of its own.
       await expect(editor).toContainText("forty-five (45)");
+      // Its Citation stays on the rewritten sentence, found in the new version.
+      await expect(chip).toHaveCount(1);
+      await expect(chip).toHaveAttribute("data-check", "found");
       await screenshot(window, `6-updated-${language}`);
       await undo();
       await expect(editor).not.toContainText("forty-five (45)");
@@ -342,10 +383,7 @@ for (const language of ["en", "zh-CN"] as const) {
       await window.keyboard.press("Escape");
 
       // Update the sentence, then take the rewrite back: the sentence that had a check shows its state.
-      const citationCard = window.getByTestId("citation-card");
-      await window.mouse.move(0, 0);
-      await pointAt(window, chip);
-      await expect(citationCard).toBeVisible();
+      const citationCard = await showCitationCard(window, chip);
       await pointAndClick(window, citationCard.getByTestId("citation-update"));
       await expect(editor).toContainText("forty-five (45)");
       await focusSettled(window, editor);
@@ -378,11 +416,9 @@ for (const language of ["en", "zh-CN"] as const) {
       await writeFile(file, ["Added above.", "", make(OLD)].join("\n"));
       await utimes(file, CHANGED, CHANGED);
       await expect.poll(() => contentHashOf(window, file), { timeout: 15_000 }).not.toBe(current);
+      await untilRead(window, file);
       const before = await editor.textContent();
-      await window.mouse.move(0, 0);
-      await pointAt(window, chip);
-      const card = window.getByTestId("citation-card");
-      await expect(card).toBeVisible();
+      const card = await showCitationCard(window, chip);
       await expect(card.getByTestId("citation-changed-words")).toHaveCount(0);
       await pointAndClick(window, card.getByTestId("citation-update"));
       await expect(chip).not.toHaveAttribute("data-recheck", "true");
@@ -404,10 +440,7 @@ for (const language of ["en", "zh-CN"] as const) {
     try {
       await placeAssistant(window, { dock: "right" });
       await expect(window.getByTestId("tab-groups")).toHaveAttribute("data-merged", "true");
-      const card = window.getByTestId("citation-card");
-      await window.mouse.move(0, 0);
-      await pointAt(window, chip);
-      await expect(card).toBeVisible();
+      const card = await showCitationCard(window, chip);
       await pointAndClick(window, card.getByTestId("citation-update"));
       await expect(chip).not.toHaveAttribute("data-recheck", "true");
 
@@ -463,10 +496,7 @@ for (const language of ["en", "zh-CN"] as const) {
       await pointAndClick(window, window.getByTestId("document.fetchAgain"));
       await expect(chip).toHaveAttribute("data-recheck", "true");
 
-      await window.mouse.move(0, 0);
-      await pointAt(window, chip);
-      const card = window.getByTestId("citation-card");
-      await expect(card).toBeVisible();
+      const card = await showCitationCard(window, chip);
       await expect(card.getByTestId("citation-changed-date")).toContainText(words.fetchedAgain);
       await screenshot(window, `web-card-${language}`);
       await window.keyboard.press("Escape");
@@ -512,16 +542,14 @@ for (const language of ["en", "zh-CN"] as const) {
       await writeFile(file, amendment(NEW));
       await utimes(file, CHANGED, CHANGED);
       await expect.poll(() => contentHashOf(window, file), { timeout: 15_000 }).not.toBe(cited);
+      await untilRead(window, file);
       await pointAt(window, answer.getByTestId("assistant-answer-text"));
       await pointAndClick(window, answer.getByTestId("answer-write-note"));
       await expect(editor).toBeVisible();
       const chip = editor.getByTestId("citation-chip");
       await expect(chip).toHaveAttribute("data-recheck", "true");
 
-      const card = window.getByTestId("citation-card");
-      await window.mouse.move(0, 0);
-      await pointAt(window, chip);
-      await expect(card).toBeVisible();
+      const card = await showCitationCard(window, chip);
       await pointAndClick(window, card.getByTestId("citation-update"));
       await expect(chip).not.toHaveAttribute("data-recheck", "true");
 
@@ -533,6 +561,7 @@ for (const language of ["en", "zh-CN"] as const) {
       const [note, source] = await Promise.all([editor.boundingBox(), viewer.boundingBox()]);
       expect(note && source && note.x + note.width <= source.x + 1).toBe(true);
       await expect(editor).toContainText("forty-five (45)");
+      await expect(editor.getByTestId("citation-chip")).toHaveCount(1);
     } finally {
       await app.close();
     }
