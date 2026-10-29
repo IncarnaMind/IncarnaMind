@@ -49,7 +49,9 @@ function table(): ProseMirrorNode {
 
 const rowsOf = (node: ProseMirrorNode): ProseMirrorNode[] => {
   const rows: ProseMirrorNode[] = [];
-  node.forEach((row) => rows.push(row));
+  node.forEach((row) => {
+    rows.push(row);
+  });
   return rows;
 };
 
