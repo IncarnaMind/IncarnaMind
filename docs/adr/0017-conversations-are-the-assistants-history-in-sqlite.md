@@ -58,3 +58,7 @@ Each Citation the model reads in Question context (the Mind it reads, read_mind'
 - **The quote gone.** When less than half of the quote's words are still at its place, the card says the quote is no longer in the new version and offers Keep citing the old version alone.
 - **Why.** A Citation opens the version it was made from or says the Document changed. Re-pointing it as it landed did neither: someone cites what they read, and a later version may say something else around the same words. Choosing between the old and the new version is the User's, made where the Citation is.
 - **Retention.** The version stays while a Citation in a Mind (Recently deleted included) or in a conversation quotes it, as ADR-0010 says. Undoing a landing leaves the conversation's Citation keeping it; after Update the sentence…, the old version goes at the next start once nothing else quotes it.
+
+## Amendment: a Conversation does not carry work across a Folder wall (2026-10-29, #1934)
+
+A Conversation still follows the User from Note to Note, but it does not carry content across an information barrier. When the current Note's wall differs from an earlier turn's, that turn is left out of the model context, its last Answer is not offered for copying, and its Tool history is not reused. With no Note open, the Conversation's own Folder decides the wall. This preserves the Conversation and its history without reading another client's work into the current one.

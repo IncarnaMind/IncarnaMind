@@ -140,9 +140,22 @@ export function CitationView({
     state.status.kind === "ready" ? state.documents : null,
   );
   const kept = useAppStore((state) => state.keptCitationTexts);
+  const keptInside = useAppStore((state) => {
+    const ownFolder = state.minds.find((mind) => mind.id === mindId)?.folderId ?? null;
+    const ownWall = state.library?.groups.find(
+      (group) => group.id === ownFolder && group.keepInside,
+    )?.id;
+    const assignment = state.library?.assignments.find(
+      (each) => each.documentId === attributes.documentId,
+    );
+    const folder = state.library?.groups.find(
+      (group) => group.id === assignment?.groupId && group.keepInside,
+    );
+    return folder && folder.id !== ownWall ? folder.name : null;
+  });
   /** The Mind's group: the Document opens in the group to its right. */
   const place = useTabPlace();
-  const state = citationState(attributes, documents, kept);
+  const state = citationState(attributes, documents, kept, keptInside);
   const liveVersion = useAppStore(
     (store) => store.documents.find((each) => each.id === state.documentId)?.contentHash,
   );
@@ -667,9 +680,11 @@ function CitationCard({
   const reason =
     state.check === "checking"
       ? t("citation.reason.checking")
-      : state.reason
-        ? t(`citation.reason.${state.reason}`)
-        : null;
+      : state.reason === "kept-inside"
+        ? t("citation.reason.kept-inside", { folder: state.keptInside ?? "" })
+        : state.reason
+          ? t(`citation.reason.${state.reason}`)
+          : null;
   const removed = state.reason === "document-removed";
   const quotedWords = state.check === "not-found" && parseQuotedWords(attributes.quotedWords);
   const scanned = useScannedQuote(attributes);

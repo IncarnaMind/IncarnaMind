@@ -44,6 +44,7 @@ import {
   hasSearchScope,
   holdsText,
   mindSearchScope,
+  NO_SCOPE,
   type ScopeKind,
 } from "../shared/searchScope";
 import { SPEAKER_ME, SPEAKER_THEM } from "../shared/speakers";
@@ -283,7 +284,7 @@ import { createRateLimitPause } from "./tags/rateLimit";
 import { createTagger, TAGGING_FLOW_SENDS } from "./tags/tagger";
 import { inFlow } from "./timing/flows";
 import { createTimings } from "./timing/timings";
-import type { CommandsHost, MarkingSettled } from "./tools/commands/run";
+import type { CommandInput, CommandsHost, MarkingSettled } from "./tools/commands/run";
 import { createCommandSteps } from "./tools/commands/steps";
 import { createWebSearch, WEB_SEARCH_SENDS } from "./tools/web";
 import { createPublicFetch } from "./tools/web/fetcher";
@@ -1308,25 +1309,47 @@ export function createCore(adapters: CoreAdapters): Core {
         .map((folder) => folder.id),
     );
     const own = mindId !== null && mindExists(mindId) ? minds.get(mindId).folderId : null;
-    const named = scope.folderIds.filter((id) => walled.has(id));
-    const wallId = own !== null && walled.has(own) ? own : null;
-    return wallId !== null
-      ? folderScope(wallId)
-      : named.length > 0
-        ? { folderIds: named, tagIds: [], documentIds: [] }
-        : scope;
+    if (own !== null && walled.has(own)) return folderScope(own);
+    return { ...scope, folderIds: scope.folderIds.filter((id) => !walled.has(id)) };
   };
-  const resolveScope = (scope: SearchScope, mindId: string | null = null) =>
-    resolveSearchScope(constrainedScope(scope, mindId), {
+  const resolveScope = (scope: SearchScope, mindId: string | null = null) => {
+    const walled = library.folders().filter((folder) => folder.keepInside);
+    const own = mindId !== null && mindExists(mindId) ? minds.get(mindId).folderId : null;
+    const ownWall = own !== null && walled.some((folder) => folder.id === own);
+    const namedWall = scope.folderIds.some((id) => walled.some((folder) => folder.id === id));
+    const explicitFolderScope =
+      mindId === null &&
+      namedWall &&
+      scope.folderIds.every((id) => walled.some((folder) => folder.id === id)) &&
+      scope.tagIds.length === 0 &&
+      scope.documentIds.length === 0;
+    if (ownWall || explicitFolderScope) {
+      return resolveSearchScope(ownWall ? constrainedScope(scope, mindId) : scope, {
+        folderTree: (folderId) => folders.subtree(folderId),
+        organizedFolderDocuments: (folderId) => library.documentIds(folderId),
+        documentIds: (filter) => documents.ids(filter),
+      });
+    }
+    const constrained = constrainedScope(scope, mindId);
+    if (!ownWall && hasSearchScope(scope) && !hasSearchScope(constrained)) return [];
+    const resolved = resolveSearchScope(constrained, {
       folderTree: (folderId) => folders.subtree(folderId),
       organizedFolderDocuments: (folderId) => library.documentIds(folderId),
       documentIds: (filter) => documents.ids(filter),
     });
+    if (ownWall || walled.length === 0) return resolved;
+    const excluded = new Set(walled.flatMap((folder) => library.allDocumentIds(folder.id)));
+    return (resolved ?? documents.ids({})).filter((id) => !excluded.has(id));
+  };
   const folderIdsInScope = (folderIds: readonly string[]) =>
-    constrainedScope({ folderIds: [...folderIds], tagIds: [], documentIds: [] }).folderIds;
+    folderIds.length === 1 && walledFolderId(folderIds[0] ?? null) !== null
+      ? [...folderIds]
+      : constrainedScope({ folderIds: [...folderIds], tagIds: [], documentIds: [] }).folderIds;
+  const walledFolderId = (folderId: string | null): string | null =>
+    folderId !== null && library.folder(folderId).keepInside ? folderId : null;
   const walledFolder = (mindId: string | null): string | null => {
     const folderId = mindId !== null && mindExists(mindId) ? minds.get(mindId).folderId : null;
-    return folderId !== null && library.folder(folderId).keepInside ? folderId : null;
+    return walledFolderId(folderId);
   };
   const searchedScope = (scope: SearchScope | null, mindId: string | null) => {
     const folderId = mindId !== null && mindExists(mindId) ? minds.get(mindId).folderId : null;
@@ -1364,7 +1387,7 @@ export function createCore(adapters: CoreAdapters): Core {
     return [...named, ...all.filter((folder) => filed.has(folder.id))];
   };
   const unreadIn = (wanted: SearchScope | null): UnreadFile[] => {
-    const inScope = wanted ? resolveScope(wanted) : null;
+    const inScope = wanted ? resolveScope(wanted) : resolveScope(NO_SCOPE);
     const unread = findUnreadDocuments(documents.unread(inScope ?? undefined));
     // Files in a format not read belong to folders on disk only: a Tag or a Document can't name
     // them. A folder holds those in it and under it, even where no Document is.
@@ -1448,6 +1471,30 @@ export function createCore(adapters: CoreAdapters): Core {
     get core() {
       if (!api) throw new Error("The core isn't ready for commands yet.");
       return api;
+    },
+    allows: (input: CommandInput, mindId: string | null, wallOverride?: string | null) => {
+      const wallId = wallOverride === undefined ? walledFolder(mindId) : wallOverride;
+      const refuse = () => {
+        throw new InvalidInputError(translate(settings.get().language, "folder.wall.refusal"));
+      };
+      if (input.command.startsWith("mind.")) {
+        for (const id of input.ids) if (walledFolder(id) !== wallId) refuse();
+      } else if (input.command.startsWith("document.")) {
+        const allowed = wallId
+          ? resolveSearchScope(folderScope(wallId), {
+              folderTree: (folderId) => folders.subtree(folderId),
+              organizedFolderDocuments: (folderId) => library.documentIds(folderId),
+              documentIds: (filter) => documents.ids(filter),
+            })
+          : resolveScope({ folderIds: [], tagIds: [], documentIds: input.ids }, mindId);
+        if (input.ids.some((id) => allowed?.includes(id) !== true)) refuse();
+      }
+      if (input.command === "document.moveTo" || input.command === "mind.moveTo") {
+        const target = library
+          .folders()
+          .find((folder) => folder.name.toLocaleLowerCase() === input.folder?.toLocaleLowerCase());
+        if (target?.keepInside && target.id !== wallId) refuse();
+      }
     },
     outputFolder: async () => outputs.settings().location,
     exportMind: async (mindId, format, folder, approved, marking) => {
@@ -1562,15 +1609,31 @@ export function createCore(adapters: CoreAdapters): Core {
     web: webSearch,
     commands: {
       host: commandsHost,
-      findable: async () => {
+      findable: async (mindId: string | null, wallOverride?: string | null) => {
         const { core } = commandsHost;
+        const wallId = wallOverride === undefined ? walledFolder(mindId) : wallOverride;
         const [listed, mindsNow, libraryNow, tagsNow] = await Promise.all([
           core.listDocuments(),
           core.listMinds(),
           core.getLibrary(),
           core.listTags(),
         ]);
-        return { documents: listed, minds: mindsNow, library: libraryNow, tags: tagsNow };
+        const allowed = wallId
+          ? resolveSearchScope(folderScope(wallId), {
+              folderTree: (folderId) => folders.subtree(folderId),
+              organizedFolderDocuments: (folderId) => library.documentIds(folderId),
+              documentIds: (filter) => documents.ids(filter),
+            })
+          : resolveScope(NO_SCOPE, mindId);
+        return {
+          documents:
+            allowed === null ? listed : listed.filter((document) => allowed.includes(document.id)),
+          minds: mindsNow.filter((mind) =>
+            wallId ? mind.folderId === wallId : walledFolder(mind.id) === null,
+          ),
+          library: libraryNow,
+          tags: tagsNow,
+        };
       },
       steps: commandSteps,
     },
@@ -1677,6 +1740,7 @@ export function createCore(adapters: CoreAdapters): Core {
     searchedScope,
     mindFolder: (mindId) => (mindExists(mindId) ? minds.get(mindId).folderId : null),
     walledFolder,
+    walledFolderId,
     exampleDocuments: (mindId) => examples.documentsOf(mindId),
     unscopedDocuments: (mindId) => {
       const made = examples.made();
@@ -1791,6 +1855,7 @@ export function createCore(adapters: CoreAdapters): Core {
     searchedScope,
     mindExists,
     mindName: (mindId) => (mindExists(mindId) ? mindName(minds.get(mindId)) || null : null),
+    walledFolder,
     folderOfMind: (mindId) => (mindExists(mindId) ? minds.get(mindId).folderId : null),
     createMind: (title, folderId) => makeMind({ title, kind: DEFAULT_MIND_KIND, folderId }).id,
     moveMind: (mindId, folderId) => {
@@ -3580,9 +3645,17 @@ export function createCore(adapters: CoreAdapters): Core {
     version: adapters.agents?.version ?? "0.0.0",
     access: {
       say: (key, params) => translate(settings.get().language, key, params),
-      folders: () => library.folders().map((folder) => ({ id: folder.id, name: folder.name })),
+      folders: () =>
+        library.folders().map((folder) => ({
+          id: folder.id,
+          name: folder.name,
+          keepInside: folder.keepInside,
+        })),
       foldersInScope: folderIdsInScope,
       documentsIn: (folderIds) => {
+        if (folderIds.length === 1 && walledFolderId(folderIds[0] ?? null) !== null) {
+          return library.documentIds(folderIds[0] as string);
+        }
         const allowed = folderIdsInScope(folderIds);
         const folders = allowed.filter((id) => id !== NOT_IN_A_FOLDER_ID);
         const filed =
@@ -3757,7 +3830,7 @@ export function createCore(adapters: CoreAdapters): Core {
     regenerateConversationAnswer: async (input) => answers.regenerateInConversation(input),
     countScopeDocuments: async (scope) => {
       const wanted = parseSearchScope(scope);
-      return documents.searchableCount((wanted ? resolveScope(wanted) : null) ?? undefined);
+      return documents.searchableCount(resolveScope(wanted ?? NO_SCOPE) ?? undefined);
     },
     stopConversationAnswer: async (input) => answers.stopInConversation(input),
     usualAnswerWait: async (answerId) => conversations.usualWait(answerId),
@@ -4070,7 +4143,7 @@ export function createCore(adapters: CoreAdapters): Core {
       const scope = parseSearchScope(options?.scope);
       const found = await evidence.search(
         query,
-        evidence.scope(scope ? resolveScope(scope) : null, parseCheckedDocument(options?.checked)),
+        evidence.scope(resolveScope(scope ?? NO_SCOPE), parseCheckedDocument(options?.checked)),
       );
       return { passages: found.passages.map(passageResult), excluded: found.excluded };
     },

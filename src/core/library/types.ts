@@ -11,7 +11,7 @@ export interface LibraryGroup {
    */
   countsOwnFiles: boolean;
   /** Only this Folder's Documents and Notes may be read or cited from it. False by default. */
-  keepInside?: boolean;
+  keepInside: boolean;
   createdAt: string;
   updatedAt: string;
 }

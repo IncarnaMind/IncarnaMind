@@ -581,6 +581,7 @@ export interface AnswersOptions {
   searchedScope(scope: SearchScope | null, mindId: string | null): SearchScope | null;
   mindFolder(mindId: string): string | null;
   walledFolder(mindId: string | null): string | null;
+  walledFolderId(folderId: string | null): string | null;
   /** The Document a Mind imported from Word was also added as (#720); null for none. */
   workingCopyOf?(mindId: string): string | null;
   /** An example Mind's own Documents, by id; null for a Mind that isn't an example's. */
@@ -617,7 +618,11 @@ export interface AnswersOptions {
    * The app's commands an Answer in the assistant runs for the User (#1110, ../tools/commands):
    * what they act on, and the Undo of each Run's changes; absent: it runs none.
    */
-  commands?: { host: CommandsHost; findable(): Promise<Findable>; steps: CommandSteps };
+  commands?: {
+    host: CommandsHost;
+    findable(mindId: string | null, wallId?: string | null): Promise<Findable>;
+    steps: CommandSteps;
+  };
   /**
    * Takes back the changes an Answer proposed in Minds, before it is written
    * again (#202): those still waiting are rejected, and a Mind it made goes
@@ -929,11 +934,11 @@ export function createAnswers(options: AnswersOptions) {
   const modelKey = (model: ChatModelChoice, prepared: PreparedChatModel) =>
     `${model.providerId}\n${model.modelId}\n${prepared.revision ?? ""}`;
 
-  const contextCitationsFor = (mindId: string | null): ContextCitations => {
-    const wallId = options.walledFolder(mindId);
-    if (wallId === null) return createContextCitations();
-    const allowed = options.resolveScope(folderScope(wallId)) ?? [];
-    return createContextCitations((documentId) => allowed.includes(documentId));
+  const contextCitationsFor = (mindId: string | null, wallId?: string | null): ContextCitations => {
+    const allowed = wallId
+      ? options.resolveScope(folderScope(wallId))
+      : options.resolveScope(NO_SCOPE, mindId);
+    return createContextCitations((documentId) => allowed === null || allowed.includes(documentId));
   };
 
   function start(input: {
@@ -1025,6 +1030,8 @@ export function createAnswers(options: AnswersOptions) {
       renames: readonly CommandRename[];
       /** The calls of the Conversation's earlier Answers, oldest first: a follow-up may be answered from their searches (#1796). */
       earlierCalls?: readonly AnswerToolCall[];
+      /** The Folder wall of this Conversation when no Note is open; null for ordinary scope. */
+      wallId?: string | null;
     };
   }): void {
     const { home, answerId, model, context, forcedSkill, help } = input;
@@ -1250,7 +1257,7 @@ export function createAnswers(options: AnswersOptions) {
       : null;
     const passagesOf = (documentId: string) =>
       options.documents.passagesBetween(documentId, 0, Number.MAX_SAFE_INTEGER);
-    const ids = input.ids ?? contextCitationsFor(mindIn);
+    const ids = input.ids ?? contextCitationsFor(mindIn, input.assistant?.wallId);
     const notKept = translate(answerLanguage(context.question), "answer.sourceNotKept");
     const session = createCitationSession(
       searched,
@@ -2201,14 +2208,19 @@ export function createAnswers(options: AnswersOptions) {
         });
       // The Minds' Tools, for an Answer in the assistant (#202).
       const focusedId = input.assistant?.focused?.mindId ?? null;
-      const wallId = options.walledFolder(focusedId);
+      const wallId = input.assistant?.wallId ?? options.walledFolder(focusedId);
       const allMinds = options.minds;
       const minds = outside
         ? undefined
-        : wallId && allMinds
+        : allMinds
           ? {
               ...allMinds,
-              list: () => allMinds.list().filter((mind) => mind.folderId === wallId),
+              list: () =>
+                allMinds
+                  .list()
+                  .filter((mind) =>
+                    wallId ? mind.folderId === wallId : options.walledFolder(mind.id) === null,
+                  ),
             }
           : allMinds;
       // A new piece fills the empty Mind the User is in rather than making another (#1109).
@@ -2242,6 +2254,13 @@ export function createAnswers(options: AnswersOptions) {
                 wallRefused: () => {
                   wallRefused = true;
                 },
+                outsideMind: (name) =>
+                  (allMinds?.list() ?? []).some(
+                    (mind) =>
+                      mind.folderId !== wallId &&
+                      (mind.id === name ||
+                        mind.name.toLocaleLowerCase() === name.toLocaleLowerCase()),
+                  ),
               }),
               searchedPassages: () =>
                 toolCalls.some(
@@ -2336,8 +2355,9 @@ export function createAnswers(options: AnswersOptions) {
         commands && input.assistant
           ? commandTools({
               host: commands.host,
-              findable: () => commands.findable(),
+              findable: (mindId, wall) => commands.findable(mindId, wall),
               focusedMindId: focusedId,
+              wallId,
               namesWebPage: options.documents.searchableNames(documentIds, LISTED_DOCUMENTS)
                 .webPage,
               renames: input.assistant.renames,
@@ -2773,7 +2793,7 @@ export function createAnswers(options: AnswersOptions) {
                       : `${quoted.slice(0, -1).join(", ")} and ${quoted.at(-1) ?? ""}`,
                 });
               },
-              refusedReply: () =>
+              refusalSuffix: () =>
                 wallRefused
                   ? translate(answerLanguage(context.question), "folder.wall.refusal")
                   : null,
@@ -3141,7 +3161,21 @@ export function createAnswers(options: AnswersOptions) {
     const help = mind ? (options.meetingHelp?.(mind.mindId, question.text) ?? null) : null;
     const callOnly = help !== null && HELP_DOCUMENTS[help] === null;
     // Each press of a help button stands alone: an earlier suggestion would only steer this one.
-    const earlier = help ? [] : turn.earlier;
+    const wallId = mind
+      ? options.walledFolder(mind.mindId)
+      : options.walledFolderId(conversation.folderId);
+    let turnWall: string | null = null;
+    const withWalls = turn.earlier.map((message) => {
+      if (message.kind === "question") {
+        turnWall = message.askedFrom
+          ? options.walledFolderId(filedIn(message.scope, message.askedFrom))
+          : options.walledFolderId(conversation.folderId);
+      }
+      return { message, wall: turnWall };
+    });
+    const earlier = help
+      ? []
+      : withWalls.filter((each) => each.wall === wallId).map((each) => each.message);
     // A long Mind is cut to what the conversation's Questions are about, the earlier ones too: a
     // follow-up keeps the part the first one found, and so the same start for the prompt cache.
     const asking = [
@@ -3154,12 +3188,16 @@ export function createAnswers(options: AnswersOptions) {
         ? mind.reading.section(MIND_TOKEN_LIMIT, asking)
         : mind?.section;
     const documents = options.documents.names();
+    const contextDocuments =
+      documentIds === null
+        ? documents
+        : documents.filter((document) => documentIds.includes(document.id));
     const shown = callOnly ? [] : namesOnScreen(onScreen, documentIds);
-    const ids = (callOnly ? null : mind?.ids) ?? createContextCitations();
-    const named = help ? [] : namedMinds(mind?.mindId ?? null);
+    const ids = (callOnly ? null : mind?.ids) ?? contextCitationsFor(mind?.mindId ?? null, wallId);
+    const named = help ? [] : namedMinds(mind?.mindId ?? null, wallId);
     const { context, origins } = conversationContextOf(earlier, question.text, {
       mind: section,
-      documents,
+      documents: contextDocuments,
       mindNames: options.readableMindName,
       changeStates: changeStatesOf,
       onScreen: shown,
@@ -3200,7 +3238,7 @@ export function createAnswers(options: AnswersOptions) {
               return {
                 context: conversationContextOf(earlier, question.text, {
                   mind: smaller,
-                  documents,
+                  documents: contextDocuments,
                   mindNames: options.readableMindName,
                   changeStates: changeStatesOf,
                   onScreen: shown,
@@ -3229,16 +3267,12 @@ export function createAnswers(options: AnswersOptions) {
         },
         folderId: filedIn(question.scope, question.askedFrom),
         origin: { from: messageReference(conversation.id, answer.id), question: question.text },
-        lastAnswer: lastAnswerOf(
-          conversation.id,
-          turn.earlier,
-          filedIn,
-          options.interfaceLanguage(),
-        ),
+        wallId,
+        lastAnswer: lastAnswerOf(conversation.id, earlier, filedIn, options.interfaceLanguage()),
         remake,
-        renames: renamesIn(turn.earlier),
-        touched: touchedIn(turn.earlier),
-        earlierCalls: turn.earlier.flatMap((message) =>
+        renames: renamesIn(earlier),
+        touched: touchedIn(earlier),
+        earlierCalls: earlier.flatMap((message) =>
           message.kind === "answer" ? message.toolCalls : [],
         ),
       },
@@ -3253,11 +3287,20 @@ export function createAnswers(options: AnswersOptions) {
   }
 
   // Only the Document's own name and words are kept and sent: what the caller gave is only looked for.
-  function checkQuotes(quotes: readonly AskedQuote[]): { quoted: Quoted[]; leftOut: AskedQuote[] } {
+  function checkQuotes(
+    quotes: readonly AskedQuote[],
+    scope: SearchScope | null,
+    mindId: string | null,
+  ): { quoted: Quoted[]; leftOut: AskedQuote[] } {
     const quoted: Quoted[] = [];
     const leftOut: AskedQuote[] = [];
+    const allowed = options.resolveScope(scope ?? NO_SCOPE, mindId);
     const documents = options.documents.names();
     for (const asked of quotes) {
+      if (allowed !== null && !allowed.includes(asked.documentId)) {
+        leftOut.push(asked);
+        continue;
+      }
       const now = options.documents.recheckWhereSelected(asked);
       const name = shownDocumentName({ documentId: asked.documentId }, documents);
       const passages =
@@ -3293,11 +3336,14 @@ export function createAnswers(options: AnswersOptions) {
   }
 
   // Peeked, so Minds not open aren't loaded; and only so many, so a big Library doesn't slow a Question.
-  const namedMinds = (mindId: string | null): { name: string; fromAnswer: boolean }[] => {
-    const wallId = options.walledFolder(mindId);
+  const namedMinds = (
+    mindId: string | null,
+    conversationWall?: string | null,
+  ): { name: string; fromAnswer: boolean }[] => {
+    const wallId = conversationWall ?? options.walledFolder(mindId);
     const names: { name: string; fromAnswer: boolean }[] = [];
     for (const mind of options.minds?.list().slice(0, 2 * LISTED_MINDS) ?? []) {
-      if (wallId && mind.folderId !== wallId) continue;
+      if (wallId ? mind.folderId !== wallId : options.walledFolder(mind.id) !== null) continue;
       if (names.length >= LISTED_MINDS) break;
       if (names.some((each) => each.name === mind.name)) continue;
       names.push({ name: mind.name, fromAnswer: options.content.peek(mind.id, madeByAnswer) });
@@ -3327,11 +3373,12 @@ export function createAnswers(options: AnswersOptions) {
   };
 
   /** The Documents of a Search scope as it is now, and whether it covers none to search. */
-  const scopeNow = (scope: SearchScope | null, mindId: string | null) => {
-    const documentIds =
-      options.resolveScope(scope ?? NO_SCOPE, mindId) ??
-      options.unscopedDocuments?.(mindId) ??
-      null;
+  const scopeNow = (scope: SearchScope | null, mindId: string | null, wallId?: string | null) => {
+    const documentIds = wallId
+      ? options.resolveScope(folderScope(wallId))
+      : (options.resolveScope(scope ?? NO_SCOPE, mindId) ??
+        options.unscopedDocuments?.(mindId) ??
+        null);
     const emptyScope = documentIds !== null && options.documents.searchableCount(documentIds) === 0;
     return { documentIds, emptyScope };
   };
@@ -3491,7 +3538,7 @@ export function createAnswers(options: AnswersOptions) {
     async askInConversation(question: QuestionInput): Promise<ConversationAskResult> {
       const scope = options.searchedScope(question.scope, question.mind?.id ?? null);
       const mind = mindToRead(question.mind?.id ?? null, question.focus, question.text);
-      const quotes = checkQuotes(question.quotes);
+      const quotes = checkQuotes(question.quotes, scope, question.mind?.id ?? null);
       const answerModel =
         question.model && options.providerExists(question.model.providerId)
           ? question.model
@@ -3512,8 +3559,12 @@ export function createAnswers(options: AnswersOptions) {
         }
         const readyMind = mindToRead(question.mind?.id ?? null, question.focus, question.text);
         // The Documents can change while readiness waits: search and quote them as they are now.
-        const { documentIds, emptyScope } = scopeNow(scope, question.mind?.id ?? null);
-        const checked = checkQuotes(question.quotes);
+        const { documentIds, emptyScope } = scopeNow(
+          scope,
+          question.mind?.id ?? null,
+          options.walledFolderId(added.turn.conversation.folderId),
+        );
+        const checked = checkQuotes(question.quotes, scope, question.mind?.id ?? null);
         const readyTurn = options.conversations.restartAnswer(
           turn.answer.id,
           ready.model,
@@ -3555,13 +3606,14 @@ export function createAnswers(options: AnswersOptions) {
         : undefined;
       const remake = made && options.readableMindName(made.mindId) !== null ? made.mindId : null;
       const from = question.askedFrom;
-      const { documentIds, emptyScope } = scopeNow(
-        question.scope,
-        from && !from.deleted ? from.mindId : null,
-      );
       const mind =
         !from || from.deleted ? null : mindToRead(from.mindId, question.focus, question.text);
       const turn = options.conversations.restartAnswer(answerId, ready.model, readOf(mind));
+      const { documentIds, emptyScope } = scopeNow(
+        question.scope,
+        from && !from.deleted ? from.mindId : null,
+        options.walledFolderId(turn.conversation.folderId),
+      );
       return startInConversation(
         turn,
         ready,
@@ -3569,7 +3621,7 @@ export function createAnswers(options: AnswersOptions) {
         emptyScope,
         mind,
         onScreen,
-        checkQuotes(question.quotes),
+        checkQuotes(question.quotes, question.scope, from?.mindId ?? null),
         remake,
       );
     },

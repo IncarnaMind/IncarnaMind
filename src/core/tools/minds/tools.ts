@@ -207,6 +207,8 @@ export interface MindToolsOptions {
   wallMessage?: string;
   /** Called when a named Note is refused because of the Folder wall. */
   wallRefused?(): void;
+  /** Whether a Note with this name exists outside the current wall. */
+  outsideMind?(name: string): boolean;
   /** The request's paragraph hint, which never chooses the stretch. */
   paragraph: ParagraphAsked;
   /** Where a new Mind goes: the Folder of the Question's Search scope when that is one Folder. */
@@ -1857,7 +1859,8 @@ export function mindTools(options: MindToolsOptions): { tools: Tool[]; settle():
       if (
         located instanceof Refusal &&
         located.problem.kind === "not-found" &&
-        options.wallMessage
+        options.wallMessage &&
+        options.outsideMind?.(text(input.mind, "mind")) === true
       ) {
         options.wallRefused?.();
         return options.wallMessage;

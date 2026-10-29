@@ -972,6 +972,14 @@ export function createLibrary(options: {
     documentIds(folderId: string): string[] {
       return db
         .all<{ document_id: string }>(
+          "SELECT a.document_id FROM document_groups a JOIN library_groups g ON g.id = a.group_id JOIN documents d ON d.id = a.document_id WHERE g.id = ? AND g.deleted_at IS NULL AND a.deleted_at IS NULL AND d.deleted_at IS NULL AND (g.keep_inside = 0 OR a.source = 'user')",
+          [folderId],
+        )
+        .map((row) => row.document_id);
+    },
+    allDocumentIds(folderId: string): string[] {
+      return db
+        .all<{ document_id: string }>(
           "SELECT a.document_id FROM document_groups a JOIN library_groups g ON g.id = a.group_id JOIN documents d ON d.id = a.document_id WHERE g.id = ? AND g.deleted_at IS NULL AND a.deleted_at IS NULL AND d.deleted_at IS NULL",
           [folderId],
         )

@@ -68,6 +68,8 @@ export interface CitationState {
   check: CitationCheck;
   /** Why it wasn't found, or can't be checked. */
   reason: CitationCheckReason | null;
+  /** The Folder whose wall keeps this Citation's last result, when there is one. */
+  keptInside?: string | null;
   /**
    * The live Document the Citation opens: its own, or one with the same
    * content added again after it was deleted. Null once the Document has
@@ -196,6 +198,7 @@ export function citationState(
   attributes: Partial<CitationAttributes>,
   documents: readonly LiveDocument[] | null,
   kept: readonly KeptCitationText[] = [],
+  keptInside: string | null = null,
 ): CitationState {
   const check = attributes.check ?? "checking";
   const reason = attributes.checkReason ?? null;
@@ -209,6 +212,15 @@ export function citationState(
     live.contentHash !== attributes.contentHash;
   if (check === "checking") {
     return { check, reason: null, documentId: live?.id ?? own, changedAfterCited: false };
+  }
+  if (keptInside) {
+    return {
+      check,
+      reason: "kept-inside",
+      documentId: live?.id ?? own,
+      changedAfterCited: false,
+      keptInside,
+    };
   }
   if (!live && citedTextKept(attributes, kept)) {
     return { check, reason, documentId: null, changedAfterCited: false };
@@ -428,6 +440,9 @@ export function badgeMessage(
   t: Translate,
 ): { key: MessageKey; params?: Record<string, string> } {
   const { where, params } = placeOf(attributes, t);
+  if (state.reason === "kept-inside") {
+    return { key: "citation.badge.keptInside", params: { folder: state.keptInside ?? "" } };
+  }
   switch (state.check) {
     case "checking":
       return { key: "citation.badge.checking" };

@@ -19,12 +19,16 @@ const WORDS = {
   en: {
     ownFile: "Client A lease.txt",
     otherFile: "Client B lease.txt",
+    outsideFile: "Other lease.txt",
     ownFolder: "Client A",
     otherFolder: "Client B",
+    outsideFolder: "Other work",
     ownNote: "Client A note",
     otherNote: "Client B note",
+    outsideNote: "Outside note",
     ownText: "Termination notice: 90 days. Liability cap: $100,000.",
     otherText: "Termination notice: 30 days. Liability cap: $25,000.",
+    outsideText: "Termination notice: 60 days.",
     claim: "The termination notice is 90 days.",
     ask: "What is the termination notice in my lease?",
     compare: "What is the termination notice?",
@@ -33,12 +37,16 @@ const WORDS = {
   "zh-CN": {
     ownFile: "客户甲租约.txt",
     otherFile: "客户乙租约.txt",
+    outsideFile: "其他租约.txt",
     ownFolder: "客户甲",
     otherFolder: "客户乙",
+    outsideFolder: "其他工作",
     ownNote: "客户甲笔记",
     otherNote: "客户乙笔记",
+    outsideNote: "外部笔记",
     ownText: "终止通知期限：90天。责任上限：100000元。",
     otherText: "终止通知期限：30天。责任上限：25000元。",
+    outsideText: "终止通知期限：60天。",
     claim: "终止通知期限是90天。",
     ask: "我的租约终止通知期限是多久？",
     compare: "终止通知期限是多久？",
@@ -79,15 +87,21 @@ async function runMatterWall(language: Language, run: number) {
   });
   if (saved.service) await core.allowDataFlow("chat", saved.service.id);
   const sources = await createSourceFolder();
-  const [own, other] = await addAndProcess(core, [
+  const [own, other, outsideDocument] = await addAndProcess(core, [
     await writeSourceFile(sources, words.ownFile, `${words.ownText}\n`),
     await writeSourceFile(sources, words.otherFile, `${words.otherText}\n`),
+    await writeSourceFile(sources, words.outsideFile, `${words.outsideText}\n`),
   ]);
-  if (!own || !other) throw new Error("The leases weren't added.");
+  if (!own || !other || !outsideDocument) throw new Error("The leases weren't added.");
   const first = await core.createLibraryGroup({ name: words.ownFolder, description: "" });
   const second = await core.createLibraryGroup({ name: words.otherFolder, description: "" });
+  const outsideFolder = await core.createLibraryGroup({
+    name: words.outsideFolder,
+    description: "",
+  });
   await core.assignDocumentGroup(own.id, first.id);
   await core.assignDocumentGroup(other.id, second.id);
+  await core.assignDocumentGroup(outsideDocument.id, outsideFolder.id);
   for (const folder of [first, second]) {
     await core.updateLibraryGroup(folder.id, {
       name: folder.name,
@@ -97,6 +111,7 @@ async function runMatterWall(language: Language, run: number) {
   }
   const mind = await core.createMind({ title: words.ownNote, folderId: first.id });
   const otherMind = await core.createMind({ title: words.otherNote, folderId: second.id });
+  const outsideMind = await core.createMind({ title: words.outsideNote });
   const otherClient = await connectToMind(core, otherMind.id);
   writeMind(otherClient, [
     {
@@ -145,6 +160,44 @@ async function runMatterWall(language: Language, run: number) {
   expect(assistantEvidence).toContain(refusal);
   expect(assistantEvidence).not.toContain(words.otherText);
   for (const found of searches) expect(found).not.toContain(other.name);
+
+  const outsideStart = searches.length;
+  const outsideClient = await connectToMind(core, outsideMind.id);
+  writeMind(outsideClient, [
+    {
+      type: "paragraph",
+      attrs: { id: `outside-${run}` },
+      content: [{ type: "text", text: words.claim }],
+    },
+  ]);
+  await outsideClient.settled();
+  await askQuestion(core, outsideClient, outsideMind.id, words.ask);
+  expect(searches.at(-1)).toEqual([outsideDocument.name]);
+  const outsideChecked = await core.checkMind({
+    requestId: `outside-check-${language}-${run}`,
+    mindId: outsideMind.id,
+    mode: "all",
+    allDocuments: true,
+  });
+  expect(outsideChecked.kind).toBe("checked");
+  for (const span of claimSpans(readMind(outsideClient))) {
+    expect(span.check.evidence?.documentId).not.toBe(own.id);
+    expect(span.check.evidence?.documentId).not.toBe(other.id);
+  }
+  await compare(core, outsideClient, {
+    mindId: outsideMind.id,
+    documentIds: [own.id, other.id, outsideDocument.id],
+    questions: [words.compare],
+  });
+  expect(searches.at(-1)).toEqual([outsideDocument.name]);
+  const outsideAnswer = await askAssistant(core, { text: words.assistant, mindId: outsideMind.id });
+  expect(
+    JSON.stringify({ calls: outsideAnswer.toolCalls, text: outsideAnswer.text }),
+  ).not.toContain(words.otherText);
+  for (const found of searches.slice(outsideStart)) {
+    expect(found).not.toContain(own.name);
+    expect(found).not.toContain(other.name);
+  }
 }
 
 describe("Matter wall on Claude Haiku 5.5", () => {

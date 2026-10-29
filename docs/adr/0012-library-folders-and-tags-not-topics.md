@@ -23,3 +23,12 @@ A Folder holds Minds as well as Documents: the sidebar's one tree lists each Fol
 - Moving is one call for Minds and Documents together (`moveToFolder`), all or none, returning where each was so the move can be undone; a Document moved is a manual choice, which Organize keeps. Drag and drop, "Move to…" and #212's multi-select share it.
 - Deleting a Folder moves its Minds and Documents to Not in a Folder. Its row is kept, marked deleted, so a Question whose Search scope named it shows the Folder's name struck through; that Question searches nothing rather than everything, as for any deleted Folder.
 - We considered Projects as a kind of their own, apart from the Library's Folders, as some notebook apps do. Rejected: two ideas for "where my work lives" is harder to pick up, and Organize already files Documents into Folders by what they are about.
+
+## Amendment: a Folder can keep its work inside it (2026-10-29, #1934)
+
+A Folder's **Keep this Folder's work inside it** switch adds an information barrier for a client matter or a deal. Its Notes use only Documents the User filed in that Folder, and work outside it leaves those Documents and Notes out, including an All Documents search. Automatic and suggested Organize filings wait outside that Search scope until the User accepts them; the switch does not hide Documents or Notes from the Library, Search or ⌘K.
+
+- A Note inside the wall keeps its Folder chip and cannot remove it to widen its scope. Outside, the chip is not a way to pick the walled Folder or its Documents: their names stay visible with a lock, and the All Documents chip says how many Folders are left out. Opening a Note in the Folder remains available.
+- The wall is enforced in the core's scope resolution, including checks, Compare, Research and outside agents. A Folder shared with an outside agent is approved only on its own.
+- A Document or Note can still be moved out. Its move notice says what changes and has Undo. Turning the switch off restores the ordinary Search scope.
+- A Citation made before the wall stays readable and opens as before. An outside check does not read its Document again: its last result stands and says **Kept inside {Folder}**.

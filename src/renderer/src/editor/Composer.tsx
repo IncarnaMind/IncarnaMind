@@ -168,6 +168,15 @@ export function Composer({
   const folderName = useAppStore(
     (state) => state.library?.groups.find((each) => each.id === folderId)?.name ?? null,
   );
+  const leftOutCount = useAppStore(
+    (state) => state.library?.groups.filter((group) => group.keepInside).length ?? 0,
+  );
+  const allLabel =
+    leftOutCount === 0
+      ? t("composer.scope.all")
+      : t(leftOutCount === 1 ? "composer.scope.leftOut.one" : "composer.scope.leftOut", {
+          count: leftOutCount,
+        });
   // What the chips show: what the core will search (#1359). Asking sends `composerScope`.
   const scope =
     walled && folderId !== null
@@ -263,8 +272,26 @@ export function Composer({
     if (change.scope !== undefined) setScope(change.scope);
   };
   /** Keeps the scope the User chose; the Mind's own follows it to another Folder. */
-  const withinWall = (next: SearchScope) =>
-    walled && folderId !== null ? folderScope(folderId) : chosenScope(next, folderId);
+  const withinWall = (next: SearchScope) => {
+    if (walled && folderId !== null) return folderScope(folderId);
+    const state = useAppStore.getState();
+    const walls = new Set(
+      (state.library?.groups ?? []).filter((group) => group.keepInside).map((group) => group.id),
+    );
+    const documents = new Set(
+      (state.library?.assignments ?? [])
+        .filter((each) => walls.has(each.groupId ?? ""))
+        .map((each) => each.documentId),
+    );
+    return chosenScope(
+      {
+        ...next,
+        folderIds: next.folderIds.filter((id) => !walls.has(id)),
+        documentIds: next.documentIds.filter((id) => !documents.has(id)),
+      },
+      folderId,
+    );
+  };
   const updateScope = (next: SearchScope) => update({ scope: withinWall(next) });
 
   // Single-line text sits beside the controls; once it would run past one line, it takes the
@@ -442,7 +469,7 @@ export function Composer({
   // Back to the wide scope it narrowed, never straight to the whole Library: All Documents is a
   // second, deliberate step in the "@" picker.
   const goBack = () => {
-    update({ scope: walled && folderId !== null ? folderScope(folderId) : before });
+    update({ scope: before === null ? before : withinWall(before) });
     field.current?.focus();
   };
   const backLabel =
@@ -1010,20 +1037,24 @@ export function Composer({
               type="button"
               data-testid="composer-scope-all"
               aria-label={
-                folderName !== null && !folderHolds
-                  ? t("composer.scope.allEmptyFolder", { folder: folderName })
-                  : t("composer.scope.allLabel")
+                leftOutCount > 0
+                  ? allLabel
+                  : folderName !== null && !folderHolds
+                    ? t("composer.scope.allEmptyFolder", { folder: folderName })
+                    : t("composer.scope.allLabel")
               }
               title={
-                folderName !== null && !folderHolds
-                  ? t("composer.scope.allEmptyFolder", { folder: folderName })
-                  : t("composer.scope.allTitle")
+                leftOutCount > 0
+                  ? allLabel
+                  : folderName !== null && !folderHolds
+                    ? t("composer.scope.allEmptyFolder", { folder: folderName })
+                    : t("composer.scope.allTitle")
               }
               onClick={openScopePicker}
               className="composer-chip composer-scope-all"
             >
               <SearchIcon className="composer-chip-icon" />
-              <span className="truncate">{t("composer.scope.all")}</span>
+              <span className="truncate">{allLabel}</span>
             </button>
           )}
           {answering && !editing ? (
@@ -1084,6 +1115,18 @@ export function Composer({
               ref={list}
               id={listId}
               scope={scope}
+              ownFolderId={folderId}
+              onOpenNote={(id) => {
+                setPicking(null);
+                const group = useAppStore.getState().library?.groups.find((each) => each.id === id);
+                if (!group) return;
+                void useAppStore.getState().startMindFrom({
+                  kind: "folder",
+                  scope: folderScope(id),
+                  count: 0,
+                  title: group.name,
+                });
+              }}
               query={picking.query}
               onChoose={chooseScope}
               onSelect={setOption}

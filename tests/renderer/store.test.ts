@@ -372,7 +372,7 @@ describe("changes the User can take back", () => {
       conversations: [],
     });
     await useAppStore.getState().moveToFolder({ documentIds: ["a"] }, null);
-    expect(said(top())).toContain("outside that Folder's inside-only work");
+    expect(said(top())).toContain("no longer limited to that Folder’s Documents and Notes");
   });
 
   test("making a Folder with an item from a walled Folder says it moved out", async () => {
@@ -387,7 +387,7 @@ describe("changes the User can take back", () => {
       conversations: [],
     });
     await useAppStore.getState().createFolder({ documentIds: ["a"] }, "New");
-    expect(said(top())).toContain("outside that Folder's inside-only work");
+    expect(said(top())).toContain("no longer limited to that Folder’s Documents and Notes");
   });
 
   test("a rename says so, is undone by the old name and done again by the new", async () => {
@@ -861,6 +861,7 @@ describe("making a Folder", () => {
     name: "Untitled Folder",
     description: "",
     countsOwnFiles: false,
+    keepInside: false,
     createdAt: "",
     updatedAt: "",
   };
@@ -1348,6 +1349,7 @@ describe("an undo line keeps only what it shows", () => {
     name: "Untitled Folder",
     description: "",
     countsOwnFiles: false,
+    keepInside: false,
     createdAt: "",
     updatedAt: "",
   };

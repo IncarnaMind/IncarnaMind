@@ -69,6 +69,8 @@ export type MarkingSettled = ExportMarking;
 
 export interface CommandsHost {
   core: CommandsCore;
+  /** Refuses a command that would cross the current Folder wall. */
+  allows?(input: CommandInput, mindId: string | null, wallId?: string | null): void | Promise<void>;
   /** The Output location, links followed; null while none is chosen. */
   outputFolder(): Promise<string | null>;
   /**
@@ -647,5 +649,12 @@ const CHECKERS: Readonly<Record<AssistantCommandId, Checker>> = {
 };
 
 /** Checks a call: what it would do, and whether it asks first. Throws for one that can't run. */
-export const checkCommand = (input: CommandInput, host: CommandsHost): Promise<CheckedCommand> =>
-  CHECKERS[input.command](input, host);
+export const checkCommand = async (
+  input: CommandInput,
+  host: CommandsHost,
+  mindId: string | null = null,
+  wallId?: string | null,
+): Promise<CheckedCommand> => {
+  await host.allows?.(input, mindId, wallId);
+  return CHECKERS[input.command](input, host);
+};

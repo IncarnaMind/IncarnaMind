@@ -33,6 +33,7 @@ const settings = (leaveOutOwnFiles: boolean): Pick<Settings, "user"> => ({
 });
 
 const folder = (countsOwnFiles: boolean): LibraryGroup => ({
+  keepInside: false,
   id: "drafts",
   name: "Drafts",
   description: "",

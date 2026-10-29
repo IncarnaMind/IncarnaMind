@@ -345,10 +345,11 @@ export const en = {
   "folder.organize.empty": "The Folder has no Documents to organize.",
   "folder.tagWithAi": "Tag with AI",
   "folder.editDescription": "Edit description…",
-  "folder.keepInside": "Keep this Folder's work inside it",
-  "folder.keepInside.hint":
-    "Answers, checks and the assistant use only this Folder's Documents and notes.",
+  "folder.keepInside": "Keep this Folder’s work inside it",
+  "folder.keepInside.hint": "Its Notes use only its Documents, and other Notes don’t search them",
   "folder.wall.refusal": "This Folder keeps its work inside it.",
+  "undo.folderWallOn": "Turned on inside-only work for {name}",
+  "undo.folderWallOff": "Turned off inside-only work for {name}",
   "tag.rename": "Rename",
   "tag.renameLabel": "New name for {name}",
   "tag.delete": "Delete",
@@ -366,7 +367,7 @@ export const en = {
   "move.done.documents": "Moved {count} Documents to {folder}",
   "move.done.items": "Moved {count} items to {folder}",
   "move.done.conversations": "Moved {count} conversations to {folder}",
-  "move.outOfWall": "It is outside that Folder's inside-only work now.",
+  "move.outOfWall": "It is no longer limited to that Folder’s Documents and Notes.",
   "drop.moveTo": "Move to {folder}",
   "drop.moveTo.minds": "Move {count} notes to {folder}",
   "drop.moveTo.documents": "Move {count} Documents to {folder}",
@@ -2721,6 +2722,9 @@ export const en = {
   "composer.label": "Ask, or say ‘write a note on…’ ({shortcut})",
   "composer.ask": "Ask (Enter)",
   "composer.scope.all": "All Documents",
+  "composer.scope.leftOut.one": "All Documents · 1 Folder left out",
+  "composer.scope.leftOut": "All Documents · {count} Folders left out",
+  "scope.openNote": "Open a Note there",
   "composer.scope.allLabel": "Search scope: all your Documents. Limit it (@)",
   "composer.scope.allTitle": "Searches all your Documents. Type @ to limit it",
   "composer.scope.allEmptyFolder":
@@ -3245,6 +3249,7 @@ export const en = {
   "citation.badge.found.transcript": "Quote found in the transcript at {location}",
   "citation.badge.notFound.transcript": "Quote not found in the transcript at {location}",
   "citation.badge.cantCheck": "Can’t check",
+  "citation.badge.keptInside": "Kept inside {folder}",
   "citation.badge.unsupported": "Unsupported by your Documents",
   "citation.badge.contradicted": "Contradicted",
   "citation.reason.quote-not-on-pages": "The quote isn’t in the text of the place it cites.",
@@ -3254,6 +3259,7 @@ export const en = {
     "The words are in several places, and nothing around them tells which.",
   "citation.reason.no-text": "The cited place has no text, e.g. a scan.",
   "citation.reason.document-removed": "The Document has been deleted.",
+  "citation.reason.kept-inside": "Kept inside {folder}",
   "citation.reason.quoted-words-not-on-pages": "The quoted words aren’t in the cited place.",
   "citation.reason.checking": "The quote is checked when the Answer is finished.",
   "citation.where": "{document}, {location}",
@@ -5693,6 +5699,8 @@ export const en = {
     "This agent can’t read any Documents yet. Choose its Folders in Settings → Agents.",
   "agents.problem.outside-scope":
     "That Folder isn’t shared with this agent. Share more in Settings → Agents.",
+  "agents.problem.wallShared":
+    "{folder} keeps its work inside it, so it can’t share an agent with other Folders.",
   "agents.problem.not-found":
     "No such passage, Document, note or Citation in the Folders shared with this agent.",
   "agents.problem.chat-not-ready":

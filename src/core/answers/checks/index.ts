@@ -29,7 +29,7 @@ import { caseCitations } from "../../../shared/caseCitations";
 import { type LiveDocument, withShownName } from "../../../shared/citations";
 import { restsOn } from "../../../shared/claimChecks";
 import { mindScopeIn } from "../../../shared/mindScope";
-import { folderScope, oneFolderOf } from "../../../shared/searchScope";
+import { folderScope, NO_SCOPE, oneFolderOf } from "../../../shared/searchScope";
 import { judgesUnreliably } from "../../../shared/smallModel";
 import { recordCheckUnread } from "../../../shared/unreadFiles";
 import {
@@ -397,7 +397,7 @@ export function createChecks(options: ChecksOptions) {
       ? { folderId: own, widened: false, chosen: wanted }
       : { folderId: own, widened: walled ? false : allDocuments || own !== folderId };
     const leftOut = leftOutOf(mindId, checked);
-    const resolved = wanted && options.resolveScope(wanted, mindId);
+    const resolved = options.resolveScope(wanted ?? NO_SCOPE, mindId);
     const scope = options.evidence.scope(resolved, leftOut);
     const searchable = options.documents.searchableCount(scope.documentIds);
     const empty = (): NoDocuments => {
@@ -668,7 +668,7 @@ export function createChecks(options: ChecksOptions) {
         });
       }
       const scope = options.evidence.scope(
-        parsed.scope ? options.resolveScope(parsed.scope) : null,
+        parsed.scope ? options.resolveScope(parsed.scope) : options.resolveScope(NO_SCOPE),
         parsed.checked,
       );
       // Nothing to check against: nothing backs it, and nothing is sent.

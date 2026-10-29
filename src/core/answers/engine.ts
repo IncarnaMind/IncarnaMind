@@ -470,8 +470,8 @@ export interface AnswerRequest {
    * a turn that ended after a refused Tool still says why. Null: end blank.
    */
   blankReply?(): string | null;
-  /** What to end with after a Tool refused the request, replacing the model's reply. Null: keep it. */
-  refusedReply?(): string | null;
+  /** A line to append after a Tool refused the request, without replacing the model's reply. Null: none. */
+  refusalSuffix?(): string | null;
   /** Stops generating. The stream then ends, with neither "finished" nor "failed". */
   signal: AbortSignal;
 }
@@ -1746,15 +1746,22 @@ async function* toolLoop(
     yield* release(keptText.length);
     yield* flag(keptText);
   }
-  async function* endAnswer(afterRefusal = false): AsyncGenerator<AnswerEngineEvent> {
-    if (!afterRefusal && !request.documents.wroteIntoMind?.()) {
-      const figured = request.documents.citeFigures?.(keptText) ?? keptText;
-      yield* textEdits(keptText, figured);
-      keptText = figured;
-      const placed = yield* missingMarkerEvents(keptText, cited, request.documents);
-      yield* citeUnmarked(request, placed, temperature, budget, () =>
-        nudges.take("unmarked-quotes"),
-      );
+  async function* endAnswer(suffix: string | null = null): AsyncGenerator<AnswerEngineEvent> {
+    if (keptText.trim() !== "" || suffix === null) {
+      if (!request.documents.wroteIntoMind?.()) {
+        const figured = request.documents.citeFigures?.(keptText) ?? keptText;
+        yield* textEdits(keptText, figured);
+        keptText = figured;
+        const placed = yield* missingMarkerEvents(keptText, cited, request.documents);
+        yield* citeUnmarked(request, placed, temperature, budget, () =>
+          nudges.take("unmarked-quotes"),
+        );
+      }
+    }
+    if (suffix) {
+      const withRefusal = keptText.trim() === "" ? suffix : `${keptText}\n\n${suffix}`;
+      yield* textEdits(keptText, withRefusal);
+      keptText = withRefusal;
     }
     yield { type: "finished" };
   }
@@ -1948,7 +1955,7 @@ async function* toolLoop(
         yield { type: "failed", error: event.error };
         return;
       case "finished": {
-        const refused = request.refusedReply?.() ?? null;
+        const refused = request.refusalSuffix?.() ?? null;
         if (keptText.trim() === "" && (setAside.at(-1)?.text ?? "").trim() !== "")
           keptText = setAside.pop()?.text ?? "";
         const taken = takeToolText(keptText, toolTextTags);
@@ -1995,9 +2002,7 @@ async function* toolLoop(
         const afterSearch = setAside.filter((each) => each.searched).map((each) => each.text);
         if (afterSearch.length > 0) yield { type: "text-set-aside", texts: afterSearch };
         // A turn that ends with no reply after a refused Tool says why in the app's words.
-        const text =
-          refused ??
-          (taken.text.trim() === "" ? (request.blankReply?.() ?? taken.text) : taken.text);
+        const text = taken.text.trim() === "" ? (request.blankReply?.() ?? taken.text) : taken.text;
         if (text !== keptText) {
           yield* textEdits(keptText.slice(0, released), text);
           keptText = text;
@@ -2005,7 +2010,7 @@ async function* toolLoop(
         }
         yield* release(keptText.length);
         yield* flagged(settled);
-        yield* endAnswer(refused !== null);
+        yield* endAnswer(refused);
         return;
       }
     }

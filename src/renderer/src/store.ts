@@ -1245,8 +1245,19 @@ export const useAppStore = create<AppState>()((set, get) => {
       const after = fields(edited);
       if (JSON.stringify(before) === JSON.stringify(after)) return;
       const rename = before.name !== after.name;
+      const wallChanged = before.keepInside !== after.keepInside;
       push({
-        said: (t) => t(rename ? "object.renamed" : "undo.folderEdited", { name: after.name }),
+        said: (t) =>
+          t(
+            wallChanged
+              ? after.keepInside
+                ? "undo.folderWallOn"
+                : "undo.folderWallOff"
+              : rename
+                ? "object.renamed"
+                : "undo.folderEdited",
+            { name: after.name },
+          ),
         name: (t) => t(rename ? "undo.name.rename" : "undo.name.editFolder"),
         undo: folderFields(folderId, before),
         redo: folderFields(folderId, after),

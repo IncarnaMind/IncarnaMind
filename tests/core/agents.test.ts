@@ -269,14 +269,23 @@ describe("outside agents", () => {
     expect(resultText(nothing)).toMatch(/can’t read any Documents yet/);
   });
 
-  it("keeps a walled Folder's Documents and Notes inside a wider pairing", async () => {
+  it("approves a walled Folder alone, but never beside another Folder", async () => {
     const { core, launch, coast, finance, budget, pairing } = await pairedToCoast();
     await core.updateLibraryGroup(coast.id, {
       name: coast.name,
       description: coast.description,
       keepInside: true,
     });
-    await core.updateAgent(pairing.id, { folderIds: [coast.id, finance.id] });
+    await expect(
+      core.updateAgent(pairing.id, { folderIds: [coast.id, finance.id] }),
+    ).rejects.toThrow(
+      "Coast keeps its work inside it, so it can’t share an agent with other Folders",
+    );
+    await core.updateSettings({ user: { language: "zh-CN" } });
+    await expect(
+      core.updateAgent(pairing.id, { folderIds: [coast.id, finance.id] }),
+    ).rejects.toThrow("Coast 只在本文件夹内工作，不能和其他文件夹共用一个智能体");
+    await core.updateSettings({ user: { language: "en" } });
     const own = await core.createMind({ title: "Coast note", folderId: coast.id });
     const other = await core.createMind({ title: "Finance note", folderId: finance.id });
     const agent = await connectLegacyAgent(launch);

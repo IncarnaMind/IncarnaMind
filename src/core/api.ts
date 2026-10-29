@@ -1748,6 +1748,8 @@ export type CitationCheckReason =
   | "in-several-places"
   /** Can't check: the cited Units have no text, e.g. scanned pages. */
   | "no-text"
+  /** Can't check from this Note: the Document stays inside a walled Folder. */
+  | "kept-inside"
   /** Can't check: the Document was deleted. */
   | "document-removed";
 

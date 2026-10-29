@@ -139,6 +139,7 @@ test("compare text and PDF images on fixed, labelled local fixtures", async () =
     name: set.subjects[subject] ?? subject,
     description,
     countsOwnFiles: false,
+    keepInside: false,
     createdAt: "",
     updatedAt: "",
   }));

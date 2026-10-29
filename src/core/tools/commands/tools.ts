@@ -71,7 +71,9 @@ const nouns: Record<CommandTarget, [string, string]> = {
 export interface CommandToolsOptions {
   host: CommandsHost;
   /** The User's Documents, Minds, Folders and Tags as they are now. */
-  findable(): Promise<Findable>;
+  findable(mindId: string | null, wallId?: string | null): Promise<Findable>;
+  /** The wall of the Conversation, when no Note is open. */
+  wallId?: string | null;
   /** The Mind the User is in, which `list_commands` points out. */
   focusedMindId: string | null;
   /** The Run's instructions name a saved web page, whose title someone else wrote. */
@@ -155,7 +157,7 @@ export function commandTools(options: CommandToolsOptions): {
         tag: given(input.tag),
         folder: given(input.folder),
       };
-      const found = find(query, await options.findable());
+      const found = find(query, await options.findable(options.focusedMindId, options.wallId));
       options.found(toolCallId, foundOf(query, found.length));
       const [one, many] = nouns[query.kind];
       if (found.length === 0) {
@@ -229,7 +231,12 @@ export function commandTools(options: CommandToolsOptions): {
     tools: [listTool, runTool],
     async check(toolCallId, input) {
       try {
-        const command = await checkCommand(parseCommandInput(input), options.host);
+        const command = await checkCommand(
+          parseCommandInput(input),
+          options.host,
+          options.focusedMindId,
+          options.wallId,
+        );
         const ask = askOf(command, { changed, renames });
         checked.set(toolCallId, command);
         if (ask) asks.set(toolCallId, ask);

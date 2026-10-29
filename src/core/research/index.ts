@@ -132,6 +132,8 @@ export interface ResearchOptions extends FinishOptions {
   };
   /** A Mind's name, as the window shows it; null once it is gone. */
   mindName(mindId: string): string | null;
+  /** The Folder wall of a Mind, or null for ordinary scope. */
+  walledFolder(mindId: string | null): string | null;
   /** The ids of the live Documents a Search scope covers; null with none (every Document). */
   resolveScope(scope: SearchScope, mindId?: string | null): string[] | null;
   /** What research from a Mind searches, by the one rule (`mindSearchScope`); null: every Document. */
@@ -697,7 +699,11 @@ export function createResearch(options: ResearchOptions) {
       const ownMind = asked === null && !("mindId" in chosen);
       const mindId = asked ?? chosenMind ?? options.createMind(cutTitle(plan.title), null);
       const writeInto: ResearchTarget = asked === null ? { mindId } : chosen;
-      const scope = options.searchedScope(within, mindId);
+      const targetMind = "mindId" in writeInto ? writeInto.mindId : mindId;
+      if (options.walledFolder(asked) !== options.walledFolder(targetMind)) {
+        throw new InvalidInputError(options.say("folder.wall.refusal"));
+      }
+      const scope = options.searchedScope(within, targetMind);
       const task = options.tasks.start(RESEARCH_TASK, mindId, {
         topic,
         plan,

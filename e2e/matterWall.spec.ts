@@ -30,6 +30,58 @@ test.afterEach(async () => {
   await removeDataFolder(sources);
 });
 
+test("outside scope leaves a wall visible without letting it into the scope", async () => {
+  await writeFile(join(sources, "Client A lease.txt"), "Termination notice: 90 days.\n");
+  await writeFile(join(sources, "Client B lease.txt"), "Termination notice: 30 days.\n");
+  await writeFile(join(sources, "Other lease.txt"), "Termination notice: 60 days.\n");
+  const { app, window } = await launchApp(dataDir, { fakeChat: true });
+  await dismissChatSetup(window);
+  await setWindowSize(app, window, 900, 800);
+  await addDocuments(window, [
+    join(sources, "Client A lease.txt"),
+    join(sources, "Client B lease.txt"),
+    join(sources, "Other lease.txt"),
+  ]);
+  await (await coreOf(window)).evaluate(async (core) => {
+    const documents = await core.listDocuments();
+    const first = await core.createLibraryGroup({ name: "Client A", description: "" });
+    const second = await core.createLibraryGroup({ name: "Client B", description: "" });
+    const other = await core.createLibraryGroup({ name: "Other work", description: "" });
+    for (const document of documents) {
+      const folder = document.name.startsWith("Client A")
+        ? first
+        : document.name.startsWith("Client B")
+          ? second
+          : other;
+      await core.assignDocumentGroup(document.id, folder.id);
+    }
+    for (const folder of [first, second]) {
+      await core.updateLibraryGroup(folder.id, {
+        name: folder.name,
+        description: folder.description,
+        keepInside: true,
+      });
+    }
+  });
+  await newMind(window, { title: true });
+  await nameMind(window, "Outside note");
+  const all = window.getByTestId("composer-scope-all");
+  await expect(all).toHaveText("All Documents · 2 Folders left out");
+  await all.click();
+  await motionSettled(window);
+  const locked = window.getByTestId("scope-choice").filter({ hasText: "Client A" }).first();
+  await expect(locked).toHaveAttribute("data-walled", "true");
+  await expect(locked.locator("[aria-disabled='true']")).toHaveCount(1);
+  await locked.scrollIntoViewIfNeeded();
+  await window.getByTestId("scope-open-note").click();
+  await expect(window.getByTestId("scope-picker")).toHaveCount(0);
+  await expect(window.getByTestId("composer-scope").getByTestId("scope-chip")).toHaveAttribute(
+    "data-walled",
+    "true",
+  );
+  await app.close();
+});
+
 for (const language of ["en", "zh-CN"] as const) {
   test(`a Folder wall is visible and reversible (${language})`, async () => {
     const ownName = language === "en" ? "Client A lease.txt" : "客户甲租约.txt";

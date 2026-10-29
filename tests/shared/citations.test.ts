@@ -240,6 +240,24 @@ describe("A Citation's badge", () => {
     ).toMatchObject({ changedAfterCited: false });
   });
 
+  test("keeps an old Citation's result and Document outside a wall, without re-checking it", () => {
+    const state = citationState(
+      { ...found, contentHash: "old" },
+      [{ id: "tides", contentHash: "new" }],
+      [],
+      "Client A",
+    );
+    expect(state).toMatchObject({
+      check: "found",
+      reason: "kept-inside",
+      documentId: "tides",
+      changedAfterCited: false,
+      keptInside: "Client A",
+    });
+    expect(badgeMessage(state, found, in_("en")).key).toBe("citation.badge.keptInside");
+    expect(badgeMessage(state, found, in_("zh-CN")).params).toEqual({ folder: "Client A" });
+  });
+
   test("finds its Document by ID first, else the first in the list with the same content", () => {
     const documents = [
       { id: "rivers", contentHash: "xyz" },
