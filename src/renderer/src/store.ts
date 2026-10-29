@@ -716,13 +716,17 @@ export const useAppStore = create<AppState>()((set, get) => {
     named: Names;
     names: ReadonlyMap<string, string>;
     done: FolderMove | null;
+    outOfWall?: boolean;
   }) => {
-    const { folderId, going, named, names } = made;
+    const { folderId, going, named, names, outOfWall = false } = made;
     let { done } = made;
     return (folderName: string): Undoable => {
       let kept = false;
       return {
-        said: (t) => madeMessage(t, folderName, going, named),
+        said: (t) => {
+          const message = madeMessage(t, folderName, going, named);
+          return outOfWall ? `${message} ${t("move.outOfWall")}` : message;
+        },
         name: (t) => t("undo.name.newFolder"),
         undoneNote: () => (kept ? (t) => t("commands.kept.folder", { name: folderName }) : null),
         undo: async () => {
@@ -1186,6 +1190,11 @@ export const useAppStore = create<AppState>()((set, get) => {
           named: namesOfMoving(going ?? {}, { minds, documents }),
           names: namesOfFolders(library, done ? foldersMovedFrom(done) : []),
           done,
+          outOfWall: done
+            ? foldersMovedFrom(done).some(
+                (id) => library?.groups.find((group) => group.id === id)?.keepInside === true,
+              )
+            : false,
         });
         const step = stepNamed(name);
         justMade = { id: folder.id, step, stepNamed };

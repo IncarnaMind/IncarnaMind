@@ -375,6 +375,21 @@ describe("changes the User can take back", () => {
     expect(said(top())).toContain("outside that Folder's inside-only work");
   });
 
+  test("making a Folder with an item from a walled Folder says it moved out", async () => {
+    const group = researchGroup(true);
+    const filed = assignment("a", "classified", "g");
+    useAppStore.setState({ library: { ...snapshot([filed]), groups: [group] } });
+    method("createLibraryGroup").mockResolvedValue({ ...researchGroup(), id: "n", name: "New" });
+    method("moveToFolder").mockResolvedValue({
+      folderId: "n",
+      minds: [],
+      documents: [movedDocument("a", "g", filed, "n")],
+      conversations: [],
+    });
+    await useAppStore.getState().createFolder({ documentIds: ["a"] }, "New");
+    expect(said(top())).toContain("outside that Folder's inside-only work");
+  });
+
   test("a rename says so, is undone by the old name and done again by the new", async () => {
     method("renameMind").mockResolvedValue({ ...mind, title: "Budget" });
     await useAppStore.getState().renameMind("m", "Budget");
