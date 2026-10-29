@@ -214,12 +214,21 @@ export interface CreateMindInput {
  *   `hidden`. An older version's editor writes the columns back without
  *   these when it changes one, so it opens these Minds read-only. Older
  *   content is version 30 content as it is.
- * - 31: `readDocuments` on a `claimCheck` mark (#1443): the whole Documents
+ * - 31: Notes own calculated figure nodes, bounded Analysis run dependencies
+ *   and the figures within their sentence's Check (#439, #1932). Older
+ *   editors would discard those nodes and check attributes, so they open
+ *   these Notes read-only. Existing content needs no conversion.
+ * - 32: a Citation has an `id` of its own, given as it is written (an older
+ *   one on its Note's first edit), and the Note holds people's "Checked by me"
+ *   marks on Citations and figures (`MIND_SIGN_OFFS_FIELD`, #1933). An older
+ *   editor would strip the ids and leave the marks on nothing, so it opens
+ *   these Notes read-only. Existing content needs no conversion.
+ * - 33: `readDocuments` on a `claimCheck` mark (#1443): the whole Documents
  *   read to decide an absence sentence, which an older editor would strip,
  *   losing both the card's Locations and the dependency that makes a changed
- *   Document need a re-check. Older content is version 31 content as it is.
+ *   Document need a re-check. Older content is version 33 content as it is.
  */
-export const CONTENT_SCHEMA_VERSION = 31;
+export const CONTENT_SCHEMA_VERSION = 33;
 
 /**
  * The key, in the Mind's settings map (`MIND_SETTINGS_FIELD`), of the content
