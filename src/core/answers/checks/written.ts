@@ -54,12 +54,13 @@ import {
   type ClaimCheckAttributes,
   type ClaimCheckFailure,
   type ClaimCheckResult,
+  type ClaimPartPlan,
   type EditAction,
   type RecordAiUseInput,
   type RunStop,
 } from "../../api";
 import type { PreparedChatModel } from "../../providers/chat";
-import { RunItemError, runItems } from "../../runs/stop";
+import { RunItemError, runItems, type Slots, slots } from "../../runs/stop";
 import { inStep } from "../../timing/flows";
 import { type MarkJSON, type NodeJSON, syncContent, topLevelBlocks } from "../blocks";
 import {
@@ -68,6 +69,7 @@ import {
   recordJudged,
   runFailureOf,
 } from "./claimCheck";
+import { recordOpinions } from "./opinions";
 import { claimsAtOnce } from "./runChecks";
 import { checkText, citedQuoteOf, figuresByBlock, markSentence, sentenceOf } from "./sentences";
 import type { CheckScope } from "./verify";
@@ -449,13 +451,16 @@ function cutNodes(
   return used.size === 0 || !isClaim(cut.replace(MARKER, "")) ? null : nodes;
 }
 
-interface Landing {
-  sentence: Sentence;
-  /** The cut, in place of the sentence's own words; null: they stay. */
-  nodes: NodeJSON[] | null;
-  /** Its mark, made where it lands: a figure's result is footed against the table it is in. */
-  mark(blocks: Y.XmlFragment): ClaimCheckAttributes;
-}
+type Landing =
+  | {
+      sentence: Sentence;
+      /** The cut, in place of the sentence's own words; null: they stay. */
+      nodes: NodeJSON[] | null;
+      /** Its mark, made where it lands: a figure's result is footed against the table it is in. */
+      mark(blocks: Y.XmlFragment): ClaimCheckAttributes;
+    }
+  /** A sentence with no fact: no mark, and its opinion is left out as Check this Note leaves it. */
+  | { sentence: Sentence; opinion: readonly ClaimPartPlan[] };
 
 const withMark = (nodes: readonly NodeJSON[], mark: ClaimCheckAttributes): NodeJSON[] =>
   nodes.map((node) =>
@@ -571,6 +576,13 @@ function land(blocks: Y.XmlFragment, ids: readonly string[], landing: Landing): 
   const element = paragraphIn(blocks, ids, sentence.path);
   const place = element ? placeOf(element, sentence) : null;
   if (!element || !place) return;
+  if ("opinion" in landing) {
+    const blockId = element.getAttribute(BLOCK_ID_ATTRIBUTE);
+    if (!place.same || typeof blockId !== "string" || landing.opinion.length === 0) return;
+    const now = sentenceOf(element, blockId, place, figuresByBlock(blocks));
+    recordOpinions(blocks, [{ ...now, parts: landing.opinion }]);
+    return;
+  }
   const mark = landing.mark(blocks);
   if (place.same && landing.nodes) {
     syncContent(
@@ -613,6 +625,7 @@ export function createWrittenCheck(options: WrittenCheckOptions) {
     uncovered: string,
     prepared: PreparedChatModel,
     scope: CheckScope,
+    limit: Slots,
     signal: AbortSignal,
   ): Promise<NodeJSON[] | null> {
     const content = paragraphAt(blocks, sentence.path)?.content ?? [];
@@ -650,6 +663,7 @@ export function createWrittenCheck(options: WrittenCheckOptions) {
       mindId,
       scope,
       prepared,
+      limit,
       signal,
     );
     recordJudged(options.recordAiUse, mindId, prepared, checked, options.now().toISOString());
@@ -663,6 +677,7 @@ export function createWrittenCheck(options: WrittenCheckOptions) {
     mindId: string,
     scope: CheckScope,
     prepared: PreparedChatModel,
+    limit: Slots,
     signal: AbortSignal,
   ): Promise<ClaimCheckResult> {
     const timedOut = AbortSignal.timeout(options.claimTimeLimitMs);
@@ -678,6 +693,8 @@ export function createWrittenCheck(options: WrittenCheckOptions) {
         scope: scope.scope,
         model: prepared,
         cacheKey: mindId,
+        opinionsLeftOut: true,
+        slots: limit,
         signal: ended,
       }),
       givenUp,
@@ -716,11 +733,12 @@ export function createWrittenCheck(options: WrittenCheckOptions) {
     input.checking(sending.length);
     const request = randomUUID();
     const startedAt = options.now().toISOString();
+    const limit = slots(claimsAtOnce(prepared));
     const { outcomes, stop } = await runItems(
       sending,
       async (sentence) => {
         const read = reads.get(sentence) ?? { claim: sentence.text, context: sentence.context };
-        const result = await checkWithin(sentence, read, mindId, scope, prepared, signal);
+        const result = await checkWithin(sentence, read, mindId, scope, prepared, limit, signal);
         const failure = runFailureOf(result);
         if (failure) throw new RunItemError(failure);
         // Asked to cut what a cell's Citations don't state, Edit with AI rewrote its figure.
@@ -729,7 +747,7 @@ export function createWrittenCheck(options: WrittenCheckOptions) {
             ? result.unsupported.uncovered
             : null;
         const nodes = uncovered
-          ? await cutOf(blocks, mindId, sentence, uncovered, prepared, scope, signal)
+          ? await cutOf(blocks, mindId, sentence, uncovered, prepared, scope, limit, signal)
           : null;
         return { result, uncovered, nodes };
       },
@@ -814,6 +832,13 @@ export function createWrittenCheck(options: WrittenCheckOptions) {
         return;
       }
       const { result, uncovered, nodes } = outcome.value;
+      if (result.parts && !result.parts.some((part) => part.kind === "fact")) {
+        landings.push({
+          sentence,
+          opinion: result.parts.map(({ span, kind }) => ({ span, kind })),
+        });
+        return;
+      }
       const at = options.now().toISOString();
       recordJudged(options.recordAiUse, mindId, prepared, result, at);
       if (result.verdict === "not-checked") {

@@ -22,10 +22,13 @@ import {
   createClaimCheck,
   failureOf,
 } from "./claimCheck";
+import { readPartsLine } from "./claims";
 import { claimsAmong } from "./findClaims";
 import { claimsAtOnce } from "./runChecks";
 
 const sameSpan = (a: ClaimPartSpan, b: ClaimPartSpan) => a.start === b.start && a.end === b.end;
+
+type Sorted = { plans: readonly ClaimPartPlan[] } | { failed: ClaimCheckResult };
 
 const STOPS: readonly ClaimCheckFailure[] = [
   "stopped",
@@ -95,19 +98,82 @@ export function createPartCheck(deps: ClaimCheckDependencies) {
       request.figures.every((figure) => figure.locator.kind === "chart")
     )
       plans = [full];
-    if (plans === undefined) {
+    const limit = request.slots ?? slots(claimsAtOnce(request.model));
+    const sortAlone = async (): Promise<Sorted> => {
       const sorted = await claimsAmong(request.model, [request.claim], "own", request.signal);
-      if (sorted.kind === "cancelled") return failed("stopped");
+      if (sorted.kind === "cancelled") return { failed: failed("stopped") };
       if (sorted.kind === "failed") {
         const failure = failureOf(sorted.error);
-        return failed(failure.reason, failure.detail);
+        return { failed: failed(failure.reason, failure.detail) };
       }
-      plans = sorted.parts.get(0);
-      if (sorted.undecided.has(0) || plans === undefined) return failed("malformed");
-      if (plans.length === 0) plans = [{ ...full, kind: "opinion" }];
+      const found = sorted.parts.get(0);
+      return sorted.undecided.has(0) || found === undefined
+        ? { failed: failed("malformed") }
+        : { plans: found };
+    };
+    const opinionsChecked = request.parts === undefined && !request.opinionsLeftOut;
+    // One fact, or the one opinion the User asked to check, is checked as the whole sentence.
+    const whole = (found: readonly ClaimPartPlan[]): ClaimPartPlan | null => {
+      const [only, ...more] = found;
+      if (more.length > 0) return null;
+      if (only?.kind === "fact") return only;
+      return opinionsChecked ? (only ?? { ...full, kind: "opinion" }) : null;
+    };
+    if (
+      plans === undefined &&
+      !request.figures?.length &&
+      request.figureIds === undefined &&
+      request.only === undefined &&
+      request.previous === undefined
+    ) {
+      // The Run names the sentence's parts in its first turn, so a sentence of one fact costs no
+      // sorting request and goes on as its own check (#1635). Any other stops there, before its
+      // next request, and is checked part by part. A Run that names none goes on, and its
+      // sentence is sorted after it, as before parts were named in the check.
+      const run = new AbortController();
+      const heard: { plans?: readonly ClaimPartPlan[] | null } = {};
+      const result = await limit.run(() =>
+        atomic({
+          ...request,
+          signal: AbortSignal.any([request.signal, run.signal]),
+          findParts: (text) => {
+            heard.plans = readPartsLine(text, request.claim);
+            if (heard.plans && whole(heard.plans) === null) run.abort();
+          },
+        }),
+      );
+      if (request.signal.aborted) return failed("stopped");
+      if (heard.plans === undefined) return resultFromParts([partWithResult(full, result)]);
+      let found = heard.plans;
+      if (found === null) {
+        const sorted = await sortAlone();
+        if (!("plans" in sorted)) return sorted.failed;
+        found = sorted.plans;
+      }
+      const plan = whole(found);
+      if (plan && !run.signal.aborted)
+        return resultFromParts([
+          partWithResult(plan, result, result.checkedEvidence, result.coverage),
+        ]);
+      plans = found;
     }
-    const forcedOpinion =
-      request.parts === undefined && plans.every((part) => part.kind === "opinion");
+    if (plans === undefined) {
+      const sorted = await sortAlone();
+      if (!("plans" in sorted)) return sorted.failed;
+      plans = sorted.plans;
+    }
+    if (plans.length === 0 && opinionsChecked) plans = [{ ...full, kind: "opinion" }];
+    // What the User didn't ask about leaves its opinions out, as Check this Note does.
+    if (request.opinionsLeftOut && !plans.some((part) => part.kind === "fact"))
+      return {
+        verdict: "not-checked",
+        reason: "empty",
+        detail: null,
+        versions: [],
+        excluded: [],
+        parts: plans.map(pendingPart),
+      };
+    const forcedOpinion = opinionsChecked && plans.every((part) => part.kind === "opinion");
     if (request.only && !plans.some((part) => sameSpan(part.span, request.only ?? full.span)))
       return failed("malformed");
     const owned = figuresByPart(request.claim, plans, request.figures ?? [], request.projection);
@@ -162,9 +228,8 @@ export function createPartCheck(deps: ClaimCheckDependencies) {
       parts.push(null);
       checks.push({ index, plan, figures, previous });
     }
-    // Parts are checked at once, within the run's limit (`claimsAtOnce`); a failure that stops the
-    // run leaves the parts not started yet not checked, for its reason.
-    const limit = request.slots ?? slots(claimsAtOnce(request.model));
+    // Parts are checked at once, within the run's limit; a failure that stops the run leaves the
+    // parts not started yet not checked, for its reason.
     let stopped: { reason: ClaimCheckFailure; detail: string | null } | null = null;
     await Promise.all(
       checks.map(({ index, plan, figures, previous }) =>

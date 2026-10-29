@@ -149,6 +149,13 @@ export interface ClaimCheckRequest {
   previous?: readonly ClaimCheckPart[];
   /** The run's limit on model checks at once, which its claims' parts share. */
   slots?: Slots;
+  /** The User didn't ask about this sentence: an opinion in it is left out, never checked. */
+  opinionsLeftOut?: boolean;
+  /**
+   * The Run's first turn names the sentence's parts: told what that turn wrote before any further
+   * request, or what the Run wrote when it calls no Tool.
+   */
+  findParts?: (heard: string) => void;
 }
 
 /** Why a provider's failure left a claim not checked. */
@@ -694,6 +701,13 @@ export function createClaimCheck(deps: ClaimCheckDependencies) {
     };
 
     let reply = "";
+    let heard = "";
+    let parted = false;
+    const hear = (text: string) => {
+      if (parted || !request.findParts) return;
+      parted = true;
+      request.findParts(text);
+    };
     let setAside: readonly string[] = [];
     let failed: ProviderError | null = null;
     let finished = false;
@@ -705,6 +719,7 @@ export function createClaimCheck(deps: ClaimCheckDependencies) {
           options?.passages,
           calculating,
           (request.figures?.length ?? 0) > 0,
+          request.findParts !== undefined,
         ),
       messages: [
         {
@@ -725,6 +740,7 @@ export function createClaimCheck(deps: ClaimCheckDependencies) {
       retryQuotes: model.retryQuotes,
       cacheKey: request.cacheKey,
       isReply: (text) => readVerdict(text) !== null,
+      ...(request.findParts && { afterFirstStep: hear }),
       // A model may give its verdict before it has looked: Claude Haiku 5.5 did, about one check
       // in six of a whole Mind.
       turnChecks: [
@@ -757,12 +773,15 @@ export function createClaimCheck(deps: ClaimCheckDependencies) {
       ],
       signal,
     })) {
-      if (event.type === "text-delta") reply += event.text;
-      else if (event.type === "text-retracted") reply = reply.slice(0, -event.length);
+      if (event.type === "text-delta") {
+        reply += event.text;
+        heard += event.text;
+      } else if (event.type === "text-retracted") reply = reply.slice(0, -event.length);
       else if (event.type === "text-set-aside") setAside = event.texts;
       else if (event.type === "failed") failed = event.error;
       else if (event.type === "finished") finished = true;
     }
+    if (!failed) hear(heard);
     if (signal.aborted) return notChecked("stopped");
     if (failed) return failedCheck(failed);
     if (request.figures?.length) {

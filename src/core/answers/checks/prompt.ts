@@ -7,6 +7,7 @@
 import type { Reading } from "../../../shared/figures";
 import type { CheckFigure, CitationSupport, ClaimVerdict, UnsupportedReason } from "../../api";
 import { LANGUAGE_NAMES, type Language } from "../../language";
+import { PART_RULES, PARTS_LINE } from "./claims";
 
 const VERDICTS: readonly ClaimVerdict[] = ["supported", "unsupported", "contradicted"];
 
@@ -127,10 +128,18 @@ const FIGURE_INSTRUCTIONS = [
   'remainder is null ONLY when the sentence has no assertion beyond those requested numeric facts. Otherwise give its independent {"text":"an exact nonnumeric assertion copied from the sentence","verdict":"supported","scope":"same","topic":"found","roles":"same","says":null,"citation":1}. Do not repeat the whole numerical verdict as the remainder. Preserve an adverse qualitative assertion even when all figures agree.',
 ].join("\n");
 
+/** A check with no sorted parts sorts its sentence in its first turn, so a one-fact sentence costs no sorting request (#1635). */
+const PARTS_FIRST = [
+  'Before your first search, in that same turn, write one line: Parts: and one JSON array of the sentence\'s ordered literal parts, [{"kind":"fact","text":"exact original words"},{"kind":"opinion","text":"exact original words"}], with kind fact or opinion only. Use [] only for a heading, greeting, question or other text with no factual assertion, opinion or advice.',
+  ...PART_RULES,
+  "",
+];
+
 /**
  * The instructions of a check Run, for a way of citing; `passages`: what the
  * one search found, for a model without Tools; `calculate`: the model is
- * offered `calculate`, for a figure no Passage states.
+ * offered `calculate`, for a figure no Passage states; `findsParts`: the
+ * Run's first turn names the sentence's parts.
  */
 export function checkInstructions(
   mode: CitationSupport | "no-documents",
@@ -138,6 +147,7 @@ export function checkInstructions(
   passages = "",
   calculate = false,
   figures = false,
+  findsParts = false,
 ): string {
   // A sentence checked figure by figure names each figure's calculation on its Figures line.
   const REPLY =
@@ -148,6 +158,7 @@ export function checkInstructions(
       return [
         ...rules(calculate),
         "",
+        ...(findsParts ? PARTS_FIRST : []),
         "Search the Documents with search_documents for what the sentence claims, in the Documents' language. Search again with other words if the Passages don't decide it; three searches at most.",
         figures
           ? `Before replying, use cite to record every quote used by a requested figure or remainder, each under its own marker: ${RECORD}.`
@@ -468,6 +479,7 @@ const COVERAGE = /^[\s>*_#`'"“”-]*(?:coverage|覆盖情况)[\s*_]*[:：][\s*
 const REASON_KIND =
   /^[\s>*_#`'"“”-]*(?:reason kind|原因类型)[\s*_]*[:：][\s*_]*(forecast-certainty|unbacked-cause)\s*$/i;
 const FIELDS = [
+  PARTS_LINE,
   COVERED,
   NOT_COVERED,
   SCOPE,

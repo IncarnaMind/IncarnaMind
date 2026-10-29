@@ -26,6 +26,10 @@ type Outcome = {
   emptyCalculate?: boolean;
 };
 
+/** Requests whose Run was still going when they were made: one made after it stopped never leaves the computer. */
+const going = new WeakSet<ModelCall>();
+const sent = (call: ModelCall) => going.has(call);
+
 const INCREASES = "SUM(MAX(SIGN(r2023-r2022),0),MAX(SIGN(r2024-r2023),0),MAX(SIGN(r2025-r2024),0))";
 
 async function check(
@@ -53,10 +57,16 @@ async function check(
   const model = scriptedModel(
     (call) => {
       calls.push(call);
+      if (!call.options.abortSignal?.aborted) going.add(call);
       const outcome = outcomes[sentenceOf(call)] ?? { quotes: [] };
       const searches = call.results.filter((result) => result.tool === "search_documents");
       if (searches.length === 0)
-        return { calls: [{ tool: "search_documents", input: { query: quotes.join(" ") } }] };
+        return {
+          // A check with no sorted parts names them in its first turn, as the sorter would.
+          ...(parts !== null &&
+            call.system.includes("Parts:") && { text: `Parts: ${JSON.stringify(parts)}` }),
+          calls: [{ tool: "search_documents", input: { query: quotes.join(" ") } }],
+        };
       const shown = searches.flatMap((result) => shownPassages(result.text));
       if (outcome.quotes.length && !call.results.some((result) => result.tool === "cite")) {
         return {
@@ -215,7 +225,14 @@ describe("literal sentence parts", () => {
         suffix,
       ]);
       expect(result.parts?.[1]?.evidence.map((citation) => citation.quote)).toEqual([quote]);
-      expect([...new Set(calls.map(sentenceOf))]).toEqual([fact]);
+      // The whole sentence is read once, in the first turn that names its parts.
+      expect(
+        calls
+          .filter(sent)
+          .map(sentenceOf)
+          .filter((each) => each === claim),
+      ).toHaveLength(1);
+      expect([...new Set(calls.filter(sent).slice(1).map(sentenceOf))]).toEqual([fact]);
       expect(result.parts?.[1]?.coverage).toBeUndefined();
     },
   );
@@ -1276,7 +1293,8 @@ describe.each([
     expect(result.parts?.map((part) => [part.kind, part.verdict])).toEqual([
       ["fact", "not-checked"],
     ]);
-    expect(calls).toHaveLength(0);
+    // A Run that names no parts goes on; nothing it found counts, and no part is checked.
+    expect([...new Set(calls.filter(sent).map(sentenceOf))]).toEqual([fact]);
   });
 
   test("an explicit empty inventory retains the User's standalone check", async () => {
@@ -1286,7 +1304,7 @@ describe.each([
       { [fact]: { quotes: [fact] } },
       language,
     );
-    expect(sorts).toHaveLength(1);
+    expect(sorts).toHaveLength(0);
     expect(calls.map(sentenceOf)).toContain(fact);
     expect(result).toMatchObject({
       verdict: "supported",
@@ -1307,7 +1325,7 @@ describe.each([
       },
       language,
     );
-    expect(sorts).toHaveLength(1);
+    expect(sorts).toHaveLength(0);
     expect(calls.map(sentenceOf)).toContain(opinion);
     expect(result).toMatchObject({
       verdict: "unsupported",

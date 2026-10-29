@@ -477,8 +477,7 @@ export function createChecks(options: ChecksOptions) {
   /** The requests running, by id: how to stop each, and its Mind. */
   const running = new Map<string, { controller: AbortController; mindId: string }>();
   const claimCheck = createPartCheck(options);
-  // What the assistant writes, and the background watch, have no opinion ranges to keep apart:
-  // each sentence is checked whole, with no sorting call (#1635).
+  // The background watch only adds a Contradicted with its quote: it checks each sentence whole.
   const wholeCheck = createClaimCheck(options);
 
   options.consent.registry.register({
@@ -901,7 +900,7 @@ export function createChecks(options: ChecksOptions) {
     ...options,
     prepare: (answer) =>
       prepareQuietly({ providerId: answer.provider.id, modelId: answer.modelId }),
-    claimCheck: wholeCheck,
+    claimCheck,
     scopeOf: (mindId) => scopeOf(mindId, false),
     citedNow,
     withResult: noteResult,
