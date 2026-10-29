@@ -218,7 +218,7 @@ export interface CreateMindInput {
  *   mark (#2002). Older editors strip the part ranges and their evidence
  *   when saving marked words, so these Notes open read-only there.
  */
-export const CONTENT_SCHEMA_VERSION = 33;
+export const CONTENT_SCHEMA_VERSION = 34;
 
 /**
  * The key, in the Mind's settings map (`MIND_SETTINGS_FIELD`), of the content
