@@ -197,7 +197,7 @@ export function coverageInstructions(
     return document ? [document.name] : [];
   });
   const searchEach =
-    "Search each one (search_documents with its document), cite each at least once, and say in your reply which, if any, you couldn't cover. Nothing about your searching goes into a Mind.";
+    "Search each one (search_documents with its document), cite each at least once, and say in your reply which, if any, you couldn't cover. Nothing about your searching goes into a Note.";
   if (coverage?.kind === "main") {
     return `The User asked about the main Documents: IncarnaMind took ${quotedList(covered)}, the largest, and says so above your reply, with an offer of others. Answer from ${covered.length === 1 ? "it" : "these"}; don't ask which.`;
   }

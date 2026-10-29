@@ -101,7 +101,7 @@ describe("Asking about words selected in a Document", { timeout: 30_000 }, () =>
     expect(passages.length).toBeGreaterThan(0);
     for (const passage of passages) expect(passage.pages).toMatch(/^(?:2|1-2|2-3)$/);
     expect(sent).toMatch(
-      /<\/selected-text>\n\nThe User's Minds: "Tides"\n\nWhat does this mean\?$/,
+      /<\/selected-text>\n\nThe User's Notes: "Tides"\n\nWhat does this mean\?$/,
     );
     const answer = await answerOf(core, asked.conversation.id, asked.answerId);
     expect(answer.citations).toMatchObject([

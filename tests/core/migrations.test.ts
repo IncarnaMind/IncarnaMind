@@ -63,6 +63,40 @@ describe("Migrations", () => {
     db.close();
   });
 
+  test("a Document read by this pipeline starts with its keyword rows current (#2185)", async () => {
+    const db = openDatabase(join(await createTempDataFolder(), "test.db"));
+    migrate(
+      db,
+      migrations.filter((migration) => migration.version < 114),
+    );
+    const at = "2026-10-29T09:00:00.000Z";
+    for (const [id, version] of [
+      ["00000000-0000-4000-8000-000000000001", 15],
+      ["00000000-0000-4000-8000-000000000002", 14],
+    ] as const) {
+      db.run(
+        `INSERT INTO documents (id, content_hash, name, kind, size, status, processing_version,
+           created_at, updated_at)
+         VALUES (?, ?, 'Notes.md', 'markdown', 1, 'ready', ?, ?, ?)`,
+        [id, `hash-${version}`, BigInt(version), at, at],
+      );
+    }
+
+    migrate(db);
+
+    // The rows of a Document at 15 were written by this pipeline or by the rewrite that made
+    // them; the others' are rewritten once, as before.
+    expect(
+      db.all<{ id: string; keywords_version: number }>(
+        "SELECT id, keywords_version FROM documents ORDER BY id",
+      ),
+    ).toEqual([
+      { id: "00000000-0000-4000-8000-000000000001", keywords_version: 15 },
+      { id: "00000000-0000-4000-8000-000000000002", keywords_version: 0 },
+    ]);
+    db.close();
+  });
+
   test("a migration with a lower number that lands later still runs", async () => {
     const db = openDatabase(join(await createTempDataFolder(), "test.db"));
     const one = { version: 1, description: "one", sql: "CREATE TABLE one (id TEXT) STRICT;" };

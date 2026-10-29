@@ -94,7 +94,10 @@ function asNameWithEveryPassage(dataDir: string): void {
   const db = openDatabase(join(dataDir, DATABASE_FILE));
   try {
     db.transaction(() => {
-      db.run("UPDATE documents SET processing_version = ?", [BigInt(NAME_INDEX_CURRENT_SINCE - 1)]);
+      db.run("UPDATE documents SET processing_version = ?, keywords_version = ?", [
+        BigInt(NAME_INDEX_CURRENT_SINCE - 1),
+        BigInt(NAME_INDEX_CURRENT_SINCE - 1),
+      ]);
       db.run("DELETE FROM document_names_fts");
       const passages = db.all<{ seq: number; text: string; name: string }>(
         `SELECT p.seq, p.text, d.name FROM passages p JOIN documents d ON d.id = p.document_id
@@ -379,8 +382,13 @@ describe("Re-processing", { timeout: 30_000 }, () => {
     // and the rewrite runs afterwards, on the worker (#2042).
     expect(matching("report")).toBe(before.length);
     expect(names("report")).toBe(0);
-    expect(queryDatabase(dataDir, "SELECT processing_version FROM documents")).toEqual([
-      { processing_version: NAME_INDEX_CURRENT_SINCE - 1 },
+    expect(
+      queryDatabase(dataDir, "SELECT processing_version, keywords_version FROM documents"),
+    ).toEqual([
+      {
+        processing_version: NAME_INDEX_CURRENT_SINCE - 1,
+        keywords_version: NAME_INDEX_CURRENT_SINCE - 1,
+      },
     ]);
     second.upgradeKeywordIndex();
     await vi.waitFor(() => expect(matching("report")).toBe(0), { timeout: 30_000 });
@@ -390,8 +398,15 @@ describe("Re-processing", { timeout: 30_000 }, () => {
     expect(statuses).toEqual([]);
     expect(live()).toEqual(before);
     expect(embedder.texts.length).toBe(embeddedBefore);
-    expect(queryDatabase(dataDir, "SELECT processing_version FROM documents")).toEqual([
-      { processing_version: PROCESSING_VERSION },
+    // Its rows are this version's; its Passages, which this version would build the same, stay
+    // as read (#2185).
+    expect(
+      queryDatabase(dataDir, "SELECT processing_version, keywords_version FROM documents"),
+    ).toEqual([
+      {
+        processing_version: NAME_INDEX_CURRENT_SINCE - 1,
+        keywords_version: PROCESSING_VERSION,
+      },
     ]);
     // Its name still finds its Passages, which their own words don't.
     const byName = await second.searchPassages("annual report", { mode: "keyword" });
@@ -461,9 +476,9 @@ describe("Re-processing", { timeout: 30_000 }, () => {
     first.close();
     asNameWithEveryPassage(dataDir);
     const version = () =>
-      queryDatabase<{ processing_version: number }>(
+      queryDatabase<{ keywords_version: number }>(
         dataDir,
-        "SELECT processing_version FROM documents WHERE id = ?",
+        "SELECT keywords_version FROM documents WHERE id = ?",
         [report.id],
       );
     const holdsTheName = () =>
@@ -476,10 +491,10 @@ describe("Re-processing", { timeout: 30_000 }, () => {
     // The core is ready, as it is when the first window shows, with the older index in place.
     const second = startCore(dataDir);
     expect(holdsTheName()).toBe(1);
-    expect(version()).toEqual([{ processing_version: NAME_INDEX_CURRENT_SINCE - 1 }]);
+    expect(version()).toEqual([{ keywords_version: NAME_INDEX_CURRENT_SINCE - 1 }]);
     second.upgradeKeywordIndex();
     await vi.waitFor(() => expect(holdsTheName()).toBe(0), { timeout: 30_000 });
-    expect(version()).toEqual([{ processing_version: PROCESSING_VERSION }]);
+    expect(version()).toEqual([{ keywords_version: PROCESSING_VERSION }]);
     second.close();
   });
 
@@ -550,8 +565,8 @@ describe("Re-processing", { timeout: 30_000 }, () => {
     second.upgradeKeywordIndex();
     await vi.waitFor(
       () =>
-        expect(queryDatabase(dataDir, "SELECT processing_version FROM documents")).toEqual(
-          Array(3).fill({ processing_version: PROCESSING_VERSION }),
+        expect(queryDatabase(dataDir, "SELECT keywords_version FROM documents")).toEqual(
+          Array(3).fill({ keywords_version: PROCESSING_VERSION }),
         ),
       { timeout: 30_000 },
     );

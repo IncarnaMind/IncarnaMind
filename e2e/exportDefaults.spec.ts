@@ -4,7 +4,7 @@ import { basename, join } from "node:path";
 import { expect, type Page, test } from "@playwright/test";
 import * as Y from "yjs";
 import type { CoreBridge, Document } from "../src/core/api";
-import { paragraphsOf, part, unzip } from "../tests/helpers/docx";
+import { footnotesOf, paragraphsOf, part, unzip } from "../tests/helpers/docx";
 import {
   addDocuments,
   assistantAnswers,
@@ -127,10 +127,14 @@ function aiParagraph(said: string): Y.XmlElement {
 }
 
 /**
- * A note named `name` that cites a Document twice and holds a line IncarnaMind wrote: the two
- * choices the Saved line speaks for, and a claim of the User's still to check.
+ * A note named `name` that cites a Document once for each of `pages` and holds a line IncarnaMind
+ * wrote: the two choices the Saved line speaks for, and a claim of the User's still to check.
  */
-async function noteCiting(window: Page, name: string): Promise<string> {
+async function noteCiting(
+  window: Page,
+  name: string,
+  pages: readonly number[] = [1, 2],
+): Promise<string> {
   await newMind(window);
   await nameMind(window, name);
   const mindId = await window.getByTestId("mind-pane").getAttribute("data-mind-id");
@@ -144,10 +148,10 @@ async function noteCiting(window: Page, name: string): Promise<string> {
     mindId,
     blocksUpdate([
       mindNode("paragraph", { id: randomUUID() }, [
-        "Spring tides come at new moon ",
-        mindNode("citation", citationAttributes(tides, 1)),
-        " and again ",
-        mindNode("citation", citationAttributes(tides, 2)),
+        ...pages.flatMap((page, index) => [
+          index === 0 ? "Spring tides come at new moon " : " and again ",
+          mindNode("citation", citationAttributes(tides, page)),
+        ]),
         ".",
       ]),
       aiParagraph("Written by IncarnaMind."),
@@ -241,6 +245,30 @@ for (const [language, width] of [
         .map((each) => each.text)
         .filter((each) => /^\[\d+\]\t/.test(each)),
     ).toHaveLength(1);
+    await app.close();
+  });
+
+  test(`the Saved line counts the footnotes the file has, not the Citations it was made from (${language}, ${width}px)`, async () => {
+    test.setTimeout(240_000);
+    const { app, window } = await launchApp(dataDir, { fakeChat: true });
+    await dismissChatSetup(window);
+    await useLocalChatModel(window);
+    await setLanguage(window, language);
+    await setWindowSize(app, window, width, WINDOW_SIZE.height);
+    await useOutputLocation(window, out);
+    // Five Citations of two pages: one footnote for each page the file cites (#1381).
+    await noteCiting(window, "Tides", [1, 1, 1, 2, 2]);
+    const result = window.getByTestId("export-result");
+    const chosen = result.getByTestId("export-chosen");
+
+    await exportFromMenu(window, "docx");
+    await expect(result.getByTestId("export-done")).toContainText(
+      savedLine("Tides.docx", out, language),
+    );
+    await expect(chosen).toHaveText([words.footnotes, words.marked]);
+    const footnotes = footnotesOf(part(await exported("Tides.docx"), "word/footnotes.xml"));
+    expect(Object.keys(footnotes)).toHaveLength(2);
+    await screenshot(window, `export-footnotes-${language}-${width}`);
     await app.close();
   });
 }
