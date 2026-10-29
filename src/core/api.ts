@@ -232,10 +232,11 @@ export interface CreateMindInput {
  *   writes the table back without it when it changes it, so it opens these
  *   Notes read-only. Older content is version 33 content as it is, its table
  *   called "Comparison table" until the User names it.
- * - 34: a comparison cell records a hand edit, its reviewed projection and the
- *   refill pass allowed to write it (#1836). An older editor would strip these
- *   attributes, so it opens these Notes read-only. Older content is version 34
- *   content as it is.
+ * - 34: a comparison cell records a hand edit (`edited`) and the refill pass
+ *   allowed to write it (`fillId`, #1836); people's "Checked by me" marks on
+ *   cells are records of kind "cell" in `MIND_SIGN_OFFS_FIELD`. An older editor
+ *   would strip the attributes, so it opens these Notes read-only. Older
+ *   content is version 34 content as it is.
  */
 export const CONTENT_SCHEMA_VERSION = 34;
 
@@ -4629,6 +4630,12 @@ export interface CompareDocumentsInput {
 export interface ComparisonTableRef {
   mindId: string;
   tableId: string;
+}
+
+/** What to stop of a table's fill: all of it, or one refill pass alone, as its Undo asks. */
+export interface ComparisonStopRequest extends ComparisonTableRef {
+  /** The refill pass to take back; the rest of the table's fill goes on. Absent: the whole fill. */
+  pass?: string;
 }
 
 /**
@@ -10388,8 +10395,11 @@ export interface CoreApi {
    * The core also drops a window that misses one wait, after that wait.
    */
   forgetComparisonWindow(input: ComparisonWindow): Promise<void>;
-  /** Stops filling a comparison table: cells being written stay as they were. */
-  stopComparisonTable(input: ComparisonTableRef): Promise<void>;
+  /**
+   * Stops filling a comparison table: cells being written stay as they were. With a `pass`,
+   * stops that refill alone: its cells are asked no more and write nothing.
+   */
+  stopComparisonTable(input: ComparisonStopRequest): Promise<void>;
   /** The comparison tables whose cells are being filled now. */
   listFillingComparisons(): Promise<ComparisonTableRef[]>;
 

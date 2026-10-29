@@ -57,6 +57,7 @@ import {
   type UnreadFile,
   WORD_CHANGE_ID,
 } from "../api";
+import { checkedByLine } from "../checkRecord/labels";
 import { citedPageKey } from "../citedPages";
 import { InvalidInputError, isRecord, TranslatableError } from "../errors";
 import { safeFileName } from "../fileNames";
@@ -962,10 +963,7 @@ function checkedLines(
       quote: attributes.quote ?? null,
     };
     return citationMarksNow(marks, attributes.id, sentence, cited, versions, null).map((now) =>
-      t(now.state === "checked" ? "export.checkedBy" : "export.checkedBy.changed", {
-        name: now.name ?? t("checkRecord.notRecorded"),
-        date: formatDate(now.at, language),
-      }),
+      checkedByLine(now, (at) => formatDate(at, language), t),
     );
   };
 }
