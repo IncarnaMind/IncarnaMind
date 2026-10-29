@@ -6,7 +6,7 @@
 import { join } from "node:path";
 import type { JSONContent } from "@tiptap/core";
 import { describe, expect, test } from "vitest";
-import { type CheckMindInput, DATABASE_FILE } from "../../src/core";
+import { type CheckMindInput, DATABASE_FILE, type DocumentGroupAssignment } from "../../src/core";
 import { openDatabase } from "../../src/core/storage";
 import { claimSpans } from "../../src/renderer/src/editor/claimChecks";
 import { checkGenerate, checkReply, isCheckRun, type Plan } from "../helpers/checks";
@@ -23,6 +23,9 @@ const PUFFINS = "Puffins dig their burrows in the turf.";
 const WEEKLY = "The harbour office publishes the times of high water every week.";
 
 const text = (value: string): JSONContent => ({ type: "text", text: value });
+
+/** An assignment without the Document's tagging row it was read with: the tagger's own business. */
+const withoutTagging = ({ tagging: _tagging, ...item }: DocumentGroupAssignment) => item;
 
 async function setUp() {
   const plans: Record<string, Plan> = {
@@ -217,10 +220,12 @@ describe("Documents added since a Mind's checks", () => {
       const moved = move.documents[0];
       if (!moved) throw new Error(`Move ${time} returned no Document.`);
       clock.advance(60_000);
-      await core.restoreAssignment(moved.id, moved.previous);
-      expect(
-        (await core.getLibrary()).assignments.find((each) => each.documentId === moved.id),
-      ).toEqual(before);
+      await core.restoreAssignment(moved.id, moved.change.before, moved.change.after);
+      const restored = (await core.getLibrary()).assignments.find(
+        (each) => each.documentId === moved.id,
+      );
+      if (!restored) throw new Error("No assignment.");
+      expect(withoutTagging(restored)).toEqual(withoutTagging(before));
       expect(await core.documentsAddedSinceChecks(mindId)).toEqual([]);
       expect(await core.planMindCheck(mindId, "added")).toEqual({ kind: "nothing" });
     }
@@ -230,8 +235,16 @@ describe("Documents added since a Mind's checks", () => {
     await core.restore([{ kind: "folder", id: folderId }]);
     expect(await core.documentsAddedSinceChecks(mindId)).toEqual([]);
     expect(await core.planMindCheck(mindId, "added")).toEqual({ kind: "nothing" });
+    const { documentId: goneId, tagging: _tagging, ...fields } = before;
     await expect(
-      core.restoreAssignment(before.documentId, { ...before, filedAt: "yesterday" }),
+      core.restoreAssignment(
+        goneId,
+        {
+          assignment: { ...fields, filedAt: "yesterday" },
+          tagging: null,
+        },
+        { assignment: null, tagging: null },
+      ),
     ).rejects.toThrow();
   });
 
@@ -258,15 +271,18 @@ describe("Documents added since a Mind's checks", () => {
     const before = (await reopened.getLibrary()).assignments.find(
       (each) => each.documentId === added.id,
     );
+    if (!before) throw new Error("No assignment.");
     clock.advance(60_000);
     const move = await reopened.moveToFolder({ documentIds: [added.id], folderId: null });
     const moved = move.documents[0];
     if (!moved) throw new Error("Move returned no Document.");
     clock.advance(60_000);
-    await reopened.restoreAssignment(moved.id, moved.previous);
-    expect(
-      (await reopened.getLibrary()).assignments.find((each) => each.documentId === added.id),
-    ).toEqual(before);
+    await reopened.restoreAssignment(moved.id, moved.change.before, moved.change.after);
+    const restored = (await reopened.getLibrary()).assignments.find(
+      (each) => each.documentId === added.id,
+    );
+    if (!restored) throw new Error("No assignment.");
+    expect(withoutTagging(restored)).toEqual(withoutTagging(before));
     expect(await reopened.documentsAddedSinceChecks(mindId)).toEqual(expected);
   });
 });

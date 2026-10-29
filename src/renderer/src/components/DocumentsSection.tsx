@@ -130,6 +130,13 @@ export function DocumentsSection() {
     return shown.length > 0 && !(onlyExamples && exampleMindId !== null);
   });
   const addDocuments = useAppStore((state) => state.addDocuments);
+  const treeIsEmpty = useAppStore(
+    (state) =>
+      state.documents.length === 0 &&
+      state.minds.length === 0 &&
+      (state.library?.groups.length ?? 0) === 0 &&
+      state.linkedFolders.length === 0,
+  );
   const picker = useRef<HTMLInputElement>(null);
   const tree = useRef<HTMLDivElement>(null);
   const treeKeys = useTreeKeyboard(tree);
@@ -231,7 +238,9 @@ export function DocumentsSection() {
           </div>
         </div>
       )}
-      <div ref={tree} data-testid="sidebar-sections" {...treeKeys}>
+      {/* flow-root keeps a section's top margin inside the tree, and the empty line shows only
+          while the tree lists nothing, so the first section to arrive moves neither (#2142). */}
+      <div ref={tree} data-testid="sidebar-sections" {...treeKeys} className="flow-root">
         <LibraryFolders
           documents={quiet ? NO_DOCUMENTS : shownDocuments}
           renderDocument={renderDocument}
@@ -239,7 +248,7 @@ export function DocumentsSection() {
           hideExamples={foldExamples}
           dayOne={dayOne}
         />
-        {!quiet && documents.length === 0 && (
+        {!quiet && treeIsEmpty && (
           <ProblemLine
             role="status"
             testId="documents-empty"

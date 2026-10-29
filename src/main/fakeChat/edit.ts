@@ -13,7 +13,8 @@
  * section" (重写这一节) writes its heading and each paragraph anew (#1028).
  * Cut the unsupported part gives a sentence `PARTLY` lists its cut words,
  * with the passage's markers, and takes the part named out of any other
- * (#1111). The
+ * (#1111). Following a Citation's new version (#99) makes the sentence the words the
+ * Citation now quotes, with its markers. The
  * new text streams in word by word, slowly when the instruction or the passage
  * says "slowly", or not at all until it is stopped when it says "forever", then
  * a line saying why (#202).
@@ -75,6 +76,7 @@ const EDIT_REASONS: Readonly<Record<string, readonly [string, string]>> = {
   translate: ["Translated.", "已翻译。"],
   instruction: ["Changed as you asked.", "已按你的要求修改。"],
   "cut-unsupported": ["The part its Citations don't support is gone.", "删去了引用不支持的部分。"],
+  "follow-citation": ["It now agrees with its Document.", "已与文档的新版本一致。"],
 };
 
 /**
@@ -125,6 +127,11 @@ function editedText(action: string, passage: string, asked: string): string {
       if (listed) return `${listed.cut}${markers}`;
       const part = /support this part of it: ([\s\S]*?)\. Take out only/.exec(asked)?.[1] ?? "";
       return part === "" ? passage : passage.split(part).join("");
+    }
+    case "follow-citation": {
+      const words = /“([^”]*)”/.exec(asked)?.[1] ?? "";
+      const markers = (passage.match(/\[\d+\]/g) ?? []).join("");
+      return words === "" ? passage : `${words}${markers}`;
     }
     case "explain": {
       const words = passage

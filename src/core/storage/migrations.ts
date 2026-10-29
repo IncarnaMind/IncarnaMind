@@ -1915,6 +1915,27 @@ export const migrations: readonly Migration[] = [
   {
     version: 111,
     description:
+      "Each Document's name in a keyword index of its own, once for the Document (#2042)",
+    sql: `
+      -- A Document's name, segmented as the Passages are (the core writes the
+      -- words: src/core/documents/keywords.ts), in an index whose document
+      -- frequency counts Documents: a word of a name weighs its Document once,
+      -- not once a Passage. Keyword search scores a Passage by its own words
+      -- and adds its Document's name match separately. The Passages' index is
+      -- rebuilt without the name by processing version 15 (see
+      -- NAME_INDEX_CURRENT_SINCE in src/core/documents/processing.ts).
+      -- One row a Document, deleted and written again when a Document is
+      -- renamed; a derived index, never synced.
+      CREATE VIRTUAL TABLE document_names_fts USING fts5 (
+        document_id UNINDEXED,
+        text,
+        tokenize = 'unicode61 remove_diacritics 2'
+      );
+    `,
+  },
+  {
+    version: 112,
+    description:
       "A Checkpoint the User named, or one saved when the Note was sent, keeps its name and file",
     sql: `
       -- A name the User gave the version (#1933), and the file a Checkpoint saved as the Note
@@ -1927,9 +1948,9 @@ export const migrations: readonly Migration[] = [
 
 /**
  * Brings the database up to the latest schema: every migration in the list that
- * isn't recorded as applied runs, in version order, each in its own transaction.
- * A database recording a migration this build doesn't know was written by a
- * newer version of IncarnaMind, and is refused.
+ * isn't recorded as applied runs, in version order, in one transaction. A database
+ * recording a migration this build doesn't know was written by a newer version of
+ * IncarnaMind, and is refused.
  */
 export function migrate(db: Database, list: readonly Migration[] = migrations): void {
   list.forEach((migration, index) => {
@@ -1948,19 +1969,21 @@ export function migrate(db: Database, list: readonly Migration[] = migrations): 
     throw new DataFromNewerVersionError(Math.max(...unknown));
   }
 
-  for (const migration of list) {
-    if (applied.has(migration.version)) continue;
-    db.transaction(() => {
+  const pending = list.filter((migration) => !applied.has(migration.version));
+  if (pending.length === 0) return;
+
+  db.transaction(() => {
+    for (const migration of pending) {
       db.exec(migration.sql);
       db.run("INSERT INTO schema_migrations (version, applied_at) VALUES (?, ?)", [
         migration.version,
         new Date().toISOString(),
       ]);
-      // Kept for tools that read it: the highest migration applied.
-      const highest = db.get<{ v: number }>("SELECT max(version) AS v FROM schema_migrations")?.v;
-      db.exec(`PRAGMA user_version = ${highest ?? 0}`);
-    });
-  }
+    }
+    // Kept for tools that read it: the highest migration applied.
+    const highest = db.get<{ v: number }>("SELECT max(version) AS v FROM schema_migrations")?.v;
+    db.exec(`PRAGMA user_version = ${highest ?? 0}`);
+  });
 }
 
 /**

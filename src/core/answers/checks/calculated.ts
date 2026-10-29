@@ -5,6 +5,7 @@
  * (ADR-0021), to the sentence's own rounding. A program decides, not the
  * model: a wrong derived number is what an analyst fears most.
  */
+import { citedCases } from "../../../shared/caseCitations";
 import {
   type Figure,
   type FigureContext,
@@ -19,6 +20,21 @@ import {
 } from "../../../shared/formula";
 import type { CalculatedFigure, LimitRelation } from "../../api";
 import { documentFigureContext } from "../calculations";
+
+export function figuresInClaim(text: string, context: FigureContext): Figure[] {
+  const references = citedCases(text).map((reference, index, citations) => {
+    const next = citations[index + 1];
+    const suffix = text.slice(reference.to, next?.from);
+    const closed = /^[\s.,;!?…)\]}，。；！？]*$/u.test(
+      next ? suffix.replace(/\b(?:and(?:\/or)?|or)\b|[&与及和或]/giu, "") : suffix,
+    );
+    return { from: reference.from, to: closed ? reference.to : reference.citeTo };
+  });
+  return readFigures(text, context).filter(
+    (figure) =>
+      !references.some((reference) => figure.start >= reference.from && figure.end <= reference.to),
+  );
+}
 
 /**
  * The number of `sentence` that `stated` names ("1.1x" in "Net debt to
@@ -37,7 +53,7 @@ export function statedFigure(
   const [named] = readFigures(stated, context);
   if (!named) return null;
   return (
-    readFigures(sentence, context).find(
+    figuresInClaim(sentence, context).find(
       (figure) =>
         figure.ambiguous.length === 0 &&
         figure.value === named.value &&

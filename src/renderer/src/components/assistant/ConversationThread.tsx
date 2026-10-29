@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import type * as Y from "yjs";
 import type {
   AskedQuote,
   ConversationAnswer,
@@ -61,7 +62,13 @@ const SOUGHT_MS = 1600;
  * being written while the User is at its foot, and brings an Answer a link
  * back led to into view, flashed.
  */
-export function ConversationThread({ focusedMindId }: { focusedMindId: string | null }) {
+export function ConversationThread({
+  focusedMindId,
+  focusedDoc,
+}: {
+  focusedMindId: string | null;
+  focusedDoc: Y.Doc | null;
+}) {
   const t = useT();
   const messages = useConversations((state) => state.messages);
   const asking = useConversations((state) => state.asking);
@@ -213,6 +220,7 @@ export function ConversationThread({ focusedMindId }: { focusedMindId: string | 
             sought={message.id === sought}
             keeping={keeping}
             askedAgain={askedAgain.get(message.id)}
+            doc={focusedDoc}
           />
         );
       })}

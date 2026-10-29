@@ -790,12 +790,15 @@ export async function makeTagOnDocument(
   documentName?: string,
   tagName = "Files",
 ): Promise<void> {
+  // The named Document, not just any: the example's are there before the one just added (#1741).
   await expect
     .poll(() =>
       window.evaluate(
-        async () =>
-          (await (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind.listDocuments())
-            .length,
+        async (wanted: string | undefined) =>
+          (
+            await (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind.listDocuments()
+          ).filter((each) => !wanted || each.name.startsWith(wanted)).length,
+        documentName,
       ),
     )
     .toBeGreaterThan(0);

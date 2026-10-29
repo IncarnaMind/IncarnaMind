@@ -212,10 +212,10 @@ test("the shortcut, the button and the View menu hide and show the sidebar, and 
   await expect.poll(() => isHidden(window)).toBe(true);
   await expect(window.getByTestId("sidebar-toggle")).toBeFocused();
   // It still goes out of the window: the focus it had in its header is no reason to stay over the
-  // content. A peek is the pointer or the keyboard arriving after it is hidden.
+  // content. Only the pointer or the keyboard arriving after it is hidden brings it back out.
   await motionSettled(window);
   await expect(window.getByTestId("sidebar-panel")).not.toHaveAttribute("data-open", "true");
-  expect(await sidebarLeft(window)).toBeLessThan(0);
+  expectHiddenAtRest(await edges(window));
   await window.keyboard.press("Enter");
   await expect.poll(() => isHidden(window)).toBe(false);
   await expect(window.getByTestId("sidebar-toggle")).toBeFocused();
@@ -297,7 +297,8 @@ test("dragging the divider past its minimum hides the sidebar, and its width and
   await expect.poll(() => window.getByTestId("sidebar").evaluate((el) => el.clientWidth)).toBe(165);
   expect(await isHidden(window)).toBe(false);
 
-  // Far past the minimum: it folds away.
+  // Far past the minimum: it folds away, and the focus it held comes to the button that shows it.
+  await window.getByTestId("open-library").focus();
   box = await rod.boundingBox();
   if (!box) throw new Error("No divider.");
   await window.mouse.move(box.x + box.width / 2, 400, { steps: 4 });
@@ -305,6 +306,7 @@ test("dragging the divider past its minimum hides the sidebar, and its width and
   await window.mouse.move(40, 400, { steps: 12 });
   await window.mouse.up();
   await expect.poll(() => isHidden(window)).toBe(true);
+  await expect(window.getByTestId("sidebar-toggle")).toBeFocused();
 
   // Restart: hidden, and when shown again it has the width it had before it folded.
   await app.close();

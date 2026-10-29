@@ -41,7 +41,7 @@
 | Windows | `.exe` |
 | Linux | Ubuntu 和 Debian 用 `.deb`，或 `.AppImage` |
 
-测试版更新频繁，暂未签名，第一次打开时系统会提示风险。Windows 版将通过 SignPath Foundation 签名（[代码签名政策](docs/code-signing-policy.md)）。
+测试版更新频繁，暂未签名，第一次打开时系统会提示风险。0.1.0-alpha.4 及更早的测试版里，笔记还用旧名字。Windows 版将通过 SignPath Foundation 签名（[代码签名政策](docs/code-signing-policy.md)）。
 
 <details>
 <summary>系统不让打开时</summary>
@@ -71,7 +71,7 @@ npm install && npm run dev
 | **整理** | 关联你的文件夹，“整理”推荐文件夹和标签。 |
 | **提问** | 一次问遍所有文档，每一页都有引用。 |
 | **写作** | 一篇笔记就是为一个主题准备的笔记本。助手写的字在你修改前是灰色的，一键就能撤销。 |
-| **分析** | 用表格计算、画图，每个输入都有引用。下一个测试版起提供。 |
+| **分析** | 用表格计算、画图，每个输入都有引用。 |
 | **核对** | 把笔记或任何 PDF 对照你的文件逐句核对。 |
 | **对比** | 向多份文档问同样的问题，得到一张带引用的表。 |
 | **导出** | 编辑 Word 文件后存回原文件：没改动的部分原样保留，你的修改可以作为修订写入。也能把笔记导出为带脚注的 Word，支持八种引用格式。 |
@@ -84,7 +84,7 @@ npm install && npm run dev
 
 - 在 OpenAlex、arXiv 和 PubMed 里搜索论文，保存网页，从 Zotero、BibTeX、RIS 或 CSL JSON 导入引用信息。
 - 添加 MCP 服务器和 `SKILL.md` 技能。凡是可能改动内容的操作，都会先问你。
-- 把你选的文件夹交给 [Claude Code](docs/claude-code.md)、[Codex](docs/codex.md) 或 [Cursor](docs/cursor.md)，引用都经过核对（下一个测试版起提供）。
+- 把你选的文件夹交给 [Claude Code](docs/claude-code.md)、[Codex](docs/codex.md) 或 [Cursor](docs/cursor.md)，引用都经过核对。
 - 整个应用都有中文和英文。
 
 </details>
@@ -108,10 +108,10 @@ npm install && npm run dev
 | 点开引用到原文那一页，引文高亮 | ✓ | ◐ | ✗ | ✗ |
 | 核对你自己写的草稿 | ✓ | ✗ | ✗ | ✗ |
 | 编辑你的 Word 文件并存回原文件 | ✓ | ✗ | ✗ | ✗ |
-| 表格数据分析 | ✓² | ✓ | ✗ | ◐ |
+| 表格数据分析 | ✓ | ✓ | ✗ | ◐ |
 | 会议 | ✓ | ✗ | ✗ | ✓ |
 
-<sub>✓ 支持 · ◐ 部分支持或未说明 · ✗ 官方文档中没有。¹ 原名 NotebookLM。² 下一个测试版起提供。依据各产品 2026 年 10 月的官方文档：[Gemini Notebook](https://support.google.com/gemininotebook/)、[Open Notebook](https://github.com/lfnovo/open-notebook)、[AnythingLLM](https://docs.anythingllm.com/)。</sub>
+<sub>✓ 支持 · ◐ 部分支持或未说明 · ✗ 官方文档中没有。¹ 原名 NotebookLM。依据各产品 2026 年 10 月的官方文档：[Gemini Notebook](https://support.google.com/gemininotebook/)、[Open Notebook](https://github.com/lfnovo/open-notebook)、[AnythingLLM](https://docs.anythingllm.com/)。</sub>
 
 ## 隐私
 

@@ -1158,6 +1158,7 @@ export const en = {
   "edit.pending.explain": "Explaining…",
   "edit.pending.instruction": "Making the changes…",
   "edit.pending.cut-unsupported": "Cutting the unsupported part…",
+  "edit.pending.follow-citation": "Updating the sentence…",
   "edit.stop": "Stop",
   "edit.close": "Close",
   "edit.problem.unchanged": "Nothing to change: the model gave the text back as it was.",
@@ -2226,6 +2227,10 @@ export const en = {
   "setup.step.useThis": "Use this",
   "setup.step.laterRecord": "Set up when I record",
   "setup.step.skip": "Skip",
+  "setup.step.skipped": "Skipped",
+  "setup.services.failed": "Couldn’t read the transcription services",
+  "setup.sorting.failed": "Couldn’t read the models that can sort",
+  "read.tryAgain": "Try again",
   "setup.step.addKey": "Add a key\u2026",
   "models.sorting.chat": "Use your AI model",
   "setup.sorting.uses": "Tags, Folders and meeting hints use this model",
@@ -2802,6 +2807,8 @@ export const en = {
   "privacy.traffic.remote-connectors": "Remote Connectors and their sign-in",
   "privacy.traffic.remote-connectors.tip":
     "Connects to your remote Connectors’ servers to list their Tools, and to the sign-in services they name. What their Tools are sent is the Connectors flow above.",
+  "privacy.runtimeFolder":
+    "Microsoft’s model runtime keeps usage data in a folder on this computer, and earlier versions of IncarnaMind may have added to it. It is safe to delete.",
   "privacy.skills.title": "Skill scripts",
   "privacy.skills.body":
     "Skill scripts run here and can send what they read. Each asks before it runs, unless you set it to Always allow.",
@@ -3429,6 +3436,8 @@ export const en = {
   "command.citation.open": "Open cited page",
   "citation.regenerate": "Regenerate the Answer",
   "citation.changedAfterCited": "The Document changed after this was cited.",
+  "citation.changedAfterCited.web":
+    "This page was fetched again on {date}, after you cited it. What’s shown is the new copy; the one you cited is kept.",
   "citation.changed.on": "This Document changed on {date}.",
   "citation.changed.still": "The quote is still here.",
   "citation.changed.gone": "Its quote is no longer in the new version.",
@@ -5599,6 +5608,9 @@ export const en = {
   "steps.check.allFound": "all found",
   "steps.check.found": "found",
   "steps.check.notFound": "{count} not found",
+  "steps.askedAgain.calculate":
+    "Asked again: the reply said figures were calculated, and no calculation had run",
+  "steps.askedAgain.search": "Asked again: the reply said a search ran, and none had",
   "steps.failed.search": "Couldn’t search {scope}",
   "steps.failed.search.auth": "Couldn’t search {scope}: the search model’s key was refused",
   "steps.live.reading": "Reading {mind}…",
@@ -5677,6 +5689,8 @@ export const en = {
   "coverage.main": "I took {documents} as the main ones.",
   "coverage.main.one": "I took {document} as the main one.",
   "coverage.main.others": "Use others",
+  "coverage.named": "I read {document}; {count} other Documents match.",
+  "coverage.named.one": "I read {document}; 1 other Document matches.",
   "coverage.askedAgain": "Asked again with the other {count} Documents",
   "coverage.askedAgain.one": "Asked again with the other Document",
   "mindChanges.noMind": "No note was open to change.",
@@ -5774,6 +5788,11 @@ export const en = {
   "answer.notWritten.noCall": "the assistant didn’t run the write",
   "answer.notWritten.retry": "Try again",
   "answer.notAllDone": "The assistant didn’t make every change this reply describes",
+  "answer.notCalculated":
+    "No calculation ran: IncarnaMind didn’t calculate the figures worked out in this reply, so they’re unchecked",
+  "answer.notCalculated.unavailable":
+    "No calculation ran: this model can’t use IncarnaMind’s calculation Tool, so the figures worked out in this reply are unchecked",
+  "answer.notSearched": "No search ran: this reply wasn’t drawn from a search",
   "answer.uncitedReply":
     "This reply has no Citations, so none of it was checked against your Documents",
   "answer.uncitedWrite":

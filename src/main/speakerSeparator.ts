@@ -6,8 +6,8 @@
  * 1.6 GB for three (WINDOW_SECONDS in diarization.ts). A crash, out of memory included, rejects,
  * and the labels stay.
  */
-import { utilityProcess } from "electron";
 import type { SpeakerSeparator } from "../core";
+import { startEngineProcess } from "./engineProcess";
 import type { SeparationReply } from "./speakerProcess";
 import speakerProcessPath from "./speakerProcess?modulePath";
 
@@ -15,10 +15,7 @@ export function createUtilityProcessSeparator(): SpeakerSeparator {
   return {
     separate: (request) =>
       new Promise((resolve, reject) => {
-        const child = utilityProcess.fork(speakerProcessPath, [], {
-          serviceName: "IncarnaMind speakers",
-          stdio: "inherit",
-        });
+        const child = startEngineProcess(speakerProcessPath, [], "IncarnaMind speakers");
         let answered = false;
         child.on("message", (reply: SeparationReply) => {
           answered = true;

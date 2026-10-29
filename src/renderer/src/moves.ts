@@ -92,7 +92,7 @@ export function foldersMovedFrom(move: FolderMove): string[] {
   const from = [
     ...move.minds.map((item) => item.from),
     ...move.conversations.map((item) => item.from),
-    ...move.documents.map((item) => item.previous?.groupId ?? null),
+    ...move.documents.map((item) => item.change.before.assignment?.groupId ?? null),
   ];
   return [...new Set(from.filter((id): id is string => id !== null && id !== move.folderId))];
 }

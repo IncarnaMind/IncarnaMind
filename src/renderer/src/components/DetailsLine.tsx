@@ -20,8 +20,10 @@ export function DetailsLine({
   return (
     <div id={id} data-testid={testId} className={className}>
       <p>
-        {children}{" "}
+        {children}
         <span className="whitespace-nowrap">
+          {/* Glued to the word before it, so a wrapped line never starts with the separator. */}
+          {"\u00a0"}
           <span aria-hidden="true">· </span>
           <button
             type="button"

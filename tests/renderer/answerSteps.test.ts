@@ -535,6 +535,37 @@ describe("an Answer's steps", () => {
   });
 });
 
+describe("an Answer asked again about a Tool its reply said ran (#1796)", () => {
+  // protects=the ask is its own row, after the calls and before the figures it then calculated; fails_when=it has no row, or sits elsewhere; no_claim=none beyond protects.
+  test("is a row of its own, before the figures", () => {
+    const calculated: AnswerToolCall = {
+      id: "calculated-figures",
+      tool: "calculate",
+      source: "documents",
+      input: {},
+      status: "done",
+      resultCount: 1,
+    };
+    const rows = stepRows(
+      input({
+        toolCalls: [search("s1", "leverage", { passages: ["a"] }), calculated],
+        steps: { ...STEPS, askedAgainFor: ["calculate"] },
+      }),
+    );
+    expect(rows.map((row) => row.kind)).toEqual([
+      "answered",
+      "search",
+      "asked-again",
+      "calculated",
+    ]);
+    expect(rows.find((row) => row.kind === "asked-again")).toEqual({
+      kind: "asked-again",
+      tools: ["calculate"],
+    });
+    expect(stepRows(input()).some((row) => row.kind === "asked-again")).toBe(false);
+  });
+});
+
 describe("where an Answer found what it says", () => {
   const LEASE = { ...citation(1, "p1", "lease", 1), documentName: "租赁合同-2026" };
   const RENT = { ...citation(2, "p2", "lease", 2), documentName: "租赁合同-2026" };

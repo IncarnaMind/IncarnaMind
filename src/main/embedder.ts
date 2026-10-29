@@ -5,10 +5,10 @@
  * memory), pending requests fail, and the core's next `load` starts a new one
  * (see `createChannelEmbedder`).
  */
-import { utilityProcess } from "electron";
 import type { Embedder } from "../core";
 import { createChannelEmbedder, type EmbedderResponse } from "../core/embedding/channel";
 import embedderProcessPath from "./embedderProcess?modulePath";
+import { startEngineProcess } from "./engineProcess";
 
 export interface UtilityProcessEmbedderOptions {
   /** Runs the deterministic fake model instead of the real one (smoke tests). */
@@ -19,10 +19,11 @@ export function createUtilityProcessEmbedder(
   options: UtilityProcessEmbedderOptions = {},
 ): Embedder {
   return createChannelEmbedder(() => {
-    const child = utilityProcess.fork(embedderProcessPath, options.fake ? ["--fake"] : [], {
-      serviceName: "IncarnaMind embedding",
-      stdio: "inherit",
-    });
+    const child = startEngineProcess(
+      embedderProcessPath,
+      options.fake ? ["--fake"] : [],
+      "IncarnaMind embedding",
+    );
     return {
       send: (request) => child.postMessage(request),
       onResponse: (listener) =>
