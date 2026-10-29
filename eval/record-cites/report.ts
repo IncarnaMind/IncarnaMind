@@ -2,6 +2,15 @@ import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { RecordCaseResult, RecordCiteMiss } from "./score";
 
+export interface BilledUsage {
+  requests: number;
+  /** All input tokens, those read from and written to the prompt cache too. */
+  inputTokens: number;
+  cacheReadTokens: number;
+  cacheWriteTokens: number;
+  outputTokens: number;
+}
+
 export interface RecordCiteRunReport {
   run: {
     startedAt: string;
@@ -17,6 +26,8 @@ export interface RecordCiteRunReport {
     outputTokens: number;
     requestSeconds: number;
     spentUsd: number;
+    /** Every request the core billed, judgements included, as its meter counted it. */
+    billed?: BilledUsage;
   };
   results: RecordCaseResult[];
   misses: RecordCiteMiss[];
@@ -38,6 +49,12 @@ export function markdownRecordCiteReport(report: RecordCiteRunReport): string {
     `Set: ${report.set.documents} record Documents, ${report.set.cases} claims, ${report.set.cites} expected cite results. Matched ${matched} of ${report.set.cites}.`,
     "",
     `Model: ${report.usage.requests} requests, ${report.usage.inputTokens} input and ${report.usage.outputTokens} output tokens, ${report.usage.requestSeconds.toFixed(1)} s of requests, $${report.usage.spentUsd.toFixed(4)} at the core's count.`,
+    ...(report.usage.billed
+      ? [
+          "",
+          `Billed: ${report.usage.billed.requests} requests, ${report.usage.billed.inputTokens} input tokens (${report.usage.billed.cacheReadTokens} read from the prompt cache, ${report.usage.billed.cacheWriteTokens} written to it) and ${report.usage.billed.outputTokens} output tokens.`,
+        ]
+      : []),
     "",
     "## Cases",
     "",

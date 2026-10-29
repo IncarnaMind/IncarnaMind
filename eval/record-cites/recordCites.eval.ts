@@ -3,6 +3,7 @@ import { fileURLToPath } from "node:url";
 import { test } from "vitest";
 import type { ClaimCheckResult, Core } from "../../src/core";
 import { claimSpans } from "../../src/renderer/src/editor/claimChecks";
+import { queryDatabase } from "../../tests/helpers/core";
 import { connectToMind } from "../../tests/helpers/mindClient";
 import { readMind, writeMind } from "../../tests/helpers/minds";
 import { commitOf } from "../lib/commit";
@@ -12,13 +13,29 @@ import { openLibrary } from "../lib/library";
 import { createLog } from "../lib/log";
 import { createWorkerCrossEncoder } from "../lib/rerank";
 import { watchRequests } from "../repeats/requests";
-import { matchedRecordCites, type RecordCiteRunReport, writeRecordCiteReport } from "./report";
+import {
+  type BilledUsage,
+  matchedRecordCites,
+  type RecordCiteRunReport,
+  writeRecordCiteReport,
+} from "./report";
 import { type RecordCaseResult, scoreRecordCase } from "./score";
 import { loadRecordCiteSet, type RecordSetCase } from "./set";
 
 const root = fileURLToPath(new URL("../..", import.meta.url));
 
 const messageOf = (error: unknown) => (error instanceof Error ? error.message : String(error));
+/** What the core's meter billed: the record-cite judgements too, which name no one sentence. */
+const billedIn = (dataDir: string): BilledUsage =>
+  queryDatabase<BilledUsage>(
+    dataDir,
+    `SELECT count(*) AS requests, coalesce(sum(input_tokens), 0) AS inputTokens,
+       coalesce(sum(cached_input_tokens), 0) AS cacheReadTokens,
+       coalesce(sum(cache_write_tokens), 0) AS cacheWriteTokens,
+       coalesce(sum(output_tokens), 0) AS outputTokens
+     FROM model_requests WHERE deleted_at IS NULL`,
+  )[0] ?? { requests: 0, inputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0, outputTokens: 0 };
+
 const spentOf = async (core: Core) =>
   (await core.getCostSummary()).spent
     .filter((each) => each.currency === "USD")
@@ -166,6 +183,7 @@ test("public record-cite evaluation", async () => {
         outputTokens: requests.reduce((total, request) => total + request.outputTokens, 0),
         requestSeconds: requests.reduce((total, request) => total + request.ms, 0) / 1000,
         spentUsd: await spentOf(core),
+        billed: billedIn(library.dataDir),
       },
       results,
       misses: results.flatMap((entry) => entry.misses),
