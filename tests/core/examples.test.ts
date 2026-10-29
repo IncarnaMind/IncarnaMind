@@ -203,7 +203,11 @@ describe("the example Mind", { timeout: 30_000 }, () => {
     const { core } = await startWithExamples();
     const made = await core.offerExamples();
     const mindId = made?.mindId as string;
-    expect((await core.readyQuestion())?.question).toBe("What leverage does the agreement allow?");
+    await vi.waitFor(async () =>
+      expect((await core.readyQuestion())?.question).toBe(
+        "What leverage does the agreement allow?",
+      ),
+    );
     const answerEvents = vi.fn();
     core.on("answer.started", answerEvents);
     core.on("answer.finished", answerEvents);
@@ -289,7 +293,7 @@ describe("the example Mind", { timeout: 30_000 }, () => {
     const core = startCore(await createTempDataFolder());
     expect(await core.readyQuestion()).toBeNull();
     await expect(core.askExampleReadyQuestion()).rejects.toThrow(
-      "The example’s Documents are still being read. Try again in a moment.",
+      "The example isn’t there any more. Add a file of your own to ask about it.",
     );
     expect(await core.listConversations()).toEqual([]);
   });

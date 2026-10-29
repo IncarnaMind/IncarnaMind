@@ -1,6 +1,7 @@
 import { type ReactNode, type RefObject, useEffect, useRef, useState } from "react";
 import { chosenParts } from "../../../shared/exportOptions";
 import { nameInLine } from "../../../shared/naming";
+import { saveFailureReason } from "../../../shared/systemReasons";
 import { core, files } from "../core";
 import { CheckStateIcon } from "../editor/icons";
 import { errorMessage } from "../errors";
@@ -33,7 +34,6 @@ import {
   defaultFolderLabel,
   showOutputLocationSetting,
 } from "../outputFiles";
-import { saveFailureReason } from "../problems";
 import { useAppStore } from "../store";
 import { useHeld } from "../useHeld";
 import { ExportChange } from "./ExportChange";
@@ -526,6 +526,6 @@ function CheckIcon() {
 
 /** Why a file couldn't be written or opened, in a few words: ours when we know, else the system's. */
 function reasonOf(message: string, t: ReturnType<typeof useT>): string {
-  const key = saveFailureReason(message);
-  return key ? t(key) : message;
+  const reason = saveFailureReason(message);
+  return reason ? t(reason.key, reason.values) : message;
 }
