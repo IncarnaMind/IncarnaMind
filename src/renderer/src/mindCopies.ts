@@ -10,6 +10,7 @@
  */
 import * as Y from "yjs";
 import type { EditCause, MindAccess } from "../../core/api";
+import { clientId } from "./clientId";
 import { core } from "./core";
 import { describeError } from "./errors";
 
@@ -20,6 +21,25 @@ export const FROM_CORE = Symbol("from the core");
 export const EDIT_FROM_CORE = Symbol("an edit asked for here, from the core");
 
 const takers = new Map<string, { doc: Y.Doc; take(update: Uint8Array, cause: EditCause): void }>();
+
+/** How many copies of each Mind this window has open: the note's worth one watch, not each. */
+const copiesOpen = new Map<string, number>();
+
+/** The changes this window sent for each Mind that the core does not have yet. */
+const sent = new Map<string, Set<Promise<void>>>();
+
+/**
+ * Waits until every change this window sent for the Mind has reached the
+ * core, for an ask that must see them: a column move, which copies each cell
+ * as it is then, the words just typed into one included.
+ */
+export async function flushMindUpdates(mindId: string): Promise<void> {
+  for (;;) {
+    const waiting = sent.get(mindId);
+    if (!waiting || waiting.size === 0) return;
+    await Promise.all([...waiting]);
+  }
+}
 
 /** Hands the updates of this edit to `take`, in the copy `doc` only. Returns what stops it. */
 export function takeEditUpdates(
@@ -51,6 +71,8 @@ export function openMindCopy(
 ): () => void {
   const local = new Y.Doc();
   let active = true;
+  let closed = false;
+  let watching = false;
   let editable = false;
   // Listen before opening, so nothing pushed in between is missed. Yjs merges in any order.
   const stopListening = core.on("mind.update", ({ mindId: changed, update, cause }) => {
@@ -61,10 +83,17 @@ export function openMindCopy(
   });
   // A change that built on one the core never got goes again inside the whole copy (#1119).
   const store = (update: Uint8Array, again: boolean) => {
-    core.applyMindUpdate(mindId, update).catch((error: unknown) => {
+    const tracked = core.applyMindUpdate(mindId, update).catch((error: unknown) => {
       const missed = describeError(error).wording?.key === "error.mind.missedChange";
       if (missed && again && active) store(Y.encodeStateAsUpdate(local), false);
       else failed(error);
+    });
+    const waiting = sent.get(mindId) ?? new Set<Promise<void>>();
+    waiting.add(tracked);
+    sent.set(mindId, waiting);
+    void tracked.finally(() => {
+      waiting.delete(tracked);
+      if (waiting.size === 0 && sent.get(mindId) === waiting) sent.delete(mindId);
     });
   };
   const send = (update: Uint8Array, origin: unknown) => {
@@ -80,6 +109,14 @@ export function openMindCopy(
       }
       editable = access === "edit";
       Y.applyUpdate(local, state, FROM_CORE);
+      watching = true;
+      const copies = copiesOpen.get(mindId) ?? 0;
+      copiesOpen.set(mindId, copies + 1);
+      if (copies === 0) {
+        core.watchComparisonMind({ mindId, clientId }).catch((error: unknown) => {
+          console.warn("This window couldn't watch the Mind's comparison tables.", error);
+        });
+      }
       opened({ access, doc: local });
     },
     (error: unknown) => {
@@ -87,9 +124,22 @@ export function openMindCopy(
     },
   );
   return () => {
+    if (closed) return;
+    closed = true;
     active = false;
     stopListening();
     local.off("update", send);
-    core.closeMind(mindId).catch(() => undefined);
+    if (watching) {
+      const copies = (copiesOpen.get(mindId) ?? 1) - 1;
+      if (copies <= 0) {
+        copiesOpen.delete(mindId);
+        core.unwatchComparisonMind({ mindId, clientId }).catch((error: unknown) => {
+          console.warn("This window couldn't stop watching the Mind's comparison tables.", error);
+        });
+      } else copiesOpen.set(mindId, copies);
+    }
+    core.closeMind(mindId).catch((error: unknown) => {
+      console.warn("The Mind's copy couldn't be closed.", error);
+    });
   };
 }

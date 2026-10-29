@@ -236,12 +236,12 @@ export function ObjectMenu({
     const reason = enabled === true ? undefined : t(enabled.reason);
     const hint = command.hint ? t(command.hint) : undefined;
     return (
+      // biome-ignore lint/a11y/useAriaPropsSupportedByRole: only a toggle's item takes aria-checked.
       <button
         key={command.id}
         type="button"
-        {...(checked === undefined
-          ? { role: "menuitem" as const }
-          : { role: "menuitemcheckbox" as const, "aria-checked": checked })}
+        role={checked === undefined ? "menuitem" : "menuitemcheckbox"}
+        aria-checked={checked}
         data-testid={command.id}
         aria-disabled={enabled === true ? undefined : true}
         aria-description={hint}

@@ -100,6 +100,8 @@ export interface RunRequest {
    * thinking), so the Tools stay in its request, and the note tells the model to call none.
    */
   lastStep?: { tokens?: number; keepTools?: boolean };
+  /** The Tool the first step must call, by name: one a check's ask said to call. */
+  firstTool?: string;
   /**
    * Awaited before every Tool call, while the User may be asked: the Run's
    * approvals decide here, from the call's Effects (see ../approvals). Each

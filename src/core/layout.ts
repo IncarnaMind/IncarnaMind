@@ -69,6 +69,8 @@ const CHECKS: readonly CitationCheck[] = [
 function parseItem(value: unknown): TabItem {
   if (isRecord(value)) {
     if (value.kind === "mind" && isId(value.mindId)) return { kind: "mind", mindId: value.mindId };
+    if (value.kind === "figures" && isId(value.mindId))
+      return { kind: "figures", mindId: value.mindId };
     if (value.kind === "library") return { kind: "library" };
     if (value.kind === "home") return { kind: "home" };
     if (value.kind === "document" && isId(value.documentId)) {
@@ -364,7 +366,7 @@ const oneTabEach = (item: TabItem): item is { kind: "library" } | { kind: "home"
 
 const sameItem = (a: TabItem, b: TabItem): boolean =>
   a.kind === b.kind &&
-  (a.kind === "mind"
+  (a.kind === "mind" || a.kind === "figures"
     ? a.mindId === (b as typeof a).mindId
     : a.kind === "document"
       ? a.documentId === (b as typeof a).documentId
@@ -532,7 +534,7 @@ function open(
     found?.group === from &&
     found.tab !== shown &&
     shown?.item.kind === "mind" &&
-    item.kind === "document" &&
+    (item.kind === "document" || item.kind === "figures") &&
     (where.in === "side" || where.in === "beside");
   if (found && !behindMind) {
     reveal(found.group, found.tab);
@@ -811,7 +813,9 @@ export function createLayouts(deps: LayoutDependencies) {
 
   const exists = (item: TabItem) =>
     oneTabEach(item) ||
-    (item.kind === "mind" ? deps.mindExists(item.mindId) : deps.documentExists(item.documentId));
+    (item.kind === "mind" || item.kind === "figures"
+      ? deps.mindExists(item.mindId)
+      : deps.documentExists(item.documentId));
 
   /**
    * The tabs the app had before groups (the Minds open, and the Library's tab),
@@ -896,7 +900,10 @@ export function createLayouts(deps: LayoutDependencies) {
     change(windowId: unknown, input: unknown): WindowLayout {
       const id = parseWindowId(windowId);
       const change = parseLayoutChange(input);
-      if (change.type === "open" && change.item.kind === "mind") {
+      if (
+        change.type === "open" &&
+        (change.item.kind === "mind" || change.item.kind === "figures")
+      ) {
         if (!deps.mindExists(change.item.mindId))
           throw new NotFoundError({ key: "error.mind.notFound" });
       }
@@ -910,7 +917,8 @@ export function createLayouts(deps: LayoutDependencies) {
      * Document's tab stays until closed: its viewer says what happened.
      */
     forgetDeletedMinds(): void {
-      const keep = (item: TabItem) => item.kind !== "mind" || deps.mindExists(item.mindId);
+      const keep = (item: TabItem) =>
+        (item.kind !== "mind" && item.kind !== "figures") || deps.mindExists(item.mindId);
       for (const [windowId, state] of windows) {
         if (!prune(state.layout, keep)) continue;
         tidy(state.layout);

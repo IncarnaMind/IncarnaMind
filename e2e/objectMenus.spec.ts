@@ -256,6 +256,7 @@ test("a right-click opens the menu the ⋯ button opens, for a Mind, a Document,
     "mind.checkRecord",
     "mind.history",
     "mind.check",
+    "mind.tieOut",
     "mind.checkContradictions",
     "mind.citationStyle",
     "mind.style",
@@ -377,13 +378,14 @@ test("a right-click opens the menu the ⋯ button opens, for a Mind, a Document,
   const tabMenu = tab.getByTestId("tab-actions");
   const byRightClick = await menuCommands(tabMenu);
   // Its Mind's items first, then the tab's own, and Delete last.
-  expect(byRightClick.slice(0, 10)).toEqual([
+  expect(byRightClick.slice(0, 11)).toEqual([
     "mind.outline",
     "mind.exportMenu",
     "mind.aiUseStatement",
     "mind.checkRecord",
     "mind.history",
     "mind.check",
+    "mind.tieOut",
     "mind.checkContradictions",
     "mind.style",
     "—",
@@ -416,12 +418,18 @@ test("a right-click opens the menu the ⋯ button opens, for a Mind, a Document,
   expect(await menuCommands(answerMenu)).toEqual(answerByRightClick);
   await window.keyboard.press("Escape");
 
-  // A Citation: Open, then Remove; its card's ⋯ opens the same.
+  // A Citation: Open, Checked by me (a toggle, #1933), then Remove; its card's ⋯ opens the same.
   await window.getByTestId("mind-list-item").filter({ hasText: "Cited notes" }).click();
   const citation = window.getByTestId("mind-editor").getByTestId("citation");
   const citationMenu = citation.getByTestId("citation-actions");
   await rightClick(window, citation.getByTestId("citation-chip"));
-  expect(await menuCommands(citationMenu)).toEqual(["citation.open", "—", "citation.remove"]);
+  expect(await menuCommands(citationMenu)).toEqual([
+    "citation.open",
+    "—",
+    "citation.signOff",
+    "—",
+    "citation.remove",
+  ]);
   await screenshot(window, "menu-citation");
   await window.keyboard.press("Escape");
   await citation.getByTestId("citation-chip").hover();
@@ -430,6 +438,8 @@ test("a right-click opens the menu the ⋯ button opens, for a Mind, a Document,
   await card.getByTestId("citation-menu").click();
   expect(await menuCommands(card.getByTestId("citation-actions"))).toEqual([
     "citation.open",
+    "—",
+    "citation.signOff",
     "—",
     "citation.remove",
   ]);
@@ -512,6 +522,7 @@ test("each item shows its shortcut as the system writes it, and the labels are i
     "导出核对记录…",
     "历史版本",
     "核对",
+    "核对数字",
     "核对矛盾",
     "引用格式…",
     "样式…",

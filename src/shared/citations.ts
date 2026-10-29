@@ -279,6 +279,19 @@ export function versionMoment(
 }
 
 /**
+ * The day a saved web page was fetched again, for the notice that says what the viewer shows
+ * instead of the page cited; null for any other Document.
+ */
+export function fetchedAgainOn(
+  document: Parameters<typeof versionMoment>[0] | undefined,
+  language: Language,
+): string | null {
+  if (!document?.web) return null;
+  const moment = versionMoment(document);
+  return moment ? formatDate(moment, language) : null;
+}
+
+/**
  * "This Document changed on 12 October 2026" in a language: when the version
  * the Citation now opens was made. Null while the Document is unchanged.
  */
@@ -291,6 +304,31 @@ export function changedOnMessage(
   return changed && moment
     ? t("citation.changed.on", { date: formatDate(moment, language) })
     : null;
+}
+
+/**
+ * What a Citation's card and the viewer say once its Document changed after it was cited, and, for
+ * a file, the line that says on what day: a saved web page's notice has its day in it already.
+ */
+export function changedSourceLines(
+  changedAfterCited: boolean,
+  cited: Partial<Pick<CitationAttributes, "pageFrom" | "pageTo" | "location">>,
+  recheck: CitationRecheck | "failed" | null,
+  document: Parameters<typeof versionMoment>[0] | undefined,
+  language: Language,
+  t: Translate,
+): { note: ChangedSource | null; on: string | null } {
+  const note = changedSourceNote(
+    changedAfterCited,
+    cited,
+    recheck,
+    t,
+    fetchedAgainOn(document, language),
+  );
+  const on = document?.web
+    ? null
+    : changedOnMessage(changedAfterCited, document ? versionMoment(document) : null, language, t);
+  return { note, on };
 }
 
 /** What a Citation's card and the viewer say once its Document changed after it was cited. */
@@ -310,9 +348,14 @@ export function changedSourceNote(
   cited: Partial<Pick<CitationAttributes, "pageFrom" | "pageTo" | "location">>,
   recheck: CitationRecheck | "failed" | null,
   t: Translate,
+  fetchedAgain: string | null = null,
 ): ChangedSource | null {
   if (!changed) return null;
-  const notice = t("citation.changedAfterCited");
+  // A saved page was fetched again: the viewer shows the new copy, and the one cited is kept.
+  const notice =
+    fetchedAgain === null
+      ? t("citation.changedAfterCited")
+      : t("citation.changedAfterCited.web", { date: fetchedAgain });
   if (recheck === "failed" || recheck === null) return { notice, quote: null };
   const standing = quoteStanding(cited, recheck);
   if (standing === "found") return { notice, quote: t("citation.changed.still") };

@@ -644,6 +644,19 @@ export const answerCommands: readonly Command[] = [
 ];
 
 export const citationCommands: readonly Command[] = [
+  // "Checked by me" (#1933), as a toggle: the first while it is off, the second while it is on;
+  // from the Citation's menu, or from ⌘K while its card shows.
+  ...(["signOff", "signOffRemove"] as const).map(
+    (action): Command => ({
+      id: `citation.${action}`,
+      label: "signOff.action",
+      keywords: ["signOff.keywords"],
+      group: "edit",
+      reversible: true,
+      checked: () => action === "signOffRemove",
+      ...needsHere(`citation.${action}`),
+    }),
+  ),
   {
     id: "citation.remove",
     label: "citation.remove",

@@ -458,6 +458,12 @@ export interface AnswerRequest {
    */
   turnChecks?: readonly TurnCheck[];
   /**
+   * For a reply with a form of its own (a check's "Verdict: …"): whether a text is that reply.
+   * A step that says it records a marker ("to record the quote for marker [^1]") beside `cite`
+   * then doesn't end the Run as an Answer would; the model goes on to write the reply.
+   */
+  isReply?(text: string): boolean;
+  /**
    * How much of a reply being written may show while it streams: up to the
    * first sentence that may claim a change, which waits for the checks.
    * Absent: all of it.
@@ -1720,6 +1726,8 @@ async function* toolLoop(
   /** The reply that stands if the model, asked once more, fails: as it was before the last ask. */
   let standing: string | null = null;
   let again: readonly RunMessage[] | null = null;
+  /** The Tool the ask said to call: the asked-again Run's first step calls it. */
+  let mustCall: string | null = null;
   /** Model calls made so far: asked once more, the model gets what is left of `maxSteps`. */
   let steps = 0;
   const nudges = createNudges(maxSteps, () => steps);
@@ -1768,19 +1776,27 @@ async function* toolLoop(
   const runTools = tools.map(tracked);
   async function* runs(): AsyncGenerator<RunEvent> {
     let history: readonly RunMessage[] = [...messages.map(runMessage), ...first];
+    let calls: string | null = null;
     for (;;) {
-      yield* engine.run(runRequest(history, maxSteps - steps));
+      yield* engine.run(runRequest(history, maxSteps - steps, calls));
       if (!again) return;
       history = [...history, ...again];
       again = null;
+      calls = mustCall;
+      mustCall = null;
     }
   }
-  const runRequest = (history: readonly RunMessage[], stepsLeft: number): RunRequest => ({
+  const runRequest = (
+    history: readonly RunMessage[],
+    stepsLeft: number,
+    firstTool: string | null = null,
+  ): RunRequest => ({
     model: request.model,
     instructions,
     messages: history,
     tools: runTools,
     maxSteps: stepsLeft,
+    ...(firstTool && { firstTool }),
     cacheKey: request.cacheKey,
     lastStep: {
       ...(request.maxOutput !== undefined && { tokens: request.maxOutput }),
@@ -1803,18 +1819,17 @@ async function* toolLoop(
     endsAfter: (step) => {
       const recordsOnly =
         step.calls.length > 0 && step.calls.every((call) => recording(offered.get(call.tool)));
+      const reply = (text: string) => MARKER.test(text) && (request.isReply?.(text) ?? true);
       if (!request.writeThenCite) {
         return (
           cite !== null &&
-          MARKER.test(step.text) &&
+          reply(step.text) &&
           recordsOnly &&
           step.calls.every((call) => askedForFixes.get(call.id) === false)
         );
       }
       if (recordsOnly) besideRecords += step.text;
-      return (
-        cite !== null && recordsOnly && MARKER.test(besideRecords) && owesNothing(besideRecords)
-      );
+      return cite !== null && recordsOnly && reply(besideRecords) && owesNothing(besideRecords);
     },
     temperature,
     signal: AbortSignal.any([signal, rambling.signal]),
@@ -1997,6 +2012,7 @@ async function* toolLoop(
           besideRecords = "";
           setAside = [];
           again = [...event.messages, { role: "user", text: settled.nudge }];
+          mustCall = settled.requires ?? null;
           break;
         }
         const afterSearch = setAside.filter((each) => each.searched).map((each) => each.text);

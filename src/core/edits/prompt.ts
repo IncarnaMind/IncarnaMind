@@ -8,6 +8,7 @@
  * change made again is often a few words), and the task; it gives back the
  * passage's new text, which ../proposals/write compares with the old.
  */
+
 import type { EditAction } from "../api";
 
 /** For every task but "explain": rewrite the passage, keeping its markers. */
@@ -17,10 +18,11 @@ export const EDIT_INSTRUCTIONS = [
   "When the passage is part of a sentence, the words just before it are between <before> and </before>, and the words just after it between <after> and </after>. They stay as they are.",
   "",
   "Reply with the new text of the passage. Then, on a last line of its own, say in a few words what is better now, for the reader, in the passage's language, between <why> and </why>, such as <why>Shorter, with the same facts and sources.</why> Don't mention markers there.",
-  "Nothing else: no preamble, no other explanation, no quotation marks around the text, no code fence, no Markdown formatting but the paragraph marks and tables below.",
+  "Nothing else: no preamble, no other explanation, no quotation marks around the text, no code fence, no Markdown formatting but the paragraph marks, bold, italic and tables below.",
   "- The new text must fit between the words before and after it. Never repeat those words in it.",
   "- Keep every Citation marker, such as [1], and every footnote marker, such as [^1], right after the words it belongs to. Never add a marker the passage doesn't have, and never change a marker's number. Leave a marker out only if the words it belongs to are gone.",
   "- Keep each formula written as $…$ exactly as it is.",
+  "- Words that are bold or italic in the passage are between ** and ** or * and *. Keep them so, and write the same around the words that take their place. Add bold or italic only when the task asks for it, and never as anything but a pair around words. A backslash before *, _, ~ or \\ makes it a character of the text, not emphasis: keep the backslash.",
   "- Keep the passage's paragraphs apart with a blank line. Don't join or split them unless the task asks for it.",
   "- A paragraph that starts with #, ## or ### is a heading, one with - a bullet, 1. a numbered item, > a quote; one with none is plain text. Start each of yours the same way, so a heading stays a heading and an item an item, unless the task asks otherwise.",
   "- A backslash before such a mark, as in \\1. Background, makes it plain text: keep the backslash.",
@@ -51,6 +53,11 @@ function taskFor(action: EditAction, instruction: string, cited: string): string
       return "Explain what the passage says.";
     case "instruction":
       return `Do what the User asks: ${instruction}`;
+    case "follow-citation":
+      return [
+        ...(cited ? [`Its markers' Documents now say only this: ${cited}.`] : []),
+        "Change the passage so it agrees with that, altering only the words the new wording changes. Keep every other word, mark and marker exactly as it is, in its place.",
+      ].join(" ");
     case "cut-unsupported":
       return [
         ...(cited ? [`Its markers' sources say only this: ${cited}.`] : []),
