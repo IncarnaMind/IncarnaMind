@@ -356,7 +356,7 @@ test("“+ Question” adds a column that fills; Expand fills the card with the 
   await pointAndClick(window, table.getByTestId("comparison-export-excel"));
   const result = window.getByTestId("export-result");
   await expect(result).toHaveAttribute("data-state", "saved", { timeout: 20_000 });
-  await expect(result).toContainText("Shortlist contract terms.xlsx");
+  await expect(result).toContainText("Comparison table.xlsx");
   await screenshot(window, "compare-excel-saved-en-1600");
   // Esc collapses the table first; the line stays until the next Esc.
   await window.keyboard.press("Escape");
@@ -373,7 +373,7 @@ test("“+ Question” adds a column that fills; Expand fills the card with the 
   await screenshot(window, "compare-excel-palette-en-1600");
   await window.keyboard.press("Enter");
   await expect(result).toHaveAttribute("data-state", "saved", { timeout: 20_000 });
-  await expect(result).toContainText("Shortlist contract terms 2.xlsx");
+  await expect(result).toContainText("Comparison table 2.xlsx");
   await screenshot(window, "compare-excel-saved-keyboard-en-1600");
   await window.keyboard.press("Escape");
 
@@ -894,9 +894,7 @@ test("a cell whose amount changed scale says what the Document gives, offers Fil
     timeout: 20_000,
   });
   const [book, evidence] = (
-    await readWorkbook(
-      new Uint8Array(await readFile(join(sources, "Shortlist contract terms.xlsx"))),
-    )
+    await readWorkbook(new Uint8Array(await readFile(join(sources, "Comparison table.xlsx"))))
   ).sheets;
   const at = (cells: { row: number; column: number; value: string }[] | undefined, row: number) =>
     cells?.find((cell) => cell.row === row && cell.column === 1)?.value;
