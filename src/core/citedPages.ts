@@ -37,7 +37,7 @@ import {
 import type { BackgroundCall, BackgroundJob, BackgroundQueue } from "./backgroundQueue";
 import { hashFile, isGone } from "./documents/files";
 import type { createVersionRetention } from "./documents/retention";
-import { InvalidInputError, isRecord } from "./errors";
+import { InvalidInputError, isRecord, NotFoundError } from "./errors";
 import type { Database } from "./storage";
 
 /** The data folder's folder of cited pages' pictures, each `<id>.png` or `<id>.jpg`. */
@@ -194,10 +194,18 @@ function reasonOf(error: unknown): string {
 }
 
 /**
- * The file doesn't have the version cited, or didn't keep it while its page was drawn: the page
- * waits for that version, and no drawing failed.
+ * The file doesn't have the version cited, isn't there, or didn't keep the version while its
+ * page was drawn: the page waits for that version, and no drawing failed.
  */
 class NotTheVersionCited extends Error {}
+
+/** A file found not there is one without the version cited (#2161): the Library may not know yet. */
+function fileGone(error: unknown): never {
+  if (error instanceof NotFoundError || isGone(error)) {
+    throw new NotTheVersionCited("The Document's file isn't there.", { cause: error });
+  }
+  throw error;
+}
 
 export interface CitedPagesOptions {
   db: Database;
@@ -227,6 +235,8 @@ export function createCitedPages(options: CitedPagesOptions) {
   const lifetime = new AbortController();
   /** The turn in the background queue, while one is queued or running. */
   let turn: BackgroundJob | null = null;
+  /** The page being drawn, and whether a Citation of its Location was made meanwhile. */
+  let drawing: { id: string; citedAgain: boolean } | null = null;
   /**
    * Pages not drawn again in this run, as their file lacks the version cited or their drawing
    * failed: each waits for a later chance.
@@ -252,7 +262,7 @@ export function createCitedPages(options: CitedPagesOptions) {
     if (document.contentHash !== row.content_hash) {
       throw new NotTheVersionCited("The Document changed since it was cited.");
     }
-    const path = await options.filePath(row.document_id);
+    const path = await options.filePath(row.document_id).catch(fileGone);
     if (document.kind === "pdf") {
       const pages = Array.from(
         { length: row.page_to - row.page_from + 1 },
@@ -263,8 +273,8 @@ export function createCitedPages(options: CitedPagesOptions) {
     const capture = options.capturePage;
     if (!capture) throw new Error("This copy of IncarnaMind can't draw cited pages.");
     // The viewer reads the file as it is on disk, so it must be the version cited throughout.
-    const before = await stat(path);
-    if ((await hashFile(path)).contentHash !== row.content_hash) {
+    const before = await stat(path).catch(fileGone);
+    if ((await hashFile(path).catch(fileGone)).contentHash !== row.content_hash) {
       throw new NotTheVersionCited("The Document changed since it was cited.");
     }
     const area = parseArea(row.area);
@@ -272,7 +282,7 @@ export function createCitedPages(options: CitedPagesOptions) {
       { document, pageFrom: row.page_from, pageTo: row.page_to, area },
       signal,
     );
-    const after = await stat(path);
+    const after = await stat(path).catch(fileGone);
     if (after.size !== before.size || after.mtimeMs !== before.mtimeMs) {
       throw new NotTheVersionCited("The Document changed while its page was drawn.");
     }
@@ -320,20 +330,23 @@ export function createCitedPages(options: CitedPagesOptions) {
    * have failed. One whose file didn't have the version cited isn't counted.
    */
   function notSaved(row: Row, error: unknown): void {
-    const tries = error instanceof NotTheVersionCited ? row.tries : row.tries + 1;
+    const counted = !(error instanceof NotTheVersionCited);
+    // Counted where it is stored: a Citation made during the drawing set the count back.
+    const stored = counted
+      ? db.get<{ tries: number }>(
+          `UPDATE cited_pages SET tries = tries + 1, updated_at = ?
+           WHERE id = ? AND deleted_at IS NULL RETURNING tries`,
+          [now(), row.id],
+        )
+      : db.get<{ tries: number }>("SELECT tries FROM cited_pages WHERE id = ?", [row.id]);
+    const tries = stored?.tries ?? row.tries;
     log.warn("citedPage.notSaved", {
       documentId: row.document_id,
       reason: reasonOf(error),
       tries,
       lasting: tries >= MAX_TRIES,
     });
-    resting.add(row.id);
-    if (tries === row.tries) return;
-    db.run("UPDATE cited_pages SET tries = ?, updated_at = ? WHERE id = ? AND deleted_at IS NULL", [
-      tries,
-      now(),
-      row.id,
-    ]);
+    if (!drawing?.citedAgain) resting.add(row.id);
   }
 
   /** Draws and saves the page that has waited longest: one turn in the background queue. */
@@ -352,6 +365,7 @@ export function createCitedPages(options: CitedPagesOptions) {
     }
     // It is drawn on this computer: an Answer that starts comes first, and this goes again after.
     call.runsLocally();
+    drawing = { id: row.id, citedAgain: false };
     try {
       const page = checked(await draw(row, call.signal));
       if (lifetime.signal.aborted) return;
@@ -362,6 +376,8 @@ export function createCitedPages(options: CitedPagesOptions) {
     } catch (error) {
       if (lifetime.signal.aborted || call.gaveWay) return;
       notSaved(row, error);
+    } finally {
+      drawing = null;
     }
   }
 
@@ -431,6 +447,7 @@ export function createCitedPages(options: CitedPagesOptions) {
                 [at, known.id],
               );
               resting.delete(known.id);
+              if (drawing?.id === known.id) drawing.citedAgain = true;
               added = true;
             }
             continue;

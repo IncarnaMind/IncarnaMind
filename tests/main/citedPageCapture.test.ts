@@ -174,13 +174,16 @@ test("a page that didn't grow is pictured without waiting for a frame", async ()
   await expect(drawing).resolves.toMatchObject({ type: "image/png" });
 });
 
-// protects=a picture the compositor drops is asked for again, and the log keeps the failed attempt apart from the one that worked (#2161); fails_when=one dropped picture loses the page; no_claim=why the compositor dropped it.
-test("a picture the compositor drops is asked for again, and the log says so", async () => {
+// protects=a picture the compositor drops is asked for again once a frame of the surface that replaced it is painted, and the log keeps the failed attempt apart from the one that worked (#2161); fails_when=one dropped picture loses the page, or the next is asked for of the surface still being replaced; no_claim=why the compositor dropped it.
+test("a picture the compositor drops is asked for again after the next frame, and the log says so", async () => {
   const drawing = draw();
   drawn(400);
   await vi.advanceTimersByTimeAsync(1_000);
   electron.drop();
-  await vi.advanceTimersByTimeAsync(0);
+  await vi.advanceTimersByTimeAsync(5_000);
+  expect(electron.contents.capturePage).toHaveBeenCalledTimes(1);
+  electron.paint(677);
+  await vi.advanceTimersByTimeAsync(1_000);
   expect(electron.contents.capturePage).toHaveBeenCalledTimes(2);
   electron.give();
 
@@ -197,6 +200,19 @@ test("a picture the compositor drops is asked for again, and the log says so", a
   ]);
 });
 
+// protects=a frame painted while the dropped picture was on its way counts as the new surface's, so the next picture needs no further frame (#2161); fails_when=a page that stopped changing waits for a frame that never comes, until the drawing's time is up; no_claim=which surface the frame is of.
+test("a picture dropped after a frame was painted is asked for again without another", async () => {
+  const drawing = draw();
+  drawn(400);
+  await vi.advanceTimersByTimeAsync(1_000);
+  electron.paint(677);
+  electron.drop();
+  await vi.advanceTimersByTimeAsync(1_000);
+  expect(electron.contents.capturePage).toHaveBeenCalledTimes(2);
+  electron.give();
+  await expect(drawing).resolves.toMatchObject({ type: "image/png" });
+});
+
 // protects=pictures the compositor keeps dropping are asked for three times, then the drawing fails for the core to try later; fails_when=a compositor that never gives a picture keeps the drawing asking until its time is up, or for ever; no_claim=when the core tries again.
 test("a picture dropped three times fails the drawing, and no more is asked for", async () => {
   const drawing = draw();
@@ -206,6 +222,8 @@ test("a picture dropped three times fails the drawing, and no more is asked for"
     expect(electron.contents.capturePage).toHaveBeenCalledTimes(attempt);
     electron.drop();
     await vi.advanceTimersByTimeAsync(0);
+    electron.paint(677);
+    await vi.advanceTimersByTimeAsync(1_000);
   }
   await expect(drawing).rejects.toThrow("UnknownVizError");
   await vi.advanceTimersByTimeAsync(10_000);

@@ -1948,12 +1948,10 @@ export const migrations: readonly Migration[] = [
     version: 113,
     description: "A cited page whose drawing failed waits to be drawn again (#2161)",
     sql: `
-      -- tries: how many drawings of the page failed (src/core/citedPages.ts). A failed one no
-      -- longer takes the row away: it waits, and is tried again at the next start, at another
-      -- Citation of its Location, or when its page is asked for, until 3 have failed; another
-      -- Citation starts the count again. A page a failed drawing took away before waits again,
-      -- the newest of its Location, unless one waits or is saved; the start-up clean-up lets
-      -- it go if nothing cites it.
+      -- tries counts a page's failed drawings, so one that keeps failing stops being tried on
+      -- its own (src/core/citedPages.ts). Pages a failed drawing deleted wait again, as their
+      -- version may still be drawn: the newest of a Location, which the unique index allows
+      -- only where none waits or is saved; the start-up clean-up removes those nothing cites.
       ALTER TABLE cited_pages ADD COLUMN tries INTEGER NOT NULL DEFAULT 0;
       UPDATE cited_pages
       SET deleted_at = NULL, tries = 1, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')

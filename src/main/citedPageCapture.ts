@@ -245,6 +245,7 @@ export function createCitedPageCapture({
               return;
             }
             events.pictures++;
+            const paintsAsked = events.paints;
             contents
               .capturePage(rect, { stayHidden: true })
               .then((picture) => {
@@ -274,8 +275,14 @@ export function createCitedPageCapture({
                   attempt: events.failed,
                   reason: messageOf(error),
                 });
-                if (events.failed < CAPTURE_TRIES) take();
-                else finish({ error });
+                if (events.failed >= CAPTURE_TRIES) {
+                  finish({ error });
+                  return;
+                }
+                // A dropped picture's surface was replaced: the next is asked for once a frame of
+                // the new one is painted, which may have come already (#2161).
+                if (events.paints > paintsAsked) take();
+                else onFrame = take;
               });
           };
           take();

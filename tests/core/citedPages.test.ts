@@ -5,7 +5,7 @@
  * background without slowing an Answer.
  */
 import { existsSync, readdirSync, readFileSync } from "node:fs";
-import { mkdir, rm, writeFile } from "node:fs/promises";
+import { mkdir, rename, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { describe, expect, test, vi } from "vitest";
 import {
@@ -723,6 +723,55 @@ describe("The cited page, saved when a Citation is made", { timeout: 60_000 }, (
         },
       },
       { event: "citedPage.saved", fields: { documentId: documents[0]?.id, tries: 2 } },
+    ]);
+  });
+
+  test("a page whose file is moved away before the Library notices waits, counts no failure, and is drawn when the file is back", async () => {
+    const viewer = fakeViewer();
+    const logged = keptLog();
+    const model = citingModel({
+      query: "spring tides",
+      records: (passages) => [
+        { marker: 1, passage: passages[0]?.id ?? "none", location: "§ Tides", quote: SPRING },
+      ],
+      answer: "Spring tides come at new and full moon [^1].",
+    });
+    viewer.fail(1);
+    const { core, client, mind, dataDir, documents } = await setUpWithDocuments(
+      model,
+      [{ name: "Notes.md", contents: `# Tides\n\n${SPRING}\n` }],
+      { capturePage: viewer.capturePage, log: logged.log },
+    );
+    const [document] = documents;
+    if (!document?.path) throw new Error("Nothing was added.");
+    const { answerId } = await askAndFinish(core, client, mind.id, "When are spring tides?");
+    const [citation] = citationsIn(client, answerId);
+    if (!citation) throw new Error("Nothing was cited.");
+    await vi.waitFor(() => expect(liveRows(dataDir)).toMatchObject([{ tries: 1 }]));
+
+    // Moved away, then its page asked for, as an export does, before the Library has noticed.
+    const moved = `${document.path}.moved`;
+    await rename(document.path, moved);
+    expect(await core.citedPageImage(citation)).toBeNull();
+    await vi.waitFor(() => expect(logged.of("citedPage.notSaved")).toHaveLength(2));
+    expect(logged.of("citedPage.notSaved").at(-1)?.fields).toMatchObject({
+      reason: "The Document's file isn't there.",
+      tries: 1,
+      lasting: false,
+    });
+    expect(viewer.asked).toHaveLength(1);
+    expect(liveRows(dataDir)).toMatchObject([{ image_type: null, tries: 1 }]);
+
+    // Back, with the version cited: drawn at the next start, from that version.
+    await rename(moved, document.path);
+    await core.reconcileDocuments();
+    await waitForDocuments(core, (listed) => expect(listed[0]?.fileStatus).toBe("available"));
+    core.close();
+    const again = startCore(dataDir, { capturePage: viewer.capturePage });
+    expect((await savedPage(again, citation)).type).toBe("image/png");
+    expect(viewer.asked.map((request) => request.document.contentHash)).toEqual([
+      document.contentHash,
+      document.contentHash,
     ]);
   });
 
