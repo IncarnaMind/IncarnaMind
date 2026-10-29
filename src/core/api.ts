@@ -8445,8 +8445,6 @@ export interface ExportPreferences {
   theirChanges?: TheirChangesShown;
   /** Where Word and PDF put a Numbered Mind's Citations. Absent until an export writes them: footnotes, and that choice is then saved. */
   citationPlace?: CitationPlace;
-  /** Word's check comments in a Mind made by Verify from someone else's file (#110). Absent: off. */
-  commentOthersFiles?: boolean;
 }
 
 export interface SharePagePreferences {
@@ -8518,16 +8516,10 @@ export interface ExportMindOptions {
    * Word only: a Citation whose check failed (its quote wasn't found, or its
    * claim is unsupported or contradicted), and a sentence checked
    * Contradicted, Unsupported or Needs re-check, gets a comment by
-   * IncarnaMind saying so. Absent: off. For a Mind made by Verify from someone
-   * else's file, `commentOthersFiles` says instead.
+   * IncarnaMind saying so. Absent: off. A Mind made by Verify from someone
+   * else's file keeps its own choice instead (`setCheckComments`).
    */
   commentFailedChecks?: boolean;
-  /**
-   * Word only, for a Mind made by Verify from someone else's file (#110): `commentFailedChecks`
-   * for it. Its comments quote the User's Documents and name them, in a file that goes back to
-   * the other side. Absent: off.
-   */
-  commentOthersFiles?: boolean;
   /**
    * A web page to share only: each Citation's marker opens a card with
    * its quote, the part of its Document around it, and its check. Off, the
@@ -8577,8 +8569,10 @@ export interface MindExportPreview {
   citationPlace: CitationPlace | null;
   /** Whether a Word file marks the text IncarnaMind wrote (#107), for the Saved line (#1945); null for a format that can't mark it. */
   markAiText: boolean | null;
-  /** The Mind was made by Verify from someone else's file (#110): `commentOthersFiles` is its comments' choice. */
+  /** The Mind was made by Verify from someone else's file (#110): its Word file is named after the original, and its comments are its own choice. */
   othersFile: boolean;
+  /** For someone else's file: whether its Word export gets check comments (`setCheckComments`); false otherwise. */
+  othersComments: boolean;
 }
 
 /** The sentences an export holds whose check isn't good, by result (`MindExport.sentenceChecks`). */
@@ -11023,6 +11017,26 @@ export interface CoreApi {
    */
   saveMindExport(mindId: string, options: ExportMindOptions): Promise<SavedMindExport>;
   /**
+   * Writes a Mind's export again into the file `saveMindExport` saved at `path` since the app
+   * started, in place, as it would be written now: for a choice changed under its Saved line, so
+   * no second copy sits beside the first (#110). The bytes it replaces are kept for
+   * `restoreMindExport`. Throws InvalidInputError for a path this session didn't save.
+   */
+  rewriteMindExport(
+    mindId: string,
+    options: ExportMindOptions,
+    path: string,
+  ): Promise<SavedMindExport>;
+  /** Puts back the bytes the last `rewriteMindExport` of `path` replaced: its Undo (#110). */
+  restoreMindExport(path: string): Promise<void>;
+  /**
+   * For a Mind made by Verify from someone else's file (#110): whether its Word export gets
+   * comments on what needs a look. Off until the User turns it on, for this Note only, as its
+   * comments quote the User's Documents in a file that goes back to its author. Throws
+   * InvalidInputError for a Mind that verifies nothing.
+   */
+  setCheckComments(mindId: string, on: boolean): Promise<void>;
+  /**
    * Saves a record of what was checked in a Mind (#738) into the Output location, as
    * `saveMindExport` does, as a PDF and a CSV side by side under one name: each checked sentence
    * and each Citation with its result, the Document version, the model and the time. Nothing is
@@ -11762,6 +11776,9 @@ const methods: Record<CoreApiMethod, true> = {
   previewSharePage: true,
   setSharePageTextOnly: true,
   saveMindExport: true,
+  rewriteMindExport: true,
+  restoreMindExport: true,
+  setCheckComments: true,
   saveCheckRecord: true,
   saveComparisonExport: true,
   formatCitations: true,

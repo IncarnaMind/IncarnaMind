@@ -6,7 +6,7 @@
  * result as a Word comment naming the evidence Document and page, the file's own comments and
  * changes as they were, in a package Word opens without repairing.
  */
-import { copyFile, mkdir, writeFile } from "node:fs/promises";
+import { copyFile, mkdir, readdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { JSONContent } from "@tiptap/core";
 import { describe, expect, test } from "vitest";
@@ -32,6 +32,7 @@ import {
   DANA,
   DIFFERS,
   NOT_FOUND,
+  REPORT,
   verifyRequest as request,
   SUPPORTED,
   setUpWordVerify as setUp,
@@ -63,7 +64,8 @@ async function checkedReport(calls?: ModelCall[], language: "en" | "zh-CN" = "en
 
 /** The export into the file, its parts, and each comment's words with the words its range holds. */
 async function exported(core: Core, mindId: string) {
-  const result = await core.exportMind(mindId, { format: "docx", commentOthersFiles: true });
+  await core.setCheckComments(mindId, true);
+  const result = await core.exportMind(mindId, { format: "docx", commentFailedChecks: true });
   const files = unzip(result.data);
   const part = (name: string) => files.get(name)?.toString("utf8") ?? "";
   const document = part("word/document.xml");
@@ -96,6 +98,7 @@ describe("Verify a Word file someone else wrote", () => {
       documentName: "Harbour report",
       pages: {},
       claims: null,
+      comments: false,
     });
     // Kept to export back into, its original the Document it verifies.
     expect(wordFileOf(client.doc)).toMatchObject({ name: "Harbour report.docx", documentId });
@@ -237,27 +240,87 @@ describe("the verified file and its copies are never evidence", () => {
 });
 
 describe("check comments in someone else's file", () => {
-  test("are off by default, as the file goes back to them, and on once asked; the User's own Notes keep theirs on", async () => {
-    const { core, mind } = await checkedReport();
+  test("are off by default, as the file goes back to them, and on for one Note only: the next file from someone else starts off; the User's own Notes keep theirs on", async () => {
+    const { core, mind, sources } = await checkedReport();
+    const word = { format: "docx", commentFailedChecks: true } as const;
 
-    const plain = await core.exportMind(mind.id, { format: "docx", commentFailedChecks: true });
-    expect(plain.othersFile).toBe(true);
+    const plain = await core.exportMind(mind.id, word);
+    expect(plain).toMatchObject({ othersFile: true, othersComments: false });
     expect(plain.sentenceChecks).toMatchObject({ commented: false, comments: 0, contradicted: 1 });
     const comments = unzip(plain.data).get("word/comments.xml")?.toString("utf8") ?? "";
     expect(comments).toContain(DANA.comment);
     expect(comments).not.toContain('w:author="IncarnaMind"');
 
-    const asked = await core.exportMind(mind.id, { format: "docx", commentOthersFiles: true });
-    expect(asked.sentenceChecks).toMatchObject({ commented: true, comments: 3 });
+    await core.setCheckComments(mind.id, true);
+    const asked = await core.exportMind(mind.id, word);
+    expect(asked).toMatchObject({ othersComments: true, sentenceChecks: { comments: 3 } });
 
-    // The User's own Note: its switch, on by default, and the other one doesn't apply.
-    const own = await core.createMind({ title: "My memo" });
-    const ownExport = await core.exportMind(own.id, {
-      format: "docx",
-      commentFailedChecks: true,
-      commentOthersFiles: false,
+    // A second file from someone else, verified after: its comments are off, as the first's were.
+    const other = join(sources, "Second report.docx");
+    await writeFile(other, REPORT);
+    const second = await verified(core, other);
+    await core.findClaims(request(second.mind.id));
+    await core.verifyClaims(request(second.mind.id));
+    expect(await core.exportMind(second.mind.id, word)).toMatchObject({
+      othersComments: false,
+      sentenceChecks: { commented: false, comments: 0 },
     });
-    expect(ownExport).toMatchObject({ othersFile: false, sentenceChecks: { commented: true } });
+    expect((await core.exportMind(mind.id, word)).sentenceChecks.comments).toBe(3);
+
+    // The User's own Note keeps its own switch, and has no Note's choice to set.
+    const own = await core.createMind({ title: "My memo" });
+    expect(await core.exportMind(own.id, word)).toMatchObject({
+      othersFile: false,
+      sentenceChecks: { commented: true },
+    });
+    await expect(core.setCheckComments(own.id, true)).rejects.toThrow(
+      "This note doesn’t verify a document.",
+    );
+  });
+
+  test("its file is named after the original, and Comment writes that same file again, which Undo puts back byte for byte", async () => {
+    const { core, mind, sources } = await checkedReport();
+    const out = join(sources, "Exports");
+    await mkdir(out);
+    await core.setOutputLocation(out);
+    const word = { format: "docx", commentFailedChecks: true } as const;
+
+    const first = await core.saveMindExport(mind.id, word);
+    if (first.status !== "saved") throw new Error(first.status);
+    expect(first.file.name).toBe("Harbour report.docx");
+    const plain = await readFile(first.file.path);
+
+    await core.setCheckComments(mind.id, true);
+    const again = await core.rewriteMindExport(mind.id, word, first.file.path);
+    if (again.status !== "saved") throw new Error(again.status);
+    expect(again.file.path).toBe(first.file.path);
+    expect(again.sentenceChecks).toMatchObject({ commented: true, comments: 3 });
+    const commented = await readFile(first.file.path);
+    expect(unzip(commented).get("word/comments.xml")?.toString("utf8")).toContain(
+      'w:author="IncarnaMind"',
+    );
+    expect(await readdir(out)).toEqual(["Harbour report.docx"]);
+
+    await core.setCheckComments(mind.id, false);
+    await core.restoreMindExport(first.file.path);
+    expect(Buffer.compare(await readFile(first.file.path), plain)).toBe(0);
+
+    await core.setCheckComments(mind.id, true);
+    await core.rewriteMindExport(mind.id, word, first.file.path);
+    expect(
+      unzip(await readFile(first.file.path))
+        .get("word/comments.xml")
+        ?.toString("utf8"),
+    ).toContain('w:author="IncarnaMind"');
+    expect(await readdir(out)).toEqual(["Harbour report.docx"]);
+
+    // A fresh export takes the next free name; the original is never touched.
+    const fresh = await core.saveMindExport(mind.id, word);
+    expect(fresh.status === "saved" && fresh.file.name).toBe("Harbour report 2.docx");
+    expect(Buffer.compare(await readFile(join(sources, "Harbour report.docx")), REPORT)).toBe(0);
+    await expect(
+      core.rewriteMindExport(mind.id, word, join(sources, "Harbour report.docx")),
+    ).rejects.toThrow();
   });
 
   test("a table row checked as one claim gets one comment over the whole row", async () => {

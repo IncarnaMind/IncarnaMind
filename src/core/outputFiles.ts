@@ -16,7 +16,7 @@
  */
 import { randomUUID } from "node:crypto";
 import { constants } from "node:fs";
-import { access, mkdir, realpath, stat } from "node:fs/promises";
+import { access, mkdir, readFile, realpath, stat } from "node:fs/promises";
 import { extname, isAbsolute, join } from "node:path";
 import type {
   FileWriteRequest,
@@ -35,7 +35,7 @@ import {
   NotFoundError,
 } from "./errors";
 import type { createEventHub } from "./events";
-import { removeStalePartials, safeFileName, writeNewFile } from "./fileNames";
+import { removeStalePartials, replaceFile, safeFileName, writeNewFile } from "./fileNames";
 import type { SettingsStore } from "./settings";
 import type { Database } from "./storage";
 
@@ -145,7 +145,7 @@ export function createOutputFiles(options: OutputFilesOptions) {
   const { db, events, now, settings } = options;
   const pending = new Map<string, Pending>();
   /** Files saved since the core started: the only ones the window may ask to show. */
-  const saved = new Set<string>();
+  const saved = new Map<string, SavedFile>();
 
   const location = (): string | null => {
     const value = settings.readDeviceValue(OUTPUT_LOCATION);
@@ -401,15 +401,38 @@ export function createOutputFiles(options: OutputFilesOptions) {
           changed();
         }
         const path = join(folder, used);
-        saved.add(path);
         const inDefaultFolder =
           defaulted ||
           (await realFolder(options.suggested).then(
             (real) => real === folder,
             () => false,
           ));
-        return { path, name: used, folder, defaulted, inDefaultFolder };
+        const made = { path, name: used, folder, defaulted, inDefaultFolder };
+        saved.set(path, made);
+        return made;
       }
+    },
+
+    /**
+     * Writes a file this session saved again, in place (#110), its fingerprint recorded first as
+     * a new file's is. Returns the file and the bytes it held. Throws InvalidInputError for any
+     * other path.
+     */
+    async rewrite(
+      path: unknown,
+      data: Uint8Array,
+      ownFile: OwnFileKind | null,
+    ): Promise<{ file: SavedFile; before: Uint8Array }> {
+      const file = typeof path === "string" ? saved.get(path) : undefined;
+      if (!file) {
+        throw new InvalidInputError(
+          "Only a file IncarnaMind saved since it started is written again.",
+        );
+      }
+      const before = new Uint8Array(await readFile(file.path));
+      if (ownFile) options.recordOwnFile(data, ownFile);
+      await replaceFile(file.path, data);
+      return { file: { ...file, defaulted: false }, before };
     },
 
     /** Whether IncarnaMind saved this file since it started. */

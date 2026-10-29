@@ -371,6 +371,7 @@ export function createVerify(options: VerifyOptions) {
         documentName: name,
         pages: {},
         claims: null,
+        comments: false,
       });
     });
     if (!(await options.wordWritten(made.mind.id))) {
@@ -442,6 +443,7 @@ export function createVerify(options: VerifyOptions) {
           documentName: name,
           pages,
           claims: null,
+          comments: false,
         });
       });
       return { ok: true, mind, documentId: document.id };

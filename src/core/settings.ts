@@ -112,13 +112,9 @@ const SHARE_PAGE_DEFAULTS: SharePagePreferences = {
  */
 const isExportPreferences = (value: unknown): value is ExportPreferences => {
   if (!isRecord(value)) return false;
-  const later = [
-    "html",
-    "share-page",
-    "theirChanges",
-    "citationPlace",
-    "commentOthersFiles",
-  ].filter((key) => Object.hasOwn(value, key));
+  const later = ["html", "share-page", "theirChanges", "citationPlace"].filter((key) =>
+    Object.hasOwn(value, key),
+  );
   return (
     hasOnly(value, ["format", "docx", "pdf", ...later]) &&
     EXPORT_FORMATS.some((format) => format === value.format) &&
@@ -130,8 +126,7 @@ const isExportPreferences = (value: unknown): value is ExportPreferences => {
       value.theirChanges === "shown" ||
       value.theirChanges === "accepted") &&
     (!Object.hasOwn(value, "citationPlace") ||
-      CITATION_PLACES.some((place) => place === value.citationPlace)) &&
-    (!Object.hasOwn(value, "commentOthersFiles") || isBoolean(value.commentOthersFiles))
+      CITATION_PLACES.some((place) => place === value.citationPlace))
   );
 };
 

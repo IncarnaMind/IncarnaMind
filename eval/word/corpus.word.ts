@@ -289,9 +289,10 @@ describe("the Word corpus", () => {
       const { mind } = await verifyWordFile(core, report);
       await core.findClaims(verifyRequest(mind.id));
       await core.verifyClaims(verifyRequest(mind.id));
+      await core.setCheckComments(mind.id, true);
       const exported = await core.exportMind(mind.id, {
         format: "docx",
-        commentOthersFiles: true,
+        commentFailedChecks: true,
       });
       expect((await inspectPackage(exported.data)).problems).toEqual([]);
       expect(exported.sentenceChecks).toMatchObject({ contradicted: 1, commented: true });

@@ -44,6 +44,7 @@ import { RESEARCH_TASK } from "../shared/research";
 import { hasSearchScope, holdsText, mindSearchScope, type ScopeKind } from "../shared/searchScope";
 import { SPEAKER_ME, SPEAKER_THEM } from "../shared/speakers";
 import { setUnreadFileNames } from "../shared/unreadFiles";
+import { readVerification, writeVerification } from "../shared/verification";
 import { wordFileOf } from "../shared/wordFiles";
 import { logActivity, silentLogger } from "./activityLog";
 import type { CoreAdapters } from "./adapters";
@@ -99,6 +100,7 @@ import {
   type Meeting,
   type MeetingHelpKind,
   MIND_CONTENT_FIELD,
+  MIND_SETTINGS_FIELD,
   type Mind,
   type MindCitationStyle,
   type MindContentSnapshot,
@@ -2307,6 +2309,30 @@ export function createCore(adapters: CoreAdapters): Core {
   });
   const ownFileOf = (options: ExportMindOptions): OwnFileKind =>
     options.format === "source-pack" ? "source-pack" : "export";
+  /** The bytes each export written again replaced, by its path, for its Undo (#110). */
+  const rewrittenExports = new Map<string, Uint8Array>();
+  /**
+   * Sent as Word or PDF (#1933): History keeps the Note as it went, with the file's name. False
+   * when it couldn't, which the result line says; the file is saved all the same.
+   */
+  const keepSent = (
+    mindId: string,
+    options: ExportMindOptions,
+    name: string,
+    read: NonNullable<ReturnType<typeof content.storedState>>,
+  ): boolean => {
+    if (options.format !== "docx" && options.format !== "pdf") return true;
+    try {
+      checkpoints.sent(mindId, name, read);
+      return true;
+    } catch (error) {
+      console.error(
+        `export: History couldn't keep Mind ${mindId} as it was sent as ${name}`,
+        error,
+      );
+      return false;
+    }
+  };
   /**
    * Keeps where Citations went and whether a Word file marks AI text, the first time an export
    * settles them, so Export options and the next file say the choice rather than the default
@@ -4832,6 +4858,44 @@ export function createCore(adapters: CoreAdapters): Core {
       }
       return exported;
     },
+    rewriteMindExport: async (mindId, options, path) => {
+      const read = typeof mindId === "string" ? content.storedState(mindId) : null;
+      const {
+        fileName: _name,
+        fromWord: _,
+        theirChanges: _waiting,
+        data,
+        word,
+        ...counts
+      } = await mindExports.export(mindId, options);
+      const accepted = new Set(Array.isArray(options?.accept) ? options.accept : []);
+      if (word?.notKept.some((loss) => !accepted.has(loss.key))) return { status: "review", word };
+      const { file, before } = await outputs.rewrite(path, data, ownFileOf(options));
+      rewrittenExports.set(file.path, before);
+      const sentKept = read === null || keepSent(mindId as string, options, file.name, read);
+      return { status: "saved", file, ...counts, word, sentKept };
+    },
+    restoreMindExport: async (path) => {
+      const before = typeof path === "string" ? rewrittenExports.get(path) : undefined;
+      if (!before)
+        throw new InvalidInputError(
+          "That file wasn't written again, so there is nothing to put back.",
+        );
+      await outputs.rewrite(path, before, null);
+      rewrittenExports.delete(path);
+    },
+    setCheckComments: async (mindId, on) => {
+      const mind = writableMind(mindId);
+      if (typeof on !== "boolean") throw new InvalidInputError("on must be true or false.");
+      const verifying = content.edit(mind.id, (blocks) => {
+        const settings = blocks.doc?.getMap<unknown>(MIND_SETTINGS_FIELD);
+        const now = settings && readVerification(settings);
+        if (!settings || !now) return false;
+        if (now.comments !== on) writeVerification(settings, { ...now, comments: on });
+        return true;
+      });
+      if (!verifying) throw new InvalidInputError({ key: "error.verify.notVerifying" });
+    },
     saveMindExport: async (mindId, options) => {
       // The export reads the Note before its first await, so this is the text the file holds,
       // whatever the User writes while it is made.
@@ -4854,20 +4918,7 @@ export function createCore(adapters: CoreAdapters): Core {
         ownFileOf(options),
       );
       if (saved.status !== "saved") return saved;
-      // Sent as Word or PDF (#1933): History keeps the Note as it went, with the file's name.
-      let sentKept = true;
-      if (read && (options.format === "docx" || options.format === "pdf")) {
-        try {
-          checkpoints.sent(mindId, saved.file.name, read);
-        } catch (error) {
-          // The file is saved all the same: the result line says History couldn't keep it.
-          sentKept = false;
-          console.error(
-            `export: History couldn't keep Mind ${mindId} as it was sent as ${saved.file.name}`,
-            error,
-          );
-        }
-      }
+      const sentKept = read === null || keepSent(mindId as string, options, saved.file.name, read);
       await rememberExportChoices(counts, null);
       return { ...saved, ...counts, word, sentKept };
     },

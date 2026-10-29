@@ -53,6 +53,14 @@ export function checkComments(
     : t("export.checkComments", { count: checks.comments });
 }
 
+/** The undo line of a file written again with its check comments added or taken out (#110). */
+export function rewrittenLine(t: Translate, added: boolean, count: number, name: string): string {
+  if (!added) return t("export.rewritten.removed", { name });
+  return count === 1
+    ? t("export.rewritten.added.one", { name })
+    : t("export.rewritten.added", { count, name });
+}
+
 /** The comment switch's hint: what it covers, or, on for someone else's file, what its comments give away (#110). */
 export const commentsHint = (othersChecked: boolean | null): MessageKey =>
   othersChecked ? "export.commentFailedChecks.hint.others" : "export.commentFailedChecks.hint";

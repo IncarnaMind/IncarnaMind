@@ -169,6 +169,9 @@ const EXTENSIONS: Readonly<Record<ExportFormat, string>> = {
  * mark a sentence does.
  */
 function exportName(mind: Mind, blocks: Y.XmlFragment): string {
+  // Someone else's file goes back to its author under its own name (#110).
+  const verified = blocks.doc ? verificationOf(blocks.doc) : null;
+  if (verified?.documentName) return verified.documentName;
   if (mind.title !== "") return mind.title;
   const { line, question } = namedLineOf(blocks);
   return withoutTrailingMarks(question || line);
@@ -288,7 +291,7 @@ export function createExports(deps: ExportsDependencies) {
       word,
       theirChanges,
       trackedChanges,
-      othersFile,
+      othersComments,
     } = deps.read(mind.id, (fragment) => {
       const { doc } = fragment;
       name = exportName(mind, fragment);
@@ -330,12 +333,13 @@ export function createExports(deps: ExportsDependencies) {
           : 0,
         trackedChanges:
           format === "docx" && review ? waiting.filter((each) => !review.skips(each.id)).length : 0,
-        othersFile: doc !== null && verificationOf(doc) !== null,
+        othersComments: doc ? (verificationOf(doc)?.comments ?? null) : null,
       };
     });
     // Someone else's file goes back to them: comments that quote the User's Documents only when asked.
+    const othersFile = othersComments !== null;
     const options: Required<ExportMindOptions> = othersFile
-      ? { ...parsed, commentFailedChecks: parsed.commentOthersFiles }
+      ? { ...parsed, commentFailedChecks: othersComments }
       : parsed;
     const shown = withoutEmptyTitle(read);
     const withUnread = [...shown, ...unreadBlocks(unread, language, unreadNames)];
@@ -371,6 +375,7 @@ export function createExports(deps: ExportsDependencies) {
       citationPlace: listedPlace,
       markAiText: format === "docx" ? options.markAiText === true : null,
       othersFile,
+      othersComments: othersComments === true,
     };
     const failed = new Map<string, FailedSentence>();
     for (const { sentence } of piecesOf(blocks)) if (sentence) failed.set(sentence.id, sentence);
@@ -908,13 +913,7 @@ function parseExportOptions(input: unknown): Required<ExportMindOptions> {
   if (!isRecord(input)) throw new InvalidInputError("Export options must be an object.");
   const { format, includeQuestions, accept, theirChanges, citationPlace } = input;
   const choice = (
-    name:
-      | "trackChanges"
-      | "markAiText"
-      | "commentFailedChecks"
-      | "commentOthersFiles"
-      | "citationCards"
-      | "checkedLine",
+    name: "trackChanges" | "markAiText" | "commentFailedChecks" | "citationCards" | "checkedLine",
     absent = false,
   ) => {
     const value = input[name];
@@ -952,7 +951,6 @@ function parseExportOptions(input: unknown): Required<ExportMindOptions> {
     trackChanges: choice("trackChanges"),
     markAiText: choice("markAiText"),
     commentFailedChecks: choice("commentFailedChecks"),
-    commentOthersFiles: choice("commentOthersFiles"),
     citationCards: choice("citationCards", true),
     checkedLine: choice("checkedLine"),
     theirChanges: theirChanges ?? "shown",

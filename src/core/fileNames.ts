@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { link, open, readdir, rename, rm, stat } from "node:fs/promises";
-import { extname, join } from "node:path";
+import { dirname, extname, join } from "node:path";
 import { cutAtWord } from "../shared/naming";
 
 /** Longest a file name made from a title gets, before its extension. */
@@ -128,6 +128,26 @@ export async function writeNewFile(
       return candidate;
     }
     throw new Error(`Every name like "${name}" is taken in that folder.`);
+  } finally {
+    await rm(temporary, { force: true });
+  }
+}
+
+/**
+ * Replaces the file at `path` with `data`, written beside it first and then renamed over it, so a
+ * reader sees the old file or the new one, never part of either.
+ */
+export async function replaceFile(path: string, data: Uint8Array): Promise<void> {
+  const temporary = join(dirname(path), `.${randomUUID()}.partial`);
+  try {
+    const file = await open(temporary, "wx");
+    try {
+      await file.writeFile(data);
+      await file.sync();
+    } finally {
+      await file.close();
+    }
+    await rename(temporary, path);
   } finally {
     await rm(temporary, { force: true });
   }

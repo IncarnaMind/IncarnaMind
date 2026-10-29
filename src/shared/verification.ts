@@ -27,6 +27,11 @@ export interface Verification {
   pages: Readonly<Record<string, number>>;
   /** The sentences that make claims, once found; null before. */
   claims: readonly VerifiedClaim[] | null;
+  /**
+   * Whether its Word export gets comments on what needs a look (#110): off until the User turns
+   * it on for this Note, since they quote the User's Documents in a file that goes back.
+   */
+  comments: boolean;
 }
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
@@ -61,6 +66,7 @@ export function readVerification(settings: Y.Map<unknown>): Verification | null 
     documentName: typeof value.documentName === "string" ? value.documentName : "",
     pages: pagesOf(value.pages),
     claims: claimsOf(value.claims),
+    comments: value.comments === true,
   };
 }
 
@@ -82,6 +88,7 @@ export function writeVerification(settings: Y.Map<unknown>, verification: Verifi
     documentName: verification.documentName,
     pages: { ...verification.pages },
     claims: verification.claims ? verification.claims.map((each) => ({ ...each })) : null,
+    comments: verification.comments,
   });
 }
 

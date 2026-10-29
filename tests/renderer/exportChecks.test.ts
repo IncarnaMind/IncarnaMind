@@ -3,6 +3,7 @@ import type { SentenceChecksExported } from "../../src/core/api";
 import {
   checkComments,
   commentsHint,
+  rewrittenLine,
   trackedChanges,
   unmarkedChecks,
 } from "../../src/renderer/src/exportChecks";
@@ -50,6 +51,37 @@ describe("The line after saving, for what a file says of its checked sentences",
     const on = checks({ contradicted: 1, unsupported: 1, comments: 2 }, true);
     expect(checkComments(on, t("en"), true)).toBe("2 check comments");
     expect(checkComments(on, t("zh-CN"), true)).toBe("2 条核对批注");
+  });
+
+  test("the undo line of a file written again says what changed in it, one or more, in English and Chinese (#110)", () => {
+    const name = "Harbour report.docx";
+    expect(rewrittenLine(t("en"), true, 2, name)).toBe(
+      "Added 2 check comments to “Harbour report.docx”",
+    );
+    expect(rewrittenLine(t("zh-CN"), true, 2, name)).toBe(
+      "已在“Harbour report.docx”中添加 2 条核对批注",
+    );
+    expect(rewrittenLine(t("en"), true, 1, name)).toBe(
+      "Added 1 check comment to “Harbour report.docx”",
+    );
+    expect(rewrittenLine(t("zh-CN"), true, 1, name)).toBe(
+      "已在“Harbour report.docx”中添加 1 条核对批注",
+    );
+    expect(rewrittenLine(t("en"), false, 0, name)).toBe(
+      "Removed the check comments from “Harbour report.docx”",
+    );
+    expect(rewrittenLine(t("zh-CN"), false, 0, name)).toBe(
+      "已从“Harbour report.docx”中移除核对批注",
+    );
+  });
+
+  test("Change asks with what the comments give away, in English and Chinese", () => {
+    expect(t("en")("export.checkComments.ask")).toBe(
+      "Comment on what needs a look? Comments quote your Documents and name them.",
+    );
+    expect(t("zh-CN")("export.checkComments.ask")).toBe(
+      "为需要留意的说法添加批注？批注会引用你的文档原文并写出文档名。",
+    );
   });
 
   test("the switch's hint says what its comments give away only for someone else's file, while it is on", () => {

@@ -311,14 +311,10 @@ test("Verify a Word file: its Note opens beside the file with their change waiti
   await setLanguage(window, "en");
   await screenshot(window, "verify-word-saved-off-en");
 
-  // Change offers the comments; picked, the file is written again with them, and Undo is offered.
+  // Change offers the comments with what they give away; picked, the same file is written again.
   await pointAndClick(window, result.getByTestId("export-change"));
   await expect(result.getByTestId("export-comments-question")).toHaveText(
-    "Comment on what needs a look?",
-  );
-  // What the comments give away is said before either answer, and describes both.
-  await expect(result.getByTestId("export-comments-hint")).toHaveText(
-    "Comments quote your Documents and name them",
+    "Comment on what needs a look? Comments quote your Documents and name them.",
   );
   await expect(result.getByTestId("export-comments-add")).toHaveAccessibleDescription(
     /Comments quote your Documents and name them/,
@@ -326,17 +322,27 @@ test("Verify a Word file: its Note opens beside the file with their change waiti
   await pointAndClick(window, result.getByTestId("export-comments-add"));
   await expect(part).toHaveText("2 check comments");
   await expect(window.getByTestId("undo-message")).toHaveText(
-    "Someone else’s Word files now get check comments",
+    "Added 2 check comments to “Harbour report.docx”",
   );
+  expect(await readdir(output)).toEqual(["Harbour report.docx"]);
   const commented = await saved();
   expect(commented.comments).toContain("Please confirm the source.");
   expect(commented.comments).toMatch(/Contradicted: .*Tides, p\. 2\)/);
   await screenshot(window, "verify-word-saved-on-en");
 
-  // On, its switch in Export options says what the comments give away.
+  // Undo puts the file back as it was, and the line says the comments are off again.
+  await pointAndClick(window, window.getByTestId("undo-action"));
+  await expect(part).toHaveText("Check comments off");
+  expect(await readdir(output)).toEqual(["Harbour report.docx"]);
+  expect((await saved()).comments).toBe("Please confirm the source.");
+
+  // Export options: this Note's switch, off; turned on, its hint says what the comments give away.
   await openExportOptions(window);
   const sheet = window.getByTestId("export-dialog");
-  await expect(sheet.getByTestId("export-comment-failed-checks")).toBeChecked();
+  const comments = sheet.getByTestId("export-comment-failed-checks");
+  await expect(comments).not.toBeChecked();
+  await expect(sheet).not.toContainText("Comments quote your Documents and name them");
+  await comments.click();
   await expect(sheet).toContainText("Comments quote your Documents and name them");
   await screenshot(window, "verify-word-options-en");
   await window.keyboard.press("Escape");

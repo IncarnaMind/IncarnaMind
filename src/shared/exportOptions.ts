@@ -97,7 +97,6 @@ export const optionsFor = (
       format,
       ...choices,
       markAiText: markAiText !== "leave",
-      commentOthersFiles: preferences.commentOthersFiles === true,
       ...placeOf(preferences),
     };
   }

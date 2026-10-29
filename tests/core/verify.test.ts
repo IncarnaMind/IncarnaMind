@@ -134,6 +134,7 @@ describe("Verify a document", () => {
       documentName: "Harbour report",
       pages: Object.fromEntries(ids.map((id, index) => [id, index < 4 ? 1 : 2])),
       claims: null,
+      comments: false,
     });
     // Someone else wrote it: a Run that reads it is third-party (#78).
     expect(ids.map((id) => textOriginOf(client.doc, id))).toEqual(
@@ -501,7 +502,8 @@ describe("Verify a document", () => {
     expect(new Set(asked)).toEqual(new Set([FIXED_ASSETS, NET_PROFIT]));
 
     // Asked for in Word, the contradicted row's comment covers the whole row (#110).
-    const { data } = await core.exportMind(mind.id, { format: "docx", commentOthersFiles: true });
+    await core.setCheckComments(mind.id, true);
+    const { data } = await core.exportMind(mind.id, { format: "docx", commentFailedChecks: true });
     const files = unzip(data);
     const document = files.get("word/document.xml")?.toString("utf8") ?? "";
     const id = /<w:comment w:id="(\d+)"/.exec(

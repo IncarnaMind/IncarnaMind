@@ -397,6 +397,7 @@ describe("exporting a Mind", () => {
       citationPlace: "footnotes",
       markAiText: false,
       othersFile: false,
+      othersComments: false,
     });
   });
 

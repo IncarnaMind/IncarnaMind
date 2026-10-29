@@ -22,6 +22,7 @@ import {
 import type { MessageKey } from "../../shared/i18n";
 import { core } from "./core";
 import { errorMessage } from "./errors";
+import { rewrittenLine } from "./exportChecks";
 import { ownMindsOf } from "./home";
 import { translateNow } from "./i18n";
 import { folderName } from "./linkedFolders";
@@ -182,7 +183,7 @@ async function keep(update: (preferences: ExportPreferences) => ExportPreference
  * then, so neither takes back a format or an option the User changed since (#1945).
  */
 function changed(
-  which: "mark" | "leave" | "footnotes" | "list" | "comments" | "noComments",
+  which: "mark" | "leave" | "footnotes" | "list",
   undo: () => Promise<void>,
   redo: () => Promise<void>,
 ): void {
@@ -245,32 +246,49 @@ export async function answerMarkAiText(
   );
 }
 
-/** Picks in Change whether someone else's Word files get check comments: keeps it, exports this file again, and offers Undo (#110). */
-export async function answerOthersComments(
-  mindId: string,
-  format: ExportFormat,
-  answer: boolean,
-): Promise<void> {
-  const before = exportPreferences();
-  if ((before.commentOthersFiles === true) === answer) return;
-  const was = before.commentOthersFiles;
-  await keep((now) => withOthersComments(now, answer));
-  if ((exportPreferences().commentOthersFiles === true) !== answer) return;
-  await exportMind(mindId, format);
-  changed(
-    answer ? "comments" : "noComments",
-    () => keep((now) => withOthersComments(now, was)),
-    () => keep((now) => withOthersComments(now, answer)),
-  );
-}
-
-/** `preferences` with someone else's files' comment choice set, or taken away again (undefined): off. */
-function withOthersComments(
-  preferences: ExportPreferences,
-  value: boolean | undefined,
-): ExportPreferences {
-  const { commentOthersFiles: _was, ...rest } = preferences;
-  return value === undefined ? rest : { ...rest, commentOthersFiles: value };
+/**
+ * Picks in Change whether this Note's file, from someone else, gets check comments (#110): the
+ * choice is this Note's alone, and the same file is written again, so no second copy sits
+ * beside it that could be sent instead. Undo puts both the choice and the file back.
+ */
+export async function answerCheckComments(mindId: string, answer: boolean): Promise<void> {
+  const { result } = useExports.getState();
+  if (result?.mindId !== mindId || result.state !== "saved" || result.format !== "docx") return;
+  if (result.checks.commented === answer) return;
+  const previous: ExportResult = { ...result, changing: undefined };
+  const write = async () => {
+    await core.setCheckComments(mindId, answer);
+    const saved = await core.rewriteMindExport(
+      mindId,
+      optionsFor("docx", exportPreferences()),
+      result.path,
+    );
+    useExports.setState({
+      result:
+        saved.status === "review"
+          ? { mindId, state: "review", format: "docx", word: saved.word }
+          : savedResult(mindId, "docx", saved),
+    });
+    return saved.status === "saved" ? saved : null;
+  };
+  try {
+    const saved = await write();
+    if (!saved) return;
+    const count = saved.sentenceChecks.comments;
+    useUndo.getState().push({
+      said: (t) => rewrittenLine(t, answer, count, saved.file.name),
+      undo: async () => {
+        await core.setCheckComments(mindId, !answer);
+        await core.restoreMindExport(result.path);
+        useExports.setState({ result: { ...previous, at: Date.now() } });
+      },
+      redo: async () => {
+        await write();
+      },
+    });
+  } catch (failure) {
+    useAppStore.getState().reportError(failure);
+  }
 }
 
 /** Picks where Citations go in Change: keeps it, exports this file again with it, and offers Undo (#1945). */
