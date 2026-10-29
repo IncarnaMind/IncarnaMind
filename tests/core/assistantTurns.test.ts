@@ -4,6 +4,9 @@ import type { Core } from "../../src/core";
 import { createElement } from "../../src/core/answers/blocks";
 import { GENERATED_MARK, PROPOSAL_ATTRIBUTE } from "../../src/core/api";
 import { EDIT_INSTRUCTIONS } from "../../src/core/edits/prompt";
+import { unbackedClaimLine } from "../../src/renderer/src/changeProblems";
+import type { Translate } from "../../src/renderer/src/objects";
+import { translate } from "../../src/shared/i18n";
 import {
   pendingProposals,
   proposalRequestOf,
@@ -349,6 +352,69 @@ describe("A claim needs its command (#1559)", { timeout: 30_000 }, () => {
 
     expect(answer.text).toBe("No Mind is open: open one, or ask for a new Mind.");
     expect(model.doStreamCalls).toHaveLength(2);
+  });
+});
+
+describe("A plain Question never carries the write line (#2194)", { timeout: 30_000 }, () => {
+  const en: Translate = (key, params) => translate("en", key, params);
+  const zh: Translate = (key, params) => translate("zh-CN", key, params);
+  const honest = ["I've sorted out what the Volunteer Handbook says.", "我整理了手册的要点。"];
+
+  // protects=a judge that calls the sentence the reply's own text — as the small model did with these replies — leaves no unbackedClaims, no "Nothing was written" line, and no second ask, in English and Chinese; fails_when=a claim the judge does not call a change to a Mind is counted; no_claim=what a real judge answers now (the pull request's before and after runs).
+  test.each(honest)("“%s” gets no line", async (reply) => {
+    const model = scriptedModel((): ScriptedReply => ({ text: reply }), {
+      generate: () => ({
+        text: JSON.stringify({
+          claims: [{ sentence: reply, kind: "added", about: "reply", backed: false }],
+        }),
+      }),
+    });
+    const { core, mind } = await setUp(model);
+
+    const answer = await askAssistant(core, {
+      text: "What does ‘Volunteer Handbook’ say?",
+      mindId: mind.id,
+    });
+
+    expect(answer.text).toBe(reply);
+    expect(model.doStreamCalls).toHaveLength(1);
+    expect(answer.steps?.unbackedClaims).toBeUndefined();
+    expect(unbackedClaimLine(en, answer)).toBeNull();
+    expect(unbackedClaimLine(zh, answer)).toBeNull();
+  });
+
+  // protects=a claim naming the Mind it changed is still asked about once and then spoken of under the Answer, so the catch is not lost; fails_when=the line goes missing for a real claim; no_claim=how a real model words the claim.
+  test("a claim naming the Mind it changed still gets the line", async () => {
+    const claim = "I've added a risks section to “Q3 review”.";
+    const model = scriptedModel((): ScriptedReply => ({ text: claim }), {
+      generate: (call) => claimCheckReply(call, [{ sentence: claim, kind: "added" }]),
+    });
+    const { core, mind } = await setUp(model);
+
+    const answer = await askAssistant(core, { text: "add a risks section", mindId: mind.id });
+
+    expect(model.doStreamCalls).toHaveLength(2);
+    expect(answer.steps?.unbackedClaims).toEqual(["added"]);
+    expect(unbackedClaimLine(en, answer)).toBe(
+      "Nothing was written: the assistant didn’t run the write",
+    );
+    expect(unbackedClaimLine(zh, answer)).toBe("未写入任何内容：助手没有执行写入");
+  });
+
+  // protects=a judge that fails or returns nothing leaves no line under an honest Answer; fails_when=the failure is read as a claim; no_claim=none beyond protects.
+  test("a failed judge leaves no line", async () => {
+    const model = scriptedModel((): ScriptedReply => ({ text: "It says the tide rises." }), {
+      generate: () => ({ error: { status: 500, message: "It failed." } }),
+    });
+    const { core, mind } = await setUp(model);
+
+    const answer = await askAssistant(core, {
+      text: "What does the paper say about tides?",
+      mindId: mind.id,
+    });
+
+    expect(answer.steps?.unbackedClaims).toBeUndefined();
+    expect(unbackedClaimLine(en, answer)).toBeNull();
   });
 });
 
