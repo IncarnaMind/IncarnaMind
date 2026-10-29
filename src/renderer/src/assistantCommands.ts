@@ -14,7 +14,7 @@ import type {
   CommandKept,
   WindowCommandRequest,
 } from "../../core/api";
-import { runForAssistant } from "./assistantWindow";
+import { startForAssistant } from "./assistantWindow";
 import { clientId } from "./clientId";
 import { runText, undoable } from "./commandFacts";
 import { core } from "./core";
@@ -53,6 +53,8 @@ const early = new Map<string, AnswerToolCall[]>();
 const EARLY_KEPT = 20;
 /** What the window's commands changed, by call, until the call's result lands. */
 const windowChanges = new Map<string, Undoable>();
+/** What the window's commands still going on when their calls returned said, by call. */
+const goingOn = new Map<string, CommandDone>();
 
 export const keptWords =
   (kept: readonly CommandKept[]): Words =>
@@ -144,19 +146,13 @@ export async function undoRun(run: string): Promise<void> {
   }
 }
 
-function landed(call: AnswerToolCall): void {
-  const command = call.command;
-  if (!command) return;
-  const change = windowChanges.get(call.id);
-  windowChanges.delete(call.id);
-  const part: Part | null = change
-    ? { kind: "window", change }
-    : !command.window && undoable([command])
-      ? { kind: "core" }
-      : null;
-  const known = steps.get(command.run);
+/** Puts what a call did into its Run's step, `before` being what it said earlier, if anything. */
+function joinStep(run: string, done: CommandDone, before: CommandDone | null, part: Part | null) {
+  const known = steps.get(run);
   if (known) {
-    known.done.push(command);
+    const at = before ? known.done.indexOf(before) : -1;
+    if (at >= 0) known.done[at] = done;
+    else known.done.push(done);
     if (part && (part.kind === "window" || !known.parts.some((each) => each.kind === "core"))) {
       known.parts.push(part);
     }
@@ -164,18 +160,40 @@ function landed(call: AnswerToolCall): void {
     return;
   }
   if (!part) return;
-  const done = [command];
+  const dones = [done];
   const parts = [part];
-  const step = stepOf(command.run, done, parts);
-  steps.set(command.run, { step, done, parts });
-  useCommandRuns.setState((state) => ({ here: { ...state.here, [command.run]: true } }));
+  const step = stepOf(run, dones, parts);
+  steps.set(run, { step, done: dones, parts });
+  useCommandRuns.setState((state) => ({ here: { ...state.here, [run]: true } }));
   useUndo.getState().push(step);
 }
 
+function landed(call: AnswerToolCall): void {
+  const command = call.command;
+  if (!command) return;
+  // A window's command that went on lands again when it ends.
+  const before = goingOn.get(call.id) ?? null;
+  if (command.window?.running) goingOn.set(call.id, command);
+  else goingOn.delete(call.id);
+  for (const id of [...goingOn.keys()].slice(0, -EARLY_KEPT)) goingOn.delete(id);
+  const change = windowChanges.get(call.id);
+  windowChanges.delete(call.id);
+  const part: Part | null = change
+    ? { kind: "window", change }
+    : !before && !command.window && undoable([command])
+      ? { kind: "core" }
+      : null;
+  joinStep(command.run, command, before, part);
+}
+
 async function runHere(request: WindowCommandRequest): Promise<void> {
-  const { result, change } = await runForAssistant(request);
-  if (change) windowChanges.set(request.toolCallId, change);
+  const { started, ended } = startForAssistant(request);
   try {
+    if (started) await core.answerWindowCommand(request.requestId, { started: true });
+    const { result, change } = await ended;
+    const landedAs = goingOn.get(request.toolCallId);
+    if (change && landedAs) joinStep(request.run, landedAs, landedAs, { kind: "window", change });
+    else if (change) windowChanges.set(request.toolCallId, change);
     if (await core.answerWindowCommand(request.requestId, result)) return;
     // Too late: the Answer says it wasn't done, so it isn't.
     windowChanges.delete(request.toolCallId);

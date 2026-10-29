@@ -153,6 +153,9 @@ export function doneText(
 ): string {
   if (done.yours) return t(YOURS_WORDS[done.yours].said);
   if (done.window) {
+    if (done.window.running) {
+      return t("commands.running.window", { command: windowLabel(t, done.command) });
+    }
     const [first] = done.items;
     if ((done.command === "mind.openBeside" || done.command === "document.openBeside") && first) {
       return t("commands.done.openedBeside", { name: first.name });

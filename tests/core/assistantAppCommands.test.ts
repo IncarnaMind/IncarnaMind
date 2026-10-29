@@ -702,3 +702,71 @@ describe("A request goes on to its end, and nothing records unasked (#1421)", {
     expect(approved).toEqual([]);
   });
 });
+
+describe("A long window command, and two things with one name (#1421)", { timeout: 60_000 }, () => {
+  // protects=a Check slower than the window's limit starts at once: its call returns as started, the turn goes on, and once it ends, after the Answer, its call says done; fails_when=the step says it wasn't done while it runs, the turn waits for it, or its end never reaches the stored call; no_claim=the Check's own work.
+  test("a Check slower than the limit goes on, and its call says done when it ends", async () => {
+    const model = calling(run("mind.check", {}, false));
+    const { core, mind } = await setUpWithDocuments(model, DOCUMENTS);
+    const started: WindowCommandRequest[] = [];
+    core.on("command.windowRun", (request) => {
+      started.push(request);
+      void core.answerWindowCommand(request.requestId, { started: true });
+    });
+
+    const answer = await askAssistant(core, {
+      text: "Check this Note",
+      mindId: mind.id,
+      ...FROM_WINDOW,
+    });
+
+    expect(commandCalls(answer)[0]?.command?.window).toEqual({ changed: false, running: true });
+    expect(answer.text).toBe("Done.");
+    const updated = new Promise<ConversationAnswer>((resolve) => {
+      core.on("conversation.message", (message) => {
+        if (message.kind === "answer" && message.id === answer.id) resolve(message);
+      });
+    });
+    const [request] = started;
+    if (!request) throw new Error("The window wasn't asked.");
+    expect(await core.answerWindowCommand(request.requestId, { ran: true, changed: false })).toBe(
+      true,
+    );
+    expect(commandCalls(await updated)[0]?.command?.window).toEqual({ changed: false });
+  });
+
+  // protects="bring back the Leases I deleted", with a Folder and a Note of that name in Recently deleted, asks the User which in the tray, whatever the model picked, and brings back only the one chosen; fails_when=one comes back on the model's guess, or both do; no_claim=the tray's look.
+  test("two things in Recently deleted with one name: the User says which", async () => {
+    const model = calling(find("Leases", "deleted"), run("deleted.restore"));
+    const { core, mind } = await setUpWithDocuments(model, DOCUMENTS);
+    const folder = await core.createLibraryGroup({ name: "Leases", description: "" });
+    const note = await core.createMind({ title: "Leases" });
+    await core.deleteLibraryGroup(folder.id);
+    await core.deleteMind(note.id);
+    const asked: string[][] = [];
+    core.on("question.asked", (request) => {
+      asked.push(request.question.options.map((option) => option.label));
+      const [newest] = request.question.options;
+      void core.answerUserQuestion(request.requestId, {
+        skipped: false,
+        chosen: newest ? [newest.label] : [],
+        wrote: null,
+      });
+    });
+
+    const answer = await askAssistant(core, {
+      text: "Bring back the Leases I deleted",
+      mindId: mind.id,
+      ...FROM_WINDOW,
+    });
+
+    expect(asked).toHaveLength(1);
+    expect(asked[0]).toHaveLength(2);
+    const back = commandCalls(answer)
+      .at(-1)
+      ?.command?.items.map((item) => item.id);
+    expect(back).toEqual([note.id]);
+    expect((await core.listDeleted()).map((each) => each.id)).toContain(folder.id);
+    expect((await core.listMinds()).map((each) => each.id)).toContain(note.id);
+  });
+});

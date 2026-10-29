@@ -396,6 +396,8 @@ function mindLimit(prepared: PreparedChatModel): number {
 
 /** What Answers need of the assistant's conversations (see ../conversations). */
 export interface AnswerConversations {
+  /** Writes an ended Answer's Tool calls again, one updated since; false if it is gone. */
+  writeToolCalls(answerId: string, toolCalls: readonly AnswerToolCall[]): boolean;
   /**
    * Adds a Question, and its conversation with its first one, and its Answer, being
    * written, which reads `read`.
@@ -2331,11 +2333,33 @@ export function createAnswers(options: AnswersOptions) {
               runId: randomUUID(),
               offered: input.assistant.commands?.offered ?? [],
               clientId: input.assistant.commands?.clientId ?? null,
+              language: answerLanguage(context.question),
               steps: commands.steps,
               ...(askInTray && { ask: askInTray }),
               found: (toolCallId, found) => commandsFound.set(toolCallId, found),
               ran: (toolCallId, done) => commandsDone.set(toolCallId, done),
               failed: (toolCallId, problem) => commandProblems.set(toolCallId, problem),
+              // A window's command that went on, a Check for one, ends after its call: its card
+              // says so then, while the Answer is written or after it.
+              ended: (toolCallId, end) => {
+                const call = toolCalls.find((each) => each.id === toolCallId);
+                if (!call) return;
+                if ("done" in end) {
+                  call.command = end.done;
+                  commandsDone.set(toolCallId, end.done);
+                } else {
+                  call.status = "failed";
+                  delete call.command;
+                  call.commandProblem = end.problem;
+                  commandsDone.delete(toolCallId);
+                }
+                if (!finished) {
+                  announce("answer.toolCallFinished", { ...place, answerId, call: { ...call } });
+                  writeSoon();
+                  return;
+                }
+                options.conversations.writeToolCalls(answerId, toolCalls);
+              },
             })
           : null;
       const asking = asksUser ? askTool(asksUser) : null;

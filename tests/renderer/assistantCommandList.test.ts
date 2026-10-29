@@ -128,7 +128,9 @@ describe("The assistant's commands are the window's one list (#1421)", () => {
     const walked: string[] = [];
     for (const command of registry.commands.all().filter(isTheAssistants)) {
       const asked = request(command);
-      const { result } = await window.runForAssistant(asked);
+      const { started, ended } = window.startForAssistant(asked);
+      expect(started, command.id).toBe(true);
+      const { result } = await ended;
       expect(result, command.id).toEqual({ ran: true, changed: false });
       const run = runs.get(command.id);
       expect(run, command.id).toHaveBeenCalledTimes(1);
@@ -170,7 +172,7 @@ describe("The assistant's commands are the window's one list (#1421)", () => {
     try {
       expect(window.offeredCommands(null).map((each) => each.id)).not.toContain("mind.check");
       expect(window.offeredCommands("note").map((each) => each.id)).toContain("mind.check");
-      const { result } = await window.runForAssistant({
+      const { result } = await window.startForAssistant({
         requestId: "request",
         answerId: "answer",
         toolCallId: "call",
@@ -179,13 +181,52 @@ describe("The assistant's commands are the window's one list (#1421)", () => {
         clientId: "window",
         command: "mind.check",
         targets: [],
-      });
+      }).ended;
       expect(result).toEqual({ ran: true, changed: false });
       expect(run).toHaveBeenCalledWith(
         expect.objectContaining({ focus: { kind: "mind", id: "note" } }),
       );
     } finally {
       useAppStore.setState({ layout: null });
+    }
+  });
+
+  // protects=a command that goes on, as a Check does, has started as soon as it runs, and hands back its change only when it ends; fails_when=the window waits for its end to say it started, or its change is lost; no_claim=any real command.
+  test("one that goes on has started at once, and hands back its change when it ends", async () => {
+    let finish: (change: { said: () => string; undo: () => Promise<void> }) => void = () => {};
+    const remove = registry.commands.register({
+      id: "test.goesOn",
+      label: "mind.open",
+      group: "main",
+      reversible: true,
+      run: () =>
+        new Promise((resolve) => {
+          finish = resolve;
+        }),
+    });
+    try {
+      const { started, ended } = window.startForAssistant({
+        requestId: "request",
+        answerId: "answer",
+        toolCallId: "call",
+        run: "run",
+        mindId: null,
+        clientId: "window",
+        command: "test.goesOn",
+        targets: [],
+      });
+      expect(started).toBe(true);
+      let settled = false;
+      void ended.then(() => {
+        settled = true;
+      });
+      await Promise.resolve();
+      expect(settled).toBe(false);
+      const change = { said: () => "Done", undo: async () => undefined };
+      finish(change);
+      await expect(ended).resolves.toEqual({ result: { ran: true, changed: true }, change });
+    } finally {
+      remove();
     }
   });
 
@@ -207,7 +248,7 @@ describe("The assistant's commands are the window's one list (#1421)", () => {
         on: ["document"],
         yours: null,
       });
-      const { result } = await window.runForAssistant({
+      const { result } = await window.startForAssistant({
         requestId: "request",
         answerId: "answer",
         toolCallId: "call",
@@ -216,7 +257,7 @@ describe("The assistant's commands are the window's one list (#1421)", () => {
         clientId: "window",
         command: "test.addedLater",
         targets: [{ kind: "document", id: "one" }],
-      });
+      }).ended;
       expect(result).toEqual({ ran: true, changed: false });
       expect(ran).toHaveBeenCalledWith(
         expect.objectContaining({ focus: { kind: "document", id: "one" } }),
@@ -247,7 +288,7 @@ describe("The assistant's commands are the window's one list (#1421)", () => {
       const never = neverOf(command);
       if (never) {
         expect(YOURS, command.id).toContain(never);
-        const { result } = await window.runForAssistant(request(command));
+        const { result } = await window.startForAssistant(request(command)).ended;
         expect(result.ran, command.id).toBe(false);
       }
     }
@@ -302,7 +343,14 @@ describe("The assistant's commands are the window's one list (#1421)", () => {
       tags: [],
       deleted: [],
     };
-    const context = { answerId: "a", runId: "r", toolCallId: "c", mindId: null, clientId: "w" };
+    const context = {
+      answerId: "a",
+      runId: "r",
+      toolCallId: "c",
+      mindId: null,
+      clientId: "w",
+      ended: () => undefined,
+    };
     const asks = new Map<string, string | null>();
     for (const entry of parseOfferedCommands(window.offeredCommands(null))) {
       if (entry.on !== null) continue;

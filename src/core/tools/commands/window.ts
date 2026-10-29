@@ -5,7 +5,7 @@
  * alone runs nothing.
  */
 import type { CommandId, CommandTarget, OfferedCommand, Yours } from "../../../shared/commands";
-import { type CommandItem, RECENTLY_DELETED_DAYS } from "../../api";
+import { type CommandItem, RECENTLY_DELETED_DAYS, type WindowCommandEnd } from "../../api";
 import { InvalidInputError, NotFoundError, TranslatableError } from "../../errors";
 import type { Findable } from "./find";
 import { all } from "./find";
@@ -50,6 +50,8 @@ export interface WindowRun {
   mindId: string | null;
   /** The window that asked, which alone runs it; null: none did. */
   clientId: string | null;
+  /** How one that started and went on ended, after its call returned. */
+  ended(result: WindowCommandEnd): void;
 }
 
 function targetsOf(
@@ -106,7 +108,15 @@ export function windowChecked(
           clientId,
         },
         signal,
+        context.ended,
       );
+      if ("started" in result) {
+        return {
+          done: { items, window: { changed: false, running: true } },
+          step: null,
+          said: `Started “${entry.label}”${on} in the User's window, where it goes on; its card says how it ends.`,
+        };
+      }
       if (!result.ran) throw new TranslatableError(result.wording ?? result.why);
       return {
         done: { items, window: { changed: result.changed } },

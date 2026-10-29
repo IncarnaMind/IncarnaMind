@@ -1128,9 +1128,10 @@ export interface CommandDone {
   marking?: ExportMarking;
   /**
    * Run by the window that asked, as ⌘K runs it (#1421); `changed`: it changed something the
-   * window's Undo takes back, which then goes with the Run's other changes.
+   * window's Undo takes back, which then goes with the Run's other changes. `running`: it started
+   * and goes on in the window, a Check for one; this call is updated when it ends.
    */
-  window?: { changed: boolean };
+  window?: { changed: boolean; running?: true };
   /** It is the User's alone: nothing ran, and the card says where they change it (#1421). */
   yours?: Yours;
   /** A setting it changed (#1421), with its value before and now, each as the setting names it. */
@@ -8396,13 +8397,17 @@ export interface WindowCommandRequest {
   clientId: string;
 }
 
-/**
- * How a window command went: run (`changed`: its Undo takes something back), or not, with why in
- * English for the model and in the interface's words (`wording`) where the window has them.
- */
-export type WindowCommandResult =
+/** How a window command ended: run (`changed`: its Undo takes something back), or not. */
+export type WindowCommandEnd =
   | { ran: true; changed: boolean }
   | { ran: false; why: string; wording: ErrorWording | null };
+
+/**
+ * What the window says of a command it was asked to run: that it started, as soon as it has, and
+ * then how it ended; or only how it ended, when it couldn't start. Why it didn't run is in English
+ * for the model and in the interface's words (`wording`) where the window has them.
+ */
+export type WindowCommandResult = WindowCommandEnd | { started: true };
 
 // ---------------------------------------------------------------------------
 // Recently deleted (CONTEXT.md)
@@ -10965,8 +10970,9 @@ export interface CoreApi {
    */
   answerUserQuestion(requestId: string, answer: UserAnswer): Promise<void>;
   /**
-   * Says how a command the assistant asked the window to run went (#1421). False: the core no
-   * longer waits for it (its Answer stopped, or it was too late), so it counts as not done.
+   * Says that a command the assistant asked the window to run started, then how it ended (#1421).
+   * False: the core no longer waits for it (its Answer stopped before it started, or the window
+   * didn't say it started in time), so it counts as not done.
    */
   answerWindowCommand(requestId: string, result: WindowCommandResult): Promise<boolean>;
   /**

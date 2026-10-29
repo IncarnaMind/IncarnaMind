@@ -26,12 +26,14 @@ import type {
   SavedFile,
   UserAnswer,
   UserQuestion,
+  WindowCommandEnd,
   WindowCommandRequest,
   WindowCommandResult,
 } from "../../api";
 import { RECENTLY_DELETED_DAYS } from "../../api";
 import { isInside, kindOf } from "../../documents/files";
 import { InvalidInputError, NotFoundError } from "../../errors";
+import type { Language } from "../../language";
 import type { CommandStep } from "./steps";
 
 /** The core's calls the commands make: the same the window's own clicks make. */
@@ -79,8 +81,13 @@ export type CommandsCore = Pick<
 export const COMMAND_EXPORT_FORMATS = ["docx", "pdf", "markdown", "html"] as const;
 export type CommandExportFormat = (typeof COMMAND_EXPORT_FORMATS)[number];
 
-/** What a command may ask the User, in the tray, while it runs; null when the Answer has no tray. */
-export type CommandAsking = ((question: UserQuestion) => Promise<UserAnswer>) | null;
+/**
+ * What a command may ask the User, in the tray, while it runs, in the Answer's language; null when
+ * the Answer has no tray.
+ */
+export type CommandAsking =
+  | ((question: (language: Language) => UserQuestion) => Promise<UserAnswer>)
+  | null;
 
 /** How a Word file's choice about marking the text IncarnaMind wrote was settled for an export. */
 export type MarkingSettled = ExportMarking;
@@ -104,12 +111,14 @@ export interface CommandsHost {
     marking: { named: MarkAiTextChoice | null },
   ): Promise<{ file: SavedFile; marking: MarkingSettled | null }>;
   /**
-   * Runs a command of the window's list in the window that asked (#1421), as ⌘K runs it; absent
-   * where there is no window, so only the core's own commands run.
+   * Runs a command of the window's list in the window that asked (#1421), as ⌘K runs it: how it
+   * ended, or that it started and goes on, its end then coming to `ended`. Absent where there is
+   * no window, so only the core's own commands run.
    */
   window?(
     request: Omit<WindowCommandRequest, "requestId">,
     signal: AbortSignal,
+    ended: (result: WindowCommandEnd) => void,
   ): Promise<WindowCommandResult>;
 }
 
@@ -318,7 +327,7 @@ export const inApp = (
   command: CommandId,
   items: CommandItem[],
   into: string | null,
-  run: () => Promise<Ran>,
+  run: (asking: CommandAsking) => Promise<Ran>,
 ): CheckedCommand => ({
   command,
   effects: IN_APP,

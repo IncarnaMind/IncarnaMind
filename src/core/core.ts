@@ -1514,7 +1514,7 @@ export function createCore(adapters: CoreAdapters): Core {
       return api;
     },
     outputFolder: async () => outputs.settings().location,
-    window: (request, signal) => windowCommands.run(request, signal),
+    window: (request, signal, ended) => windowCommands.run(request, signal, ended),
     exportMind: async (mindId, format, folder, approved, marking) => {
       const options = optionsFor(format, settings.get().user.exportOptions);
       let written = options;
@@ -1752,6 +1752,11 @@ export function createCore(adapters: CoreAdapters): Core {
       },
       writeAnswer: (answerId, write) => {
         const answer = conversations.writeAnswer(answerId, write);
+        if (answer) events.emit("conversation.message", answer);
+        return answer !== null;
+      },
+      writeToolCalls: (answerId, toolCalls) => {
+        const answer = conversations.writeToolCalls(answerId, toolCalls);
         if (answer) events.emit("conversation.message", answer);
         return answer !== null;
       },

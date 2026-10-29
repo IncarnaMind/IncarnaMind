@@ -6,7 +6,7 @@
  * what the assistant found, and says how it went; what it changed goes with the Answer's other
  * changes, as one Undo.
  */
-import type { WindowCommandRequest, WindowCommandResult } from "../../core/api";
+import type { WindowCommandEnd, WindowCommandRequest } from "../../core/api";
 import { COMMAND_TARGETS, type CommandTarget, type OfferedCommand } from "../../shared/commands";
 import { translate } from "../../shared/i18n";
 import {
@@ -89,31 +89,45 @@ function contextFor({ targets, mindId }: WindowCommandRequest): CommandContext {
     : { selection: targets, focus: null, surface: "palette" };
 }
 
+/** How a command the assistant asked for ended: why it didn't, or the change it made, for the Undo. */
+export interface AssistantRunEnd {
+  result: WindowCommandEnd;
+  change: Undoable | undefined;
+}
+
+const messageOf = (error: unknown) => (error instanceof Error ? error.message : String(error));
+
 /**
- * Runs a command the assistant asked for, as ⌘K runs it, and says how it went: the change it
- * made, for the Answer's Undo, and why it didn't run, in English for the model and in the
- * interface's words for the card.
+ * Starts a command the assistant asked for, as ⌘K runs it: whether it started, and how it ends,
+ * with the change it made, for the Answer's Undo, and why it didn't run, in English for the model
+ * and in the interface's words for the card. A Check, or a recording waiting for the system's
+ * microphone permission, has started while it goes on.
  */
-export async function runForAssistant(
-  request: WindowCommandRequest,
-): Promise<{ result: WindowCommandResult; change: Undoable | undefined }> {
+export function startForAssistant(request: WindowCommandRequest): {
+  started: boolean;
+  ended: Promise<AssistantRunEnd>;
+} {
+  const refused = (result: WindowCommandEnd) => ({
+    started: false,
+    ended: Promise.resolve({ result, change: undefined }),
+  });
   const command = commands.get(request.command);
   if (!command || command.assistant === false || command.assistant?.never) {
-    return {
-      result: {
-        ran: false,
-        why: `The window has no command ${request.command} the assistant may run.`,
-        wording: null,
-      },
-      change: undefined,
-    };
+    return refused({
+      ran: false,
+      why: `The window has no command ${request.command} the assistant may run.`,
+      wording: null,
+    });
   }
   const ctx = contextFor(request);
   const label = labelOf(command, ctx, english);
+  let tried: ReturnType<typeof commands.start>;
   try {
-    const tried = await commands.attempt(request.command, ctx);
-    if (tried.ran)
-      return { result: { ran: true, changed: tried.change !== undefined }, change: tried.change };
+    tried = commands.start(request.command, ctx);
+  } catch (error) {
+    return refused({ ran: false, why: messageOf(error), wording: null });
+  }
+  if (!tried.ran) {
     const wording =
       tried.why === "not-offered"
         ? {
@@ -125,9 +139,16 @@ export async function runForAssistant(
       tried.why === "not-offered"
         ? `“${label}” doesn't apply here now, so it didn't run.`
         : `“${label}” can't run now: ${english(tried.why)}`;
-    return { result: { ran: false, why, wording }, change: undefined };
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    return { result: { ran: false, why: message, wording: null }, change: undefined };
+    return refused({ ran: false, why, wording });
   }
+  return {
+    started: true,
+    ended: tried.change.then(
+      (change) => ({ result: { ran: true, changed: change !== undefined }, change }),
+      (error: unknown) => ({
+        result: { ran: false, why: messageOf(error), wording: null },
+        change: undefined,
+      }),
+    ),
+  };
 }

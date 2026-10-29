@@ -1,17 +1,22 @@
 /**
- * The commands of the window's list the assistant runs (#1421): each is sent to the windows, the
- * one whose Question asked for it (`clientId`) runs it as ⌘K does, and its answer settles the
- * call. A request still waiting when its Answer stops is withdrawn. One its window closed or
- * reloaded before answering, or didn't answer within `WINDOW_ANSWER_MS`, wasn't done.
+ * The commands of the window's list the assistant runs (#1421): each is sent to the windows, and
+ * the one whose Question asked for it (`clientId`) runs it as ⌘K does. The window says at once
+ * that it started, then how it ended. One that ends in a moment settles its call; one that goes
+ * on, as a Check does, or a recording waiting for the system's microphone permission, settles it
+ * as started, and its end comes later (`ended`). One its window didn't start within
+ * `WINDOW_START_MS`, or that its window closed or reloaded before starting, wasn't done.
  */
 import { randomUUID } from "node:crypto";
 import { isMessageKey } from "../shared/i18n";
-import type { WindowCommandRequest, WindowCommandResult } from "./api";
+import type { WindowCommandEnd, WindowCommandRequest, WindowCommandResult } from "./api";
 import { type ErrorWording, InvalidInputError, isRecord } from "./errors";
 import type { createEventHub } from "./events";
 
-/** How long a window has to run a command: every one it offers is done in a moment. */
-export const WINDOW_ANSWER_MS = 30_000;
+/** How long a window has to say it started a command: it does as soon as the command runs. */
+export const WINDOW_START_MS = 30_000;
+
+/** How long a started command's call waits for it to end before the turn goes on without it. */
+export const WINDOW_SETTLE_MS = 1_000;
 
 function wordingOf(value: unknown): ErrorWording | null {
   if (!isRecord(value) || !isMessageKey(value.key)) return null;
@@ -27,6 +32,7 @@ function wordingOf(value: unknown): ErrorWording | null {
 }
 
 function resultOf(value: unknown): WindowCommandResult {
+  if (isRecord(value) && value.started === true) return { started: true };
   if (!isRecord(value) || typeof value.ran !== "boolean") {
     throw new InvalidInputError({ key: "error.commands.windowAnswer" });
   }
@@ -36,74 +42,108 @@ function resultOf(value: unknown): WindowCommandResult {
   return { ran: false, why, wording: wordingOf(value.wording) };
 }
 
-/** Not done: the window didn't answer, for the reason given in English. */
-const unanswered = (command: string, why: string): WindowCommandResult => ({
+const unanswered = (command: string, why: string): WindowCommandEnd => ({
   ran: false,
   why: `The window didn't answer ${why}, so ${command} wasn't done.`,
   wording: { key: "commands.window.unanswered", values: { command } },
 });
 
-interface Waiting {
+const closed = (command: string): WindowCommandEnd => ({
+  ran: false,
+  why: `The window was closed or reloaded before ${command} ended: it may not have finished.`,
+  wording: { key: "commands.window.closed", values: { command } },
+});
+
+interface Open {
   clientId: string;
   command: string;
-  settle(result: WindowCommandResult): void;
+  started: boolean;
+  start(): void;
+  end(result: WindowCommandEnd): void;
 }
 
 export function createWindowCommands(events: ReturnType<typeof createEventHub>) {
-  const waiting = new Map<string, Waiting>();
+  const open = new Map<string, Open>();
 
   return {
-    /** Asks the window to run a command and waits for how it went; rejects if `signal` aborts first. */
+    /**
+     * Asks the window to run a command and waits for it to start: resolves with how it ended,
+     * when it ends in a moment, or with `started`, its end then going to `ended`. Rejects if
+     * `signal` aborts first; once started, its end still comes to `ended`.
+     */
     run(
       request: Omit<WindowCommandRequest, "requestId">,
       signal: AbortSignal,
+      ended: (result: WindowCommandEnd) => void,
     ): Promise<WindowCommandResult> {
       if (signal.aborted) return Promise.reject(signal.reason);
       const requestId = randomUUID();
       return new Promise<WindowCommandResult>((resolve, reject) => {
-        const done = () => {
+        let settled = false;
+        let timer = setTimeout(
+          () => entry.end(unanswered(request.command, "in time")),
+          WINDOW_START_MS,
+        );
+        const settle = (result: WindowCommandResult): boolean => {
+          if (settled) return false;
+          settled = true;
           clearTimeout(timer);
           signal.removeEventListener("abort", onAbort);
-          return waiting.delete(requestId);
+          resolve(result);
+          return true;
         };
         const onAbort = () => {
-          if (done()) reject(signal.reason);
+          if (settled) return;
+          settled = true;
+          clearTimeout(timer);
+          if (!entry.started) open.delete(requestId);
+          reject(signal.reason);
         };
-        const timer = setTimeout(() => {
-          if (done()) resolve(unanswered(request.command, "in time"));
-        }, WINDOW_ANSWER_MS);
-        waiting.set(requestId, {
+        const entry: Open = {
           clientId: request.clientId,
           command: request.command,
-          settle: (result) => {
-            if (done()) resolve(result);
+          started: false,
+          start() {
+            entry.started = true;
+            clearTimeout(timer);
+            timer = setTimeout(() => settle({ started: true }), WINDOW_SETTLE_MS);
           },
-        });
+          end(result) {
+            open.delete(requestId);
+            if (!settle(result)) ended(result);
+          },
+        };
+        open.set(requestId, entry);
         signal.addEventListener("abort", onAbort, { once: true });
         events.emit("command.windowRun", { ...request, requestId });
       });
     },
 
-    /** Settles a request with the window's answer; false when it no longer waits for one. */
+    /** Takes the window's word on a request; false when the core no longer waits for it. */
     answer(requestId: unknown, value: unknown): boolean {
       if (typeof requestId !== "string") {
         throw new InvalidInputError({ key: "error.commands.windowAnswer" });
       }
-      const request = waiting.get(requestId);
-      if (!request) return false;
-      request.settle(resultOf(value));
+      const entry = open.get(requestId);
+      if (!entry) return false;
+      const result = resultOf(value);
+      if (!("started" in result)) entry.end(result);
+      else if (!entry.started) entry.start();
       return true;
     },
 
-    /** The window is gone, or its page started again: nothing it was asked to run gets done. */
+    /** The window is gone, or its page started again: what it hadn't started isn't done. */
     forget(clientId: unknown): void {
       if (typeof clientId !== "string") {
         throw new InvalidInputError({ key: "error.commands.windowAnswer" });
       }
-      for (const request of [...waiting.values()]) {
-        if (request.clientId === clientId) {
-          request.settle(unanswered(request.command, "before it was closed or reloaded"));
-        }
+      for (const entry of [...open.values()]) {
+        if (entry.clientId !== clientId) continue;
+        entry.end(
+          entry.started
+            ? closed(entry.command)
+            : unanswered(entry.command, "before it was closed or reloaded"),
+        );
       }
     },
   };

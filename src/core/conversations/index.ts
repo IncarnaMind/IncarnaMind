@@ -1193,6 +1193,21 @@ export function createConversations(db: Database, now: () => string) {
       return toAnswer(storedMessage(answerId));
     },
 
+    /** Writes an ended Answer's Tool calls again; null when it is gone. */
+    writeToolCalls(
+      answerId: string,
+      toolCalls: readonly AnswerToolCall[],
+    ): ConversationAnswer | null {
+      const row = liveMessage(answerId);
+      if (row?.kind !== "answer") return null;
+      db.run("UPDATE conversation_messages SET tool_calls = ?, updated_at = ? WHERE id = ?", [
+        JSON.stringify(toolCalls),
+        now(),
+        answerId,
+      ]);
+      return toAnswer(storedMessage(answerId));
+    },
+
     /** See `CoreApi.renameConversation`. */
     rename(conversationId: unknown, title: unknown): Conversation {
       const row = liveRow(conversationId);

@@ -216,21 +216,23 @@ export const commands = {
   },
 
   /**
-   * Runs a command as `run` does, but hands back what it changed rather than putting it on the
-   * undo stack, for the caller to put with other changes; or why it didn't run.
+   * Starts a command as `run` does, but hands back what it changed, once it ends, rather than
+   * putting it on the undo stack, for the caller to put with other changes; or why it didn't
+   * start. A command that goes on, as a Check does, has started once this returns.
    */
-  async attempt(
+  start(
     id: CommandId,
     given: Partial<CommandContext> = {},
-  ): Promise<
-    { ran: true; change: Undoable | undefined } | { ran: false; why: "not-offered" | MessageKey }
-  > {
+  ):
+    | { ran: true; change: Promise<Undoable | undefined> }
+    | { ran: false; why: "not-offered" | MessageKey } {
     const command = registered.get(id);
     if (!command) throw new Error(`There is no command ${id}.`);
     const ctx = { ...NO_CONTEXT, ...given };
     if (!offered(command, ctx)) return { ran: false, why: "not-offered" };
     const enabled = command.enabled?.(ctx) ?? true;
     if (enabled !== true) return { ran: false, why: enabled.reason };
-    return { ran: true, change: changeOf(await command.run(ctx)) };
+    const ran = new Promise<ReturnType<Command["run"]>>((resolve) => resolve(command.run(ctx)));
+    return { ran: true, change: ran.then(changeOf) };
   },
 };

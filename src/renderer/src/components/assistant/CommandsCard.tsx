@@ -87,10 +87,15 @@ export function CommandsCard({
         const saved = done.flatMap((each) => (each.file ? [each.file] : []));
         const lines = [...madeLines(t, done), ...items.slice(0, ITEMS_SHOWN).map(itemText)];
         const more = items.length - Math.min(items.length, ITEMS_SHOWN);
+        const going = done.every((each) => each.window?.running);
         return (
           <div key={run} data-run={run}>
             <div className="mind-changes-head">
-              <CheckLineIcon aria-hidden="true" className="mind-changes-icon" />
+              {going ? (
+                <span aria-hidden="true" className="mind-changes-icon" />
+              ) : (
+                <CheckLineIcon aria-hidden="true" className="mind-changes-icon" />
+              )}
               <p className="mind-changes-line">
                 <span
                   data-testid="command-changes-title"

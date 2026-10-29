@@ -18,8 +18,10 @@ import {
   type CommandsFound,
   type UserAnswer,
   type UserQuestion,
+  type WindowCommandEnd,
 } from "../../api";
 import { TranslatableError } from "../../errors";
+import type { Language } from "../../language";
 import { COMMAND_TOOLS, type Tool, type ToolProviderInfo } from "../index";
 import {
   CORE_COMMANDS,
@@ -89,11 +91,15 @@ export interface CommandToolsOptions {
   offered: readonly OfferedCommand[];
   /** The asking window, which alone runs its commands; null: none asked, so none run. */
   clientId: string | null;
+  /** The Answer's language, which what a command asks the User in the tray is in. */
+  language: Language;
   /** Asks the User in the tray for a command that needs an answer to go on; none: it can't ask. */
   ask?: (toolCallId: string, question: UserQuestion, signal: AbortSignal) => Promise<UserAnswer>;
   found(toolCallId: string, found: CommandsFound): void;
   ran(toolCallId: string, done: CommandDone): void;
   failed(toolCallId: string, problem: CommandProblem): void;
+  /** How a window's command that started and went on ended, after its call returned. */
+  ended(toolCallId: string, end: { done: CommandDone } | { problem: CommandProblem }): void;
 }
 
 const given = (value: unknown): string | undefined =>
@@ -135,6 +141,24 @@ export function commandTools(options: CommandToolsOptions): {
   let readTitles = options.namesWebPage;
   /** What the model read of the window's commands that ran: marked `done`, one ends the turn. */
   const oneLine = new Set<string>();
+  /** The window's commands still going on when their calls returned, by call. */
+  const goingOn = new Map<string, CommandDone>();
+  /** An end that came before its call had returned, by call. */
+  const endedEarly = new Map<string, WindowCommandEnd>();
+  const windowEnded = (toolCallId: string, end: WindowCommandEnd) => {
+    const done = goingOn.get(toolCallId);
+    if (!done) {
+      endedEarly.set(toolCallId, end);
+      return;
+    }
+    goingOn.delete(toolCallId);
+    options.ended(
+      toolCallId,
+      end.ran
+        ? { done: { ...done, window: { changed: end.changed } } }
+        : { problem: problemOf(done.command, new TranslatableError(end.wording ?? end.why)) },
+    );
+  };
   // A model calls several at once: two that would each make the same Tag or Folder must not race.
   let turn: Promise<unknown> = Promise.resolve();
   const inTurn = <T>(run: () => Promise<T>): Promise<T> => {
@@ -262,7 +286,10 @@ export function commandTools(options: CommandToolsOptions): {
       let ran: Awaited<ReturnType<CheckedCommand["run"]>>;
       try {
         ran = await inTurn(() =>
-          command.run(ask ? (question) => ask(toolCallId, question, signal) : null, signal),
+          command.run(
+            ask ? (question) => ask(toolCallId, question(options.language), signal) : null,
+            signal,
+          ),
         );
       } catch (error) {
         changed -= counted.get(toolCallId) ?? 0;
@@ -273,8 +300,15 @@ export function commandTools(options: CommandToolsOptions): {
       }
       renames.push(...renamesOf(ran.done.items));
       if (ran.step) options.steps.add(options.runId, ran.step);
-      options.ran(toolCallId, { ...ran.done, command: command.command, run: options.runId });
+      const done = { ...ran.done, command: command.command, run: options.runId };
+      options.ran(toolCallId, done);
       if (ran.done.window) oneLine.add(ran.said);
+      if (ran.done.window?.running) {
+        goingOn.set(toolCallId, done);
+        const early = endedEarly.get(toolCallId);
+        endedEarly.delete(toolCallId);
+        if (early) windowEnded(toolCallId, early);
+      }
       return ran.said;
     },
   };
@@ -291,6 +325,7 @@ export function commandTools(options: CommandToolsOptions): {
           toolCallId,
           mindId: options.focusedMindId,
           clientId: options.clientId,
+          ended: (end) => windowEnded(toolCallId, end),
         });
         const ask = askOf(command, { changed, renames });
         checked.set(toolCallId, command);
