@@ -6150,6 +6150,11 @@ export interface ConversationAnswerInput {
   clearScope?: boolean;
   /** Regenerating: the Documents open on screen now, as `AskInConversationInput.onScreen`. */
   onScreen?: string[] | null;
+  /**
+   * Regenerating: write it with this model, and keep the Question on it, as when the model it was
+   * asked with failed and the User chose another (#1848). Absent: the Question's own.
+   */
+  model?: ChatModelChoice;
 }
 
 /** What asking in a conversation (or regenerating an Answer there) did. */

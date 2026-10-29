@@ -1,4 +1,5 @@
 import { useMemo } from "react";
+import type * as Y from "yjs";
 import type { ConversationAnswer, ConversationQuestion } from "../../../../core/api";
 import { answerBlocks, hasText } from "../../../../shared/answerBlocks";
 import type { NodeJSON } from "../../../../shared/blockJson";
@@ -16,6 +17,7 @@ import {
 import { AskProblem } from "../../editor/AskProblem";
 import { PlanLimitLine } from "../../editor/PlanLimitLine";
 import { useT } from "../../i18n";
+import { useModelInUse } from "../../modelInUse";
 import { useStoppedByPlanLimit } from "../../planLimits";
 import { useQuestions } from "../../questions";
 import { useScopeEmpty } from "../../scopeDocuments";
@@ -66,6 +68,7 @@ export function AssistantAnswer({
   sought,
   keeping,
   askedAgain,
+  doc,
 }: {
   answer: ConversationAnswer;
   question: ConversationQuestion | undefined;
@@ -74,6 +77,8 @@ export function AssistantAnswer({
   keeping: AnswerKeeping;
   /** It was asked again with this many Documents an earlier Answer didn't use. */
   askedAgain?: number;
+  /** The Note in focus, whose model the composer's chip shows. */
+  doc: Y.Doc | null;
 }) {
   const t = useT();
   const { text, citations, figures, status } = answer;
@@ -96,6 +101,7 @@ export function AssistantAnswer({
     approvals.length > 0 || consenting || asking,
   );
   const openSettings = useAppStore((state) => state.openSettings);
+  const modelNow = useModelInUse(doc);
   const regenerate = () => void regenerateAnswer(answer.id);
   const written = hasText(blocks);
   const { uncalculated } = figuresOf(answer.toolCalls);
@@ -184,6 +190,9 @@ export function AssistantAnswer({
           details={answer.errorMessage}
           failedAt={answer.updatedAt}
           onRetry={regenerate}
+          onRetryWith={(model) => void regenerateAnswer(answer.id, { model })}
+          modelNow={modelNow}
+          chooseHere
           onOpenSettings={openSettings}
         />
       )}
