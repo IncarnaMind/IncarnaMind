@@ -4,6 +4,7 @@ import {
   pendingPart,
   readPartPlans,
   resultFromParts,
+  withFigureFacts,
 } from "../../../shared/claimParts";
 import { emptyFigureFinding } from "../../../shared/figureChecks";
 import type {
@@ -99,8 +100,12 @@ export function createPartCheck(deps: ClaimCheckDependencies) {
     )
       plans = [full];
     const limit = request.slots ?? slots(claimsAtOnce(request.model));
+    const withFigures = (found: readonly ClaimPartPlan[]) =>
+      withFigureFacts(request.claim, found, request.figures ?? [], request.projection);
     const sortAlone = async (): Promise<Sorted> => {
-      const sorted = await claimsAmong(request.model, [request.claim], "own", request.signal);
+      const sorted = await limit.run(() =>
+        claimsAmong(request.model, [request.claim], "own", request.signal),
+      );
       if (sorted.kind === "cancelled") return { failed: failed("stopped") };
       if (sorted.kind === "failed") {
         const failure = failureOf(sorted.error);
@@ -109,27 +114,32 @@ export function createPartCheck(deps: ClaimCheckDependencies) {
       const found = sorted.parts.get(0);
       return sorted.undecided.has(0) || found === undefined
         ? { failed: failed("malformed") }
-        : { plans: found };
+        : { plans: withFigures(found) };
     };
     const opinionsChecked = request.parts === undefined && !request.opinionsLeftOut;
-    // One fact, or the one opinion the User asked to check, is checked as the whole sentence.
+    // A first turn's Run checks the whole sentence, so its result is one part's only when that
+    // part is the sentence, but for the spaces and punctuation around it: one fact, or the one
+    // opinion the User asked to check. A shorter part is checked on its own words.
+    const isSentence = ({ start, end }: ClaimPartSpan) =>
+      /^[\s\p{P}]*$/u.test(request.claim.slice(0, start) + request.claim.slice(end));
     const whole = (found: readonly ClaimPartPlan[]): ClaimPartPlan | null => {
       const [only, ...more] = found;
       if (more.length > 0) return null;
-      if (only?.kind === "fact") return only;
-      return opinionsChecked ? (only ?? { ...full, kind: "opinion" }) : null;
+      if (!only) return opinionsChecked ? { ...full, kind: "opinion" } : null;
+      if (only.kind === "opinion" && !opinionsChecked) return null;
+      return isSentence(only.span) ? only : null;
     };
     if (
       plans === undefined &&
-      !request.figures?.length &&
       request.figureIds === undefined &&
       request.only === undefined &&
       request.previous === undefined
     ) {
       // The Run names the sentence's parts in its first turn, so a sentence of one fact costs no
       // sorting request and goes on as its own check (#1635). Any other stops there, before its
-      // next request, and is checked part by part. A Run that names none goes on, and its
-      // sentence is sorted after it, as before parts were named in the check.
+      // next request, and is checked part by part. A Run whose line can't be read goes on, and its
+      // sentence is sorted after it, as before parts were named in the check; one that names no
+      // part checks the sentence whole, as a sentence the User or a Citation put up to check is.
       const run = new AbortController();
       const heard: { plans?: readonly ClaimPartPlan[] | null } = {};
       const result = await limit.run(() =>
@@ -137,7 +147,9 @@ export function createPartCheck(deps: ClaimCheckDependencies) {
           ...request,
           signal: AbortSignal.any([request.signal, run.signal]),
           findParts: (text) => {
-            heard.plans = readPartsLine(text, request.claim);
+            const named = readPartsLine(text, request.claim);
+            if (named?.length === 0) return;
+            heard.plans = named && withFigures(named);
             if (heard.plans && whole(heard.plans) === null) run.abort();
           },
         }),
@@ -163,6 +175,7 @@ export function createPartCheck(deps: ClaimCheckDependencies) {
       plans = sorted.plans;
     }
     if (plans.length === 0 && opinionsChecked) plans = [{ ...full, kind: "opinion" }];
+    plans = withFigures(plans);
     // What the User didn't ask about leaves its opinions out, as Check this Note does.
     if (request.opinionsLeftOut && !plans.some((part) => part.kind === "fact"))
       return {

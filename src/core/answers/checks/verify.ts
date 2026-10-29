@@ -20,6 +20,7 @@
  */
 import { randomUUID } from "node:crypto";
 import * as Y from "yjs";
+import { withFigureFacts } from "../../../shared/claimParts";
 import { beginFigureCheck } from "../../../shared/figureChecks";
 import { isClaim } from "../../../shared/sentences";
 import { setTextOrigin } from "../../../shared/textOrigins";
@@ -249,9 +250,15 @@ export function createVerify(options: VerifyOptions) {
       signal,
     );
     if (found.kind !== "found") return found;
-    const claims = sentences.flatMap((sentence, index) => {
-      if (!found.claims.has(index) && !found.undecided.has(index)) return [];
+    const sorted = (sentence: (typeof sentences)[number], index: number) => {
       const plans = found.parts.get(index);
+      return plans === undefined || sentence.said !== sentence.text
+        ? plans
+        : withFigureFacts(sentence.said, plans, sentence.figures ?? [], sentence.projection);
+    };
+    const claims = sentences.flatMap((sentence, index) => {
+      const plans = sorted(sentence, index);
+      if (!found.undecided.has(index) && !plans?.some((part) => part.kind === "fact")) return [];
       const parts =
         sentence.said !== sentence.text
           ? [{ kind: "fact" as const, span: { start: 0, end: sentence.text.length } }]
@@ -274,7 +281,7 @@ export function createVerify(options: VerifyOptions) {
       recordOpinions(
         blocks,
         sentences.flatMap((sentence, index) => {
-          const parts = found.parts.get(index);
+          const parts = sorted(sentence, index);
           return sentence.said === sentence.text &&
             parts !== undefined &&
             !found.undecided.has(index)

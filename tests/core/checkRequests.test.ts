@@ -11,13 +11,26 @@ import { describe, expect, test } from "vitest";
 import type { Core } from "../../src/core";
 import { claimSpans } from "../../src/renderer/src/editor/claimChecks";
 import { askAssistant } from "../helpers/assistant";
-import { isCheckRun, listedSentences, sentenceOf } from "../helpers/checks";
+import {
+  checkGenerate,
+  checkReply,
+  isCheckRun,
+  listedSentences,
+  type Plan,
+  sentenceOf,
+} from "../helpers/checks";
 import { shownPassages } from "../helpers/citations";
 import { createTempDataFolder, startCore } from "../helpers/core";
 import { addAndProcess, writeSourceFile } from "../helpers/documents";
 import { connectToMind, type MindClient } from "../helpers/mindClient";
 import { readMind, resolveChanges, writeMind } from "../helpers/minds";
-import { type ModelCall, type ScriptedReply, scriptedModel } from "../helpers/models";
+import {
+  type GenerateCall,
+  type GeneratedReply,
+  type ModelCall,
+  type ScriptedReply,
+  scriptedModel,
+} from "../helpers/models";
 
 type Part = { kind: "fact" | "opinion"; text: string };
 
@@ -36,6 +49,14 @@ const LANGUAGES = [
     ],
     joined: (facts: readonly string[]) => `${facts.slice(0, 2).join(", ")}, and ${facts[2]}.`,
     sentence: (index: number) => `Store ${index} sold ${index + 10} units in June.`,
+    survey: "Spring tides come at new and full moon, as the harbour survey found[^1].",
+    surveyFact: "Spring tides come at new and full moon",
+    figure: {
+      source: "Revenue rose by £5m in 2025.",
+      written: "I think the £5m rise is impressive[^1].",
+      number: "£5m",
+      opinions: ["I think the", "rise is impressive"],
+    },
   },
   {
     language: "zh-CN",
@@ -47,6 +68,14 @@ const LANGUAGES = [
     facts: ["北店于三月开业", "南店于四月开业", "东店于五月开业"],
     joined: (facts: readonly string[]) => `${facts.join("，")}。`,
     sentence: (index: number) => `${index}号店六月售出${index + 10}件商品。`,
+    survey: "大潮出现在新月和满月时，正如港口调查所发现的[^1]。",
+    surveyFact: "大潮出现在新月和满月时",
+    figure: {
+      source: "2025年收入增长了500万英镑。",
+      written: "我认为500万英镑的增长令人印象深刻[^1]。",
+      number: "500万英镑",
+      opinions: ["我认为", "的增长令人印象深刻"],
+    },
   },
 ] as const;
 
@@ -124,6 +153,17 @@ function quoting(
   return { text: "Verdict: supported\nThe Document says so. [^1]" };
 }
 
+/** A check Run whose first turn names `parts` of its sentence, then checks as `plans` say. */
+function naming(
+  call: ModelCall,
+  plans: Record<string, Plan>,
+  parts: (sentence: string) => readonly Part[],
+): ScriptedReply {
+  if (call.results.length > 0 || !call.system.includes("Parts:")) return checkReply(call, plans);
+  const search = { tool: "search_documents", input: { query: sentenceOf(call) } };
+  return { text: `Parts: ${JSON.stringify(parts(sentenceOf(call)))}`, calls: [search] };
+}
+
 /** A core whose chat model is `model`, billed per token on a service, or on this computer (`local`). */
 async function coreWith(model: Parameters<typeof wrapLanguageModel>[0]["model"], local = false) {
   const core = startCore(await createTempDataFolder(), { createChatModel: () => model });
@@ -167,14 +207,14 @@ function writingModel(
   source: string,
   written: string,
   check: (call: ModelCall) => ScriptedReply,
-  generate?: ReturnType<typeof sortingInto>,
+  generate?: (call: GenerateCall) => GeneratedReply,
 ) {
   let wrote = false;
   return scriptedModel(
     (call) => {
       if (isCheckRun(call)) return check(call);
       const search = call.results.find((result) => result.tool === "search_documents");
-      if (!search) return { calls: [{ tool: "search_documents", input: { query: "tides" } }] };
+      if (!search) return { calls: [{ tool: "search_documents", input: { query: source } }] };
       if (!call.results.some((result) => result.tool === "cite")) {
         const [passage] = shownPassages(search.text);
         const record = { marker: 1, passage: passage?.id, quote: source };
@@ -287,6 +327,168 @@ describe.each(LANGUAGES)("check requests ($language)", (example) => {
       await core.checkMind({ requestId: "again", mindId: change.mindId, mode: "all" }),
     ).toMatchObject({ kind: "checked" });
     expect(await marksOf(client)).toEqual(written);
+  });
+
+  // protects=a cited written sentence whose first turn names no part is checked whole, never dropped without a mark (#2002); fails_when=it gets no mark or only an opinion row; no_claim=how often a real model names no part.
+  test("a written sentence whose first turn names no part is checked whole", async () => {
+    const model = writingModel(example.source, example.written, (call) =>
+      quoting(call, { quote: example.source, parts: () => [] }),
+    );
+    const core = await coreWith(model);
+    const folderId = await inFolder(core, "Tides.md", `# Tides\n\n${example.source}\n`);
+
+    const { change, client } = await write(core, folderId);
+
+    expect(change.selfCheck).toMatchObject({ sent: 1, checked: 1 });
+    expect(checkRequests(model)).toEqual({ sorting: 0, steps: 3, asked: 0 });
+    expect(await marksOf(client)).toEqual([
+      {
+        state: "supported",
+        parts: [{ text: expect.any(String), kind: "fact", verdict: "supported" }],
+      },
+    ]);
+  });
+
+  // protects=a written sentence whose one named fact is shorter than the sentence is checked on that fact alone, so it gets the result Check this Note gives it, never the whole sentence's result on the shorter words (#2002); fails_when=the whole-sentence result is kept on a shorter part, or the two checks disagree; no_claim=how a real model names parts.
+  test("a written sentence whose one fact is shorter than it gets the result Check this Note gives it", async () => {
+    const words = example.survey.replace("[^1]", "");
+    const fact = (sentence: string): Part[] =>
+      partsIn(sentence, [{ kind: "fact", text: example.surveyFact }]);
+    const plans = {
+      [example.surveyFact]: { verdict: "supported" as const, quote: example.source },
+      [words]: { verdict: "unsupported" as const },
+    };
+    const model = writingModel(
+      example.source,
+      example.survey,
+      (call) => naming(call, plans, fact),
+      (call) =>
+        call.system.startsWith(SORTS) ? sortingInto(fact)(call) : checkGenerate(plans)(call),
+    );
+    const core = await coreWith(model);
+    const folderId = await inFolder(core, "Tides.md", `# Tides\n\n${example.source}\n`);
+    const expected = [
+      {
+        state: "supported",
+        parts: [{ text: example.surveyFact, kind: "fact", verdict: "supported" }],
+      },
+    ];
+
+    const { change, client } = await write(core, folderId);
+    expect(await marksOf(client)).toEqual(expected);
+
+    const typed = await core.createMind({ title: "Typed", folderId });
+    const own = await connectToMind(core, typed.id);
+    writeMind(own, [
+      { type: "paragraph", attrs: { id: "own" }, content: [{ type: "text", text: words }] },
+    ]);
+    await own.settled();
+    expect(
+      await core.checkMind({ requestId: "typed", mindId: typed.id, mode: "all" }),
+    ).toMatchObject({ kind: "checked" });
+    expect(await marksOf(own)).toEqual(expected);
+
+    await resolveChanges(client, "accept");
+    expect(
+      await core.checkMind({ requestId: "again", mindId: change.mindId, mode: "all" }),
+    ).toMatchObject({ kind: "checked" });
+    expect(await marksOf(client)).toEqual(expected);
+  });
+
+  // protects=written sentences with numbers cost the requests they did before sentences had parts: their first turn names the parts, each number inside its fact, and no sorting request is sent (#1635, #1932); fails_when=a sentence with a figure sends a sorting request of its own, or takes more steps; no_claim=how many steps a real model takes.
+  test("three written sentences with numbers make no sorting request", async () => {
+    const sentences = [1, 2, 3].map(example.sentence);
+    const whole = (sentence: string): Part[] => [
+      { kind: "fact", text: sentence.replace(/[.。]$/u, "") },
+    ];
+    const plans = Object.fromEntries(
+      sentences.map((sentence) => [sentence, { verdict: "supported" as const, quote: sentence }]),
+    );
+    const model = writingModel(
+      sentences.join(" "),
+      sentences.map((sentence) => sentence.replace(/([.。])$/u, "[^1]$1")).join(" "),
+      (call) => naming(call, plans, whole),
+      (call) =>
+        call.system.startsWith(SORTS) ? sortingInto(whole)(call) : checkGenerate(plans)(call),
+    );
+    const core = await coreWith(model);
+    const folderId = await inFolder(core, "Stores.md", `# Stores\n\n${sentences.join(" ")}\n`);
+
+    const { change, client } = await write(core, folderId);
+
+    expect(change.selfCheck?.sent).toBe(3);
+    expect(checkRequests(model)).toEqual({ sorting: 0, steps: 9, asked: 0 });
+    expect((await marksOf(client)).map((mark) => mark.state)).toEqual([
+      "supported",
+      "supported",
+      "supported",
+    ]);
+  });
+
+  // protects=a number inside an opinion is checked as its own fact, in what the assistant writes and in Check this Note, with the same parts and result, and the opinion's words either side of it are left out (#1932, #2002); fails_when=the sentence is left out whole as an opinion, its number goes unchecked, or the two checks give it different parts; no_claim=how a real model sorts the sentence.
+  test("a number inside an opinion is checked as its own fact, written or typed", async () => {
+    const { figure } = example;
+    const opinion = (sentence: string): Part[] => [
+      { kind: "opinion", text: sentence.replace(/[.。]$/u, "") },
+    ];
+    const plans = {
+      [figure.number]: {
+        verdict: "supported" as const,
+        quote: figure.source,
+        number: figure.number,
+      },
+    };
+    const checked: string[] = [];
+    const model = writingModel(
+      figure.source,
+      figure.written,
+      (call) => {
+        if (call.results.length === 0) checked.push(sentenceOf(call));
+        return naming(call, plans, opinion);
+      },
+      (call) =>
+        call.system.startsWith(SORTS) ? sortingInto(opinion)(call) : checkGenerate(plans)(call),
+    );
+    const core = await coreWith(model);
+    const folderId = await inFolder(core, "Revenue.md", `# Revenue\n\n${figure.source}\n`);
+    const expected = [
+      {
+        state: "supported",
+        parts: [
+          { text: figure.opinions[0], kind: "opinion", verdict: null },
+          { text: figure.number, kind: "fact", verdict: "supported" },
+          { text: figure.opinions[1], kind: "opinion", verdict: null },
+        ],
+      },
+    ];
+
+    const words = figure.written.replace("[^1]", "");
+    const { change, client } = await write(core, folderId);
+    expect(await marksOf(client)).toEqual(expected);
+    // Its first turn names the parts, and only the number goes on to be checked.
+    expect(checked).toEqual([words, figure.number]);
+
+    const typed = await core.createMind({ title: "Typed", folderId });
+    const own = await connectToMind(core, typed.id);
+    writeMind(own, [
+      {
+        type: "paragraph",
+        attrs: { id: "own" },
+        content: [{ type: "text", text: words }],
+      },
+    ]);
+    await own.settled();
+    expect(
+      await core.checkMind({ requestId: "typed", mindId: typed.id, mode: "all" }),
+    ).toMatchObject({ kind: "checked" });
+    expect(await marksOf(own)).toEqual(expected);
+    expect(checked).toEqual([words, figure.number, figure.number]);
+
+    await resolveChanges(client, "accept");
+    expect(
+      await core.checkMind({ requestId: "again", mindId: change.mindId, mode: "all" }),
+    ).toMatchObject({ kind: "checked" });
+    expect(await marksOf(client)).toEqual(expected);
   });
 
   // protects=a sentence's factual parts are checked at once on a cloud model, within the run's limit, and one at a time on a model on this computer, after one first turn that names them and no sorting request (#2002); fails_when=parts wait for each other on a cloud model, a local model gets several at once, or a sorting request is sent; no_claim=how long a real provider takes.

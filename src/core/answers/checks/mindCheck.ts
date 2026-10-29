@@ -29,6 +29,7 @@ import {
   claimCheckShown,
   restsOn,
 } from "../../../shared/claimChecks";
+import { withFigureFacts } from "../../../shared/claimParts";
 import { beginFigureCheck } from "../../../shared/figureChecks";
 import { readMindCheck, sentenceKey, writeMindCheck } from "../../../shared/mindCheck";
 import { mindModelOf } from "../../../shared/mindModel";
@@ -197,8 +198,10 @@ export function createMindCheck(options: MindCheckOptions) {
       if (found.kind !== "found") return found;
       for (const [index, sentence] of unsorted.entries()) {
         if (found.undecided.has(index)) continue;
-        const parts = found.parts.get(index);
-        if (parts === undefined) continue;
+        const said = found.parts.get(index);
+        if (said === undefined) continue;
+        const { claim, projection } = checkText(sentence);
+        const parts = withFigureFacts(claim, said, sentence.figures ?? [], projection);
         const earlier = known.get(sentence.text);
         if (
           parts.some((part) => part.kind === "fact") ||

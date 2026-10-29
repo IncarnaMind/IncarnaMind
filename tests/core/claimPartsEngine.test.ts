@@ -1308,7 +1308,7 @@ describe.each([
     expect(calls.map(sentenceOf)).toContain(fact);
     expect(result).toMatchObject({
       verdict: "supported",
-      parts: [{ kind: "opinion", verdict: "supported", span: { start: 0, end: fact.length } }],
+      parts: [{ kind: "fact", verdict: "supported", span: { start: 0, end: fact.length } }],
     });
   });
 

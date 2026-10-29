@@ -261,6 +261,73 @@ export function figuresByPart(
   return owned;
 }
 
+/**
+ * `plans` with every figure of the sentence inside a fact (#1932): opinions can surround a number,
+ * but the number is a checkable fact, so a figure the sort left in an opinion or between parts
+ * becomes a part of its own, and the opinion keeps its words on either side. A sentence whose
+ * figures can't be placed, and that has no fact, is one fact, as before sentences had parts. One
+ * the sort says asserts nothing (a heading, a question) stays so: its numbers say nothing either.
+ */
+export function withFigureFacts(
+  sentence: string,
+  plans: readonly ClaimPartPlan[],
+  figures: readonly CheckFigure[],
+  projection?: InlineTextProjection,
+): readonly ClaimPartPlan[] {
+  if (figures.length === 0 || plans.length === 0) return plans;
+  const whole: ClaimPartPlan[] = [{ kind: "fact", span: { start: 0, end: sentence.length } }];
+  const spans: { start: number; end: number }[] = [];
+  for (const figure of figures) {
+    const span =
+      figure.locator.kind === "text" &&
+      projection?.text === sentence &&
+      inlineSpan(projection, figure.locator.from.offset, figure.locator.to.offset);
+    if (!span) return plans.some((plan) => plan.kind === "fact") ? plans : whole;
+    spans.push(span);
+  }
+  let parts = [...plans];
+  for (const span of spans) {
+    const overlapping = parts.filter(
+      (part) => part.span.start < span.end && part.span.end > span.start,
+    );
+    if (overlapping.some((part) => part.kind === "fact" && within(span, part.span))) continue;
+    const around = overlapping.length === 1 ? overlapping[0] : undefined;
+    const pieces: ClaimPartPlan[] =
+      around && within(span, around.span)
+        ? [
+            ...opinionPiece(sentence, around.span.start, span.start),
+            { kind: "fact", span },
+            ...opinionPiece(sentence, span.end, around.span.end),
+          ]
+        : [
+            {
+              kind: "fact",
+              span: {
+                start: Math.min(span.start, ...overlapping.map((part) => part.span.start)),
+                end: Math.max(span.end, ...overlapping.map((part) => part.span.end)),
+              },
+            },
+          ];
+    parts = [...parts.filter((part) => !overlapping.includes(part)), ...pieces].sort(
+      (a, b) => a.span.start - b.span.start,
+    );
+  }
+  return parts;
+}
+
+const within = (inner: { start: number; end: number }, outer: { start: number; end: number }) =>
+  outer.start <= inner.start && inner.end <= outer.end;
+
+function opinionPiece(sentence: string, start: number, end: number): ClaimPartPlan[] {
+  let from = start;
+  let to = end;
+  while (from < to && /\s/.test(sentence[from] ?? "")) from++;
+  while (to > from && /\s/.test(sentence[to - 1] ?? "")) to--;
+  return /[\p{L}\p{N}]/u.test(sentence.slice(from, to))
+    ? [{ kind: "opinion", span: { start: from, end: to } }]
+    : [];
+}
+
 function coverageOf(value: unknown): ClaimPartCoverage | null {
   if (
     !isRecord(value) ||
