@@ -14,7 +14,7 @@ import type { UnmadeFixes } from "./claimedFixes";
 import { replyJson } from "./quoteRetry";
 import { type ChangeStates, type MindNames, toolRecordLines } from "./toolRecord";
 
-/** What a sentence the judge read as a change is about: only a Mind's own change counts (#2194). */
+/** What a sentence the judge read as a change is about; only a Mind's own change counts. */
 export const CLAIM_ABOUT = ["mind", "reply", "document", "offer_or_question", "negation"] as const;
 
 export type ClaimAbout = (typeof CLAIM_ABOUT)[number];
@@ -141,6 +141,9 @@ function recordOf(calls: readonly AnswerToolCall[], names: MindNames, states?: C
   });
 }
 
+/** The values that keep a claim from counting: a missing or unknown one counts, since a provider may ignore the schema. */
+const NOT_A_MIND: readonly string[] = CLAIM_ABOUT.filter((about) => about !== "mind");
+
 // A model may straighten the reply's typographic quotes even when asked to copy it.
 const comparableSentence = (text: string) =>
   text.trim().replace(/[“”]/g, '"').replace(/[‘’]/g, "'");
@@ -161,7 +164,8 @@ function verdictOf(value: unknown, reply: string): ClaimedChange[] | null {
     ) {
       continue;
     }
-    if (!backed && about === "mind") unbacked.add(claimed);
+    if (!backed && !(typeof about === "string" && NOT_A_MIND.includes(about)))
+      unbacked.add(claimed);
   }
   return [...unbacked];
 }

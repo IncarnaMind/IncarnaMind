@@ -179,28 +179,44 @@ describe("The quick model's verdict", () => {
 });
 
 describe("What the judge says the sentence is about (#2194)", () => {
-  // protects=only a claim the judge calls a change to a Mind flags; a sentence it calls the reply's own text, a Document's, an offer or a question, or a negation finds nothing, and so does a verdict with no about; fails_when=the User is told a write failed for any of them; no_claim=what a real judge answers (the pull request's before and after runs).
-  test.each(["reply", "document", "offer_or_question", "negation", undefined] as const)(
+  const english = "I've sorted out what the Volunteer Handbook says.";
+  const chinese = "我整理了手册的要点。";
+
+  // protects=the four values the judge uses for what a claim is not about each drop it, in English and Chinese; fails_when=a claim it calls the reply's, a Document's, an offer or a negation is flagged; no_claim=what a real judge answers (the pull request's runs).
+  test.each(["reply", "document", "offer_or_question", "negation"] as const)(
     "about %s finds nothing",
     async (about) => {
-      const reply = "I've sorted out what the Volunteer Handbook says.";
-      const claim =
-        about === undefined
-          ? { sentence: reply, kind: "added", backed: false }
-          : { sentence: reply, kind: "added", about, backed: false };
-      const result = await check(judge({ claims: [claim] }), reply);
-      expect(result.claims).toEqual([]);
+      for (const reply of [english, chinese]) {
+        const result = await check(
+          judge({ claims: [{ sentence: reply, kind: "added", about, backed: false }] }),
+          reply,
+        );
+        expect(result.claims).toEqual([]);
+      }
     },
   );
 
   // protects=a claim the judge calls a change to a Mind flags, backed false; fails_when=the line goes missing for a real claim; no_claim=none beyond protects.
   test("about mind flags", async () => {
-    const reply = "I've added it.";
-    const result = await check(
-      judge({ claims: [{ sentence: reply, kind: "added", about: "mind", backed: false }] }),
-      reply,
-    );
-    expect(result.claims).toEqual(["added"]);
+    for (const reply of [english, chinese]) {
+      const result = await check(
+        judge({ claims: [{ sentence: reply, kind: "added", about: "mind", backed: false }] }),
+        reply,
+      );
+      expect(result.claims).toEqual(["added"]);
+    }
+  });
+
+  // protects=a provider that ignores the schema, and a judge that omits or invents about, cannot silently drop a real claim: no about, and an unknown one, flag as they did before the field, in English and Chinese; fails_when=a claim is lost because the field is missing or unknown; no_claim=how a provider ignores the schema.
+  test.each(["omitted", "unknown"] as const)("about %s flags", async (how) => {
+    for (const reply of [english, chinese]) {
+      const claim =
+        how === "omitted"
+          ? { sentence: reply, kind: "added", backed: false }
+          : { sentence: reply, kind: "added", about: "Mind", backed: false };
+      const result = await check(judge({ claims: [claim] }), reply);
+      expect(result.claims).toEqual(["added"]);
+    }
   });
 
   // protects=the instructions ask the judge to say what each claim is about and to count only a Mind; fails_when=the field is asked for without the rule, or the rule without the field; no_claim=what a real model then answers (the pull request's runs).

@@ -32,12 +32,25 @@ interface Layout {
   assistant: AssistantPlace;
 }
 
-/** A tab closed in this session, and where it was, for ⇧⌘T. */
-interface ClosedTab {
+/** Where a tab was in its window: its group, that group's place, and the tab's place in it. */
+interface TabPlace {
   tab: LayoutTab;
   groupId: string;
   groupIndex: number;
   index: number;
+}
+
+/**
+ * A tab a Mind's delete closed, and where it was, for the restore that puts it back: the same
+ * rule closes and reopens, in every window, whatever way the Mind was deleted.
+ */
+interface GoneTab extends TabPlace {
+  mindId: string;
+  windowId: string;
+  shown: boolean;
+  focused: boolean;
+  /** The close it went with: its place was counted among the tabs closed after it, not before. */
+  closedIn: number;
 }
 
 /** How many closed tabs ⇧⌘T can bring back. */
@@ -440,6 +453,28 @@ function addGroup(layout: Layout, at: number, beside: LayoutGroup, newId: () => 
   return group;
 }
 
+/**
+ * Where a tab that closed goes back to: its group, made again where it was if it went with its last
+ * tab; and the tab there shows the same thing already, if one does, which comes back instead.
+ */
+function homeFor(
+  layout: Layout,
+  place: TabPlace,
+): { group: LayoutGroup; twin: LayoutTab | undefined } {
+  const last = layout.groups.at(-1) as LayoutGroup;
+  const at = Math.min(place.groupIndex, layout.groups.length);
+  const neighbour = (layout.groups[at] ?? last) as LayoutGroup;
+  // A group left empty by the close goes too; one made again beside it is where it was once `tidy`
+  // has taken the empty one out, and it keeps the group's id so every tab that was in it comes back
+  // into the one group, not one group each.
+  const group =
+    layout.groups.find((each) => each.id === place.groupId) ??
+    (layout.groups.length < MAX_TAB_GROUPS
+      ? addGroup(layout, at, neighbour, () => place.groupId)
+      : neighbour);
+  return { group, twin: group.tabs.find((each) => sameItem(each.item, place.tab.item)) };
+}
+
 /** The group right of `from`, made if there is room, else the one left of it. */
 function sideGroup(layout: Layout, from: LayoutGroup, newId: () => string): LayoutGroup {
   if (from.tabs.length === 0) return from;
@@ -612,7 +647,7 @@ class WindowState {
   constructor(
     readonly layout: Layout,
     private readonly newId: () => string,
-    readonly closed: ClosedTab[] = [],
+    readonly closed: TabPlace[] = [],
   ) {}
 
   private openedBehind: OpenedBehind | null = null;
@@ -720,7 +755,7 @@ class WindowState {
     let closed = this.closed.pop();
     while (closed && !valid(closed.tab.item)) closed = this.closed.pop();
     if (!closed) return;
-    const { tab, index, groupId, groupIndex } = closed;
+    const { tab, index } = closed;
     // Opened again since it closed: that tab is shown, not a second one. The
     // Library and Home have one tab per window; anything else one per group.
     const single = oneTabEach(tab.item) ? findOpen(layout, tab.item) : null;
@@ -728,24 +763,37 @@ class WindowState {
       show(layout, single.group, single.tab, true);
       return;
     }
-    const last = layout.groups.at(-1) as LayoutGroup;
-    const only = layout.groups.length === 1 && last.tabs.length === 0 ? last : undefined;
-    // Its group, if it is still there; else a new one where it was, if there is room.
-    const at = Math.min(groupIndex, layout.groups.length);
-    const neighbour = (layout.groups[at] ?? last) as LayoutGroup;
-    const group =
-      only ??
-      layout.groups.find((each) => each.id === groupId) ??
-      (layout.groups.length < MAX_TAB_GROUPS
-        ? addGroup(layout, at, neighbour, this.newId)
-        : neighbour);
-    const twin = group.tabs.find((each) => sameItem(each.item, tab.item));
+    const { group, twin } = homeFor(layout, closed);
     if (twin) {
       show(layout, group, twin, true);
       return;
     }
     insert(group, tab, index);
     show(layout, group, tab, true);
+  }
+
+  /**
+   * A tab a Mind's delete closed, back in its group at its place, shown again if it was and its
+   * group focused again if it was; true when that changed the layout.
+   */
+  putBack(entry: GoneTab): boolean {
+    const { layout } = this;
+    const { group, twin } = homeFor(layout, entry);
+    const tab = twin ?? entry.tab;
+    let changed = false;
+    if (!twin) {
+      insert(group, tab, entry.index);
+      changed = true;
+    }
+    if (entry.shown && group.activeTabId !== tab.id) {
+      group.activeTabId = tab.id;
+      changed = true;
+    }
+    if (entry.focused && layout.focusedGroupId !== group.id) {
+      layout.focusedGroupId = group.id;
+      changed = true;
+    }
+    return changed;
   }
 
   private move(tabId: string, groupId: string, wanted: string | null): void {
@@ -867,6 +915,11 @@ export function createLayouts(deps: LayoutDependencies) {
     return removed;
   };
 
+  /** By Mind, the tabs its delete closed in each window, until a restore puts them back. */
+  const gone = new Map<string, GoneTab[]>();
+  /** How many closes have happened, so a restore puts back the last-closed first (see `GoneTab`). */
+  let closes = 0;
+
   const stateOf = (windowId: string): WindowState => {
     let state = windows.get(windowId);
     if (state) return state;
@@ -913,14 +966,80 @@ export function createLayouts(deps: LayoutDependencies) {
     },
 
     /**
-     * Closes the tabs of Minds deleted since, in every window open. A deleted
-     * Document's tab stays until closed: its viewer says what happened.
+     * Closes the tabs of Minds deleted since, in every window open, keeping where each was so a
+     * restore puts it back. A deleted Document's tab stays until closed: its viewer says what
+     * happened.
      */
     forgetDeletedMinds(): void {
-      const keep = (item: TabItem) =>
-        (item.kind !== "mind" && item.kind !== "figures") || deps.mindExists(item.mindId);
+      const deletedMind = (item: TabItem): string | null => {
+        if (item.kind !== "mind" && item.kind !== "figures") return null;
+        return deps.mindExists(item.mindId) ? null : item.mindId;
+      };
       for (const [windowId, state] of windows) {
-        if (!prune(state.layout, keep)) continue;
+        const { layout } = state;
+        const closed = layout.groups.flatMap((group, groupIndex) =>
+          group.tabs.flatMap((tab, index) => {
+            const mindId = deletedMind(tab.item);
+            return mindId === null
+              ? []
+              : [
+                  {
+                    mindId,
+                    windowId,
+                    tab,
+                    groupId: group.id,
+                    groupIndex,
+                    index,
+                    shown: group.activeTabId === tab.id,
+                    focused: layout.focusedGroupId === group.id,
+                    closedIn: closes + 1,
+                  },
+                ];
+          }),
+        );
+        if (closed.length === 0) continue;
+        closes += 1;
+        for (const entry of closed) {
+          gone.set(entry.mindId, [...(gone.get(entry.mindId) ?? []), entry]);
+        }
+        prune(layout, (item) => deletedMind(item) === null);
+        tidy(layout);
+        save(windowId, state);
+      }
+    },
+
+    /** Drops what a delete kept for Minds no restore will put back: deleted for good, or restored elsewhere. */
+    forgetMinds(mindIds: readonly string[]): void {
+      for (const mindId of mindIds) gone.delete(mindId);
+    },
+
+    /**
+     * Puts back the tabs each restored Mind's delete closed, in every window they were open in,
+     * where they were and as they were. A Mind deleted before this session has none kept: its undo
+     * went with the session.
+     */
+    reopenMinds(mindIds: readonly string[]): void {
+      const byWindow = new Map<string, GoneTab[]>();
+      for (const mindId of mindIds) {
+        const entries = gone.get(mindId);
+        if (!entries) continue;
+        gone.delete(mindId);
+        for (const entry of entries) {
+          byWindow.set(entry.windowId, [...(byWindow.get(entry.windowId) ?? []), entry]);
+        }
+      }
+      for (const [windowId, list] of byWindow) {
+        const state = windows.get(windowId);
+        if (!state) continue;
+        // The last closed first: its place, and its group's, were counted in a window the earlier
+        // closes had already left, so each finds the place it had once those are back. A group's own
+        // tabs, closed together and counted among each other, go left to right.
+        const inOrder = [...list].sort(
+          (a, b) => b.closedIn - a.closedIn || a.groupIndex - b.groupIndex || a.index - b.index,
+        );
+        let changed = false;
+        for (const entry of inOrder) changed = state.putBack(entry) || changed;
+        if (!changed) continue;
         tidy(state.layout);
         save(windowId, state);
       }

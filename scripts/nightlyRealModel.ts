@@ -160,7 +160,6 @@ export const STEPS: readonly Step[] = [
   },
 ];
 
-
 /** The secrets the steps need that the environment doesn't have, or has empty. */
 export function missingSecrets(
   env: Readonly<Record<string, string | undefined>>,
@@ -394,7 +393,6 @@ interface VitestReport {
   }[];
 }
 
-/** The claim-probes report: each probe's runs and the backed write (eval/everyday/claimProbes.everyday.ts). */
 interface ClaimProbesReport {
   rows?: { id: string; run: number; passed: boolean }[];
   backed?: { passed: boolean };
