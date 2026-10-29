@@ -926,7 +926,7 @@ export const en = {
   "claim.checkAnyway": "Check anyway",
   "claim.part.checking": "Checking this part…",
   "claim.parts.more": "{count} more",
-  "claim.parts.coverage": "Covers {covered} of the {total} {unit}",
+  "claim.parts.coverage": "Covers {covered} of {total} ({unit})",
   "claim.unbackedCause": "The Documents state both, but not that one caused the other.",
   "claim.forecast": "The Document forecasts this but doesn’t say it will happen",
   "claim.more": "More for this check",
