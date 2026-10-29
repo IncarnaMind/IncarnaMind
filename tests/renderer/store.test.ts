@@ -372,7 +372,7 @@ describe("changes the User can take back", () => {
       conversations: [],
     });
     await useAppStore.getState().moveToFolder({ documentIds: ["a"] }, null);
-    expect(said(top())).toContain("no longer limited to that Folder’s Documents and Notes");
+    expect(said(top())).toContain("no longer limited to that Folder’s Documents and notes");
   });
 
   test("making a Folder with an item from a walled Folder says it moved out", async () => {
@@ -387,7 +387,7 @@ describe("changes the User can take back", () => {
       conversations: [],
     });
     await useAppStore.getState().createFolder({ documentIds: ["a"] }, "New");
-    expect(said(top())).toContain("no longer limited to that Folder’s Documents and Notes");
+    expect(said(top())).toContain("no longer limited to that Folder’s Documents and notes");
   });
 
   test("a rename says so, is undone by the old name and done again by the new", async () => {
