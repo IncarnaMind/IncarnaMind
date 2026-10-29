@@ -683,7 +683,13 @@ describe("The Minds' Tools find what the model names", { timeout: 30_000 }, () =
 
       await client.settled();
       const told = lastResult(model);
-      expect(told.includes(`“${notes[1]}”`)).toBe(!stays);
+      expect(told).toContain(
+        stays ? "they are still in the text" : "no longer in the text as they were",
+      );
+      expect(told).toContain(`“${notes[1]}”`);
+      expect(told).not.toContain(
+        stays ? "no longer in the text as they were" : "they are still in the text",
+      );
       expect(shownWithChanges(client).join(" ").includes(`- ${notes[1]}`)).toBe(!stays);
     },
   );

@@ -53,6 +53,8 @@ describe("An edit the User asked for (#880)", () => {
     ["别删第二段", false],
     ["保留所有段落，删掉多余的词", false],
     ["Remove the whole part about hours (full time, Monday to Friday), and leave the rest", true],
+    ["删去整个“工作安排”小节，其他保持不变。", true],
+    ["把“工作安排”整节去掉", true],
     ["Remove the bullet about hours (full time, Monday to Friday) and leave the rest as is", true],
     ["Delete the list item about hours", true],
     ["删去整个“工作安排”部分（全职、周一至周五、核心工作时间），其他部分保持不变。", true],

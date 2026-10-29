@@ -680,7 +680,7 @@ const TAKEN_OUT_CHARACTERS = 110;
  * What a rewrite took out, as the model is told so it reports what happened and not what it
  * meant to do: the sentences of the old text the new one doesn't hold. Null when none went.
  */
-function takenOut(before: string, after: string): string | null {
+function takenOut(before: string, after: string, wrote: string = after): string | null {
   const sentencesOf = (text: string) =>
     text
       .split(/\n+/)
@@ -690,18 +690,38 @@ function takenOut(before: string, after: string): string | null {
         return sentenceSpans(bare).map((span) => plainSentence(bare.slice(span.from, span.to)));
       })
       .filter((sentence) => sentence !== "");
-  const kept = new Set(sentencesOf(after));
-  const gone = [...new Set(sentencesOf(before))].filter((sentence) => !kept.has(sentence));
-  if (gone.length === 0) return null;
-  const shown = gone.slice(0, TAKEN_OUT_SENTENCES).map((sentence) => {
-    const cut =
-      sentence.length > TAKEN_OUT_CHARACTERS
-        ? `${sentence.slice(0, TAKEN_OUT_CHARACTERS)}…`
-        : sentence;
-    return `“${cut}”`;
-  });
-  const more = gone.length > shown.length ? ` and ${gone.length - shown.length} more` : "";
-  return `Sentences no longer in the text as they were (taken out or reworded): ${shown.join(", ")}${more}. Report what this shows, and say plainly if part of what the User asked to remove is still there.`;
+  const quoted = (sentences: readonly string[]) => {
+    const shown = sentences.slice(0, TAKEN_OUT_SENTENCES).map((sentence) => {
+      const cut =
+        sentence.length > TAKEN_OUT_CHARACTERS
+          ? `${sentence.slice(0, TAKEN_OUT_CHARACTERS)}…`
+          : sentence;
+      return `“${cut}”`;
+    });
+    const more =
+      sentences.length > shown.length ? ` and ${sentences.length - shown.length} more` : "";
+    return `${shown.join(", ")}${more}`;
+  };
+  const was = [...new Set(sentencesOf(before))];
+  const now = new Set(sentencesOf(after));
+  const written = new Set(sentencesOf(wrote));
+  const gone = was.filter((sentence) => !now.has(sentence));
+  // Text the rewrite left out stays unless the request asked to take text out, as a model may
+  // return only what it changed: said plainly, so its own "removed" is not repeated.
+  const stayed = was.filter((sentence) => now.has(sentence) && !written.has(sentence));
+  const told = [
+    ...(gone.length > 0
+      ? [
+          `Sentences no longer in the text as they were (taken out or reworded): ${quoted(gone)}. Report what this shows, and say plainly if part of what the User asked to remove is still there.`,
+        ]
+      : []),
+    ...(stayed.length > 0
+      ? [
+          `The rewrite left these sentences out, but they are still in the text, as the request didn't ask to take text out: ${quoted(stayed)}. Say they stayed, whatever the rewrite says it removed.`,
+        ]
+      : []),
+  ];
+  return told.length > 0 ? told.join(" ") : null;
 }
 
 const changes = (count: number) => (count === 1 ? "1 change" : `${count} changes`);
@@ -2235,7 +2255,7 @@ export function mindTools(options: MindToolsOptions): { tools: Tool[]; settle():
       const around = revised
         ? length
         : minds.read(mind.id, (note) => textAround(note, stretch.from, stretch.to, result.request));
-      const gone = around ? takenOut(around.before, around.after) : null;
+      const gone = around ? takenOut(around.before, around.after, length?.after) : null;
       const went = length ? ` (${lengths(length.before, length.after)})` : "";
       return [
         revised

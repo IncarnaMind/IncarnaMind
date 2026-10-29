@@ -9,7 +9,7 @@ const REMOVE =
  * part, so taking them out never takes out what the model left out.
  */
 const PART =
-  /\b(?:paragraphs?|sections?|parts?|headings?|sentences?|bullets?|bullet points?|list items?|tables?)\b|段落|章节|部分|句子|标题|表格|要点|列表项|条目|(?:第[\d一二三四五六七八九十百]+|最后[\d一二两三四五六七八九十]*|[前后][\d一二两三四五六七八九十]+|[这那此该本上下][一二两]?)[段节句条]/iu;
+  /\b(?:paragraphs?|sections?|parts?|headings?|sentences?|bullets?|bullet points?|list items?|tables?)\b|段落|章节|小节|整节|一节|整段|整条|部分|句子|标题|表格|要点|列表项|条目|(?:第[\d一二三四五六七八九十百]+|最后[\d一二两三四五六七八九十]*|[前后][\d一二两三四五六七八九十]+|[这那此该本上下][一二两]?)[段节句条]/iu;
 /** Saying not to, before the verb in its own clause: "but keep the rest" after it doesn't undo it. */
 const NOT =
   /\b(?:don'?t|do not|never|without|no need to|not)\b|不要|别|不用|不必|无需|不需要|没必要|勿/iu;
