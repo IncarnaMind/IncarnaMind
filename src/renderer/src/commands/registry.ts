@@ -174,6 +174,10 @@ export const labelOf = (command: Command, ctx: CommandContext, t: Translate): st
 
 const registered = new Map<CommandId, Command>();
 
+// What a row's own action (`here`) hands back, such as a frame's handle, is no change to undo.
+const changeOf = (done: unknown): Undoable | undefined =>
+  typeof done === "object" && done !== null ? (done as Undoable) : undefined;
+
 export const commands = {
   register(command: Command): () => void {
     if (registered.has(command.id)) throw new Error(`Two commands are called ${command.id}.`);
@@ -199,8 +203,11 @@ export const commands = {
    * the undo stack, and is what it resolves to.
    */
   async run(id: CommandId, given: Partial<CommandContext> = {}): Promise<Undoable | undefined> {
-    const tried = await commands.attempt(id, given);
-    const change = tried.ran ? tried.change : undefined;
+    const command = registered.get(id);
+    if (!command) throw new Error(`There is no command ${id}.`);
+    const ctx = { ...NO_CONTEXT, ...given };
+    if (!offered(command, ctx) || !isEnabled(command, ctx)) return undefined;
+    const change = changeOf(await command.run(ctx));
     if (change) useUndo.getState().push(change);
     return change;
   },
@@ -221,9 +228,6 @@ export const commands = {
     if (!offered(command, ctx)) return { ran: false, why: "not-offered" };
     const enabled = command.enabled?.(ctx) ?? true;
     if (enabled !== true) return { ran: false, why: enabled.reason };
-    const done: unknown = await command.run(ctx);
-    // What a row's own action (`here`) hands back, such as a frame's handle, is no change to undo.
-    const change = typeof done === "object" && done !== null ? (done as Undoable) : undefined;
-    return { ran: true, change };
+    return { ran: true, change: changeOf(await command.run(ctx)) };
   },
 };
