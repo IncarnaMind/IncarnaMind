@@ -2995,7 +2995,9 @@ export async function menuCommands(menu: Locator): Promise<string[]> {
   await expect(menu.getByRole("menuitem").first()).toBeVisible();
   return menu.evaluate((element) =>
     Array.from(element.children).map((child) =>
-      child.getAttribute("role") === "menuitem" ? (child.getAttribute("data-testid") ?? "") : "—",
+      child.getAttribute("role")?.startsWith("menuitem")
+        ? (child.getAttribute("data-testid") ?? "")
+        : "—",
     ),
   );
 }

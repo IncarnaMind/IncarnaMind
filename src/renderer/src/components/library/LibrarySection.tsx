@@ -27,7 +27,7 @@ import { TREE_ROW } from "../../treeKeys";
 import { useRename } from "../../useRename";
 import { DetailsLine } from "../DetailsLine";
 import { InlineName } from "../InlineName";
-import { FolderLineIcon } from "../lineIcons";
+import { FolderLineIcon, LockLineIcon } from "../lineIcons";
 import { ObjectMenu, useObjectMenu } from "../ObjectMenu";
 import { NeedsModelCard } from "../providers/NeedsModelCard";
 import { rowActionButtonClass } from "../sidebarRows";
@@ -209,12 +209,21 @@ function FolderHead({
         drop={drop}
         end={
           !rename.renaming && (
-            <ObjectMenu
-              target={{ kind: "folder", id: folder.id }}
-              label={t("folder.more", { name: folder.name })}
-              here={{ "folder.rename": rename.start }}
-              className={`${rowActionButtonClass} opacity-0 group-hover/head:opacity-100 group-has-[:focus-visible]/head:opacity-100 aria-expanded:opacity-100`}
-            />
+            <>
+              {folder.keepInside === true && (
+                <LockLineIcon
+                  data-testid="folder-wall"
+                  aria-label={t("folder.keepInside")}
+                  className="size-4 shrink-0 text-ink-meta"
+                />
+              )}
+              <ObjectMenu
+                target={{ kind: "folder", id: folder.id }}
+                label={t("folder.more", { name: folder.name })}
+                here={{ "folder.rename": rename.start }}
+                className={`${rowActionButtonClass} opacity-0 group-hover/head:opacity-100 group-has-[:focus-visible]/head:opacity-100 aria-expanded:opacity-100`}
+              />
+            </>
           )
         }
       />

@@ -14,7 +14,7 @@ import { useT } from "../i18n";
 import type { ObjectKind, ObjectRef } from "../objects";
 import { useSelection } from "../selection";
 import { useAppStore } from "../store";
-import { MoreLineIcon } from "./lineIcons";
+import { CheckLineIcon, MoreLineIcon } from "./lineIcons";
 import { rowActionButtonClass } from "./sidebarRows";
 import { menuClass, menuItemClass, menuItemUnavailableClass, menuRuleClass } from "./ui";
 import { openMenuFromRightClick, usePopoverMenu } from "./usePopoverMenu";
@@ -231,6 +231,7 @@ export function ObjectMenu({
       return <div key={`rule-${index}`} className={menuRuleClass} />;
     }
     const { command, enabled } = entry;
+    const checked = command.checked?.(ctx);
     const keys = menuKeysLabel(command);
     const reason = enabled === true ? undefined : t(enabled.reason);
     const hint = command.hint ? t(command.hint) : undefined;
@@ -238,7 +239,9 @@ export function ObjectMenu({
       <button
         key={command.id}
         type="button"
-        role="menuitem"
+        {...(checked === undefined
+          ? { role: "menuitem" as const }
+          : { role: "menuitemcheckbox" as const, "aria-checked": checked })}
         data-testid={command.id}
         aria-disabled={enabled === true ? undefined : true}
         aria-description={hint}
@@ -246,6 +249,11 @@ export function ObjectMenu({
         onClick={() => run(entry)}
         className={`${menuItemClass} ${menuItemUnavailableClass} pl-2`}
       >
+        {checked !== undefined && (
+          <span aria-hidden="true" className="flex size-4 shrink-0 items-center justify-center">
+            {checked && <CheckLineIcon className="size-4" />}
+          </span>
+        )}
         <span className="flex-1">{menuLabelOf(command, ctx, t)}</span>
         {keys && <span className="pl-4 text-[13px] text-ink-meta">{keys}</span>}
       </button>

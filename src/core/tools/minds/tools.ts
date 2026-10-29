@@ -203,6 +203,10 @@ export interface MindToolsOptions {
   rewriting?(): Promise<PreparedChatModel>;
   /** The Mind the Question was asked from, and the Blocks the User selected in it; null: none. */
   focused: { mindId: string; blockIds: readonly string[] } | null;
+  /** Why a named Note outside the Folder can't be read. */
+  wallMessage?: string;
+  /** Called when a named Note is refused because of the Folder wall. */
+  wallRefused?(): void;
   /** The request's paragraph hint, which never chooses the stretch. */
   paragraph: ParagraphAsked;
   /** Where a new Mind goes: the Folder of the Question's Search scope when that is one Folder. */
@@ -1849,7 +1853,16 @@ export function mindTools(options: MindToolsOptions): { tools: Tool[]; settle():
     effects: effectOn("read"),
     untrustedResult: false,
     async call(input, { readThirdParty }) {
-      const mind = found(findMind(minds.list(), text(input.mind, "mind")));
+      const located = findMind(minds.list(), text(input.mind, "mind"));
+      if (
+        located instanceof Refusal &&
+        located.problem.kind === "not-found" &&
+        options.wallMessage
+      ) {
+        options.wallRefused?.();
+        return options.wallMessage;
+      }
+      const mind = found(located);
       const read = minds.text(mind.id, mind.name, READ_TOKENS, options.ids);
       for (const source of read.origins) readThirdParty?.(source);
       return read.text;

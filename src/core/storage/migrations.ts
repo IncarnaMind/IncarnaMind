@@ -1933,6 +1933,15 @@ export const migrations: readonly Migration[] = [
       );
     `,
   },
+  {
+    version: 112,
+    description: "A Folder can keep its work inside it (#1934)",
+    sql: `
+      -- 1: a Folder's Notes, Answers and checks may read only its own Documents.
+      -- 0 by default. Kept with the Folder so it follows the User to other devices.
+      ALTER TABLE library_groups ADD COLUMN keep_inside INTEGER NOT NULL DEFAULT 0;
+    `,
+  },
 ];
 
 /**

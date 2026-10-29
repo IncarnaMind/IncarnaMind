@@ -470,6 +470,8 @@ export interface AnswerRequest {
    * a turn that ended after a refused Tool still says why. Null: end blank.
    */
   blankReply?(): string | null;
+  /** What to end with after a Tool refused the request, replacing the model's reply. Null: keep it. */
+  refusedReply?(): string | null;
   /** Stops generating. The stream then ends, with neither "finished" nor "failed". */
   signal: AbortSignal;
 }
@@ -1946,6 +1948,7 @@ async function* toolLoop(
         yield { type: "failed", error: event.error };
         return;
       case "finished": {
+        const refused = request.refusedReply?.() ?? null;
         if (keptText.trim() === "" && (setAside.at(-1)?.text ?? "").trim() !== "")
           keptText = setAside.pop()?.text ?? "";
         const taken = takeToolText(keptText, toolTextTags);
@@ -1955,7 +1958,8 @@ async function* toolLoop(
           taken.text.trim() === "" &&
           standing !== null &&
           !(request.mayEndBlank?.() ?? false) &&
-          (request.blankReply?.() ?? null) === null
+          (request.blankReply?.() ?? null) === null &&
+          refused === null
         ) {
           yield* backToFirst(standing);
           yield* endAnswer();
@@ -1991,7 +1995,9 @@ async function* toolLoop(
         const afterSearch = setAside.filter((each) => each.searched).map((each) => each.text);
         if (afterSearch.length > 0) yield { type: "text-set-aside", texts: afterSearch };
         // A turn that ends with no reply after a refused Tool says why in the app's words.
-        const text = taken.text.trim() === "" ? (request.blankReply?.() ?? taken.text) : taken.text;
+        const text =
+          refused ??
+          (taken.text.trim() === "" ? (request.blankReply?.() ?? taken.text) : taken.text);
         if (text !== keptText) {
           yield* textEdits(keptText.slice(0, released), text);
           keptText = text;

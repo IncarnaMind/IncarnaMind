@@ -90,6 +90,15 @@ export function FolderLineIcon(props: IconProps) {
   );
 }
 
+export function LockLineIcon(props: IconProps) {
+  return (
+    <LineIcon {...props}>
+      <rect x="5" y="10" width="14" height="10" rx="2" />
+      <path d="M8 10V7a4 4 0 0 1 8 0v3" />
+    </LineIcon>
+  );
+}
+
 export function FolderPlusLineIcon(props: IconProps) {
   return (
     <LineIcon {...props}>

@@ -402,6 +402,25 @@ export const folderCommands: readonly Command[] = [
     },
   },
   {
+    id: "folder.keepInside",
+    label: "folder.keepInside",
+    hint: "folder.keepInside.hint",
+    group: "main",
+    appliesTo: ["folder"],
+    checked: (ctx) => folderOf(ctx)?.keepInside === true,
+    reversible: true,
+    async run(ctx) {
+      const folder = folderOf(ctx);
+      if (!folder) return;
+      await store().editFolder(folder.id, {
+        name: folder.name,
+        description: folder.description,
+        countsOwnFiles: folder.countsOwnFiles,
+        keepInside: folder.keepInside !== true,
+      });
+    },
+  },
+  {
     id: "folder.rename",
     label: "folder.rename",
     keywords: ["command.rename.keywords"],

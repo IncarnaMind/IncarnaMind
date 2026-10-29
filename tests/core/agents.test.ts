@@ -269,6 +269,33 @@ describe("outside agents", () => {
     expect(resultText(nothing)).toMatch(/can’t read any Documents yet/);
   });
 
+  it("keeps a walled Folder's Documents and Notes inside a wider pairing", async () => {
+    const { core, launch, coast, finance, budget, pairing } = await pairedToCoast();
+    await core.updateLibraryGroup(coast.id, {
+      name: coast.name,
+      description: coast.description,
+      keepInside: true,
+    });
+    await core.updateAgent(pairing.id, { folderIds: [coast.id, finance.id] });
+    const own = await core.createMind({ title: "Coast note", folderId: coast.id });
+    const other = await core.createMind({ title: "Finance note", folderId: finance.id });
+    const agent = await connectLegacyAgent(launch);
+
+    const listed = structured<{ folders: { id: string; minds: { id: string }[] }[] }>(
+      await agent.callTool({ name: "list_minds", arguments: {} }),
+    );
+    expect(listed.folders.map((folder) => folder.id)).toEqual([coast.id]);
+    expect(listed.folders[0]?.minds.map((mind) => mind.id)).toEqual([own.id]);
+
+    const found = structured<SearchOut>(
+      await agent.callTool({ name: "search", arguments: { query: "harbour budget" } }),
+    );
+    expect(found.passages.map((passage) => passage.documentId)).not.toContain(budget.id);
+    const outside = await agent.callTool({ name: "read_mind", arguments: { mindId: other.id } });
+    expect(outside.isError).toBe(true);
+    expect(resultText(outside)).toMatch(/No such passage, Document, note or Citation/);
+  });
+
   it("are refused at once after unpairing, and their connection closes", async () => {
     const { core, launch, pairing } = await pairedToCoast();
     const agent = await connectLegacyAgent(launch);

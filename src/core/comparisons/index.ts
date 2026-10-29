@@ -146,8 +146,8 @@ export interface ComparisonsOptions {
     /** How many of `ids` have Passages to search. */
     searchableCount(ids: readonly string[]): number;
   };
-  /** The Documents among `ids` that checks may use as evidence (#80). */
-  evidence(ids: readonly string[]): string[];
+  /** The Documents among `ids` that this Mind's checks may use as evidence (#80). */
+  evidence(ids: readonly string[], mindId: string): string[];
   /** Saves a Checkpoint of the Mind as it is before the table goes in (#113). */
   checkpoint(mindId: string): void;
   tasks: ComparisonTasks;
@@ -522,7 +522,7 @@ export function createComparisons(options: ComparisonsOptions) {
     const [document] = options.documents.live([cell.documentId]);
     if (!document) return { kind: "problem", problem: "source-removed" };
     if (document.notCited) return { kind: "problem", problem: "not-cited" };
-    const documentIds = options.evidence([document.id]);
+    const documentIds = options.evidence([document.id], fill.mindId);
     if (documentIds.length === 0) return { kind: "problem", problem: "left-out" };
     if (options.documents.searchableCount(documentIds) === 0) {
       return { kind: "problem", problem: "nothing-to-search" };
@@ -817,7 +817,9 @@ export function createComparisons(options: ComparisonsOptions) {
       ) {
         throw new InvalidInputError("documentIds must be a list of Document ids.");
       }
-      const counted = new Set(options.evidence([...new Set(input.documentIds as string[])]));
+      const counted = new Set(
+        options.evidence([...new Set(input.documentIds as string[])], mindId),
+      );
       const documents = options.documents
         .live([...new Set(input.documentIds as string[])])
         .filter((document) => counted.has(document.id));

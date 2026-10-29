@@ -39,7 +39,13 @@ import { resolveProposals, restoreRevised } from "../shared/proposals";
 import { readyQuestionOf } from "../shared/readyQuestion";
 import { isPaperOrBook } from "../shared/references";
 import { RESEARCH_TASK } from "../shared/research";
-import { hasSearchScope, holdsText, mindSearchScope, type ScopeKind } from "../shared/searchScope";
+import {
+  folderScope,
+  hasSearchScope,
+  holdsText,
+  mindSearchScope,
+  type ScopeKind,
+} from "../shared/searchScope";
 import { SPEAKER_ME, SPEAKER_THEM } from "../shared/speakers";
 import { setUnreadFileNames } from "../shared/unreadFiles";
 import { wordFileOf } from "../shared/wordFiles";
@@ -1294,18 +1300,41 @@ export function createCore(adapters: CoreAdapters): Core {
       ? tunedSearch(tuning, query, options, (tuned) => documents.searchTool(query, tuned))
       : documents.searchTool(query, options);
   };
-  const resolveScope = (scope: SearchScope) =>
-    resolveSearchScope(scope, {
+  const constrainedScope = (scope: SearchScope, mindId: string | null = null): SearchScope => {
+    const walled = new Set(
+      library
+        .folders()
+        .filter((folder) => folder.keepInside)
+        .map((folder) => folder.id),
+    );
+    const own = mindId !== null && mindExists(mindId) ? minds.get(mindId).folderId : null;
+    const named = scope.folderIds.filter((id) => walled.has(id));
+    const wallId = own !== null && walled.has(own) ? own : null;
+    return wallId !== null
+      ? folderScope(wallId)
+      : named.length > 0
+        ? { folderIds: named, tagIds: [], documentIds: [] }
+        : scope;
+  };
+  const resolveScope = (scope: SearchScope, mindId: string | null = null) =>
+    resolveSearchScope(constrainedScope(scope, mindId), {
       folderTree: (folderId) => folders.subtree(folderId),
       organizedFolderDocuments: (folderId) => library.documentIds(folderId),
       documentIds: (filter) => documents.ids(filter),
     });
+  const folderIdsInScope = (folderIds: readonly string[]) =>
+    constrainedScope({ folderIds: [...folderIds], tagIds: [], documentIds: [] }).folderIds;
+  const walledFolder = (mindId: string | null): string | null => {
+    const folderId = mindId !== null && mindExists(mindId) ? minds.get(mindId).folderId : null;
+    return folderId !== null && library.folder(folderId).keepInside ? folderId : null;
+  };
   const searchedScope = (scope: SearchScope | null, mindId: string | null) => {
     const folderId = mindId !== null && mindExists(mindId) ? minds.get(mindId).folderId : null;
+    if (folderId !== null && library.folder(folderId).keepInside) return folderScope(folderId);
     const holds =
       folderId !== null &&
       documents
-        .getMany(resolveScope({ folderIds: [folderId], tagIds: [], documentIds: [] }) ?? [])
+        .getMany(resolveScope({ folderIds: [folderId], tagIds: [], documentIds: [] }, mindId) ?? [])
         .some(holdsText);
     const searched = mindSearchScope(
       scope ?? { folderIds: [], tagIds: [], documentIds: [] },
@@ -1647,6 +1676,7 @@ export function createCore(adapters: CoreAdapters): Core {
     workingCopyOf: (mindId) => wordImports.originalOf(mindId)?.documentIds?.[0] ?? null,
     searchedScope,
     mindFolder: (mindId) => (mindExists(mindId) ? minds.get(mindId).folderId : null),
+    walledFolder,
     exampleDocuments: (mindId) => examples.documentsOf(mindId),
     unscopedDocuments: (mindId) => {
       const made = examples.made();
@@ -1684,7 +1714,12 @@ export function createCore(adapters: CoreAdapters): Core {
       live: (ids) => documents.getMany(ids),
       searchableCount: (ids) => documents.searchableCount(ids),
     },
-    evidence: (ids) => evidence.scope(ids).documentIds ?? [...ids],
+    evidence: (ids, mindId) => {
+      const allowed =
+        resolveScope({ folderIds: [], tagIds: [], documentIds: [...ids] }, mindId) ?? [];
+      const permitted = ids.filter((id) => allowed.includes(id));
+      return evidence.scope(permitted).documentIds ?? [...permitted];
+    },
     checkpoint: (mindId) => checkpoints.save(mindId, "compare"),
     tasks: {
       start: (kind, mindId, input) => tasks.start(kind, mindId, input),
@@ -2030,6 +2065,7 @@ export function createCore(adapters: CoreAdapters): Core {
       log: adapters.log ?? silentLogger,
     },
     mindFolder: (mindId) => minds.get(mindId).folderId,
+    walledFolder,
     searchedScope,
     originalOf: (mindId) => wordImports.originalOf(mindId),
     defaultModel: () => settings.get().user.chatModel,
@@ -3545,15 +3581,17 @@ export function createCore(adapters: CoreAdapters): Core {
     access: {
       say: (key, params) => translate(settings.get().language, key, params),
       folders: () => library.folders().map((folder) => ({ id: folder.id, name: folder.name })),
+      foldersInScope: folderIdsInScope,
       documentsIn: (folderIds) => {
-        const folders = folderIds.filter((id) => id !== NOT_IN_A_FOLDER_ID);
+        const allowed = folderIdsInScope(folderIds);
+        const folders = allowed.filter((id) => id !== NOT_IN_A_FOLDER_ID);
         const filed =
           folders.length === 0
             ? []
             : (resolveScope({ folderIds: folders, tagIds: [], documentIds: [] }) ?? []);
-        return folders.length === folderIds.length
-          ? filed
-          : [...new Set([...filed, ...library.unfiledDocumentIds()])];
+        return allowed.includes(NOT_IN_A_FOLDER_ID)
+          ? [...new Set([...filed, ...library.unfiledDocumentIds()])]
+          : filed;
       },
       // Without the reranker: it costs about a second a search (ADR-0009), and an agent's
       // search must answer in well under 100 ms.

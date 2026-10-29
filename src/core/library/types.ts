@@ -10,6 +10,8 @@ export interface LibraryGroup {
    * the User switched their exclusion off here. False by default.
    */
   countsOwnFiles: boolean;
+  /** Only this Folder's Documents and Notes may be read or cited from it. False by default. */
+  keepInside?: boolean;
   createdAt: string;
   updatedAt: string;
 }
@@ -227,4 +229,6 @@ export interface LibraryGroupInput {
   description: string;
   /** See `LibraryGroup.countsOwnFiles`. Left out, it stays as it was (false for a new Folder). */
   countsOwnFiles?: boolean;
+  /** See `LibraryGroup.keepInside`. Left out, it stays as it was (false for a new Folder). */
+  keepInside?: boolean;
 }

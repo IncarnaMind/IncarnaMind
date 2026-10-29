@@ -15,6 +15,7 @@ import { mindName } from "../../../shared/naming";
 import {
   chosenScope,
   filingFolder,
+  folderScope,
   hasSearchScope,
   mindSearchScope,
   type ScopeKind,
@@ -157,12 +158,21 @@ export function Composer({
     (state) => state.minds.find((each) => each.id === (source?.mindId ?? mindId))?.folderId ?? null,
   );
   const folderHolds = useFolderHoldsDocuments(folderId);
+  const walled = useAppStore(
+    (state) =>
+      folderId !== null &&
+      state.library?.groups.some((group) => group.id === folderId && group.keepInside === true) ===
+        true,
+  );
   const before = useScopeBefore(scopeDoc);
   const folderName = useAppStore(
     (state) => state.library?.groups.find((each) => each.id === folderId)?.name ?? null,
   );
   // What the chips show: what the core will search (#1359). Asking sends `composerScope`.
-  const scope = mindSearchScope(scopeDraft.scope, folderId, folderHolds);
+  const scope =
+    walled && folderId !== null
+      ? folderScope(folderId)
+      : mindSearchScope(scopeDraft.scope, folderId, folderHolds);
   // The Mind in focus changes under the one composer: what was typed with no Mind goes with the
   // User into the Mind that opens, whose draft is empty, and the quotes waiting with it go
   // whatever that draft holds; the rest of its state starts over.
@@ -253,7 +263,9 @@ export function Composer({
     if (change.scope !== undefined) setScope(change.scope);
   };
   /** Keeps the scope the User chose; the Mind's own follows it to another Folder. */
-  const updateScope = (next: SearchScope) => update({ scope: chosenScope(next, folderId) });
+  const withinWall = (next: SearchScope) =>
+    walled && folderId !== null ? folderScope(folderId) : chosenScope(next, folderId);
+  const updateScope = (next: SearchScope) => update({ scope: withinWall(next) });
 
   // Single-line text sits beside the controls; once it would run past one line, it takes the
   // full width and they move to a row under it. Decided from the width one line has beside the
@@ -373,7 +385,7 @@ export function Composer({
       ? scope
       : { ...scope, [SCOPE_LISTS[choice.kind]]: [...ids, choice.id] };
     update({
-      scope: chosenScope(next, folderId),
+      scope: withinWall(next),
       ...(picking && { text: withoutTyped(picking) }),
     });
     setPicking(null);
@@ -430,7 +442,7 @@ export function Composer({
   // Back to the wide scope it narrowed, never straight to the whole Library: All Documents is a
   // second, deliberate step in the "@" picker.
   const goBack = () => {
-    update({ scope: before });
+    update({ scope: walled && folderId !== null ? folderScope(folderId) : before });
     field.current?.focus();
   };
   const backLabel =
@@ -988,7 +1000,7 @@ export function Composer({
               onRemove={removeFromScope}
               {...(scopeDraft.scope !== null &&
                 hasSearchScope(scopeDraft.scope) && { back: { label: backLabel, onBack: goBack } })}
-              onChange={openScopePicker}
+              onChange={walled ? undefined : openScopePicker}
               shown={CHIPS_SHOWN}
               className="composer-scope"
               testId="composer-scope"

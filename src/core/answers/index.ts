@@ -564,7 +564,7 @@ export interface AnswersOptions {
   /** What an Answer is written in when its Question has no language of its own. */
   interfaceLanguage(): Language;
   /** The ids of the live Documents a Search scope covers; null with no Search scope (every Document). */
-  resolveScope(scope: SearchScope): string[] | null;
+  resolveScope(scope: SearchScope, mindId?: string | null): string[] | null;
   /**
    * With no Search scope, what an Answer asked from `mindId` in the assistant
    * searches: every Document but the examples', unless it is an example's
@@ -574,6 +574,7 @@ export interface AnswersOptions {
   /** What a Question from a Mind searches, by the one rule (`mindSearchScope`); null: every Document. */
   searchedScope(scope: SearchScope | null, mindId: string | null): SearchScope | null;
   mindFolder(mindId: string): string | null;
+  walledFolder(mindId: string | null): string | null;
   /** The Document a Mind imported from Word was also added as (#720); null for none. */
   workingCopyOf?(mindId: string): string | null;
   /** An example Mind's own Documents, by id; null for a Mind that isn't an example's. */
@@ -2186,13 +2187,23 @@ export function createAnswers(options: AnswersOptions) {
           return answer;
         });
       // The Minds' Tools, for an Answer in the assistant (#202).
-      const minds = outside ? undefined : options.minds;
       const focusedId = input.assistant?.focused?.mindId ?? null;
+      const wallId = options.walledFolder(focusedId);
+      const allMinds = options.minds;
+      const minds = outside
+        ? undefined
+        : wallId && allMinds
+          ? {
+              ...allMinds,
+              list: () => allMinds.list().filter((mind) => mind.folderId === wallId),
+            }
+          : allMinds;
       // A new piece fills the empty Mind the User is in rather than making another (#1109).
       const focusedEmpty =
         minds !== undefined && focusedId !== null && minds.read(focusedId, holdsNothing);
       let documentNames: string[] | undefined;
       let rewriting: Promise<PreparedChatModel> | undefined;
+      let wallRefused = false;
       const mindsTools =
         minds && input.assistant
           ? mindTools({
@@ -2213,6 +2224,12 @@ export function createAnswers(options: AnswersOptions) {
               ...input.assistant,
               ...(askInTray && { ask: askInTray }),
               language: answerLanguage(context.question),
+              ...(wallId && {
+                wallMessage: translate(options.interfaceLanguage(), "folder.wall.refusal"),
+                wallRefused: () => {
+                  wallRefused = true;
+                },
+              }),
               searchedPassages: () =>
                 toolCalls.some(
                   (call) =>
@@ -2743,6 +2760,10 @@ export function createAnswers(options: AnswersOptions) {
                       : `${quoted.slice(0, -1).join(", ")} and ${quoted.at(-1) ?? ""}`,
                 });
               },
+              refusedReply: () =>
+                wallRefused
+                  ? translate(answerLanguage(context.question), "folder.wall.refusal")
+                  : null,
             }
           : input.checkScales
             ? {
@@ -3122,7 +3143,7 @@ export function createAnswers(options: AnswersOptions) {
     const documents = options.documents.names();
     const shown = callOnly ? [] : namesOnScreen(onScreen, documentIds);
     const ids = (callOnly ? null : mind?.ids) ?? createContextCitations();
-    const named = help ? [] : namedMinds();
+    const named = help ? [] : namedMinds(mind?.mindId ?? null);
     const { context, origins } = conversationContextOf(earlier, question.text, {
       mind: section,
       documents,
@@ -3259,9 +3280,11 @@ export function createAnswers(options: AnswersOptions) {
   }
 
   // Peeked, so Minds not open aren't loaded; and only so many, so a big Library doesn't slow a Question.
-  const namedMinds = (): { name: string; fromAnswer: boolean }[] => {
+  const namedMinds = (mindId: string | null): { name: string; fromAnswer: boolean }[] => {
+    const wallId = options.walledFolder(mindId);
     const names: { name: string; fromAnswer: boolean }[] = [];
     for (const mind of options.minds?.list().slice(0, 2 * LISTED_MINDS) ?? []) {
+      if (wallId && mind.folderId !== wallId) continue;
       if (names.length >= LISTED_MINDS) break;
       if (names.some((each) => each.name === mind.name)) continue;
       names.push({ name: mind.name, fromAnswer: options.content.peek(mind.id, madeByAnswer) });
@@ -3293,7 +3316,9 @@ export function createAnswers(options: AnswersOptions) {
   /** The Documents of a Search scope as it is now, and whether it covers none to search. */
   const scopeNow = (scope: SearchScope | null, mindId: string | null) => {
     const documentIds =
-      options.resolveScope(scope ?? NO_SCOPE) ?? options.unscopedDocuments?.(mindId) ?? null;
+      options.resolveScope(scope ?? NO_SCOPE, mindId) ??
+      options.unscopedDocuments?.(mindId) ??
+      null;
     const emptyScope = documentIds !== null && options.documents.searchableCount(documentIds) === 0;
     return { documentIds, emptyScope };
   };
@@ -3302,8 +3327,8 @@ export function createAnswers(options: AnswersOptions) {
    * What an Answer to `question` is written from: its context, and its Search
    * scope as it is now, resolved to the Documents it covers now.
    */
-  const askedWith = (context: QuestionContext, question: Y.XmlElement) => {
-    const documentIds = options.resolveScope(searchScopeOf(question.getAttributes()));
+  const askedWith = (context: QuestionContext, question: Y.XmlElement, mindId: string) => {
+    const documentIds = options.resolveScope(searchScopeOf(question.getAttributes()), mindId);
     const emptyScope = documentIds !== null && options.documents.searchableCount(documentIds) === 0;
     return { context, documentIds, emptyScope };
   };
@@ -3355,7 +3380,7 @@ export function createAnswers(options: AnswersOptions) {
           ids,
         );
         const asked = {
-          ...askedWith(context, question.element),
+          ...askedWith(context, question.element, mindId),
           contextReasons: origins.map((source) => ({ via: "context" as const, source })),
         };
         const attributes: Partial<AnswerAttributes> = {

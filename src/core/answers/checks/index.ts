@@ -115,6 +115,8 @@ export interface ChecksOptions
   requireMind(mindId: string): void;
   /** The Folder the Mind is in; null for none. */
   mindFolder(mindId: string): string | null;
+  /** The Folder whose work stays inside it, or null when this Mind is not walled. */
+  walledFolder(mindId: string | null): string | null;
   /** What a check from a Mind searches, by the one rule (`mindSearchScope`); null: every Document. */
   searchedScope(scope: SearchScope | null, mindId: string): SearchScope | null;
   /** The file a Mind was imported from (#720), which its own checks never use as evidence. */
@@ -132,7 +134,7 @@ export interface ChecksOptions
   consent: Consent;
   /** Local mode: only models on this computer. */
   localOnly(): boolean;
-  resolveScope(scope: SearchScope): string[] | null;
+  resolveScope(scope: SearchScope, mindId?: string | null): string[] | null;
   evidence: Pick<Evidence, "scope" | "search">;
   documents: ClaimCheckDependencies["documents"] &
     MindCheckOptions["documents"] & {
@@ -383,15 +385,19 @@ export function createChecks(options: ChecksOptions) {
   function scopeOf(mindId: string, allDocuments: boolean, checked: CheckedDocument = {}) {
     const own = options.mindFolder(mindId);
     const chosen = content.readSettings(mindId, mindScopeIn);
-    const wanted = allDocuments ? null : options.searchedScope(chosen ?? folderScope(own), mindId);
+    const walled = options.walledFolder(mindId) !== null;
+    const wanted =
+      allDocuments && !walled
+        ? null
+        : options.searchedScope(allDocuments ? null : (chosen ?? folderScope(own)), mindId);
     const folderId = oneFolderOf(wanted);
     const inChosen = chosen !== null && wanted !== null && (own === null || folderId !== own);
     // An own Folder that holds no Document searches everything, as "Search all Documents" does.
     const marked: ClaimCheckScope = inChosen
       ? { folderId: own, widened: false, chosen: wanted }
-      : { folderId: own, widened: allDocuments || own !== folderId };
+      : { folderId: own, widened: walled ? false : allDocuments || own !== folderId };
     const leftOut = leftOutOf(mindId, checked);
-    const resolved = wanted && options.resolveScope(wanted);
+    const resolved = wanted && options.resolveScope(wanted, mindId);
     const scope = options.evidence.scope(resolved, leftOut);
     const searchable = options.documents.searchableCount(scope.documentIds);
     const empty = (): NoDocuments => {
