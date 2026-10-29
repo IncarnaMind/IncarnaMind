@@ -898,6 +898,7 @@ export function createDocuments(options: DocumentsOptions) {
 
   interface WrapUpdate {
     seq: number;
+    position: number;
     text: string;
     keywords: string;
   }
@@ -935,7 +936,12 @@ export function createDocuments(options: DocumentsOptions) {
       }
       if (stored.text === passage.text) continue;
       if (!onlyCjkLineWrapChange(stored.text, passage.text)) return null;
-      updates.push({ seq: stored.seq, text: passage.text, keywords: passage.keywords });
+      updates.push({
+        seq: stored.seq,
+        position: stored.position,
+        text: passage.text,
+        keywords: passage.keywords,
+      });
     }
     return updates.length > 0 ? updates : null;
   }
@@ -1076,7 +1082,7 @@ export function createDocuments(options: DocumentsOptions) {
           }
           reindexPassages(
             row.id,
-            new Map(wrapUpdates.map((update) => [update.seq, update.keywords])),
+            new Map(wrapUpdates.map((update) => [update.position, update.keywords])),
           );
         }
         insertPages(job.documentId, result.contentHash, result.pages);

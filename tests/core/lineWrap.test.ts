@@ -23,6 +23,14 @@ describe("CJK PDF line wraps", () => {
     expect(joinCjkLineWraps(before)).toBe(after);
   });
 
+  test.each([
+    ["한\n한", "한한"],
+    ["한\n。", "한。"],
+    ["。\n한", "。한"],
+  ])("keeps the old no-space join between two CJK neighbours: %s", (before, after) => {
+    expect(joinCjkLineWraps(before)).toBe(after);
+  });
+
   test("keeps one space beside Hangul so normalized text does not change", () => {
     for (const [before, after] of [
       ["월\n7", "월 7"],
@@ -46,6 +54,7 @@ describe("CJK PDF line wraps", () => {
     expect(onlyCjkLineWrapChange("配送成本上升，7\n月起免运费", "配送成本上升，8月起免运费")).toBe(
       false,
     );
+    expect(onlyCjkLineWrapChange("배송비는\n증가했습니다", "배송비는증가했습니다")).toBe(true);
     expect(onlyCjkLineWrapChange("delivery\ncosts", "delivery costs")).toBe(false);
   });
 });

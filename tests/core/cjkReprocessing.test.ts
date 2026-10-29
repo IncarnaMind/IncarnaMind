@@ -1,6 +1,7 @@
 import { join } from "node:path";
 import { describe, expect, test } from "vitest";
 import { DATABASE_FILE } from "../../src/core";
+import { keywordText } from "../../src/core/documents/keywords";
 import { PROCESSING_VERSION } from "../../src/core/documents/processing";
 import { openDatabase } from "../../src/core/storage";
 import { createTempDataFolder, queryDatabase, startCore } from "../helpers/core";
@@ -22,7 +23,12 @@ const ENGLISH_LINES = [
   "Online gross margin fell to 32.1% from 37.5% a year",
   "earlier: delivery costs rose, and the free-delivery threshold was cut to £40 in July.",
 ];
-const KOREAN_LINES = ["배송비는 증가했습니다. 7", "월부터 물류비가 감소했습니다."];
+const KOREAN_LINES = [
+  "배송비는 증가했습니다. 7",
+  "월부터 물류비가 감소했습니다.",
+  "가나다",
+  "라마바.",
+];
 
 interface Seed {
   id: string;
@@ -59,6 +65,10 @@ function asEarlierPipeline(
       }
       db.run(
         "UPDATE passages SET text = replace(text, '7 월부터', '7\n월부터') WHERE document_id = ?",
+        [korean.id],
+      );
+      db.run(
+        "UPDATE passages SET text = replace(text, '가나다 라마바', '가나다라마바') WHERE document_id = ?",
         [korean.id],
       );
       db.run(
@@ -147,6 +157,7 @@ describe("CJK line-wrap re-reading", { timeout: 30_000 }, () => {
     );
     expect(koreanRows).toHaveLength(1);
     expect(koreanRows[0]?.text).toContain("7 월부터");
+    expect(koreanRows[0]?.text).toContain("가나다라마바");
     expect(koreanRows[0]?.embedding).not.toBeNull();
     expect(embedder.texts.length).toBeGreaterThan(initialCalls);
     expect(embedder.texts.length - initialCalls).toBe(1);
@@ -170,6 +181,14 @@ describe("CJK line-wrap re-reading", { timeout: 30_000 }, () => {
       }),
     ).toMatchObject({ check: "found" });
     expect(
+      await core.recheckCitation({
+        documentId: korean.id,
+        pageFrom: 1,
+        pageTo: 1,
+        quote: "가나다라마바",
+      }),
+    ).toMatchObject({ check: "found" });
+    expect(
       queryDatabase<{ processing_version: number }>(
         dataDir,
         "SELECT DISTINCT processing_version FROM documents",
@@ -183,6 +202,68 @@ describe("CJK line-wrap re-reading", { timeout: 30_000 }, () => {
         additionalEmbeddings: embedder.texts.length - initialCalls,
       }),
     );
+    await core.close();
+  });
+
+  test("reindexes each Passage by position after a wrap-only update", async () => {
+    const dataDir = await createTempDataFolder();
+    const sources = await createSourceFolder();
+    const first = startCore(dataDir);
+    const path = await writeSourceFile(
+      sources,
+      "Two pages.pdf",
+      buildPdf([
+        {
+          printed: Array.from({ length: 8 }, (_, index) => ({
+            text: `${index === 0 ? "甲页专有词" : ""}第${index + 1}段${CHINESE_LINES.join("")}`,
+            size: 4,
+          })),
+        },
+        { printed: [{ text: "乙页独有词，保持原文。", size: 4 }] },
+      ]),
+    );
+    const [document] = await addAndProcess(first, [path]);
+    if (!document) throw new Error("The two-page Document was not added.");
+    const seeded = queryDatabase<{ seq: number; position: number }>(
+      dataDir,
+      "SELECT seq, position FROM passages WHERE document_id = ? AND deleted_at IS NULL ORDER BY position",
+      [document.id],
+    );
+    expect(seeded.length).toBeGreaterThan(1);
+    const firstPassage = seeded[0];
+    if (!firstPassage) throw new Error("The first Passage is missing.");
+    const db = openDatabase(join(dataDir, DATABASE_FILE));
+    try {
+      db.transaction(() => {
+        db.run("UPDATE documents SET processing_version = 15 WHERE id = ?", [document.id]);
+        db.run("UPDATE passages SET text = replace(text, '7月起', '7\n月起') WHERE seq = ?", [
+          BigInt(firstPassage.seq),
+        ]);
+      });
+    } finally {
+      db.close();
+    }
+    await first.close();
+
+    const core = startCore(dataDir);
+    await waitForProcessing(core, [document.id]);
+
+    const passages = queryDatabase<{ seq: number; position: number }>(
+      dataDir,
+      "SELECT seq, position FROM passages WHERE document_id = ? AND deleted_at IS NULL ORDER BY position",
+      [document.id],
+    );
+    expect(passages.map(({ seq }) => seq)).toEqual(seeded.map(({ seq }) => seq));
+    const matches = (text: string) =>
+      queryDatabase<{ rowid: number }>(
+        dataDir,
+        "SELECT rowid FROM passages_fts WHERE passages_fts MATCH ? ORDER BY rowid",
+        [keywordText(text)],
+      ).map(({ rowid }) => rowid);
+    const lastPassage = seeded.at(-1);
+    if (!lastPassage) throw new Error("The last Passage is missing.");
+    expect(matches("甲页专有词")).toEqual([firstPassage.seq]);
+    expect(matches("乙页独有词")).toEqual([lastPassage.seq]);
     await core.close();
   });
 });

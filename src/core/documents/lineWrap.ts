@@ -3,14 +3,19 @@ import { CJK } from "../../shared/text";
 const FULL_WIDTH_PUNCTUATION =
   "\\u3000-\\u303f\\ufe30-\\ufe4f\\uff01-\\uff0f\\uff1a-\\uff20\\uff3b-\\uff40\\uff5b-\\uff65";
 const WRAP_SIDE = `${CJK}${FULL_WIDTH_PUNCTUATION}`;
-const CJK_ON_LEFT = new RegExp(`([${WRAP_SIDE}])[^\\S\\n]*\\n[^\\S\\n]*`, "gu");
+const CJK_ON_LEFT = new RegExp(
+  `([${WRAP_SIDE}])[^\\S\\n]*\\n[^\\S\\n]*(?=([${WRAP_SIDE}]|))`,
+  "gu",
+);
 const CJK_ON_RIGHT = new RegExp(`[^\\S\\n]*\\n[^\\S\\n]*(?=([${WRAP_SIDE}]))`, "gu");
 const HANGUL = /\p{Script=Hangul}/u;
 
-/** A PDF's line break beside CJK text or full-width punctuation is removed, but kept as one space beside Hangul. */
+/** A break with two CJK sides is removed as before; a newly eligible one beside Hangul becomes one space. */
 export function joinCjkLineWraps(text: string): string {
   return text
-    .replace(CJK_ON_LEFT, (_match, left: string) => (HANGUL.test(left) ? `${left} ` : left))
+    .replace(CJK_ON_LEFT, (_match, left: string, right: string) =>
+      HANGUL.test(left) && right === "" ? `${left} ` : left,
+    )
     .replace(CJK_ON_RIGHT, (_match, right: string) => (HANGUL.test(right) ? " " : ""));
 }
 
