@@ -18,9 +18,6 @@ import { useMindId } from "./mindContext";
 const MOVE_DRAG_PX = 4;
 const isMac = /Mac|iPhone|iPad/.test(navigator.platform);
 
-const liveDocument = (documentId: unknown) =>
-  useAppStore.getState().documents.find((document) => document.id === documentId) ?? null;
-
 /**
  * A comparison table's row (#98, #1837): its Document's name, sticky as the
  * table scrolls sideways, its Open and ⋯, then its cells. Its head takes the
@@ -41,7 +38,11 @@ export function ComparisonRowView({ node, editor, getPos }: ReactNodeViewProps) 
   const drag = useComparisonTables((state) => state.drag);
   const focus = useComparisonTables((state) => state.focus);
   const editable = editor.isEditable;
-  const live = useAppStore((state) => state.documents.some((each) => each.id === documentId));
+  // Its name follows a Document renamed while the table shows, not only the name it was made with.
+  const liveName = useAppStore(
+    (state) => state.documents.find((each) => each.id === documentId)?.name ?? null,
+  );
+  const live = liveName !== null;
   const removed = !live;
   const handle: ComparisonRowHandle = { editor, mindId, tableId, documentId };
   const index = table?.index ?? 0;
@@ -162,9 +163,7 @@ export function ComparisonRowView({ node, editor, getPos }: ReactNodeViewProps) 
     }
   };
 
-  const name = live
-    ? (liveDocument(documentId)?.name ?? String(node.attrs.documentName ?? ""))
-    : String(node.attrs.documentName ?? "");
+  const name = liveName ?? String(node.attrs.documentName ?? "");
   const shows = rowShows(node, hidden, filters);
 
   return (

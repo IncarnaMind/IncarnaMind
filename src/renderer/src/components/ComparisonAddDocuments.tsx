@@ -62,6 +62,13 @@ export function ComparisonAddDocuments({
   const ticked = new Set([...documentIds, ...checked]);
   const cells = checked.size * questions;
   const overLimit = documentIds.length + checked.size > MAX_COMPARISON_DOCUMENTS;
+  // The table's model, by its ids: a new choice is a new estimate, a new object is not.
+  const providerId = model?.providerId ?? "";
+  const modelId = model?.modelId ?? "";
+  const estimateModel = useMemo(
+    () => (providerId && modelId ? { providerId, modelId } : null),
+    [providerId, modelId],
+  );
 
   useEffect(() => {
     if (cells === 0) {
@@ -70,7 +77,7 @@ export function ComparisonAddDocuments({
     }
     let current = true;
     core
-      .estimateRun({ items: cells, ...(model && { model }) })
+      .estimateRun({ items: cells, ...(estimateModel && { model: estimateModel }) })
       .then((run) => {
         if (!current) return;
         setEstimate({ cells, line: estimateLine(run, t, language) });
@@ -82,7 +89,7 @@ export function ComparisonAddDocuments({
     return () => {
       current = false;
     };
-  }, [cells, model, t, language]);
+  }, [cells, estimateModel, t, language]);
 
   const toggle = (documentId: string) => {
     setChecked((held) => {
