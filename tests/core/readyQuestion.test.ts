@@ -4,7 +4,7 @@ import type { Core } from "../../src/core";
 import { EXAMPLE_SETS } from "../../src/core/exampleSets";
 import type { Language } from "../../src/core/language";
 import { createTempDataFolder, startCore } from "../helpers/core";
-import { addAndProcess, waitForProcessing, writeSourceFile } from "../helpers/documents";
+import { addAndProcess, writeSourceFile } from "../helpers/documents";
 
 /**
  * The first open's ready Question (#2084): about the User's own Document as soon as one of
@@ -21,15 +21,10 @@ async function start(): Promise<{ core: Core; sources: string }> {
   const sources = await createTempDataFolder();
   const core = startCore(dataDir, { paths: { dataDir, examples: EXAMPLES } });
   await core.createExamples();
-  const { linkedFolderId } = await core.getExamples();
-  await waitForProcessing(
-    core,
-    (await core.listDocuments())
-      .filter((each) => each.linkedFolderId === linkedFolderId)
-      .map((each) => each.id),
-  );
-  // Read, and the core knows it: the example's Question waits for nothing.
-  await vi.waitFor(async () => expect((await core.readyQuestion())?.waitingFor).toBeNull());
+  // Its Documents are listed, read, and the core knows it: the example's Question waits for nothing.
+  await vi.waitFor(async () => expect((await core.readyQuestion())?.waitingFor).toBeNull(), {
+    timeout: 30_000,
+  });
   return { core, sources };
 }
 

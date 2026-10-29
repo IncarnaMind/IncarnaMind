@@ -6,7 +6,6 @@ import type { Core, RecognizedLine, TextRecognizer } from "../../src/core";
 import { createFakeTextRecognizer } from "../../src/core/documents/scan/fake";
 import { EXAMPLE_SETS } from "../../src/core/exampleSets";
 import { createTempDataFolder, NO_MODEL_FILES, startCore } from "../helpers/core";
-import { waitForProcessing } from "../helpers/documents";
 import { buildPdf } from "../helpers/pdf";
 
 /**
@@ -67,11 +66,6 @@ async function startWith(
   return core;
 }
 
-const exampleDocuments = async (core: Core) => {
-  const { linkedFolderId } = await core.getExamples();
-  return (await core.listDocuments()).filter((each) => each.linkedFolderId === linkedFolderId);
-};
-
 test("the ready Question names the Document it waits for, and asking answers once it is read", async () => {
   const core = await startWith();
   // Asked at the first frame, before its Documents have been read: it says what it waits for.
@@ -91,16 +85,13 @@ test("the ready Question names the Document it waits for, and asking answers onc
 
 test("answered once its Documents are read, it waits for nothing", async () => {
   const core = await startWith();
-  await waitForProcessing(
-    core,
-    (await exampleDocuments(core)).map((each) => each.id),
+  await vi.waitFor(
+    async () => {
+      const now = await core.readyQuestion();
+      expect(now?.waitingFor).toBeNull();
+    },
+    { timeout: 30_000 },
   );
-  const ready = await vi.waitFor(async () => {
-    const now = await core.readyQuestion();
-    expect(now?.waitingFor).toBeNull();
-    return now;
-  });
-  expect(ready?.waitingFor).toBeNull();
   const asked = await core.askExampleReadyQuestion();
   const { messages } = await core.getConversation(asked.conversationId);
   expect(messages.find((each) => each.kind === "answer")).toMatchObject({ status: "done" });
@@ -151,12 +142,8 @@ test("a read that never ends says so, rather than waiting for ever", async () =>
 test("a Document that can't be read takes the Question away, and asking says why", async () => {
   const examples = await examplesFolder(() => new TextEncoder().encode("%PDF-1.4 not a PDF"));
   const core = await startWith({}, examples);
-  await waitForProcessing(
-    core,
-    (await exampleDocuments(core)).map((each) => each.id),
-  );
   // No button to press: the card shows the unread-files line instead.
-  await vi.waitFor(async () => expect(await core.readyQuestion()).toBeNull());
+  await vi.waitFor(async () => expect(await core.readyQuestion()).toBeNull(), { timeout: 30_000 });
   await expect(core.askExampleReadyQuestion()).rejects.toMatchObject({
     wording: { key: "error.examples.unreadable" },
   });
