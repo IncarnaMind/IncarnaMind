@@ -2814,11 +2814,14 @@ export function createCore(adapters: CoreAdapters): Core {
     tags,
     library,
     mindsChanged,
-    mindsRestored: (mindIds) => {
+    mindsRestored: (mindIds, reopen) => {
       // A Mind deleted before a restart has no lines in the index's memory, and a restore stores nothing.
       for (const mindId of mindIds) mindIndex.contentStored(mindId);
       wordImports.resume(mindIds);
+      if (reopen) layouts.reopenMinds(mindIds);
+      else layouts.forgetMinds(mindIds);
     },
+    mindsForgotten: (mindIds) => layouts.forgetMinds(mindIds),
     conversationsChanged,
     tagsChanged,
     tagged: announceTagged,
@@ -3183,7 +3186,8 @@ export function createCore(adapters: CoreAdapters): Core {
       mindsChanged();
       layouts.forgetDeletedMinds();
     },
-    restoreMind: (mindId) => recentlyDeleted.restore([{ kind: "mind", id: mindId }]),
+    restoreMind: (mindId) =>
+      recentlyDeleted.restore([{ kind: "mind", id: mindId }], { reopen: true }),
     editMind: (mindId, change) => content.edit(mindId, change),
     linkFolder: (path) => documents.linkedFolders.add(path),
     unlinkFolder,
@@ -4548,7 +4552,7 @@ export function createCore(adapters: CoreAdapters): Core {
       if (change?.after.tagging?.status === "pending") tagger.resume();
       return change;
     },
-    restore: async (refs) => recentlyDeleted.restore(refs),
+    restore: async (refs, options) => recentlyDeleted.restore(refs, options),
     undoCommands: async (run) => commandSteps.undo(run),
     redoCommands: async (run) => commandSteps.redo(run),
     listDeleted: async () => recentlyDeleted.list(),
