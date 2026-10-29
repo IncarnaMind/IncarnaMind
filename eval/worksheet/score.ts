@@ -62,6 +62,9 @@ export function scoreWorksheet(run: WorksheetRun): WorksheetScore {
               figure.inputs.length > 0 &&
               figure.inputs.every((input) =>
                 Object.values(EXPECTED).some((row) => fullRow(input.citation, row)),
+              ) &&
+              (["beads", "weights"] as const).every((role) =>
+                figure.inputs.some((input) => fullRow(input.citation, EXPECTED[role])),
               ),
           )
         : evidence.some((citation) => fullRow(citation, quote)),
@@ -91,7 +94,10 @@ export function scoreWorksheet(run: WorksheetRun): WorksheetScore {
   for (const input of figureInputs) {
     if (Object.values(EXPECTED).some((quote) => fullRow(input, quote))) continue;
     if (metadata(input.quote)) continue;
-    if (input.pageFrom === 1 && /^(?:a|rev a|revision a)\b|superseded|已被替代|已替代/i.test(input.label))
+    if (
+      input.pageFrom === 1 &&
+      /^(?:a|rev a|revision a)\b|superseded|已被替代|已替代/i.test(input.label)
+    )
       continue;
     weak.push({ figure: input.figure, page: input.pageFrom, quote: input.quote });
   }
@@ -106,9 +112,9 @@ export function scoreWorksheet(run: WorksheetRun): WorksheetScore {
       present ? [] : [role as Role],
     ),
     weak,
-    falseOnly: /only (?:the )?(?:policy code|policy|load limit|maximum load)/i.test(
-      run.answer.text,
-    ),
+    falseOnly:
+      /only (?:the )?(?:policy code|policy|load limit|maximum load)/i.test(run.answer.text) ||
+      /只有\s*(?:政策代码|政策|最大载荷|载荷限制)/.test(run.answer.text),
   };
 }
 

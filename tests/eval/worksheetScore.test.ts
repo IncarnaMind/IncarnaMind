@@ -52,6 +52,17 @@ describe("revision worksheet row/role/revision scoring", () => {
     });
   });
 
+  test("rejects a computed total that lacks the control-weight input", () => {
+    const score = scoreWorksheet(
+      run("Glass beads costs[^1]\nControl weights costs[^2]\nTotal [=3]", current, [
+        figure("Total kg", 3, [BEADS]),
+      ]),
+    );
+
+    expect(score.currentRows).toEqual({ beads: true, weights: true, total: false });
+    expect(score.missing).toEqual(["total"]);
+  });
+
   test("rejects the superseded weight subtotal as the current bead subtotal", () => {
     const score = scoreWorksheet(
       run(
@@ -118,8 +129,11 @@ describe("revision worksheet row/role/revision scoring", () => {
     expect(score.weak).toEqual([]);
   });
 
-  test("flags the false only-policy/limit conclusion", () => {
-    const score = scoreWorksheet(run("Only the policy code and the load limit changed.", []));
+  test.each([
+    "Only the policy code and the load limit changed.",
+    "只有政策代码和最大载荷发生变化。",
+  ])("flags the false only-policy/limit conclusion: %s", (text) => {
+    const score = scoreWorksheet(run(text, []));
     expect(score.falseOnly).toBe(true);
   });
 });
