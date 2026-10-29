@@ -4,7 +4,7 @@
  * searches — a Question in their own Note, a Mind's check against its
  * Documents, find-support for one sentence, the evidence search behind a
  * figure, Research, writing suggestions, and a Search scope's count. An
- * example's own Note always searches the examples. Deleting the only Document
+ * example's own Note always searches every Document. Deleting the only Document
  * of the User's brings the examples back without a restart.
  */
 import { randomUUID } from "node:crypto";
@@ -158,20 +158,47 @@ describe("“every Document” is the examples until the User has one, then thei
     core.close();
 
     const researchCalls: ModelCall[] = [];
+    const generatedPrompts: string[] = [];
     const researching = scriptedModel(
       (call) => {
         researchCalls.push(call);
         return { text: "Nothing further." };
       },
       {
-        generate: (call) =>
-          /Topic:/.test(call.prompt)
-            ? { text: "TITLE: Northwind\n1. Search the Library" }
-            : { text: "Sure." },
+        generate: (call) => {
+          if (/Topic:/.test(call.prompt))
+            return { text: "TITLE: Northwind\n1. Search the Library" };
+          generatedPrompts.push(call.prompt);
+          if (!call.prompt.includes("Net debt to EBITDA was 3.1 times")) return { text: "OK" };
+          return {
+            text: JSON.stringify({
+              text: "The ratio fell from the half year.",
+              passage: "P1",
+              quote: "up from 2.7 times at the half year",
+            }),
+          };
+        },
       },
     );
     const second = await setUp({ model: researching, own: false });
     const note = await second.core.createMind({ title: "My note" });
+    await second.core.updateSettings({ user: { suggestWhileWriting: true } });
+    await second.core.suggestNext({
+      requestId: randomUUID(),
+      mindId: note.id,
+      paragraph:
+        "Net debt to EBITDA was 3.1 times at the end of the quarter, up from 2.7 times at the half year, and the",
+      scope: NO_SCOPE,
+    });
+    // A hit, not just a count: the model was given the example's own words.
+    const suggestionPrompts = generatedPrompts.filter((prompt) =>
+      prompt.includes("Net debt to EBITDA was 3.1 times at the end of the quarter"),
+    );
+    expect(suggestionPrompts.length).toBeGreaterThan(0);
+    expect(
+      suggestionPrompts.some((prompt) => prompt.includes("up from 2.7 times at the half year")),
+    ).toBe(true);
+    const beforeResearch = researchCalls.length;
     const plan: ResearchPlan = { title: "Northwind", steps: ["Search the Library"] };
     const started = await second.core.startResearch({
       mindId: note.id,
@@ -182,12 +209,16 @@ describe("“every Document” is the examples until the User has one, then thei
       scope: NO_SCOPE,
     });
     if (!started.started) throw new Error(`Research didn't start: ${started.reason}`);
-    await vi.waitFor(() => expect(researchCalls.length).toBeGreaterThan(0), { timeout: 15_000 });
+    await vi.waitFor(() => expect(researchCalls.length).toBeGreaterThan(beforeResearch), {
+      timeout: 15_000,
+    });
     await second.core.stopTask(started.task.id);
     expect(
-      researchCalls.some((call) =>
-        JSON.stringify(call.options.prompt).includes("Northwind Retail"),
-      ),
+      researchCalls
+        .slice(beforeResearch)
+        .some((call) =>
+          JSON.stringify(call.options.prompt).includes("Northwind Retail · Q3 2026 results"),
+        ),
     ).toBe(true);
     second.core.close();
   });
@@ -285,10 +316,14 @@ describe("“every Document” is the examples until the User has one, then thei
   });
 
   test("a writing suggestion looks in the User's Documents once she has one", async () => {
-    const calls: ModelCall[] = [];
-    const model = scriptedModel((call) => {
-      calls.push(call);
-      return { text: JSON.stringify({ text: "a suggestion", quote: "none" }) };
+    const generated: string[] = [];
+    const model = scriptedModel(() => ({ text: "Nothing further." }), {
+      generate: (call) => {
+        generated.push(call.prompt);
+        return call.prompt.includes("In my own words, Northwind Retail results.")
+          ? { text: JSON.stringify({ text: "a suggestion", quote: "none" }) }
+          : { text: "OK" };
+      },
     });
     const { core } = await setUp({ model });
     await core.updateSettings({ user: { suggestWhileWriting: true } });
@@ -297,12 +332,23 @@ describe("“every Document” is the examples until the User has one, then thei
       await core.suggestNext({
         requestId: randomUUID(),
         mindId: mind.id,
-        paragraph: "Net debt to EBITDA stood at",
+        paragraph: "In my own words, Northwind Retail results.",
         scope: NO_SCOPE,
       }),
     ).toEqual({ kind: "none" });
-    for (const call of calls) {
-      expect(JSON.stringify(call.options.prompt)).not.toContain("Net debt to EBITDA");
+    // A hit on her own words, and none of the example's.
+    const suggestionPrompts = generated.filter((prompt) =>
+      prompt.includes("In my own words, Northwind Retail results."),
+    );
+    expect(suggestionPrompts.length).toBeGreaterThan(0);
+    expect(
+      suggestionPrompts.some((prompt) =>
+        prompt.includes("Northwind Retail results, in my own words."),
+      ),
+    ).toBe(true);
+    for (const prompt of suggestionPrompts) {
+      expect(prompt).not.toContain("Net debt to EBITDA");
+      expect(prompt).not.toContain("Northwind Retail · Q3 2026 results");
     }
     core.close();
   });
@@ -337,6 +383,14 @@ describe("“every Document” is the examples until the User has one, then thei
     });
     if (!started.started) throw new Error(`Research didn't start: ${started.reason}`);
     await vi.waitFor(() => expect(calls.length).toBeGreaterThan(0), { timeout: 15_000 });
+    // A hit on her own words, so the search is proven to have run.
+    await vi.waitFor(
+      () =>
+        expect(
+          calls.some((call) => JSON.stringify(call.options.prompt).includes("in my own words")),
+        ).toBe(true),
+      { timeout: 15_000 },
+    );
     await core.stopTask(started.task.id);
     for (const call of calls) {
       expect(JSON.stringify(call.options.prompt)).not.toContain("Net debt to EBITDA");

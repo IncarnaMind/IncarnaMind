@@ -1381,8 +1381,10 @@ export function createCore(adapters: CoreAdapters): Core {
   /**
    * The Documents a Search scope covers; with no scope, "every Document": the examples' until the
    * User has a Document of their own, and theirs alone from then on (#1942). An example's own Note
-   * always searches every Document. Every surface that searches resolves a scope here, so all of
-   * them follow one rule.
+   * always searches every Document. Every searching surface resolves a default scope here or
+   * through `unscopedDocuments` — a Question in a Mind goes through `resolveScope ??
+   * unscopedDocuments` — so all of them follow one rule; the Library count and the renderer state
+   * the same rule for browsing.
    */
   const scopeDocuments = (
     scope: SearchScope | null,

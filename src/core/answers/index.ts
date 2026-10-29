@@ -575,8 +575,9 @@ export interface AnswersOptions {
   resolveScope(scope: SearchScope): string[] | null;
   /**
    * With no Search scope, what an Answer asked from `mindId` in the assistant
-   * searches: every Document but the examples', unless it is an example's
-   * Mind; null: every Document.
+   * searches: the examples until the User has a Document of their own, theirs
+   * alone from then on (#1942); an example's Mind searches every Document.
+   * Null: every Document.
    */
   unscopedDocuments?(mindId: string | null): string[] | null;
   /** What a Question from a Mind searches, by the one rule (`mindSearchScope`); null: every Document. */
@@ -3324,9 +3325,9 @@ export function createAnswers(options: AnswersOptions) {
   /**
    * What an Answer to `question` is written from: its context, and its Search
    * scope as it is now, resolved to the Documents it covers now. With no
-   * scope it searches the User's own Documents, never the examples', even
-   * before the User has one (#1942); an example's own Note still searches the
-   * examples, as a Question in the assistant does.
+   * scope it follows the one rule (#1942): the examples until the User has a
+   * Document of their own, theirs alone from then on; an example's own Note
+   * searches every Document.
    */
   const askedWith = (context: QuestionContext, question: Y.XmlElement, mindId: string) => {
     const chosen = searchScopeOf(question.getAttributes());
