@@ -7,21 +7,67 @@ import {
 } from "../../../shared/claimParts";
 import { emptyFigureFinding } from "../../../shared/figureChecks";
 import type {
+  CheckFigure,
   ClaimCheckFailure,
   ClaimCheckPart,
   ClaimCheckResult,
   ClaimPartPlan,
   ClaimPartSpan,
 } from "../../api";
+import { slots } from "../../runs/stop";
 import {
+  type AtomicClaimCheckResult,
   type ClaimCheckDependencies,
   type ClaimCheckRequest,
   createClaimCheck,
   failureOf,
 } from "./claimCheck";
 import { claimsAmong } from "./findClaims";
+import { claimsAtOnce } from "./runChecks";
 
 const sameSpan = (a: ClaimPartSpan, b: ClaimPartSpan) => a.start === b.start && a.end === b.end;
+
+const STOPS: readonly ClaimCheckFailure[] = [
+  "stopped",
+  "failed",
+  "rate-limit",
+  "cost-cap",
+  "plan-limit",
+  "out-of-credit",
+  "consent-revoked",
+  "local-mode",
+];
+
+/** A check of some of a part's figures keeps its other figures as they were. */
+function checkedPart(
+  plan: ClaimPartPlan,
+  result: AtomicClaimCheckResult,
+  previous: ClaimCheckPart | undefined,
+  figures: readonly CheckFigure[],
+  figureIds: readonly string[] | undefined,
+): ClaimCheckPart {
+  const part = partWithResult(plan, result, result.checkedEvidence, result.coverage);
+  if (!figureIds || !previous?.figures || !result.figures) return part;
+  const incoming = new Map(result.figures.map((figure) => [figure.id, figure]));
+  return {
+    ...part,
+    figures: figures.map(
+      (figure) =>
+        incoming.get(figure.id) ??
+        previous.figures?.find((old) => old.id === figure.id) ?? {
+          ...emptyFigureFinding(figure),
+          result: {
+            verdict: "not-checked" as const,
+            reason: "unread" as const,
+            detail: null,
+            versions: [],
+            excluded: [],
+          },
+        },
+    ),
+    ...(previous.remainder !== undefined && { remainder: previous.remainder }),
+  };
+}
 
 export function createPartCheck(deps: ClaimCheckDependencies) {
   const atomic = createClaimCheck(deps);
@@ -68,8 +114,13 @@ export function createPartCheck(deps: ClaimCheckDependencies) {
     if (!owned) return failed("malformed");
     if (request.figureIds?.some((id) => !request.figures?.some((figure) => figure.id === id)))
       return failed("malformed");
-    const parts: ClaimCheckPart[] = [];
-    let stopped: { reason: ClaimCheckFailure; detail: string | null } | null = null;
+    const parts: (ClaimCheckPart | null)[] = [];
+    const checks: {
+      index: number;
+      plan: ClaimPartPlan;
+      figures: CheckFigure[];
+      previous: ClaimCheckPart | undefined;
+    }[] = [];
     for (const [index, plan] of plans.entries()) {
       const previous = request.previous?.find(
         (part) => part.kind === plan.kind && sameSpan(part.span, plan.span),
@@ -108,62 +159,41 @@ export function createPartCheck(deps: ClaimCheckDependencies) {
         parts.push(pendingPart(plan));
         continue;
       }
-      if (request.signal.aborted) stopped = { reason: "stopped", detail: null };
-      if (stopped) {
-        parts.push(
-          partWithResult(plan, { verdict: "not-checked", ...stopped, versions: [], excluded: [] }),
-        );
-        continue;
-      }
-      const result = await atomic({
-        ...request,
-        claim: request.claim.slice(plan.span.start, plan.span.end),
-        figures: figures.length ? figures : undefined,
-        projection: undefined,
-        originalClaim: request.originalClaim ?? request.claim,
-        context: [request.context, request.claim].filter(Boolean).join("\n\n"),
-      });
-      if (request.figureIds && previous?.figures && result.figures) {
-        const incoming = new Map(result.figures.map((figure) => [figure.id, figure]));
-        const kept = allFigures.map(
-          (figure) =>
-            incoming.get(figure.id) ??
-            previous.figures?.find((old) => old.id === figure.id) ?? {
-              ...emptyFigureFinding(figure),
-              result: {
-                verdict: "not-checked" as const,
-                reason: "unread" as const,
-                detail: null,
-                versions: [],
-                excluded: [],
-              },
-            },
-        );
-        const merged = {
-          ...partWithResult(plan, result, result.checkedEvidence, result.coverage),
-          figures: kept,
-          ...(previous.remainder !== undefined && { remainder: previous.remainder }),
-        };
-        parts.push(merged);
-      } else {
-        parts.push(partWithResult(plan, result, result.checkedEvidence, result.coverage));
-      }
-      if (
-        result.verdict === "not-checked" &&
-        [
-          "stopped",
-          "failed",
-          "rate-limit",
-          "cost-cap",
-          "plan-limit",
-          "out-of-credit",
-          "consent-revoked",
-          "local-mode",
-        ].includes(result.reason)
-      ) {
-        stopped = { reason: result.reason, detail: result.detail };
-      }
+      parts.push(null);
+      checks.push({ index, plan, figures, previous });
     }
-    return resultFromParts(parts);
+    // Parts are checked at once, within the run's limit (`claimsAtOnce`); a failure that stops the
+    // run leaves the parts not started yet not checked, for its reason.
+    const limit = request.slots ?? slots(claimsAtOnce(request.model));
+    let stopped: { reason: ClaimCheckFailure; detail: string | null } | null = null;
+    await Promise.all(
+      checks.map(({ index, plan, figures, previous }) =>
+        limit.run(async () => {
+          if (request.signal.aborted) stopped ??= { reason: "stopped", detail: null };
+          if (stopped) {
+            parts[index] = partWithResult(plan, {
+              verdict: "not-checked",
+              ...stopped,
+              versions: [],
+              excluded: [],
+            });
+            return;
+          }
+          const result = await atomic({
+            ...request,
+            claim: request.claim.slice(plan.span.start, plan.span.end),
+            figures: figures.length ? figures : undefined,
+            projection: undefined,
+            originalClaim: request.originalClaim ?? request.claim,
+            context: [request.context, request.claim].filter(Boolean).join("\n\n"),
+          });
+          parts[index] = checkedPart(plan, result, previous, owned[index] ?? [], request.figureIds);
+          if (result.verdict === "not-checked" && STOPS.includes(result.reason)) {
+            stopped ??= { reason: result.reason, detail: result.detail };
+          }
+        }),
+      ),
+    );
+    return resultFromParts(parts.filter((part): part is ClaimCheckPart => part !== null));
   };
 }

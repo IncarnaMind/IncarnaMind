@@ -20,7 +20,7 @@ import type {
 } from "../../api";
 import type { MindContent } from "../../mindContent";
 import type { PreparedChatModel } from "../../providers/chat";
-import { RunItemError, runItems } from "../../runs/stop";
+import { RunItemError, runItems, slots } from "../../runs/stop";
 import { type ClaimCheckRequest, recordJudged, runFailureOf } from "./claimCheck";
 import { updateCheck } from "./sentences";
 
@@ -127,6 +127,7 @@ export async function runChecks(
     };
 
   let checked = 0;
+  const limit = slots(claimsAtOnce(prepared));
   const { stop } = await runItems(
     run.queued,
     async (claim) => {
@@ -144,6 +145,7 @@ export async function runChecks(
         model: prepared,
         ...(run.thirdParty && { thirdParty: run.thirdParty }),
         cacheKey: mindId,
+        slots: limit,
         signal,
       });
       const failure = runFailureOf(result);

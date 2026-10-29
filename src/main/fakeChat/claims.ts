@@ -9,7 +9,7 @@ const FIND_CLAIMS =
 export const findsClaims = (options: GenerateOptions): boolean =>
   FIND_CLAIMS.test(systemOf(options.prompt));
 
-/** Literal inventories used by keyless UI tests; undecidedLast omits the last listed sentence. */
+/** `undecidedLast` leaves the last listed sentence out of the reply, as a model that skips one does. */
 export function fakeClaims(
   options: GenerateOptions,
   { undecidedLast = false }: { undecidedLast?: boolean } = {},

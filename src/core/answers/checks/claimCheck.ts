@@ -55,6 +55,7 @@ import type { Language } from "../../language";
 import { calculates, givesStructuredOutput } from "../../providers/capabilities";
 import type { PreparedChatModel } from "../../providers/chat";
 import { classifyProviderError } from "../../providers/providerErrors";
+import type { Slots } from "../../runs/stop";
 import {
   answerLanguage,
   type CalculationSession,
@@ -146,6 +147,8 @@ export interface ClaimCheckRequest {
   parts?: readonly ClaimPartPlan[];
   only?: ClaimPartSpan;
   previous?: readonly ClaimCheckPart[];
+  /** The run's limit on model checks at once, which its claims' parts share. */
+  slots?: Slots;
 }
 
 /** Why a provider's failure left a claim not checked. */

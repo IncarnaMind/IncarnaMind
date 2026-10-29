@@ -7,6 +7,7 @@ import { generateText } from "ai";
 import type { ClaimPartPlan, ProviderError } from "../../api";
 import type { PreparedChatModel } from "../../providers/chat";
 import { classifyProviderError } from "../../providers/providerErrors";
+import { slots } from "../../runs/stop";
 import { answerTemperature } from "../engine";
 import {
   CLAIM_BATCH,
@@ -15,6 +16,7 @@ import {
   findClaimsPrompt,
   readClaimParts,
 } from "./claims";
+import { claimsAtOnce } from "./runChecks";
 
 export type ClaimsFound =
   | {
@@ -40,6 +42,10 @@ export async function claimsAmong(
   whose: "someone-else" | "own",
   signal: AbortSignal,
 ): Promise<ClaimsFound> {
+  // A sort's reply repeats each part's words, so a batch takes as long as its words: batches go
+  // at once, within the provider's limit, and the first that fails ends the rest.
+  const ended = new AbortController();
+  const sorting = AbortSignal.any([signal, ended.signal]);
   const ask = async (
     batch: readonly { number: number; text: string }[],
     tries: number,
@@ -53,25 +59,22 @@ export async function claimsAmong(
           temperature: answerTemperature(prepared.capabilities.facts.temperature),
           maxOutputTokens: 4_000,
           maxRetries: 1,
-          abortSignal: signal,
+          abortSignal: sorting,
         });
         const parts = readClaimParts(text, batch);
         if (parts) return { kind: "read", parts };
       } catch (error) {
-        if (signal.aborted) return { kind: "cancelled" };
+        if (sorting.aborted) return { kind: "cancelled" };
         return { kind: "failed", error: classifyProviderError(error) };
       }
     }
     return { kind: "unread" };
   };
 
-  const claims = new Set<number>();
-  const parts = new Map<number, readonly ClaimPartPlan[]>();
-  const undecided = new Set<number>();
-  for (let start = 0; start < texts.length; start += CLAIM_BATCH) {
-    const batch = texts
-      .slice(start, start + CLAIM_BATCH)
-      .map((text, index) => ({ number: start + index + 1, text }));
+  type Sorted =
+    | { kind: "read"; inventories: Map<number, readonly ClaimPartPlan[]> }
+    | Exclude<ClaimsFound, { kind: "found" }>;
+  const sortBatch = async (batch: readonly { number: number; text: string }[]): Promise<Sorted> => {
     // A reply that can't be read is asked for once more.
     const first = await ask(batch, 2);
     if (first.kind === "unread") {
@@ -97,8 +100,40 @@ export async function claimsAmong(
         }
       }
     }
+    return { kind: "read", inventories };
+  };
+
+  const batches: { number: number; text: string }[][] = [];
+  for (let start = 0; start < texts.length; start += CLAIM_BATCH) {
+    batches.push(
+      texts
+        .slice(start, start + CLAIM_BATCH)
+        .map((text, index) => ({ number: start + index + 1, text })),
+    );
+  }
+  const limit = slots(claimsAtOnce(prepared));
+  const sorted = await Promise.all(
+    batches.map((batch) =>
+      limit.run(async () => {
+        if (sorting.aborted) return { kind: "cancelled" } as const;
+        const outcome = await sortBatch(batch);
+        if (outcome.kind === "failed") ended.abort();
+        return outcome;
+      }),
+    ),
+  );
+  if (signal.aborted) return { kind: "cancelled" };
+  const failure = sorted.find((outcome) => outcome.kind === "failed");
+  if (failure) return failure;
+
+  const claims = new Set<number>();
+  const parts = new Map<number, readonly ClaimPartPlan[]>();
+  const undecided = new Set<number>();
+  for (const [at, batch] of batches.entries()) {
+    const outcome = sorted[at];
+    if (outcome?.kind !== "read") return { kind: "cancelled" };
     for (const { number } of batch) {
-      const inventory = inventories.get(number);
+      const inventory = outcome.inventories.get(number);
       if (inventory === undefined) undecided.add(number - 1);
       else {
         parts.set(number - 1, inventory);
