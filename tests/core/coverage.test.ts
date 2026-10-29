@@ -157,7 +157,22 @@ describe("A summary of many Documents, through the core", { timeout: 60_000 }, (
     );
     expect(answer.steps?.coverage?.rest).toHaveLength(2);
     expect(calls[0]?.system).toContain("This Answer covers the 8 largest of 10 Documents");
-    expect(calls[0]?.system).not.toContain("Report 9");
+    expect(calls[0]?.system).toContain("Report 9");
+    expect(calls[0]?.system).toContain("Report 10");
+  });
+
+  test("of 4 covers every Document and tells the model the real count", async () => {
+    const { core, mind, scope, calls } = await withDocuments(4);
+
+    const answer = await askAssistant(core, {
+      text: "Write a summary page of these documents",
+      mindId: mind.id,
+      scope,
+    });
+
+    expect(answer.steps?.coverage).toBeUndefined();
+    expect(calls[0]?.system).toContain("The User asked about each of the 4 Documents");
+    expect(calls[0]?.system).not.toContain("[object Object]");
   });
 
   // protects=a Question about a topic across many Documents searches them all, with no cap; fails_when=it covers only the largest 8; no_claim=what the model writes.

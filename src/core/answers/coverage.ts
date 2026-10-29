@@ -189,18 +189,22 @@ const quotedList = (names: readonly string[]) =>
 export function coverageInstructions(
   coverage: AnswerCoverage | null,
   each: boolean,
-  documents: number,
+  documents: readonly SizedDocument[],
 ): string {
   const covered = coverage?.used.map((document) => document.name) ?? [];
+  const rest = (coverage?.rest ?? []).flatMap((id) => {
+    const document = documents.find((each) => each.id === id);
+    return document ? [document.name] : [];
+  });
   const searchEach =
     "Search each one (search_documents with its document), cite each at least once, and say in your reply which, if any, you couldn't cover. Nothing about your searching goes into a Mind.";
   if (coverage?.kind === "main") {
     return `The User asked about the main Documents: IncarnaMind took ${quotedList(covered)}, the largest, and says so above your reply, with an offer of others. Answer from ${covered.length === 1 ? "it" : "these"}; don't ask which.`;
   }
   if (coverage?.kind === "largest") {
-    return `This Answer covers the ${covered.length} largest of ${covered.length + coverage.rest.length} Documents: ${quotedList(covered)}. IncarnaMind says so above your reply and offers the rest, so don't name or apologise for the others. ${searchEach}`;
+    return `This Answer covers the ${covered.length} largest of ${documents.length} Documents: ${quotedList(covered)}. In your reply, name the others you didn't cover (${quotedList(rest)}) and offer to summarise them. ${searchEach}`;
   }
-  return each && documents > 1
-    ? `The User asked about each of the ${documents} Documents. ${searchEach}`
+  return each && documents.length > 1
+    ? `The User asked about each of the ${documents.length} Documents. ${searchEach}`
     : "";
 }
