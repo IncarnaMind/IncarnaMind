@@ -2385,3 +2385,106 @@ describe("How a change reads (#1028)", () => {
     ]);
   });
 });
+
+describe("Edit with AI keeps bold and italic (#1897)", () => {
+  /** Each text node of the Mind's first paragraph with the names of its marks. */
+  const runsOf = (client: MindClient, at = 0) =>
+    (readMind(client).child(at).toJSON().content as JSONContent[]).map((node) => ({
+      text: node.text,
+      marks: (node.marks ?? []).map((mark: { type: string }) => mark.type),
+    }));
+
+  test("the model sees what is bold, and a reply that keeps the label bold changes only the words it changed", async () => {
+    const calls: EditCall[] = [];
+    const { core, mind, client } = await setUp(
+      editingModel(
+        () => "**Role.** The post is senior and well paid. **Hours.** Full time, with Fridays off.",
+        calls,
+      ),
+    );
+    const note = paragraph(
+      text("Role.", "bold"),
+      text(" The post is senior. "),
+      text("Hours.", "bold"),
+      text(" Full time."),
+    );
+    writeMind(client, [note]);
+    await client.settled();
+
+    const result = await core.editWithAi(
+      wholeParagraph(client, mind.id, note.attrs.id, "instruction", "Make it longer."),
+    );
+
+    expect(calls[0]?.passage).toBe("**Role.** The post is senior. **Hours.** Full time.");
+    expect(calls[0]?.system).toContain("between ** and ** or * and *");
+    expect(result).toMatchObject({ kind: "proposed", proposals: 2 });
+    expect(shownWithChanges(client)).toEqual([
+      "Role. The post is senior{+ and well paid+}. Hours. Full time{+, with Fridays off+}.",
+    ]);
+    await resolveChanges(client, "accept");
+    const runs = runsOf(client);
+    expect(runs.map((run) => run.text).join("")).not.toContain("*");
+    expect(runs.filter((run) => run.marks.includes("bold")).map((run) => run.text)).toEqual([
+      "Role.",
+      "Hours.",
+    ]);
+  });
+
+  test("bold and italic the model adds are bold and italic, with no asterisks left", async () => {
+    const { core, mind, client } = await setUp(
+      editingModel(() => "Spring tides are strong. The harbour is **busy** and *calm*."),
+    );
+    const note = paragraph(text("Spring tides are strong."));
+    writeMind(client, [note]);
+    await client.settled();
+
+    await core.editWithAi(
+      wholeParagraph(client, mind.id, note.attrs.id, "instruction", "Add the harbour."),
+    );
+    await resolveChanges(client, "accept");
+
+    const runs = runsOf(client);
+    expect(runs.map((run) => run.text).join("")).toBe(
+      "Spring tides are strong. The harbour is busy and calm.",
+    );
+    expect(runs.find((run) => run.text?.includes("busy"))?.marks).toContain("bold");
+    expect(runs.find((run) => run.text?.includes("calm"))?.marks).toContain("italic");
+    expect(runs.find((run) => run.text?.includes("harbour"))?.marks).not.toContain("bold");
+    expect(runs.find((run) => run.text?.includes("Spring"))?.marks).not.toContain("bold");
+  });
+
+  test("a bold label next to Chinese punctuation stays bold, and what the model adds is read the same", async () => {
+    const { core, mind, client } = await setUp(
+      editingModel(() => "**角色：**该职位为高级职位，薪酬较高。**工时：**全职。"),
+    );
+    const note = paragraph(text("角色：", "bold"), text("该职位为高级职位。"));
+    writeMind(client, [note]);
+    await client.settled();
+
+    await core.editWithAi(
+      wholeParagraph(client, mind.id, note.attrs.id, "instruction", "写长一点。"),
+    );
+    await resolveChanges(client, "accept");
+
+    const runs = runsOf(client);
+    expect(runs.map((run) => run.text).join("")).toBe(
+      "角色：该职位为高级职位，薪酬较高。工时：全职。",
+    );
+    expect(runs.filter((run) => run.marks.includes("bold")).map((run) => run.text)).toEqual([
+      "角色：",
+      "工时：",
+    ]);
+  });
+
+  test("a reply that only changes the look gives nothing to review", async () => {
+    const { core, mind, client } = await setUp(editingModel(() => "Role. The post is senior."));
+    const note = paragraph(text("Role.", "bold"), text(" The post is senior."));
+    writeMind(client, [note]);
+    await client.settled();
+
+    expect(
+      await core.editWithAi(wholeParagraph(client, mind.id, note.attrs.id, "improve")),
+    ).toEqual({ kind: "unchanged" });
+    expect(pendingProposals(client.blocks)).toEqual([]);
+  });
+});

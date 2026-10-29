@@ -1,6 +1,6 @@
 import { describe, expect, test } from "vitest";
 import type { NodeJSON } from "../../src/core/answers/blocks";
-import { markdownToBlocks } from "../../src/core/answers/markdown";
+import { emphasisOf, markdownToBlocks } from "../../src/core/answers/markdown";
 
 interface Run {
   text: string;
@@ -128,5 +128,39 @@ describe("emphasis in English", () => {
 
   test("inline code is left as it is", () => {
     expect(runs("`**x:**`text")).toEqual([code("**x:**"), plain("text")]);
+  });
+});
+
+describe("the strings of #1774", () => {
+  test.each([
+    ["**上限：**每月五千元", [bold("上限："), plain("每月五千元")]],
+    ["**上限**：每月五千元", [bold("上限"), plain("：每月五千元")]],
+    ["每月五千元**（含税）**", [plain("每月五千元"), bold("（含税）")]],
+    ["**上限，**五千元", [bold("上限，"), plain("五千元")]],
+    ["**上限。**五千元", [bold("上限。"), plain("五千元")]],
+    ["**上限**，五千元", [bold("上限"), plain("，五千元")]],
+    ["**上限**。五千元", [bold("上限"), plain("。五千元")]],
+  ])("%s", (markdown, expected) => {
+    expect(runs(markdown)).toEqual(expected);
+  });
+});
+
+describe("emphasisOf", () => {
+  test("gives the plain words and the look of each character", () => {
+    const read = emphasisOf("**Role.** The *post* is senior");
+    expect(read?.plain).toBe("Role. The post is senior");
+    expect(read?.looks[0]).toEqual({ bold: true });
+    expect(read?.looks[6]).toEqual({});
+    expect(read?.looks[11]).toEqual({ italic: true });
+  });
+
+  test("keeps stars that pair with nothing and formulas as written", () => {
+    expect(emphasisOf("2 * 3 and $x^2$")?.plain).toBe("2 * 3 and $x^2$");
+  });
+
+  test("leaves a line with code, a link or an escape as it was written", () => {
+    expect(emphasisOf("`**x**` here")).toBeNull();
+    expect(emphasisOf("[a](https://example.com) **b**")).toBeNull();
+    expect(emphasisOf("a \\* b")).toBeNull();
   });
 });

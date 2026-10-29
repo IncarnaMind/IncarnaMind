@@ -8,6 +8,8 @@
  * change made again is often a few words), and the task; it gives back the
  * passage's new text, which ../proposals/write compares with the old.
  */
+
+import { emphasisOf } from "../answers/markdown";
 import type { EditAction } from "../api";
 
 /** For every task but "explain": rewrite the passage, keeping its markers. */
@@ -17,10 +19,11 @@ export const EDIT_INSTRUCTIONS = [
   "When the passage is part of a sentence, the words just before it are between <before> and </before>, and the words just after it between <after> and </after>. They stay as they are.",
   "",
   "Reply with the new text of the passage. Then, on a last line of its own, say in a few words what is better now, for the reader, in the passage's language, between <why> and </why>, such as <why>Shorter, with the same facts and sources.</why> Don't mention markers there.",
-  "Nothing else: no preamble, no other explanation, no quotation marks around the text, no code fence, no Markdown formatting but the paragraph marks and tables below.",
+  "Nothing else: no preamble, no other explanation, no quotation marks around the text, no code fence, no Markdown formatting but the paragraph marks, bold, italic and tables below.",
   "- The new text must fit between the words before and after it. Never repeat those words in it.",
   "- Keep every Citation marker, such as [1], and every footnote marker, such as [^1], right after the words it belongs to. Never add a marker the passage doesn't have, and never change a marker's number. Leave a marker out only if the words it belongs to are gone.",
   "- Keep each formula written as $…$ exactly as it is.",
+  "- Words that are bold or italic in the passage are between ** and ** or * and *. Keep them so, and write the same around the words that take their place. Add bold or italic only when the task asks for it, and never as anything but a pair around words.",
   "- Keep the passage's paragraphs apart with a blank line. Don't join or split them unless the task asks for it.",
   "- A paragraph that starts with #, ## or ### is a heading, one with - a bullet, 1. a numbered item, > a quote; one with none is plain text. Start each of yours the same way, so a heading stays a heading and an item an item, unless the task asks otherwise.",
   "- A backslash before such a mark, as in \\1. Background, makes it plain text: keep the backslash.",
@@ -156,8 +159,10 @@ export function readEditReply(reply: string, passage: string): string {
 }
 
 /** Two texts that read the same once their spaces are made alike: the model changed nothing. */
-export const sameText = (a: string, b: string) =>
-  a.replace(/\s+/g, " ").trim() === b.replace(/\s+/g, " ").trim();
+export const sameText = (a: string, b: string) => alike(a) === alike(b);
+
+/** A text's words with their spaces made alike and no bold or italic: a change of look alone is no change of words. */
+const alike = (text: string) => (emphasisOf(text)?.plain ?? text).replace(/\s+/g, " ").trim();
 
 /**
  * The passage's new text so far, as the model writes it (#202): without

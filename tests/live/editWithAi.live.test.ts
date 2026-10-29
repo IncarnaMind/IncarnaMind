@@ -22,6 +22,9 @@
  * checks that its changes come in while the model still writes, paragraph by
  * paragraph, and that the model says why.
  *
+ * A fifth (#1897) asks for a summary with bold labels to be made longer, and checks that
+ * no asterisks are left, the labels are still bold and no label's words changed.
+ *
  * Set INCARNAMIND_LIVE_REPORT to a file to keep what each model gave back.
  */
 import { appendFile } from "node:fs/promises";
@@ -611,6 +614,122 @@ describe.each(LIVE)("Update the sentence, live: $name", (live) => {
       if (process.env.INCARNAMIND_LIVE_REPORT) {
         await appendFile(process.env.INCARNAMIND_LIVE_REPORT, `${report.join("\n")}\n\n`);
       }
+    },
+  );
+});
+
+const SUMMARIES = [
+  {
+    language: "English",
+    instruction: "Make the summary longer.",
+    parts: [
+      ["Role.", " The post is a senior analyst position in the finance team. "],
+      ["Hours.", " Work is full time, from Monday to Friday. "],
+      ["Pay.", " The salary is set by the grade and paid monthly."],
+    ],
+  },
+  {
+    language: "Chinese",
+    instruction: "把摘要写得更长一些。",
+    parts: [
+      ["职位：", "这是财务团队的一个高级分析岗位。"],
+      ["工时：", "全职，周一至周五上班。"],
+      ["薪酬：", "按职级定薪，按月发放。"],
+    ],
+  },
+] as const;
+
+describe.each(LIVE)("Bold labels stay bold, live: $name", (live) => {
+  test.skipIf(live.apiKey === undefined)(
+    `${live.name}: a summary with bold labels made longer keeps its labels bold and shows no asterisks`,
+    { timeout: 900_000 },
+    async () => {
+      const runs = Number(process.env.INCARNAMIND_LIVE_RUNS ?? 3);
+      const report: string[] = [`## ${live.name} · ${live.model} (#1897, bold labels)`];
+      const checks: (() => void)[] = [];
+      for (const summary of SUMMARIES) {
+        let clean = 0;
+        let labelsBold = 0;
+        let labelsUntouched = 0;
+        let longer = 0;
+        for (let run = 1; run <= runs; run++) {
+          const core = startCore(await createTempDataFolder(), {
+            createChatModel: createAiSdkChatModel,
+          });
+          core.on(
+            "consent.requested",
+            (asked) => void core.respondToConsent(asked.requestId, true),
+          );
+          await core.saveChatProvider({
+            kind: live.kind,
+            ...(live.apiKey && { apiKey: live.apiKey }),
+            modelId: live.model,
+          });
+          if (live.local) await core.setLocalOnly(true);
+          const mind = await core.createMind({ title: summary.language });
+          const client = await connectToMind(core, mind.id);
+          writeMind(client, [
+            {
+              type: "paragraph",
+              attrs: { id: "summary" },
+              content: summary.parts.flatMap(([label, rest]) => [
+                { type: "text", text: label, marks: [{ type: "bold" }] },
+                { type: "text", text: rest },
+              ]),
+            },
+          ]);
+          await client.settled();
+          const before = shown(client, "summary").length;
+          const { result } = await edit(
+            core,
+            client,
+            mind.id,
+            "summary",
+            "instruction",
+            summary.instruction,
+          );
+          const waiting = shown(client, "summary");
+          const removed = [...waiting.matchAll(/\[-(.*?)-\]/g)].map((each) => each[1] ?? "");
+          if (summary.parts.every(([label]) => !removed.some((each) => each.includes(label)))) {
+            labelsUntouched++;
+          }
+          if (result.kind === "proposed") {
+            client.doc.transact(() => {
+              resolveProposals(client.blocks as Y.XmlFragment, () => true, "accept");
+            }, "editor");
+            await client.settled();
+          }
+          const nodes = (readMind(client).child(0).toJSON().content ?? []) as {
+            text?: string;
+            marks?: { type: string }[];
+          }[];
+          const text = nodes.map((node) => node.text ?? "").join("");
+          const boldText = nodes
+            .filter((node) => node.marks?.some((mark) => mark.type === "bold"))
+            .map((node) => node.text ?? "")
+            .join("|");
+          if (!text.includes("*")) clean++;
+          if (summary.parts.every(([label]) => boldText.includes(label))) labelsBold++;
+          if (text.length > before) longer++;
+          report.push(
+            `- ${summary.language} run ${run}: ${result.kind}, bold: ${boldText} · ${text}`,
+          );
+          core.close();
+        }
+        report.push(
+          `  ${summary.language}: no asterisks ${clean}/${runs}, labels bold ${labelsBold}/${runs}, no label changed ${labelsUntouched}/${runs}, longer ${longer}/${runs}`,
+        );
+        checks.push(() => {
+          expect(clean).toBe(runs);
+          expect(labelsBold).toBe(runs);
+          expect(labelsUntouched).toBe(runs);
+          expect(longer).toBe(runs);
+        });
+      }
+      if (process.env.INCARNAMIND_LIVE_REPORT) {
+        await appendFile(process.env.INCARNAMIND_LIVE_REPORT, `${report.join("\n")}\n\n`);
+      }
+      for (const check of checks) check();
     },
   );
 });
