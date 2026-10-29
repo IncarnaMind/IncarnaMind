@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { expect, test } from "vitest";
 import { documentFigureContext } from "../../src/core/answers/calculations";
+import { CLASSIFY_ABSENCE } from "../../src/core/answers/checks/absence";
 import { createClaimCheck } from "../../src/core/answers/checks/claimCheck";
 import { figureReplyText, readFigureReply } from "../../src/core/answers/checks/figureChecks";
 import { createAiSdkAnswerEngine } from "../../src/core/answers/engine";
@@ -236,6 +237,7 @@ async function checkWith(options: {
     },
     {
       generate(call) {
+        if (call.system.startsWith(CLASSIFY_ABSENCE)) return { text: "no" };
         confirmations.push(call.prompt);
         return { text: options.judgement ?? "conflict" };
       },
