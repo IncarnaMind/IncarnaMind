@@ -6,6 +6,7 @@
 import type {
   ComparisonCellAttributes,
   ComparisonCellStatus,
+  ComparisonFillMode,
   ComparisonProblem,
   ComparisonQuestion,
   RunStop,
@@ -101,6 +102,8 @@ export function comparisonCellOf(attributes: Attributes): ComparisonCellAttribut
   return {
     questionId: text(attributes.questionId) ?? "",
     status,
+    edited: attributes.edited === true || attributes.edited === "true",
+    reviewed: attributes.reviewed === true || attributes.reviewed === "true",
     problem:
       status === "failed" ? ((text(attributes.problem) as ComparisonProblem) ?? "unknown") : null,
     message: text(attributes.message),
@@ -153,6 +156,67 @@ export function comparisonCountOf(problem: ComparisonProblem | null): "nothing" 
     default:
       return "failed";
   }
+}
+
+/** Whether a cell may be filled by this mode. A single explicit refill may override protection. */
+export function comparisonRefillable(
+  cell: Pick<ComparisonCellAttributes, "status" | "problem" | "edited" | "reviewed">,
+  mode: ComparisonFillMode,
+  single: boolean,
+): boolean {
+  const protectedCell = cell.edited === true || cell.reviewed === true;
+  if (mode === "fill") return cellToFill(cell) && !protectedCell;
+  if (cell.problem === "nothing-to-search" || cell.problem === "source-removed") return false;
+  if (mode === "refill-all") return true;
+  if (mode === "refill-problems") return cell.status === "failed" && !protectedCell;
+  return single || !protectedCell;
+}
+
+export type ComparisonProblemFilter = "not-found" | "failed";
+
+export function comparisonCellMatchesFilter(
+  cell: Pick<ComparisonCellAttributes, "status" | "problem">,
+  filter: ComparisonProblemFilter,
+): boolean {
+  if (cell.status !== "failed") return false;
+  return filter === "not-found" ? cell.problem === "not-found" : cell.problem !== "not-found";
+}
+
+/** A row matches when each active filter has at least one matching cell in it. */
+export function comparisonRowMatchesFilter(
+  cells: readonly Pick<ComparisonCellAttributes, "status" | "problem">[],
+  filters: readonly ComparisonProblemFilter[],
+): boolean {
+  return filters.every((filter) => cells.some((cell) => comparisonCellMatchesFilter(cell, filter)));
+}
+
+/** The title line's live counts, from the cells as they are now. */
+export function comparisonCellCounts(
+  cells: readonly Pick<
+    ComparisonCellAttributes,
+    "status" | "problem" | "resetsAt" | "edited" | "reviewed"
+  >[],
+): {
+  total: number;
+  settled: number;
+  toFill: number;
+  notFound: number;
+  failed: number;
+  stop: RunStop | null;
+} {
+  let settled = 0;
+  let toFill = 0;
+  let notFound = 0;
+  let failed = 0;
+  let stop: RunStop | null = null;
+  for (const cell of cells) {
+    if (cell.status === "done" || cell.status === "failed") settled++;
+    if (comparisonRefillable(cell, "fill", false)) toFill++;
+    if (cell.status === "failed" && cell.problem === "not-found") notFound++;
+    else if (cell.status === "failed") failed++;
+    stop ??= cellStop(cell);
+  }
+  return { total: cells.length, settled, toFill, notFound, failed, stop };
 }
 
 /**

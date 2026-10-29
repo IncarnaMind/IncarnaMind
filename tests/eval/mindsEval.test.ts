@@ -392,7 +392,7 @@ describe("The requests and their scoring", () => {
       judging: tokens,
       retries: 0,
       calls: [
-        "- edit_mind “Harbour plan”: proposed 3 changes, applied in the Mind at once, with Undo",
+        "- edit_mind “Harbour plan”: proposed 3 changes, applied in the Note at once, with Undo",
         "- edit_mind “Harbour budget”: proposed 1 change, waiting for the User",
       ],
       card: [{ mind: "Harbour plan", created: false, changed: 2, wrote: 0 }],

@@ -120,6 +120,8 @@ export const ComparisonCell = Node.create<ComparisonViews>({
     return {
       questionId: dataAttribute("question-id"),
       status: dataAttribute("status"),
+      edited: dataAttribute("edited"),
+      fillId: dataAttribute("fill-id"),
       problem: dataAttribute("problem"),
       message: dataAttribute("message"),
       resetsAt: dataAttribute("resets-at"),

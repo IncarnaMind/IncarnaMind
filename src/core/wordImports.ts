@@ -515,7 +515,7 @@ export function createWordImports(options: WordImportsOptions) {
           code: (error as NodeJS.ErrnoException).code ?? "unknown",
         });
         throw new Error(
-          "The Word file this Mind was imported from is missing from IncarnaMind's data folder.",
+          "The Word file this Note was imported from is missing from IncarnaMind's data folder.",
         );
       }
     },
