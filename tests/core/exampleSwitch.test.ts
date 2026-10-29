@@ -97,10 +97,12 @@ async function exampleOverFakes() {
     linkFolder: async (path) => {
       const id = randomUUID();
       folders.add(id);
-      documents.set(id, [
-        documentOf(id, "Northwind Retail · Q3 2026 results"),
-        documentOf(id, "Northwind Retail · Senior facilities agreement (excerpt)"),
-      ]);
+      // The names the ready Question cites, in the language just asked for.
+      const quotes = EXAMPLE_SETS.credit[language].ready?.quotes ?? [];
+      documents.set(
+        id,
+        quotes.map((quote) => documentOf(id, quote.document)),
+      );
       setImmediate(() => reports.push({ folder: id, shownFolder: shown?.linkedFolderId }));
       return {
         id,
