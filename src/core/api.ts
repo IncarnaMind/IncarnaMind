@@ -6564,9 +6564,11 @@ export interface AskInConversationInput {
   analyse?: boolean;
   /**
    * The commands of the asking window's list the assistant may run there, as ⌘K offers them now
-   * (#1421). None or null: only the core's own.
+   * (#1421). None or null, or no `clientId`: only the core's own.
    */
   commands?: OfferedCommand[] | null;
+  /** The asking window, which runs those commands: its id for as long as it is open. */
+  clientId?: string | null;
 }
 
 /** An Answer in a conversation, for regenerating or stopping it. */
@@ -6587,6 +6589,8 @@ export interface ConversationAnswerInput {
   model?: ChatModelChoice;
   /** Regenerating: the window's commands, as `AskInConversationInput.commands`. */
   commands?: OfferedCommand[] | null;
+  /** Regenerating: the asking window, as `AskInConversationInput.clientId`. */
+  clientId?: string | null;
 }
 
 /** What asking in a conversation (or regenerating an Answer there) did. */
@@ -8309,8 +8313,8 @@ export const COMMAND_AT_ONCE = 20;
  * save a Mind as a file in a folder other than the Output location; read a folder's files
  * (`files`, by name, nothing outside it) and add them to the Library; change things inside
  * IncarnaMind that need the User's say (`reason`); run a command of the window's that can't be
- * taken back ("final", #1421); or make a folder the Output location, where files are then saved
- * without asking ("output", #1421). `items` are the first of them, each by the name the User knew
+ * taken back ("final", #1421); start a recording or turn the microphone on ("listen"); or make a
+ * folder the Output location, where files are then saved without asking ("output", #1421). `items` are the first of them, each by the name the User knew
  * it by, with `renamed` when the Conversation's commands renamed it.
  */
 export type CommandAsk =
@@ -8336,6 +8340,7 @@ export type CommandAsk =
     }
   | { kind: "add"; folder: string; files: string[] }
   | { kind: "final"; command: CommandId; items: CommandItem[] }
+  | { kind: "listen"; command: CommandId }
   | {
       kind: "output";
       /** Absolute, links followed. */
@@ -8387,6 +8392,8 @@ export interface WindowCommandRequest {
   targets: { kind: CommandTarget; id: string }[];
   /** The Note the Question was asked from, which a command with no `targets` acts on; null: none. */
   mindId: string | null;
+  /** The window whose Question it is, which alone runs it. */
+  clientId: string;
 }
 
 /**
@@ -10958,10 +10965,15 @@ export interface CoreApi {
    */
   answerUserQuestion(requestId: string, answer: UserAnswer): Promise<void>;
   /**
-   * Says how a command the assistant asked the window to run went (#1421). Answering one no
-   * longer waiting (its Answer stopped) does nothing.
+   * Says how a command the assistant asked the window to run went (#1421). False: the core no
+   * longer waits for it (its Answer stopped, or it was too late), so it counts as not done.
    */
-  answerWindowCommand(requestId: string, result: WindowCommandResult): Promise<void>;
+  answerWindowCommand(requestId: string, result: WindowCommandResult): Promise<boolean>;
+  /**
+   * The window is gone, closed or reloaded (#1421): the commands it was asked to run and hasn't
+   * answered weren't done.
+   */
+  forgetCommandWindow(input: { clientId: string }): Promise<void>;
   /**
    * Answers an approval request. Answering one that's no longer waiting (decided
    * in another window, or its Answer stopped) does nothing. "always-allow" of a
@@ -11804,6 +11816,7 @@ const methods: Record<CoreApiMethod, true> = {
   listUserQuestions: true,
   answerUserQuestion: true,
   answerWindowCommand: true,
+  forgetCommandWindow: true,
   listSkills: true,
   previewSkillImport: true,
   importSkill: true,

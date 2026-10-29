@@ -5,7 +5,7 @@
  * alone runs nothing.
  */
 import type { CommandId, CommandTarget, OfferedCommand, Yours } from "../../../shared/commands";
-import type { CommandItem } from "../../api";
+import { type CommandItem, RECENTLY_DELETED_DAYS } from "../../api";
 import { InvalidInputError, NotFoundError, TranslatableError } from "../../errors";
 import type { Findable } from "./find";
 import { all } from "./find";
@@ -20,8 +20,11 @@ export const YOURS_SAID: Readonly<Record<Yours, string>> = {
     "What you may do without asking is the User's to change, never yours. It's in Settings › Privacy.",
   spending:
     "The monthly spending cap is the User's to change, never yours. It's in Settings › General.",
-  permanent:
-    "Deleting for good is the User's to do, never yours: it can't be undone. Recently deleted keeps what's deleted for 30 days.",
+  permanent: `Deleting for good is the User's to do, never yours: it can't be undone. Recently deleted keeps what's deleted for ${RECENTLY_DELETED_DAYS} days.`,
+  signOff:
+    "“Checked by me” is the User's own word that they checked a source, never yours to give. It's on each Citation's card.",
+  authorship:
+    "Marking text as the User's own is theirs to do, never yours. They select it and choose “Mark as mine”.",
 };
 
 /** A refusal: nothing runs, and the card under the reply says where the User changes it. */
@@ -34,6 +37,7 @@ export const yoursChecked = (command: CommandId, yours: Yours): CheckedCommand =
   changes: false,
   deletes: false,
   final: false,
+  listens: false,
   yours,
   run: async () => ({ done: { items: [], yours }, step: null, said: YOURS_SAID[yours] }),
 });
@@ -44,6 +48,8 @@ export interface WindowRun {
   toolCallId: string;
   /** The Note the Question was asked from. */
   mindId: string | null;
+  /** The window that asked, which alone runs it; null: none did. */
+  clientId: string | null;
 }
 
 function targetsOf(
@@ -82,9 +88,13 @@ export function windowChecked(
     changes: entry.on !== null,
     deletes: entry.deletes,
     final: entry.final,
+    listens: entry.listens,
     yours: null,
     async run(_asking, signal) {
-      if (!window) throw new InvalidInputError({ key: "error.commands.noWindow" });
+      const { clientId } = context;
+      if (!window || clientId === null) {
+        throw new InvalidInputError({ key: "error.commands.noWindow" });
+      }
       const result = await window(
         {
           answerId: context.answerId,
@@ -93,6 +103,7 @@ export function windowChecked(
           command: entry.id,
           targets: items.map(({ kind, id }) => ({ kind, id })),
           mindId: context.mindId,
+          clientId,
         },
         signal,
       );

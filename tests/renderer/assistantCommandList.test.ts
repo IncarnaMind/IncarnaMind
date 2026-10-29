@@ -86,6 +86,7 @@ const request = (command: Command) => {
     toolCallId: "call",
     run: "run",
     mindId: null,
+    clientId: "window",
     command: command.id,
     targets: kind && isTarget(kind) ? [{ kind, id: "one" }] : [],
   };
@@ -114,6 +115,7 @@ describe("The assistant's commands are the window's one list (#1421)", () => {
         on: command.appliesTo ? command.appliesTo.filter(isTarget) : null,
         deletes: command.destructive === true && command.reversible === true,
         final: command.reversible !== true,
+        listens: command.listens === true,
         yours: null,
       } as OfferedCommand);
       expect(entry?.label.trim(), command.id).not.toBe("");
@@ -174,6 +176,7 @@ describe("The assistant's commands are the window's one list (#1421)", () => {
         toolCallId: "call",
         run: "run",
         mindId: "note",
+        clientId: "window",
         command: "mind.check",
         targets: [],
       });
@@ -210,6 +213,7 @@ describe("The assistant's commands are the window's one list (#1421)", () => {
         toolCallId: "call",
         run: "run",
         mindId: null,
+        clientId: "window",
         command: "test.addedLater",
         targets: [{ kind: "document", id: "one" }],
       });
@@ -246,6 +250,80 @@ describe("The assistant's commands are the window's one list (#1421)", () => {
         const { result } = await window.runForAssistant(request(command));
         expect(result.ran, command.id).toBe(false);
       }
+    }
+  });
+
+  // protects=what is the User's own word ("Checked by me", "Mark as mine") is the User's alone by name; tabs, how the User arranges the window, and the file pickers, which wait for the User's choice, are not the assistant's; starting a recording or turning the microphone on asks first; fails_when=one of them is offered as runnable, or a recording command runs unasked; no_claim=what each command does.
+  test("sign-offs and Mark as mine are the User's; tabs and pickers are left out; recording asks", () => {
+    offerEverything();
+    const offered = new Map(window.offeredCommands(null).map((entry) => [entry.id, entry]));
+    for (const id of [
+      "citation.signOff",
+      "citation.signOffRemove",
+      "figure.signOff",
+      "figure.signOffRemove",
+      "figures.signOffChosen",
+      "comparison.column.reviewed",
+      "comparison.cell.reviewed",
+    ])
+      expect(offered.get(id as OfferedCommand["id"])?.yours, id).toBe("signOff");
+    expect(offered.get("edit.markAsMine")?.yours).toBe("authorship");
+    const tabs = registry.commands
+      .all()
+      .filter((command) => /^(?:tab|group)\./.test(command.id))
+      .map((command) => command.id);
+    expect(tabs.length).toBeGreaterThan(10);
+    for (const id of [
+      ...tabs,
+      "documents.add",
+      "documents.addFilesOrFolder",
+      "linkedFolder.add",
+      "word.import",
+      "verify.document",
+      "references.import",
+    ])
+      expect(offered.has(id as OfferedCommand["id"]), id).toBe(false);
+    for (const id of ["meeting.record", "memo.record", "meeting.pauseResume", "meeting.microphone"])
+      expect(offered.get(id as OfferedCommand["id"])?.listens, id).toBe(true);
+    expect(offered.get("meeting.stop")?.listens).toBe(false);
+    expect(offered.get("mind.openBeside")?.yours).toBeNull();
+  });
+
+  // protects=what the core asks before running a window command comes from the real list's marks: every one that can turn recording on, can't be taken back or deletes asks, and the rest of what acts on the window runs at once; fails_when=a mark is lost between the list and the core's policy; no_claim=the card's words.
+  test("the core asks first from the real list's own marks", async () => {
+    offerEverything();
+    const { parseOfferedCommands } = await import("../../src/core/tools/commands/offered");
+    const { windowChecked } = await import("../../src/core/tools/commands/window");
+    const { askOf } = await import("../../src/core/tools/commands/policy");
+    const findable = {
+      documents: [],
+      minds: [],
+      library: { groups: [], assignments: [] },
+      tags: [],
+      deleted: [],
+    };
+    const context = { answerId: "a", runId: "r", toolCallId: "c", mindId: null, clientId: "w" };
+    const asks = new Map<string, string | null>();
+    for (const entry of parseOfferedCommands(window.offeredCommands(null))) {
+      if (entry.on !== null) continue;
+      const checked = windowChecked(entry, [], findable, context, undefined);
+      asks.set(entry.id, askOf(checked, { changed: 0, renames: [] })?.kind ?? null);
+    }
+    expect(asks.get("meeting.record")).toBe("listen");
+    expect(asks.get("memo.record")).toBe("listen");
+    expect(asks.get("meeting.stop")).toBe("final");
+    expect(asks.get("mind.check")).toBeNull();
+    for (const command of registry.commands.all()) {
+      const ask = asks.get(command.id);
+      if (ask === undefined || command.assistant) continue;
+      const expected = command.listens
+        ? "listen"
+        : command.reversible !== true
+          ? "final"
+          : command.destructive
+            ? "change"
+            : null;
+      expect(ask, command.id).toBe(expected);
     }
   });
 

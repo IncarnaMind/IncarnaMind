@@ -14,9 +14,10 @@
  * the side; "Check this Note" (核对这篇笔记) checks the Note in front; "Bring back the X I deleted"
  * (把删掉的“X”恢复) restores what it found in Recently deleted; "Put the documents about
  * rent together" (把关于租金的文档放在一起) has Organize sort every Document in no Folder toward
- * "Rent"; and "Turn on Local mode" (打开本地模式) asks for what is the User's alone. Each then
+ * "Rent"; "Start recording a meeting" (开始录制会议) starts one; and "Turn on Local mode"
+ * (打开本地模式) asks for what is the User's alone. Each then
  * replies with the first sentence of what its calls returned, or nothing after one whose card is
- * the reply.
+ * the reply: a window's command it marked done, or what is the User's alone.
  */
 import { lastResult, type Prompt, type Reply, toolResults } from "./prompt";
 
@@ -74,6 +75,7 @@ const CHECK = /\bcheck this (?:mind|note)\b|核对这篇笔记/i;
 const ORGANIZE_ABOUT = /\bput the documents about (.+?) together\b|把关于(.+?)的文档放在一起/i;
 const LOCAL_MODE = /\bturn on local mode\b|打开本地模式/i;
 const RESTORE = /\bbring back the (.+?) i deleted\b|把删掉的“(.+?)”恢复/i;
+const RECORD = /\bstart recording a meeting\b|开始录制会议/i;
 
 function runOnce(prompt: Prompt, input: Record<string, unknown>): Reply {
   if (lastResult(prompt, "run_command") !== undefined) return said(prompt);
@@ -162,10 +164,10 @@ export function commandsReply(
   const beside = BESIDE.exec(question);
   if (beside) {
     return findThen(prompt, { kind: "document", name: beside[1] ?? beside[2] ?? "" }, (found) =>
-      found[0] ? { command: "document.openBeside", ids: [found[0].id] } : null,
+      found[0] ? { command: "document.openBeside", ids: [found[0].id], done: true } : null,
     );
   }
-  if (CHECK.test(question)) return runOnce(prompt, { command: "mind.check" });
+  if (CHECK.test(question)) return runOnce(prompt, { command: "mind.check", done: true });
   const about = ORGANIZE_ABOUT.exec(question);
   if (about) {
     const topic = (about[1] ?? about[2] ?? "").trim();
@@ -182,8 +184,14 @@ export function commandsReply(
       ids: found.map((each) => each.id),
     }));
   }
+  if (RECORD.test(question)) return runOnce(prompt, { command: "meeting.record" });
   if (LOCAL_MODE.test(question)) {
-    return runOnce(prompt, { command: "settings.change", setting: "localMode", value: "on" });
+    // The card under the reply says where the User changes it: there is nothing to add.
+    if (lastResult(prompt, "run_command") !== undefined) return { text: "" };
+    return {
+      tool: "run_command",
+      input: { command: "settings.change", setting: "localMode", value: "on" },
+    };
   }
   const add = ADD.exec(question);
   if (add) {

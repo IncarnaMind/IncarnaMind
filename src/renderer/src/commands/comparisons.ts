@@ -486,6 +486,7 @@ export const comparisonCommands: readonly Command[] = [
   {
     id: "comparison.column.reviewed",
     label: "comparison.column.reviewed",
+    assistant: { never: "signOff" },
     checked: (ctx) => {
       const here = columnHere(ctx);
       const cells = here
@@ -564,6 +565,7 @@ export const comparisonCommands: readonly Command[] = [
   {
     id: "comparison.cell.reviewed",
     label: "comparison.cell.markReviewed",
+    assistant: { never: "signOff" },
     checked: (ctx) => {
       const handle = cellHere(ctx);
       const selected = handle ? comparisonCellsSelected(handle) : [];

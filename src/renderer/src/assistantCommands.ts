@@ -15,6 +15,7 @@ import type {
   WindowCommandRequest,
 } from "../../core/api";
 import { runForAssistant } from "./assistantWindow";
+import { clientId } from "./clientId";
 import { runText, undoable } from "./commandFacts";
 import { core } from "./core";
 import type { Words } from "./lineNames";
@@ -47,10 +48,8 @@ interface Step {
 
 const steps = new Map<string, Step>();
 const askedHere = new Set<string>();
-// A command can finish, or be asked to run here, before the window hears that its Question was
-// asked here.
+// A command can finish before the window hears that its Question was asked here.
 const early = new Map<string, AnswerToolCall[]>();
-const earlyRuns = new Map<string, WindowCommandRequest[]>();
 const EARLY_KEPT = 20;
 /** What the window's commands changed, by call, until the call's result lands. */
 const windowChanges = new Map<string, Undoable>();
@@ -124,8 +123,6 @@ function stepOf(run: string, done: readonly CommandDone[], parts: readonly Part[
 /** An Answer this window asks for, or asks for again: the commands it runs can be undone here. */
 export function watchCommands(answerId: string): void {
   askedHere.add(answerId);
-  for (const request of earlyRuns.get(answerId) ?? []) void runHere(request);
-  earlyRuns.delete(answerId);
   for (const call of early.get(answerId) ?? []) landed(call);
   early.delete(answerId);
 }
@@ -179,7 +176,10 @@ async function runHere(request: WindowCommandRequest): Promise<void> {
   const { result, change } = await runForAssistant(request);
   if (change) windowChanges.set(request.toolCallId, change);
   try {
-    await core.answerWindowCommand(request.requestId, result);
+    if (await core.answerWindowCommand(request.requestId, result)) return;
+    // Too late: the Answer says it wasn't done, so it isn't.
+    windowChanges.delete(request.toolCallId);
+    await change?.undo();
   } catch (error) {
     windowChanges.delete(request.toolCallId);
     useAppStore.getState().reportError(error);
@@ -187,12 +187,7 @@ async function runHere(request: WindowCommandRequest): Promise<void> {
 }
 
 core.on("command.windowRun", (request) => {
-  if (askedHere.has(request.answerId)) {
-    void runHere(request);
-    return;
-  }
-  earlyRuns.set(request.answerId, [...(earlyRuns.get(request.answerId) ?? []), request]);
-  for (const answer of [...earlyRuns.keys()].slice(0, -EARLY_KEPT)) earlyRuns.delete(answer);
+  if (request.clientId === clientId) void runHere(request);
 });
 
 core.on("answer.toolCallFinished", ({ answerId, call }) => {
@@ -209,5 +204,4 @@ core.on("answer.toolCallFinished", ({ answerId, call }) => {
 core.on("conversation.message", (message) => {
   if (message.kind !== "answer" || message.status === "streaming") return;
   askedHere.delete(message.id);
-  earlyRuns.delete(message.id);
 });

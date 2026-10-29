@@ -50,16 +50,25 @@ export type CommandTarget = (typeof COMMAND_TARGETS)[number];
 /**
  * What only the User changes, never the assistant (#1421), each said with where they change it:
  * keys and sign-ins; consent, Local mode and Privacy, and what leaves the computer; the
- * assistant's own approval rules; the monthly spending cap; and deleting for good (ADR-0013).
+ * assistant's own approval rules; the monthly spending cap; deleting for good (ADR-0013); and
+ * what is the User's own word: "Checked by me" and marking text as theirs.
  */
-export const YOURS = ["keys", "privacy", "approvals", "spending", "permanent"] as const;
+export const YOURS = [
+  "keys",
+  "privacy",
+  "approvals",
+  "spending",
+  "permanent",
+  "signOff",
+  "authorship",
+] as const;
 export type Yours = (typeof YOURS)[number];
 
 /**
  * A command of the window's list, as the assistant is offered it (#1421): its name in English,
  * for the model, and what the window knows of it. `on` null: it acts on the window in front.
- * `deletes`: it sends things to Recently deleted; `final`: it can't be taken back; `yours`: it is
- * the User's alone.
+ * `deletes`: it sends things to Recently deleted; `final`: it can't be taken back; `listens`: it
+ * can turn on the microphone or the computer's sound; `yours`: it is the User's alone.
  */
 export interface OfferedCommand {
   id: CommandId;
@@ -68,5 +77,6 @@ export interface OfferedCommand {
   on: CommandTarget[] | null;
   deletes: boolean;
   final: boolean;
+  listens: boolean;
   yours: Yours | null;
 }

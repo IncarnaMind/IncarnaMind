@@ -159,6 +159,8 @@ export interface CheckedCommand {
   deletes: boolean;
   /** It can't be taken back. */
   final: boolean;
+  /** It can turn on the microphone or the computer's sound: it asks first, whoever asked for it. */
+  listens: boolean;
   /** Never the assistant's (#1421): it runs nothing, and the User is told where they change it. */
   yours: Yours | null;
   run(asking: CommandAsking, signal: AbortSignal): Promise<Ran>;
@@ -303,7 +305,13 @@ export const mindItem = (mind: Mind, renamed?: Mind): CommandItem => ({
 export type Checker = (input: CommandInput, host: CommandsHost) => Promise<CheckedCommand>;
 
 /** What a command that reaches outside the Library changes in it: nothing its limit counts. */
-const OUTSIDE_IT = { changes: false, deletes: false, final: false, yours: null } as const;
+const OUTSIDE_IT = {
+  changes: false,
+  deletes: false,
+  final: false,
+  listens: false,
+  yours: null,
+} as const;
 
 /** A change inside IncarnaMind that Undo takes back: it asks only past the Answer's limit. */
 export const inApp = (
@@ -320,6 +328,7 @@ export const inApp = (
   changes: true,
   deletes: false,
   final: false,
+  listens: false,
   yours: null,
   run,
 });

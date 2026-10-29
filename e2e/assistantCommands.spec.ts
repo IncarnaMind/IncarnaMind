@@ -392,6 +392,32 @@ test("open a Document beside this one splits to the right and says so in one lin
   await app.close();
 });
 
+test("starting a recording waits for Allow, whoever asked, and Don't allow records nothing", async () => {
+  const { app, window } = await launchApp(dataDir, { fakeChat: true });
+  await dismissChatSetup(window);
+  await useLocalChatModel(window);
+  await setUp(app, window);
+
+  const card = await askAndWait(window, "Start recording a meeting");
+  await expect(card).toHaveAttribute("data-ask", "listen");
+  await expect(card).toContainText("Run “Record a meeting”?");
+  await expect(card).toContainText("It starts or changes a recording, so it waits for you.");
+  await expect(card.getByTestId("approval-always-allow")).toHaveCount(0);
+  await screenshot(window, "commands-record-asks-en");
+  await pointAndClick(window, card.getByTestId("approval-deny"));
+  const answer = assistantAnswers(window).last();
+  await expect(answer).toHaveAttribute("data-status", "done", { timeout: 15_000 });
+  await expect(answer.getByTestId("command-changes-unrun")).toHaveText(
+    "Not allowed, so nothing changed",
+  );
+  const meetings = await window.evaluate(async () => {
+    const core = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
+    return (await core.listMeetings()).length;
+  });
+  expect(meetings).toBe(0);
+  await app.close();
+});
+
 test("Check this Note runs the check as ⌘K does, and the reply says Done", async () => {
   const { app, window } = await launchApp(dataDir, { fakeChat: true });
   await dismissChatSetup(window);

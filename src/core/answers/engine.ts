@@ -1613,7 +1613,7 @@ async function* toolLoop(
         counted: (count) => results.set(context.toolCallId, count),
         readThirdParty,
       });
-      if (tool.endsTurn?.(result)) endedTurn.add(context.toolCallId);
+      if (tool.endsTurn?.(result, input)) endedTurn.add(context.toolCallId);
       // A search that found nothing (no Passages, no works) read nothing untrusted.
       const read = results.has(context.toolCallId)
         ? (results.get(context.toolCallId) ?? 0) > 0

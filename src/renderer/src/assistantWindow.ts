@@ -61,6 +61,7 @@ function entryOf(command: Command, front: CommandContext): OfferedCommand | null
     on,
     deletes: command.destructive === true && command.reversible === true,
     final: command.reversible !== true,
+    listens: command.listens === true,
     yours,
   };
 }

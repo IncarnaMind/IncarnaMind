@@ -68,7 +68,7 @@ const nouns: Record<CommandTarget, [string, string]> = {
 
 /** What only the User changes (#1421), as the model is told how to ask for it. */
 const YOURS_RULE =
-  "Never yours to change: keys and sign-ins, consent, Local mode, Privacy and what leaves the computer, what you may do without asking, the monthly spending cap, and deleting for good. For a request for one, call run_command with settings.change and that setting (localMode, consent, privacy, webSearch, apiKey, signIn, approvals, monthlyCap, …), or with the window's own command for it: nothing runs, and the User is shown where they change it.";
+  "Never yours to change: keys and sign-ins, consent, Local mode, Privacy and what leaves the computer, what you may do without asking, the monthly spending cap, deleting for good, giving “Checked by me”, and marking text as the User's own. For a request for one, call run_command with settings.change and that setting (localMode, consent, privacy, webSearch, apiKey, signIn, approvals, monthlyCap, …), or with the window's own command for it: nothing runs, and the User is shown where they change it.";
 
 export interface CommandToolsOptions {
   host: CommandsHost;
@@ -87,6 +87,8 @@ export interface CommandToolsOptions {
   steps: CommandSteps;
   /** The asking window's commands, as it offered them (#1421); empty: only the core's own. */
   offered: readonly OfferedCommand[];
+  /** The asking window, which alone runs its commands; null: none asked, so none run. */
+  clientId: string | null;
   /** Asks the User in the tray for a command that needs an answer to go on; none: it can't ask. */
   ask?: (toolCallId: string, question: UserQuestion, signal: AbortSignal) => Promise<UserAnswer>;
   found(toolCallId: string, found: CommandsFound): void;
@@ -131,7 +133,7 @@ export function commandTools(options: CommandToolsOptions): {
   const counted = new Map<string, number>();
   const renames = [...options.renames];
   let readTitles = options.namesWebPage;
-  /** What the model read of the calls that end the turn: those of the window's, and the User's own. */
+  /** What the model read of the window's commands that ran: marked `done`, one ends the turn. */
   const oneLine = new Set<string>();
   // A model calls several at once: two that would each make the same Tag or Folder must not race.
   let turn: Promise<unknown> = Promise.resolve();
@@ -147,7 +149,7 @@ export function commandTools(options: CommandToolsOptions): {
 
   const listTool: Tool = {
     name: COMMAND_TOOLS.list,
-    description: `Finds the User's Documents, Notes, Folders or Tags, or what is in Recently deleted (kind "deleted"), for a command, and the commands that apply to them. It matches exactly: a name that holds the words given, a Tag, a Folder (all that are given), never by meaning. Act only on what it found, by id, with ${COMMAND_TOOLS.run}. With kind "window", it lists the commands that act on the window in front instead: opening, splitting and closing tabs, Settings at a page, recording, checking the Note in front, exporting and the rest of what ⌘K offers.`,
+    description: `Finds the User's Documents, Notes, Folders or Tags, or what is in Recently deleted (kind "deleted"), for a command, and the commands that apply to them. It matches exactly: a name that holds the words given, a Tag, a Folder (all that are given), never by meaning. Act only on what it found, by id, with ${COMMAND_TOOLS.run}. With kind "window", it lists the commands that act on the window in front instead: opening things, beside the Note too, Settings at a page, recording, checking the Note in front, exporting and the rest of what ⌘K offers.`,
     inputSchema: {
       type: "object",
       properties: {
@@ -207,9 +209,9 @@ export function commandTools(options: CommandToolsOptions): {
     description: [
       `Runs one of the app's commands for the User, as ⌘K would, on what ${COMMAND_TOOLS.list} found, by id. For Documents: ${coreCommandsOn("document").map(coreLine).join("; ")}. For Notes: ${coreCommandsOn("mind").map(coreLine).join("; ")}. For Folders: ${coreCommandsOn("folder").map(coreLine).join("; ")}. For Tags: ${coreCommandsOn("tag").map(coreLine).join("; ")}. For what is in Recently deleted: ${coreCommandsOn("deleted").map(coreLine).join("; ")}. For the Library: ${coreCommandsOn("library").map(coreLine).join("; ")}. Settings: ${coreLine("settings.change")}.`,
       `${COMMAND_TOOLS.list} gives the other commands that apply to what it found, and with kind "window" those that act on the window in front; run any of them by its id the same way.`,
-      `A change inside IncarnaMind runs at once and the User can undo it. These wait for the User to allow them: a file saved anywhere but the Output location itself, files added from a folder, a new Output location, every delete, a command that can't be undone, and a change that would take this answer past ${COMMAND_AT_ONCE} things changed.`,
+      `A change inside IncarnaMind runs at once and the User can undo it. These wait for the User to allow them: a file saved anywhere but the Output location itself, files added from a folder, a new Output location, every delete, a command that can't be undone, starting a recording or turning the microphone on, and a change that would take this answer past ${COMMAND_AT_ONCE} things changed.`,
       YOURS_RULE,
-      "Say only what each call returned.",
+      "Set done on the call that does the last thing the request asks for; leave it out while more is to do. After a window's command with done, no reply is needed: what it shows is the reply. Otherwise say only what each call returned.",
     ].join(" "),
     inputSchema: {
       type: "object",
@@ -236,6 +238,11 @@ export function commandTools(options: CommandToolsOptions): {
         size: { type: "string" },
         setting: { type: "string", enum: SETTING_NAMES },
         value: { type: "string" },
+        done: {
+          type: "boolean",
+          description:
+            "true on the call that does the last thing the User's request asks for; left out while more is to do.",
+        },
       },
       required: ["command"],
       additionalProperties: false,
@@ -244,7 +251,9 @@ export function commandTools(options: CommandToolsOptions): {
     providerTool: COMMAND_TOOLS.run,
     effects: commandEffects,
     untrustedResult: false,
-    endsTurn: (result) => oneLine.has(result),
+    // Only a window's command the model marked as the request's last ends the turn: a refusal
+    // never does, so a request that asked for more goes on to it.
+    endsTurn: (result, input) => input.done === true && oneLine.has(result),
     async call(_input, { toolCallId, signal }) {
       const command = checked.get(toolCallId);
       checked.delete(toolCallId);
@@ -265,7 +274,7 @@ export function commandTools(options: CommandToolsOptions): {
       renames.push(...renamesOf(ran.done.items));
       if (ran.step) options.steps.add(options.runId, ran.step);
       options.ran(toolCallId, { ...ran.done, command: command.command, run: options.runId });
-      if (command.yours || ran.done.window) oneLine.add(ran.said);
+      if (ran.done.window) oneLine.add(ran.said);
       return ran.said;
     },
   };
@@ -281,6 +290,7 @@ export function commandTools(options: CommandToolsOptions): {
           runId: options.runId,
           toolCallId,
           mindId: options.focusedMindId,
+          clientId: options.clientId,
         });
         const ask = askOf(command, { changed, renames });
         checked.set(toolCallId, command);

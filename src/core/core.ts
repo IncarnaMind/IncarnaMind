@@ -4755,6 +4755,8 @@ export function createCore(adapters: CoreAdapters): Core {
     listUserQuestions: async () => questions.list(),
     answerUserQuestion: async (requestId, answer) => questions.answer(requestId, answer),
     answerWindowCommand: async (requestId, result) => windowCommands.answer(requestId, result),
+    forgetCommandWindow: async (input) =>
+      windowCommands.forget(isRecord(input) ? input.clientId : undefined),
     respondToApproval: async (requestId, decision, options) =>
       approvals.respond(requestId, decision, options),
 

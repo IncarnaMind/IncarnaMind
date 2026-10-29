@@ -56,13 +56,18 @@ const RUNNING: Readonly<Partial<Record<CommandId, MessageKey>>> = {
   "deleted.restore": "commands.running.restore",
 };
 
-/** Where each of what only the User changes is, and the button that opens it. */
-export const YOURS_WORDS: Readonly<Record<Yours, { said: MessageKey; open: MessageKey }>> = {
+/**
+ * Where each of what only the User changes is, and the button that opens it; none for what is
+ * done on each thing itself, where the line says it is.
+ */
+export const YOURS_WORDS: Readonly<Record<Yours, { said: MessageKey; open: MessageKey | null }>> = {
   keys: { said: "commands.yours.keys", open: "commands.yours.openModels" },
   privacy: { said: "commands.yours.privacy", open: "commands.yours.openPrivacy" },
   approvals: { said: "commands.yours.approvals", open: "commands.yours.openPrivacy" },
   spending: { said: "commands.yours.spending", open: "commands.yours.openGeneral" },
   permanent: { said: "commands.yours.permanent", open: "commands.yours.openDeleted" },
+  signOff: { said: "commands.yours.signOff", open: null },
+  authorship: { said: "commands.yours.authorship", open: null },
 };
 
 /** A setting's name as Settings shows it, by the name the assistant's command gives it. */
@@ -288,6 +293,9 @@ export function commandCallText(t: Translate, call: AnswerToolCall): string {
   if (call.status === "failed") {
     const problem = call.commandProblem;
     if (!problem) return t("commands.notRun");
+    if (problem.wording?.key === "commands.window.unanswered" && isCommandId(problem.command)) {
+      return t(problem.wording.key, { command: windowLabel(t, problem.command) });
+    }
     const reason = problem.wording
       ? t(problem.wording.key, problem.wording.values)
       : problem.message;

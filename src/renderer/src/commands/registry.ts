@@ -126,10 +126,13 @@ export interface Command {
   /**
    * Whether the assistant may run it (#1421). Left out, it may, as ⌘K runs it, on what it acts on
    * (`appliesTo`): it asks first when it deletes (`destructive`) or can't be taken back
-   * (`reversible`). `false`: it acts on the assistant itself or on where the keyboard is, which
-   * an Answer can't. `{ never }`: it is the User's alone; the assistant says where they change it.
+   * (`reversible`). `false`: it acts on the assistant itself, on where the keyboard is or on how
+   * the User arranges their tabs, which an Answer can't, or it waits for the User's choice in a
+   * file picker. `{ never }`: it is the User's alone; the assistant says where they change it.
    */
   assistant?: false | { never: Yours };
+  /** It can turn on the microphone or the computer's sound: the assistant asks first (#1421). */
+  listens?: true;
   run(ctx: CommandContext): void | Undoable | Promise<Undoable | void>;
 }
 

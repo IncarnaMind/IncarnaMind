@@ -100,6 +100,13 @@ function wordsOf(
         path: null,
         names: ask.items.map((item) => itemLine(t, item)),
       };
+    case "listen":
+      return {
+        title: t("commands.ask.final.title", { command: labelIn(t, ask.command) }),
+        why: t("commands.ask.listen.text"),
+        path: null,
+        names: [],
+      };
     case "output":
       return {
         title: t("commands.ask.output.title", { folder: folderName(ask.folder) }),

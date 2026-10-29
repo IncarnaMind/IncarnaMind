@@ -205,28 +205,30 @@ function openYours(what: Yours): void {
 
 /**
  * A request for what only the User changes (#1421): one line saying it is theirs and where it
- * is, with the one button that opens that page. Nothing changed.
+ * is, with the one button that opens that page when it is a page. Nothing changed.
  */
 function YoursLine({ what }: { what: Yours }) {
   const t = useT();
-  const words = YOURS_WORDS[what];
+  const { said, open } = YOURS_WORDS[what];
   return (
     <div data-testid="command-yours" data-yours={what} className="mind-changes-head">
       <ShieldLineIcon aria-hidden="true" className="mind-changes-icon" />
       <p className="mind-changes-line">
-        <span className="mind-changes-title">{t(words.said)}</span>
-        {/* The dot goes with its button when the line wraps. */}
-        <span className="whitespace-nowrap">
-          <Dot />
-          <button
-            type="button"
-            data-testid="command-yours-open"
-            onClick={() => openYours(what)}
-            className="mind-changes-review"
-          >
-            {t(words.open)}
-          </button>
-        </span>
+        <span className="mind-changes-title">{t(said)}</span>
+        {open !== null && (
+          // The dot goes with its button when the line wraps.
+          <span className="whitespace-nowrap">
+            <Dot />
+            <button
+              type="button"
+              data-testid="command-yours-open"
+              onClick={() => openYours(what)}
+              className="mind-changes-review"
+            >
+              {t(open)}
+            </button>
+          </span>
+        )}
       </p>
     </div>
   );

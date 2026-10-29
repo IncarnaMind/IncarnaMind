@@ -42,8 +42,25 @@ function entryOf(value: unknown): OfferedCommand | null {
     on,
     deletes: value.deletes === true,
     final: value.final === true,
+    listens: value.listens === true,
     yours: isYours(value.yours) ? value.yours : null,
   };
+}
+
+/** The window a Question was asked in, by its `clientId`, and the commands it offers. */
+export interface CommandWindow {
+  clientId: string;
+  offered: OfferedCommand[];
+}
+
+/** A Question's window and its commands; null when it names no window, which then runs none. */
+export function parseCommandWindow(clientId: unknown, commands: unknown): CommandWindow | null {
+  const offered = parseOfferedCommands(commands);
+  if (clientId === undefined || clientId === null) return null;
+  if (typeof clientId !== "string" || clientId.trim() === "") {
+    throw new InvalidInputError({ key: "error.commands.offered" });
+  }
+  return { clientId, offered };
 }
 
 /** The commands a Question's window offers, each once; none or null: none. */

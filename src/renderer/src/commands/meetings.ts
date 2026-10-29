@@ -96,6 +96,7 @@ const whileAudioKept = (ctx: CommandContext) => {
 export const meetingCommands: readonly Command[] = [
   {
     id: "meeting.record",
+    listens: true,
     label: "meetings.record",
     keywords: ["meetings.record.keywords"],
     group: "main",
@@ -105,6 +106,7 @@ export const meetingCommands: readonly Command[] = [
   },
   {
     id: "memo.record",
+    listens: true,
     label: "memos.record",
     keywords: ["memos.record.keywords"],
     group: "main",
@@ -114,6 +116,7 @@ export const meetingCommands: readonly Command[] = [
   },
   {
     id: "meeting.pauseResume",
+    listens: true,
     label: (_ctx, t) =>
       t(liveMeeting()?.status === "paused" ? "meetings.command.resume" : "meetings.command.pause"),
     shortcut: { keys: "CmdOrCtrl+Shift+P" },
@@ -131,6 +134,7 @@ export const meetingCommands: readonly Command[] = [
   },
   {
     id: "meeting.microphone",
+    listens: true,
     label: (_ctx, t) =>
       t(liveMeeting()?.microphonePausedAtMs != null ? "meetings.mic.resume" : "meetings.mic.pause"),
     group: "main",

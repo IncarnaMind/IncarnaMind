@@ -4423,11 +4423,16 @@ export const en = {
     "The monthly spending cap is yours to change, not mine. It’s in Settings › General.",
   "commands.yours.permanent":
     "Deleting for good is yours to do, not mine. It’s in Recently deleted.",
+  "commands.yours.signOff":
+    "“Checked by me” is yours to give, not mine. It’s on each Citation’s card.",
+  "commands.yours.authorship":
+    "Only you can mark text as yours. Select it and choose “Mark as mine”.",
   "commands.yours.openModels": "Open Models",
   "commands.yours.openPrivacy": "Open Privacy",
   "commands.yours.openGeneral": "Open General",
   "commands.yours.openDeleted": "Open Recently deleted",
   "commands.window.notOffered": "“{command}” doesn’t apply here now",
+  "commands.window.unanswered": "The window didn’t answer: “{command}” wasn’t done.",
   "commands.organize.reading": "Reading what they say…",
   "commands.organize.waiting": "{count} wait in To review for “{folder}”",
   "commands.organize.waiting.one": "1 waits in To review for “{folder}”",
@@ -4436,6 +4441,7 @@ export const en = {
   "commands.organize.none": "Organize suggested none of them for “{folder}”",
   "commands.ask.final.title": "Run “{command}”?",
   "commands.ask.final.text": "It can’t be taken back with Undo.",
+  "commands.ask.listen.text": "It starts or changes a recording, so it waits for you.",
   "commands.ask.output.title": "Save new files in “{folder}”?",
   "commands.ask.output.text":
     "It becomes your Output location, where the assistant saves files without asking.",

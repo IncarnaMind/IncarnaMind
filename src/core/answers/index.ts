@@ -116,7 +116,6 @@ import {
   type MindChange,
   type MindFocus,
   type MindProblem,
-  type OfferedCommand,
   type ProviderError,
   QUESTION_BLOCK,
   type QuoteRetry,
@@ -173,6 +172,7 @@ import {
 } from "../tools";
 import { askTool } from "../tools/asks";
 import type { Findable } from "../tools/commands/find";
+import type { CommandWindow } from "../tools/commands/offered";
 import { type CommandRename, renamesIn } from "../tools/commands/policy";
 import type { CommandsHost } from "../tools/commands/run";
 import type { CommandSteps } from "../tools/commands/steps";
@@ -416,7 +416,7 @@ export interface AnswerConversations {
     question: ConversationQuestion;
     toolCalls: AnswerToolCall[];
     onScreen: string[];
-    commands: OfferedCommand[];
+    commands: CommandWindow | null;
     /** The model the caller chose to write it with instead of the Question's own (#1848). */
     model: ChatModelChoice | null;
   };
@@ -1010,8 +1010,8 @@ export function createAnswers(options: AnswersOptions) {
     > & {
       /** What the commands of the Conversation's earlier Answers renamed, oldest first. */
       renames: readonly CommandRename[];
-      /** The asking window's commands, which it runs for the Answer (#1421). */
-      commands?: readonly OfferedCommand[];
+      /** The asking window and its commands, which it runs for the Answer (#1421). */
+      commands?: CommandWindow | null;
       /** The calls of the Conversation's earlier Answers, oldest first: a follow-up may be answered from their searches (#1796). */
       earlierCalls?: readonly AnswerToolCall[];
     };
@@ -2329,7 +2329,8 @@ export function createAnswers(options: AnswersOptions) {
               renames: input.assistant.renames,
               answerId,
               runId: randomUUID(),
-              offered: input.assistant.commands ?? [],
+              offered: input.assistant.commands?.offered ?? [],
+              clientId: input.assistant.commands?.clientId ?? null,
               steps: commands.steps,
               ...(askInTray && { ask: askInTray }),
               found: (toolCallId, found) => commandsFound.set(toolCallId, found),
@@ -3135,7 +3136,7 @@ export function createAnswers(options: AnswersOptions) {
     mind: MindToRead | null,
     onScreen: readonly string[],
     { quoted, leftOut }: { quoted: Quoted[]; leftOut: AskedQuote[] },
-    commands: readonly OfferedCommand[],
+    commands: CommandWindow | null,
     remake: string | null = null,
   ): ConversationAskResult {
     const { conversation, question, answer } = turn;

@@ -668,6 +668,7 @@ export const citationCommands: readonly Command[] = [
     (action): Command => ({
       id: `citation.${action}`,
       label: "signOff.action",
+      assistant: { never: "signOff" },
       keywords: ["signOff.keywords"],
       group: "edit",
       reversible: true,

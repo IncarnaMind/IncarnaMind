@@ -7,6 +7,8 @@
  * - a file saved anywhere else, a folder's files read, and a new Output location;
  * - every delete, whatever the Answer read: a web page's title or a Document's text could ask for it;
  * - a command of the window's that can't be taken back;
+ * - one that can turn on the microphone or the computer's sound, whoever asked for it: a
+ *   Document's text could;
  * - a change that would take the Answer's changes past `COMMAND_AT_ONCE`.
  * One that is the User's alone never asks: it runs nothing.
  */
@@ -57,6 +59,7 @@ export function askOf(checked: CheckedCommand, context: CommandContext): Command
   if (checked.outside) return checked.outside;
   const items = () =>
     checked.items.slice(0, NAMES_SHOWN).map((item) => asKnown(item, context.renames));
+  if (checked.listens) return { kind: "listen", command };
   if (checked.final) return { kind: "final", command, items: items() };
   const reason = checked.deletes
     ? "delete"

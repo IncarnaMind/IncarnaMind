@@ -138,6 +138,8 @@ const appCommands: readonly Command[] = [
   },
   {
     id: "word.import",
+    // It waits for the User's choice in a file picker.
+    assistant: false,
     label: "wordImport.command",
     group: "main",
     reversible: true,
@@ -145,6 +147,8 @@ const appCommands: readonly Command[] = [
   },
   {
     id: "verify.document",
+    // It waits for the User's choice in a file picker.
+    assistant: false,
     label: "verify.command",
     purpose: "verify.command.purpose",
     keywords: ["verify.command.keywords"],
@@ -389,6 +393,8 @@ const appCommands: readonly Command[] = [
   },
   {
     id: "references.import",
+    // It waits for the User's choice in a file picker.
+    assistant: false,
     label: "references.import.menu",
     group: "file",
     // The import is taken back with Undo.
