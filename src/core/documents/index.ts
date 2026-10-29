@@ -1772,9 +1772,10 @@ export function createDocuments(options: DocumentsOptions) {
         [now(), BigInt(PICTURES_CURRENT_SINCE)],
       );
     }
-    // A Document with a Passage stays as of the version before this one until its keyword
-    // rows are rewritten: that runs in the background once the first window is up, one
-    // Document per transaction, so the start never waits for it (#2042).
+    // A Document with no Passage has nothing a read would add: it is this version's without
+    // one. One with a Passage keeps the version its Passages were read at, and its keyword
+    // rows are rewritten in the background once the first window is up, one Document per
+    // transaction, so the start never waits for them (#2042, #2185).
     db.run(
       `UPDATE documents SET processing_version = ?
        WHERE deleted_at IS NULL AND processing_version < ?

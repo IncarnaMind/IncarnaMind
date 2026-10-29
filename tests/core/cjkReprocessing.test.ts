@@ -341,11 +341,14 @@ describe("CJK line-wrap re-reading", { timeout: 30_000 }, () => {
     const first = startCore(dataDir);
     const [document] = (await addAndProcess(first, [path])) as [Document];
     first.close();
-    // Back to what a pipeline before the keyword index left: version 14 and the break kept.
+    // Back to what a pipeline before the keyword index left: version 14, its rows to rewrite,
+    // and the break kept.
     const db = openDatabase(join(dataDir, DATABASE_FILE));
     try {
       db.transaction(() => {
-        db.run("UPDATE documents SET processing_version = 14 WHERE id = ?", [document.id]);
+        db.run("UPDATE documents SET processing_version = 14, keywords_version = 0 WHERE id = ?", [
+          document.id,
+        ]);
         db.run(
           "UPDATE document_pages SET text = replace(text, ?, ?) WHERE document_id = ? AND deleted_at IS NULL",
           ["7月起", "7\n月起", document.id],
@@ -367,6 +370,14 @@ describe("CJK line-wrap re-reading", { timeout: 30_000 }, () => {
     await rename(path, `${path}.away`);
     const second = startCore(dataDir);
     await waitForProcessing(second, [document.id]);
+    // The read that failed rebuilt the rows it kept: the Passages are still 14's, the rows
+    // this version's. Hand the rewrite rows an older version wrote, to see what it does.
+    const older = openDatabase(join(dataDir, DATABASE_FILE));
+    try {
+      older.run("UPDATE documents SET keywords_version = 0 WHERE id = ?", [document.id]);
+    } finally {
+      older.close();
+    }
     second.upgradeKeywordIndex();
     // The keyword job must not call the text current: the wider pipeline hasn't read it yet.
     await vi.waitFor(
