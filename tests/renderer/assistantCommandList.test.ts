@@ -114,8 +114,8 @@ describe("The assistant's commands are the window's one list (#1421)", () => {
         purpose: command.purpose ? expect.any(String) : null,
         on: command.appliesTo ? command.appliesTo.filter(isTarget) : null,
         deletes: command.destructive === true && command.reversible === true,
-        final: command.reversible !== true && command.endsCapture !== true,
-        listens: command.listens === true,
+        final: command.reversible !== true && command.recording !== "ends",
+        recording: command.recording ?? null,
         yours: null,
       } as OfferedCommand);
       expect(entry?.label.trim(), command.id).not.toBe("");
@@ -230,6 +230,42 @@ describe("The assistant's commands are the window's one list (#1421)", () => {
     }
   });
 
+  // protects=a Check asked for while one runs on that Note starts none, and says it is already checking it, by the Note's name; fails_when=a second Check starts, or the card says Done; no_claim=the Check itself.
+  test("a second Check while one runs says it is already checking, and starts none", async () => {
+    const { useAppStore } = await import("../../src/renderer/src/store");
+    const { useChecks } = await import("../../src/renderer/src/checks");
+    const check = registry.commands.get("mind.check");
+    if (!check) throw new Error("No Check command.");
+    const run = vi.fn();
+    stubbed.push({ command: check, when: check.when, enabled: check.enabled, run: check.run });
+    check.run = run;
+    const minds = useAppStore.getState().minds;
+    const running = useChecks.getState().running;
+    useAppStore.setState({ minds: [{ id: "note", title: "Deal notes" } as never] });
+    useChecks.setState({ running: { ...running, note: {} as never } });
+    try {
+      const { started, ended } = window.startForAssistant({
+        requestId: "request",
+        answerId: "answer",
+        toolCallId: "call",
+        run: "run",
+        mindId: "note",
+        clientId: "window",
+        command: "mind.check",
+        targets: [],
+      });
+      expect(started).toBe(false);
+      expect((await ended).result).toMatchObject({
+        ran: false,
+        wording: { key: "commands.window.alreadyChecking", values: { name: "Deal notes" } },
+      });
+      expect(run).not.toHaveBeenCalled();
+    } finally {
+      useAppStore.setState({ minds });
+      useChecks.setState({ running });
+    }
+  });
+
   // protects=a command added to the list is the assistant's at once, with no assistant-side change; fails_when=it isn't offered or doesn't run; no_claim=any real command.
   test("a command added to the list is the assistant's at once", async () => {
     const ran = vi.fn();
@@ -325,12 +361,12 @@ describe("The assistant's commands are the window's one list (#1421)", () => {
     ])
       expect(offered.has(id as OfferedCommand["id"]), id).toBe(false);
     for (const id of ["meeting.record", "memo.record", "meeting.pauseResume", "meeting.microphone"])
-      expect(offered.get(id as OfferedCommand["id"])?.listens, id).toBe(true);
-    expect(offered.get("meeting.stop")?.listens).toBe(false);
+      expect(offered.get(id as OfferedCommand["id"])?.recording, id).toBe("starts");
+    expect(offered.get("meeting.stop")?.recording).toBe("ends");
     expect(offered.get("mind.openBeside")?.yours).toBeNull();
   });
 
-  // protects=what the core asks before running a window command comes from the real list's marks: every one that can turn recording on, can't be taken back or deletes asks, stopping a recording doesn't, and the rest of what acts on the window runs at once; fails_when=a mark is lost between the list and the core's policy; no_claim=the card's words.
+  // protects=what the core asks before running a window command comes from the real list's marks: every one that can turn recording on, can't be taken back or deletes asks, stopping a recording does only once the Answer read text the User didn't write, and the rest of what acts on the window runs at once; fails_when=a mark is lost between the list and the core's policy; no_claim=the card's words.
   test("the core asks first from the real list's own marks", async () => {
     offerEverything();
     const { parseOfferedCommands } = await import("../../src/core/tools/commands/offered");
@@ -351,27 +387,30 @@ describe("The assistant's commands are the window's one list (#1421)", () => {
       clientId: "w",
       ended: () => undefined,
     };
-    const asks = new Map<string, string | null>();
-    for (const entry of parseOfferedCommands(window.offeredCommands(null))) {
-      if (entry.on !== null) continue;
-      const checked = windowChecked(entry, [], findable, context, undefined);
-      asks.set(entry.id, askOf(checked, { changed: 0, renames: [] })?.kind ?? null);
-    }
-    expect(asks.get("meeting.record")).toBe("listen");
-    expect(asks.get("memo.record")).toBe("listen");
-    expect(asks.get("meeting.stop")).toBeNull();
-    expect(asks.get("mind.check")).toBeNull();
-    for (const command of registry.commands.all()) {
-      const ask = asks.get(command.id);
-      if (ask === undefined || command.assistant) continue;
-      const expected = command.listens
-        ? "listen"
-        : command.reversible !== true && command.endsCapture !== true
-          ? "final"
-          : command.destructive
-            ? "change"
-            : null;
-      expect(ask, command.id).toBe(expected);
+    for (const read of [false, true]) {
+      const asks = new Map<string, string | null>();
+      for (const entry of parseOfferedCommands(window.offeredCommands(null))) {
+        if (entry.on !== null) continue;
+        const checked = windowChecked(entry, [], findable, context, undefined);
+        asks.set(entry.id, askOf(checked, { changed: 0, renames: [], read })?.kind ?? null);
+      }
+      expect(asks.get("meeting.record")).toBe("listen");
+      expect(asks.get("memo.record")).toBe("listen");
+      expect(asks.get("meeting.stop")).toBe(read ? "listen" : null);
+      expect(asks.get("mind.check")).toBeNull();
+      for (const command of registry.commands.all()) {
+        const ask = asks.get(command.id);
+        if (ask === undefined || command.assistant) continue;
+        const expected =
+          command.recording === "starts" || (command.recording === "ends" && read)
+            ? "listen"
+            : command.reversible !== true && command.recording !== "ends"
+              ? "final"
+              : command.destructive
+                ? "change"
+                : null;
+        expect(ask, command.id).toBe(expected);
+      }
     }
   });
 

@@ -46,16 +46,25 @@ function whichOf(
     .sort((a, b) => b.deletedAt.localeCompare(a.deletedAt))
     .slice(0, MOST_OFFERED);
   const byLabel = new Map<string, DeletedItem>();
+  const descriptions = new Map<string, string>();
   for (const item of offered) {
-    const folder = item.groupId ? folders.get(item.groupId) : undefined;
-    const base = translate(
-      language,
-      folder ? "commands.restore.which.in" : "commands.restore.which.loose",
-      { date: formatDateTime(item.deletedAt, language), folder: folder ?? "" },
-    );
+    const base = translate(language, "commands.restore.which.option", {
+      kind: translate(language, `deleted.kind.${item.kind}`),
+      date: formatDateTime(item.deletedAt, language),
+    });
     let label = base;
     for (let count = 2; byLabel.has(label); count++) label = `${base} (${count})`;
     byLabel.set(label, item);
+    // A Folder or a Tag is in none; the others were in a Folder, or in none.
+    const folder = item.groupId ? folders.get(item.groupId) : undefined;
+    descriptions.set(
+      label,
+      item.kind === "folder" || item.kind === "tag"
+        ? ""
+        : folder
+          ? translate(language, "commands.restore.which.in", { folder })
+          : translate(language, "commands.restore.which.loose"),
+    );
   }
   return {
     byLabel,
@@ -66,7 +75,7 @@ function whichOf(
       detail: translate(language, "commands.restore.which.detail", { count: namesakes.length }),
       options: [...byLabel.keys()].map((label, index) => ({
         label,
-        description: "",
+        description: descriptions.get(label) ?? "",
         recommended: index === 0,
         preselected: false,
       })),
@@ -120,9 +129,11 @@ export const restoreChecker: Checker = async (input, { core }) => {
     name: item.name,
   }));
   return inApp("deleted.restore", shown, null, async (asking) => {
-    const folders = new Map(
-      (await core.getLibrary()).groups.map((group) => [group.id, group.name]),
-    );
+    // A Folder it was in may be in Recently deleted itself: it is named as it was.
+    const folders = new Map([
+      ...deleted.flatMap((each) => (each.kind === "folder" ? [[each.id, each.name] as const] : [])),
+      ...(await core.getLibrary()).groups.map((group) => [group.id, group.name] as const),
+    ]);
     const back = await chosen(items, deleted, folders, asking);
     if (back.length === 0) throw new InvalidInputError({ key: "error.commands.restoreNoneChosen" });
     const refs = back.map(({ kind, id }) => ({ kind, id }));

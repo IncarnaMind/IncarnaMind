@@ -8243,7 +8243,16 @@ interface ApprovalRequestBase extends AnswerPlace {
    * call asks, and the card says why. Absent when there is none.
    */
   thirdParty?: ThirdPartyReason[];
+  /**
+   * Where the request came from, for a command of the assistant's that asks only because its
+   * Answer read text the User didn't write (#1421), stopping a recording: the Document whose words
+   * name the command, else the live Transcript, else the last Document read.
+   */
+  cameFrom?: ApprovalCameFrom;
 }
+
+/** A Document by its name, or the live Transcript of the Meeting being recorded. */
+export type ApprovalCameFrom = { kind: "document"; name: string } | { kind: "transcript" };
 
 /**
  * An Effect (CONTEXT.md): something a Tool call can do beyond the

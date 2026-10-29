@@ -1,6 +1,7 @@
 import { describe, expect, test } from "vitest";
 import type { CommandDone } from "../../src/core/api";
 import {
+  cameFromText,
   commandCallText,
   doneText,
   runText,
@@ -110,6 +111,43 @@ describe("What the assistant's commands did, in words (#1421)", () => {
     } finally {
       remove();
     }
+  });
+
+  // protects=a stop asked about because the Answer read text the User didn't write says where the request came from, in both languages; fails_when=the source isn't named; no_claim=which source the core picks.
+  test("where a request came from, a Document or this meeting's Transcript", () => {
+    const document = { kind: "document", name: "Q3 board pack.pdf" } as const;
+    const transcript = { kind: "transcript" } as const;
+    expect(cameFromText(en, document)).toBe("The request came from “Q3 board pack.pdf”");
+    expect(cameFromText(zh, document)).toBe("这个请求来自“Q3 board pack.pdf”");
+    expect(cameFromText(en, transcript)).toBe("The request came from this meeting’s Transcript");
+    expect(cameFromText(zh, transcript)).toBe("这个请求来自本次会议的转写稿");
+  });
+
+  // protects=a window command that didn't finish before a quit, or that found a Check already running, says so as its whole line; fails_when=it reads "Didn't run:" with a raw id; no_claim=when it happens.
+  test("didn't finish, and already checking, each say so as the whole line", () => {
+    const failed = (wording: { key: string; values: Record<string, string> }) =>
+      ({
+        id: "call",
+        tool: "run_command",
+        source: "commands",
+        input: {},
+        status: "failed",
+        commandProblem: { command: "mind.check", message: "", wording },
+      }) as unknown as Parameters<typeof commandCallText>[1];
+    const unfinished = failed({
+      key: "commands.window.unfinished",
+      values: { command: "test.unanswered" },
+    });
+    const checking = failed({
+      key: "commands.window.alreadyChecking",
+      values: { name: "Deal notes" },
+    });
+    expect(commandCallText(en, checking)).toBe("Already checking “Deal notes”");
+    expect(commandCallText(zh, checking)).toBe("正在核对“Deal notes”");
+    expect(commandCallText(en, unfinished)).toMatch(
+      /^Didn’t finish: IncarnaMind closed while “.+” was going on$/,
+    );
+    expect(commandCallText(zh, unfinished)).toMatch(/^未完成：“.+”进行时 IncarnaMind 已关闭$/);
   });
 
   // protects=what came back from Recently deleted says so, in both languages, and Undo can take it back; fails_when=it reads as a delete or offers no Undo; no_claim=which items.

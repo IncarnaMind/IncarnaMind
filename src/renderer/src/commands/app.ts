@@ -1,6 +1,7 @@
 import type { BlockOrigin } from "../../../core/api";
 import { MENU_COMMANDS } from "../../../shared/commands";
 import { signInAgain } from "../chatGptSignIn";
+import { useChecks } from "../checks";
 import { useCitationStylePicker } from "../citationStylePicker";
 import { claudeSignInOffered } from "../claudeSignIn";
 import { startContradictionCheck } from "../contradictions";
@@ -332,6 +333,12 @@ const appCommands: readonly Command[] = [
     // It changes no words: its marks go with Check again, or when the sentence is edited.
     reversible: true,
     when: (ctx) => onlyOne(ctx) && mindShown(ctx) !== null,
+    enabled: (ctx) => {
+      const mindId = mindShown(ctx);
+      return mindId && useChecks.getState().running[mindId]
+        ? { reason: "mindCheck.alreadyChecking" }
+        : true;
+    },
     run: (ctx) => {
       const mindId = mindShown(ctx);
       if (mindId) return startCheck(mindId);

@@ -112,8 +112,8 @@ describe("The core's wait for a window's command (#1421)", () => {
     await expect(staying).resolves.toEqual({ ran: true, changed: false });
   });
 
-  // protects=an Answer stopped after its command started still hears how the command ended; fails_when=the end is refused, or the stop is lost; no_claim=the Answer's own stop.
-  test("stopped after it started, the command's end still comes", async () => {
+  // protects=an Answer stopped after its command started settles the call as started, not failed, and still hears how the command ended; one stopped before the start is refused; fails_when=the call fails while the command runs on, or the end is lost; no_claim=the Answer's own stop.
+  test("stopped after it started, the call is started and its end still comes", async () => {
     const { windows, sent, ended, run } = windowsOf();
     const stop = new AbortController();
 
@@ -121,8 +121,14 @@ describe("The core's wait for a window's command (#1421)", () => {
     windows.answer(sent[0], { started: true });
     stop.abort(new Error("Stopped."));
 
-    await expect(call).rejects.toThrow("Stopped.");
+    await expect(call).resolves.toEqual({ started: true });
     expect(windows.answer(sent[0], { ran: true, changed: false })).toBe(true);
     expect(ended).toEqual([{ ran: true, changed: false }]);
+
+    const before = new AbortController();
+    const refused = run("window", before.signal);
+    before.abort(new Error("Stopped."));
+    await expect(refused).rejects.toThrow("Stopped.");
+    expect(windows.answer(sent[1], { started: true })).toBe(false);
   });
 });

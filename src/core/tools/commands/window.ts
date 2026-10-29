@@ -37,7 +37,7 @@ export const yoursChecked = (command: CommandId, yours: Yours): CheckedCommand =
   changes: false,
   deletes: false,
   final: false,
-  listens: false,
+  recording: null,
   yours,
   run: async () => ({ done: { items: [], yours }, step: null, said: YOURS_SAID[yours] }),
 });
@@ -90,7 +90,7 @@ export function windowChecked(
     changes: entry.on !== null,
     deletes: entry.deletes,
     final: entry.final,
-    listens: entry.listens,
+    recording: entry.recording,
     yours: null,
     async run(_asking, signal) {
       const { clientId } = context;

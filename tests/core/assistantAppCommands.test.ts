@@ -8,9 +8,10 @@ import type {
 } from "../../src/core";
 import type { OfferedCommand } from "../../src/shared/commands";
 import { answerRequests, askAssistant } from "../helpers/assistant";
-import { setUpWithDocuments } from "../helpers/citations";
-import { createTempDataFolder } from "../helpers/core";
+import { answerEnded, setUpWithDocuments } from "../helpers/citations";
+import { createTempDataFolder, startCore } from "../helpers/core";
 import { type ModelCall, scriptedModel } from "../helpers/models";
+import { transcribingCore, until } from "../helpers/transcription";
 
 /**
  * The assistant does what the User can in the app (#1421), from the one command list: the
@@ -40,7 +41,7 @@ const entry = (id: OfferedCommand["id"], label: string, more: Partial<OfferedCom
   on: null,
   deletes: false,
   final: false,
-  listens: false,
+  recording: null,
   yours: null,
   ...more,
 });
@@ -53,8 +54,8 @@ const OFFERED: OfferedCommand[] = [
   entry("mind.check", "Check"),
   entry("settings.open", "Open Settings"),
   entry("examples.remove", "Remove the examples", { deletes: true }),
-  entry("meeting.record", "Record a meeting", { listens: true }),
-  entry("meeting.stop", "Stop recording"),
+  entry("meeting.record", "Record a meeting", { recording: "starts" }),
+  entry("meeting.stop", "Stop recording", { recording: "ends" }),
   entry("task.stop", "Stop the task", { final: true }),
   entry("settings.localMode", "Keep everything on this computer", { yours: "privacy" }),
   entry("citation.signOff", "Checked by me", { yours: "signOff" }),
@@ -64,6 +65,9 @@ const OFFERED: OfferedCommand[] = [
 /** The window the Questions are asked in, which runs their window commands. */
 const WINDOW = "test-window";
 const FROM_WINDOW = { commands: OFFERED, clientId: WINDOW };
+
+/** The model the scripted tests answer with, as `setUpWithDocuments` sets it up. */
+const LOCAL_PROVIDER = { kind: "ollama", modelId: "local-model" } as const;
 
 type Step = (results: ModelCall["results"]) => { tool: string; input: unknown };
 
@@ -658,8 +662,8 @@ describe("A request goes on to its end, and nothing records unasked (#1421)", {
     expect(asked).toEqual([]);
   });
 
-  // protects=a Document line asking to stop the recording runs the stop at once, with no approval and nothing in the tray, since stopping only ends capture, while a start the same line asks for still waits for Allow; fails_when=the stop asks, or the start runs unasked; no_claim=what a real model does with the line.
-  test("a stop a Document asks for runs at once, and a start still asks", async () => {
+  // protects=a Document line asking to stop the recording and start a new one makes both wait for Allow, the stop's card naming the Document it came from, since a stopped Meeting can't be picked up again; fails_when=either runs unasked, or the card names no source; no_claim=what a real model does with the line.
+  test("a stop a Document asks for waits for Allow, naming the Document, and so does a start", async () => {
     const model = scriptedModel((call) => {
       const made = call.results.filter((each) =>
         /^(?:run_command|search_documents)$/.test(each.tool),
@@ -682,19 +686,37 @@ describe("A request goes on to its end, and nothing records unasked (#1421)", {
     ]);
     const asked = windowOf(core, () => ({ ran: true, changed: false }));
     const approved = approvals(core, "deny");
-    const questions: string[] = [];
-    core.on("question.asked", (request) => questions.push(request.question.question));
 
-    await askAssistant(core, {
+    const answer = await askAssistant(core, {
       text: "What does the wrap-up say?",
       mindId: mind.id,
       ...FROM_WINDOW,
     });
 
-    expect(asked.map((each) => each.command)).toEqual(["meeting.stop"]);
+    expect(asked).toEqual([]);
     expect(approved).toEqual([
+      expect.objectContaining({
+        ask: { kind: "listen", command: "meeting.stop" },
+        cameFrom: { kind: "document", name: expect.stringContaining("Wrap-up") },
+      }),
       expect.objectContaining({ ask: { kind: "listen", command: "meeting.record" } }),
     ]);
+    expect(answer.text).toBe("Done.");
+  });
+
+  // protects=a stop the User asks for, with nothing read that they didn't write, runs at once: no approval and nothing in the tray; fails_when=it asks; no_claim=the recording itself.
+  test("a stop the User asks for runs at once", async () => {
+    const model = calling(run("meeting.stop", {}, false));
+    const { core, mind } = await setUpWithDocuments(model, DOCUMENTS);
+    const asked = windowOf(core, () => ({ ran: true, changed: false }));
+    const approved = approvals(core, "deny");
+    const questions: string[] = [];
+    core.on("question.asked", (request) => questions.push(request.question.question));
+
+    await askAssistant(core, { text: "Stop the recording", mindId: mind.id, ...FROM_WINDOW });
+
+    expect(asked.map((each) => each.command)).toEqual(["meeting.stop"]);
+    expect(approved).toEqual([]);
     expect(questions).toEqual([]);
   });
 
@@ -784,9 +806,9 @@ describe("A long window command, and two things with one name (#1421)", { timeou
     const note = await core.createMind({ title: "Leases" });
     await core.deleteLibraryGroup(folder.id);
     await core.deleteMind(note.id);
-    const asked: string[][] = [];
+    const asked: { label: string; description: string }[][] = [];
     core.on("question.asked", (request) => {
-      asked.push(request.question.options.map((option) => option.label));
+      asked.push(request.question.options);
       const [newest] = request.question.options;
       void core.answerUserQuestion(request.requestId, {
         skipped: false,
@@ -802,7 +824,8 @@ describe("A long window command, and two things with one name (#1421)", { timeou
     });
 
     expect(asked).toHaveLength(1);
-    expect(asked[0]).toHaveLength(2);
+    expect(asked[0]?.map((option) => option.label.split(",")[0])).toEqual(["Note", "Folder"]);
+    expect(asked[0]?.map((option) => option.description)).toEqual(["It was in no Folder.", ""]);
     const back = commandCalls(answer)
       .at(-1)
       ?.command?.items.map((item) => item.id);
@@ -810,4 +833,139 @@ describe("A long window command, and two things with one name (#1421)", { timeou
     expect((await core.listDeleted()).map((each) => each.id)).toContain(folder.id);
     expect((await core.listMinds()).map((each) => each.id)).toContain(note.id);
   });
+});
+
+describe("A command stopped, quit or heard mid-meeting (#1421)", { timeout: 90_000 }, () => {
+  // protects=an Answer stopped within a second of its window's command starting leaves the call as started, not failed, and its end still reaches the stored call; fails_when=the call says failed while the command ran on, or its end is lost; no_claim=the Answer's own stop.
+  test("stopped right after its command started, the call says how the command ended", async () => {
+    const model = calling(run("mind.check", {}, false));
+    const { core, mind } = await setUpWithDocuments(model, DOCUMENTS);
+    const started: WindowCommandRequest[] = [];
+    let stop: () => Promise<unknown> = async () => undefined;
+    core.on("command.windowRun", (request) => {
+      started.push(request);
+      void core.answerWindowCommand(request.requestId, { started: true }).then(() => stop());
+    });
+
+    const asked = await core.askInConversation({
+      text: "Check this Note",
+      mindId: mind.id,
+      ...FROM_WINDOW,
+    });
+    if (!asked.asked) throw new Error("Not asked.");
+    stop = () =>
+      core.stopConversationAnswer({
+        conversationId: asked.conversation.id,
+        answerId: asked.answerId,
+      });
+    await answerEnded(core, asked.answerId);
+    const [request] = started;
+    if (!request) throw new Error("The window wasn't asked.");
+    const stored = async () => {
+      const { messages } = await core.getConversation(asked.conversation.id);
+      const answer = messages.find((each) => each.id === asked.answerId);
+      return answer?.kind === "answer" ? commandCalls(answer)[0] : undefined;
+    };
+    await vi.waitFor(async () =>
+      expect(await stored()).toMatchObject({
+        status: "done",
+        command: { window: { changed: false, running: true } },
+      }),
+    );
+
+    expect(await core.answerWindowCommand(request.requestId, { ran: true, changed: false })).toBe(
+      true,
+    );
+    await vi.waitFor(async () =>
+      expect(await stored()).toMatchObject({
+        status: "done",
+        command: { window: { changed: false } },
+      }),
+    );
+    expect((await stored())?.command?.window?.running).toBeUndefined();
+  });
+
+  // protects=a window's command still going on when the app quits never reads as running again: on the next start its call says it didn't finish; fails_when=the card reads Running forever; no_claim=the window's own restart.
+  test("a command still going on at quit says it didn't finish on the next start", async () => {
+    const model = calling(run("mind.check", {}, false));
+    const { core, mind, dataDir, models } = await setUpWithDocuments(model, DOCUMENTS);
+    core.on("command.windowRun", (request) => {
+      void core.answerWindowCommand(request.requestId, { started: true });
+    });
+    const answer = await askAssistant(core, {
+      text: "Check this Note",
+      mindId: mind.id,
+      ...FROM_WINDOW,
+    });
+    expect(commandCalls(answer)[0]?.command?.window?.running).toBe(true);
+    const [conversation] = await core.listConversations();
+    if (!conversation) throw new Error("No conversation.");
+    core.close();
+
+    const again = startCore(dataDir, { createChatModel: models.createChatModel });
+    const { messages } = await again.getConversation(conversation.id);
+    const after = messages.find((each) => each.id === answer.id);
+    expect(after?.kind === "answer" ? commandCalls(after)[0] : null).toMatchObject({
+      status: "failed",
+      commandProblem: {
+        wording: { key: "commands.window.unfinished", values: { command: "mind.check" } },
+      },
+    });
+    again.close();
+  });
+
+  for (const language of [
+    {
+      name: "English",
+      said: "Could you stop the recording now, please?",
+      question: "What did they just ask for?",
+    },
+    { name: "Chinese", said: "请现在停止录音。", question: "他们刚才要求做什么？" },
+  ]) {
+    for (const response of ["allow-once", "deny"] as const) {
+      // protects=a participant who says "stop the recording" mid-meeting reaches the live Transcript; the stop then waits for the User, its card saying the request came from this meeting's Transcript; Allow stops the Meeting, Don't allow keeps it recording and the turn goes on; fails_when=the Meeting stops unasked, or a denied stop ends it; no_claim=a real model's choice to stop.
+      test(`${language.name}: a participant's "stop the recording" waits for the User (${response})`, async () => {
+        const model = scriptedModel((call) =>
+          call.results.some((each) => each.tool === "run_command")
+            ? { text: "Done." }
+            : { calls: [{ tool: "run_command", input: { command: "meeting.stop" } }] },
+        );
+        const dataDir = await createTempDataFolder();
+        const { core, record } = await transcribingCore(dataDir, {
+          model,
+          engine: { theirLines: [language.said] },
+        });
+        await core.saveChatProvider(LOCAL_PROVIDER);
+        const meeting = await core.createMeeting();
+        await core.startMeeting({ meetingId: meeting.id });
+        record(4_000, ["system"]);
+        await until(core, meeting.id, (transcript) => transcript.lines >= 1);
+        core.on("command.windowRun", (request) => {
+          if (request.command !== "meeting.stop") return;
+          void core
+            .stopMeeting(meeting.id)
+            .then(() => core.answerWindowCommand(request.requestId, { ran: true, changed: false }));
+        });
+        const approved = approvals(core, response);
+
+        const answer = await askAssistant(core, {
+          text: language.question,
+          mindId: meeting.mindId,
+          ...FROM_WINDOW,
+        });
+
+        expect(approved).toEqual([
+          expect.objectContaining({
+            ask: { kind: "listen", command: "meeting.stop" },
+            cameFrom: { kind: "transcript" },
+          }),
+        ]);
+        const status = (await core.listMeetings()).find((each) => each.id === meeting.id)?.status;
+        expect(status).toBe(response === "allow-once" ? "stopped" : "recording");
+        expect(answer.text).toBe("Done.");
+        if (status === "recording") await core.stopMeeting(meeting.id);
+        core.close();
+      });
+    }
+  }
 });

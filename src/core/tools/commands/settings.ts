@@ -243,7 +243,7 @@ export const settingsChecker: Checker = async (input, { core }) => {
     changes: true,
     deletes: false,
     final: false,
-    listens: false,
+    recording: null,
     yours: null,
     async run() {
       const from = setting.read(now);
@@ -279,7 +279,7 @@ async function outputLocation(core: CommandsCore, folder: string): Promise<Check
     changes: false,
     deletes: false,
     final: false,
-    listens: false,
+    recording: null,
     yours: null,
     async run() {
       if (before === folder) {

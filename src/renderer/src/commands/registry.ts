@@ -2,6 +2,7 @@ import type { ComponentType } from "react";
 import type { EditMenuState } from "../../../shared/bridge";
 import {
   type CommandId,
+  type CommandRecording,
   type Keys,
   MENU_COMMANDS,
   type MenuCommandId,
@@ -131,13 +132,8 @@ export interface Command {
    * file picker. `{ never }`: it is the User's alone; the assistant says where they change it.
    */
   assistant?: false | { never: Yours };
-  /** It can turn on the microphone or the computer's sound: the assistant asks first (#1421). */
-  listens?: true;
-  /**
-   * It only ends a recording, which can't send anything or start listening: the assistant runs it
-   * without asking, though it can't be taken back (#1421).
-   */
-  endsCapture?: true;
+  /** What it does to a recording, which decides whether the assistant asks first (#1421). */
+  recording?: CommandRecording;
   run(ctx: CommandContext): void | Undoable | Promise<Undoable | void>;
 }
 

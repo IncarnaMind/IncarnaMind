@@ -125,6 +125,7 @@ export function commandTools(options: CommandToolsOptions): {
   check(
     toolCallId: string,
     input: Record<string, unknown>,
+    read: boolean,
   ): Promise<{ checked: CheckedCommand; ask: CommandAsk | null; readTitles: boolean }>;
   /** The User allowed a call `check` asked about: one past the Answer's limit starts its count again. */
   allowed(toolCallId: string): void;
@@ -315,7 +316,7 @@ export function commandTools(options: CommandToolsOptions): {
 
   return {
     tools: [listTool, runTool],
-    async check(toolCallId, input) {
+    async check(toolCallId, input, read) {
       try {
         const command = await checkCommand(parseCommandInput(input), options.host, {
           offered: options.offered,
@@ -327,7 +328,7 @@ export function commandTools(options: CommandToolsOptions): {
           clientId: options.clientId,
           ended: (end) => windowEnded(toolCallId, end),
         });
-        const ask = askOf(command, { changed, renames });
+        const ask = askOf(command, { changed, renames, read: read || readTitles });
         checked.set(toolCallId, command);
         if (ask) asks.set(toolCallId, ask);
         else if (command.changes) {

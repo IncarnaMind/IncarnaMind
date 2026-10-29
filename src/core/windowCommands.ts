@@ -68,8 +68,8 @@ export function createWindowCommands(events: ReturnType<typeof createEventHub>) 
   return {
     /**
      * Asks the window to run a command and waits for it to start: resolves with how it ended,
-     * when it ends in a moment, or with `started`, its end then going to `ended`. Rejects if
-     * `signal` aborts first; once started, its end still comes to `ended`.
+     * when it ends in a moment, or with `started`, its end then going to `ended`, also when
+     * `signal` aborts after the start. Rejects if `signal` aborts before it.
      */
     run(
       request: Omit<WindowCommandRequest, "requestId">,
@@ -92,11 +92,16 @@ export function createWindowCommands(events: ReturnType<typeof createEventHub>) 
           resolve(result);
           return true;
         };
+        // Stopped once it started, it goes on in the window: its call says so, and its end comes.
         const onAbort = () => {
+          if (entry.started) {
+            settle({ started: true });
+            return;
+          }
           if (settled) return;
           settled = true;
           clearTimeout(timer);
-          if (!entry.started) open.delete(requestId);
+          open.delete(requestId);
           reject(signal.reason);
         };
         const entry: Open = {

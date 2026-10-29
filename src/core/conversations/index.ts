@@ -554,6 +554,22 @@ const readColumns = (read: AnswerRead | null): [string | null, string | null, nu
   read?.partial ? 1 : 0,
 ];
 
+/** A call whose window's command was still going on: it didn't finish. */
+function unfinished(call: AnswerToolCall): AnswerToolCall {
+  const done = call.command;
+  if (!done?.window?.running) return call;
+  const { command: _done, ...rest } = call;
+  return {
+    ...rest,
+    status: "failed",
+    commandProblem: {
+      command: done.command,
+      message: `IncarnaMind closed while ${done.command} was still going on, so it didn't finish.`,
+      wording: { key: "commands.window.unfinished", values: { command: done.command } },
+    },
+  };
+}
+
 export function createConversations(db: Database, now: () => string) {
   /** The state before each conversation's first unpublished turn, shared by overlapping turns. */
   const pendingTurns = new Map<string, { updatedAt: string; answerIds: Set<string> }>();
@@ -729,6 +745,24 @@ export function createConversations(db: Database, now: () => string) {
       [now()],
     )) {
       indexMessage(row.seq, row.text, storedList<MarkedFigure>(row.figures));
+    }
+  });
+
+  /**
+   * A window's command still going on when an earlier run of the app ended, a Check for one,
+   * never says how it ended (#1421): its call says it didn't finish.
+   */
+  db.transaction(() => {
+    for (const row of db.all<{ id: string; tool_calls: string }>(
+      `SELECT id, tool_calls FROM conversation_messages
+       WHERE kind = 'answer' AND tool_calls LIKE '%"running":true%'`,
+    )) {
+      const calls = storedList<AnswerToolCall>(row.tool_calls).map(unfinished);
+      db.run("UPDATE conversation_messages SET tool_calls = ?, updated_at = ? WHERE id = ?", [
+        JSON.stringify(calls),
+        now(),
+        row.id,
+      ]);
     }
   });
 

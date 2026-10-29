@@ -8,7 +8,8 @@
  */
 import type { WindowCommandEnd, WindowCommandRequest } from "../../core/api";
 import { COMMAND_TARGETS, type CommandTarget, type OfferedCommand } from "../../shared/commands";
-import { translate } from "../../shared/i18n";
+import { type MessageKey, translate } from "../../shared/i18n";
+import { mindName } from "../../shared/naming";
 import {
   type Command,
   type CommandContext,
@@ -20,6 +21,7 @@ import {
 import { translateNow } from "./i18n";
 import type { Translate } from "./objects";
 import { objectInFront } from "./palette";
+import { useAppStore } from "./store";
 import type { Undoable } from "./undo";
 
 const english: Translate = (key, params) => translate("en", key, params);
@@ -60,8 +62,8 @@ function entryOf(command: Command, front: CommandContext): OfferedCommand | null
     purpose: command.purpose ? english(command.purpose) : null,
     on,
     deletes: command.destructive === true && command.reversible === true,
-    final: command.reversible !== true && command.endsCapture !== true,
-    listens: command.listens === true,
+    final: command.reversible !== true && command.recording !== "ends",
+    recording: command.recording ?? null,
     yours,
   };
 }
@@ -97,6 +99,19 @@ export interface AssistantRunEnd {
 
 const messageOf = (error: unknown) => (error instanceof Error ? error.message : String(error));
 
+/** Why ⌘K offers a command but not now, as the assistant's card says it with the Note's name. */
+const NAMED_REASONS: Partial<Record<MessageKey, MessageKey>> = {
+  "mindCheck.alreadyChecking": "commands.window.alreadyChecking",
+};
+
+/** The name of the Note a command acts on, by the Note's own name; null for none. */
+function noteOf(ctx: CommandContext): string | null {
+  if (ctx.focus?.kind !== "mind") return null;
+  const id = ctx.focus.id;
+  const mind = useAppStore.getState().minds.find((each) => each.id === id);
+  return mind ? mindName(mind) : null;
+}
+
 /**
  * Starts a command the assistant asked for, as ⌘K runs it: whether it started, and how it ends,
  * with the change it made, for the Answer's Undo, and why it didn't run, in English for the model
@@ -128,13 +143,17 @@ export function startForAssistant(request: WindowCommandRequest): {
     return refused({ ran: false, why: messageOf(error), wording: null });
   }
   if (!tried.ran) {
-    const wording =
+    const named = tried.why === "not-offered" ? undefined : NAMED_REASONS[tried.why];
+    const note = noteOf(ctx);
+    const wording: Extract<WindowCommandEnd, { ran: false }>["wording"] =
       tried.why === "not-offered"
         ? {
             key: "commands.window.notOffered" as const,
             values: { command: labelOf(command, ctx, translateNow) },
           }
-        : { key: tried.why };
+        : named && note !== null
+          ? { key: named, values: { name: note } }
+          : { key: tried.why };
     const why =
       tried.why === "not-offered"
         ? `“${label}” doesn't apply here now, so it didn't run.`

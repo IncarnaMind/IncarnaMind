@@ -8,7 +8,8 @@
  * - every delete, whatever the Answer read: a web page's title or a Document's text could ask for it;
  * - a command of the window's that can't be taken back;
  * - one that can turn on the microphone or the computer's sound, whoever asked for it: a
- *   Document's text could;
+ *   Document's text could; and one that stops a recording once the Answer has read text the User
+ *   didn't write, a Document or the live Transcript, where a participant could ask for it;
  * - a change that would take the Answer's changes past `COMMAND_AT_ONCE`.
  * One that is the User's alone never asks: it runs nothing.
  */
@@ -37,6 +38,8 @@ export interface CommandContext {
   changed: number;
   /** The Conversation's renames, oldest first: the names the User knew before them. */
   renames: readonly CommandRename[];
+  /** The Answer has read text the User didn't write: a Document, a web page or the live Transcript. */
+  read: boolean;
 }
 
 /** The renames the commands of a Conversation's Answers made, oldest first, from what each call returned. */
@@ -59,7 +62,9 @@ export function askOf(checked: CheckedCommand, context: CommandContext): Command
   if (checked.outside) return checked.outside;
   const items = () =>
     checked.items.slice(0, NAMES_SHOWN).map((item) => asKnown(item, context.renames));
-  if (checked.listens) return { kind: "listen", command };
+  if (checked.recording === "starts" || (checked.recording === "ends" && context.read)) {
+    return { kind: "listen", command };
+  }
   if (checked.final) return { kind: "final", command, items: items() };
   const reason = checked.deletes
     ? "delete"

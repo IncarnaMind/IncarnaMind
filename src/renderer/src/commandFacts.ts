@@ -4,6 +4,7 @@
  */
 import type {
   AnswerToolCall,
+  ApprovalCameFrom,
   CommandDone,
   CommandsFound,
   ConversationAnswer,
@@ -69,6 +70,23 @@ export const YOURS_WORDS: Readonly<Record<Yours, { said: MessageKey; open: Messa
   signOff: { said: "commands.yours.signOff", open: null },
   authorship: { said: "commands.yours.authorship", open: null },
 };
+
+/** How a window's command didn't do what it was asked, each said as the whole line, not "Didn't run: …". */
+const WHOLE_LINES = new Set<MessageKey>([
+  "commands.window.unanswered",
+  "commands.window.closed",
+  "commands.window.unfinished",
+  "commands.window.alreadyChecking",
+]);
+
+/** Where a request the assistant asks about came from: “Q3 board pack.pdf”, or this meeting's Transcript. */
+export const cameFromText = (t: Translate, from: ApprovalCameFrom): string =>
+  t("commands.ask.cameFrom", {
+    source:
+      from.kind === "document"
+        ? t("commands.ask.cameFrom.document", { name: from.name })
+        : t("commands.ask.cameFrom.transcript"),
+  });
 
 /** A setting's name as Settings shows it, by the name the assistant's command gives it. */
 const SETTING_NAMES: Readonly<Record<string, MessageKey>> = {
@@ -296,8 +314,12 @@ export function commandCallText(t: Translate, call: AnswerToolCall): string {
   if (call.status === "failed") {
     const problem = call.commandProblem;
     if (!problem) return t("commands.notRun");
-    if (problem.wording?.key === "commands.window.unanswered" && isCommandId(problem.command)) {
-      return t(problem.wording.key, { command: windowLabel(t, problem.command) });
+    if (problem.wording && WHOLE_LINES.has(problem.wording.key)) {
+      const values = problem.wording.values ?? {};
+      return t(problem.wording.key, {
+        ...values,
+        ...(isCommandId(values.command) && { command: windowLabel(t, values.command) }),
+      });
     }
     const reason = problem.wording
       ? t(problem.wording.key, problem.wording.values)

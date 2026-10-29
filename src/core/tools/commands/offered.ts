@@ -42,7 +42,7 @@ function entryOf(value: unknown): OfferedCommand | null {
     on,
     deletes: value.deletes === true,
     final: value.final === true,
-    listens: value.listens === true,
+    recording: value.recording === "starts" || value.recording === "ends" ? value.recording : null,
     yours: isYours(value.yours) ? value.yours : null,
   };
 }

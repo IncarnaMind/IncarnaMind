@@ -7,7 +7,7 @@
 import { lstat, readdir, realpath, stat } from "node:fs/promises";
 import { homedir } from "node:os";
 import { isAbsolute, join } from "node:path";
-import type { CommandId, CommandTarget, Yours } from "../../../shared/commands";
+import type { CommandId, CommandRecording, CommandTarget, Yours } from "../../../shared/commands";
 import { displayName } from "../../../shared/documentNames";
 import { mindName } from "../../../shared/naming";
 import { tagLinks } from "../../../shared/tagLinks";
@@ -168,8 +168,8 @@ export interface CheckedCommand {
   deletes: boolean;
   /** It can't be taken back. */
   final: boolean;
-  /** It can turn on the microphone or the computer's sound: it asks first, whoever asked for it. */
-  listens: boolean;
+  /** What it does to a recording, as `OfferedCommand.recording` says; null: nothing. */
+  recording: CommandRecording | null;
   /** Never the assistant's (#1421): it runs nothing, and the User is told where they change it. */
   yours: Yours | null;
   run(asking: CommandAsking, signal: AbortSignal): Promise<Ran>;
@@ -318,7 +318,7 @@ const OUTSIDE_IT = {
   changes: false,
   deletes: false,
   final: false,
-  listens: false,
+  recording: null,
   yours: null,
 } as const;
 
@@ -337,7 +337,7 @@ export const inApp = (
   changes: true,
   deletes: false,
   final: false,
-  listens: false,
+  recording: null,
   yours: null,
   run,
 });

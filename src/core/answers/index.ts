@@ -88,6 +88,7 @@ import {
   type AnswerSteps,
   type AnswerToolCall,
   type AnswerUsage,
+  type ApprovalCameFrom,
   type AskedFrom,
   type AskedQuote,
   type AskResult,
@@ -1703,7 +1704,64 @@ export function createAnswers(options: AnswersOptions) {
      * Commands are checked one at a time, each after the User answered the one before, so a call
      * that would take the Answer past its limit is counted after those before it.
      */
+    /** A command's call says what it did once it no longer can through the engine: after its call. */
+    const laterCall = (
+      toolCallId: string,
+      end: { done: CommandDone } | { problem: CommandProblem },
+    ) => {
+      const call = toolCalls.find((each) => each.id === toolCallId);
+      if (!call) return;
+      if ("done" in end) {
+        call.status = "done";
+        call.command = end.done;
+        delete call.commandProblem;
+        commandsDone.set(toolCallId, end.done);
+      } else {
+        call.status = "failed";
+        delete call.command;
+        call.commandProblem = end.problem;
+        commandsDone.delete(toolCallId);
+      }
+      if (!finished) {
+        announce("answer.toolCallFinished", { ...place, answerId, call: { ...call } });
+        writeSoon();
+        return;
+      }
+      options.conversations.writeToolCalls(answerId, toolCalls);
+    };
     let commandTurn: Promise<unknown> = Promise.resolve();
+    /**
+     * Where a command's request came from, of what the Answer read that the User didn't write: the
+     * Document whose words name it (its id, or every word of its name), else the live Transcript,
+     * else the last Document read. Words in another language than the name's can't be told apart,
+     * so the Transcript then stands for both.
+     */
+    const cameFrom = (command: string): { cameFrom?: ApprovalCameFrom } => {
+      const read = session.passagesRead().filter((each) => !transcripts.has(each.documentId));
+      const label = input.assistant?.commands?.offered.find((each) => each.id === command)?.label;
+      const words = (label ?? "")
+        .toLowerCase()
+        .split(/[^\p{L}\p{N}]+/u)
+        .filter((word) => word.length > 2);
+      const naming = new Set(
+        read
+          .filter(({ text }) => {
+            const lower = text.toLowerCase();
+            return (
+              lower.includes(command) ||
+              (words.length > 0 && words.every((word) => lower.includes(word)))
+            );
+          })
+          .map((each) => each.documentName),
+      );
+      const [named] = naming;
+      if (naming.size === 1 && named !== undefined) {
+        return { cameFrom: { kind: "document", name: named } };
+      }
+      if (transcripts.size > 0) return { cameFrom: { kind: "transcript" } };
+      const last = read.at(-1);
+      return last ? { cameFrom: { kind: "document", name: last.documentName } } : {};
+    };
     // Whether it asks is the commands' policy's (../tools/commands/policy, #1110).
     const commandGate = (
       commands: ReturnType<typeof commandTools>,
@@ -1719,7 +1777,11 @@ export function createAnswers(options: AnswersOptions) {
       };
       callStarted(card);
       const gated = async (): Promise<string | null> => {
-        const { checked, ask: asked, readTitles } = await commands.check(toolCallId, input);
+        const {
+          checked,
+          ask: asked,
+          readTitles,
+        } = await commands.check(toolCallId, input, tainted || transcripts.size > 0);
         if (!asked) return null;
         const denied = await ask(
           {
@@ -1732,6 +1794,8 @@ export function createAnswers(options: AnswersOptions) {
             effects: checked.effects,
             tainted: tainted || readTitles,
             ...readReasons(thirdParty),
+            // A stop asks only because of what the Answer read: the card says where it came from.
+            ...(checked.recording === "ends" && cameFrom(checked.command)),
           },
           card,
         );
@@ -2337,29 +2401,15 @@ export function createAnswers(options: AnswersOptions) {
               steps: commands.steps,
               ...(askInTray && { ask: askInTray }),
               found: (toolCallId, found) => commandsFound.set(toolCallId, found),
-              ran: (toolCallId, done) => commandsDone.set(toolCallId, done),
+              ran: (toolCallId, done) => {
+                commandsDone.set(toolCallId, done);
+                // Stopped while its window's command started, the call returns after the Answer.
+                if (finished) laterCall(toolCallId, { done });
+              },
               failed: (toolCallId, problem) => commandProblems.set(toolCallId, problem),
               // A window's command that went on, a Check for one, ends after its call: its card
               // says so then, while the Answer is written or after it.
-              ended: (toolCallId, end) => {
-                const call = toolCalls.find((each) => each.id === toolCallId);
-                if (!call) return;
-                if ("done" in end) {
-                  call.command = end.done;
-                  commandsDone.set(toolCallId, end.done);
-                } else {
-                  call.status = "failed";
-                  delete call.command;
-                  call.commandProblem = end.problem;
-                  commandsDone.delete(toolCallId);
-                }
-                if (!finished) {
-                  announce("answer.toolCallFinished", { ...place, answerId, call: { ...call } });
-                  writeSoon();
-                  return;
-                }
-                options.conversations.writeToolCalls(answerId, toolCalls);
-              },
+              ended: laterCall,
             })
           : null;
       const asking = asksUser ? askTool(asksUser) : null;

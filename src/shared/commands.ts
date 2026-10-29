@@ -65,11 +65,20 @@ export const YOURS = [
 export type Yours = (typeof YOURS)[number];
 
 /**
+ * What a command does to a recording (#1421): "starts" can turn on the microphone or the
+ * computer's sound, so the assistant always asks first; "ends" only stops one, which can't send
+ * anything or start listening, so it asks only when the request may have come from text the User
+ * didn't write: a stopped Meeting can't be picked up again.
+ */
+export type CommandRecording = "starts" | "ends";
+
+/**
  * A command of the window's list, as the assistant is offered it (#1421): its name in English,
  * for the model, and what the window knows of it. `on` null: it acts on the window in front.
  * `deletes`: it sends things to Recently deleted; `final`: it can't be taken back, so it asks first
- * (stopping a recording, which only ends capture, isn't); `listens`: it can turn on the microphone
- * or the computer's sound; `yours`: it is the User's alone.
+ * (stopping a recording isn't counted so: see `recording`); `recording`: it can turn on the
+ * microphone or the computer's sound ("starts"), or it ends a recording ("ends"); `yours`: it is
+ * the User's alone.
  */
 export interface OfferedCommand {
   id: CommandId;
@@ -78,6 +87,6 @@ export interface OfferedCommand {
   on: CommandTarget[] | null;
   deletes: boolean;
   final: boolean;
-  listens: boolean;
+  recording: CommandRecording | null;
   yours: Yours | null;
 }
