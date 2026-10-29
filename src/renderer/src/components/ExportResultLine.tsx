@@ -435,7 +435,13 @@ function SavedSentence({ result, withFile }: { result: SavedResult; withFile: Sa
       }`}
     >
       <CheckIcon />
-      <SavedName name={name} withCsv={result.withCsv} folder={folder} withFile={parts}>
+      <SavedName
+        name={name}
+        withCsv={result.withCsv}
+        folder={folder}
+        changed={result.changedFile}
+        withFile={parts}
+      >
         {canChange && result.changing === undefined && <ChangePart mindId={result.mindId} />}
       </SavedName>
     </p>
@@ -452,17 +458,22 @@ function SavedName({
   name,
   withCsv,
   folder,
+  changed,
   withFile,
   children,
 }: {
   name: string;
   withCsv: boolean;
   folder: string;
+  /** The file it was written beside, which the User had changed (#110). */
+  changed: string | null;
   withFile: SavedWithFile;
   children?: ReactNode;
 }) {
   const t = useT();
-  const said = t(withCsv ? "export.record.doneIn" : "export.doneIn", { name: "\u0000", folder });
+  const said = changed
+    ? t("export.doneIn.changed", { name: "\u0000", folder, changed })
+    : t(withCsv ? "export.record.doneIn" : "export.doneIn", { name: "\u0000", folder });
   const [before = "", after = ""] = said.split("\u0000");
   const saved = (
     <span data-testid="export-saved" className="min-w-0 break-words">

@@ -243,7 +243,8 @@ interface Prepared {
 }
 
 export function createExports(deps: ExportsDependencies) {
-  const prepare = (mindId: unknown, input: unknown): Prepared => {
+  /** `othersComments`: for someone else's file, the comment choice to write with instead of the Note's. */
+  const prepare = (mindId: unknown, input: unknown, othersComments?: boolean): Prepared => {
     const parsed = parseExportOptions(input);
     const { format, includeQuestions } = parsed;
     const mind = deps.mind(mindId);
@@ -291,7 +292,7 @@ export function createExports(deps: ExportsDependencies) {
       word,
       theirChanges,
       trackedChanges,
-      othersComments,
+      othersComments: noteComments,
     } = deps.read(mind.id, (fragment) => {
       const { doc } = fragment;
       name = exportName(mind, fragment);
@@ -337,10 +338,10 @@ export function createExports(deps: ExportsDependencies) {
       };
     });
     // Someone else's file goes back to them: comments that quote the User's Documents only when asked.
-    const othersFile = othersComments !== null;
-    const options: Required<ExportMindOptions> = othersFile
-      ? { ...parsed, commentFailedChecks: othersComments }
-      : parsed;
+    const othersFile = noteComments !== null;
+    const commentsNow = othersFile ? (othersComments ?? noteComments) : null;
+    const options: Required<ExportMindOptions> =
+      commentsNow !== null ? { ...parsed, commentFailedChecks: commentsNow } : parsed;
     const shown = withoutEmptyTitle(read);
     const withUnread = [...shown, ...unreadBlocks(unread, language, unreadNames)];
     const blocks =
@@ -375,7 +376,7 @@ export function createExports(deps: ExportsDependencies) {
       citationPlace: listedPlace,
       markAiText: format === "docx" ? options.markAiText === true : null,
       othersFile,
-      othersComments: othersComments === true,
+      othersComments: commentsNow === true,
     };
     const failed = new Map<string, FailedSentence>();
     for (const { sentence } of piecesOf(blocks)) if (sentence) failed.set(sentence.id, sentence);
@@ -630,8 +631,9 @@ export function createExports(deps: ExportsDependencies) {
 
     previewSharePage,
 
-    async export(mindId: unknown, options: unknown): Promise<MindExport> {
-      const prepared = prepare(mindId, options);
+    /** `othersComments`: for someone else's file, write with this comment choice, not the Note's (#110). */
+    async export(mindId: unknown, options: unknown, othersComments?: boolean): Promise<MindExport> {
+      const prepared = prepare(mindId, options, othersComments);
       const { title, preview, language, format, style, documents } = prepared;
       if ((format === "pdf" || format === "source-pack") && !deps.printer) {
         throw new Error("This copy of IncarnaMind can't make PDFs.");

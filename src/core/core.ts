@@ -1,7 +1,8 @@
+import { createHash } from "node:crypto";
 import { mkdirSync } from "node:fs";
 import { mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { tmpdir, userInfo } from "node:os";
-import { join } from "node:path";
+import { basename, dirname, join } from "node:path";
 import { deflateRawSync } from "node:zlib";
 import * as Y from "yjs";
 import { cleanApiKey } from "../shared/apiKey";
@@ -2309,8 +2310,26 @@ export function createCore(adapters: CoreAdapters): Core {
   });
   const ownFileOf = (options: ExportMindOptions): OwnFileKind =>
     options.format === "source-pack" ? "source-pack" : "export";
-  /** The bytes each export written again replaced, by its path, for its Undo (#110). */
-  const rewrittenExports = new Map<string, Uint8Array>();
+  /**
+   * Each export saved since the app opened, by its path: the Note it came from, and the
+   * fingerprint of the bytes IncarnaMind last wrote there, so a file the User changed since is
+   * never written over (#110).
+   */
+  const exportFiles = new Map<string, { mindId: string; path: string; wrote: string }>();
+  /** What each export written again replaced, by the path written: its bytes, or null for none. */
+  const rewrittenExports = new Map<string, Uint8Array | null>();
+  const fingerprintOf = (data: Uint8Array) => createHash("sha256").update(data).digest("hex");
+  /** For a Mind made by Verify from someone else's file: whether its Word export gets check comments. */
+  const setNoteComments = (mindId: string, on: boolean) => {
+    const verifying = content.edit(mindId, (blocks) => {
+      const settings = blocks.doc?.getMap<unknown>(MIND_SETTINGS_FIELD);
+      const now = settings && readVerification(settings);
+      if (!settings || !now) return false;
+      if (now.comments !== on) writeVerification(settings, { ...now, comments: on });
+      return true;
+    });
+    if (!verifying) throw new InvalidInputError({ key: "error.verify.notVerifying" });
+  };
   /**
    * Sent as Word or PDF (#1933): History keeps the Note as it went, with the file's name. False
    * when it couldn't, which the result line says; the file is saved all the same.
@@ -4858,8 +4877,15 @@ export function createCore(adapters: CoreAdapters): Core {
       }
       return exported;
     },
-    rewriteMindExport: async (mindId, options, path) => {
-      const read = typeof mindId === "string" ? content.storedState(mindId) : null;
+    rewriteMindExport: async (mindId, options, path, checkComments) => {
+      const known = typeof path === "string" ? exportFiles.get(path) : undefined;
+      if (!known || known.mindId !== mindId) {
+        throw new InvalidInputError({ key: "error.export.rewrite.notThisNote" });
+      }
+      if (checkComments !== undefined && typeof checkComments !== "boolean") {
+        throw new InvalidInputError({ key: "error.export.checkComments" });
+      }
+      const read = content.storedState(known.mindId);
       const {
         fileName: _name,
         fromWord: _,
@@ -4867,34 +4893,74 @@ export function createCore(adapters: CoreAdapters): Core {
         data,
         word,
         ...counts
-      } = await mindExports.export(mindId, options);
+      } = await mindExports.export(known.mindId, options, checkComments);
       const accepted = new Set(Array.isArray(options?.accept) ? options.accept : []);
       if (word?.notKept.some((loss) => !accepted.has(loss.key))) return { status: "review", word };
-      const { file, before } = await outputs.rewrite(path, data, ownFileOf(options));
-      rewrittenExports.set(file.path, before);
-      const sentKept = read === null || keepSent(mindId as string, options, file.name, read);
-      return { status: "saved", file, ...counts, word, sentKept };
+      const now = await outputs.current(known.path);
+      let file: SavedFile;
+      let changedFile: string | undefined;
+      if (fingerprintOf(now) === known.wrote) {
+        const written = await outputs.rewrite(known.path, data, ownFileOf(options));
+        file = written.file;
+        rewrittenExports.set(file.path, written.before);
+      } else {
+        // The User changed the file since it was written: it stays as they left it.
+        changedFile = basename(known.path);
+        file = await outputs.save({
+          name: changedFile,
+          data,
+          ownFile: ownFileOf(options),
+          folder: dirname(known.path),
+          approved: true,
+        });
+        rewrittenExports.set(file.path, null);
+      }
+      exportFiles.set(file.path, {
+        mindId: known.mindId,
+        path: file.path,
+        wrote: fingerprintOf(data),
+      });
+      // Only once the file holds them, so the choice never says what the file doesn't.
+      if (checkComments !== undefined) setNoteComments(known.mindId, checkComments);
+      const sentKept = read === null || keepSent(known.mindId, options, file.name, read);
+      return {
+        status: "saved",
+        file,
+        ...counts,
+        word,
+        sentKept,
+        ...(changedFile !== undefined && { changedFile }),
+      };
     },
     restoreMindExport: async (path) => {
-      const before = typeof path === "string" ? rewrittenExports.get(path) : undefined;
-      if (!before)
-        throw new InvalidInputError(
-          "That file wasn't written again, so there is nothing to put back.",
-        );
-      await outputs.rewrite(path, before, null);
-      rewrittenExports.delete(path);
+      const known = typeof path === "string" ? exportFiles.get(path) : undefined;
+      const before = known ? rewrittenExports.get(known.path) : undefined;
+      if (!known || before === undefined) {
+        throw new InvalidInputError({
+          key: "error.export.restore.nothing",
+          values: { name: typeof path === "string" ? basename(path) : "" },
+        });
+      }
+      if (fingerprintOf(await outputs.current(known.path)) !== known.wrote) {
+        throw new TranslatableError({
+          key: "error.export.restore.changed",
+          values: { name: basename(known.path) },
+        });
+      }
+      if (before) {
+        await outputs.rewrite(known.path, before, null);
+        exportFiles.set(known.path, { ...known, wrote: fingerprintOf(before) });
+      } else {
+        await outputs.remove(known.path);
+        exportFiles.delete(known.path);
+      }
+      rewrittenExports.delete(known.path);
     },
     setCheckComments: async (mindId, on) => {
       const mind = writableMind(mindId);
-      if (typeof on !== "boolean") throw new InvalidInputError("on must be true or false.");
-      const verifying = content.edit(mind.id, (blocks) => {
-        const settings = blocks.doc?.getMap<unknown>(MIND_SETTINGS_FIELD);
-        const now = settings && readVerification(settings);
-        if (!settings || !now) return false;
-        if (now.comments !== on) writeVerification(settings, { ...now, comments: on });
-        return true;
-      });
-      if (!verifying) throw new InvalidInputError({ key: "error.verify.notVerifying" });
+      if (typeof on !== "boolean")
+        throw new InvalidInputError({ key: "error.export.checkComments" });
+      setNoteComments(mind.id, on);
     },
     saveMindExport: async (mindId, options) => {
       // The export reads the Note before its first await, so this is the text the file holds,
@@ -4918,6 +4984,11 @@ export function createCore(adapters: CoreAdapters): Core {
         ownFileOf(options),
       );
       if (saved.status !== "saved") return saved;
+      exportFiles.set(saved.file.path, {
+        mindId: mindId as string,
+        path: saved.file.path,
+        wrote: fingerprintOf(data),
+      });
       const sentKept = read === null || keepSent(mindId as string, options, saved.file.name, read);
       await rememberExportChoices(counts, null);
       return { ...saved, ...counts, word, sentKept };

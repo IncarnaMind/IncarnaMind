@@ -3965,6 +3965,7 @@ export const en = {
   "export.changeLocation": "Change output location…",
   "export.allow": "Allow",
   "export.doneIn": "Saved “{name}” in {folder}",
+  "export.doneIn.changed": "Saved as “{name}” in {folder} because “{changed}” was changed",
   "export.saved.footnotes.one": "1 footnote",
   "export.saved.footnotes.other": "{count} footnotes",
   "export.saved.list.one": "1 Citation in a list at the end",
@@ -4201,6 +4202,18 @@ export const en = {
   "error.verify.request": "That isn’t a request to verify a document that IncarnaMind can read.",
   "error.verify.notVerifying": "This note doesn’t verify a document.",
   "error.verify.noPath": "Choose the document to verify.",
+  "error.export.checkComments": "That isn’t a choice of check comments IncarnaMind can read.",
+  "error.export.rewrite.notThisNote":
+    "That file wasn’t exported from this note, so this note can’t write it again.",
+  "error.export.rewrite.notSaved":
+    "“{name}” wasn’t saved by IncarnaMind since it opened, so it can’t be written again. Export the note again.",
+  "error.export.rewrite.gone":
+    "“{name}” is no longer where it was saved: it may have been moved or deleted. Export the note again to make a new file.",
+  "error.export.rewrite.locked":
+    "“{name}” can’t be changed: it may be read-only or open in another app. Close it there, or export the note again.",
+  "error.export.restore.nothing": "There is nothing to put back in “{name}”.",
+  "error.export.restore.changed":
+    "“{name}” was changed after it was written, so it wasn’t put back.",
   "error.verify.notAllRead":
     "Part of the Word file couldn’t be read into this note, so its claims can’t be found yet.",
   "error.mindCheck.request": "That isn’t a request to check a note that IncarnaMind can read.",

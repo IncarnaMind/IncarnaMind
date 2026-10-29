@@ -102,6 +102,8 @@ export type ExportResult = { tableId?: string } & (
       hiddenColumns: number;
       /** Made by Verify from someone else's file: its comments have their own choice (#110). */
       othersFile: boolean;
+      /** Written again beside this file, which the User had changed (#110); null otherwise. */
+      changedFile: string | null;
       /** The sentences whose check isn’t good, whether they went in as comments, and the check comments in the file. */
       checks: SentenceChecksExported;
       /** The changes waiting that went into a Word file as tracked changes. */
@@ -256,13 +258,16 @@ export async function answerCheckComments(mindId: string, answer: boolean): Prom
   if (result?.mindId !== mindId || result.state !== "saved" || result.format !== "docx") return;
   if (result.checks.commented === answer) return;
   const previous: ExportResult = { ...result, changing: undefined };
+  // The core keeps the choice once the file holds it; a file the User changed gets one beside it.
+  let written = result.path;
   const write = async () => {
-    await core.setCheckComments(mindId, answer);
     const saved = await core.rewriteMindExport(
       mindId,
       optionsFor("docx", exportPreferences()),
       result.path,
+      answer,
     );
+    if (saved.status === "saved") written = saved.file.path;
     useExports.setState({
       result:
         saved.status === "review"
@@ -278,8 +283,8 @@ export async function answerCheckComments(mindId: string, answer: boolean): Prom
     useUndo.getState().push({
       said: (t) => rewrittenLine(t, answer, count, saved.file.name),
       undo: async () => {
+        await core.restoreMindExport(written);
         await core.setCheckComments(mindId, !answer);
-        await core.restoreMindExport(result.path);
         useExports.setState({ result: { ...previous, at: Date.now() } });
       },
       redo: async () => {
@@ -349,6 +354,7 @@ function savedResult(
       unverified: "unverifiedCitations" in saved ? saved.unverifiedCitations : 0,
       hiddenColumns: "hiddenColumns" in saved ? saved.hiddenColumns : 0,
       othersFile: "othersFile" in saved && saved.othersFile,
+      changedFile: ("changedFile" in saved && saved.changedFile) || null,
       checks: "sentenceChecks" in saved ? saved.sentenceChecks : NO_CHECKS,
       tracked: "trackedChanges" in saved ? saved.trackedChanges : 0,
       kept: "word" in saved ? (saved.word?.keptFurniture ?? []) : [],

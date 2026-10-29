@@ -8646,6 +8646,8 @@ export type SavedMindExport =
        * couldn't, which the result line says. True for the other formats.
        */
       sentKept: boolean;
+      /** Written again beside the file of this name, which the User had changed (#110). */
+      changedFile?: string;
     } & Omit<MindExportPreview, "fileName" | "fromWord" | "theirChanges"> &
       Pick<
         MindExport,
@@ -11017,17 +11019,26 @@ export interface CoreApi {
    */
   saveMindExport(mindId: string, options: ExportMindOptions): Promise<SavedMindExport>;
   /**
-   * Writes a Mind's export again into the file `saveMindExport` saved at `path` since the app
-   * started, in place, as it would be written now: for a choice changed under its Saved line, so
-   * no second copy sits beside the first (#110). The bytes it replaces are kept for
-   * `restoreMindExport`. Throws InvalidInputError for a path this session didn't save.
+   * Writes a Mind's export again into the file this Mind's `saveMindExport` saved at `path`
+   * since the app opened, in place, as it would be written now: for a choice changed under its
+   * Saved line, so no second copy sits beside the first (#110). `checkComments`, for someone
+   * else's file, writes with that choice and keeps it for the Note once the file holds it. A file
+   * the User changed since is left as it is, and the export is saved beside it instead
+   * (`changedFile`). What it replaces is kept for `restoreMindExport`. Throws InvalidInputError
+   * for a file another Note exported or this session didn't save, and a plain-words problem
+   * naming a file that was moved, deleted or can't be changed.
    */
   rewriteMindExport(
     mindId: string,
     options: ExportMindOptions,
     path: string,
+    checkComments?: boolean,
   ): Promise<SavedMindExport>;
-  /** Puts back the bytes the last `rewriteMindExport` of `path` replaced: its Undo (#110). */
+  /**
+   * Puts back what the last `rewriteMindExport` that wrote `path` replaced, its Undo (#110): the
+   * file's bytes as they were, or, for a file saved beside one the User had changed, no file.
+   * Never over a file changed since it was written.
+   */
   restoreMindExport(path: string): Promise<void>;
   /**
    * For a Mind made by Verify from someone else's file (#110): whether its Word export gets

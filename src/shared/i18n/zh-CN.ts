@@ -3803,6 +3803,7 @@ export const zhCN = {
   "export.changeLocation": "更改保存位置…",
   "export.allow": "允许",
   "export.doneIn": "已保存“{name}”到“{folder}”",
+  "export.doneIn.changed": "“{changed}”已被修改，因此另存为“{name}”，保存到“{folder}”",
   "export.saved.footnotes.one": "1 个脚注",
   "export.saved.footnotes.other": "{count} 个脚注",
   "export.saved.list.one": "1 个引用列在文末",
@@ -4024,6 +4025,16 @@ export const zhCN = {
   "error.verify.request": "无法读取这个核对文档的请求。",
   "error.verify.notVerifying": "这篇笔记没有在核对文档。",
   "error.verify.noPath": "请选择要核对的文档。",
+  "error.export.checkComments": "无法读取这个核对批注的选择。",
+  "error.export.rewrite.notThisNote": "这个文件不是从这篇笔记导出的，这篇笔记无法重写它。",
+  "error.export.rewrite.notSaved":
+    "“{name}”不是 IncarnaMind 这次打开后保存的，无法重写。请重新导出这篇笔记。",
+  "error.export.rewrite.gone":
+    "“{name}”已不在保存的位置，可能已被移动或删除。请重新导出这篇笔记，生成新文件。",
+  "error.export.rewrite.locked":
+    "无法修改“{name}”：它可能是只读的，或正在其他应用中打开。请先在那里关闭，或重新导出这篇笔记。",
+  "error.export.restore.nothing": "“{name}”没有可以恢复的内容。",
+  "error.export.restore.changed": "“{name}”写入后又被修改过，因此没有恢复。",
   "error.verify.notAllRead": "Word 文件有一部分没能读入这篇笔记，暂时无法找出其中的说法。",
   "error.mindCheck.request": "无法读取这个核对笔记的请求。",
   "error.contradictions.request": "无法读取这个核对矛盾的请求。",

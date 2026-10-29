@@ -75,6 +75,20 @@ describe("The line after saving, for what a file says of its checked sentences",
     );
   });
 
+  test("a file written beside one the User changed says so, in English and Chinese (#110)", () => {
+    const params = {
+      name: "Harbour report 2.docx",
+      folder: "Exports",
+      changed: "Harbour report.docx",
+    };
+    expect(t("en")("export.doneIn.changed", params)).toBe(
+      "Saved as “Harbour report 2.docx” in Exports because “Harbour report.docx” was changed",
+    );
+    expect(t("zh-CN")("export.doneIn.changed", params)).toBe(
+      "“Harbour report.docx”已被修改，因此另存为“Harbour report 2.docx”，保存到“Exports”",
+    );
+  });
+
   test("Change asks with what the comments give away, in English and Chinese", () => {
     expect(t("en")("export.checkComments.ask")).toBe(
       "Comment on what needs a look? Comments quote your Documents and name them.",

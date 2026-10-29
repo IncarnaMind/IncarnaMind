@@ -6,14 +6,16 @@
  * result as a Word comment naming the evidence Document and page, the file's own comments and
  * changes as they were, in a package Word opens without repairing.
  */
-import { copyFile, mkdir, readdir, readFile, writeFile } from "node:fs/promises";
+import { copyFile, mkdir, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { JSONContent } from "@tiptap/core";
 import { describe, expect, test } from "vitest";
 import { inspectPackage } from "../../eval/word/corpus";
-import type { Core } from "../../src/core";
+import { type Core, DATABASE_FILE, MIND_SETTINGS_FIELD } from "../../src/core";
 import { openWordPackage, reviewOf } from "../../src/core/documents/formats/docxPackage";
 import { COMMENTS_CONTENT_TYPE, COMMENTS_RELATIONSHIP } from "../../src/core/exports/wordml";
+import { openDatabase } from "../../src/core/storage";
+import { WORD_PACKAGES_FOLDER } from "../../src/core/wordImports";
 import { claimSpans } from "../../src/renderer/src/editor/claimChecks";
 import { claimCheckShown } from "../../src/shared/claimChecks";
 import { pendingProposals } from "../../src/shared/proposals";
@@ -176,6 +178,63 @@ describe("Verify a Word file someone else wrote", () => {
     expect(await core.findClaims(request(mindId))).toEqual({ kind: "found", claims: 1 });
   });
 
+  test.each([
+    ["a full disk", "database or disk is full"],
+    ["a busy disk", "database is locked"],
+  ])(
+    "an import that can't finish its Note (%s) leaves no Note and no kept file, twice, and a third try once it can goes through",
+    async (_, failure) => {
+      const { core, report, dataDir } = await setUp();
+      const db = openDatabase(join(dataDir, DATABASE_FILE));
+      db.exec(
+        `CREATE TRIGGER refuse_finish BEFORE UPDATE OF completed_at ON word_packages BEGIN SELECT RAISE(ABORT, '${failure}'); END`,
+      );
+      const kept = () => readdir(join(dataDir, WORD_PACKAGES_FOLDER)).catch(() => []);
+      for (const _try of [1, 2]) {
+        expect(await core.verifyDocument({ path: report })).toEqual({
+          ok: false,
+          reason: "word",
+          refusal: "unreadable",
+        });
+        expect((await core.listMinds()).map((each) => each.title)).not.toContain(
+          "Checking: Harbour report",
+        );
+        expect((await core.listDeleted()).filter((each) => each.kind === "mind")).toEqual([]);
+        expect(await kept()).toEqual([]);
+      }
+
+      db.exec("DROP TRIGGER refuse_finish");
+      db.close();
+      const { mind } = await verified(core, report);
+      expect(await core.findClaims(request(mind.id))).toEqual({ kind: "found", claims: 4 });
+      expect(await kept()).toHaveLength(1);
+    },
+  );
+
+  test("a quit while the import goes on keeps its Note, which goes on at the next start and verifies", async () => {
+    const { core, report, start } = await setUp();
+    const filler = Array.from({ length: 3500 }, (_, at) => paragraph(`Line ${at + 1}.`));
+    await writeFile(report, wordFile({ body: [...filler, paragraph(CONTRADICTED)].join("") }));
+    const stop = core.on("minds.changed", (minds) => {
+      if (!minds.some((each) => each.title === "Checking: Harbour report")) return;
+      stop();
+      setImmediate(() => core.close());
+    });
+
+    expect(await core.verifyDocument({ path: report })).toEqual({
+      ok: false,
+      reason: "word",
+      refusal: "unreadable",
+    });
+
+    const again = start();
+    const mind = (await again.listMinds()).find(
+      (each) => each.title === "Checking: Harbour report",
+    );
+    if (!mind) throw new Error("The Note was taken back at the quit.");
+    expect(await again.findClaims(request(mind.id))).toEqual({ kind: "found", claims: 1 });
+  });
+
   test("a paragraph the User writes in its Mind isn't one of its claims", async () => {
     const set = await setUp();
     const { mind, client } = await verified(set.core, set.report);
@@ -290,9 +349,9 @@ describe("check comments in someone else's file", () => {
     expect(first.file.name).toBe("Harbour report.docx");
     const plain = await readFile(first.file.path);
 
-    await core.setCheckComments(mind.id, true);
-    const again = await core.rewriteMindExport(mind.id, word, first.file.path);
+    const again = await core.rewriteMindExport(mind.id, word, first.file.path, true);
     if (again.status !== "saved") throw new Error(again.status);
+    expect((await core.previewMindExport(mind.id, word)).othersComments).toBe(true);
     expect(again.file.path).toBe(first.file.path);
     expect(again.sentenceChecks).toMatchObject({ commented: true, comments: 3 });
     const commented = await readFile(first.file.path);
@@ -301,12 +360,11 @@ describe("check comments in someone else's file", () => {
     );
     expect(await readdir(out)).toEqual(["Harbour report.docx"]);
 
-    await core.setCheckComments(mind.id, false);
     await core.restoreMindExport(first.file.path);
+    await core.setCheckComments(mind.id, false);
     expect(Buffer.compare(await readFile(first.file.path), plain)).toBe(0);
 
-    await core.setCheckComments(mind.id, true);
-    await core.rewriteMindExport(mind.id, word, first.file.path);
+    await core.rewriteMindExport(mind.id, word, first.file.path, true);
     expect(
       unzip(await readFile(first.file.path))
         .get("word/comments.xml")
@@ -320,7 +378,92 @@ describe("check comments in someone else's file", () => {
     expect(Buffer.compare(await readFile(join(sources, "Harbour report.docx")), REPORT)).toBe(0);
     await expect(
       core.rewriteMindExport(mind.id, word, join(sources, "Harbour report.docx")),
-    ).rejects.toThrow();
+    ).rejects.toThrow("That file wasn’t exported from this note");
+  });
+
+  test("a file the User changed since is never written over: the export goes beside it, the line says why, and Undo takes only that copy away", async () => {
+    const { core, mind, sources } = await checkedReport();
+    const out = join(sources, "Exports");
+    await mkdir(out);
+    await core.setOutputLocation(out);
+    const word = { format: "docx", commentFailedChecks: true } as const;
+    const first = await core.saveMindExport(mind.id, word);
+    if (first.status !== "saved") throw new Error(first.status);
+    const edited = Buffer.from("edited in Word");
+    await writeFile(first.file.path, edited);
+
+    const beside = await core.rewriteMindExport(mind.id, word, first.file.path, true);
+    if (beside.status !== "saved") throw new Error(beside.status);
+    expect(beside).toMatchObject({
+      file: { name: "Harbour report 2.docx" },
+      changedFile: "Harbour report.docx",
+      sentenceChecks: { comments: 3 },
+    });
+    expect(Buffer.compare(await readFile(first.file.path), edited)).toBe(0);
+
+    await core.restoreMindExport(beside.file.path);
+    expect(await readdir(out)).toEqual(["Harbour report.docx"]);
+    expect(Buffer.compare(await readFile(first.file.path), edited)).toBe(0);
+
+    // Undo never puts bytes back over a file changed after it was written either.
+    const fresh = await core.saveMindExport(mind.id, word);
+    if (fresh.status !== "saved") throw new Error(fresh.status);
+    await core.rewriteMindExport(mind.id, word, fresh.file.path, false);
+    await writeFile(fresh.file.path, edited);
+    await expect(core.restoreMindExport(fresh.file.path)).rejects.toThrow(
+      `“${fresh.file.name}” was changed after it was written, so it wasn’t put back.`,
+    );
+    expect(Buffer.compare(await readFile(fresh.file.path), edited)).toBe(0);
+  });
+
+  test("a file moved or deleted since says so by its name, and the Note's choice stays as the file is", async () => {
+    const { core, mind, sources } = await checkedReport();
+    const out = join(sources, "Exports");
+    await mkdir(out);
+    await core.setOutputLocation(out);
+    const word = { format: "docx", commentFailedChecks: true } as const;
+    const first = await core.saveMindExport(mind.id, word);
+    if (first.status !== "saved") throw new Error(first.status);
+    await rm(first.file.path);
+
+    const failed = core.rewriteMindExport(mind.id, word, first.file.path, true);
+    await expect(failed).rejects.toThrow(
+      "“Harbour report.docx” is no longer where it was saved: it may have been moved or deleted. Export the note again to make a new file.",
+    );
+    await expect(failed).rejects.not.toThrow(out);
+    expect((await core.previewMindExport(mind.id, word)).othersComments).toBe(false);
+  });
+
+  test("a Note only writes again the file it exported itself, never another Note's", async () => {
+    const { core, mind, sources } = await checkedReport();
+    const out = join(sources, "Exports");
+    await mkdir(out);
+    await core.setOutputLocation(out);
+    const memo = await core.createMind({ title: "Memo" });
+    const saved = await core.saveMindExport(memo.id, { format: "markdown" });
+    if (saved.status !== "saved") throw new Error(saved.status);
+    const before = await readFile(saved.file.path);
+
+    await expect(
+      core.rewriteMindExport(mind.id, { format: "docx" }, saved.file.path, true),
+    ).rejects.toThrow(
+      "That file wasn’t exported from this note, so this note can’t write it again.",
+    );
+    expect(Buffer.compare(await readFile(saved.file.path), before)).toBe(0);
+    await expect(core.restoreMindExport(saved.file.path)).rejects.toThrow(
+      "There is nothing to put back in “Memo.md”.",
+    );
+  });
+
+  test("a Note verified before the comment choice existed reads as off", async () => {
+    const { core, mind, client } = await checkedReport();
+    const settings = client.doc.getMap<unknown>(MIND_SETTINGS_FIELD);
+    const { comments: _absent, ...older } = verificationOf(client.doc) ?? {};
+    settings.set("verification", older);
+    await client.settled();
+
+    const exported = await core.exportMind(mind.id, { format: "docx", commentFailedChecks: true });
+    expect(exported).toMatchObject({ othersComments: false, sentenceChecks: { commented: false } });
   });
 
   test("a table row checked as one claim gets one comment over the whole row", async () => {

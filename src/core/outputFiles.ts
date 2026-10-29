@@ -16,8 +16,8 @@
  */
 import { randomUUID } from "node:crypto";
 import { constants } from "node:fs";
-import { access, mkdir, readFile, realpath, stat } from "node:fs/promises";
-import { extname, isAbsolute, join } from "node:path";
+import { access, mkdir, readFile, realpath, rm, stat } from "node:fs/promises";
+import { basename, extname, isAbsolute, join } from "node:path";
 import type {
   FileWriteRequest,
   LinkedFolder,
@@ -33,6 +33,7 @@ import {
   InvalidInputError,
   LinkedFolderWritesDeclinedError,
   NotFoundError,
+  TranslatableError,
 } from "./errors";
 import type { createEventHub } from "./events";
 import { removeStalePartials, replaceFile, safeFileName, writeNewFile } from "./fileNames";
@@ -141,11 +142,37 @@ async function usableDefault(
   }
 }
 
+/** A problem with a file IncarnaMind saved, said with its name, never its path (#110). */
+function fileProblem(file: SavedFile, error: unknown): Error {
+  if (error instanceof TranslatableError) return error;
+  const code = (error as NodeJS.ErrnoException).code;
+  const values = { name: file.name };
+  if (code === "ENOENT" || code === "ENOTDIR") {
+    return new TranslatableError({ key: "error.export.rewrite.gone", values }, { cause: error });
+  }
+  if (code === "EACCES" || code === "EPERM" || code === "EROFS" || code === "EBUSY") {
+    return new TranslatableError({ key: "error.export.rewrite.locked", values }, { cause: error });
+  }
+  return error instanceof Error ? error : new Error(String(error));
+}
+
 export function createOutputFiles(options: OutputFilesOptions) {
   const { db, events, now, settings } = options;
   const pending = new Map<string, Pending>();
   /** Files saved since the core started: the only ones the window may ask to show. */
   const saved = new Map<string, SavedFile>();
+
+  /** A file this session saved, or a problem naming it. */
+  const savedFile = (path: unknown): SavedFile => {
+    const file = typeof path === "string" ? saved.get(path) : undefined;
+    if (!file) {
+      throw new InvalidInputError({
+        key: "error.export.rewrite.notSaved",
+        values: { name: typeof path === "string" ? basename(path) : "" },
+      });
+    }
+    return file;
+  };
 
   const location = (): string | null => {
     const value = settings.readDeviceValue(OUTPUT_LOCATION);
@@ -413,26 +440,46 @@ export function createOutputFiles(options: OutputFilesOptions) {
       }
     },
 
+    /** What a file this session saved holds now (#110). Throws a plain-words problem naming it. */
+    async current(path: unknown): Promise<Uint8Array> {
+      const file = savedFile(path);
+      try {
+        return new Uint8Array(await readFile(file.path));
+      } catch (error) {
+        throw fileProblem(file, error);
+      }
+    },
+
     /**
      * Writes a file this session saved again, in place (#110), its fingerprint recorded first as
-     * a new file's is. Returns the file and the bytes it held. Throws InvalidInputError for any
-     * other path.
+     * a new file's is. Returns the file and the bytes it held. Throws a plain-words problem
+     * naming the file when it is gone or can't be changed.
      */
     async rewrite(
       path: unknown,
       data: Uint8Array,
       ownFile: OwnFileKind | null,
     ): Promise<{ file: SavedFile; before: Uint8Array }> {
-      const file = typeof path === "string" ? saved.get(path) : undefined;
-      if (!file) {
-        throw new InvalidInputError(
-          "Only a file IncarnaMind saved since it started is written again.",
-        );
+      const file = savedFile(path);
+      try {
+        const before = new Uint8Array(await readFile(file.path));
+        if (ownFile) options.recordOwnFile(data, ownFile);
+        await replaceFile(file.path, data);
+        return { file: { ...file, defaulted: false }, before };
+      } catch (error) {
+        throw fileProblem(file, error);
       }
-      const before = new Uint8Array(await readFile(file.path));
-      if (ownFile) options.recordOwnFile(data, ownFile);
-      await replaceFile(file.path, data);
-      return { file: { ...file, defaulted: false }, before };
+    },
+
+    /** Deletes a file this session saved, which nothing else wrote since (#110): an Undo of it. */
+    async remove(path: unknown): Promise<void> {
+      const file = savedFile(path);
+      try {
+        await rm(file.path);
+      } catch (error) {
+        throw fileProblem(file, error);
+      }
+      saved.delete(file.path);
     },
 
     /** Whether IncarnaMind saved this file since it started. */

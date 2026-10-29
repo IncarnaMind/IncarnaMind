@@ -102,16 +102,20 @@ export async function setUpWordVerify(
   language: "en" | "zh-CN" = "en",
   more: Record<string, Plan> = {},
 ) {
-  const core = startCore(await createTempDataFolder(), {
-    createChatModel: scriptedModels(checkingModel({ ...PLANS, ...more }, calls)).createChatModel,
-  });
+  const dataDir = await createTempDataFolder();
+  /** A core on this data folder: the first, or another once it closed, as after a restart. */
+  const start = () =>
+    startCore(dataDir, {
+      createChatModel: scriptedModels(checkingModel({ ...PLANS, ...more }, calls)).createChatModel,
+    });
+  const core = start();
   await core.updateSettings({ user: { language } });
   await core.saveChatProvider({ kind: "ollama", modelId: "local-model" });
   const sources = await createTempDataFolder();
   const [tides] = await addAndProcess(core, [await writeSourceFile(sources, "Tides.pdf", TIDES)]);
   const report = join(sources, "Harbour report.docx");
   await writeFile(report, REPORT);
-  return { core, sources, report, tides };
+  return { core, sources, report, tides, dataDir, start };
 }
 
 export const verifyRequest = (mindId: string): VerifyClaimsInput => ({
