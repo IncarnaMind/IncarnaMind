@@ -240,8 +240,8 @@ export function createExamples(options: ExamplesOptions) {
         waitingFor ??= quote.document;
         continue;
       }
-      // The file couldn't be read, or holds no text: nothing will answer from it.
-      if (!hasText(document)) return null;
+      // The file couldn't be read, or a scan held no text: nothing will answer from it.
+      if (!hasText(document) || document.status === "no-text") return null;
     }
     return { question: ready.question, waitingFor };
   };

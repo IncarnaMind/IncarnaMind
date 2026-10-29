@@ -139,6 +139,20 @@ test("a read that never ends says so, rather than waiting for ever", async () =>
   release();
 });
 
+test("an example Document with no text to read takes the Question away", async () => {
+  const fake = createFakeTextRecognizer({ script: { pages: {} } });
+  const examples = await examplesFolder(() => buildPdf([{ scan: picture("en-clean") }]));
+  const core = await startWith(
+    { textRecognizer: fake, textRecognitionModelSource: NO_MODEL_FILES },
+    examples,
+  );
+  // A scan whose pages read no text: the Question goes before it is ever a dead button.
+  await vi.waitFor(async () => expect(await core.readyQuestion()).toBeNull(), { timeout: 30_000 });
+  await expect(core.askExampleReadyQuestion()).rejects.toMatchObject({
+    wording: { key: "error.examples.unreadable" },
+  });
+});
+
 test("a Document that can't be read takes the Question away, and asking says why", async () => {
   const examples = await examplesFolder(() => new TextEncoder().encode("%PDF-1.4 not a PDF"));
   const core = await startWith({}, examples);

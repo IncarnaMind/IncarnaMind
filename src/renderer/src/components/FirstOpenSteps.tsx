@@ -249,7 +249,13 @@ export function FirstOpenSteps({ mindId }: { mindId: string }) {
             </p>
             <ReadyLine
               question={ready?.question ?? null}
-              waitingFor={(askingReady ? readyWaiting : ready?.waitingFor) ?? null}
+              waitingFor={
+                askingReady
+                  ? ready === null
+                    ? readyWaiting
+                    : ready.waitingFor
+                  : (ready?.waitingFor ?? null)
+              }
               asking={live && askingReady}
               reading={reading}
               unread={unread}

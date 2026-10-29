@@ -215,6 +215,16 @@ describe("the example's ready Question while its Documents are read (#2218)", ()
     expect(useConversations.getState().openId).toBe("asked");
   });
 
+  // protects=the row says what this ask is reading, not what the last one failed at; fails_when=an old problem stays beside the new reading line
+  test("a new ask clears the last one's problem", async () => {
+    useAnswers.setState({
+      blocked: { "composer:assistant": { kind: "error", message: "The last ask failed." } },
+    });
+    exampleAsk = async () => ({ conversationId: "asked", answerId: "answer", stopped: false });
+    await conversations.askReadyQuestion(example);
+    expect(useAnswers.getState().blocked["composer:assistant"]).toBeUndefined();
+  });
+
   // protects=a stopped Answer does not tick step 2, so the card stays to ask again; fails_when=Stop counts as answered
   test("a stopped Answer leaves step 2 open", async () => {
     useAppStore.setState({ settings: steps(false) });

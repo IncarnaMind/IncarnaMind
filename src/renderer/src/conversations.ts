@@ -177,6 +177,8 @@ export async function askReadyQuestion(ready: ReadyQuestion): Promise<boolean> {
       // Asked like any Question: its step ticks when its Answer arrives, not when it is asked.
       return await askInAssistant({ text: ready.question, mindId: null, scope: ready.scope });
     }
+    // The last ask's problem is not this ask's: the row says what this one is reading.
+    settleAsk(composerKey(null), null);
     useReadyAsk.setState({ asking: true, waitingFor: ready.waitingFor });
     try {
       const { conversationId, stopped } = await core.askExampleReadyQuestion();
