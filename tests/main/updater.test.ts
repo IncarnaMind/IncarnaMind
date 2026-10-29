@@ -13,6 +13,7 @@ const fixture = vi.hoisted(() => ({
   autoInstallAtCheck: true,
   quitListenersAtCheck: 0,
   checkVersion: "0.1.0-test",
+  userData: "",
 }));
 
 vi.mock("electron", async () => {
@@ -20,7 +21,9 @@ vi.mock("electron", async () => {
   return {
     app: Object.assign(new EventEmitter(), {
       isPackaged: true,
+      runningUnderARM64Translation: false,
       releaseSingleInstanceLock: fixture.releaseSingleInstanceLock,
+      getPath: () => fixture.userData,
     }),
     autoUpdater: new EventEmitter(),
     BrowserWindow: { getAllWindows: () => [] },
@@ -53,6 +56,8 @@ beforeEach(async () => {
   const { app, autoUpdater: native } = await import("electron");
   const { tmpdir } = await import("node:os");
   const { join } = await import("node:path");
+  const { mkdtemp } = await import("node:fs/promises");
+  fixture.userData = await mkdtemp(join(tmpdir(), "incarnamind-updater-data-"));
   const { UpdaterAppFixture, UpdaterSdkFixture } = await import("../helpers/updaterSdk");
   const sdk = Object.assign(
     new UpdaterSdkFixture(
@@ -95,6 +100,8 @@ afterEach(async () => {
   vi.unstubAllEnvs();
   vi.unstubAllGlobals();
   vi.restoreAllMocks();
+  const { rm } = await import("node:fs/promises");
+  await rm(fixture.userData, { recursive: true, force: true });
 });
 
 async function start(
@@ -140,8 +147,9 @@ async function start(
     order.push(`prepare:${reopens}`);
     options.prepare?.(version, reopens);
   });
-  updater.startAutoUpdates(core, settleQuit, failed, started, prepared);
+  const done = updater.startAutoUpdates(core, settleQuit, failed, started, prepared);
   return {
+    done,
     updater,
     core,
     settleQuit,
@@ -347,6 +355,60 @@ test("an unsigned Mac offers its download without waiting for native preparation
   expect(run.settleQuit).not.toHaveBeenCalled();
   expect(run.prepared).not.toHaveBeenCalled();
   expect(fixture.quitAndInstall).not.toHaveBeenCalled();
+});
+
+// Every version after 0.1.0-alpha.5 is for Apple silicon only (#2199).
+test("an Intel Mac is told once for each new version that it can't install it, with nothing to download", async () => {
+  vi.stubGlobal("process", { ...process, platform: "darwin", arch: "x64" });
+  fixture.signed = false;
+  fixture.prepareNative = false;
+  const intelNotice = (version: string) =>
+    expect.objectContaining({
+      message: `IncarnaMind ${version} needs a Mac with Apple silicon, so this Mac can’t install it. Your Notes and Documents stay where they are.`,
+      buttons: ["Got it"],
+    });
+
+  const first = await start();
+  await first.done;
+  expect(fixture.showMessageBox).toHaveBeenCalledExactlyOnceWith(null, intelNotice("0.1.0-test"));
+  const { autoUpdater: sdk } = await import("../../src/main/autoUpdater");
+  expect(sdk.autoDownload).toBe(false);
+
+  await (await start()).done;
+  expect(fixture.checkForUpdates).toHaveBeenCalledTimes(2);
+  expect(fixture.showMessageBox).toHaveBeenCalledOnce();
+
+  fixture.checkVersion = "0.1.0-next";
+  await (await start({ settings: Promise.resolve({ language: "zh-CN" }) })).done;
+  expect(fixture.showMessageBox).toHaveBeenCalledTimes(2);
+  expect(fixture.showMessageBox).toHaveBeenLastCalledWith(
+    null,
+    expect.objectContaining({
+      message:
+        "IncarnaMind 0.1.0-next 需要搭载 Apple 芯片的 Mac，这台 Mac 无法安装。你的笔记和文档都会原样保留。",
+      buttons: ["知道了"],
+    }),
+  );
+  expect(fixture.openBrowser).not.toHaveBeenCalled();
+  expect(fixture.quitAndInstall).not.toHaveBeenCalled();
+});
+
+test("an Apple silicon Mac is offered the new version's download, as before", async () => {
+  vi.stubGlobal("process", { ...process, platform: "darwin", arch: "arm64" });
+  fixture.signed = false;
+  fixture.prepareNative = false;
+  const run = await start({ response: 0 });
+  await run.done;
+  expect(fixture.showMessageBox).toHaveBeenCalledExactlyOnceWith(
+    null,
+    expect.objectContaining({
+      message: "IncarnaMind 0.1.0-test is available",
+      buttons: ["Download", "Later"],
+    }),
+  );
+  expect(fixture.openBrowser).toHaveBeenCalledExactlyOnceWith(
+    "https://github.com/IncarnaMind/IncarnaMind/releases/tag/v0.1.0-test",
+  );
 });
 
 test("turning automatic checks off never waits for native preparation or starts the SDK check", async () => {

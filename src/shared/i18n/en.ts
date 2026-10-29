@@ -4692,6 +4692,9 @@ export const en = {
   "update.pending.detail": "The update will finish the next time you quit IncarnaMind.",
   "update.pending.dismiss": "Got it",
   "update.later": "Later",
+  "update.intelMac.message":
+    "IncarnaMind {version} needs a Mac with Apple silicon, so this Mac can’t install it. Your Notes and Documents stay where they are.",
+  "update.intelMac.dismiss": "Got it",
   "update.failed.title": "The update couldn’t be installed",
   "update.failed.detail":
     "IncarnaMind will reopen when you close this message. You can install the update later.",

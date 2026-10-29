@@ -4471,6 +4471,9 @@ export const zhCN = {
   "update.pending.detail": "下次退出 IncarnaMind 时将完成更新。",
   "update.pending.dismiss": "知道了",
   "update.later": "稍后",
+  "update.intelMac.message":
+    "IncarnaMind {version} 需要搭载 Apple 芯片的 Mac，这台 Mac 无法安装。你的笔记和文档都会原样保留。",
+  "update.intelMac.dismiss": "知道了",
   "update.failed.title": "未能安装更新",
   "update.failed.detail": "关闭此提示后，IncarnaMind 会重新打开。之后可以再安装更新。",
   "update.failed.reopen": "重新打开 IncarnaMind",

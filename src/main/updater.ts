@@ -12,13 +12,18 @@
  *   installs it as root through `pkexec bash -c 'dpkg -i …'` (#1178). In both, the User is
  *   told that a new version is out and offered its download page instead.
  *
+ * - An Intel Mac can't run any version after this one: they are for Apple silicon only (#2199).
+ *   It is told so once for each new version, and offered nothing to download.
+ *
  * The check sends nothing of the User's, so it needs no consent; the Privacy page lists
  * it, and the User can turn automatic checks off there. They are on by default.
  */
 import { execFile } from "node:child_process";
-import { resolve } from "node:path";
+import { readFile, writeFile } from "node:fs/promises";
+import { join, resolve } from "node:path";
 import { app, BrowserWindow, autoUpdater as nativeUpdater } from "electron";
 import type { Core, ExternalService, Language, PrivacySettings, Settings } from "../core";
+import { isRecord } from "../core/errors";
 import { translate } from "../shared/i18n";
 import { systemBrowser } from "./platform";
 import { RELEASES_PAGE } from "./startupError";
@@ -56,8 +61,9 @@ export function registerUpdateCheck(core: Pick<Core, "networkTraffic" | "getPriv
 }
 
 /**
- * Starts this run's update check in the background. Does nothing in an
- * unpackaged app, or when the User turned automatic update checks off.
+ * Starts this run's update check in the background; the promise settles once the check and what
+ * it asked are done, and never rejects. Does nothing in an unpackaged app, or when the User turned
+ * automatic update checks off.
  */
 export function startAutoUpdates(
   core: SettingsSource,
@@ -65,8 +71,8 @@ export function startAutoUpdates(
   installFailed: (error: unknown, language: Language, reopens: boolean) => void,
   installStarted: (reopens: boolean) => void,
   prepareInstall: (targetVersion: string, reopens: boolean) => void,
-): void {
-  if (!app.isPackaged) return;
+): Promise<void> {
+  if (!app.isPackaged) return Promise.resolve();
   let preparedReopens: boolean | undefined;
   const prepare = (version: string, reopens: boolean): boolean => {
     if (preparedReopens !== undefined) return false;
@@ -83,7 +89,7 @@ export function startAutoUpdates(
   nativeUpdater.on("before-quit-for-update", () => {
     if (preparedReopens !== undefined) beginInstall(preparedReopens);
   });
-  checkForUpdates(core, settleQuit, installFailed, beginInstall, prepare).catch(
+  return checkForUpdates(core, settleQuit, installFailed, beginInstall, prepare).catch(
     (error: unknown) => {
       // Offline, rate-limited, or no release yet: the next start tries again.
       console.warn("The update check failed:", error);
@@ -122,7 +128,8 @@ async function checkForUpdates(
       failed(error, update.language, reopens);
     }
   });
-  const installable = await canInstallUpdates();
+  const intelMac = isIntelMac();
+  const installable = !intelMac && (await canInstallUpdates());
   autoUpdater.autoDownload = installable;
   const preparing = process.platform === "darwin" && installable ? nativePreparation() : null;
   const onDownloaded = (info: { version: string }) => {
@@ -134,6 +141,11 @@ async function checkForUpdates(
     const result = await autoUpdater.checkForUpdates();
     if (!result?.isUpdateAvailable) return;
     const { version } = result.updateInfo;
+
+    if (intelMac) {
+      await tellIntelMacOnce(language, version);
+      return;
+    }
 
     if (!installable) {
       if (await ask(language, "available", version)) {
@@ -196,6 +208,46 @@ function nativePreparation() {
   nativeUpdater.once("update-downloaded", downloaded);
   nativeUpdater.once("error", failed);
   return { result: prepared.promise, close };
+}
+
+/** An Intel Mac, not an Apple silicon one running an Intel build under Rosetta. */
+const isIntelMac = (): boolean =>
+  process.platform === "darwin" && process.arch === "x64" && !app.runningUnderARM64Translation;
+
+/** The data folder's record of the last new version an Intel Mac was told about. */
+const INTEL_NOTICE_FILE = "intel-mac-notice.json";
+
+async function toldIntelMac(): Promise<string | null> {
+  try {
+    const read: unknown = JSON.parse(
+      await readFile(join(app.getPath("userData"), INTEL_NOTICE_FILE), "utf8"),
+    );
+    return isRecord(read) && typeof read.version === "string" ? read.version : null;
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "ENOENT") {
+      console.warn("The Intel Mac notice's record couldn't be read:", error);
+    }
+    return null;
+  }
+}
+
+async function tellIntelMacOnce(language: Language, version: string): Promise<void> {
+  if ((await toldIntelMac()) === version) return;
+  // Kept before the notice shows, so a quit with it still open doesn't show it again.
+  await writeFile(
+    join(app.getPath("userData"), INTEL_NOTICE_FILE),
+    JSON.stringify({ version }),
+  ).catch((error: unknown) => {
+    console.warn("The Intel Mac notice's record couldn't be saved:", error);
+  });
+  const window = BrowserWindow.getAllWindows().find((it) => it.isVisible());
+  await showMessageBox(window ?? null, {
+    type: "info",
+    message: translate(language, "update.intelMac.message", { version }),
+    buttons: [translate(language, "update.intelMac.dismiss")],
+    defaultId: 0,
+    cancelId: 0,
+  });
 }
 
 /**
