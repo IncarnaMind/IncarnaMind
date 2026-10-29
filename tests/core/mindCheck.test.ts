@@ -20,6 +20,7 @@ import { keepCheckAsView } from "../../src/shared/claimParts";
 import { readFigures } from "../../src/shared/figures";
 import { mindCheckOf, sentenceKey, writeMindCheck } from "../../src/shared/mindCheck";
 import { setMindModel } from "../../src/shared/mindModel";
+import { readOpinionSentences } from "../../src/shared/opinions";
 import {
   checkGenerate,
   checkReply,
@@ -97,11 +98,14 @@ interface SortDecisions {
 
 /** The numbers a request listed `sentence` under. */
 const numbersOf = (call: GenerateCall, sentence: string): number[] =>
-  listedSentences(call.prompt).flatMap((listed) => listed.text === sentence ? [listed.number] : []);
+  listedSentences(call.prompt).flatMap((listed) =>
+    listed.text === sentence ? [listed.number] : [],
+  );
 
 /** A reply's decisions without those of `sentences`. */
 const withoutDecisions =
-  (sentences: readonly string[]) => (call: GenerateCall, decisions: SortDecisions): SortDecisions => {
+  (sentences: readonly string[]) =>
+  (call: GenerateCall, decisions: SortDecisions): SortDecisions => {
     const missing = new Set(sentences.flatMap((sentence) => numbersOf(call, sentence)));
     return { sentences: decisions.sentences.filter((sentence) => !missing.has(sentence.number)) };
   };
@@ -118,11 +122,7 @@ const runsIn = (calls: readonly ModelCall[]) =>
 async function setUp(
   billed?: { usage: ReportedUsage; judged?: ReportedUsage },
   /** How a reply naming the claims differs from the plans' decisions, by how many were asked. */
-  decide?: (
-    asked: number,
-    call: GenerateCall,
-    decisions: SortDecisions,
-  ) => SortDecisions,
+  decide?: (asked: number, call: GenerateCall, decisions: SortDecisions) => SortDecisions,
 ) {
   const checks: ModelCall[] = [];
   const finds: GenerateCall[] = [];
@@ -145,8 +145,13 @@ async function setUp(
         if (sorting && "text" in reply) {
           const decisions = JSON.parse(reply.text) as SortDecisions;
           const views = new Set(numbersOf(call, OPINION));
-          const explicit = { sentences: decisions.sentences.map((sentence) => views.has(sentence.number)
-            ? { ...sentence, parts: [{ kind: "opinion" as const, text: OPINION }] } : sentence) };
+          const explicit = {
+            sentences: decisions.sentences.map((sentence) =>
+              views.has(sentence.number)
+                ? { ...sentence, parts: [{ kind: "opinion" as const, text: OPINION }] }
+                : sentence,
+            ),
+          };
           return { text: JSON.stringify(decide ? decide(finds.length, call, explicit) : explicit) };
         }
         return billed?.judged && "text" in reply && call.system.startsWith("Compare a sentence")
@@ -406,31 +411,36 @@ describe("Check this note", () => {
   test.each([
     ["Spring tides come at new and full moon.", "Penguins nest on the cliffs above the harbour."],
     ["大潮发生在新月和满月时。", "企鹅在港口上方的悬崖筑巢。"],
-  ])("a readable reply missing every sentence leaves them unexamined: %s", async (first, second) => {
-    const { core, client, mindId, folderId, finds } = await setUp(undefined, () => ({ sentences: [] }));
-    writeMind(client, [
-      { type: "paragraph", attrs: { id: "all-missing" }, content: [text(`${first} ${second}`)] },
-    ]);
-    await client.settled();
-    expect(await core.checkMind(request(mindId, "all"))).toMatchObject({
-      kind: "checked",
-      sentences: 0,
-      checked: 0,
-      stop: null,
-    });
-    expect(finds).toHaveLength(2);
-    expect(finds[1]?.prompt).toBe(finds[0]?.prompt);
-    expect(mindCheckOf(client.doc)).toMatchObject({
-      skipped: [],
-      unexamined: [sentenceKey(first), sentenceKey(second)],
-    });
-    expect(await shownChecks(core, client, mindId, folderId)).toEqual([]);
-    expect(await core.planMindCheck(mindId, "changed")).toMatchObject({
-      kind: "ready",
-      sentences: 2,
-      findsClaims: true,
-    });
-  });
+  ])(
+    "a readable reply missing every sentence leaves them unexamined: %s",
+    async (first, second) => {
+      const { core, client, mindId, folderId, finds } = await setUp(undefined, () => ({
+        sentences: [],
+      }));
+      writeMind(client, [
+        { type: "paragraph", attrs: { id: "all-missing" }, content: [text(`${first} ${second}`)] },
+      ]);
+      await client.settled();
+      expect(await core.checkMind(request(mindId, "all"))).toMatchObject({
+        kind: "checked",
+        sentences: 0,
+        checked: 0,
+        stop: null,
+      });
+      expect(finds).toHaveLength(2);
+      expect(finds[1]?.prompt).toBe(finds[0]?.prompt);
+      expect(mindCheckOf(client.doc)).toMatchObject({
+        skipped: [],
+        unexamined: [sentenceKey(first), sentenceKey(second)],
+      });
+      expect(await shownChecks(core, client, mindId, folderId)).toEqual([]);
+      expect(await core.planMindCheck(mindId, "changed")).toMatchObject({
+        kind: "ready",
+        sentences: 2,
+        findsClaims: true,
+      });
+    },
+  );
 
   test("a sentence no reply decides isn't examined: no mark, not left out as no claim, and the next Check asks about it again (#1682)", async () => {
     let silent = true;
@@ -500,9 +510,13 @@ describe("Check this note", () => {
   test("the same words twice, named a claim once and left out once, are checked and not left out (#1682)", async () => {
     const { core, client, mindId, folderId } = await setUp(undefined, (_, call, decisions) => {
       const [, second] = numbersOf(call, MOON);
-      return second === undefined ? decisions : {
-        sentences: decisions.sentences.map((sentence) => sentence.number === second ? { ...sentence, parts: [] } : sentence),
-      };
+      return second === undefined
+        ? decisions
+        : {
+            sentences: decisions.sentences.map((sentence) =>
+              sentence.number === second ? { ...sentence, parts: [] } : sentence,
+            ),
+          };
     });
     editMind(client, (blocks) => [
       ...blocks,
@@ -754,7 +768,9 @@ describe("Check this note", () => {
       sentences: 3,
     });
     expect(finds).toHaveLength(1);
-    expect(mindCheckOf(client.doc)?.skipped).toHaveLength(3);
+    expect(mindCheckOf(client.doc)?.skipped).toEqual([sentenceKey(QUESTION), sentenceKey(memo)]);
+    expect(readOpinionSentences(client.doc).map((sentence) => sentence.text)).toEqual([OPINION]);
+    expect(mindCheckOf(client.doc)?.unexamined).toEqual([]);
     expect(await core.planMindCheck(mindId, "changed")).toMatchObject({ kind: "unchanged" });
   });
 

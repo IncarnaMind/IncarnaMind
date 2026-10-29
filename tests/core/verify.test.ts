@@ -181,10 +181,12 @@ describe("Verify a document", () => {
             .filter(({ text }) => text === UNSUPPORTED)
             .map(({ number }) => number),
         );
-        return { text: JSON.stringify({
-          ...decisions,
-          sentences: decisions.sentences.filter(({ number }) => !missing.has(number)),
-        }) };
+        return {
+          text: JSON.stringify({
+            ...decisions,
+            sentences: decisions.sentences.filter(({ number }) => !missing.has(number)),
+          }),
+        };
       },
     });
     const { core, report } = await setUp(model);

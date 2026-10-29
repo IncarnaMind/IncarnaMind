@@ -17,7 +17,7 @@ import {
   toggleCitationSignOff,
 } from "../../src/renderer/src/editor/signOffActions";
 import { pendingPart } from "../../src/shared/claimParts";
-import { signOffsOf } from "../../src/shared/signOffs";
+import { citationSignOffBasis, type SignOffRecord, signOffsOf } from "../../src/shared/signOffs";
 import { createTempDataFolder, startCore } from "../helpers/core";
 import { boundEditor, headlessEditor } from "../helpers/editor";
 import type { MindClient } from "../helpers/mindClient";
@@ -571,3 +571,70 @@ describe("Checked by me on Note-owned part receipts", () => {
     },
   );
 });
+
+test.each(["Spring tides come at new moon.", "大潮出现在新月时。"])(
+  "an inline Citation and a part receipt with one canonical id count one human mark: %s",
+  (words) => {
+    const receipt: CitationAttributes = {
+      id: "shared-citation",
+      passageId: "p",
+      documentId: "d",
+      documentName: "Tides",
+      contentHash: "v1",
+      pageFrom: 1,
+      pageTo: 1,
+      location: null,
+      quote: "Tides rise.",
+      check: "found",
+      checkReason: null,
+    };
+    const mark = {
+      type: "claimCheck",
+      attrs: {
+        id: "check",
+        state: "supported",
+        text: words,
+        parts: [
+          {
+            ...pendingPart({ span: { start: 0, end: words.length }, kind: "fact" }),
+            verdict: "supported",
+            evidence: [receipt],
+          },
+        ],
+      },
+    };
+    const doc = getSchema(noteExtensions()).nodeFromJSON({
+      type: "doc",
+      content: [
+        {
+          type: "paragraph",
+          attrs: { id: "p" },
+          content: [
+            { type: "text", text: words.slice(0, -1), marks: [mark] },
+            { type: CITATION_NODE, attrs: receipt },
+            { type: "text", text: words.slice(-1), marks: [mark] },
+          ],
+        },
+      ],
+    });
+    const records: SignOffRecord[] = [
+      {
+        id: "human",
+        target: { kind: "citation", id: receipt.id ?? "" },
+        at: "2026-10-28T09:00:00.000Z",
+        contentHash: citationSignOffBasis(words, receipt),
+        deletedAt: null,
+        name: signer.name,
+        personId: signer.personId,
+      },
+    ];
+    expect(signOffCounts(doc, records, null, new Map([["d", "v1"]]), signer.personId)).toEqual({
+      checked: 1,
+      changed: 0,
+    });
+    expect(signOffCounts(doc, records, null, new Map([["d", "v2"]]), signer.personId)).toEqual({
+      checked: 0,
+      changed: 1,
+    });
+  },
+);

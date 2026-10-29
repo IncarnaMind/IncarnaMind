@@ -112,7 +112,10 @@ async function check(
           sorts.push(call);
           return {
             text: JSON.stringify({
-              sentences: parts === null ? [] : listedSentences(call.prompt).map(({ number }) => ({ number, parts })),
+              sentences:
+                parts === null
+                  ? []
+                  : listedSentences(call.prompt).map(({ number }) => ({ number, parts })),
             }),
           };
         }
@@ -159,7 +162,13 @@ async function check(
     modelId: "claude-haiku-5-5",
   });
   await core.updateSettings({ user: { language } });
-  return { result: await core.checkClaim({ claim, context }), calls, judgements, recoveries, sorts };
+  return {
+    result: await core.checkClaim({ claim, context }),
+    calls,
+    judgements,
+    recoveries,
+    sorts,
+  };
 }
 
 describe("literal sentence parts", () => {
@@ -1198,33 +1207,70 @@ describe("literal stated quantity repair", () => {
 });
 
 describe.each([
-  { language: "en", fact: "Revenue rose.", opinion: "We find the proposal risky.", source: "The proposal will be discussed." },
-  { language: "zh-CN", fact: "收入增长。", opinion: "我们觉得这项提议有风险。", source: "这项提议将会进行讨论。" },
+  {
+    language: "en",
+    fact: "Revenue rose.",
+    opinion: "We find the proposal risky.",
+    source: "The proposal will be discussed.",
+  },
+  {
+    language: "zh-CN",
+    fact: "收入增长。",
+    opinion: "我们觉得这项提议有风险。",
+    source: "这项提议将会进行讨论。",
+  },
 ] as const)("standalone sorting distinctions: $language", ({ language, fact, opinion, source }) => {
   test("an empty-all reply asked twice remains Not checked and never becomes an opinion", async () => {
-    const { result, calls, sorts } = await check(fact, null, { [fact]: { quotes: [fact] } }, language);
+    const { result, calls, sorts } = await check(
+      fact,
+      null,
+      { [fact]: { quotes: [fact] } },
+      language,
+    );
     expect(sorts.map((call) => listedSentences(call.prompt))).toEqual([
       [{ number: 1, text: fact }],
       [{ number: 1, text: fact }],
     ]);
     expect(result).toMatchObject({ verdict: "not-checked", reason: "malformed" });
-    expect(result.parts?.map((part) => [part.kind, part.verdict])).toEqual([["fact", "not-checked"]]);
+    expect(result.parts?.map((part) => [part.kind, part.verdict])).toEqual([
+      ["fact", "not-checked"],
+    ]);
     expect(calls).toHaveLength(0);
   });
 
   test("an explicit empty inventory retains the User's standalone check", async () => {
-    const { result, calls, sorts } = await check(fact, [], { [fact]: { quotes: [fact] } }, language);
+    const { result, calls, sorts } = await check(
+      fact,
+      [],
+      { [fact]: { quotes: [fact] } },
+      language,
+    );
     expect(sorts).toHaveLength(1);
     expect(calls.map(sentenceOf)).toContain(fact);
-    expect(result).toMatchObject({ verdict: "supported", parts: [{ kind: "opinion", verdict: "supported", span: { start: 0, end: fact.length } }] });
+    expect(result).toMatchObject({
+      verdict: "supported",
+      parts: [{ kind: "opinion", verdict: "supported", span: { start: 0, end: fact.length } }],
+    });
   });
 
   test("a genuine opinion retains its declared span and explicit check", async () => {
-    const { result, calls, sorts } = await check(opinion, [{ kind: "opinion", text: opinion }], {
-      [opinion]: { quotes: [], sourceQuotes: [source], reply: "Verdict: unsupported\nTopic: not found\nEvidence: []\nCalculation: none" },
-    }, language);
+    const { result, calls, sorts } = await check(
+      opinion,
+      [{ kind: "opinion", text: opinion }],
+      {
+        [opinion]: {
+          quotes: [],
+          sourceQuotes: [source],
+          reply: "Verdict: unsupported\nTopic: not found\nEvidence: []\nCalculation: none",
+        },
+      },
+      language,
+    );
     expect(sorts).toHaveLength(1);
     expect(calls.map(sentenceOf)).toContain(opinion);
-    expect(result).toMatchObject({ verdict: "unsupported", parts: [{ kind: "opinion", verdict: "unsupported", span: { start: 0, end: opinion.length } }] });
+    expect(result).toMatchObject({
+      verdict: "unsupported",
+      parts: [{ kind: "opinion", verdict: "unsupported", span: { start: 0, end: opinion.length } }],
+    });
   });
 });

@@ -158,14 +158,17 @@ export function signOffCounts(
     if (now.state === "checked") checked++;
     else changed++;
   };
+  const seen = new Set<string>();
   if (records.some((record) => record.target.kind === "citation"))
     doc.descendants((node, pos) => {
-      if (node.type.name === CITATION_NODE)
-        count(
-          citationSignOff(records, doc, pos, node.attrs as CitationAttributes, versions, personId),
-        );
+      if (node.type.name !== CITATION_NODE) return;
+      const attributes = node.attrs as CitationAttributes;
+      if (typeof attributes.id === "string") {
+        if (seen.has(attributes.id)) return;
+        seen.add(attributes.id);
+      }
+      count(citationSignOff(records, doc, pos, attributes, versions, personId));
     });
-  const seen = new Set<string>();
   for (const claim of claimSpans(doc))
     for (const part of claim.check.parts ?? [])
       for (const citation of partCitations(part)) {

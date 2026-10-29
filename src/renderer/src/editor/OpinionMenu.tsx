@@ -52,6 +52,7 @@ export function OpinionMenu({
     flushSync(() => setOpinion(chosen));
     return row.querySelector<HTMLButtonElement>('[data-testid="opinion-context-menu"]');
   });
+  const { onKeyDown, ...rowProps } = menu.rowProps;
 
   useEffect(() => {
     const element = editor.view.dom;
@@ -79,7 +80,15 @@ export function OpinionMenu({
   }, [editor, doc]);
 
   return (
-    <div className="contents" {...menu.rowProps}>
+    <div
+      className="contents"
+      {...rowProps}
+      onKeyDownCapture={(event) => {
+        // The editor takes Shift+F10 before a bubbling row handler can open the opinion menu (#2002).
+        if (event.target instanceof Node && editor.view.dom.contains(event.target))
+          onKeyDown(event);
+      }}
+    >
       {children}
       {opinion && (
         <ObjectMenu

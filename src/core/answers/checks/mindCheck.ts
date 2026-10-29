@@ -172,7 +172,12 @@ export function createMindCheck(options: MindCheckOptions) {
     prepared: PreparedChatModel,
     signal: AbortSignal,
   ): Promise<
-    | { kind: "found"; claims: SortedSentence[]; left: SortedSentence[]; undecided: SelectedSentence[] }
+    | {
+        kind: "found";
+        claims: SortedSentence[];
+        left: SortedSentence[];
+        undecided: SelectedSentence[];
+      }
     | Exclude<ClaimsFound, { kind: "found" }>
   > {
     const known = sorted.get(mindId) ?? new Map<string, readonly ClaimPartPlan[]>();
@@ -195,7 +200,11 @@ export function createMindCheck(options: MindCheckOptions) {
         const parts = found.parts.get(index);
         if (parts === undefined) continue;
         const earlier = known.get(sentence.text);
-        if (parts.some((part) => part.kind === "fact") || earlier === undefined || !earlier.some((part) => part.kind === "fact"))
+        if (
+          parts.some((part) => part.kind === "fact") ||
+          earlier === undefined ||
+          !earlier.some((part) => part.kind === "fact")
+        )
           known.set(sentence.text, parts);
       }
     }

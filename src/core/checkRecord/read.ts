@@ -264,7 +264,7 @@ export function readRecord(sources: RecordSources): {
   }
   const inlineIds = new Set(idOf.values());
   for (const [id, { sentence, citation, element }] of signedOff) {
-    if (inlineIds.has(id)) continue;
+    if (inlineIds.has(id) || isProposed(topOf(fragment, element))) continue;
     citations.push({
       kind: "citation",
       text: comparableSentence(sentence),

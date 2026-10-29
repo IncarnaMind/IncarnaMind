@@ -177,14 +177,14 @@ export function checkReply(call: ModelCall, plans: Record<string, Plan>): Script
   if (!calculation) {
     // With nothing quoted, each figure is one no Passage states.
     if (!quote) {
-      const items = figures.map(({ id }) => ({
+      const items = figures.map(({ id, reading }) => ({
         id,
         verdict: "unsupported",
         scope: "same",
         topic: "not found",
         roles: "same",
         says: null,
-        reading: null,
+        reading,
         relation: "equals",
         source: null,
         calculation: null,
