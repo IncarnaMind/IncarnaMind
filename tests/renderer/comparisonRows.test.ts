@@ -9,6 +9,8 @@ import { useComparisonTables } from "../../src/renderer/src/comparisonTableState
 import { comparisonTableAt } from "../../src/renderer/src/editor/comparisonCommands";
 import {
   redoNoteHistory,
+  releaseStructureStep,
+  reserveStructureStep,
   undoFromMenu,
   undoNoteHistory,
 } from "../../src/renderer/src/editor/comparisonStructureUndo";
@@ -314,6 +316,35 @@ describe("The table's name and its counts", () => {
     await vi.waitFor(() => expect(title()).toBe(""));
     expect(editor.commands.redo()).toBe(true);
     await vi.waitFor(() => expect(title()).toBe("Refinancing offers"));
+  });
+
+  test("a rename the structure lock drops offers no Undo, and ⌘Z still takes back the typing before it", async () => {
+    const { client, editor } = await boundTable();
+    const title = () => {
+      const pos = comparisonTableAt(editor, "table-1");
+      return comparisonTitleOf(editor.state.doc.nodeAt(pos ?? 0)?.attrs ?? {});
+    };
+    reserveStructureStep(editor);
+    // The note's history, as the window has it once a column or row change was reserved.
+    releaseStructureStep(editor);
+    const line = editor.state.doc.firstChild;
+    if (!line) throw new Error("No note line.");
+    editor.commands.setTextSelection(1 + line.content.size);
+    typeText(editor, " edited");
+    expect(editor.getText()).toContain("edited");
+    const before = useUndo.getState().done.length;
+
+    // Another window is changing the table: its lock drops this window's rename.
+    useComparisonColumns.getState().hold("table-1", "other-window");
+    changeComparisonTitle(editor, "table-1", "Refinancing offers");
+    await settled(client);
+    useComparisonColumns.getState().release("table-1", "other-window");
+
+    expect(title()).toBe("");
+    // No Undo line claimed the dropped rename: ⌘Z is still the typing's own step.
+    expect(useUndo.getState().done.slice(before)).toEqual([]);
+    expect(undoNoteHistory(editor)).toBe(true);
+    await vi.waitFor(() => expect(editor.getText()).not.toContain("edited"));
   });
 
   test("a count says what a cell without an Answer came to: found nothing, failed, or nothing to look at", () => {
