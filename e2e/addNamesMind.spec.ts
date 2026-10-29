@@ -42,6 +42,7 @@ const WORDS = {
     write: "Write as a note",
     writeLabel: "Write this Answer as a note, beside it",
     tip: "Write this as a note",
+    command: "Write the Answer as a note",
     plain: "Add to note",
     added: (mind: string) => `Added to “${mind}”`,
   },
@@ -55,6 +56,7 @@ const WORDS = {
     write: "写成笔记",
     writeLabel: "把这条回答写成笔记，在旁边打开",
     tip: "把这条写成笔记",
+    command: "把回答写成笔记",
     plain: "添加到笔记",
     added: (mind: string) => `已添加到“${mind}”`,
   },
@@ -316,12 +318,31 @@ for (const language of LANGUAGES) {
     await expect(write).toHaveText(w.write);
     await expect(answer.getByRole("button", { name: w.writeLabel })).toHaveCount(1);
     await expect(answer.getByTestId("answer-add-label")).toHaveText(w.plain);
-    // One Write as a note on screen; the second link's words are gone.
+    // One Write as a note on screen; the second link's words are gone, and stay gone past the
+    // moment that link used to come in (it was offered once the Answer was done).
     await expect(answer.getByText(w.write, { exact: true })).toHaveCount(1);
-    await expect(answer.getByText(w.tip, { exact: true })).toHaveCount(0);
+    await expect
+      .poll(
+        async () => {
+          await window.waitForTimeout(400);
+          return answer.getByText(w.tip, { exact: true }).count();
+        },
+        { timeout: 10_000 },
+      )
+      .toBe(0);
     await expect(window.getByTestId("tip")).toHaveCount(0);
 
-    // It keeps ⌘K's command and the keyboard, and pressing it makes the note.
+    // ⌘K reaches it too, by the words it does it by.
+    await window.keyboard.press("ControlOrMeta+k");
+    await expect(window.getByTestId("palette-search")).toBeFocused();
+    await window.keyboard.type(w.command);
+    await expect(
+      window.getByTestId("palette-item").filter({ hasText: w.command }).first(),
+    ).toBeVisible();
+    await window.keyboard.press("Escape");
+    await expect(window.getByTestId("palette")).toHaveCount(0);
+
+    // And the keyboard alone makes the note.
     await write.focus();
     await window.keyboard.press("Enter");
     await expect(editorOf(window)).toContainText(/answer this/i);

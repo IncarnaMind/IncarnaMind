@@ -1757,11 +1757,13 @@ test("with no key, the ChatGPT plan comes first, the Claude account second, and 
 });
 
 for (const language of ["en", "zh-CN"] as const) {
-  test(`the setup card says it is looking for the model app until the probe answers, and never that it is missing (${language})`, async () => {
-    // A server that holds its answer, as a busy computer's is slow to give one: the card is
-    // read while the probe is still out, however long the runner takes to get there.
+  test(`a model app slower than the probe is never called missing: the card looks until it knows, then Check again finds it (${language})`, async () => {
+    // The app's probe gives up after two seconds and then asks again once; a server that holds
+    // its answer, as a loaded computer's app may, is asked a second time only after the first
+    // look ran out. Silent is not "missing": the card keeps looking and offers no Get.
     const waiting: (() => void)[] = [];
-    let holding = true;
+    let answers = false;
+    let asked = 0;
     const server = createServer((request, response) => {
       request.resume();
       if (request.url !== "/api/tags") {
@@ -1769,12 +1771,13 @@ for (const language of ["en", "zh-CN"] as const) {
         response.end();
         return;
       }
+      asked += 1;
       const answer = () => {
         response.writeHead(200, { "content-type": "application/json" });
         response.end(JSON.stringify({ models: [{ name: "qwen3.5:4b", model: "qwen3.5:4b" }] }));
       };
-      if (holding) waiting.push(answer);
-      else answer();
+      if (answers) answer();
+      else waiting.push(answer);
     });
     await new Promise<void>((done) => server.listen(0, "127.0.0.1", done));
     const { port } = server.address() as AddressInfo;
@@ -1792,16 +1795,31 @@ for (const language of ["en", "zh-CN"] as const) {
       // The first frame, before anything has been looked at.
       await expect(status).toHaveAttribute("data-looking", "true");
       await expect(way).toContainText(translate(language, "providers.ollama.checking"));
-      const before = await way.innerText();
-      expect(before).not.toContain(translate(language, "setup.way.local.install"));
-      expect(before).not.toContain(translate(language, "setup.way.local.notRunning"));
+      await expect(way).not.toContainText(translate(language, "setup.way.local.install"));
+      await expect(way).not.toContainText(translate(language, "setup.way.local.notRunning"));
       await expect(card.getByTestId("ollama-get")).toHaveCount(0);
 
-      // Then the running state once the probe answers, with no action from the User.
-      holding = false;
+      // A second request is the first look given up on: the card must still say it is looking.
+      await expect.poll(() => asked, { timeout: 20_000 }).toBeGreaterThanOrEqual(2);
+      await expect(status).toHaveAttribute("data-looking", "true");
+      await expect(way).toContainText(translate(language, "providers.ollama.checking"));
+      await expect(way).not.toContainText(translate(language, "setup.way.local.notRunning"));
+      await expect(card.getByTestId("ollama-get")).toHaveCount(0);
+
+      // Both looks are over and neither could tell: Check again may be pressed, and Get is
+      // still not offered.
+      await expect(card.getByTestId("ollama-check-again")).toBeEnabled({ timeout: 25_000 });
+      await expect(status).toHaveAttribute("data-looking", "true");
+      await expect(way).not.toContainText(translate(language, "setup.way.local.notRunning"));
+      await expect(card.getByTestId("ollama-get")).toHaveCount(0);
+
+      // The app answers now: Check again finds it.
+      answers = true;
       for (const answer of waiting.splice(0)) answer();
-      await expect(status).not.toHaveAttribute("data-looking", "true", { timeout: 15_000 });
-      await expect(way).toContainText(translate(language, "setup.way.local.running"));
+      await pointAndClick(window, card.getByTestId("ollama-check-again"));
+      await expect(way).toContainText(translate(language, "setup.way.local.running"), {
+        timeout: 15_000,
+      });
     } finally {
       await app.close();
       server.close();

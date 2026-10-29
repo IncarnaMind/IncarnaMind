@@ -92,7 +92,7 @@ function LocalModelActions({ ollama }: { ollama: Ollama }) {
           {t(opening ? "localModel.opening" : "localModel.open")}
         </button>
       ) : (
-        status !== null && <GetOllamaButton />
+        status !== null && status.unknown !== true && <GetOllamaButton />
       )}
     </>
   );

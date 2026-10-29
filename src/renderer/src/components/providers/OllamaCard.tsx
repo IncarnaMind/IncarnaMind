@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type { ChatProvider, OllamaPullProgress, OllamaStatus } from "../../../../core/api";
 import { OLLAMA_DOWNLOAD_URL } from "../../../../core/providers/catalog/billing";
 import { core } from "../../core";
@@ -27,6 +27,16 @@ export function useOllamaStatus() {
   useEffect(() => {
     void detect();
   }, [detect]);
+
+  // A look that ran out of time is tried once more, as a cold app answers faster the second
+  // time; never more than once, so a computer without it isn't polled.
+  const retried = useRef(false);
+  useEffect(() => {
+    if (status === null || status.running || status.unknown !== true || retried.current) return;
+    retried.current = true;
+    const timer = setTimeout(() => void detect(), 1_500);
+    return () => clearTimeout(timer);
+  }, [status, detect]);
 
   const open = async (): Promise<OllamaStatus | null> => {
     setOpening(true);
@@ -100,8 +110,10 @@ export type Ollama = ReturnType<typeof useOllama>;
 
 /** What Ollama's choice says about this computer: looking, found, or not found. */
 export function ollamaDescription(ollama: Ollama, t: ReturnType<typeof useT>): string {
-  if (ollama.status === null) return t("providers.ollama.checking");
-  return ollama.status.running ? t("providers.ollama.detected") : t("providers.ollama.notDetected");
+  const { status } = ollama;
+  if (status === null || (!status.running && status.unknown === true))
+    return t("providers.ollama.checking");
+  return status.running ? t("providers.ollama.detected") : t("providers.ollama.notDetected");
 }
 
 /** The model being pulled, with its progress, and what went wrong. */
@@ -166,7 +178,7 @@ export function OllamaAction({ ollama, large = false }: { ollama: Ollama; large?
   }
   return (
     <span className="flex flex-wrap items-center gap-2">
-      {status !== null && (
+      {status !== null && status.unknown !== true && (
         // The main process opens it in the User's browser.
         <button
           type="button"

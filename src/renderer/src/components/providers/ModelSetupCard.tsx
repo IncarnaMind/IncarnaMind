@@ -230,11 +230,13 @@ function ChatGptPlanWay({
 /**
  * A model on this computer (#545): used at once when Ollama runs and has a model, else its app
  * is opened to install one. It says what it costs and that nothing leaves. Until the probe
- * answers it says it is looking, never that the app is missing (#2196).
+ * answers, and while one that ran out of time says nothing either way, it says it is looking,
+ * never that the app is missing (#2196).
  */
 function LocalWay({ ollama, running }: { ollama: OllamaState; running: boolean }) {
   const t = useT();
-  const looking = ollama.status === null;
+  const looking =
+    ollama.status === null || (!ollama.status.running && ollama.status.unknown === true);
   return (
     <div data-testid="way-local" className="flex flex-col items-start gap-1.5 px-2 py-1.5">
       <span className="text-ui font-semibold text-ink">
