@@ -4,6 +4,7 @@ import { translate } from "../src/shared/i18n";
 import { createFakeAnthropic } from "../tests/helpers/fakeAnthropic";
 import { createFakeOpenAI, signInAt } from "../tests/helpers/fakeOpenAI";
 import {
+  ANTHROPIC_KEY,
   acceptPlainTextKeys,
   askFirstQuestion,
   assistantAnswers,
@@ -34,7 +35,6 @@ test.afterEach(async () => {
   await removeDataFolder(dataDir);
 });
 
-/** The four combinations the issue names, so every route is tried in all of them. */
 const COMBINATIONS = [
   { language: "en", width: 900, height: 700 },
   { language: "en", width: 1600, height: 900 },
@@ -42,10 +42,6 @@ const COMBINATIONS = [
   { language: "zh-CN", width: 1600, height: 900 },
 ] as const;
 
-/** A key as a real one is shaped, for a stand-in provider: never a real key. */
-const ANTHROPIC_KEY = "sk-ant-api03-a-test-key-for-first-run";
-
-/** The card, whole inside the window it was opened in, with nothing cut sideways. */
 function cardFits(window: Page): Promise<{ inside: boolean; sideways: boolean }> {
   return window.evaluate(() => {
     const card = document.querySelector('[data-testid="model-setup"]');
@@ -78,8 +74,6 @@ for (const { language, width, height } of COMBINATIONS) {
       await setLanguage(window, language);
       const card = await askFirstQuestion(window);
 
-      // The key's form names its service, so step 1 is the field alone: no provider list, and
-      // nothing sent anywhere to guess.
       await expect(card.getByTestId("provider-form")).toHaveCount(0);
       const field = card.getByTestId("setup-key");
       await expect(field).toBeFocused();
@@ -89,7 +83,6 @@ for (const { language, width, height } of COMBINATIONS) {
 
       await field.fill(ANTHROPIC_KEY);
       await field.press("Enter");
-      // Saved, the ready line and the Answer follow with no click between.
       await expect(card.getByTestId("setup-ready-title")).toHaveText(
         translate(language, "setup.ready", { name: "Anthropic" }),
         { timeout: 15_000 },
@@ -201,6 +194,11 @@ for (const { language, width, height } of COMBINATIONS) {
       await interceptOpenExternal(app);
       await acceptPlainTextKeys(window);
       await setLanguage(window, language);
+      const example = window
+        .getByTestId("mind-list-item")
+        .filter({ has: window.getByTestId("example-chip") });
+      await expect(example).toHaveAttribute("aria-current", "page");
+
       const card = await askFirstQuestion(window);
 
       await expect(card.getByTestId("setup-key")).toBeVisible();

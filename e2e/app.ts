@@ -865,6 +865,9 @@ export async function askFirstQuestion(window: Page): Promise<Locator> {
   return card;
 }
 
+/** A key as a real one is shaped, for a stand-in provider: never a real key. */
+export const ANTHROPIC_KEY = "sk-ant-api03-a-test-key-for-first-run";
+
 /**
  * Opens the key form where a key's own form names no service we list (#1922): the field says so,
  * and its way on picks the service.
