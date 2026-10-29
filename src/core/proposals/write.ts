@@ -43,6 +43,7 @@ import {
   targetText,
 } from "../../shared/proposals";
 import { createElement, formattingOf, type NodeJSON } from "../answers/blocks";
+import { emphasisOf, escapeEmphasis, type Look, withoutEmphasisEscapes } from "../answers/markdown";
 import {
   BLOCK_ID_ATTRIBUTE,
   type BlockKind,
@@ -360,6 +361,7 @@ export function readSelection(blocks: Y.XmlFragment, from: TextPlace, to: TextPl
       .map((token) => token.text ?? token.shown ?? "")
       .join("")
       .trim();
+    const modelText = withEmphasis(tokens).trim();
     const kind = start === 0 ? kindOf(element) : "paragraph";
     segments.push({
       element,
@@ -373,7 +375,7 @@ export function readSelection(blocks: Y.XmlFragment, from: TextPlace, to: TextPl
       kind,
     });
     plain.push(tokens.map((token) => token.text ?? NODE_CHARACTER).join(""));
-    text.push(shownText);
+    text.push(modelText);
     context.push(blockText(element));
     characters += shownText.length;
   }
@@ -403,6 +405,57 @@ export function readSelection(blocks: Y.XmlFragment, from: TextPlace, to: TextPl
       characters,
     },
   };
+}
+
+/** A word's key with its look; spaces have none, since a run's edges are written outside its marks. */
+const lookedKey = (key: string, text: string | undefined, look: Look) =>
+  text === undefined || text.trim() === ""
+    ? key
+    : `${key}${look.bold ? "\u0001b" : ""}${look.italic ? "\u0001i" : ""}${look.strike ? "\u0001s" : ""}`;
+
+const lookOf = (attributes: Attributes | undefined): Look => ({
+  ...(attributes && Object.hasOwn(attributes, "bold") && { bold: true as const }),
+  ...(attributes && Object.hasOwn(attributes, "italic") && { italic: true as const }),
+  ...(attributes && Object.hasOwn(attributes, "strike") && { strike: true as const }),
+});
+
+/**
+ * The tokens as the model reads them: words that are bold, italic or struck
+ * through between `**`, `*` and `~~`, so it can keep them and tell what the
+ * Mind already has (#1897). The spaces at a run's edges stay outside, and a
+ * `\`, `*`, `_` or `~` in the words is escaped so it reads back as itself.
+ */
+function withEmphasis(
+  tokens: readonly { text?: string; shown?: string; attributes?: Attributes }[],
+) {
+  let out = "";
+  let run = "";
+  let runLook: Look = {};
+  const flush = () => {
+    const [, lead = "", body = "", trail = ""] = /^(\s*)([\s\S]*?)(\s*)$/.exec(run) ?? [];
+    let marked = body;
+    if (body !== "") {
+      if (runLook.strike) marked = `~~${marked}~~`;
+      if (runLook.italic) marked = `*${marked}*`;
+      if (runLook.bold) marked = `**${marked}**`;
+    }
+    out += lead + marked + trail;
+    run = "";
+  };
+  for (const token of tokens) {
+    const look = token.text === undefined ? {} : lookOf(token.attributes);
+    if (
+      Boolean(look.bold) !== Boolean(runLook.bold) ||
+      Boolean(look.italic) !== Boolean(runLook.italic) ||
+      Boolean(look.strike) !== Boolean(runLook.strike)
+    ) {
+      flush();
+      runLook = look;
+    }
+    run += token.text === undefined ? (token.shown ?? "") : escapeEmphasis(token.text);
+  }
+  flush();
+  return out;
 }
 
 /** About this many characters of the words around a selection are shown to the model. */
@@ -516,6 +569,8 @@ interface NewToken {
   text?: string;
   /** The words' own marks (an Answer's), instead of those of the words they replace. */
   marks?: Attributes;
+  /** The bold, italic and strikethrough the model wrote around the words. */
+  look?: Look;
   node?: InlineNode;
 }
 
@@ -657,14 +712,28 @@ function newParagraphs(
       node: { name: FOOTNOTE_NODE, attributes: source.getAttributes() as Attributes, source },
     };
   };
-  const tokensOf = (paragraph: string, notes: Notes): NewToken[] => {
+  const tokensOf = (written: string, notes: Notes): NewToken[] => {
     const tokens: NewToken[] = [];
-    const words = (part: string) => {
-      for (const word of splitWords(part)) tokens.push({ key: keyOf.text(word), text: word });
+    const emphasis = emphasisOf(written);
+    const paragraph = emphasis?.plain ?? withoutEmphasisEscapes(written);
+    // A paragraph with none of its own leaves the words it adds with the marks they sit beside.
+    const looks = emphasis?.looks.some((look) => look.bold || look.italic || look.strike)
+      ? emphasis.looks
+      : null;
+    const words = (part: string, from: number) => {
+      let offset = from;
+      for (const word of splitWords(part)) {
+        tokens.push({
+          key: keyOf.text(word),
+          text: word,
+          ...(looks && { look: looks[offset] ?? {} }),
+        });
+        offset += word.length;
+      }
     };
     let at = 0;
     for (const match of paragraph.matchAll(MARKER)) {
-      words(paragraph.slice(at, match.index));
+      words(paragraph.slice(at, match.index), at);
       at = match.index + match[0].length;
       const [, footnote, citation, formula] = match;
       if (match[0] === "\n") {
@@ -684,10 +753,10 @@ function newParagraphs(
           node: { name: MATH, attributes: { latex: formula } },
         });
       } else {
-        words(match[0]);
+        words(match[0], match.index);
       }
     }
-    words(paragraph.slice(at));
+    words(paragraph.slice(at), at);
     return tokens;
   };
   // A line that starts with a Block's mark starts a paragraph, even after a single line break.
@@ -891,6 +960,18 @@ function withoutProposalAttribute(attributes: Attributes): Attributes {
 
 const sameMarks = (a: Attributes, b: Attributes) => JSON.stringify(a) === JSON.stringify(b);
 
+const LOOK_MARKS = ["bold", "italic", "strike"] as const;
+
+/** Words as the model wrote them: bold, italic and strikethrough exactly as it gave them, whatever the words they replace had. */
+function withLook(marks: Attributes, look: Look): Attributes {
+  const own = { ...marks };
+  for (const name of LOOK_MARKS) {
+    if (look[name]) own[name] = {};
+    else delete own[name];
+  }
+  return own;
+}
+
 /**
  * Adds the new tokens at `at` in a Block's text, as the Proposal's words:
  * with their own marks (an Answer's), or else with `marks`.
@@ -923,7 +1004,7 @@ function insertTokens(
       position += 1;
       continue;
     }
-    const own = token.marks ?? marks;
+    const own = token.look ? withLook(token.marks ?? marks, token.look) : (token.marks ?? marks);
     if (!sameMarks(own, wordMarks)) flush();
     wordMarks = own;
     words += token.text ?? "";
@@ -1220,9 +1301,15 @@ function writeHunks(
   newId: () => string,
   notes: CitationNotes,
 ): void {
+  // Once the reply gives words a look, a word that only changed its look is a change.
+  const looked = tokens.some((token) => token.look);
   const steps = diffSteps(
-    segment.tokens.map((token) => token.key),
-    tokens.map((token) => token.key),
+    segment.tokens.map((token) =>
+      looked ? lookedKey(token.key, token.text, lookOf(token.attributes)) : token.key,
+    ),
+    tokens.map((token) =>
+      looked ? lookedKey(token.key, token.text, token.look ?? {}) : token.key,
+    ),
   );
   let hunks = hunksOf(steps, joinsAcross(segment.tokens));
   if (
