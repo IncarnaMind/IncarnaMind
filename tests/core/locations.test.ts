@@ -487,7 +487,13 @@ describe("Citing Word, PowerPoint and Excel Documents in an Answer", { timeout: 
     const { answerId } = await askAndFinish(core, client, mind.id, input.quote);
 
     const citations = citationsIn(client, answerId);
-    expect(citations.map((citation) => citation.check)).toEqual(["not-found", "found", "found"]);
+    expect(citations.map((citation) => citation.check)).toEqual(["found", "found", "found"]);
+    expect(citations[0]).toMatchObject({
+      pageFrom: citations[1]?.pageFrom,
+      pageTo: citations[1]?.pageTo,
+      location: { kind: "section", heading: input.inner },
+      quote: input.quote,
+    });
     expect(citations[1]).toMatchObject({
       location: { kind: "section", heading: input.inner },
       quote: input.quote,
