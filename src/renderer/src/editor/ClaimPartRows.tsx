@@ -389,7 +389,9 @@ export function ClaimPartRows({
             setExpanded(true);
           }}
         >
-          {t("claim.parts.more", { count: rows.length - 4 })}
+          {t("claim.parts.more", {
+            count: new Intl.NumberFormat(language).format(rows.length - 4),
+          })}
         </button>
       )}
     </>

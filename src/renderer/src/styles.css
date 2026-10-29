@@ -5384,7 +5384,6 @@
     border-radius: 4px;
     pointer-events: none;
   }
-  /* Which sentence the card is about: its words, two lines at most, under the verdict's title. */
   .citation-card--parts {
     max-height: min(calc(100vh - 16px), var(--card-room, 100vh));
     overflow-y: auto;
@@ -5441,6 +5440,7 @@
     right: 0;
   }
 
+  /* Which sentence the card is about: its words, two lines at most, under the verdict's title. */
   .claim-card-sentence {
     display: -webkit-box;
     padding-left: 22px;
