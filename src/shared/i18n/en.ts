@@ -991,6 +991,8 @@ export const en = {
     "checks citations health contradicted unsupported claims sentences badge",
   "health.checkedAll.one": "Checked 1 claim, {when}",
   "health.checkedAll": "Checked {count} claims, {when}",
+  "health.unexamined.one": "1 sentence not examined",
+  "health.unexamined": "{count} sentences not examined",
   "health.next": "{part}: go to the next",
   "checks.smallModel": "Small model: its verdicts may be wrong. A larger one is more reliable.",
   "checks.running.check-against-documents": "Checking against Documents…",

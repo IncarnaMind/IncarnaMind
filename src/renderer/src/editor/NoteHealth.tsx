@@ -67,6 +67,7 @@ const NO_HEALTH: Health = {
   checkable: 0,
   supported: 0,
   checkedAt: null,
+  unexamined: [],
 };
 
 /** A count's words with the number in bold, as the badge shows it: "**3** claims not checked yet". */
@@ -176,7 +177,11 @@ export function PartMark({ part }: { part: HealthPart | "notChecked" }) {
 }
 
 /** The Mind's health, worked out a moment after it last changed, as the word count is. */
-export function useHealth(editor: Editor, skipped: ReadonlySet<string>): Health {
+export function useHealth(
+  editor: Editor,
+  skipped: ReadonlySet<string>,
+  unexamined: ReadonlySet<string>,
+): Health {
   const documents = useAppStore((state) =>
     state.status.kind === "ready" ? state.documents : null,
   );
@@ -193,6 +198,7 @@ export function useHealth(editor: Editor, skipped: ReadonlySet<string>): Health 
           citationCheck: (attributes: CitationAttributes) =>
             citationState(attributes, documents, kept).check,
           skipped,
+          unexamined,
           kept: keptSpans(editor.state),
         }),
       );
@@ -207,7 +213,7 @@ export function useHealth(editor: Editor, skipped: ReadonlySet<string>): Health 
       clearTimeout(timer);
       editor.off("transaction", later);
     };
-  }, [editor, documents, kept, skipped]);
+  }, [editor, documents, kept, skipped, unexamined]);
   return health;
 }
 
@@ -431,7 +437,7 @@ export function HealthCard({
           {running ? (
             <RunningText editor={editor} mindId={mindId} testId="card-progress" />
           ) : (
-            checkedAll && <CheckedWhen run={checkedAll} />
+            checkedAll && <CheckedWhen run={checkedAll} unexamined={health.unexamined.length} />
           )}
         </div>
       )}

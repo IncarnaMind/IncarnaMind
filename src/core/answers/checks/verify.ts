@@ -228,8 +228,9 @@ export function createVerify(options: VerifyOptions) {
       signal,
     );
     if (found.kind !== "found") return found;
+    // A sentence no reply decided is checked: left out, it would never be (#1682).
     const claims = sentences
-      .filter((_, index) => found.claims.has(index))
+      .filter((_, index) => found.claims.has(index) || found.undecided.has(index))
       .map(({ blockId, text }) => ({ blockId, text }));
     content.edit(mindId, (blocks) => {
       const settings = blocks.doc?.getMap<unknown>(MIND_SETTINGS_FIELD);

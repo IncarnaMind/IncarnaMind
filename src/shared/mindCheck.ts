@@ -38,17 +38,24 @@ export function readMindCheck(settings: Y.Map<unknown>): MindCheckRun | null {
         ? Math.max(0, value.sentences)
         : 0,
     stop: stopOf(value.stop),
-    skipped: Array.isArray(value.skipped)
-      ? value.skipped.filter((each): each is string => typeof each === "string")
-      : [],
+    skipped: keysOf(value.skipped),
+    unexamined: keysOf(value.unexamined),
   };
 }
+
+const keysOf = (value: unknown): string[] =>
+  Array.isArray(value) ? value.filter((each): each is string => typeof each === "string") : [];
 
 export const mindCheckOf = (doc: Y.Doc): MindCheckRun | null =>
   readMindCheck(doc.getMap(MIND_SETTINGS_FIELD));
 
 export function writeMindCheck(settings: Y.Map<unknown>, run: MindCheckRun): void {
-  settings.set(KEY, { ...run, stop: run.stop && { ...run.stop }, skipped: [...run.skipped] });
+  settings.set(KEY, {
+    ...run,
+    stop: run.stop && { ...run.stop },
+    skipped: [...run.skipped],
+    unexamined: [...run.unexamined],
+  });
 }
 
 /** Calls `listener` whenever the Mind's last check may have changed. Returns how to stop. */
