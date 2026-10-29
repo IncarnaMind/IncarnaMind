@@ -22,9 +22,6 @@ export const comparisonRowKey = (tableId: string, documentId: string) => `${tabl
 /** A count of the title line: the rows with a cell that found nothing, or one that failed. */
 export type RowProblem = "nothing" | "failed";
 
-const EMPTY_PROBLEMS: ReadonlySet<RowProblem> = new Set();
-const EMPTY_COLUMNS: ReadonlySet<string> = new Set();
-
 /** A row being dragged, and the place among all rows it would land in. */
 export interface RowDrag {
   tableId: string;
@@ -112,11 +109,3 @@ export const useComparisonTables = create<ComparisonTableState>()((set) => ({
       return { hiddenColumns };
     }),
 }));
-
-/** The counts clicked for a table, empty when none. */
-export const filtersOf = (tableId: string): ReadonlySet<RowProblem> =>
-  useComparisonTables.getState().filters.get(tableId) ?? EMPTY_PROBLEMS;
-
-/** The columns a table hides, empty when none. */
-export const hiddenColumnsOf = (tableId: string): ReadonlySet<string> =>
-  useComparisonTables.getState().hiddenColumns.get(tableId) ?? EMPTY_COLUMNS;
