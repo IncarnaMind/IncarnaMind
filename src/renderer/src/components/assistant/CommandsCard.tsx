@@ -182,7 +182,6 @@ export function CommandsCard({
   );
 }
 
-/** Where the User opens what only they change (#1421). */
 function openYours(what: Yours): void {
   const app = useAppStore.getState();
   switch (what) {

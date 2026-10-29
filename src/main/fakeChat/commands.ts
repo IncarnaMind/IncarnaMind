@@ -73,7 +73,6 @@ const CHECK = /\bcheck this (?:mind|note)\b|核对这篇笔记/i;
 const ORGANIZE_ABOUT = /\bput the documents about (.+?) together\b|把关于(.+?)的文档放在一起/i;
 const LOCAL_MODE = /\bturn on local mode\b|打开本地模式/i;
 
-/** Runs one command with nothing to find first, then says what it returned. */
 function runOnce(prompt: Prompt, input: Record<string, unknown>): Reply {
   if (lastResult(prompt, "run_command") !== undefined) return said(prompt);
   return { tool: "run_command", input };

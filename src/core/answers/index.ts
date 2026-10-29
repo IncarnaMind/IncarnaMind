@@ -416,7 +416,6 @@ export interface AnswerConversations {
     question: ConversationQuestion;
     toolCalls: AnswerToolCall[];
     onScreen: string[];
-    /** The asking window's commands (#1421). */
     commands: OfferedCommand[];
     /** The model the caller chose to write it with instead of the Question's own (#1848). */
     model: ChatModelChoice | null;

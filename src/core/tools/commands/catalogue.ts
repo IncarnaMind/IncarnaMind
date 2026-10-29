@@ -170,7 +170,6 @@ export type CoreCommandId = keyof typeof CORE_COMMANDS;
 export const isCoreCommand = (value: unknown): value is CoreCommandId =>
   typeof value === "string" && Object.hasOwn(CORE_COMMANDS, value);
 
-/** The core's commands that act on one kind, or on the Library or a setting. */
 export const coreCommandsOn = (on: CoreCommand["on"]): CoreCommandId[] =>
   (Object.keys(CORE_COMMANDS) as CoreCommandId[]).filter((id) => CORE_COMMANDS[id].on === on);
 

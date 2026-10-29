@@ -175,7 +175,6 @@ function landed(call: AnswerToolCall): void {
   useUndo.getState().push(step);
 }
 
-/** Runs a command of this window's list the assistant asked for, and answers the core. */
 async function runHere(request: WindowCommandRequest): Promise<void> {
   const { result, change } = await runForAssistant(request);
   if (change) windowChanges.set(request.toolCallId, change);

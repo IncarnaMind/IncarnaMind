@@ -39,7 +39,6 @@ const normal = (text: string) => text.normalize("NFKC").replace(/\s+/g, " ").tri
 
 const day = (iso: string | null) => (iso ? iso.slice(0, 10) : null);
 
-/** Every one of a kind, as the model reads it. */
 export function all(kind: CommandTarget, { documents, minds, library, tags }: Findable): Found[] {
   const folders = new Map(library.groups.map((group) => [group.id, group.name]));
   const filedIn = new Map(library.assignments.map((each) => [each.documentId, each.groupId]));

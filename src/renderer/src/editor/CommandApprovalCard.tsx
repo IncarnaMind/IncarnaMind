@@ -40,7 +40,6 @@ const CHANGE: Readonly<Partial<Record<CommandId, [MessageKey, MessageKey]>>> = {
   "tag.delete": ["commands.ask.change.tag.delete", "commands.ask.change.tag.delete.one"],
 };
 
-/** A command of the window's list by its name in the interface language. */
 function labelIn(t: Translate, id: CommandId): string {
   const command = commands.get(id);
   return command ? labelOf(command, { selection: [], focus: null, surface: "palette" }, t) : id;
