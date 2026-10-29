@@ -406,6 +406,7 @@ export function createExports(deps: ExportsDependencies) {
     });
     return {
       ...preview,
+      footnotes: 0,
       unverifiedCitations: pages.flatMap((page) => page.entries).filter(isUnverified).length,
       data: unifyIdeographs(printed),
       word: null,
@@ -632,6 +633,7 @@ export function createExports(deps: ExportsDependencies) {
       if (format === "share-page" && prepared.options.citationCards) {
         return {
           ...preview,
+          footnotes: 0,
           data: await sharePage(prepared),
           word: null,
           needsDetails: [],
@@ -662,10 +664,11 @@ export function createExports(deps: ExportsDependencies) {
             );
       let data: Uint8Array;
       let commented: readonly FailedSentence[] = [];
+      let footnotes = 0;
       if (format === "markdown") {
         data = new TextEncoder().encode(renderMarkdown("", blocks, labels));
       } else if (format === "docx") {
-        ({ data, commented } = renderDocx(await withPictures(blocks, language, deps), {
+        ({ data, commented, footnotes } = renderDocx(await withPictures(blocks, language, deps), {
           title,
           labels,
           language: language === "zh-CN" ? "zh-CN" : "en-US",
@@ -688,7 +691,7 @@ export function createExports(deps: ExportsDependencies) {
       } else {
         // Charts as Word has them: the picture, drawn at twice its size, else the table of values.
         const drawn = await withPictures(blocks, language, deps);
-        const { body, notes } = renderPrintHtml(drawn, labels);
+        const { body, notes, citationFootnotes } = renderPrintHtml(drawn, labels);
         const printed = await (deps.printer as Printer).print({
           language,
           paper: deps.paper(),
@@ -698,9 +701,11 @@ export function createExports(deps: ExportsDependencies) {
           notes,
         });
         data = unifyIdeographs(printed);
+        footnotes = citationFootnotes;
       }
       return {
         ...preview,
+        footnotes,
         data,
         word: null,
         needsDetails: [...thin.documents],
@@ -735,7 +740,7 @@ export function createExports(deps: ExportsDependencies) {
     const doc = new Y.Doc();
     try {
       if (state) Y.applyUpdate(doc, state);
-      const { data, report, commented } = await exportWordPatch({
+      const { data, report, commented, footnotes } = await exportWordPatch({
         bytes: await deps.wordPackage(prepared.mindId),
         blocks: doc.getXmlFragment(MIND_CONTENT_FIELD),
         readOptions: prepared.readOptions,
@@ -755,6 +760,7 @@ export function createExports(deps: ExportsDependencies) {
       });
       return {
         ...prepared.preview,
+        footnotes,
         data,
         word: report,
         needsDetails: [...thin.documents],

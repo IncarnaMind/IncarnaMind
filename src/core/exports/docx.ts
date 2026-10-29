@@ -136,7 +136,7 @@ const EMU_PER_PIXEL = 9525;
 export function renderDocx(
   blocks: readonly Block[],
   options: DocxOptions,
-): { data: Uint8Array; commented: FailedSentence[] } {
+): { data: Uint8Array; commented: FailedSentence[]; footnotes: number } {
   const paper = PAPER[options.paper];
   const target = new NewDocxTarget();
   const review = options.review
@@ -199,7 +199,11 @@ export function renderDocx(
     ],
     deflateRawSync,
   );
-  return { data, commented: review?.commentedSentences() ?? [] };
+  return {
+    data,
+    commented: review?.commentedSentences() ?? [],
+    footnotes: writer.citationFootnotes,
+  };
 }
 
 interface Relationship {
@@ -362,6 +366,12 @@ export class DocxWriter {
   readonly footnotes: string[] = [];
   private readonly styles: DocxStyles;
   private readonly notes = new Map<string, { id: number; text: string; reused: boolean }>();
+  private citationNoteCount = 0;
+
+  /** The footnotes the file writes for Citations, a reused one counted once: what the Saved line says (#1381). */
+  get citationFootnotes(): number {
+    return this.citationNoteCount;
+  }
 
   constructor(
     private readonly labels: ExportLabels,
@@ -591,6 +601,7 @@ export class DocxWriter {
         this.styles.footnote,
       ),
     );
+    this.citationNoteCount++;
     if (key !== null && !first) this.notes.set(key, { id, text, reused: false });
     return footnoteReference(id, this.styles.footnote.reference);
   }
@@ -899,6 +910,7 @@ export class DocxWriter {
         this.styles.footnote,
       ),
     );
+    this.citationNoteCount++;
     if (key !== null) this.notes.set(key, { id, text: "", reused: false });
     return footnoteReference(id, this.styles.footnote.reference);
   }

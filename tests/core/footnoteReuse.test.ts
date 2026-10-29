@@ -1,6 +1,6 @@
 import type { JSONContent } from "@tiptap/core";
 import { describe, expect, test } from "vitest";
-import type { CitedWork } from "../../src/core/api";
+import type { CitationPlace, CitedWork } from "../../src/core/api";
 import { renderDocx } from "../../src/core/exports/docx";
 import { exportLabels } from "../../src/core/exports/labels";
 import type { Block, Footnote, Inline } from "../../src/core/mindText";
@@ -9,6 +9,7 @@ import { addAndProcess, writeSourceFile } from "../helpers/documents";
 import { checkWellFormed, footnotesOf, part, unzip } from "../helpers/docx";
 import { connectToMind } from "../helpers/mindClient";
 import { writeMind } from "../helpers/minds";
+import { fakePrinter } from "../helpers/printer";
 
 /*
  * One footnote for a source and place in a Word export, and a cross-reference to it from every
@@ -57,8 +58,15 @@ describe("a Word export of a Mind that cites a source again", () => {
   });
   const text = (value: string): JSONContent => ({ type: "text", text: value });
 
-  async function exportWith(pages: readonly number[]) {
-    const core = startCore(await createTempDataFolder(), { now: manualClock().now });
+  async function exportWith(
+    pages: readonly number[],
+    {
+      citationPlace,
+      format = "docx",
+    }: { citationPlace?: CitationPlace; format?: "docx" | "pdf" } = {},
+  ) {
+    const { printed, printer } = fakePrinter();
+    const core = startCore(await createTempDataFolder(), { now: manualClock().now, printer });
     const sources = await createTempDataFolder();
     const path = await writeSourceFile(sources, "黄珊简历.txt", "黄珊，产品经理。");
     const [resume] = await addAndProcess(core, [path]);
@@ -76,7 +84,11 @@ describe("a Word export of a Mind that cites a source again", () => {
       })),
     );
     await client.settled();
-    const exported = await core.exportMind(mind.id, { format: "docx" });
+    const exported = await core.exportMind(mind.id, {
+      format,
+      ...(citationPlace !== undefined && { citationPlace }),
+    });
+    if (format === "pdf") return { document: "", footnotes: {}, exported, printed };
     const files = unzip(exported.data);
     for (const [name, content] of files) {
       if (name.endsWith(".xml") || name.endsWith(".rels"))
@@ -86,12 +98,14 @@ describe("a Word export of a Mind that cites a source again", () => {
       document: part(files, "word/document.xml"),
       footnotes: footnotesOf(part(files, "word/footnotes.xml")),
       exported,
+      printed,
     };
   }
 
   test("ten Citations of one résumé at two pages make two footnotes, and the other eight refer to them", async () => {
     const { document, footnotes, exported } = await exportWith([1, 1, 2, 1, 1, 2, 1, 1, 2, 1]);
     expect(exported.citations).toBe(10);
+    expect(exported.footnotes).toBe(2);
     expect(footnotes).toEqual({ "1": "黄珊简历, p. 1", "2": "黄珊简历, p. 2" });
 
     const found = crossReferences(document);
@@ -125,6 +139,43 @@ describe("a Word export of a Mind that cites a source again", () => {
     expect(Object.keys(footnotes)).toEqual(["1", "2"]);
     expect(document).not.toContain("bookmarkStart");
     expect(document).not.toContain("fldChar");
+  });
+
+  test("five Citations across two pages are 2 footnotes in the file, and the Saved line says so (#2193)", async () => {
+    const { document, footnotes, exported } = await exportWith([1, 1, 1, 2, 2]);
+    expect(exported.citations).toBe(5);
+    expect(exported.citationPlace).toBe("footnotes");
+    expect(exported.footnotes).toBe(2);
+    expect(Object.keys(footnotes)).toHaveLength(2);
+    expect(crossReferences(document).marks).toEqual([1, 2]);
+  });
+
+  test("one Citation on one page is 1 footnote", async () => {
+    const { footnotes, exported } = await exportWith([1]);
+    expect(exported.footnotes).toBe(1);
+    expect(Object.keys(footnotes)).toHaveLength(1);
+  });
+
+  test("Citations all on one page are 1 footnote", async () => {
+    const { footnotes, exported } = await exportWith([2, 2, 2, 2]);
+    expect(exported.citations).toBe(4);
+    expect(exported.footnotes).toBe(1);
+    expect(Object.keys(footnotes)).toHaveLength(1);
+  });
+
+  test("a list at the end writes no footnotes, so the line counts its Citations", async () => {
+    const { document, exported } = await exportWith([1, 1, 1, 2, 2], { citationPlace: "list" });
+    expect(exported.citationPlace).toBe("list");
+    expect(exported.citations).toBe(5);
+    expect(exported.footnotes).toBe(0);
+    expect(document).not.toContain("footnoteReference");
+  });
+
+  test("a PDF places each Citation as its own footnote, so the same note says 5", async () => {
+    const { exported, printed } = await exportWith([1, 1, 1, 2, 2], { format: "pdf" });
+    expect(exported.citations).toBe(5);
+    expect(exported.footnotes).toBe(5);
+    expect(printed[0]?.notes).toHaveLength(5);
   });
 });
 
@@ -167,7 +218,7 @@ describe("the writer's notes", () => {
   const paragraph = (...content: Inline[]): Block => ({ kind: "paragraph", content });
 
   function render(blocks: Block[]) {
-    const { data } = renderDocx(blocks, {
+    const { data, footnotes: written } = renderDocx(blocks, {
       title: "",
       labels: exportLabels("en"),
       language: "en-US",
@@ -184,11 +235,12 @@ describe("the writer's notes", () => {
     return {
       document: part(files, "word/document.xml"),
       footnotes: footnotesOf(part(files, "word/footnotes.xml")),
+      written,
     };
   }
 
   test("a source and place cited again, in any kind of block, is cited by the first note's number", () => {
-    const { document, footnotes } = render([
+    const { document, footnotes, written } = render([
       paragraph(words("a"), cited("Tides, p. 2")),
       {
         kind: "list",
@@ -212,6 +264,7 @@ describe("the writer's notes", () => {
       },
     ]);
     expect(footnotes).toEqual({ "1": "Tides, p. 2" });
+    expect(written).toBe(1);
     const found = crossReferences(document);
     expect(found.marks).toEqual([1]);
     expect(found.results.map((each) => each.shows)).toEqual([1, 1]);
@@ -219,11 +272,12 @@ describe("the writer's notes", () => {
 
   test("a footnote of the User's counts in the numbers the cross-references show", () => {
     const own: Inline = { kind: "footnote", content: [words("Mine")] };
-    const { document, footnotes } = render([
+    const { document, footnotes, written } = render([
       paragraph(cited("Tides, p. 2"), own, cited("Tides, p. 2"), cited("Waves, p. 1")),
       paragraph(cited("Waves, p. 1"), cited("Tides, p. 2")),
     ]);
     expect(Object.values(footnotes)).toEqual(["Tides, p. 2", "Mine", "Waves, p. 1"]);
+    expect(written).toBe(2);
     expect(crossReferences(document).results.map((each) => each.shows)).toEqual([1, 3, 1]);
   });
 
@@ -344,7 +398,7 @@ describe("the writer's notes", () => {
   });
 
   test("a citation style's own form for a repeat is a note of its own; the same form again is a reference", () => {
-    const { document, footnotes } = render([
+    const { document, footnotes, written } = render([
       paragraph(
         styled("Smith, Tides, 5.", "a"),
         styled("Id.", "a"),
@@ -364,6 +418,7 @@ describe("the writer's notes", () => {
       "No key.",
       "No key.",
     ]);
+    expect(written).toBe(6);
     expect(crossReferences(document).results.map((each) => each.shows)).toEqual([1, 4]);
   });
 });

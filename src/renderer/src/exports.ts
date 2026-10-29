@@ -112,6 +112,8 @@ export type ExportResult = { tableId?: string } & (
       /** The Citations in the file, and the Documents they cite. */
       citations: number;
       citedDocuments: number;
+      /** The footnotes the file writes for those Citations, as its writer wrote them (#2193). */
+      footnotes: number;
       /** Whether the note's style is Numbered, the one whose Citations the User places. */
       numbered: boolean;
       /** Where the file puts its Citations; null when nothing placed them (#1945). */
@@ -302,6 +304,7 @@ function savedResult(
       defaulted: saved.file.defaulted,
       citations: "citations" in saved ? saved.citations : 0,
       citedDocuments: "citedDocuments" in saved ? saved.citedDocuments : 0,
+      footnotes: "footnotes" in saved ? saved.footnotes : 0,
       numbered: "numbered" in saved ? saved.numbered : false,
       citationPlace: "citationPlace" in saved ? saved.citationPlace : null,
       markAiText: "markAiText" in saved ? saved.markAiText : null,
