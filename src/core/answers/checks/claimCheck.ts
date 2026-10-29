@@ -287,7 +287,7 @@ function figuresReplied(
           ...new Set(
             [
               ...read.items.flatMap((item) =>
-                item.source?.citation ? [item.source.citation] : [],
+                item.verdict === "supported" && item.source?.citation ? [item.source.citation] : [],
               ),
               ...(remainder ? [remainder] : []),
             ].filter((marker) => !recorded(marker)),
@@ -798,14 +798,18 @@ export function createClaimCheck(deps: ClaimCheckDependencies) {
         }
         if (confirmation.kind === "stopped") return unchecked("stopped");
         if (confirmation.kind === "malformed") return unchecked("malformed");
-        if (confirmation.kind !== "confirmed")
-          return figureJudgment(
-            { ...said, verdict: "unsupported" },
-            evidence,
-            facts(),
-            citedCase(evidence),
-          );
-        return result;
+        if (confirmation.kind === "confirmed") return result;
+        const doubted = figureJudgment(
+          { ...said, verdict: "unsupported" },
+          evidence,
+          facts(),
+          citedCase(evidence),
+        );
+        // Not upheld, it is Unsupported as a sentence without figures is: its card shows the part
+        // the quote states, quoting it, when the reply names that part.
+        return doubted.verdict === "unsupported" && said.covered && said.uncovered
+          ? { ...doubted, unsupported: { ...UNBACKED, ...doubted.unsupported, quoted: evidence } }
+          : doubted;
       };
       const written = figureReplyText(reply, setAside);
       // Asked about its Figures line, a model that can't do what it was asked may write prose
@@ -837,13 +841,16 @@ export function createClaimCheck(deps: ClaimCheckDependencies) {
           ),
       });
       // The sentence's contradiction is judged on the quote its own words cite, not a figure's.
-      const cited = verdictMarkers(text)
-        .map((marker) => session.finalCitation(marker))
-        .find((citation) => citation?.check === "found");
+      // A sentence whose words cite no quote of their own rests on its figures' quotes, so a
+      // Supported verdict never turns a result its figures settled into Not checked.
+      const cited =
+        verdictMarkers(text)
+          .map((marker) => session.finalCitation(marker))
+          .find((citation) => citation?.check === "found") ??
+        decidingCitation(session.finalCitation) ??
+        (result.verdict === "not-checked" ? null : result.evidence);
       return said && !signal.aborted
-        ? withSentenceVerdict(result, () =>
-            judged(said, request.claim, cited ?? decidingCitation(session.finalCitation)),
-          )
+        ? withSentenceVerdict(result, () => judged(said, request.claim, cited))
         : result;
     }
     if (confirmationFailure) return failedCheck(confirmationFailure);

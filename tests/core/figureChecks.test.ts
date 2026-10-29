@@ -186,6 +186,8 @@ async function checkWith(options: {
   findsNothing?: boolean;
   /** It replies before it records its quotes, and records them only once asked to. */
   citesWhenAsked?: boolean;
+  /** It never calls cite: its sources and its calculation's inputs give their quotes inline. */
+  neverCites?: boolean;
 }) {
   const body =
     options.body ?? "Revenue in 2024 was £20; revenue in 2025 was £21. The licence has expired.";
@@ -211,7 +213,7 @@ async function checkWith(options: {
         !call.results.some((result) => result.tool === "cite")
       )
         return { text: options.text };
-      if (!call.results.some((result) => result.tool === "cite"))
+      if (!options.neverCites && !call.results.some((result) => result.tool === "cite"))
         return {
           text: options.besideCite,
           calls: [
@@ -636,6 +638,15 @@ test("saved formulas recheck exact UTF-16 spans without another calculate call",
     text: reply([{ ...item(), source: null }]),
   });
   expect(elsewhere.result.figures?.[0]?.result.verdict).toBe("supported");
+  // The sentence rests on its figure's own quote, found or not by the search (#2184).
+  expect(elsewhere.result.verdict).toBe("supported");
+  const uncited = await checkWith({
+    figures: [saved],
+    body,
+    neverCites: true,
+    text: reply([{ ...item(), source: null }]),
+  });
+  expect(uncited.result.verdict).toBe("supported");
   const changed = {
     ...saved,
     calculated: {
@@ -948,6 +959,41 @@ test("a source may give its quote in place of a marker, as calculate takes one",
     source: { quote: "Revenue in 2024 was £20", check: "found" },
   });
 });
+
+const INLINE = { passage: "P1", location: "p. 1", quote: "Revenue in 2024 was £20" };
+
+test.each([
+  {
+    name: "an inline source",
+    text: reply([{ ...item(), source: { ...INLINE, number: "£20" } }]),
+  },
+  {
+    name: "a calculation's inline input",
+    calculations: [
+      {
+        marker: 1,
+        label: "Revenue",
+        formula: "source",
+        stated: "£20",
+        relation: "equals",
+        inputs: [{ name: "source", label: "Revenue", ...INLINE, number: "£20" }],
+      },
+    ],
+    text: reply([{ ...item(), source: null, calculation: 1 }]),
+  },
+])(
+  "a Supported sentence its figure holds by $name, with no quote recorded, stays Supported (#2184)",
+  async ({ text, calculations }) => {
+    const { result } = await checkWith({
+      figures: [target("f1")],
+      neverCites: true,
+      ...(calculations && { calculations }),
+      text,
+    });
+    expect(result.figures?.[0]?.result.verdict).toBe("supported");
+    expect(result.verdict).toBe("supported");
+  },
+);
 
 test("a number that writes its own scale is read whatever unit line comes with it", async () => {
   const body = "2026年第三季度营业收入为人民币4,979.6百万元。";

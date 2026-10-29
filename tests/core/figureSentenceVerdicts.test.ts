@@ -76,6 +76,9 @@ const CANT_REWRITE =
 
 const contradicted = { verdict: "contradicted", scope: "same", topic: "found", roles: "same" };
 
+const SALARY =
+  "The salary is 61,500 per year, paid monthly in arrears on the last working day of the month.";
+
 const SUPPORTED_SALARY = {
   verdict: "supported",
   scope: "same",
@@ -211,23 +214,32 @@ const CASES: Record<string, Reply> = {
   ...Object.fromEntries(
     (
       [
-        ["The salary is 61,500 per year, paid monthly in arrears.", "supported", "conflict"],
-        ["The salary is 61,500 per year, paid weekly.", "contradicted", "conflict"],
-        ["The salary is 61,500 per year, paid in two parts.", "contradicted", "same"],
-        ["The salary is 61,500 per year, paid by the parent company.", "unsupported", "conflict"],
+        ["The salary is 61,500 per year, paid monthly in arrears.", "supported", "conflict", []],
+        ["The salary is 61,500 per year, paid weekly.", "contradicted", "conflict", []],
+        [
+          "The salary is 61,500 per year, paid in two parts.",
+          "contradicted",
+          "same",
+          ["Covered: the salary of 61,500 per year", "Not covered: payment in two parts"],
+        ],
+        [
+          "The salary is 61,500 per year, paid by the parent company.",
+          "unsupported",
+          "conflict",
+          [],
+        ],
       ] as const
-    ).map(([sentence, verdict, judgement]): [string, Reply] => [
+    ).map(([sentence, verdict, judgement, parts]): [string, Reply] => [
       sentence,
       {
-        quotes: [
-          "The salary is 61,500 per year, paid monthly in arrears on the last working day of the month.",
-        ],
+        quotes: [SALARY],
         lines: [
           `Verdict: ${verdict}`,
           "Scope: none, same",
           "Topic: found",
           "Roles: none, same",
           "The agreement says the salary is 61,500 per year, paid monthly in arrears [^1].",
+          ...parts,
         ].join("\n"),
         // Its comma may be a decimal point, so the model names its reading, as the request offers.
         item: SUPPORTED_SALARY,
@@ -394,18 +406,32 @@ describe("a sentence whose figure the Documents contradict is Contradicted (#218
   });
 });
 
-test.each([
+interface Verdict {
+  sentence: string;
+  shown: string;
+  judgements: number;
+  card?: Record<string, unknown>;
+}
+
+test.each<Verdict>([
   {
     sentence: "The salary is 61,500 per year, paid monthly in arrears.",
     shown: "supported",
     judgements: 0,
   },
   { sentence: "The salary is 61,500 per year, paid weekly.", shown: "contradicted", judgements: 2 },
-  // The judgements don't uphold the contradiction: never Supported, though its figure is.
+  // The judgements don't uphold the contradiction: never Supported, though its figure is, and
+  // the card quotes the part the agreement states, as for a sentence without figures.
   {
     sentence: "The salary is 61,500 per year, paid in two parts.",
     shown: "unsupported",
     judgements: 1,
+    card: {
+      covered: "the salary of 61,500 per year",
+      uncovered: "payment in two parts",
+      found: true,
+      quoted: { quote: SALARY },
+    },
   },
   {
     sentence: "The salary is 61,500 per year, paid by the parent company.",
@@ -414,9 +440,10 @@ test.each([
   },
 ])(
   "a Supported figure never weakens the check's own verdict on the sentence: $sentence (#2184)",
-  async ({ sentence, shown, judgements }) => {
+  async ({ sentence, shown, judgements, card }: Verdict) => {
     const { check, judged } = await checkSentence(sentence);
     expect(check?.state).toBe(shown);
+    if (card) expect(check?.unsupported).toMatchObject(card);
     expect(check?.figures?.map((figure) => figure.state)).toEqual(["supported"]);
     expect(judged).toHaveLength(judgements);
   },
