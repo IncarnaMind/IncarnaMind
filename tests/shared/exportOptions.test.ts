@@ -93,11 +93,17 @@ describe("What the Saved line says the file was written with (#1945)", () => {
     citations: number,
     place: CitationPlace,
     marked: boolean | null,
-  ) => chosenParts(in_(language), { places: { citations, place }, markAiText: marked });
+    footnotes = citations,
+  ) => chosenParts(in_(language), { places: { citations, footnotes, place }, markAiText: marked });
 
   test("six Citations as footnotes, with AI text marked, in English and Chinese", () => {
     expect(parts("en", 6, "footnotes", true)).toEqual(["6 footnotes", "AI text marked"]);
     expect(parts("zh-CN", 6, "footnotes", true)).toEqual(["6 个脚注", "已标出 AI 生成的文字"]);
+  });
+
+  test("five Citations across two pages are 2 footnotes, as the Word writer wrote them (#2193)", () => {
+    expect(parts("en", 5, "footnotes", true, 2)).toEqual(["2 footnotes", "AI text marked"]);
+    expect(parts("zh-CN", 5, "footnotes", true, 2)).toEqual(["2 个脚注", "已标出 AI 生成的文字"]);
   });
 
   test("one Citation, as a list at the end", () => {
@@ -113,9 +119,14 @@ describe("What the Saved line says the file was written with (#1945)", () => {
     expect(parts("zh-CN", 3, "list", false)).toEqual(["3 个引用列在文末", "未标出 AI 生成的文字"]);
   });
 
+  test("a list counts its Citations even where footnotes would merge them", () => {
+    expect(parts("en", 5, "list", null, 2)).toEqual(["5 Citations in a list at the end"]);
+    expect(parts("zh-CN", 5, "list", null, 2)).toEqual(["5 个引用列在文末"]);
+  });
+
   test("a file with no Citations says only how its AI text went", () => {
-    expect(parts("en", 0, "footnotes", true)).toEqual(["AI text marked"]);
-    expect(parts("zh-CN", 0, "footnotes", false)).toEqual(["未标出 AI 生成的文字"]);
+    expect(parts("en", 0, "footnotes", true, 0)).toEqual(["AI text marked"]);
+    expect(parts("zh-CN", 0, "footnotes", false, 0)).toEqual(["未标出 AI 生成的文字"]);
   });
 
   test("a PDF has no marking to say", () => {

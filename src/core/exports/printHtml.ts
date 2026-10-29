@@ -23,6 +23,8 @@ export type PrintLabels = ExportLabels;
 export interface PrintHtml {
   body: string;
   notes: string[];
+  /** The notes printed with the page, the User's own and changes' included: what the Saved line says (#2193). */
+  footnotes: number;
 }
 
 export interface CitationWriter {
@@ -73,7 +75,8 @@ export function renderPrintHtml(
     citations,
     isLink,
   );
-  return { body: writer.blocks(blocks), notes };
+  const body = writer.blocks(blocks);
+  return { body, notes, footnotes: notes.length };
 }
 
 /** A style's formatted runs: italics, bold, small capitals, underlining, raised text and links. */
