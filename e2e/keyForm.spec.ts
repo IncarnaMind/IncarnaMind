@@ -447,15 +447,15 @@ test("the provider's own line on what it does with the data sits under the sente
   try {
     await setWindowSize(app, window, 1100, 900);
     await acceptPlainTextKeys(window);
-    for (const [value, link, lead] of [
-      ["en", "Data use ↗", ""],
-      ["zh-CN", "数据使用 ↗", "数据使用："],
+    for (const [value, link] of [
+      ["en", "Data use ↗"],
+      ["zh-CN", "数据使用 ↗"],
     ] as const) {
       await language(window, value);
       const card = await openKeyForm(window);
       await openServiceList(window, card);
       const line = card.getByTestId("provider-form").getByTestId("provider-data-use");
-      await expect(line).toContainText(lead);
+      if (value === "zh-CN") await expect(line).not.toContainText("数据使用：");
       await expect(line.getByRole("link")).toHaveText(link);
       await expect(line.getByRole("link")).toHaveAttribute("href", /^https:\/\//);
       await card.getByTestId("setup-back").click();
@@ -466,7 +466,7 @@ test("the provider's own line on what it does with the data sits under the sente
     const line = (await addProviderForm(settings, "anthropic")).getByTestId("provider-data-use");
     await expect(line.getByRole("link")).toHaveText("Data use ↗");
     await language(window, "zh-CN");
-    await expect(line).toContainText("数据使用：");
+    await expect(line).not.toContainText("数据使用：");
     await expect(line.getByRole("link")).toHaveText("数据使用 ↗");
   } finally {
     await app.close();

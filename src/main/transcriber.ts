@@ -6,11 +6,16 @@
  * dies (a crash, or out of memory), the core hears it, marks the gap and
  * loads it again (see `createChannelTranscriber`).
  */
-import { utilityProcess } from "electron";
 import type { Transcriber } from "../core";
 import { createChannelTranscriber, type TranscriberResponse } from "../core/transcription/channel";
 import type { FakeTranscriberOptions } from "../core/transcription/fake";
+import { type EngineProcess, startEngineProcess } from "./engineProcess";
 import transcriberProcessPath from "./transcriberProcess?modulePath";
+
+export const TRANSCRIPTION_PROCESS: EngineProcess = {
+  modulePath: transcriberProcessPath,
+  serviceName: "IncarnaMind transcription",
+};
 
 export interface UtilityProcessTranscriberOptions {
   /** Runs the fake engine instead of the real one, as these options ask (smoke tests). */
@@ -22,10 +27,7 @@ export function createUtilityProcessTranscriber(
 ): Transcriber {
   const args = options.fake ? ["--fake", `--fake-options=${JSON.stringify(options.fake)}`] : [];
   return createChannelTranscriber(() => {
-    const child = utilityProcess.fork(transcriberProcessPath, args, {
-      serviceName: "IncarnaMind transcription",
-      stdio: "inherit",
-    });
+    const child = startEngineProcess(TRANSCRIPTION_PROCESS, args);
     return {
       send: (request) => child.postMessage(request),
       onResponse: (listener) =>

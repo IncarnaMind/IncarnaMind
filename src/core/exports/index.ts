@@ -12,6 +12,8 @@ import { seriesName } from "../../shared/charts";
 import type { ResolvedCitationStyle } from "../../shared/citationStyles";
 import { citationState, citedLocation, shownDocumentName } from "../../shared/citations";
 import type { DrawnPage } from "../../shared/citedPage";
+import { comparisonQuestionsOf } from "../../shared/comparisons";
+import { formatDate } from "../../shared/dates";
 import { titleWithoutSite } from "../../shared/documentNames";
 import { type MessageKey, type MessageParams, translate } from "../../shared/i18n";
 import type { Translate } from "../../shared/locations";
@@ -21,6 +23,7 @@ import type { PrintPaper } from "../../shared/printDocument";
 import { pendingProposals } from "../../shared/proposals";
 import { readableQuoteText } from "../../shared/readableQuote";
 import type { ScopeKind } from "../../shared/searchScope";
+import { citationMarksNow, signOffsOf } from "../../shared/signOffs";
 import { type SourceDocument, sourcesOf } from "../../shared/sources";
 import type { UnitText } from "../../shared/units";
 import {
@@ -31,12 +34,13 @@ import {
 } from "../../shared/unreadFiles";
 import { wordFileOf, wordImportProgressOf } from "../../shared/wordFiles";
 import type { Logger, Pictures, Printer } from "../adapters";
-import { checkRequests } from "../answers/checks/sentences";
+import { checkRequests, citationSentences } from "../answers/checks/sentences";
 import {
   CITATION_PLACES,
   type CitationAttributes,
   type CitationFormatRequest,
   type CitationPlace,
+  COMPARISON_TABLE_NODE,
   type Document,
   EXPORT_FORMATS,
   type ExportFormat,
@@ -73,7 +77,7 @@ import {
 } from "../mindText";
 import { withChangesAccepted } from "../shownChanges";
 import { type CitationCard, citationCard } from "./citationCards";
-import { addSources, listCitations, styleCitations } from "./citations";
+import { addSources, listCitations, styleCitations, withFigureNotes } from "./citations";
 import { piecesOf, renderDocx } from "./docx";
 import { bodyFamily, renderHtml } from "./html";
 import { exportLabels } from "./labels";
@@ -244,15 +248,13 @@ export function createExports(deps: ExportsDependencies) {
     const documents = deps.liveDocuments();
     const kept = deps.keptCitationTexts();
     const attributesOf = new Map<Footnote, Partial<CitationAttributes>>();
+    let checkedOf: (attributes: Partial<CitationAttributes>) => string[] = () => [];
     const footnote = (attributes: Record<string, unknown>): Footnote => {
-      const note = footnoteOf(
-        attributes as Partial<CitationAttributes>,
-        documents,
-        kept,
-        language,
-        deps,
-      );
-      attributesOf.set(note, attributes as Partial<CitationAttributes>);
+      const cited = attributes as Partial<CitationAttributes>;
+      const found = footnoteOf(cited, documents, kept, language, deps);
+      const checked = checkedOf(cited);
+      const note = checked.length > 0 ? { ...found, checked } : found;
+      attributesOf.set(note, cited);
       return note;
     };
     const listed =
@@ -273,43 +275,61 @@ export function createExports(deps: ExportsDependencies) {
       trimBeforeFootnote: true,
       comparisonText: (key, params) => translate(language, key, params),
       documentRemoved: (documentId) => !live.has(documentId),
+      // A file leaves a hidden column out; the app says how many, the file says nothing.
+      leaveOutHiddenColumns: true,
     };
-    const { read, unread, unreadNames, questions, word, theirChanges, trackedChanges } = deps.read(
-      mind.id,
-      (fragment) => {
-        const { doc } = fragment;
-        name = exportName(mind, fragment);
-        const fromWord = doc !== null && wordFileOf(doc) !== null;
-        // A Word file shows what is waiting as tracked changes, and can mark AI text (#107); the
-        // others show someone's changes from the Word file as changes, or accepted (#734).
-        if (format === "docx") readOptions.review = reviewReading(fragment);
-        else if (doc && fromWord && format !== "source-pack")
-          readOptions.review = theirChangesReading(doc);
-        readOptions.sentenceChecks = failedSentences(fragment, {
-          versions: new Map(documents.map((document) => [document.id, document.contentHash])),
-          folderId: mind.folderId,
-          scope: doc ? mindScopeOf(doc) : null,
-          scopeItemName: deps.scopeItemName,
-          sourceOf: (passage) => footnoteOf(passage, documents, kept, language, deps).source,
-        });
-        const { review } = readOptions;
-        const waiting = pendingProposals(fragment);
-        return {
-          read: readBlocks(fragment, readOptions),
-          unread: doc ? checkUnreadOf(doc, checkRequests(fragment)) : [],
-          unreadNames: doc ? unreadFileNamesOf(doc.getMap(MIND_SETTINGS_FIELD)) : false,
-          questions: countQuestions(fragment),
-          word: doc && fromWord ? { importing: wordImportProgressOf(doc) !== null } : null,
-          theirChanges: fromWord
-            ? waiting.filter((each) => each.id.startsWith(WORD_CHANGE_ID)).length
-            : 0,
-          trackedChanges:
-            format === "docx" && review
-              ? waiting.filter((each) => !review.skips(each.id)).length
-              : 0,
-        };
-      },
-    );
+    const {
+      read,
+      unread,
+      unreadNames,
+      questions,
+      hiddenColumns,
+      word,
+      theirChanges,
+      trackedChanges,
+    } = deps.read(mind.id, (fragment) => {
+      const { doc } = fragment;
+      name = exportName(mind, fragment);
+      const fromWord = doc !== null && wordFileOf(doc) !== null;
+      // A Word file shows what is waiting as tracked changes, and can mark AI text (#107); the
+      // others show someone's changes from the Word file as changes, or accepted (#734).
+      if (format === "docx") readOptions.review = reviewReading(fragment);
+      else if (doc && fromWord && format !== "source-pack")
+        readOptions.review = theirChangesReading(doc);
+      readOptions.sentenceChecks = failedSentences(fragment, {
+        versions: new Map(documents.map((document) => [document.id, document.contentHash])),
+        folderId: mind.folderId,
+        scope: doc ? mindScopeOf(doc) : null,
+        scopeItemName: deps.scopeItemName,
+        sourceOf: (passage) => footnoteOf(passage, documents, kept, language, deps).source,
+      });
+      checkedOf = checkedLines(fragment, documents, language);
+      const { review } = readOptions;
+      const waiting = pendingProposals(fragment);
+      return {
+        read: readBlocks(fragment, readOptions),
+        unread: doc ? checkUnreadOf(doc, checkRequests(fragment)) : [],
+        unreadNames: doc ? unreadFileNamesOf(doc.getMap(MIND_SETTINGS_FIELD)) : false,
+        questions: countQuestions(fragment),
+        hiddenColumns: fragment.toArray().reduce((count, child) => {
+          if (!(child instanceof Y.XmlElement) || child.nodeName !== COMPARISON_TABLE_NODE) {
+            return count;
+          }
+          return (
+            count +
+            comparisonQuestionsOf(child.getAttributes()).filter(
+              (question) => question.hidden === true,
+            ).length
+          );
+        }, 0),
+        word: doc && fromWord ? { importing: wordImportProgressOf(doc) !== null } : null,
+        theirChanges: fromWord
+          ? waiting.filter((each) => each.id.startsWith(WORD_CHANGE_ID)).length
+          : 0,
+        trackedChanges:
+          format === "docx" && review ? waiting.filter((each) => !review.skips(each.id)).length : 0,
+      };
+    });
     const shown = withoutEmptyTitle(read);
     const withUnread = [...shown, ...unreadBlocks(unread, language, unreadNames)];
     const blocks =
@@ -321,7 +341,7 @@ export function createExports(deps: ExportsDependencies) {
       format === "source-pack"
         ? numberCitations(blocks, style.form, attributesOf).map((each) => each.footnote)
         : footnotesIn(blocks);
-    const fileStem = safeFileName(name || translate(language, "mind.untitled"), "Mind");
+    const fileStem = safeFileName(name || translate(language, "mind.untitled"), "Note");
     const listedPlace: CitationPlace | null =
       (format === "docx" || format === "pdf") && style.form === "numbered" && footnotes.length > 0
         ? (options.citationPlace ?? "footnotes")
@@ -336,6 +356,7 @@ export function createExports(deps: ExportsDependencies) {
       numbered: style.form === "numbered",
       unverifiedCitations: footnotes.filter((each) => each.unverified).length,
       questions,
+      hiddenColumns,
       fromWord: word !== null,
       theirChanges,
       unreadFiles: unread.length,
@@ -385,6 +406,7 @@ export function createExports(deps: ExportsDependencies) {
     });
     return {
       ...preview,
+      footnotes: 0,
       unverifiedCitations: pages.flatMap((page) => page.entries).filter(isUnverified).length,
       data: unifyIdeographs(printed),
       word: null,
@@ -400,10 +422,13 @@ export function createExports(deps: ExportsDependencies) {
     };
   };
 
-  const shareBlocks = ({ bibliography, blocks, language, documents }: Prepared) =>
-    bibliography
-      ? addSources(blocks, { language, documents }, translate(language, "bibliography.title"))
-      : blocks;
+  const shareBlocks = ({ bibliography, blocks, language, documents, readOptions }: Prepared) =>
+    withFigureNotes(
+      bibliography
+        ? addSources(blocks, { language, documents }, translate(language, "bibliography.title"))
+        : blocks,
+      { footnote: readOptions.footnote, labels: exportLabels(language) },
+    );
 
   const unitsOf = (attributes: Partial<CitationAttributes>) =>
     deps.citedUnits({
@@ -608,6 +633,7 @@ export function createExports(deps: ExportsDependencies) {
       if (format === "share-page" && prepared.options.citationCards) {
         return {
           ...preview,
+          footnotes: 0,
           data: await sharePage(prepared),
           word: null,
           needsDetails: [],
@@ -615,28 +641,34 @@ export function createExports(deps: ExportsDependencies) {
         };
       }
       const labels = exportLabels(language);
-      const blocks = prepared.listed
-        ? listCitations(
-            prepared.blocks,
-            { language, documents },
-            translate(language, "bibliography.title"),
-            labels.unverified,
-          )
-        : style.form !== "numbered"
-          ? await styleCitations(prepared.blocks, style, thin.format)
-          : prepared.bibliography
-            ? addSources(
-                prepared.blocks,
-                { language, documents },
-                translate(language, "bibliography.title"),
-              )
-            : prepared.blocks;
+      const figures = { footnote: prepared.readOptions.footnote, labels };
+      const blocks =
+        style.form !== "numbered"
+          ? await styleCitations(prepared.blocks, style, thin.format, figures)
+          : withFigureNotes(
+              prepared.listed
+                ? listCitations(
+                    prepared.blocks,
+                    { language, documents },
+                    translate(language, "bibliography.title"),
+                    labels.unverified,
+                  )
+                : prepared.bibliography
+                  ? addSources(
+                      prepared.blocks,
+                      { language, documents },
+                      translate(language, "bibliography.title"),
+                    )
+                  : prepared.blocks,
+              figures,
+            );
       let data: Uint8Array;
       let commented: readonly FailedSentence[] = [];
+      let footnotes = 0;
       if (format === "markdown") {
         data = new TextEncoder().encode(renderMarkdown("", blocks, labels));
       } else if (format === "docx") {
-        ({ data, commented } = renderDocx(await withPictures(blocks, language, deps), {
+        ({ data, commented, footnotes } = renderDocx(await withPictures(blocks, language, deps), {
           title,
           labels,
           language: language === "zh-CN" ? "zh-CN" : "en-US",
@@ -659,7 +691,7 @@ export function createExports(deps: ExportsDependencies) {
       } else {
         // Charts as Word has them: the picture, drawn at twice its size, else the table of values.
         const drawn = await withPictures(blocks, language, deps);
-        const { body, notes } = renderPrintHtml(drawn, labels);
+        const { body, notes, footnotes: printedFootnotes } = renderPrintHtml(drawn, labels);
         const printed = await (deps.printer as Printer).print({
           language,
           paper: deps.paper(),
@@ -669,9 +701,11 @@ export function createExports(deps: ExportsDependencies) {
           notes,
         });
         data = unifyIdeographs(printed);
+        footnotes = printedFootnotes;
       }
       return {
         ...preview,
+        footnotes,
         data,
         word: null,
         needsDetails: [...thin.documents],
@@ -697,7 +731,7 @@ export function createExports(deps: ExportsDependencies) {
     word: NonNullable<Prepared["word"]>,
     thin: ThinEntries,
   ): Promise<MindExport> {
-    if (word.importing) throw new Error("This Mind is still being imported from its Word file.");
+    if (word.importing) throw new Error("This Note is still being imported from its Word file.");
     const { language, style, documents } = prepared;
     // A copy of the Mind as it is now: typing while the file is written doesn't change it.
     const state = deps.read(prepared.mindId, (blocks) =>
@@ -706,7 +740,7 @@ export function createExports(deps: ExportsDependencies) {
     const doc = new Y.Doc();
     try {
       if (state) Y.applyUpdate(doc, state);
-      const { data, report, commented } = await exportWordPatch({
+      const { data, report, commented, footnotes } = await exportWordPatch({
         bytes: await deps.wordPackage(prepared.mindId),
         blocks: doc.getXmlFragment(MIND_CONTENT_FIELD),
         readOptions: prepared.readOptions,
@@ -726,6 +760,7 @@ export function createExports(deps: ExportsDependencies) {
       });
       return {
         ...prepared.preview,
+        footnotes,
         data,
         word: report,
         needsDetails: [...thin.documents],
@@ -900,6 +935,38 @@ function parseExportOptions(input: unknown): Required<ExportMindOptions> {
     checkedLine: choice("checkedLine"),
     theirChanges: theirChanges ?? "shown",
     citationPlace: place ?? "footnotes",
+  };
+}
+
+/**
+ * People's own checks of each Citation, as its source says them (#1933): "Checked by Ada · 28 Oct
+ * 2026", and for a mark made before its text, quote or version changed, "Checked by Ada
+ * before it changed · …", never as checked. There is no line for the whole document.
+ */
+function checkedLines(
+  fragment: Y.XmlFragment,
+  documents: readonly LiveDocument[],
+  language: Language,
+): (attributes: Partial<CitationAttributes>) => string[] {
+  const marks = fragment.doc ? signOffsOf(fragment.doc) : [];
+  if (!marks.some(({ target }) => target.kind === "citation")) return () => [];
+  const sentences = citationSentences(fragment);
+  const versions = new Map(documents.map((document) => [document.id, document.contentHash]));
+  const t: Translate = (key, params) => translate(language, key, params);
+  return (attributes) => {
+    const sentence = typeof attributes.id === "string" ? sentences.get(attributes.id) : undefined;
+    if (typeof attributes.id !== "string" || sentence === undefined) return [];
+    const cited = {
+      documentId: attributes.documentId ?? null,
+      contentHash: attributes.contentHash ?? null,
+      quote: attributes.quote ?? null,
+    };
+    return citationMarksNow(marks, attributes.id, sentence, cited, versions, null).map((now) =>
+      t(now.state === "checked" ? "export.checkedBy" : "export.checkedBy.changed", {
+        name: now.name ?? t("checkRecord.notRecorded"),
+        date: formatDate(now.at, language),
+      }),
+    );
   };
 }
 

@@ -16,7 +16,7 @@ import {
   requestedRequests,
   waitsForUser,
 } from "../../shared/askedChanges";
-import { originOf } from "../../shared/blockOrigins";
+import { originOf, setOrigins } from "../../shared/blockOrigins";
 import { readChart } from "../../shared/charts";
 import {
   keepRevised,
@@ -29,6 +29,7 @@ import {
 import { createElement, type NodeJSON, nodeOf, topLevelBlocks } from "../answers/blocks";
 import {
   BLOCK_ID_ATTRIBUTE,
+  type BlockOrigin,
   CHART_NODE,
   CITATION_NODE,
   GENERATED_MARK,
@@ -144,7 +145,48 @@ function allAiText(
   });
 }
 
+/**
+ * Makes the title heading the app put at the top of a Mind the assistant just made (#1898)
+ * the assistant's text, as it would be had the assistant written it: AI text, from the Answer.
+ * Typed in later, it is the User's.
+ */
+export function ownTitleOf(blocks: Y.XmlFragment, origin: BlockOrigin): void {
+  const doc = blocks.doc;
+  const [first] = topLevelBlocks(blocks);
+  if (!doc || first?.nodeName !== "heading") return;
+  for (const node of first.toArray()) {
+    if (node instanceof Y.XmlText) node.format(0, node.length, { [GENERATED_MARK]: {} });
+  }
+  setOrigins(doc, [idOf(first)], origin);
+}
+
+/** `markdown`, with the assistant's title heading (`ownTitleOf`) kept above it unless it brings a heading of its own. */
+export function keepingTitle(
+  blocks: Y.XmlFragment,
+  over: Pick<OwnWaiting, "blockIds">,
+  markdown: string,
+): string {
+  const first = topLevelBlocks(blocks).find((element) => idOf(element) === over.blockIds[0]);
+  if (!first || !isOwnTitle(first) || /^\s*#{1,6}\s/.test(markdown)) return markdown;
+  const title = elementText(first).trim();
+  return title === "" ? markdown : `# ${title}\n\n${markdown}`;
+}
+
+/** The assistant's title heading (`ownTitleOf`), applied, with no change waiting in it. */
+function isOwnTitle(element: Y.XmlElement): boolean {
+  const doc = element.doc;
+  return (
+    !!doc &&
+    element.nodeName === "heading" &&
+    element.getAttribute(PROPOSAL_ATTRIBUTE) === undefined &&
+    !holdsProposal(element.toArray()) &&
+    originOf(doc, idOf(element))?.from.anchor.kind === "message" &&
+    allAiText(element, writtenAtom)
+  );
+}
+
 function isOwn(element: Y.XmlElement): boolean {
+  if (isOwnTitle(element)) return true;
   const attribute = readProposalAttribute(element.getAttribute(PROPOSAL_ATTRIBUTE));
   const doc = element.doc;
   return (
@@ -403,7 +445,8 @@ export function writtenByAnswer(
     const from = originOf(doc, idOf(element))?.from;
     return from?.anchor.kind === "message" && from.anchor.messageId === answerId;
   };
-  const range = top.filter(fromAnswer);
+  // Its title heading (`ownTitleOf`) is written again only when the new text brings a heading of its own.
+  const range = top.filter((element) => fromAnswer(element) && (heading || !isOwnTitle(element)));
   const [first] = top;
   if (range.length === 0) return null;
   if (heading && first && first.nodeName === "heading" && !fromAnswer(first)) range.unshift(first);

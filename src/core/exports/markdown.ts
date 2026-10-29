@@ -291,6 +291,8 @@ class MarkdownWriter {
     switch (item.kind) {
       case "math":
         return `$${item.latex}$`;
+      case "figure":
+        return escapeText(item.figure.shown, context.table);
       case "citation":
         if (context.note) return citationSource(item.footnote, this.labels);
         return `[^${this.number({ kind: "citation", footnote: item.footnote })}]`;

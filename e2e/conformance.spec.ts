@@ -487,7 +487,8 @@ async function conform(run: Run, kind: ObjectKind, stage: Stage): Promise<void> 
     const place = await placeOf(run, kind, stage, key);
     const byRightClick = await menuByRightClick(window, place);
     expect(byRightClick.length).toBeGreaterThan(0);
-    expect(byRightClick).toEqual(menuOf(byRightClick, registry, kind));
+    const commandsOnly = byRightClick.at(-1) === "—" ? byRightClick.slice(0, -1) : byRightClick;
+    expect(commandsOnly).toEqual(menuOf(byRightClick, registry, kind));
     await closeMenu(window, place);
     expect(await menuByButton(window, place)).toEqual(byRightClick);
     await closeMenu(window, place);
@@ -639,6 +640,47 @@ async function mindWithComparison(window: Page): Promise<string> {
     row.insert(at, [cell]);
   }
   table.insert(0, [row]);
+  doc.getXmlFragment("blocks").push([paragraph, table]);
+  const update = Array.from(Y.encodeStateAsUpdate(doc));
+  return window.evaluate(async (change) => {
+    const core = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
+    const mind = await core.createMind({ title: "Suppliers" });
+    await core.applyMindUpdate(mind.id, new Uint8Array(change));
+    await core.closeMind(mind.id);
+    return mind.id;
+  }, update);
+}
+
+/** A Mind holding a comparison table of two real Documents, for its rows' menus (#1837). */
+async function mindWithComparisonRows(window: Page, dir: string): Promise<string> {
+  await writeFile(join(dir, "Corvane.txt"), "Termination notice: 90 days.\n");
+  await writeFile(join(dir, "Halvard.txt"), "Termination notice: 6 months.\n");
+  await addDocuments(window, [join(dir, "Corvane.txt"), join(dir, "Halvard.txt")]);
+  const documents = await read(window, (core) =>
+    core.listDocuments().then((all) => all.map(({ id, name }) => ({ id, name }))),
+  );
+  const doc = new Y.Doc();
+  const paragraph = new Y.XmlElement("paragraph");
+  paragraph.setAttribute("id", crypto.randomUUID());
+  paragraph.insert(0, [new Y.XmlText("Supplier terms.")]);
+  const table = new Y.XmlElement("comparisonTable");
+  table.setAttribute("id", crypto.randomUUID());
+  const question = { id: crypto.randomUUID(), text: "Termination notice" };
+  table.setAttribute("questions", [question] as never);
+  for (const document of documents) {
+    const row = new Y.XmlElement("comparisonRow");
+    row.setAttribute("documentId", document.id);
+    row.setAttribute("documentName", document.name);
+    const cell = new Y.XmlElement("comparisonCell");
+    cell.setAttribute("questionId", question.id);
+    cell.setAttribute("status", "failed");
+    cell.setAttribute("problem", "not-found");
+    const line = new Y.XmlElement("paragraph");
+    line.setAttribute("id", crypto.randomUUID());
+    cell.insert(0, [line]);
+    row.insert(0, [cell]);
+    table.insert(table.length, [row]);
+  }
   doc.getXmlFragment("blocks").push([paragraph, table]);
   const update = Array.from(Y.encodeStateAsUpdate(doc));
   return window.evaluate(async (change) => {
@@ -871,6 +913,41 @@ const STAGES: Record<Staged, Stage> = {
         .locator('[data-testid="comparison-question"] .comparison-question-label')
         .first()
         .innerText(),
+  },
+  // The key is the Mind's; the table's own name is what its menu renames.
+  comparisonTable: {
+    inNote: true,
+    make: ({ window }) => mindWithComparison(window),
+    show: ({ window }, key) => showInNote(window, key, "comparisonTable"),
+    async name({ window }, key) {
+      const note = await noteState(window, key);
+      // Yjs writes a node's name in lowercase: <comparisontable …>.
+      return /<comparisontable [^>]*\btitle="([^"]*)"/i.exec(note)?.[1] ?? "";
+    },
+    renameFrom: {
+      doubleClick: ({ window }) => window.getByTestId("comparison-name").first(),
+      focus: ({ window }) => window.getByTestId("comparison-head").first(),
+    },
+  },
+  // The key is the Mind's; the first row's head is the one its menu acts on.
+  comparisonRow: {
+    inNote: true,
+    make: ({ window, sources: dir }) => mindWithComparisonRows(window, dir),
+    show: ({ window }, key) => showInNote(window, key, "comparisonRow"),
+    opened: ({ window }) => window.getByTestId("viewer-header"),
+  },
+  comparisonCell: {
+    inNote: true,
+    make: ({ window }) => mindWithComparison(window),
+    show: ({ window }, key) => showInNote(window, key, "comparisonCell"),
+    name: ({ window }) =>
+      window.getByTestId("comparison-cell").first().locator(".comparison-cell-content").innerText(),
+    renameFrom: {
+      doubleClick: ({ window }) => window.getByTestId("comparison-cell").first(),
+      focus: ({ window }) => window.getByTestId("comparison-cell").first(),
+    },
+    hit: ({ window }) => window.getByTestId("comparison-cell").first(),
+    opened: ({ window }) => window.getByTestId("comparison-cell-card"),
   },
   check: {
     inNote: true,

@@ -8,7 +8,7 @@
 import { readFileSync, statSync } from "node:fs";
 import type { SpeakerEmbeddingExtractor } from "sherpa-onnx-node";
 import { MEETING_SAMPLE_RATE, type SpeakerModelFiles, type VoiceTurn } from "../adapters";
-import { loadSherpa } from "./sherpa";
+import { SHERPA } from "./sherpa";
 
 /** Voiceprints closer than this are one voice: set on the first 15 minutes of the English cases of eval/meetings (eval/speakers/README.md). */
 export const CLUSTER_THRESHOLD = 1.05;
@@ -245,7 +245,7 @@ export async function createSherpaSeparator({
   samePerson?: number;
   windowSeconds?: number;
 } = {}): Promise<(request: SeparationRequest) => VoiceTurn[]> {
-  const sherpa = await loadSherpa();
+  const sherpa = await SHERPA.load();
   return (request) => {
     const { model } = request;
     const engine = new sherpa.OfflineSpeakerDiarization({

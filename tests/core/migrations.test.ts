@@ -3,7 +3,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, test } from "vitest";
 import { DataFromNewerVersionError } from "../../src/core/errors";
-import { migrate, openDatabase } from "../../src/core/storage";
+import { type Database, migrate, openDatabase } from "../../src/core/storage";
 import { migrations } from "../../src/core/storage/migrations";
 import { createTempDataFolder } from "../helpers/core";
 
@@ -60,6 +60,40 @@ describe("Migrations", () => {
       ]),
     ).toThrow(/must increase/);
     expect(userVersion(db)).toBe(0);
+    db.close();
+  });
+
+  test("a Document read by this pipeline starts with its keyword rows current (#2185)", async () => {
+    const db = openDatabase(join(await createTempDataFolder(), "test.db"));
+    migrate(
+      db,
+      migrations.filter((migration) => migration.version < 114),
+    );
+    const at = "2026-10-29T09:00:00.000Z";
+    for (const [id, version] of [
+      ["00000000-0000-4000-8000-000000000001", 15],
+      ["00000000-0000-4000-8000-000000000002", 14],
+    ] as const) {
+      db.run(
+        `INSERT INTO documents (id, content_hash, name, kind, size, status, processing_version,
+           created_at, updated_at)
+         VALUES (?, ?, 'Notes.md', 'markdown', 1, 'ready', ?, ?, ?)`,
+        [id, `hash-${version}`, BigInt(version), at, at],
+      );
+    }
+
+    migrate(db);
+
+    // The rows of a Document at 15 were written by this pipeline or by the rewrite that made
+    // them; the others' are rewritten once, as before.
+    expect(
+      db.all<{ id: string; keywords_version: number }>(
+        "SELECT id, keywords_version FROM documents ORDER BY id",
+      ),
+    ).toEqual([
+      { id: "00000000-0000-4000-8000-000000000001", keywords_version: 15 },
+      { id: "00000000-0000-4000-8000-000000000002", keywords_version: 0 },
+    ]);
     db.close();
   });
 
@@ -123,6 +157,93 @@ describe("Migrations", () => {
 
     expect(db.get("SELECT name FROM sqlite_master WHERE name = 'two'")).toBeDefined();
     expect(userVersion(db)).toBe(2);
+    db.close();
+  });
+
+  test("a fresh database reaches the latest version", async () => {
+    const db = openDatabase(join(await createTempDataFolder(), "test.db"));
+
+    migrate(db);
+
+    expect(userVersion(db)).toBe(migrations.at(-1)?.version);
+    expect(db.all("SELECT version FROM schema_migrations")).toHaveLength(migrations.length);
+    db.close();
+  });
+
+  test("all pending migrations share one transaction", async () => {
+    const db = openDatabase(join(await createTempDataFolder(), "test.db"));
+    const one = { version: 1, description: "one", sql: "CREATE TABLE one (id TEXT) STRICT;" };
+    const two = { version: 2, description: "two", sql: "CREATE TABLE two (id TEXT) STRICT;" };
+    const three = { version: 3, description: "three", sql: "CREATE TABLE three (id TEXT) STRICT;" };
+    migrate(db, [one]);
+    let transactions = 0;
+    const storage = {
+      ...db,
+      transaction<T>(fn: () => T): T {
+        transactions++;
+        return db.transaction(fn);
+      },
+    };
+
+    migrate(storage, [one, two, three]);
+
+    expect(transactions).toBe(1);
+    expect(userVersion(db)).toBe(3);
+    db.close();
+  });
+
+  test("an up-to-date database starts no transaction and writes nothing", async () => {
+    const db = openDatabase(join(await createTempDataFolder(), "test.db"));
+    const one = { version: 1, description: "one", sql: "CREATE TABLE one (id TEXT) STRICT;" };
+    migrate(db, [one]);
+    let transactions = 0;
+    let writes = 0;
+    const storage: Database = {
+      ...db,
+      exec(sql) {
+        writes++;
+        db.exec(sql);
+      },
+      run(sql, params) {
+        writes++;
+        db.run(sql, params);
+      },
+      transaction<T>(fn: () => T): T {
+        transactions++;
+        return db.transaction(fn);
+      },
+    };
+
+    migrate(storage, [one]);
+
+    expect({ transactions, writes }).toEqual({ transactions: 0, writes: 0 });
+    expect(userVersion(db)).toBe(1);
+    db.close();
+  });
+
+  test("a later migration's failure leaves the earlier version and no partial schema", async () => {
+    const db = openDatabase(join(await createTempDataFolder(), "test.db"));
+    const one = { version: 1, description: "one", sql: "CREATE TABLE one (id TEXT) STRICT;" };
+    const two = { version: 2, description: "two", sql: "CREATE TABLE two (id TEXT) STRICT;" };
+    const broken = {
+      version: 3,
+      description: "broken",
+      sql: "CREATE TABLE three (id TEXT) STRICT; INSERT INTO missing_table VALUES (1);",
+    };
+    const four = { version: 4, description: "four", sql: "CREATE TABLE four (id TEXT) STRICT;" };
+    migrate(db, [one]);
+
+    expect(() => migrate(db, [one, two, broken, four])).toThrow();
+
+    expect(userVersion(db)).toBe(1);
+    expect(
+      db
+        .all<{ version: number }>("SELECT version FROM schema_migrations")
+        .map((row) => row.version),
+    ).toEqual([1]);
+    expect(db.get("SELECT name FROM sqlite_master WHERE name = 'two'")).toBeUndefined();
+    expect(db.get("SELECT name FROM sqlite_master WHERE name = 'three'")).toBeUndefined();
+    expect(db.get("SELECT name FROM sqlite_master WHERE name = 'four'")).toBeUndefined();
     db.close();
   });
 });

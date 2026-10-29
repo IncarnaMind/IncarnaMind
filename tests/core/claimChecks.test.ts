@@ -405,6 +405,44 @@ describe("One claim check", () => {
     });
   });
 
+  // protects=a request after the model's verdict that the provider rate-limits leaves the sentence not checked on the limit's reason, so the run tries it again: a contradiction is never shown unconfirmed, nor a verdict without its evidence, nor a wider Supported the parts ask would settle (#1618); fails_when=the sentence is Contradicted or Supported without the request that confirms it; no_claim=the run's pauses, which runItems' tests cover.
+  test.each<[string, string, string, Plan]>([
+    [
+      "the contradiction's confirmation",
+      CONTRADICTED,
+      "Compare a sentence",
+      PLANS[CONTRADICTED] as Plan,
+    ],
+    ["the evidence asked for again", SUPPORTED, "You checked a sentence", { verdict: "supported" }],
+    [
+      "the parts of a wider-supported sentence",
+      SUPPORTED,
+      "A sentence the User wrote says more",
+      {
+        verdict: "supported",
+        quote: "Spring tides happen at new moon and at full moon",
+        says: "Scope: wider\nTides says spring tides happen at new and full moon.",
+      },
+    ],
+  ])(
+    "%s rate-limited leaves the sentence not checked, on the rate limit",
+    async (_, claim, asked, plan) => {
+      const plans: Record<string, Plan> = { ...PLANS, [claim]: plan };
+      const model = scriptedModel((call) => checkReply(call, plans), {
+        generate: (call) =>
+          call.system.startsWith(asked)
+            ? { error: { status: 429, message: "Too many requests." } }
+            : checkGenerate(plans)(call),
+      });
+      const { core } = await setUpWithDocuments(model, [TIDES]);
+
+      expect(await core.checkClaim({ claim })).toMatchObject({
+        verdict: "not-checked",
+        reason: "rate-limit",
+      });
+    },
+  );
+
   test("a supported reply whose roles differ from the Passage's shows the partly-supported card", async () => {
     const MUST = "Harbours must publish the times of high water every year.";
     const YEARLY = "Harbours publish the times of high water every year.";
@@ -1058,12 +1096,12 @@ describe("A figure the Documents don't state, worked out (#707)", () => {
     } as const;
     const { core } = await calculatingCheck(checkingModel(plans));
     expect(await core.checkClaim({ claim })).toMatchObject({
-      verdict: "unsupported",
-      calculation: null,
+      verdict: "not-checked",
+      reason: "no-evidence",
     });
   });
 
-  test("a figure for a number the sentence doesn't have decides nothing: the model's own verdict stands", async () => {
+  test("a figure for a number the sentence doesn't have leaves the arithmetic Not checked", async () => {
     const claim = "Net debt to EBITDA fell to 1.1x.";
     const plans = {
       [claim]: { verdict: "unsupported", calculation: { ...RATIO, stated: "2.5x" } },
@@ -1071,8 +1109,8 @@ describe("A figure the Documents don't state, worked out (#707)", () => {
     const { core } = await calculatingCheck(checkingModel(plans));
 
     expect(await core.checkClaim({ claim })).toMatchObject({
-      verdict: "unsupported",
-      calculation: null,
+      verdict: "not-checked",
+      reason: "no-evidence",
     });
   });
 });
@@ -1190,7 +1228,9 @@ describe("A limit the figure stays within, and a cost printed in brackets (#1908
     says?: string,
     language?: "en" | "zh-CN",
   ) {
-    const plans = { [claim]: { verdict: said, calculation, ...(says && { says }) } } as const;
+    const plans = {
+      [claim]: { verdict: said, calculation, strict: { text: "same" }, ...(says && { says }) },
+    } as const;
     const calls: ModelCall[] = [];
     const setup = await setUpWithDocuments(checkingModel(plans, calls), [document]);
     const saved = await setup.core.saveChatProvider({
@@ -1254,10 +1294,10 @@ describe("A limit the figure stays within, and a cost printed in brackets (#1908
       unsupported: {
         covered: "the amount, 528.9",
         uncovered: "the currency, unit or scale in £528.9m",
-        quoted: { check: "found" },
       },
       calculation: { agrees: true },
     });
+    if (result.verdict === "unsupported") expect(result.unsupported?.quoted).toBeUndefined();
   });
 
   test("an unstated scale is named in Chinese", async () => {
@@ -1439,7 +1479,9 @@ describe("A limit the figure stays within, and a cost printed in brackets (#1908
     async (kind) => {
       const claim = COVERED("4.55x");
       const calculation = { ...COVER, stated: "4.55x" };
-      const plans = { [claim]: { verdict: "unsupported" as const, calculation } };
+      const plans = {
+        [claim]: { verdict: "unsupported" as const, calculation, strict: { text: "same" } },
+      };
       const model = scriptedModel(
         (call) => {
           if (isCheckRun(call) && call.results.some((each) => each.tool === "calculate")) {
@@ -1626,12 +1668,12 @@ describe("A limit the figure stays within, and a cost printed in brackets (#1908
           stated: zh ? "3.25倍" : "3.25x",
           relation: "at most" as const,
         },
-        "unsupported",
+        "not-checked",
       ],
     ] as const;
   };
 
-  // protects=brackets on a loss keep its sign, a sum in any form (SUM, a product added) keeps the sign of a cost in it, every number the model names must hold whatever their order, and a negative figure is never inside a positive limit, in English and Chinese (review of #1908); fails_when="Operating margin was 3%" against an operating loss "(12.0)", "Net cash flow was 5.0" against SUM(10.0, (15.0)), or "Leverage of 2.5x is inside the 3.25x covenant" at 2.77x is Supported, or a loss-making EBITDA's negative leverage is inside a covenant; no_claim=what the model's own verdict is when the calculation decides nothing, which stays as it said.
+  // protects=brackets on a loss keep its sign, a sum in any form (SUM, a product added) keeps the sign of a cost in it, every number the model names must hold whatever their order, and a negative figure is never inside a positive limit, in English and Chinese (review of #1908); fails_when="Operating margin was 3%" against an operating loss "(12.0)", "Net cash flow was 5.0" against SUM(10.0, (15.0)), or "Leverage of 2.5x is inside the 3.25x covenant" at 2.77x is Supported, or a loss-making EBITDA's negative leverage is inside a covenant; no_claim=the meaning of a covenant against loss-making EBITDA; an incomparable result leaves its arithmetic Not checked.
   test.each(
     [...cases("en"), ...cases("zh")].map(
       ([document, claim, calculation, verdict]) => [claim, verdict, document, calculation] as const,
@@ -2728,7 +2770,9 @@ describe("A quote that starts with a figure (#1969)", () => {
       stated: "2.77倍",
     };
     const calls: ModelCall[] = [];
-    const plans = { [claim]: { verdict: "unsupported", calculation } } as const;
+    const plans = {
+      [claim]: { verdict: "unsupported", calculation, strict: { text: "same" } },
+    } as const;
     const setup = await setUpWithDocuments(checkingModel(plans, calls), [RESULTS_ZH]);
     const saved = await setup.core.saveChatProvider({
       kind: "anthropic",
@@ -2851,7 +2895,7 @@ describe("A quote whose page mentions it before its Passage (#1981)", () => {
       .flatMap((call) => call.results)
       .filter((each) => each.tool === "calculate");
     expect(replies.at(-1)?.text).toMatch(problem);
-    expect(result).toMatchObject({ verdict: "unsupported" });
+    expect(result).toMatchObject({ verdict: "not-checked", reason: "no-evidence" });
   };
 
   test("a unique quote of the heading still refuses its section number", async () => {

@@ -34,6 +34,7 @@
  */
 import * as Y from "yjs";
 import { originOf } from "../shared/blockOrigins";
+import { figureShownText, readCalculatedFigureAttributes } from "../shared/calculatedFigures";
 import { type ChartAttributes, chartSources, chosenSeries, readChart } from "../shared/charts";
 import { type RecheckReason, readClaimCheck } from "../shared/claimChecks";
 import {
@@ -41,7 +42,9 @@ import {
   comparisonCellOf,
   comparisonNameOf,
   comparisonQuestionsOf,
+  visibleComparisonQuestions,
 } from "../shared/comparisons";
+import { type CalculatedSources, calculatedSources, labelledCitations } from "../shared/figureRuns";
 import { type MessageKey, type MessageParams, translate } from "../shared/i18n";
 import { citationLocation } from "../shared/locations";
 import type { TableAlign } from "../shared/markdownTables";
@@ -59,12 +62,17 @@ import {
   readProposalRef,
 } from "../shared/proposals";
 import type { ScopeKind } from "../shared/searchScope";
+import { comparisonCellReviewed, comparisonCellTarget, signOffsOf } from "../shared/signOffs";
 import { readWordAtom, wordAtomText } from "../shared/wordFiles";
 import {
   ANSWER_BLOCK,
   BLOCK_ID_ATTRIBUTE,
+  CALCULATED_FIGURE_NODE,
+  type CalculatedFigure,
+  type CalculatedFigureAttributes,
   CHART_NODE,
   CITATION_NODE,
+  type Citation,
   type CitedWork,
   CLAIM_CHECK_MARK,
   type ClaimCalculation,
@@ -120,6 +128,11 @@ export interface Footnote {
   link?: string;
   /** Its check failed, which a Word file can say in a comment (#107). */
   failed?: FailedCheck;
+  /**
+   * People's own checks of it (#1933), each a line under its source: "Checked by Ada · 28 Oct
+   * 2026", or "… before it changed" for one made before its text, quote or version did.
+   */
+  checked?: readonly string[];
 }
 
 /** How a Citation's check failed (#107). */
@@ -181,6 +194,17 @@ export interface Image {
   alt: string;
 }
 
+/**
+ * A Citation a calculated figure is worked out from (`labelledCitations`), with the input's label
+ * or the range's name. A writer makes its footnote with `ReadOptions.footnote` only when it
+ * writes it: Question context gives an id to each Citation it reads, and shows none of these.
+ */
+export interface FigureSource {
+  label: string;
+  citation: Citation;
+  work: CitedWork;
+}
+
 export type Inline = (
   | {
       kind: "text";
@@ -193,6 +217,17 @@ export type Inline = (
   | { kind: "math"; latex: string }
   | { kind: "break" }
   | { kind: "citation"; footnote: Footnote; work: CitedWork }
+  /**
+   * A calculated figure (ADR-0021), written as `figure.shown` where a writer has nothing more to
+   * show; `analysis` is the title of the saved Analysis it came from (#447). Its sources are null
+   * when that Analysis isn't saved in the Note.
+   */
+  | {
+      kind: "figure";
+      figure: CalculatedFigure;
+      sources: FigureSource[] | null;
+      analysis: string | null;
+    }
   /**
    * A footnote the User wrote, at its marker: its text. A Citation in it is
    * part of that text (written as its source), not a footnote of its own.
@@ -212,6 +247,8 @@ export type Inline = (
       of?: string;
       /** The footnotes of its Citations whose check failed. */
       failed?: Footnote[];
+      /** As a note: its Citations' people's checks (`Footnote.checked`). */
+      checked?: readonly string[];
     }
 ) &
   Pendings;
@@ -220,6 +257,8 @@ export type Inline = (
 export interface BibliographyItem {
   label: StyledRun[] | null;
   runs: StyledRun[];
+  /** People's own checks of the source's Citations, a line each (`Footnote.checked`). */
+  checked?: readonly string[];
 }
 
 export interface TableCell {
@@ -259,7 +298,12 @@ export type Block = (
     }
   | { kind: "quote"; content: Block[] }
   | { kind: "rule" }
-  | { kind: "table"; rows: TableCell[][] }
+  /**
+   * A plain table, or a comparison table: `widths` gives each column's share
+   * of the width in a writer that lays columns out unevenly, the Document
+   * column first, as the User sized the columns on the page.
+   */
+  | { kind: "table"; rows: TableCell[][]; widths?: number[] }
   | { kind: "image"; image: Image }
   /**
    * A chart (#436): what it draws, for a picture of it; its values as a table,
@@ -304,6 +348,12 @@ export interface ReadOptions {
   comparisonText?(key: MessageKey, params?: MessageParams): string;
   /** Whether a Document was deleted: its comparison table row says its source was removed. */
   documentRemoved?(documentId: string): boolean;
+  /**
+   * Whether a comparison table's hidden columns are read. An export leaves
+   * them out, as the file is for someone who shouldn't see them; every other
+   * reader keeps them, as hiding is display only.
+   */
+  leaveOutHiddenColumns?: boolean;
   /**
    * Read for a Word file's review (#107, see `reviewReading`): what changes still
    * waiting add is read too, and each part of one is marked (`Pendings`), and
@@ -415,10 +465,17 @@ export function readBlock(element: Y.XmlElement, options: ReadOptions): Block[] 
   return change ? withChange(readBlockElement(element, options), change) : [];
 }
 
+const hasTextChild = (children: readonly unknown[]): boolean =>
+  children.some(
+    (child) =>
+      child instanceof Y.XmlText ||
+      (child instanceof Y.XmlElement && child.nodeName === CALCULATED_FIGURE_NODE),
+  );
+
 /** The first stretch of text in an element: a list's first item, not all its items run together. */
 function firstText(element: Y.XmlElement): string {
   const children = element.toArray();
-  if (children.some((child) => child instanceof Y.XmlText)) return plainText(element);
+  if (hasTextChild(children)) return plainText(element);
   for (const child of children) {
     if (!(child instanceof Y.XmlElement)) continue;
     const text = firstText(child);
@@ -549,6 +606,7 @@ const INLINE_TYPES: ReadonlySet<string> = new Set([
   "inlineMath",
   "hardBreak",
   "image",
+  CALCULATED_FIGURE_NODE,
   CITATION_NODE,
   FOOTNOTE_NODE,
   WORD_ATOM_NODE,
@@ -621,8 +679,16 @@ function readBlockElement(element: Y.XmlElement, options: ReadOptions): Block[] 
       return [{ kind: "rule" }];
     case "table":
       return [{ kind: "table", rows: readTable(element, options) }];
-    case COMPARISON_TABLE_NODE:
-      return [{ kind: "table", rows: readComparison(element, options) }];
+    case COMPARISON_TABLE_NODE: {
+      const comparison = readComparison(element, options);
+      return [
+        {
+          kind: "table",
+          rows: comparison.rows,
+          ...(comparison.widths && { widths: comparison.widths }),
+        },
+      ];
+    }
     case "image":
       return [{ kind: "image", image: readImage(element) }];
     case CHART_NODE:
@@ -681,13 +747,15 @@ function readTable(table: Y.XmlElement, options: ReadOptions): TableCell[][] {
 }
 
 /** A comparison table's cell as read: its Answer, or what it says in the Answer's place. */
-export type ComparisonCellReading =
-  | { kind: "answer"; content: Block[] }
+export type ComparisonCellReading = (
+  | { kind: "answer"; content: Block[]; failure?: string }
   | { kind: "words"; text: string }
-  | { kind: "empty" };
+  | { kind: "empty" }
+) & { edited?: boolean; reviewed?: boolean };
 
 /** A comparison table as read (#98): its Questions, then a row per Document, a cell per Question. */
 export interface ComparisonReading {
+  /** The columns read, in their order: an export leaves out the hidden ones. */
   questions: ComparisonQuestion[];
   rows: {
     documentId: string;
@@ -699,7 +767,10 @@ export interface ComparisonReading {
 
 export function readComparisonTable(table: Y.XmlElement, options: ReadOptions): ComparisonReading {
   const say = options.comparisonText ?? ((key, params) => translate("en", key, params));
-  const questions = comparisonQuestionsOf(table.getAttributes());
+  const columns = comparisonQuestionsOf(table.getAttributes());
+  const questions = options.leaveOutHiddenColumns ? visibleComparisonQuestions(columns) : columns;
+  const tableId = stringAttribute(table, "id");
+  const signOffs = table.doc ? signOffsOf(table.doc) : [];
   const rows: ComparisonReading["rows"] = [];
   for (const row of table.toArray()) {
     if (!(row instanceof Y.XmlElement) || row.nodeName !== COMPARISON_ROW_NODE) continue;
@@ -716,25 +787,52 @@ export function readComparisonTable(table: Y.XmlElement, options: ReadOptions): 
       cells: questions.map((question): ComparisonCellReading => {
         const element = cells.get(question.id);
         if (!element) return { kind: "empty" };
-        const state = comparisonCellOf(element.getAttributes());
-        if (state.status === "done") {
-          return { kind: "answer", content: readChildren(element.toArray(), options) };
+        const state = {
+          ...comparisonCellOf(element.getAttributes()),
+          reviewed: comparisonCellReviewed(
+            signOffs,
+            comparisonCellTarget(tableId, documentId, question.id),
+          ),
+        };
+        const marks = {
+          ...(state.edited && { edited: true }),
+          ...(state.reviewed && { reviewed: true }),
+        };
+        if (
+          state.status === "done" ||
+          (state.status === "failed" && plainText(element).trim() !== "")
+        ) {
+          const problem = state.problem ? cellProblemMessage(state.problem, state.message) : null;
+          return {
+            kind: "answer",
+            content: readChildren(element.toArray(), options),
+            ...marks,
+            ...(state.status === "failed" &&
+              problem && { failure: say(problem.key, problem.params) }),
+          };
         }
-        if (!state.problem) return { kind: "words", text: "…" };
+        if (!state.problem) return { kind: "words", text: "…", ...marks };
         const { key, params } = cellProblemMessage(state.problem, state.message);
-        return { kind: "words", text: say(key, params) };
+        return { kind: "words", text: say(key, params), ...marks };
       }),
     });
   }
   return { questions, rows };
 }
 
+/** How wide a comparison table's Document column and its default columns weigh in a file. */
+const COMPARISON_DOCUMENT_WEIGHT = 150;
+const COMPARISON_COLUMN_WEIGHT = 240;
+
 /**
  * A comparison table as a table: a heading row ("Document", then its
  * Questions), then a row per Document, its name first, each cell its Answer,
- * or what it says in the Answer's place.
+ * or what it says in the Answer's place, and the widths it shows on the page.
  */
-function readComparison(table: Y.XmlElement, options: ReadOptions): TableCell[][] {
+function readComparison(
+  table: Y.XmlElement,
+  options: ReadOptions,
+): { rows: TableCell[][]; widths: number[] | undefined } {
   const say = options.comparisonText ?? ((key, params) => translate("en", key, params));
   const cell = (content: Block[], header = false): TableCell => ({
     header,
@@ -747,18 +845,33 @@ function readComparison(table: Y.XmlElement, options: ReadOptions): TableCell[][
     { kind: "paragraph", content: [{ kind: "text", text, marks: NO_MARKS }] },
   ];
   const { questions, rows } = readComparisonTable(table, options);
-  return [
-    [
-      cell(words(say("comparison.document")), true),
-      ...questions.map((question) => cell(words(comparisonNameOf(question)), true)),
+  const widths = questions.some((question) => question.width !== undefined)
+    ? [
+        COMPARISON_DOCUMENT_WEIGHT,
+        ...questions.map((question) => question.width ?? COMPARISON_COLUMN_WEIGHT),
+      ]
+    : undefined;
+  return {
+    widths,
+    rows: [
+      [
+        cell(words(say("comparison.document")), true),
+        ...questions.map((question) => cell(words(comparisonNameOf(question)), true)),
+      ],
+      ...rows.map((row) => [
+        cell(words(row.name)),
+        ...row.cells.map((each) =>
+          cell(
+            each.kind === "answer"
+              ? [...each.content, ...(each.failure ? words(each.failure) : [])]
+              : each.kind === "words"
+                ? words(each.text)
+                : [],
+          ),
+        ),
+      ]),
     ],
-    ...rows.map((row) => [
-      cell(words(row.name)),
-      ...row.cells.map((each) =>
-        cell(each.kind === "answer" ? each.content : each.kind === "words" ? words(each.text) : []),
-      ),
-    ]),
-  ];
+  };
 }
 
 /**
@@ -946,6 +1059,11 @@ function readInlineElement(
 ): void {
   const add = (inline: Inline) => content.push({ ...inline, ...change });
   switch (child.nodeName) {
+    case CALCULATED_FIGURE_NODE: {
+      const attributes = readCalculatedFigureAttributes(child.getAttributes());
+      if (attributes) add(readFigure(attributes, child.doc));
+      break;
+    }
     case "inlineMath":
       add({ kind: "math", latex: stringAttribute(child, "latex") });
       break;
@@ -1002,6 +1120,28 @@ function readInlineElement(
   }
 }
 
+function readFigure(attributes: CalculatedFigureAttributes, doc: Y.Doc | null): Inline {
+  const { figure } = attributes;
+  let sources: CalculatedSources;
+  try {
+    sources = calculatedSources(attributes, doc);
+  } catch {
+    // Its saved Analysis is gone: it still reads as its text, and an export that would write its
+    // sources says they aren't available, as the editor does (`error.figure.evidenceMissing`).
+    return { kind: "figure", figure, sources: null, analysis: null };
+  }
+  return {
+    kind: "figure",
+    figure,
+    sources: labelledCitations(sources).map(({ label, citation }) => ({
+      label,
+      citation,
+      work: citedWork({ ...citation }),
+    })),
+    analysis: sources.analysis?.title ?? null,
+  };
+}
+
 /** What a citation style needs of a Citation: its Document, its Location and the version quoted. */
 function citedWork(attributes: Record<string, unknown>): CitedWork {
   const text = (value: unknown) => (typeof value === "string" && value !== "" ? value : null);
@@ -1038,7 +1178,7 @@ export function blockText(element: Y.XmlElement): string {
   const visit = (node: Y.XmlElement) => {
     if (proposedOnly(node)) return;
     const children = node.toArray();
-    if (!children.some((child) => child instanceof Y.XmlText)) {
+    if (!hasTextChild(children)) {
       for (const child of children) if (child instanceof Y.XmlElement) visit(child);
       return;
     }
@@ -1081,6 +1221,7 @@ export function plainText(element: Y.XmlElement | Y.XmlText, footnotes = false):
       .join("");
   }
   if (!footnotes && element.nodeName === FOOTNOTE_NODE) return "";
+  if (element.nodeName === CALCULATED_FIGURE_NODE) return figureShownText(element.getAttributes());
   if (element.nodeName === WORD_ATOM_NODE || element.nodeName === WORD_BLOCK_NODE) {
     return wordAtomText(readWordAtom(element.getAttributes() as Record<string, unknown>));
   }

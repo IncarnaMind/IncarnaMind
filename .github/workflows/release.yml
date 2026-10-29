@@ -122,14 +122,9 @@ jobs:
               echo "::warning title=macOS build not notarized::The app is signed, but there are no notarization secrets, so Gatekeeper will still block it."
             fi
           fi
-          # npm installed only this runner's speech package (sherpa-onnx-node's, #136): the x64
-          # app needs the x64 one beside it; each app keeps its own (electron-builder.yml).
-          version="$(node -p 'require("sherpa-onnx-node/package.json").version')"
-          npm pack "sherpa-onnx-darwin-x64@$version" --pack-destination "$RUNNER_TEMP"
-          mkdir -p node_modules/sherpa-onnx-darwin-x64
-          tar -xzf "$RUNNER_TEMP/sherpa-onnx-darwin-x64-$version.tgz" -C node_modules/sherpa-onnx-darwin-x64 --strip-components 1
+          # Apple silicon only: Macs with an Intel processor aren't supported (#2199).
           # $signing is unquoted on purpose: it holds zero or two arguments.
-          npx electron-builder --mac --arm64 --x64 --publish never $signing
+          npx electron-builder --mac --arm64 --publish never $signing
 
       # With the SIGNPATH_API_TOKEN secret, SignPath signs IncarnaMind.exe, then the installer
       # built from it (docs/releasing.md, Windows signing). Without it, the installer is unsigned
@@ -301,8 +296,15 @@ jobs:
       - name: Check the package contents and sizes
         run: npm run check:package
 
-      # The packaged arm64 app reads scans with real OCR (#1819) and transcribes a meeting with its
-      # real speech engine and model, before anything is uploaded (#1239): engines can fail only in the built app.
+      # The packaged app for this runner loads each engine module in the process that runs it and
+      # starts Python, before anything is uploaded (#1239): a module can fail to load only in the
+      # built app. The step fails naming the module. On macOS the check runs with the other packaged
+      # specs in the step after this one.
+      - if: runner.os != 'macOS'
+        uses: ./.github/actions/packaged-engines
+
+      # The packaged arm64 app loads every engine module, reads scans with real OCR (#1819) and
+      # transcribes a meeting with its real speech engine and model (#1239).
       - if: runner.os == 'macOS'
         uses: ./.github/actions/packaged-transcription
 

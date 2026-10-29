@@ -226,11 +226,26 @@ for (const [language, width] of [
       }
       await screenshot(window, `one-tree-fresh-${language}-${width}`);
 
+      // The invite line is the tree's empty state, and the first section takes its place without
+      // moving the tree or the Library row above it (#2142).
+      const boxOf = async (target: Locator) => {
+        const box = await target.boundingBox();
+        if (!box) throw new Error("The sidebar's tree isn't in the window.");
+        return box;
+      };
+      const treeBox = await boxOf(sidebar.getByTestId("sidebar-sections"));
+      const libraryBox = await boxOf(sidebar.getByTestId("open-library"));
+
       // A Mind: it is listed under "Not in a Folder", though there are no Folders yet.
       await makeMind(window, "Shortlist");
       const minds = notInAFolder(window);
       await expect(minds.getByTestId("not-in-a-folder-title")).toHaveText(t("library.unsorted"));
       await expect(minds.getByTestId("mind-list-item")).toHaveText("Shortlist");
+      await expect(empty).toHaveCount(0);
+      const treeAfter = await boxOf(sidebar.getByTestId("sidebar-sections"));
+      expect(treeAfter.y).toBeCloseTo(treeBox.y, 0);
+      const libraryAfter = await boxOf(sidebar.getByTestId("open-library"));
+      expect(libraryAfter.y).toBeCloseTo(libraryBox.y, 0);
 
       // A Folder: the Folders section comes, and the heading stays as it was.
       await makeFolder(window, "Finance");

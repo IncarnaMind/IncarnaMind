@@ -1,10 +1,11 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type { ChatProvider, OllamaPullProgress, OllamaStatus } from "../../../../core/api";
 import { OLLAMA_DOWNLOAD_URL } from "../../../../core/providers/catalog/billing";
 import { core } from "../../core";
 import { errorMessage } from "../../errors";
 import { useT } from "../../i18n";
 import { localModeChosen } from "../../localMode";
+import { ollamaRead } from "../../ollamaRead";
 import { useAppStore } from "../../store";
 import { ProblemMark } from "../ProblemLine";
 import { buttonStyle, errorTextClass } from "../ui";
@@ -14,8 +15,11 @@ import { useKeepLocal } from "./KeepLocalChoice";
 export function useOllamaStatus() {
   const [status, setStatus] = useState<OllamaStatus | null>(null);
   const [opening, setOpening] = useState(false);
+  const [retryComing, setRetryComing] = useState(false);
+  const retried = useRef(false);
 
-  const detect = useCallback(async () => {
+  const look = useCallback(async () => {
+    setRetryComing(false);
     setStatus(null);
     try {
       setStatus(await core.detectOllama());
@@ -24,9 +28,26 @@ export function useOllamaStatus() {
     }
   }, []);
 
+  /** Asks again now as the User asked to, with its own look's second chance again. */
+  const detect = useCallback(async () => {
+    retried.current = false;
+    await look();
+  }, [look]);
+
   useEffect(() => {
-    void detect();
-  }, [detect]);
+    void look();
+  }, [look]);
+
+  // A look that ran out of time is tried once more, as a cold app answers faster the second
+  // time; after that it settles, saying it wasn't heard from rather than looking for ever.
+  useEffect(() => {
+    if (status === null || status.running || status.unknown !== true) return;
+    if (retried.current) return;
+    retried.current = true;
+    setRetryComing(true);
+    const timer = setTimeout(() => void look(), 1_500);
+    return () => clearTimeout(timer);
+  }, [status, look]);
 
   const open = async (): Promise<OllamaStatus | null> => {
     setOpening(true);
@@ -42,21 +63,26 @@ export function useOllamaStatus() {
     }
   };
 
-  return { status, opening, detect, open };
+  return { status, opening, retryComing, detect, open };
 }
 
 /**
  * Local mode: whether Ollama runs on its default port, and, if it does, one
  * call that pulls the recommended model (with progress) and makes it the
  * default chat model, or, with `keepDefault`, leaves a default there is.
+ * `localModeUnasked`: no "Also keep everything on this computer" box is
+ * shown, so turning Local mode on is said with the model, and Change.
  */
 export function useOllama(
   onSaved: (provider: ChatProvider) => void,
   undoPlace?: string,
-  { keepDefault = false }: { keepDefault?: boolean } = {},
+  {
+    keepDefault = false,
+    localModeUnasked = false,
+  }: { keepDefault?: boolean; localModeUnasked?: boolean } = {},
 ) {
   const t = useT();
-  const { status, opening, detect, open } = useOllamaStatus();
+  const { status, opening, retryComing, detect, open } = useOllamaStatus();
   const [pulling, setPulling] = useState(false);
   const [progress, setProgress] = useState<OllamaPullProgress | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -75,7 +101,11 @@ export function useOllama(
         ...(keepLocal.setUp && { localOnly: keepLocal.checked }),
         ...(keepDefault && { keepDefault }),
       });
-      await localModeChosen(wasOn, undoPlace);
+      await localModeChosen(
+        wasOn,
+        undoPlace,
+        localModeUnasked ? status?.recommendedModel : undefined,
+      );
       onSaved(provider);
     } catch (failure) {
       setError(errorMessage(failure, t));
@@ -84,15 +114,23 @@ export function useOllama(
     }
   };
 
-  return { status, pulling, progress, error, keepLocal, opening, detect, open, use };
+  return { status, pulling, progress, error, keepLocal, opening, retryComing, detect, open, use };
 }
 
 export type Ollama = ReturnType<typeof useOllama>;
 
-/** What Ollama's choice says about this computer: looking, found, or not found. */
+/** What Ollama's choice says about this computer: looking, not heard from, found, or not found. */
 export function ollamaDescription(ollama: Ollama, t: ReturnType<typeof useT>): string {
-  if (ollama.status === null) return t("providers.ollama.checking");
-  return ollama.status.running ? t("providers.ollama.detected") : t("providers.ollama.notDetected");
+  switch (ollamaRead(ollama)) {
+    case "looking":
+      return t("providers.ollama.checking");
+    case "no-answer":
+      return t("providers.ollama.noAnswer");
+    case "running":
+      return t("providers.ollama.detected");
+    case "not-running":
+      return t("providers.ollama.notDetected");
+  }
 }
 
 /** The model being pulled, with its progress, and what went wrong. */
@@ -155,9 +193,10 @@ export function OllamaAction({ ollama, large = false }: { ollama: Ollama; large?
       </button>
     );
   }
+  const read = ollamaRead(ollama);
   return (
     <span className="flex flex-wrap items-center gap-2">
-      {status !== null && (
+      {read === "not-running" && (
         // The main process opens it in the User's browser.
         <button
           type="button"
@@ -171,7 +210,7 @@ export function OllamaAction({ ollama, large = false }: { ollama: Ollama; large?
       <button
         type="button"
         data-testid="ollama-check-again"
-        disabled={status === null}
+        disabled={read === "looking"}
         onClick={() => void ollama.detect()}
         className={buttonStyle("secondary", size)}
       >

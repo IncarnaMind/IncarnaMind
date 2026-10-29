@@ -3,16 +3,18 @@ import { cp, mkdir, readdir, readFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { type ElectronApplication, _electron as electron } from "@playwright/test";
 import { homeEnv } from "../../tests/helpers/home";
+import { launchEnvironment } from "../launchEnvironment";
 
 const root = resolve(__dirname, "../..");
-export const packagedExecutable =
-  process.env.INCARNAMIND_PACKAGED_APP ??
-  join(
-    root,
-    "dist",
-    process.arch === "arm64" ? "mac-arm64" : "mac",
-    "IncarnaMind.app/Contents/MacOS/IncarnaMind",
-  );
+
+/** Where `npm run dist:dir` puts the app's executable on this computer. */
+function builtExecutable(): string {
+  if (process.platform === "win32") return join(root, "dist", "win-unpacked", "IncarnaMind.exe");
+  if (process.platform === "linux") return join(root, "dist", "linux-unpacked", "incarnamind");
+  return join(root, "dist", "mac-arm64", "IncarnaMind.app/Contents/MacOS/IncarnaMind");
+}
+
+export const packagedExecutable = process.env.INCARNAMIND_PACKAGED_APP || builtExecutable();
 const modelCache = process.env.INCARNAMIND_MODEL_CACHE;
 
 export async function launchPackaged(
@@ -27,11 +29,6 @@ export async function launchPackaged(
   const temp = join(home, "Temp");
   await mkdir(temp, { recursive: true });
   if (documents) await mkdir(join(home, "Documents"), { recursive: true });
-  const env: Record<string, string> = {};
-  for (const [name, value] of Object.entries(process.env)) {
-    if (value !== undefined && !/KEY|TOKEN|SECRET|PASSWORD/.test(name)) env[name] = value;
-  }
-  delete env.ELECTRON_RUN_AS_NODE;
   return electron.launch({
     executablePath: packagedExecutable,
     args: [
@@ -46,15 +43,14 @@ export async function launchPackaged(
           ]
         : []),
     ],
-    env: {
-      ...env,
+    env: launchEnvironment({
       ...homeEnv(home),
       TMPDIR: temp,
       TMP: temp,
       TEMP: temp,
       INCARNAMIND_DATA_DIR: data,
-      ...(testHooks ? { INCARNAMIND_TEST_HOOKS: "1" } : {}),
-    },
+      INCARNAMIND_TEST_HOOKS: testHooks ? "1" : undefined,
+    }),
   });
 }
 
@@ -77,3 +73,16 @@ export async function packagedLogLines(dataDir: string, match: RegExp): Promise<
     .flatMap((text) => text.split("\n"))
     .filter((line) => match.test(line));
 }
+
+/**
+ * Where ONNX Runtime keeps its device id and its queue of usage events under the app's home folder
+ * (#2145): Application Support on macOS, and the cache folder on Linux, which the app's XDG_CACHE_HOME
+ * puts at ~/.cache. It makes the folder when it starts, so a home without it never ran with
+ * telemetry on. The Windows library keeps none.
+ */
+export const runtimeTelemetryFolders = (home: string): string[] => {
+  const folder = join("Microsoft", "DeveloperTools", ".onnxruntime");
+  if (process.platform === "darwin") return [join(home, "Library", "Application Support", folder)];
+  if (process.platform === "linux") return [join(home, ".cache", folder)];
+  return [];
+};

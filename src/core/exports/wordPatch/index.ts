@@ -93,6 +93,8 @@ export interface WordPatchResult {
   data: Uint8Array;
   report: WordExportReport;
   commented: FailedSentence[];
+  /** The footnotes the finished document refers to, the ones the file already had included (#2193). */
+  footnotes: number;
 }
 
 /** The text width a section leaves, in twips, for new tables and pictures: US Letter's with 1 inch margins if it doesn't say. */
@@ -115,7 +117,7 @@ export async function exportWordPatch(input: WordPatchInput): Promise<WordPatchR
   await writer.text(pkg.part);
 
   const doc = input.blocks.doc;
-  if (!doc || !wordFileOf(doc)) throw new Error("This Mind wasn't imported from a Word file.");
+  if (!doc || !wordFileOf(doc)) throw new Error("This Note wasn't imported from a Word file.");
   const reading = input.readOptions.review;
   const yOf = new Map<NodeJSON, Y.XmlElement>();
   const current = input.blocks
@@ -259,6 +261,7 @@ export async function exportWordPatch(input: WordPatchInput): Promise<WordPatchR
     sources: input.sources,
     format: input.formatCitations,
     unverified: input.labels.unverified,
+    figures: { footnote: options.footnote, labels: input.labels },
   });
   for (const each of order) if (each.blocks) each.blocks = await input.withPictures(each.blocks);
 
@@ -325,7 +328,12 @@ export async function exportWordPatch(input: WordPatchInput): Promise<WordPatchR
   ) {
     report.notKept.push(signatureLoss);
   }
-  return { data, report, commented: review.commentedSentences() };
+  return {
+    data,
+    report,
+    commented: review.commentedSentences(),
+    footnotes: docxWriter.footnoteCount,
+  };
 }
 
 const signatureLoss: WordExportLoss = {

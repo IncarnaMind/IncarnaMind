@@ -496,7 +496,7 @@ export const SETS: readonly RepeatSet[] = [
       ["year", "乙方自2028年1月11日起入职。"],
       ["probation-length", "试用期为六个月。"],
       ["notice-length", "试用期满后，任何一方须提前一个月书面通知对方，方可解除本合同。"],
-      ["negation", "试用期内任何一方都不得解除本合同。", 1682],
+      ["negation", "试用期内任何一方都不得解除本合同。"],
       ["unit", "乙方年工资为人民币一万八千元。"],
       ["reporting-line", "人力资源总监向乙方汇报。"],
       ["payer", "甲方每月向乙方支付租金人民币一千五百元。"],
@@ -650,14 +650,226 @@ export const SETS: readonly RepeatSet[] = [
   },
 ];
 
+/**
+ * What a sentence's claim turns on, for how often the claims request leaves it out (#1682): a
+ * negation, a number (a figure, a date, a length of time), a name (a person, a company, a role,
+ * a place), a modal (a duty or a permission) or a party (who does what for or to whom); "other"
+ * for a claim of none of these, and "none" for a sentence that makes no claim (an opinion,
+ * advice, a question, thanks or a request), which the request should leave out.
+ */
+export type ClaimKind = "negation" | "number" | "name" | "modal" | "party" | "other" | "none";
+
+export const CLAIM_KINDS: readonly ClaimKind[] = [
+  "negation",
+  "number",
+  "name",
+  "modal",
+  "party",
+  "other",
+  "none",
+];
+
+/** A sentence of a claim kinds Mind: a User's own notes on the agreement. */
+export interface KindSentence {
+  key: string;
+  claim: ClaimKind;
+  text: string;
+}
+
+export interface KindSet {
+  id: string;
+  language: "en" | "zh-CN";
+  mind: string;
+  sentences: readonly KindSentence[];
+}
+
+/**
+ * The claim kinds group (#1682): a User's notes on each agreement, three claims or more of each kind
+ * the agreement states, between sentences that make no claim (an opinion said as one and one
+ * that isn't, a question, advice, thanks, a request and a proposal), so the claims request is
+ * measured both ways: a claim it leaves out, and a sentence that makes no claim it names.
+ */
+export const KIND_SETS: readonly KindSet[] = [
+  {
+    id: "en-kinds",
+    language: "en",
+    mind: "Notes on Tunde's agreement",
+    sentences: [
+      {
+        key: "parties",
+        claim: "name",
+        text: "The agreement is between Larkfield Provisions Ltd and Tunde Okoro.",
+      },
+      {
+        key: "opinion",
+        claim: "none",
+        text: "I think three months' notice is long for a People Operations role.",
+      },
+      { key: "salary", claim: "number", text: "Tunde's salary is 61,500 a year, paid monthly." },
+      { key: "reports", claim: "party", text: "Tunde reports to the Director of People." },
+      { key: "lunch", claim: "negation", text: "The one-hour lunch break isn't paid." },
+      { key: "home", claim: "modal", text: "Tunde may work from home two days a week." },
+      {
+        key: "question",
+        claim: "none",
+        text: "Should we offer him a car allowance when he starts?",
+      },
+      { key: "start", claim: "number", text: "He starts on 11 January 2027." },
+      {
+        key: "notice",
+        claim: "negation",
+        text: "After probation, neither side can end the agreement without three months' written notice.",
+      },
+      {
+        key: "office",
+        claim: "party",
+        text: "The Company can ask Tunde to come into the office on a home-working day.",
+      },
+      {
+        key: "advice",
+        claim: "none",
+        text: "We recommend agreeing his home-working days with his manager before he starts.",
+      },
+      {
+        key: "secret",
+        claim: "modal",
+        text: "Tunde must keep the Company's confidential information secret after he leaves.",
+      },
+      { key: "law", claim: "name", text: "The laws of England and Wales govern the agreement." },
+      {
+        key: "carry",
+        claim: "negation",
+        text: "No more than 5 unused holiday days can be carried over.",
+      },
+      {
+        key: "holiday",
+        claim: "number",
+        text: "Holiday is 27 working days a year plus public holidays.",
+      },
+      { key: "taken", claim: "modal", text: "Days carried over must be taken by 31 March." },
+      {
+        key: "should",
+        claim: "modal",
+        text: "Tunde should agree his home-working days with his manager in advance.",
+      },
+      {
+        key: "pension",
+        claim: "party",
+        text: "The Company enrols Tunde in its workplace pension scheme.",
+      },
+      { key: "role", claim: "name", text: "Tunde Okoro is employed as People Operations Partner." },
+      { key: "thanks", claim: "none", text: "Thanks to Priya for sending over the signed copy." },
+      { key: "view", claim: "none", text: "On the whole this looks like a fair agreement." },
+      {
+        key: "proposal",
+        claim: "none",
+        text: "Let's go through the pension terms at Monday's meeting.",
+      },
+      {
+        key: "request",
+        claim: "none",
+        text: "Please send me any questions about these terms by Friday.",
+      },
+    ],
+  },
+  {
+    id: "zh-kinds",
+    language: "zh-CN",
+    mind: "林晓的合同笔记",
+    sentences: [
+      { key: "parties", claim: "name", text: "本合同由明川食品有限公司与林晓签订。" },
+      { key: "opinion", claim: "none", text: "我觉得三个月的解除通知期对这个岗位来说偏长。" },
+      { key: "salary", claim: "number", text: "林晓的月工资为人民币一万八千元。" },
+      { key: "reports", claim: "party", text: "林晓向人力资源总监汇报。" },
+      { key: "secret", claim: "negation", text: "林晓离职后也不得泄露公司的商业秘密。" },
+      { key: "home", claim: "modal", text: "林晓每周可在家工作两天。" },
+      { key: "question", claim: "none", text: "要不要在他入职时发交通补贴？" },
+      { key: "start", claim: "number", text: "林晓自2027年1月11日起入职。" },
+      {
+        key: "notice",
+        claim: "negation",
+        text: "试用期满后，未提前三个月书面通知，任何一方都不得解除合同。",
+      },
+      { key: "office", claim: "party", text: "公司可以通知林晓在居家工作日到岗。" },
+      { key: "advice", claim: "none", text: "建议入职前先和主管商定居家办公的日子。" },
+      { key: "keep", claim: "modal", text: "林晓在职期间须对公司的商业秘密保密。" },
+      { key: "law", claim: "name", text: "本合同适用中华人民共和国法律。" },
+      { key: "holidays", claim: "negation", text: "法定节假日不计入带薪年休假的天数。" },
+      { key: "holiday", claim: "number", text: "林晓每年享有带薪年休假10天。" },
+      {
+        key: "probation",
+        claim: "modal",
+        text: "试用期内任何一方提前三日书面通知，即可解除合同。",
+      },
+      { key: "should", claim: "modal", text: "林晓应事先与主管商定居家工作的日子。" },
+      { key: "insurance", claim: "party", text: "公司为林晓缴纳社会保险和住房公积金。" },
+      { key: "role", claim: "name", text: "林晓担任人力资源业务伙伴。" },
+      { key: "thanks", claim: "none", text: "感谢小周发来签好的合同。" },
+      { key: "view", claim: "none", text: "总体来看，这份合同还算公平。" },
+      { key: "proposal", claim: "none", text: "周一开会时再一起过一遍社保条款。" },
+      { key: "request", claim: "none", text: "有问题请在周五前发给我。" },
+    ],
+  },
+];
+
+/** The kinds of the conflict sets' sentences, by key; the same key is the same kind in both languages, except as `claimKindOf` says. */
+const KIND_OF_KEY: Readonly<Record<string, ClaimKind>> = {
+  negation: "negation",
+  "entitlement-off": "negation",
+  "prohibition-bude": "negation",
+  number: "number",
+  date: "number",
+  year: "number",
+  "start-month": "number",
+  "probation-length": "number",
+  "notice-length": "number",
+  unit: "number",
+  condition: "number",
+  period: "number",
+  name: "name",
+  place: "name",
+  duty: "modal",
+  "duty-short": "modal",
+  "duty-home": "modal",
+  "duty-home-2": "modal",
+  "duty-carry": "modal",
+  "duty-shall": "modal",
+  "duty-should": "modal",
+  "duty-xu": "modal",
+  "duty-ying": "modal",
+  "duty-yingdang": "modal",
+  permission: "modal",
+  "permission-can": "modal",
+  "permission-keyi": "modal",
+  "reporting-line": "party",
+  payer: "party",
+  employer: "party",
+  seller: "party",
+  landlord: "party",
+  "party-in-lieu": "party",
+  "party-secret": "party",
+  "party-office": "party",
+  "party-entitled": "party",
+  "share-2": "party",
+};
+
+/** A sentence's claim kind in a repeats set: "share" is the pension shares swapped in English, and who pays the social insurance in Chinese. */
+export function claimKindOf(set: RepeatSet, sentence: RepeatSentence): ClaimKind {
+  if (sentence.key === "share") return set.language === "en" ? "number" : "party";
+  return KIND_OF_KEY[sentence.key] ?? "other";
+}
+
 /** The Documents a set's Library holds. */
-export const documentsOf = (set: RepeatSet): RepeatDocument[] =>
+export const documentsOf = (set: Pick<RepeatSet, "id" | "language">): RepeatDocument[] =>
   DOCUMENTS.filter(
     (each) => each.language === set.language && (!each.onlyFor || each.onlyFor.includes(set.id)),
   );
 
 /** Writes a set's Documents into `folder`, as the files a User adds. */
-export async function writeDocuments(folder: string, set: RepeatSet): Promise<EvalDocument[]> {
+export async function writeDocuments(
+  folder: string,
+  set: Pick<RepeatSet, "id" | "language">,
+): Promise<EvalDocument[]> {
   const written: EvalDocument[] = [];
   for (const document of documentsOf(set)) {
     const path = join(folder, document.file);

@@ -15,6 +15,7 @@ import {
   type ExportResult,
   exportAgain,
   exportMind,
+  FIGURE_SCHEDULE_EXCEL,
   FORMAT_LABELS,
   isCheckRecord,
   revealNeedsDetails,
@@ -53,6 +54,7 @@ const isPlainSaved = (result: SavedResult, t: ReturnType<typeof useT>): boolean 
   result.needsDetails.length === 0 &&
   result.kept.length === 0 &&
   result.failures.length === 0 &&
+  result.sentKept &&
   unmarkedChecks(result.checks, t) === null;
 
 /**
@@ -109,6 +111,18 @@ function ResultBody({
   const withFile =
     result.state === "saved"
       ? [
+          {
+            testId: "export-hidden-columns",
+            text:
+              result.hiddenColumns === 0
+                ? ""
+                : t(
+                    result.hiddenColumns === 1
+                      ? "export.hiddenColumns.one"
+                      : "export.hiddenColumns.other",
+                    { count: result.hiddenColumns },
+                  ),
+          },
           { testId: "export-comments", text: commentedChecks(result.checks, t) },
           { testId: "export-tracked", text: trackedChanges(result.tracked, t) },
         ].flatMap(({ testId, text }) => (text ? [{ testId, text }] : []))
@@ -123,12 +137,11 @@ function ResultBody({
     return () => clearTimeout(timer);
   }, [plain, held, dismiss]);
 
-  const saving =
-    result.format === COMPARISON_EXCEL
-      ? t("export.excel.saving")
-      : isCheckRecord(result.format)
-        ? t("checkRecord.saving")
-        : t("export.saving.line", { format: t(FORMAT_LABELS[result.format]) });
+  const saving = isWorkbook(result.format)
+    ? t("export.excel.saving")
+    : isCheckRecord(result.format)
+      ? t("checkRecord.saving")
+      : t("export.saving.line", { format: t(FORMAT_LABELS[result.format]) });
   const fix = (): ProblemAction | undefined => {
     if (result.state === "failed") {
       return {
@@ -271,6 +284,11 @@ function ResultBody({
                     )}
               </ProblemLine>
             )}
+            {!result.sentKept && (
+              <ProblemLine role="status" testId="export-sent-not-kept">
+                {t("export.sentNotKept")}
+              </ProblemLine>
+            )}
             {result.failures.map(({ format, reason }) => (
               <ProblemLine key={format} role="status" testId={`export-failed-${format}`}>
                 {t(`checkRecord.failed.${format}`, { reason: reasonOf(reason, t) })}
@@ -341,6 +359,12 @@ function NeedsDetailsLine({ mindId, documentIds }: { mindId: string; documentIds
 }
 
 /** Where the note's checks stand (#1915), read as the corner badge reads it; null for a line that isn't the note's own export, or until its Mind is known. */
+/** A workbook the app writes from a note, the comparison or the figure schedule: not the note's own file. */
+const isWorkbook = (
+  format: SavedResult["format"],
+): format is typeof COMPARISON_EXCEL | typeof FIGURE_SCHEDULE_EXCEL =>
+  format === COMPARISON_EXCEL || format === FIGURE_SCHEDULE_EXCEL;
+
 function useExportNoteState(mindId: string | null): NoteState | null {
   const mind = useAppStore((state) =>
     mindId === null ? null : (state.minds.find((each) => each.id === mindId) ?? null),
@@ -359,14 +383,18 @@ function SavedSentence({ result, withFile }: { result: SavedResult; withFile: Sa
   const language = useLanguage();
   const folder = result.inDefaultFolder ? defaultFolderLabel(t) : folderName(result.folder);
   const name = nameInLine(result.name);
-  // The check record and the workbook aren't the note's file: their lines say what they are, not how the note stands.
-  const noteExport = !isCheckRecord(result.format) && result.format !== COMPARISON_EXCEL;
+  // The check record and the workbooks aren't the note's file: their lines say what they are, not how the note stands.
+  const noteExport = !isCheckRecord(result.format) && !isWorkbook(result.format);
   const state = useExportNoteState(noteExport ? result.mindId : null);
   const chosen = chosenParts(t, {
     places:
       result.citationPlace === null
         ? null
-        : { citations: result.citations, place: result.citationPlace },
+        : {
+            citations: result.citations,
+            footnotes: result.footnotes,
+            place: result.citationPlace,
+          },
     markAiText: result.markAiText,
   });
   const unchecked =

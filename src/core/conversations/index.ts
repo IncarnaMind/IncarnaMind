@@ -36,6 +36,7 @@ import type {
   ChatModelChoice,
   CitationSupport,
   ClaimedChange,
+  ClaimedTool,
   Conversation,
   ConversationAnswer,
   ConversationContent,
@@ -53,7 +54,7 @@ import type {
   SearchScope,
   ThirdPartySource,
 } from "../api";
-import { CLAIMED_CHANGES, MOST_ASKED_QUOTES } from "../api";
+import { CLAIMED_CHANGES, CLAIMED_TOOLS, MOST_ASKED_QUOTES } from "../api";
 import { InvalidInputError, isRecord, NotFoundError } from "../errors";
 import { isSignInRouteProblem } from "../providers/signInRoutes";
 import { parseSearchScope } from "../scope";
@@ -246,6 +247,9 @@ function storedSteps(value: string | null): AnswerSteps | null {
     firstWordMs,
     careful,
     unbackedClaims,
+    unrunTools,
+    calculateUnavailable,
+    askedAgainFor,
     example,
     coverage,
     writtenFrom,
@@ -258,6 +262,8 @@ function storedSteps(value: string | null): AnswerSteps | null {
         CLAIMED_CHANGES.some((claim) => claim === each),
       )
     : [];
+  const unrun = claimedTools(unrunTools);
+  const askedAbout = claimedTools(askedAgainFor);
   return {
     sentAt: timeOrNull(parsed.sentAt),
     finishedAt: timeOrNull(parsed.finishedAt),
@@ -282,6 +288,11 @@ function storedSteps(value: string | null): AnswerSteps | null {
     ...(typeof firstWordMs === "number" && firstWordMs >= 0 && { firstWordMs }),
     ...(careful === true && { careful }),
     ...(claimed.length > 0 && { unbackedClaims: claimed }),
+    ...(unrun.length > 0 && {
+      unrunTools: unrun,
+      ...(calculateUnavailable === true && { calculateUnavailable }),
+    }),
+    ...(askedAbout.length > 0 && { askedAgainFor: askedAbout }),
     ...(example === true && { example }),
     ...(textBehind === true && { textBehind }),
     ...(storedCoverage(coverage) ?? {}),
@@ -308,11 +319,20 @@ function storedSteps(value: string | null): AnswerSteps | null {
   };
 }
 
+const claimedTools = (value: unknown): ClaimedTool[] =>
+  Array.isArray(value)
+    ? value.filter((each): each is ClaimedTool => CLAIMED_TOOLS.some((tool) => tool === each))
+    : [];
+
 const isCount = (value: unknown): value is number =>
   typeof value === "number" && Number.isInteger(value) && value > 0;
 
 function storedCoverage(value: unknown): { coverage: AnswerCoverage } | null {
-  if (!isRecord(value) || (value.kind !== "main" && value.kind !== "largest")) return null;
+  if (
+    !isRecord(value) ||
+    (value.kind !== "main" && value.kind !== "largest" && value.kind !== "named")
+  )
+    return null;
   const used = Array.isArray(value.used)
     ? value.used.flatMap((each) =>
         isRecord(each) && typeof each.id === "string" && typeof each.name === "string"
@@ -819,7 +839,7 @@ export function createConversations(db: Database, now: () => string) {
       let mind: QuestionInput["mind"] = null;
       if (mindId !== undefined && mindId !== null) {
         if (typeof mindId !== "string" || mindId === "") {
-          throw new InvalidInputError("A Mind id must be a non-empty string, or null for none.");
+          throw new InvalidInputError("A Note id must be a non-empty string, or null for none.");
         }
         const row = db.get<{ folder_id: string | null }>(
           "SELECT folder_id FROM minds WHERE id = ? AND deleted_at IS NULL",
@@ -829,7 +849,7 @@ export function createConversations(db: Database, now: () => string) {
         mind = { id: mindId, folderId: row.folder_id };
       }
       if (model !== undefined && model !== null && !isChatModelChoice(model)) {
-        throw new InvalidInputError("A model must be { providerId, modelId }.");
+        throw new InvalidInputError({ key: "error.question.model" });
       }
       const where = focus === undefined || focus === null ? null : parseFocus(focus);
       if (focus !== undefined && focus !== null && where === null) {
@@ -1043,6 +1063,8 @@ export function createConversations(db: Database, now: () => string) {
       /** The Tool calls the Answer made, as it stands before it is written again. */
       toolCalls: AnswerToolCall[];
       onScreen: string[];
+      /** The model to write it with instead of the Question's own, when the caller chose one. */
+      model: ChatModelChoice | null;
     } {
       if (!isRecord(input)) {
         throw new InvalidInputError("Expected { conversationId, answerId }.");
@@ -1056,12 +1078,26 @@ export function createConversations(db: Database, now: () => string) {
       if (question?.kind !== "question") {
         throw new NotFoundError({ key: "error.answer.questionGone" });
       }
+      if (input.model !== undefined && input.model !== null && !isChatModelChoice(input.model)) {
+        throw new InvalidInputError({ key: "error.question.model" });
+      }
       return {
         answerId: answer.id,
         question: toQuestion(question),
         toolCalls: storedList<AnswerToolCall>(answer.tool_calls),
         onScreen: parseOnScreen(input.onScreen),
+        model: input.model ?? null,
       };
+    },
+
+    /** Keeps a Question on the model its Answer is written with now, so Regenerate goes on with it. */
+    setQuestionModel(questionId: string, model: ChatModelChoice): ConversationQuestion | null {
+      db.run(
+        "UPDATE conversation_messages SET provider_id = ?, model_id = ?, updated_at = ? WHERE id = ? AND kind = 'question'",
+        [model.providerId, model.modelId, now(), questionId],
+      );
+      const row = liveMessage(questionId);
+      return row?.kind === "question" ? toQuestion(row) : null;
     },
 
     /** The Search scope an Answer's Question was asked with; null for none, or once either is gone. */

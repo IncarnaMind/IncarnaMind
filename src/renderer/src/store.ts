@@ -21,6 +21,7 @@ import type {
   LinkedFolderPreview,
   Mind,
   PrivacySettings,
+  ReadyQuestion,
   RerankSettings,
   RestoreRef,
   SearchScope,
@@ -33,6 +34,7 @@ import { EXAMPLE_GROUPS } from "../../core/api";
 import { resolveLanguage } from "../../core/language";
 import type { UiUsageEvent } from "../../core/usageEvents";
 import { displayName } from "../../shared/documentNames";
+import { isSearchable } from "../../shared/documentStatus";
 import type { DocumentLocation } from "../../shared/documentViewer";
 import { type MessageKey, type MessageParams, translate } from "../../shared/i18n";
 import { mindName } from "../../shared/naming";
@@ -49,7 +51,6 @@ import {
 import { useComposer } from "./composer";
 import { core, files } from "./core";
 import { LIBRARY_DELETED } from "./deletedItems";
-import { isSearchable } from "./documentStatus";
 import { applyAssignments, applyDocumentChanges, createDocumentUpdates } from "./documentUpdates";
 import { describeError, errorMessage } from "./errors";
 import { languageNow } from "./i18n";
@@ -82,6 +83,7 @@ import {
 } from "./moves";
 import { untitledFolderName } from "./newFolder";
 import { useNotices } from "./notices";
+import { stepsShownOf } from "./nudges";
 import type { ObjectRef } from "./objects";
 import { useRequests } from "./requests";
 import { resolveSettingsPage, type SettingsPage, type SettingsTarget } from "./settingsPages";
@@ -153,11 +155,6 @@ export interface AppState extends LayoutSlice {
   /** Reranking, and the built-in reranking model's download. Set once loaded, then follows the core's event. */
   rerank: RerankSettings | null;
   settingsOpen: boolean;
-  /**
-   * Counts the asks to open Settings: the browser closes the dialog itself on Esc and says so a
-   * task later, so an ask that arrives meanwhile must show it again though this still says open.
-   */
-  settingsOpenCount: number;
   /** The page Settings shows. */
   settingsPage: SettingsPage;
   /** A setting Settings opened at, shown and focused once it is drawn, which then clears this. */
@@ -206,6 +203,12 @@ export interface AppState extends LayoutSlice {
   /** The first-run example Mind and its Documents (onboarding). Null until loaded. */
   examples: Examples | null;
   otherExamples: Examples[];
+  /**
+   * The first open's ready Question (see `ReadyQuestion`), as the core reads it: about the
+   * User's own Document, or the example's while they have none. Set once loaded, then follows
+   * the Documents, the examples and the interface language.
+   */
+  readyQuestion: ReadyQuestion | null;
   ownAnswerArrived: boolean;
   askedOwnAtLaunch: boolean;
   usageNotice: "auto" | "kept" | "answered";
@@ -654,7 +657,22 @@ export const useAppStore = create<AppState>()((set, get) => {
     refuseIfDeleted(foldersMovedFrom(done), names);
     for (const back of undoMoves(done)) await move(back.items, back.folderId);
     for (const document of done.documents)
-      await core.restoreAssignment(document.id, document.previous);
+      await core.restoreAssignment(document.id, document.change.before, document.change.after);
+  };
+
+  /** Whether anything is in this Folder now: a Document, a Mind or a conversation. */
+  const folderOccupied = async (folderId: string) => {
+    const [library, minds, conversations] = await Promise.all([
+      core.getLibrary(),
+      core.listMinds(),
+      core.listConversations(),
+    ]);
+    return (
+      // A Suggested Folder still in To review is Organize's, not something the User filed here.
+      library.assignments.some((each) => each.groupId === folderId && !each.suggested) ||
+      minds.some((each) => each.folderId === folderId) ||
+      conversations.some((each) => each.folderId === folderId)
+    );
   };
 
   /**
@@ -693,20 +711,26 @@ export const useAppStore = create<AppState>()((set, get) => {
   }) => {
     const { folderId, going, named, names } = made;
     let { done } = made;
-    return (folderName: string): Undoable => ({
-      said: (t) => madeMessage(t, folderName, going, named),
-      name: (t) => t("undo.name.newFolder"),
-      undo: async () => {
-        if (done) await putBack(done, names);
-        await core.deleteLibraryGroup(folderId);
-        await get().refreshLibrary();
-      },
-      redo: async () => {
-        await core.restore([{ kind: "folder", id: folderId }]);
-        await get().refreshLibrary();
-        if (going) done = await move(going, folderId);
-      },
-    });
+    return (folderName: string): Undoable => {
+      let kept = false;
+      return {
+        said: (t) => madeMessage(t, folderName, going, named),
+        name: (t) => t("undo.name.newFolder"),
+        undoneNote: () => (kept ? (t) => t("commands.kept.folder", { name: folderName }) : null),
+        undo: async () => {
+          if (done) await putBack(done, names);
+          // What the User put in it since is theirs, so the Folder stays rather than goes with it (#1928).
+          kept = await folderOccupied(folderId);
+          if (!kept) await core.deleteLibraryGroup(folderId);
+          await get().refreshLibrary();
+        },
+        redo: async () => {
+          await core.restore([{ kind: "folder", id: folderId }]);
+          await get().refreshLibrary();
+          if (going) done = await move(going, folderId);
+        },
+      };
+    };
   };
 
   /**
@@ -869,7 +893,6 @@ export const useAppStore = create<AppState>()((set, get) => {
     embedding: null,
     rerank: null,
     settingsOpen: false,
-    settingsOpenCount: 0,
     settingsPage: "general",
     settingsAt: null,
     folders: [],
@@ -927,6 +950,7 @@ export const useAppStore = create<AppState>()((set, get) => {
     skills: [],
     examples: null,
     otherExamples: [],
+    readyQuestion: null,
     ownAnswerArrived: false,
     askedOwnAtLaunch: false,
     usageNotice: "auto",
@@ -953,6 +977,7 @@ export const useAppStore = create<AppState>()((set, get) => {
           linkedFolders,
           keptCitationTexts,
           examples,
+          readyQuestion,
           otherExamples,
           connectors,
           rerank,
@@ -970,6 +995,7 @@ export const useAppStore = create<AppState>()((set, get) => {
           readList("linkedFolders", core.listLinkedFolders(), readAt),
           readList("keptCitationTexts", core.listKeptCitationTexts(), readAt),
           core.getExamples(),
+          core.readyQuestion(),
           Promise.all(OTHER_EXAMPLE_GROUPS.map((group) => core.getExamples(group))),
           core.listConnectors(),
           readList("rerank", core.getRerankSettings(), readAt),
@@ -1005,6 +1031,7 @@ export const useAppStore = create<AppState>()((set, get) => {
           ...fresh,
           documents,
           examples,
+          readyQuestion,
           otherExamples: otherExamples.filter(isMade),
           askedOwnAtLaunch: settings.device.gettingStarted.askedOwn,
           status: { kind: "ready" },
@@ -1420,12 +1447,7 @@ export const useAppStore = create<AppState>()((set, get) => {
 
     openSettings(page, at) {
       // Also a click handler: anything but a page name opens General.
-      set((state) => ({
-        settingsOpen: true,
-        settingsOpenCount: state.settingsOpenCount + 1,
-        settingsPage: resolveSettingsPage(page),
-        settingsAt: at ?? null,
-      }));
+      set({ settingsOpen: true, settingsPage: resolveSettingsPage(page), settingsAt: at ?? null });
     },
 
     showSettingsPage(page) {
@@ -1887,6 +1909,22 @@ core.on("document.status", (changed) => {
 
 // The examples made, opened again or removed: their Mind and Linked folder show "Example".
 core.on("examples.changed", (examples) => useAppStore.setState(withExamples(examples)));
+
+// The ready Question is about the User's own Documents, or the example while they have none: the
+// core reads it again when either, or the interface language, changes, while its card shows it.
+useAppStore.subscribe((state, before) => {
+  if (
+    stepsShownOf(state.settings?.device?.gettingStarted) &&
+    (state.documents !== before.documents ||
+      state.examples !== before.examples ||
+      state.settings?.language !== before.settings?.language)
+  ) {
+    core.readyQuestion().then(
+      (readyQuestion) => useAppStore.setState({ readyQuestion }),
+      (error: unknown) => console.error("Couldn't read the first open's ready Question.", error),
+    );
+  }
+});
 
 // Privacy choices change on the Privacy page, in the usage data card, or with local mode.
 core.on("privacy.changed", (privacy) => {

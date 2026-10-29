@@ -33,7 +33,7 @@ import {
   toMarkdown,
   topLevelBlocks,
 } from "./answers/blocks";
-import { markSentence } from "./answers/checks/sentences";
+import { markedSentences, markSentence } from "./answers/checks/sentences";
 import { markdownToBlocks } from "./answers/markdown";
 import {
   ANSWER_BLOCK,
@@ -201,6 +201,17 @@ export function createExamples(options: ExamplesOptions) {
   };
 
   /**
+   * The example's own ready Question (#123), while the credit paper is the one shown; null
+   * otherwise, as for the earlier version's tea example. The one the first open offers is
+   * `readyQuestion`, which names the User's own Document instead as soon as theirs is ready.
+   */
+  const exampleReady = (): string | null => {
+    const examples = stored(DEFAULT_GROUP);
+    if (!examples || !options.mindExists(examples.mindId)) return null;
+    return EXAMPLE_SETS[DEFAULT_GROUP][examples.language].ready?.question ?? null;
+  };
+
+  /**
    * Each part while it exists: the Mind can be deleted, or the folder unlinked,
    * on its own. The default is the earlier version's tea example while there is
    * one and no credit paper.
@@ -221,12 +232,11 @@ export function createExamples(options: ExamplesOptions) {
         ...(group === DEFAULT_GROUP ? [] : [DEFAULT_GROUP]),
         ...order().filter((each) => each !== group),
       ],
-      ready: (!old && mind && EXAMPLE_SETS[group][mind.language].ready?.question) || null,
     };
   };
 
   /**
-   * The ready Question with its Answer and Citations (`askReadyQuestion`),
+   * The ready Question with its Answer and Citations (`askExampleReadyQuestion`),
    * checked against the Documents now; null while the credit paper isn't
    * made or its Documents aren't all read.
    */
@@ -305,6 +315,7 @@ export function createExamples(options: ExamplesOptions) {
     documents: readonly Document[],
     folderId: string | null,
   ): void => {
+    const marked = markedSentences(blocks);
     for (const block of topLevelBlocks(blocks)) {
       if (block.nodeName !== "paragraph") continue;
       // A paragraph of the draft is one text, written without inline nodes.
@@ -322,8 +333,16 @@ export function createExamples(options: ExamplesOptions) {
         (each) => text.slice(each.from, each.to) === check.sentence,
       );
       if (!span) continue;
+      const earlier = marked.find(
+        (mark) => mark.element === block && mark.from === span.from,
+      )?.check;
       const attributes: ClaimCheckAttributes = {
-        id: randomUUID(),
+        // Written again once its Documents are read, the check keeps the identity it had, so a
+        // card the reader already opened stays open and shows what was found.
+        id:
+          earlier?.text === check.sentence && earlier.action === "check-against-documents"
+            ? earlier.id
+            : randomUUID(),
         request: randomUUID(),
         action: "check-against-documents",
         state: check.verdict,
@@ -512,6 +531,7 @@ export function createExamples(options: ExamplesOptions) {
     mindId: string,
     set: ExampleSet,
     folderId: string,
+    linkedFolderId: string,
     questionId: string,
     answerId: string,
   ) =>
@@ -544,6 +564,22 @@ export function createExamples(options: ExamplesOptions) {
       ]);
       // Unedited: regenerating it with a model of one's own replaces it in place.
       answer.setAttribute("generatedHash", contentHash(answer));
+      // The draft's verdict is written in advance, so its mark is on the page from the first
+      // frame: the Passage that decides it is added once the Documents are read (#2196). Its
+      // scope is the Mind's own Folder, as the check made later has, so the mark reads as the
+      // verdict it is rather than as one whose search scope changed.
+      const documents = options.documentsIn(linkedFolderId);
+      const scope = options.mindFolder(mindId);
+      for (const check of set.checks ?? []) {
+        const document = documents.find((each) => each.name === check.evidence.document);
+        markCheck(
+          blocks,
+          check,
+          citationAttributes(check.evidence, document, null),
+          documents,
+          scope,
+        );
+      }
     });
 
   const create = async (group: ExampleGroup = DEFAULT_GROUP): Promise<Examples> => {
@@ -562,7 +598,7 @@ export function createExamples(options: ExamplesOptions) {
     const mind = options.createMind(set.title);
     const questionId = randomUUID();
     const answerId = randomUUID();
-    populate(mind.id, set, linked.folderId, questionId, answerId);
+    populate(mind.id, set, linked.folderId, linked.id, questionId, answerId);
     options.writeValue(valueKey(group), {
       mindId: mind.id,
       linkedFolderId: linked.id,
@@ -622,7 +658,10 @@ export function createExamples(options: ExamplesOptions) {
     const { folder, linked } = await copyAndLink(source, set);
     const questionId = randomUUID();
     const answerId = randomUUID();
-    populate(examples.mindId, set, linked.folderId, questionId, answerId);
+    // The old Documents go before the example names the new folder, so nothing reads them as the
+    // User's own in between (#2084); nothing waits between the link and "changed" (#914).
+    if (!sameFolder) options.unlinkFolder(examples.linkedFolderId);
+    populate(examples.mindId, set, linked.folderId, linked.id, questionId, answerId);
     options.renameMind(examples.mindId, set.title);
     options.writeValue(valueKey(group), {
       mindId: examples.mindId,
@@ -633,8 +672,7 @@ export function createExamples(options: ExamplesOptions) {
       checked: false,
     } satisfies StoredExamples);
     options.changed(status(group));
-    // After "changed", not before: nothing may wait between linking the new folder and saying it
-    // is the example's, or its Documents are reported as the User's own (#914).
+    // Only the copies it made are left to remove: the folder is unlinked already.
     if (!sameFolder) await discardFiles(examples);
     checkWhenRead(group);
   };
@@ -661,6 +699,8 @@ export function createExamples(options: ExamplesOptions) {
     },
 
     create,
+
+    exampleReady,
 
     readyAnswer,
 

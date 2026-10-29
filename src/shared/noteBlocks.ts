@@ -7,12 +7,14 @@
  */
 import {
   BLOCK_ID_ATTRIBUTE,
+  CALCULATED_FIGURE_NODE,
   CITATION_NODE,
   type CitationRecheck,
   NOTE_BLOCK_TYPES,
   type RecheckCitationInput,
 } from "../core/api";
 import type { NodeJSON } from "./blockJson";
+import { figureShownText, readCalculatedFigureAttributes } from "./calculatedFigures";
 
 /** At most this many Blocks go into a note at once, and this deep. */
 const MAX_BLOCKS = 2_000;
@@ -25,6 +27,10 @@ function parseNode(value: unknown, depth: number): NodeJSON | null {
   if (!isRecord(value) || typeof value.type !== "string" || value.type === "") return null;
   if (depth > MAX_DEPTH) return null;
   const node: NodeJSON = { type: value.type };
+  if (value.type === CALCULATED_FIGURE_NODE) {
+    const figure = readCalculatedFigureAttributes(value.attrs);
+    return figure ? { type: value.type, attrs: { ...figure } } : null;
+  }
   if (isRecord(value.attrs)) node.attrs = { ...value.attrs };
   if (typeof value.text === "string") node.text = value.text;
   if (Array.isArray(value.marks)) {
@@ -155,13 +161,20 @@ export function textLength(blocks: readonly NodeJSON[]): number {
   return blocks.reduce((sum, block) => sum + length(block), 0);
 }
 
+/** A node's words as the note shows them: a calculated figure by its shown text. */
 const textOf = (node: NodeJSON): string =>
-  node.type === "text" ? (node.text ?? "") : (node.content ?? []).map(textOf).join("");
+  node.type === "text"
+    ? (node.text ?? "")
+    : node.type === CALCULATED_FIGURE_NODE
+      ? figureShownText(node.attrs)
+      : (node.content ?? []).map(textOf).join("");
+
+const holdsWords = (node: NodeJSON) => node.type === "text" || node.type === CALCULATED_FIGURE_NODE;
 
 /** The first stretch of text in a Block: a list's first item or a table's first cell, not all of them run together. */
 function firstText(node: NodeJSON): string {
   const children = node.content ?? [];
-  if (node.type === "text" || children.some((child) => child.type === "text")) return textOf(node);
+  if (holdsWords(node) || children.some(holdsWords)) return textOf(node);
   for (const child of children) {
     const text = firstText(child);
     if (text.trim() !== "") return text;

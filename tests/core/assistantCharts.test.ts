@@ -364,7 +364,7 @@ describe("A chart of a table already in the Mind", { timeout: 60_000 }, () => {
     await client.settled();
 
     expect(systems.at(-1)).toContain(
-      "For a table already in the Mind, call add_to_mind with chart",
+      "For a table already in the Note, call add_to_mind with chart",
     );
     const { types, charts, ids } = blocksOf(readMind(client));
     expect(types).toEqual(["paragraph", "table", "chart"]);

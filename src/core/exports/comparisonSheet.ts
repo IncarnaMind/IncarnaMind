@@ -3,13 +3,13 @@
  * row and a Question a column, each cell its Answer's text, or the number or
  * day it is (./figureCells) with its words as written in its note; each cell's
  * Citations in its note; and a Sources sheet, a Citation a row, that links back
- * to the cell citing it.
+ * to the cell citing it, and the User's column widths come along in characters.
  */
 import { comparisonNameOf } from "../../shared/comparisons";
 import type { MessageKey, MessageParams } from "../../shared/i18n";
 import type { CitationCheck } from "../api";
 import type { Language } from "../language";
-import type { ComparisonReading } from "../mindText";
+import type { ComparisonCellReading, ComparisonReading } from "../mindText";
 import { type Block, type Footnote, footnotesIn, type Inline } from "../mindText";
 import { figureCell } from "./figureCells";
 import type { SheetBook, SheetCell, SheetRow } from "./sheets";
@@ -24,11 +24,19 @@ export interface CitationFacts {
 
 export interface ComparisonSheetInput {
   reading: ComparisonReading;
+  /** The table's own name, which its sheet is called. */
+  title: string;
   /** The language the Mind is written in, which settles how its Answers write numbers. */
   textLanguage: Language;
   t(key: MessageKey, params?: MessageParams): string;
   facts(footnote: Footnote): CitationFacts;
 }
+
+const markNotes = (cell: ComparisonCellReading, t: ComparisonSheetInput["t"]): string[] => [
+  ...(cell.edited ? [t("comparison.cell.edited")] : []),
+  ...(cell.reviewed ? [t("comparison.cell.reviewed")] : []),
+  ...(cell.kind === "answer" && cell.failure ? [cell.failure] : []),
+];
 
 const CHECK_WORDS: Readonly<Record<CitationCheck, MessageKey>> = {
   found: "aiStatement.citations.found",
@@ -45,6 +53,8 @@ function inlineText(content: readonly Inline[]): string {
       switch (inline.kind) {
         case "text":
           return inline.text;
+        case "figure":
+          return inline.figure.shown;
         case "break":
           return "\n";
         case "math":
@@ -97,6 +107,15 @@ export function blocksText(blocks: readonly Block[]): string {
 const TABLE = "table";
 const SOURCES = "sources";
 const DOCUMENT_COLUMN = "document";
+/** Excel's default column, and how many pixels of the page one of its characters holds. */
+const DEFAULT_COLUMN_WIDTH = 36;
+const PIXELS_PER_CHARACTER = 7;
+
+/** A column's width as Excel counts it, from the width it has on the page. */
+function columnWidthOf(width: number | undefined): number {
+  if (width === undefined) return DEFAULT_COLUMN_WIDTH;
+  return Math.max(8, Math.min(120, Math.round(width / PIXELS_PER_CHARACTER)));
+}
 
 /** The table and its Sources as a sheet book, and how many of its Citations aren't "Quote found". */
 export function comparisonBook(input: ComparisonSheetInput): {
@@ -119,14 +138,30 @@ export function comparisonBook(input: ComparisonSheetInput): {
     row.cells.forEach((cell, at) => {
       const question = reading.questions[at];
       if (!question) return;
-      if (cell.kind === "empty") return;
+      const marks = markNotes(cell, t);
+      if (cell.kind === "empty") {
+        if (marks.length > 0) {
+          cells.push({
+            column: question.id,
+            value: { kind: "text", text: "" },
+            note: marks.join("\n\n"),
+            wrap: true,
+          });
+        }
+        return;
+      }
       if (cell.kind === "words") {
-        cells.push({ column: question.id, value: { kind: "text", text: cell.text }, wrap: true });
+        cells.push({
+          column: question.id,
+          value: { kind: "text", text: cell.text },
+          ...(marks.length > 0 && { note: marks.join("\n\n") }),
+          wrap: true,
+        });
         return;
       }
       const text = blocksText(cell.content);
       const figure = figureCell(text, input.textLanguage);
-      const notes: string[] = figure ? [t("export.excel.asWritten", { text })] : [];
+      const notes = [...marks, ...(figure ? [t("export.excel.asWritten", { text })] : [])];
       for (const footnote of footnotesIn(cell.content)) {
         const facts = input.facts(footnote);
         if (footnote.unverified) unverified++;
@@ -177,10 +212,13 @@ export function comparisonBook(input: ComparisonSheetInput): {
       sheets: [
         {
           id: TABLE,
-          name: t("comparison.title"),
+          name: input.title,
           columns: [
             { id: DOCUMENT_COLUMN, width: 32 },
-            ...reading.questions.map((question) => ({ id: question.id, width: 36 })),
+            ...reading.questions.map((question) => ({
+              id: question.id,
+              width: columnWidthOf(question.width),
+            })),
           ],
           rows: [
             header([

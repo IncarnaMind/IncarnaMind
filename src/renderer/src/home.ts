@@ -2,8 +2,8 @@ import { type MouseEvent, useEffect, useMemo, useState } from "react";
 import * as Y from "yjs";
 import { create } from "zustand";
 import type { Mind } from "../../core/api";
+import { isProcessing } from "../../shared/documentStatus";
 import { core } from "./core";
-import { isProcessing } from "./documentStatus";
 import { type NoteReading, readNoteState } from "./noteState";
 import { suggestedIds } from "./organizeOutcome";
 import { useSelection } from "./selection";
@@ -118,7 +118,7 @@ export function useMindNoteStates(
       .readMindContents(ids)
       .then((snapshots) => {
         const found = new Map<string, NoteReading>();
-        for (const { mindId, state } of snapshots) {
+        for (const { mindId, state, cellFigures } of snapshots) {
           const doc = new Y.Doc();
           try {
             Y.applyUpdate(doc, state);
@@ -126,6 +126,7 @@ export function useMindNoteStates(
               mindId,
               readNoteState({
                 doc,
+                cellFigures,
                 documents,
                 keptCitationTexts,
                 folderId: folders.get(mindId) ?? null,
