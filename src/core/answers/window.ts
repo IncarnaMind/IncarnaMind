@@ -148,23 +148,26 @@ export function createWindowBudget(
         order.sort((a, b) => (ranks[a] as number) - (ranks[b] as number) || a - b);
       }
       const ids = passages.map((passage) => PASSAGE_ID.exec(passage)?.[1]);
-      const before = passages.map((passage) => {
+      // Only a Passage shown earlier counts: a Document's text can hold what reads as a tag.
+      const before = passages.map((passage, index) => {
         const continued = CONTINUED.exec(passage)?.[1];
-        return continued === undefined ? -1 : ids.indexOf(continued);
+        const at = continued === undefined ? -1 : ids.indexOf(continued);
+        return at < index ? at : -1;
       });
       const chosen = new Set<number>();
       let used = 0;
-      const costOf = (at: number) => tokens(passages[at] as string) + 1;
       for (const index of order) {
         if (chosen.has(index)) continue;
-        // A Passage that leaves out the start it shares with the one before goes with it if it can.
+        // A Passage that leaves out the start it shares with the one before goes only with it.
         const group: number[] = [];
         for (let at = index; at >= 0 && !chosen.has(at); at = before[at] ?? -1) group.push(at);
-        const cost = group.reduce((sum, at) => sum + costOf(at), 0);
-        const taken = used + cost <= room ? group : used + costOf(index) <= room ? [index] : null;
-        if (!taken) break;
-        for (const at of taken) chosen.add(at);
-        used += taken === group ? cost : costOf(index);
+        const cost = group.reduce((sum, at) => sum + tokens(passages[at] as string) + 1, 0);
+        if (used + cost > room) {
+          if (group.length > 1) continue;
+          break;
+        }
+        for (const at of group) chosen.add(at);
+        used += cost;
       }
       const kept = passages.filter((_, index) => chosen.has(index));
       if (kept.length === passages.length) return { text, passages: passages.length };

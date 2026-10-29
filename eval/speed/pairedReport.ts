@@ -189,10 +189,11 @@ export function pairedSection(
     const runs = rows.map(run);
     const calls = runs.reduce((sum, each) => sum + each.modelCalls, 0);
     const input = runs.reduce((sum, each) => sum + each.inputTokens, 0);
-    const cached = runs.reduce((sum, each) => sum + each.cachedInputTokens, 0);
-    return calls === 0 || input === 0
+    if (calls === 0 || input === 0) return "–";
+    const share = runs.some((each) => each.cachedInputTokens === null)
       ? "–"
-      : `${Math.round(input / calls)} (${Math.round((100 * cached) / input)}% cached)`;
+      : `${Math.round((100 * runs.reduce((sum, each) => sum + (each.cachedInputTokens ?? 0), 0)) / input)}%`;
+    return `${Math.round(input / calls)} (${share} cached)`;
   };
   const cost = (run: (row: PairedRow) => ArmRun) => {
     const costs = rows.map((row) => run(row).costUsd);

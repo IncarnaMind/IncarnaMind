@@ -46,7 +46,8 @@ export interface ArmRun {
   /** Of them, the Answer's own: not its search rewrite, translation or checks. */
   answerCalls: number;
   inputTokens: number;
-  cachedInputTokens: number;
+  /** Null when a call's provider didn't say how much it read from its cache. */
+  cachedInputTokens: number | null;
   outputTokens: number;
   /** What the core counted its model calls cost, in dollars; the judge's isn't in it. */
   costUsd: number | null;
@@ -496,7 +497,9 @@ export async function runOnArm(
     doneMs,
     modelCalls: calls.length,
     inputTokens: calls.reduce((sum, call) => sum + (call.inputTokens ?? 0), 0),
-    cachedInputTokens: calls.reduce((sum, call) => sum + (call.cachedInputTokens ?? 0), 0),
+    cachedInputTokens: calls.some((call) => call.cachedInputTokens === null)
+      ? null
+      : calls.reduce((sum, call) => sum + (call.cachedInputTokens ?? 0), 0),
     outputTokens: calls.reduce((sum, call) => sum + (call.outputTokens ?? 0), 0),
     costUsd: null,
   };

@@ -169,7 +169,7 @@ test.skipIf(env("PAIRED") === null)("paired runs: today's path against a new one
   const judge = judgeOf(models);
   const switcher = armSwitch();
   const audit = env("AUDIT") === "1" ? createTokenAuditor() : null;
-  const tokenRuns: (TokenAuditRun & { arm: string })[] = [];
+  const tokenRuns: (TokenAuditRun & { arm: string; position: 0 | 1 })[] = [];
   const reranker = createWorkerCrossEncoder(config.rerankOnCpu);
   const rows: PairedRow[] = [];
   const loads: number[] = [];
@@ -225,6 +225,7 @@ test.skipIf(env("PAIRED") === null)("paired runs: today's path against a new one
         : group.items.filter((item) => asked.has(item));
       for (const model of models) {
         const name = `${model.kind}/${model.modelId}`;
+        const priced = catalogFacts(model.kind, model.modelId)?.price !== undefined;
         const provider = await core.saveChatProvider(model);
         const choice = { providerId: provider.id, modelId: model.modelId };
         for (const [index, item] of items.entries()) {
@@ -257,13 +258,18 @@ test.skipIf(env("PAIRED") === null)("paired runs: today's path against a new one
               if (audit) {
                 tokenRuns.push({
                   arm: arm.id,
+                  position: which as 0 | 1,
                   flow: item.set,
                   model: name,
                   language: item.language,
                   requests,
                 });
               }
-              done[which] = { ...ran, costUsd: (await spentUsd(core)) - spentFirst };
+              done[which] = {
+                ...ran,
+                // The core counts no spend for a model the catalog has no price for.
+                costUsd: priced ? (await spentUsd(core)) - spentFirst : null,
+              };
             }
             const row: PairedRow = {
               set: item.set,
@@ -331,11 +337,11 @@ test.skipIf(env("PAIRED") === null)("paired runs: today's path against a new one
     "",
     ...items,
     ...(audit
-      ? names.flatMap((arm) => [
+      ? names.flatMap((arm, position) => [
           "",
-          `## Tokens: ${arm}`,
+          `## Tokens: ${arm}${names[0] === names[1] ? ` (${position === 0 ? "first" : "second"})` : ""}`,
           "",
-          tokenReport(tokenRuns.filter((run) => run.arm === arm)),
+          tokenReport(tokenRuns.filter((run) => run.position === position)),
         ])
       : []),
   ].join("\n");
