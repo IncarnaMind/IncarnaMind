@@ -12,6 +12,7 @@ import { seriesName } from "../../shared/charts";
 import type { ResolvedCitationStyle } from "../../shared/citationStyles";
 import { citationState, citedLocation, shownDocumentName } from "../../shared/citations";
 import type { DrawnPage } from "../../shared/citedPage";
+import { comparisonQuestionsOf } from "../../shared/comparisons";
 import { titleWithoutSite } from "../../shared/documentNames";
 import { type MessageKey, type MessageParams, translate } from "../../shared/i18n";
 import type { Translate } from "../../shared/locations";
@@ -37,6 +38,7 @@ import {
   type CitationAttributes,
   type CitationFormatRequest,
   type CitationPlace,
+  COMPARISON_TABLE_NODE,
   type Document,
   EXPORT_FORMATS,
   type ExportFormat,
@@ -273,43 +275,60 @@ export function createExports(deps: ExportsDependencies) {
       trimBeforeFootnote: true,
       comparisonText: (key, params) => translate(language, key, params),
       documentRemoved: (documentId) => !live.has(documentId),
+      // A file leaves a hidden column out; the app says how many, the file says nothing.
+      leaveOutHiddenColumns: true,
     };
-    const { read, unread, unreadNames, questions, word, theirChanges, trackedChanges } = deps.read(
-      mind.id,
-      (fragment) => {
-        const { doc } = fragment;
-        name = exportName(mind, fragment);
-        const fromWord = doc !== null && wordFileOf(doc) !== null;
-        // A Word file shows what is waiting as tracked changes, and can mark AI text (#107); the
-        // others show someone's changes from the Word file as changes, or accepted (#734).
-        if (format === "docx") readOptions.review = reviewReading(fragment);
-        else if (doc && fromWord && format !== "source-pack")
-          readOptions.review = theirChangesReading(doc);
-        readOptions.sentenceChecks = failedSentences(fragment, {
-          versions: new Map(documents.map((document) => [document.id, document.contentHash])),
-          folderId: mind.folderId,
-          scope: doc ? mindScopeOf(doc) : null,
-          scopeItemName: deps.scopeItemName,
-          sourceOf: (passage) => footnoteOf(passage, documents, kept, language, deps).source,
-        });
-        const { review } = readOptions;
-        const waiting = pendingProposals(fragment);
-        return {
-          read: readBlocks(fragment, readOptions),
-          unread: doc ? checkUnreadOf(doc, checkRequests(fragment)) : [],
-          unreadNames: doc ? unreadFileNamesOf(doc.getMap(MIND_SETTINGS_FIELD)) : false,
-          questions: countQuestions(fragment),
-          word: doc && fromWord ? { importing: wordImportProgressOf(doc) !== null } : null,
-          theirChanges: fromWord
-            ? waiting.filter((each) => each.id.startsWith(WORD_CHANGE_ID)).length
-            : 0,
-          trackedChanges:
-            format === "docx" && review
-              ? waiting.filter((each) => !review.skips(each.id)).length
-              : 0,
-        };
-      },
-    );
+    const {
+      read,
+      unread,
+      unreadNames,
+      questions,
+      hiddenColumns,
+      word,
+      theirChanges,
+      trackedChanges,
+    } = deps.read(mind.id, (fragment) => {
+      const { doc } = fragment;
+      name = exportName(mind, fragment);
+      const fromWord = doc !== null && wordFileOf(doc) !== null;
+      // A Word file shows what is waiting as tracked changes, and can mark AI text (#107); the
+      // others show someone's changes from the Word file as changes, or accepted (#734).
+      if (format === "docx") readOptions.review = reviewReading(fragment);
+      else if (doc && fromWord && format !== "source-pack")
+        readOptions.review = theirChangesReading(doc);
+      readOptions.sentenceChecks = failedSentences(fragment, {
+        versions: new Map(documents.map((document) => [document.id, document.contentHash])),
+        folderId: mind.folderId,
+        scope: doc ? mindScopeOf(doc) : null,
+        scopeItemName: deps.scopeItemName,
+        sourceOf: (passage) => footnoteOf(passage, documents, kept, language, deps).source,
+      });
+      const { review } = readOptions;
+      const waiting = pendingProposals(fragment);
+      return {
+        read: readBlocks(fragment, readOptions),
+        unread: doc ? checkUnreadOf(doc, checkRequests(fragment)) : [],
+        unreadNames: doc ? unreadFileNamesOf(doc.getMap(MIND_SETTINGS_FIELD)) : false,
+        questions: countQuestions(fragment),
+        hiddenColumns: fragment.toArray().reduce((count, child) => {
+          if (!(child instanceof Y.XmlElement) || child.nodeName !== COMPARISON_TABLE_NODE) {
+            return count;
+          }
+          return (
+            count +
+            comparisonQuestionsOf(child.getAttributes()).filter(
+              (question) => question.hidden === true,
+            ).length
+          );
+        }, 0),
+        word: doc && fromWord ? { importing: wordImportProgressOf(doc) !== null } : null,
+        theirChanges: fromWord
+          ? waiting.filter((each) => each.id.startsWith(WORD_CHANGE_ID)).length
+          : 0,
+        trackedChanges:
+          format === "docx" && review ? waiting.filter((each) => !review.skips(each.id)).length : 0,
+      };
+    });
     const shown = withoutEmptyTitle(read);
     const withUnread = [...shown, ...unreadBlocks(unread, language, unreadNames)];
     const blocks =
@@ -336,6 +355,7 @@ export function createExports(deps: ExportsDependencies) {
       numbered: style.form === "numbered",
       unverifiedCitations: footnotes.filter((each) => each.unverified).length,
       questions,
+      hiddenColumns,
       fromWord: word !== null,
       theirChanges,
       unreadFiles: unread.length,

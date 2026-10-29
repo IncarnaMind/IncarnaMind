@@ -110,6 +110,18 @@ function ResultBody({
   const withFile =
     result.state === "saved"
       ? [
+          {
+            testId: "export-hidden-columns",
+            text:
+              result.hiddenColumns === 0
+                ? ""
+                : t(
+                    result.hiddenColumns === 1
+                      ? "export.hiddenColumns.one"
+                      : "export.hiddenColumns.other",
+                    { count: result.hiddenColumns },
+                  ),
+          },
           { testId: "export-comments", text: commentedChecks(result.checks, t) },
           { testId: "export-tracked", text: trackedChanges(result.tracked, t) },
         ].flatMap(({ testId, text }) => (text ? [{ testId, text }] : []))

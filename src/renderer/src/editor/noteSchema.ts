@@ -25,6 +25,7 @@ import { Citation } from "./citationSchema";
 import { ClaimCheck } from "./claimChecks";
 import { lowlight } from "./codeLanguages";
 import { ComparisonCell, ComparisonRow, ComparisonTable } from "./comparisonSchema";
+import { ComparisonStructureLock } from "./comparisonStructureLock";
 import { DocumentChip } from "./documentChipSchema";
 import { Footnote } from "./footnoteSchema";
 import {
@@ -157,6 +158,7 @@ export function noteExtensions({
       dropcursor: { color: "rgb(14 165 233)", width: 2 },
     }),
     MindDocument,
+    ComparisonStructureLock,
     Numbering,
     // One colour: a `highlight` mark with no attributes. Mod-Shift-H, or `==text==` typed or pasted.
     Highlight,

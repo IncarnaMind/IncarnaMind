@@ -56,6 +56,7 @@ function lineFor(passages: readonly ShownPassage[], question: string) {
 export function cellModel(
   before?: (call: ModelCall, asked: ReturnType<typeof cellAsked>) => ScriptedReply | null,
   hold?: Promise<void>,
+  holdWhen?: (asked: ReturnType<typeof cellAsked>) => boolean,
 ) {
   return scriptedModel((call) => {
     const asked = cellAsked(call);
@@ -79,7 +80,9 @@ export function cellModel(
     }
     const value = (found.line.split(": ")[1] ?? found.line).replace(/\.$/, "");
     const text = `${value} [^1]`;
-    return hold ? { text, pause: { after: text.length, until: hold } } : { text };
+    return hold && (!holdWhen || holdWhen(asked))
+      ? { text, pause: { after: text.length, until: hold } }
+      : { text };
   });
 }
 
