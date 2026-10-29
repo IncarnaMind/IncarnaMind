@@ -1,6 +1,7 @@
 import { type ReactNode, type RefObject, useEffect, useRef, useState } from "react";
 import { chosenParts } from "../../../shared/exportOptions";
 import { nameInLine } from "../../../shared/naming";
+import { saveFailureReason } from "../../../shared/systemReasons";
 import { core, files } from "../core";
 import { CheckStateIcon } from "../editor/icons";
 import { errorMessage } from "../errors";
@@ -33,7 +34,6 @@ import {
   defaultFolderLabel,
   showOutputLocationSetting,
 } from "../outputFiles";
-import { saveFailureReason } from "../problems";
 import { useAppStore } from "../store";
 import { useHeld } from "../useHeld";
 import { ExportChange } from "./ExportChange";

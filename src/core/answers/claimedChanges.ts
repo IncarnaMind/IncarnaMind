@@ -278,7 +278,7 @@ export function unmadeFixesNote(
   const said = [
     ...(unmade.words.length > 0
       ? [
-          `that you fixed ${unmade.words.map((word) => `“${word}”`).join(", ")}, but your edits left ${unmade.words.length === 1 ? "it" : "them"} in the Mind as before`,
+          `that you fixed ${unmade.words.map((word) => `“${word}”`).join(", ")}, but your edits left ${unmade.words.length === 1 ? "it" : "them"} in the Note as before`,
         ]
       : []),
     ...(unmade.count

@@ -3,14 +3,11 @@ import type { ChatProviderKind, ProviderErrorKind } from "../../src/core/api";
 import { billingUrlOf, catalogProvider } from "../../src/core/providers/catalog/providers";
 import { SIGN_IN_ROUTES } from "../../src/core/providers/signInRoutes";
 import { readinessKey } from "../../src/renderer/src/components/providers/shared";
-import {
-  ANSWER_PROBLEMS,
-  answerProblem,
-  failedAnswerLine,
-  saveFailureReason,
-} from "../../src/renderer/src/problems";
+import { ANSWER_PROBLEMS, answerProblem, failedAnswerLine } from "../../src/renderer/src/problems";
 import { settingsPages } from "../../src/renderer/src/settingsPages";
 import { type MessageKey, translate } from "../../src/shared/i18n";
+import { en } from "../../src/shared/i18n/en";
+import { saveFailureReason } from "../../src/shared/systemReasons";
 
 const KINDS: ProviderErrorKind[] = [
   "auth",
@@ -334,23 +331,36 @@ describe("a failed Answer's problem line", () => {
 describe("why a file couldn't be saved", () => {
   const key = (message: string): MessageKey | null => saveFailureReason(message);
 
-  test("a folder that can't be written to is read-only", () => {
-    expect(key("EACCES: permission denied, open '/Library/x.docx'")).toBe("export.failed.readOnly");
-    expect(key("EROFS: read-only file system, open '/Volumes/x/a.docx'")).toBe(
-      "export.failed.readOnly",
-    );
-    expect(key("EPERM: operation not permitted, open '/x/a.docx'")).toBe("export.failed.readOnly");
-  });
-
-  test("a full disk and a folder that's gone are told apart", () => {
-    expect(key("ENOSPC: no space left on device, write")).toBe("export.failed.full");
-    expect(key("ENOENT: no such file or directory, open '/gone/a.docx'")).toBe(
-      "export.failed.gone",
-    );
+  test.each([
+    ["EACCES: permission denied, open '/Library/x.docx'", "export.failed.readOnly"],
+    ["EROFS: read-only file system, open '/Volumes/x/a.docx'", "export.failed.readOnly"],
+    ["EPERM: operation not permitted, open '/x/a.docx'", "export.failed.readOnly"],
+    ["attempt to write a readonly database", "export.failed.readOnly"],
+    ["ENOSPC: no space left on device, write", "export.failed.full"],
+    ["EDQUOT: disk quota exceeded", "export.failed.full"],
+    ["database or disk is full", "export.failed.full"],
+    ["disk I/O error", "export.failed.diskError"],
+    ["database is locked", "export.failed.busy"],
+    ["ENOENT: no such file or directory, open '/gone/a.docx'", "export.failed.gone"],
+    ["ENOTDIR: not a directory, open '/Tides.docx/a'", "export.failed.gone"],
+    ["ENAMETOOLONG: name too long, open '/x/a.docx'", "export.failed.nameTooLong"],
+    ["EEXIST: file already exists, open '/x/a.docx'", "export.failed.exists"],
+  ] as const)("%s says why in plain words", (message, reason) => {
+    expect(key(message)).toBe(reason);
+    expect(translate("zh-CN", reason), reason).toMatch(/[\p{Script=Han}]/u);
   });
 
   test("anything else is left to the system's own words", () => {
     expect(key("Something else happened.")).toBeNull();
+  });
+
+  test("the reasons each say why in Chinese too", () => {
+    const reasons = (Object.keys(en) as MessageKey[]).filter((name) =>
+      name.startsWith("export.failed."),
+    );
+    for (const reason of reasons) {
+      expect(translate("zh-CN", reason), reason).toMatch(/[\p{Script=Han}]/u);
+    }
   });
 
   test('the reasons read after "Couldn\'t save:" in both languages', () => {

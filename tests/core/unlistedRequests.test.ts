@@ -11,6 +11,7 @@
 import type { MockLanguageModelV4 } from "ai/test";
 import { describe, expect, test, vi } from "vitest";
 import type { Core } from "../../src/core";
+import { EDIT_INSTRUCTIONS } from "../../src/core/edits/prompt";
 import { DRAFT_INSTRUCTIONS } from "../../src/core/skills/draft";
 import { askAssistant } from "../helpers/assistant";
 import {
@@ -236,14 +237,41 @@ describe("A model no list names, or one in a flow no list admits it to", {
     ).toMatchFileSnapshot("../fixtures/answers/unlisted-requests.json.snap");
   });
 
-  test("one assistant turn and its offered Tools never call a Note a Mind", async () => {
+  test("an assistant turn, its offered Tools and the notes it is asked again by never call a Note a Mind", async () => {
     const model = tidesModel();
     const panel = await setUpWithDocuments(model, [TIDES]);
     const first = await panel.core.askInConversation({ text: FIRST, mindId: panel.mind.id });
     if (!first.asked) throw new Error("The Question wasn't asked.");
     await answerEnded(panel.core, first.answerId);
 
+    const retried = scriptedModel((call: ModelCall): ScriptedReply => {
+      const passage =
+        call.system === EDIT_INSTRUCTIONS
+          ? /<passage>\n([\s\S]*?)\n<\/passage>/.exec(call.prompt)?.[1]
+          : undefined;
+      if (passage !== undefined) return { text: passage.replace("visted", "visited") };
+      if (!call.results.some((result) => result.tool === "edit_mind")) {
+        return { calls: [{ tool: "edit_mind", input: { instruction: "Fix the typos" } }] };
+      }
+      return call.prompt.includes("your edits left")
+        ? { text: "Fixed “compleatly”." }
+        : { text: "Fixed “visted” and “compleatly”." };
+    });
+    const fixing = await setUpWithDocuments(retried, [TIDES]);
+    writeMind(fixing.client, [
+      heading(2, "Trip notes"),
+      note("We visted the harbour, and the tide went out compleatly."),
+    ]);
+    await fixing.client.settled();
+    const turn = await fixing.core.askInConversation({
+      text: "Fix the typos in this",
+      mindId: fixing.mind.id,
+    });
+    if (!turn.asked) throw new Error("The Question wasn't asked.");
+    await answerEnded(fixing.core, turn.answerId);
+
     expect(JSON.stringify(requests(model))).not.toMatch(/\bMinds?\b/);
+    expect(JSON.stringify(requests(retried))).not.toMatch(/\bMinds?\b/);
     expect(DRAFT_INSTRUCTIONS).not.toMatch(/\bMinds?\b/);
   });
 });
