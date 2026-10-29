@@ -506,10 +506,14 @@ export async function checkFigureReply(options: FigureCheckOptions): Promise<Cla
       figureJudgment({ ...item, verdict: "unsupported" }, quoted, facts, flags);
     if (!sourceInput && !calculation) {
       // A figure the model doesn't call Supported, with no source that can be read, is one its
-      // quotes don't hold: Unsupported in its own right, and not asked about again (#2184).
+      // quotes don't hold: Unsupported in its own right, and not asked about again (#2184). A
+      // quote on a page with no text to read stays not checked.
       rows.push({
         ...base,
-        result: item.verdict !== "supported" && !target.calculated ? unbacked(null) : unavailable(),
+        result:
+          item.verdict !== "supported" && !target.calculated && cited?.check !== "cant-check"
+            ? unbacked(null)
+            : unavailable(),
       });
       continue;
     }

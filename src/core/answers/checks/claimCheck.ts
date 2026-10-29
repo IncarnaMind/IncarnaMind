@@ -814,13 +814,15 @@ export function createClaimCheck(deps: ClaimCheckDependencies) {
       const written = figureReplyText(reply, setAside);
       // Asked about its Figures line, a model that can't do what it was asked may write prose
       // in place of its reply ("I can't rewrite that Figures entry…"): the reply asked about stands.
+      // One that writes only its Figures line again leaves its verdict on the sentence standing.
       const text =
         askedAbout !== null &&
         readVerdict(written) === null &&
         readFigureReply(written, request.figures, request.claim) === null
           ? askedAbout
           : written;
-      const said = readVerdict(text);
+      const verdictText = readVerdict(text) === null ? (askedAbout ?? text) : text;
+      const said = readVerdict(verdictText);
       const result = await checkFigureReply({
         requested: request.figures,
         claim: request.claim,
@@ -844,7 +846,7 @@ export function createClaimCheck(deps: ClaimCheckDependencies) {
       // A sentence whose words cite no quote of their own rests on its figures' quotes, so a
       // Supported verdict never turns a result its figures settled into Not checked.
       const cited =
-        verdictMarkers(text)
+        verdictMarkers(verdictText)
           .map((marker) => session.finalCitation(marker))
           .find((citation) => citation?.check === "found") ??
         decidingCitation(session.finalCitation) ??

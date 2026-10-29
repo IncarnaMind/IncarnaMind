@@ -68,6 +68,8 @@ interface Reply {
   item: Record<string, unknown>;
   remainder?: Record<string, unknown> | null;
   judgement?: Plan["judgement"];
+  /** Asked about its Figures line, it writes that line again with this item, and nothing else. */
+  repair?: Record<string, unknown>;
 }
 
 /** What a model asked to rewrite its Figures line about a number its quote lacks wrote back. */
@@ -211,6 +213,31 @@ const CASES: Record<string, Reply> = {
       source: { citation: 1, number: "950", reading: null, unitQuote: null },
     },
   },
+  // Asked about a number its quote doesn't hold, the model writes only its Figures line again.
+  "The Company pays the Employee a monthly rent of 950.": {
+    quotes: ["The Employee pays the Company a rent of 950 per month."],
+    lines: [
+      "Verdict: contradicted",
+      "Scope: none, same",
+      "Topic: found",
+      "Roles: the Company pays the Employee / the Employee pays the Company, differs",
+      "The flat agreement says the Employee pays the Company the rent [^1].",
+    ].join("\n"),
+    item: {
+      verdict: "supported",
+      scope: "same",
+      topic: "found",
+      roles: "same",
+      source: { citation: 1, number: "9,500", reading: null, unitQuote: null },
+    },
+    repair: {
+      verdict: "supported",
+      scope: "same",
+      topic: "found",
+      roles: "same",
+      source: { citation: 1, number: "950", reading: null, unitQuote: null },
+    },
+  },
   ...Object.fromEntries(
     (
       [
@@ -286,17 +313,18 @@ function replying(calls: ModelCall[], judged: GenerateCall[]) {
             },
           ],
         };
-      if (ASKS.some((ask) => call.prompt.includes(ask))) return { text: CANT_REWRITE };
+      const asked = ASKS.some((ask) => call.prompt.includes(ask));
+      if (asked && !planned.repair) return { text: CANT_REWRITE };
       const items = requestedFigures(call).map(({ id }) => ({
         id,
         says: null,
         reading: null,
         relation: "equals",
         calculation: null,
-        ...planned.item,
+        ...(asked ? planned.repair : planned.item),
       }));
-      const figures = { items, remainder: planned.remainder ?? null };
-      return { text: `${planned.lines}\n\nFigures: ${JSON.stringify(figures)}` };
+      const figures = `Figures: ${JSON.stringify({ items, remainder: planned.remainder ?? null })}`;
+      return { text: asked ? figures : `${planned.lines}\n\n${figures}` };
     },
     {
       generate(call) {
@@ -381,6 +409,12 @@ describe("a sentence whose figure the Documents contradict is Contradicted (#218
     },
     // The figure is the Document's own; only the parties are the other way round.
     { sentence: "乙方将明川路14号2室出租给甲方。", figures: ["supported"], asks: 0 },
+    // Its reply to the ask gives only the Figures line: the verdict before it stands.
+    {
+      sentence: "The Company pays the Employee a monthly rent of 950.",
+      figures: ["supported"],
+      asks: 1,
+    },
   ])("the parties swapped, the figure the same: $sentence", expectContradicted);
 
   test.each<Expected>([
