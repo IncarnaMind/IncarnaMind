@@ -244,10 +244,10 @@ export async function unbackedClaims(
 }
 
 const CLAIMED_WORDS: Record<ClaimedChange, string> = {
-  made: "made a Mind",
-  added: "added text to a Mind",
-  changed: "changed a Mind",
-  removed: "removed or replaced text in a Mind",
+  made: "made a Note",
+  added: "added text to a Note",
+  changed: "changed a Note",
+  removed: "removed or replaced text in a Note",
 };
 
 export const UNSEEN_REPLY =

@@ -282,7 +282,7 @@ function parseModel(value: unknown): ChatModelChoice | null {
 
 function parseRef(input: unknown, what: string): ComparisonTableRef {
   if (!isRecord(input) || typeof input.tableId !== "string" || input.tableId === "") {
-    throw new InvalidInputError(`${what} needs a Mind and a comparison table.`);
+    throw new InvalidInputError(`${what} needs a Note and a comparison table.`);
   }
   return { mindId: String(input.mindId ?? ""), tableId: input.tableId };
 }

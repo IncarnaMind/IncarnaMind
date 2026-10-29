@@ -45,10 +45,10 @@ const ARGUMENTS: Readonly<Record<AssistantCommandId, string>> = {
   "document.moveTo": "ids; folder: a Folder's name, made if there is none",
   "document.tags": "ids; tag: a Tag's name, made if there is none",
   "document.delete": "ids: sent to Recently deleted, where the User can restore them",
-  "mind.rename": "ids: one Mind; name: its new name",
+  "mind.rename": "ids: one Note; name: its new name",
   "mind.moveTo": "ids; folder: a Folder's name, made if there is none",
   "mind.delete": "ids: sent to Recently deleted, where the User can restore them",
-  "mind.export": `ids: one Mind; format: ${COMMAND_EXPORT_FORMATS.join(", ")}; folder: an absolute path, or none for the Output location; marks: "mark" or "leave", only when the User's request says whether a Word file marks the text IncarnaMind wrote`,
+  "mind.export": `ids: one Note; format: ${COMMAND_EXPORT_FORMATS.join(", ")}; folder: an absolute path, or none for the Output location; marks: "mark" or "leave", only when the User's request says whether a Word file marks the text IncarnaMind wrote`,
   "documents.addFromFolder":
     "folder: an absolute path or ~/…; kinds: file extensions such as pdf, or none for every kind",
 };
@@ -65,7 +65,7 @@ const commandList = (kind: CommandTarget | "library") =>
 
 const nouns: Record<CommandTarget, [string, string]> = {
   document: ["Document", "Documents"],
-  mind: ["Mind", "Minds"],
+  mind: ["Note", "Notes"],
 };
 
 export interface CommandToolsOptions {
@@ -132,7 +132,7 @@ export function commandTools(options: CommandToolsOptions): {
 
   const listTool: Tool = {
     name: COMMAND_TOOLS.list,
-    description: `Finds the User's Documents or Minds for a command, and the commands that apply to them. It matches exactly: a name that holds the words given, a Tag, a Folder (all that are given), never by meaning. Act only on what it found, by id, with ${COMMAND_TOOLS.run}.`,
+    description: `Finds the User's Documents or Notes for a command, and the commands that apply to them. It matches exactly: a name that holds the words given, a Tag, a Folder (all that are given), never by meaning. Act only on what it found, by id, with ${COMMAND_TOOLS.run}.`,
     inputSchema: {
       type: "object",
       properties: {
@@ -176,7 +176,7 @@ export function commandTools(options: CommandToolsOptions): {
 
   const runTool: Tool = {
     name: COMMAND_TOOLS.run,
-    description: `Runs one of the app's commands for the User, on ${nouns.document[1]} or ${nouns.mind[1]} ${COMMAND_TOOLS.list} found, by id. For Documents: ${commandList("document")}. For Minds: ${commandList("mind")}. To add files: ${commandList("library")}. A change inside IncarnaMind runs at once and the User can undo it. These wait for the User to allow them: a file saved anywhere but the Output location itself, files added from a folder, every delete, and a change that would take this answer past ${COMMAND_AT_ONCE} things changed. Say only what each call returned.`,
+    description: `Runs one of the app's commands for the User, on ${nouns.document[1]} or ${nouns.mind[1]} ${COMMAND_TOOLS.list} found, by id. For Documents: ${commandList("document")}. For Notes: ${commandList("mind")}. To add files: ${commandList("library")}. A change inside IncarnaMind runs at once and the User can undo it. These wait for the User to allow them: a file saved anywhere but the Output location itself, files added from a folder, every delete, and a change that would take this answer past ${COMMAND_AT_ONCE} things changed. Say only what each call returned.`,
     inputSchema: {
       type: "object",
       properties: {

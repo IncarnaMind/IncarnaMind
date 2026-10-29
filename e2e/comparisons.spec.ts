@@ -1589,6 +1589,10 @@ for (const language of ["en", "zh-CN"] as const) {
       await window.keyboard.press("ControlOrMeta+z");
     };
     const menu = async (column: number, item: string) => {
+      if ((await window.getByTestId("citation-card").count()) > 0) {
+        await window.keyboard.press("Escape");
+        await expect(window.getByTestId("citation-card")).toHaveCount(0);
+      }
       const heading = headingAt(table, column);
       await heading.focus();
       // A heading is redrawn, and the table can scroll to it, after a move: a click aimed at its
