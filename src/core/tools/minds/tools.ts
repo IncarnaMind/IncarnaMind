@@ -110,7 +110,7 @@ import {
 } from "../../proposals/ownWaiting";
 import { layout, textAround, textBlocks } from "../../proposals/write";
 import type { PreparedChatModel } from "../../providers/chat";
-import { MIND_TOOLS, type Tool, type ToolProviderInfo } from "..";
+import { MIND_TOOLS, type Tool, type ToolCallContext, type ToolProviderInfo } from "..";
 import { partialFields } from "../partialInput";
 import {
   type ChartAsked,
@@ -960,6 +960,23 @@ function writtenNotes({ notFound, unrecorded, searchTalk, pointersBack }: Writte
   ];
 }
 
+// A table's own count and a check's marks are on the change's line and in the page; these the reply is asked to tell.
+const saysAll = (written: Written & { change: MindChange }) =>
+  writtenNotes(written).length === 0 &&
+  !written.change.unlinkedSources &&
+  !written.change.droppedSources &&
+  !written.change.extraCells &&
+  !written.change.chartNotDrawn &&
+  !written.change.uncited;
+
+const doneProperty = {
+  done: {
+    type: "boolean",
+    description:
+      "true when this call does all the User asked, so your reply would only say it was done: the page's own line then says what was written, and you write no reply. Leave it out when the request has another part, or the User needs to hear something more (a choice to make, what the Documents don't cover).",
+  },
+};
+
 function stretchText(blocks: Y.XmlFragment, { from, to }: Stretch): string {
   const all = textBlocks(blocks).map((each) => each.element);
   const first = all.findIndex((element) => idOf(element) === from.blockId);
@@ -1801,6 +1818,7 @@ export function mindTools(options: MindToolsOptions): { tools: Tool[]; settle():
     if (checked) {
       redrawCharts(mindId, ids);
       const { request, blocks, checkable, cited, sent, failed, stop, blocked } = checked;
+      const look = checked.unsupported + checked.contradicted;
       written.change = {
         ...written.change,
         selfCheck: {
@@ -1811,6 +1829,7 @@ export function mindTools(options: MindToolsOptions): { tools: Tool[]; settle():
           sent,
           checked: checked.checked,
           failed,
+          ...(look > 0 && { look }),
           ...(stop && { stop }),
           ...(blocked && { blocked }),
         },
@@ -1898,6 +1917,16 @@ export function mindTools(options: MindToolsOptions): { tools: Tool[]; settle():
       ...(written.charted ? [written.charted] : []),
       ...checkedNotes(checked),
     ].join(" ");
+  };
+
+  const endIfDone = (
+    input: Record<string, unknown>,
+    { endsTurn }: ToolCallContext,
+    mind: ChangeableMind,
+    written: Written & { change: MindChange },
+  ) => {
+    if (input.done === true && outcomeOf(mind, written.change.request) === APPLIES && saysAll(written))
+      endsTurn?.();
   };
 
   const mindProperty = {
@@ -2117,6 +2146,7 @@ export function mindTools(options: MindToolsOptions): { tools: Tool[]; settle():
           description:
             "Only for your own text, still waiting or in the Mind as you wrote it: its whole new text, in Markdown, from the section's heading on (it replaces the heading too), with markers like [^1] for Citations recorded with cite. Give it instead of instruction.",
         },
+        ...doneProperty,
       },
       additionalProperties: false,
     },
@@ -2124,7 +2154,8 @@ export function mindTools(options: MindToolsOptions): { tools: Tool[]; settle():
     providerTool: MIND_TOOLS.edit,
     effects: effectOn("write"),
     untrustedResult: false,
-    async call(input, { toolCallId, signal, canCallAgain }) {
+    async call(input, context) {
+      const { toolCallId, signal, canCallAgain } = context;
       const markdown = optional(input.content);
       const instruction = markdown === null ? text(input.instruction, "instruction") : "";
       const mind = picked.get(toolCallId) ?? found(targetOf(input));
@@ -2184,6 +2215,7 @@ export function mindTools(options: MindToolsOptions): { tools: Tool[]; settle():
           action,
         });
         const checked = await checkWritten(toolCallId, written, signal);
+        if (written.dropped === 0 && !stretch.hint) endIfDone(input, context, mind, written);
         const went = ` (${lengths(before, newText)})`;
         return [
           over.kind === "own"
@@ -2289,6 +2321,7 @@ export function mindTools(options: MindToolsOptions): { tools: Tool[]; settle():
             'The heading of the section to add it at the end of, or the first words of the paragraph to add it after, as written in the Mind. Whenever the User names a place, give its name here alone, also when the Mind has it more than once: you are then told how to ask the User which. Only when the User names the heading it is under ("the Summary under Part 2"), put that first: "Part 2 > Summary". Leave it out to add it at the Mind\'s end.',
         },
         ...chartProperty,
+        ...doneProperty,
         content: contentProperty,
         ...answerProperty,
       },
@@ -2314,7 +2347,8 @@ export function mindTools(options: MindToolsOptions): { tools: Tool[]; settle():
         return { writer: writerFor(mind, after, false), created: false };
       });
     },
-    async call(input, { toolCallId, signal, canCallAgain }) {
+    async call(input, context) {
+      const { toolCallId, signal, canCallAgain } = context;
       const asked = chartAsked(input.chart);
       const target = picked.get(toolCallId) ?? found(targetOf(input));
       if (asked && (input.content === undefined || input.content === "") && input.answer !== true) {
@@ -2347,6 +2381,7 @@ export function mindTools(options: MindToolsOptions): { tools: Tool[]; settle():
       );
       if (!written) throw noTable(mind);
       const checked = await checkWritten(toolCallId, written, signal);
+      endIfDone(input, context, mind, written);
       return added(
         mind,
         written,
@@ -2435,6 +2470,7 @@ export function mindTools(options: MindToolsOptions): { tools: Tool[]; settle():
           description: "A short title, from the User's words, in their language.",
         },
         ...chartProperty,
+        ...doneProperty,
         content: contentProperty,
         ...answerProperty,
       },
@@ -2455,7 +2491,8 @@ export function mindTools(options: MindToolsOptions): { tools: Tool[]; settle():
         return { writer: writerFor(mind, null, true), created: true };
       });
     },
-    async call(input, { toolCallId, signal, canCallAgain }) {
+    async call(input, context) {
+      const { toolCallId, signal, canCallAgain } = context;
       const title = text(input.title, "title");
       const given = givenIn(input);
       const again = remake === null ? null : minds.list().find((mind) => mind.id === remake);
@@ -2513,6 +2550,7 @@ export function mindTools(options: MindToolsOptions): { tools: Tool[]; settle():
         return `${made}. It is empty. ${noTable(mind).message}`;
       }
       const checked = await checkWritten(toolCallId, written, signal);
+      endIfDone(input, context, mind, written);
       return `${made}. ${added(mind, written, "in it", checked)}`;
     },
   };

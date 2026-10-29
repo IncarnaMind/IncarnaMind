@@ -58,6 +58,12 @@ export interface ToolCallContext {
   readThirdParty?(source: ReadThirdPartySource): void;
   /** Whether the model gets a step after this call's that can call Tools again: a call refused with none left can't be tried again. */
   canCallAgain?(): boolean;
+  /**
+   * Says the call's result is all the User needs to see: the model asked to end with it, and
+   * what the call did leaves nothing to tell or act on. The Run may then end after the call's
+   * step, with no reply (#1635). A Tool decides it from its own input and outcome alone.
+   */
+  endsTurn?(): void;
 }
 
 /** A Tool (CONTEXT.md) as a Run offers it to the model. */

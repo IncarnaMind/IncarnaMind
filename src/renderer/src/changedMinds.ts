@@ -25,6 +25,10 @@ export interface ChangedMind {
   unlinkedSources: number;
   droppedSources: number;
   extraCells: number;
+  /** Sentences its writes' checks found unsupported or contradicted (#1635). */
+  look: number;
+  /** The top-level Blocks of those writes, where the first of them is found. */
+  lookIn: readonly string[];
 }
 
 /** The Minds an Answer's calls changed or made, in the order it first changed each. */
@@ -45,6 +49,8 @@ export function changedMinds(answer: Pick<ConversationAnswer, "toolCalls">): Cha
       unlinkedSources: 0,
       droppedSources: 0,
       extraCells: 0,
+      look: 0,
+      lookIn: [],
     };
     row.created ||= change.created;
     row.filled ||= change.filled === true;
@@ -61,6 +67,11 @@ export function changedMinds(answer: Pick<ConversationAnswer, "toolCalls">): Cha
     row.unlinkedSources += change.unlinkedSources ?? 0;
     row.droppedSources += change.droppedSources ?? 0;
     row.extraCells += change.extraCells ?? 0;
+    const look = change.selfCheck?.look ?? 0;
+    if (look > 0) {
+      row.look += look;
+      row.lookIn = [...row.lookIn, ...(change.selfCheck?.blocks ?? [])];
+    }
     rows.set(change.mindId, row);
   }
   return [...rows].map(([mindId, row]) => ({ mindId, ...row }));

@@ -1267,6 +1267,8 @@ export interface MindChange {
     sent: number;
     checked: number;
     failed: number;
+    /** Of those checked, how many it found unsupported or contradicted, and marked so: they need a look (#1635). Absent: none. */
+    look?: number;
     stop?: RunStop;
     blocked?: { reason: "consent-revoked" | "local-mode"; count: number };
   };

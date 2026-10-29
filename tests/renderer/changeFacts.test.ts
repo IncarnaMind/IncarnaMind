@@ -129,6 +129,8 @@ describe("Why a chart asked for wasn't drawn (#1091)", () => {
       unlinkedSources: 0,
       droppedSources: 0,
       extraCells: 0,
+      look: 0,
+      lookIn: [],
     };
     expect(keptText(t("en"), kept)).toBe(english);
     expect(keptText(t("zh-CN"), kept)).toBe(chinese);

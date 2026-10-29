@@ -1598,6 +1598,10 @@ async function* toolLoop(
   };
   /** Whether the reply of `cite` or `calculate` to each call asked the model to fix what it gave, by the call's id. */
   const askedForFixes = new Map<string, boolean>();
+  /** The calls whose Tool said their result is all the User needs (`ToolCallContext.endsTurn`), by id. */
+  const endingCalls = new Set<string>();
+  /** The Run ended after such a call's step: the Answer is what the calls did, with no reply. */
+  let endedByCalls = false;
   const writesMinds = request.tools.some((each) => each.provider.kind === "minds");
   /**
    * A Tool as the engine calls it: one with untrusted results taints the Run
@@ -1611,6 +1615,7 @@ async function* toolLoop(
         ...context,
         counted: (count) => results.set(context.toolCallId, count),
         readThirdParty,
+        endsTurn: () => endingCalls.add(context.toolCallId),
       });
       // A search that found nothing (no Passages, no works) read nothing untrusted.
       const read = results.has(context.toolCallId)
@@ -1808,6 +1813,17 @@ async function* toolLoop(
       const recordsOnly =
         step.calls.length > 0 && step.calls.every((call) => recording(offered.get(call.tool)));
       const reply = (text: string) => MARKER.test(text) && (request.isReply?.(text) ?? true);
+      // A closing reply after calls whose results say it all would only repeat them (#1635); their
+      // step's text was a preamble, taken back.
+      endedByCalls =
+        step.calls.some((call) => endingCalls.has(call.id)) &&
+        step.calls.every(
+          (call) =>
+            endingCalls.has(call.id) ||
+            (recording(offered.get(call.tool)) && askedForFixes.get(call.id) === false),
+        ) &&
+        (!request.writeThenCite || owesNothing(besideRecords));
+      if (endedByCalls) return true;
       if (!request.writeThenCite) {
         return (
           cite !== null &&
@@ -1958,7 +1974,7 @@ async function* toolLoop(
         yield { type: "failed", error: event.error };
         return;
       case "finished": {
-        if (keptText.trim() === "" && (setAside.at(-1)?.text ?? "").trim() !== "")
+        if (!endedByCalls && keptText.trim() === "" && (setAside.at(-1)?.text ?? "").trim() !== "")
           keptText = setAside.pop()?.text ?? "";
         const taken = takeToolText(keptText, toolTextTags);
         // Asked again, the model wrote nothing: the reply before stands, as when the ask fails.

@@ -65,6 +65,8 @@ describe("The Minds an Answer changed", () => {
         unlinkedSources: 0,
         droppedSources: 0,
         extraCells: 0,
+        look: 0,
+        lookIn: [],
       },
       {
         mindId: "b",
@@ -79,6 +81,8 @@ describe("The Minds an Answer changed", () => {
         unlinkedSources: 0,
         droppedSources: 0,
         extraCells: 0,
+        look: 0,
+        lookIn: [],
       },
     ]);
   });
@@ -103,6 +107,8 @@ describe("The Minds an Answer changed", () => {
         unlinkedSources: 0,
         droppedSources: 0,
         extraCells: 0,
+        look: 0,
+        lookIn: [],
       },
     ]);
     expect(changedMinds({ toolCalls: [call("read_mind")] })).toEqual([]);
@@ -137,6 +143,8 @@ describe("The Minds an Answer changed", () => {
         unlinkedSources: 0,
         droppedSources: 0,
         extraCells: 0,
+        look: 0,
+        lookIn: [],
       },
     ]);
     expect(
@@ -165,6 +173,8 @@ describe("The Minds an Answer changed", () => {
         unlinkedSources: 0,
         droppedSources: 0,
         extraCells: 0,
+        look: 0,
+        lookIn: [],
       },
     ]);
   });
@@ -238,6 +248,8 @@ describe("The Minds an Answer changed", () => {
         unlinkedSources: 0,
         droppedSources: 0,
         extraCells: 0,
+        look: 0,
+        lookIn: [],
       },
       {
         mindId: "b",
@@ -252,6 +264,8 @@ describe("The Minds an Answer changed", () => {
         unlinkedSources: 0,
         droppedSources: 0,
         extraCells: 0,
+        look: 0,
+        lookIn: [],
       },
       {
         mindId: "c",
@@ -266,6 +280,8 @@ describe("The Minds an Answer changed", () => {
         unlinkedSources: 0,
         droppedSources: 0,
         extraCells: 0,
+        look: 0,
+        lookIn: [],
       },
     ]);
   });
