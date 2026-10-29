@@ -1,5 +1,5 @@
 import { spawnSync } from "node:child_process";
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -43,7 +43,7 @@ function intelFailures(): string[] {
   const { stderr } = spawnSync(process.execPath, [SCRIPT, join(folder, "dist")], {
     encoding: "utf8",
   });
-  return stderr.split("\n").filter((line) => /Intel|Apple silicon/.test(line));
+  return stderr.split("\n").filter((line) => /Intel|Apple silicon|latest-mac\.yml/.test(line));
 }
 
 test("an Intel macOS app, installer or update file fails the package check", async () => {
@@ -72,3 +72,39 @@ test("an Apple silicon build passes it", async () => {
   );
   expect(intelFailures()).toEqual([]);
 });
+
+test("a universal macOS app and its update file fail it too", async () => {
+  await packApp("mac-universal");
+  await writeFile(
+    join(folder, "dist", "latest-mac.yml"),
+    updates(["IncarnaMind-1.0.0-mac-universal.zip"]),
+  );
+  const failures = intelFailures().join("\n");
+  expect(failures).toContain(join("dist", "mac-universal", "IncarnaMind.app"));
+  expect(failures).toContain(
+    "latest-mac.yml offers files that aren't for Apple silicon: IncarnaMind-1.0.0-mac-universal.zip",
+  );
+});
+
+test("a latest-mac.yml that offers no file at all fails it", async () => {
+  await packApp("mac-arm64");
+  await writeFile(join(folder, "dist", "latest-mac.yml"), "version: 1.0.0\nfiles: []\n");
+  expect(intelFailures()).toEqual(["FAIL: latest-mac.yml offers no file to update to"]);
+});
+
+const lipo = spawnSync("lipo", ["-archs", process.execPath], { encoding: "utf8" });
+
+test.skipIf(lipo.status !== 0 || lipo.stdout.trim() !== "arm64")(
+  "on macOS it reads an app's architectures from its executable, whatever its folder is called",
+  async () => {
+    await packApp("mac-arm64");
+    const programs = join(folder, "dist", "mac-arm64", "IncarnaMind.app", "Contents", "MacOS");
+    await mkdir(programs, { recursive: true });
+    await symlink(process.execPath, join(programs, "IncarnaMind"));
+    expect(intelFailures()).toEqual([]);
+    await rm(join(programs, "IncarnaMind"));
+    // A system program built for both Intel and Apple silicon.
+    await symlink("/usr/bin/true", join(programs, "IncarnaMind"));
+    expect(intelFailures().join("\n")).toContain(join("dist", "mac-arm64", "IncarnaMind.app"));
+  },
+);

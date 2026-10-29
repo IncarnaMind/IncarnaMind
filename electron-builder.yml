@@ -83,9 +83,9 @@ asarUnpack:
   # app.asar (src/main/platform.ts points sandbox-runtime at this copy).
   - "**/node_modules/@anthropic-ai/sandbox-runtime/vendor/seccomp/**"
 
-# No spaces in file names, and the architecture in every name: on an Intel Mac the auto-updater
-# never takes a file named arm64, so an app installed there before Intel Macs were dropped
-# (#2199) is never replaced by one that can't run.
+# No spaces in file names, and the architecture in every name: on a signed build for an Intel
+# Mac the auto-updater never takes a file named arm64, so it isn't replaced by one that can't run
+# (#2199).
 artifactName: ${productName}-${version}-${os}-${arch}.${ext}
 
 mac:

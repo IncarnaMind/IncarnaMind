@@ -8,10 +8,12 @@
 //      for byte (#2152).
 //   4. Each app has what Analyses run with (ADR-0023) in python/ beside app.asar, as
 //      packages.json lists it.
-//   5. macOS is Apple silicon only (#2199): no Intel app or installer, and latest-mac.yml, which
-//      the auto-updater reads, offers only arm64 files.
+//   5. macOS is Apple silicon only (#2199): no app that runs on Intel Macs (lipo reads each one's
+//      architectures on macOS), no Intel or universal installer, and latest-mac.yml, which the
+//      auto-updater reads, offers arm64 files and nothing else.
 // Usage: node scripts/check-package.mjs [dist-folder]   (default: dist)
 // Exit code 1 when a check fails.
+import { spawnSync } from "node:child_process";
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { basename, dirname, join, relative, resolve, sep } from "node:path";
 import { listPackage } from "@electron/asar";
@@ -152,8 +154,24 @@ for (const file of files.filter(isInstaller)) {
 	}
 }
 
+/**
+ * The architectures a macOS app in dist/ runs on: what lipo reads in its executable where lipo
+ * runs (macOS), otherwise what its folder's name says. Null for another system's app.
+ */
+function macArchitectures(asar) {
+	const folder = relative(distDir, asar).split(sep)[0] ?? "";
+	if (!/^mac(-|$)/.test(folder)) return null;
+	const programs = join(dirname(asar), "..", "MacOS");
+	const [executable] = existsSync(programs) ? readdirSync(programs) : [];
+	if (executable) {
+		const lipo = spawnSync("lipo", ["-archs", join(programs, executable)], { encoding: "utf8" });
+		if (lipo.status === 0) return lipo.stdout.trim().split(/\s+/);
+	}
+	return { "mac-arm64": ["arm64"], "mac-universal": ["x86_64", "arm64"] }[folder] ?? ["x86_64"];
+}
+
 const intelApps = asars.filter((asar) =>
-	["mac", "mac-x64"].includes(relative(distDir, asar).split(sep)[0] ?? ""),
+	(macArchitectures(asar) ?? []).some((architecture) => architecture !== "arm64"),
 );
 const intelInstallers = files
 	.filter(isInstaller)
@@ -167,9 +185,9 @@ if (existsSync(macUpdates)) {
 		...readFileSync(macUpdates, "utf8").matchAll(/^\s*(?:-\s*)?(?:url|path):\s*(\S+)/gm),
 	].map(([, file]) => file);
 	const notArm = offered.filter((file) => !file.includes("-arm64."));
-	if (offered.length === 0 || notArm.length > 0) {
-		const listed = notArm.join(", ") || "none at all";
-		failures.push(`latest-mac.yml offers files that aren't for Apple silicon: ${listed}`);
+	if (offered.length === 0) failures.push("latest-mac.yml offers no file to update to");
+	if (notArm.length > 0) {
+		failures.push(`latest-mac.yml offers files that aren't for Apple silicon: ${notArm.join(", ")}`);
 	}
 }
 
