@@ -1370,6 +1370,22 @@ export function createCore(adapters: CoreAdapters): Core {
       organizedFolderDocuments: (folderId) => library.documentIds(folderId),
       documentIds: (filter) => documents.ids(filter),
     });
+  const unscopedDocuments = (mindId: string | null): string[] | null => {
+    const made = examples.made();
+    if (made.documentIds.length === 0 || (mindId && made.mindIds.includes(mindId))) return null;
+    const left = new Set(made.documentIds);
+    return documents.ids({}).filter((id) => !left.has(id));
+  };
+  /**
+   * The Documents a Search scope covers; with no scope, the User's own: every Document but the
+   * examples' once they have one, and every Document for an example's own Note (#1942). Every
+   * surface that searches resolves a scope here, so a null one never takes the examples' in again.
+   */
+  const scopeDocuments = (
+    scope: SearchScope | null,
+    mindId: string | null = null,
+  ): string[] | null =>
+    scope && hasSearchScope(scope) ? resolveScope(scope) : unscopedDocuments(mindId);
   const searchedScope = (scope: SearchScope | null, mindId: string | null) => {
     const folderId = mindId !== null && mindExists(mindId) ? minds.get(mindId).folderId : null;
     const holds =
@@ -1405,7 +1421,7 @@ export function createCore(adapters: CoreAdapters): Core {
     return [...named, ...all.filter((folder) => filed.has(folder.id))];
   };
   const unreadIn = (wanted: SearchScope | null): UnreadFile[] => {
-    const inScope = wanted ? resolveScope(wanted) : null;
+    const inScope = scopeDocuments(wanted);
     const unread = findUnreadDocuments(documents.unread(inScope ?? undefined));
     // Files in a format not read belong to folders on disk only: a Tag or a Document can't name
     // them. A folder holds those in it and under it, even where no Document is.
@@ -1732,12 +1748,7 @@ export function createCore(adapters: CoreAdapters): Core {
     searchedScope,
     mindFolder: (mindId) => (mindExists(mindId) ? minds.get(mindId).folderId : null),
     exampleDocuments: (mindId) => examples.documentsOf(mindId),
-    unscopedDocuments: (mindId) => {
-      const made = examples.made();
-      if (made.documentIds.length === 0 || (mindId && made.mindIds.includes(mindId))) return null;
-      const left = new Set(made.documentIds);
-      return documents.ids({}).filter((id) => !left.has(id));
-    },
+    unscopedDocuments,
     interfaceLanguage: () => settings.get().language,
     emptyScopeAnswer: () => translate(settings.get().language, "scope.answer.empty"),
     liveTextBehind: (lines) =>
@@ -1894,7 +1905,7 @@ export function createCore(adapters: CoreAdapters): Core {
       runsLocally: (choice) => chat.metered(choice)?.billing === "free",
     },
     answers,
-    resolveScope,
+    scopeDocuments,
     tasks: {
       start: (kind, mindId, input) => tasks.start(kind, mindId, input),
       get: (taskId) => tasks.record(taskId),
@@ -1940,7 +1951,7 @@ export function createCore(adapters: CoreAdapters): Core {
     requireMind: (mindId) => {
       writableMind(mindId);
     },
-    resolveScope,
+    scopeDocuments,
     searchedScope,
     searchableCount: (documentIds) => documents.searchableCount(documentIds ?? undefined),
     localOnly: () => embedding.localOnly(),
@@ -2145,6 +2156,7 @@ export function createCore(adapters: CoreAdapters): Core {
     consent,
     localOnly: () => embedding.localOnly(),
     resolveScope,
+    scopeDocuments,
     unread: unreadIn,
     evidence,
     documents: {
@@ -3831,7 +3843,7 @@ export function createCore(adapters: CoreAdapters): Core {
     regenerateConversationAnswer: async (input) => answers.regenerateInConversation(input),
     countScopeDocuments: async (scope) => {
       const wanted = parseSearchScope(scope);
-      return documents.searchableCount((wanted ? resolveScope(wanted) : null) ?? undefined);
+      return documents.searchableCount(scopeDocuments(wanted) ?? undefined);
     },
     stopConversationAnswer: async (input) => answers.stopInConversation(input),
     usualAnswerWait: async (answerId) => conversations.usualWait(answerId),
@@ -4148,7 +4160,7 @@ export function createCore(adapters: CoreAdapters): Core {
       const scope = parseSearchScope(options?.scope);
       const found = await evidence.search(
         query,
-        evidence.scope(scope ? resolveScope(scope) : null, parseCheckedDocument(options?.checked)),
+        evidence.scope(scopeDocuments(scope), parseCheckedDocument(options?.checked)),
       );
       return { passages: found.passages.map(passageResult), excluded: found.excluded };
     },

@@ -66,7 +66,6 @@ export function asksReply(
           : `Which two Documents do you mean? Your Library has ${library}, and ${only ? `“${only}” is the only one I can search here` : "none of them can be searched here"}.`,
       };
     }
-    // One Document of the User's own, and no larger Library to name (#1942): it sums that one up.
     if (documents.length === 1 && library === null) {
       const [only] = documents;
       return {

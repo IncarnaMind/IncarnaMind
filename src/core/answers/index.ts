@@ -3331,9 +3331,10 @@ export function createAnswers(options: AnswersOptions) {
 
   /**
    * What an Answer to `question` is written from: its context, and its Search
-   * scope as it is now, resolved to the Documents it covers now. A Question
-   * with no scope searches the User's own Documents, the examples' left out
-   * once the User has one (#1942), as a Question in the assistant does.
+   * scope as it is now, resolved to the Documents it covers now. With no
+   * scope it searches the User's own Documents, never the examples', even
+   * before the User has one (#1942); an example's own Note still searches the
+   * examples, as a Question in the assistant does.
    */
   const askedWith = (context: QuestionContext, question: Y.XmlElement, mindId: string) => {
     const chosen = searchScopeOf(question.getAttributes());
