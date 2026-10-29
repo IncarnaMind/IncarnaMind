@@ -4,13 +4,16 @@ import * as Y from "yjs";
 import { type Core, GENERATED_MARK } from "../../src/core";
 import { EDIT_INSTRUCTIONS } from "../../src/core/edits/prompt";
 import { waitingProblemOf } from "../../src/renderer/src/changeProblems";
+import { resolveInEditor } from "../../src/renderer/src/editor/proposalReview";
 import { waitsForUser } from "../../src/shared/askedChanges";
 import { pendingProposals, proposalRequestOf, resolveProposals } from "../../src/shared/proposals";
 import { askAssistant, changesIn, lastResult, mindCalls } from "../helpers/assistant";
 import { answerEnded } from "../helpers/citations";
 import { createTempDataFolder, startCore } from "../helpers/core";
+import { boundEditor } from "../helpers/editor";
 import { connectToMind, type MindClient } from "../helpers/mindClient";
 import {
+  exactly,
   heading,
   note,
   readMind,
@@ -82,16 +85,6 @@ const waitingFrom = (client: MindClient, request: string) =>
   pendingProposals(client.blocks).filter((each) => each.request === request).length;
 
 const SUMMARY_PAGE = "## Summary\n\nThe paper is about spring tides.";
-
-/** A Mind's top-level Blocks as stored, attributes and all: to tell it is exactly as it was. */
-const exactly = (client: MindClient) =>
-  client.blocks
-    .toArray()
-    .map((block) =>
-      block instanceof Y.XmlElement
-        ? { name: block.nodeName, attributes: block.getAttributes(), text: block.toString() }
-        : null,
-    );
 
 describe("The assistant revises its own changes still waiting", { timeout: 30_000 }, () => {
   // protects=after "write a summary page", "make it longer" lengthens that same waiting summary: the next Question knows what the first Answer made, reads its text marked as waiting, and the Mind holds one summary whose count is the Answer's; fails_when=a second summary is added, the waiting text reads as empty, or the bar and the card disagree; no_claim=how well a real model lengthens it.
@@ -1334,6 +1327,204 @@ describe("Taking back a revision", { timeout: 30_000 }, () => {
 
     expect(exactly(page)).toEqual(before);
   });
+});
+
+describe("Text the User turned down twice stays gone", { timeout: 30_000 }, () => {
+  interface Words {
+    mind: string;
+    user: string;
+    summary: string;
+    section: string;
+    risks: string;
+    longer: string;
+    adding: string;
+    sayMore: string;
+    nothing: string;
+  }
+
+  const WORDS: Record<"en" | "zh-CN", Words> = {
+    en: {
+      mind: "Q3 review",
+      user: "The quarter was very good, and sales were really strong.",
+      summary: "Summary",
+      section: "Risks",
+      risks: "## Risks\n\nLegal review may take longer.",
+      longer: "## Risks\n\nLegal review may take longer than planned.",
+      adding: "Add the risks to the Q3 review",
+      sayMore: "Say more",
+      nothing: "It is all there.",
+    },
+    "zh-CN": {
+      mind: "第三季度复盘",
+      user: "本季度表现很好，销售很强劲。",
+      summary: "概述",
+      section: "风险",
+      risks: "## 风险\n\n法务审核可能更久。",
+      longer: "## 风险\n\n法务审核可能比计划更久。",
+      adding: "把风险加到第三季度复盘里",
+      sayMore: "再详细一点",
+      nothing: "都已经写好了。",
+    },
+  };
+
+  // protects=a rejected revision whose earlier text the User then rejects too stays gone when its Answer is written again: the Mind is as it was after the second reject and nothing waits (#1903); fails_when=the rejected text comes back waiting; no_claim=what a real model writes again.
+  for (const language of ["en", "zh-CN"] as const) {
+    test(`after the revision and that text are rejected, writing it again changes nothing (${language})`, async () => {
+      const { page, words, firstRequest, revisionRequest, regenerate } = await started(language);
+      const beforeRejecting = exactly(page);
+      const editor = boundEditor(page);
+
+      const reject = async (request: string) => {
+        const ids = new Set(
+          pendingProposals(page.blocks)
+            .filter((ref) => ref.request === request)
+            .map((ref) => ref.id),
+        );
+        resolveInEditor(editor, ids, "reject");
+        await page.settled();
+      };
+      const undo = async () => {
+        editor.commands.undo();
+        await page.settled();
+      };
+      const redo = async () => {
+        editor.commands.redo();
+        await page.settled();
+      };
+
+      // Reject all on the revising Answer's card: the first Answer's text comes back waiting.
+      await reject(revisionRequest);
+      expect(pendingProposals(page.blocks).some((ref) => ref.request === firstRequest)).toBe(true);
+      expect(shownWithChanges(page)).toContain(`+ ${words.section}`);
+      const restored = exactly(page);
+      await undo();
+      expect(exactly(page)).toEqual(beforeRejecting);
+      // Reject all again after the Undo, as the User does: the earlier text comes back again.
+      await reject(revisionRequest);
+      expect(exactly(page)).toEqual(restored);
+      await undo();
+      expect(exactly(page)).toEqual(beforeRejecting);
+      await redo();
+      expect(exactly(page)).toEqual(restored);
+
+      // Reject all on the first Answer's card: the risks are gone.
+      await reject(firstRequest);
+      expect(pendingProposals(page.blocks)).toEqual([]);
+      expect(shownWithChanges(page)).not.toContain(`+ ${words.section}`);
+      const gone = exactly(page);
+      await undo();
+      expect(exactly(page)).toEqual(restored);
+      // Reject all again after the Undo: they are gone again.
+      await reject(firstRequest);
+      expect(exactly(page)).toEqual(gone);
+      await undo();
+      expect(exactly(page)).toEqual(restored);
+      await redo();
+      expect(exactly(page)).toEqual(gone);
+
+      await regenerate();
+
+      expect(pendingProposals(page.blocks)).toEqual([]);
+      expect(exactly(page)).toEqual(gone);
+    });
+  }
+
+  // protects=a revision rejected one change at a time keeps its record until its last change, so what it replaced is back afterwards, waiting; fails_when=the first rejection forgets the record and the earlier text is lost; no_claim=none beyond protects.
+  test("rejecting the revision one change at a time still brings the earlier text back", async () => {
+    const { page, words, firstRequest, revisionRequest, firstWaiting } = await started("en");
+    const editor = boundEditor(page);
+    const ids = pendingProposals(page.blocks)
+      .filter((ref) => ref.request === revisionRequest)
+      .map((ref) => ref.id);
+    expect(ids.length).toBeGreaterThan(1);
+    const [first, ...rest] = ids;
+    if (!first) throw new Error("The revision has no changes.");
+    resolveInEditor(editor, new Set([first]), "reject");
+    await page.settled();
+    // Another change of the revision still waits, so nothing of the text it replaced comes back yet.
+    expect(pendingProposals(page.blocks).some((ref) => ref.request === revisionRequest)).toBe(true);
+    expect(pendingProposals(page.blocks).some((ref) => ref.request === firstRequest)).toBe(false);
+    for (const id of rest) {
+      resolveInEditor(editor, new Set([id]), "reject");
+      await page.settled();
+    }
+    expect(pendingProposals(page.blocks).some((ref) => ref.request === revisionRequest)).toBe(
+      false,
+    );
+    expect(
+      pendingProposals(page.blocks).filter((ref) => ref.request === firstRequest),
+    ).toHaveLength(firstWaiting);
+    expect(shownWithChanges(page)).toContain(`+ ${words.section}`);
+  });
+
+  /** The episode the issue names: an Answer adds waiting text to the User's Mind, and the same conversation's next Answer revises it. */
+  async function started(language: "en" | "zh-CN") {
+    const words = WORDS[language];
+    let regenerating = false;
+    const model = scriptedModel((call): ScriptedReply => {
+      if (regenerating) return { text: words.nothing };
+      if (asked(call).endsWith(words.adding)) {
+        return called(call, "add_to_mind")
+          ? { text: "Added them." }
+          : {
+              calls: [{ tool: "add_to_mind", input: { mind: words.mind, content: words.risks } }],
+            };
+      }
+      return called(call, "edit_mind")
+        ? { text: "Said more." }
+        : {
+            calls: [
+              {
+                tool: "edit_mind",
+                input: { mind: words.mind, part: words.section, content: words.longer },
+              },
+            ],
+          };
+    });
+    const core = startCore(await createTempDataFolder(), {
+      createChatModel: scriptedModels(model).createChatModel,
+    });
+    await core.saveChatProvider({ kind: "ollama", modelId: "local-model" });
+    await core.updateSettings({ user: { language } });
+    const mind = await core.createMind({ title: words.mind });
+    const page = await connectToMind(core, mind.id);
+    writeMind(page, [heading(2, words.summary), note(words.user)]);
+    await page.settled();
+
+    const first = await askAssistant(core, { text: words.adding, mindId: mind.id });
+    const firstRequest = changesIn(first)[0]?.request ?? "";
+    await page.settled();
+    const firstWaiting = pendingProposals(page.blocks).filter(
+      (ref) => ref.request === firstRequest,
+    ).length;
+    expect(firstWaiting).toBeGreaterThan(0);
+    const second = await askAssistant(core, {
+      text: words.sayMore,
+      mindId: mind.id,
+      conversationId: first.conversationId,
+    });
+    const revision = changesIn(second)[0];
+    expect(revision).toMatchObject({ mindId: mind.id, revised: true });
+    await page.settled();
+    return {
+      core,
+      page,
+      words,
+      firstRequest,
+      firstWaiting,
+      revisionRequest: revision?.request ?? "",
+      regenerate: async () => {
+        regenerating = true;
+        const result = await core.regenerateConversationAnswer({
+          conversationId: second.conversationId,
+          answerId: second.id,
+        });
+        if (!result.asked) throw new Error("Not asked again.");
+        expect((await answerEnded(core, result.answerId)).event).toBe("finished");
+        await page.settled();
+      },
+    };
+  }
 });
 
 describe("Asking again for a reply that claims a change", { timeout: 30_000 }, () => {
