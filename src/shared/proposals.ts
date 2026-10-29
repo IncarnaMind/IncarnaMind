@@ -429,7 +429,10 @@ function forgetRevised(blocks: Y.XmlFragment, rejected: ReadonlySet<string>): vo
   if (rejected.size === 0) return;
   const revisions = revisionsOf(blocks);
   if (!revisions) return;
+  const pending = pendingProposals(blocks);
   for (const request of [...revisions.keys()]) {
+    // A revision still waiting has not spent its record.
+    if (pending.some((each) => each.request === request)) continue;
     const kept = revisions.get(request)?.get(REVISED_BLOCKS);
     if (!(kept instanceof Y.Array)) continue;
     const taken = kept
