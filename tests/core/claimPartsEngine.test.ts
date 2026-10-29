@@ -583,42 +583,150 @@ describe("literal sentence parts", () => {
     },
   );
 
-  test("a dimensionless SIGN result is not a monetary amount", async () => {
-    const claim = "The balance is GBP 1.";
-    const { result } = await check(claim, [{ kind: "fact", text: claim }], {
-      [claim]: {
-        quotes: [],
-        calculation: {
-          stated: "GBP 1",
-          formula: "SIGN(balance)",
-          inputs: [{ name: "balance", number: "100", quote: "The balance is GBP 100." }],
-        },
+  describe.each(["en", "zh-CN"] as const)("%s monetary receipts", (language) => {
+    test.each([100, 0, -100])(
+      "a dimensionless SIGN result is not a monetary amount: %s",
+      async (balance) => {
+        const claim = language === "en" ? "The balance is GBP 1." : "余额为1英镑。";
+        const quote =
+          language === "en" ? `The balance is GBP ${balance}.` : `余额为${balance}英镑。`;
+        const { result, calls } = await check(
+          claim,
+          [{ kind: "fact", text: claim }],
+          {
+            [claim]: {
+              quotes: [],
+              calculation: {
+                stated: language === "en" ? "GBP 1" : "1英镑",
+                formula: "SIGN(balance)",
+                inputs: [{ name: "balance", number: String(balance), quote }],
+              },
+            },
+          },
+          language,
+        );
+        const replies = calls.flatMap((call) => call.results);
+        expect(replies.find((reply) => reply.tool === "calculate")?.text).toMatch(
+          /^Recorded \[=1\] = /,
+        );
+        expect(result).toMatchObject({ verdict: "not-checked", reason: "no-evidence" });
+        expect(result.parts?.[0]?.calculation).toBeNull();
       },
-    });
-    expect(
-      result.verdict,
-      JSON.stringify({ verdict: result.verdict, calculation: result.parts?.[0]?.calculation }),
-    ).toBe("not-checked");
-  });
+    );
 
-  test("a genuine currency result retains its matching monetary unit", async () => {
-    const claim = "The balance is GBP 100.";
-    const { result } = await check(claim, [{ kind: "fact", text: claim }], {
-      [claim]: {
-        quotes: [],
-        calculation: {
-          as: "currency",
-          stated: "GBP 100",
-          formula: "SUM(balance)",
-          inputs: [{ name: "balance", number: "100", quote: claim }],
-        },
+    test.each([100, 99])(
+      "a genuine currency result retains its matching monetary unit: %s",
+      async (stated) => {
+        const claim = language === "en" ? `The balance is GBP ${stated}.` : `余额为${stated}英镑。`;
+        const quote = language === "en" ? "The balance is GBP 100." : "余额为100英镑。";
+        const { result } = await check(
+          claim,
+          [{ kind: "fact", text: claim }],
+          {
+            [claim]: {
+              quotes: [],
+              calculation: {
+                as: "currency",
+                stated: language === "en" ? `GBP ${stated}` : `${stated}英镑`,
+                formula: "SUM(balance)",
+                inputs: [{ name: "balance", number: "100", quote }],
+              },
+            },
+          },
+          language,
+        );
+        expect(result.verdict).toBe(stated === 100 ? "supported" : "contradicted");
+        expect(result.parts?.[0]?.calculation).toMatchObject({
+          agrees: stated === 100,
+          figure: {
+            value: 100,
+            unit: { kind: "currency", code: "GBP" },
+            inputs: [{ number: { unit: { kind: "currency", code: "GBP" } } }],
+          },
+        });
       },
+    );
+
+    test("the legacy currency fallback keeps actually plain inputs", async () => {
+      const claim = language === "en" ? "The balance is GBP 50." : "余额为50英镑。";
+      const quote = language === "en" ? "The account is denominated in GBP." : "账户以英镑计价。";
+      const inputs = [
+        {
+          name: "opening",
+          number: "40",
+          quote: language === "en" ? "The opening balance is 40." : "期初余额为40。",
+        },
+        {
+          name: "adjustment",
+          number: "10",
+          quote: language === "en" ? "The adjustment is 10." : "调整额为10。",
+        },
+      ];
+      const { result } = await check(
+        claim,
+        [{ kind: "fact", text: claim }],
+        {
+          [claim]: {
+            quotes: [quote],
+            calculation: {
+              stated: language === "en" ? "GBP 50" : "50英镑",
+              formula: "SUM(opening,adjustment)",
+              inputs,
+            },
+          },
+        },
+        language,
+      );
+      expect(result.verdict).toBe("supported");
+      expect(result.parts?.[0]?.calculation).toMatchObject({
+        agrees: true,
+        figure: {
+          value: 50,
+          unit: { kind: "plain" },
+          inputs: [
+            { number: { unit: { kind: "plain" } } },
+            { number: { unit: { kind: "plain" } } },
+          ],
+        },
+      });
     });
-    expect(result.verdict).toBe("supported");
-    expect(result.parts?.[0]?.calculation).toMatchObject({
-      agrees: true,
-      figure: { value: 100, unit: { kind: "currency", code: "GBP" } },
-    });
+
+    test.each([false, true])(
+      "a measured input cannot hide behind a plain input: %s",
+      async (first) => {
+        const claim = language === "en" ? "The balance is GBP 1." : "余额为1英镑。";
+        const measured = {
+          name: "balance",
+          number: "100",
+          quote: language === "en" ? "The balance is GBP 100." : "余额为100英镑。",
+        };
+        const plain = {
+          name: "adjustment",
+          number: "0",
+          quote: language === "en" ? "The adjustment is 0." : "调整额为0。",
+        };
+        const { result, calls } = await check(
+          claim,
+          [{ kind: "fact", text: claim }],
+          {
+            [claim]: {
+              quotes: [],
+              calculation: {
+                stated: language === "en" ? "GBP 1" : "1英镑",
+                formula: "SUM(SIGN(balance),SIGN(adjustment))",
+                inputs: first ? [measured, plain] : [plain, measured],
+              },
+            },
+          },
+          language,
+        );
+        expect(
+          calls.flatMap((call) => call.results).find((reply) => reply.tool === "calculate")?.text,
+        ).toMatch(/^Recorded \[=1\] = /);
+        expect(result).toMatchObject({ verdict: "not-checked", reason: "no-evidence" });
+        expect(result.parts?.[0]?.calculation).toBeNull();
+      },
+    );
   });
 
   test("an unavailable base-year input quote cannot provide a count receipt", async () => {

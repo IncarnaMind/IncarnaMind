@@ -193,7 +193,11 @@ const sameUnit = (a: FigureUnit, b: FigureUnit): boolean =>
   (a.kind !== "other" || (b.kind === "other" && a.word === b.word));
 
 /** Whether a sentence's number and a result measure the same kind of thing, so they can be compared. */
-function comparable(stated: FigureUnit, result: ResultUnit): boolean {
+function comparable(
+  stated: FigureUnit,
+  result: ResultUnit,
+  inputs: CalculatedFigure["inputs"],
+): boolean {
   switch (stated.kind) {
     case "percent":
       return result.kind === "percent" || result.kind === "ratio";
@@ -202,7 +206,10 @@ function comparable(stated: FigureUnit, result: ResultUnit): boolean {
     case "times":
       return result.kind === "times" || result.kind === "ratio" || result.kind === "plain";
     case "currency":
-      return (result.kind === "currency" && result.code === stated.code) || result.kind === "plain";
+      return (
+        (result.kind === "currency" && result.code === stated.code) ||
+        (result.kind === "plain" && inputs.every((input) => input.number.unit.kind === "plain"))
+      );
     case "other":
       return (result.kind === "other" && result.word === stated.word) || result.kind === "plain";
     // A bare number isn't a ratio's: "42" could be 0.42 or 42%, so it is compared only with an amount.
@@ -279,7 +286,8 @@ export function agreesWith(
   figure: Pick<CalculatedFigure, "value" | "unit" | "inputs" | "formula">,
   { relation, costs = new Set() }: { relation?: LimitRelation; costs?: ReadonlySet<string> } = {},
 ): boolean | null {
-  if (typeof figure.value === "boolean" || !comparable(stated.unit, figure.unit)) return null;
+  if (typeof figure.value === "boolean" || !comparable(stated.unit, figure.unit, figure.inputs))
+    return null;
   const value = bracketsOnly(stated, figure, costs) ? -figure.value : figure.value;
   // A figure of the other sign isn't inside a limit the sentence writes as positive: a loss-making
   // EBITDA gives a negative leverage. The model's verdict stands instead.
