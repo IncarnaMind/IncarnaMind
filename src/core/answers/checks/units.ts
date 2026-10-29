@@ -1,5 +1,6 @@
 /** A model reads "54,000" in a UK contract as pounds and calls "£54,000" supported (#1332), so a program decides. */
 import {
+  bareDollar,
   currenciesOf,
   currenciesOfSign,
   type Figure,
@@ -26,6 +27,10 @@ export type UnitNotStated =
     | { kind: "unit"; figure: string; amount: string }
     /** The same written number at another scale, with no stated unit or scale to settle it. */
     | { kind: "scale"; figure: string; amount: string }
+    /** A named dollar where the Document gives a bare "$" and never says which (#2226). */
+    | { kind: "which dollar"; amount: string }
+    /** Another currency for a "¥" in Chinese text, where it means 人民币 (#2226). */
+    | { kind: "yuan sign"; amount: string }
   ) & { matches: readonly { text: CheckedText; start: number }[] };
 
 /** A Citation's text, read only when it is needed. */
@@ -65,6 +70,9 @@ interface Read {
   figures: Figure[];
   named: Set<string> | null;
   inDocument: Set<string> | null;
+  /** The currencies it names by which (`namedCurrencies` with `which`), and its Document. */
+  which: Set<string> | null;
+  whichInDocument: Set<string> | null;
 }
 
 function matchesOf(found: readonly { text: CheckedText | null; start: number }[]) {
@@ -116,17 +124,16 @@ function givenOtherwise(
         ),
     );
   type Valued = ReturnType<typeof valued>;
-  const given = (found: Valued): UnitNotStated | null => {
+  const given = (found: Valued, kind: "unit" | "which dollar" | "yuan sign" = "unit") => {
     const [first] = found;
     if (!first) return null;
-    return {
-      kind: "unit",
-      figure: figure.chars,
-      amount: givenAs(first.number, first.reading),
-      matches: matchesOf(
-        found.map(({ each, number }) => ({ text: each.text, start: number.start })),
-      ),
-    };
+    const amount = givenAs(first.number, first.reading);
+    const matches = matchesOf(
+      found.map(({ each, number }) => ({ text: each.text, start: number.start })),
+    );
+    const problem: UnitNotStated =
+      kind === "unit" ? { kind, figure: figure.chars, amount, matches } : { kind, amount, matches };
+    return problem;
   };
   const equal = valued(figure.value);
   if (figure.unit.kind === "currency") {
@@ -137,14 +144,40 @@ function givenOtherwise(
       each.inDocument ??= namedCurrencies(each.text.document(), each.context, null);
       return each.inDocument.has(code);
     };
-    const inCurrency = equal.filter(({ reading }) => reading.unit.kind === "currency");
-    const agrees = equal.some(({ each, number, reading }) =>
-      reading.unit.kind === "currency"
-        ? codes.has(reading.unit.code) ||
-          currenciesOfSign(number).some((code) => codes.has(code) && named(each, code))
-        : reading.unit.kind === "plain" && [...codes].some((code) => named(each, code)),
+    const namesWhich = (each: Read, code: string) => {
+      each.which ??= namedCurrencies(each.cited, each.context, each.figures, true);
+      if (each.which.has(code)) return true;
+      each.whichInDocument ??= namedCurrencies(each.text.document(), each.context, null, true);
+      return each.whichInDocument.has(code);
+    };
+    const judged = equal.map((found) => {
+      const { each, number, reading } = found;
+      if (reading.unit.kind === "plain")
+        return { found, as: [...codes].some((code) => named(each, code)) ? "agrees" : "plain" };
+      if (reading.unit.kind !== "currency") return { found, as: "other" };
+      if (bareDollar(number)) {
+        const dollars = currenciesOfSign(number);
+        const said = dollars.filter((code) => namesWhich(each, code));
+        if (said.length > 0)
+          return { found, as: said.some((code) => codes.has(code)) ? "agrees" : "differs" };
+        if (bareDollar(figure)) return { found, as: "agrees" };
+        return { found, as: dollars.some((code) => codes.has(code)) ? "which dollar" : "differs" };
+      }
+      if (codes.has(reading.unit.code)) return { found, as: "agrees" };
+      if (currenciesOfSign(number).some((code) => codes.has(code) && named(each, code)))
+        return { found, as: "agrees" };
+      const chinese = each.context.language?.startsWith("zh") === true;
+      if (number.currency === "¥" && chinese && reading.unit.code === "CNY" && codes.has("JPY"))
+        return { found, as: "yuan sign" };
+      return { found, as: "differs" };
+    });
+    if (judged.some(({ as }) => as === "agrees")) return null;
+    const of = (as: string) => judged.filter((each) => each.as === as).map(({ found }) => found);
+    return (
+      given(of("yuan sign"), "yuan sign") ??
+      given(of("which dollar"), "which dollar") ??
+      given(of("differs"))
     );
-    return agrees ? null : given(inCurrency);
   }
   const measure = measureOf(figure.unit);
   if (measure === null) return null;
@@ -195,6 +228,8 @@ export function unitNotStated(
       figures: readFigures(cited, context),
       named: null,
       inDocument: null,
+      which: null,
+      whichInDocument: null,
     };
   });
   const [first] = read;

@@ -8,7 +8,7 @@
 import { describe, expect, test } from "vitest";
 import { type CheckedText, unitNotStated } from "../../src/core/answers/checks/units";
 import { translate } from "../../src/shared/i18n";
-import { checkingModel } from "../helpers/checks";
+import { checkingModel, type Plan } from "../helpers/checks";
 import { setUpWithDocuments } from "../helpers/citations";
 
 const read = (cited: string, document = cited): CheckedText[] => [
@@ -27,14 +27,15 @@ describe("An amount in another currency (#1452)", () => {
     ["Revenue was £54m.", "Revenue (USD millions)\t54", "54 (USD millions)"],
     ["Revenue was £170 million.", "Revenue of RMB 1.2 billion (US$170 million)", "US$170 million"],
     ["Die Gebühr beträgt 54.000 £.", "Die Gebühr beträgt 54.000 $.", "54.000 $"],
-    ["The salary is C$54,000.", "The salary is $54,000.", "$54,000"],
   ])("%s against %j gives %s", (claim, cited, amount) => {
     expect(unitNotStated(claim, read(cited))).toMatchObject({ kind: "unit", amount });
   });
 
-  // protects=never a false alarm for the same currency written another way, a sign that may stand for it, a currency the Document names for its sign, the same amount at another scale, or a stated conversion; fails_when="US$54,000" against "$54,000", "RMB" against "元", "¥" against "人民币" or "円", "$" against "C$", "C$" against "$" in a Document in Canadian dollars, or "2万港币" against "2万元" in a Document paid in 港币 is flagged; no_claim=none beyond protects.
+  // protects=never a false alarm for the same currency written another way, a sign that may stand for it, a currency the Document names for its sign, the same amount at another scale, or a stated conversion; fails_when="US$54,000" against "USD 54,000", "$" against "$", "RMB" against "元", "¥" against "人民币" or "円", "$" against "C$", "C$" against "$" in a Document in Canadian dollars, or "2万港币" against "2万元" in a Document paid in 港币 is flagged; no_claim=none beyond protects.
   test.each([
-    ["The salary is US$54,000.", "The salary is $54,000."],
+    ["The salary is US$54,000.", "The salary is USD 54,000."],
+    ["The salary is $54,000.", "The salary is $54,000."],
+    ["The salary is 54,000 dollars.", "The salary is $54,000."],
     ["The salary is $54,000.", "The salary is USD 54,000."],
     ["The salary is RMB 54,000.", "年薪为54,000元。"],
     ["年薪为¥54,000。", "年薪为人民币54,000元。"],
@@ -78,16 +79,27 @@ describe("An amount in another currency (#1452)", () => {
 });
 
 describe("A figure row's number in another currency (#1452)", () => {
-  // protects=with the numbers a figure's row was bound to, an amount of the same value in another currency is found, and the same currency written another way isn't; fails_when="人民币两万元" bound to "2万美元" passes, or "US$54,000" bound to "$54,000" is flagged; no_claim=whether the row binds such a number, which the figure check decides.
+  // protects=with the numbers a figure's row was bound to, an amount of the same value in another currency is found, and the same currency written another way isn't; fails_when="人民币两万元" bound to "2万美元" passes, or "US$54,000" bound to "USD 54,000" is flagged; no_claim=whether the row binds such a number, which the figure check decides.
   test.each([
     ["人民币两万元", "乙方每月支付租金2万美元。", "2万美元", "USD", 1e4, "2万美元"],
     ["£54,000", "The annual salary is $54,000.", "$54,000", "USD", 1, "$54,000"],
-    ["US$54,000", "The annual salary is $54,000.", "$54,000", "USD", 1, null],
+    ["US$54,000", "The annual salary is USD 54,000.", "USD 54,000", "USD", 1, null],
   ] as const)("%s bound to %j", (claim, cited, chars, code, scale, amount) => {
     const bound = [{ chars, unit: { kind: "currency" as const, code }, scale }];
     const found = unitNotStated(claim, read(cited), bound);
     if (amount === null) expect(found).toBeNull();
     else expect(found).toMatchObject({ kind: "unit", amount });
+  });
+
+  // protects=a row bound to a bare "$" is asked which dollar, as a sentence is (#2226); fails_when="US$54,000" bound to "$54,000" passes; no_claim=none beyond protects.
+  test("a named dollar bound to a bare $ doesn't say which", () => {
+    const bound = [
+      { chars: "$54,000", unit: { kind: "currency" as const, code: "USD" }, scale: 1 },
+    ];
+    expect(unitNotStated("US$54,000", read("The annual salary is $54,000."), bound)).toMatchObject({
+      kind: "which dollar",
+      amount: "$54,000",
+    });
   });
 });
 
@@ -159,7 +171,8 @@ describe("A unit the Document doesn't state (#1452)", () => {
 describe("Checking a figure in another currency or unit", { timeout: 30_000 }, () => {
   const LETTER = {
     name: "Offer letter.txt",
-    contents: "Offer letter\nThe annual salary is $54,000, paid monthly.\n",
+    contents:
+      "Offer letter\nAll amounts in this letter are in US dollars.\nThe annual salary is $54,000, paid monthly.\n",
   };
   const LEASE = { name: "租赁协议.txt", contents: "租赁协议\n乙方每月向甲方支付租金2万美元。\n" };
   const DEPOSIT = { name: "押金收据.txt", contents: "押金收据\n押金为2万元。\n" };
@@ -390,4 +403,123 @@ describe("Checking the cases a review found (#1452)", { timeout: 60_000 }, () =>
       expect(await checkAlone(claim)).toMatchObject({ verdict: "supported" });
     },
   );
+});
+
+describe("A bare $, and ¥ in Chinese text (#2226)", () => {
+  const LEASE_FACTS =
+    "This lease is governed by the laws of New South Wales, Australia.\nThe premises are at 12 George Street, Sydney NSW 2000.\n";
+
+  // protects=a bare "$" says a dollar, not which: a named dollar against it is asked which, whatever country, law or address the Document gives, while one its Document names, a bare "$" in the sentence and another currency keep their results; fails_when="A$54,000" or "US$54,000" against a bare "$54,000" passes, "Australia" names the dollar, or "£54,000" loses "not £54,000"; no_claim=a real model's verdict.
+  test.each([
+    ["The rent is A$54,000.", `${LEASE_FACTS}The rent is $54,000 a year.`, "which dollar"],
+    ["The rent is US$54,000.", "The rent is $54,000 a year.", "which dollar"],
+    ["租金为54,000澳元。", "本合同适用澳大利亚法律。\n租金为每年$54,000。", "which dollar"],
+    ["The rent is £54,000.", "The rent is $54,000 a year.", "unit"],
+  ])("%s against %j is %s", (claim, cited, kind) => {
+    expect(unitNotStated(claim, read(cited))).toMatchObject({ kind, amount: "$54,000" });
+  });
+
+  test.each([
+    ["The rent is A$54,000.", "“$” means Australian dollars.\nThe rent is $54,000 a year."],
+    ["The rent is A$54,000.", "Currency: AUD\nThe rent is $54,000 a year."],
+    ["租金为54,000澳元。", "本合同中“$”指澳元。\n租金为每年$54,000。"],
+    ["The rent is $54,000.", `${LEASE_FACTS}The rent is $54,000 a year.`],
+  ])("%s against %j isn't flagged", (claim, cited) => {
+    expect(unitNotStated(claim, read(cited))).toBeNull();
+  });
+
+  // protects=¥ follows the text's language: in Chinese text it is 人民币, so 日元 against it is asked about with the ¥ reason, and 人民币 or 元 agrees; in Japanese text ¥ is the yen; fails_when="54,000日元" against a Chinese "¥54,000" passes or names another reason, "人民币54,000元" is flagged, or a Japanese "¥" isn't the yen; no_claim=none beyond protects.
+  test.each([
+    ["费用为54,000日元。", "费用为¥54,000。", "yuan sign"],
+    ["The fee is 54,000 yen.", "费用为¥54,000。", "yuan sign"],
+    ["The fee is RMB 54,000.", "料金は¥54,000です。", "unit"],
+  ])("%s against %j is %s", (claim, cited, kind) => {
+    expect(unitNotStated(claim, read(cited))).toMatchObject({ kind, amount: "¥54,000" });
+  });
+
+  test.each([
+    ["费用为人民币54,000元。", "费用为¥54,000。"],
+    ["费用为54,000元。", "费用为¥54,000。"],
+    ["The fee is 54,000 yen.", "料金は¥54,000です。"],
+    ["料金は54,000円です。", "料金は¥54,000です。"],
+  ])("%s against %j isn't flagged", (claim, cited) => {
+    expect(unitNotStated(claim, read(cited))).toBeNull();
+  });
+});
+
+describe("Checking a bare $ and ¥ in Chinese text (#2226)", { timeout: 60_000 }, () => {
+  const supported = (quote: string) => ({ verdict: "supported" as const, quote, says: quote });
+  const contradicted = (quote: string) => ({
+    verdict: "contradicted" as const,
+    quote,
+    says: quote,
+    judgement: "conflict" as const,
+  });
+  const LEASE = {
+    name: "Lease.txt",
+    contents:
+      "Lease\nThis lease is governed by the laws of New South Wales, Australia.\nThe rent is $54,000 a year.\n",
+  };
+  const DEFINED = {
+    name: "Defined lease.txt",
+    contents: "Defined lease\n“$” means Australian dollars.\nThe rent is $64,000 a year.\n",
+  };
+  const ZH_LEASE = {
+    name: "租赁合同.txt",
+    contents: "租赁合同\n本合同适用澳大利亚法律。\n租金为每年$74,000。\n",
+  };
+  const FEE = { name: "费用.txt", contents: "费用\n服务费用为¥54,000。\n" };
+  const JAPANESE = { name: "料金.txt", contents: "料金\nサービス料金は¥84,000です。\n" };
+  const CASES: readonly [string, (typeof LEASE)[], Plan][] = [
+    ["The rent is A$54,000 a year.", [LEASE], supported("The rent is $54,000 a year")],
+    ["The rent is A$64,000 a year.", [DEFINED], supported("The rent is $64,000 a year")],
+    ["租金为每年74,000澳元。", [ZH_LEASE], supported("租金为每年$74,000")],
+    ["服务费用为54,000日元。", [FEE], contradicted("服务费用为¥54,000")],
+    ["服务费用为人民币54,000元。", [FEE], supported("服务费用为¥54,000")],
+    ["The service fee is 84,000 yen.", [JAPANESE], supported("サービス料金は¥84,000です")],
+  ];
+  const alone = async (claim: string, language: "en" | "zh-CN") => {
+    const found = CASES.find(([each]) => each === claim);
+    if (!found) throw new Error(`No case for ${claim}`);
+    const [, documents, plan] = found;
+    const { core } = await setUpWithDocuments(checkingModel({ [claim]: plan }), documents);
+    if (language !== "en") await core.updateSettings({ user: { language } });
+    return core.checkClaim({ claim });
+  };
+
+  // protects=through the core, in English and Chinese: a named dollar against a bare "$" is Unsupported, naming the Document and its "$54,000" without a currency, whatever its governing law; a Document that defines "$" as Australian dollars backs it; 日元 against a Chinese Document's "¥" is Unsupported with the ¥ reason even when the model calls it contradicted, and 人民币 against it is supported; a Japanese Document's "¥" is the yen (#2226); fails_when=any of these checks the other way or gives another reason; no_claim=a real model's verdict.
+  test.each(["en", "zh-CN"] as const)("in %s", async (language) => {
+    const zh = language === "zh-CN";
+    expect(await alone("The rent is A$54,000 a year.", language)).toMatchObject({
+      verdict: "unsupported",
+      unsupported: {
+        reason: zh
+          ? "“Lease”写的是“$54,000”，没有注明币种"
+          : "“Lease” gives “$54,000” without saying which currency",
+      },
+    });
+    expect(await alone("租金为每年74,000澳元。", language)).toMatchObject({
+      verdict: "unsupported",
+      unsupported: {
+        reason: zh
+          ? "“租赁合同”写的是“$74,000”，没有注明币种"
+          : "“租赁合同” gives “$74,000” without saying which currency",
+      },
+    });
+    expect(await alone("服务费用为54,000日元。", language)).toMatchObject({
+      verdict: "unsupported",
+      unsupported: {
+        reason: zh
+          ? "“费用”写的是“¥54,000”，中文里 ¥ 指人民币"
+          : "“费用” gives “¥54,000”, and in Chinese text ¥ means 人民币",
+      },
+    });
+    for (const claim of [
+      "The rent is A$64,000 a year.",
+      "服务费用为人民币54,000元。",
+      "The service fee is 84,000 yen.",
+    ]) {
+      expect(await alone(claim, language), claim).toMatchObject({ verdict: "supported" });
+    }
+  });
 });

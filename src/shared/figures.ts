@@ -2400,45 +2400,63 @@ export function writesMeasure(text: string, measure: string): boolean {
   return WRITES[measure]?.test(text) ?? false;
 }
 
+// A bare "$" or "dollars" says a dollar, not which one, in every language (#2226).
+const BARE_DOLLAR = /^(?:\$|dollars?)$/i;
+const NAMES_A_DOLLAR = new RegExp(
+  `${longestFirst(Object.keys(CURRENCY_CODES).filter((word) => /\$|dollar/i.test(word)))
+    .map((word) => word.replace(/[$.]/g, "\\$&"))
+    .join("|")}|(?<![A-Za-z])(?:${ANY_DOLLAR.join("|")})(?![A-Za-z])`,
+  "i",
+);
+
+/** Whether `figure`'s own currency is a bare "$" or "dollars", which doesn't say which dollar. */
+export const bareDollar = (figure: Figure): boolean =>
+  figure.currency !== null && BARE_DOLLAR.test(figure.currency.trim());
+
 /**
  * The currencies `text` names, by ISO 4217 code: in words ("paid in Pounds Sterling", "币种：人民币"),
  * in a unit it states ("单位：元", "Salary (£)", "in £'000", "All figures are in £") and on
  * `figures`, its figures as read. With no figures given (null), the currency on its figures counts
  * only when they all carry the same one: a Document that mixes "HK$" and "$" says nothing of a
- * plain "54,000".
+ * plain "54,000". With `which`, only a currency it names by which counts: a bare "$" or "dollars"
+ * names none, "Australian dollars", "AUD" and "A$" do.
  */
 export function namedCurrencies(
   written: string,
   context: FigureContext,
   figures: readonly Figure[] | null,
+  which = false,
 ): Set<string> {
   // "以港幣支付" names the Hong Kong dollar as "以港币支付" does.
   const text = written.replace(/\p{Script=Han}/gu, (char) => SIMPLIFIED.get(char) ?? char);
   const settled = settle(context);
+  const codesOf = (word: string) =>
+    which && BARE_DOLLAR.test(word.trim()) ? [] : currencyCodes(word, settled);
   const named = new Set<string>();
   const add = (codes: readonly string[]) => {
     for (const code of codes) named.add(code);
   };
   for (const pattern of [CURRENCY_NAMES, CURRENCY_WORDS]) {
     for (const match of text.matchAll(pattern)) {
-      if (!besideNumber(text, match.index, match.index + match[0].length))
-        add(currencyCodes(match[0], settled));
+      if (!besideNumber(text, match.index, match.index + match[0].length)) add(codesOf(match[0]));
     }
   }
   for (const pattern of [CURRENCY_HEADING, CURRENCY_IN]) {
-    for (const match of text.matchAll(pattern)) add(currencyCodes(match[1] ?? "", settled));
+    for (const match of text.matchAll(pattern)) add(codesOf(match[1] ?? ""));
   }
   for (const stated of readStatedUnits(figures ? text : unitLinesOf(text), context)) {
-    if (stated.unit.kind === "currency") add([stated.unit.code]);
+    if (stated.unit.kind !== "currency") continue;
+    const bare = ANY_DOLLAR.includes(stated.unit.code) && !NAMES_A_DOLLAR.test(stated.chars);
+    if (!(which && bare)) add([stated.unit.code]);
   }
   if (figures) {
-    for (const figure of figures) add(currenciesOf(figure));
+    for (const figure of figures) if (!(which && bareDollar(figure))) add(currenciesOf(figure));
     return named;
   }
   const onFigures = new Map<string, string[]>();
   for (const match of text.matchAll(CURRENCY_ANYWHERE)) {
     if (!besideNumber(text, match.index, match.index + match[0].length)) continue;
-    const codes = currencyCodes(match[0], settled);
+    const codes = codesOf(match[0]);
     if (codes.length > 0) onFigures.set(codes.join(), codes);
   }
   const [only] = onFigures.values();
