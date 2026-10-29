@@ -242,7 +242,18 @@ describe("revision worksheet row/role/revision scoring", () => {
     "仅政策代碼及最大載荷有變。",
     "Policy code and load limit were the only edits.",
     "唯一改動是政策代碼與最大載荷。",
-  ])("surfaces a claim never used in an earlier round: %s", (text) => {
+    "Only the policy and the limit changed.",
+    "Only the code and the maximum load changed.",
+    "只有政策编号和限值变了。",
+    "只有政策代码和载荷上限发生变化。",
+    "Only LARCH-52 and the 0.250 kg cap differ…",
+    "修订版B仅更新了政策和最大承载量。",
+  ])("surfaces a review probe for judgement: %s", (text) => {
     expect(scoreWorksheet(run(text, [])).falseOnlyCandidates).toEqual([text]);
+  });
+
+  test("surfaces a claim split across two lines", () => {
+    const score = scoreWorksheet(run("Only the policy and the limit\nchanged.", []));
+    expect(score.falseOnlyCandidates).toEqual(["Only the policy and the limit"]);
   });
 });

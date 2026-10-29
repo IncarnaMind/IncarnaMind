@@ -40,9 +40,9 @@ const metadata = (quote: string) =>
 const fullRow = (citation: Citation, quote: string) =>
   citation.pageFrom === 2 && compact(citation.quote).includes(quote);
 
-const policyTerm = /policy code|policy|政策代码|政策代碼|政策/i;
+const policyTerm = /\bcodes?\b|\bLARCH\b|policy|政策|编号|編號/i;
 const loadTerm =
-  /maximum load|max(?:imum)? load|load limit|最大载荷|最大載荷|载荷限制|載荷限制|最大负载|最大負載/i;
+  /maximum load|max(?:imum)? load|load limit|\blimits?\b|\bcaps?\b|载荷|載荷|负载|負載|限值|上限|承载|承載/i;
 
 const sentences = (text: string) =>
   text
