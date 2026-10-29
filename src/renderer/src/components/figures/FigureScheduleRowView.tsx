@@ -1,6 +1,7 @@
 import { type ReactNode, useRef } from "react";
 import type { Citation, FigureScheduleRow } from "../../../../core/api";
 import {
+  checkedByText,
   figurePlaceText,
   footingNotes,
   type LineStatus,
@@ -13,13 +14,14 @@ import {
   sourceValueText,
   toCheckAgain,
   toKeep,
+  toSignOff,
 } from "../../../../shared/figureSchedule";
 import { sourceParts } from "../../../../shared/sources";
 import { useLanguage, useT } from "../../i18n";
 import { useSelectable, useSelection } from "../../selection";
 import { useAppStore } from "../../store";
 import { TREE_ROW } from "../../treeKeys";
-import { ChevronRightLineIcon, MoreLineIcon } from "../lineIcons";
+import { CheckLineIcon, ChevronRightLineIcon, MoreLineIcon } from "../lineIcons";
 import { useObjectMenu } from "../ObjectMenu";
 import { iconButtonClass, menuClass, menuItemClass, menuRuleClass } from "../ui";
 import { usePopoverMenu } from "../usePopoverMenu";
@@ -113,10 +115,12 @@ export function FigureScheduleRowView({
   };
   const dash = <span className="figure-dash">—</span>;
 
-  const action = (label: string, run: () => void, keys?: string) => (
+  const action = (label: string, run: () => void, keys?: string, checked?: boolean) => (
+    // biome-ignore lint/a11y/useAriaPropsSupportedByRole: only a toggle's item takes aria-checked.
     <button
       type="button"
-      role="menuitem"
+      role={checked === undefined ? "menuitem" : "menuitemcheckbox"}
+      aria-checked={checked}
       className={menuItemClass}
       onClick={() => {
         menu.close();
@@ -124,6 +128,7 @@ export function FigureScheduleRowView({
       }}
     >
       <span className="flex-1">{label}</span>
+      {checked && <CheckLineIcon className="size-4 shrink-0 text-ink-meta" />}
       {keys && <span className="text-ink-meta">{keys}</span>}
     </button>
   );
@@ -132,6 +137,8 @@ export function FigureScheduleRowView({
   // Each item shows for, counts and acts on the same rows: the chosen ones it applies to.
   const checks = toCheckAgain(chosen).map((row) => row.id);
   const keeps = toKeep(chosen).map((row) => row.id);
+  const signing = toSignOff(chosen);
+  const signed = signing.rows.map((row) => row.id);
   const acts: ReactNode[] = kid
     ? []
     : [
@@ -142,6 +149,14 @@ export function FigureScheduleRowView({
               : t("claim.checkAgain"),
             () => props.onCheckAgain(checks),
           ),
+        action(
+          signed.length > 1
+            ? t(signing.off ? "signOff.unmarkCount" : "signOff.markCount", { count: signed.length })
+            : t("signOff.action"),
+          () => props.onSignOff(signed, signing.off),
+          undefined,
+          signed.length > 1 ? undefined : signing.off,
+        ),
         looked === "contradicted" &&
           parent.sourceInput &&
           totals.length === 0 &&
@@ -245,6 +260,13 @@ export function FigureScheduleRowView({
         )}
       </td>
       <td className="figure-status">{status}</td>
+      <td
+        className={`figure-checked-by ${parent.signOff && !kid ? "" : "is-empty"}`}
+        data-label={t("figures.checkedBy")}
+        data-state={kid ? undefined : parent.signOff?.state}
+      >
+        {kid ? null : checkedByText(parent, language)}
+      </td>
       <td className="figure-actions">
         {!kid && (
           <>

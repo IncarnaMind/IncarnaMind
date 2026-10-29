@@ -1,6 +1,7 @@
 import type { Editor } from "@tiptap/core";
 import { useEffect } from "react";
 import type * as Y from "yjs";
+import type { CommandContext } from "./registry";
 
 /** Something a command acts on that lives in a component, there while the component is. */
 export interface Handle<T> {
@@ -14,6 +15,8 @@ export const assistantHandle: Handle<{ openHistory(): void }> = { current: null 
 export const citationHandle: Handle<{
   open(): void;
   choices(): { update: (() => void) | null; keepOld: (() => void) | null };
+  /** What its card offers, for ⌘K, which takes them as it opens: a click there closes the card. */
+  here(): CommandContext["here"];
 }> = { current: null };
 
 /** The open Mind's find bar: what "Find next" and "Find previous" do. */

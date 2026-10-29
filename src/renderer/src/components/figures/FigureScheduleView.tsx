@@ -3,6 +3,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import type { Citation, FigureSchedule, FigureScheduleRow } from "../../../../core/api";
 import { formatDateTime } from "../../../../shared/dates";
 import {
+  checkedByText,
   childrenOf,
   type FigureFilter,
   lineRef,
@@ -34,13 +35,15 @@ export interface FigureScheduleViewProps {
   onStop?(): void;
   onKeep(ids: string[]): void;
   onCheckAgain(ids: string[]): void;
+  /** "Checked by me" (#1933): marks the figures, or, `off`, takes the User's marks off. */
+  onSignOff(ids: string[], off: boolean): void;
   onChangeToSource(ids: string[]): void;
   onAddCitation(id: string): void;
   onChooseCitation(id: string): void;
   onTotalRole(id: string, axes: ("row" | "column")[], total: boolean): void;
 }
 
-const FILTERS = ["all", "look", "supported", "not-checked"] as const;
+const FILTERS = ["all", "look", "supported", "not-checked", "not-mine"] as const;
 
 /** The figures whose rows show an outcome the last Check gave them. */
 
@@ -121,6 +124,7 @@ export function FigureScheduleView(props: FigureScheduleViewProps) {
       t("figures.source"),
       t("figures.difference"),
       t("figures.status"),
+      t("figures.checkedBy"),
     ];
     const body = copied.map((line) => {
       const shows = lineShows(line, language);
@@ -136,6 +140,7 @@ export function FigureScheduleView(props: FigureScheduleViewProps) {
             : "",
         shows.difference ?? "",
         status ? (status.why ? `${t(status.word)}: ${t(status.why)}` : t(status.word)) : "",
+        line.id === line.parent.id ? checkedByText(line.parent, language) : "",
       ];
     });
     const escaped = (text: string) =>
@@ -382,6 +387,9 @@ export function FigureScheduleView(props: FigureScheduleViewProps) {
                     {t("figures.status")}
                     <SortLineIcon className="size-3" />
                   </button>
+                </th>
+                <th scope="col" className="figure-checked-by">
+                  {t("figures.checkedBy")}
                 </th>
                 <th scope="col" className="figure-actions">
                   <span className="sr-only">{t("figures.rowActions")}</span>

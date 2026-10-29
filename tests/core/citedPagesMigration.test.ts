@@ -1,5 +1,5 @@
 /**
- * Migration 112 (#2161): a cited page whose drawing failed used to be taken away, and nothing
+ * Migration 113 (#2161): a cited page whose drawing failed used to be taken away, and nothing
  * tried it again. Each such page waits again, the newest of its Location, unless one of that
  * Location waits or is saved already, so the next start tries it if a Citation still points at it.
  */
@@ -37,12 +37,12 @@ function page(
   );
 }
 
-/** A database as version 111 left it, then migrated, with the pages the test put in first. */
+/** A database as version 112 left it, then migrated, with the pages the test put in first. */
 async function migrated(setup: (db: Database) => void) {
   const db = openDatabase(join(await createTempDataFolder(), "test.db"));
   migrate(
     db,
-    migrations.filter((each) => each.version <= 111),
+    migrations.filter((each) => each.version <= 112),
   );
   setup(db);
   migrate(db);

@@ -417,12 +417,18 @@ test("a right-click opens the menu the ⋯ button opens, for a Mind, a Document,
   expect(await menuCommands(answerMenu)).toEqual(answerByRightClick);
   await window.keyboard.press("Escape");
 
-  // A Citation: Open, then Remove; its card's ⋯ opens the same.
+  // A Citation: Open, Checked by me (a toggle, #1933), then Remove; its card's ⋯ opens the same.
   await window.getByTestId("mind-list-item").filter({ hasText: "Cited notes" }).click();
   const citation = window.getByTestId("mind-editor").getByTestId("citation");
   const citationMenu = citation.getByTestId("citation-actions");
   await rightClick(window, citation.getByTestId("citation-chip"));
-  expect(await menuCommands(citationMenu)).toEqual(["citation.open", "—", "citation.remove"]);
+  expect(await menuCommands(citationMenu)).toEqual([
+    "citation.open",
+    "—",
+    "citation.signOff",
+    "—",
+    "citation.remove",
+  ]);
   await screenshot(window, "menu-citation");
   await window.keyboard.press("Escape");
   await citation.getByTestId("citation-chip").hover();
@@ -431,6 +437,8 @@ test("a right-click opens the menu the ⋯ button opens, for a Mind, a Document,
   await card.getByTestId("citation-menu").click();
   expect(await menuCommands(card.getByTestId("citation-actions"))).toEqual([
     "citation.open",
+    "—",
+    "citation.signOff",
     "—",
     "citation.remove",
   ]);

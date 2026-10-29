@@ -8,6 +8,8 @@ export interface FigureScheduleHandle {
   schedule: FigureSchedule;
   keep(ids: string[]): void;
   checkAgain(ids: string[]): void;
+  /** "Checked by me" (#1933) on the figures, or, `off`, takes the User's marks off. */
+  signOff(ids: string[], off: boolean): void;
 }
 
 export const figureScheduleHandle: { current: FigureScheduleHandle | null } = { current: null };

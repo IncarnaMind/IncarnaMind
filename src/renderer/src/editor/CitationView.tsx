@@ -9,6 +9,7 @@ import {
   type CitationCheck,
   type CitationRecheck,
   type FormattedCluster,
+  type SignOffNow,
   type StyledRun,
 } from "../../../core/api";
 import {
@@ -30,6 +31,7 @@ import {
   isTranscriptLocation,
   openKind,
 } from "../../../shared/locations";
+import { checkedByMe } from "../../../shared/signOffs";
 import { useAnswers } from "../answers";
 import { type MindFormatting, useMindFormatting } from "../citationFormatting";
 import { followNewVersion } from "../citationUpdate";
@@ -66,11 +68,24 @@ import { QuoteWithUnsureWords, ScanLine, useReadableQuote, useScannedQuote } fro
 import { sentenceAround } from "./citationSentence";
 import { asOneStep, offerEditorUndo } from "./editorUndo";
 import { CheckMarkIcon, CheckStateIcon, ClaimMarkIcon } from "./icons";
-import { InFootnoteContext, MindIdContext, RegenerateAnswerContext } from "./mindContext";
+import {
+  InFootnoteContext,
+  MindIdContext,
+  RegenerateAnswerContext,
+  SignOffsContext,
+} from "./mindContext";
 import { Popover } from "./Popover";
 import { onPeek, peekCitation, useCitationPeek } from "./peek";
 import { isQuietFocus } from "./quietFocus";
+import { SignOffLine, SignOffToggle } from "./SignOff";
 import { StyledRuns, StyledRunView } from "./StyledRuns";
+import {
+  citationSignOff,
+  currentSigner,
+  toggleCitationSignOff,
+  useDocumentVersions,
+  usePersonId,
+} from "./signOffActions";
 import { runsText } from "./styledText";
 
 useAppStore.subscribe((state) => {
@@ -303,12 +318,32 @@ export function CitationView({
   // "Open cited page" (a command) opens the Citation whose card shows.
   useEffect(() => {
     if (!open) return;
-    const handle = { open: () => openFromCardRef.current(), choices: () => choicesRef.current };
+    const handle = {
+      open: () => openFromCardRef.current(),
+      choices: () => choicesRef.current,
+      here: () => hereRef.current,
+    };
     citationHandle.current = handle;
     return () => {
       if (citationHandle.current === handle) citationHandle.current = null;
     };
   }, [open]);
+
+  // The User's own "Checked by me" (#1933): in a Note they can change, not in a footnote's text.
+  const { records } = useContext(SignOffsContext);
+  const personId = usePersonId();
+  const versions = useDocumentVersions();
+  const canSignOff = mindId !== null && editor.isEditable && !inFootnote;
+  const at = getPos();
+  const signOff =
+    mindId !== null && at !== undefined
+      ? citationSignOff(records, editor.state.doc, at, attributes, versions, personId)
+      : null;
+  const toggleSignOff = () => {
+    const pos = getPos();
+    const signer = currentSigner();
+    if (pos !== undefined && signer) toggleCitationSignOff(editor, pos, signer);
+  };
 
   const menuId = useId();
   const objectMenu = useObjectMenu({ kind: "citation", id: menuId });
@@ -318,6 +353,10 @@ export function CitationView({
     }),
     ...(choices.update && { "citation.update": choices.update }),
     ...(choices.keepOld && { "citation.keepOld": choices.keepOld }),
+    ...(canSignOff &&
+      (checkedByMe(signOff)
+        ? { "citation.signOffRemove": toggleSignOff }
+        : { "citation.signOff": toggleSignOff })),
     // Not where the text can't be changed, such as an Answer in the assistant.
     ...(editor.isEditable && {
       "citation.remove": () => {
@@ -326,6 +365,9 @@ export function CitationView({
       },
     }),
   };
+
+  const hereRef = useRef(here);
+  hereRef.current = here;
 
   // The number, the Document, where it points and the check: the marker only shows the number.
   const label = inFootnote
@@ -486,6 +528,8 @@ export function CitationView({
               }
               menu={{ target: { kind: "citation", id: menuId }, here }}
               note={noteOf(formatting, inCluster)}
+              signOff={signOff}
+              onSignOff={canSignOff ? toggleSignOff : null}
             />
           </Popover>,
           document.body,
@@ -610,7 +654,13 @@ function CitationCard({
   onRemove,
   onRegenerate,
   menu,
+  signOff,
+  onSignOff,
 }: {
+  /** The User's own check of it (#1933), apart from IncarnaMind's. */
+  signOff: SignOffNow | null;
+  /** Null where it can't be marked, such as an Answer in the assistant. */
+  onSignOff: (() => void) | null;
   /** The ⋯ at the card's end: the same menu as the right-click on the marker. */
   menu: { target: ObjectRef; here: CommandContext["here"] };
   state: CitationState;
@@ -758,6 +808,7 @@ function CitationCard({
       {state.check === "found" && !recheckAsked && (
         <p className="citation-card-note">{t("citation.meaning")}</p>
       )}
+      <SignOffLine now={signOff} />
       <div className="citation-card-actions">
         {onUpdate && (
           <button
@@ -821,6 +872,9 @@ function CitationCard({
           >
             {t(removed ? "citation.open.removed" : `citation.open.${opens}`)}
           </button>
+        )}
+        {onSignOff && (
+          <SignOffToggle now={signOff} onToggle={onSignOff} className="citation-card-action" />
         )}
         <ObjectMenu
           target={menu.target}

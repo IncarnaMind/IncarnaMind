@@ -19,6 +19,7 @@ import {
 } from "../../shared/figureSchedule";
 import { type MessageKey, type MessageParams, translate } from "../../shared/i18n";
 import type { ChatModelChoice, Citation, FigureSchedule, FigureScheduleRow } from "../api";
+import { personCheck } from "../checkRecord/labels";
 import type { Language } from "../language";
 import { figureCell } from "./figureCells";
 import type { SheetBook, SheetCell, SheetRow } from "./sheets";
@@ -147,6 +148,7 @@ export function figureScheduleBook(
         text("difference", unchecked ? "" : (differenceText(row, language) ?? "")),
         text("status", t(statusWord(row))),
         text("reason", unchecked ? "" : figureReason(row, language), true),
+        text("person", personCheck(row.signOff, time, t) ?? ""),
       ],
     };
     // What it is worked out from, a formula's inputs or the ranges and figures its Analysis read.
@@ -190,6 +192,7 @@ export function figureScheduleBook(
     ["difference", t("figures.difference")],
     ["status", t("figures.status")],
     ["reason", t("figures.export.reason")],
+    ["person", t("checkRecord.column.person")],
   ];
   const information = [
     info("note", t("figures.export.note"), schedule.name),
@@ -218,6 +221,7 @@ export function figureScheduleBook(
           { id: "difference", width: 24 },
           { id: "status", width: 16 },
           { id: "reason", width: 60 },
+          { id: "person", width: 30 },
         ],
         rows: [...information, { id: "gap", cells: [] }, header("head", head), ...rows],
         frozen: { rows: information.length + 2, columns: 2 },

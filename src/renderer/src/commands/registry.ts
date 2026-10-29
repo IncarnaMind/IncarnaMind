@@ -116,6 +116,8 @@ export interface Command {
   destructive?: true;
   /** Whether it is offered at all. */
   when?(ctx: CommandContext): boolean;
+  /** A toggle's state: menus and ⌘K show it ticked while it is on. */
+  checked?(ctx: CommandContext): boolean;
   /** Offered, but not now, and why. */
   enabled?(ctx: CommandContext): true | { reason: MessageKey };
   /** Undone with ⌘Z, or asked about first, naming what will be lost (rule 4). */

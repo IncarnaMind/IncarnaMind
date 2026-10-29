@@ -1935,6 +1935,17 @@ export const migrations: readonly Migration[] = [
   },
   {
     version: 112,
+    description:
+      "A Checkpoint the User named, or one saved when the Note was sent, keeps its name and file",
+    sql: `
+      -- A name the User gave the version (#1933), and the file a Checkpoint saved as the Note
+      -- was exported holds (reason 'export'). A named one is never thinned.
+      ALTER TABLE mind_checkpoints ADD COLUMN name TEXT;
+      ALTER TABLE mind_checkpoints ADD COLUMN detail TEXT;
+    `,
+  },
+  {
+    version: 113,
     description: "A cited page whose drawing failed waits to be drawn again (#2161)",
     sql: `
       -- tries: how many drawings of the page failed (src/core/citedPages.ts). A failed one no

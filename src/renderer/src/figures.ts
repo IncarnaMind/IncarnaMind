@@ -1,7 +1,12 @@
 import { useEffect, useState } from "react";
 import type * as Y from "yjs";
 import { create } from "zustand";
-import { type FigureSchedule, type FigureScheduleRow, MIND_CONTENT_FIELD } from "../../core/api";
+import {
+  type FigureSchedule,
+  type FigureScheduleRow,
+  MIND_CONTENT_FIELD,
+  MIND_SIGN_OFFS_FIELD,
+} from "../../core/api";
 import { fingerprintOfMind } from "../../shared/mindState";
 import { useChecks } from "./checks";
 import { core } from "./core";
@@ -48,6 +53,9 @@ export function useFigureSchedule(mindId: string, doc: Y.Doc | null): FigureSche
         });
     };
     blocks.observeDeep(refresh);
+    // The User's own check marks are kept beside the Blocks; each row says how its mark shows.
+    const marks = doc.getMap(MIND_SIGN_OFFS_FIELD);
+    marks.observe(refresh);
     const stop = core.on("mind.update", (event) => {
       if (event.mindId === mindId) refresh();
     });
@@ -56,6 +64,7 @@ export function useFigureSchedule(mindId: string, doc: Y.Doc | null): FigureSche
       active = false;
       stop();
       blocks.unobserveDeep(refresh);
+      marks.unobserve(refresh);
     };
   }, [mindId, doc, documents, mind?.folderId, mind?.title]);
   return read?.doc === doc ? (read?.schedule ?? null) : null;

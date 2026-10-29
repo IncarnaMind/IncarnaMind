@@ -1,4 +1,4 @@
-import type { CalculatedFigure, Citation, FigureInput } from "../../../core/api";
+import type { CalculatedFigure, Citation, FigureInput, SignOffNow } from "../../../core/api";
 import { badgeMessage, citationState } from "../../../shared/citations";
 import type { ClaimCheckShown } from "../../../shared/claimChecks";
 import type { CalculatedSources } from "../../../shared/figureRuns";
@@ -10,6 +10,7 @@ import { useLanguage, useT } from "../i18n";
 import { openCited } from "../openCited";
 import { useAppStore } from "../store";
 import { QuoteWithUnsureWords, ScanLine, useScannedQuote } from "./citationScan";
+import { SignOffLine, SignOffToggle } from "./SignOff";
 
 export function CalculatedFigureCard({
   figure,
@@ -18,6 +19,8 @@ export function CalculatedFigureCard({
   sources,
   problem,
   onCopyFormula,
+  signOff,
+  onSignOff,
 }: {
   figure: CalculatedFigure;
   shown: ClaimCheckShown;
@@ -25,6 +28,10 @@ export function CalculatedFigureCard({
   sources: CalculatedSources | null;
   problem: boolean;
   onCopyFormula(): void;
+  /** The User's own check of it (#1933), apart from IncarnaMind's. */
+  signOff: SignOffNow | null;
+  /** Null where it can't be marked, such as a Note opened read-only. */
+  onSignOff: (() => void) | null;
 }) {
   const t = useT();
   const stateKey =
@@ -114,9 +121,23 @@ export function CalculatedFigureCard({
               : "figures.inline.savedNote",
         )}
       </p>
-      <button type="button" className={buttonStyle("ghost", "sm")} onClick={() => onCopyFormula()}>
-        {t("figures.inline.copyFormula")}
-      </button>
+      <SignOffLine now={signOff} />
+      <div className="calculated-figure-actions">
+        {onSignOff && (
+          <SignOffToggle
+            now={signOff}
+            onToggle={onSignOff}
+            className={buttonStyle("secondary", "sm")}
+          />
+        )}
+        <button
+          type="button"
+          className={buttonStyle("ghost", "sm")}
+          onClick={() => onCopyFormula()}
+        >
+          {t("figures.inline.copyFormula")}
+        </button>
+      </div>
     </>
   );
 }
