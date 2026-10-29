@@ -70,6 +70,7 @@ import { useAppStore } from "../store";
 import { tellTask, useTasks } from "../tasks";
 import { takeBackLast, tellable } from "../taskTell";
 import { taskName } from "../taskText";
+import { tellProblemOf } from "../tellTarget";
 import { AnswerAnnouncer } from "./AnswerAnnouncer";
 import { AskedQuoteChips } from "./AskedQuotes";
 import { AskProblem } from "./AskProblem";
@@ -227,6 +228,7 @@ export function Composer({
   /** Tell it… (#130): the running Task what is typed goes to. */
   const told = useTasks((state) => (draft.tell ? state.tasks[draft.tell] : undefined));
   const target = mind && told ? told : undefined;
+  const targetProblem = tellProblemOf(Boolean(mind), draft.tell ? target : null);
   /** Why the last message couldn't reach its Task. */
   const [tellProblem, setTellProblem] = useState<string | null>(null);
   const chosenModel = useModelInUse(mind?.doc ?? null);
@@ -773,7 +775,7 @@ export function Composer({
           }}
         />
       )}
-      {target && !tellable(target) && (
+      {targetProblem && (
         <ProblemLine
           testId="composer-tell-finished"
           className="composer-problem"
@@ -785,7 +787,7 @@ export function Composer({
             },
           }}
         >
-          {t("task.tell.finished", { task: taskName(target, t) })}
+          {target ? t("task.tell.finished", { task: taskName(target, t) }) : t("error.task.tell")}
         </ProblemLine>
       )}
       {tellProblem && (

@@ -625,7 +625,7 @@ test("the plan card follows the composer's model chip, says when the web can't b
     await expect(input).toHaveValue(unsent);
     await expect(chip).toBeVisible();
     const finished = window.getByTestId("composer-tell-finished");
-    await expect(finished).toContainText("已完成");
+    await expect(finished).toContainText("已结束");
     await expect(finished.getByRole("button", { name: "改为提问" })).toBeVisible();
     await pointAndClick(window, progress.getByTestId("task-progress-details"));
     const record = progress.getByTestId("task-record-details");

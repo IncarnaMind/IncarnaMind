@@ -2947,7 +2947,7 @@ export const zhCN = {
   "research.plan.close": "关闭",
   "task.tell.chip": "→ {task}",
   "task.tell.hint": "按 Enter 发给{task}，用于下一步",
-  "task.tell.finished": "“{task}”已完成，这条消息不能发给它。选择“改为提问”才会另起一个问题。",
+  "task.tell.finished": "“{task}”已结束，这条消息不能发给它。选择“改为提问”才会另起一个问题。",
   "task.tell.remove": "改为提问",
   "task.tell.placeholder": "告诉它要改什么…",
   "task.tell.send": "发送给{task}",

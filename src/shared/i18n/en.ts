@@ -3082,7 +3082,7 @@ export const en = {
   "task.tell.chip": "→ {task}",
   "task.tell.hint": "Enter sends this to {task} for its next step",
   "task.tell.finished":
-    "{task} is done. This message can’t be sent there. Choose Ask instead to make it a separate Question.",
+    "{task} has finished. This message can’t be sent there. Choose Ask instead to make it a separate Question.",
   "task.tell.remove": "Ask instead",
   "task.tell.placeholder": "Tell it what to change…",
   "task.tell.send": "Send to {task}",
