@@ -28,6 +28,7 @@ const FILES = [
   "SpendingCapSettings.tsx",
   "SuggestionSettings.tsx",
   "TaggingSettings.tsx",
+  "TaskNotificationSettings.tsx",
   "WebSearchSettings.tsx",
 ];
 const FOLDERS = ["agents", "connectors", "providers"];

@@ -14,7 +14,7 @@ import { useT } from "../i18n";
 import type { ObjectKind, ObjectRef } from "../objects";
 import { useSelection } from "../selection";
 import { useAppStore } from "../store";
-import { MoreLineIcon } from "./lineIcons";
+import { CheckLineIcon, MoreLineIcon } from "./lineIcons";
 import { rowActionButtonClass } from "./sidebarRows";
 import { menuClass, menuItemClass, menuItemUnavailableClass, menuRuleClass } from "./ui";
 import { openMenuFromRightClick, usePopoverMenu } from "./usePopoverMenu";
@@ -234,11 +234,14 @@ export function ObjectMenu({
     const keys = menuKeysLabel(command);
     const reason = enabled === true ? undefined : t(enabled.reason);
     const hint = command.hint ? t(command.hint) : undefined;
+    const checked = command.checked?.(ctx);
     return (
+      // biome-ignore lint/a11y/useAriaPropsSupportedByRole: only a toggle's item takes aria-checked.
       <button
         key={command.id}
         type="button"
-        role="menuitem"
+        role={checked === undefined ? "menuitem" : "menuitemcheckbox"}
+        aria-checked={checked}
         data-testid={command.id}
         aria-disabled={enabled === true ? undefined : true}
         aria-description={hint}
@@ -247,6 +250,7 @@ export function ObjectMenu({
         className={`${menuItemClass} ${menuItemUnavailableClass} pl-2`}
       >
         <span className="flex-1">{menuLabelOf(command, ctx, t)}</span>
+        {checked && <CheckLineIcon className="size-4 shrink-0 text-ink-meta" />}
         {keys && <span className="pl-4 text-[13px] text-ink-meta">{keys}</span>}
       </button>
     );

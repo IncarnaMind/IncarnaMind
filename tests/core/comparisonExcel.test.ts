@@ -4,7 +4,9 @@
  * app's own workbook reader, which shows each cell as Excel would.
  */
 import { readFile } from "node:fs/promises";
-import { describe, expect, test } from "vitest";
+import { describe, expect, onTestFinished, test } from "vitest";
+import { MIND_CONTENT_FIELD } from "../../src/core";
+import { createElement, type NodeJSON } from "../../src/core/answers/blocks";
 import type { CitedWork } from "../../src/core/api";
 import { cellIndex } from "../../src/core/documents/formats/sheetLayout";
 import { readWorkbook } from "../../src/core/documents/formats/xlsx";
@@ -18,8 +20,10 @@ import {
   REPORT_QUESTIONS as QUESTIONS,
   rescalingModel,
 } from "../helpers/comparisons";
+import { createTempDataFolder, startCore } from "../helpers/core";
 import { addAndProcess } from "../helpers/documents";
 import { part, unzip } from "../helpers/docx";
+import { connectToMind } from "../helpers/mindClient";
 
 /** The workbook as Excel shows it: each sheet's cells by reference, with their notes. */
 async function shownWorkbook(path: string) {
@@ -39,7 +43,9 @@ async function shownWorkbook(path: string) {
           note: sheet.layout?.notes.get(cellIndex(row, column)),
         };
       };
-      return { name: sheet.name, rowCount: sheet.rowCount, at };
+      const width = (column: number) =>
+        sheet.layout?.columns.get(column)?.width ?? sheet.layout?.defaultColumnWidth ?? 0;
+      return { name: sheet.name, rowCount: sheet.rowCount, at, width };
     }),
   };
 }
@@ -222,5 +228,65 @@ describe("A comparison table exported to Excel", () => {
     expect(source?.kind === "text" ? source.text : "").toBe("Corvane · Notice");
     const unnamed = bookOf().sheets[1]?.rows[1]?.cells[0]?.value;
     expect(unnamed?.kind === "text" ? unnamed.text : "").toBe(`Corvane · ${question}`);
+  });
+
+  // protects=a hidden column is left out of the workbook with no line, the app is told the count, and a column the User sized is wider in the file; fails_when=the hidden column's heading or Answers appear, the file mentions a hidden column, or the set width does not reach Excel; no_claim=Excel's own rendering.
+  test("leaves a hidden column out with no line, and keeps the User's column widths", async () => {
+    const core = startCore(await createTempDataFolder());
+    onTestFinished(() => core.close());
+    const mind = await core.createMind({ title: "Suppliers" });
+    const client = await connectToMind(core, mind.id);
+    const paragraph = (text: string): NodeJSON => ({
+      type: "paragraph",
+      content: [{ type: "text", text }],
+    });
+    const sheet: NodeJSON = {
+      type: "comparisonTable",
+      attrs: {
+        id: "table-1",
+        questions: [
+          { id: "q1", text: "Termination notice", label: "Notice", width: 420 },
+          { id: "q2", text: "Operating result", label: "Result", hidden: true },
+        ],
+      },
+      content: [
+        {
+          type: "comparisonRow",
+          attrs: { documentId: "acme", documentName: "Acme" },
+          content: [
+            {
+              type: "comparisonCell",
+              attrs: { questionId: "q1", status: "done" },
+              content: [paragraph("90 days")],
+            },
+            {
+              type: "comparisonCell",
+              attrs: { questionId: "q2", status: "done" },
+              content: [paragraph("12 months")],
+            },
+          ],
+        },
+      ],
+    };
+    client.doc.transact(() =>
+      client.doc.getXmlFragment(MIND_CONTENT_FIELD).push([createElement(sheet)]),
+    );
+    await client.settled();
+
+    const saved = await core.saveComparisonExport({ mindId: mind.id, tableId: "table-1" });
+    if (saved.status !== "saved") throw new Error(`Not saved: ${saved.status}`);
+    const { sheets } = await shownWorkbook(saved.file.path);
+    const [table] = sheets;
+    if (!table) throw new Error("No table sheet.");
+    expect(["A1", "B1", "C1"].map((ref) => table.at(ref).text)).toEqual([
+      "Document",
+      "Notice",
+      undefined,
+    ]);
+    expect(table.at("B2").text).toBe("90 days");
+    // The file leaves the column out and says nothing about it; the app is told the count.
+    expect(table.at("C2").text).toBeUndefined();
+    expect(saved.hiddenColumns).toBe(1);
+    expect(table.width(1)).toBeGreaterThan(table.width(0));
   });
 });

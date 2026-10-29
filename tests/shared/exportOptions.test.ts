@@ -1,11 +1,17 @@
 import { describe, expect, test } from "vitest";
-import type { ExportPreferences } from "../../src/core/api";
-import { citedCountText, optionsFor, quitCopyOptions } from "../../src/shared/exportOptions";
+import type { CitationPlace, ExportPreferences } from "../../src/core/api";
+import {
+  chosenParts,
+  optionsFor,
+  quitCopyOptions,
+  withCitationPlace,
+  withMarking,
+} from "../../src/shared/exportOptions";
 import { type MessageKey, type MessageParams, translate } from "../../src/shared/i18n";
 
 const preferences = (
   markAiText: "mark" | "leave" | null,
-  citationPlace?: "footnotes" | "list",
+  citationPlace?: CitationPlace,
 ): ExportPreferences => ({
   format: "docx",
   ...(citationPlace && { citationPlace }),
@@ -15,74 +21,133 @@ const preferences = (
   "share-page": { includeQuestions: false, citationCards: true, checkedLine: false },
 });
 
+const in_ = (language: "en" | "zh-CN") => (key: MessageKey, params?: MessageParams) =>
+  translate(language, key, params);
+
 describe("What an export asks the core for", () => {
-  test("a Word export waits until the User has said whether to mark the text IncarnaMind wrote", () => {
-    expect(optionsFor("docx", preferences(null))).toBeNull();
+  test("a Word export of a note whose marking was never chosen marks the text IncarnaMind wrote (#1945)", () => {
+    expect(optionsFor("docx", preferences(null))).toEqual({
+      format: "docx",
+      includeQuestions: false,
+      trackChanges: true,
+      markAiText: true,
+      commentFailedChecks: true,
+      citationPlace: "footnotes",
+    });
   });
 
   test.each([
     ["mark", true],
     ["leave", false],
-  ] as const)("a Word export that %s the text IncarnaMind wrote asks for %s", (answer, marked) => {
-    expect(optionsFor("docx", preferences(answer))).toEqual({
-      format: "docx",
-      includeQuestions: false,
-      trackChanges: true,
-      markAiText: marked,
-      commentFailedChecks: true,
-    });
-  });
+  ] as const)(
+    "a Word export that has %s marks the text IncarnaMind wrote: %s",
+    (answer, marked) => {
+      expect(optionsFor("docx", preferences(answer)).markAiText).toBe(marked);
+    },
+  );
 
-  test("the other formats don't wait for it", () => {
+  test("the other formats take no marking at all", () => {
     for (const format of ["pdf", "html", "markdown", "source-pack", "share-page"] as const) {
-      expect(optionsFor(format, preferences(null))).not.toBeNull();
+      expect(optionsFor(format, preferences(null))).not.toHaveProperty("markAiText");
     }
   });
 });
 
 describe("Where Word and PDF put the Citations", () => {
-  test("asks for what the User chose, and for nothing before they have", () => {
-    expect(optionsFor("docx", preferences("mark"))).not.toHaveProperty("citationPlace");
-    expect(optionsFor("pdf", preferences(null))).not.toHaveProperty("citationPlace");
+  test("footnotes until the User picks a list at the end, and the same answer in every export (#1945)", () => {
+    expect(optionsFor("docx", preferences("mark"))).toHaveProperty("citationPlace", "footnotes");
+    expect(optionsFor("pdf", preferences(null))).toHaveProperty("citationPlace", "footnotes");
     expect(optionsFor("docx", preferences("mark", "list"))).toMatchObject({
       markAiText: true,
       citationPlace: "list",
     });
-    expect(optionsFor("pdf", preferences(null, "footnotes"))).toMatchObject({
+    expect(optionsFor("pdf", preferences(null, "list"))).toMatchObject({
       format: "pdf",
-      citationPlace: "footnotes",
+      citationPlace: "list",
     });
   });
 
-  test("the other formats never ask for it", () => {
+  test("the other formats never place Citations", () => {
     for (const format of ["html", "markdown", "source-pack", "share-page"] as const) {
       expect(optionsFor(format, preferences("mark", "list"))).not.toHaveProperty("citationPlace");
     }
   });
 
-  test("the copy offered when quitting follows the answer when there is one", () => {
-    expect(quitCopyOptions(preferences("mark"))).toEqual({ format: "docx", markAiText: true });
+  test("the copy offered when quitting follows the same choices and defaults", () => {
+    expect(quitCopyOptions(preferences(null))).toEqual({
+      format: "docx",
+      markAiText: true,
+      citationPlace: "footnotes",
+    });
     expect(quitCopyOptions(preferences("leave", "list"))).toEqual({
       format: "docx",
       markAiText: false,
       citationPlace: "list",
     });
   });
+});
 
-  test("the count the question gives, in English and Chinese", () => {
-    const in_ = (language: "en" | "zh-CN") => (key: MessageKey, params?: MessageParams) =>
-      translate(language, key, params);
-    expect(citedCountText(in_("en"), { citations: 19, documents: 1 })).toBe(
-      "19 Citations from 1 Document",
-    );
-    expect(citedCountText(in_("en"), { citations: 1, documents: 2 })).toBe(
-      "1 Citation from 2 Documents",
-    );
-    expect(citedCountText(in_("zh-CN"), { citations: 19, documents: 1 })).toBe(
-      "19 个引用，来自 1 个文档",
-    );
-    expect(citedCountText(in_("zh-CN"), { citations: 1, documents: 3 })).toBe(
-      "1 个引用，来自 3 个文档",
-    );
+describe("What the Saved line says the file was written with (#1945)", () => {
+  const parts = (
+    language: "en" | "zh-CN",
+    citations: number,
+    place: CitationPlace,
+    marked: boolean | null,
+  ) => chosenParts(in_(language), { places: { citations, place }, markAiText: marked });
+
+  test("six Citations as footnotes, with AI text marked, in English and Chinese", () => {
+    expect(parts("en", 6, "footnotes", true)).toEqual(["6 footnotes", "AI text marked"]);
+    expect(parts("zh-CN", 6, "footnotes", true)).toEqual(["6 个脚注", "已标出 AI 生成的文字"]);
+  });
+
+  test("one Citation, as a list at the end", () => {
+    expect(parts("en", 1, "list", true)).toEqual([
+      "1 Citation in a list at the end",
+      "AI text marked",
+    ]);
+    expect(parts("zh-CN", 1, "list", true)).toEqual(["1 个引用列在文末", "已标出 AI 生成的文字"]);
+    expect(parts("en", 3, "list", false)).toEqual([
+      "3 Citations in a list at the end",
+      "AI text not marked",
+    ]);
+    expect(parts("zh-CN", 3, "list", false)).toEqual(["3 个引用列在文末", "未标出 AI 生成的文字"]);
+  });
+
+  test("a file with no Citations says only how its AI text went", () => {
+    expect(parts("en", 0, "footnotes", true)).toEqual(["AI text marked"]);
+    expect(parts("zh-CN", 0, "footnotes", false)).toEqual(["未标出 AI 生成的文字"]);
+  });
+
+  test("a PDF has no marking to say", () => {
+    expect(parts("en", 6, "footnotes", null)).toEqual(["6 footnotes"]);
+    expect(parts("zh-CN", 6, "footnotes", null)).toEqual(["6 个脚注"]);
+  });
+
+  test("a note with neither a Citation nor AI marking to say says nothing", () => {
+    expect(chosenParts(in_("en"), { places: null, markAiText: null })).toEqual([]);
+  });
+});
+
+describe("A choice changed from the Saved line's Change (#1945)", () => {
+  test("changing the marking leaves every other choice as it is then", () => {
+    const later: ExportPreferences = {
+      ...preferences("mark", "list"),
+      format: "pdf",
+      pdf: { includeQuestions: true },
+    };
+    expect(withMarking(later, "leave")).toMatchObject({
+      format: "pdf",
+      pdf: { includeQuestions: true },
+      citationPlace: "list",
+      docx: { includeQuestions: false, trackChanges: true, markAiText: "leave" },
+    });
+  });
+
+  test("taking the Citations' place back leaves nothing chosen, and keeps the rest", () => {
+    const later: ExportPreferences = { ...preferences("leave", "list"), format: "pdf" };
+    const undone = withCitationPlace(later, undefined);
+    expect(undone).not.toHaveProperty("citationPlace");
+    expect(undone).toMatchObject({ format: "pdf", docx: { markAiText: "leave" } });
+    expect(withCitationPlace(undone, "footnotes")).toMatchObject({ citationPlace: "footnotes" });
   });
 });

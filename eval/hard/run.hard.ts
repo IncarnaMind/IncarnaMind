@@ -177,7 +177,7 @@ test("the hard tier", async () => {
         KEYWORD_RERANK_DEPTH,
       );
       log(
-        `Keyword search at ${keywordTiming.passages} Passages: median ${keywordTiming.bm25.median.toFixed(1)} ms, 95th percentile ${keywordTiming.bm25.p95.toFixed(1)} ms a query (ORDER BY rank: ${keywordTiming.rank.median.toFixed(1)} and ${keywordTiming.rank.p95.toFixed(1)} ms)`,
+        `Keyword search at ${keywordTiming.passages} Passages: median ${keywordTiming.app.median.toFixed(1)} ms, 95th percentile ${keywordTiming.app.p95.toFixed(1)} ms a query (Passages alone: ${keywordTiming.alone.median.toFixed(1)} and ${keywordTiming.alone.p95.toFixed(1)} ms)`,
       );
 
       if (config.chat) {

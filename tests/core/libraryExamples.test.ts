@@ -188,15 +188,27 @@ describe("the examples' Documents", () => {
     );
     const [exampleDocument] = await inExample();
     if (!exampleDocument) throw new Error("No example Document.");
-    // As an earlier version left it: waiting to be filed.
-    await core.restoreAssignment(exampleDocument.id, {
-      groupId: null,
-      source: "automatic",
-      suggested: false,
-      status: "pending",
-      error: null,
-      model: null,
-    });
+    // Organize leaves the example's Documents alone, so it has no assignment to put back.
+    const held = (await core.getLibrary()).assignments.find(
+      (each) => each.documentId === exampleDocument.id,
+    );
+    expect(held).toBeUndefined();
+    // As an earlier version left it: waiting to be filed, which nothing puts back.
+    await core.restoreAssignment(
+      exampleDocument.id,
+      {
+        assignment: {
+          groupId: null,
+          source: "automatic",
+          suggested: false,
+          status: "pending",
+          error: null,
+          model: null,
+        },
+        tagging: null,
+      },
+      { assignment: null, tagging: null },
+    );
     core.close();
 
     const again = start();

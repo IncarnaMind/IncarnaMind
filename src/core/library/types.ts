@@ -1,4 +1,4 @@
-import type { ChatModelChoice, ProviderError } from "../api";
+import type { ChatModelChoice, ExternalService, ProviderError, TaggingState } from "../api";
 
 /** An in-app folder. The legacy Group API name keeps saved assignments compatible. */
 export interface LibraryGroup {
@@ -78,6 +78,16 @@ export type AutomaticTaggingReason =
   | "decision-models"
   | "local-chat";
 
+/**
+ * Where a choice sends its requests, as the core works it out for the data flows it registers: to
+ * a service, nowhere (it runs on this computer), or unknown, because what it names isn't there
+ * (its provider was removed, or Jev's key).
+ */
+export type TaggingDestination =
+  | { kind: "here" }
+  | { kind: "service"; service: ExternalService }
+  | { kind: "unknown" };
+
 /** What the Tagging section shows (see `CoreApi.getTaggingModels`). */
 export interface TaggingModels {
   /** What Automatic tags with now, and why; null when there is nothing it can use, so tagging waits. */
@@ -88,6 +98,8 @@ export interface TaggingModels {
   localMode: boolean;
   /** Tagging on a plan (ChatGPT's or Claude's) waits for its limit to reset, until this time (ISO 8601, UTC); null when it doesn't. */
   planPausedUntil: string | null;
+  /** The choice the User saved, with where it sends its requests; null while Automatic is the setting. */
+  saved: { classifier: TaggingClassifier; destination: TaggingDestination } | null;
 }
 
 export interface ClassificationModel {
@@ -138,13 +150,34 @@ export interface DocumentGroupAssignment {
   status: ClassificationStatus;
   error: ProviderError | null;
   model: ClassificationModel | null;
+  /** The Document's own tagging row as it was, on the assignments a snapshot or event lists and on a move's change. */
+  tagging?: DocumentTagging;
 }
 
-/** One Document's assignment as `acceptAssignments` or `rejectAssignments` changed it. */
+/** A Document's own tagging row as it was, for an Undo to put back. */
+export interface DocumentTagging {
+  /** As stored; "skipped" is worked out from the Document's status, never stored. */
+  status: Exclude<TaggingState, "skipped">;
+  error: ProviderError | null;
+  /** When the row last changed: the same state written again is still a newer one. */
+  updatedAt: string;
+}
+
+/**
+ * A Document's place as a change found or left it: its assignment, or none, and the Document's
+ * own tagging row when the change moved it. Undo compares the current rows with `after`.
+ */
+export interface AssignmentState {
+  assignment: Omit<DocumentGroupAssignment, "documentId"> | null;
+  /** Null when the change left the Document's tagging alone. */
+  tagging: DocumentTagging | null;
+}
+
+/** One Document's assignment as a change left it, for Undo: the real rows before and after. */
 export interface AssignmentChange {
-  /** As it was: what undo puts back. */
-  before: DocumentGroupAssignment;
-  after: DocumentGroupAssignment;
+  documentId: string;
+  before: AssignmentState;
+  after: AssignmentState;
 }
 
 /** Documents added together, by one `addDocuments` or `addLinkedFolder`. */

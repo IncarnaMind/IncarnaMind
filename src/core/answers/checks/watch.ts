@@ -18,6 +18,7 @@
  */
 import { randomUUID } from "node:crypto";
 import { writeContradictionWatch } from "../../../shared/contradictionWatch";
+import { beginFigureCheck } from "../../../shared/figureChecks";
 import { mindModelOf } from "../../../shared/mindModel";
 import { comparableSentence, isClaim } from "../../../shared/sentences";
 import { judgesUnreliably } from "../../../shared/smallModel";
@@ -25,6 +26,7 @@ import type { Logger } from "../../adapters";
 import type {
   ChatModelChoice,
   CheckContradictionsResult,
+  CheckFigure,
   CheckSentencesResult,
   ClaimCheckAttributes,
   ClaimCheckResult,
@@ -46,6 +48,7 @@ import type { PreparedChatModel } from "../../providers/chat";
 import { currentTask } from "../../runs/current";
 import { RunItemError, runItems } from "../../runs/stop";
 import { type ClaimCheckRequest, recordJudged, runFailureOf } from "./claimCheck";
+import { claimsAtOnce } from "./runChecks";
 import {
   everySentence,
   keptAsView,
@@ -61,9 +64,6 @@ const ACTION = "contradiction-watch";
 
 /** A Document whose text is read: a new version of it can be searched. */
 const READ: readonly DocumentStatus[] = ["waiting-for-model", "embedding", "ready"];
-
-/** Claims a cloud model checks at once on demand; in the background, and on this computer, one. */
-const CLOUD_CLAIMS_AT_ONCE = 3;
 
 /** How long after a new version arrives its Folder's Minds are checked: more versions may follow. */
 export const AFTER_NEW_VERSION_MS = 30_000;
@@ -135,6 +135,7 @@ interface Claim {
   text: string;
   context: string;
   scope: EvidenceScope;
+  figures?: CheckFigure[];
 }
 
 type Plan =
@@ -178,6 +179,7 @@ export function createContradictionWatch(options: WatchOptions) {
           text: sentence.text,
           context: sentence.context,
           scope,
+          ...(sentence.figures?.length && { figures: sentence.figures }),
         },
       ];
     });
@@ -242,11 +244,15 @@ export function createContradictionWatch(options: WatchOptions) {
         excluded: [],
         checkedAt: at,
       };
+      // Each figure keeps its own result, as the one Check gives it.
+      const pending = sentence.figures?.length
+        ? beginFigureCheck(null, check, sentence.figures, null)
+        : check;
       markSentence(
         sentence.element,
         sentence.from,
         sentence.to,
-        options.withResult(check, result, at),
+        options.withResult(pending, result, at),
       );
       return true;
     });
@@ -273,6 +279,7 @@ export function createContradictionWatch(options: WatchOptions) {
             claim: comparableSentence(claim.text),
             context: claim.context,
             scope: claim.scope,
+            ...(claim.figures && { figures: claim.figures }),
             model: prepared,
             cacheKey: mindId,
             signal,
@@ -282,7 +289,7 @@ export function createContradictionWatch(options: WatchOptions) {
           return result;
         }),
       {
-        concurrency: prepared.provider.service ? CLOUD_CLAIMS_AT_ONCE : 1,
+        concurrency: claimsAtOnce(prepared),
         signal,
         onOutcome(claim, outcome) {
           if (outcome.status !== "done" || signal.aborted) return;

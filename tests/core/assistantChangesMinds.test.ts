@@ -329,7 +329,8 @@ describe("The assistant changes Minds as Proposals", { timeout: 30_000 }, () => 
     expect(tidesPage.firstChild?.toJSON()).toEqual({
       type: "heading",
       attrs: expect.objectContaining({ level: 1 }),
-      content: [{ type: "text", text: "Tide notes" }],
+      // The title is the assistant's own text, so a later rewrite of the Note's text can keep it (#1898).
+      content: [{ type: "text", text: "Tide notes", marks: [{ type: "generated" }] }],
     });
     const resumeClient = await connectToMind(core, resume?.mindId ?? "");
     expect(shownWithChanges(resumeClient)).toEqual(["+ 张瑜简历总结", "+ 教育背景。"]);
@@ -343,12 +344,12 @@ describe("The assistant changes Minds as Proposals", { timeout: 30_000 }, () => 
   test("a Mind that isn't there, or none in focus, changes nothing and says why", async () => {
     const named = toolModel(
       { tool: "edit_mind", input: { mind: "Chapter 9", instruction: "Shorten it" } },
-      "There is no Mind called Chapter 9.",
+      "There is no note called Chapter 9.",
     );
     const { core, mind, client } = await setUp(named);
     const answer = await ask(core, { text: "Shorten Chapter 9", mindId: mind.id });
     expect(mindCalls(answer)[0]?.status).toBe("failed");
-    expect(lastResult(named)).toContain("The User has no Mind called “Chapter 9”.");
+    expect(lastResult(named)).toContain("The User has no note called “Chapter 9”.");
     expect(lastResult(named)).toContain("“Q3 review”");
     expect(pendingProposals(client.blocks)).toEqual([]);
 

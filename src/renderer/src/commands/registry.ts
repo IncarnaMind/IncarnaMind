@@ -67,6 +67,12 @@ export interface CommandContext {
   focus: ObjectRef | null;
   surface: Surface;
   /**
+   * The Task whose block or row held the focus when this context was made;
+   * null when none did. ⌘K's field holds the focus once the palette is open,
+   * so a command chosen there acts on this Task rather than on another.
+   */
+  task?: string | null;
+  /**
    * Where ⌘Z would act when ⌘K opened: the note's own history, a field's, or
    * the app's changes (null). ⌘K holds the focus in its field, so Undo reads
    * where the User was rather than where the palette is.
@@ -110,6 +116,8 @@ export interface Command {
   destructive?: true;
   /** Whether it is offered at all. */
   when?(ctx: CommandContext): boolean;
+  /** A toggle's state: menus and ⌘K show it ticked while it is on. */
+  checked?(ctx: CommandContext): boolean;
   /** Offered, but not now, and why. */
   enabled?(ctx: CommandContext): true | { reason: MessageKey };
   /** Undone with ⌘Z, or asked about first, naming what will be lost (rule 4). */

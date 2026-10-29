@@ -279,8 +279,12 @@ export type ScriptedReply =
       /** What the model reasons before it replies, as its provider streams it. */
       reasoning?: string;
       text?: string;
-      /** With `streamInput`, the call's input streams in chunks first, as a provider that streams Tool inputs sends it. */
-      calls?: { tool: string; input: unknown; streamInput?: boolean }[];
+      /**
+       * With `streamInput`, the call's input streams in chunks first, as a provider that streams
+       * Tool inputs sends it. `raw` is the input's JSON text as the model writes it, which may not
+       * be valid JSON: in place of `input`'s.
+       */
+      calls?: { tool: string; input: unknown; streamInput?: boolean; raw?: string }[];
       /**
        * Stops streaming once `after` characters of the text, or of a streamed
        * input, are out, until `until` resolves.
@@ -421,7 +425,7 @@ export function scriptedModel(
       }
       (reply.calls ?? []).forEach((each, number) => {
         const toolCallId = `call-${call.index}-${number}`;
-        const input = JSON.stringify(each.input);
+        const input = each.raw ?? JSON.stringify(each.input);
         if (each.streamInput) {
           parts.push({ type: "tool-input-start", id: toolCallId, toolName: each.tool });
           for (let at = 0; at < input.length; at += chunkSize) {

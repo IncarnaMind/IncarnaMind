@@ -1,7 +1,7 @@
 import type { MockLanguageModelV4 } from "ai/test";
 import { describe, expect, test } from "vitest";
 import * as Y from "yjs";
-import type { Core } from "../../src/core";
+import { type Core, GENERATED_MARK } from "../../src/core";
 import { EDIT_INSTRUCTIONS } from "../../src/core/edits/prompt";
 import { waitingProblemOf } from "../../src/renderer/src/changeProblems";
 import { waitsForUser } from "../../src/shared/askedChanges";
@@ -10,7 +10,14 @@ import { askAssistant, changesIn, lastResult, mindCalls } from "../helpers/assis
 import { answerEnded } from "../helpers/citations";
 import { createTempDataFolder, startCore } from "../helpers/core";
 import { connectToMind, type MindClient } from "../helpers/mindClient";
-import { heading, note, shownWithChanges, writeMind } from "../helpers/minds";
+import {
+  heading,
+  note,
+  readMind,
+  resolveChanges,
+  shownWithChanges,
+  writeMind,
+} from "../helpers/minds";
 import {
   claimCheckReply,
   type ModelCall,
@@ -152,6 +159,78 @@ describe("The assistant revises its own changes still waiting", { timeout: 30_00
     expect(second.steps?.unbackedClaims).toBeUndefined();
   });
 
+  // protects=bold and italic of the assistant's waiting text survive "make it longer", and a * _ or ~ it holds as a character comes back as itself; fails_when=the label's asterisks land in the words, or price*volume*margin loses its stars; no_claim=how well a real model lengthens it.
+  test.each([
+    {
+      name: "a bold label stays bold, and its new words are read as written",
+      page: "## Summary\n\n**Role.** The post is senior.",
+      seen: "**Role.** The post is senior.",
+      reply: "## Summary\n\n**Role.** The post is senior and well paid.",
+      shown: "+ Summary / + Role. The post is senior and well paid.",
+      bold: ["Role."],
+    },
+    {
+      name: "a star the User's words hold as a character is shown escaped and kept",
+      page: "## Summary\n\nTotal = price\\*volume\\*margin, see note.",
+      seen: "Total = price\\*volume\\*margin, see note.",
+      reply: "## Summary\n\nTotal = price\\*volume\\*margin, see the note.",
+      shown: "+ Summary / + Total = price*volume*margin, see the note.",
+      bold: [],
+    },
+  ])(
+    "“make it longer” over waiting text: $name",
+    async ({ page: content, seen, reply, shown, bold }) => {
+      const passages: string[] = [];
+      const model = scriptedModel((call): ScriptedReply => {
+        const passage = editPassage(call);
+        if (passage !== null) {
+          passages.push(passage);
+          return { text: `${reply}\n<why>Longer.</why>` };
+        }
+        if (asked(call).endsWith("write a summary page")) {
+          return called(call, "create_mind")
+            ? { text: "Made “Tide notes”." }
+            : { calls: [{ tool: "create_mind", input: { title: "Tide notes", content } }] };
+        }
+        return called(call, "edit_mind")
+          ? { text: "Lengthened the summary." }
+          : {
+              calls: [
+                {
+                  tool: "edit_mind",
+                  input: { mind: "Tide notes", part: "Summary", instruction: "Make it longer" },
+                },
+              ],
+            };
+      });
+      const { core, mind } = await setUp(model);
+
+      const first = await askAssistant(core, { text: "write a summary page", mindId: mind.id });
+      const made = await madeBy(core, first);
+      await askAssistant(core, {
+        text: "make the summary longer",
+        mindId: mind.id,
+        conversationId: first.conversationId,
+      });
+
+      await made.settled();
+      expect(passages).toHaveLength(1);
+      expect(passages[0]).toContain(seen);
+      expect(shownWithChanges(made).join(" / ")).toBe(shown);
+      const runs: { text: string; bold: boolean }[] = [];
+      readMind(made).descendants((node) => {
+        if (node.isText) {
+          runs.push({
+            text: node.text ?? "",
+            bold: node.marks.some((mark) => mark.type.name === "bold"),
+          });
+        }
+      });
+      expect(runs.filter((run) => run.bold).map((run) => run.text)).toEqual(bold);
+      expect(runs.map((run) => run.text).join("")).not.toMatch(/\*\*|\\/);
+    },
+  );
+
   // protects=removing part of the assistant's waiting text removes it there and leaves one version, the rest still the first Answer's, so each card's count is its own; fails_when=the part stays, the rest is lost or moves to the new Answer, or the counts differ; no_claim=none beyond protects.
   test("“remove the part about…” removes it from the waiting text, and the counts agree", async () => {
     const model = scriptedModel((call): ScriptedReply => {
@@ -232,6 +311,107 @@ describe("The assistant revises its own changes still waiting", { timeout: 30_00
       "+ The paper is about spring tides, and how the moon drives them.",
     ]);
     expect(changesIn(second)).toEqual([expect.objectContaining({ revised: true, proposals: 2 })]);
+  });
+
+  // protects=a Mind the assistant made from text with no heading of its own (the app puts the title above it) can be written anew as a whole by edit_mind with content, as it can when the text starts with its own heading; fails_when=it is refused because of the title heading, or the title is lost; no_claim=how well a real model lengthens it.
+  test.each([
+    {
+      when: "while the first change still waits",
+      accept: false,
+      shown: ["+ Tide notes", "+ The paper is about spring tides, and how the moon drives them."],
+    },
+    {
+      when: "after the first change applied",
+      accept: true,
+      shown: ["Tide notes", "The paper is about spring tides{+, and how the moon drives them+}."],
+    },
+  ])(
+    "new text for a Mind made from text with no heading of its own, $when",
+    async ({ accept, shown }) => {
+      const longer = "The paper is about spring tides, and how the moon drives them.";
+      const model = scriptedModel((call): ScriptedReply => {
+        if (asked(call).endsWith("write a summary page")) {
+          return called(call, "create_mind")
+            ? { text: "Made “Tide notes”." }
+            : {
+                calls: [
+                  {
+                    tool: "create_mind",
+                    input: { title: "Tide notes", content: "The paper is about spring tides." },
+                  },
+                ],
+              };
+        }
+        return called(call, "edit_mind")
+          ? { text: "Rewrote the summary in “Tide notes”." }
+          : { calls: [{ tool: "edit_mind", input: { mind: "Tide notes", content: longer } }] };
+      });
+      const { core, mind } = await setUp(model);
+      const first = await askAssistant(core, { text: "write a summary page", mindId: mind.id });
+      const page = await madeBy(core, first);
+      await page.settled();
+      if (accept) {
+        await resolveChanges(page, "accept");
+        await page.settled();
+      }
+
+      const second = await askAssistant(core, {
+        text: "make it longer",
+        mindId: mind.id,
+        conversationId: first.conversationId,
+      });
+
+      await page.settled();
+      expect(lastResult(model)).not.toMatch(/Nothing was changed/);
+      expect(shownWithChanges(page)).toEqual(shown);
+      expect(changesIn(second)).toHaveLength(1);
+    },
+  );
+
+  // protects=a title the User typed in or edited stays the User's text: new text over it is refused, with the reason; fails_when=the assistant's content replaces it; no_claim=none beyond protects.
+  test("new text over a title the User edited is refused, and the title stays", async () => {
+    const model = scriptedModel((call): ScriptedReply => {
+      if (asked(call).endsWith("write a summary page")) {
+        return called(call, "create_mind")
+          ? { text: "Made “Tide notes”." }
+          : {
+              calls: [
+                {
+                  tool: "create_mind",
+                  input: { title: "Tide notes", content: "The paper is about spring tides." },
+                },
+              ],
+            };
+      }
+      return called(call, "edit_mind")
+        ? { text: "It could not change the title." }
+        : {
+            calls: [
+              {
+                tool: "edit_mind",
+                input: { mind: "Tide notes", content: "The paper is about neap tides." },
+              },
+            ],
+          };
+    });
+    const { core, mind } = await setUp(model);
+    const first = await askAssistant(core, { text: "write a summary page", mindId: mind.id });
+    const page = await madeBy(core, first);
+    await resolveChanges(page, "accept");
+    await page.settled();
+    const title = (page.blocks.get(0) as Y.XmlElement).get(0) as Y.XmlText;
+    page.doc.transact(() => title.insert(title.length, "!", { [GENERATED_MARK]: null }));
+    await page.settled();
+
+    await askAssistant(core, {
+      text: "change it",
+      mindId: mind.id,
+      conversationId: first.conversationId,
+    });
+
+    await page.settled();
+    expect(lastResult(model)).toMatch(/content only replaces your own text/);
+    expect(shownWithChanges(page)).toEqual(["Tide notes!", "The paper is about spring tides."]);
   });
 
   // protects=asked to change all of a Mind where its own waiting text sits beside the User's, the assistant is told to name the section, and revises only its own; fails_when=the User's text is changed, or nothing is done; no_claim=none beyond protects.
@@ -863,6 +1043,41 @@ describe("A reply that claims a change no call made", { timeout: 30_000 }, () =>
 
     expect(model.doStreamCalls).toHaveLength(2);
     expect(answer.steps?.unbackedClaims).toBeUndefined();
+  });
+});
+
+describe("A turn that ends after a refused Tool with no reply", { timeout: 30_000 }, () => {
+  // protects=a turn whose only Tool call is refused for a Mind that isn't there, and whose model then says nothing, still ends with a reply naming that Mind and saying the change wasn't made; fails_when=the Answer ends blank or fails, or the model isn't asked once more first; no_claim=how a real model words it.
+  test.each([
+    [
+      "Budget forecast",
+      "Shorten the summary in my Budget forecast Mind.",
+      "There is no note called “Budget forecast”, so the change wasn’t made.",
+    ],
+    [
+      "预算预测",
+      "把我的预算预测 Mind 里的摘要缩短一点。",
+      "没有名为“预算预测”的笔记，因此没有做这项改动。",
+    ],
+  ])("names “%s” and says the change wasn't made", async (name, request, said) => {
+    let nudge = "";
+    const model = scriptedModel((call): ScriptedReply => {
+      if (call.results.length === 0) {
+        return { calls: [{ tool: "read_mind", input: { mind: name } }] };
+      }
+      if (call.prompt.includes("Your reply is empty")) nudge = asked(call);
+      return { text: "" };
+    });
+    const { core, mind, client } = await setUp(model);
+
+    const answer = await askAssistant(core, { text: request, mindId: mind.id });
+
+    expect(nudge).toContain(`there is no note called “${name}”`);
+    expect(model.doStreamCalls).toHaveLength(3);
+    expect(answer.status).toBe("done");
+    expect(answer.text).toBe(said);
+    expect(mindCalls(answer)[0]?.mindProblem).toEqual({ kind: "not-found", name });
+    expect(pendingProposals(client.blocks)).toEqual([]);
   });
 });
 

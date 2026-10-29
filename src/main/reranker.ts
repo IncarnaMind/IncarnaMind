@@ -6,9 +6,9 @@
  * dies, pending requests fail and search keeps its own order; the next `load`
  * starts a new one (see `createChannelCrossEncoder`).
  */
-import { utilityProcess } from "electron";
 import type { CrossEncoder } from "../core";
 import { type CrossEncoderResponse, createChannelCrossEncoder } from "../core/reranking/channel";
+import { startEngineProcess } from "./engineProcess";
 import rerankerProcessPath from "./rerankerProcess?modulePath";
 
 export interface UtilityProcessCrossEncoderOptions {
@@ -20,10 +20,11 @@ export function createUtilityProcessCrossEncoder(
   options: UtilityProcessCrossEncoderOptions = {},
 ): CrossEncoder {
   return createChannelCrossEncoder(() => {
-    const child = utilityProcess.fork(rerankerProcessPath, options.fake ? ["--fake"] : [], {
-      serviceName: "IncarnaMind reranking",
-      stdio: "inherit",
-    });
+    const child = startEngineProcess(
+      rerankerProcessPath,
+      options.fake ? ["--fake"] : [],
+      "IncarnaMind reranking",
+    );
     return {
       send: (request) => child.postMessage(request),
       onResponse: (listener) =>

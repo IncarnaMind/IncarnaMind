@@ -155,6 +155,12 @@ A figure in an Answer is written as reports write it, with no space between the 
 | about (an approximate figure) | 约 | "约1.2亿元". |
 | times (a multiple) | 倍 | "4.00倍". |
 | yes / no (what a comparison gives) | 是 / 否 | |
+| Tie out figures | 核对数字 | The command in ⌘K and the page menu: every figure in a Note against its source. |
+| Figure schedule | 数字核对表 | The tab beside the Note, and its export: "导出核对表…", "{name} – 数字核对表". Counts as the header does: "18 个数字 · 15 个有依据 · 3 个需要留意 · 0 个未核对". |
+| Source value | 来源数值 | The number as the source gives it. |
+| Difference | 差异 | The signed amount ("+£10m"), or "由 £4,979.6m 舍入" for a figure within its shown rounding. |
+| Doesn't add up (a total) | 合计不符 | Figures only: "合计不符：上面各行相加为 £4,850m". A total that agrees with its source says "与来源一致" too. |
+| Treat as a total / Not a total | 将此行当作合计 / 将此列当作合计 / 不是合计 | The table menu and the schedule's row menu. 合计 is a total, 小计 a subtotal, 总计 a grand total, as statements label them. |
 
 ### Finance and law
 

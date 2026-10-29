@@ -361,6 +361,24 @@ export interface AnswerDocuments {
   documentNamed?(name: string): string | null;
 }
 
+/**
+ * The Document among `documents` a model named for a search: by its name as listed, else one
+ * whose name holds the name given or is held in it. Null for none.
+ */
+export function documentNamedAmong(
+  documents: readonly { id: string; name: string }[],
+  name: string,
+): string | null {
+  const key = (text: string) => text.replace(/\s+/g, " ").trim().toLocaleLowerCase();
+  const wanted = key(name.replace(/\s*\(“[^”]*”\)\s*$/, ""));
+  return (
+    documents.find((each) => key(each.name) === wanted)?.id ??
+    documents.find((each) => key(each.name).includes(wanted) || wanted.includes(key(each.name)))
+      ?.id ??
+    null
+  );
+}
+
 /** What re-checking a Citation against the current version needs from Documents. */
 export interface RecheckDocuments {
   /** The current version of a live Document; null if it was deleted. */
@@ -1116,7 +1134,8 @@ export interface CitationSessionEvents {
  * Question context shows, which a record names by id to keep one as it is.
  */
 export function createCitationSession(
-  documents: AnswerDocuments,
+  documents: Omit<AnswerDocuments, "search" | "searchableCount"> &
+    Partial<Pick<AnswerDocuments, "search" | "searchableCount">>,
   events: CitationSessionEvents,
   opening?: { documentId: string; name: string; passages(): WindowedPassage[] },
   ids?: ContextCitations,
@@ -1131,6 +1150,11 @@ export function createCitationSession(
   /** Records naming no Passage the model was given, or no marker: as given, and why. */
   const rejected: RejectedRecord[] = [];
   const searched = new Set<string>();
+  const passageDocuments: string[] = [];
+  const searchedDocuments: string[] = [];
+  const remember = (list: string[], id: string) => {
+    if (!list.includes(id)) list.push(id);
+  };
   let openingGiven = false;
   /** Markers in the final text, in order of first appearance, and those that had no record. */
   const finalMarkers: number[] = [];
@@ -1488,7 +1512,7 @@ export function createCitationSession(
     within?: readonly string[],
     options?: AnswerSearchOptions,
   ): Promise<SearchResultForModel> {
-    const found = await documents.search(query, signal, within, options);
+    const found = await find(query, signal, within, options);
     if (found.length === 0) {
       return { text: "No Passages in the User's Documents match this search.", passageCount: 0 };
     }
@@ -1504,11 +1528,18 @@ export function createCitationSession(
     };
   }
 
+  function find(...args: Parameters<AnswerDocuments["search"]>) {
+    if (!documents.search)
+      throw new Error("Document search is unavailable in this Citation session.");
+    return documents.search(...args);
+  }
+
   /**
    * The Passages as the model reads them, each under the id it cites it by.
    * `measuring`: only to count what showing them would send, so nothing is recorded as shown.
    */
   function show(found: readonly WindowedPassage[], measuring = false): string {
+    if (!measuring) for (const passage of found) remember(passageDocuments, passage.documentId);
     let unseen = 0;
     const dates = new Map<string, DocumentDate | null>();
     const dateOf = (documentId: string) => {
@@ -1553,6 +1584,8 @@ export function createCitationSession(
 
   const tools: AnswerTools = {
     get documentCount() {
+      if (!documents.searchableCount)
+        throw new Error("Document count is unavailable in this Citation session.");
       return documents.searchableCount();
     },
 
@@ -1561,6 +1594,8 @@ export function createCitationSession(
       signal?: AbortSignal,
       options?: AnswerSearchOptions,
     ): Promise<SearchResultForModel> {
+      if (!documents.search)
+        throw new Error("Document search is unavailable in this Citation session.");
       // The same words over another Document are a new search.
       const same = sameSearch(options?.document ? `${options.document}\n${query}` : query);
       if (searched.has(same)) return { text: SEARCHED_ALREADY, passageCount: 0 };
@@ -1574,6 +1609,7 @@ export function createCitationSession(
             passageCount: 0,
           };
         }
+        remember(searchedDocuments, id);
         within = [id];
       }
       const found = await search(query, signal, within, options);
@@ -1673,6 +1709,16 @@ export function createCitationSession(
     return record ? toCitation(record, record.result) : null;
   };
 
+  /** The Documents the Answer's final Citations name, in the order they first appear. */
+  const citedDocuments = () => {
+    const ids: string[] = [];
+    for (const marker of new Set(finalMarkers)) {
+      const record = records.get(marker);
+      if (record && !ids.includes(record.source.documentId)) ids.push(record.source.documentId);
+    }
+    return ids;
+  };
+
   /** Quotes for calculated figures' inputs (./calculations). */
   const quotes = {
     /** An input keeps its recorded Location: moving it could substitute another revision (#1979). */
@@ -1697,6 +1743,13 @@ export function createCitationSession(
   return {
     tools,
 
+    /** The Documents its final Citations name, those its Passages came from, and those it searched by name. */
+    documentsRead: () => ({
+      cited: citedDocuments(),
+      passages: [...passageDocuments],
+      searched: [...searchedDocuments],
+    }),
+
     /**
      * Searches one Document, whatever the Answer's Search scope: a web page
      * web search just saved (#128). Its Passages can be cited as a search's
@@ -1717,7 +1770,7 @@ export function createCitationSession(
 
     /** Searches the Answer's Search scope as its search Tool does, for Passages to `show`. */
     find: (query: string, signal?: AbortSignal, options?: AnswerSearchOptions) =>
-      documents.search(query, signal, undefined, options),
+      find(query, signal, undefined, options),
 
     quotes,
 
