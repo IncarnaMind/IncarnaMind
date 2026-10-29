@@ -3,7 +3,7 @@ import type { UnsupportedReason } from "../../../core/api";
 import { MetaLine } from "../components/MetaLine";
 import { LineAction } from "../components/ProblemLine";
 import { useT } from "../i18n";
-import { openCited, quoteSaysSo } from "../openCited";
+import { openCitedFollowing, quoteSaysSo } from "../openCited";
 import type { NumberedCitation } from "./citationNumbers";
 
 /**
@@ -111,7 +111,7 @@ export function OpenCitation({
       title={quote ?? undefined}
       aria-label={label ?? t("claim.openCitation", { number })}
       onClick={() => {
-        openCited(
+        void openCitedFollowing(
           { ...attributes, documentId },
           { check: attributes.check, withQuote: quoteSaysSo(attributes.check), number },
         );

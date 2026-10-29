@@ -519,6 +519,13 @@ describe("What the assistant writes", { timeout: 30_000 }, () => {
     const page = await connectToMind(core, change?.mindId ?? "");
     await page.settled();
 
+    process.stdout.write(
+      `SHOWN ${JSON.stringify(shownWithChanges(page))} SELF ${JSON.stringify(changesIn(answer)[0]?.selfCheck)}\n`,
+    );
+    for (const call of calls.filter(isCheckRun))
+      process.stdout.write(
+        `CHK ${JSON.stringify(call.results.map((r) => [r.tool, r.text.slice(0, 200)]))}\n`,
+      );
     expect(shownWithChanges(page)).toContain("+ The annual salary is 54,000 ⟨found⟩.");
     const cuts = calls.filter((call) => CUT.test(call.prompt));
     expect(cuts).toHaveLength(1);

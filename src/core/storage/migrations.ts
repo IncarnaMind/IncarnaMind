@@ -1933,6 +1933,44 @@ export const migrations: readonly Migration[] = [
       );
     `,
   },
+  {
+    version: 112,
+    description:
+      "A Checkpoint the User named, or one saved when the Note was sent, keeps its name and file",
+    sql: `
+      -- A name the User gave the version (#1933), and the file a Checkpoint saved as the Note
+      -- was exported holds (reason 'export'). A named one is never thinned.
+      ALTER TABLE mind_checkpoints ADD COLUMN name TEXT;
+      ALTER TABLE mind_checkpoints ADD COLUMN detail TEXT;
+    `,
+  },
+  {
+    version: 113,
+    description: "A cited page whose drawing failed waits to be drawn again (#2161)",
+    sql: `
+      -- tries counts a page's failed drawings, so one that keeps failing stops being tried on
+      -- its own (src/core/citedPages.ts). Pages a failed drawing deleted wait again, as their
+      -- version may still be drawn: the newest of a Location, which the unique index allows
+      -- only where none waits or is saved; the start-up clean-up removes those nothing cites.
+      ALTER TABLE cited_pages ADD COLUMN tries INTEGER NOT NULL DEFAULT 0;
+      UPDATE cited_pages
+      SET deleted_at = NULL, tries = 1, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+      WHERE id IN (
+        SELECT gone.id FROM cited_pages AS gone
+        WHERE gone.deleted_at IS NOT NULL AND gone.image_type IS NULL
+          AND NOT EXISTS (
+            SELECT 1 FROM cited_pages AS other
+            WHERE other.document_id = gone.document_id
+              AND other.content_hash = gone.content_hash
+              AND other.page_from = gone.page_from
+              AND other.page_to = gone.page_to
+              AND other.area = gone.area
+              AND (other.deleted_at IS NULL
+                OR (other.image_type IS NULL AND other.rowid > gone.rowid))
+          )
+      );
+    `,
+  },
 ];
 
 /**
