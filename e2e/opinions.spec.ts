@@ -26,6 +26,7 @@ import {
   setLanguage,
   useLocalChatModel as setLocalChatModel,
   setWindowSize,
+  slideSelect,
 } from "./app";
 
 import { opinionSource, OPINION_WORDS as WORDS } from "./fixtures/opinions";
@@ -297,12 +298,14 @@ for (const language of ["en", "zh-CN"] as const) {
         await pointAndClick(window, health.getByTestId("opinions-show").first());
         const card = window.getByTestId("claim-card");
         await allRowsVisible(window, 2);
+        await expect(window.getByTestId("selection-menu")).toBeHidden();
         expect(await selectedWords(window)).toBe(words.opinion);
         await screenshot(window, `opinions-mixed-${language}-${width}`);
         await window.keyboard.press("Escape");
         const nextHealth = await checkCard(window);
         await pointAndClick(window, nextHealth.getByTestId("opinions-show").first());
         await expect(card).toHaveAttribute("data-check", "opinion");
+        await expect(window.getByTestId("selection-menu")).toBeHidden();
         await expect(card.getByTestId("claim-part")).toHaveCount(1);
         expect(await selectedWords(window)).toBe(words.pure);
         await screenshot(window, `opinions-pure-${language}-${width}`);
@@ -350,6 +353,7 @@ for (const language of ["en", "zh-CN"] as const) {
           await window.keyboard.press("Enter");
           await terminalPart(window, "pure-check", 0);
           await expect(card).toBeVisible();
+          await expect(window.getByTestId("selection-menu")).toBeHidden();
           expect(await selectedWords(window)).toBe(words.pure);
           await expect
             .poll(() =>
@@ -619,3 +623,53 @@ for (const language of ["en", "zh-CN"] as const) {
     }
   });
 }
+
+test("opinion Show opens one card and a real selection still opens the ordinary menu", async () => {
+  const data = await createDataFolder();
+  const { app, window } = await launchApp(data, { fakeChat: true });
+  try {
+    await dismissChatSetup(window);
+    await setLanguage(window, "en");
+    await newMind(window);
+    await setWindowSize(app, window, 900, 900);
+    const opinion = WORDS.en.pure;
+    const ordinary = "Ordinary text remains editable.";
+    await setContent(window, [paragraph("pure", opinion), paragraph("ordinary", ordinary)]);
+    const settings = new Y.Doc();
+    writeOpinionSentences(settings, [
+      {
+        id: "pure-check",
+        blockId: "pure",
+        text: opinion,
+        occurrence: 0,
+        parts: [part(0, opinion.length, "opinion")],
+      },
+    ]);
+    writeMindCheck(settings.getMap("settings"), {
+      at: "2026-10-28T20:00:00.000Z",
+      sentences: 0,
+      stop: null,
+      skipped: [],
+    });
+    await applySettings(window, Array.from(Y.encodeStateAsUpdate(settings)));
+    const health = await checkCard(window);
+    await pointAndClick(window, health.getByTestId("opinions-show").first());
+    await expect(window.getByTestId("claim-card")).toHaveAttribute("data-check", "opinion");
+    expect(await selectedWords(window)).toBe(opinion);
+    await expect(window.getByTestId("selection-menu")).toBeHidden();
+    await screenshot(window, "opinions-single-overlay-en-900");
+    await window.keyboard.press("Escape");
+    await expect(window.getByTestId("mind-editor")).toBeFocused();
+    await slideSelect(
+      window,
+      window.getByTestId("mind-editor").locator("p").nth(1),
+      "Ordinary text",
+    );
+    await expect(window.getByTestId("selection-menu")).toBeVisible();
+    expect(await selectedWords(window)).toBe("Ordinary text");
+    await screenshot(window, "opinions-ordinary-selection-en-900");
+  } finally {
+    await app.close();
+    await removeDataFolder(data);
+  }
+});

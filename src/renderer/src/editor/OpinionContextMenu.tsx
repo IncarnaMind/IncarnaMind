@@ -11,6 +11,7 @@ import { useT } from "../i18n";
 import { useAppStore } from "../store";
 import { useCardPlace } from "./checkPlace";
 import { checkOpinion, type OpinionCheck, opinionAt, opinionChecks } from "./opinionChecks";
+import { keepMenuClosed } from "./selectionDismissal";
 
 export function OpinionContextMenu({
   editor,
@@ -53,6 +54,7 @@ export function OpinionContextMenu({
           TextSelection.create(editor.state.doc, opinion.range.from, opinion.range.to),
         ),
       );
+      keepMenuClosed(editor, opinion.range.from, opinion.range.to);
       editor.view.focus();
       setCheckCardOpen(place, false);
       setClaimFocus(place, null);

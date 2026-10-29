@@ -10,6 +10,7 @@ import {
   useChecks,
 } from "../checks";
 import { opinionsIn } from "./opinionLocations";
+import { keepMenuClosed } from "./selectionDismissal";
 
 export const opinionChecks = (editor: Editor, doc: Y.Doc) => opinionsIn(editor.state.doc, doc);
 
@@ -51,6 +52,7 @@ export function showNextOpinion(editor: Editor, doc: Y.Doc, place: string): void
       ? (opinions.find((opinion) => opinion.range.from >= to) ?? opinions[0])
       : opinions[(current + 1) % opinions.length];
   if (!next) return;
+  keepMenuClosed(editor, next.range.from, next.range.to);
   editor.view.dispatch(
     editor.state.tr
       .setSelection(TextSelection.create(editor.state.doc, next.range.from, next.range.to))
@@ -70,6 +72,7 @@ export function checkOpinion(
   place: string,
 ): void {
   if (editor.isDestroyed || useChecks.getState().running[mindId]) return;
+  keepMenuClosed(editor, opinion.range.from, opinion.range.to);
   editor.view.dispatch(
     editor.state.tr.setSelection(
       TextSelection.create(editor.state.doc, opinion.range.from, opinion.range.to),
