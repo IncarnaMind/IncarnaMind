@@ -251,7 +251,8 @@ export async function runBenchmark(options: HarnessOptions): Promise<Map<Languag
     citing: scripted ? null : chat.citing,
     price,
   };
-  const app = { version: appVersion(root), commit: commitOf(root) };
+  // The run files are written into the tree: a resumed run is still on the commit it began at.
+  const app = { version: appVersion(root), commit: commitOf(root, [options.runsDir]) };
   const label = scripted ? SCRIPTED : labelOf(chat);
   await mkdir(options.runsDir, { recursive: true });
 
