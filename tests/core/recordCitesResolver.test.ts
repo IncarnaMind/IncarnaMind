@@ -465,7 +465,11 @@ describe("record-cite source resolution", () => {
   test("Id. at N uses the previous deposition's printed page map", () => {
     const source = {
       ...document([
-        { page: 1, kind: "page" as const, text: "Page 45\n3 A. Deposition answer." },
+        {
+          page: 1,
+          kind: "page" as const,
+          text: "Page 45\n1 Q. Asked?\n2 A. Yes.\n3 A. Deposition answer.",
+        },
         { page: 2, kind: "page" as const, text: "Page 46\n1 Q. Next?\n2 A. Whole page." },
       ]),
       id: "smith-deposition",
@@ -783,7 +787,9 @@ describe("record-cite source resolution", () => {
 
   test("named supra returns to the named earlier Document, not the latest one", () => {
     const smith = {
-      ...document([{ page: 1, kind: "page" as const, text: "Page 45\n3 Smith answer" }]),
+      ...document([
+        { page: 1, kind: "page" as const, text: "Page 45\n1 Q. Asked?\n2 A. Yes.\n3 Smith answer" },
+      ]),
       id: "smith",
       name: "Smith Deposition.pdf",
     };
@@ -845,7 +851,7 @@ describe("record-cite source resolution", () => {
   test("maps a line-qualified Id. to exact rows and refuses a non-deposition referent", () => {
     const smith = {
       ...document([
-        { page: 1, kind: "page" as const, text: "Page 45\n3 First answer" },
+        { page: 1, kind: "page" as const, text: "Page 45\n1 Q. Asked?\n2 A. Yes.\n3 First answer" },
         { page: 2, kind: "page" as const, text: "Page 46\n1 Next question\n2 Exact answer" },
       ]),
       id: "smith",
@@ -962,7 +968,11 @@ describe("record-cite source resolution", () => {
   test("a single deposition line reads that line alone", () => {
     const smith = {
       ...document([
-        { page: 1, kind: "page" as const, text: "Page 45\n2 Before.\n3 The line.\n4 After." },
+        {
+          page: 1,
+          kind: "page" as const,
+          text: "Page 45\n1 First.\n2 Before.\n3 The line.\n4 After.",
+        },
       ]),
       id: "smith",
       name: "Smith Deposition.pdf",

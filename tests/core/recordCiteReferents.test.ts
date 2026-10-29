@@ -4,6 +4,7 @@ import {
   linkRecordCites,
   type NoteParagraph,
   sentenceRecordCites,
+  shortFormsThrough,
 } from "../../src/core/recordCites/referents";
 
 const linked = (text: string) =>
@@ -168,6 +169,28 @@ describe("a sentence's record cites read from its Note", () => {
     expect(sentenceRecordCites(claim, undefined, () => twice).cites).toMatchObject([
       { raw: "Id. at 46:1–2", referent: null },
     ]);
+  });
+
+  test("an Id. rests on its chain's record cite and, with no pin, the nearest cite with one", () => {
+    const through = (before: string, claim: string) =>
+      shortFormsThrough(claim, {
+        paragraphs: () => [
+          { blockId: "before", text: before },
+          { blockId: "this", text: claim },
+        ],
+        place: { blockId: "this", from: 0 },
+      });
+    expect(
+      through("He said yes (Smith Dep. 45:3). He left (id. at 46:1).", "He came back (id.)."),
+    ).toEqual([["id. at 46:1", "Smith Dep. 45:3"]]);
+    for (const middle of ["id. at 46:1", "id. at 46:9"]) {
+      expect(
+        through(
+          `He said yes (Smith Dep. 45:3). He left (${middle}). He ran (id. at 47:2).`,
+          "He came back (id. at 48:1).",
+        ),
+      ).toEqual([["Smith Dep. 45:3"]]);
+    }
   });
 
   test("an Id. after a statute in an earlier paragraph is the statute's", () => {

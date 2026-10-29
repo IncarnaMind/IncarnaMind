@@ -38,12 +38,7 @@ function documentFor(fixture: AcceptedRecordCiteFixture, index: number): RecordC
       return {
         ...base,
         name: `${fixture.raw.split(" ")[0]} Deposition.pdf`,
-        units: [
-          page(
-            100 + index,
-            `Page ${location.from}\n${rows(location.lines.from, location.lines.to)}`,
-          ),
-        ],
+        units: [page(100 + index, `Page ${location.from}\n${rows(1, location.lines.to)}`)],
       };
     }
     case "deposition transcript, one page": {
@@ -51,12 +46,7 @@ function documentFor(fixture: AcceptedRecordCiteFixture, index: number): RecordC
       return {
         ...base,
         name: "Deposition Transcript.pdf",
-        units: [
-          page(
-            100 + index,
-            `Page ${location.from}\n${rows(location.lines.from, location.lines.to)}`,
-          ),
-        ],
+        units: [page(100 + index, `Page ${location.from}\n${rows(1, location.lines.to)}`)],
       };
     }
     case "deposition across a page break": {

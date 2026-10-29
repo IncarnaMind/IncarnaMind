@@ -76,19 +76,31 @@ export function linkRecordCites(
   return linked;
 }
 
-/** The cites a sentence's `Id.` or `supra` refers back through, nearest first, as written. */
-export function referredThrough(cites: readonly LinkedRecordCite[], index: number): string[] {
-  const through: string[] = [];
-  const seen = new Set<number>();
-  for (
-    let referent = cites[index]?.referent;
-    typeof referent === "number" && !seen.has(referent);
-    referent = cites[referent]?.referent
-  ) {
-    seen.add(referent);
-    through.push(cites[referent]?.raw ?? "");
-  }
-  return through;
+/**
+ * What each short form's reading rests on, as written, worked out in one pass: the record cite
+ * its chain ends at and, for one that names no place of its own, the nearest cite before it that
+ * does; empty for one that refers to nothing. Undefined for a direct cite.
+ */
+export function readThrough(cites: readonly LinkedRecordCite[]): (string[] | undefined)[] {
+  const source: (number | null)[] = [];
+  const place: (number | null)[] = [];
+  return cites.map((cite, index) => {
+    if (cite.referent === undefined) {
+      source[index] = index;
+      place[index] = index;
+      return undefined;
+    }
+    const referent =
+      typeof cite.referent === "number" && cite.referent < index ? cite.referent : null;
+    const located = cite.result.status === "parsed" && cite.result.location !== null;
+    const from = referent === null ? null : (source[referent] ?? null);
+    source[index] = from;
+    place[index] = located ? index : referent === null ? null : (place[referent] ?? null);
+    if (from === null || referent === null) return [];
+    const at = located ? null : (place[referent] ?? null);
+    const named = cites[from]?.raw ?? "";
+    return at !== null && at !== from ? [cites[at]?.raw ?? "", named] : [named];
+  });
 }
 
 function onlyIndex(text: string, words: string): number | null {
@@ -96,25 +108,94 @@ function onlyIndex(text: string, words: string): number | null {
   return first >= 0 && text.indexOf(words, first + 1) < 0 ? first : null;
 }
 
+/** The most paragraphs' cites kept between readings: a Note's, many times over. */
+const KEPT_PARAGRAPHS = 4096;
+const tokensByText = new Map<string, RecordCiteToken[]>();
+
+/**
+ * A text's tokens, read once: the editor works every check out again at each keystroke (#1709),
+ * when only the paragraph typed in has new text.
+ */
+function tokensOf(text: string): RecordCiteToken[] {
+  const known = tokensByText.get(text);
+  if (known) return known;
+  const tokens = recordCiteTokens(text);
+  if (tokensByText.size >= KEPT_PARAGRAPHS) tokensByText.clear();
+  tokensByText.set(text, tokens);
+  return tokens;
+}
+
+/** A Note's record cites: each paragraph's read once, linked in one pass. */
+interface LinkedNote {
+  paragraphs: readonly NoteParagraph[];
+  byBlock: ReadonlyMap<string, number>;
+  linked: readonly (LinkedRecordCite & { token: number })[];
+  /** For each paragraph, where its cites start in `linked`; one more for the end. */
+  starts: readonly number[];
+  through: readonly (string[] | undefined)[];
+}
+
+const linkedNotes = new WeakMap<readonly NoteParagraph[], LinkedNote>();
+
+function linkedNoteOf(paragraphs: readonly NoteParagraph[]): LinkedNote {
+  const known = linkedNotes.get(paragraphs);
+  if (known) return known;
+  const tokens: RecordCiteToken[] = [];
+  const tokenParagraph: number[] = [];
+  const byBlock = new Map<string, number>();
+  for (const [index, paragraph] of paragraphs.entries()) {
+    if (!byBlock.has(paragraph.blockId)) byBlock.set(paragraph.blockId, index);
+    for (const token of tokensOf(paragraph.text)) {
+      tokens.push(token);
+      tokenParagraph.push(index);
+    }
+  }
+  const linked = linkRecordCites(tokens);
+  const starts: number[] = [];
+  let at = 0;
+  for (let index = 0; index <= paragraphs.length; index++) {
+    while (at < linked.length && (tokenParagraph[linked[at]?.token ?? 0] ?? 0) < index) at++;
+    starts.push(at);
+  }
+  const note = { paragraphs, byBlock, linked, starts, through: readThrough(linked) };
+  linkedNotes.set(paragraphs, note);
+  return note;
+}
+
 /** Where the sentence is in the Note: at its place, else where its words are, once. */
 function positionIn(
-  note: readonly NoteParagraph[],
+  note: LinkedNote,
   claim: string,
   place: RecordCitePlace | undefined,
 ): { paragraph: number; from: number } | null {
-  const own = place ? note.findIndex((paragraph) => paragraph.blockId === place.blockId) : -1;
-  const paragraph = note[own];
-  if (place && paragraph) {
-    if (paragraph.text.startsWith(claim, place.from)) return { paragraph: own, from: place.from };
-    const from = onlyIndex(paragraph.text, claim);
+  const own = place ? note.byBlock.get(place.blockId) : undefined;
+  const text = own === undefined ? undefined : note.paragraphs[own]?.text;
+  if (place && own !== undefined && text !== undefined) {
+    if (text.startsWith(claim, place.from)) return { paragraph: own, from: place.from };
+    const from = onlyIndex(text, claim);
     if (from !== null) return { paragraph: own, from };
   }
-  const found = note.flatMap((each, index) => {
+  const found = note.paragraphs.flatMap((each, index) => {
     const from = each.text.indexOf(claim);
     if (from < 0) return [];
     return each.text.indexOf(claim, from + 1) < 0 ? [{ paragraph: index, from }] : [null, null];
   });
   return found.length === 1 ? (found[0] ?? null) : null;
+}
+
+/** The indices in `note.linked` of the cites of the sentence at `position`, `length` long. */
+function citesAt(
+  note: LinkedNote,
+  position: { paragraph: number; from: number },
+  length: number,
+): number[] {
+  const own: number[] = [];
+  const end = note.starts[position.paragraph + 1] ?? note.linked.length;
+  for (let index = note.starts[position.paragraph] ?? end; index < end; index++) {
+    const cite = note.linked[index];
+    if (cite && cite.from >= position.from && cite.to <= position.from + length) own.push(index);
+  }
+  return own;
 }
 
 /** Whether a sentence's own `Id.` or `supra` may refer to something before the sentence. */
@@ -143,6 +224,23 @@ export interface SentenceRecordCites {
   own: number;
 }
 
+/** A sentence's cites as its Note reads them, or null when the Note needn't or can't be read. */
+function inNote(
+  claim: string,
+  own: readonly RecordCiteToken[],
+  place: RecordCitePlace | undefined,
+  noteNow: (() => readonly NoteParagraph[]) | undefined,
+): { note: LinkedNote; own: number[]; from: number } | null {
+  if (!noteNow || !refersBack(own)) return null;
+  const note = linkedNoteOf(noteNow());
+  const position = positionIn(note, claim, place);
+  return position
+    ? { note, own: citesAt(note, position, claim.length), from: position.from }
+    : null;
+}
+
+const withoutToken = ({ token: _, ...cite }: LinkedRecordCite & { token: number }) => cite;
+
 /**
  * A sentence's record cites, with what its `Id.` and `supra` refer to worked out from the Note
  * as it reads now (#1709): nothing about an earlier check is kept, so checks in any order, in
@@ -153,45 +251,41 @@ export function sentenceRecordCites(
   place?: RecordCitePlace,
   noteNow?: () => readonly NoteParagraph[],
 ): SentenceRecordCites {
-  const own = recordCiteTokens(claim);
+  const own = tokensOf(claim);
   if (!own.some((token) => token.kind === "cite")) return { cites: [], own: 0 };
-  const note = noteNow && refersBack(own) ? noteNow() : undefined;
-  const position = note ? positionIn(note, claim, place) : null;
-  const before =
-    note && position
-      ? [
-          ...note
-            .slice(0, position.paragraph)
-            .flatMap((paragraph) => recordCiteTokens(paragraph.text)),
-          ...recordCiteTokens(note[position.paragraph]?.text.slice(0, position.from) ?? ""),
-        ]
-      : [];
-  const linked = linkRecordCites([...before, ...own]);
-  const isOwn = (cite: { token: number } | undefined) =>
-    cite !== undefined && cite.token >= before.length;
+  const read = inNote(claim, own, place, noteNow);
+  if (!read) {
+    const linked = linkRecordCites(own).map(withoutToken);
+    return { cites: linked, own: linked.length };
+  }
+  const { note, from } = read;
   const needed = new Set<number>();
-  const need = (index: number) => {
-    if (needed.has(index)) return;
-    needed.add(index);
-    const referent = linked[index]?.referent;
-    if (typeof referent === "number") need(referent);
-  };
-  linked.forEach((cite, index) => {
-    if (isOwn(cite)) need(index);
-  });
+  for (const index of read.own) {
+    for (
+      let at: number | null | undefined = index;
+      typeof at === "number" && !needed.has(at);
+      at = note.linked[at]?.referent
+    ) {
+      needed.add(at);
+    }
+  }
   const kept = [...needed].sort((a, b) => a - b);
   const renumbered = new Map(kept.map((index, at) => [index, at]));
+  const ownSet = new Set(read.own);
   const cites = kept.flatMap((index): LinkedRecordCite[] => {
-    const found = linked[index];
+    const found = note.linked[index];
     if (!found) return [];
-    const { token: _, referent, ...cite } = found;
+    const { referent, ...cite } = withoutToken(found);
+    const placed = ownSet.has(index)
+      ? { ...cite, from: cite.from - from, to: cite.to - from }
+      : cite;
     return [
       referent === undefined
-        ? cite
-        : { ...cite, referent: referent === null ? null : (renumbered.get(referent) ?? null) },
+        ? placed
+        : { ...placed, referent: referent === null ? null : (renumbered.get(referent) ?? null) },
     ];
   });
-  return { cites, own: kept.filter((index) => isOwn(linked[index])).length };
+  return { cites, own: read.own.length };
 }
 
 /** A Note as a sentence's `Id.` and `supra` read it: its paragraphs, read only when needed, and where the sentence starts. */
@@ -200,12 +294,23 @@ export interface RecordCiteNote {
   place?: RecordCitePlace;
 }
 
-/** What each of a sentence's own `Id.` and `supra` refers back through in its Note now, in order. */
+/**
+ * What each of a sentence's own `Id.` and `supra` reads through in its Note now (`readThrough`),
+ * in order. Each paragraph's cites are read once for the whole Note, however many sentences ask.
+ */
 export function shortFormsThrough(claim: string, note: RecordCiteNote): string[][] {
-  const { cites, own } = sentenceRecordCites(claim, note.place, () => note.paragraphs());
-  const first = cites.length - own;
-  return cites.flatMap((cite, index) =>
-    index >= first && cite.referent !== undefined ? [referredThrough(cites, index)] : [],
+  const own = tokensOf(claim);
+  if (!own.some((token) => token.kind === "cite")) return [];
+  const read = inNote(claim, own, note.place, () => note.paragraphs());
+  if (!read) {
+    const linked = linkRecordCites(own);
+    const through = readThrough(linked);
+    return linked.flatMap((cite, index) =>
+      cite.referent === undefined ? [] : [through[index] ?? []],
+    );
+  }
+  return read.own.flatMap((index) =>
+    read.note.linked[index]?.referent === undefined ? [] : [read.note.through[index] ?? []],
   );
 }
 

@@ -118,6 +118,33 @@ describe("Printed deposition source anchors (#1709)", () => {
     expect(cleaned.map((page) => page.text)).toEqual(bodies);
   });
 
+  test("a report page whose rows only start with numbers keeps its page number as boilerplate", () => {
+    const bodies = [
+      ["2019 revenue grew in every region.", "12 months ended in June."],
+      ["2020 costs were flat.", "3 plants closed."],
+      ["2021 cash rose.", "40 staff joined."],
+      ["2022 the board approved the dividend.", "7 directors met."],
+    ];
+    const report = bodies.map((lines, index) =>
+      pdfPage(index + 1, [`Page ${index + 1}`, "ACME Corp Annual Report", ...lines].join("\n")),
+    );
+
+    expect(addDepositionAnchors(report)).toEqual(report);
+    expect(stripBoilerplate(addDepositionAnchors(report)).map((page) => page.text)).toEqual(
+      bodies.map((lines) => lines.join("\n")),
+    );
+  });
+
+  test("a region whose numbered lines skip one, or don't start at 1, gets no line map", () => {
+    for (const text of [
+      "Page 45\n1 Q. One?\n2 A. Two.\n4 Q. Four?",
+      "Page 45\n2 A. Two.\n3 Q. Three?",
+    ]) {
+      const page = pdfPage(1, text);
+      expect(addDepositionAnchors([page])[0]).toBe(page);
+    }
+  });
+
   test("a header above margin line 1 is Not found, never lines shifted by one", () => {
     const unit = pdfPage(
       2,
@@ -154,8 +181,8 @@ describe("Printed deposition source anchors (#1709)", () => {
   });
 
   test("margin labels pair with their source rows", () => {
-    const unit = pdfPage(2, "Page 45\n3\nQ. From the margin?\n4\nA. From the next row.");
-    const result = found([unit], cite(45, 3, 45, 4));
+    const unit = pdfPage(2, "Page 45\n1\nQ. From the margin?\n2\nA. From the next row.");
+    const result = found([unit], cite(45, 1, 45, 2));
     expect(result.units.map((each) => each.text)).toEqual([
       "Q. From the margin?",
       "A. From the next row.",
@@ -169,8 +196,8 @@ describe("Printed deposition source anchors (#1709)", () => {
   });
 
   test("out-of-order labelled rows resolve in printed-line order", () => {
-    const unit = pdfPage(2, "Page 45\n4 A. Second in the citation.\n3 Q. First in the citation?");
-    const result = found([unit], cite(45, 3, 45, 4));
+    const unit = pdfPage(2, "Page 45\n2 A. Second in the citation.\n1 Q. First in the citation?");
+    const result = found([unit], cite(45, 1, 45, 2));
     expect(result.units.map((each) => each.text)).toEqual([
       "Q. First in the citation?",
       "A. Second in the citation.",

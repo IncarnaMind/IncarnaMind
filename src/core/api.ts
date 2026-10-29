@@ -5550,8 +5550,9 @@ export interface RecordCiteResult {
   /** Documents the User must choose between; never a silent first match. */
   candidates?: { id: string; name: string }[];
   /**
-   * For an `Id.` or `supra`: the cites it was read through, nearest first, as written; empty when
-   * it referred to none. When they read otherwise now, the sentence needs re-check.
+   * For an `Id.` or `supra`: what its reading rests on, as written: the nearest cite before it that
+   * names a place, when it names none itself, then the record cite its chain ends at; empty when it
+   * referred to none. When they read otherwise now, the sentence needs re-check.
    */
   via?: string[];
   nearby?: {

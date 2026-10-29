@@ -274,6 +274,11 @@ function regionsFromAnchors(unit: UnitText): Region[] {
   ];
 }
 
+function numberedFromOne(rows: readonly SourceRow[]): boolean {
+  const lines = [...new Set(rows.map((row) => row.line))].sort((a, b) => a - b);
+  return lines.length > 0 && lines.every((line, index) => line === index + 1);
+}
+
 /** Whether a Unit holds a deposition's printed lines, each with its anchor. */
 export const hasPrintedLines = (unit: UnitText): boolean =>
   (unit.anchors ?? []).some((anchor) => LINE_TARGET.test(anchor.target));
@@ -289,9 +294,10 @@ export function addDepositionAnchors<T extends UnitText>(units: readonly T[]): T
     ) {
       return unit;
     }
-    // A "Page N" line is a deposition's page only over numbered lines: elsewhere it is an ordinary
-    // running header, which cleanup takes off as before.
-    const regions = regionsFromText(unit).filter((region) => region.rows.length > 0);
+    // A "Page N" line is a deposition's page only over lines numbered 1, 2, 3… with none missing:
+    // over rows that only start with a number (a year, an amount) it is an ordinary page number,
+    // which cleanup takes off as before.
+    const regions = regionsFromText(unit).filter((region) => numberedFromOne(region.rows));
     if (regions.length === 0) return unit;
     const added = regions.flatMap((region) => [
       ...(region.marker ? [region.marker] : []),

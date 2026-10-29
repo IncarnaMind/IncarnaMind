@@ -203,6 +203,46 @@ describe("an Id. or supra as the text it refers back to changes", () => {
     expect(shownWith("He admitted it (Jones Dep. 45:3).", false)).toEqual({ state: "supported" });
   });
 
+  test("showing every check of a long brief reads each paragraph once, not once per Id.", () => {
+    const count = 400;
+    const texts = [
+      "He said yes (Smith Dep. 45:3).",
+      ...Array.from(
+        { length: count - 1 },
+        (_, index) => `He signed page ${index + 1}. Id. at ${index + 46}:1.`,
+      ),
+    ];
+    let reads = 0;
+    const paragraphs: NoteParagraph[] = texts.map((text, index) => ({
+      blockId: `p${index}`,
+      get text() {
+        reads++;
+        return text;
+      },
+    }));
+    const shown = texts.slice(1).map((claim, index) =>
+      claimCheckShown(
+        {
+          ...attributes([
+            { raw: `Id. at ${index + 46}:1`, outcome: "supported", via: ["Smith Dep. 45:3"] },
+          ]),
+          text: claim,
+        },
+        {
+          text: claim,
+          versions: null,
+          folderId: null,
+          scope: null,
+          note: { paragraphs: () => paragraphs, place: { blockId: `p${index + 1}`, from: 0 } },
+        },
+      ),
+    );
+
+    expect(shown.every((each) => each.state === "supported")).toBe(true);
+    // Once each to read the Note's cites, and once for each sentence to find it in its paragraph.
+    expect(reads).toBeLessThanOrEqual(2 * count);
+  });
+
   test("round-trips what it was read through", () => {
     expect(readClaimCheck(check)?.recordCites?.[0]?.via).toEqual(["Smith Dep. 45:3"]);
   });
