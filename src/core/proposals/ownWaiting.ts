@@ -16,7 +16,7 @@ import {
   requestedRequests,
   waitsForUser,
 } from "../../shared/askedChanges";
-import { type BlockOrigin, originOf, setOrigins } from "../../shared/blockOrigins";
+import { originOf, setOrigins } from "../../shared/blockOrigins";
 import { readChart } from "../../shared/charts";
 import {
   keepRevised,
@@ -29,6 +29,7 @@ import {
 import { createElement, type NodeJSON, nodeOf, topLevelBlocks } from "../answers/blocks";
 import {
   BLOCK_ID_ATTRIBUTE,
+  type BlockOrigin,
   CHART_NODE,
   CITATION_NODE,
   GENERATED_MARK,
