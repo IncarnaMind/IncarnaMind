@@ -134,14 +134,17 @@ test("the claims request, asked again and again", async () => {
             set.sentences.map((sentence) => note(sentence.text)),
           );
           await client.settled();
-          await core.findMindClaims({
+          const result = await core.findMindClaims({
             requestId: `${mindId}-claims`,
             mindId,
             mode: "changed",
             model: choice,
           });
           const requests = watch.takeClaims();
-          const found = decisionsIn(requests);
+          // A call that couldn't name the claims says nothing of any sentence: it counts as unreadable.
+          const ran = result.kind === "found" || result.kind === "nothing";
+          if (!ran) log(`  ${set.id} request ${call}: ${result.kind}`);
+          const found = decisionsIn(ran ? requests : []);
           replies.push({ set: set.id, call, replies: requests.map((each) => each.reply) });
           costs.set(`${set.id}\n${model}`, [
             ...(costs.get(`${set.id}\n${model}`) ?? []),
@@ -155,7 +158,7 @@ test("the claims request, asked again and again", async () => {
               key: sentence.key,
               claim: sentence.claim,
               text: sentence.text,
-              decision: decisionOf(found, sentence.text),
+              decision: ran ? decisionOf(found, sentence.text) : "unread",
             });
           }
           spent.set(set.id, await spentOf(core));
