@@ -13,8 +13,10 @@ import {
   lastAnswer,
   regenerateAnswer,
   startNewChat,
+  stopReadyAsk,
   stopWriting,
   useConversations,
+  useReadyAsk,
 } from "../conversations";
 import { requestEditField } from "../editor/selectionCommands";
 import { startEditing } from "../editWithAi";
@@ -272,6 +274,15 @@ export const assistantCommands: readonly Command[] = [
     enabled: () =>
       answerBeingWritten() !== null ? true : { reason: "command.answer.stop.unavailable" },
     run: stopWriting,
+  },
+  {
+    id: "ready.stop",
+    label: "command.ready.stop",
+    group: "main",
+    // The Question stays, and can be asked again.
+    reversible: true,
+    when: () => useReadyAsk.getState().asking,
+    run: stopReadyAsk,
   },
   {
     id: "assistant.writeNote",

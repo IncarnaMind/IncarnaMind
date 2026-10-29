@@ -45,6 +45,8 @@ export interface PdfPage {
    * STSong-Light when a line has characters beyond Latin-1.
    */
   printed?: readonly { text: string; size?: number }[];
+  /** The degrees `printed` and `chineseLines` are set at, as a stamp up a margin is. */
+  tilt?: number;
   /** Text drawn where each says, in Helvetica at 10 points: a table's cells. */
   placed?: readonly { text: string; x: number; y: number }[];
   /** Rules and filled rectangles, drawn before the text. */
@@ -376,10 +378,17 @@ function contentStream(page: PdfPage, symbols: readonly PdfSymbol[]): string {
     }
   }
   let y = TOP;
+  const place = (x: number) => {
+    if (page.tilt === undefined) return `${x} ${y} Td`;
+    const radians = (page.tilt * Math.PI) / 180;
+    const cos = Math.cos(radians).toFixed(4);
+    const sin = Math.sin(radians).toFixed(4);
+    return `${cos} ${sin} ${Number(-Math.sin(radians)).toFixed(4)} ${cos} ${x} ${y} Tm`;
+  };
   for (const { text, size = 11 } of page.printed ?? []) {
     const chinese = /\p{Script=Han}/u.test(text);
     const shown = chinese ? `<${toUcs2Hex(text)}>` : `(${escapeLatin(encode(text, symbols))})`;
-    parts.push(`BT /${chinese ? "F2" : "F1"} ${size} Tf 72 ${y} Td ${shown} Tj ET`);
+    parts.push(`BT /${chinese ? "F2" : "F1"} ${size} Tf ${place(72)} ${shown} Tj ET`);
     y -= Math.round(size * 1.6);
   }
   for (const line of page.lines ?? []) {
@@ -392,7 +401,7 @@ function contentStream(page: PdfPage, symbols: readonly PdfSymbol[]): string {
     parts.push(`BT /${chinese ? "F2" : "F1"} 10 Tf ${x} ${at} Td ${shown} Tj ET`);
   }
   for (const line of page.chineseLines ?? []) {
-    parts.push(`BT /F2 11 Tf 72 ${y} Td <${toUcs2Hex(line)}> Tj ET`);
+    parts.push(`BT /F2 11 Tf ${place(72)} <${toUcs2Hex(line)}> Tj ET`);
     y -= LINE_HEIGHT;
   }
   if (page.image) {
