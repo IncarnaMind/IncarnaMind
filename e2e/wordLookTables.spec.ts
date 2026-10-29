@@ -213,6 +213,11 @@ test("the contract's tables: the bordered definitions with a shaded heading row 
     expect([sides.top, sides.left, sides.right]).toEqual([0, 0, 0]);
   }
   await shot(window, "word-look-tables-contract-1440");
+  if (SCREENSHOTS) {
+    await setLanguage(window, "zh-CN");
+    await shot(window, "word-look-tables-contract-zh-1440");
+    await setLanguage(window, "en");
+  }
   await window.getByTestId("assistant-fold").click();
   await setWindowSize(app, window, 1100, 900);
   await expect.poll(() => fitsItsFrame(definitions)).toBe(true);
