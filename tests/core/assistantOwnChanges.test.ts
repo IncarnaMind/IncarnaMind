@@ -13,6 +13,7 @@ import { createTempDataFolder, startCore } from "../helpers/core";
 import { boundEditor } from "../helpers/editor";
 import { connectToMind, type MindClient } from "../helpers/mindClient";
 import {
+  exactly,
   heading,
   note,
   readMind,
@@ -84,16 +85,6 @@ const waitingFrom = (client: MindClient, request: string) =>
   pendingProposals(client.blocks).filter((each) => each.request === request).length;
 
 const SUMMARY_PAGE = "## Summary\n\nThe paper is about spring tides.";
-
-/** A Mind's top-level Blocks as stored, attributes and all: to tell it is exactly as it was. */
-const exactly = (client: MindClient) =>
-  client.blocks
-    .toArray()
-    .map((block) =>
-      block instanceof Y.XmlElement
-        ? { name: block.nodeName, attributes: block.getAttributes(), text: block.toString() }
-        : null,
-    );
 
 describe("The assistant revises its own changes still waiting", { timeout: 30_000 }, () => {
   // protects=after "write a summary page", "make it longer" lengthens that same waiting summary: the next Question knows what the first Answer made, reads its text marked as waiting, and the Mind holds one summary whose count is the Answer's; fails_when=a second summary is added, the waiting text reads as empty, or the bar and the card disagree; no_claim=how well a real model lengthens it.

@@ -1,13 +1,12 @@
 import { describe, expect, test, vi } from "vitest";
-import * as Y from "yjs";
 import type { Core } from "../../src/core";
 import { changedMinds } from "../../src/renderer/src/changedMinds";
 import { pendingProposals } from "../../src/shared/proposals";
 import { askAssistant, changesIn } from "../helpers/assistant";
 import { answerEnded } from "../helpers/citations";
 import { createTempDataFolder, startCore } from "../helpers/core";
-import { connectToMind, type MindClient } from "../helpers/mindClient";
-import { heading, note, shownWithChanges, writeMind } from "../helpers/minds";
+import { connectToMind } from "../helpers/mindClient";
+import { exactly, heading, note, shownWithChanges, writeMind } from "../helpers/minds";
 import {
   type ModelCall,
   type ScriptedReply,
@@ -55,16 +54,6 @@ const asked = ({ options }: ModelCall): string => {
     ? last.content
     : last.content.map((part) => ("text" in part ? part.text : "")).join("");
 };
-
-/** A Mind's top-level Blocks as stored, attributes and all: to tell it is exactly as it was. */
-const exactly = (client: MindClient) =>
-  client.blocks
-    .toArray()
-    .map((block) =>
-      block instanceof Y.XmlElement
-        ? { name: block.nodeName, attributes: block.getAttributes(), text: block.toString() }
-        : null,
-    );
 
 /** The episode the issue names: an Answer adds waiting text, and the next Answer revises it. */
 async function started() {
