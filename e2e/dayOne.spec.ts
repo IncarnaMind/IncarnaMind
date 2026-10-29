@@ -180,8 +180,14 @@ for (const language of ["en", "zh-CN"] as const) {
     await shot(window, `day-one-note-${language}-1600`);
     await window.keyboard.press("ControlOrMeta+k");
     await expect(window.getByTestId("palette-search")).toBeFocused();
-    await window.keyboard.type("tides");
-    await expect(window.getByTestId("palette-item").first()).toBeVisible();
+    const noteTitle = "Your Documents answer this";
+    await window.keyboard.type(noteTitle);
+    await expect(
+      window
+        .locator('[data-testid="palette-group"][data-group="notes"]')
+        .getByTestId("palette-item")
+        .filter({ hasText: noteTitle }),
+    ).toBeVisible();
     await window.keyboard.press("Escape");
     await expect(window.getByTestId("palette")).toHaveCount(0);
     await app.close();
