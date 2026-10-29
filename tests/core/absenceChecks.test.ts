@@ -8,7 +8,7 @@ import { readFigures } from "../../src/shared/figures";
 import { checkGenerate, checkReply } from "../helpers/checks";
 import { setUpWithDocuments } from "../helpers/citations";
 import { readMind, writeMind } from "../helpers/minds";
-import { scriptedModel } from "../helpers/models";
+import { type GeneratedReply, scriptedModel } from "../helpers/models";
 import { buildPdf } from "../helpers/pdf";
 
 const CLAIM = "The lease has no break clause.";
@@ -17,7 +17,7 @@ const CLAUSE = "Either party may end this lease with 30 days' notice.";
 function absenceModel(
   verdict: "supported" | "contradicted",
   wholeReads: number[],
-  reportedAbsence: boolean | undefined = true,
+  reportedAbsence: boolean | undefined,
 ) {
   return scriptedModel(
     (call) => checkReply(call, { [CLAIM]: { verdict: "supported", absence: reportedAbsence } }),
@@ -41,15 +41,18 @@ function absenceModel(
 describe("Checking an absence sentence", () => {
   test("a true absence is Supported only after the whole Document is read, with its pages kept", async () => {
     const wholeReads: number[] = [];
-    const { core, documents } = await setUpWithDocuments(absenceModel("supported", wholeReads), [
-      {
-        name: "Lease.pdf",
-        contents: buildPdf([
-          { lines: ["Term", "The lease runs for three years."] },
-          { lines: ["Rent", "The tenant pays rent monthly."] },
-        ]),
-      },
-    ]);
+    const { core, documents } = await setUpWithDocuments(
+      absenceModel("supported", wholeReads, true),
+      [
+        {
+          name: "Lease.pdf",
+          contents: buildPdf([
+            { lines: ["Term", "The lease runs for three years."] },
+            { lines: ["Rent", "The tenant pays rent monthly."] },
+          ]),
+        },
+      ],
+    );
 
     const result = await core.checkClaim({ claim: CLAIM });
 
@@ -185,7 +188,7 @@ describe("Checking an absence sentence", () => {
       },
     });
     const { core } = await setUpWithDocuments(
-      absenceModel("supported", wholeReads),
+      absenceModel("supported", wholeReads, true),
       [{ name: "Lease.pdf", contents: buildPdf([{ scan }, { scan }]) }],
       { textRecognizer: textRecognition },
     );
@@ -198,7 +201,7 @@ describe("Checking an absence sentence", () => {
 
   test("an unreadable PDF beside a readable one makes the scope Not checked, never Supported", async () => {
     const wholeReads: number[] = [];
-    const { core } = await setUpWithDocuments(absenceModel("supported", wholeReads), [
+    const { core } = await setUpWithDocuments(absenceModel("supported", wholeReads, true), [
       {
         name: "Lease.pdf",
         contents: buildPdf([{ lines: ["The lease runs for three years."] }]),
@@ -214,7 +217,7 @@ describe("Checking an absence sentence", () => {
 
   test("a false absence is Contradicted with the clause found by the whole read", async () => {
     const wholeReads: number[] = [];
-    const { core } = await setUpWithDocuments(absenceModel("contradicted", wholeReads), [
+    const { core } = await setUpWithDocuments(absenceModel("contradicted", wholeReads, true), [
       {
         name: "Lease.pdf",
         contents: buildPdf([
@@ -275,7 +278,7 @@ describe("Checking an absence sentence", () => {
 
   test("no Documents leaves an absence Not checked, never Unsupported from an empty search", async () => {
     const wholeReads: number[] = [];
-    const { core } = await setUpWithDocuments(absenceModel("supported", wholeReads), []);
+    const { core } = await setUpWithDocuments(absenceModel("supported", wholeReads, true), []);
 
     const result = await core.checkClaim({ claim: CLAIM });
 
@@ -283,9 +286,143 @@ describe("Checking an absence sentence", () => {
     expect(wholeReads).toHaveLength(0);
   });
 
+  test.each<{ name: string; answer: GeneratedReply; read: boolean }>([
+    { name: "“Yes.”", answer: { text: "Yes." }, read: true },
+    { name: "“是”", answer: { text: "是" }, read: true },
+    { name: "a structured yes", answer: { text: '{"answer":"yes"}' }, read: true },
+    {
+      name: "a yes after thinking",
+      answer: { text: "<think>It says a clause is missing.</think>\nyes" },
+      read: true,
+    },
+    { name: "a reply cut off while thinking", answer: { text: "", cutOff: true }, read: true },
+    { name: "a reply that is neither", answer: { text: "Possibly." }, read: true },
+    { name: "“No.”", answer: { text: "No." }, read: false },
+    { name: "“否”", answer: { text: "否" }, read: false },
+  ])(
+    "a classifier answer of $name decides whether search alone may support it",
+    async ({ answer, read }) => {
+      const wholeReads: number[] = [];
+      const plan = { verdict: "supported", quote: "The lease runs for three years." } as const;
+      const model = scriptedModel((call) => checkReply(call, { [CLAIM]: plan }), {
+        generate: (call) => {
+          if (call.system.startsWith("Classify whether a sentence says something is absent"))
+            return answer;
+          if (call.system.startsWith("Read the whole Documents")) {
+            wholeReads.push(1);
+            const passage = /id="([^"]+)"/.exec(call.prompt)?.[1];
+            return { text: JSON.stringify({ verdict: "contradicted", passage, quote: CLAUSE }) };
+          }
+          return checkGenerate({ [CLAIM]: plan })(call);
+        },
+      });
+      const { core } = await setUpWithDocuments(model, [
+        {
+          name: "Lease.pdf",
+          contents: buildPdf([
+            { lines: ["Term", "The lease runs for three years."] },
+            { lines: ["Break clause", CLAUSE] },
+          ]),
+        },
+      ]);
+
+      const result = await core.checkClaim({ claim: CLAIM });
+
+      if (read) {
+        expect(result).toMatchObject({
+          verdict: "contradicted",
+          evidence: { quote: CLAUSE, check: "found", pageFrom: 2, pageTo: 2 },
+        });
+        expect(wholeReads).toHaveLength(1);
+      } else {
+        expect(result).toMatchObject({
+          verdict: "supported",
+          evidence: { quote: "The lease runs for three years.", check: "found" },
+        });
+        expect(wholeReads).toHaveLength(0);
+      }
+    },
+  );
+
+  test("a clause the search found contradicts an absence on a scope too long to read whole", async () => {
+    const wholeReads: number[] = [];
+    const plan = { verdict: "contradicted", absence: true, quote: CLAUSE } as const;
+    const model = scriptedModel((call) => checkReply(call, { [CLAIM]: plan }), {
+      generate: (call) => {
+        if (call.system.startsWith("Read the whole Documents")) wholeReads.push(1);
+        return checkGenerate({ [CLAIM]: plan })(call);
+      },
+    });
+    const { core } = await setUpWithDocuments(model, [
+      {
+        name: "Lease.pdf",
+        contents: buildPdf([
+          { lines: ["Term", "The lease runs for three years."] },
+          { lines: ["Break clause", CLAUSE] },
+          ...Array.from({ length: 39 }, (_, index) => ({
+            lines: [`Schedule ${index + 1}`, "Rent schedule"],
+          })),
+        ]),
+      },
+    ]);
+
+    const result = await core.checkClaim({ claim: CLAIM });
+
+    expect(result).toMatchObject({
+      verdict: "contradicted",
+      evidence: { quote: CLAUSE, check: "found", pageFrom: 2, pageTo: 2 },
+    });
+    expect(wholeReads).toHaveLength(0);
+  });
+
+  test("a figure the search found contradicts an absence on a scope too long to read whole", async () => {
+    const claim = "The company never disclosed the $5 million loan.";
+    const quote = "The company disclosed a $5 million loan on 14 May 2026.";
+    const reading = readFigures("$5 million", { language: "en" })[0];
+    if (!reading) throw new Error("The absence fixture has no figure.");
+    const wholeReads: number[] = [];
+    const plan = { verdict: "contradicted", absence: true, quote } as const;
+    const model = scriptedModel((call) => checkReply(call, { [claim]: plan }), {
+      generate: (call) => {
+        if (call.system.startsWith("Read the whole Documents")) wholeReads.push(1);
+        return checkGenerate({ [claim]: plan })(call);
+      },
+    });
+    const { core } = await setUpWithDocuments(model, [
+      {
+        name: "Disclosures.pdf",
+        contents: buildPdf([
+          { lines: ["Loans", quote] },
+          ...Array.from({ length: 40 }, (_, index) => ({
+            lines: [`Schedule ${index + 1}`, "Rent schedule"],
+          })),
+        ]),
+      },
+    ]);
+
+    const result = await core.checkClaim({
+      claim,
+      figures: [
+        {
+          id: "loan",
+          locator: {
+            kind: "text",
+            from: { blockId: "p", offset: 0 },
+            to: { blockId: "p", offset: 1 },
+          },
+          reading,
+          calculated: null,
+        },
+      ],
+    });
+
+    expect(result).toMatchObject({ verdict: "contradicted" });
+    expect(wholeReads).toHaveLength(0);
+  });
+
   test("a scope over 40 pages is Not checked instead of guessed from search results", async () => {
     const wholeReads: number[] = [];
-    const { core } = await setUpWithDocuments(absenceModel("supported", wholeReads), [
+    const { core } = await setUpWithDocuments(absenceModel("supported", wholeReads, true), [
       {
         name: "Lease.pdf",
         contents: buildPdf(

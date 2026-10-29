@@ -602,10 +602,13 @@ export function createClaimCheck(deps: ClaimCheckDependencies) {
     });
     const absenceFor = async (
       declared: boolean,
-      supported: boolean,
+      searched: ClaimCheckResult["verdict"],
     ): Promise<ClaimCheckResult | null> => {
+      // A search that found and cited the thing contradicts its absence as any sentence is
+      // contradicted: the whole read decides only whether search may say Supported.
+      if (searched === "contradicted") return null;
       let absenceClaim = declared;
-      if (!absenceClaim && supported) {
+      if (!absenceClaim && searched === "supported") {
         try {
           absenceClaim = await classifyAbsence(request);
         } catch (error) {
@@ -870,10 +873,7 @@ export function createClaimCheck(deps: ClaimCheckDependencies) {
           return result;
         },
       });
-      const absence = await absenceFor(
-        readVerdict(reply)?.absence === true,
-        figureResult.verdict === "supported",
-      );
+      const absence = await absenceFor(readVerdict(reply)?.absence === true, figureResult.verdict);
       return absence ?? figureResult;
     }
     if (confirmationFailure) return failedCheck(confirmationFailure);
@@ -907,7 +907,7 @@ export function createClaimCheck(deps: ClaimCheckDependencies) {
       (withVerdict === undefined ? null : readVerdict(`${withVerdict}\n\n${reply}`));
     if (!verdict) return notChecked(refused ? "refused" : "malformed");
     if (!looked()) return notChecked("unread");
-    const absence = await absenceFor(verdict.absence === true, verdict.verdict === "supported");
+    const absence = await absenceFor(verdict.absence === true, verdict.verdict);
     if (absence) return absence;
     if (await requiresCalculation(verdict))
       return confirmationFailure ? failedCheck(confirmationFailure) : notChecked("no-evidence");

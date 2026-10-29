@@ -761,7 +761,6 @@ export interface DocumentsForAnswers
   searchableBySize(documentIds: readonly string[] | null): SizedDocument[];
   /** Whether a Document to search is a workbook or a CSV file: what an Analysis reads (#447). */
   searchableHasSheets(documentIds: readonly string[] | null): boolean;
-  /** One live Passage by id. */
   passage(passageId: string): WindowedPassage | null;
   /** The live Passages of a live Document at positions `from` to `to`, in reading order. */
   passagesBetween(documentId: string, from: number, to: number): WindowedPassage[];

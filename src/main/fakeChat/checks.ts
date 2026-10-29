@@ -13,6 +13,7 @@
  * on a Passage that states one ("All figures in £m") quotes that line as its unit.
  */
 
+import { CLASSIFY_ABSENCE } from "../../core/answers/checks/absence";
 import { SEARCH_AGAIN } from "../../core/answers/checks/searchAgain";
 import { readFigures } from "../../shared/figures";
 import { passagesIn, recordFor, UNIT_MARK } from "./passages";
@@ -21,6 +22,7 @@ import {
   lastUserText,
   type Prompt,
   type Reply,
+  systemOf,
   toolResults,
   userText,
 } from "./prompt";
@@ -72,9 +74,17 @@ export const PARTLY_UNCITED = [
   },
 ];
 
+const ABSENCE_WORDS = /(?:has no|never|没有|从未)/i;
+
+export function fakeAbsenceAnswer(options: GenerateOptions): string | null {
+  if (!systemOf(options.prompt).startsWith(CLASSIFY_ABSENCE)) return null;
+  const answer = ABSENCE_WORDS.test(lastUserText(options.prompt)) ? "yes" : "no";
+  return options.responseFormat?.type === "json" ? JSON.stringify({ answer }) : answer;
+}
+
 export function fakeAbsence(options: GenerateOptions): string | null {
   const prompt = lastUserText(options.prompt);
-  if (!prompt.includes("<sentence>") || !/(?:has no|never|没有|从未)/i.test(prompt)) {
+  if (!prompt.includes("<sentence>") || !ABSENCE_WORDS.test(prompt)) {
     return null;
   }
   if (prompt.includes("Break clause")) {
@@ -88,7 +98,7 @@ export function fakeAbsence(options: GenerateOptions): string | null {
 }
 
 const withAbsence = (sentence: string, verdict: string): Reply => ({
-  text: `${verdict}\nAbsence: ${/(?:has no|never|没有|从未)/i.test(sentence)}`,
+  text: `${verdict}\nAbsence: ${ABSENCE_WORDS.test(sentence)}`,
 });
 
 /**

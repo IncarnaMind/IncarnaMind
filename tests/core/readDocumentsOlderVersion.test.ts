@@ -11,10 +11,17 @@ import {
 import { readClaimCheck } from "../../src/shared/claimChecks";
 import { createTempDataFolder, startCore } from "../helpers/core";
 
-vi.mock("../../src/core/api", async (importOriginal) => ({
-  ...(await importOriginal<object>()),
-  CONTENT_SCHEMA_VERSION: 34,
-}));
+/*
+ * The version before a claim check kept the pages its whole read covered (#1443): a build that
+ * reads one content schema older than this one.
+ */
+const real = vi.hoisted(() => ({ version: 0 }));
+
+vi.mock("../../src/core/api", async (importOriginal) => {
+  const actual = await importOriginal<{ CONTENT_SCHEMA_VERSION: number }>();
+  real.version = actual.CONTENT_SCHEMA_VERSION;
+  return { ...actual, CONTENT_SCHEMA_VERSION: actual.CONTENT_SCHEMA_VERSION - 1 };
+});
 
 const SENTENCE = "The lease has no break clause.";
 const readDocuments = [
@@ -51,7 +58,7 @@ function mindWithWholeRead(): Y.Doc {
   text.insert(0, SENTENCE, { [CLAIM_CHECK_MARK]: mark });
   paragraph.insert(0, [text]);
   doc.getXmlFragment(MIND_CONTENT_FIELD).push([paragraph]);
-  doc.getMap(MIND_SETTINGS_FIELD).set(CONTENT_SCHEMA_VERSION_KEY, 35);
+  doc.getMap(MIND_SETTINGS_FIELD).set(CONTENT_SCHEMA_VERSION_KEY, real.version);
   return doc;
 }
 
@@ -75,7 +82,7 @@ function locationsOf(doc: Y.Doc) {
 
 describe("a version from before whole-read absence evidence", () => {
   test("opens the Note read-only and never strips its read Locations", async () => {
-    expect(CONTENT_SCHEMA_VERSION).toBe(34);
+    expect(CONTENT_SCHEMA_VERSION).toBe(real.version - 1);
     const core = startCore(await createTempDataFolder());
     const mind = await core.createMind({ title: "Lease" });
     await core.applyMindUpdate(mind.id, Y.encodeStateAsUpdate(mindWithWholeRead()));

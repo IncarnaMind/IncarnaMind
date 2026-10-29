@@ -381,6 +381,16 @@ export function readJudgement(reply: string): "conflict" | "same" | "neither" | 
   return word ? (word.toLowerCase() as "conflict" | "same" | "neither") : null;
 }
 
+const YES_NO = /^[\p{P}\p{S}\s]*(?:(yes|no)\b|(是|否|不是))/iu;
+
+/** A yes-or-no reply's answer, without its thinking, case or punctuation; null when it gives neither. */
+export function readYesNo(reply: string): boolean | null {
+  const match = YES_NO.exec(reply.replace(THINKING, ""));
+  const word = (match?.[1] ?? match?.[2])?.toLowerCase();
+  if (word === undefined) return null;
+  return word === "yes" || word === "是";
+}
+
 /** A record from the model's reply to that request, or null when it gives none. */
 export function readEvidence(
   reply: string,
@@ -554,7 +564,7 @@ export function readVerdict(reply: string): ReadVerdict | null {
     return withShortReason({
       verdict,
       absence: fields.some((each) => ABSENCE.test(each))
-        ? fields.some((each) => ABSENCE.exec(each)?.[1] === "true")
+        ? fields.some((each) => ABSENCE.exec(each)?.[1]?.toLowerCase() === "true")
         : undefined,
       says: cleanSays(rest || (next ?? "")),
       covered: phrase(COVERED),

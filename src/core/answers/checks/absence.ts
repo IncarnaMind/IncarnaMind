@@ -1,4 +1,10 @@
-import { generateText } from "ai";
+import {
+  generateText,
+  jsonSchema,
+  NoObjectGeneratedError,
+  NoOutputGeneratedError,
+  Output,
+} from "ai";
 import { locationOf } from "../../../shared/locations";
 import type {
   CheckedVersion,
@@ -10,11 +16,14 @@ import type {
   LeftOutDocument,
   ProviderError,
 } from "../../api";
+import { isRecord } from "../../errors";
+import { givesStructuredOutput } from "../../providers/capabilities";
 import { classifyProviderError } from "../../providers/providerErrors";
 import type { AnswerDocuments, createCitationSession } from "../citations";
 import { answerTemperature } from "../engine";
 import { replyJson } from "../quoteRetry";
 import type { ClaimCheckDependencies, ClaimCheckRequest } from "./claimCheck";
+import { readYesNo } from "./prompt";
 
 interface AbsenceContext {
   request: ClaimCheckRequest;
@@ -71,20 +80,56 @@ function scopeComplete(
   });
 }
 
-const CLASSIFY =
-  'Classify whether a sentence says something is absent: a clause, disclosure, figure, approval, event or fact is not present. Reply "yes" only when the sentence asserts that absence itself (for example, "The lease has no break clause" or "公司从未披露这笔贷款"). Otherwise reply "no".';
+export const CLASSIFY_ABSENCE =
+  'Classify whether a sentence says something is absent: a clause, disclosure, figure, approval, event or fact is not present. Answer "yes" only when the sentence asserts that absence itself (for example, "The lease has no break clause" or "公司从未披露这笔贷款"). Otherwise answer "no".';
 
-export async function classifyAbsence(request: ClaimCheckRequest): Promise<boolean> {
-  const { text } = await generateText({
+const answerSchema = jsonSchema<{ answer: string }>({
+  type: "object",
+  properties: { answer: { type: "string", enum: ["yes", "no"] } },
+  required: ["answer"],
+  additionalProperties: false,
+});
+
+/** The classifier's yes or no; null when its reply gives neither or was cut off. */
+async function absenceAnswer(request: ClaimCheckRequest): Promise<boolean | null> {
+  const call = {
     model: request.model.model,
-    instructions: CLASSIFY,
+    instructions: CLASSIFY_ABSENCE,
     prompt: request.claim,
     temperature: answerTemperature(request.model.capabilities.facts.temperature),
-    maxOutputTokens: 12,
+    maxOutputTokens: 300,
     maxRetries: 1,
     abortSignal: request.signal,
-  });
-  return text.trim().toLocaleLowerCase() === "yes";
+  };
+  try {
+    if (givesStructuredOutput(request.model.capabilities) === false) {
+      const { text, finishReason } = await generateText(call);
+      return finishReason === "length" ? null : readYesNo(text);
+    }
+    const result = await generateText({
+      ...call,
+      output: Output.object({ schema: answerSchema, name: "absence" }),
+    });
+    return result.finishReason === "length" ? null : readYesNo(result.output.answer);
+  } catch (error) {
+    // Thinking can take every output token and leave no answer at all.
+    if (NoOutputGeneratedError.isInstance(error)) return null;
+    if (!NoObjectGeneratedError.isInstance(error)) throw error;
+    if (error.finishReason === "length") return null;
+    // JSON in a code fence, or after thinking, is still read; so is a bare yes or no.
+    const value = await replyJson(error.text ?? "");
+    return readYesNo(
+      isRecord(value) && typeof value.answer === "string" ? value.answer : (error.text ?? ""),
+    );
+  }
+}
+
+/**
+ * Whether the sentence claims an absence, so Supported needs the whole read. An answer that
+ * can't be read as yes or no counts as yes: search alone never backs an absence.
+ */
+export async function classifyAbsence(request: ClaimCheckRequest): Promise<boolean> {
+  return (await absenceAnswer(request)) ?? true;
 }
 
 export async function checkAbsence({

@@ -958,6 +958,29 @@ describe("A figure the Documents don't state, worked out (#707)", () => {
     },
   );
 
+  test("a figure that disagrees contradicts the sentence even when the reply after it gives no verdict", async () => {
+    const claim = "Revenue grew 15% in 2025.";
+    const plans: Record<string, Plan> = {
+      [claim]: { verdict: "supported", calculation: { ...GROWTH, stated: "15%" } },
+    };
+    const model = scriptedModel(
+      (call) => {
+        const reply = checkReply(call, plans);
+        return "text" in reply ? { text: "The growth is worked out above." } : reply;
+      },
+      { generate: checkGenerate(plans) },
+    );
+    const { core, board } = await calculatingCheck(model);
+
+    const result = await core.checkClaim({ claim });
+
+    expect(result).toMatchObject({
+      verdict: "contradicted",
+      evidence: { documentId: board.id, check: "found" },
+      calculation: { stated: "15%", figure: { shown: "11.6%" } },
+    });
+  });
+
   test("a model that calculates is offered calculate, with the sentence's number to name, and told when to use it; one that doesn't isn't", async () => {
     const calls: ModelCall[] = [];
     const claim = "Net debt to EBITDA fell to 1.1x.";
