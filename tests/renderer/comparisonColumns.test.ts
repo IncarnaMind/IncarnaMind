@@ -319,6 +319,59 @@ describe("A comparison table's columns, all written by the core", () => {
     ]);
   });
 
+  test("⌘Z while a column change is being written waits for it, and takes no text step", async () => {
+    const { core, editor, client, handle } = await boundTable();
+    const line = editor.state.doc.firstChild;
+    if (!line) throw new Error("No note line.");
+    editor.commands.setTextSelection(1 + line.content.size);
+    typeText(editor, " edited");
+    expect(editor.getText()).toContain("edited");
+
+    let release = () => {};
+    const held = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const edit = core.editComparisonColumn.bind(core);
+    core.editComparisonColumn = async (input) => {
+      await held;
+      return edit(input);
+    };
+    const saving = saveColumnEdit(handle, "q1", { text: "Ending the agreement", label: "Ending" });
+    await vi.waitFor(() => expect(useComparisonColumns.getState().holds.has("table-1")).toBe(true));
+    // The column change is still being written: ⌘Z does nothing, and the text step stays.
+    expect(undoNoteHistory(editor)).toBe(true);
+    expect(editor.getText()).toContain("edited");
+    expect(questionsOf(editor)[0]?.text).toBe("Termination notice");
+
+    release();
+    await saving;
+    await settled(client);
+    // Once it has landed, ⌘Z takes the column change back first; the text step stays.
+    expect(undoNoteHistory(editor)).toBe(true);
+    await vi.waitFor(() => expect(questionsOf(editor)[0]?.text).toBe("Termination notice"));
+    expect(editor.getText()).toContain("edited");
+  });
+
+  test("a Question with extra spaces is trimmed", async () => {
+    const { editor, client, handle } = await boundTable();
+    await saveColumnEdit(handle, "q1", { text: "  Ending   the agreement  ", label: "  Ending  " });
+    await settled(client);
+    expect(questionsOf(editor)[0]).toMatchObject({
+      text: "Ending the agreement",
+      label: "Ending",
+    });
+    expect(fills.calls.at(-1)?.questionIds).toHaveLength(1);
+  });
+
+  test("a duplicate fills only the column it made", async () => {
+    const { editor, client, handle } = await boundTable({ writingInQ1: true });
+    await duplicateColumn(handle, "q1");
+    await settled(client);
+    const copy = questionsOf(editor)[1];
+    if (!copy) throw new Error("No copied column.");
+    expect(fills.calls.at(-1)?.questionIds).toEqual([copy.id]);
+  });
+
   test("a reword over a cell still writing comes back waiting, and Redo and Undo leave it fillable", async () => {
     const { editor, client, handle } = await boundTable({ writingInQ1: true });
     await saveColumnEdit(handle, "q1", { text: "Ending the agreement", label: "Ending" });

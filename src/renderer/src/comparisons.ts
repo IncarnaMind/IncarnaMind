@@ -258,7 +258,7 @@ core.on("comparison.structure", ({ mindId, tableId, requestId, writing }) => {
     return;
   }
   useComparisonColumns.getState().hold(tableId, requestId);
-  const answered = () => void core.acknowledgeComparisonStructure?.({ requestId, clientId });
+  const answered = () => void core.acknowledgeComparisonStructure({ requestId, clientId });
   flushMindUpdates(mindId).then(answered, answered);
 });
 

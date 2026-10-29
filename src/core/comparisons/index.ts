@@ -1129,6 +1129,21 @@ export function createComparisons(options: ComparisonsOptions) {
   }
 
   /**
+   * A window that is gone stops being waited for: dropped from every Mind it
+   * watched, and from every wait it was part of. A window that misses one wait
+   * is dropped the same way, so it costs that one wait and no more.
+   */
+  function forgetClient(clientId: string): void {
+    for (const [watchedMind, watching] of watchers) {
+      if (!watching.delete(clientId)) continue;
+      if (watching.size === 0) watchers.delete(watchedMind);
+    }
+    for (const waiting of [...acks.values()]) {
+      if (waiting.pending.delete(clientId) && waiting.pending.size === 0) waiting.done();
+    }
+  }
+
+  /**
    * Every window with the Mind open flushes its changes for it, and holds
    * that table's edits, before the change copies a cell; the core waits for
    * each window's word that they have reached it, then writes.
@@ -1140,7 +1155,9 @@ export function createComparisons(options: ComparisonsOptions) {
     if (pending.size > 0) {
       await new Promise<void>((resolve) => {
         const timer = setTimeout(() => {
+          const waiting = acks.get(requestId)?.pending;
           acks.delete(requestId);
+          for (const clientId of waiting ?? []) forgetClient(clientId);
           options.reportError(new Error(`A window did not answer a column change of ${tableId}.`));
           resolve();
         }, 2000);
@@ -1589,6 +1606,12 @@ export function createComparisons(options: ComparisonsOptions) {
     }
   }
 
+  async function forgetWindow(raw: unknown): Promise<void> {
+    if (isRecord(raw) && typeof raw.clientId === "string" && raw.clientId !== "") {
+      forgetClient(raw.clientId);
+    }
+  }
+
   /** Where the table goes: after the Block named, or before it when it is an empty paragraph. */
   function placeOf(blocks: Y.XmlFragment, afterBlockId: string | null): number {
     if (!afterBlockId) return blocks.length;
@@ -1731,6 +1754,7 @@ export function createComparisons(options: ComparisonsOptions) {
     watchMind: (input: unknown) => watchComparison(input),
     unwatchMind: (input: unknown) => unwatchComparison(input),
     acknowledge: (input: unknown) => acknowledgeStructure(input),
+    forgetWindow: (input: unknown) => forgetWindow(input),
 
     async stop(input: unknown): Promise<void> {
       const ref = parseRef(input, "stopComparisonTable");

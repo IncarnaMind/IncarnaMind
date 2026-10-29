@@ -4632,6 +4632,11 @@ export interface ComparisonStructureAck {
   clientId: string;
 }
 
+/** A window that is gone, or no longer answers: the core stops waiting for it. */
+export interface ComparisonWindow {
+  clientId: string;
+}
+
 /**
  * What asking for a comparison table, or for its cells to be filled, did: it
  * is in the Mind (a change to accept, the first time) and its cells are being
@@ -10005,6 +10010,11 @@ export interface CoreApi {
   unwatchComparisonMind(input: ComparisonWatch): Promise<void>;
   /** Its changes for the Mind have reached the core; a waiting structure change may go on. */
   acknowledgeComparisonStructure(input: ComparisonStructureAck): Promise<void>;
+  /**
+   * Its window is gone (closed or crashed): stop waiting for it on every Mind.
+   * The core also drops a window that misses one wait, after that wait.
+   */
+  forgetComparisonWindow(input: ComparisonWindow): Promise<void>;
   /** Stops filling a comparison table: cells being written stay as they were. */
   stopComparisonTable(input: ComparisonTableRef): Promise<void>;
   /** The comparison tables whose cells are being filled now. */
@@ -11225,6 +11235,7 @@ const methods: Record<CoreApiMethod, true> = {
   watchComparisonMind: true,
   unwatchComparisonMind: true,
   acknowledgeComparisonStructure: true,
+  forgetComparisonWindow: true,
   stopComparisonTable: true,
   listFillingComparisons: true,
   listTasks: true,

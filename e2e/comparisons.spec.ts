@@ -2140,3 +2140,95 @@ test("the sheet's foot keeps the model's whole name and every part inside the sh
     await app.close();
   }
 });
+
+test("two windows on one Note: the second sees a move, its Undo takes nothing of the first's, and closing it leaves no window to wait for", async () => {
+  test.setTimeout(240_000);
+  const { app, window } = await launchApp(dataDir, { fakeChat: true });
+  await dismissChatSetup(window);
+  await setWindowSize(app, window, 1600, 860);
+  await useLocalChatModel(window);
+  const table = await filledSuppliersTable(window);
+
+  // A second window of the app, with its own session and the same data: the tab it opens is the Mind.
+  const info = await app.evaluate(({ app, BrowserWindow }) => {
+    const [first] = BrowserWindow.getAllWindows();
+    if (!first) throw new Error("The app has no window.");
+    return {
+      url: first.webContents.getURL(),
+      preload: `${app.getAppPath()}/out/preload/index.js`,
+    };
+  });
+  const spawned = app.waitForEvent("window");
+  await app.evaluate(({ BrowserWindow }, values) => {
+    const win = new BrowserWindow({
+      width: 1200,
+      height: 800,
+      show: true,
+      webPreferences: {
+        preload: values.preload,
+        contextIsolation: true,
+        nodeIntegration: false,
+        sandbox: true,
+      },
+    });
+    void win.loadURL(values.url);
+  }, info);
+  const second = await spawned;
+  await second.waitForLoadState("domcontentloaded");
+  await second
+    .getByTestId("tab-strip")
+    .getByRole("tab", { name: /Shortlist: contract terms/u })
+    .click();
+  const secondTable = second.getByTestId("comparison-table");
+  await expect(secondTable).toBeVisible({ timeout: 20_000 });
+  await expect(secondTable.getByTestId("comparison-question")).toHaveCount(2);
+
+  const headings = (target: Locator) =>
+    target.getByTestId("comparison-question").evaluateAll((all) =>
+      all
+        .map((each) => ({
+          x: (each as HTMLElement).getBoundingClientRect().x,
+          text: (each as HTMLElement).innerText.trim(),
+        }))
+        .sort((left, right) => left.x - right.x)
+        .map((each) => each.text),
+    );
+  expect(await headings(secondTable)).toEqual(["Termination notice", "Liability cap"]);
+
+  // A moves a column: the second window sees the order the core wrote.
+  await headingAt(table, 0).focus();
+  await pointAndClick(window, headingAt(table, 0).getByTestId("comparison-column-menu"));
+  await pointAndClick(
+    window,
+    headingAt(table, 0).locator('[role="menu"]').getByTestId("comparison.column.moveRight"),
+  );
+  await expect(window.getByTestId("undo-message")).toContainText("Moved “Termination notice”");
+  await expect.poll(() => headings(secondTable)).toEqual(["Liability cap", "Termination notice"]);
+
+  // The second window's Undo has no step of the first's: it takes nothing back.
+  await second.getByTestId("mind-editor").first().focus();
+  await second.keyboard.press("ControlOrMeta+z");
+  await second.waitForTimeout(300);
+  expect(await headings(secondTable)).toEqual(["Liability cap", "Termination notice"]);
+
+  // The first window's Undo takes its own move back, and the second sees that too.
+  await window.getByTestId("mind-editor").first().focus();
+  await window.keyboard.press("ControlOrMeta+z");
+  await expect.poll(() => headings(secondTable)).toEqual(["Termination notice", "Liability cap"]);
+
+  // Closing the second window leaves no watcher behind: the next change doesn't wait for it.
+  await second.close();
+  await expect.poll(() => app.windows().length, { timeout: 20_000 }).toBe(1);
+  await headingAt(table, 0).focus();
+  await pointAndClick(window, headingAt(table, 0).getByTestId("comparison-column-menu"));
+  await pointAndClick(
+    window,
+    headingAt(table, 0).locator('[role="menu"]').getByTestId("comparison.column.moveRight"),
+  );
+  await expect(window.getByTestId("undo-message")).toContainText("Moved “Termination notice”");
+  await expect
+    .poll(() => headings(window.getByTestId("comparison-table")))
+    .toEqual(["Liability cap", "Termination notice"]);
+  const log = await readFile(join(dataDir, "logs", "incarnamind.log"), "utf8");
+  expect(log).not.toContain("did not answer");
+});

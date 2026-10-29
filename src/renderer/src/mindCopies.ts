@@ -113,7 +113,9 @@ export function openMindCopy(
       const copies = copiesOpen.get(mindId) ?? 0;
       copiesOpen.set(mindId, copies + 1);
       if (copies === 0) {
-        core.watchComparisonMind?.({ mindId, clientId }).catch(() => undefined);
+        core.watchComparisonMind({ mindId, clientId }).catch((error: unknown) => {
+          console.warn("This window couldn't watch the Mind's comparison tables.", error);
+        });
       }
       opened({ access, doc: local });
     },
@@ -131,9 +133,13 @@ export function openMindCopy(
       const copies = (copiesOpen.get(mindId) ?? 1) - 1;
       if (copies <= 0) {
         copiesOpen.delete(mindId);
-        core.unwatchComparisonMind?.({ mindId, clientId }).catch(() => undefined);
+        core.unwatchComparisonMind({ mindId, clientId }).catch((error: unknown) => {
+          console.warn("This window couldn't stop watching the Mind's comparison tables.", error);
+        });
       } else copiesOpen.set(mindId, copies);
     }
-    core.closeMind(mindId).catch(() => undefined);
+    core.closeMind(mindId).catch((error: unknown) => {
+      console.warn("The Mind's copy couldn't be closed.", error);
+    });
   };
 }

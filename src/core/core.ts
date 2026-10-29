@@ -4129,6 +4129,7 @@ export function createCore(adapters: CoreAdapters): Core {
     watchComparisonMind: (input) => comparisons.watchMind(input),
     unwatchComparisonMind: (input) => comparisons.unwatchMind(input),
     acknowledgeComparisonStructure: (input) => comparisons.acknowledge(input),
+    forgetComparisonWindow: (input) => comparisons.forgetWindow(input),
     stopComparisonTable: (input) => comparisons.stop(input),
     listFillingComparisons: async () => comparisons.filling(),
     listTasks: async () => tasks.list(),

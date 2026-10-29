@@ -129,10 +129,19 @@ export function releaseStructureStep(editor: Editor): void {
 export function offerStructureUndo(editor: Editor, change: StructureChange, seq: number): void {
   const history = historyOf(editor);
   if (!history) return;
+  // Undoing a column change is another column change being written: ⌘Z waits for it too.
+  const writing = async (step: "undo" | "redo") => {
+    history.pending += 1;
+    try {
+      await applyStructure(change, step);
+    } finally {
+      history.pending = Math.max(0, history.pending - 1);
+    }
+  };
   const entry: Undoable = {
     said: change.said,
-    undo: () => applyStructure(change, "undo"),
-    redo: () => applyStructure(change, "redo"),
+    undo: () => writing("undo"),
+    redo: () => writing("redo"),
   };
   history.undo.push({ seq, kind: "structure", entry });
   history.undo.sort((left, right) => left.seq - right.seq);
@@ -141,11 +150,16 @@ export function offerStructureUndo(editor: Editor, change: StructureChange, seq:
   useUndo.getState().push(entry);
 }
 
-/** Takes back the note's latest step, text or column change; false when it has none. */
+/**
+ * Takes back the note's latest step, text or column change; true when it took
+ * one, or while a column change is being written (⌘Z then waits for it);
+ * false when it has none.
+ */
 export function undoNoteHistory(editor: Editor): boolean {
   const history = histories.get(editor);
   const stack = undoStackOf(editor);
-  if (!history || !stack || history.pending > 0) return false;
+  if (!history || !stack) return false;
+  if (history.pending > 0) return true;
   const state = useUndo.getState();
   let skipped = false;
   while (history.undo.at(-1)?.kind === "structure") {
@@ -184,10 +198,14 @@ export function undoNoteHistory(editor: Editor): boolean {
   return true;
 }
 
-/** Does again the note's latest undone step, text or column change; false when it has none. */
+/**
+ * Does again the note's latest undone step, text or column change; true when
+ * it did one, or while a column change is being written; false when it has none.
+ */
 export function redoNoteHistory(editor: Editor): boolean {
   const history = histories.get(editor);
-  if (!history || history.pending > 0) return false;
+  if (!history) return false;
+  if (history.pending > 0) return true;
   const state = useUndo.getState();
   let skipped = false;
   while (history.redo.at(-1)?.kind === "structure") {

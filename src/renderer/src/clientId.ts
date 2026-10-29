@@ -15,6 +15,6 @@ export const clientId = remembered() ?? crypto.randomUUID();
 try {
   sessionStorage.setItem(KEY, clientId);
 } catch {
-  // Not kept, then: a reload counts as another window to the core, and a change that waits
-  // for this one says so once rather than hanging.
+  // Not kept, then: a reload counts as another window to the core. The first change that
+  // waits for the old one reports it and the core drops it, so later changes don't wait.
 }

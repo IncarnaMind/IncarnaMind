@@ -1,6 +1,6 @@
 import type { Node as ProseMirrorNode } from "@tiptap/pm/model";
 import type { MockLanguageModelV4 } from "ai/test";
-import { describe, expect, test, vi } from "vitest";
+import { describe, expect, onTestFinished, test, vi } from "vitest";
 import * as Y from "yjs";
 import {
   type CitationAttributes,
@@ -146,6 +146,17 @@ async function cloudSetUp(
   const mind = await core.createMind({ title: "Shortlist" });
   const client = await connectToMind(core, mind.id);
   return { core, documents, mind, client, dataDir };
+}
+
+/** The core's complaints that a window did not answer a column change, captured per test. */
+function watchComplaints(): string[] {
+  const complaints: string[] = [];
+  const spy = vi.spyOn(console, "error").mockImplementation((...args: unknown[]) => {
+    const first = String(args[0]);
+    if (first.includes("did not answer")) complaints.push(first);
+  });
+  onTestFinished(() => spy.mockRestore());
+  return complaints;
 }
 
 const QUESTIONS = ["Termination notice", "Liability cap"];
@@ -1154,6 +1165,66 @@ describe("Compare Documents", () => {
         index === 2 ? ["failed", "done"] : ["done", "done"],
       );
     }
+  });
+
+  test("a window that misses a column change's wait is dropped, so the next change doesn't wait", async () => {
+    const model = cellModel();
+    const complaints = watchComplaints();
+    const { core, client, mind, documents } = await cloudSetUp(model);
+    const tableId = await compare(core, client, {
+      mindId: mind.id,
+      documentIds: documents.map((document) => document.id),
+      questions: QUESTIONS,
+    });
+    const [notice] = comparisonQuestionsOf(tableElementIn(client).getAttributes());
+    if (!notice) throw new Error("The table has no first column.");
+    await core.watchComparisonMind({ mindId: mind.id, clientId: "a-window-that-is-gone" });
+
+    const moved = await core.moveComparisonColumn({
+      mindId: mind.id,
+      clientId: "test-window",
+      tableId,
+      questionId: notice.id,
+      to: 1,
+    });
+    expect(moved.moved).toBe(true);
+    expect(complaints).toHaveLength(1);
+
+    // The window that missed the first wait is dropped: this change doesn't wait for it.
+    const back = await core.moveComparisonColumn({
+      mindId: mind.id,
+      clientId: "test-window",
+      tableId,
+      questionId: notice.id,
+      to: 0,
+    });
+    expect(back.moved).toBe(true);
+    expect(complaints).toHaveLength(1);
+  });
+
+  test("forgetting a window drops its watch at once, and a change doesn't wait for it", async () => {
+    const model = cellModel();
+    const complaints = watchComplaints();
+    const { core, client, mind, documents } = await cloudSetUp(model);
+    const tableId = await compare(core, client, {
+      mindId: mind.id,
+      documentIds: documents.map((document) => document.id),
+      questions: QUESTIONS,
+    });
+    const [notice] = comparisonQuestionsOf(tableElementIn(client).getAttributes());
+    if (!notice) throw new Error("The table has no first column.");
+    await core.watchComparisonMind({ mindId: mind.id, clientId: "a-closed-window" });
+    await core.forgetComparisonWindow({ clientId: "a-closed-window" });
+
+    const moved = await core.moveComparisonColumn({
+      mindId: mind.id,
+      clientId: "test-window",
+      tableId,
+      questionId: notice.id,
+      to: 1,
+    });
+    expect(moved.moved).toBe(true);
+    expect(complaints).toEqual([]);
   });
 
   test("a fill moved at each point lands with every Answer under its own Question, and Undo moves it back", async () => {
