@@ -334,6 +334,35 @@ describe("Edit with AI", () => {
     ]);
   });
 
+  // protects=following a Citation's new version asks the model to make the sentence agree with the words its Citation now quotes, which the prompt gives as quoted context beside the marker, needs no instruction, keeps the Citation, and the words it replaces go (#99); fails_when=the Citation's words are not in the request, the request needs the caller's words, or the old words stay; no_claim=what a real model writes (tests/live/editWithAi.live.test.ts).
+  test("follow-citation: the Citation's words go in as context, the old words are replaced and the Citation stays", async () => {
+    const calls: EditCall[] = [];
+    const { core, mind, client, tides } = await setUp(
+      editingModel(() => "Spring tides happen at new moon and at full moon [1].", calls),
+    );
+    const note = paragraph(
+      text("Spring tides happen at the new moon only "),
+      citation(tides),
+      text("."),
+    );
+    writeMind(client, [note]);
+    await client.settled();
+
+    const result = await core.editWithAi(
+      wholeParagraph(client, mind.id, note.attrs.id, "follow-citation"),
+    );
+
+    expect(result.kind).toBe("proposed");
+    expect(calls[0]?.action).toBe("follow-citation");
+    expect(calls[0]?.prompt).toContain(
+      "Its markers' Documents now say only this: [1] “Spring tides happen at new moon and at full moon”.",
+    );
+    await resolveChanges(client, "accept");
+    expect(shownWithChanges(client)).toEqual([
+      "Spring tides happen at new moon and at full moon ⟨found⟩.",
+    ]);
+  });
+
   test("the model sees Citations as numbered markers, formulas as written, and the paragraphs around the selection", async () => {
     const calls: EditCall[] = [];
     const { core, mind, client, tides } = await setUp(

@@ -14,15 +14,13 @@ import {
 import {
   badgeMessage,
   type CitationState,
-  changedOnMessage,
-  changedSourceNote,
+  changedSourceLines,
   citationSource,
   citationState,
   needsRecheck,
   newVersionCitation,
   parseQuotedWords,
   quoteStanding,
-  versionMoment,
   withShownName,
 } from "../../../shared/citations";
 import {
@@ -34,6 +32,7 @@ import {
 } from "../../../shared/locations";
 import { useAnswers } from "../answers";
 import { type MindFormatting, useMindFormatting } from "../citationFormatting";
+import { followNewVersion } from "../citationUpdate";
 import { useCitationRecheck } from "../citationVersion";
 import { citationHandle } from "../commands/handles";
 import { type CommandContext, commands } from "../commands/registry";
@@ -261,27 +260,37 @@ export function CitationView({
     offerEditorUndo(editor, (t) => t("citation.keptOld"));
     if (!groupsMerged()) editor.view.focus();
   };
+  const wordsChanged =
+    lookedAt !== null && recheck !== null && recheck !== "failed" && !!recheck.changed;
   const updateSentence = () => {
     const documentId = state.documentId ?? attributes.documentId;
     if (!newVersion || !documentId) return;
-    dismiss();
-    asOneStep(editor, () => updateAttributes(newVersion));
-    offerEditorUndo(editor, (t) => t("citation.updated"));
     const moved = { ...attributes, ...newVersion, documentId };
-    const label = moved.location ? formatLocation(moved.location, t) : null;
-    openCitedPlace(moved, {
-      check: moved.check,
-      withQuote: true,
-      number,
-      label,
-      from: place?.groupId,
-      keep: true,
-    });
-    if (groupsMerged()) return;
     const at = getPos();
     const sentence = at === undefined ? null : sentenceAround(editor.state.doc, at);
-    const chain = editor.chain().focus();
-    (sentence ? chain.setTextSelection(sentence) : chain).run();
+    followNewVersion({
+      editor,
+      mindId,
+      range: sentence,
+      wordsChanged,
+      switchCitation: () => {
+        dismiss();
+        asOneStep(editor, () => updateAttributes(newVersion));
+        offerEditorUndo(editor, (t) => t("citation.updated"));
+        // The Note stays in front, in a window of one group too: the new words are one tab away.
+        openCitedPlace(moved, {
+          check: moved.check,
+          withQuote: true,
+          number,
+          label: moved.location ? formatLocation(moved.location, t) : null,
+          from: place?.groupId,
+          keep: true,
+          stay: true,
+        });
+        const chain = editor.chain().focus();
+        (sentence ? chain.setTextSelection(sentence) : chain).run();
+      },
+    });
   };
   const openFromCardRef = useRef(openFromCard);
   openFromCardRef.current = openFromCard;
@@ -656,14 +665,17 @@ function CitationCard({
   const quotedWords = state.check === "not-found" && parseQuotedWords(attributes.quotedWords);
   const scanned = useScannedQuote(attributes);
   const quote = useReadableQuote(attributes);
-  const changed = changedSourceNote(state.changedAfterCited, attributes, recheck, t);
-  const words = recheck !== null && recheck !== "failed" ? (recheck.changed ?? null) : null;
-  const changedOn = changedOnMessage(
+  const { note: changed, on } = changedSourceLines(
     state.changedAfterCited,
-    live ? versionMoment(live) : null,
+    attributes,
+    recheck,
+    live,
     language,
     t,
   );
+  const words = recheck !== null && recheck !== "failed" ? (recheck.changed ?? null) : null;
+  // A saved page says it was fetched again, with the day; any other Document says when it changed.
+  const changedOn = web ? (changed?.notice ?? null) : on;
   return (
     <div className={`citation-card citation-card--${state.check}`} contentEditable={false}>
       <div className="citation-card-head">
@@ -715,7 +727,7 @@ function CitationCard({
             <ChangedWords words={words} />
           ) : (
             <>
-              <p className="citation-card-note">{changed.notice}</p>
+              {!web && <p className="citation-card-note">{changed.notice}</p>}
               {changed.quote && (
                 <p data-testid="citation-changed-quote" className="citation-card-note">
                   {changed.quote}

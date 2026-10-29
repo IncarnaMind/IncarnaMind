@@ -1,4 +1,4 @@
-import { copyFile, mkdir, realpath } from "node:fs/promises";
+import { copyFile, mkdir, realpath, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { expect, type Locator, type Page, test } from "@playwright/test";
 import { translate } from "../src/shared/i18n";
@@ -9,8 +9,10 @@ import {
   dismissChatSetup,
   documentIdOf,
   expectReadyDocuments,
+  interceptOpenDialog,
   interceptOpenPath,
   launchApp,
+  newMind,
   openDocumentAt,
   pathsOpened,
   pointAndClick,
@@ -231,6 +233,57 @@ for (const language of ["en", "zh-CN"] as const) {
       await expect(empty).toBeVisible();
       await empty.getByTestId("viewer-sheet-open").click();
       await expect.poll(() => pathsOpened(app)).toEqual([await realpath(workbook)]);
+    } finally {
+      await app.close();
+    }
+  });
+}
+
+for (const language of ["en", "zh-CN"] as const) {
+  test(`a Note with no Documents keeps a way in, in the + menu and in the Library (${language})`, async () => {
+    const { app, window } = await launchApp(dataDir);
+    try {
+      await setLanguage(window, language);
+      await dismissChatSetup(window);
+      await newMind(window);
+      // The sidebar's line is the empty tree's, so a Note leaves it out: the ways in still hold.
+      await expect(window.getByTestId("documents-empty")).toHaveCount(0);
+
+      // The + menu's way in adds the file the system's dialog answers.
+      const orders = join(sources, "Harbour orders.csv");
+      await copyFile(join(FIXTURES, "Orders.csv"), orders);
+      await interceptOpenDialog(app, orders);
+      await pointAndClick(window, window.getByTestId("plus-menu"));
+      const add = window.getByTestId("plus-add-documents");
+      await expect(add).toHaveText(addFilesLabel(language));
+      await pointAndClick(window, add);
+      const row = window.getByTestId("document-list-item");
+      await expect(row).toHaveCount(1);
+      await expect(row).toContainText("Harbour orders");
+      await expectReadyDocuments(window, 1);
+
+      // Back to a Note with no Documents, as deleting a Document through the core leaves it.
+      const ordersId = await documentIdOf(window, "Harbour orders");
+      await (await coreOf(window)).evaluate((core, id) => core.deleteDocument(id), ordersId);
+      await expect(row).toHaveCount(0);
+
+      // The Library's empty state: both ways in, and its Add files adds the file it answers.
+      await pointAndClick(window, window.getByTestId("open-library"));
+      const library = window.getByTestId("library-empty");
+      await expect(library.getByTestId("library-empty-add-files")).toHaveText(
+        addFilesLabel(language),
+      );
+      await expect(library.getByTestId("library-empty-link-folder")).toHaveText(
+        translate(language, "startGuide.documents.linkFolder"),
+      );
+      const plan = join(sources, "Plan.txt");
+      await writeFile(plan, "Read the tide tables.\n");
+      await interceptOpenDialog(app, plan);
+      await pointAndClick(window, library.getByTestId("library-empty-add-files"));
+      await expect(window.getByTestId("library-count")).toHaveText("1");
+      await expect(library).toHaveCount(0);
+      await expect(window.getByTestId("library-document-name")).toHaveText("Plan");
+      await expectReadyDocuments(window, 1);
     } finally {
       await app.close();
     }

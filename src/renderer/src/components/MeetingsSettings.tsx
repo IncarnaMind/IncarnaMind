@@ -1,7 +1,7 @@
 import { useId } from "react";
 import { useT } from "../i18n";
 import { useAppStore } from "../store";
-import { useAudioKeptKey } from "../transcriptionServices";
+import { useAudioKeptKey, useTranscriptionServicesRead } from "../transcriptionServices";
 import { HelpSettings } from "./meetings/HelpSettings";
 import { TranscriptionRouteSelect } from "./meetings/TranscriptionRouteSelect";
 import { TranscriptionKeyRows, TranscriptionRouteLine } from "./meetings/TranscriptionSettings";
@@ -22,6 +22,8 @@ export function MeetingsSettings() {
   const whatId = useId();
   const routeId = useId();
   const keptKey = useAudioKeptKey();
+  // The one read of this section: the route line, the choice and the key rows draw from it.
+  const services = useTranscriptionServicesRead();
   if (!device || !canRecord) return null;
   const microphoneOnly = canRecord !== "both";
   const both = device.meetingSystemAudio && !microphoneOnly;
@@ -73,7 +75,7 @@ export function MeetingsSettings() {
               >
                 {t("meetings.settings.route")}
               </label>
-              <TranscriptionRouteLine />
+              <TranscriptionRouteLine read={services} />
             </div>
             <span id={`${routeId}-tip`} className="sr-only">
               {t("models.defaults.meetings.tip")}
@@ -81,9 +83,10 @@ export function MeetingsSettings() {
             <TranscriptionRouteSelect
               id={routeId}
               className="h-8 rounded-sm border border-rule-strong bg-sheet px-2 text-[13px] leading-5 text-ink focus:border-accent"
+              read={services}
             />
           </div>
-          <TranscriptionKeyRows />
+          <TranscriptionKeyRows read={services} />
         </div>
         <p className={hintClass}>{t(keptKey)}</p>
       </section>
