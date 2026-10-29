@@ -10,6 +10,7 @@ import { describe, expect, test } from "vitest";
 import { DATABASE_FILE, type Document } from "../../src/core";
 import { extractCsv } from "../../src/core/documents/formats/csv";
 import { extractXlsx } from "../../src/core/documents/formats/xlsx";
+import { PROCESSING_VERSION } from "../../src/core/documents/processing";
 import { openDatabase } from "../../src/core/storage";
 import { cellNumber } from "../../src/shared/units";
 import { createTempDataFolder, queryDatabase, startCore } from "../helpers/core";
@@ -183,6 +184,11 @@ describe("through the core", { timeout: 30_000 }, () => {
     try {
       db.transaction(() => {
         db.run("UPDATE documents SET processing_version = 7");
+        // The CSV isn't the subject: it stays as this version built it, so only the workbook is read again.
+        db.run("UPDATE documents SET processing_version = ? WHERE id = ?", [
+          BigInt(PROCESSING_VERSION),
+          csv.id,
+        ]);
         for (const { id, label } of db.all<{ id: string; label: string }>(
           "SELECT id, label FROM document_pages WHERE label IS NOT NULL",
         )) {

@@ -40,6 +40,8 @@
  * paragraph pointing to an earlier Answer, and one about "home working"
  * (居家办公) asked beside a Mind ends by setting the Documents apart from it,
  * unless the instructions say that Mind is an example.
+ * One that asks about the minutes (纪要) searches only the first listed Document whose name says
+ * so, by that name, as a model that takes a name for one Document does (#1512).
  * Before its search it reasons, a line that quotes the Question, as a model
  * that thinks does; given the Question's search before its first call (#1633),
  * it answers from those Passages and reasons on that call. A Question asked
@@ -51,6 +53,7 @@
  * by saying which.
  */
 
+import { namesIn } from "./asks";
 import { cellReply, isCell } from "./cells";
 import {
   FORTY_CITATIONS,
@@ -476,6 +479,13 @@ const BY_QUARTER = /\bby quarter\b|按季度/i;
 const BY_QUARTER_CHINESE = /分季度/;
 const IN_MILLIONS = /\bin millions\b/i;
 
+const MINUTES = /\bminutes\b|纪要/i;
+
+function minutesNamed(prompt: Prompt, question: string): string | undefined {
+  if (!MINUTES.test(question)) return undefined;
+  return namesIn(systemOf(prompt)).find((name) => MINUTES.test(name.replace(/ \(“[^”]*”\)$/, "")));
+}
+
 const SHORT_SUMMARY = /\bshort summary\b|简短的摘要/i;
 const HOME_WORKING = /\bhome working\b|居家办公/i;
 
@@ -589,9 +599,10 @@ export function answerReply(prompt: Prompt, tools: readonly string[]): Reply {
   const given = passagesIn(lastUserText(prompt)).length > 0 && WITHOUT_SEARCHING.test(question);
   const searches = given ? [lastUserText(prompt)] : toolResults(prompt, "search_documents");
   if (searches.length === 0) {
+    const minutes = minutesNamed(prompt, question);
     return {
       tool: "search_documents",
-      input: { query: question },
+      input: { query: question, ...(minutes && { document: minutes }) },
       reasoning: reasoningFor(question),
     };
   }

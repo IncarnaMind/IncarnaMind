@@ -5273,6 +5273,8 @@ export const zhCN = {
   "coverage.main": "我选了{documents}作为主要文档。",
   "coverage.main.one": "我选了{document}作为主要文档。",
   "coverage.main.others": "换别的",
+  "coverage.named": "我读的是{document}；另有 {count} 个文档也符合。",
+  "coverage.named.one": "我读的是{document}；另有 1 个文档也符合。",
   "coverage.askedAgain": "用其余 {count} 个文档重新回答",
   "coverage.askedAgain.one": "用其余 1 个文档重新回答",
   "mindChanges.noMind": "没有打开的笔记可以修改。",

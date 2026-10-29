@@ -629,7 +629,8 @@ test("⌘↵ accepts nothing while a search hides To review, and ⌘K doesn't of
     await expect(review).toBeVisible({ timeout: 30_000 });
     const waiting = async () =>
       Object.values(await placed(window)).filter((each) => each.suggested).length;
-    expect(await waiting()).toBe(12);
+    // Organize's run lands one Document at a time; wait until all twelve are suggested.
+    await expect.poll(waiting, { timeout: 30_000 }).toBe(12);
 
     // The search shows one Document and hides the head, with the other eleven suggestions.
     const library = window.getByTestId("library");

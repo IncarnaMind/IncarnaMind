@@ -226,7 +226,13 @@ import {
   createContextCitations,
   withoutWrittenIds,
 } from "./contextCitations";
-import { coverageInstructions, coverageOf, documentsAsked, type SizedDocument } from "./coverage";
+import {
+  coverageInstructions,
+  coverageOf,
+  documentsAsked,
+  namedCoverage,
+  type SizedDocument,
+} from "./coverage";
 import {
   documentSkimBlock,
   documentTextBlock,
@@ -1143,9 +1149,27 @@ export function createAnswers(options: AnswersOptions) {
       }
       return stillReadingAtEnd;
     };
+    let namedAtEnd: AnswerSteps["coverage"] | null | undefined;
+    const covered = () => {
+      if (coverage || outside || finishedAt === null) return coverage;
+      if (namedAtEnd === undefined) {
+        const { cited, passages, searched } = session.documentsRead();
+        const titles = new Map(options.documents.names().map((each) => [each.id, each.title]));
+        namedAtEnd = namedCoverage(
+          context.question,
+          cited.length > 0 ? cited : passages,
+          [...new Set([...cited, ...passages, ...searched])],
+          options.documents
+            .searchableBySize(documentIds)
+            .map((each) => ({ ...each, title: titles.get(each.id) })),
+        );
+      }
+      return namedAtEnd;
+    };
     const steps = (): AnswerSteps => {
       const summary = reasoning.trim();
       const reading = stillReading();
+      const shownCoverage = covered();
       const thoughtUntil =
         firstTextAt !== null && reasoningStartedAt !== null && firstTextAt > reasoningStartedAt
           ? firstTextAt
@@ -1183,7 +1207,7 @@ export function createAnswers(options: AnswersOptions) {
           ...(!calculating && unrunTools.includes("calculate") && { calculateUnavailable: true }),
         }),
         ...(askedAgainFor.length > 0 && { askedAgainFor: [...askedAgainFor] }),
-        ...(coverage && { coverage }),
+        ...(shownCoverage && { coverage: shownCoverage }),
         ...(writtenFrom && wroteNewText() && { writtenFrom }),
         ...(textBehind && { textBehind: true as const }),
         ...(reading && { stillReading: reading }),
