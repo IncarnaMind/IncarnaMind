@@ -134,7 +134,7 @@ describe("probe #2167 round 5", { timeout: 60_000 }, () => {
     expect(rows[0]?.wall_id).not.toBe("folder-a");
   });
 
-  test("R11 consequence: N's old uncited turn, backfilled to A's Folder, is carried into Note A once A is walled", async () => {
+  test("R11 a Question's recorded Folder decides after the Note moves out or is deleted", async () => {
     const s = await setUp({ wall: false });
     s.setScript(() => ({ text: "A first." }));
     const first = await askAssistant(s.core, { text: "Start", mindId: s.noteA.id });
@@ -177,6 +177,82 @@ describe("probe #2167 round 5", { timeout: 60_000 }, () => {
       "N turn carried into A:",
       carried,
     );
+    expect(carried).toBe(true);
+  });
+
+  test("R12 a Note moved OUT of walled A into no Folder: its A turns (uncited A content) must not reach N", async () => {
+    const s = await setUp();
+    s.setScript((call) =>
+      call.results.length === 0
+        ? { calls: [{ tool: "read_mind", input: { mind: "Client A note" } }] }
+        : { text: "Client A note says the settlement offer is 2.5 million." },
+    );
+    const noteA2 = await s.core.createMind({
+      title: "Client A second note",
+      folderId: s.folderA.id,
+    });
+    const first = await askAssistant(s.core, { text: "What is the offer?", mindId: noteA2.id });
+    await s.core.moveToFolder({ mindIds: [noteA2.id], folderId: null });
+    s.setScript(() => ({ text: "OK." }));
+    const from = s.calls.length;
+    await askAssistant(s.core, {
+      text: "Summarise",
+      mindId: s.noteN.id,
+      conversationId: first.conversationId,
+    });
+    const carried = sentSince(s.calls, from).includes("2.5 million");
+    console.log("R12 A turn carried to N after its Note left A:", carried);
+    expect(carried).toBe(false);
+  });
+
+  test("R12c control: the same Note moved to General (a Folder) is dropped", async () => {
+    const s = await setUp();
+    s.setScript((call) =>
+      call.results.length === 0
+        ? { calls: [{ tool: "read_mind", input: { mind: "Client A note" } }] }
+        : { text: "Client A note says the settlement offer is 2.5 million." },
+    );
+    const noteA2 = await s.core.createMind({
+      title: "Client A second note",
+      folderId: s.folderA.id,
+    });
+    const first = await askAssistant(s.core, { text: "What is the offer?", mindId: noteA2.id });
+    await s.core.moveToFolder({ mindIds: [noteA2.id], folderId: s.folderX.id });
+    s.setScript(() => ({ text: "OK." }));
+    const from = s.calls.length;
+    await askAssistant(s.core, {
+      text: "Summarise",
+      mindId: s.noteN.id,
+      conversationId: first.conversationId,
+    });
+    const carried = sentSince(s.calls, from).includes("2.5 million");
+    console.log("R12c carried:", carried);
+    expect(carried).toBe(false);
+  });
+
+  test("R13 the asking Note in A deleted for good: its A turns must not reach N", async () => {
+    const s = await setUp();
+    s.setScript((call) =>
+      call.results.length === 0
+        ? { calls: [{ tool: "read_mind", input: { mind: "Client A note" } }] }
+        : { text: "Client A note says the settlement offer is 2.5 million." },
+    );
+    const noteA2 = await s.core.createMind({
+      title: "Client A second note",
+      folderId: s.folderA.id,
+    });
+    const first = await askAssistant(s.core, { text: "What is the offer?", mindId: noteA2.id });
+    await s.core.deleteMind(noteA2.id);
+    await s.core.deletePermanently([{ kind: "mind", id: noteA2.id }]);
+    s.setScript(() => ({ text: "OK." }));
+    const from = s.calls.length;
+    const reply = await askAssistant(s.core, {
+      text: "Summarise",
+      mindId: s.noteN.id,
+      conversationId: first.conversationId,
+    }).catch((e: unknown) => ({ text: `ERR ${String(e)}` }));
+    const carried = sentSince(s.calls, from).includes("2.5 million");
+    console.log("R13 reply:", reply.text.slice(0, 120), "carried:", carried);
     expect(carried).toBe(false);
   });
 });

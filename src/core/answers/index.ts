@@ -3192,15 +3192,11 @@ export function createAnswers(options: AnswersOptions) {
     const outsideTurns = new Set<string>();
     const withWalls = turn.earlier.map((message) => {
       if (message.kind === "question") {
-        const recorded =
-          message.wallId !== undefined ? options.walledFolderId(message.wallId) : undefined;
         turnWall =
-          message.askedFrom && options.mindFolder(message.askedFrom.mindId) === null
-            ? null
-            : (recorded ??
-              (message.askedFrom
-                ? options.walledFolderId(filedIn(message.scope, message.askedFrom))
-                : options.walledFolderId(conversation.folderId)));
+          (message.wallId !== undefined ? options.walledFolderId(message.wallId) : undefined) ??
+          (message.askedFrom
+            ? options.walledFolderId(filedIn(message.scope, message.askedFrom))
+            : options.walledFolderId(conversation.folderId));
         // A walled Note's scope is always explicit: a null one belongs to before it was walled.
         const beforeWall =
           message.askedFrom !== null &&
