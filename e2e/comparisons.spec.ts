@@ -153,6 +153,27 @@ const cellTexts = (table: Locator) =>
       ),
     );
 
+/**
+ * Waits until every one of `cells` cells has its outcome. A fill starts a moment after
+ * the table is made or rows are added, so an absent progress line does not mean it ended.
+ */
+const fillSettled = async (table: Locator, cells: number) => {
+  await expect
+    .poll(
+      async () => {
+        const statuses = await table
+          .getByTestId("comparison-cell")
+          .evaluateAll((each) => each.map((cell) => cell.getAttribute("data-status")));
+        return (
+          statuses.length === cells &&
+          statuses.every((status) => status === "done" || status === "failed")
+        );
+      },
+      { timeout: 30_000 },
+    )
+    .toBe(true);
+};
+
 test("Compare Documents from “/”: 3 Documents × 2 Questions fill as a change to accept, a busy provider waited out, every cell cited and checked; Accept all, Reject all and ⌘Z", async () => {
   const { app, window } = await launchApp(dataDir, { fakeChat: true });
   await dismissChatSetup(window);
@@ -2286,7 +2307,7 @@ test("a table gains Documents later: the picker ticks its own, its line counts o
   await expect(sheet.getByTestId("compare-sheet-counted")).toHaveText("3 of 5");
   await pointAndClick(window, sheet.getByTestId("compare-sheet-make"));
   const table = window.getByTestId("comparison-table");
-  await expect(table.getByTestId("comparison-progress")).toHaveCount(0, { timeout: 30_000 });
+  await fillSettled(table, 3);
   await pointAndClick(window, table.getByTestId("comparison-accept-all"));
   await expect(table).not.toHaveAttribute("data-pending", "true");
   // ⌘K reaches Add Documents from the table's title line.
@@ -2344,13 +2365,11 @@ test("a table gains Documents later: the picker ticks its own, its line counts o
   // The fill starts after the rows are added, so wait for its Answers rather than for a
   // progress line that is still absent the moment before it starts.
   const addedAnswers = async () =>
-    (await cellTexts(table))
-      .slice(3)
-      .map((cells) => cells[0]?.replace(/(\s+\d+)+\s*$/, ""));
+    (await cellTexts(table)).slice(3).map((cells) => cells[0]?.replace(/(\s+\d+)+\s*$/, ""));
   await expect.poll(addedAnswers, { timeout: 30_000 }).toEqual(["45 days", "15 days"]);
   // Only the new rows were asked: the Answers already there are as they were.
   expect((await cellTexts(table)).slice(0, 3)).toEqual(before);
-  await expect(table.getByTestId("comparison-progress")).toHaveCount(0);
+  await fillSettled(table, 5);
   await expect.poll(() => rowNames(table)).toContain("Aldermoor Term Sheet");
 
   await window.getByTestId("mind-editor").first().focus();
@@ -2507,7 +2526,7 @@ test("the counts say what found nothing and what failed, each a filter, in Engli
   await typeQuestions(window, ["Termination notice", "Liability cap", "Budget (out of credit)"]);
   await pointAndClick(window, sheet.getByTestId("compare-sheet-make"));
   const table = window.getByTestId("comparison-table");
-  await expect(table.getByTestId("comparison-progress")).toHaveCount(0, { timeout: 40_000 });
+  await fillSettled(table, 9);
   await pointAndClick(window, table.getByTestId("comparison-accept-all"));
 
   const nothing = table.getByTestId("comparison-count-nothing");
