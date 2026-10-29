@@ -45,6 +45,21 @@ export function leftText(
   return waiting === 1 ? t("mindChanges.left.one") : t("mindChanges.left", { count: waiting });
 }
 
+/**
+ * The Note's own count of what waits, after what this request did, when other changes wait there
+ * too: the card's second fact beside the Mind's bar (#1897). Null while the count is unknown, and
+ * when this request's changes are all that wait.
+ */
+export function inNoteText(
+  t: Translate,
+  total: number | "gone" | null | undefined,
+  own: number | "gone" | null | undefined,
+): string | null {
+  if (typeof total !== "number" || total === 0) return null;
+  if (total <= (typeof own === "number" ? own : 0)) return null;
+  return total === 1 ? t("mindChanges.inNote.one") : t("mindChanges.inNote", { count: total });
+}
+
 export function changeFact(t: Translate, row: ChangeCounts, name: string | null): string {
   const count = row.wrote + row.changed;
   if (row.tables > 0 || (row.charts ?? 0) > 0) return tablesFact(t, row, name);
