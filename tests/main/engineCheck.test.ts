@@ -6,7 +6,7 @@ import { ENGINE_CHECK_ARGUMENT, type EngineModuleCheck } from "../../src/core/en
 import type { AnalysisEnd } from "../../src/shared/analysis";
 
 /** How each fake engine process answers, by its module. */
-type Answer = { found: EngineModuleCheck[] } | { exitCode: number };
+type Answer = { found: EngineModuleCheck[] } | { exitCode: number } | { fatal: string };
 
 const engines = vi.hoisted(() => ({
   answers: new Map<string, Answer>(),
@@ -27,7 +27,10 @@ vi.mock("electron", async () => {
         const answer = engines.answers.get(path) ?? { found: [] };
         setImmediate(() => {
           if ("found" in answer) child.emit("message", answer.found);
-          else child.emit("exit", answer.exitCode);
+          else if ("fatal" in answer) {
+            child.emit("error", "FatalError", answer.fatal, "");
+            child.emit("exit", 133);
+          } else child.emit("exit", answer.exitCode);
         });
         return child;
       },
@@ -91,6 +94,16 @@ describe("The engine check", () => {
         { process: "Analyses window", module: "Pyodide, numpy and pandas", problem: null },
       ]),
     );
+  });
+
+  it("says where a process that hit a fatal error stopped", async () => {
+    engines.answers.set("scanReader.js", { fatal: "v8::internal::Heap::FatalProcessOutOfMemory" });
+    const checks = await checkEngines(log);
+    expect(checks).toContainEqual({
+      process: "IncarnaMind text recognition",
+      module: null,
+      problem: "stopped with a FatalError at v8::internal::Heap::FatalProcessOutOfMemory",
+    });
   });
 
   it("gives Python's own message when Pyodide or its packages don't load", async () => {

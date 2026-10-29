@@ -72,6 +72,7 @@ function checkProcess(engine: EngineProcess): Promise<EngineCheck[]> {
     child.once("message", (found: EngineModuleCheck[]) =>
       answer(found.map((each) => ({ process: engine.serviceName, ...each }))),
     );
+    child.once("error", (type, location) => failed(`stopped with a ${type} at ${location}`));
     // Settled only once the process has gone: the app exiting while one still ran, or while the
     // Analyses window was open, crashed it on macOS (SIGBUS) two times in three.
     child.once("exit", (code) => {
