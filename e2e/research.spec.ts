@@ -275,6 +275,14 @@ test("Research… plans in the tray: the steps edited in place, the sources, whe
   await expect(progress.getByTestId("task-progress-summary")).toHaveText(
     "1 source saved · 2 changes proposed",
   );
+  await pointAndClick(window, progress.getByTestId("task-progress-details"));
+  const record = progress.getByTestId("task-record-details");
+  await expect(record).toContainText(`1 source saved in ${folderName}`);
+  await expect(record).toContainText("Tags: Tea");
+  await expect(record).toContainText("save: Allowed");
+  await expect(record).toContainText("No steering messages");
+  await expect(progress.getByTestId("task-progress-record")).toContainText("Started");
+  await screenshot(window, "research-record-en-1600");
 
   // The page it read is a Document filed into a new Folder named for the research, with a Tag.
   const state = await window.evaluate(async () => {
@@ -452,7 +460,7 @@ test("with the thinking model picked in the chip, Choose another model opens the
   }
 });
 
-test("the plan card follows the composer's model chip, says when the web can't be searched, fits 900px in Chinese, and Esc puts the topic back; Tell it… sends a message the Task reads at its next step, taken back with ↑ or ✕; Stop ends it", async () => {
+test("the plan card follows the composer's model chip, says when the web can't be searched, fits 900px in Chinese, and Esc puts the topic back; steering and the Done record stay explicit when the Task finishes while drafting", async () => {
   test.setTimeout(120_000);
   const ollama = await ollamaListing(["fake-model", "other-model"]);
   try {
@@ -466,6 +474,9 @@ test("the plan card follows the composer's model chip, says when the web can't b
         modelId: "fake-model",
       });
     }, ollama.url);
+    const note = join(sources, "Tea trade.txt");
+    await writeFile(note, "Tea trade.\nDutch traders shipped tea to Amsterdam in 1610.\n");
+    await addDocuments(window, [note]);
     await newMind(window);
     await window.keyboard.type("Credit memo");
     await setLanguage(window, "zh-CN");
@@ -606,10 +617,28 @@ test("the plan card follows the composer's model chip, says when the web can't b
     await window.keyboard.press("Escape");
     await expect(chip).toHaveCount(0);
 
-    await progress.getByTestId("task-progress-stop").focus();
+    await progress.getByTestId("task-progress-tell").focus();
     await window.keyboard.press("Enter");
-    await expect(progress).toHaveAttribute("data-status", "stopped");
-    await expect(progress.getByTestId("task-progress-meta")).toHaveText("已停止");
+    const unsent = "这条说明还没有发送，不能在任务完成后改变它的目标";
+    await input.type(unsent);
+    await expect(progress).toHaveAttribute("data-status", "done", { timeout: 60_000 });
+    await expect(input).toHaveValue(unsent);
+    await expect(chip).toBeVisible();
+    const finished = window.getByTestId("composer-tell-finished");
+    await expect(finished).toContainText("已完成");
+    await expect(finished.getByRole("button", { name: "改为提问" })).toBeVisible();
+    await pointAndClick(window, progress.getByTestId("task-progress-details"));
+    const record = progress.getByTestId("task-record-details");
+    await expect(record).toContainText("未保存来源");
+    await expect(record).toContainText("无批准记录");
+    await expect(record).toContainText("不要写折扣店");
+    await expect(record).not.toContainText(unsent);
+    await screenshot(window, "research-record-zh-900");
+    await pointAndClick(window, finished.getByRole("button", { name: "改为提问" }));
+    await expect(chip).toHaveCount(0);
+    await expect(finished).toHaveCount(0);
+    await expect(input).toHaveValue(unsent);
+    await expect(input).toBeFocused();
     await app.close();
   } finally {
     ollama.server.close();

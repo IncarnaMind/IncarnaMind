@@ -253,9 +253,10 @@ test("a Task's row in the chip's popover stops it, by keyboard, and Show Tasks s
   await setLanguage(window, "zh-CN");
   await window.keyboard.press("ControlOrMeta+k");
   await window.keyboard.type(">xianshi renwu");
-  await expect(
-    window.locator('[data-key="command:tasks.show"]').getByText("显示任务", { exact: true }),
-  ).toBeVisible();
+  await expect(window.locator('[data-key="command:tasks.show"]')).toHaveAttribute(
+    "aria-selected",
+    "true",
+  );
   await window.keyboard.press("Enter");
   await expect(window.getByTestId("tasks-popover-empty")).toHaveText(
     "还没有任务。开始研究或对比后，任务会显示在这里。",
@@ -269,11 +270,21 @@ test("a Task's row in the chip's popover stops it, by keyboard, and Show Tasks s
   const chip = window.getByTestId("tasks-chip");
   await expect(chip).toHaveText("1 running");
 
-  // Its row offers Stop beside it, and the arrow keys reach it.
+  // Its row offers Pause/Resume then Stop, and the arrow keys reach each.
   await chip.focus();
   await window.keyboard.press("Enter");
   const popover = window.getByTestId("tasks-popover");
   await expect(popover.getByTestId("tasks-popover-row")).toBeFocused();
+  await window.keyboard.press("ArrowDown");
+  await expect(popover.getByTestId("tasks-popover-pause")).toBeFocused();
+  await window.keyboard.press("Enter");
+  await expect(popover.getByTestId("tasks-popover-row")).toBeFocused();
+  await window.keyboard.press("ArrowDown");
+  await expect(popover.getByTestId("tasks-popover-resume")).toBeFocused();
+  await window.keyboard.press("Enter");
+  await expect(popover.getByTestId("tasks-popover-row")).toBeFocused();
+  await window.keyboard.press("ArrowDown");
+  await expect(popover.getByTestId("tasks-popover-pause")).toBeFocused();
   await window.keyboard.press("ArrowDown");
   const stop = popover.getByTestId("tasks-popover-stop");
   await expect(stop).toBeFocused();
@@ -304,6 +315,7 @@ test("a Task's row in the chip's popover stops it, by keyboard, and Show Tasks s
   await chip.focus();
   await window.keyboard.press("Enter");
   const again = window.getByTestId("tasks-popover");
+  await window.keyboard.press("ArrowDown");
   await window.keyboard.press("ArrowDown");
   await window.keyboard.press("Enter");
   await taskStatus(window, taskId).toBe("stopped");
