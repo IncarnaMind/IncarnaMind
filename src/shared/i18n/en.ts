@@ -3194,7 +3194,7 @@ export const en = {
   "comparison.add.none": "There are no more Documents to add.",
   "comparison.add.locked": "Already in the table",
   "comparison.row.more": "Row options",
-  "comparison.row.open": "Open beside",
+  "comparison.row.open": "Open",
   "comparison.row.openTip": "Open “{name}” beside the table",
   "comparison.row.moveUp": "Move up",
   "comparison.row.moveDown": "Move down",

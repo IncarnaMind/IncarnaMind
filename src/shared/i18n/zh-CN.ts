@@ -3056,7 +3056,7 @@ export const zhCN = {
   "comparison.add.none": "没有可以再添加的文档。",
   "comparison.add.locked": "已在表格中",
   "comparison.row.more": "行选项",
-  "comparison.row.open": "在旁边打开",
+  "comparison.row.open": "打开",
   "comparison.row.openTip": "在表格旁边打开“{name}”",
   "comparison.row.moveUp": "上移",
   "comparison.row.moveDown": "下移",

@@ -2404,7 +2404,7 @@ test("rows are removed and moved by menu, keys and drag, each undone, and a row'
   // Its menu moves it down, and up, each one step of Undo.
   await pointAndClick(window, heads.first().getByTestId("comparison-row-menu"));
   const rowMenu = window.locator('[data-testid="comparison-row-actions"]:popover-open');
-  await expect(rowMenu.getByRole("menuitem").nth(0)).toContainText("Open beside");
+  await expect(rowMenu.getByRole("menuitem").nth(0)).toContainText("Open");
   await expect(rowMenu.getByRole("menuitem").nth(1)).toContainText("Move up");
   await expect(rowMenu.getByRole("menuitem").nth(2)).toContainText("Move down");
   await expect(rowMenu.getByRole("menuitem").nth(3)).toContainText("Remove row");
