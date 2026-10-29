@@ -11,6 +11,7 @@ import {
   DATABASE_FILE,
   type ExampleGroup,
   QUESTION_BLOCK,
+  type WindowLayout,
 } from "../../src/core";
 import { EXAMPLE_SETS } from "../../src/core/exampleSets";
 import type { Language } from "../../src/core/language";
@@ -35,6 +36,13 @@ const startOn = (dataDir: string, language: Language = "en") =>
     paths: { dataDir, examples: EXAMPLES },
     systemLanguages: () => [language === "zh-CN" ? "zh-CN" : "en-US"],
   });
+
+/** The Mind the window shows: the focused group's shown tab. */
+function shownMind(layout: WindowLayout | null): string | null {
+  const group = layout?.groups.find((each) => each.id === layout.focusedGroupId);
+  const tab = group?.tabs.find((each) => each.id === group.activeTabId);
+  return tab?.item.kind === "mind" ? tab.item.mindId : null;
+}
 
 /** The example Mind as the editor would read it. */
 async function exampleMind(core: Core, mindId: string): Promise<ProseMirrorNode> {
@@ -291,6 +299,20 @@ describe("the example Mind", { timeout: 30_000 }, () => {
     const again = await core.createExamples();
     expect(again.mindId).not.toBe(made.mindId);
     expect(await core.listMinds()).toHaveLength(1);
+  });
+
+  test("Undo after Remove the examples puts the example Note's tab back, on screen (#2195)", async () => {
+    const { core } = await startWithExamples();
+    const made = await core.createExamples();
+    const mindId = made.mindId as string;
+    await core.changeLayout("main", { type: "open", item: { kind: "mind", mindId } });
+    expect(shownMind(await core.getLayout("main"))).toBe(mindId);
+
+    await core.removeExamples();
+    expect((await core.getLayout("main")).groups.flatMap((group) => group.tabs)).toEqual([]);
+
+    await core.restoreExamples();
+    expect(shownMind(await core.getLayout("main"))).toBe(mindId);
   });
 
   test("Undo after Remove the examples brings back the same Mind, its writing and its Documents, and leaves nothing in Recently deleted (#1292)", async () => {

@@ -162,6 +162,8 @@ export interface ChecksOptions
   /** Local mode: only models on this computer. */
   localOnly(): boolean;
   resolveScope(scope: SearchScope): string[] | null;
+  /** The Documents a Search scope covers; with none, the User's own (`scopeDocuments`). */
+  scopeDocuments(scope: SearchScope | null, mindId: string | null): string[] | null;
   evidence: Pick<Evidence, "scope" | "search">;
   documents: ClaimCheckDependencies["documents"] &
     MindCheckOptions["documents"] & {
@@ -602,14 +604,16 @@ export function createChecks(options: ChecksOptions) {
       ? { folderId: own, widened: false, chosen: wanted }
       : { folderId: own, widened: allDocuments || own !== folderId };
     const leftOut = leftOutOf(mindId, checked);
-    const resolved = wanted && options.resolveScope(wanted);
+    const resolved = options.scopeDocuments(wanted, mindId);
     const scope = options.evidence.scope(resolved, leftOut);
     const searchable = options.documents.searchableCount(scope.documentIds);
     const empty = (): NoDocuments => {
       const none: NoDocuments = { kind: "no-documents", folderId };
       if (!inChosen || !wanted) return none;
       if (
-        options.documents.searchableCount(options.evidence.scope(null, leftOut).documentIds) === 0
+        options.documents.searchableCount(
+          options.evidence.scope(options.scopeDocuments(null, mindId), leftOut).documentIds,
+        ) === 0
       )
         return none;
       const onlyLeftOut =
@@ -970,7 +974,7 @@ export function createChecks(options: ChecksOptions) {
         });
       }
       const scope = options.evidence.scope(
-        parsed.scope ? options.resolveScope(parsed.scope) : null,
+        options.scopeDocuments(parsed.scope, null),
         parsed.checked,
       );
       // Nothing to check against: nothing backs it, and nothing is sent.

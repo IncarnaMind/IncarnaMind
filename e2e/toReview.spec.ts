@@ -528,10 +528,16 @@ test("Home says how many wait and opens them, and a Folder suggested for a Docum
     await reject.focus();
     await window.keyboard.press("Enter");
     await expect(reviewOf(window)).toHaveCount(0);
-    expect(Object.values(await placed(window)).map((each) => each.folder)).toEqual([null, null]);
+    // The review closes as the press is taken, before the core has written the rejection.
+    await expect
+      .poll(async () => Object.values(await placed(window)).map((each) => each.folder))
+      .toEqual([null, null]);
 
     const loose = window.getByTestId("library-section").filter({ hasText: "Not in a Folder" });
     await pointAndClick(window, loose.getByTestId("library-organize"));
+    // The run marks its Documents before the model answers, and an Undo is refused once a run
+    // since has rewritten their rows (#1928): wait for the run to start and end before ⌘Z.
+    await expect(window.getByTestId("library-organizing")).toBeVisible({ timeout: 30_000 });
     await expect(window.getByTestId("library-organizing")).toHaveCount(0, { timeout: 30_000 });
     expect(Object.values(await placed(window)).map((each) => each.folder)).toEqual([null, null]);
     await expect(reviewOf(window)).toHaveCount(0);
