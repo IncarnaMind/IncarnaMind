@@ -58,11 +58,13 @@ export function deleted(
         ? t("undo.name.delete.documents", { count: counted() })
         : t("undo.name.delete", { name: shownIn(t, shown) }),
     undo: async () => {
-      if (!here) return core.restore(refs);
+      // Undo puts the User back where they were, so a Mind's tabs come back; a restore from
+      // Recently deleted leaves the window as it is.
+      if (!here) return core.restore(refs, { reopen: true });
       // Back on the page at once, as they went: the core follows, and a refusal takes them out again.
       here.putBack();
       try {
-        await core.restore(refs);
+        await core.restore(refs, { reopen: true });
       } catch (error) {
         here.takeOut();
         throw error;

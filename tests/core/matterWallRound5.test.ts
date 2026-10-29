@@ -111,7 +111,7 @@ describe("probe #2167 round 5", { timeout: 60_000 }, () => {
     const db = openDatabase(join(await createTempDataFolder(), "t.db"));
     migrate(
       db,
-      migrations.filter((m) => m.version < 114),
+      migrations.filter((m) => m.version < 115),
     );
     const at = "2026-10-01T00:00:00.000Z";
     db.run(

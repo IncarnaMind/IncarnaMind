@@ -2943,11 +2943,14 @@ export function createCore(adapters: CoreAdapters): Core {
     tags,
     library,
     mindsChanged,
-    mindsRestored: (mindIds) => {
+    mindsRestored: (mindIds, reopen) => {
       // A Mind deleted before a restart has no lines in the index's memory, and a restore stores nothing.
       for (const mindId of mindIds) mindIndex.contentStored(mindId);
       wordImports.resume(mindIds);
+      if (reopen) layouts.reopenMinds(mindIds);
+      else layouts.forgetMinds(mindIds);
     },
+    mindsForgotten: (mindIds) => layouts.forgetMinds(mindIds),
     conversationsChanged,
     tagsChanged,
     tagged: announceTagged,
@@ -3312,7 +3315,8 @@ export function createCore(adapters: CoreAdapters): Core {
       mindsChanged();
       layouts.forgetDeletedMinds();
     },
-    restoreMind: (mindId) => recentlyDeleted.restore([{ kind: "mind", id: mindId }]),
+    restoreMind: (mindId) =>
+      recentlyDeleted.restore([{ kind: "mind", id: mindId }], { reopen: true }),
     editMind: (mindId, change) => content.edit(mindId, change),
     linkFolder: (path) => documents.linkedFolders.add(path),
     unlinkFolder,
@@ -4003,12 +4007,12 @@ export function createCore(adapters: CoreAdapters): Core {
     },
     readMindContents: async (mindIds) => {
       if (!Array.isArray(mindIds)) {
-        throw new InvalidInputError("A list of Mind ids must be an array.");
+        throw new InvalidInputError("A list of Note ids must be an array.");
       }
       const found: MindContentSnapshot[] = [];
       for (const mindId of mindIds) {
         if (typeof mindId !== "string") {
-          throw new InvalidInputError("A Mind id must be text.");
+          throw new InvalidInputError("A Note id must be text.");
         }
         try {
           minds.get(mindId);
@@ -4688,7 +4692,7 @@ export function createCore(adapters: CoreAdapters): Core {
       if (change?.after.tagging?.status === "pending") tagger.resume();
       return change;
     },
-    restore: async (refs) => recentlyDeleted.restore(refs),
+    restore: async (refs, options) => recentlyDeleted.restore(refs, options),
     undoCommands: async (run) => commandSteps.undo(run),
     redoCommands: async (run) => commandSteps.redo(run),
     listDeleted: async () => recentlyDeleted.list(),
@@ -4707,7 +4711,7 @@ export function createCore(adapters: CoreAdapters): Core {
     moveToFolder: async (input) => {
       if (!isRecord(input)) throw new InvalidInputError("moveToFolder expects an object.");
       const folderId = parseFolderChoice(input.folderId);
-      const mindIds = parseIds(input.mindIds, "The Minds to move");
+      const mindIds = parseIds(input.mindIds, "The Notes to move");
       const documentIds = parseIds(input.documentIds, "The Documents to move");
       const conversationIds = parseIds(input.conversationIds, "The conversations to move");
       // All or none: every one is checked before anything moves.

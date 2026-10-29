@@ -111,7 +111,6 @@ import { calculationsSchema, checkCalculationsSchema } from "./calculationsSchem
 import { asksForFixes, WRITE_NOW } from "./citations";
 import { earlierContext, type RequestMind, withLineBefore } from "./context";
 import { retryFigures } from "./figureRetry";
-import { missingMarkerEvents, textEdits } from "./markerPlacement";
 import {
   NOTHING_SHOWN_YET,
   SEARCH_QUERY_INSTRUCTIONS,
@@ -123,7 +122,7 @@ import {
 import { retryQuotes } from "./quoteRetry";
 import { heldBackFrom, TOOL_TEXT_TAGS, takeToolText } from "./toolText";
 import { createNudges, type Flags, flagsOf, settleReply, type TurnCheck } from "./turnChecks";
-import { citeUnmarked } from "./unmarkedQuotes";
+import { citeUnmarked, missingMarkerEvents, textEdits } from "./unmarkedQuotes";
 import { createWindowBudget, SEARCH_RESERVE_TOKENS, type WindowBudget } from "./window";
 
 /** One message of Question context. */

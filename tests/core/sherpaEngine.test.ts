@@ -19,6 +19,8 @@ vi.mock("sherpa-onnx-node", () => ({
       }),
     },
     Vad: class {},
+    OfflineSpeakerDiarization: class {},
+    SpeakerEmbeddingExtractor: class {},
   },
 }));
 vi.mock("sherpa-onnx-node/addon.js", () => ({

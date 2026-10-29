@@ -406,7 +406,9 @@ describe("changes the User can take back", () => {
     expect(said(top())).toBe("Moved “a v0” to Recently deleted");
     expect(useAppStore.getState().documents.map((each) => each.id)).toEqual(["b", "c"]);
     await useUndo.getState().undo();
-    expect(method("restore")).toHaveBeenCalledWith([{ kind: "document", id: "a" }]);
+    expect(method("restore")).toHaveBeenCalledWith([{ kind: "document", id: "a" }], {
+      reopen: true,
+    });
     await useUndo.getState().redo();
     expect(method("deleteDocuments")).toHaveBeenCalledTimes(2);
   });
@@ -420,10 +422,13 @@ describe("changes the User can take back", () => {
     expect(named(top())).toBe("Delete 2 Documents");
     expect(useAppStore.getState().documents.map((each) => each.id)).toEqual(["c"]);
     await useUndo.getState().undo();
-    expect(method("restore")).toHaveBeenCalledWith([
-      { kind: "document", id: "a" },
-      { kind: "document", id: "b" },
-    ]);
+    expect(method("restore")).toHaveBeenCalledWith(
+      [
+        { kind: "document", id: "a" },
+        { kind: "document", id: "b" },
+      ],
+      { reopen: true },
+    );
   });
 
   const slow = () => {
@@ -494,10 +499,13 @@ describe("changes the User can take back", () => {
     deleting.finish();
     await deleted;
     await undone;
-    expect(method("restore")).toHaveBeenCalledWith([
-      { kind: "document", id: "a" },
-      { kind: "document", id: "b" },
-    ]);
+    expect(method("restore")).toHaveBeenCalledWith(
+      [
+        { kind: "document", id: "a" },
+        { kind: "document", id: "b" },
+      ],
+      { reopen: true },
+    );
     expect(method("renameMind")).toHaveBeenCalledTimes(1);
     expect(ids()).toEqual(["a", "b", "c"]);
   });

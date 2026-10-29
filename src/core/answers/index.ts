@@ -479,13 +479,13 @@ const FIGURE_CITATIONS_FROM = 9000;
 // With nothing to search, a model wrote what a Document says, uncited, into the User's Mind and
 // blamed its Tools (#1359).
 const NOTHING_TO_CITE =
-  "That is why no Tool searches or cites Documents in this Answer; none failed, so never say a Tool is unavailable. Answer from the Mind you read, the conversation and the request itself. When the request needs what a Document says (to quote, cite, summarise or compare it), write nothing into a Mind and never state what a Document says: answer in one sentence, in the User's language, giving that reason.";
+  "That is why no Tool searches or cites Documents in this Answer; none failed, so never say a Tool is unavailable. Answer from the Note you read, the conversation and the request itself. When the request needs what a Document says (to quote, cite, summarise or compare it), write nothing into a Note and never state what a Document says: answer in one sentence, in the User's language, giving that reason.";
 
 /** Tells the model its Question's Search scope holds no Documents, so it answers from what it has (#748). */
 const EMPTY_SCOPE_NOTE = `The User limited this Question to a Search scope (Folders, Tags or Documents) that holds no Documents, so there is nothing to search. ${NOTHING_TO_CITE} The line under your Answer offers to search all their Documents instead.`;
 
 // Told only this, models took a Mind the User named for a Document and wrote nothing (#1790).
-const MINDS_ARE_NOT_DOCUMENTS = "Their Minds aren't Documents: read_mind reads one they name.";
+const MINDS_ARE_NOT_DOCUMENTS = "Their Notes aren't Documents: read_mind reads one they name.";
 
 const noDocumentsNote = (examples: boolean, library: number) =>
   `None of the User's own Documents can be searched yet${examples ? " (the examples IncarnaMind made aren't theirs)" : ""}, so there is nothing to search.${library > 0 ? ` The User's Library holds ${library} Document${library === 1 ? "" : "s"} in all: never say it holds fewer than ${library}.` : ""} ${NOTHING_TO_CITE} They can add Documents to the Library.`;
@@ -3570,7 +3570,7 @@ export function createAnswers(options: AnswersOptions) {
       const answerId = parseId(input.answerId, "An Answer id");
       const questionId = content.read(mindId, (blocks) => {
         const found = findBlock(blocks, ANSWER_BLOCK, answerId);
-        if (!found) throw new NotFoundError("That Answer isn't in this Mind.");
+        if (!found) throw new NotFoundError("That Answer isn't in this Note.");
         const id = textAttribute(found.element, "questionId");
         if (!id || !findBlock(blocks, QUESTION_BLOCK, id)) {
           throw new NotFoundError({ key: "error.answer.questionGone" });

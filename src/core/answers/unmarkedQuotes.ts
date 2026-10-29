@@ -40,18 +40,46 @@ import { jsonSchema, Output, streamText } from "ai";
 import { answerSentences } from "../../shared/answerSentences";
 import { sentenceSpans } from "../../shared/sentences";
 import { detectLanguage, LANGUAGE_SAMPLE } from "../documents/textLanguage";
-import type { AnswerEngineEvent, AnswerRequest } from "./engine";
+import type { AnswerEngineEvent, AnswerRequest, AnswerTools } from "./engine";
 import {
   answerTableUnits,
   likeness,
   type MarkerRecord,
-  textEdits,
   withMissingMarkers,
   wordsOf,
 } from "./markerPlacement";
 import { CITE_RETRY_INSTRUCTIONS, citeRetryPrompt } from "./prompt";
 import { replyJson } from "./quoteRetry";
 import type { WindowBudget } from "./window";
+
+/** Engine events that change the Answer's text from `from` to `to`: what follows their common start is replaced. */
+export function* textEdits(from: string, to: string): Generator<AnswerEngineEvent> {
+  let common = 0;
+  while (common < from.length && common < to.length && from[common] === to[common]) common++;
+  if (from.length > common) yield { type: "text-retracted", length: from.length - common };
+  if (to.length > common) yield { type: "text-delta", text: to.slice(common) };
+}
+
+/**
+ * Where the engine handles a finished Answer's records: the edits that put in
+ * the markers the model left out of `text` for records the core took (see
+ * `AnswerTools.hasRecord`), and how many it put in. Returns the text with them.
+ */
+export function* missingMarkerEvents(
+  text: string,
+  records: readonly MarkerRecord[],
+  tools: Pick<AnswerTools, "hasRecord">,
+): Generator<AnswerEngineEvent, string> {
+  const { text: placed, placed: markers } = withMissingMarkers(
+    text,
+    records,
+    (marker) => tools.hasRecord?.(marker) ?? false,
+  );
+  if (markers.length === 0) return text;
+  yield* textEdits(text, placed);
+  yield { type: "markers-placed", count: markers.length };
+  return placed;
+}
 
 /** The most Citations added to one Answer. */
 export const MAX_ADDED = 12;

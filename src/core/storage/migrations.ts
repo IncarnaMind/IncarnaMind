@@ -1973,6 +1973,20 @@ export const migrations: readonly Migration[] = [
   },
   {
     version: 114,
+    description:
+      "A Document's keyword rows keep a version of their own, so a rewrite without a read moves no read version (#2185)",
+    sql: `
+      -- processing_version says which pipeline read a Document's Passages; keywords_version
+      -- says which one built its keyword rows. A rewrite without a read moves the second
+      -- alone (src/core/documents/index.ts), so a Document whose file is missing keeps the
+      -- first and is read again once the file is back (#2185). Rows of a Document read, or
+      -- rewritten, by processing version 15 or later are what this pipeline writes.
+      ALTER TABLE documents ADD COLUMN keywords_version INTEGER NOT NULL DEFAULT 0;
+      UPDATE documents SET keywords_version = processing_version WHERE processing_version >= 15;
+    `,
+  },
+  {
+    version: 115,
     description: "A Folder can keep its work inside it (#1934)",
     sql: `
       -- 1: a Folder's Notes, Answers and checks may read only its own Documents.

@@ -9,8 +9,13 @@
 import type { Transcriber } from "../core";
 import { createChannelTranscriber, type TranscriberResponse } from "../core/transcription/channel";
 import type { FakeTranscriberOptions } from "../core/transcription/fake";
-import { startEngineProcess } from "./engineProcess";
+import { type EngineProcess, startEngineProcess } from "./engineProcess";
 import transcriberProcessPath from "./transcriberProcess?modulePath";
+
+export const TRANSCRIPTION_PROCESS: EngineProcess = {
+  modulePath: transcriberProcessPath,
+  serviceName: "IncarnaMind transcription",
+};
 
 export interface UtilityProcessTranscriberOptions {
   /** Runs the fake engine instead of the real one, as these options ask (smoke tests). */
@@ -22,7 +27,7 @@ export function createUtilityProcessTranscriber(
 ): Transcriber {
   const args = options.fake ? ["--fake", `--fake-options=${JSON.stringify(options.fake)}`] : [];
   return createChannelTranscriber(() => {
-    const child = startEngineProcess(transcriberProcessPath, args, "IncarnaMind transcription");
+    const child = startEngineProcess(TRANSCRIPTION_PROCESS, args);
     return {
       send: (request) => child.postMessage(request),
       onResponse: (listener) =>
