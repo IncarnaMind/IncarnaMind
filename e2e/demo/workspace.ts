@@ -17,12 +17,8 @@ import type { Block, DemoScript } from "./script";
 
 /** The model the recording is made with. */
 const MODEL = "claude-sonnet-5-5";
-/** The keys to try, in order: the first the provider doesn't refuse is used. */
-const KEY_NAMES = [
-  "ANTHROPIC_API_KEY_JOEYXIONG28",
-  "ANTHROPIC_API_KEY_JOEYXIONG27",
-  "ANTHROPIC_API_KEY_JOEYXIONG26",
-];
+/** Where the recording's Anthropic key comes from. */
+const KEY_VARIABLE = "ANTHROPIC_API_KEY";
 
 const SHIPPED = resolve(__dirname, "../../resources/examples");
 
@@ -47,33 +43,26 @@ export async function seedModels(dataDir: string): Promise<void> {
   });
 }
 
-/** Makes the first key in `KEY_NAMES` the provider accepts the chat model. Never shows the key. */
-export async function connectClaude(window: Page): Promise<string> {
+/** Makes the key in `KEY_VARIABLE` the chat model's, once Anthropic accepts it. Never shows the key. */
+export async function connectClaude(window: Page): Promise<void> {
   if (isTraced(window)) {
     throw new Error(
       "The app keeps a trace, which would hold the key: record without INCARNAMIND_KEEP_ARTIFACTS.",
     );
   }
-  for (const name of KEY_NAMES) {
-    const apiKey = process.env[name];
-    if (!apiKey) continue;
-    const accepted = await window.evaluate(
-      async ({ key, modelId }) => {
-        const bridge = () => (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
-        const tested = await bridge().testChatConnection({
-          kind: "anthropic",
-          apiKey: key,
-          modelId,
-        });
-        if (!tested.ok) return false;
-        await bridge().saveChatProvider({ kind: "anthropic", apiKey: key, modelId });
-        return true;
-      },
-      { key: apiKey, modelId: MODEL },
-    );
-    if (accepted) return name;
-  }
-  throw new Error(`No key in ${KEY_NAMES.join(" or ")} is accepted by Anthropic.`);
+  const apiKey = process.env[KEY_VARIABLE];
+  if (!apiKey) throw new Error(`Set ${KEY_VARIABLE} to the Anthropic key to record with.`);
+  const accepted = await window.evaluate(
+    async ({ key, modelId }) => {
+      const bridge = () => (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
+      const tested = await bridge().testChatConnection({ kind: "anthropic", apiKey: key, modelId });
+      if (!tested.ok) return false;
+      await bridge().saveChatProvider({ kind: "anthropic", apiKey: key, modelId });
+      return true;
+    },
+    { key: apiKey, modelId: MODEL },
+  );
+  if (!accepted) throw new Error(`Anthropic doesn't accept the key in ${KEY_VARIABLE}.`);
 }
 
 /**
