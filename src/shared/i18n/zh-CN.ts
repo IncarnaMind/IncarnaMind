@@ -4019,6 +4019,7 @@ export const zhCN = {
   "error.verify.request": "无法读取这个核对文档的请求。",
   "error.verify.notVerifying": "这篇笔记没有在核对文档。",
   "error.verify.noPath": "请选择要核对的文档。",
+  "error.verify.notAllRead": "Word 文件有一部分没能读入这篇笔记，暂时无法找出其中的说法。",
   "error.mindCheck.request": "无法读取这个核对笔记的请求。",
   "error.contradictions.request": "无法读取这个核对矛盾的请求。",
   "error.document.fileUnavailable": "暂时无法访问这个文档的文件。",

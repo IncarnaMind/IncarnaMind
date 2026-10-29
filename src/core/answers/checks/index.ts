@@ -123,6 +123,7 @@ export interface ChecksOptions
     | "createMind"
     | "wordRefusal"
     | "importWord"
+    | "wordWritten"
     | "recordAiUse"
     | "unread"
   > {

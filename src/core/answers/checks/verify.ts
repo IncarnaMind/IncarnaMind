@@ -98,16 +98,19 @@ export interface VerifyOptions {
   wordRefusal(path: string): Promise<WordRefusalReason | null>;
   /**
    * Imports someone else's Word file as a Mind named for its Document, the file's original in
-   * the Library (#720): the Mind once its first Blocks are in it, and `written`, whether all are.
+   * the Library (#720): the Mind once its first Blocks are in it.
    */
   importWord(input: {
     path: string;
     folderId: string | null;
     documentId: string;
     name: string;
-  }): Promise<
-    { ok: true; mind: Mind; written: Promise<boolean> } | { ok: false; refusal: WordRefusalReason }
-  >;
+  }): Promise<{ ok: true; mind: Mind } | { ok: false; refusal: WordRefusalReason }>;
+  /**
+   * Whether the Mind holds every Block of the Word file it was imported from, once its import
+   * has stopped; true for a Mind not imported from Word.
+   */
+  wordWritten(mindId: string): Promise<boolean>;
   defaultModel(): ChatModelChoice | null;
   prepare(choice: ChatModelChoice | null): Promise<Prepared>;
   evidenceScope(mindId: string, allDocuments: boolean, verification: Verification): MindCheckScope;
@@ -227,6 +230,10 @@ export function createVerify(options: VerifyOptions) {
     signal: AbortSignal,
   ): Promise<FindClaimsResult> {
     const verification = verificationOf(mindId);
+    // Claims found in part of the file would leave the rest unchecked for good.
+    if (!(await options.wordWritten(mindId))) {
+      throw new InvalidInputError({ key: "error.verify.notAllRead" });
+    }
     const { empty } = options.evidenceScope(mindId, false, verification);
     if (empty) return empty;
     const ready = await options.prepare(model ?? options.defaultModel());
@@ -361,8 +368,9 @@ export function createVerify(options: VerifyOptions) {
         claims: null,
       });
     });
-    // Claims found in a Mind missing some of the file would leave the rest unchecked for good.
-    if (!(await made.written)) return { ok: false, reason: "word", refusal: "unreadable" };
+    if (!(await options.wordWritten(made.mind.id))) {
+      return { ok: false, reason: "word", refusal: "unreadable" };
+    }
     content.edit(made.mind.id, (blocks) => {
       if (!blocks.doc) return;
       const ids = blocks.toArray().flatMap((each) => {

@@ -175,7 +175,9 @@ export function createWordImports(options: WordImportsOptions) {
   const keeping = new Set<string>();
   /** Minds whose Blocks are being written now, so a Mind never has two writers. */
   const writing = new Set<string>();
-  /** Each import started since the app opened, by its Mind: whether it wrote every Block. */
+  /** The writer of each Mind's Blocks started last: whether it wrote every Block. */
+  const writers = new Map<string, Promise<boolean>>();
+  /** Each import started or resumed since the app opened, by its Mind: whether it wrote every Block. */
   const going = new Map<string, Promise<boolean>>();
   let closed = false;
   /** The file the import screen checked last, read whole, so importing it doesn't read it again. */
@@ -321,12 +323,13 @@ export function createWordImports(options: WordImportsOptions) {
     origin: WordOrigin,
     from: number,
   ): Promise<boolean> => {
-    const writer = going.get(mindId);
+    const writer = writers.get(mindId);
     if (writing.has(mindId) && writer) return writer;
     const run = writeBlocks(mindId, structure, origin, from, from === 0).catch((error: unknown) => {
       log.error("word.import.failed", { error: error instanceof Error ? error.name : "unknown" });
       return false;
     });
+    writers.set(mindId, run);
     going.set(mindId, run);
     return run;
   };
@@ -452,7 +455,10 @@ export function createWordImports(options: WordImportsOptions) {
       };
     },
 
-    /** Whether the Mind's import wrote every Block, once it has stopped: done, failed or its Mind deleted. */
+    /**
+     * Whether the Mind holds every Block of its Word file, once its import has stopped (done,
+     * failed or its Mind deleted); true for a Mind not imported from Word.
+     */
     written(mindId: string): Promise<boolean> {
       const writer = going.get(mindId);
       if (writer) return writer;
@@ -460,7 +466,7 @@ export function createWordImports(options: WordImportsOptions) {
         "SELECT completed_at FROM word_packages WHERE mind_id = ? AND deleted_at IS NULL",
         [mindId],
       );
-      return Promise.resolve(row?.completed_at != null);
+      return Promise.resolve(!row || row.completed_at !== null);
     },
 
     /** See `CoreApi.addWordOriginal`. */
@@ -506,13 +512,17 @@ export function createWordImports(options: WordImportsOptions) {
             done: blocks.doc ? wordImportDone(blocks.doc) : 0,
             origin: (blocks.doc && wordOriginOf(blocks.doc)) ?? "own",
           }));
-          await start(mindId, structure, origin, done);
+          return start(mindId, structure, origin, done);
         })();
-        resumed.catch((error: unknown) => {
-          log.error("word.import.resumeFailed", {
-            error: error instanceof Error ? error.name : "unknown",
-          });
-        });
+        going.set(
+          mindId,
+          resumed.catch((error: unknown) => {
+            log.error("word.import.resumeFailed", {
+              error: error instanceof Error ? error.name : "unknown",
+            });
+            return false;
+          }),
+        );
       }
     },
 

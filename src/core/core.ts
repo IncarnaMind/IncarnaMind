@@ -2148,9 +2148,9 @@ export function createCore(adapters: CoreAdapters): Core {
           title: translate(settings.get().language, "verify.mindTitle", { name }),
         },
       );
-      if (!imported.ok) return imported;
-      return { ok: true, mind: imported.mind, written: wordImports.written(imported.mind.id) };
+      return imported.ok ? { ok: true, mind: imported.mind } : imported;
     },
+    wordWritten: (mindId) => wordImports.written(mindId),
     watch: {
       minds: () => minds.list().map((mind) => ({ id: mind.id, folderId: mind.folderId })),
       documentVersions: () =>

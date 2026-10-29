@@ -149,14 +149,16 @@ describe("Verify a Word file someone else wrote", () => {
     expect(await core.findClaims(request(mind.id))).toEqual({ kind: "found", claims: 1 });
   });
 
-  test("a Mind that doesn't get every Block of the file isn't reported as verified", async () => {
+  test("a Mind that doesn't get every Block of the file isn't reported as verified, and its claims are found only once the rest is in", async () => {
     const { core, report } = await setUp();
     const filler = Array.from({ length: 3500 }, (_, at) => paragraph(`Line ${at + 1}.`));
-    await writeFile(report, wordFile({ body: filler.join("") }));
+    await writeFile(report, wordFile({ body: [...filler, paragraph(CONTRADICTED)].join("") }));
+    let mindId = "";
     const stop = core.on("minds.changed", (minds) => {
       const made = minds.find((each) => each.title === "Checking: Harbour report");
       if (!made) return;
       stop();
+      mindId = made.id;
       void core.deleteMind(made.id);
     });
 
@@ -165,6 +167,10 @@ describe("Verify a Word file someone else wrote", () => {
       reason: "word",
       refusal: "unreadable",
     });
+
+    // Restored, its import goes on; Find claims waits for it, and finds the claim at its end.
+    await core.restore([{ kind: "mind", id: mindId }]);
+    expect(await core.findClaims(request(mindId))).toEqual({ kind: "found", claims: 1 });
   });
 
   test("a paragraph the User writes in its Mind isn't one of its claims", async () => {

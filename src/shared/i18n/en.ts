@@ -4194,6 +4194,8 @@ export const en = {
   "error.verify.request": "That isn’t a request to verify a document that IncarnaMind can read.",
   "error.verify.notVerifying": "This note doesn’t verify a document.",
   "error.verify.noPath": "Choose the document to verify.",
+  "error.verify.notAllRead":
+    "Part of the Word file couldn’t be read into this note, so its claims can’t be found yet.",
   "error.mindCheck.request": "That isn’t a request to check a note that IncarnaMind can read.",
   "error.contradictions.request":
     "That isn’t a check for contradictions that IncarnaMind can read.",
