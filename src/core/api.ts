@@ -227,8 +227,13 @@ export interface CreateMindInput {
  *   marks on Citations and figures (`MIND_SIGN_OFFS_FIELD`, #1933). An older
  *   editor would strip the ids and leave the marks on nothing, so it opens
  *   these Notes read-only. Existing content needs no conversion.
+ * - 33: a comparison table has a `title` of its own (#1837), its name in the
+ *   title line and on its Excel file and sheet. An older version's editor
+ *   writes the table back without it when it changes it, so it opens these
+ *   Notes read-only. Older content is version 33 content as it is, its table
+ *   called "Comparison table" until the User names it.
  */
-export const CONTENT_SCHEMA_VERSION = 32;
+export const CONTENT_SCHEMA_VERSION = 33;
 
 /**
  * The key, in the Mind's settings map (`MIND_SETTINGS_FIELD`), of the content
@@ -720,6 +725,8 @@ export interface ComparisonQuestion {
 /** Attributes of a comparison table's Block, as stored in the Mind's Yjs document. */
 export interface ComparisonTableAttributes {
   id: string | null;
+  /** Its own name, kept with the Mind and naming the Excel file and sheet; absent: "Comparison table". */
+  title?: string | null;
   /** Its columns, in order. */
   questions: ComparisonQuestion[];
   /** The model its cells are written with; both null: the default model. */
@@ -4600,11 +4607,15 @@ export interface ComparisonTableRef {
 
 /**
  * A comparison table to fill: the whole table, or some of its columns alone,
- * so a column just added or reworded never writes its neighbours again.
+ * so a column just added or reworded never writes its neighbours again; or
+ * some of its rows alone, so Documents added later fill without touching the
+ * Answers already there.
  */
 export interface ComparisonFillRequest extends ComparisonTableRef {
   /** The columns to fill, by their Questions' ids; absent: every cell to fill in the table. */
   questionIds?: readonly string[];
+  /** The rows to fill, by their Documents' ids; absent: every row. */
+  documentIds?: readonly string[];
 }
 
 /** A comparison table's column to move, and where it lands. */
@@ -4706,6 +4717,50 @@ export interface ComparisonColumnHiddenSet {
   questionId: string;
   hidden: boolean;
   focusId: string | null;
+  step: string;
+}
+
+/** Documents added as rows to a table that exists. */
+export interface ComparisonRowsAddRequest extends ComparisonTableRef {
+  clientId: string;
+  /** The Documents to add, in order; ones the table already has, or checks leave out, are dropped. */
+  documentIds: readonly string[];
+}
+
+/** What adding Documents left: the rows there now, and whether any fill waits for an Answer. */
+export interface ComparisonRowsAdded {
+  documentIds: string[];
+  labels: string[];
+  /** Their cells wait for an Answer, so the window fills those rows. */
+  fill: boolean;
+  step: string;
+}
+
+/** A row taken out of a table. */
+export interface ComparisonRowRemoveRequest extends ComparisonTableRef {
+  clientId: string;
+  documentId: string;
+}
+
+/** What removing a row left: its name for the undo line, and the row to focus. */
+export interface ComparisonRowRemoved {
+  label: string;
+  focusDocumentId: string | null;
+  step: string;
+}
+
+/** A row of a table moved, by its Document, to a place among the rows. */
+export interface ComparisonRowMoveRequest extends ComparisonTableRef {
+  clientId: string;
+  documentId: string;
+  /** Where it lands among the rows: the second row is 1. */
+  to: number;
+}
+
+export interface ComparisonRowMoveResult {
+  /** Among the rows: the second row is 1. */
+  index: number;
+  moved: boolean;
   step: string;
 }
 
@@ -5897,6 +5952,11 @@ export interface MindCheckRun {
   stop: RunStop | null;
   /** The sentences it found make no claim, by `sentenceKey`, so a later run doesn't send them again. */
   skipped: string[];
+  /**
+   * The sentences the model decided nothing about, even asked twice (#1682), by `sentenceKey`:
+   * not examined, so they stay to check and a later run asks about them again.
+   */
+  unexamined: string[];
 }
 
 /** A document someone else wrote, to verify claim by claim (#97): the window offers PDFs. */
@@ -10210,10 +10270,11 @@ export interface CoreApi {
   compareDocuments(input: CompareDocumentsInput): Promise<ComparisonResult>;
   /**
    * Fills a comparison table's cells that have no Answer (`cellToFill`): a
-   * column the editor just added or reworded, or cells a fill left (a quit,
-   * the monthly cap, a failure). Given `questionIds`, it fills those columns
-   * alone, so the others' Answers and problems stay as they are. A fill
-   * already going takes them up once its cells are done.
+   * column the editor just added or reworded, rows the User added as
+   * Documents, or cells a fill left (a quit, the monthly cap, a failure).
+   * Given `questionIds`, it fills those columns alone; given `documentIds`,
+   * those rows alone; so the others' Answers and problems stay as they are. A
+   * fill already going takes them up once its cells are done.
    */
   fillComparisonTable(input: ComparisonFillRequest): Promise<ComparisonResult>;
   /**
@@ -10241,6 +10302,16 @@ export interface CoreApi {
   setComparisonColumnHidden(
     input: ComparisonColumnHiddenRequest,
   ): Promise<ComparisonColumnHiddenSet | null>;
+  /**
+   * Documents added to a table that exists, as one change of the Mind: a row
+   * with a waiting cell under every column, which the window fills for those
+   * rows alone.
+   */
+  addComparisonRows(input: ComparisonRowsAddRequest): Promise<ComparisonRowsAdded>;
+  /** A row and its Answers taken out whole. */
+  removeComparisonRow(input: ComparisonRowRemoveRequest): Promise<ComparisonRowRemoved>;
+  /** A row moved among the rows, as one change of the Mind. */
+  moveComparisonRow(input: ComparisonRowMoveRequest): Promise<ComparisonRowMoveResult>;
   /**
    * Takes back the structure change the window names, if it is still the
    * table's latest and that window made it.
@@ -11486,6 +11557,9 @@ const methods: Record<CoreApiMethod, true> = {
   removeComparisonColumn: true,
   resizeComparisonColumn: true,
   setComparisonColumnHidden: true,
+  addComparisonRows: true,
+  removeComparisonRow: true,
+  moveComparisonRow: true,
   undoComparisonStructure: true,
   redoComparisonStructure: true,
   watchComparisonMind: true,

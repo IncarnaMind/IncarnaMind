@@ -12,6 +12,7 @@ import {
   staleAnswerKey,
   useComparisonColumns,
 } from "./comparisonColumnState";
+import { structure } from "./comparisonStructure";
 import { fillComparisonTable } from "./comparisons";
 import { core } from "./core";
 import {
@@ -25,8 +26,6 @@ import {
   reserveStructureStep,
   type StructureChange,
 } from "./editor/comparisonStructureUndo";
-import { flushMindUpdates } from "./mindCopies";
-import { useAppStore } from "./store";
 
 export type { ComparisonColumnField, ComparisonColumnHandle } from "./comparisonColumnState";
 export { comparisonColumnHandles, useComparisonColumns } from "./comparisonColumnState";
@@ -40,28 +39,6 @@ const fill = (handle: ComparisonColumnHandle, questionIds: readonly string[]) =>
     tableId: handle.tableId,
     questionIds,
   });
-
-/**
- * Asks the core for one structure change, with the table taking no local
- * edits while it is written: a local write can't cross the core's change.
- */
-async function structure<T>(
-  handle: ComparisonColumnHandle,
-  ask: () => Promise<T>,
-): Promise<T | null> {
-  await flushMindUpdates(handle.mindId);
-  // This window holds the table at once; the core's broadcast holds it in every other window.
-  const request = `window-${crypto.randomUUID()}`;
-  useComparisonColumns.getState().hold(handle.tableId, request);
-  try {
-    return await ask();
-  } catch (error) {
-    useAppStore.getState().reportError(error);
-    return null;
-  } finally {
-    useComparisonColumns.getState().release(handle.tableId, request);
-  }
-}
 
 function answersOf(
   handle: ComparisonColumnHandle,
@@ -416,7 +393,7 @@ export async function hideColumn(
   requestAnimationFrame(() =>
     document
       .querySelector<HTMLElement>(
-        `.comparison-table[data-comparison-table="${CSS.escape(handle.tableId)}"] [data-testid="comparison-hidden-menu"]`,
+        `.comparison-table[data-comparison-table="${CSS.escape(handle.tableId)}"] [data-testid="comparison-table-menu"]`,
       )
       ?.focus(),
   );
