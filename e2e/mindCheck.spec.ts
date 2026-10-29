@@ -583,30 +583,32 @@ test("the line that says nothing changed goes when a Document is edited, moved o
     await pointAndClick(window, check);
     await expect(check).toHaveAttribute("title", "Nothing changed", { timeout: 20_000 });
     await pointAndClick(window, check);
-    await expect(unchanged).toBeVisible().catch(async (error: unknown) => {
-      const id = await window.getByTestId("mind-pane").last().getAttribute("data-mind-id");
-      const plan = id
-        ? await window.evaluate(
-            (mindId) =>
-              (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind.planMindCheck(
-                mindId,
-                "changed",
-                false,
-              ),
-            id,
-          )
-        : null;
-      await test.info().attach("changed-check-plan", {
-        body: JSON.stringify({
-          plan,
-          cardVisible: await card.isVisible(),
-          asking: await card.getByTestId("mind-check-ask").isVisible(),
-          running: await window.getByTestId("badge-stop").count(),
-        }),
-        contentType: "application/json",
+    await expect(unchanged)
+      .toBeVisible()
+      .catch(async (error: unknown) => {
+        const id = await window.getByTestId("mind-pane").last().getAttribute("data-mind-id");
+        const plan = id
+          ? await window.evaluate(
+              (mindId) =>
+                (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind.planMindCheck(
+                  mindId,
+                  "changed",
+                  false,
+                ),
+              id,
+            )
+          : null;
+        await test.info().attach("changed-check-plan", {
+          body: JSON.stringify({
+            plan,
+            cardVisible: await card.isVisible(),
+            asking: await card.getByTestId("mind-check-ask").isVisible(),
+            running: await window.getByTestId("badge-stop").count(),
+          }),
+          contentType: "application/json",
+        });
+        throw error;
       });
-      throw error;
-    });
   };
   await pointAndClick(window, check);
   await expect(unchanged).toBeVisible();
