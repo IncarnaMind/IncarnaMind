@@ -126,15 +126,18 @@ export function ClaimMark({
   style,
   reveal,
   onRevealed,
+  inline = false,
 }: {
   claim: ShownClaim;
   editor: Editor;
   mindId: string;
   doc: Y.Doc;
   label: string;
-  style: CSSProperties;
+  style?: CSSProperties;
   reveal: boolean;
   onRevealed(): void;
+  /** A folded Mind draws it in the text, at its sentence's end (`MarginChecks`). */
+  inline?: boolean;
 }) {
   const t = useT();
   const state = claim.shown.state;
@@ -230,6 +233,8 @@ export function ClaimMark({
     else inTheNote();
   };
 
+  const outlineLayer = button?.parentElement ?? null;
+
   return (
     <>
       <button
@@ -241,7 +246,7 @@ export function ClaimMark({
         data-open={open || undefined}
         data-guided={guided || undefined}
         data-addable={plus || undefined}
-        className={`margin-check claim-mark ${reveal ? "margin-check--reveal" : ""}`}
+        className={`margin-check claim-mark ${inline ? "claim-mark--inline" : ""} ${reveal ? "margin-check--reveal" : ""}`}
         style={style}
         aria-label={label}
         title={label}
@@ -274,9 +279,7 @@ export function ClaimMark({
         {!silent && <ClaimMarkIcon state={state} className="margin-check-icon" />}
         {plus && <span aria-hidden="true">+</span>}
       </button>
-      {open && button?.parentElement && (
-        <ClaimOutline editor={editor} id={id} layer={button.parentElement} />
-      )}
+      {open && outlineLayer && <ClaimOutline editor={editor} id={id} layer={outlineLayer} />}
       {open &&
         button &&
         createPortal(
