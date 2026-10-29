@@ -296,11 +296,12 @@ export function sentencesToCheck(
   state: EditorState,
   skipped: ReadonlySet<string> = new Set(),
   within?: (place: SentencePlace) => boolean,
+  omitted: readonly KeptMark[] = [],
 ): SentencePlace[] {
   const places: SentencePlace[] = [];
   eachSentence(
     state.doc,
-    { claims: shownClaims(state), skipped, kept: keptSpans(state) },
+    { claims: shownClaims(state), skipped, kept: keptSpans(state), omitted },
     (place) => {
       if (place.state.kind === "to-check" && (!within || within(place))) places.push(place);
     },
@@ -316,6 +317,7 @@ export function toCheckRanges(
   state: EditorState,
   skipped: ReadonlySet<string> = new Set(),
   within?: (place: SentencePlace) => boolean,
+  omitted: readonly KeptMark[] = [],
 ): { from: number; to: number }[] {
-  return sentencesToCheck(state, skipped, within).map(({ from, to }) => ({ from, to }));
+  return sentencesToCheck(state, skipped, within, omitted).map(({ from, to }) => ({ from, to }));
 }

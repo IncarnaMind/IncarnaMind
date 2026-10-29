@@ -190,12 +190,7 @@ export function ClaimMark({
   // A new verdict can take the focused action away: the focus would fall to the page, not the Mind.
   // biome-ignore lint/correctness/useExhaustiveDependencies: the verdict is when the action can go.
   useEffect(() => {
-    if (
-      !open ||
-      !openedByKeyboard.current ||
-      (document.activeElement !== document.body && document.activeElement !== button)
-    )
-      return;
+    if (!open || !openedByKeyboard.current || document.activeElement !== document.body) return;
     focusFirstAction(card.current, button);
   }, [open, state, button]);
   // A card already open under the mouse: the popover only takes the focus as it first shows.

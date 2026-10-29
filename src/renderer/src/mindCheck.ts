@@ -41,6 +41,7 @@ import { type EstimateLine, estimateLine } from "./cost";
 import { selectionForEdit } from "./editor/editSelection";
 import { type SentencePlace, sentencesToCheck } from "./editor/healthCounts";
 import { mindEditor, whenMindEditor } from "./editor/openEditors";
+import { opinionSentenceRanges } from "./editor/opinionLocations";
 import { editorDoc } from "./editor/proposalReview";
 import { languageNow, translateNow } from "./i18n";
 import { frontTabOfMind, groupsMerged } from "./layoutSlice";
@@ -190,9 +191,12 @@ async function readSentencesToCheck(mindId: string): Promise<SentencesToCheck | 
   const doc = editor && editorDoc(editor);
   if (!editor || editor.isDestroyed || !doc) return null;
   const skipped = new Set(mindCheckOf(doc)?.skipped ?? []);
-  const cited = sentencesToCheck(editor.state, skipped).filter(
-    (place: SentencePlace) => place.citations.length > 0 && isClaim(place.text),
-  );
+  const cited = sentencesToCheck(
+    editor.state,
+    skipped,
+    undefined,
+    opinionSentenceRanges(editor.state.doc, doc),
+  ).filter((place: SentencePlace) => place.citations.length > 0 && isClaim(place.text));
   return {
     count: cited.length,
     model: modelInUseOf(doc),

@@ -178,6 +178,152 @@ describe("ordered claim part codec", () => {
 });
 
 describe("one sentence projection", () => {
+  test.each(["No Passage is about this detail.", "没有段落谈到这个细节。"])(
+    "an off-topic checked quote remains provenance without deciding %s",
+    (reason) => {
+      const quote = source("off-topic");
+      const projected = resultFromParts([
+        partWithResult(
+          plan,
+          { ...result("unsupported"), unsupported: { reason, covered: null, uncovered: null } },
+          [quote],
+        ),
+      ]);
+      expect(projected).toMatchObject({ verdict: "unsupported", evidence: null });
+      expect(projected.parts?.[0]?.evidence).toEqual([quote]);
+      expect(projected.parts?.[0]).toMatchObject({ decidingEvidence: null });
+      if (projected.verdict !== "unsupported") throw new Error("Expected Unsupported.");
+      expect(projected.unsupported?.found).not.toBe(true);
+      const stored = {
+        ...mark(projected.parts),
+        state: projected.verdict,
+        evidence: projected.evidence,
+        unsupported: projected.unsupported,
+        versions: projected.versions,
+      };
+      expect(readClaimCheck(stored)).toMatchObject({ evidence: null });
+      expect(readClaimCheck(readClaimCheck(stored))).toEqual(readClaimCheck(stored));
+    },
+  );
+
+  test.each(["The Document gives another value.", "文档给出了另一个数值。"])(
+    "an actual nearest deciding quote remains found for %s",
+    (reason) => {
+      const quote = source("nearest");
+      const atomic = {
+        ...result("unsupported"),
+        evidence: quote,
+        unsupported: { reason, covered: "the amount", uncovered: "the period" },
+      };
+      const checked = partWithResult(plan, atomic);
+      expect(checked.unsupported).toEqual(atomic.unsupported);
+      expect(checked).toMatchObject({ decidingEvidence: 0 });
+      const projected = resultFromParts([checked]);
+      expect(projected).toMatchObject({
+        verdict: "unsupported",
+        evidence: quote,
+        unsupported: atomic.unsupported,
+      });
+      const stored = {
+        ...mark(projected.parts),
+        state: projected.verdict,
+        evidence: quote,
+        unsupported: projected.verdict === "unsupported" ? projected.unsupported : null,
+      };
+      expect(readClaimCheck(stored)).toMatchObject({
+        evidence: quote,
+        unsupported: atomic.unsupported,
+      });
+      expect(readClaimCheck(readClaimCheck(stored))).toEqual(readClaimCheck(stored));
+    },
+  );
+
+  test.each([
+    ["the amount, 54,000", "the currency (£)"],
+    ["金额 54,000", "币种（£）"],
+  ])(
+    "partial proof without a quoted field preserves %s / %s without a scalar decider",
+    (covered, uncovered) => {
+      const quote = source("unit-input");
+      const atomic = {
+        ...result("unsupported"),
+        unsupported: { reason: null, covered, uncovered, found: true as const },
+      };
+      const projected = resultFromParts([partWithResult(plan, atomic, [quote])]);
+      expect(projected).toMatchObject({
+        verdict: "unsupported",
+        evidence: null,
+        unsupported: atomic.unsupported,
+        parts: [{ decidingEvidence: null, evidence: [quote] }],
+      });
+      expect(projected.parts?.[0]?.unsupported?.quoted).toBeUndefined();
+      const stored = {
+        ...mark(projected.parts),
+        state: "unsupported",
+        evidence: null,
+        unsupported: atomic.unsupported,
+      };
+      expect(readClaimCheck(stored)).toMatchObject({
+        evidence: null,
+        unsupported: atomic.unsupported,
+      });
+      expect(readClaimCheck(readClaimCheck(stored))).toEqual(readClaimCheck(stored));
+    },
+  );
+
+  test.each([-1, 1, 0.5, Number.NaN, Number.POSITIVE_INFINITY, "0", true])(
+    "a deciding evidence index %s outside the checked inventory fails closed",
+    (decidingEvidence) => {
+      const invalid = { ...part(), decidingEvidence };
+      expect(readClaimParts([invalid], "Revenue rose.")).toBeNull();
+      expect(readClaimCheck({ ...mark(), parts: [invalid] })).toMatchObject({
+        state: "not-checked",
+        reason: "malformed",
+        evidence: null,
+      });
+    },
+  );
+
+  test("an explicit deciding role must point to a found Citation", () => {
+    const invalid = {
+      ...part("unsupported"),
+      decidingEvidence: 0,
+      evidence: [{ ...source(), check: "not-found" as const }],
+    };
+    expect(readClaimParts([invalid], "Revenue rose.")).toBeNull();
+    expect(resultFromParts([invalid])).toMatchObject({
+      verdict: "not-checked",
+      reason: "malformed",
+    });
+  });
+
+  test("explicit nonfirst and null deciding roles survive canonical reloads", () => {
+    for (const decidingEvidence of [1, null]) {
+      const stored = mark([
+        {
+          ...part("unsupported"),
+          decidingEvidence,
+          evidence: [source("context"), source("deciding")],
+        },
+      ]);
+      const read = readClaimCheck(stored);
+      expect(read?.evidence?.documentId ?? null).toBe(
+        decidingEvidence === null ? null : "deciding",
+      );
+      expect(read?.parts?.[0]).toMatchObject({ decidingEvidence });
+      expect(readClaimCheck(read)).toEqual(read);
+    }
+  });
+
+  test("an old part without a deciding role keeps its legacy projection", () => {
+    const old = { ...part("unsupported"), evidence: [source("legacy")] };
+    delete old.decidingEvidence;
+    const read = readClaimCheck(mark([old]));
+    expect(read?.evidence?.documentId).toBe("legacy");
+    expect(read?.parts?.[0]).not.toHaveProperty("decidingEvidence");
+    expect(readClaimCheck(read)).toEqual(read);
+  });
+
   test("retains complementary sources and unions all versions and exclusions", () => {
     const first = partWithResult(plan, result("supported", "one"), [source("one"), source("two")]);
     const second = {
@@ -246,9 +392,14 @@ describe("one sentence projection", () => {
   });
 
   test("partial factual support makes the parent Unsupported while its missing row stays Not found", () => {
-    const missing = part("unsupported");
+    const missing = partWithResult(plan, result("unsupported"), [source("off-topic")]);
     const projected = resultFromParts([part("supported"), missing]);
-    expect(projected).toMatchObject({ verdict: "unsupported", unsupported: { found: true } });
+    expect(projected).toMatchObject({
+      verdict: "unsupported",
+      evidence: null,
+      unsupported: { found: true },
+    });
+    expect(projected.parts?.[1]?.evidence).toEqual(missing.evidence);
     expect(missing.unsupported?.found).not.toBe(true);
     const absent = resultFromParts([part("unsupported"), missing]);
     expect(absent.verdict).toBe("unsupported");
@@ -267,6 +418,8 @@ describe("one sentence projection", () => {
       { ...part("unsupported"), evidence: coverage.domainEvidence, coverage },
     ]);
     expect(contextOnly.verdict).toBe("unsupported");
+    if (contextOnly.verdict === "unsupported") expect(contextOnly.evidence).toBeNull();
+    expect(contextOnly.parts?.[0]?.evidence).toEqual(coverage.domainEvidence);
     if (contextOnly.verdict === "unsupported")
       expect(contextOnly.unsupported?.found).not.toBe(true);
     const partial = resultFromParts([
@@ -293,12 +446,14 @@ describe("one sentence projection", () => {
   });
 
   test("a Supported child with no found evidence fails closed", () => {
-    expect(resultFromParts([{ ...part(), evidence: [] }])).toMatchObject({
+    expect(resultFromParts([{ ...part(), evidence: [], decidingEvidence: null }])).toMatchObject({
       verdict: "not-checked",
       reason: "no-evidence",
     });
     expect(
-      resultFromParts([{ ...part(), evidence: [{ ...source(), documentId: "" }] }]),
+      resultFromParts([
+        { ...part(), decidingEvidence: null, evidence: [{ ...source(), documentId: "" }] },
+      ]),
     ).toMatchObject({ verdict: "not-checked", reason: "no-evidence" });
   });
 
@@ -311,6 +466,7 @@ describe("one sentence projection", () => {
       ...part(),
       span: { start: 0, end: first.length },
       evidence: [],
+      decidingEvidence: null,
       says: "An old conclusion.",
       unsupported: { reason: "An old reason.", covered: null, uncovered: null },
       citedCaseUnchecked: true,
@@ -357,7 +513,11 @@ describe("one sentence projection", () => {
       excluded: [],
     });
     const good = part("supported", "neighbor");
-    const projected = resultFromParts([{ ...part(), evidence: [] }, good, failed]);
+    const projected = resultFromParts([
+      { ...part(), evidence: [], decidingEvidence: null },
+      good,
+      failed,
+    ]);
     expect(projected).toMatchObject({
       verdict: "not-checked",
       reason: "rate-limit",
@@ -562,7 +722,9 @@ describe("one sentence projection", () => {
     };
     const relied = restsOn(mark([checked])).map((citation) => citation.documentId);
     expect(relied).toEqual(expect.arrayContaining(["source", "covered", "input", "units"]));
-    expect(resultFromParts([{ ...checked, evidence: [] }]).verdict).toBe("supported");
+    expect(resultFromParts([{ ...checked, evidence: [], decidingEvidence: null }]).verdict).toBe(
+      "supported",
+    );
     const badUnit = {
       ...calculation,
       figure: {

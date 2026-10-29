@@ -8,7 +8,12 @@ import { Extension, Mark } from "@tiptap/core";
 import type { Node as ProseMirrorNode } from "@tiptap/pm/model";
 import { type EditorState, Plugin, PluginKey } from "@tiptap/pm/state";
 import { Decoration, DecorationSet, type EditorView } from "@tiptap/pm/view";
-import { CLAIM_CHECK_MARK, type ClaimCheckAttributes, type SearchScope } from "../../../core/api";
+import {
+  CITATION_NODE,
+  CLAIM_CHECK_MARK,
+  type ClaimCheckAttributes,
+  type SearchScope,
+} from "../../../core/api";
 import {
   type ClaimCheckShown,
   claimCheckShown,
@@ -76,12 +81,12 @@ export interface ParagraphPlaces {
 export function paragraphPlaces(
   block: ProseMirrorNode,
   pos: number,
-  skip: (child: ProseMirrorNode) => boolean = () => false,
+  skip: (child: ProseMirrorNode, start: number) => boolean = () => false,
 ): ParagraphPlaces {
   const places: ParagraphPlaces = { text: "", starts: [], ends: [], inline: [] };
   block.forEach((child, offset) => {
     const start = pos + 1 + offset;
-    if (skip(child)) return;
+    if (skip(child, start)) return;
     if (child.isText) {
       const words = child.text ?? "";
       for (let index = 0; index < words.length; index++) {
@@ -97,6 +102,31 @@ export function paragraphPlaces(
     places.text += child.type.name === "hardBreak" ? "\n" : INLINE_NODE;
   });
   return places;
+}
+
+export function claimPlaces(block: ProseMirrorNode, pos: number) {
+  const citations: { from: number; to: number }[] = [];
+  const places = paragraphPlaces(block, pos, (child, start) => {
+    if (child.type.name !== CITATION_NODE) return false;
+    citations.push({ from: start, to: start + child.nodeSize });
+    return true;
+  });
+  const sentences = sentenceSpans(places.text).map((span, index, all) => {
+    const from = places.starts[span.from] ?? pos + 1;
+    const end = places.ends[span.to - 1] ?? from;
+    const next = places.starts[all[index + 1]?.from ?? places.text.length] ?? Infinity;
+    const to = citations
+      .filter((cite) => cite.from >= end && cite.to <= next)
+      .reduce((last, cite) => Math.max(last, cite.to), end);
+    return {
+      start: span.from,
+      end: span.to,
+      from,
+      to,
+      text: places.text.slice(span.from, span.to),
+    };
+  });
+  return { ...places, sentences };
 }
 
 /** A check where it is in the editor now. */
@@ -117,6 +147,7 @@ export function claimSpans(doc: ProseMirrorNode): ClaimSpan[] {
     const found = new Map<string, { check: ClaimCheckAttributes; from: number; to: number }>();
     let at = 0;
     block.forEach((child) => {
+      if (child.type.name === CITATION_NODE) return;
       const length = child.isText ? (child.text ?? "").length : 1;
       const mark = child.marks.find((each) => each.type.name === CLAIM_CHECK_MARK);
       const check = mark ? readClaimCheck(mark.attrs) : null;
@@ -128,19 +159,22 @@ export function claimSpans(doc: ProseMirrorNode): ClaimSpan[] {
       at += length;
     });
     if (found.size === 0) return false;
-    const { text, starts, ends } = paragraphPlaces(block, pos);
-    const sentences = sentenceSpans(text);
+    const { text, starts, ends, sentences } = claimPlaces(block, pos);
     const startOf = (index: number) => starts[index] ?? pos + 1;
     const endOf = (index: number) => ends[index - 1] ?? startOf(index);
     for (const { check, from, to } of found.values()) {
-      const touched = sentences.filter((span) => span.from < to && span.to > from);
-      const start = Math.min(from, touched[0]?.from ?? from);
-      const end = Math.max(to, touched.at(-1)?.to ?? to);
+      const touched = sentences.filter((span) => span.start < to && span.end > from);
+      const start = Math.min(from, touched[0]?.start ?? from);
+      const end = Math.max(to, touched.at(-1)?.end ?? to);
       spans.push({
         check,
         from: startOf(from),
         to: endOf(to),
-        sentence: { from: startOf(start), to: endOf(end), text: text.slice(start, end) },
+        sentence: {
+          from: startOf(start),
+          to: Math.max(endOf(end), touched.at(-1)?.to ?? 0),
+          text: text.slice(start, end),
+        },
       });
     }
     return false;

@@ -325,6 +325,43 @@ describe("Checking a sentence that adds a unit", { timeout: 30_000 }, () => {
     "The annual salary is £54,000.": supported(STATED),
   };
 
+  test.each([
+    {
+      language: "en" as const,
+      claim: "The annual salary is £54,000.",
+      quote: STATED,
+      documentName: "Employment agreement",
+      covered: "the amount, 54,000",
+      uncovered: "the currency (£)",
+    },
+    {
+      language: "zh-CN" as const,
+      claim: "明远公司支付的年薪为五万四千英镑。",
+      quote: "支付年薪 54,000",
+      documentName: "明远合同",
+      covered: "金额 54,000",
+      uncovered: "币种（英镑）",
+    },
+  ])(
+    "$language: a cited unit warning keeps partial proof without a deciding Source",
+    async ({ language, claim, quote, documentName, covered, uncovered }) => {
+      const { core } = await setUpWithDocuments(checkingModel(PLANS), [CONTRACT, ...DOCUMENTS]);
+      await core.updateSettings({ user: { language } });
+      const result = await core.checkClaim({ claim, cited: [{ documentName, quote }] });
+      expect(result).toMatchObject({
+        verdict: "unsupported",
+        evidence: null,
+        unsupported: { covered, uncovered },
+        parts: [{ decidingEvidence: null }],
+      });
+      if (result.verdict !== "unsupported") throw new Error("Expected Unsupported.");
+      expect(result.unsupported?.quoted).toBeUndefined();
+      expect(result.parts?.[0]?.evidence).toEqual([
+        expect.objectContaining({ quote, check: "found" }),
+      ]);
+    },
+  );
+
   // protects=through the core, a currency named in words stays supported, an added "¥", an added "英镑" after Chinese numerals and an added "元" beside a 单元 heading are Unsupported naming only the currency, and a percent for percentage points is Unsupported saying what the Document gives, in English and Chinese (#1332); fails_when=any of these checks the other way, or names the amount as the currency; no_claim=a real model's verdict.
   test("is Unsupported only for a unit the Document doesn't state, naming what it gives", async () => {
     const { core } = await setUpWithDocuments(checkingModel(PLANS), [CONTRACT, ...DOCUMENTS]);

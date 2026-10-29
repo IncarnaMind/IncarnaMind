@@ -364,7 +364,7 @@ export interface ReadCoverage {
 }
 
 const MARKERS = /\s*\[[\^=]?\d{1,4}\]/g;
-const DISPLAY_MARKERS = /\[[\^=]\d{1,4}\]/g;
+const DISPLAY_MARKERS = /[\t ]*\[[\^=]\d{1,4}\]/g;
 const THINKING = /<think>[\s\S]*?(?:<\/think>|$)/gi;
 /** "Verdict: supported", in bold or quoted too, on a line of its own. */
 const LABELLED =

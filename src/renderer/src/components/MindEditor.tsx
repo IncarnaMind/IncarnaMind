@@ -1,4 +1,4 @@
-import { OpinionContextMenu } from "../editor/OpinionContextMenu";
+import { OpinionMenu } from "../editor/OpinionMenu";
 import { checkOpinion, opinionAt } from "../editor/opinionChecks";
 import "katex/dist/katex.min.css";
 import Collaboration from "@tiptap/extension-collaboration";
@@ -845,7 +845,9 @@ function MindEditorView({
         {wordLook && <style>{wordLook.css}</style>}
         {wordLook && <WordTableFades frame={frame} />}
         {!readOnly && <ProposalBars editor={editor} mindId={mindId} />}
-        <EditorContent editor={editor} />
+        <OpinionMenu editor={editor} mindId={mindId} doc={doc}>
+          <EditorContent editor={editor} />
+        </OpinionMenu>
         {!readOnly && <EndHint editor={editor} text={hintText} onAsk={askOnLine} />}
         <MarginChecks editor={editor} mind={{ id: mindId, doc }} />
         {!readOnly && <TableMenu editor={editor} />}
@@ -873,7 +875,6 @@ function MindEditorView({
         createPortal(<CompareSheet mindId={mindId} doc={doc} editor={editor} />, sheetSlot)}
       {!readOnly && <BlockHandle editor={editor} />}
       {!readOnly && <SelectionMenu editor={editor} ai={aiActions} edit={editField} />}
-      {!readOnly && <OpinionContextMenu editor={editor} mindId={mindId} doc={doc} />}
       {!readOnly && <LinkBubble editor={editor} />}
       {findShown && <FindBar editor={editor} onClose={() => useMindTools.getState().hideFind()} />}
       {outlineShown && (

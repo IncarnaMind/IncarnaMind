@@ -72,17 +72,26 @@ export function checkOpinion(
   place: string,
 ): void {
   if (editor.isDestroyed || useChecks.getState().running[mindId]) return;
-  keepMenuClosed(editor, opinion.range.from, opinion.range.to);
+  const current = opinionChecks(editor, doc).find(
+    (each) =>
+      each.id === opinion.id &&
+      each.span.start === opinion.span.start &&
+      each.span.end === opinion.span.end &&
+      each.text.slice(each.span.start, each.span.end) ===
+        opinion.text.slice(opinion.span.start, opinion.span.end),
+  );
+  if (!current) return;
+  keepMenuClosed(editor, current.range.from, current.range.to);
   editor.view.dispatch(
     editor.state.tr.setSelection(
-      TextSelection.create(editor.state.doc, opinion.range.from, opinion.range.to),
+      TextSelection.create(editor.state.doc, current.range.from, current.range.to),
     ),
   );
   setCheckCardOpen(place, false);
-  setOpenClaim(place, opinion.id);
-  setClaimFocus(place, opinion.id);
+  setOpenClaim(place, current.id);
+  setClaimFocus(place, current.id);
   void checkSentences(editor, mindId, doc, "check-against-documents", {
-    ranges: [opinion.range],
-    part: { id: opinion.id, span: opinion.span },
+    ranges: [current.range],
+    part: { id: current.id, span: current.span },
   });
 }

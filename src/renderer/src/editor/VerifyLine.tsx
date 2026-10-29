@@ -156,12 +156,12 @@ export function useVerifyState(
 export type VerifyState = ReturnType<typeof useVerifyState>;
 
 /** Whether a verify's claims have their checks, so its card says what they found. */
-export const verifyDone = ({ running, outcome, claims, marks, opinions }: VerifyState) =>
+export const verifyDone = ({ running, outcome, claims, marks }: VerifyState) =>
   running === null &&
   outcome?.kind !== "no-documents" &&
   outcome?.kind !== "nothing" &&
   claims !== null &&
-  (marks.marked > 0 || opinions.length > 0);
+  marks.marked > 0;
 
 const VERIFY_MARKS: Record<VerifyRow, ClaimMarkState> = {
   contradicted: "contradicted",
@@ -345,20 +345,23 @@ export function VerifyCard({
     const look = marks.rows.contradicted.length + marks.rows.unsupported.length;
     const notChecked = marks.rows.notChecked.length;
     const stopped = outcome?.kind === "checked" ? outcome.stop : null;
-    const summary = [
-      notChecked > 0
-        ? t(marks.marked === 1 ? "verify.checkedOf.one" : "verify.checkedOf", {
-            checked: format(marks.marked - notChecked),
-            count: format(marks.marked),
-          })
-        : t(marks.marked === 1 ? "verify.checked.one" : "verify.checked", {
-            count: format(marks.marked),
-          }),
-      ...(look > 0
-        ? [t(look === 1 ? "verify.needLook.one" : "verify.needLook", { count: format(look) })]
-        : []),
-      ...(stopped ? runStopParts(stopped, t, language) : []),
-    ];
+    const summary =
+      total === 0
+        ? [t("verify.none")]
+        : [
+            notChecked > 0
+              ? t(marks.marked === 1 ? "verify.checkedOf.one" : "verify.checkedOf", {
+                  checked: format(marks.marked - notChecked),
+                  count: format(marks.marked),
+                })
+              : t(marks.marked === 1 ? "verify.checked.one" : "verify.checked", {
+                  count: format(marks.marked),
+                }),
+            ...(look > 0
+              ? [t(look === 1 ? "verify.needLook.one" : "verify.needLook", { count: format(look) })]
+              : []),
+            ...(stopped ? runStopParts(stopped, t, language) : []),
+          ];
     body = (
       <div ref={doneRef} data-testid="verify-done" className="check-rows">
         <MetaLine

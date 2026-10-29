@@ -52,6 +52,9 @@ vi.mock("../../src/renderer/src/editor/healthCounts", () => ({
     },
   ],
 }));
+vi.mock("../../src/renderer/src/editor/opinionLocations", () => ({
+  opinionSentenceRanges: () => [],
+}));
 vi.mock("../../src/renderer/src/editor/editSelection", () => ({
   selectionForEdit: () => ({
     from: { blockId: "block-1", offset: 0 },

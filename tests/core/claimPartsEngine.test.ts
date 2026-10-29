@@ -376,7 +376,7 @@ describe("literal sentence parts", () => {
         kind: "forecast-certainty",
         reason:
           language === "en"
-            ? "The Document forecasts this but doesn't say it will happen"
+            ? "The Document forecasts this but doesn’t say it will happen"
             : "文档只是作出预测，没有说这一定会发生",
         quoted: { quote },
       });
@@ -1121,6 +1121,29 @@ describe.each(["en", "zh-CN"] as const)("%s declared evidence recovery", (langua
     );
     expect(result.verdict).toBe("unsupported");
     expect(result.parts?.[0]?.evidence).toEqual([]);
+    expect(recoveries).toHaveLength(0);
+  });
+
+  test.each([
+    { value: "", valid: false },
+    { value: "none", valid: false },
+    { value: "[^1]", valid: false },
+    { value: "[]", valid: true },
+  ])("Evidence: $value remains a strict JSON inventory after cite", async ({ value, valid }) => {
+    const reply = `Verdict: unsupported\nTopic: not found\nEvidence: ${value}\nCalculation: none`;
+    expect(readVerdict(reply)?.evidence).toEqual(valid ? [] : null);
+    const { result, calls, recoveries } = await check(
+      claim,
+      [{ kind: "fact", text: claim }],
+      { [claim]: { quotes: [north], reply } },
+      language,
+    );
+    expect(
+      calls.flatMap((call) => call.results).find((result) => result.tool === "cite")?.text,
+    ).toMatch(/^Recorded \[\^1\]\./);
+    expect(result).toMatchObject(
+      valid ? { verdict: "unsupported" } : { verdict: "not-checked", reason: "malformed" },
+    );
     expect(recoveries).toHaveLength(0);
   });
 });

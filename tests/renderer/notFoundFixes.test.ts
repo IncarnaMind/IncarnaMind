@@ -10,10 +10,13 @@ import {
   GENERATED_MARK,
 } from "../../src/core/api";
 import { citationNumbersPlugin } from "../../src/renderer/src/editor/citationNumbers";
-import { claimSpans, type ShownClaim } from "../../src/renderer/src/editor/claimChecks";
+import {
+  claimPlaces,
+  claimSpans,
+  type ShownClaim,
+} from "../../src/renderer/src/editor/claimChecks";
 import { noteExtensions } from "../../src/renderer/src/editor/noteSchema";
 import { claimCheckShown, readClaimCheck } from "../../src/shared/claimChecks";
-import { sentenceSpans } from "../../src/shared/sentences";
 
 vi.mock("../../src/renderer/src/core", () => ({ core: {} }));
 vi.mock("../../src/renderer/src/editWithAi", () => ({
@@ -33,6 +36,7 @@ const {
   offersKeepAsView,
   offersNotFound,
   searchedLess,
+  sentenceOf,
 } = await import("../../src/renderer/src/unsupportedFixes");
 const { useNotices } = await import("../../src/renderer/src/notices");
 const { useUndo } = await import("../../src/renderer/src/undo");
@@ -127,11 +131,9 @@ function claimOn(
   let start = 0;
   for (let i = 0; i < block; i++) start += editor.state.doc.child(i).nodeSize;
   const node = editor.state.doc.child(block);
-  const text = node.textBetween(0, node.content.size, "\n", "￼");
-  const span = sentenceSpans(text)[index];
+  const span = claimPlaces(node, start).sentences[index];
   if (!span) throw new Error("No such sentence.");
-  const from = start + 1 + span.from;
-  const to = start + 1 + span.to;
+  const { from, to } = span;
   return {
     check: {
       citedCaseUnchecked: false,
@@ -143,7 +145,7 @@ function claimOn(
     },
     from,
     to,
-    sentence: { from, to, text: text.slice(span.from, span.to) },
+    sentence: { from, to, text: span.text },
     shown: { state: over.state ?? "unsupported" },
   } as unknown as ShownClaim;
 }
@@ -151,6 +153,50 @@ function claimOn(
 const textsOf = (editor: Editor) => editor.state.doc.children.map((each) => each.textContent);
 
 describe("Cut it", () => {
+  test.each(["inside", "end"])(
+    "uses the canonical cited sentence for searches and Cut it (%s)",
+    (place) => {
+      const content =
+        place === "inside"
+          ? paragraph(
+              "Revenue ",
+              citation,
+              { type: "text", text: "rose 8%. Next stays." },
+              citation,
+            )
+          : paragraph(
+              "Revenue rose 8%.",
+              citation,
+              { type: "text", text: " Next stays." },
+              citation,
+            );
+      const { editor, dispatched } = editorHolding([content]);
+      const before = editor.state.doc.toJSON();
+      const claim = claimOn(editor, 0, 0);
+      expect(sentenceOf(editor, claim)).toBe("Revenue rose 8%.");
+      cutSentence(editor, claim);
+      expect(dispatched).toHaveLength(1);
+      expect(textsOf(editor)).toEqual(["Next stays."]);
+      expect(editor.state.doc.textContent).not.toContain("Revenue");
+      let citations = 0;
+      editor.state.doc.descendants((node) => {
+        if (node.type.name === CITATION_NODE) citations++;
+      });
+      expect(citations).toBe(1);
+      editor.commands.undo();
+      expect(editor.state.doc.toJSON()).toEqual(before);
+    },
+  );
+  test("cuts a whole final cited paragraph and its Citation, with Undo", () => {
+    const { editor, dispatched } = editorHolding([paragraph("Revenue rose 8%.", citation)]);
+    const before = editor.state.doc.toJSON();
+    cutSentence(editor, claimOn(editor, 0, 0));
+    expect(dispatched).toHaveLength(1);
+    expect(textsOf(editor)).toEqual([""]);
+    expect(editor.state.doc.toJSON()).not.toEqual(before);
+    editor.commands.undo();
+    expect(editor.state.doc.toJSON()).toEqual(before);
+  });
   test.each([
     ["the first sentence", 0, ["Two dogs. Three birds."]],
     ["a sentence in the middle", 1, ["One cat. Three birds."]],

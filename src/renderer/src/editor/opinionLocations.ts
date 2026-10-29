@@ -2,8 +2,7 @@ import type { Node as ProseMirrorNode } from "@tiptap/pm/model";
 import type * as Y from "yjs";
 import { BLOCK_ID_ATTRIBUTE } from "../../../core/api";
 import { omittedOpinions, readOpinionSentences } from "../../../shared/opinions";
-import { sentenceSpans } from "../../../shared/sentences";
-import { claimSpans, paragraphPlaces } from "./claimChecks";
+import { claimPlaces, claimSpans } from "./claimChecks";
 
 export function opinionLocations(doc: ProseMirrorNode) {
   const sentences: {
@@ -19,23 +18,21 @@ export function opinionLocations(doc: ProseMirrorNode) {
     if (!block.isTextblock) return true;
     const blockId: unknown = block.attrs[BLOCK_ID_ATTRIBUTE];
     if (typeof blockId !== "string") return false;
-    const places = paragraphPlaces(block, pos);
+    const places = claimPlaces(block, pos);
     const occurrences = new Map<string, number>();
-    for (const span of sentenceSpans(places.text)) {
-      const text = places.text.slice(span.from, span.to);
+    for (const span of places.sentences) {
+      const text = span.text;
       const occurrence = occurrences.get(text) ?? 0;
       occurrences.set(text, occurrence + 1);
-      const from = places.starts[span.from];
-      const to = places.ends[span.to - 1];
-      if (from === undefined || to === undefined) continue;
+      const { from, to } = span;
       sentences.push({
         blockId,
         text,
         occurrence,
         from,
         to,
-        starts: places.starts.slice(span.from, span.to),
-        ends: places.ends.slice(span.from, span.to),
+        starts: places.starts.slice(span.start, span.end),
+        ends: places.ends.slice(span.start, span.end),
       });
     }
     return false;

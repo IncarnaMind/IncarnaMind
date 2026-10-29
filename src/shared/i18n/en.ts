@@ -784,7 +784,7 @@ export const en = {
   "claim.parts.more": "{count} more",
   "claim.parts.coverage": "Covers {covered} of the {total} {unit}",
   "claim.unbackedCause": "The Documents state both, but not that one caused the other.",
-  "claim.forecast": "The Document forecasts this but doesn't say it will happen",
+  "claim.forecast": "The Document forecasts this but doesn’t say it will happen",
   "claim.more": "More for this check",
   "claim.webSearchOff": "Turn on web search to look this up.",
   "claim.webSearchOff.action": "Open Settings",

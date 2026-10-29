@@ -329,6 +329,34 @@ for (const language of ["en", "zh-CN"] as const) {
         await window.keyboard.press("Escape");
         await expect(window.getByTestId("mind-editor")).toBeFocused();
         expect(await selectedWords(window)).toBe(words.pure);
+        for (const key of ["ContextMenu", "Shift+F10"]) {
+          await window.keyboard.press(key);
+          const opinionMenu = window.getByTestId("opinion-context-actions");
+          await expect(opinionMenu).toBeVisible();
+          await expect(
+            opinionMenu.getByRole("menuitem", { name: words.anyway, exact: true }),
+          ).toBeFocused();
+          expect(await selectedWords(window)).toBe(words.pure);
+          const selectionBox = await window.getByTestId("mind-editor").evaluate((dom) => {
+            const editor = (dom as unknown as { editor: Editor }).editor;
+            const from = editor.view.coordsAtPos(editor.state.selection.from);
+            const to = editor.view.coordsAtPos(editor.state.selection.to);
+            return { left: from.left, right: to.right, top: from.top, bottom: to.bottom };
+          });
+          const menuBox = await opinionMenu.boundingBox();
+          if (!menuBox) throw new Error("The opinion menu has no visible bounds.");
+          expect(menuBox.x).toBeGreaterThanOrEqual(selectionBox.left - menuBox.width);
+          expect(menuBox.x).toBeLessThan(selectionBox.right);
+          expect(
+            Math.min(
+              Math.abs(menuBox.y - selectionBox.bottom),
+              Math.abs(menuBox.y + menuBox.height - selectionBox.top),
+            ),
+          ).toBeLessThan(menuBox.height);
+          await window.keyboard.press("Escape");
+          await expect(window.getByTestId("mind-editor")).toBeFocused();
+          expect(await selectedWords(window)).toBe(words.pure);
+        }
         if (language === "en" && width === 900) {
           const gutter = await window.getByTestId("mind-editor").evaluate((dom) => {
             const editor = (dom as unknown as { editor: Editor }).editor;
@@ -534,7 +562,7 @@ for (const language of ["en", "zh-CN"] as const) {
         await window.getByTestId("claim-mark").click();
         await expect(card.getByTestId("claim-part-reason")).toHaveText(
           language === "en"
-            ? "The Document forecasts this but doesn't say it will happen"
+            ? "The Document forecasts this but doesn’t say it will happen"
             : "文档只是作出预测，没有说这一定会发生",
         );
         await screenshot(window, `opinions-forecast-${language}-${width}`);
@@ -611,6 +639,10 @@ for (const language of ["en", "zh-CN"] as const) {
           await applySettings(window, Array.from(Y.encodeStateAsUpdate(verifySettings)));
           const pureVerify = await checkCard(window);
           await expect(pureVerify.getByTestId("verify-done")).toBeVisible();
+          await expect(pureVerify.getByTestId("verify-done")).toContainText(
+            language === "en" ? "No claims found" : "没有找到说法",
+          );
+          await expect(pureVerify.getByTestId("verify-again")).toHaveCount(0);
           await expect(window.getByTestId("claim-mark")).toHaveCount(0);
           await expect(pureVerify.getByTestId("opinions-line")).toContainText(
             language === "en" ? "1 opinion left out" : "1 处观点未纳入核对",

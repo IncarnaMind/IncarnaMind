@@ -214,7 +214,7 @@ export interface CreateMindInput {
  *   `hidden`. An older version's editor writes the columns back without
  *   these when it changes one, so it opens these Minds read-only. Older
  *   content is version 30 content as it is.
- * - 33: ordered factual and opinion parts inside a sentence's `claimCheck`
+ * - 34: ordered factual and opinion parts inside a sentence's `claimCheck`
  *   mark (#2002). Older editors strip the part ranges and their evidence
  *   when saving marked words, so these Notes open read-only there.
  */
@@ -5396,6 +5396,7 @@ export interface ClaimPartCoverage {
 export interface ClaimCheckPart extends ClaimPartPlan {
   verdict: ClaimVerdict | "not-checked" | "checking" | null;
   evidence: CitationAttributes[];
+  decidingEvidence?: number | null;
   says: string | null;
   unsupported: UnsupportedReason | null;
   calculation: ClaimCalculation | null;

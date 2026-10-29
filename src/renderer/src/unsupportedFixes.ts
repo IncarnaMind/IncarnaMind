@@ -13,6 +13,7 @@ import type { Editor } from "@tiptap/core";
 import type { Mark as ProseMirrorMark, Node as ProseMirrorNode } from "@tiptap/pm/model";
 import type * as Y from "yjs";
 import {
+  CITATION_NODE,
   CLAIM_CHECK_MARK,
   type ClaimCalculation,
   type ClaimCheckAttributes,
@@ -28,11 +29,11 @@ import {
 } from "../../shared/figures";
 import { figureNumber } from "../../shared/formula";
 import type { MessageKey } from "../../shared/i18n";
-import { INLINE_NODE } from "../../shared/sentences";
+import { INLINE_NODE, sentenceSpans } from "../../shared/sentences";
 import { checkAgain, useChecks } from "./checks";
 import { makeMine } from "./editor/aiText";
 import { citationsOf } from "./editor/alreadyCited";
-import { paragraphPlaces, type ShownClaim, shownClaims } from "./editor/claimChecks";
+import { claimPlaces, type ShownClaim, shownClaims } from "./editor/claimChecks";
 import { asOneStep, offerEditorUndo } from "./editor/editorUndo";
 import { requestEdit, useEdits } from "./editWithAi";
 import { translateNow } from "./i18n";
@@ -91,7 +92,7 @@ export function offersFindSources(editor: Editor, claim: ShownClaim): boolean {
 
 /** The words of the sentence a check is about. */
 export const sentenceOf = (editor: Editor, claim: ShownClaim): string =>
-  editor.state.doc.textBetween(claim.sentence.from, claim.sentence.to, " ", " ").trim();
+  wordsAt(editor.state.doc, claim.sentence.from, claim.sentence.to, citationMarker).trim();
 
 /** The word a check's mark and card are headed with: "Not found" apart from "Unsupported". */
 export const checkStateKey = (editor: Editor, claim: ShownClaim): MessageKey =>
@@ -200,9 +201,17 @@ export const searchedLess = (claim: ShownClaim): boolean =>
 export const searchAllDocuments = (editor: Editor, mindId: string, doc: Y.Doc, claim: ShownClaim) =>
   checkAgain(editor, mindId, doc, claim, true);
 
-const wordsAt = (doc: ProseMirrorNode, from: number, to: number) => {
+const citationMarker = (node: ProseMirrorNode) => node.type.name === CITATION_NODE;
+
+const wordsAt = (
+  doc: ProseMirrorNode,
+  from: number,
+  to: number,
+  skip: (node: ProseMirrorNode) => boolean = () => false,
+) => {
   let words = "";
   doc.nodesBetween(from, to, (node, pos) => {
+    if (skip(node)) return false;
     if (node.isText) words += (node.text ?? "").slice(Math.max(from, pos) - pos, to - pos);
     else if (node.isInline) {
       words += node.type.name === "hardBreak" ? "\n" : INLINE_NODE;
@@ -222,7 +231,11 @@ export function cutSentence(editor: Editor, claim: ShownClaim): void {
   const { state } = editor;
   const { from, to } = claim.sentence;
   // Read from the document again, so a range that has drifted from its words is never deleted.
-  if (wordsAt(state.doc, from, to) !== claim.sentence.text) {
+  const current = wordsAt(state.doc, from, to, citationMarker);
+  const spans = sentenceSpans(current);
+  const span = spans.length === 1 ? spans[0] : null;
+  const text = span ? current.slice(span.from, span.to) : current;
+  if (text !== claim.sentence.text) {
     useNotices.getState().showError(new Error(translateNow("claim.cutSentence.moved")));
     return;
   }
@@ -268,7 +281,7 @@ function placeInSentence(
 ): { from: number; to: number } | null {
   const $start = editor.state.doc.resolve(claim.sentence.from);
   if (!$start.parent.isTextblock) return null;
-  const places = paragraphPlaces($start.parent, $start.start() - 1);
+  const places = claimPlaces($start.parent, $start.start() - 1);
   const at = places.starts.indexOf(claim.sentence.from);
   if (at < 0 || places.text.slice(at, at + claim.sentence.text.length) !== claim.sentence.text)
     return null;

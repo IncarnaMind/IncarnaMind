@@ -112,6 +112,50 @@ function citedIn(element: Y.XmlElement, from: number, to: number): CitedQuote[] 
   });
 }
 
+function claimFrame(element: Y.XmlElement) {
+  let text = "";
+  const starts: number[] = [];
+  const ends: number[] = [];
+  const citations: number[] = [];
+  for (const { node, start } of layout(element)) {
+    if (node instanceof Y.XmlElement && node.nodeName === CITATION_NODE) {
+      citations.push(start);
+      continue;
+    }
+    const words =
+      node instanceof Y.XmlText
+        ? (node.toDelta() as Run[])
+            .map((run) => (typeof run.insert === "string" ? run.insert : INLINE_NODE))
+            .join("")
+        : node.nodeName === BREAK
+          ? "\n"
+          : INLINE_NODE;
+    for (let index = 0; index < words.length; index++) {
+      starts.push(start + index);
+      ends.push(start + index + 1);
+    }
+    text += words;
+  }
+  const spans = sentenceSpans(text).map((span, index, all) => {
+    const from = starts[span.from] ?? 0;
+    const to = ends[span.to - 1] ?? from;
+    const next = starts[all[index + 1]?.from ?? text.length] ?? Infinity;
+    const extent = citations
+      .filter((at) => at >= to && at < next)
+      .reduce((end, at) => Math.max(end, at + 1), to);
+    return {
+      start: span.from,
+      end: span.to,
+      from,
+      to,
+      extent,
+      text: text.slice(span.from, span.to),
+      cited: citedIn(element, from, extent),
+    };
+  });
+  return { text, spans };
+}
+
 /**
  * The sentences each stretch touches, each whole and once: a sentence a
  * stretch only touches is checked all the same. Headings aren't checked.
@@ -133,26 +177,26 @@ export function selectedSentences(
       if (busy || element.nodeName !== "paragraph") continue;
       const blockId = idOf(element);
       if (typeof blockId !== "string") continue;
-      const text = textOf(element);
+      const { text, spans } = claimFrame(element);
       const start = index === 0 ? from.offset : 0;
-      const end = index === last - first ? to.offset : text.length;
+      const end = index === last - first ? to.offset : Infinity;
       const occurrences = new Map<string, number>();
-      for (const span of sentenceSpans(text)) {
-        const words = text.slice(span.from, span.to);
+      for (const span of spans) {
+        const words = span.text;
         const occurrence = occurrences.get(words) ?? 0;
         occurrences.set(words, occurrence + 1);
         const touched =
           start === end
-            ? span.from <= start && start <= span.to
-            : span.from < end && span.to > start;
+            ? span.from <= start && start <= span.extent
+            : span.from < end && span.extent > start;
         const key = `${blockId}:${span.from}`;
         if (!touched || seen.has(key)) continue;
         seen.add(key);
-        const changes = changesIn(element, span.from, span.to);
+        const changes = changesIn(element, span.from, span.extent);
         if (changes.length > 0) {
           waiting.sentences.push({
             from: { blockId, offset: span.from },
-            to: { blockId, offset: span.to },
+            to: { blockId, offset: span.extent },
           });
           waiting.changeIds.push(...changes.filter((id) => !waiting.changeIds.includes(id)));
           continue;
@@ -165,7 +209,7 @@ export function selectedSentences(
           to: span.to,
           text: words,
           context: text,
-          cited: citedIn(element, span.from, span.to),
+          cited: span.cited,
         });
       }
     }
@@ -180,13 +224,13 @@ export function everySentence(blocks: Y.XmlFragment): SelectedSentence[] {
   return textBlocks(blocks).flatMap(({ element, busy }) => {
     const blockId = element.getAttribute(BLOCK_ID_ATTRIBUTE);
     if (busy || element.nodeName !== "paragraph" || typeof blockId !== "string") return [];
-    const text = textOf(element);
+    const { text, spans } = claimFrame(element);
     const occurrences = new Map<string, number>();
-    return sentenceSpans(text).flatMap((span) => {
-      const words = text.slice(span.from, span.to);
+    return spans.flatMap((span) => {
+      const words = span.text;
       const occurrence = occurrences.get(words) ?? 0;
       occurrences.set(words, occurrence + 1);
-      return changesIn(element, span.from, span.to).length > 0
+      return changesIn(element, span.from, span.extent).length > 0
         ? []
         : [
             {
@@ -197,7 +241,7 @@ export function everySentence(blocks: Y.XmlFragment): SelectedSentence[] {
               to: span.to,
               text: words,
               context: text,
-              cited: citedIn(element, span.from, span.to),
+              cited: span.cited,
             },
           ];
     });
@@ -314,11 +358,13 @@ export function checkedSentences(
 ): (MarkedSentence & { sentence: string; cited: CitedQuote[] })[] {
   return markedSentences(blocks).map((marked) => {
     const { element, from, to } = marked;
-    const text = textOf(element);
-    const touched = sentenceSpans(text).filter((span) => span.from < to && span.to > from);
-    const start = Math.min(from, touched[0]?.from ?? from);
-    const end = Math.max(to, touched.at(-1)?.to ?? to);
-    return { ...marked, sentence: text.slice(start, end), cited: citedIn(element, start, end) };
+    const { text, spans } = claimFrame(element);
+    const touched = spans.filter((span) => span.from < to && span.to > from);
+    return {
+      ...marked,
+      sentence: text.slice(touched[0]?.start ?? 0, touched.at(-1)?.end ?? 0),
+      cited: touched.flatMap((span) => span.cited),
+    };
   });
 }
 

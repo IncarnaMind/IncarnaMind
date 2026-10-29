@@ -253,6 +253,16 @@ export function readClaimParts(
       excluded.length !== each.excluded.length
     )
       return null;
+    const decidingEvidence = each.decidingEvidence;
+    if (
+      decidingEvidence !== undefined &&
+      decidingEvidence !== null &&
+      (typeof decidingEvidence !== "number" ||
+        !Number.isInteger(decidingEvidence) ||
+        decidingEvidence < 0 ||
+        checkedCitation(evidence[decidingEvidence]) === null)
+    )
+      return null;
     for (const key of ["says", "detail"]) {
       if (each[key] !== null && typeof each[key] !== "string") return null;
     }
@@ -287,6 +297,7 @@ export function readClaimParts(
       ...plan,
       verdict,
       evidence,
+      ...(decidingEvidence !== undefined && { decidingEvidence }),
       says: text(each.says),
       unsupported,
       calculation,
@@ -336,6 +347,7 @@ export function partWithResult(
   return {
     ...pendingPart(plan),
     verdict: result.verdict,
+    decidingEvidence: result.verdict !== "not-checked" && result.evidence ? 0 : null,
     versions: [...result.versions],
     excluded: [...result.excluded],
     ...(result.verdict === "not-checked"
@@ -364,7 +376,7 @@ export function coverageCount(coverage: ClaimPartCoverage): { covered: number; t
   };
 }
 
-function checkedCitation(citation: CitationAttributes): Citation | null {
+function checkedCitation(citation: CitationAttributes | undefined): Citation | null {
   if (
     citation?.check !== "found" ||
     typeof citation.passageId !== "string" ||
@@ -442,6 +454,14 @@ export function resultFromParts(parts: readonly ClaimCheckPart[]): ClaimCheckRes
         },
       }),
     };
+    if (
+      part.decidingEvidence !== undefined &&
+      part.decidingEvidence !== null &&
+      (!Number.isInteger(part.decidingEvidence) ||
+        part.decidingEvidence < 0 ||
+        checkedCitation(part.evidence[part.decidingEvidence]) === null)
+    )
+      return { part: notCheckedPart(canonical, "malformed"), evidence: [] };
     if (part.verdict === "checking" || (part.kind === "fact" && part.verdict === null)) {
       return { part: notCheckedPart(canonical, "malformed"), evidence: [] };
     }
@@ -551,12 +571,16 @@ export function resultFromParts(parts: readonly ClaimCheckPart[]): ClaimCheckRes
     ...common,
     verdict: outcome.part.verdict,
     evidence:
-      outcome.part.verdict === "unsupported" &&
-      unsupported?.quoted &&
-      unsupported.covered &&
-      unsupported.uncovered
-        ? null
-        : (outcome.evidence[0] ?? null),
+      outcome.part.decidingEvidence !== undefined
+        ? outcome.part.decidingEvidence === null
+          ? null
+          : checkedCitation(outcome.part.evidence[outcome.part.decidingEvidence])
+        : outcome.part.verdict === "unsupported" &&
+            unsupported?.quoted &&
+            unsupported.covered &&
+            unsupported.uncovered
+          ? null
+          : (outcome.evidence[0] ?? null),
     says: outcome.part.says,
     unsupported,
     calculation: outcome.part.calculation,
