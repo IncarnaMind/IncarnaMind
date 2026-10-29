@@ -164,10 +164,7 @@ export interface CiteOptions {
    * (see `structured`): a Passage named by its number alone ("1"), or with
    * more ("P1 (p. 9)"), is "P1"; a record naming none it was given (a
    * Document's name, say) cites the first Passage it was given whose pages
-   * hold its quote word for word; and a quote that isn't on the pages its
-   * record names, but is word for word on a page of the Passage it names, or
-   * on two consecutive ones, is cited there, as `cite`'s feedback lets a
-   * model in the Tool loop do.
+   * hold its quote word for word.
    */
   structured?: boolean;
 }
