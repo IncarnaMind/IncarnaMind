@@ -355,7 +355,7 @@ test("an empty Mind of one's own shows no second start guide, the example's step
   await expect(window.getByTestId("sidebar").getByTestId("sidebar-tags")).toBeVisible({
     timeout: 30_000,
   });
-  await pointAndClick(window, window.getByTestId("example-open"));
+  await pointAndClick(window, window.getByTestId("example-section").getByTestId("mind-list-item"));
   const checks = window
     .getByTestId("mind-pane")
     .getByTestId("mind-editor")
