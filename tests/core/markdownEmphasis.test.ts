@@ -158,9 +158,17 @@ describe("emphasisOf", () => {
     expect(emphasisOf("2 * 3 and $x^2$")?.plain).toBe("2 * 3 and $x^2$");
   });
 
-  test("leaves a line with code, a link or an escape as it was written", () => {
+  test("reads an escaped star, underscore, tilde or backslash as itself, beside real emphasis", () => {
+    expect(emphasisOf("price\\*volume\\*margin")).toEqual({
+      plain: "price*volume*margin",
+      looks: Array.from({ length: 19 }, () => ({})),
+    });
+    expect(emphasisOf("a\\_b\\_c \\~\\~ \\\\ **d**")?.plain).toBe("a_b_c ~~ \\ d");
+    expect(emphasisOf("第3\\*4项 **总额**")?.plain).toBe("第3*4项 总额");
+  });
+
+  test("leaves a line with code or a link as it was written", () => {
     expect(emphasisOf("`**x**` here")).toBeNull();
     expect(emphasisOf("[a](https://example.com) **b**")).toBeNull();
-    expect(emphasisOf("a \\* b")).toBeNull();
   });
 });

@@ -733,3 +733,107 @@ describe.each(LIVE)("Bold labels stay bold, live: $name", (live) => {
     },
   );
 });
+
+const PLAIN = [
+  {
+    language: "English",
+    contents:
+      "Spring tides happen at new moon and at full moon, when the Sun and the Moon pull together. Harbours publish the times of high water every year, and fishing boats plan their trips around them.",
+    tasks: [
+      { action: "improve" as const },
+      { action: "shorten" as const },
+      { action: "translate" as const, instruction: "Chinese" },
+    ],
+  },
+  {
+    language: "Chinese",
+    contents:
+      "大潮出现在新月和满月前后，这时太阳和月亮的引力叠加在一起。港口每年公布高潮的时间，渔船也围绕这些时间安排出海。",
+    tasks: [
+      { action: "improve" as const },
+      { action: "shorten" as const },
+      { action: "translate" as const, instruction: "English" },
+    ],
+  },
+] as const;
+
+describe.each(LIVE)("Ordinary tasks add no bold or italic, live: $name", (live) => {
+  test.skipIf(live.apiKey === undefined)(
+    `${live.name}: improve, shorten and translate over plain text leave no bold, italic or asterisks`,
+    { timeout: 1_800_000 },
+    async () => {
+      const runs = Number(process.env.INCARNAMIND_LIVE_RUNS ?? 5);
+      const report: string[] = [`## ${live.name} · ${live.model} (#1897, plain text stays plain)`];
+      const checks: (() => void)[] = [];
+      for (const each of PLAIN) {
+        let plain = 0;
+        let total = 0;
+        for (const task of each.tasks) {
+          let taskPlain = 0;
+          for (let run = 1; run <= runs; run++) {
+            const core = startCore(await createTempDataFolder(), {
+              createChatModel: createAiSdkChatModel,
+            });
+            core.on(
+              "consent.requested",
+              (asked) => void core.respondToConsent(asked.requestId, true),
+            );
+            await core.saveChatProvider({
+              kind: live.kind,
+              ...(live.apiKey && { apiKey: live.apiKey }),
+              modelId: live.model,
+            });
+            if (live.local) await core.setLocalOnly(true);
+            const mind = await core.createMind({ title: each.language });
+            const client = await connectToMind(core, mind.id);
+            writeMind(client, [
+              {
+                type: "paragraph",
+                attrs: { id: "p" },
+                content: [{ type: "text", text: each.contents }],
+              },
+            ]);
+            await client.settled();
+            const { result } = await edit(
+              core,
+              client,
+              mind.id,
+              "p",
+              task.action,
+              "instruction" in task ? task.instruction : undefined,
+            );
+            if (result.kind === "proposed") {
+              client.doc.transact(() => {
+                resolveProposals(client.blocks as Y.XmlFragment, () => true, "accept");
+              }, "editor");
+              await client.settled();
+            }
+            const nodes = (readMind(client).child(0).toJSON().content ?? []) as {
+              text?: string;
+              marks?: { type: string }[];
+            }[];
+            const text = nodes.map((node) => node.text ?? "").join("");
+            const emphasised = nodes.some((node) =>
+              node.marks?.some((mark) => mark.type === "bold" || mark.type === "italic"),
+            );
+            total++;
+            if (!emphasised && !/[*_~]/.test(text)) {
+              plain++;
+              taskPlain++;
+            }
+            report.push(
+              `- ${each.language} ${task.action} run ${run}: ${result.kind} · ${text.slice(0, 160)}`,
+            );
+            core.close();
+          }
+          report.push(`  ${each.language} ${task.action}: plain ${taskPlain}/${runs}`);
+        }
+        checks.push(() => expect(plain).toBe(total));
+      }
+      if (process.env.INCARNAMIND_LIVE_REPORT) {
+        await appendFile(process.env.INCARNAMIND_LIVE_REPORT, `${report.join("\n")}\n\n`);
+      }
+      for (const check of checks) check();
+    },
+  );
+});

@@ -724,11 +724,18 @@ export interface Look {
 
 const withoutDelimiters = (text: string) => text.replace(/[*_~]/g, "");
 
+/** `\*`, `\_`, `\~` and `\\` as the characters they stand for. */
+export const withoutEmphasisEscapes = (text: string) => text.replace(/\\([\\*_~])/g, "$1");
+
+/** The characters that would read as emphasis or an escape in `text`, each escaped, so they stay as typed. */
+export const escapeEmphasis = (text: string) => text.replace(/[\\*_~]/g, "\\$&");
+
 /**
  * A line as its plain words with the look each character has from the
  * Markdown around it (#1897): `**Role.** The post` is "Role. The post" with
- * "Role." bold. Null when the line holds anything else Markdown reads (code,
- * a link, an escape), so it stays as it was written. A formula is kept as
+ * "Role." bold, and `price\\*volume` is "price*volume". Null when the line
+ * holds anything else Markdown reads (code, a link), so it stays as it was
+ * written. A formula is kept as
  * `$…$`.
  */
 export function emphasisOf(source: string): { plain: string; looks: Look[] } | null {
@@ -752,7 +759,8 @@ export function emphasisOf(source: string): { plain: string; looks: Look[] } | n
       add(token.kind === "text" ? token.text : token.char.repeat(token.count), look);
     }
   }
-  return withoutDelimiters(plain) === withoutDelimiters(source) ? { plain, looks } : null;
+  const unescaped = source.replace(/\\([!-/:-@[-`{-~])/g, "$1");
+  return withoutDelimiters(plain) === withoutDelimiters(unescaped) ? { plain, looks } : null;
 }
 
 /** A closed piece of inline Markdown (e.g. a link's label), with its emphasis matched. */

@@ -2476,6 +2476,110 @@ describe("Edit with AI keeps bold and italic (#1897)", () => {
     ]);
   });
 
+  test.each([
+    [
+      "Total = price*volume*margin, see note.",
+      "Total = price\\*volume\\*margin, see note.",
+      "Total = price\\*volume\\*margin.",
+      "Total = price*volume*margin.",
+    ],
+    [
+      "Multiply 2*3*4 and add 1.",
+      "Multiply 2\\*3\\*4 and add 1.",
+      "Multiply 2\\*3\\*4 and add one.",
+      "Multiply 2*3*4 and add one.",
+    ],
+    [
+      "Use a_b_c as the key here.",
+      "Use a\\_b\\_c as the key here.",
+      "Use a\\_b\\_c as the key.",
+      "Use a_b_c as the key.",
+    ],
+    [
+      "Strike ~~ is two tildes.",
+      "Strike \\~\\~ is two tildes.",
+      "Strike \\~\\~ is two tildes, no more.",
+      "Strike ~~ is two tildes, no more.",
+    ],
+    [
+      "第3*4项是总额，另见说明。",
+      "第3\\*4项是总额，另见说明。",
+      "第3\\*4项是总额。",
+      "第3*4项是总额。",
+    ],
+  ])(
+    "a * _ or ~ the User typed is shown to the model escaped and comes back as itself: %s",
+    async (typed, shown, reply, written) => {
+      const calls: EditCall[] = [];
+      const { core, mind, client } = await setUp(editingModel(() => reply, calls));
+      const note = paragraph(text(typed));
+      writeMind(client, [note]);
+      await client.settled();
+
+      await core.editWithAi(wholeParagraph(client, mind.id, note.attrs.id, "shorten"));
+      await resolveChanges(client, "accept");
+
+      expect(calls[0]?.passage).toBe(shown);
+      const runs = runsOf(client);
+      expect(runs.map((run) => run.text).join("")).toBe(written);
+      expect(
+        runs.every((run) => !run.marks.includes("italic") && !run.marks.includes("bold")),
+      ).toBe(true);
+    },
+  );
+
+  test("a model that writes the escapes back keeps the typed characters", async () => {
+    const { core, mind, client } = await setUp(
+      editingModel(() => "Total = price\\*volume\\*margin, see the note."),
+    );
+    const note = paragraph(text("Total = price*volume*margin, see note."));
+    writeMind(client, [note]);
+    await client.settled();
+
+    await core.editWithAi(wholeParagraph(client, mind.id, note.attrs.id, "improve"));
+
+    expect(shownWithChanges(client)).toEqual(["Total = price*volume*margin, see {+the +}note."]);
+  });
+
+  test("an instruction to make words bold is applied to those words and leaves the others as they were", async () => {
+    const { core, mind, client } = await setUp(
+      editingModel(() => "Spring tides are **strong** and neap tides are **weak**."),
+    );
+    const note = paragraph(text("Spring tides are strong and neap tides are weak."));
+    writeMind(client, [note]);
+    await client.settled();
+
+    const result = await core.editWithAi(
+      wholeParagraph(client, mind.id, note.attrs.id, "instruction", "Make the key terms bold."),
+    );
+
+    expect(result).toMatchObject({ kind: "proposed", proposals: 2 });
+    expect(shownWithChanges(client)).toEqual([
+      "Spring tides are [-strong-]{+strong+} and neap tides are [-weak-]{+weak+}.",
+    ]);
+    await resolveChanges(client, "accept");
+    const runs = runsOf(client);
+    expect(runs.map((run) => run.text).join("")).toBe(
+      "Spring tides are strong and neap tides are weak.",
+    );
+    expect(runs.filter((run) => run.marks.includes("bold")).map((run) => run.text)).toEqual([
+      "strong",
+      "weak",
+    ]);
+  });
+
+  test("a model that drops the bold of a label without changing a word gives nothing to review, and the label stays bold", async () => {
+    const { core, mind, client } = await setUp(editingModel(() => "Role. The post is senior."));
+    const note = paragraph(text("Role.", "bold"), text(" The post is senior."));
+    writeMind(client, [note]);
+    await client.settled();
+
+    expect(
+      await core.editWithAi(wholeParagraph(client, mind.id, note.attrs.id, "improve")),
+    ).toEqual({ kind: "unchanged" });
+    expect(runsOf(client)[0]).toMatchObject({ text: "Role.", marks: ["bold"] });
+  });
+
   test("a reply that only changes the look gives nothing to review", async () => {
     const { core, mind, client } = await setUp(editingModel(() => "Role. The post is senior."));
     const note = paragraph(text("Role.", "bold"), text(" The post is senior."));

@@ -872,6 +872,7 @@ export function createEdits(options: EditsOptions) {
         return rewritten;
       });
       if (written.unmadeTable) return nothing({ kind: "no-table", text: reply });
+      if (written.proposals.length === 0) return nothing({ kind: "unchanged" });
       const { droppedCitations, notes } = written;
       const top = topLevelBlocks(blocks);
       const revised = top
