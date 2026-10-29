@@ -373,9 +373,9 @@ describe("record-cite source resolution", () => {
   });
 
   test("reads recording times from existing cues, not page text", () => {
-    const first = "Alice: Repeated text";
-    const second = "Bob: Exact answer";
-    const third = "Alice: Repeated text";
+    const first = "Repeated text";
+    const second = "Exact answer";
+    const third = "Repeated text";
     const text = [first, second, third].join("\n");
     const secondStart = first.length + 1;
     const thirdStart = secondStart + second.length + 1;

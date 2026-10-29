@@ -24,7 +24,7 @@ beforeEach(() => {
 
 describe("support judgement for one exact record-cite passage", () => {
   test("Supported uses only the resolved passage and needs no second request", async () => {
-    vi.mocked(generateText).mockResolvedValue({ text: "same" } as never);
+    vi.mocked(generateText).mockResolvedValue({ text: "Judgement: supported" } as never);
     expect(
       await judgeRecordCite(model, "The claim", "Exact lines", new AbortController().signal, "en"),
     ).toEqual({ outcome: "supported" });
@@ -37,7 +37,7 @@ describe("support judgement for one exact record-cite passage", () => {
 
   test("Partly keeps both complete parts from the same fixed passage", async () => {
     vi.mocked(generateText)
-      .mockResolvedValueOnce({ text: "conflict" } as never)
+      .mockResolvedValueOnce({ text: "Judgement: partly" } as never)
       .mockResolvedValueOnce({ text: "Covered: speed\nNot covered: robustness" } as never);
     expect(
       await judgeRecordCite(model, "The claim", "Only page 3", new AbortController().signal, "en"),
@@ -51,7 +51,7 @@ describe("support judgement for one exact record-cite passage", () => {
 
   test("Unsupported does not widen to another source", async () => {
     vi.mocked(generateText)
-      .mockResolvedValueOnce({ text: "conflict" } as never)
+      .mockResolvedValueOnce({ text: "Judgement: partly" } as never)
       .mockResolvedValueOnce({ text: "No parts" } as never);
     expect(
       await judgeRecordCite(model, "The claim", "Only page 5", new AbortController().signal, "en"),
@@ -60,7 +60,7 @@ describe("support judgement for one exact record-cite passage", () => {
   });
 
   test("a cited topic without one complete supporting assertion is Unsupported in one request", async () => {
-    vi.mocked(generateText).mockResolvedValue({ text: "neither" } as never);
+    vi.mocked(generateText).mockResolvedValue({ text: "Judgement: unsupported" } as never);
     expect(
       await judgeRecordCite(model, "The claim", "Only page 2", new AbortController().signal, "en"),
     ).toEqual({ outcome: "unsupported" });
@@ -68,6 +68,22 @@ describe("support judgement for one exact record-cite passage", () => {
     expect(vi.mocked(generateText).mock.calls[0]?.[0]?.instructions).toContain(
       "complete independent assertion",
     );
+  });
+
+  test("reads the word on the last Judgement line after the model's reasons", async () => {
+    vi.mocked(generateText).mockResolvedValue({
+      text: "The Passage states the date the sentence gives.\n\nJudgement: supported",
+    } as never);
+    expect(
+      await judgeRecordCite(model, "The claim", "Exact lines", new AbortController().signal, "en"),
+    ).toEqual({ outcome: "supported" });
+  });
+
+  test("an answer in the contradiction check's words is unreadable, never partial", async () => {
+    vi.mocked(generateText).mockResolvedValue({ text: "conflict" } as never);
+    expect(
+      await judgeRecordCite(model, "The claim", "Exact lines", new AbortController().signal, "en"),
+    ).toEqual({ unreadable: true });
   });
 
   test("a malformed first reply is a failure, never a supported result", async () => {
@@ -92,7 +108,7 @@ describe("support judgement for one exact record-cite passage", () => {
       outcome: "found",
       passage,
     });
-    vi.mocked(generateText).mockResolvedValue({ text: "same" } as never);
+    vi.mocked(generateText).mockResolvedValue({ text: "Judgement: supported" } as never);
 
     const judged = await judgeResolvedRecordCites(
       [cite("ECF No. 41 at 3", "Page 3"), cite("Id. at 2", "Page 2")],
@@ -133,8 +149,8 @@ describe("support judgement for one exact record-cite passage", () => {
       { raw: "Ex. 7 at 3", outcome: "choose", candidates: [{ id: "doc-2", name: "Exhibit 7" }] },
     ];
     vi.mocked(generateText)
-      .mockResolvedValueOnce({ text: "neither" } as never)
-      .mockResolvedValueOnce({ text: "same" } as never);
+      .mockResolvedValueOnce({ text: "Judgement: unsupported" } as never)
+      .mockResolvedValueOnce({ text: "Judgement: supported" } as never);
     expect(
       await judgeResolvedRecordCites(
         results,
@@ -168,7 +184,7 @@ describe("support judgement for one exact record-cite passage", () => {
         passage: "Unneeded nearby text",
       },
     };
-    vi.mocked(generateText).mockResolvedValue({ text: "same" } as never);
+    vi.mocked(generateText).mockResolvedValue({ text: "Judgement: supported" } as never);
 
     const judged = await judgeResolvedRecordCites(
       [result],
@@ -198,9 +214,9 @@ describe("support judgement for one exact record-cite passage", () => {
       }),
     );
     vi.mocked(generateText)
-      .mockResolvedValueOnce({ text: "same" } as never)
+      .mockResolvedValueOnce({ text: "Judgement: supported" } as never)
       .mockResolvedValueOnce({ text: "unreadable" } as never)
-      .mockResolvedValueOnce({ text: "same" } as never);
+      .mockResolvedValueOnce({ text: "Judgement: supported" } as never);
 
     const judged = await judgeResolvedRecordCites(
       results,
@@ -242,9 +258,9 @@ describe("support judgement for one exact record-cite passage", () => {
       ],
     };
     vi.mocked(generateText)
-      .mockResolvedValueOnce({ text: "neither" } as never)
-      .mockResolvedValueOnce({ text: "neither" } as never)
-      .mockResolvedValueOnce({ text: "same" } as never);
+      .mockResolvedValueOnce({ text: "Judgement: unsupported" } as never)
+      .mockResolvedValueOnce({ text: "Judgement: unsupported" } as never)
+      .mockResolvedValueOnce({ text: "Judgement: supported" } as never);
 
     const judged = await judgeResolvedRecordCites(
       [result],
@@ -274,7 +290,7 @@ describe("support judgement for one exact record-cite passage", () => {
       },
     };
     vi.mocked(generateText)
-      .mockResolvedValueOnce({ text: "neither" } as never)
+      .mockResolvedValueOnce({ text: "Judgement: unsupported" } as never)
       .mockResolvedValueOnce({ text: "unreadable" } as never);
 
     const judged = await judgeResolvedRecordCites(

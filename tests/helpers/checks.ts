@@ -245,6 +245,9 @@ export function checkReply(call: ModelCall, plans: Record<string, Plan>): Script
  * contradiction, the plan's judgement; asked once more for the deciding
  * Passage, `evidence` (none by default).
  */
+/** A plan's judgement as the record-cite judgement words it (src/core/answers/checks/prompt.ts). */
+const RECORD_WORDS = { same: "supported", conflict: "partly", neither: "unsupported" } as const;
+
 export const checkGenerate =
   (plans: Record<string, Plan>, evidence: string = JSON.stringify({ passage: null })) =>
   (call: GenerateCall): GeneratedReply => {
@@ -268,6 +271,9 @@ export const checkGenerate =
     }
     if (call.system.startsWith("Compare a sentence")) {
       if (plan?.strict && isStrict(call)) return plan.strict;
+      if (call.system.includes("exact Passage a record cite names")) {
+        return { text: `Judgement: ${RECORD_WORDS[plan?.judgement ?? "conflict"]}` };
+      }
       return { text: plan?.judgement ?? "conflict" };
     }
     return { text: evidence };

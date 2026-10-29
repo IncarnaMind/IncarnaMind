@@ -30,8 +30,8 @@ import {
   confirmPrompt,
   partInstructions,
   RECORD_CITE_INSTRUCTIONS,
-  readJudgement,
   readPart,
+  readRecordJudgement,
 } from "./prompt";
 
 export interface RecordCiteJudgement {
@@ -70,10 +70,9 @@ export async function judgeRecordCite(
 ): Promise<RecordCiteJudgement | NotJudged> {
   const first = await compare(model, claim, passage, RECORD_CITE_INSTRUCTIONS, signal);
   if ("failed" in first) return first;
-  const judged = readJudgement(first.reply);
-  if (judged === "same") return { outcome: "supported" };
-  if (judged === "neither") return { outcome: "unsupported" };
+  const judged = readRecordJudgement(first.reply);
   if (judged === null) return { unreadable: true };
+  if (judged !== "partly") return { outcome: judged };
   const part = await compare(model, claim, passage, partInstructions(language), signal);
   if ("failed" in part) return part;
   const { covered, uncovered } = readPart(part.reply);
@@ -179,7 +178,7 @@ async function compare(
       instructions,
       prompt: confirmPrompt({ claim, quote: passage, passage }),
       temperature: answerTemperature(model.capabilities.facts.temperature),
-      maxOutputTokens: 300,
+      maxOutputTokens: 400,
       maxRetries: 1,
       abortSignal: signal,
     });

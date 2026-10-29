@@ -331,8 +331,13 @@ const resolveTime = (
       to: Math.max(...selected.map((cue) => cue.endMs)),
       ...(speaker ? { speaker } : {}),
     },
+    // Who said each line, as the transcript shows it: "The witness said…" rests on it.
     passage: selected
-      .map((cue) => cutUnit(cue.unit, cue.anchor.start, cue.anchor.end).text)
+      .map((cue) => {
+        const said = cutUnit(cue.unit, cue.anchor.start, cue.anchor.end).text;
+        const who = cue.unit.label?.speakers?.[cue.index];
+        return who ? `${who}: ${said}` : said;
+      })
       .join("\n"),
   };
 };

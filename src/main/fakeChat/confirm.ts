@@ -16,13 +16,14 @@ const RECORD_RUN = /^Compare a sentence the User wrote with the exact Passage a 
  */
 export function fakeConfirm(options: GenerateOptions): string | null {
   const system = systemOf(options.prompt);
-  if (!CONFIRM_RUN.test(system) && !RECORD_RUN.test(system)) return null;
+  const record = RECORD_RUN.test(system);
+  if (!CONFIRM_RUN.test(system) && !record) return null;
   const text = lastUserText(options.prompt);
   const sentence = /<sentence>\n([\s\S]*?)\n<\/sentence>/.exec(text)?.[1] ?? "";
   const quote = /<quote>\n([\s\S]*?)\n<\/quote>/.exec(text)?.[1] ?? "";
   const numbers = (value: string): string[] => value.match(/\d+(?:[.,]\d+)?/g) ?? [];
   const quoted = numbers(quote);
-  return quoted.length > 0 && numbers(sentence).some((each) => !quoted.includes(each))
-    ? "conflict"
-    : "same";
+  const differs = quoted.length > 0 && numbers(sentence).some((each) => !quoted.includes(each));
+  if (record) return `Judgement: ${differs ? "unsupported" : "supported"}`;
+  return differs ? "conflict" : "same";
 }
