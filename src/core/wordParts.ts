@@ -88,7 +88,6 @@ export function convertWordParts(
   };
   for (const child of blocks.toArray()) if (child instanceof Y.XmlElement) visit(child);
 
-  // What holds a converted atom and was as imported is fingerprinted again once it is converted.
   const unchanged = new Set<Y.XmlElement>();
   for (const { atom } of replaced) {
     for (let at = atom.parent; at instanceof Y.XmlElement; at = at.parent) {

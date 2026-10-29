@@ -1799,11 +1799,8 @@ class Reader {
     }
   }
 
-  // -------------------------------------------------------------------------
-  // Footnotes and endnotes (#746)
-
   /**
-   * A note's mark: the Note's own footnote, holding the note's text, or kept
+   * A note's mark (#746): the Note's own footnote, holding the note's text, or kept
    * as is when a footnote can't hold it, its mark is its own (not a number),
    * or another mark already took it.
    */
