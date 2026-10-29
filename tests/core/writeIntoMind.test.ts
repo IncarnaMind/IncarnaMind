@@ -48,8 +48,8 @@ const QUOTES = LEASES.map(
 );
 const CITED = QUOTES.map((quote, index) => `${quote} [^${index + 1}].`).join("\n\n");
 
-const WRITE_COMMAND = "The write command is create_mind for a new Mind";
-const AS_A_DOCUMENT = "To put your last Answer into a Mind as it is";
+const WRITE_COMMAND = "The write command is create_mind for a new Note";
+const AS_A_DOCUMENT = "To put your last Answer into a Note as it is";
 
 /** The instructions of the request that offers the Minds' Tools. */
 const withMindTools = (systems: readonly string[]) =>
@@ -136,7 +136,7 @@ describe("A request to write something (#1109)", { timeout: 60_000 }, () => {
 
     await askAssistant(core, { text: "根据我现有的文件帮我写一份summary", mindId: empty.id });
 
-    expect(withMindTools(systems)).toContain("The Mind in <mind> is open and still empty");
+    expect(withMindTools(systems)).toContain("The Note in <mind> is open and still empty");
     expect(withMindTools(systems)).toContain(WRITE_COMMAND);
   });
 });
@@ -182,7 +182,7 @@ describe("“Make it a document” after an Answer (#1109)", { timeout: 60_000 }
 
       expect(withMindTools(systems)).toContain(AS_A_DOCUMENT);
       expect(withMindTools(systems)).toContain(
-        "give answer: true to add_to_mind for the Mind in <mind>, or to create_mind",
+        "give answer: true to add_to_mind for the Note in <mind>, or to create_mind",
       );
       expect(second.flatMap((call) => call.results.map((each) => each.tool))).not.toContain(
         "search_documents",
@@ -210,7 +210,7 @@ function summaryOfShown(call: ModelCall): ScriptedReply {
   if (called(call, "create_mind") || called(call, "add_to_mind")) return { text: "Done." };
   const content = citations.map((each) => `${each.quote} [^${each.marker}].`).join("\n\n");
   // As a model does, it writes where it is told: into the empty Mind in front, or into a new Mind.
-  return call.system.includes("The Mind in <mind> is open and still empty")
+  return call.system.includes("The Note in <mind> is open and still empty")
     ? { calls: [{ tool: "add_to_mind", input: { content } }] }
     : { calls: [{ tool: "create_mind", input: { title: "Summary", content } }] };
 }
@@ -267,7 +267,7 @@ describe("A request to write from part of the Documents (#1149)", { timeout: 60_
       expect(proposalRequestOf(summary.doc, changes[0]?.request ?? "")).toMatchObject({
         requested: "write",
       });
-      expect(lastResult(model)).toContain("applies in the Mind at once");
+      expect(lastResult(model)).toContain("applies in the Note at once");
       const summaries = (await core.listMinds()).filter((each) => each.title === "Summary");
       expect(summaries.map((each) => each.id)).toEqual([made?.mindId]);
       await resolveChanges(summary, "accept");

@@ -37,6 +37,9 @@ const isShare = (unit: FigureUnit) => unit.kind === "percent" || unit.kind === "
 const hasUnit = (figure: Figure) =>
   currenciesOf(figure).length > 0 || isShare(figure.unit) || figure.scaleWord !== null;
 
+// A count or a measure ("14号2室", "3楼") is never an amount written at another scale (#2189).
+const isAmount = (unit: FigureUnit) => unit.kind === "plain" || unit.kind === "currency";
+
 // Separators may stay unsettled: read with the cited text's context, the same digits read the same.
 function figuresToCheck(claim: string, context: FigureContext): Figure[] {
   return readFigures(claim, context).filter(
@@ -115,6 +118,8 @@ export function unitNotStated(
     const sameWritten = read.flatMap(({ text, context, figures }) =>
       figures.flatMap((each) => {
         if (each.ambiguous.some(({ kind }) => kind !== "scale")) return [];
+        if (!isAmount(each.unit)) return [];
+        if (bound && !bound.some(({ chars }) => chars === each.chars)) return [];
         const readings = [
           each,
           ...each.ambiguous

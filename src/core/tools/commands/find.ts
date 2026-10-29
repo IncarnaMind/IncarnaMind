@@ -154,7 +154,7 @@ export function foundLine(found: Found, inFocus: string | null): string {
       : []),
     found.folder === null ? "in no Folder" : `in the Folder “${found.folder}”`,
     ...(found.tags.length > 0 ? [`Tags: ${found.tags.join(", ")}`] : []),
-    ...(found.id === inFocus ? ["the Mind in focus"] : []),
+    ...(found.id === inFocus ? ["the Note in focus"] : []),
   ];
   return `- ${found.id}: “${found.name}” (${facts.join("; ")})`;
 }

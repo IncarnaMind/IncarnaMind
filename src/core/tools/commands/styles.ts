@@ -95,7 +95,7 @@ export const STYLE_CHECKERS = {
             await core.setMindCitationStyle(mind.id, style.id);
           },
         },
-        said: `The Mind “${mindName(mind)}” now cites in ${style.name}.`,
+        said: `The Note “${mindName(mind)}” now cites in ${style.name}.`,
       };
     });
   },
@@ -125,7 +125,7 @@ export const STYLE_CHECKERS = {
             await core.setMindStyle(mind.id, after);
           },
         },
-        said: `The Mind “${mindName(mind)}” is now in the ${fontSaid(after.font)} font, ${after.size} size.`,
+        said: `The Note “${mindName(mind)}” is now in the ${fontSaid(after.font)} font, ${after.size} size.`,
       };
     });
   },

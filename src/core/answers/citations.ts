@@ -1620,7 +1620,7 @@ export function createCitationSession(
       if (passages.length === 0) return found;
       openingGiven = true;
       return {
-        text: `No Passages match these words. The opening of “${opening.name}”, which the Mind is the working copy of, instead:\n${show(passages)}`,
+        text: `No Passages match these words. The opening of “${opening.name}”, which the Note is the working copy of, instead:\n${show(passages)}`,
         passageCount: passages.length,
         passageIds: passages.map((passage) => passage.passageId),
         ...(passages.some((passage) => passage.documentKind === "web") && {

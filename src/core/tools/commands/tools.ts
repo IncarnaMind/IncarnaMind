@@ -60,7 +60,7 @@ function commandsFor(kind: CommandTarget, offered: readonly OfferedCommand[]): s
 
 const nouns: Record<CommandTarget, [string, string]> = {
   document: ["Document", "Documents"],
-  mind: ["Mind", "Minds"],
+  mind: ["Note", "Notes"],
   folder: ["Folder", "Folders"],
   tag: ["Tag", "Tags"],
   deleted: ["thing in Recently deleted", "things in Recently deleted"],
@@ -147,7 +147,7 @@ export function commandTools(options: CommandToolsOptions): {
 
   const listTool: Tool = {
     name: COMMAND_TOOLS.list,
-    description: `Finds the User's Documents, Minds, Folders or Tags, or what is in Recently deleted (kind "deleted"), for a command, and the commands that apply to them. It matches exactly: a name that holds the words given, a Tag, a Folder (all that are given), never by meaning. Act only on what it found, by id, with ${COMMAND_TOOLS.run}. With kind "window", it lists the commands that act on the window in front instead: opening, splitting and closing tabs, Settings at a page, recording, checking the Mind in front, exporting and the rest of what ⌘K offers.`,
+    description: `Finds the User's Documents, Notes, Folders or Tags, or what is in Recently deleted (kind "deleted"), for a command, and the commands that apply to them. It matches exactly: a name that holds the words given, a Tag, a Folder (all that are given), never by meaning. Act only on what it found, by id, with ${COMMAND_TOOLS.run}. With kind "window", it lists the commands that act on the window in front instead: opening, splitting and closing tabs, Settings at a page, recording, checking the Note in front, exporting and the rest of what ⌘K offers.`,
     inputSchema: {
       type: "object",
       properties: {
@@ -205,7 +205,7 @@ export function commandTools(options: CommandToolsOptions): {
   const runTool: Tool = {
     name: COMMAND_TOOLS.run,
     description: [
-      `Runs one of the app's commands for the User, as ⌘K would, on what ${COMMAND_TOOLS.list} found, by id. For Documents: ${coreCommandsOn("document").map(coreLine).join("; ")}. For Minds: ${coreCommandsOn("mind").map(coreLine).join("; ")}. For Folders: ${coreCommandsOn("folder").map(coreLine).join("; ")}. For Tags: ${coreCommandsOn("tag").map(coreLine).join("; ")}. For what is in Recently deleted: ${coreCommandsOn("deleted").map(coreLine).join("; ")}. For the Library: ${coreCommandsOn("library").map(coreLine).join("; ")}. Settings: ${coreLine("settings.change")}.`,
+      `Runs one of the app's commands for the User, as ⌘K would, on what ${COMMAND_TOOLS.list} found, by id. For Documents: ${coreCommandsOn("document").map(coreLine).join("; ")}. For Notes: ${coreCommandsOn("mind").map(coreLine).join("; ")}. For Folders: ${coreCommandsOn("folder").map(coreLine).join("; ")}. For Tags: ${coreCommandsOn("tag").map(coreLine).join("; ")}. For what is in Recently deleted: ${coreCommandsOn("deleted").map(coreLine).join("; ")}. For the Library: ${coreCommandsOn("library").map(coreLine).join("; ")}. Settings: ${coreLine("settings.change")}.`,
       `${COMMAND_TOOLS.list} gives the other commands that apply to what it found, and with kind "window" those that act on the window in front; run any of them by its id the same way.`,
       `A change inside IncarnaMind runs at once and the User can undo it. These wait for the User to allow them: a file saved anywhere but the Output location itself, files added from a folder, a new Output location, every delete, a command that can't be undone, and a change that would take this answer past ${COMMAND_AT_ONCE} things changed.`,
       YOURS_RULE,

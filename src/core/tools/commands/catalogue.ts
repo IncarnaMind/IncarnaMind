@@ -77,7 +77,7 @@ export const CORE_COMMANDS = {
   "mind.rename": {
     on: "mind",
     does: "app",
-    takes: "ids: one Mind; name: its new name",
+    takes: "ids: one Note; name: its new name",
     check: LIBRARY_CHECKERS["mind.rename"],
   },
   "mind.moveTo": {
@@ -96,21 +96,21 @@ export const CORE_COMMANDS = {
   "mind.export": {
     on: "mind",
     does: "export",
-    takes: `ids: one Mind; format: ${COMMAND_EXPORT_FORMATS.join(", ")}; folder: an absolute path, or none for the Output location; marks: "mark" or "leave", only when the User's request says whether a Word file marks the text IncarnaMind wrote`,
+    takes: `ids: one Note; format: ${COMMAND_EXPORT_FORMATS.join(", ")}; folder: an absolute path, or none for the Output location; marks: "mark" or "leave", only when the User's request says whether a Word file marks the text IncarnaMind wrote`,
     check: LIBRARY_CHECKERS["mind.export"],
   },
   "mind.citationStyle": {
     on: "mind",
     does: "app",
     takes:
-      "ids: one Mind; style: a citation style's name, such as APA 7, Chicago, MLA or GB/T 7714",
+      "ids: one Note; style: a citation style's name, such as APA 7, Chicago, MLA or GB/T 7714",
     check: STYLE_CHECKERS["mind.citationStyle"],
   },
   "mind.style": {
     on: "mind",
     does: "app",
     takes:
-      "ids: one Mind; font: default, serif, mono or a font installed on the computer; size: small, default or large",
+      "ids: one Note; font: default, serif, mono or a font installed on the computer; size: small, default or large",
     check: STYLE_CHECKERS["mind.style"],
   },
   "folder.new": {

@@ -18,6 +18,8 @@ import {
   checkedByMe,
   citationElementId,
   citationSignOffBasis,
+  comparisonCellReviewed,
+  comparisonCellTarget,
   figureSignOffBasis,
   figureSignOffSources,
   removeSignOff,
@@ -87,6 +89,16 @@ export function useSignOffs(doc: Y.Doc | null): readonly SignOffRecord[] {
     return () => map.unobserve(read);
   }, [doc]);
   return records;
+}
+
+/** Whether a comparison cell has a standing "Checked by me" record. */
+export function useComparisonCellReviewed(
+  tableId: string,
+  documentId: string,
+  questionId: string,
+): boolean {
+  const { records } = useContext(SignOffsContext);
+  return comparisonCellReviewed(records, comparisonCellTarget(tableId, documentId, questionId));
 }
 
 /** Each live Document's version now, by id: a source quoted at an older one has changed. */
