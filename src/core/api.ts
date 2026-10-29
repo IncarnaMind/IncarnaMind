@@ -227,12 +227,12 @@ export interface CreateMindInput {
  *   marks on Citations and figures (`MIND_SIGN_OFFS_FIELD`, #1933). An older
  *   editor would strip the ids and leave the marks on nothing, so it opens
  *   these Notes read-only. Existing content needs no conversion.
- * - 35: the individual record cites in a sentence's check (#1709): their raw
+ * - 33: the individual record cites in a sentence's check (#1709): their raw
  *   text, outcome, resolved Document/version/Location, passage and any
  *   candidates or nearby suggestion. An older editor would drop them, so it
  *   opens these Notes read-only. Existing content needs no conversion.
  */
-export const CONTENT_SCHEMA_VERSION = 35;
+export const CONTENT_SCHEMA_VERSION = 33;
 
 /**
  * The key, in the Mind's settings map (`MIND_SETTINGS_FIELD`), of the content
