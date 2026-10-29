@@ -3069,7 +3069,7 @@ export const zhCN = {
   "comparison.status.nothing": "{count} 项未找到",
   "comparison.status.failed": "{count} 个失败",
   "comparison.status.nothingTip": "只显示有未找到内容的行",
-  "comparison.status.failedTip": "只显示有失败格子的行",
+  "comparison.status.failedTip": "只显示有失败单元格的行",
   "comparison.status.showing": "显示 {total} 个文档中的 {shown} 个",
   "comparison.status.clearFilter": "清除筛选",
   "comparison.sheet.region": "对比文档",

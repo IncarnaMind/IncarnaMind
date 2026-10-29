@@ -97,15 +97,19 @@ export const CLOUD_CELLS_AT_ONCE = 4;
 /** The kind of Task that fills a comparison table. */
 export const COMPARISON_TASK = "comparison";
 
-/** What a comparison table's Task fills: the table, or some of its columns and rows, and the model. */
+/** Some of a table's columns and rows, each absent for all of them: one rectangle of cells. */
+interface CellRequest {
+  questionIds?: string[];
+  documentIds?: string[];
+}
+
+/** What a comparison table's Task fills: the table, or rectangles of its cells, and the model. */
 interface ComparisonTaskInput {
   tableId: string;
   providerId: string;
   modelId: string;
-  /** The columns it fills, by their Questions' ids; absent: every cell to fill in the table. */
-  questionIds?: string[];
-  /** The rows it fills, by their Documents' ids; absent: every row. */
-  documentIds?: string[];
+  /** The rectangles of cells it fills; one empty request: every cell to fill in the table. */
+  fills: CellRequest[];
 }
 
 function taskInputOf(input: unknown): ComparisonTaskInput | null {
@@ -123,8 +127,10 @@ function taskInputOf(input: unknown): ComparisonTaskInput | null {
     tableId: input.tableId,
     providerId: input.providerId,
     modelId: input.modelId,
-    ...(questionIds && { questionIds }),
-    ...(documentIds && { documentIds }),
+    // A Task started before requests were kept as rectangles says its one request flat.
+    fills: storedFills(input.fills) ?? [
+      { ...(questionIds && { questionIds }), ...(documentIds && { documentIds }) },
+    ],
   };
 }
 
@@ -132,6 +138,18 @@ function storedColumnIds(value: unknown): string[] | null {
   if (!Array.isArray(value)) return null;
   const ids = value.filter((each): each is string => typeof each === "string" && each !== "");
   return ids.length > 0 ? ids : null;
+}
+
+function storedFills(value: unknown): CellRequest[] | null {
+  if (!Array.isArray(value)) return null;
+  const fills: CellRequest[] = [];
+  for (const each of value) {
+    if (!isRecord(each)) return null;
+    const questionIds = storedColumnIds(each.questionIds);
+    const documentIds = storedColumnIds(each.documentIds);
+    fills.push({ ...(questionIds && { questionIds }), ...(documentIds && { documentIds }) });
+  }
+  return fills.length > 0 ? fills : null;
 }
 
 /** What comparison tables need of Tasks (see ../runs/tasks). */
@@ -202,11 +220,14 @@ type Written =
   /** Its column was hidden before its turn came: it stays waiting, with no model call. */
   | { kind: "left-out" };
 
-/** The cells a fill writes: some columns and rows, each null for all of them. */
-interface FillScope {
+/** Some of a table's columns and rows, each null for all of them: one rectangle of its cells. */
+interface CellRectangle {
   questions: Set<string> | null;
   documents: Set<string> | null;
 }
+
+/** The cells a fill writes: every cell in any of its rectangles. */
+type FillScope = CellRectangle[];
 
 interface Fill {
   mindId: string;
@@ -216,10 +237,7 @@ interface Fill {
   task: TaskRun;
   /** Whether the model runs on this computer: one cell at a time, giving way to Answers. */
   local: boolean;
-  /**
-   * The columns and rows it fills, and any a later request added while it ran;
-   * each null: every one.
-   */
+  /** The rectangles of cells it fills, and any a later request added while it ran. */
   scope: FillScope;
 }
 
@@ -442,6 +460,15 @@ const tableIn = (blocks: Y.XmlFragment, tableId: string) =>
 const elements = (parent: Y.XmlElement) =>
   parent.toArray().filter((child): child is Y.XmlElement => child instanceof Y.XmlElement);
 
+/** Whether a fill's rectangles hold the cell of `questionId` and `documentId`. */
+function inScope(scope: FillScope, questionId: string, documentId: string): boolean {
+  return scope.some(
+    ({ questions, documents }) =>
+      (questions === null || questions.has(questionId)) &&
+      (documents === null || documents.has(documentId)),
+  );
+}
+
 /** The cells to fill in a table, row by row, each row's in its columns' order. */
 function cellsToFill(table: Y.XmlElement, scope: FillScope): Cell[] {
   const questions = comparisonQuestionsOf(table.getAttributes());
@@ -449,14 +476,13 @@ function cellsToFill(table: Y.XmlElement, scope: FillScope): Cell[] {
   for (const row of elements(table)) {
     if (row.nodeName !== COMPARISON_ROW_NODE) continue;
     const documentId = String(row.getAttribute("documentId") ?? "");
-    if (scope.documents && !scope.documents.has(documentId)) continue;
     const byQuestion = new Map(
       elements(row).map((cell) => [String(cell.getAttribute("questionId") ?? ""), cell]),
     );
     for (const question of questions) {
       // A hidden column is out of the work until it is shown again.
       if (question.hidden === true) continue;
-      if (scope.questions && !scope.questions.has(question.id)) continue;
+      if (!inScope(scope, question.id, documentId)) continue;
       const cell = byQuestion.get(question.id);
       if (!cell || !cellToFill(comparisonCellOf(cell.getAttributes()))) continue;
       cells.push({ documentId, questionId: question.id, question: question.text });
@@ -483,13 +509,11 @@ function progressOf(table: Y.XmlElement, scope: FillScope): { done: number; tota
   );
   for (const row of elements(table)) {
     if (row.nodeName !== COMPARISON_ROW_NODE) continue;
-    if (scope.documents && !scope.documents.has(String(row.getAttribute("documentId") ?? ""))) {
-      continue;
-    }
+    const documentId = String(row.getAttribute("documentId") ?? "");
     for (const cell of elements(row)) {
       const questionId = String(cell.getAttribute("questionId") ?? "");
       if (hidden.has(questionId)) continue;
-      if (scope.questions && !scope.questions.has(questionId)) continue;
+      if (!inScope(scope, questionId, documentId)) continue;
       total++;
       const status = comparisonCellOf(cell.getAttributes()).status;
       if (status === "done" || status === "failed") done++;
@@ -502,79 +526,60 @@ export function createComparisons(options: ComparisonsOptions) {
   const { content } = options;
   /** The fills going, by table. */
   const fills = new Map<string, Fill>();
-  // Columns and rows asked for while a table's Task runs or waits: its Task's scope
-  // plus these make the cells it fills; "all" is every one.
-  interface WantedCells {
-    questions: Set<string> | "all";
-    documents: Set<string> | "all";
-  }
-  const extraScopes = new Map<string, WantedCells>();
+  /** The cells asked for while a table's Task waits: its Task's rectangles plus these. */
+  const extraScopes = new Map<string, FillScope>();
 
-  /** One dimension of a request merged into the Task's: null when either asks for all of it. */
-  function mergedIds(
-    kept: readonly string[] | undefined,
-    wanted: readonly string[] | null,
-  ): string[] | null {
-    if (wanted === null || kept === undefined) return null;
-    return [...new Set([...kept, ...wanted])];
-  }
+  const rectangleOf = ({ questionIds, documentIds }: CellRequest): CellRectangle => ({
+    questions: questionIds ? new Set(questionIds) : null,
+    documents: documentIds ? new Set(documentIds) : null,
+  });
 
-  const sameIds = (left: readonly string[] | null, right: readonly string[] | undefined) =>
-    (left ?? []).length === (right ?? []).length &&
-    (left ?? []).every((id) => (right ?? []).includes(id));
+  const requestOf = ({ questions, documents }: CellRectangle): CellRequest => ({
+    ...(questions && { questionIds: [...questions] }),
+    ...(documents && { documentIds: [...documents] }),
+  });
 
-  function addTo(
-    current: Set<string> | "all",
-    merged: readonly string[] | null,
-  ): Set<string> | "all" {
-    if (merged === null) return "all";
-    if (current === "all") return current;
-    for (const id of merged) current.add(id);
-    return current;
+  /** Whether `outer` holds every cell of `inner`. */
+  function holds(outer: CellRectangle, inner: CellRectangle): boolean {
+    const holdsAll = (all: Set<string> | null, some: Set<string> | null) =>
+      all === null || (some !== null && [...some].every((id) => all.has(id)));
+    return holdsAll(outer.questions, inner.questions) && holdsAll(outer.documents, inner.documents);
   }
 
-  // Adds a request's columns and rows to the Task's durable input, so a run resumed after
-  // a quit fills them too, and to its fill going, if any.
+  // Rectangles stay apart: a row request and a column request together hold their two
+  // rectangles, not every cell the two touch.
+  function widenScope(scope: FillScope, added: CellRectangle): FillScope {
+    if (scope.some((each) => holds(each, added))) return scope;
+    return [...scope.filter((each) => !holds(added, each)), added];
+  }
+
+  // Adds a request's cells to the Task's durable input, so a run resumed after a quit fills
+  // them too, and to its fill going, if any.
   function widen(
     tableId: string,
     questionIds: readonly string[] | null,
     documentIds: readonly string[] | null,
   ): void {
     const task = taskOf(tableId);
-    const input = task ? taskInputOf(task.input) : null;
+    if (!task) return;
+    const input = taskInputOf(task.input);
     // A fill only exists under a Task, whose input says what it fills.
     if (!input) return;
-    const questions = mergedIds(input.questionIds, questionIds);
-    const documents = mergedIds(input.documentIds, documentIds);
-    if (task) {
-      const wider =
-        !sameIds(questions, input.questionIds) || !sameIds(documents, input.documentIds);
-      if (wider) {
-        options.tasks.updateInput(task.id, {
-          tableId: input.tableId,
-          providerId: input.providerId,
-          modelId: input.modelId,
-          ...(questions && { questionIds: questions }),
-          ...(documents && { documentIds: documents }),
-        });
-      }
+    const added = rectangleOf({
+      ...(questionIds && { questionIds: [...questionIds] }),
+      ...(documentIds && { documentIds: [...documentIds] }),
+    });
+    const wanted = input.fills.map(rectangleOf);
+    const scope = widenScope(wanted, added);
+    if (scope !== wanted) {
+      options.tasks.updateInput(task.id, { ...input, fills: scope.map(requestOf) });
     }
     const fill = fills.get(tableId);
     if (fill) {
-      if (questions === null) fill.scope.questions = null;
-      else if (fill.scope.questions) for (const id of questions) fill.scope.questions.add(id);
-      if (documents === null) fill.scope.documents = null;
-      else if (fill.scope.documents) for (const id of documents) fill.scope.documents.add(id);
+      fill.scope = widenScope(fill.scope, added);
       return;
     }
-    const wanted = extraScopes.get(tableId) ?? {
-      questions: input.questionIds ? new Set(input.questionIds) : "all",
-      documents: input.documentIds ? new Set(input.documentIds) : "all",
-    };
-    extraScopes.set(tableId, {
-      questions: addTo(wanted.questions, questions),
-      documents: addTo(wanted.documents, documents),
-    });
+    extraScopes.set(tableId, widenScope(extraScopes.get(tableId) ?? wanted, added));
   }
 
   /** The unfinished Task filling a table, if any. */
@@ -913,7 +918,7 @@ export function createComparisons(options: ComparisonsOptions) {
   async function fillAsTask(
     task: TaskRun,
     mindId: string,
-    { tableId, providerId, modelId, questionIds, documentIds }: ComparisonTaskInput,
+    { tableId, providerId, modelId, fills: requests }: ComparisonTaskInput,
   ): Promise<TaskEnd> {
     const there = () =>
       options.mindExists(mindId) && content.read(mindId, (all) => !!tableIn(all, tableId));
@@ -928,22 +933,13 @@ export function createComparisons(options: ComparisonsOptions) {
     // and the Task's input records them, so a resume after a quit fills them too.
     const extra = extraScopes.get(tableId);
     extraScopes.delete(tableId);
-    const inScope = (
-      ids: readonly string[] | undefined,
-      wanted: Set<string> | "all" | undefined,
-    ): Set<string> | null =>
-      ids === undefined || wanted === "all" ? null : new Set([...ids, ...(wanted ?? [])]);
-    const scope: FillScope = {
-      questions: inScope(questionIds, extra?.questions),
-      documents: inScope(documentIds, extra?.documents),
-    };
+    const scope: FillScope = extra ?? requests.map(rectangleOf);
     if (extra !== undefined) {
       options.tasks.updateInput(task.id, {
         tableId,
         providerId,
         modelId,
-        ...(scope.questions && { questionIds: [...scope.questions] }),
-        ...(scope.documents && { documentIds: [...scope.documents] }),
+        fills: scope.map(requestOf),
       });
     }
     const fill: Fill = {
@@ -998,8 +994,12 @@ export function createComparisons(options: ComparisonsOptions) {
       tableId,
       providerId: model.providerId,
       modelId: model.modelId,
-      ...(questionIds && { questionIds: [...questionIds] }),
-      ...(documentIds && { documentIds: [...documentIds] }),
+      fills: [
+        {
+          ...(questionIds && { questionIds: [...questionIds] }),
+          ...(documentIds && { documentIds: [...documentIds] }),
+        },
+      ],
     });
   }
 

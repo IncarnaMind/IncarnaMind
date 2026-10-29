@@ -359,7 +359,9 @@ export function ComparisonTableView({ node, editor }: ReactNodeViewProps) {
         tabIndex={editable ? 0 : undefined}
         {...(editable ? tableMenu.rowProps : {})}
         onKeyDown={(event: KeyboardEvent<HTMLDivElement>) => {
-          if (!editable || event.defaultPrevented || renaming) return;
+          if (!editable) return;
+          tableMenu.rowProps.onKeyDown(event);
+          if (event.defaultPrevented || renaming) return;
           if (event.key === "F2") {
             event.preventDefault();
             startTableRename(tableId);
