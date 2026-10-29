@@ -4,7 +4,8 @@
  * chosen into the Mind in focus. Skipped, it goes on with the two newest and says so.
  * "Summarise the main ones" asks as Claude Haiku 5.5 did: one choice, one ticked, Other… allowed.
  * "Summarise the two main documents" (总结两份主要文档), when the Answer can use fewer than two
- * of the Library's Documents, asks which two and says the Library's count (#1333).
+ * of the Library's Documents, asks which two and says the Library's count (#1333); once the
+ * Library is the User's own one, it sums that one up instead (#1942).
  */
 import { lastResult, type Prompt, type Reply, systemOf } from "./prompt";
 
@@ -63,6 +64,15 @@ export function asksReply(
         text: /\p{Script=Han}/u.test(question)
           ? `你指的是哪两份文档？资料库里有 ${library} 份${only ? `，这里只能搜索“${only}”` : ""}。`
           : `Which two Documents do you mean? Your Library has ${library}, and ${only ? `“${only}” is the only one I can search here` : "none of them can be searched here"}.`,
+      };
+    }
+    // One Document of the User's own, and no larger Library to name (#1942): it sums that one up.
+    if (documents.length === 1 && library === null) {
+      const [only] = documents;
+      return {
+        text: /\p{Script=Han}/u.test(question)
+          ? `资料库里只有“${only}”这一份文档，我按它来总结。`
+          : `Your Library has one Document, “${only}”, so this is a summary of it.`,
       };
     }
     return null;
