@@ -4670,7 +4670,6 @@ export const zhCN = {
   "editor.hint.example": "试一试：在这里写一行，或{ask}",
   "editor.hint.example.ask": "按 {shortcut} 提出你自己的问题",
   "examples.chip": "示例",
-  "examples.row": "示例",
   "firstOpen.title": "欢迎使用 IncarnaMind",
   "firstOpen.step.citation.title": "核对一条引用",
   "firstOpen.step.citation.done": "已核对一条引用",

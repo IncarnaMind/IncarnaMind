@@ -4910,7 +4910,6 @@ export const en = {
   "editor.hint.example": "Try it: write a line here, or {ask}",
   "editor.hint.example.ask": "press {shortcut} to ask your own Question",
   "examples.chip": "Example",
-  "examples.row": "Example",
   "firstOpen.title": "Welcome to IncarnaMind",
   "firstOpen.step.citation.title": "Check a Citation",
   "firstOpen.step.citation.done": "Checked a Citation",

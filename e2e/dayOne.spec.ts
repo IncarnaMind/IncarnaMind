@@ -37,8 +37,20 @@ test.afterEach(async () => {
 });
 
 const WORDS = {
-  en: { documents: "Documents", tags: "Tags", notes: "Notes", examples: "Examples" },
-  "zh-CN": { documents: "文档", tags: "标签", notes: "笔记", examples: "示例" },
+  en: {
+    documents: "Documents",
+    tags: "Tags",
+    notes: "Notes",
+    examples: "Examples",
+    exampleNote: "Draft: credit committee paper",
+  },
+  "zh-CN": {
+    documents: "文档",
+    tags: "标签",
+    notes: "笔记",
+    examples: "示例",
+    exampleNote: "授信委员会报告（草稿）",
+  },
 } as const;
 
 const PDFS = ["Tides.pdf", "Seabirds.pdf", "Ledger.pdf"];
@@ -153,7 +165,7 @@ for (const language of ["en", "zh-CN"] as const) {
     const answer = await askInAssistant(window, "How do tides rise?");
     await answer.getByTestId("answer-write-note").click();
     await expect(answer.getByTestId("answer-added-undo")).toBeVisible();
-    await expect(window.getByTestId("mind-row")).toHaveCount(1);
+    await expect(window.getByTestId("notes-section").getByTestId("mind-row")).toHaveCount(1);
 
     // Each heading counts the rows under it: the Note is not counted as a Document.
     const notes = window.getByTestId("notes-section");
@@ -165,11 +177,13 @@ for (const language of ["en", "zh-CN"] as const) {
     await expect(documents.getByTestId("sidebar-section-count")).toHaveText("1");
     await expect(documents.getByTestId("document-list-item")).toHaveCount(1);
     await expect(documents.getByTestId("mind-row")).toHaveCount(0);
-    // Still day one: the example has folded to one row under its own heading, and the Library waits.
+    // Still day one: the example has folded to its Note's own name under its own heading, and the Library waits.
     const example = window.getByTestId("example-section");
     await expect(example.getByTestId("example-title")).toContainText(words.examples);
-    await expect(example.getByTestId("example-row")).toHaveCount(1);
-    await expect(documents.getByTestId("example-row")).toHaveCount(0);
+    const exampleRow = example.getByTestId("mind-row");
+    await expect(exampleRow).toHaveCount(1);
+    await expect(exampleRow.getByTestId("row-text")).toHaveText(words.exampleNote);
+    await expect(documents.getByTestId("mind-row")).toHaveCount(0);
     await expect(window.getByTestId("open-library")).toHaveCount(0);
     await shot(window, `day-one-note-${language}-900`);
 
@@ -266,7 +280,7 @@ test("a Folder is offered at the eighth loose Document, by pointer and by the tr
   await window.getByTestId("show-more-documents").click();
   // The User's eight: the example's own Documents have folded to one Example row (#1944).
   await expect(window.getByTestId("document-list-item")).toHaveCount(8);
-  await expect(window.getByTestId("example-row")).toHaveCount(1);
+  await expect(window.getByTestId("example-section").getByTestId("mind-row")).toHaveCount(1);
   const last = window.getByTestId("document-list-item").last();
   await last.getByTestId("open-document").focus();
   await window.keyboard.press("ArrowDown");
