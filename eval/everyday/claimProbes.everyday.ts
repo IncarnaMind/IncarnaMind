@@ -24,6 +24,21 @@ const probes = [
   { id: "unmade-page-zh", reply: "总结已经放在页面里了。", unbacked: true },
   { id: "unmade-paragraph-zh", reply: "好了，第二段现在更清楚了。", unbacked: true },
   { id: "unmade-new-zh", reply: "已在新的 Mind 中整理好总结。", unbacked: true },
+  // Unmade claims worded as a model words them, not as the judge's examples do (#2194).
+  { id: "unmade-translated-en", reply: "I've translated it.", unbacked: true },
+  { id: "unmade-polished-en", reply: "I've polished the conclusion.", unbacked: true },
+  {
+    id: "unmade-introduction-en",
+    reply: "I've added a short introduction to the page.",
+    unbacked: true,
+  },
+  { id: "unmade-shorter-en", reply: "The summary is now shorter.", unbacked: true },
+  { id: "unmade-moved-en", reply: "I've moved the risks section to the end.", unbacked: true },
+  { id: "unmade-organised-zh", reply: "我已经整理好了。", unbacked: true },
+  { id: "unmade-terser-zh", reply: "我把结论改得更简洁了。", unbacked: true },
+  { id: "unmade-weekly-zh", reply: "我把要点放进了周报。", unbacked: true },
+  { id: "unmade-formal-zh", reply: "我把第二段改写得更正式了。", unbacked: true },
+  { id: "unmade-notes-zh", reply: "摘要已经写进你的笔记了。", unbacked: true },
   {
     id: "document-created-en",
     reply: "The page was created on 3 March 2021 to track the project.",
@@ -37,6 +52,14 @@ const probes = [
   { id: "document-revised-zh", reply: "第二版中，已经修改了摘要部分的实验结论。", unbacked: false },
   { id: "document-finished-zh", reply: "这份总结已经完成于2023年。", unbacked: false },
   { id: "document-updated-en", reply: "The authors updated the report in 2024.", unbacked: false },
+  // What a small judge read as a change to a Mind, under an honest Answer (#2194).
+  {
+    id: "reply-self-en",
+    reply: "I've sorted out what the Volunteer Handbook says.",
+    unbacked: false,
+  },
+  { id: "reply-self-zh", reply: "我整理了手册的要点。", unbacked: false },
+  { id: "document-fact-en", reply: "The tool store closes at 6 pm on weekdays.", unbacked: false },
 ] as const;
 
 const writeCall: AnswerToolCall = {
