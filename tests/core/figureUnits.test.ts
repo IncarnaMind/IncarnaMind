@@ -475,6 +475,112 @@ describe("Checking a sentence that adds a unit", { timeout: 30_000 }, () => {
   });
 });
 
+const RENT = "乙方每月向甲方支付租金人民币两万元。";
+const flatLine = (tenant: string, rent: string) =>
+  `甲方将明川路14号2室出租给乙方${tenant}，乙方${tenant}每月向甲方支付租金人民币${rent}元`;
+const flat = (tenant: string, rent: string) => ({
+  name: `员工宿舍协议 - ${tenant}.txt`,
+  contents: `员工宿舍协议\n甲方：明川食品有限公司　乙方：${tenant}\n第一条　${flatLine(tenant, rent)}。\n第二条　租期为两年。\n`,
+});
+const AMOUNTS = [
+  ["两万", "20,000", "林晓"],
+  ["三千五百", "3,500", "王芳"],
+  ["一万二", "12,000", "张伟"],
+  ["十二万", "120,000", "李娜"],
+  ["两千万", "20,000,000", "陈杰"],
+] as const;
+
+describe("A Chinese amount in words (#2189)", () => {
+  // protects=an amount in Chinese numerals is the one amount it writes, against the same amount in digits on a page whose address holds "14号2室", each way round; fails_when="The Document gives 2, not 人民币两万元", or any amount is read as its first digits at another scale; no_claim=a real model's verdict.
+  test.each(AMOUNTS)("%s is the amount %s", (words, digits, tenant) => {
+    const inDigits = `第一条　${flatLine(tenant, digits)}。`;
+    const inWords = `第一条　${flatLine(tenant, words)}。`;
+    expect(unitNotStated(`乙方每月支付租金人民币${words}元。`, read(inDigits))).toBeNull();
+    expect(unitNotStated(`乙方每月支付租金人民币${digits}元。`, read(inWords))).toBeNull();
+    expect(unitNotStated(`乙方每月支付租金${words}元。`, read(inWords))).toBeNull();
+  });
+
+  // protects=a number with an address's, a room's, a floor's or a clause's word is never the amount at another scale, while a bare number still is, in digits or in words; fails_when=the "2" of "14号2室" or "2单元" gives "The Document gives 2", or a bare "2" no longer does; no_claim=whether a model calls the sentence supported.
+  test("a number in an address, a room or a clause never stands in for an amount", () => {
+    for (const cited of [
+      "第一条　员工宿舍：甲方将明川路14号2室出租给乙方，甲方为出租方，乙方为承租方。",
+      "甲方将5号楼2单元2室出租给乙方，该楼共2层。",
+      "乙方住在2楼。",
+      "详见第2条第2款。",
+      "见2章。",
+    ]) {
+      expect(unitNotStated(RENT, read(cited)), cited).toBeNull();
+    }
+    expect(unitNotStated("乙方每月支付租金2万元。", read("租金\t2"))).toMatchObject({
+      kind: "scale",
+      amount: "2",
+    });
+    expect(unitNotStated(RENT, read("租金\t2"))).toMatchObject({ kind: "scale", amount: "2" });
+  });
+
+  // protects=a figure's row compares it only with the numbers it was bound to: the room number on the same page is not one of them; fails_when=the row says "The Document gives 2, not 人民币两万元"; no_claim=none beyond protects.
+  test("a figure's row is compared only with the numbers it was bound to", () => {
+    const page = flat("林晓", "20,000").contents;
+    const bound = [
+      { chars: "人民币20,000元", unit: { kind: "currency" as const, code: "CNY" }, scale: 1 },
+    ];
+    expect(unitNotStated("人民币两万元", read(page), bound)).toBeNull();
+    expect(
+      unitNotStated("人民币2万元", read("租金\t2"), [
+        { chars: "2", unit: { kind: "plain" as const }, scale: 1 },
+      ]),
+    ).toMatchObject({ kind: "scale", amount: "2" });
+  });
+});
+
+describe("Checking a Chinese amount in words", { timeout: 30_000 }, () => {
+  const supportedBy = (tenant: string, digits: string) => ({
+    verdict: "supported" as const,
+    quote: flatLine(tenant, digits),
+    number: digits,
+    says: flatLine(tenant, digits),
+  });
+
+  // protects=through the core, with the flat agreement in the Library, a sentence stating the rent correctly as 人民币两万元 is Supported and neither its sentence nor its figure's row gives a reason from the room number, in English and Chinese (#2189); fails_when="The Document gives 2, not 人民币两万元" or "文档写的是 2" appears, or the verdict isn't Supported; no_claim=a real model's verdict.
+  test("a rent stated correctly as 人民币两万元 is Supported, with no reason from the room number", async () => {
+    const claim = "乙方林晓每月向甲方支付租金人民币两万元。";
+    const { core } = await setUpWithDocuments(
+      checkingModel({ [claim]: supportedBy("林晓", "20,000") }),
+      [flat("林晓", "20,000")],
+    );
+
+    const result = await core.checkClaim({ claim });
+    expect(result).toMatchObject({ verdict: "supported", unsupported: null });
+    expect(JSON.stringify(result)).not.toContain("gives 2");
+
+    await core.updateSettings({ user: { language: "zh-CN" } });
+    const zh = await core.checkClaim({ claim });
+    expect(zh).toMatchObject({ verdict: "supported", unsupported: null });
+    expect(JSON.stringify(zh)).not.toContain("写的是 2");
+  });
+
+  // protects=through the core, each of 两万, 三千五百, 一万二, 十二万 and 两千万 is checked as the one amount it writes against the flat agreement that gives it in digits; fails_when=any is Unsupported for a scale or a currency; no_claim=a real model's verdict.
+  test("each amount in words is checked as one amount", async () => {
+    const plans = Object.fromEntries(
+      AMOUNTS.map(([words, digits, tenant]) => [
+        `乙方${tenant}每月向甲方支付租金人民币${words}元。`,
+        supportedBy(tenant, digits),
+      ]),
+    );
+    const { core } = await setUpWithDocuments(
+      checkingModel(plans),
+      AMOUNTS.map(([, digits, tenant]) => flat(tenant, digits)),
+    );
+
+    for (const claim of Object.keys(plans)) {
+      expect(await core.checkClaim({ claim }), claim).toMatchObject({
+        verdict: "supported",
+        unsupported: null,
+      });
+    }
+  });
+});
+
 describe("What the assistant writes", { timeout: 30_000 }, () => {
   const WRITTEN = "The annual salary is £54,000";
   const CUT = /<task action="cut-unsupported">/;

@@ -911,7 +911,7 @@ const CN_MEASURES =
   );
 /** Counting words: a figure's unit after a numeral of two characters or more ("十二家"), not after one. */
 const CN_COUNTS =
-  "人次 岁 度 户 人 名 家 个 辆 台 套 件 只 头 股 手 张 份 项 座 所 架 艘 部 位 款 条 片 块 箱 次 例 床 间 栋".split(
+  "人次 岁 度 户 人 名 家 个 辆 台 套 件 只 头 股 手 张 份 项 座 所 架 艘 部 位 款 条 片 块 箱 次 例 床 间 栋 单元 室 层 楼 章".split(
     " ",
   );
 const CN_MEASURE_AFTER = new RegExp(CN_MEASURES.join("|"), "y");
@@ -1456,6 +1456,30 @@ function lexChinese(s: string, start: number): Core | null {
   const point = run.indexOf("点");
   const span = { from: start, to: end };
   const capitals = CAPITALS.test(run);
+  const digit = CN_DIGITS[run[0] ?? ""];
+  const place = run[1] ?? "";
+  // "两万半" is 25,000, but "两千半导体" is 2,000 semiconductors.
+  if (s[end] === "半" && run.length === 2 && digit && !/\p{Script=Han}/u.test(s[end + 1] ?? "")) {
+    const halfSpan = { from: start, to: end + 1 };
+    const exponent = place === "万" || place === "亿" ? CN_SCALES[place] : undefined;
+    if (exponent !== undefined) {
+      return core(
+        halfSpan,
+        { digits: `${digit}5`, point: 1 },
+        {
+          chinese: true,
+          capitals,
+          exponent,
+          scaleWord: place,
+          scaleAt: { from: end - 1, to: end },
+        },
+      );
+    }
+    const unit = CN_PLACES[place];
+    if (unit !== undefined && unit >= 100) {
+      return core(halfSpan, integer(String(digit * unit + unit / 2)), { chinese: true, capitals });
+    }
+  }
   if (point >= 0) {
     const whole = cnInteger(run.slice(0, point));
     const after = run.slice(point + 1);
@@ -1715,6 +1739,34 @@ function readAround(
       draft.scaleWord = scale.word;
       draft.scaleAt = scale.at;
       draft.exponent = scaleExponent(scale.word);
+      // "2万5千", "2亿5000万": the lower places go on with the same amount, at its scale.
+      let place =
+        found.number.point === found.number.digits.length && !found.otherReading
+          ? CN_SCALES[scale.word]
+          : undefined;
+      let value = decimalValue(found.number, draft.exponent, false);
+      let joined = false;
+      while (place !== undefined) {
+        const at = right;
+        const digits = take(/\d{1,4}(?![\d.,])/y);
+        const lower = digits ? take(CN_SCALE_AFTER) : null;
+        const exponent = lower ? CN_SCALES[lower.word] : undefined;
+        if (
+          !digits ||
+          exponent === undefined ||
+          Number(digits.word) * 10 ** exponent >= 10 ** place
+        ) {
+          right = at;
+          break;
+        }
+        value += Number(digits.word) * 10 ** exponent;
+        place = exponent;
+        joined = true;
+      }
+      if (joined) {
+        const [whole = "", fraction = ""] = String(value / 10 ** draft.exponent).split(".");
+        draft.core = { ...draft.core, number: { digits: whole + fraction, point: whole.length } };
+      }
     }
   }
   const currencyAfter =
@@ -2019,6 +2071,8 @@ function statedReadings(draft: Draft, statements: readonly Statement[]): Reading
   if (draft.unit.kind !== "plain" && draft.unit.kind !== "currency") return [];
   const readings: Reading[] = [];
   for (const statement of statements) {
+    // A numeral in words writes the whole amount: "一万二" under "单位：万元" is still 12,000 (#2189).
+    if (draft.core.chinese && statement.exponent !== 0) continue;
     let unit: FigureUnit = draft.unit;
     let unitExponent = 0;
     if (statement.unit.kind === "percent") {
