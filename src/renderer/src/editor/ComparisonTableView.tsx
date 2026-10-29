@@ -434,7 +434,7 @@ export function ComparisonTableView({ node, editor }: ReactNodeViewProps) {
               {t("comparison.status.failed", { count: counts.failed })}
             </button>
           )}
-          {hasProblems && filters.size > 0 && (
+          {filters.size > 0 && (
             <>
               <span aria-hidden="true" className="comparison-sep">
                 ·
