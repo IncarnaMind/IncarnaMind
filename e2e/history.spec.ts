@@ -1,18 +1,22 @@
-import { join } from "node:path";
+import { basename, join } from "node:path";
 import { expect, type Locator, type Page, test } from "@playwright/test";
 import type { CoreBridge } from "../src/core/api";
+import { translate } from "../src/shared/i18n";
 import {
   createDataFolder,
   dismissChatSetup,
+  exportFromMenu,
   launchApp,
   motionSettled,
   newMind,
   pointAndClick,
   pointAt,
   removeDataFolder,
+  runFromPalette,
   setWindowSize,
   slideSelect,
   useLocalChatModel,
+  useOutputLocation,
 } from "./app";
 
 /*
@@ -198,3 +202,66 @@ test("in Chinese, at a narrow window: an empty History, then by the keyboard fro
   await window.keyboard.press("Escape");
   await expect(history).toBeHidden();
 });
+
+for (const language of ["en", "zh-CN"] as const) {
+  test(`a version is named where it shows, Undo takes the name back, and sending the Note as Word keeps a version with the file's name (${language})`, async () => {
+    const t = (key: Parameters<typeof translate>[1], params?: Parameters<typeof translate>[2]) =>
+      translate(language, key, params);
+    const { app, window } = await launchApp(dataDir, { fakeChat: true });
+    await setWindowSize(app, window, language === "en" ? 1600 : 900, 900);
+    await dismissChatSetup(window);
+    await useLocalChatModel(window);
+    await useOutputLocation(window, await createDataFolder());
+    await shorten(
+      window,
+      "The tides here are very strong and really regular.",
+      "The tides here are strong and regular.",
+    );
+    await setLanguage(window, language);
+    await exportFromMenu(window, "docx");
+    const done = window.getByTestId("export-result").getByTestId("export-done");
+    await expect(done).toContainText(".docx", { timeout: 30_000 });
+    const file = basename((await done.getAttribute("title")) ?? "");
+
+    await runFromPalette(window, t("history.command"));
+    const history = window.getByTestId("history");
+    const picker = history.getByTestId("history-picker-left");
+    await pointAndClick(window, picker);
+    const options = history.getByTestId("history-versions-left").getByTestId("history-version");
+    const sent = options.filter({ hasText: t("history.reason.export.docx", { file }) });
+    await expect(sent).toHaveCount(1);
+    await pointAndClick(window, sent);
+    await expect(picker).toContainText(t("history.reason.export.docx", { file }));
+
+    // Named where it shows: a click on "Name this version" makes it a field; Enter keeps it.
+    const name = history.getByTestId("history-name");
+    await expect(name).toHaveText(t("history.name.add"));
+    await pointAndClick(window, name);
+    const field = history.getByTestId("history-name-field");
+    await expect(field).toBeFocused();
+    await window.keyboard.type(language === "en" ? "Filed draft" : "已提交的草稿");
+    await window.keyboard.press("Enter");
+    const named = language === "en" ? "Filed draft" : "已提交的草稿";
+    await expect(name).toHaveText(named);
+    // Enter keeps the focus on the name it saved, never on the page behind.
+    await expect(name).toBeFocused();
+    await expect(picker).toContainText(named);
+    await screenshot(window, `history-named-${language}`);
+    await expect(history.getByTestId("undo-line-here").getByTestId("undo-message")).toHaveText(
+      t("history.named", { name: named }),
+    );
+
+    // ⌘Z takes the name back; F2 on the picker names it again.
+    await picker.focus();
+    await window.keyboard.press("ControlOrMeta+z");
+    await expect(name).toHaveText(t("history.name.add"));
+    await picker.focus();
+    await window.keyboard.press("F2");
+    await expect(field).toBeFocused();
+    await window.keyboard.press("Escape");
+    await expect(name).toHaveText(t("history.name.add"));
+    // Esc goes back to where naming began: the picker.
+    await expect(picker).toBeFocused();
+    await expect(history).toBeVisible();
+  });
+}

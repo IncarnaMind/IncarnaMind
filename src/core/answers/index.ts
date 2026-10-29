@@ -43,7 +43,7 @@
 import { randomUUID } from "node:crypto";
 import type * as Y from "yjs";
 import { asGenerated } from "../../shared/aiText";
-import { hasText, markersIn, pageBlocks } from "../../shared/answerBlocks";
+import { hasText, markersIn, pageBlocks, withCalculatedFigures } from "../../shared/answerBlocks";
 import { runsByDefault } from "../../shared/approvalRules";
 import {
   askedFor,
@@ -53,6 +53,7 @@ import {
 import { citationNode, withCitations } from "../../shared/blockJson";
 import { type LiveDocument, shownDocumentName } from "../../shared/citations";
 import { withFigures, withFigureText } from "../../shared/figureMarkers";
+import { figureRunsOfAnswer, installFigureRuns } from "../../shared/figureRuns";
 import { translate } from "../../shared/i18n";
 import { englishPlace } from "../../shared/locations";
 import { holdsNothing, madeByAnswer } from "../../shared/madeMind";
@@ -184,6 +185,7 @@ import {
   findBlock,
   isEdited,
   type NodeJSON,
+  nodeOf,
   syncContent,
   textAttribute,
   topLevelBlocks,
@@ -194,6 +196,7 @@ import { type ChangedScale, changedScale, changedScaleNote } from "./changedScal
 import {
   type AnswerDocuments,
   createCitationSession,
+  documentNamedAmong,
   type QuoteInput,
   withoutDeadMarkers,
   withoutFootnoteDefinitions,
@@ -226,7 +229,13 @@ import {
   createContextCitations,
   withoutWrittenIds,
 } from "./contextCitations";
-import { coverageInstructions, coverageOf, documentsAsked, type SizedDocument } from "./coverage";
+import {
+  coverageInstructions,
+  coverageOf,
+  documentsAsked,
+  namedCoverage,
+  type SizedDocument,
+} from "./coverage";
 import {
   documentSkimBlock,
   documentTextBlock,
@@ -406,7 +415,11 @@ export interface AnswerConversations {
     question: ConversationQuestion;
     toolCalls: AnswerToolCall[];
     onScreen: string[];
+    /** The model the caller chose to write it with instead of the Question's own (#1848). */
+    model: ChatModelChoice | null;
   };
+  /** Keeps a Question on the model its Answer is written with now, so Regenerate goes on with it. */
+  setQuestionModel(questionId: string, model: ChatModelChoice): ConversationQuestion | null;
   /** Takes the Search scope off a Question: its Answers search every Document (#748). */
   clearScope(questionId: string): ConversationQuestion | null;
   /** Empties an Answer, where it is, to write it again, reading `read`. */
@@ -502,6 +515,7 @@ function lastAnswerOf(
     blocks,
     origin: { from: messageReference(conversationId, answer.id), question: question?.text ?? "" },
     folderId: question?.kind === "question" ? filedIn(question.scope, question.askedFrom) : null,
+    answer: { id: answer.id, analyses: answer.analyses },
   };
 }
 
@@ -561,8 +575,9 @@ export interface AnswersOptions {
   resolveScope(scope: SearchScope): string[] | null;
   /**
    * With no Search scope, what an Answer asked from `mindId` in the assistant
-   * searches: every Document but the examples', unless it is an example's
-   * Mind; null: every Document.
+   * searches: the examples until the User has a Document of their own, theirs
+   * alone from then on (#1942); an example's Mind searches every Document.
+   * Null: every Document.
    */
   unscopedDocuments?(mindId: string | null): string[] | null;
   /** What a Question from a Mind searches, by the one rule (`mindSearchScope`); null: every Document. */
@@ -730,7 +745,7 @@ const messageOf = (error: unknown) => (error instanceof Error ? error.message : 
 export interface DocumentsForAnswers
   extends Pick<AnswerDocuments, "citationSource" | "pageTexts" | "documentDate"> {
   searchableCount(documentIds: readonly string[] | null): number;
-  /** How many live Documents the Library holds: every Document it lists, searchable or not. */
+  /** The Library's count as its page shows it: the examples' until the User has one, then theirs. */
   libraryCount(): number;
   /** Every live Document's names: what a Citation in the Question context names its Document by. */
   names(): readonly LiveDocument[];
@@ -790,17 +805,7 @@ function inScope(
     pageTexts: (documentId, contentHash, from, to) =>
       documents.pageTexts(documentId, contentHash, from, to),
     documentDate: (documentId) => documents.documentDate(documentId),
-    documentNamed: (name) => {
-      const key = (text: string) => text.replace(/\s+/g, " ").trim().toLocaleLowerCase();
-      const wanted = key(name.replace(/\s*\(“[^”]*”\)\s*$/, ""));
-      const all = documents.searchableBySize(documentIds);
-      return (
-        all.find((each) => key(each.name) === wanted)?.id ??
-        all.find((each) => key(each.name).includes(wanted) || wanted.includes(key(each.name)))
-          ?.id ??
-        null
-      );
-    },
+    documentNamed: (name) => documentNamedAmong(documents.searchableBySize(documentIds), name),
   };
 }
 
@@ -1015,10 +1020,7 @@ export function createAnswers(options: AnswersOptions) {
     // Only an Answer the User reads is told the Library's whole count (#1333): a cell's or an agent's is its scope's alone.
     const library: LibraryDocuments | undefined = outside
       ? undefined
-      : {
-          total: options.documents.libraryCount(),
-          examples: input.assistant !== undefined && !scoped && input.documentIds !== null,
-        };
+      : { total: options.documents.libraryCount() };
     const asked =
       input.outside === true || callDocuments !== null
         ? { each: false, main: null }
@@ -1064,7 +1066,7 @@ export function createAnswers(options: AnswersOptions) {
     let { messages } = context;
     let mindRequest = input.mind?.request;
     /** It listened to a meeting's live transcript: the Question went with it. */
-    let listening = false;
+    let heard: LiveTranscript | null = null;
     /** Help asked while its Meeting's live text was behind (#1366). */
     let textBehind = false;
     /** The Documents whose whole text went with the Question; null until the assistant's request is built. */
@@ -1143,9 +1145,27 @@ export function createAnswers(options: AnswersOptions) {
       }
       return stillReadingAtEnd;
     };
+    let namedAtEnd: AnswerSteps["coverage"] | null | undefined;
+    const covered = () => {
+      if (coverage || outside || finishedAt === null) return coverage;
+      if (namedAtEnd === undefined) {
+        const { cited, passages, searched } = session.documentsRead();
+        const titles = new Map(options.documents.names().map((each) => [each.id, each.title]));
+        namedAtEnd = namedCoverage(
+          context.question,
+          cited.length > 0 ? cited : passages,
+          [...new Set([...cited, ...passages, ...searched])],
+          options.documents
+            .searchableBySize(documentIds)
+            .map((each) => ({ ...each, title: titles.get(each.id) })),
+        );
+      }
+      return namedAtEnd;
+    };
     const steps = (): AnswerSteps => {
       const summary = reasoning.trim();
       const reading = stillReading();
+      const shownCoverage = covered();
       const thoughtUntil =
         firstTextAt !== null && reasoningStartedAt !== null && firstTextAt > reasoningStartedAt
           ? firstTextAt
@@ -1183,14 +1203,14 @@ export function createAnswers(options: AnswersOptions) {
           ...(!calculating && unrunTools.includes("calculate") && { calculateUnavailable: true }),
         }),
         ...(askedAgainFor.length > 0 && { askedAgainFor: [...askedAgainFor] }),
-        ...(coverage && { coverage }),
+        ...(shownCoverage && { coverage: shownCoverage }),
         ...(writtenFrom && wroteNewText() && { writtenFrom }),
         ...(textBehind && { textBehind: true as const }),
         ...(reading && { stillReading: reading }),
         ...(sentDocuments && {
           sent: {
             documents: [...sentDocuments],
-            ...(listening && { transcript: true as const }),
+            ...(heard && transcripts.size > 0 && { transcript: true as const }),
           },
         }),
       };
@@ -1375,7 +1395,6 @@ export function createAnswers(options: AnswersOptions) {
         return home.write(
           {
             markdown: text,
-            // A figure reads as its shown text until a Mind has a node of its own for one (#439).
             blocks: () => {
               const blocks = withCitations(
                 markdownToBlocks(text, { streaming: !final }),
@@ -1385,11 +1404,10 @@ export function createAnswers(options: AnswersOptions) {
               );
               return asGenerated(
                 calculating
-                  ? withFigures(
-                      blocks,
-                      (marker) => figures.figure(marker),
-                      (figure) => figure.shown,
-                    )
+                  ? withCalculatedFigures(blocks, (marker) => figures.figure(marker), {
+                      id: answerId,
+                      analyses,
+                    })
                   : blocks,
               );
             },
@@ -1940,7 +1958,6 @@ export function createAnswers(options: AnswersOptions) {
         }
       }
       if (input.listening) {
-        let heard: LiveTranscript | null = null;
         try {
           heard = await input.listening();
         } catch (error) {
@@ -1948,6 +1965,7 @@ export function createAnswers(options: AnswersOptions) {
         }
         if (finished) return;
         const kept = newestWithin(heard?.passages ?? [], listenedTokens(prepared.window));
+        if (heard) messages = withTranscript(messages, session.show(kept));
         if (help && heard?.behind) {
           textBehind = true;
           const text = options.liveTextBehind(kept.length > 0);
@@ -1961,8 +1979,6 @@ export function createAnswers(options: AnswersOptions) {
           announce("answer.delta", { ...place, answerId, text: markdown });
         }
         if (kept.length > 0) {
-          messages = withTranscript(messages, session.show(kept));
-          listening = true;
           for (const passage of kept) transcripts.add(passage.documentId);
           callDocuments?.push(...transcripts);
           if (help) callLanguage = languageSaid(kept);
@@ -2008,6 +2024,7 @@ export function createAnswers(options: AnswersOptions) {
             withPassageNotes(show(passages), unread),
           );
         const scope =
+          (heard === null || help !== undefined || asked.each || asked.main !== null) &&
           callDocuments === null &&
           options.documents.searchableCount(documentIds) <= SMALL_SCOPE_DOCUMENTS
             ? options.documents.searchableBySize(documentIds)
@@ -2162,8 +2179,27 @@ export function createAnswers(options: AnswersOptions) {
           asksUser.recorded(toolCallId, { ...question, answer });
           return answer;
         });
-      // The Minds' Tools, for an Answer in the assistant (#202).
-      const minds = outside ? undefined : options.minds;
+      // The Minds' Tools, for an Answer in the assistant (#202). A calculated figure it writes
+      // into a Note brings the Analysis run it was worked out by, as Add to note does (#439):
+      // this Answer's, or the last Answer's that `answer: true` writes.
+      const given = outside ? undefined : options.minds;
+      const answersWithRuns = [
+        { id: answerId, analyses },
+        ...(input.assistant?.lastAnswer ? [input.assistant.lastAnswer.answer] : []),
+      ];
+      const minds: MindsForTools | undefined = given && {
+        ...given,
+        edit: (mindId, change) =>
+          given.edit(mindId, (blocks) => {
+            const result = change(blocks);
+            if (blocks.doc) {
+              const nodes = topLevelBlocks(blocks).map(nodeOf);
+              const runs = answersWithRuns.flatMap((each) => figureRunsOfAnswer(each, nodes));
+              if (runs.length > 0) installFigureRuns(blocks.doc, runs);
+            }
+            return result;
+          }),
+      };
       const focusedId = input.assistant?.focused?.mindId ?? null;
       // A new piece fills the empty Mind the User is in rather than making another (#1109).
       const focusedEmpty =
@@ -2233,11 +2269,10 @@ export function createAnswers(options: AnswersOptions) {
                 );
                 const blocks = asGenerated(
                   calculating
-                    ? withFigures(
-                        cited,
-                        (marker) => figures.figure(marker),
-                        (figure) => figure.shown,
-                      )
+                    ? withCalculatedFigures(cited, (marker) => figures.figure(marker), {
+                        id: answerId,
+                        analyses,
+                      })
                     : cited,
                 );
                 return {
@@ -2644,7 +2679,7 @@ export function createAnswers(options: AnswersOptions) {
             input.assistant && !help ? THIS_DOCUMENT_RULE : "",
             emptyMindNote(withMindTools, focusedEmpty),
             analysisInstructions(withAnalysisTools),
-            meetingInstructions(listening),
+            meetingInstructions(heard !== null),
             signInNeededInstructions(signInNeeded.map((connector) => connector.name)),
             help ? "" : language,
           ]
@@ -2884,7 +2919,13 @@ export function createAnswers(options: AnswersOptions) {
         const found = findBlock(blocks, ANSWER_BLOCK, answerId);
         if (!found) return false;
         const { element } = found;
-        syncContent(element, answer.blocks());
+        const nodes = answer.blocks();
+        if (blocks.doc)
+          installFigureRuns(
+            blocks.doc,
+            figureRunsOfAnswer({ id: answerId, analyses: answer.analyses }, nodes),
+          );
+        syncContent(element, nodes);
         const calls = answer.toolCalls.length > 0 ? JSON.stringify(answer.toolCalls) : null;
         if (textAttribute(element, "toolCalls") !== calls)
           setAttributes(element, { toolCalls: calls });
@@ -2942,7 +2983,13 @@ export function createAnswers(options: AnswersOptions) {
         if (!found) return false;
         const { element } = found;
         resolveProposals(element, () => true, "reject");
-        const written = proposeBlocks(element, answer.blocks(), request, randomUUID);
+        const nodes = answer.blocks();
+        if (blocks.doc)
+          installFigureRuns(
+            blocks.doc,
+            figureRunsOfAnswer({ id: answerId, analyses: answer.analyses }, nodes),
+          );
+        const written = proposeBlocks(element, nodes, request, randomUUID);
         if (written.proposals.length > 0 && blocks.doc) {
           recordProposalRequest(blocks.doc, request, {
             source: "answer",
@@ -3277,12 +3324,16 @@ export function createAnswers(options: AnswersOptions) {
 
   /**
    * What an Answer to `question` is written from: its context, and its Search
-   * scope as it is now, resolved to the Documents it covers now.
+   * scope as it is now, resolved to the Documents it covers now. With no
+   * scope it follows the one rule (#1942): the examples until the User has a
+   * Document of their own, theirs alone from then on; an example's own Note
+   * searches every Document.
    */
-  const askedWith = (context: QuestionContext, question: Y.XmlElement) => {
-    const documentIds = options.resolveScope(searchScopeOf(question.getAttributes()));
+  const askedWith = (context: QuestionContext, question: Y.XmlElement, mindId: string) => {
+    const chosen = searchScopeOf(question.getAttributes());
+    const documentIds = options.resolveScope(chosen) ?? options.unscopedDocuments?.(mindId) ?? null;
     const emptyScope = documentIds !== null && options.documents.searchableCount(documentIds) === 0;
-    return { context, documentIds, emptyScope };
+    return { context, documentIds, emptyScope, scoped: hasSearchScope(chosen) };
   };
 
   async function ask(
@@ -3332,7 +3383,7 @@ export function createAnswers(options: AnswersOptions) {
           ids,
         );
         const asked = {
-          ...askedWith(context, question.element),
+          ...askedWith(context, question.element, mindId),
           contextReasons: origins.map((source) => ({ via: "context" as const, source })),
         };
         const attributes: Partial<AnswerAttributes> = {
@@ -3481,9 +3532,11 @@ export function createAnswers(options: AnswersOptions) {
       const asked = options.conversations.questionOf(input);
       const everyDocument = isRecord(input) && input.clearScope === true;
       if (everyDocument) options.conversations.clearScope(asked.question.id);
-      const { answerId, question, toolCalls, onScreen } = options.conversations.questionOf(input);
-      const ready = await readyModel(question.model, question.forcedSkill);
+      const { answerId, question, toolCalls, onScreen, model } =
+        options.conversations.questionOf(input);
+      const ready = await readyModel(model ?? question.model, question.forcedSkill);
       if ("asked" in ready) return ready;
+      if (model) options.conversations.setQuestionModel(question.id, model);
       active.get(answerId)?.finish({ status: "stopped" });
       const changes = toolCalls.flatMap((call) => call.mindChange ?? []);
       // Written again, it proposes its changes again: those still waiting from before go.

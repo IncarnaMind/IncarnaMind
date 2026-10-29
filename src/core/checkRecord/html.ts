@@ -1,4 +1,9 @@
+import { citedLocation } from "../../shared/citations";
+import { differenceText, figurePlaceText, sourceValueText } from "../../shared/figureSchedule";
+import { translate } from "../../shared/i18n";
 import { unreadRecordLines } from "../../shared/unreadFiles";
+import type { FigureScheduleRow } from "../api";
+import { figureReason, statusWord } from "../exports/figureScheduleBook";
 import { escapeHtml } from "../exports/printHtml";
 import type { Language } from "../language";
 import type { CheckRecord } from "./index";
@@ -6,6 +11,7 @@ import {
   checkedBy,
   KIND_LABELS,
   ORIGIN_LABELS,
+  personCheck,
   recordTime,
   resultKey,
   type Translator,
@@ -73,6 +79,7 @@ export function renderRecordHtml(record: CheckRecord): string {
       )
       .join("")}</table>`,
     `<p class="record-note">${escapeHtml(t("checkRecord.modelNote"))}</p>`,
+    `<p class="record-note">${escapeHtml(t("checkRecord.personNote"))}</p>`,
     section(
       t("checkRecord.sentences.heading", { count: number(record.sentences.length) }),
       record.sentences,
@@ -83,6 +90,56 @@ export function renderRecordHtml(record: CheckRecord): string {
       record.citations,
       t("checkRecord.citations.none"),
     ),
+    ...(record.figures.length > 0 ? [renderFigures(record.figures, language)] : []),
+  ].join("");
+}
+
+const FIGURE_SHAPES: Readonly<Record<string, RecordItem["result"]>> = {
+  supported: "found",
+  "not-checked": "notChecked",
+  checking: "notChecked",
+  "needs-recheck": "needsRecheck",
+  contradicted: "contradicted",
+};
+
+/** The Figure schedule's rows, as its workbook has them (#1932). */
+function renderFigures(rows: readonly FigureScheduleRow[], language: Language): string {
+  const t = (key: Parameters<typeof translate>[1], params?: Parameters<typeof translate>[2]) =>
+    translate(language, key, params);
+  const cell = (main: string, under = "") =>
+    `<td><div>${escapeHtml(main || "—")}</div>${under ? `<div class="record-label">${escapeHtml(under)}</div>` : ""}</td>`;
+  const body = rows
+    .map((row) => {
+      const unchecked = row.shown.state === "not-checked" || row.shown.state === "checking";
+      const citation = unchecked ? null : (row.sourceInput?.citation ?? row.source ?? null);
+      const shape = shapeOf(FIGURE_SHAPES[row.shown.state] ?? "unsupported");
+      return `<tr>${[
+        `<td>${row.number}</td>`,
+        cell(`${row.calculated ? "= " : ""}${row.reading.chars}`, figurePlaceText(row, language)),
+        cell(unchecked ? "" : (sourceValueText(row) ?? "")),
+        cell(citation?.documentName ?? "", citation ? (citedLocation(citation, t) ?? "") : ""),
+        cell(unchecked ? "" : (differenceText(row, language) ?? "")),
+        `<td><div><span class="record-shape">${shape}</span><b>${escapeHtml(t(statusWord(row)))}</b></div>${
+          unchecked
+            ? ""
+            : `<div class="record-label">${escapeHtml(figureReason(row, language))}</div>`
+        }</td>`,
+        cell(personCheck(row.signOff, (moment) => recordTime(moment, language, t), t) ?? ""),
+      ].join("")}</tr>`;
+    })
+    .join("");
+  const head = [
+    "№",
+    t("figures.figure"),
+    t("figures.sourceValue"),
+    t("figures.export.documentPlace"),
+    t("figures.difference"),
+    t("figures.status"),
+    t("checkRecord.column.person"),
+  ];
+  return [
+    `<h2>${escapeHtml(t("figures.export.recordHeading"))}</h2>`,
+    `<table class="record-figures"><thead><tr>${head.map((label) => `<th scope="col">${escapeHtml(label)}</th>`).join("")}</tr></thead><tbody>${body}</tbody></table>`,
   ].join("");
 }
 
@@ -95,6 +152,10 @@ function renderItem(
   const { evidence } = each;
   const by = checkedBy(each, t);
   const at = each.kind === "sentence" ? each.check?.at : null;
+  const person =
+    each.kind === "citation"
+      ? personCheck(each.signOff, (moment) => recordTime(moment, language, t), t)
+      : null;
   const where = evidence
     ? [evidence.name, evidence.location].filter((part) => part !== null && part !== "")
     : [];
@@ -117,8 +178,8 @@ function renderItem(
   ];
   return [
     '<div class="record-item">',
-    `<p class="record-text">${escapeHtml(each.text)}</p>`,
-    `<p class="record-result"><span class="record-shape">${shapeOf(each.result)}</span><b>${escapeHtml(t(resultKey(each)))}</b> · ${escapeHtml(t(KIND_LABELS[each.kind]))} · ${escapeHtml(t(ORIGIN_LABELS[each.origin]))}</p>`,
+    ...(each.text ? [`<p class="record-text">${escapeHtml(each.text)}</p>`] : []),
+    `<p class="record-result"><span class="record-shape">${shapeOf(each.result)}</span><b>${escapeHtml(t(resultKey(each)))}</b> · ${escapeHtml(t(KIND_LABELS[each.kind]))}${each.origin ? ` · ${escapeHtml(t(ORIGIN_LABELS[each.origin]))}` : ""}</p>`,
     ...(evidence
       ? [
           detail(
@@ -135,6 +196,7 @@ function renderItem(
       ? [detail(t("checkRecord.column.file"), [...file, ...hash].join(" · "))]
       : []),
     ...(checker ? [detail(t("checkRecord.checkedBy"), checker.join(" · "))] : []),
+    ...(person ? [detail(t("checkRecord.column.person"), escapeHtml(person))] : []),
     "</div>",
   ].join("");
 }

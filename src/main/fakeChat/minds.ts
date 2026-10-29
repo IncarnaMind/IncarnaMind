@@ -284,7 +284,6 @@ export function mindsReply(prompt: Prompt, asked: string, names: readonly string
     const listed = /^Their names, newest first:\n((?:- .+\n?)+)/m.exec(systemOf(prompt))?.[1] ?? "";
     const names = [...listed.matchAll(/^- (.+)$/gm)].map((line) => line[1]).sort();
     const content = `Written from ${names.join(", ")}.`;
-    // An empty Note is filled; any other gets a new one beside it.
     return systemOf(prompt).includes("The Note in <mind> is open and still empty")
       ? { tool: "add_to_mind", input: { content } }
       : { tool: "create_mind", input: { title: "Summary", content } };

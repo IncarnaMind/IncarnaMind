@@ -320,7 +320,7 @@ async function folderNamed(core: CommandsCore, name: string) {
 async function moveBack(core: CommandsCore, move: FolderMove): Promise<void> {
   for (const document of move.documents) {
     if (document.from !== move.folderId) {
-      await core.restoreAssignment(document.id, document.previous);
+      await core.restoreAssignment(document.id, document.change.before, document.change.after);
     }
   }
   const back = new Map<string | null, string[]>();
@@ -412,7 +412,7 @@ async function deleteAll(
       done.push(ref);
     }
   } catch (error) {
-    if (done.length > 0) await restore(done);
+    if (done.length > 0) await restore(done, { reopen: true });
     throw error;
   }
 }
@@ -544,7 +544,7 @@ const CHECKERS: Readonly<Record<AssistantCommandId, Checker>> = {
         done: { items },
         step: {
           undo: async () => {
-            await core.restore(refs);
+            await core.restore(refs, { reopen: true });
             return null;
           },
           redo: remove,

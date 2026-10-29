@@ -17,6 +17,7 @@ import type {
   CheckRecordFormat,
   CitationAttributes,
   Document,
+  FigureScheduleRow,
   KeptCitationText,
   Mind,
   UnreadFile,
@@ -48,6 +49,10 @@ export interface CheckRecordDependencies {
   printer: Printer | null;
   paper(): PrintPaper;
   now(): string;
+  /** The note's Figure schedule: the figures of its one Check (#1932). */
+  figures(mindId: string): readonly FigureScheduleRow[];
+  /** The User, whose own check marks are theirs (#1933); null before they make one. */
+  personId(): string | null;
 }
 
 const GONE: Record<ScopeKind, MessageKey> = {
@@ -68,6 +73,7 @@ export interface CheckRecord {
   unread: UnreadFile[];
   sentences: SentenceItem[];
   citations: CitationItem[];
+  figures: readonly FigureScheduleRow[];
   language: Language;
 }
 
@@ -99,6 +105,7 @@ export function createCheckRecord(deps: CheckRecordDependencies) {
           attributes.quote
             ? (deps.readableQuote(attributes) ?? readableQuoteText(attributes.quote))
             : null,
+        personId: deps.personId(),
       });
       return {
         ...record,
@@ -136,6 +143,7 @@ export function createCheckRecord(deps: CheckRecordDependencies) {
       unread,
       sentences,
       citations,
+      figures: deps.figures(mind.id),
       language,
     };
   }

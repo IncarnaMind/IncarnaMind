@@ -12,6 +12,9 @@ directories:
   output: dist
   buildResources: build
 
+# Gives the Windows speech package the app's ONNX Runtime library (#2152); see the script.
+afterPack: ./scripts/afterPack.mjs
+
 # Only the bundled app goes in. The production dependencies in node_modules are added
 # automatically; the rest of the repo (sources, tests, the sample PDFs in data/) stays out.
 # electron-builder arranges them itself, and a direct dependency's version wins the top

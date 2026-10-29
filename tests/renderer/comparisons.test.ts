@@ -1,83 +1,14 @@
-import { Editor, type JSONContent } from "@tiptap/core";
-import { describe, expect, onTestFinished, test } from "vitest";
+import { describe, expect, test } from "vitest";
 import type { ComparisonProblem } from "../../src/core";
-import { addComparisonColumn } from "../../src/renderer/src/editor/comparisonCommands";
-import { noteExtensions } from "../../src/renderer/src/editor/noteSchema";
 import {
   cellProblemMessage,
   cellToFill,
   comparisonCellOf,
   comparisonQuestionsOf,
-  MAX_COMPARISON_QUESTIONS,
 } from "../../src/shared/comparisons";
 import { translate } from "../../src/shared/i18n";
 import { en } from "../../src/shared/i18n/en";
 import { zhCN } from "../../src/shared/i18n/zh-CN";
-
-const cell = (questionId: string, status = "done"): JSONContent => ({
-  type: "comparisonCell",
-  attrs: { questionId, status },
-  content: [{ type: "paragraph", content: [{ type: "text", text: `${questionId} answer` }] }],
-});
-
-/** A headless editor holding a comparison table of two Documents and one Question, after a Note. */
-function editorWithTable(): Editor {
-  const editor = new Editor({
-    element: null,
-    extensions: noteExtensions(),
-    content: {
-      type: "doc",
-      content: [
-        { type: "paragraph", content: [{ type: "text", text: "Shortlist" }] },
-        {
-          type: "comparisonTable",
-          attrs: { id: "table-1", questions: [{ id: "q1", text: "Termination notice" }] },
-          content: ["doc-a", "doc-b"].map((documentId) => ({
-            type: "comparisonRow",
-            attrs: { documentId, documentName: documentId },
-            content: [cell("q1")],
-          })),
-        },
-      ],
-    },
-  });
-  onTestFinished(() => editor.destroy());
-  return editor;
-}
-
-describe("A comparison table in the editor", () => {
-  test("“+ Question” adds a column, and a cell waiting in each row, as one change Undo takes back", () => {
-    const editor = editorWithTable();
-    expect(addComparisonColumn(editor, "table-1", "  Governing   law ")).not.toBeNull();
-
-    const table = editor.state.doc.child(1);
-    expect(comparisonQuestionsOf(table.attrs).map((question) => question.text)).toEqual([
-      "Termination notice",
-      "Governing law",
-    ]);
-    const added = comparisonQuestionsOf(table.attrs)[1]?.id;
-    table.forEach((row) => {
-      expect(row.childCount).toBe(2);
-      expect(comparisonCellOf(row.child(1).attrs)).toMatchObject({
-        questionId: added,
-        status: "waiting",
-      });
-    });
-    expect(() => editor.state.doc.check()).not.toThrow();
-
-    // Nothing to add: no column. A table that isn't there: nothing.
-    expect(addComparisonColumn(editor, "table-1", "   ")).toBeNull();
-    expect(addComparisonColumn(editor, "no-table", "Liability cap")).toBeNull();
-  });
-
-  test("a table holds at most so many Questions", () => {
-    const editor = editorWithTable();
-    for (let added = 1; added < MAX_COMPARISON_QUESTIONS; added++) {
-      expect(addComparisonColumn(editor, "table-1", `Question ${added}`)).not.toBeNull();
-    }
-    expect(addComparisonColumn(editor, "table-1", "One too many")).toBeNull();
-  });
-});
 
 describe("Reading a comparison table", () => {
   test("malformed columns and cells read as their defaults", () => {

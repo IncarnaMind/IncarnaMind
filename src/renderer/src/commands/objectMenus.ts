@@ -16,6 +16,7 @@ registerMenu("mind", [
   ...EXPORTS,
   "mind.history",
   "mind.check",
+  "mind.tieOut",
   "mind.checkContradictions",
   "mind.citationStyle",
   "mind.style",
@@ -99,6 +100,7 @@ registerMenu(
     ...EXPORTS,
     "mind.history",
     "mind.check",
+    "mind.tieOut",
     "mind.checkContradictions",
     "mind.style",
     "mind.moveTo",
@@ -133,6 +135,8 @@ registerMenu("citation", [
   "citation.open",
   "citation.update",
   "citation.keepOld",
+  "citation.signOff",
+  "citation.signOffRemove",
   "citation.remove",
 ]);
 
@@ -141,7 +145,19 @@ registerMenu("comparisonColumn", [
   "comparison.column.insertLeft",
   "comparison.column.insertRight",
   "comparison.column.duplicate",
+  "comparison.column.moveLeft",
+  "comparison.column.moveRight",
+  "comparison.column.hide",
   "comparison.column.remove",
+]);
+
+registerMenu("comparisonTable", ["comparison.table.addDocuments", "comparison.table.rename"]);
+
+registerMenu("comparisonRow", [
+  "comparisonRow.open",
+  "comparisonRow.moveUp",
+  "comparisonRow.moveDown",
+  "comparisonRow.remove",
 ]);
 
 registerMenu("chart", [

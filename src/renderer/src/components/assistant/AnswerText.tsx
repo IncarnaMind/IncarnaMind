@@ -1,7 +1,9 @@
 import "katex/dist/katex.min.css";
 import { EditorContent, ReactNodeViewRenderer, useEditor } from "@tiptap/react";
 import { useEffect, useRef } from "react";
+import type { RetainedFigureAnalysis } from "../../../../core/api";
 import type { NodeJSON } from "../../../../shared/blockJson";
+import { readFigureRunClosure } from "../../../../shared/figureRuns";
 import { lendAnswerEditor } from "../../answerEditors";
 import { AnswerTableSlots } from "../../editor/answerTables";
 import { CitationView } from "../../editor/CitationView";
@@ -49,6 +51,7 @@ const editorPropsFor = (label: string) => ({
 export function AnswerText({
   answerId,
   blocks,
+  figureRuns = [],
   label,
   streaming,
   regenerate,
@@ -56,6 +59,7 @@ export function AnswerText({
 }: {
   answerId: string;
   blocks: readonly NodeJSON[];
+  figureRuns?: readonly RetainedFigureAnalysis[];
   label: string;
   streaming: boolean;
   /** Writes the Answer again. */
@@ -64,6 +68,8 @@ export function AnswerText({
 }) {
   const t = useT();
   const shown = useRef(JSON.stringify(blocks));
+  const receipts = useRef(figureRuns);
+  receipts.current = figureRuns;
   const editor = useEditor(
     {
       editable: false,
@@ -74,7 +80,9 @@ export function AnswerText({
         ...noteExtensions({ citationView, checklistLabel }),
         CitationGlue,
         CitationNumbers,
-        CopyCitations,
+        CopyCitations.configure({
+          figureRuns: (selected) => readFigureRunClosure(selected, receipts.current),
+        }),
         AnswerTableSlots,
       ],
     },

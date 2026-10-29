@@ -143,7 +143,7 @@ for (const [language, request, kind, times] of [
   });
 }
 
-// protects=a chart the assistant draws is a write the User asked for, however they worded it; fails_when=it waits as changes to accept, with "N changes from the assistant" on the page and "none waiting" in the card; no_claim=none beyond protects.
+// protects=a chart the assistant draws is a write the User asked for, however they worded it; fails_when=it waits as changes to accept, with "N changes waiting" on the page and "none waiting" in the card; no_claim=none beyond protects.
 test("a chart asked for as a question is drawn at once too, and the card and the page count the same", async () => {
   const { app, window } = await launchApp(dataDir, { fakeChat: true });
   await dismissChatSetup(window);

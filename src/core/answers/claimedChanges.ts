@@ -14,9 +14,15 @@ import type { UnmadeFixes } from "./claimedFixes";
 import { replyJson } from "./quoteRetry";
 import { type ChangeStates, type MindNames, toolRecordLines } from "./toolRecord";
 
+/** What a sentence the judge read as a change is about; only a Mind's own change counts. */
+export const CLAIM_ABOUT = ["mind", "reply", "document", "offer_or_question", "negation"] as const;
+
+export type ClaimAbout = (typeof CLAIM_ABOUT)[number];
+
 interface ClaimVerdict {
   sentence: string;
   kind: ClaimedChange;
+  about: ClaimAbout;
   backed: boolean;
 }
 
@@ -30,39 +36,42 @@ const verdictSchema = jsonSchema<{ claims: ClaimVerdict[] }>({
         properties: {
           sentence: { type: "string" },
           kind: { type: "string", enum: [...CLAIMED_CHANGES] },
+          about: { type: "string", enum: [...CLAIM_ABOUT] },
           backed: { type: "boolean" },
         },
-        required: ["sentence", "kind", "backed"],
+        required: ["sentence", "kind", "about", "backed"],
         additionalProperties: false,
       },
     },
   },
   required: ["claims"],
+  additionalProperties: false,
 });
 
 export const CLAIM_CHECK_INSTRUCTIONS = [
-  "You check an AI assistant's reply against IncarnaMind's record of what its Tools did to the User's Notes. The record calls them Notes too.",
-  "Read every sentence of the reply. For each claim that a Note was made, written in, added to, changed, shortened, lengthened, replaced or removed from, return it with its kind and whether the record backs it. Return every such claim, backed or not backed.",
-  "A change whose state is applied counts as made. A change that only waits for the User does not. A failed call, a denied call and no call change nothing. A revision of the assistant's own text is a change.",
-  "When the record has no Tool calls, or no change to a Note, every affirmative report of a change is unbacked; never return an empty list just to be cautious. / 如果没有工具调用或没有改动，任何声称已经改动的话都没有依据，必须返回，不能留空。",
-  "Never flag a sentence about the reply itself, searching, a Document, or something that wasn't or couldn't be done. Never flag a sentence only for its wording, coverage or length, for where a page sits, for a Note's name, or for details the record doesn't give, such as which paragraph changed. A translation or other text in the reply itself is not a change to a Note.",
+  "You check an AI assistant's reply against IncarnaMind's record of what its Tools did to the User's Notes. A Note is called a Mind in the record.",
+  "Read every sentence of the reply. For each claim that a Mind was made, written in, added to, changed, shortened, lengthened, replaced or removed from, return it with its kind and whether the record backs it. Return every such claim, backed or not backed.",
+  "A change whose state is applied counts as made. A change that only waits for the User does not. A failed call, a denied call and no call change nothing. A revision of text the assistant wrote into a Mind earlier is a change, like any other change to a Mind.",
+  "When the record has no Tool calls, or no change to a Mind, every affirmative report of a change is unbacked; never return an empty list just to be cautious. / 如果没有工具调用或没有改动，任何声称已经改动的话都没有依据，必须返回，不能留空。",
+  "Never flag a sentence about the reply itself, searching, a Document, or something that wasn't or couldn't be done. Never flag a sentence only for its wording, coverage or length, for where a page sits, for a Mind's name, or for details the record doesn't give, such as which paragraph changed. A translation or other text in the reply itself is not a change to a Mind.",
+  "For every claim, about says what the sentence is about: mind when it is a Mind — a Note, a page, a part of one — that the assistant says it changed; reply when it is this reply's own text, such as what it sets out, lists, orders, sorts, organizes or summarizes; document when it is a Document; offer_or_question when the assistant offers to do something or asks; negation when it says nothing was or could be done. Only a claim about a mind counts.",
   "Examples:",
   "- Record: create_mind made “Notes”, applied. Reply: “I made a page, “Notes”, covering both papers.” Back it.",
   "- Record: edit_mind “Q3 review” proposed 3 changes, applied. Reply: “The second paragraph is now more formal.” Back it.",
-  "- Record: no calls. Reply: “Done — the summary is now on the page.” kind: added, backed: false.",
-  "- Record: no calls. Reply: “Your summary is in “Q3 review” now.” kind: added, backed: false.",
-  "- Record: no calls. Reply: “Here it is in a new Note, “Library summary”.” kind: made, backed: false.",
-  "- Record: no calls. Reply: “I've renamed the page to “Q3 summary”.” kind: changed, backed: false.",
-  "- Record: no calls. Reply: “总结已经放在页面里了。” kind: added, backed: false.",
-  "- Record: no calls. Reply: “好了，第二段现在更清楚了。” kind: changed, backed: false.",
-  "- Record: no calls. Reply: “已在新的笔记中整理好总结。” kind: made, backed: false.",
+  "- Record: no calls. Reply: “Done — the summary is now on the page.” kind: added, about: mind, backed: false.",
+  "- Record: no calls. Reply: “Your summary is in “Q3 review” now.” kind: added, about: mind, backed: false.",
+  "- Record: no calls. Reply: “Here it is in a new Mind, “Library summary”.” kind: made, about: mind, backed: false.",
+  "- Record: no calls. Reply: “I've renamed the page to “Q3 summary”.” kind: changed, about: mind, backed: false.",
+  "- Record: no calls. Reply: “总结已经放在页面里了。” kind: added, about: mind, backed: false.",
+  "- Record: no calls. Reply: “好了，第二段现在更清楚了。” kind: changed, about: mind, backed: false.",
+  "- Record: no calls. Reply: “已在新的 Mind 中整理好总结。” kind: made, about: mind, backed: false.",
   "- Record: no calls. Reply: “The page was created on 3 March 2021 to track the project.” Return no claim: this describes a Document.",
-  "- Record: no calls. Reply: “The new page replaces the version published in 2019.” Return no claim: a Document's new page replacing an earlier edition is not a Note the assistant made.",
+  "- Record: no calls. Reply: “The new page replaces the version published in 2019.” Return no claim: a Document's new page replacing an earlier edition is not a Mind the assistant made.",
   "- Record: no calls. Reply: “第二版中，已经修改了摘要部分的实验结论。” Return no claim: this reports what a Document's second edition says, not what the assistant changed.",
   "- Record: no calls. Reply: “这份总结已经完成于2023年。” Return no claim: a Document's completion date is not a change the assistant made.",
   "- Record: add_to_mind “Q3 review” proposed 2 changes, applied. Reply: “I added a risks section to “Q3 review”.” Back it.",
   "- Record: edit_mind “Plan” proposed 1 change, waiting for the User. Reply: “I shortened Plan.” Do not back it.",
-  'Copy each claimed sentence exactly as it appears in the reply. Reply with one JSON object: {"claims":[{"sentence":"…","kind":"added","backed":false}]}, with an empty list when the reply claims nothing.',
+  'Copy each claimed sentence exactly as it appears in the reply. Reply with one JSON object: {"claims":[{"sentence":"…","kind":"added","about":"mind","backed":false}]}, with an empty list when the reply claims nothing.',
 ].join("\n");
 
 const messageOf = (error: unknown) => (error instanceof Error ? error.message : String(error));
@@ -132,6 +141,9 @@ function recordOf(calls: readonly AnswerToolCall[], names: MindNames, states?: C
   });
 }
 
+/** The values that keep a claim from counting: a missing or unknown one counts, since a provider may ignore the schema. */
+const NOT_A_MIND: readonly string[] = CLAIM_ABOUT.filter((about) => about !== "mind");
+
 // A model may straighten the reply's typographic quotes even when asked to copy it.
 const comparableSentence = (text: string) =>
   text.trim().replace(/[“”]/g, '"').replace(/[‘’]/g, "'");
@@ -141,7 +153,7 @@ function verdictOf(value: unknown, reply: string): ClaimedChange[] | null {
   const unbacked = new Set<ClaimedChange>();
   for (const item of value.claims) {
     if (!isRecord(item)) continue;
-    const { sentence, kind, backed } = item;
+    const { sentence, kind, about, backed } = item;
     const claimed = CLAIMED_CHANGES.find((claim) => claim === kind);
     if (!claimed) return null;
     if (
@@ -152,7 +164,8 @@ function verdictOf(value: unknown, reply: string): ClaimedChange[] | null {
     ) {
       continue;
     }
-    if (!backed) unbacked.add(claimed);
+    if (!backed && !(typeof about === "string" && NOT_A_MIND.includes(about)))
+      unbacked.add(claimed);
   }
   return [...unbacked];
 }
@@ -231,10 +244,10 @@ export async function unbackedClaims(
 }
 
 const CLAIMED_WORDS: Record<ClaimedChange, string> = {
-  made: "made a Note",
-  added: "added text to a Note",
-  changed: "changed a Note",
-  removed: "removed or replaced text in a Note",
+  made: "made a Mind",
+  added: "added text to a Mind",
+  changed: "changed a Mind",
+  removed: "removed or replaced text in a Mind",
 };
 
 export const UNSEEN_REPLY =
@@ -265,7 +278,7 @@ export function unmadeFixesNote(
   const said = [
     ...(unmade.words.length > 0
       ? [
-          `that you fixed ${unmade.words.map((word) => `“${word}”`).join(", ")}, but your edits left ${unmade.words.length === 1 ? "it" : "them"} in the Note as before`,
+          `that you fixed ${unmade.words.map((word) => `“${word}”`).join(", ")}, but your edits left ${unmade.words.length === 1 ? "it" : "them"} in the Mind as before`,
         ]
       : []),
     ...(unmade.count

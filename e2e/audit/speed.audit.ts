@@ -783,10 +783,9 @@ test("B2b typing with 500 changes from Edit with AI waiting in the Mind (#93)", 
       });
       await window.keyboard.up("Shift");
       await click(window, window.getByTestId("selection-action-shorten"));
-      await expect(window.getByTestId("proposals-count")).toHaveText(
-        `${count} changes from the assistant`,
-        { timeout: 60_000 },
-      );
+      await expect(window.getByTestId("proposals-count")).toHaveText(`${count} changes waiting`, {
+        timeout: 60_000,
+      });
     }
     const session = await cdp(window);
     await installKeyLatency(window);

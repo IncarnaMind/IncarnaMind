@@ -297,7 +297,7 @@ test("Research… plans in the tray: the steps edited in place, the sources, whe
 
   // The draft waits in the Mind as changes to accept, its Citation found; Review brings it into view.
   const editor = window.getByTestId("mind-editor");
-  await expect(window.getByTestId("proposals-count")).toHaveText("2 changes from the assistant");
+  await expect(window.getByTestId("proposals-count")).toHaveText("2 changes waiting");
   await expect(editor.locator("[data-proposal-id]").first()).toContainText(
     "Your Documents answer this",
   );
@@ -714,9 +714,7 @@ test("at the monthly cap a Research pauses and lists what it has still to do; Re
   await expect(done).toHaveAttribute("data-status", "done");
   await expect(done).toHaveAttribute("data-shown", "true");
   await expect(done.getByTestId("task-progress-summary")).toHaveText("2 changes proposed");
-  await expect(again.window.getByTestId("proposals-count")).toHaveText(
-    "2 changes from the assistant",
-  );
+  await expect(again.window.getByTestId("proposals-count")).toHaveText("2 changes waiting");
   await screenshot(again.window, "research-resumed-en-1600");
   await again.app.close();
 });

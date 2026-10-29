@@ -21,7 +21,8 @@ import {
 /**
  * An Answer about the main few of the Documents says which it took, above
  * its reply, with Use others: that asks again with the rest, in a new Answer
- * under the first, whose steps line says so. The first stays as it was. And
+ * under the first, whose steps line says so. The first stays as it was. So
+ * does one that read a Document by a name others fit too (#1512). And
  * an Answer from the User's own Mind never cites or names the examples'
  * Documents (#894).
  */
@@ -102,6 +103,85 @@ test("“the two main documents” names the two it took, and Use others asks ag
   if (SCREENSHOTS) await window.screenshot({ path: join(SCREENSHOTS, "main-pick-zh.png") });
 });
 
+/**
+ * The issue's Library (#1512): a contract, and two minutes, one called so only by its heading,
+ * and ten unrelated Documents, so the Library is past the twelve the assistant sends whole.
+ */
+async function contractAndMinutes(): Promise<string[]> {
+  const documents: [string, string][] = [
+    ["差旅报销制度.md", "# 差旅报销制度\n\n员工出差前需填写申请单。交通与住宿按标准报销。\n"],
+    ["采购流程.md", "# 采购流程\n\n采购申请由部门负责人审批，超过五万元报总经理。\n"],
+    ["绩效考核说明.md", "# 绩效考核说明\n\n考核每半年一次，结果分为四档。\n"],
+    ["客户名单.md", "# 客户名单\n\n华东区客户：恒远、启明、南岭。\n"],
+    ["项目周报.md", "# 项目周报\n\n本周完成数据迁移与接口联调。\n"],
+    ["办公用品清单.md", "# 办公用品清单\n\n打印纸、签字笔、文件夹与订书机。\n"],
+    ["员工手册目录.md", "# 员工手册目录\n\n考勤、假期、培训与离职四章。\n"],
+    ["培训计划.md", "# 培训计划\n\n新员工入职培训为期两天。\n"],
+    ["费用台账.md", "# 费用台账\n\n六月办公费用合计三万二千元。\n"],
+    ["访客登记.md", "# 访客登记\n\n访客需在前台登记并领取临时证件。\n"],
+    ["劳动合同-王芳.md", "# 劳动合同-王芳\n\n第五条 年假：乙方每年享有带薪年假 10 天。\n"],
+    [
+      "会议纪要（2026年第三季度）.md",
+      "# 会议纪要（2026年第三季度）\n\n本季度讨论了办公室搬迁和预算。\n",
+    ],
+    [
+      "people-policy-sync-2026-10-14.md",
+      "# 人事政策同步会 会议纪要\n\n王芳的年假按合同第五条为 10 天。\n",
+    ],
+  ];
+  return Promise.all(
+    documents.map(async ([name = "", text = ""]) => {
+      const path = join(files, name);
+      await writeFile(path, text);
+      return path;
+    }),
+  );
+}
+
+test("a name two Documents fit says which it read and that 1 other matches, and Use others asks again with that one; in Chinese and English", async () => {
+  const { app, window } = await launchApp(dataDir, { fakeChat: true });
+  await dismissChatSetup(window);
+  await useLocalChatModel(window);
+  await setLanguage(window, "zh-CN");
+  await setWindowSize(app, window, 1440, 900);
+  await addDocuments(window, await contractAndMinutes());
+  await newMind(window);
+  await window.keyboard.type("年假");
+
+  // The scripted model reads the one whose name says 纪要, as the issue's model did.
+  await askInAssistant(window, "劳动合同-王芳的年假是几天？会议纪要里说的对吗？");
+
+  const first = assistantAnswers(window).nth(0);
+  const named = first.getByTestId("answer-coverage");
+  await expect(named).toHaveText(
+    "我读的是“会议纪要（2026年第三季度）”；另有 1 个文档也符合。· 换别的",
+  );
+  const line = await named.boundingBox();
+  const reply = await first.getByTestId("assistant-answer-text").boundingBox();
+  expect(line && reply && line.y < reply.y).toBe(true);
+  if (SCREENSHOTS) await window.screenshot({ path: join(SCREENSHOTS, "named-zh.png") });
+
+  await pointAndClick(window, named.getByTestId("answer-coverage-rest"));
+  const answers = assistantAnswers(window);
+  await expect(answers).toHaveCount(2);
+  const again = answers.last();
+  await expect(again).toHaveAttribute("data-status", "done", { timeout: 15_000 });
+  await expect(again.getByTestId("answer-steps")).toHaveText("用其余 1 个文档重新回答");
+  // The other minutes, shown by its heading as its file name is machine-made.
+  await expect(again.getByTestId("citation-chip").first()).toHaveAttribute(
+    "aria-label",
+    /人事政策同步会 会议纪要/,
+  );
+  await expect(again.getByTestId("answer-coverage")).toHaveCount(0);
+
+  await setLanguage(window, "en");
+  await expect(named).toHaveText(
+    "I read “会议纪要（2026年第三季度）”; 1 other Document matches. · Use others",
+  );
+  await expect(again.getByTestId("answer-steps")).toHaveText("Asked again with the other Document");
+  if (SCREENSHOTS) await window.screenshot({ path: join(SCREENSHOTS, "named-en.png") });
+});
+
 test("on first run, with the examples there, an Answer from the User's own Mind never cites or names the example's Documents", async () => {
   const { app, window } = await launchApp(dataDir, { fakeChat: true, examples: true });
   await dismissChatSetup(window);
@@ -135,17 +215,12 @@ const EXAMPLE_TITLE = {
   "zh-CN": "授信委员会报告（草稿）",
 } as const;
 
-for (const [language, question, asks, count] of [
-  [
-    "en",
-    "Summarise the two main documents.",
-    "Which two Documents do you mean?",
-    "Your Library has 3",
-  ],
-  ["zh-CN", "总结两份主要文档。", "你指的是哪两份文档？", "资料库里有 3 份"],
+for (const [language, question, count] of [
+  ["en", "Summarise the two main documents.", "Your Library has one Document"],
+  ["zh-CN", "总结两份主要文档。", "资料库里只有"],
 ] as const) {
-  // protects=with three Documents in the Library, two of them the example's and one the User's, “the two main documents” asks which two in one line and says the Library's whole count (#1333); fails_when=the reply asks for two among a count the Library contradicts, or says the Library holds one; no_claim=how a real model words it (the hand test on Claude Haiku 5.5).
-  test(`in ${language === "en" ? "English" : "Chinese"}, “the two main documents” is asked for, and the Library's count is its own (#1333)`, async () => {
+  // protects=with one Document of the User's and the example's two, “the two main documents” sees one, the User's own, and never the example's two or a Library of three (#1942, #1333); fails_when=the reply asks which two among the example's Documents, or says the Library holds three; no_claim=how a real model words it (the hand test on Claude Haiku 5.5).
+  test(`in ${language === "en" ? "English" : "Chinese"}, “the two main documents” sees the User's one, not the example's two (#1942)`, async () => {
     const { app, window } = await launchApp(dataDir, { fakeChat: true, examples: true });
     await dismissChatSetup(window);
     await useLocalChatModel(window);
@@ -164,7 +239,7 @@ for (const [language, question, asks, count] of [
     await expect(
       window.getByTestId("document-list-item").filter({ hasText: name }),
     ).toHaveAttribute("data-status", "ready", { timeout: 30_000 });
-    // Three Documents in the Library: the two the example made, and this one.
+    // Three Documents in the Library in all: the two the example made, and this one.
     await expect
       .poll(async () =>
         (await coreOf(window)).evaluate(async (core) => (await core.listDocuments()).length),
@@ -175,11 +250,11 @@ for (const [language, question, asks, count] of [
     const answer = await askInAssistant(window, question);
 
     const said = answer.getByTestId("assistant-answer-text");
-    await expect(said).toContainText(asks);
     await expect(said).toContainText(count);
     await expect(said).toContainText(name);
-    await expect(said).not.toContainText(/only one Document/i);
-    await expect(said).not.toContainText("只有一份文档");
+    await expect(said).not.toContainText("Which two Documents do you mean?");
+    await expect(said).not.toContainText("你指的是哪两份文档？");
+    await expect(said).not.toContainText(/Library has 3|资料库里有 3/);
     if (SCREENSHOTS) {
       await window.screenshot({ path: join(SCREENSHOTS, `library-count-${language}.png`) });
     }

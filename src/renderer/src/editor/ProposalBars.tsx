@@ -50,7 +50,7 @@ const spokenText = (text: string) => {
 /**
  * Proposals waiting in the Mind (#93), reviewed in place:
  *
- * - at the top of the Mind, while any wait: "3 changes from the assistant ·
+ * - at the top of the Mind, while any wait: "3 changes waiting ·
  *   Accept all · Reject all", which stays in view as the Mind scrolls, and,
  *   for other people's changes from a Word file (#108), "4 changes from Dana
  *   Kim and Luis Ortega · Review", which opens the reviewing pane (#697) and

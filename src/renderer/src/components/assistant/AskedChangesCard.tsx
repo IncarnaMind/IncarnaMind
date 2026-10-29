@@ -10,10 +10,10 @@ import {
   useWrittenOnTop,
 } from "../../askedChanges";
 import type { ChangedMind } from "../../changedMinds";
-import { appliedFact, changeFact, keptText, leftText } from "../../changeFacts";
+import { appliedFact, changeFact, inNoteText, keptText, leftText } from "../../changeFacts";
 import { shortcutLabel } from "../../commands/keymap";
 import { useT } from "../../i18n";
-import { showChanges, type WaitingRow } from "../../mindChanges";
+import { showChanges, showNoteWaiting, useWaitingIn, type WaitingRow } from "../../mindChanges";
 import { PencilLineIcon } from "../lineIcons";
 import { useReadMindId } from "./readMind";
 
@@ -111,6 +111,12 @@ function AskedRow({
   // has the apply, so it neither shows what was taken nor moves anything when it appears (#1325).
   const shown = outcome === "held" || settled === null || settled.settled;
   const kept = keptText(t, row);
+  const total = useWaitingIn(row.mindId);
+  const inNote = inNoteText(
+    t,
+    total,
+    outcome === "held" ? waiting?.count : outcome === "applied" ? (settled?.count ?? 0) : null,
+  );
   return (
     <div className="mind-changes-head">
       <PencilLineIcon aria-hidden="true" className="mind-changes-icon" />
@@ -127,6 +133,30 @@ function AskedRow({
             >
               {left}
             </span>
+          </>
+        )}
+        {inNote && (
+          <>
+            {" "}
+            <span
+              data-testid="mind-changes-in-note"
+              className="mind-changes-count whitespace-nowrap"
+            >
+              {inNote}
+            </span>
+            {outcome !== "held" && (
+              <>
+                <Dot />
+                <button
+                  type="button"
+                  data-testid="mind-changes-note-review"
+                  onClick={() => showNoteWaiting(row)}
+                  className="mind-changes-review"
+                >
+                  {t("mindChanges.review")}
+                </button>
+              </>
+            )}
           </>
         )}
         {kept && (

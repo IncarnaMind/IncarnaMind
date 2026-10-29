@@ -1912,13 +1912,72 @@ export const migrations: readonly Migration[] = [
       WHERE key = 'agentsEnabled' AND deleted_at IS NULL;
     `,
   },
+  {
+    version: 111,
+    description:
+      "Each Document's name in a keyword index of its own, once for the Document (#2042)",
+    sql: `
+      -- A Document's name, segmented as the Passages are (the core writes the
+      -- words: src/core/documents/keywords.ts), in an index whose document
+      -- frequency counts Documents: a word of a name weighs its Document once,
+      -- not once a Passage. Keyword search scores a Passage by its own words
+      -- and adds its Document's name match separately. The Passages' index is
+      -- rebuilt without the name by processing version 15 (see
+      -- NAME_INDEX_CURRENT_SINCE in src/core/documents/processing.ts).
+      -- One row a Document, deleted and written again when a Document is
+      -- renamed; a derived index, never synced.
+      CREATE VIRTUAL TABLE document_names_fts USING fts5 (
+        document_id UNINDEXED,
+        text,
+        tokenize = 'unicode61 remove_diacritics 2'
+      );
+    `,
+  },
+  {
+    version: 112,
+    description:
+      "A Checkpoint the User named, or one saved when the Note was sent, keeps its name and file",
+    sql: `
+      -- A name the User gave the version (#1933), and the file a Checkpoint saved as the Note
+      -- was exported holds (reason 'export'). A named one is never thinned.
+      ALTER TABLE mind_checkpoints ADD COLUMN name TEXT;
+      ALTER TABLE mind_checkpoints ADD COLUMN detail TEXT;
+    `,
+  },
+  {
+    version: 113,
+    description: "A cited page whose drawing failed waits to be drawn again (#2161)",
+    sql: `
+      -- tries counts a page's failed drawings, so one that keeps failing stops being tried on
+      -- its own (src/core/citedPages.ts). Pages a failed drawing deleted wait again, as their
+      -- version may still be drawn: the newest of a Location, which the unique index allows
+      -- only where none waits or is saved; the start-up clean-up removes those nothing cites.
+      ALTER TABLE cited_pages ADD COLUMN tries INTEGER NOT NULL DEFAULT 0;
+      UPDATE cited_pages
+      SET deleted_at = NULL, tries = 1, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+      WHERE id IN (
+        SELECT gone.id FROM cited_pages AS gone
+        WHERE gone.deleted_at IS NOT NULL AND gone.image_type IS NULL
+          AND NOT EXISTS (
+            SELECT 1 FROM cited_pages AS other
+            WHERE other.document_id = gone.document_id
+              AND other.content_hash = gone.content_hash
+              AND other.page_from = gone.page_from
+              AND other.page_to = gone.page_to
+              AND other.area = gone.area
+              AND (other.deleted_at IS NULL
+                OR (other.image_type IS NULL AND other.rowid > gone.rowid))
+          )
+      );
+    `,
+  },
 ];
 
 /**
  * Brings the database up to the latest schema: every migration in the list that
- * isn't recorded as applied runs, in version order, each in its own transaction.
- * A database recording a migration this build doesn't know was written by a
- * newer version of IncarnaMind, and is refused.
+ * isn't recorded as applied runs, in version order, in one transaction. A database
+ * recording a migration this build doesn't know was written by a newer version of
+ * IncarnaMind, and is refused.
  */
 export function migrate(db: Database, list: readonly Migration[] = migrations): void {
   list.forEach((migration, index) => {
@@ -1937,19 +1996,21 @@ export function migrate(db: Database, list: readonly Migration[] = migrations): 
     throw new DataFromNewerVersionError(Math.max(...unknown));
   }
 
-  for (const migration of list) {
-    if (applied.has(migration.version)) continue;
-    db.transaction(() => {
+  const pending = list.filter((migration) => !applied.has(migration.version));
+  if (pending.length === 0) return;
+
+  db.transaction(() => {
+    for (const migration of pending) {
       db.exec(migration.sql);
       db.run("INSERT INTO schema_migrations (version, applied_at) VALUES (?, ?)", [
         migration.version,
         new Date().toISOString(),
       ]);
-      // Kept for tools that read it: the highest migration applied.
-      const highest = db.get<{ v: number }>("SELECT max(version) AS v FROM schema_migrations")?.v;
-      db.exec(`PRAGMA user_version = ${highest ?? 0}`);
-    });
-  }
+    }
+    // Kept for tools that read it: the highest migration applied.
+    const highest = db.get<{ v: number }>("SELECT max(version) AS v FROM schema_migrations")?.v;
+    db.exec(`PRAGMA user_version = ${highest ?? 0}`);
+  });
 }
 
 /**

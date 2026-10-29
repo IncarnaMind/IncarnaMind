@@ -13,6 +13,11 @@ import type { ClaimedChange, ClaimedTool } from "../api";
 export interface TurnFinding {
   /** What to tell the model so it writes the reply again. */
   note: string;
+  /**
+   * The Tool the model calls first when asked: a record it names and never made. Claude Haiku
+   * 5.5, told to call `cite`, wrote the same reply again in about one ask in twenty.
+   */
+  requires?: string;
   /** What flags the reply if it stands: none, for a check that only asks. */
   claims: readonly ClaimedChange[];
   /** The Tools the reply says ran that didn't (#1796), which flag it too. */
@@ -53,9 +58,10 @@ export interface Flags {
 
 /**
  * What the checks make of a reply: to ask the model once more (and the Tools
- * the ask is about, which the Answer shows as a step), or what to flag it with.
+ * the ask is about, which the Answer shows as a step, and the one it must call
+ * first), or what to flag it with.
  */
-export type Settled = { nudge: string; tools?: readonly ClaimedTool[] } | Flags;
+export type Settled = { nudge: string; requires?: string; tools?: readonly ClaimedTool[] } | Flags;
 
 export async function settleReply(
   checks: readonly TurnCheck[],
@@ -70,6 +76,7 @@ export async function settleReply(
     if (found.note && nudges.take(each.name)) {
       return {
         nudge: found.note,
+        ...(found.requires && { requires: found.requires }),
         ...(found.tools && found.tools.length > 0 && { tools: found.tools }),
       };
     }

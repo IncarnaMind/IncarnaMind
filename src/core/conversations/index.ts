@@ -328,7 +328,11 @@ const isCount = (value: unknown): value is number =>
   typeof value === "number" && Number.isInteger(value) && value > 0;
 
 function storedCoverage(value: unknown): { coverage: AnswerCoverage } | null {
-  if (!isRecord(value) || (value.kind !== "main" && value.kind !== "largest")) return null;
+  if (
+    !isRecord(value) ||
+    (value.kind !== "main" && value.kind !== "largest" && value.kind !== "named")
+  )
+    return null;
   const used = Array.isArray(value.used)
     ? value.used.flatMap((each) =>
         isRecord(each) && typeof each.id === "string" && typeof each.name === "string"
@@ -845,7 +849,7 @@ export function createConversations(db: Database, now: () => string) {
         mind = { id: mindId, folderId: row.folder_id };
       }
       if (model !== undefined && model !== null && !isChatModelChoice(model)) {
-        throw new InvalidInputError("A model must be { providerId, modelId }.");
+        throw new InvalidInputError({ key: "error.question.model" });
       }
       const where = focus === undefined || focus === null ? null : parseFocus(focus);
       if (focus !== undefined && focus !== null && where === null) {
@@ -1059,6 +1063,8 @@ export function createConversations(db: Database, now: () => string) {
       /** The Tool calls the Answer made, as it stands before it is written again. */
       toolCalls: AnswerToolCall[];
       onScreen: string[];
+      /** The model to write it with instead of the Question's own, when the caller chose one. */
+      model: ChatModelChoice | null;
     } {
       if (!isRecord(input)) {
         throw new InvalidInputError("Expected { conversationId, answerId }.");
@@ -1072,12 +1078,26 @@ export function createConversations(db: Database, now: () => string) {
       if (question?.kind !== "question") {
         throw new NotFoundError({ key: "error.answer.questionGone" });
       }
+      if (input.model !== undefined && input.model !== null && !isChatModelChoice(input.model)) {
+        throw new InvalidInputError({ key: "error.question.model" });
+      }
       return {
         answerId: answer.id,
         question: toQuestion(question),
         toolCalls: storedList<AnswerToolCall>(answer.tool_calls),
         onScreen: parseOnScreen(input.onScreen),
+        model: input.model ?? null,
       };
+    },
+
+    /** Keeps a Question on the model its Answer is written with now, so Regenerate goes on with it. */
+    setQuestionModel(questionId: string, model: ChatModelChoice): ConversationQuestion | null {
+      db.run(
+        "UPDATE conversation_messages SET provider_id = ?, model_id = ?, updated_at = ? WHERE id = ? AND kind = 'question'",
+        [model.providerId, model.modelId, now(), questionId],
+      );
+      const row = liveMessage(questionId);
+      return row?.kind === "question" ? toQuestion(row) : null;
     },
 
     /** The Search scope an Answer's Question was asked with; null for none, or once either is gone. */

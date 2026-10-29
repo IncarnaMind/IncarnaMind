@@ -27,8 +27,9 @@ export interface PackCitation {
 /**
  * The Mind's Citations, in order, numbered as the editor numbers them (`numberFootnotes` in
  * the renderer's editor): with the User's footnotes in Numbered, side by side as one in a note
- * style, among themselves in a style that cites in the text. A Chart's sources have no number
- * in the Mind, so they aren't here.
+ * style, among themselves in a style that cites in the text. A calculated figure takes a number
+ * as a footnote does, or a place among the Citations in a style that cites in the text. A Chart's
+ * sources have no number in the Mind, so they aren't here.
  */
 export function numberCitations(
   blocks: readonly Block[],
@@ -52,6 +53,10 @@ export function numberCitations(
         together = true;
       } else if (item.kind === "footnote") {
         number++;
+        together = false;
+      } else if (item.kind === "figure") {
+        if (form === "in-text") cited++;
+        else number++;
         together = false;
       } else if (!isBlank(item)) {
         together = false;

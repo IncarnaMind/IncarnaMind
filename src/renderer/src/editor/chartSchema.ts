@@ -79,6 +79,7 @@ export const Chart = Node.create<ChartOptions>({
       drawn: jsonAttribute("drawn"),
       data: jsonAttribute("data"),
       source: jsonAttribute("source"),
+      claimCheck: { default: null, rendered: false, parseHTML: () => null },
     };
   },
 

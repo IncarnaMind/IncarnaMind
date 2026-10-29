@@ -314,6 +314,7 @@ export function meetingInstructions(listening: boolean): string {
     "The User is in a meeting that is being recorded, and asks this during the call.",
     "Before their Question, <live-transcript> holds what has been said so far, newest last: Passages of the meeting's Transcript, each at its time in the call.",
     "- Answer what they ask about the call from it, and cite its lines as you cite any Passage, by its id.",
+    "- A recap or summary of this call uses only what was said in it, plus the written notes when asked. Do not add facts or unrequested checks from other Documents, including earlier replies. An empty <live-transcript> means no call content is available yet: say so rather than summarizing Library Documents.",
     '- A line\'s mark names who said it: "Me" is the User, from their microphone; "Them" is the other side of the call. "Speaker ?" means the call\'s sound wasn\'t heard, so it isn\'t known who spoke: never guess whether it was the User or the other side. "What did they say" means the lines marked Them. Say who said it in the User\'s language, as "you" and "they", not by the mark.',
     '- "Just now", "the last few minutes" and "what was just said" mean its newest Passages.',
     "- Search the User's Documents too when the Question needs them, for instance to check what was said against them.",
@@ -546,8 +547,6 @@ export interface ListedDocuments {
 export interface LibraryDocuments {
   /** How many live Documents the Library holds: every one it lists, searchable or not. */
   total: number;
-  /** Some of them are an example IncarnaMind made's Documents, which this Answer leaves out. */
-  examples: boolean;
 }
 
 /** A Document name on one line of its own, and not too long. */
@@ -633,9 +632,6 @@ function documentNames({ total, names }: ListedDocuments): string {
   ].join("\n");
 }
 
-const EXAMPLES_LEFT_OUT =
-  "Documents of an example IncarnaMind made are in the Library too, and aren't the User's own work: leave them out.";
-
 /**
  * The Library's own count, when it holds more Documents than this Answer can use (#1333):
  * told only its scope's one, models said the Library held one.
@@ -678,7 +674,7 @@ export function documentInstructions(
   {
     writeFirst = false,
     minds = false,
-    library = { total: listed.total, examples: false },
+    library = { total: listed.total },
   }: { writeFirst?: boolean; minds?: boolean; library?: LibraryDocuments } = {},
 ): string {
   const dated = datedDocumentsNote(passages);
@@ -689,10 +685,7 @@ export function documentInstructions(
     bracketedAmountsNote(passages),
   ].filter(Boolean);
   const added = addedLine(listed.total, library.total, scoped);
-  const rest = [
-    ...(library.examples ? [EXAMPLES_LEFT_OUT] : []),
-    ...(library.total > listed.total ? [libraryNote(library.total, scoped)] : []),
-  ];
+  const rest = library.total > listed.total ? [libraryNote(library.total, scoped)] : [];
   switch (mode) {
     case "no-documents":
       return "";

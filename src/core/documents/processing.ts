@@ -27,6 +27,7 @@ import { officeProperties } from "./formats/coreProperties";
 import { readWebPage, SAVED_PICTURE } from "./formats/web";
 import { isPackageKind, packageSizeError } from "./formats/zip";
 import { keywordText } from "./keywords";
+import { joinCjkLineWraps } from "./lineWrap";
 import { type BuiltPassage, buildPassages } from "./passages";
 import { documentTitle } from "./title";
 import { unreadMessage } from "./unreadMessage";
@@ -53,9 +54,12 @@ import { unreadMessage } from "./unreadMessage";
  * print, from its page labels or its headers and footers). 12: #1819 (a
  * scanned page's quarter-turn is normalized before it is read). 13: #740 (a
  * workbook records the hidden sheets and rows past the limit it left out).
- * 14: #1818 (PDF form fields are included in the pages' text).
+ * 14: #1818 (PDF form fields are included in the pages' text). 15:
+ * #2042 (a Document's name is in a keyword index of its own, not in each
+ * Passage's row; see `NAME_INDEX_CURRENT_SINCE`). 16: #2110 (a PDF line break
+ * beside CJK text or full-width punctuation is joined).
  */
-export const PROCESSING_VERSION = 14;
+export const PROCESSING_VERSION = 16;
 
 /**
  * Per kind, the oldest version whose Passages and Units are still what this
@@ -71,9 +75,12 @@ export const PROCESSING_VERSION = 14;
  * orientation `SCAN_CURRENT_SINCE` reads again; version 13 only workbooks',
  * which record the hidden sheets and rows past the limit they left out, their
  * Units as they were; version 14 only PDFs', whose pages include form fields.
+ * Version 15 changed no Passage or Unit, only the keyword index (see
+ * `NAME_INDEX_CURRENT_SINCE`). Version 16 only PDFs', whose wrapped CJK lines
+ * are joined while other text and embeddings stay as they are.
  */
 export const CURRENT_SINCE: Readonly<Record<DocumentKind, number>> = {
-  pdf: 14,
+  pdf: 16,
   text: 5,
   markdown: 5,
   docx: 7,
@@ -95,6 +102,21 @@ export const CURRENT_SINCE: Readonly<Record<DocumentKind, number>> = {
  * through only once.
  */
 export const HAN_CURRENT_SINCE = 6;
+
+/**
+ * The oldest version whose keyword index holds a Document's name as this
+ * version does: since version 15, a Passage's row holds its own words alone,
+ * and the name is indexed once for the Document, in an index whose document
+ * frequency counts Documents (#2042). Before, the name was text in every
+ * Passage's row, so a long Document whose name held a word of a search
+ * counted as if all its Passages said it: the word's document frequency grew
+ * with the Document's length, and its IDF, and every match on it, fell. The
+ * name's row also gives a query that names a Document its Passages, as a
+ * score added to theirs (see `keywordSearch` in ./search). The Passages and
+ * their vectors are unchanged, so a Document processed by an older version
+ * is processed again at startup and keeps both (see `record` in ./index).
+ */
+export const NAME_INDEX_CURRENT_SINCE = 15;
 
 /**
  * For a PDF with a page that has little or no text (a scan, maybe), or a
@@ -168,14 +190,28 @@ export interface MetadataJob {
   firstUnit: string | null;
 }
 
-export type WorkerJob = ProcessingJob | MetadataJob;
+/**
+ * A job that rebuilds the keyword rows of a Document's stored Passages, with no
+ * file read: an upgrade from the version before this one repairs the index, and
+ * the words are segmented here rather than on the core's thread (#2042).
+ */
+export interface KeywordsJob {
+  task: "keywords";
+  documentId: string;
+  /** The version indexed: nothing is written if the Document has another by then. */
+  contentHash: string;
+  /** The live Passages, in reading order, with the text the words are made from. */
+  passages: { seq: number; text: string }[];
+}
+
+export type WorkerJob = ProcessingJob | MetadataJob | KeywordsJob;
 
 /** A Passage as the worker hands it over. */
 export interface ProcessedPassage extends BuiltPassage {
   /**
    * The Passage's words for the keyword index (see ./keywords), worked out here
    * so the core's thread doesn't have to. The Document's name isn't included:
-   * the core adds it, so a rename only redoes that part.
+   * the core indexes it once for the Document, so a rename redoes only that.
    */
   keywords: string;
 }
@@ -247,7 +283,14 @@ export type MetadataResult =
   | FileUnreadable
   | Crashed;
 
-export type WorkerResult = ProcessingResult | MetadataResult;
+/** Each of a Document's Passages, and the words its keyword row holds (#2042). */
+export interface KeywordsResult {
+  outcome: "keywords";
+  documentId: string;
+  passages: { seq: number; keywords: string }[];
+}
+
+export type WorkerResult = ProcessingResult | MetadataResult | KeywordsResult;
 
 /**
  * How a job reads scanned pages: the text recognition model, which the core
@@ -294,13 +337,20 @@ export type WorkerResponse =
   | { id: number; request: number; page: number; file: Uint8Array }
   | { id: number; log: { event: string; fields: LogFields } };
 
-/** Runs a job of either kind. Never throws. */
+/** Runs a job of any kind. Never throws. */
 /** `password`: what opens the job's PDF when it is locked (#763), never kept with the job. */
 export function runJob(
   job: WorkerJob,
   channel: ReadingChannel | null = null,
   password?: string,
 ): Promise<WorkerResult> {
+  if (job.task === "keywords") {
+    return Promise.resolve({
+      outcome: "keywords",
+      documentId: job.documentId,
+      passages: job.passages.map(({ seq, text }) => ({ seq, keywords: keywordText(text) })),
+    } satisfies KeywordsResult);
+  }
   return job.task === "process" ? processFile(job, channel, password) : readMetadata(job, password);
 }
 
@@ -512,7 +562,17 @@ async function processBytes(
   try {
     const extracted = await extractText(kind, bytes, reading, password, readPicture);
     const firstPages = extracted.units.slice(0, REFERENCE_PAGES).map((unit) => unit.text);
-    const pages = kind === "pdf" ? stripBoilerplate(extracted.units) : extracted.units;
+    // The running headers go while a page's lines are the ones extraction joined as they
+    // always were; the wider join comes after, where it reaches the model.
+    const stripped = kind === "pdf" ? stripBoilerplate(extracted.units) : extracted.units;
+    // Only a page pdf.js read has lines that break a sentence; a scanned page's rows are its
+    // layout, and joining two of them would merge a table's rows (and move its anchors).
+    const pages =
+      kind === "pdf"
+        ? stripped.map((unit) =>
+            unit.label?.scan ? unit : { ...unit, text: joinCjkLineWraps(unit.text) },
+          )
+        : stripped;
     const { pageCount, unread, parts } = extracted;
     const passages = buildPassages(pages).map((passage) => ({
       ...passage,

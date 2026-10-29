@@ -132,8 +132,8 @@ export interface ResearchOptions extends FinishOptions {
   };
   /** A Mind's name, as the window shows it; null once it is gone. */
   mindName(mindId: string): string | null;
-  /** The ids of the live Documents a Search scope covers; null with none (every Document). */
-  resolveScope(scope: SearchScope): string[] | null;
+  /** The Documents a Search scope covers; with none, the User's own (`scopeDocuments`). */
+  scopeDocuments(scope: SearchScope | null, mindId: string | null): string[] | null;
   /** What research from a Mind searches, by the one rule (`mindSearchScope`); null: every Document. */
   searchedScope(scope: SearchScope | null, mindId: string): SearchScope | null;
   tasks: {
@@ -424,9 +424,7 @@ export function createResearch(options: ResearchOptions) {
       said: task.messages(),
     });
     const documentIds = input.sources.library
-      ? input.scope
-        ? options.resolveScope(input.scope)
-        : null
+      ? options.scopeDocuments(input.scope, task.mindId)
       : [];
     task.started(key);
     const attempt = task.step(key)?.attempts ?? 1;

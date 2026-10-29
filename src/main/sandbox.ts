@@ -36,9 +36,23 @@ import { delimiter, dirname, isAbsolute, relative, resolve, sep } from "node:pat
 import { promisify } from "node:util";
 import type { SandboxRuntimeConfig } from "@anthropic-ai/sandbox-runtime";
 import type { ExecRequest, Executor, ProcessLauncher } from "../core";
+import { engineModule } from "../core/engineModules";
 import { type Confinement, createLocalExecutor, folderPath } from "../core/execution";
 
 type SandboxManager = typeof import("@anthropic-ai/sandbox-runtime")["SandboxManager"];
+
+/** Loaded on macOS and Linux only: Windows has no OS sandbox yet. */
+export const SANDBOX_RUNTIME = engineModule(
+  "@anthropic-ai/sandbox-runtime",
+  () => import("@anthropic-ai/sandbox-runtime"),
+  [
+    "SandboxManager.isSupportedPlatform",
+    "SandboxManager.updateConfig",
+    "SandboxManager.checkDependenciesAsync",
+    "SandboxManager.wrapWithSandboxArgv",
+    "SandboxManager.cleanupAfterCommand",
+  ],
+);
 
 export interface OsExecutorOptions {
   /** Starts the programs, with the User's login-shell environment. */
@@ -235,7 +249,7 @@ export async function loadOsSandbox({ seccompHelper }: OsSandboxOptions = {}): P
   }
   let sandbox: SandboxManager;
   try {
-    ({ SandboxManager: sandbox } = await import("@anthropic-ai/sandbox-runtime"));
+    ({ SandboxManager: sandbox } = await SANDBOX_RUNTIME.load());
   } catch (error) {
     return { available: false, reason: `sandbox-runtime didn't load: ${messageOf(error)}` };
   }

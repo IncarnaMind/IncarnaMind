@@ -124,7 +124,7 @@ export function report(
     output: some.reduce((sum, each) => sum + each[key].outputTokens, 0),
   });
   return [
-    "# Requests that change several Minds",
+    "# Requests that change several Notes",
     "",
     `${rows.length - under.length} of ${rows.length} requests at or above the bar of ${percent(BAR * 100, 100)} of their runs; ${results.length - failing.length} of ${results.length} runs passed. Commit ${meta.commit}. Models asked: ${models.join(", ")}.`,
     "",
@@ -141,7 +141,7 @@ export function report(
     }),
     "## By request",
     "",
-    "The last column counts the Minds changed in all of a request's runs: those whose changes the app applies at once, and those that wait for the User to accept them.",
+    "The last column counts the Notes changed in all of a request's runs: those whose changes the app applies at once, and those that wait for the User to accept them.",
     "",
     "| Request | Language | Model | Passed | Median s | Tokens in / out a run | Applied at once / waiting |",
     "|---|---|---|---|---|---|---|",
@@ -219,7 +219,7 @@ export function report(
                     `- ${row.mind}${row.created ? " (new)" : ""}: ${row.changed} changed, ${row.wrote} written`,
                 ),
               ]
-            : ["", "The card listed no Mind."]),
+            : ["", "The card listed no Note."]),
           "",
           "What the app recorded its Tools doing:",
           "",

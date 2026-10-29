@@ -1,5 +1,6 @@
 import type {
   AssignmentChange,
+  AssignmentState,
   DocumentBatch,
   DocumentGroupAssignment,
   LibraryClassifier,
@@ -14,10 +15,12 @@ import type { UiUsageEvent } from "./usageEvents";
 
 export type {
   AssignmentChange,
+  AssignmentState,
   AutomaticTaggingReason,
   ClassificationStatus,
   DocumentBatch,
   DocumentGroupAssignment,
+  DocumentTagging,
   LibraryClassifier,
   LibraryGroup,
   LibraryGroupInput,
@@ -25,6 +28,7 @@ export type {
   LibrarySnapshot,
   TaggingClassifier,
   TaggingCost,
+  TaggingDestination,
   TaggingModelGroup,
   TaggingModelOption,
   TaggingModels,
@@ -44,10 +48,14 @@ import type {
   AnalysisLanguage,
   AnalysisOutput,
   AnalysisUnavailableReason,
+  AnalysisValue,
   AnalysisVersions,
 } from "../shared/analysis";
 import type { CitationForm, CitationStyleId, StyleCatalogue } from "../shared/citationStyles";
+import type { ClaimCheckShown } from "../shared/claimChecks";
 import type { AppCommandId, AssistantCommandId } from "../shared/commands";
+import type { FigureFooting } from "../shared/figureFooting";
+import type { Figure } from "../shared/figures";
 import type { FormulaInput, FormulaLiteral, ResultUnit, ShowAs } from "../shared/formula";
 import type { HelpKeys, MeetingHelpKind, MeetingHelpTemplate } from "../shared/meetingHelp";
 import type { MindStyle } from "../shared/mindStyle";
@@ -210,8 +218,22 @@ export interface CreateMindInput {
  *   `hidden`. An older version's editor writes the columns back without
  *   these when it changes one, so it opens these Minds read-only. Older
  *   content is version 30 content as it is.
+ * - 31: Notes own calculated figure nodes, bounded Analysis run dependencies
+ *   and the figures within their sentence's Check (#439, #1932). Older
+ *   editors would discard those nodes and check attributes, so they open
+ *   these Notes read-only. Existing content needs no conversion.
+ * - 32: a Citation has an `id` of its own, given as it is written (an older
+ *   one on its Note's first edit), and the Note holds people's "Checked by me"
+ *   marks on Citations and figures (`MIND_SIGN_OFFS_FIELD`, #1933). An older
+ *   editor would strip the ids and leave the marks on nothing, so it opens
+ *   these Notes read-only. Existing content needs no conversion.
+ * - 33: a comparison table has a `title` of its own (#1837), its name in the
+ *   title line and on its Excel file and sheet. An older version's editor
+ *   writes the table back without it when it changes it, so it opens these
+ *   Notes read-only. Older content is version 33 content as it is, its table
+ *   called "Comparison table" until the User names it.
  */
-export const CONTENT_SCHEMA_VERSION = 30;
+export const CONTENT_SCHEMA_VERSION = 33;
 
 /**
  * The key, in the Mind's settings map (`MIND_SETTINGS_FIELD`), of the content
@@ -287,7 +309,7 @@ export interface MovedItem {
  * What a move did: each Mind, Document and conversation it moved, with where it
  * was. Those already in the Folder are listed too, with the Folder as `from`.
  * Undoing moves each Mind and conversation back to its `from`, and puts back
- * each Document's `previous`.
+ * each Document's `change`.
  */
 export interface FolderMove {
   folderId: string | null;
@@ -296,9 +318,9 @@ export interface FolderMove {
   conversations: MovedItem[];
 }
 
-/** A Document a move moved, with its assignment before (null: none), for `restoreAssignment`. */
+/** A Document a move moved, with its place and tagging before and after, for `restoreAssignment`. */
 export interface MovedDocument extends MovedItem {
-  previous: DocumentGroupAssignment | null;
+  change: AssignmentChange;
 }
 
 /**
@@ -314,6 +336,35 @@ export const MIND_CONTENT_FIELD = "blocks";
  * before has none, and uses the defaults.
  */
 export const MIND_SETTINGS_FIELD = "settings";
+
+export const MIND_FIGURE_RUNS_FIELD = "figureRuns";
+
+/**
+ * The name of the Y.Map, beside a Mind's Blocks, that holds the User's own "Checked by me"
+ * marks (#1933), by record id: what a person checked, apart from the app's check, so the
+ * marks go and sync with the Note. See src/shared/signOffs.ts.
+ */
+export const MIND_SIGN_OFFS_FIELD = "signOffs";
+
+/** What a person checked (#1933): a Citation by its own id, a figure by its id, a comparison cell. */
+export interface SignOffTarget {
+  kind: "citation" | "figure" | "cell";
+  id: string;
+}
+
+/** A person's own "Checked by me" on an item (#1933), as it shows now: never a check result. */
+export interface SignOffNow {
+  /** Changed: what they checked changed since, so it no longer counts as checked. */
+  state: "checked" | "changed";
+  /** When they checked it (ISO 8601, UTC). */
+  at: string;
+  /** Their name as it was when they checked it. */
+  name: string | null;
+  /** The User's own, not another person's. */
+  mine: boolean;
+  /** What the mark was made on: for a figure an edit gave a new id, its id before. */
+  target: SignOffTarget;
+}
 
 /**
  * The name of the Y.Map, beside a Mind's Blocks, that says where Blocks came
@@ -501,10 +552,11 @@ export interface ProposalMaker {
  * Why a Checkpoint (CONTEXT.md) was saved: just before an AI change
  * (accepting changes, Regenerate, Enhance, a comparison table going in,
  * accepting someone else's changes from a Word file), just before restoring
- * another one, or once the Mind had been left alone for
- * `CHECKPOINT_IDLE_MS` ("idle"). Only idle ones thin out as they age (all for
- * a day, then one an hour for a week, one a day for 90 days, then one a
- * week); the others are kept for good.
+ * another one, as the Note was sent as Word or PDF ("export", #1933), or once
+ * the Mind had been left alone for `CHECKPOINT_IDLE_MS` ("idle"). Only idle
+ * ones the User hasn't named thin out as they age (all for a day, then one an
+ * hour for a week, one a day for 90 days, then one a week); the others are
+ * kept for good.
  */
 export const CHECKPOINT_REASONS = [
   "accept",
@@ -513,6 +565,7 @@ export const CHECKPOINT_REASONS = [
   "compare",
   "others",
   "restore",
+  "export",
   "idle",
 ] as const;
 export type CheckpointReason = (typeof CHECKPOINT_REASONS)[number];
@@ -527,6 +580,16 @@ export interface Checkpoint {
   reason: CheckpointReason;
   /** When it was saved (ISO 8601, UTC). */
   createdAt: string;
+  /** The name the User gave it ("Filed draft"); null for none. */
+  name: string | null;
+  /** For one saved as the Note was sent ("export"): the file's name, "Credit paper.docx". */
+  file: string | null;
+}
+
+/** A Checkpoint just named, and the name it had until then, which Undo gives back. */
+export interface RenamedCheckpoint {
+  checkpoint: Checkpoint;
+  was: string | null;
 }
 
 /** A Mind's Checkpoints, as History lists them. */
@@ -603,6 +666,8 @@ export interface MindComparison {
 /** What restoring a Checkpoint did: it saved the Mind as it was, which restoring takes the restore back. */
 export interface RestoredCheckpoint {
   before: Checkpoint;
+  /** How many Citations the User checked the restored text doesn't hold (#1933). */
+  checkedLeftOut: number;
 }
 
 /**
@@ -651,7 +716,7 @@ export interface ComparisonQuestion {
   text: string;
   /** Its heading, which starts as its Question shortened; absent: the Question shortened. */
   label?: string;
-  /** Its width in the table; absent: the table's own. */
+  /** Its width in the table, in pixels; absent: the table's own. */
   width?: number;
   /** Whether the table draws it; absent: it does. */
   hidden?: boolean;
@@ -660,6 +725,8 @@ export interface ComparisonQuestion {
 /** Attributes of a comparison table's Block, as stored in the Mind's Yjs document. */
 export interface ComparisonTableAttributes {
   id: string | null;
+  /** Its own name, kept with the Mind and naming the Excel file and sheet; absent: "Comparison table". */
+  title?: string | null;
   /** Its columns, in order. */
   questions: ComparisonQuestion[];
   /** The model its cells are written with; both null: the default model. */
@@ -1243,6 +1310,8 @@ export interface SkillScriptRun {
  * when its text is deleted.
  */
 export const CITATION_NODE = "citation";
+
+export const CALCULATED_FIGURE_NODE = "calculatedFigure";
 
 /**
  * The node type of a footnote the User writes: an inline node at its marker,
@@ -1966,6 +2035,11 @@ export interface CitationAttributes {
    * version, #99): while it is the current one, the Citation doesn't ask to be checked again.
    */
   keptOver?: string | null;
+  /**
+   * Its own id, given once the User marks it checked by them (#1933), so the mark stays on it
+   * as the text around it changes. A copy pasted beside it has none.
+   */
+  id?: string | null;
 }
 
 /** A Citation, as the Answer event stream reports it. */
@@ -2034,6 +2108,12 @@ export interface MarkedFigure extends CalculatedFigure {
   marker: number;
 }
 
+export interface CalculatedFigureAttributes {
+  id: string;
+  figure: CalculatedFigure;
+  analysisId: string | null;
+}
+
 export interface FigureFromAnalysis {
   /** The Answer's Analysis, by its number. */
   analysis: number;
@@ -2100,6 +2180,16 @@ export interface AnswerAnalysis {
     tables: { result: string; marker: number }[];
     charts: number[];
   };
+}
+
+/** A successful run kept once by a Note, with only the results its figures still use (ADR-0021). */
+export interface RetainedFigureAnalysis
+  extends Pick<
+    AnswerAnalysis,
+    "title" | "language" | "code" | "inputs" | "versions" | "codeSha256" | "ranAt"
+  > {
+  id: string;
+  values: Extract<AnalysisValue, { kind: "figure" }>[];
 }
 
 /** A number a calculated figure is worked out from: one read from a Citation's quote. */
@@ -2236,6 +2326,11 @@ export interface UserSettings {
    * (#107), or null: the name the computer knows them by (`Settings.author`).
    */
   authorName: string | null;
+  /**
+   * The person, by a random id made once for them and kept with their settings, so their
+   * "Checked by me" marks (#1933) are theirs on every device. Null until it is first needed.
+   */
+  personId: string | null;
   /** The monthly cap on models billed per token: off (null) by default. */
   monthlyCap: MonthlyCap | null;
   /**
@@ -2383,6 +2478,17 @@ export interface TranscriptionServiceStatus {
   keyUrl: string | null;
 }
 
+/**
+ * The transcription services and the core's revision of what they say. The revision grows with
+ * every committed change (a key kept or forgotten, a provider saved or deleted). A list is
+ * stamped with the revision it began at, so of two answers the one to keep is the one with the
+ * higher revision, whichever was asked first.
+ */
+export interface TranscriptionServices {
+  revision: number;
+  services: TranscriptionServiceStatus[];
+}
+
 export interface SetTranscriptionKeyInput {
   route: CloudTranscriptionRoute;
   apiKey: string;
@@ -2446,6 +2552,7 @@ export const MAX_TAB_GROUPS = 3;
 /** What a tab shows. The Library has one tab per window. */
 export type TabItem =
   | { kind: "mind"; mindId: string }
+  | { kind: "figures"; mindId: string }
   | { kind: "library" }
   | { kind: "home" }
   | { kind: "document"; documentId: string };
@@ -4498,11 +4605,191 @@ export interface ComparisonTableRef {
 
 /**
  * A comparison table to fill: the whole table, or some of its columns alone,
- * so a column just added or reworded never writes its neighbours again.
+ * so a column just added or reworded never writes its neighbours again; or
+ * some of its rows alone, so Documents added later fill without touching the
+ * Answers already there.
  */
 export interface ComparisonFillRequest extends ComparisonTableRef {
   /** The columns to fill, by their Questions' ids; absent: every cell to fill in the table. */
   questionIds?: readonly string[];
+  /** The rows to fill, by their Documents' ids; absent: every row. */
+  documentIds?: readonly string[];
+}
+
+/** A comparison table's column to move, and where it lands. */
+export interface ComparisonColumnMove extends ComparisonTableRef {
+  /** The window that made it, so only that window's Undo can take it back. */
+  clientId: string;
+  /** The column's Question. */
+  questionId: string;
+  /** Where it lands among all the columns, hidden ones counted: the second column is 1. */
+  to: number;
+}
+
+/** Where a moved column now is, and whether it moved at all. */
+export interface ComparisonColumnMoveResult {
+  /** Among all the columns, hidden ones counted: the second column is 1. */
+  index: number;
+  moved: boolean;
+  /** The core's record of this change, for its Undo and Redo. */
+  step: string;
+}
+
+/** A column's label and Question, edited on the Mind's own content by the core. */
+export interface ComparisonColumnEditRequest extends ComparisonTableRef {
+  clientId: string;
+  questionId: string;
+  text: string;
+  label: string;
+}
+
+/** What editing a column did: a new Question gives it new cells, to fill. */
+export interface ComparisonColumnEdited {
+  changed: boolean;
+  refilled: boolean;
+  questionId: string;
+  label: string;
+  step: string;
+}
+
+/** A column put beside another. */
+export interface ComparisonColumnInsertRequest extends ComparisonTableRef {
+  clientId: string;
+  /** The column it goes beside. */
+  questionId: string;
+  side: "left" | "right";
+  text: string;
+  label?: string;
+}
+
+/** A column copied beside itself. */
+export interface ComparisonColumnDuplicateRequest extends ComparisonTableRef {
+  clientId: string;
+  questionId: string;
+}
+
+/** What a new or copied column left for the window: whether to fill it. */
+export interface ComparisonColumnAdded {
+  questionId: string;
+  label: string;
+  /** Its cells wait for an Answer, so the window fills it. */
+  fill: boolean;
+  step: string;
+}
+
+/** A column taken out whole. */
+export interface ComparisonColumnRemoveRequest extends ComparisonTableRef {
+  clientId: string;
+  questionId: string;
+}
+
+/** What removing a column left: the column to focus. */
+export interface ComparisonColumnRemoved {
+  label: string;
+  focusId: string | null;
+  step: string;
+}
+
+/** A column's width in pixels, within the table's bounds. */
+export interface ComparisonColumnWidthRequest extends ComparisonTableRef {
+  clientId: string;
+  questionId: string;
+  width: number;
+}
+
+export interface ComparisonColumnWidthSet {
+  label: string;
+  width: number;
+  step: string;
+}
+
+/** A column hidden from the table, or shown again. */
+export interface ComparisonColumnHiddenRequest extends ComparisonTableRef {
+  clientId: string;
+  questionId: string;
+  hidden: boolean;
+}
+
+export interface ComparisonColumnHiddenSet {
+  label: string;
+  questionId: string;
+  hidden: boolean;
+  focusId: string | null;
+  step: string;
+}
+
+/** Documents added as rows to a table that exists. */
+export interface ComparisonRowsAddRequest extends ComparisonTableRef {
+  clientId: string;
+  /** The Documents to add, in order; ones the table already has, or checks leave out, are dropped. */
+  documentIds: readonly string[];
+}
+
+/** What adding Documents left: the rows there now, and whether any fill waits for an Answer. */
+export interface ComparisonRowsAdded {
+  documentIds: string[];
+  labels: string[];
+  /** Their cells wait for an Answer, so the window fills those rows. */
+  fill: boolean;
+  step: string;
+}
+
+/** A row taken out of a table. */
+export interface ComparisonRowRemoveRequest extends ComparisonTableRef {
+  clientId: string;
+  documentId: string;
+}
+
+/** What removing a row left: its name for the undo line, and the row to focus. */
+export interface ComparisonRowRemoved {
+  label: string;
+  focusDocumentId: string | null;
+  step: string;
+}
+
+/** A row of a table moved, by its Document, to a place among the rows. */
+export interface ComparisonRowMoveRequest extends ComparisonTableRef {
+  clientId: string;
+  documentId: string;
+  /** Where it lands among the rows: the second row is 1. */
+  to: number;
+}
+
+export interface ComparisonRowMoveResult {
+  /** Among the rows: the second row is 1. */
+  index: number;
+  moved: boolean;
+  step: string;
+}
+
+/** A structure change of a table, by the core's record of it and the window that made it. */
+export interface ComparisonStructureRef extends ComparisonTableRef {
+  clientId: string;
+  step: string;
+}
+
+/** Taking back, or doing again, a structure change of a table, by the core's record of it. */
+export interface ComparisonStructureUndoResult {
+  moved: boolean;
+  /** It isn't the table's latest structure change, or another window made it. */
+  reason?: "changed";
+}
+
+/** A window watching a Mind's comparison tables, for the flush and lock around a structure change. */
+export interface ComparisonWatch {
+  mindId: string;
+  clientId: string;
+}
+
+/** A window saying its changes for the Mind have reached the core. */
+export interface ComparisonStructureAck {
+  requestId: string;
+  clientId: string;
+}
+
+/** A window that is gone, or no longer answers: the core stops waiting for it. */
+export interface ComparisonWindow {
+  clientId: string;
 }
 
 /**
@@ -4519,12 +4806,24 @@ export type ComparisonResult =
 /** What saving a comparison table as an Excel workbook did (`CoreApi.saveComparisonExport`). */
 export type SavedComparisonExport =
   /** Saved, with how many of the workbook's Citations aren't "Quote found", which the result line says. */
-  | { status: "saved"; file: SavedFile; unverifiedCitations: number }
+  | {
+      status: "saved";
+      file: SavedFile;
+      unverifiedCitations: number;
+      /** The columns the file leaves out, for the app to say so. */
+      hiddenColumns: number;
+    }
   | Exclude<SavedExport, { status: "saved" }>;
 
 /** A comparison table whose cells are being filled ("comparison.filling"). */
 export interface ComparisonFilling extends ComparisonTableRef {
   filling: boolean;
+}
+
+/** A comparison table whose structure the core is writing ("comparison.structure"). */
+export interface ComparisonStructureWriting extends ComparisonTableRef {
+  requestId: string;
+  writing: boolean;
 }
 
 /**
@@ -4984,7 +5283,8 @@ export interface TextPlace {
  * What Edit with AI does with the selected text (#93): improve the writing,
  * shorten it, translate it, explain it in a new paragraph under it, what the
  * User asked for in their own words, or take out the part of a cited sentence
- * its Citations don't support (#1111).
+ * its Citations don't support (#1111), or make the sentence agree with the words its Citations
+ * now quote in a new version of their Document (#99).
  */
 export const editActions = [
   "improve",
@@ -4993,6 +5293,7 @@ export const editActions = [
   "explain",
   "instruction",
   "cut-unsupported",
+  "follow-citation",
 ] as const;
 export type EditAction = (typeof editActions)[number];
 
@@ -5215,7 +5516,7 @@ export type UnlockDocumentResult =
   | { kind: "wrong-password" };
 
 /** What one claim check found: the claim-check function's result (`checkClaim`). */
-export type ClaimCheckResult =
+export type ClaimJudgment =
   | {
       verdict: ClaimVerdict;
       /**
@@ -5252,21 +5553,113 @@ export type ClaimCheckResult =
       excluded: LeftOutDocument[];
     };
 
+export type FigureLocator =
+  | ({ kind: "text" } & TextStretch)
+  | { kind: "chart"; blockId: string; row: number; series: number };
+
+export interface CheckFigure {
+  id: string;
+  locator: FigureLocator;
+  reading: Figure;
+  calculated: CalculatedFigureAttributes | null;
+  context?: string;
+  label?: string;
+}
+
+export interface FigureFinding extends CheckFigure {
+  sourceInput: FigureInput | null;
+  source?: Citation | null;
+  roundedFrom: number | null;
+  /** Note minus Source, in base units. */
+  difference: number | null;
+  footing: (FigureFooting & { axis: "row" | "column" })[];
+  sourceFooting?: FigureSourceFooting[];
+}
+
+export interface FigureSourceFooting {
+  axis: "row" | "column";
+  componentIds: string[];
+  /** Source rows the Note leaves out; only their used, checked inputs are retained. */
+  inputs: FigureInput[];
+  sum: number | null;
+  agrees: boolean | null;
+}
+
+export type FigureScheduleReason =
+  | "contradicted"
+  | "unsupported"
+  | "not-found"
+  | "quote-not-found"
+  | "needs-recheck"
+  | "doesnt-add-up";
+
+export interface FigureScheduleRow extends FigureFinding {
+  number: number;
+  sentence: TextStretch | null;
+  shown: ClaimCheckShown;
+  reason: FigureScheduleReason | null;
+  sourceValue: number | null;
+  sourceShown: string | null;
+  checkedAt: string | null;
+  model: ChatModelChoice | null;
+  /** A Citation already follows the figure in the note, so Add as Citation has nothing to add. */
+  cited: boolean;
+  /** The User's own check of it (#1933), apart from IncarnaMind's. */
+  signOff: SignOffNow | null;
+  place: {
+    heading: string | null;
+    paragraph: number;
+    table?: { row: number; column: number; rowLabel: string; columnLabel: string };
+    chart?: { rowLabel: string; seriesLabel: string };
+  };
+}
+
+export interface FigureSchedule {
+  analyses: RetainedFigureAnalysis[];
+  mindId: string;
+  name: string;
+  /** Fingerprint of the exact Note state used for this projection, including deletions. */
+  basis: string;
+  rows: FigureScheduleRow[];
+  counts: {
+    total: number;
+    supported: number;
+    needsLook: number;
+    notChecked: number;
+    checking: number;
+    kept: number;
+  };
+  checkedAt: string | null;
+  model: ChatModelChoice | null;
+  progress: { done: number; total: number } | null;
+}
+
+export type FigureCheckResult = FigureFinding & { result: ClaimJudgment };
+
+export type ClaimCheckResult = ClaimJudgment & {
+  figures?: FigureCheckResult[];
+  /** Undefined is a missing decomposition; null explicitly means no other assertion. */
+  remainder?: ClaimJudgment | null;
+};
+
 /**
  * What a sentence already cites: a Citation's quote, and its Document as it was cited. With
- * `documentId` (or `contentHash`) the check names the Document as it is named now.
+ * `documentId` (or `contentHash`) the check names the Document as it is named now; with
+ * `passageId`, of the version it quotes, the check reads that Passage itself (#1459).
  */
 export interface CitedQuote {
   documentName: string;
   quote: string;
   documentId?: string;
   contentHash?: string;
+  passageId?: string;
 }
 
 /** What the claim-check function checks (`checkClaim`). */
 export interface CheckClaimInput {
   /** The sentence, or claim, to check: the User's own words. */
   claim: string;
+  figures?: CheckFigure[];
   /** The paragraph it is in, for what its words refer to. */
   context?: string;
   /** What the sentence already cites, for Check against Documents. */
@@ -5298,7 +5691,7 @@ export interface ClaimCheckScope {
  * result and what it was made from, so it is known to need a re-check once
  * the sentence, a Document it read or the Mind's Folder changes.
  */
-export interface ClaimCheckAttributes {
+export interface ClaimCheckBasis {
   /** The result's random UUID: checking the sentence again gives it a new one. */
   id: string;
   /** The `checkSentences` request that made it. A "checking" mark of a request that ended was stopped. */
@@ -5334,6 +5727,13 @@ export interface ClaimCheckAttributes {
    * stay as they were checked, it isn't shown, counted or checked again.
    */
   kept?: true;
+}
+
+export interface FigureCheckAttributes extends ClaimCheckBasis, FigureFinding {}
+
+export interface ClaimCheckAttributes extends ClaimCheckBasis {
+  figures?: FigureCheckAttributes[];
+  remainder?: ClaimCheckBasis | null;
 }
 
 export interface CheckSentencesInput {
@@ -5481,6 +5881,8 @@ export interface DocumentsAddedSince {
 }
 
 export interface CheckMindInput {
+  /** Only these current figures; sibling judgments and personal-view choices are kept. */
+  figureIds?: string[];
   requestId: string;
   mindId: string;
   mode: CheckMindMode;
@@ -5546,6 +5948,11 @@ export interface MindCheckRun {
   stop: RunStop | null;
   /** The sentences it found make no claim, by `sentenceKey`, so a later run doesn't send them again. */
   skipped: string[];
+  /**
+   * The sentences the model decided nothing about, even asked twice (#1682), by `sentenceKey`:
+   * not examined, so they stay to check and a later run asks about them again.
+   */
+  unexamined: string[];
 }
 
 /** A document someone else wrote, to verify claim by claim (#97): the window offers PDFs. */
@@ -5739,7 +6146,10 @@ export interface AnswerSteps {
   askedAgainFor?: ClaimedTool[];
   /** Written in advance for the example (`askExampleReadyQuestion`): no model wrote it, and nothing was searched. */
   example?: true;
-  /** It covered only some of the Documents in scope, and offers the rest. Absent: all of them. */
+  /**
+   * It covered only some of the Documents in scope, or one of those a name fits, and offers the
+   * rest. Absent: all of them.
+   */
   coverage?: AnswerCoverage;
   /**
    * Documents in its Search scope were still being read (Queued or Extracting) when it ended, so
@@ -5768,12 +6178,14 @@ export interface AnswerSteps {
 
 /**
  * What an Answer covered of the Documents in scope, when not all of them: the
- * main few the Question asked for ("main"), or the largest of more than one
- * summary covers well ("largest"); by name as they were then. `rest`: the
- * others' ids, which a second Question can be asked from.
+ * main few the Question asked for ("main"), the largest of more than one
+ * summary covers well ("largest"), or the one Document it read by a name the
+ * Question gives that other Documents' names or titles have too ("named",
+ * #1512); by name as they were then. `rest`: the others' ids, which a second
+ * Question can be asked from: for "named", the others the name fits.
  */
 export interface AnswerCoverage {
-  kind: "main" | "largest";
+  kind: "main" | "largest" | "named";
   used: { id: string; name: string }[];
   rest: string[];
 }
@@ -6128,6 +6540,11 @@ export interface ConversationAnswerInput {
   clearScope?: boolean;
   /** Regenerating: the Documents open on screen now, as `AskInConversationInput.onScreen`. */
   onScreen?: string[] | null;
+  /**
+   * Regenerating: write it with this model, and keep the Question on it, as when the model it was
+   * asked with failed and the User chose another (#1848). Absent: the Question's own.
+   */
+  model?: ChatModelChoice;
 }
 
 /** What asking in a conversation (or regenerating an Answer there) did. */
@@ -6158,6 +6575,7 @@ export interface AddToNoteInput {
    * given anew.
    */
   blocks: unknown[];
+  figureRuns?: RetainedFigureAnalysis[];
   /** Their link back to the Answer they came from; null for none. */
   origin: BlockOrigin | null;
   /** The model that wrote the Answer, for the record of AI use; null when unknown. */
@@ -6233,6 +6651,15 @@ export interface MindSnippet {
 export interface MindContentSnapshot {
   mindId: string;
   state: Uint8Array;
+  /** Where its table cells hold figures the one Check reads, so a reader judges them as the editor does (#1459). */
+  cellFigures: CellFigurePlace[];
+}
+
+/** A figure's place in a table's cell: its paragraph's Block, and where it starts and ends there. */
+export interface CellFigurePlace {
+  blockId: string;
+  from: number;
+  to: number;
 }
 
 /**
@@ -8119,6 +8546,8 @@ export interface MindExportPreview {
   unverifiedCitations: number;
   /** The Question Blocks in the Mind, whether the export includes them or not. */
   questions: number;
+  /** The comparison-table columns a file leaves out, for the app to say so. */
+  hiddenColumns: number;
   /** The Mind was imported from a Word file, which a Word export writes back into (#105). */
   fromWord: boolean;
   /** Someone's changes from that Word file still waiting (#734), shown or accepted as `theirChanges` says. */
@@ -8182,15 +8611,30 @@ export interface MindExport extends MindExportPreview {
    * for the result line's count. None in Numbered, which lists Documents by name.
    */
   needsDetails: string[];
+  /**
+   * The footnotes in the file, for the Saved line (#1945): the User's own and the Citations', a
+   * Citation of a source and place already footnoted repeating that footnote (#1381), so five
+   * Citations across two pages are 2 footnotes and one beside a footnote the User wrote is 3.
+   * A Word file counts the notes its document refers to, an imported file's own included; a PDF
+   * counts the notes printed with it. 0 for a format whose line counts none: Markdown, HTML, a
+   * share page, a source pack.
+   */
+  footnotes: number;
 }
 
 /** What `saveMindExport` did. */
 export type SavedMindExport =
   /** Saved, with what it holds, so the result line can say how many quotes weren't found. */
-  | ({ status: "saved"; file: SavedFile; word: WordExportReport | null } & Omit<
-      MindExportPreview,
-      "fileName" | "fromWord" | "theirChanges"
-    > &
+  | ({
+      status: "saved";
+      file: SavedFile;
+      word: WordExportReport | null;
+      /**
+       * For Word and PDF, whether History kept the Note as it was sent (#1933); false when it
+       * couldn't, which the result line says. True for the other formats.
+       */
+      sentKept: boolean;
+    } & Omit<MindExportPreview, "fileName" | "fromWord" | "theirChanges"> &
       Pick<
         MindExport,
         | "sentenceChecks"
@@ -8200,6 +8644,7 @@ export type SavedMindExport =
         | "citedDocuments"
         | "citationPlace"
         | "markAiText"
+        | "footnotes"
       >)
   /**
    * Not saved: a Mind imported from Word can't keep something in its file
@@ -9028,22 +9473,22 @@ export interface CoreApi {
   dismissAutomaticOffNotice(): Promise<void>;
   /**
    * A manual choice, including Not in a Folder (null), wins over in-flight classification.
-   * Returns the assignment before, for `restoreAssignment` (null: it had none).
+   * Returns the change it made, its place and tagging before and after, for `restoreAssignment`.
    */
-  assignDocumentGroup(
-    documentId: string,
-    groupId: string | null,
-  ): Promise<DocumentGroupAssignment | null>;
+  assignDocumentGroup(documentId: string, groupId: string | null): Promise<AssignmentChange>;
   /**
-   * Puts a Document's assignment back as it was (null: none), with who chose it, so an
-   * automatic choice stays automatic and Organize may change it again, and a Suggested
-   * Folder is a suggestion again, which also takes back its rejection: Organize may offer that
-   * Folder for the Document again. Other rejections stay.
+   * Puts a Document's place and tagging back as `before` had them, with who chose it, so an
+   * automatic choice stays automatic and Organize may change it again, and a Suggested Folder is
+   * a suggestion again, which also takes back its rejection: Organize may offer that Folder for
+   * the Document again. Other rejections stay. Each row goes back only while it still equals what
+   * the change left there (`after`); a later move, run or re-tag wins and that row is left alone.
+   * Returns the change it made, its real rows before and after, or null when it moved neither row.
    */
   restoreAssignment(
     documentId: string,
-    previous: Omit<DocumentGroupAssignment, "documentId"> | null,
-  ): Promise<void>;
+    before: AssignmentState,
+    after: AssignmentState,
+  ): Promise<AssignmentChange | null>;
   /**
    * Makes these Documents' Suggested Folders the User's choices, which
    * Organize never changes. Documents with none waiting are left alone; an
@@ -9062,7 +9507,7 @@ export interface CoreApi {
    * (null), all or none: an unknown Mind, Document, conversation or Folder changes
    * nothing and throws. A Document's move is a manual choice, which Organize keeps.
    * Returns where each was, for Undo: each Mind and conversation moved back to its
-   * `from`, and each Document's `previous` assignment put back with `restoreAssignment`.
+   * `from`, and each Document's `change` put back with `restoreAssignment`.
    * "minds.changed", "library.assignments" and "conversations.changed" follow, once each.
    */
   moveToFolder(move: FolderMoveInput): Promise<FolderMove>;
@@ -9071,12 +9516,14 @@ export interface CoreApi {
    * Brings back deleted Minds with their content, conversations with their messages,
    * Documents with their Passages, text and Tags, Folders with the Minds, conversations and
    * Documents their deletion took out (those in no Folder since)
-   * and Tags with their links, all or none, and sends the events any change sends. One not
-   * deleted is left as it is. Throws, changing nothing, for one deleted permanently or more
-   * than `RECENTLY_DELETED_DAYS` ago, or that can't come back now (its name taken, its
-   * Linked folder unlinked). Never touches the User's files.
+   * and Tags with their links, all or none, and sends the events any change sends. With `reopen`,
+   * Undo putting the User back where they were, a Mind's tabs, which its delete closed, come back
+   * where they were and as they were; without it the window stays as it is, since a restore must
+   * not replace the Note the User is in. One not deleted is left as it is. Throws, changing
+   * nothing, for one deleted permanently or more than `RECENTLY_DELETED_DAYS` ago, or that can't
+   * come back now (its name taken, its Linked folder unlinked). Never touches the User's files.
    */
-  restore(refs: RestoreRef[]): Promise<void>;
+  restore(refs: RestoreRef[], options?: { reopen?: boolean }): Promise<void>;
   /**
    * Takes back every change the commands of one of the assistant's Runs made (#1110), the last
    * first: `CommandDone.run`. A change that can't be taken back is skipped and the rest are;
@@ -9185,6 +9632,15 @@ export interface CoreApi {
    * Throws MindReadOnlyError for a Mind a newer version wrote.
    */
   restoreCheckpoint(mindId: string, checkpointId: string): Promise<RestoredCheckpoint>;
+  /**
+   * Names a Checkpoint, or (null or blank) takes its name off (#1933). A named one is kept for
+   * good. Throws NotFoundError for one that isn't the Mind's, or is no longer kept.
+   */
+  renameCheckpoint(
+    mindId: string,
+    checkpointId: string,
+    name: string | null,
+  ): Promise<RenamedCheckpoint>;
 
   /**
    * Asks a Question in the assistant (ADR-0017): adds it to the conversation, or starts
@@ -9820,12 +10276,66 @@ export interface CoreApi {
   compareDocuments(input: CompareDocumentsInput): Promise<ComparisonResult>;
   /**
    * Fills a comparison table's cells that have no Answer (`cellToFill`): a
-   * column the editor just added or reworded, or cells a fill left (a quit,
-   * the monthly cap, a failure). Given `questionIds`, it fills those columns
-   * alone, so the others' Answers and problems stay as they are. A fill
-   * already going takes them up once its cells are done.
+   * column the editor just added or reworded, rows the User added as
+   * Documents, or cells a fill left (a quit, the monthly cap, a failure).
+   * Given `questionIds`, it fills those columns alone; given `documentIds`,
+   * those rows alone; so the others' Answers and problems stay as they are. A
+   * fill already going takes them up once its cells are done.
    */
   fillComparisonTable(input: ComparisonFillRequest): Promise<ComparisonResult>;
+  /**
+   * Moves a comparison table's column: its Question's place and every row's
+   * cell with it, as one change of the Mind, so no reader ever sees a half
+   * moved table. Its Answers, Citations and marks go with it, and a fill
+   * going on keeps writing into its cells.
+   */
+  moveComparisonColumn(input: ComparisonColumnMove): Promise<ComparisonColumnMoveResult>;
+  /** A column's label and Question: a new Question gives it new cells, which the window fills. */
+  editComparisonColumn(input: ComparisonColumnEditRequest): Promise<ComparisonColumnEdited>;
+  /** A column added beside another, with a waiting cell in every row. */
+  insertComparisonColumn(input: ComparisonColumnInsertRequest): Promise<ComparisonColumnAdded>;
+  /** A column copied beside itself, its Answers included. */
+  duplicateComparisonColumn(
+    input: ComparisonColumnDuplicateRequest,
+  ): Promise<ComparisonColumnAdded>;
+  /** A column and its cells taken out whole. */
+  removeComparisonColumn(input: ComparisonColumnRemoveRequest): Promise<ComparisonColumnRemoved>;
+  /** A column's width, within the table's bounds; nothing changes when it is the same. */
+  resizeComparisonColumn(
+    input: ComparisonColumnWidthRequest,
+  ): Promise<ComparisonColumnWidthSet | null>;
+  /** A column hidden from the table, or shown again; hiding deletes nothing. */
+  setComparisonColumnHidden(
+    input: ComparisonColumnHiddenRequest,
+  ): Promise<ComparisonColumnHiddenSet | null>;
+  /**
+   * Documents added to a table that exists, as one change of the Mind: a row
+   * with a waiting cell under every column, which the window fills for those
+   * rows alone.
+   */
+  addComparisonRows(input: ComparisonRowsAddRequest): Promise<ComparisonRowsAdded>;
+  /** A row and its Answers taken out whole. */
+  removeComparisonRow(input: ComparisonRowRemoveRequest): Promise<ComparisonRowRemoved>;
+  /** A row moved among the rows, as one change of the Mind. */
+  moveComparisonRow(input: ComparisonRowMoveRequest): Promise<ComparisonRowMoveResult>;
+  /**
+   * Takes back the structure change the window names, if it is still the
+   * table's latest and that window made it.
+   */
+  undoComparisonStructure(input: ComparisonStructureRef): Promise<ComparisonStructureUndoResult>;
+  /** Does again the structure change its Undo took back. */
+  redoComparisonStructure(input: ComparisonStructureRef): Promise<ComparisonStructureUndoResult>;
+  /** A window with the Mind open: it flushes and locks for that Mind's column changes. */
+  watchComparisonMind(input: ComparisonWatch): Promise<void>;
+  /** That window closed the Mind. */
+  unwatchComparisonMind(input: ComparisonWatch): Promise<void>;
+  /** Its changes for the Mind have reached the core; a waiting structure change may go on. */
+  acknowledgeComparisonStructure(input: ComparisonStructureAck): Promise<void>;
+  /**
+   * Its window is gone (closed or crashed): stop waiting for it on every Mind.
+   * The core also drops a window that misses one wait, after that wait.
+   */
+  forgetComparisonWindow(input: ComparisonWindow): Promise<void>;
   /** Stops filling a comparison table: cells being written stay as they were. */
   stopComparisonTable(input: ComparisonTableRef): Promise<void>;
   /** The comparison tables whose cells are being filled now. */
@@ -10022,6 +10532,9 @@ export interface CoreApi {
    * the run in the Mind (`MindCheckRun`). `cancelCheck` stops it.
    */
   checkMind(input: CheckMindInput): Promise<CheckMindResult>;
+  /** The current Note’s figures, projected from its one Check and saved evidence. */
+  getFigureSchedule(mindId: string): Promise<FigureSchedule>;
+  saveFigureScheduleExport(mindId: string): Promise<SavedExport>;
   /** The Mind's checks that Documents added since could change, with those Documents (#993). Sends nothing. */
   documentsAddedSinceChecks(mindId: string): Promise<DocumentsAddedSince[]>;
 
@@ -10142,6 +10655,14 @@ export interface CoreApi {
   /** Network traffic that carries nothing of the User's, such as update checks and model downloads. */
   listNetworkTraffic(): Promise<NetworkTraffic[]>;
   getPrivacySettings(): Promise<PrivacySettings>;
+  /**
+   * The folder where Microsoft's model runtime keeps usage data, when it is there and this install
+   * is older than the build that stopped adding to it (#2145): its path, so Settings can say where
+   * it is. Null otherwise. Only whether the folder exists is looked at, never what is in it.
+   */
+  getModelRuntimeFolder(): Promise<string | null>;
+  /** Shows that folder in the file manager. Does nothing once it is gone. */
+  showModelRuntimeFolder(): Promise<void>;
   /**
    * Changes the privacy choices on this device and returns them. Turning crash
    * reports on starts them; turning them off stops them at once. Refused if
@@ -10585,14 +11106,14 @@ export interface CoreApi {
   /** Deletes the Meeting's audio on this computer now; a recording goes on keeping what comes next. */
   deleteMeetingAudio(meetingId: string): Promise<Meeting>;
   /** The cloud services that can transcribe meeting audio (#141), and whether each has a key. */
-  listTranscriptionServices(): Promise<TranscriptionServiceStatus[]>;
+  listTranscriptionServices(): Promise<TranscriptionServices>;
   /**
    * Keeps a transcription service's own key (Soniox), in the keychain, once the service accepts
    * it. Throws `InvalidInputError` when it refuses the key.
    */
-  setTranscriptionKey(input: SetTranscriptionKeyInput): Promise<TranscriptionServiceStatus[]>;
+  setTranscriptionKey(input: SetTranscriptionKeyInput): Promise<TranscriptionServices>;
   /** Forgets a transcription service's own key; meeting audio is then transcribed on this computer. */
-  removeTranscriptionKey(route: CloudTranscriptionRoute): Promise<TranscriptionServiceStatus[]>;
+  removeTranscriptionKey(route: CloudTranscriptionRoute): Promise<TranscriptionServices>;
   /**
    * Whether this computer keeps up with live speech, as the last Meeting transcribed here
    * measured it; null before one has been. The speed probe (#462) will measure it sooner.
@@ -10866,6 +11387,8 @@ export interface CoreEvents {
   "answer.failed": AnswerFailed;
   /** A comparison table's cells started or stopped being filled. */
   "comparison.filling": ComparisonFilling;
+  /** A column of a comparison table is being written: every window holds its edits until it lands. */
+  "comparison.structure": ComparisonStructureWriting;
   /** A Task started, moved on, waits for the User, paused, resumed or finished. */
   "task.changed": Task;
   /** A Task's notification was clicked: the window opens its Mind, with its row in the tray. */
@@ -10929,6 +11452,7 @@ const methods: Record<CoreApiMethod, true> = {
   listCheckpoints: true,
   compareCheckpoints: true,
   restoreCheckpoint: true,
+  renameCheckpoint: true,
   askInConversation: true,
   askExampleReadyQuestion: true,
   regenerateConversationAnswer: true,
@@ -11032,6 +11556,22 @@ const methods: Record<CoreApiMethod, true> = {
   estimateRun: true,
   compareDocuments: true,
   fillComparisonTable: true,
+  moveComparisonColumn: true,
+  editComparisonColumn: true,
+  insertComparisonColumn: true,
+  duplicateComparisonColumn: true,
+  removeComparisonColumn: true,
+  resizeComparisonColumn: true,
+  setComparisonColumnHidden: true,
+  addComparisonRows: true,
+  removeComparisonRow: true,
+  moveComparisonRow: true,
+  undoComparisonStructure: true,
+  redoComparisonStructure: true,
+  watchComparisonMind: true,
+  unwatchComparisonMind: true,
+  acknowledgeComparisonStructure: true,
+  forgetComparisonWindow: true,
   stopComparisonTable: true,
   listFillingComparisons: true,
   listTasks: true,
@@ -11066,6 +11606,8 @@ const methods: Record<CoreApiMethod, true> = {
   planMindCheck: true,
   findMindClaims: true,
   checkMind: true,
+  getFigureSchedule: true,
+  saveFigureScheduleExport: true,
   documentsAddedSinceChecks: true,
   getSecretStorage: true,
   acceptPlainTextSecretStorage: true,
@@ -11100,6 +11642,8 @@ const methods: Record<CoreApiMethod, true> = {
   allowDataFlow: true,
   listNetworkTraffic: true,
   getPrivacySettings: true,
+  getModelRuntimeFolder: true,
+  showModelRuntimeFolder: true,
   updatePrivacySettings: true,
   recordUsage: true,
   resetUsageInstallId: true,
