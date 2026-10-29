@@ -5987,6 +5987,8 @@ export type CheckMindResult =
     }
   /** The model couldn't name the claims: nothing was checked. */
   | { kind: "failed"; error: ProviderError }
+  /** A Check of this Note is running already, asked from this window or another: none started. */
+  | { kind: "running" }
   | Exclude<CheckSentencesResult, { kind: "checked" | "no-folder" | "only-cited" | "waiting" }>;
 
 /**
@@ -8260,15 +8262,17 @@ interface ApprovalRequestBase extends AnswerPlace {
    */
   thirdParty?: ThirdPartyReason[];
   /**
-   * Where the request came from, for a command of the assistant's that asks only because its
-   * Answer read text the User didn't write (#1421), stopping a recording: the Document whose words
-   * name the command, else the live Transcript, else the last Document read.
+   * For a command of the assistant's (#1421): what its Answer read that the User didn't write, as
+   * it read it, its Documents by name, each once, and whether it heard the live Transcript. It
+   * never says which of them asked for the command. Absent: it read none of them.
    */
-  cameFrom?: ApprovalCameFrom;
+  readText?: ApprovalReadText;
 }
 
-/** A Document by its name, or the live Transcript of the Meeting being recorded. */
-export type ApprovalCameFrom = { kind: "document"; name: string } | { kind: "transcript" };
+export interface ApprovalReadText {
+  documents: string[];
+  transcript: boolean;
+}
 
 /**
  * An Effect (CONTEXT.md): something a Tool call can do beyond the

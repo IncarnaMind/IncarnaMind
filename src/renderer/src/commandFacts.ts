@@ -4,7 +4,7 @@
  */
 import type {
   AnswerToolCall,
-  ApprovalCameFrom,
+  ApprovalReadText,
   CommandDone,
   CommandsFound,
   ConversationAnswer,
@@ -79,14 +79,26 @@ const WHOLE_LINES = new Set<MessageKey>([
   "commands.window.alreadyChecking",
 ]);
 
-/** Where a request the assistant asks about came from: “Q3 board pack.pdf”, or this meeting's Transcript. */
-export const cameFromText = (t: Translate, from: ApprovalCameFrom): string =>
-  t("commands.ask.cameFrom", {
-    source:
-      from.kind === "document"
-        ? t("commands.ask.cameFrom.document", { name: from.name })
-        : t("commands.ask.cameFrom.transcript"),
-  });
+/**
+ * What an Answer read that the User didn't write, on the approval of a command it asks about: one
+ * Document by its name, more by their number, and this meeting's Transcript. It never says which
+ * of them asked for the command.
+ */
+export function readTextLine(t: Translate, read: ApprovalReadText): string {
+  const [only] = read.documents;
+  const documents =
+    read.documents.length === 1 && only !== undefined
+      ? t("commands.ask.readText.document", { name: only })
+      : read.documents.length > 1
+        ? t("commands.ask.readText.documents", { count: read.documents.length })
+        : null;
+  const transcript = read.transcript ? t("commands.ask.readText.transcript") : null;
+  const what =
+    documents && transcript
+      ? t("commands.ask.readText.both", { documents, transcript })
+      : (documents ?? transcript ?? "");
+  return t("commands.ask.readText", { what });
+}
 
 /** A setting's name as Settings shows it, by the name the assistant's command gives it. */
 const SETTING_NAMES: Readonly<Record<string, MessageKey>> = {

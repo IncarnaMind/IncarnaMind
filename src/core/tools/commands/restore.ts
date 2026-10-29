@@ -129,11 +129,9 @@ export const restoreChecker: Checker = async (input, { core }) => {
     name: item.name,
   }));
   return inApp("deleted.restore", shown, null, async (asking) => {
-    // A Folder it was in may be in Recently deleted itself: it is named as it was.
-    const folders = new Map([
-      ...deleted.flatMap((each) => (each.kind === "folder" ? [[each.id, each.name] as const] : [])),
-      ...(await core.getLibrary()).groups.map((group) => [group.id, group.name] as const),
-    ]);
+    const folders = new Map(
+      (await core.getLibrary()).groups.map((group) => [group.id, group.name] as const),
+    );
     const back = await chosen(items, deleted, folders, asking);
     if (back.length === 0) throw new InvalidInputError({ key: "error.commands.restoreNoneChosen" });
     const refs = back.map(({ kind, id }) => ({ kind, id }));

@@ -9,7 +9,7 @@ import {
 import type { CommandId } from "../../../shared/commands";
 import type { MessageKey } from "../../../shared/i18n";
 import { useApprovals } from "../approvals";
-import { cameFromText } from "../commandFacts";
+import { readTextLine } from "../commandFacts";
 import { commands, labelOf } from "../commands/registry";
 import { FORMAT_LABELS } from "../exports";
 import { useT } from "../i18n";
@@ -186,13 +186,13 @@ export function CommandApprovalCard({
           <span aria-hidden="true" className="approval-dot" />
           <span className="approval-title-text">{title}</span>
         </p>
-        {request.cameFrom && (
-          <p data-testid="approval-came-from" className="approval-came-from">
-            {cameFromText(t, request.cameFrom)}
+        {request.readText && (
+          <p data-testid="approval-read-text" className="approval-read-text">
+            {readTextLine(t, request.readText)}
           </p>
         )}
         <p className="approval-explanation">{why}</p>
-        {read && (
+        {read && !request.readText && (
           <p data-testid="approval-read" className="approval-explanation">
             {t("commands.ask.read")}
           </p>

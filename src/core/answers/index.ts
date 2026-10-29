@@ -88,7 +88,7 @@ import {
   type AnswerSteps,
   type AnswerToolCall,
   type AnswerUsage,
-  type ApprovalCameFrom,
+  type ApprovalReadText,
   type AskedFrom,
   type AskedQuote,
   type AskResult,
@@ -1730,37 +1730,18 @@ export function createAnswers(options: AnswersOptions) {
       options.conversations.writeToolCalls(answerId, toolCalls);
     };
     let commandTurn: Promise<unknown> = Promise.resolve();
-    /**
-     * Where a command's request came from, of what the Answer read that the User didn't write: the
-     * Document whose words name it (its id, or every word of its name), else the live Transcript,
-     * else the last Document read. Words in another language than the name's can't be told apart,
-     * so the Transcript then stands for both.
-     */
-    const cameFrom = (command: string): { cameFrom?: ApprovalCameFrom } => {
-      const read = session.passagesRead().filter((each) => !transcripts.has(each.documentId));
-      const label = input.assistant?.commands?.offered.find((each) => each.id === command)?.label;
-      const words = (label ?? "")
-        .toLowerCase()
-        .split(/[^\p{L}\p{N}]+/u)
-        .filter((word) => word.length > 2);
-      const naming = new Set(
-        read
-          .filter(({ text }) => {
-            const lower = text.toLowerCase();
-            return (
-              lower.includes(command) ||
-              (words.length > 0 && words.every((word) => lower.includes(word)))
-            );
-          })
-          .map((each) => each.documentName),
-      );
-      const [named] = naming;
-      if (naming.size === 1 && named !== undefined) {
-        return { cameFrom: { kind: "document", name: named } };
-      }
-      if (transcripts.size > 0) return { cameFrom: { kind: "transcript" } };
-      const last = read.at(-1);
-      return last ? { cameFrom: { kind: "document", name: last.documentName } } : {};
+    /** What the Answer read that the User didn't write, as it read it: its Documents and the live Transcript. */
+    const readText = (): { readText?: ApprovalReadText } => {
+      const documents = [
+        ...new Set(
+          session
+            .passagesRead()
+            .filter((each) => !transcripts.has(each.documentId))
+            .map((each) => each.documentName),
+        ),
+      ];
+      const transcript = transcripts.size > 0;
+      return documents.length > 0 || transcript ? { readText: { documents, transcript } } : {};
     };
     // Whether it asks is the commands' policy's (../tools/commands/policy, #1110).
     const commandGate = (
@@ -1794,8 +1775,7 @@ export function createAnswers(options: AnswersOptions) {
             effects: checked.effects,
             tainted: tainted || readTitles,
             ...readReasons(thirdParty),
-            // A stop asks only because of what the Answer read: the card says where it came from.
-            ...(checked.recording === "ends" && cameFrom(checked.command)),
+            ...readText(),
           },
           card,
         );

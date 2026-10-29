@@ -1,9 +1,9 @@
 import { describe, expect, test } from "vitest";
 import type { CommandDone } from "../../src/core/api";
 import {
-  cameFromText,
   commandCallText,
   doneText,
+  readTextLine,
   runText,
   undoable,
   YOURS_WORDS,
@@ -113,14 +113,28 @@ describe("What the assistant's commands did, in words (#1421)", () => {
     }
   });
 
-  // protects=a stop asked about because the Answer read text the User didn't write says where the request came from, in both languages; fails_when=the source isn't named; no_claim=which source the core picks.
-  test("where a request came from, a Document or this meeting's Transcript", () => {
-    const document = { kind: "document", name: "Q3 board pack.pdf" } as const;
-    const transcript = { kind: "transcript" } as const;
-    expect(cameFromText(en, document)).toBe("The request came from “Q3 board pack.pdf”");
-    expect(cameFromText(zh, document)).toBe("这个请求来自“Q3 board pack.pdf”");
-    expect(cameFromText(en, transcript)).toBe("The request came from this meeting’s Transcript");
-    expect(cameFromText(zh, transcript)).toBe("这个请求来自本次会议的转写稿");
+  // protects=a command asked about after its Answer read text the User didn't write names what it read: one Document by name, more by their number, this meeting's Transcript, and both, in English and Chinese; fails_when=a form reads wrong, or names a source; no_claim=what the core read.
+  test("what the Answer read, in its four forms", () => {
+    const one = { documents: ["Q3 board pack.pdf"], transcript: false };
+    const many = { documents: ["Q3 board pack.pdf", "Minutes"], transcript: false };
+    const heard = { documents: [], transcript: true };
+    const both = { documents: ["Q3 board pack.pdf"], transcript: true };
+    expect(readTextLine(en, one)).toBe(
+      "This Answer read text you didn’t write: “Q3 board pack.pdf”.",
+    );
+    expect(readTextLine(en, many)).toBe("This Answer read text you didn’t write: 2 Documents.");
+    expect(readTextLine(en, heard)).toBe(
+      "This Answer read text you didn’t write: this meeting’s Transcript.",
+    );
+    expect(readTextLine(en, both)).toBe(
+      "This Answer read text you didn’t write: “Q3 board pack.pdf” and this meeting’s Transcript.",
+    );
+    expect(readTextLine(zh, one)).toBe("这次回答读过不是你写的内容：“Q3 board pack.pdf”。");
+    expect(readTextLine(zh, many)).toBe("这次回答读过不是你写的内容：2 个文档。");
+    expect(readTextLine(zh, heard)).toBe("这次回答读过不是你写的内容：本次会议的转写稿。");
+    expect(readTextLine(zh, both)).toBe(
+      "这次回答读过不是你写的内容：“Q3 board pack.pdf”和本次会议的转写稿。",
+    );
   });
 
   // protects=a window command that didn't finish before a quit, or that found a Check already running, says so as its whole line; fails_when=it reads "Didn't run:" with a raw id; no_claim=when it happens.
