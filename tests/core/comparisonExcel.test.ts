@@ -230,6 +230,7 @@ describe("A comparison table exported to Excel", () => {
       comparisonBook({
         reading: reading(label),
         title: "Comparison table",
+        language: "en",
         textLanguage: "en",
         t,
         facts: () => ({
