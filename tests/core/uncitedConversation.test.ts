@@ -309,6 +309,10 @@ describe("Uncited figures in a conversation Answer", () => {
 
       expect(again).toMatchObject({ asked: false, reason: "not-ready" });
       await vi.waitFor(() => expect(events).toEqual(["started", "done"]));
+      await vi.waitFor(async () => {
+        const answer = answerOf(await core.getConversation(first.conversation.id), first.answerId);
+        expect(answer.claimChecks?.map((check) => check.state)).toEqual(["supported"]);
+      });
     } finally {
       release();
     }

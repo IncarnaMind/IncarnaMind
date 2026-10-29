@@ -1554,7 +1554,16 @@ export function createAnswers(options: AnswersOptions) {
         announce("answer.failed", { ...place, answerId, error: outcome.error });
         return;
       }
-      endSuperseded = () =>
+      const discardCheck = (id: string) => {
+        const at = claimChecks.findIndex((each) => each.id === id);
+        if (at < 0 || claimChecks[at]?.state !== "checking") return;
+        claimChecks.splice(at, 1);
+        claimCheckPlaces.delete(id);
+        const turn = options.conversations.writeClaimChecks(answerId, claimChecks);
+        if (turn) options.conversations.publish(turn);
+      };
+      endSuperseded = () => {
+        for (const check of [...claimChecks]) discardCheck(check.id);
         announce("answer.finished", {
           ...place,
           answerId,
@@ -1570,6 +1579,7 @@ export function createAnswers(options: AnswersOptions) {
           figureRetry,
           usage,
         });
+      };
       const announceFinished = () => {
         if (!settle() || superseded) return;
         endSuperseded?.();
@@ -1615,12 +1625,7 @@ export function createAnswers(options: AnswersOptions) {
             publish: storeCheck,
             discard: (id) => {
               if (superseded || active.get(answerId)?.finish !== finish) return;
-              const at = claimChecks.findIndex((each) => each.id === id);
-              if (at < 0 || claimChecks[at]?.state !== "checking") return;
-              claimChecks.splice(at, 1);
-              claimCheckPlaces.delete(id);
-              const turn = options.conversations.writeClaimChecks(answerId, claimChecks);
-              if (turn) options.conversations.publish(turn);
+              discardCheck(id);
             },
           })
           .catch((error: unknown) => options.reportError(error))
