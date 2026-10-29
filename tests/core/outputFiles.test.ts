@@ -161,6 +161,7 @@ describe("The Output location", () => {
       numbered: true,
       citationPlace: null,
       markAiText: null,
+      othersFile: false,
       sentKept: true,
     });
     expect(await readFile(join(location, "Tides.md"), "utf8")).toContain(

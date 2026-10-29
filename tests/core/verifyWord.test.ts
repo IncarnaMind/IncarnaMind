@@ -39,7 +39,7 @@ import {
   UNCOMMENTED_REPORT,
   verifyWordFile as verified,
 } from "../helpers/verifiedWord";
-import { paragraph, tracked, wordFile } from "../helpers/word";
+import { paragraph, table, tracked, wordFile } from "../helpers/word";
 
 /** Each claim's sentence and its mark's state, as the editor shows it now. */
 async function shownChecks(core: Core, client: MindClient) {
@@ -63,7 +63,7 @@ async function checkedReport(calls?: ModelCall[], language: "en" | "zh-CN" = "en
 
 /** The export into the file, its parts, and each comment's words with the words its range holds. */
 async function exported(core: Core, mindId: string) {
-  const result = await core.exportMind(mindId, { format: "docx", commentFailedChecks: true });
+  const result = await core.exportMind(mindId, { format: "docx", commentOthersFiles: true });
   const files = unzip(result.data);
   const part = (name: string) => files.get(name)?.toString("utf8") ?? "";
   const document = part("word/document.xml");
@@ -233,6 +233,65 @@ describe("the verified file and its copies are never evidence", () => {
     const ids = new Set([documentId, ...added.map((document) => document.id)]);
     const found = await core.searchPassages("When was the harbour wall raised?");
     expect(found.some((each) => ids.has(each.documentId))).toBe(true);
+  });
+});
+
+describe("check comments in someone else's file", () => {
+  test("are off by default, as the file goes back to them, and on once asked; the User's own Notes keep theirs on", async () => {
+    const { core, mind } = await checkedReport();
+
+    const plain = await core.exportMind(mind.id, { format: "docx", commentFailedChecks: true });
+    expect(plain.othersFile).toBe(true);
+    expect(plain.sentenceChecks).toMatchObject({ commented: false, comments: 0, contradicted: 1 });
+    const comments = unzip(plain.data).get("word/comments.xml")?.toString("utf8") ?? "";
+    expect(comments).toContain(DANA.comment);
+    expect(comments).not.toContain('w:author="IncarnaMind"');
+
+    const asked = await core.exportMind(mind.id, { format: "docx", commentOthersFiles: true });
+    expect(asked.sentenceChecks).toMatchObject({ commented: true, comments: 3 });
+
+    // The User's own Note: its switch, on by default, and the other one doesn't apply.
+    const own = await core.createMind({ title: "My memo" });
+    const ownExport = await core.exportMind(own.id, {
+      format: "docx",
+      commentFailedChecks: true,
+      commentOthersFiles: false,
+    });
+    expect(ownExport).toMatchObject({ othersFile: false, sentenceChecks: { commented: true } });
+  });
+
+  test("a table row checked as one claim gets one comment over the whole row", async () => {
+    const ROW = "1990 — The harbour wall was raised";
+    const calls: ModelCall[] = [];
+    const { core, report } = await setUp(calls, "en", {
+      [ROW]: { verdict: "unsupported", quote: "The harbour wall was raised in 1984." },
+    });
+    await writeFile(
+      report,
+      wordFile({
+        body:
+          paragraph("Harbour works", { style: "Heading1" }) +
+          table([
+            ["Year", "Event"],
+            ["1990", "The harbour wall was raised"],
+          ]),
+      }),
+    );
+    const { mind } = await verified(core, report);
+    expect(await core.findClaims(request(mind.id))).toEqual({ kind: "found", claims: 1 });
+    await core.verifyClaims(request(mind.id));
+
+    const { comments } = await exported(core, mind.id);
+
+    expect(comments).toEqual([
+      {
+        author: "IncarnaMind",
+        comment:
+          "Unsupported: your Documents say something different (“The harbour wall was raised in 1984.”, Tides, p. 2)",
+        on: "1990The harbour wall was raised",
+        marked: true,
+      },
+    ]);
   });
 });
 

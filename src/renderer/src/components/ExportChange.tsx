@@ -1,7 +1,9 @@
-import { useEffect, useRef } from "react";
-import type { ExportResult } from "../exports";
+import { useEffect, useId, useRef } from "react";
+import { answerOthersComments, type ExportResult } from "../exports";
+import { useT } from "../i18n";
 import { CitationPlaceLine } from "./CitationPlace";
 import { MarkAiTextLine } from "./MarkAiText";
+import { buttonStyle } from "./ui";
 
 type Changing = Extract<ExportResult, { state: "saved" }>["changing"];
 
@@ -28,7 +30,7 @@ export function ExportChange({
       }
     };
   }, []);
-  const asking = `${changing.mark ? "mark" : ""} ${changing.places ? "place" : ""}`;
+  const asking = `${changing.mark ? "mark" : ""} ${changing.places ? "place" : ""} ${changing.comments ? "comments" : ""}`;
   useEffect(() => {
     if (asking) rows.current?.querySelector("button")?.focus();
   }, [asking]);
@@ -38,6 +40,39 @@ export function ExportChange({
       {changing.places && (
         <CitationPlaceLine mindId={mindId} format={format} count={changing.places} />
       )}
+      {changing.comments && <CheckCommentsLine mindId={mindId} format={format} />}
+    </div>
+  );
+}
+
+/** Whether someone else's Word file gets check comments, in Change, one click each: the file is written again as picked (#110). */
+function CheckCommentsLine({ mindId, format }: { mindId: string; format: "docx" | "pdf" }) {
+  const t = useT();
+  const id = useId();
+  return (
+    <div className="flex min-w-0 flex-wrap items-center gap-x-4 gap-y-1">
+      <p
+        id={`${id}-question`}
+        data-testid="export-comments-question"
+        title={t("export.commentFailedChecks.hint.others")}
+        className="min-w-0 text-[14px] leading-5 text-ink-secondary"
+      >
+        {t("export.checkComments.ask")}
+      </p>
+      <span className="flex shrink-0 gap-2">
+        {([true, false] as const).map((answer) => (
+          <button
+            key={String(answer)}
+            type="button"
+            data-testid={`export-comments-${answer ? "add" : "leave"}`}
+            aria-describedby={`${id}-question`}
+            onClick={() => void answerOthersComments(mindId, format, answer)}
+            className={buttonStyle("secondary", "sm")}
+          >
+            {t(answer ? "export.checkComments.add" : "export.checkComments.leave")}
+          </button>
+        ))}
+      </span>
     </div>
   );
 }

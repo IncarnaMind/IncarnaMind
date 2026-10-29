@@ -1,6 +1,7 @@
-import type * as Y from "yjs";
+import * as Y from "yjs";
 import { checkedScope, claimCheckShown, coveredPart, saysNotFound } from "../../shared/claimChecks";
 import { type ScopeKind, scopeName } from "../../shared/searchScope";
+import { verificationOf } from "../../shared/verification";
 import { checkedSentences, figuresNow } from "../answers/checks/sentences";
 import type { CitationAttributes, SearchScope } from "../api";
 import type { FailedSentence } from "../mindText";
@@ -24,6 +25,8 @@ export function failedSentences(
 ): Map<string, FailedSentence> {
   const failed = new Map<string, FailedSentence>();
   const { figureContexts, figured } = figuresNow(fragment);
+  // A verified document's table row is one claim, marked on its first cell's words (#1368).
+  const rowClaims = fragment.doc !== null && verificationOf(fragment.doc) !== null;
   for (const marked of checkedSentences(fragment)) {
     const { check, sentence, cited } = marked;
     const { id } = check;
@@ -90,6 +93,12 @@ export function failedSentences(
     } else if (shown.state === "supported" && check.citedCaseUnchecked) {
       failed.set(id, { id, check: "cited-case-unchecked", unsupported: false });
     }
+    const found = failed.get(id);
+    if (found && rowClaims && inTableCell(marked.element)) failed.set(id, { ...found, row: true });
   }
   return failed;
 }
+
+const inTableCell = (element: Y.XmlElement): boolean =>
+  element.parent instanceof Y.XmlElement &&
+  (element.parent.nodeName === "tableCell" || element.parent.nodeName === "tableHeader");

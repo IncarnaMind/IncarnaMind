@@ -32,6 +32,7 @@ import {
   unreadPartsCounts,
   unreadSection,
 } from "../../shared/unreadFiles";
+import { verificationOf } from "../../shared/verification";
 import { wordFileOf, wordImportProgressOf } from "../../shared/wordFiles";
 import type { Logger, Pictures, Printer } from "../adapters";
 import { checkRequests, citationSentences } from "../answers/checks/sentences";
@@ -240,8 +241,8 @@ interface Prepared {
 
 export function createExports(deps: ExportsDependencies) {
   const prepare = (mindId: unknown, input: unknown): Prepared => {
-    const options = parseExportOptions(input);
-    const { format, includeQuestions } = options;
+    const parsed = parseExportOptions(input);
+    const { format, includeQuestions } = parsed;
     const mind = deps.mind(mindId);
     const language = deps.language();
     const { style, textLanguage } = deps.citationStyle(mind.id);
@@ -260,11 +261,11 @@ export function createExports(deps: ExportsDependencies) {
     const listed =
       (format === "docx" || format === "pdf") &&
       style.form === "numbered" &&
-      options.citationPlace === "list";
+      parsed.citationPlace === "list";
     // Footnotes go right after the word, and so do Numbered's Citations and a shared page's
     // markers; a style decides for its own (./citations), and a list's `[1]` follows a space.
     const trimBeforeCitation =
-      (style.form === "numbered" && !listed) || (format === "share-page" && options.citationCards);
+      (style.form === "numbered" && !listed) || (format === "share-page" && parsed.citationCards);
 
     const live = new Set(documents.map((document) => document.id));
     let name = mindName(mind);
@@ -287,6 +288,7 @@ export function createExports(deps: ExportsDependencies) {
       word,
       theirChanges,
       trackedChanges,
+      othersFile,
     } = deps.read(mind.id, (fragment) => {
       const { doc } = fragment;
       name = exportName(mind, fragment);
@@ -328,8 +330,13 @@ export function createExports(deps: ExportsDependencies) {
           : 0,
         trackedChanges:
           format === "docx" && review ? waiting.filter((each) => !review.skips(each.id)).length : 0,
+        othersFile: doc !== null && verificationOf(doc) !== null,
       };
     });
+    // Someone else's file goes back to them: comments that quote the User's Documents only when asked.
+    const options: Required<ExportMindOptions> = othersFile
+      ? { ...parsed, commentFailedChecks: parsed.commentOthersFiles }
+      : parsed;
     const shown = withoutEmptyTitle(read);
     const withUnread = [...shown, ...unreadBlocks(unread, language, unreadNames)];
     const blocks =
@@ -363,6 +370,7 @@ export function createExports(deps: ExportsDependencies) {
       unreadFileNames: unreadNames,
       citationPlace: listedPlace,
       markAiText: format === "docx" ? options.markAiText === true : null,
+      othersFile,
     };
     const failed = new Map<string, FailedSentence>();
     for (const { sentence } of piecesOf(blocks)) if (sentence) failed.set(sentence.id, sentence);
@@ -900,7 +908,13 @@ function parseExportOptions(input: unknown): Required<ExportMindOptions> {
   if (!isRecord(input)) throw new InvalidInputError("Export options must be an object.");
   const { format, includeQuestions, accept, theirChanges, citationPlace } = input;
   const choice = (
-    name: "trackChanges" | "markAiText" | "commentFailedChecks" | "citationCards" | "checkedLine",
+    name:
+      | "trackChanges"
+      | "markAiText"
+      | "commentFailedChecks"
+      | "commentOthersFiles"
+      | "citationCards"
+      | "checkedLine",
     absent = false,
   ) => {
     const value = input[name];
@@ -938,6 +952,7 @@ function parseExportOptions(input: unknown): Required<ExportMindOptions> {
     trackChanges: choice("trackChanges"),
     markAiText: choice("markAiText"),
     commentFailedChecks: choice("commentFailedChecks"),
+    commentOthersFiles: choice("commentOthersFiles"),
     citationCards: choice("citationCards", true),
     checkedLine: choice("checkedLine"),
     theirChanges: theirChanges ?? "shown",

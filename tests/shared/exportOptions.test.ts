@@ -32,8 +32,17 @@ describe("What an export asks the core for", () => {
       trackChanges: true,
       markAiText: true,
       commentFailedChecks: true,
+      commentOthersFiles: false,
       citationPlace: "footnotes",
     });
+  });
+
+  test("someone else's file gets check comments only once the User turns them on for it (#110)", () => {
+    expect(optionsFor("docx", { ...preferences(null), commentOthersFiles: true })).toMatchObject({
+      commentFailedChecks: true,
+      commentOthersFiles: true,
+    });
+    expect(optionsFor("pdf", preferences(null))).not.toHaveProperty("commentOthersFiles");
   });
 
   test.each([

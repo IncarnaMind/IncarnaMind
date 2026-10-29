@@ -1,4 +1,5 @@
 import type { SentenceChecksExported } from "../../core/api";
+import type { MessageKey } from "../../shared/i18n";
 import type { Translate } from "../../shared/locations";
 
 const RESULTS = [
@@ -31,13 +32,30 @@ function listed(
   };
 }
 
-/** How many comments on what needs a look a Word file holds, for the line after saving; null for none. */
-export function checkComments(checks: SentenceChecksExported, t: Translate): string | null {
-  if (!checks.commented || checks.comments === 0) return null;
+const needsLook = (checks: SentenceChecksExported) =>
+  RESULTS.some(([, field]) => checks[field] > 0);
+
+/**
+ * The Saved line's part on check comments, before Change: how many a Word file holds, or, for
+ * someone else's Word file written without them while a claim needs a look, that they are off
+ * (#110); null when there is nothing to say.
+ */
+export function checkComments(
+  checks: SentenceChecksExported,
+  t: Translate,
+  othersWord = false,
+): string | null {
+  if (!checks.commented)
+    return othersWord && needsLook(checks) ? t("export.checkComments.off") : null;
+  if (checks.comments === 0) return null;
   return checks.comments === 1
     ? t("export.checkComments.one")
     : t("export.checkComments", { count: checks.comments });
 }
+
+/** The comment switch's hint: what it covers, or, on for someone else's file, what its comments give away (#110). */
+export const commentsHint = (othersChecked: boolean | null): MessageKey =>
+  othersChecked ? "export.commentFailedChecks.hint.others" : "export.commentFailedChecks.hint";
 
 /** What went out with no comment, for the line's warning; null when every one is in a comment. */
 export function unmarkedChecks(checks: SentenceChecksExported, t: Translate): string | null {

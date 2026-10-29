@@ -17,6 +17,7 @@ import { useCitationStylePicker, useStyleLabel } from "../citationStylePicker";
 import { shortcutLabel } from "../commands/keymap";
 import { core } from "../core";
 import { errorMessage } from "../errors";
+import { commentsHint } from "../exportChecks";
 import { exportPreferences, FORMAT_LABELS } from "../exports";
 import { useT } from "../i18n";
 import { chooseOutputLocation, outputFolderLabel } from "../outputFiles";
@@ -123,11 +124,16 @@ function TrackedAsHint({ name }: { name: string }) {
 function WordReviewRows({
   draft,
   fromWord,
+  othersFile,
   onChange,
+  onOthersChange,
 }: {
   draft: WordExportPreferences;
   fromWord: boolean;
+  /** A Note made by Verify from someone else's file: its own comment switch (#110); null for the User's own. */
+  othersFile: { checked: boolean } | null;
   onChange(next: WordExportPreferences): void;
+  onOthersChange(checked: boolean): void;
 }) {
   const t = useT();
   const author = useAppStore((state) => state.settings?.author ?? "");
@@ -146,13 +152,23 @@ function WordReviewRows({
         value={draft.markAiText}
         onChange={(markAiText) => onChange({ ...draft, markAiText })}
       />
-      <SwitchRow
-        label={t("export.commentFailedChecks")}
-        hint={t("export.commentFailedChecks.hint")}
-        checked={draft.commentFailedChecks}
-        onChange={(commentFailedChecks) => onChange({ ...draft, commentFailedChecks })}
-        testId="export-comment-failed-checks"
-      />
+      {othersFile ? (
+        <SwitchRow
+          label={t("export.commentFailedChecks")}
+          hint={t(commentsHint(othersFile.checked))}
+          checked={othersFile.checked}
+          onChange={onOthersChange}
+          testId="export-comment-failed-checks"
+        />
+      ) : (
+        <SwitchRow
+          label={t("export.commentFailedChecks")}
+          hint={t(commentsHint(null))}
+          checked={draft.commentFailedChecks}
+          onChange={(commentFailedChecks) => onChange({ ...draft, commentFailedChecks })}
+          testId="export-comment-failed-checks"
+        />
+      )}
     </>
   );
 }
@@ -399,6 +415,7 @@ function ExportOptionsForm({ mind, onDone }: { mind: Mind; onDone(): void }) {
     questions: number;
     packCitations: number;
     fromWord: boolean;
+    othersFile: boolean;
     theirChanges: number;
     unreadFiles: number;
     unreadFileNames: boolean;
@@ -450,6 +467,7 @@ function ExportOptionsForm({ mind, onDone }: { mind: Mind; onDone(): void }) {
           questions: preview.questions,
           packCitations: preview.citations,
           fromWord: preview.fromWord,
+          othersFile: preview.othersFile,
           theirChanges: preview.theirChanges,
           unreadFiles: preview.unreadFiles,
           unreadFileNames: preview.unreadFileNames,
@@ -623,7 +641,9 @@ function ExportOptionsForm({ mind, onDone }: { mind: Mind; onDone(): void }) {
           <WordReviewRows
             draft={draft.docx}
             fromWord={counts?.fromWord ?? false}
+            othersFile={counts?.othersFile ? { checked: draft.commentOthersFiles === true } : null}
             onChange={(docx) => setDraft({ ...draft, docx })}
+            onOthersChange={(commentOthersFiles) => setDraft({ ...draft, commentOthersFiles })}
           />
         )}
 

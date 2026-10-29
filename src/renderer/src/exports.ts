@@ -71,6 +71,8 @@ export interface ExportChanging {
   format: "docx" | "pdf";
   mark: boolean;
   places: CitedCount | null;
+  /** Someone else's Word file: whether it gets check comments (#110). */
+  comments: boolean;
 }
 
 /**
@@ -97,6 +99,8 @@ export type ExportResult = { tableId?: string } & (
       unverified: number;
       /** The comparison-table columns the file leaves out, for the line to say. */
       hiddenColumns: number;
+      /** Made by Verify from someone else's file: its comments have their own choice (#110). */
+      othersFile: boolean;
       /** The sentences whose check isn’t good, whether they went in as comments, and the check comments in the file. */
       checks: SentenceChecksExported;
       /** The changes waiting that went into a Word file as tracked changes. */
@@ -178,7 +182,7 @@ async function keep(update: (preferences: ExportPreferences) => ExportPreference
  * then, so neither takes back a format or an option the User changed since (#1945).
  */
 function changed(
-  which: "mark" | "leave" | "footnotes" | "list",
+  which: "mark" | "leave" | "footnotes" | "list" | "comments" | "noComments",
   undo: () => Promise<void>,
   redo: () => Promise<void>,
 ): void {
@@ -206,7 +210,8 @@ export function changeExportChoices(mindId: string): void {
       ? { citations: result.citations, documents: result.citedDocuments }
       : null;
   if (!mark && places === null) return;
-  useExports.setState({ result: { ...result, changing: { format, mark, places } } });
+  const comments = format === "docx" && result.othersFile;
+  useExports.setState({ result: { ...result, changing: { format, mark, places, comments } } });
 }
 
 /** Closes Change without a choice: the Saved line as it was. */
@@ -238,6 +243,34 @@ export async function answerMarkAiText(
     () => keep((now) => withMarking(now, was)),
     () => keep((now) => withMarking(now, answer)),
   );
+}
+
+/** Picks in Change whether someone else's Word files get check comments: keeps it, exports this file again, and offers Undo (#110). */
+export async function answerOthersComments(
+  mindId: string,
+  format: ExportFormat,
+  answer: boolean,
+): Promise<void> {
+  const before = exportPreferences();
+  if ((before.commentOthersFiles === true) === answer) return;
+  const was = before.commentOthersFiles;
+  await keep((now) => withOthersComments(now, answer));
+  if ((exportPreferences().commentOthersFiles === true) !== answer) return;
+  await exportMind(mindId, format);
+  changed(
+    answer ? "comments" : "noComments",
+    () => keep((now) => withOthersComments(now, was)),
+    () => keep((now) => withOthersComments(now, answer)),
+  );
+}
+
+/** `preferences` with someone else's files' comment choice set, or taken away again (undefined): off. */
+function withOthersComments(
+  preferences: ExportPreferences,
+  value: boolean | undefined,
+): ExportPreferences {
+  const { commentOthersFiles: _was, ...rest } = preferences;
+  return value === undefined ? rest : { ...rest, commentOthersFiles: value };
 }
 
 /** Picks where Citations go in Change: keeps it, exports this file again with it, and offers Undo (#1945). */
@@ -297,6 +330,7 @@ function savedResult(
       at: Date.now(),
       unverified: "unverifiedCitations" in saved ? saved.unverifiedCitations : 0,
       hiddenColumns: "hiddenColumns" in saved ? saved.hiddenColumns : 0,
+      othersFile: "othersFile" in saved && saved.othersFile,
       checks: "sentenceChecks" in saved ? saved.sentenceChecks : NO_CHECKS,
       tracked: "trackedChanges" in saved ? saved.trackedChanges : 0,
       kept: "word" in saved ? (saved.word?.keptFurniture ?? []) : [],

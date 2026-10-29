@@ -144,7 +144,11 @@ export interface FailedCheck {
 }
 
 /** A sentence whose check isn't good, with what a Word file's comment on it says. */
-export type FailedSentence = { id: string } & (
+export type FailedSentence = {
+  id: string;
+  /** A verified document's table row checked as one claim: its comment covers the whole row. */
+  row?: true;
+} & (
   | {
       check: "contradicted";
       says: string | null;
@@ -742,9 +746,27 @@ function readTable(table: Y.XmlElement, options: ReadOptions): TableCell[][] {
         content: readChildren(cell.toArray(), options),
       });
     }
+    spreadRowCheck(cells.flatMap((cell) => textOfBlocks(cell.content)));
     if (cells.length > 0) rows.push(cells);
   }
   return rows;
+}
+
+type TextInline = Extract<Inline, { kind: "text" }>;
+
+function textOfBlocks(blocks: readonly Block[]): TextInline[] {
+  return blocks.flatMap((block) =>
+    block.kind === "paragraph" || block.kind === "heading"
+      ? block.content.filter((inline): inline is TextInline => inline.kind === "text")
+      : [],
+  );
+}
+
+/** A row checked as one claim: its other cells' words carry its check too, as the row's text. */
+function spreadRowCheck(row: TextInline[]): void {
+  const check = row.find((each) => each.sentenceCheck?.row)?.sentenceCheck;
+  if (!check) return;
+  for (const each of row) each.sentenceCheck ??= check;
 }
 
 /** A comparison table's cell as read: its Answer, or what it says in the Answer's place. */

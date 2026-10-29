@@ -175,10 +175,17 @@ export function createWordImports(options: WordImportsOptions) {
   const keeping = new Set<string>();
   /** Minds whose Blocks are being written now, so a Mind never has two writers. */
   const writing = new Set<string>();
-  /** The writer of each Mind's Blocks started last: whether it wrote every Block. */
+  /** The writer of each Mind's Blocks while it runs: whether it wrote every Block. */
   const writers = new Map<string, Promise<boolean>>();
-  /** Each import started or resumed since the app opened, by its Mind: whether it wrote every Block. */
+  /** Each import going on, resumed ones from before their package is read: whether it wrote every Block. */
   const going = new Map<string, Promise<boolean>>();
+  /** Keeps `run` for the Mind until it ends, unless another took its place meanwhile. */
+  const until = (map: Map<string, Promise<boolean>>, mindId: string, run: Promise<boolean>) => {
+    map.set(mindId, run);
+    void run.then(() => {
+      if (map.get(mindId) === run) map.delete(mindId);
+    });
+  };
   let closed = false;
   /** The file the import screen checked last, read whole, so importing it doesn't read it again. */
   let checked: ReadFile | null = null;
@@ -329,8 +336,8 @@ export function createWordImports(options: WordImportsOptions) {
       log.error("word.import.failed", { error: error instanceof Error ? error.name : "unknown" });
       return false;
     });
-    writers.set(mindId, run);
-    going.set(mindId, run);
+    until(writers, mindId, run);
+    until(going, mindId, run);
     return run;
   };
 
@@ -514,7 +521,8 @@ export function createWordImports(options: WordImportsOptions) {
           }));
           return start(mindId, structure, origin, done);
         })();
-        going.set(
+        until(
+          going,
           mindId,
           resumed.catch((error: unknown) => {
             log.error("word.import.resumeFailed", {
@@ -638,6 +646,11 @@ export function createWordImports(options: WordImportsOptions) {
     /** Stops writing Blocks: each import goes on from where it got to at the next start. */
     close(): void {
       closed = true;
+    },
+
+    /** Whether imports have stopped for a quit, to go on at the next start. */
+    isClosed(): boolean {
+      return closed;
     },
 
     /** Removes the kept packages no Mind keeps any longer, and files a quit left half written. */

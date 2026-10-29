@@ -93,7 +93,13 @@ export const optionsFor = (
 ): ExportMindOptions => {
   if (format === "docx") {
     const { markAiText, ...choices } = preferences.docx;
-    return { format, ...choices, markAiText: markAiText !== "leave", ...placeOf(preferences) };
+    return {
+      format,
+      ...choices,
+      markAiText: markAiText !== "leave",
+      commentOthersFiles: preferences.commentOthersFiles === true,
+      ...placeOf(preferences),
+    };
   }
   if (format === "source-pack") return { format };
   if (format === "share-page") {

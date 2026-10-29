@@ -233,7 +233,9 @@ The amendment for #261 said a web page loads nothing it embeds. A chart, a table
 
 ## Amendment: comments on what needs a look, and a Word file verified (2026-10-29, #110)
 
-- **The option is "Comment on what needs a look"** (为需要留意的说法添加批注), still on by default, for the User's own Notes too, since "failed" isn't one of the check results' words. It covers every reason a sentence or a Citation needs a look (Contradicted, Unsupported, Not found, Quote not found, Needs re-check), and its hint lists them.
+- **The option is "Comment on what needs a look"** (为需要留意的说法添加批注), since "failed" isn't one of the check results' words. It covers every reason a sentence or a Citation needs a look (Contradicted, Unsupported, Not found, Quote not found, Needs re-check), and its hint lists them. It stays on by default for the User's own Notes, whose export already carries those Citations.
+- **Someone else's file has its own switch, off by default:** a Note made by Verify goes back to the other side, and its comments would quote the User's Documents and name them. Turned on, the hint says so ("Comments quote your Documents and name them", 批注会引用你的文档原文并写出文档名). Off while a claim needs a look, the line after saving says "· Check comments off · Change" (未添加核对批注 · 更改), and Change offers to write the file again with them, with Undo.
+- **A table row checked as one claim** (#1368) gets one comment over the whole row, not only the cell its check is marked on.
 - **The line after saving counts the comments, not the results:** "· 2 check comments" (2 条核对批注; one, "1 check comment", 1 条核对批注) whenever the file holds any, a sentence's or a Citation's, as its last part before Change. A file that holds none says nothing of them.
 - **A Contradicted comment names its evidence,** as an Unsupported one does: what the Document says, then the Passage and its Document and Location, "(“…”, Tides, p. 1)".
 - **A Word file someone else wrote can be verified:** it comes in as a Mind imported from it (#104), its original a Document left out of its own checks, and its claims' comments go back into that file.

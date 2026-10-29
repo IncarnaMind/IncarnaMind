@@ -111,6 +111,11 @@ export interface VerifyOptions {
    * has stopped; true for a Mind not imported from Word.
    */
   wordWritten(mindId: string): Promise<boolean>;
+  /**
+   * Takes back for good a Mind whose Word import didn't write every Block, so no Note is left
+   * half made: but not one a quit stopped, which goes on at the next start, or one deleted.
+   */
+  discardWordMind(mindId: string): Promise<void>;
   defaultModel(): ChatModelChoice | null;
   prepare(choice: ChatModelChoice | null): Promise<Prepared>;
   evidenceScope(mindId: string, allDocuments: boolean, verification: Verification): MindCheckScope;
@@ -369,6 +374,7 @@ export function createVerify(options: VerifyOptions) {
       });
     });
     if (!(await options.wordWritten(made.mind.id))) {
+      await options.discardWordMind(made.mind.id);
       return { ok: false, reason: "word", refusal: "unreadable" };
     }
     content.edit(made.mind.id, (blocks) => {

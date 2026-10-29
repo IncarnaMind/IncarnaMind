@@ -55,7 +55,9 @@ const isPlainSaved = (result: SavedResult, t: ReturnType<typeof useT>): boolean 
   result.kept.length === 0 &&
   result.failures.length === 0 &&
   result.sentKept &&
-  unmarkedChecks(result.checks, t) === null;
+  (othersWord(result) || unmarkedChecks(result.checks, t) === null);
+
+const othersWord = (result: SavedResult) => result.format === "docx" && result.othersFile;
 
 /**
  * How the last export of this Mind went, floating at the foot of its tab (#100), as problems
@@ -107,7 +109,9 @@ function ResultBody({
   const dismiss = useExports((state) => state.dismiss);
   const [error, setError] = useState<string | null>(null);
   const held = useHeld(line);
-  const unmarked = result.state === "saved" ? unmarkedChecks(result.checks, t) : null;
+  // Someone else's Word file with no comments says so quietly, before Change, not as a warning (#110).
+  const unmarked =
+    result.state === "saved" && !othersWord(result) ? unmarkedChecks(result.checks, t) : null;
   const withFile =
     result.state === "saved"
       ? [
@@ -401,7 +405,7 @@ function SavedSentence({ result, withFile }: { result: SavedResult; withFile: Sa
     state === null || (state.kind === "checked" && state.unread === 0)
       ? []
       : noteStateParts(state, t, language);
-  const comments = checkComments(result.checks, t);
+  const comments = checkComments(result.checks, t, othersWord(result));
   const parts: SavedWithFile = [
     ...chosen.map((text) => ({ testId: "export-chosen", text })),
     ...withFile,

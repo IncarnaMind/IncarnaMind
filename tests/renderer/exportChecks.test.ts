@@ -1,6 +1,11 @@
 import { describe, expect, test } from "vitest";
 import type { SentenceChecksExported } from "../../src/core/api";
-import { checkComments, trackedChanges, unmarkedChecks } from "../../src/renderer/src/exportChecks";
+import {
+  checkComments,
+  commentsHint,
+  trackedChanges,
+  unmarkedChecks,
+} from "../../src/renderer/src/exportChecks";
 import { type MessageKey, type MessageParams, translate } from "../../src/shared/i18n";
 
 const t =
@@ -35,6 +40,27 @@ describe("The line after saving, for what a file says of its checked sentences",
     expect(checkComments(checks({}, true), t("en"))).toBeNull();
     expect(checkComments(checks({}, true), t("zh-CN"))).toBeNull();
     expect(checkComments(checks({ contradicted: 2 }, false), t("en"))).toBeNull();
+  });
+
+  test("someone else's Word file written without them says they are off while a claim needs a look, in English and Chinese (#110)", () => {
+    const off = checks({ unsupported: 1, needsRecheck: 1 }, false);
+    expect(checkComments(off, t("en"), true)).toBe("Check comments off");
+    expect(checkComments(off, t("zh-CN"), true)).toBe("未添加核对批注");
+    expect(checkComments(checks({}, false), t("en"), true)).toBeNull();
+    const on = checks({ contradicted: 1, unsupported: 1, comments: 2 }, true);
+    expect(checkComments(on, t("en"), true)).toBe("2 check comments");
+    expect(checkComments(on, t("zh-CN"), true)).toBe("2 条核对批注");
+  });
+
+  test("the switch's hint says what its comments give away only for someone else's file, while it is on", () => {
+    expect(t("en")(commentsHint(true))).toBe("Comments quote your Documents and name them");
+    expect(t("zh-CN")(commentsHint(true))).toBe("批注会引用你的文档原文并写出文档名");
+    const covers = "Contradicted, Unsupported, Not found, Quote not found or Needs re-check";
+    expect(t("en")(commentsHint(false))).toBe(covers);
+    expect(t("en")(commentsHint(null))).toBe(covers);
+    expect(t("zh-CN")(commentsHint(null))).toBe(
+      "与文档矛盾、无依据、未找到、未找到引文或需重新核对",
+    );
   });
 
   test("say Not found for the sentences that went out unmarked, apart from Unsupported", () => {

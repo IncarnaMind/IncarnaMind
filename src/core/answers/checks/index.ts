@@ -124,6 +124,7 @@ export interface ChecksOptions
     | "wordRefusal"
     | "importWord"
     | "wordWritten"
+    | "discardWordMind"
     | "recordAiUse"
     | "unread"
   > {

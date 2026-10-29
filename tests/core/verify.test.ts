@@ -25,6 +25,7 @@ import {
 import { shownPassages } from "../helpers/citations";
 import { createTempDataFolder, manualClock, startCore } from "../helpers/core";
 import { addAndProcess, writeSourceFile } from "../helpers/documents";
+import { textOf, unzip } from "../helpers/docx";
 import { connectToMind, type MindClient, typeInto } from "../helpers/mindClient";
 import { readMind } from "../helpers/minds";
 import { type ModelCall, scriptedModel, scriptedModels } from "../helpers/models";
@@ -498,6 +499,18 @@ describe("Verify a document", () => {
     ]);
     const asked = calls.filter(isCheckRun).map(sentenceOf);
     expect(new Set(asked)).toEqual(new Set([FIXED_ASSETS, NET_PROFIT]));
+
+    // Asked for in Word, the contradicted row's comment covers the whole row (#110).
+    const { data } = await core.exportMind(mind.id, { format: "docx", commentOthersFiles: true });
+    const files = unzip(data);
+    const document = files.get("word/document.xml")?.toString("utf8") ?? "";
+    const id = /<w:comment w:id="(\d+)"/.exec(
+      files.get("word/comments.xml")?.toString("utf8") ?? "",
+    )?.[1];
+    const range = new RegExp(
+      `<w:commentRangeStart w:id="${id}"/>([\\s\\S]*?)<w:commentRangeEnd w:id="${id}"/>`,
+    ).exec(document);
+    expect(textOf(range?.[1] ?? "")).toBe("净利润1,6201,215");
   });
 
   // protects=a table that goes on over the page is one table with its headings, each row with its page, and a section's name and the caption are what a row's claim refers to (#1368); fails_when=the second page's rows lose their headings, carry the first page's, or a table is taken for a caption; no_claim=tables with a running head between them.

@@ -14,6 +14,7 @@ import {
   interceptOpenDialog,
   launchApp,
   motionSettled,
+  openExportOptions,
   openPageMenu,
   pointAndClick,
   removeDataFolder,
@@ -287,14 +288,52 @@ test("Verify a Word file: its Note opens beside the file with their change waiti
   await window.keyboard.press("Escape");
   await expect(pageMenu).toBeHidden();
 
+  // The file goes back to someone else: no check comments unless asked, and the line says so.
+  const result = window.getByTestId("export-result");
   await exportFromMenu(window, "docx");
-  await expect(window.getByTestId("export-result").getByTestId("export-done")).toBeVisible();
-  const [saved] = await readdir(output);
-  const files = unzip(await readFile(join(output, saved ?? "")));
-  const comments = textOf(files.get("word/comments.xml")?.toString("utf8") ?? "");
-  expect(comments).toContain("Please confirm the source.");
-  expect(comments).toMatch(/Contradicted: .*Tides, p\. 2\)/);
-  expect(files.get("word/document.xml")?.toString("utf8")).toContain('w:author="Priya Nair"');
+  const part = result.getByTestId("export-comments");
+  await expect(part).toHaveText("Check comments off");
+  await expect(result.getByTestId("export-done")).toContainText(/Check comments off\s*·\s*Change$/);
+  await expect(result.getByTestId("export-unmarked")).toHaveCount(0);
+  const saved = async () => {
+    const [name] = await readdir(output);
+    const files = unzip(await readFile(join(output, name ?? "")));
+    return {
+      comments: textOf(files.get("word/comments.xml")?.toString("utf8") ?? ""),
+      document: files.get("word/document.xml")?.toString("utf8") ?? "",
+    };
+  };
+  const plain = await saved();
+  expect(plain.comments).toBe("Please confirm the source.");
+  expect(plain.document).toContain('w:author="Priya Nair"');
+  await setLanguage(window, "zh-CN");
+  await expect(part).toHaveText("未添加核对批注");
+  await setLanguage(window, "en");
+  await screenshot(window, "verify-word-saved-off-en");
+
+  // Change offers the comments; picked, the file is written again with them, and Undo is offered.
+  await pointAndClick(window, result.getByTestId("export-change"));
+  await expect(result.getByTestId("export-comments-question")).toHaveText(
+    "Comment on what needs a look?",
+  );
+  await pointAndClick(window, result.getByTestId("export-comments-add"));
+  await expect(part).toHaveText("2 check comments");
+  await expect(window.getByTestId("undo-message")).toHaveText(
+    "Someone else’s Word files now get check comments",
+  );
+  const commented = await saved();
+  expect(commented.comments).toContain("Please confirm the source.");
+  expect(commented.comments).toMatch(/Contradicted: .*Tides, p\. 2\)/);
+  await screenshot(window, "verify-word-saved-on-en");
+
+  // On, its switch in Export options says what the comments give away.
+  await openExportOptions(window);
+  const sheet = window.getByTestId("export-dialog");
+  await expect(sheet.getByTestId("export-comment-failed-checks")).toBeChecked();
+  await expect(sheet).toContainText("Comments quote your Documents and name them");
+  await screenshot(window, "verify-word-options-en");
+  await window.keyboard.press("Escape");
+  await expect(sheet).toBeHidden();
   await app.close();
 });
 

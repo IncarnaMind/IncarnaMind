@@ -96,10 +96,14 @@ export const UNCOMMENTED_REPORT = asWordWrites(
   wordFile({ body: REPORT_BODY.replace(DANA.inline, run(NOT_FOUND)) }),
 );
 
-/** A core with the Tides PDF, a model on this computer that checks as `PLANS` says, and the report on disk. */
-export async function setUpWordVerify(calls?: ModelCall[], language: "en" | "zh-CN" = "en") {
+/** A core with the Tides PDF, a model on this computer that checks as `PLANS` (and `more`) say, and the report on disk. */
+export async function setUpWordVerify(
+  calls?: ModelCall[],
+  language: "en" | "zh-CN" = "en",
+  more: Record<string, Plan> = {},
+) {
   const core = startCore(await createTempDataFolder(), {
-    createChatModel: scriptedModels(checkingModel(PLANS, calls)).createChatModel,
+    createChatModel: scriptedModels(checkingModel({ ...PLANS, ...more }, calls)).createChatModel,
   });
   await core.updateSettings({ user: { language } });
   await core.saveChatProvider({ kind: "ollama", modelId: "local-model" });

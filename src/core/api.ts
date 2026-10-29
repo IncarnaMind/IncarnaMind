@@ -8445,6 +8445,8 @@ export interface ExportPreferences {
   theirChanges?: TheirChangesShown;
   /** Where Word and PDF put a Numbered Mind's Citations. Absent until an export writes them: footnotes, and that choice is then saved. */
   citationPlace?: CitationPlace;
+  /** Word's check comments in a Mind made by Verify from someone else's file (#110). Absent: off. */
+  commentOthersFiles?: boolean;
 }
 
 export interface SharePagePreferences {
@@ -8516,9 +8518,16 @@ export interface ExportMindOptions {
    * Word only: a Citation whose check failed (its quote wasn't found, or its
    * claim is unsupported or contradicted), and a sentence checked
    * Contradicted, Unsupported or Needs re-check, gets a comment by
-   * IncarnaMind saying so. Absent: off.
+   * IncarnaMind saying so. Absent: off. For a Mind made by Verify from someone
+   * else's file, `commentOthersFiles` says instead.
    */
   commentFailedChecks?: boolean;
+  /**
+   * Word only, for a Mind made by Verify from someone else's file (#110): `commentFailedChecks`
+   * for it. Its comments quote the User's Documents and name them, in a file that goes back to
+   * the other side. Absent: off.
+   */
+  commentOthersFiles?: boolean;
   /**
    * A web page to share only: each Citation's marker opens a card with
    * its quote, the part of its Document around it, and its check. Off, the
@@ -8568,6 +8577,8 @@ export interface MindExportPreview {
   citationPlace: CitationPlace | null;
   /** Whether a Word file marks the text IncarnaMind wrote (#107), for the Saved line (#1945); null for a format that can't mark it. */
   markAiText: boolean | null;
+  /** The Mind was made by Verify from someone else's file (#110): `commentOthersFiles` is its comments' choice. */
+  othersFile: boolean;
 }
 
 /** The sentences an export holds whose check isn't good, by result (`MindExport.sentenceChecks`). */

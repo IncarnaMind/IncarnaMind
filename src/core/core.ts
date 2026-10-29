@@ -2151,6 +2151,12 @@ export function createCore(adapters: CoreAdapters): Core {
       return imported.ok ? { ok: true, mind: imported.mind } : imported;
     },
     wordWritten: (mindId) => wordImports.written(mindId),
+    async discardWordMind(mindId) {
+      if (wordImports.isClosed() || minds.locate(mindId)?.deletedAt !== null) return;
+      removeMind(mindId);
+      recentlyDeleted.deletePermanently([{ kind: "mind", id: mindId }]);
+      await wordImports.dropPurged();
+    },
     watch: {
       minds: () => minds.list().map((mind) => ({ id: mind.id, folderId: mind.folderId })),
       documentVersions: () =>
