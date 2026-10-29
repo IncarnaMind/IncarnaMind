@@ -960,7 +960,7 @@ function writtenNotes({ notFound, unrecorded, searchTalk, pointersBack }: Writte
   ];
 }
 
-// A table's own count and a check's marks are on the change's line and in the page; these the reply is asked to tell.
+// The check's marks and a table's count show in the page and on the change's line; these notes ask the reply to tell.
 const saysAll = (written: Written & { change: MindChange }) =>
   writtenNotes(written).length === 0 &&
   !written.change.unlinkedSources &&
