@@ -1374,15 +1374,15 @@ export function createCore(adapters: CoreAdapters): Core {
     const made = examples.made();
     if (made.documentIds.length === 0 || (mindId && made.mindIds.includes(mindId))) return null;
     const left = new Set(made.documentIds);
-    return documents.ids({}).filter((id) => !left.has(id));
+    const own = documents.ids({}).filter((id) => !left.has(id));
+    // The examples are the User's Library until a Document of their own exists (#1942).
+    return own.length > 0 ? own : null;
   };
   /**
-   * The Documents a Search scope covers; with no scope, the User's own: every live Document but
-   * the examples', and every Document when the Note is an example's or no example exists (#1942).
-   * A surface without a Mind passes null and is strict too — a free-standing check, the evidence
-   * search and a scope's count never search the examples, even before the User has one: the
-   * examples are the demo, not her evidence. Every surface that searches resolves a scope here,
-   * so a null one never takes the examples' in again.
+   * The Documents a Search scope covers; with no scope, "every Document": the examples' until the
+   * User has a Document of their own, and theirs alone from then on (#1942). An example's own Note
+   * always searches every Document. Every surface that searches resolves a scope here, so all of
+   * them follow one rule.
    */
   const scopeDocuments = (
     scope: SearchScope | null,
@@ -1584,15 +1584,13 @@ export function createCore(adapters: CoreAdapters): Core {
     },
     documents: {
       searchableCount: (documentIds) => documents.searchableCount(documentIds ?? undefined),
-      // The Library's count is what the User's own list shows: the examples' Documents count only
-      // until the User has one of their own (#1942).
+      // The Library's count is what its page shows: the examples until the User has a Document of
+      // their own, and theirs alone from then on (#1942).
       libraryCount: () => {
         const example = new Set(examples.made().documentIds);
         const all = documents.ids({});
         const own = all.filter((id) => !example.has(id));
-        return own.length > 0
-          ? { total: own.length, examples: false }
-          : { total: all.length, examples: example.size > 0 };
+        return own.length > 0 ? own.length : all.length;
       },
       names: () => documents.names(),
       searchableNames: (documentIds, limit) =>

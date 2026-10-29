@@ -60,8 +60,8 @@ describe("“These documents” in the assistant", { timeout: 60_000 }, () => {
     for (const name of exampleNames) expect(sent()).toContain(name);
   });
 
-  // protects=with only the examples, a Question from another Mind has no Documents to search, and the model is told they aren't the User's rather than that the User limited the Question; fails_when=it searches the examples, or is told of a scope the User never set; no_claim=what the model writes.
-  test("with only the examples, there are none from another Mind", async () => {
+  // protects=with only the examples, a Question from another Mind searches them: they are the User's Library until they have a Document of their own (#1942); fails_when=the examples are left out on day one, or the Question is told of a scope the User never set; no_claim=what the model writes.
+  test("with only the examples, a Question from another Mind searches them (#1942)", async () => {
     let system = "";
     const model = scriptedModel((call): ScriptedReply => {
       system = call.system;
@@ -76,23 +76,23 @@ describe("“These documents” in the assistant", { timeout: 60_000 }, () => {
     const examples = await core.createExamples();
     await expect
       .poll(
-        async () => (await core.listDocuments({ linkedFolderId: examples.linkedFolderId })).length,
-        {
-          timeout: 20_000,
+        async () => {
+          const read = await core.listDocuments({ linkedFolderId: examples.linkedFolderId });
+          return read.length === 2 && read.every((document) => document.status === "ready");
         },
+        { timeout: 30_000 },
       )
-      .toBe(2);
+      .toBe(true);
     const mine = await core.createMind({ title: "Reading group" });
 
     await askAssistant(core, { text: "Summarise these documents", mindId: mine.id });
 
-    expect(system).toContain(
-      "None of the User's own Documents can be searched yet (the examples IncarnaMind made aren't theirs)",
-    );
-    // The Library holds the examples' two: saying it holds none would be a count it contradicts.
-    expect(system).toContain(
-      "The User's Library holds 2 Documents in all: never say it holds fewer than 2.",
-    );
+    // The examples' two are the Library, so they are listed and searchable on day one.
+    expect(system).toContain("The User has added 2 Documents");
+    for (const name of (await core.listDocuments()).map((document) => document.name)) {
+      expect(system).toContain(name);
+    }
+    expect(system).not.toContain("None of the User's own Documents can be searched yet");
     expect(system).not.toContain("limited this Question");
   });
 

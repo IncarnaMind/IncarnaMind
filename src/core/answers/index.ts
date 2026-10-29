@@ -744,8 +744,8 @@ const messageOf = (error: unknown) => (error instanceof Error ? error.message : 
 export interface DocumentsForAnswers
   extends Pick<AnswerDocuments, "citationSource" | "pageTexts" | "documentDate"> {
   searchableCount(documentIds: readonly string[] | null): number;
-  /** The Library's count as its page shows it: the User's own Documents once they have one. */
-  libraryCount(): { total: number; examples: boolean };
+  /** The Library's count as its page shows it: the examples' until the User has one, then theirs. */
+  libraryCount(): number;
   /** Every live Document's names: what a Citation in the Question context names its Document by. */
   names(): readonly LiveDocument[];
   /**
@@ -1017,17 +1017,9 @@ export function createAnswers(options: AnswersOptions) {
     const scoped = callDocuments !== null || (input.scoped ?? input.documentIds !== null);
     const outside = input.outside === true;
     // Only an Answer the User reads is told the Library's whole count (#1333): a cell's or an agent's is its scope's alone.
-    const counted = options.documents.libraryCount();
     const library: LibraryDocuments | undefined = outside
       ? undefined
-      : {
-          total: counted.total,
-          examples:
-            counted.examples &&
-            input.assistant !== undefined &&
-            !scoped &&
-            input.documentIds !== null,
-        };
+      : { total: options.documents.libraryCount() };
     const asked =
       input.outside === true || callDocuments !== null
         ? { each: false, main: null }

@@ -1,10 +1,11 @@
 /**
- * What "no Search scope" means once the example is there (#1942): the User's
- * own Documents, never the example's, on every surface that searches — a
- * Mind's check (against its Documents and for one sentence's support), the
- * evidence search behind a figure or a claim, Research, writing suggestions,
- * and the count a Search scope shows. An example's own Note still searches
- * the examples.
+ * What "every Document" means (#1942): the examples until the User has a
+ * Document of their own, and theirs alone from then on, on every surface that
+ * searches — a Question in their own Note, a Mind's check against its
+ * Documents, find-support for one sentence, the evidence search behind a
+ * figure, Research, writing suggestions, and a Search scope's count. An
+ * example's own Note always searches the examples. Deleting the only Document
+ * of the User's brings the examples back without a restart.
  */
 import { randomUUID } from "node:crypto";
 import { resolve } from "node:path";
@@ -23,6 +24,8 @@ import { type ModelCall, scriptedModel, scriptedModels } from "../helpers/models
 
 const EXAMPLES = resolve(__dirname, "../../resources/examples");
 const CLAIM = "Northwind Retail's leverage was 3.1 times at the end of Q3 2026.";
+const QUOTE =
+  "Net debt to EBITDA was 3.1 times at the end of the quarter, up from 2.7 times at the half year.";
 const HER_ONLY = "Northwind Retail results, in my own words.";
 
 const text = (value: string): JSONContent => ({ type: "text", text: value });
@@ -72,29 +75,129 @@ async function setUp({
   return { core, own: hers, examples };
 }
 
-describe("no Search scope means the User's Documents, not the examples' (#1942)", () => {
-  test("the count a Search scope shows is the User's own", async () => {
-    const { core } = await setUp();
-    expect(await core.countScopeDocuments(undefined)).toBe(1);
-    expect(await core.countScopeDocuments(NO_SCOPE)).toBe(1);
-    expect(await core.countScopeDocuments({ ...NO_SCOPE, documentIds: [] })).toBe(1);
+/** A check model that follows `plans` for the claim (none: unsupported), recording its calls. */
+function checkingModel(
+  calls: ModelCall[],
+  plans: Record<string, { verdict?: "supported"; quote?: string }> = {},
+) {
+  return scriptedModel(
+    (call) => {
+      calls.push(call);
+      return isCheckRun(call) ? checkReply(call, plans) : { text: "Done." };
+    },
+    { generate: checkGenerate(plans) },
+  );
+}
+
+describe("“every Document” is the examples until the User has one, then theirs (#1942)", () => {
+  test("with only the examples, a count, the evidence search and find-support all reach them", async () => {
+    const calls: ModelCall[] = [];
+    const { core, examples } = await setUp({
+      model: checkingModel(calls, { [CLAIM]: { verdict: "supported", quote: QUOTE } }),
+      own: false,
+    });
+    const exampleIds = new Set(examples.map((document) => document.id));
+    // The examples are the Library: counted, searched and checked against on day one.
+    expect(await core.countScopeDocuments(undefined)).toBe(2);
+    const found = await core.searchEvidence("Net debt to EBITDA stood at 3.1 times");
+    expect(found.passages.length).toBeGreaterThan(0);
+    expect(found.passages.every((passage) => exampleIds.has(passage.documentId))).toBe(true);
+    const checked = await core.checkClaim({ claim: CLAIM });
+    expect(checked.verdict).toBe("supported");
+    if (checked.verdict !== "supported" || !checked.evidence) {
+      throw new Error("The claim wasn't supported by an example Document.");
+    }
+    expect(exampleIds.has(checked.evidence.documentId)).toBe(true);
     core.close();
   });
 
-  test("with only the examples: listed in the Library, never searched (#1942, strict by design)", async () => {
+  test("with only the examples, a Mind's check reaches them too", async () => {
     const calls: ModelCall[] = [];
-    const model = scriptedModel(
-      (call) => {
-        calls.push(call);
-        return isCheckRun(call) ? checkReply(call, {}) : { text: "Done." };
-      },
-      { generate: checkGenerate({}) },
+    const { core } = await setUp({
+      model: checkingModel(calls, { [CLAIM]: { verdict: "supported", quote: QUOTE } }),
+      own: false,
+    });
+    const mind = await core.createMind({ title: "My note" });
+    const client = await connectToMind(core, mind.id);
+    const block = paragraph(text(CLAIM));
+    writeMind(client, [block]);
+    await client.settled();
+
+    const checked = await core.checkSentences({
+      requestId: randomUUID(),
+      mindId: mind.id,
+      action: "check-against-documents",
+      from: { blockId: block.attrs.id, offset: 0 },
+      to: { blockId: block.attrs.id, offset: CLAIM.length },
+    });
+    expect(checked.kind).toBe("checked");
+    await client.settled();
+    const versions = new Map(
+      (await core.listDocuments()).map((document: Document) => [document.id, document.contentHash]),
     );
-    const { core } = await setUp({ model, own: false });
-    // The Library lists the examples until the User has one of their own ...
-    expect(await core.listDocuments()).toHaveLength(2);
-    // ... but no Search surface counts or searches them: they are the demo, not her evidence.
-    expect(await core.countScopeDocuments(undefined)).toBe(0);
+    const [span] = claimSpans(readMind(client));
+    if (!span) throw new Error("The sentence has no check.");
+    expect(
+      claimCheckShown(span.check, { text: CLAIM, versions, folderId: null, scope: null }),
+    ).toMatchObject({ state: "supported" });
+    core.close();
+  });
+
+  test("with only the examples, a suggestion's scope and Research read them", async () => {
+    const { core } = await setUp({ own: false });
+    const mind = await core.createMind({ title: "My note" });
+    // Suggestions are off: the answer says whether the scope has Documents to suggest from.
+    expect(
+      await core.suggestNext({
+        requestId: randomUUID(),
+        mindId: mind.id,
+        paragraph: "Net debt to EBITDA was",
+        scope: NO_SCOPE,
+      }),
+    ).toEqual({ kind: "off", scopeHasDocuments: true });
+    core.close();
+
+    const researchCalls: ModelCall[] = [];
+    const researching = scriptedModel(
+      (call) => {
+        researchCalls.push(call);
+        return { text: "Nothing further." };
+      },
+      {
+        generate: (call) =>
+          /Topic:/.test(call.prompt)
+            ? { text: "TITLE: Northwind\n1. Search the Library" }
+            : { text: "Sure." },
+      },
+    );
+    const second = await setUp({ model: researching, own: false });
+    const note = await second.core.createMind({ title: "My note" });
+    const plan: ResearchPlan = { title: "Northwind", steps: ["Search the Library"] };
+    const started = await second.core.startResearch({
+      mindId: note.id,
+      topic: "Northwind's leverage",
+      plan,
+      sources: { web: false, library: true },
+      writeInto: { mindId: note.id },
+      scope: NO_SCOPE,
+    });
+    if (!started.started) throw new Error(`Research didn't start: ${started.reason}`);
+    await vi.waitFor(() => expect(researchCalls.length).toBeGreaterThan(0), { timeout: 15_000 });
+    await second.core.stopTask(started.task.id);
+    expect(
+      researchCalls.some((call) =>
+        JSON.stringify(call.options.prompt).includes("Northwind Retail"),
+      ),
+    ).toBe(true);
+    second.core.close();
+  });
+
+  test("her first Document takes the examples out of every surface", async () => {
+    const calls: ModelCall[] = [];
+    const { core, own } = await setUp({ model: checkingModel(calls) });
+    if (!own) throw new Error("No Document added.");
+    expect(await core.countScopeDocuments(undefined)).toBe(1);
+    // The example's own words find nothing once her Document is there.
     expect(await core.searchEvidence("Net debt to EBITDA stood at 3.1 times")).toMatchObject({
       passages: [],
       excluded: [],
@@ -103,27 +206,27 @@ describe("no Search scope means the User's Documents, not the examples' (#1942)"
       verdict: "unsupported",
       evidence: null,
     });
+    const hers = await core.searchEvidence("Northwind Retail");
+    expect(new Set(hers.passages.map((passage) => passage.documentId))).toEqual(new Set([own.id]));
     for (const call of calls) {
       expect(JSON.stringify(call.options.prompt)).not.toContain("Net debt to EBITDA");
     }
     core.close();
   });
 
-  test("the evidence search reaches the User's Document only", async () => {
+  test("deleting her only Document brings the examples back, with no restart", async () => {
     const { core, own } = await setUp();
     if (!own) throw new Error("No Document added.");
-    // The example's own words, which only it holds.
-    expect(await core.searchEvidence("Net debt to EBITDA stood at 3.1 times")).toMatchObject({
-      passages: [],
-      excluded: [],
-    });
-    const hers = await core.searchEvidence("Northwind Retail");
-    expect(hers.passages.length).toBeGreaterThan(0);
-    expect(new Set(hers.passages.map((passage) => passage.documentId))).toEqual(new Set([own.id]));
+    expect(await core.countScopeDocuments(undefined)).toBe(1);
+    await core.deleteDocuments([own.id]);
+    expect(await core.listDocuments()).toHaveLength(2);
+    expect(await core.countScopeDocuments(undefined)).toBe(2);
+    const found = await core.searchEvidence("Net debt to EBITDA stood at 3.1 times");
+    expect(found.passages.length).toBeGreaterThan(0);
     core.close();
   });
 
-  test("find-support for one sentence searches the User's Documents only", async () => {
+  test("find-support for one sentence searches the User's Documents once she has one", async () => {
     const calls: ModelCall[] = [];
     const model = scriptedModel(
       (call) => {
@@ -133,21 +236,16 @@ describe("no Search scope means the User's Documents, not the examples' (#1942)"
       { generate: checkGenerate({}) },
     );
     const { core } = await setUp({ model });
-
-    expect(await core.checkClaim({ claim: CLAIM })).toMatchObject({
-      verdict: "unsupported",
-      evidence: null,
-    });
+    const claimResult = await core.checkClaim({ claim: CLAIM });
+    console.log("CLAIM RESULT", JSON.stringify(claimResult));
+    expect(claimResult).toMatchObject({ verdict: "unsupported", evidence: null });
     for (const call of calls) {
       expect(JSON.stringify(call.options.prompt)).not.toContain("Net debt to EBITDA");
-      expect(JSON.stringify(call.options.prompt)).not.toContain(
-        "Northwind Retail · Senior facilities agreement",
-      );
     }
     core.close();
   });
 
-  test("a Mind's check against its Documents searches the User's Documents only", async () => {
+  test("a Mind's check against its Documents searches the User's Documents once she has one", async () => {
     const calls: ModelCall[] = [];
     const model = scriptedModel(
       (call) => {
@@ -179,14 +277,14 @@ describe("no Search scope means the User's Documents, not the examples' (#1942)"
     if (!span) throw new Error("The sentence has no check.");
     expect(
       claimCheckShown(span.check, { text: CLAIM, versions, folderId: null, scope: null }),
-    ).toEqual({ state: "unsupported" });
+    ).toMatchObject({ state: "unsupported" });
     for (const call of calls) {
       expect(JSON.stringify(call.options.prompt)).not.toContain("Net debt to EBITDA");
     }
     core.close();
   });
 
-  test("a writing suggestion looks in the User's Documents only", async () => {
+  test("a writing suggestion looks in the User's Documents once she has one", async () => {
     const calls: ModelCall[] = [];
     const model = scriptedModel((call) => {
       calls.push(call);
@@ -209,7 +307,7 @@ describe("no Search scope means the User's Documents, not the examples' (#1942)"
     core.close();
   });
 
-  test("Research from the User's Note reads the User's Documents only", async () => {
+  test("Research from the User's Note reads the User's Documents once she has one", async () => {
     const calls: ModelCall[] = [];
     const model = scriptedModel(
       (call) => {

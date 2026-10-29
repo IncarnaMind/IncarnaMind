@@ -393,11 +393,17 @@ describe("the examples' Documents", () => {
     core.close();
   });
 
-  test("before the User's first Document, their own Note searches none of the examples (#1942)", async () => {
+  test("before the User's first Document, their own Note searches the examples (#1942)", async () => {
+    const searched: string[] = [];
     let system = "";
     const model = scriptedModel((call: ModelCall) => {
       system = system || call.system;
-      return { text: "Nothing in your Documents says that." };
+      const found = call.results.find((each) => each.tool === "search_documents");
+      if (found) {
+        searched.push(found.text);
+        return { text: "Done." };
+      }
+      return { calls: [{ tool: "search_documents", input: { query: "Northwind Retail" } }] };
     });
     const core = startCore(await createTempDataFolder(), {
       paths: { dataDir: await createTempDataFolder(), examples: EXAMPLES },
@@ -416,8 +422,10 @@ describe("the examples' Documents", () => {
     if (!result.asked) throw new Error("The Question wasn't asked.");
     await answerEnded(core, result.answerId);
 
-    expect(system).toContain("None of the User's own Documents can be searched yet");
-    expect(system).not.toContain("Northwind Retail · Q3 2026 results");
+    // The examples are the Library until the User has a Document of their own.
+    expect(system).toContain("The User has added 2 Documents");
+    expect(searched.join(" ")).toContain("Northwind Retail");
+    expect(system).not.toContain("None of the User's own Documents can be searched yet");
     core.close();
   });
 });
