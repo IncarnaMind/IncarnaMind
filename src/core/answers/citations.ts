@@ -1140,8 +1140,12 @@ const toCitation = (record: Accepted, result: CheckResult | null): Citation => (
 export interface CitationSessionEvents {
   /** The model gave a valid record for a marker (again: it replaces the earlier one). */
   onRecord(marker: number, citation: Citation): void;
-  /** For the paired comparison of #1634 only: show each Passage whole. */
-  repeatsSharedLines?: boolean;
+  /**
+   * Shows the lines a Passage shares with the one before it once, as a check Run's are (#1634).
+   * An Answer's Passages stay whole: shown once, Claude Haiku 5.5 searched a cross-lingual
+   * Question in its Documents' language less often, and cited fewer of the Passages it needed.
+   */
+  showsSharedLinesOnce?: boolean;
 }
 
 /**
@@ -1584,11 +1588,11 @@ export function createCitationSession(
       // What later requests offer for citing is what was shown here: never a Passage no record may name.
       if (!notCited && !measuring) shownTexts.set(id, text);
       // Consecutive Passages share up to 200 tokens (../documents/passages): a quarter of what a
-      // search handed the model (#1634). The shared lines are shown once, in the Passage before;
-      // the quote check reads each Passage's own pages, so a quote from them checks under either id.
+      // search hands the model. The quote check reads each Passage's own pages, so a quote from
+      // the lines shown only in the Passage before still checks under either id.
       const before = found[index - 1];
       const repeated =
-        !events.repeatsSharedLines && follows(before, passage)
+        events.showsSharedLinesOnce && follows(before, passage)
           ? repeatedLines(before?.text ?? "", passage.text)
           : 0;
       return {

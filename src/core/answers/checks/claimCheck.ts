@@ -209,7 +209,7 @@ export function createClaimCheck(deps: ClaimCheckDependencies) {
     const carriesAll = deps.carriesAll?.() ?? false;
     const session = createCitationSession(scoped, {
       onRecord: () => undefined,
-      repeatsSharedLines: carriesAll,
+      showsSharedLinesOnce: !carriesAll,
     });
     const { model } = request;
     const calculating =

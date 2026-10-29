@@ -557,8 +557,6 @@ export interface AnswersOptions {
   writesThenCites?(prepared: PreparedChatModel, flow: AnswerFlow): boolean;
   /** Whether an Answer on this model, in this flow, searches its Question before the first call (#1633). */
   retrievesFirst?(prepared: PreparedChatModel, flow: AnswerFlow): boolean;
-  /** For the paired comparison of #1634 only: every call carries what it did before its cuts. */
-  carriesAll?(): boolean;
   /** Searching the User's Documents, and what Citations point to. */
   documents: DocumentsForAnswers;
   /** Runs Analyses (#447, ADR-0023); absent: no Answer is offered `run_analysis`. */
@@ -1245,7 +1243,6 @@ export function createAnswers(options: AnswersOptions) {
       {
         onRecord: (marker, citation) =>
           announce("answer.citationAdded", { ...place, answerId, marker, citation }),
-        repeatsSharedLines: options.carriesAll?.() ?? false,
       },
       original
         ? {

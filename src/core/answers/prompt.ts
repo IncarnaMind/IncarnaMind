@@ -696,7 +696,6 @@ export function documentInstructions(
 ): string {
   const dated = datedDocumentsNote(passages);
   const notes = [
-    continuingNote(passages),
     dated,
     fileDatesNote(passages),
     notCitedNote(passages),
@@ -757,12 +756,7 @@ export function documentInstructions(
         "",
         "Passages found in the User's Documents for this Question:",
         passages,
-        ...[
-          continuingNote(passages),
-          dated,
-          fileDatesNote(passages),
-          bracketedAmountsNote(passages),
-        ].filter(Boolean),
+        ...[dated, fileDatesNote(passages), bracketedAmountsNote(passages)].filter(Boolean),
         "",
         "Use them where they help. Don't write citation markers or a list of sources.",
         notCovered(false),

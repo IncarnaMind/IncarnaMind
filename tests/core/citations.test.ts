@@ -1201,7 +1201,7 @@ describe("Searching across languages without Tools", { timeout: 30_000 }, () => 
   });
 });
 
-describe("Consecutive Passages of a Document (#1634)", () => {
+describe("Consecutive Passages in a check Run (#1634)", () => {
   const PAGES: PageText[] = [1, 2, 3].map((page) => ({
     page,
     kind: "page",
@@ -1228,7 +1228,7 @@ describe("Consecutive Passages of a Document (#1634)", () => {
         windowTo: built.windowTo,
       }));
 
-  function searching(found: readonly WindowedPassage[]) {
+  function searching(found: readonly WindowedPassage[], once = true) {
     const cited: Citation[] = [];
     const session = createCitationSession(
       {
@@ -1244,7 +1244,7 @@ describe("Consecutive Passages of a Document (#1634)", () => {
           PAGES.filter((unit) => (unit.page ?? 0) >= (from ?? 0) && (unit.page ?? 0) <= (to ?? 0)),
         documentDate: () => null,
       },
-      { onRecord: (_marker, citation) => cited.push(citation) },
+      { onRecord: (_marker, citation) => cited.push(citation), showsSharedLinesOnce: once },
     );
     return { session, cited };
   }
@@ -1287,6 +1287,16 @@ describe("Consecutive Passages of a Document (#1634)", () => {
     expect(session.tools.quoteFound?.("P2", shared)).toBe(true);
     // What later steps read of a Passage, for its figures and quotes, is still all of it.
     expect(session.shownPassages().find((each) => each.id === "P2")?.text).toContain(shared);
+  });
+
+  test("an Answer's Passages are shown whole", async () => {
+    const found = windowed([0, 1, 2]);
+    const { session } = searching(found, false);
+    const shown = shownPassages((await session.tools.searchDocuments("harbour")).text);
+    expect(shown.map((passage) => passage.continues)).toEqual([null, null, null]);
+    expect(shown.map((passage) => passage.text.split("\n")[0])).toEqual(
+      found.map((passage) => passage.text.split("\n")[0]),
+    );
   });
 
   test("Passages that aren't next to each other are shown whole", async () => {

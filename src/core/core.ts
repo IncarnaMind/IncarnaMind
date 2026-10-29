@@ -1484,7 +1484,6 @@ export function createCore(adapters: CoreAdapters): Core {
       writesThenCites({ catalogId: provider.catalogId, modelId }, flow, adapters.answerPaths),
     retrievesFirst: ({ provider, modelId }, flow) =>
       retrievesFirst({ catalogId: provider.catalogId, modelId }, flow, adapters.answerPaths),
-    carriesAll: () => adapters.answerPaths?.carriesAll?.() ?? false,
     async prepareQuickModel(answers, prepared) {
       const quick = chat.quickTasksModel(answers);
       // An Answer on this computer keeps its small calls there too.
