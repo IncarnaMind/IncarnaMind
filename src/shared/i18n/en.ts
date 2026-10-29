@@ -4963,7 +4963,6 @@ export const en = {
   "editor.hint.example": "Try it: write a line here, or {ask}",
   "editor.hint.example.ask": "press {shortcut} to ask your own Question",
   "examples.chip": "Example",
-  "examples.row": "Example",
   "firstOpen.title": "Welcome to IncarnaMind",
   "firstOpen.step.citation.title": "Check a Citation",
   "firstOpen.step.citation.done": "Checked a Citation",
@@ -4993,6 +4992,7 @@ export const en = {
   "assistant.pill": "Ask anything",
   "sidebar.examples": "Examples",
   "sidebar.documents": "Documents",
+  "sidebar.notes": "Notes",
   "examples.banner.label": "About this example",
   "examples.banner.title": "This is an example note.",
   "examples.banner.body":

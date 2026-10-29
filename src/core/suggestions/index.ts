@@ -165,8 +165,8 @@ export interface SuggestionsOptions {
   citing: Citing;
   /** Throws `NotFoundError` unless the Mind exists. */
   requireMind(mindId: string): void;
-  /** The ids of the live Documents a Search scope covers; null for every Document. */
-  resolveScope(scope: SearchScope | null, mindId?: string | null): string[] | null;
+  /** The Documents a Search scope covers; with none, the User's own (`scopeDocuments`). */
+  scopeDocuments(scope: SearchScope | null, mindId: string | null): string[] | null;
   /** What a suggestion in a Mind searches, by the one rule (`mindSearchScope`); null: every Document. */
   searchedScope(scope: SearchScope, mindId: string): SearchScope | null;
   /** How many of these Documents (null: all) have Passages to search. */
@@ -383,7 +383,7 @@ export function createSuggestions(options: SuggestionsOptions) {
       options.requireMind(request.mindId);
       cancelCurrent();
       const searched = options.searchedScope(request.scope, request.mindId);
-      const documentIds = options.resolveScope(searched, request.mindId);
+      const documentIds = options.scopeDocuments(searched, request.mindId);
       if (!options.enabled()) {
         return { kind: "off", scopeHasDocuments: options.searchableCount(documentIds) > 0 };
       }

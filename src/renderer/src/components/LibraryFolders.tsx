@@ -16,7 +16,7 @@ import { FIRST_DOCUMENTS, moreDocumentsToShow } from "../sidebarList";
 import { sorted } from "../sort";
 import { type SortScope, sortOf, useSort } from "../sortChoices";
 import { documentFields, mindFields } from "../sortFields";
-import { allExamples, isOwnDocument, useAppStore } from "../store";
+import { allExamples, exampleMindIds, isOwnDocument, useAppStore } from "../store";
 import { foldKeys, useTreeItem } from "../treeKeys";
 import { useRename } from "../useRename";
 import { ExamplesMenu } from "./ExamplesMenu";
@@ -499,46 +499,97 @@ function NotInAFolder({
   const offerItem = useTreeItem({ depth: 0 });
   /** A Folder, offered where one helps: the User's 8th loose Document and no Folder yet. */
   const offerFolder = !examplesOnly && !hasFolders && ownCount >= DAY_ONE_DOCUMENTS;
+  // Day one's one flat list is called Documents, so the User's Notes are counted apart from it,
+  // under their own heading: a heading's count then matches the rows under it (#1942). An example
+  // Mind not folded to its one row keeps its own Examples heading, never a Note of the User's.
+  const notesApart = dayOne && !examplesOnly;
+  const exampleIds = useAppStore((state) => exampleMindIds(state).join(" "));
+  const ownMinds = useMemo(() => {
+    if (!notesApart) return minds;
+    const examples = new Set(exampleIds.split(" ").filter(Boolean));
+    return minds.filter((mind) => !examples.has(mind.id));
+  }, [notesApart, minds, exampleIds]);
+  const exampleMinds = useMemo(() => {
+    if (!notesApart) return NO_MINDS;
+    const examples = new Set(exampleIds.split(" ").filter(Boolean));
+    return minds.filter((mind) => examples.has(mind.id));
+  }, [notesApart, minds, exampleIds]);
   return (
     <div data-testid="not-in-a-folder" data-count={documents.length} data-minds={minds.length}>
-      <SidebarSection
-        testId="not-in-a-folder-section"
-        title={title}
-        headingTestId="not-in-a-folder-title"
-        count={dayOne && !examplesOnly && ownCount > 0 ? ownCount : undefined}
-        tooltip={examplesOnly || dayOne ? undefined : t("sidebar.notInFolder.hint")}
-        actions={examplesOnly ? <ExamplesMenu /> : undefined}
-        drop={drop}
-      >
-        <Contents
-          listKey={NOT_IN_A_FOLDER}
-          scope="sidebar"
-          depth={0}
-          minds={minds}
-          documents={documents}
-          renderDocument={renderDocument}
-        />
-        {offerFolder && (
-          <ul role="none">
-            <li role="none" className="flex h-7 items-center">
-              <button
-                type="button"
-                {...offerItem}
-                data-testid="offer-folder"
-                title={t("sidebar.newFolderKeys", { keys: shortcutLabel("folder.new") })}
-                onClick={() =>
-                  void commands.run("folder.new").catch(useAppStore.getState().reportError)
-                }
-                style={{ marginLeft: rowPadding(0).paddingLeft + 24 }}
-                className="flex min-w-0 items-center gap-2 rounded-sm text-[12px] leading-4 text-ink-meta hover:text-ink hover:underline"
-              >
-                <PlusLineIcon className="size-3.5 shrink-0" />
-                <span className="truncate">{t("menu.newFolder")}</span>
-              </button>
-            </li>
-          </ul>
-        )}
-      </SidebarSection>
+      {notesApart && ownMinds.length > 0 && (
+        <SidebarSection
+          testId="notes-section"
+          title={t("sidebar.notes")}
+          headingTestId="notes-title"
+          count={ownMinds.length}
+        >
+          <Contents
+            listKey="notes"
+            scope="sidebar"
+            depth={0}
+            minds={ownMinds}
+            documents={NO_DOCUMENTS}
+            renderDocument={renderDocument}
+          />
+        </SidebarSection>
+      )}
+      {(!notesApart || documents.length > 0 || offerFolder) && (
+        <SidebarSection
+          testId="not-in-a-folder-section"
+          title={title}
+          headingTestId="not-in-a-folder-title"
+          count={notesApart && documents.length > 0 ? documents.length : undefined}
+          tooltip={examplesOnly || dayOne ? undefined : t("sidebar.notInFolder.hint")}
+          actions={examplesOnly ? <ExamplesMenu /> : undefined}
+          drop={drop}
+        >
+          <Contents
+            listKey={NOT_IN_A_FOLDER}
+            scope="sidebar"
+            depth={0}
+            minds={notesApart ? NO_MINDS : minds}
+            documents={documents}
+            renderDocument={renderDocument}
+          />
+          {offerFolder && (
+            <ul role="none">
+              <li role="none" className="flex h-7 items-center">
+                <button
+                  type="button"
+                  {...offerItem}
+                  data-testid="offer-folder"
+                  title={t("sidebar.newFolderKeys", { keys: shortcutLabel("folder.new") })}
+                  onClick={() =>
+                    void commands.run("folder.new").catch(useAppStore.getState().reportError)
+                  }
+                  style={{ marginLeft: rowPadding(0).paddingLeft + 24 }}
+                  className="flex min-w-0 items-center gap-2 rounded-sm text-[12px] leading-4 text-ink-meta hover:text-ink hover:underline"
+                >
+                  <PlusLineIcon className="size-3.5 shrink-0" />
+                  <span className="truncate">{t("menu.newFolder")}</span>
+                </button>
+              </li>
+            </ul>
+          )}
+        </SidebarSection>
+      )}
+      {notesApart && exampleMinds.length > 0 && (
+        <SidebarSection
+          testId="examples-section"
+          title={t("sidebar.examples")}
+          headingTestId="examples-title"
+          actions={<ExamplesMenu />}
+        >
+          <Contents
+            listKey="examples"
+            scope="sidebar"
+            depth={0}
+            minds={exampleMinds}
+            documents={NO_DOCUMENTS}
+            renderDocument={renderDocument}
+          />
+        </SidebarSection>
+      )}
     </div>
   );
 }
