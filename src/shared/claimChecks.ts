@@ -220,6 +220,7 @@ function readCheckBasis(value: unknown): ClaimCheckBasis | null {
   if (!id || !state) return null;
   const action: ClaimCheckAction =
     claimCheckActions.find((each) => each === value.action) ?? "find-support";
+  const recordCites = recordCitesOf(value.recordCites);
   return {
     id,
     request: text(value.request) ?? "",
@@ -239,7 +240,7 @@ function readCheckBasis(value: unknown): ClaimCheckBasis | null {
     scope: scopeOf(value.scope),
     versions: versionsOf(value.versions),
     excluded: excludedOf(value.excluded),
-    recordCites: recordCitesOf(value.recordCites),
+    ...(recordCites && { recordCites }),
     checkedAt: text(value.checkedAt) ?? "",
     ...(value.kept === true && { kept: true }),
   };

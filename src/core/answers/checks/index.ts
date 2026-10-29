@@ -277,16 +277,18 @@ const withQuoted = ({ quoted, ...why }: UnsupportedReason): UnsupportedReason =>
 
 /** A result written onto its mark. */
 function withJudgment(check: ClaimCheckBasis, result: ClaimJudgment, at: string): ClaimCheckBasis {
+  // A mark holds no key without a value: with one, Tie out figures never saw its checks end.
+  const { recordCites: _earlier, ...basis } = check;
   const common = {
     versions: result.versions,
     excluded: result.excluded,
-    recordCites: result.recordCites,
+    ...(result.recordCites && { recordCites: result.recordCites }),
     checkedAt: at,
   };
   return result.verdict === "not-checked"
-    ? { ...check, ...common, state: "not-checked", reason: result.reason, detail: result.detail }
+    ? { ...basis, ...common, state: "not-checked", reason: result.reason, detail: result.detail }
     : {
-        ...check,
+        ...basis,
         ...common,
         state: result.verdict,
         reason: null,

@@ -337,9 +337,10 @@ test("every record cite stays visible in raw order, opens its physical passage, 
 
   const again = await launchApp(dataDir, { fakeChat: true });
   await setWindowSize(again.app, again.window, 1440, 900);
+  // On Linux the relaunched window doesn't bring the Note's tab back; the sidebar lists it on every system.
   await pointAndClick(
     again.window,
-    again.window.locator(`[data-testid="mind-tab"][data-mind-id="${mindId}"]`),
+    again.window.locator(`[data-testid="mind-list-item"][data-mind-id="${mindId}"]`),
   );
   await expect(again.window.getByTestId("mind-pane")).toHaveAttribute("data-mind-id", mindId);
   const reopened = await openCard(again.window);

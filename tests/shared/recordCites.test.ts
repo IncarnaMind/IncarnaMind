@@ -137,7 +137,8 @@ describe("record-cite results in a claim-check mark", () => {
 
   test("an old check without record-cite entries reads exactly as before", () => {
     const check = attributes();
-    expect(readClaimCheck(check)?.recordCites).toBeUndefined();
+    // A key with no value in a mark kept Tie out figures from seeing its checks end.
+    expect(Object.keys(readClaimCheck(check) ?? {})).not.toContain("recordCites");
     expect(restsOn(check)).toEqual([]);
   });
 });
