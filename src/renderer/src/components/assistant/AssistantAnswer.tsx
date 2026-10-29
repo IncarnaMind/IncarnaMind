@@ -3,6 +3,7 @@ import type * as Y from "yjs";
 import type { ConversationAnswer, ConversationQuestion } from "../../../../core/api";
 import { answerBlocks, hasText } from "../../../../shared/answerBlocks";
 import type { NodeJSON } from "../../../../shared/blockJson";
+import { figureRunsOfAnswer } from "../../../../shared/figureRuns";
 import { useAnswers } from "../../answers";
 import { useAnswerWait } from "../../answerWait";
 import { useApprovals, waitingFor } from "../../approvals";
@@ -81,10 +82,10 @@ export function AssistantAnswer({
   doc: Y.Doc | null;
 }) {
   const t = useT();
-  const { text, citations, figures, status } = answer;
+  const { id, analyses, text, citations, figures, status } = answer;
   const blocks = useMemo(
-    () => answerBlocks({ text, citations, figures, status }),
-    [text, citations, figures, status],
+    () => answerBlocks({ id, analyses, text, citations, figures, status }),
+    [id, analyses, text, citations, figures, status],
   );
   const writing = useAnswers((state) => state.writing.has(answer.id));
   const streaming = writing || status === "streaming";
@@ -146,6 +147,7 @@ export function AssistantAnswer({
         <AnswerText
           answerId={answer.id}
           blocks={blocks}
+          figureRuns={figureRunsOfAnswer(answer, blocks)}
           label={t("answer.label")}
           streaming={streaming}
           regenerate={regenerate}

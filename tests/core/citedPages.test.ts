@@ -11,9 +11,15 @@ import { describe, expect, test, vi } from "vitest";
 import {
   type CapturePage,
   CITED_PAGES_FOLDER,
+  DATABASE_FILE,
   type LogFields,
   type PageCaptureRequest,
 } from "../../src/core";
+import type { CitedUnits } from "../../src/core/answers/citedVersions";
+import { createVersionRetention } from "../../src/core/documents/retention";
+import { openDatabase } from "../../src/core/storage";
+import { calculatedFigureNode, readFigureCitation } from "../../src/shared/calculatedFigures";
+import { FORMULA_VERSION } from "../../src/shared/formula";
 import {
   answerEnded,
   askAndFinish,
@@ -104,6 +110,72 @@ const liveRows = (dataDir: string) =>
     dataDir,
     "SELECT id, image_type FROM cited_pages WHERE deleted_at IS NULL ORDER BY rowid",
   );
+
+// Freeze alpha.4's retained-unit cleanup (e61443ec4), so a current reader cannot mask incompatibility.
+function collectRetainedPagesAsAlpha4(dataDir: string): void {
+  const db = openDatabase(join(dataDir, DATABASE_FILE));
+  const retention = createVersionRetention(db, () => new Date().toISOString());
+  try {
+    const rows = db.all<{
+      id: string;
+      document_id: string;
+      content_hash: string;
+      page_from: number;
+      page_to: number;
+      area: string;
+    }>(
+      "SELECT id, document_id, content_hash, page_from, page_to, area FROM cited_pages WHERE deleted_at IS NULL",
+    );
+    const byDocument = new Map<string, typeof rows>();
+    for (const row of rows) {
+      const list = byDocument.get(row.document_id);
+      if (list) list.push(row);
+      else byDocument.set(row.document_id, [row]);
+    }
+    const kept = new Set<string>();
+    const keep = (
+      place: {
+        documentId: string;
+        contentHash: string | null;
+        pageFrom: number;
+        pageTo: number;
+        area: string | null;
+      },
+      overlapping: boolean,
+    ) => {
+      for (const row of byDocument.get(place.documentId) ?? []) {
+        if (place.contentHash !== null && row.content_hash !== place.contentHash) continue;
+        if (place.area !== null && row.area !== place.area) continue;
+        const same = overlapping
+          ? row.page_from <= place.pageTo && row.page_to >= place.pageFrom
+          : row.page_from === place.pageFrom && row.page_to === place.pageTo;
+        if (same) kept.add(row.id);
+      }
+    };
+    const units: CitedUnits[] = [];
+    retention.addRetainedUnits(new Set(byDocument.keys()), units, ["checkpoint"]);
+    for (const unit of units) {
+      const pageFrom = unit.pageFrom ?? 1;
+      const pageTo = unit.pageTo ?? Number.MAX_SAFE_INTEGER;
+      keep({ ...unit, pageFrom, pageTo, area: null }, true);
+    }
+    const gone = rows.filter((row) => !kept.has(row.id));
+    if (gone.length === 0) return;
+    const at = new Date().toISOString();
+    db.transaction(() => {
+      for (const row of gone) {
+        db.run("UPDATE cited_pages SET deleted_at = ?, updated_at = ? WHERE id = ?", [
+          at,
+          at,
+          row.id,
+        ]);
+        retention.release("saved-page", row.id);
+      }
+    });
+  } finally {
+    db.close();
+  }
+}
 
 const pdfRecord = (passages: ShownPassage[], page: number, quote: string) => ({
   marker: 1,
@@ -334,6 +406,89 @@ describe("The cited page, saved when a Citation is made", { timeout: 60_000 }, (
     expect(pictures(dataDir)).toEqual([]);
     expect(liveRows(dataDir)).toEqual([]);
     expect(retainedBySavedPages()).toBe(0);
+  });
+
+  test("alpha.4's collector keeps a future Note's figure page after the original PDF goes", async () => {
+    const quote = "Revenue was 10.";
+    const model = citingModel({
+      query: "revenue",
+      records: (passages) => [pdfRecord(passages, 1, quote)],
+      answer: "Revenue was 10 [^1].",
+    });
+    const { core, client, mind, dataDir, documents } = await setUpWithDocuments(model, [
+      { name: "Revenue.pdf", contents: buildPdf([{ lines: ["Revenue", quote] }]) },
+    ]);
+    const { answerId } = await askAndFinish(core, client, mind.id, "What was revenue?");
+    const [citation] = citationsIn(client, answerId);
+    const [document] = documents;
+    if (!citation?.documentId || !citation.contentHash || !document?.path)
+      throw new Error("The page fixture was not cited.");
+    const source = readFigureCitation(citation);
+    if (!source) throw new Error("The source Citation is incomplete.");
+    const saved = await savedPage(core, citation);
+    writeMind(client, [
+      {
+        type: "paragraph",
+        content: [
+          calculatedFigureNode(
+            {
+              label: "Revenue",
+              formula: "revenue",
+              inputs: [
+                {
+                  name: "revenue",
+                  label: "Revenue",
+                  citation: source,
+                  number: {
+                    chars: "10",
+                    at: 12,
+                    value: 10,
+                    scale: 1,
+                    scaleWord: null,
+                    unit: { kind: "plain" },
+                    decimals: 0,
+                    approximate: false,
+                    reading: null,
+                  },
+                  cell: null,
+                  unitStatement: null,
+                },
+              ],
+              value: 10,
+              unit: { kind: "plain" },
+              approximate: false,
+              shown: "10",
+              show: { language: "en", as: "number", decimals: 0, scale: null },
+              literals: [],
+              engine: FORMULA_VERSION,
+              written: null,
+            },
+            "revenue-figure",
+            null,
+          ),
+        ],
+      },
+    ]);
+    await client.settled();
+    const alias = `note-figure:${mind.id}`;
+    expect(core.retention.retainedBy("checkpoint", alias)).toHaveLength(1);
+    client.doc.getMap("settings").set("schemaVersion", 999);
+    await client.settled();
+    await rm(document.path);
+    core.close();
+    collectRetainedPagesAsAlpha4(dataDir);
+    expect(liveRows(dataDir)).toHaveLength(1);
+    const second = startCore(dataDir);
+    expect((await second.openMind(mind.id)).access).toBe("read-only");
+    expect(await second.citedPageImage(citation)).toEqual(saved);
+    second.retention.release("note-figure", mind.id);
+    second.retention.release("checkpoint", alias);
+    second.close();
+    collectRetainedPagesAsAlpha4(dataDir);
+    expect(liveRows(dataDir)).toEqual([]);
+    const third = startCore(dataDir);
+    expect(await third.citedPageImage(citation)).toBeNull();
+    expect(pictures(dataDir)).toEqual([]);
   });
 
   test("a page is drawn only from the version cited: a file that changes first isn't, and an old version's page stays", async () => {

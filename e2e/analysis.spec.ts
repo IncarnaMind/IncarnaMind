@@ -346,10 +346,10 @@ test("what a job's page could keep is cleared after it: the next job's IndexedDB
 });
 
 test("with Chromium's sandbox off for the app, no job runs: each ends as unavailable, for the sandbox", async () => {
-  process.env.ELECTRON_DISABLE_SANDBOX = "1";
-  const launched = launchApp(dataDir, { sandboxed: true });
-  delete process.env.ELECTRON_DISABLE_SANDBOX;
-  const { app } = await launched;
+  const { app } = await launchApp(dataDir, {
+    sandboxed: true,
+    extraEnv: { ELECTRON_DISABLE_SANDBOX: "1" },
+  });
 
   const ran = await run(app, python('result("sum", 40 + 2)'));
 

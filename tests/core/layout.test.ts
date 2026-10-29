@@ -30,7 +30,11 @@ function describeLayout(layout: WindowLayout, names: Record<string, string>): st
             ? "Library"
             : tab.item.kind === "home"
               ? "Home"
-              : (names[tab.item.kind === "mind" ? tab.item.mindId : tab.item.documentId] ?? "?");
+              : (names[
+                  tab.item.kind === "mind" || tab.item.kind === "figures"
+                    ? tab.item.mindId
+                    : tab.item.documentId
+                ] ?? "?");
         return `${tab.id === group.activeTabId ? "*" : ""}${tab.pinned ? "^" : ""}${tab.preview ? "~" : ""}${name}`;
       })
       .join(" "),
@@ -740,4 +744,51 @@ describe("Tabs and groups", () => {
     expect((await core.getLayout("main")).groups[0]?.tabs).toHaveLength(1);
     await expect(core.getLayout("../main")).rejects.toThrow(InvalidInputError);
   });
+});
+
+test("the Figure schedule opens beside its Note, is retained in layout and closes with the Note", async () => {
+  const { core, mind, change } = await setUp();
+  const note = await mind("Q3 results / 季度业绩");
+  const schedule = { kind: "figures", mindId: note.mindId } as const;
+  let layout = await change({ type: "open", item: note });
+  const origin = tabOf(layout, note);
+  layout = await change({
+    type: "open",
+    item: schedule,
+    where: { in: "side", from: origin.group.id },
+  });
+  expect(layout.groups).toHaveLength(2);
+  expect(layout.groups.find((group) => group.id === origin.group.id)?.activeTabId).toBe(
+    origin.tab.id,
+  );
+  const projected = tabOf(layout, schedule);
+  layout = await change({
+    type: "open",
+    item: schedule,
+    where: { in: "side", from: origin.group.id },
+  });
+  expect(
+    layout.groups.flatMap((group) => group.tabs).filter((tab) => tab.item.kind === "figures"),
+  ).toHaveLength(1);
+  expect(tabOf(layout, schedule).tab.id).toBe(projected.tab.id);
+  expect(tabOf(await core.getLayout(WINDOW), schedule).tab.id).toBe(projected.tab.id);
+  await core.deleteMind(note.mindId);
+  expect((await core.getLayout(WINDOW)).groups.flatMap((group) => group.tabs)).toEqual([]);
+});
+
+test("a Figure schedule behind the Note is moved beside it rather than replacing the Note", async () => {
+  const { mind, change } = await setUp();
+  const note = await mind("Revenue / 收入");
+  const schedule = { kind: "figures", mindId: note.mindId } as const;
+  let layout = await change({ type: "open", item: note });
+  const origin = tabOf(layout, note);
+  layout = await change({ type: "open", item: schedule });
+  await change({ type: "show", tabId: origin.tab.id });
+  layout = await change({
+    type: "open",
+    item: schedule,
+    where: { in: "side", from: origin.group.id },
+  });
+  expect(tabOf(layout, note).group.activeTabId).toBe(origin.tab.id);
+  expect(tabOf(layout, schedule).group.id).not.toBe(origin.group.id);
 });

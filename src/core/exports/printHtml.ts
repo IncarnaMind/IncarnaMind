@@ -319,6 +319,9 @@ class PrintWriter {
         case "math":
           html += mathHtml(item.latex, false);
           break;
+        case "figure":
+          html += escapeHtml(item.figure.shown);
+          break;
         case "image":
           html += imageHtml(item.image.src, item.image.alt);
           break;

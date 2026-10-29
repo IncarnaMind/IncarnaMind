@@ -303,6 +303,14 @@ export function KeyLineIcon(props: IconProps) {
   );
 }
 
+export function SortLineIcon(props: IconProps) {
+  return (
+    <LineIcon strokeWidth={2} {...props}>
+      <path d="M7 5v14M4 16l3 3 3-3M17 19V5M14 8l3-3 3 3" />
+    </LineIcon>
+  );
+}
+
 export function CalculatorLineIcon(props: IconProps) {
   return (
     <LineIcon {...props}>

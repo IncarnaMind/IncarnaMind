@@ -1,4 +1,9 @@
+import { citedLocation } from "../../shared/citations";
+import { differenceText, figurePlaceText, sourceValueText } from "../../shared/figureSchedule";
+import { translate } from "../../shared/i18n";
 import { unreadRecordLines } from "../../shared/unreadFiles";
+import type { FigureScheduleRow } from "../api";
+import { figureReason, statusWord } from "../exports/figureScheduleBook";
 import { escapeHtml } from "../exports/printHtml";
 import type { Language } from "../language";
 import type { CheckRecord } from "./index";
@@ -83,6 +88,54 @@ export function renderRecordHtml(record: CheckRecord): string {
       record.citations,
       t("checkRecord.citations.none"),
     ),
+    ...(record.figures.length > 0 ? [renderFigures(record.figures, language)] : []),
+  ].join("");
+}
+
+const FIGURE_SHAPES: Readonly<Record<string, RecordItem["result"]>> = {
+  supported: "found",
+  "not-checked": "notChecked",
+  checking: "notChecked",
+  "needs-recheck": "needsRecheck",
+  contradicted: "contradicted",
+};
+
+/** The Figure schedule's rows, as its workbook has them (#1932). */
+function renderFigures(rows: readonly FigureScheduleRow[], language: Language): string {
+  const t = (key: Parameters<typeof translate>[1], params?: Parameters<typeof translate>[2]) =>
+    translate(language, key, params);
+  const cell = (main: string, under = "") =>
+    `<td><div>${escapeHtml(main || "—")}</div>${under ? `<div class="record-label">${escapeHtml(under)}</div>` : ""}</td>`;
+  const body = rows
+    .map((row) => {
+      const unchecked = row.shown.state === "not-checked" || row.shown.state === "checking";
+      const citation = unchecked ? null : (row.sourceInput?.citation ?? row.source ?? null);
+      const shape = shapeOf(FIGURE_SHAPES[row.shown.state] ?? "unsupported");
+      return `<tr>${[
+        `<td>${row.number}</td>`,
+        cell(`${row.calculated ? "= " : ""}${row.reading.chars}`, figurePlaceText(row, language)),
+        cell(unchecked ? "" : (sourceValueText(row) ?? "")),
+        cell(citation?.documentName ?? "", citation ? (citedLocation(citation, t) ?? "") : ""),
+        cell(unchecked ? "" : (differenceText(row, language) ?? "")),
+        `<td><div><span class="record-shape">${shape}</span><b>${escapeHtml(t(statusWord(row)))}</b></div>${
+          unchecked
+            ? ""
+            : `<div class="record-label">${escapeHtml(figureReason(row, language))}</div>`
+        }</td>`,
+      ].join("")}</tr>`;
+    })
+    .join("");
+  const head = [
+    "№",
+    t("figures.figure"),
+    t("figures.sourceValue"),
+    t("figures.export.documentPlace"),
+    t("figures.difference"),
+    t("figures.status"),
+  ];
+  return [
+    `<h2>${escapeHtml(t("figures.export.recordHeading"))}</h2>`,
+    `<table class="record-figures"><thead><tr>${head.map((label) => `<th scope="col">${escapeHtml(label)}</th>`).join("")}</tr></thead><tbody>${body}</tbody></table>`,
   ].join("");
 }
 

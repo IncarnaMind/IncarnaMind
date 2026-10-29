@@ -457,7 +457,10 @@ export function createCitedPages(options: CitedPagesOptions) {
         },
         collect() {
           const units: CitedUnits[] = [];
-          retention.addRetainedUnits(new Set(byDocument.keys()), units, ["checkpoint"]);
+          retention.addRetainedUnits(new Set(byDocument.keys()), units, [
+            "checkpoint",
+            "note-figure",
+          ]);
           for (const unit of units) {
             const pageFrom = unit.pageFrom ?? 1;
             const pageTo = unit.pageTo ?? Number.MAX_SAFE_INTEGER;

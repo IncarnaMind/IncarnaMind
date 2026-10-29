@@ -47,6 +47,7 @@ import { emphasisOf, escapeEmphasis, type Look, withoutEmphasisEscapes } from ".
 import {
   BLOCK_ID_ATTRIBUTE,
   type BlockKind,
+  CHART_NODE,
   CITATION_NODE,
   FOOTNOTE_NODE,
   GENERATED_MARK,
@@ -237,12 +238,15 @@ export type ReadResult =
 const stringOf = (value: unknown) => (typeof value === "string" ? value : "");
 
 /** The paragraphs and headings of the Mind, in order, at any depth, with whether an Answer being written holds them. */
-export function textBlocks(blocks: Y.XmlFragment): { element: Y.XmlElement; busy: boolean }[] {
+export function textBlocks(
+  blocks: Y.XmlFragment,
+  { charts = false }: { charts?: boolean } = {},
+): { element: Y.XmlElement; busy: boolean }[] {
   const found: { element: Y.XmlElement; busy: boolean }[] = [];
   const visit = (parent: Y.XmlFragment | Y.XmlElement, busy: boolean) => {
     for (const child of parent.toArray()) {
       if (!(child instanceof Y.XmlElement) || NOT_EDITED.has(child.nodeName)) continue;
-      if (TEXT_BLOCKS.has(child.nodeName)) {
+      if (TEXT_BLOCKS.has(child.nodeName) || (charts && child.nodeName === CHART_NODE)) {
         found.push({ element: child, busy });
         continue;
       }

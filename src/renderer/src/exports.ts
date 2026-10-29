@@ -56,8 +56,13 @@ export const exportPreferences = (): ExportPreferences =>
   useAppStore.getState().settings?.user.exportOptions ?? DEFAULT_PREFERENCES;
 
 export const COMPARISON_EXCEL = "comparison-xlsx";
+export const FIGURE_SCHEDULE_EXCEL = "figure-schedule-xlsx";
 
-export type ExportKind = ExportFormat | "check-record" | typeof COMPARISON_EXCEL;
+export type ExportKind =
+  | ExportFormat
+  | "check-record"
+  | typeof COMPARISON_EXCEL
+  | typeof FIGURE_SCHEDULE_EXCEL;
 
 export const isCheckRecord = (kind: ExportKind): kind is "check-record" => kind === "check-record";
 
@@ -426,12 +431,35 @@ export async function exportComparison(
   }
 }
 
+export async function exportFigureSchedule(
+  mindId: string,
+  first?: () => Promise<boolean>,
+): Promise<void> {
+  const settle = begin(mindId, FIGURE_SCHEDULE_EXCEL);
+  if (!settle) return;
+  try {
+    if (first && !(await first())) {
+      settle(null);
+      return;
+    }
+    settle(savedResult(mindId, FIGURE_SCHEDULE_EXCEL, await core.saveFigureScheduleExport(mindId)));
+  } catch (error) {
+    settle({
+      mindId,
+      format: FIGURE_SCHEDULE_EXCEL,
+      state: "failed",
+      message: errorMessage(error, translateNow),
+    });
+  }
+}
+
 export function exportAgain(
   result: Pick<ExportResult, "mindId" | "format" | "tableId">,
   first: () => Promise<boolean>,
 ): Promise<void> {
   const { mindId, format: kind } = result;
   if (kind === COMPARISON_EXCEL) return exportComparison(mindId, result.tableId ?? "", first);
+  if (kind === FIGURE_SCHEDULE_EXCEL) return exportFigureSchedule(mindId, first);
   if (!isCheckRecord(kind)) return exportMind(mindId, kind, first);
   return exportCheckRecord(mindId, first);
 }
