@@ -55,6 +55,39 @@ async function prepared(language: "en" | "zh-CN"): Promise<string> {
   return dataDir;
 }
 
+test("at first open, the Ask row says something in every frame, then the Question (900px)", async () => {
+  test.setTimeout(180_000);
+  const dataDir = await createDataFolder();
+  const { app, window } = await launchApp(dataDir, { examples: true, fakeChat: true });
+  try {
+    await setWindowSize(app, window, 900, 900);
+    // Step 1 done, as a file of theirs or a connected app makes it: step 2 is open from the first frame.
+    await markSteps(window, { started: true, indexed: true });
+    const seen = await window.evaluate(async () => {
+      const texts: string[] = [];
+      const scan = () => {
+        const row = document.querySelector('[data-testid="first-open-ready-row"]');
+        if (!row) return;
+        const text = (row.textContent ?? "").trim();
+        if (texts.at(-1) !== text) texts.push(text);
+      };
+      const observer = new MutationObserver(scan);
+      observer.observe(document.body, { subtree: true, childList: true, characterData: true });
+      scan();
+      await new Promise((resolve) => setTimeout(resolve, 3_000));
+      observer.disconnect();
+      return texts;
+    });
+    // Never a blank hole while the example's Documents are listed: it says what it is doing.
+    expect(seen.length).toBeGreaterThan(0);
+    expect(seen.filter((text) => text === "")).toEqual([]);
+    await expect(window.getByTestId("first-open-ready")).toBeVisible({ timeout: 30_000 });
+  } finally {
+    await app.close();
+    await removeDataFolder(dataDir);
+  }
+});
+
 for (const language of ["en", "zh-CN"] as const) {
   test(`pressed before its Documents are read, the ready Question says so at once and then answers (${language}, 900px)`, async () => {
     test.setTimeout(180_000);

@@ -57,6 +57,7 @@ async function exampleOverFakes() {
   const documents = new Map<string, Document[]>();
   const cited = new Map<string, string | null>();
   let language: Language = "en";
+  let listingFails = false;
   let shown: Examples | undefined;
   const reports: { folder: string; shownFolder: string | null | undefined }[] = [];
 
@@ -122,7 +123,10 @@ async function exampleOverFakes() {
       throw new Error("not used");
     },
     linkedFolderExists: (linkedFolderId) => folders.has(linkedFolderId),
-    documentsIn: (linkedFolderId) => documents.get(linkedFolderId) ?? [],
+    documentsIn: (linkedFolderId) => {
+      if (listingFails) throw new Error("The folders couldn't be listed.");
+      return documents.get(linkedFolderId) ?? [];
+    },
     mindFolder: () => null,
     now: () => "2026-10-16T09:00:00.000Z",
     checksRelyOn: () => false,
@@ -139,6 +143,9 @@ async function exampleOverFakes() {
   return {
     examples,
     reports,
+    failListing: () => {
+      listingFails = true;
+    },
     cite: (documentIds: readonly string[], mindId: string | null = null) => {
       for (const id of documentIds) cited.set(id, mindId);
     },
@@ -198,4 +205,12 @@ test("an example's own Mind doesn't keep it from following the language, another
   cite(examples.documentsOf(mindId) ?? [], randomUUID());
   await switchTo("en");
   expect(examples.readyQuestion()?.question).toBe(EXAMPLE_SETS.credit["zh-CN"].ready?.question);
+});
+
+// protects=a listing that fails ends in a reason, not in no Question at all; fails_when=readyState swallows the failure and reads as absent.
+test("a listing that fails says so rather than reading as no example", async () => {
+  const { examples, failListing } = await exampleOverFakes();
+  await examples.create();
+  failListing();
+  expect(() => examples.readyState()).toThrow("The folders couldn't be listed.");
 });

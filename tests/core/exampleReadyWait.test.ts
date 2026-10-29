@@ -6,6 +6,7 @@ import type { Core, RecognizedLine, TextRecognizer } from "../../src/core";
 import { createFakeTextRecognizer } from "../../src/core/documents/scan/fake";
 import { EXAMPLE_SETS } from "../../src/core/exampleSets";
 import { createTempDataFolder, NO_MODEL_FILES, startCore } from "../helpers/core";
+import { writeSourceFile } from "../helpers/documents";
 import { buildPdf } from "../helpers/pdf";
 
 /**
@@ -204,6 +205,27 @@ test("a Document deleted while it waits says why, rather than still reading", as
   await expect(waiting).rejects.toMatchObject({
     wording: { key: "error.examples.unreadable" },
   });
+});
+
+test("a Document of the User's own named like the example's is never cited as the example's", async () => {
+  const core = await startWith();
+  await vi.waitFor(async () => expect((await core.readyQuestion())?.waitingFor).toBeNull(), {
+    timeout: 30_000,
+  });
+  const sources = await createTempDataFolder();
+  const name = NAMES[0] as string;
+  const [own] = await core
+    .addDocuments([
+      await writeSourceFile(sources, `${name}.md`, `# ${name}\n\nThe User's own file.\n`),
+    ])
+    .then(({ documents }) => documents);
+  const asked = await core.askExampleReadyQuestion();
+  const { messages } = await core.getConversation(asked.conversationId);
+  const answer = messages.find((each) => each.kind === "answer");
+  const cited = answer?.kind === "answer" ? answer.citations.map((each) => each.documentId) : [];
+  expect(cited).toHaveLength(2);
+  expect(cited).not.toContain(own?.id);
+  expect(await core.isExampleDocument(own?.id as string)).toBe(false);
 });
 
 test("an example Document with no text to read takes the Question away", async () => {

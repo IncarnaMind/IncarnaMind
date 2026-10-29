@@ -482,7 +482,12 @@ function ReadyLine({
     );
   return (
     <div ref={room} className="flex min-w-0 flex-col gap-1">
-      <div className="flex min-h-7 min-w-0 items-center gap-x-3">{line}</div>
+      <div
+        data-testid={testId === undefined ? undefined : `${testId}-row`}
+        className="flex min-h-7 min-w-0 items-center gap-x-3"
+      >
+        {line}
+      </div>
       {problem && (
         <AskProblem
           problem={problem}
