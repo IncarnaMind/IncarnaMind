@@ -89,7 +89,12 @@ import { parseMindId } from "../../minds";
 import type { PreparedChatModel } from "../../providers/chat";
 import { parseSearchScope } from "../../scope";
 import type { AnswerEngine } from "../engine";
-import { type CheckedCitation, type ClaimCheckDependencies, recordJudged } from "./claimCheck";
+import {
+  type CheckedCitation,
+  type ClaimCheckDependencies,
+  createClaimCheck,
+  recordJudged,
+} from "./claimCheck";
 import { createMindCheck, type MindCheckOptions } from "./mindCheck";
 import { recordOpinions, removeOpinion, unmarkedOpinion } from "./opinions";
 import { createPartCheck } from "./partCheck";
@@ -472,6 +477,9 @@ export function createChecks(options: ChecksOptions) {
   /** The requests running, by id: how to stop each, and its Mind. */
   const running = new Map<string, { controller: AbortController; mindId: string }>();
   const claimCheck = createPartCheck(options);
+  // What the assistant writes, and the background watch, have no opinion ranges to keep apart:
+  // each sentence is checked whole, with no sorting call (#1635).
+  const wholeCheck = createClaimCheck(options);
 
   options.consent.registry.register({
     id: "checks",
@@ -855,7 +863,7 @@ export function createChecks(options: ChecksOptions) {
     searchableCount: (documentIds) => options.documents.searchableCount(documentIds),
     prepare,
     prepareQuietly,
-    claimCheck,
+    claimCheck: wholeCheck,
     withResult: noteResult,
     retainEvidence,
     track,
@@ -893,7 +901,7 @@ export function createChecks(options: ChecksOptions) {
     ...options,
     prepare: (answer) =>
       prepareQuietly({ providerId: answer.provider.id, modelId: answer.modelId }),
-    claimCheck,
+    claimCheck: wholeCheck,
     scopeOf: (mindId) => scopeOf(mindId, false),
     citedNow,
     withResult: noteResult,
