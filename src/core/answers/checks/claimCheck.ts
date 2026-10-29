@@ -815,13 +815,22 @@ export function createClaimCheck(deps: ClaimCheckDependencies) {
       )
         return checked;
       const owners = (checked.figures ?? []).filter((figure) => {
-        if (figure.result.verdict !== "contradicted") return false;
-        const deciding =
-          figure.sourceInput?.number.chars ?? figure.result.calculation?.figure.shown;
+        if (
+          figure.result.verdict !== "contradicted" ||
+          figure.calculated ||
+          figure.result.calculation
+        )
+          return false;
+        const deciding = figure.sourceInput?.number.chars;
+        if (!deciding) return false;
+        const old = readFigures(corrected.correction.from, { language: deps.language() });
         return (
-          deciding !== undefined &&
-          corrected.correction.from.includes(figure.reading.chars) &&
-          corrected.correction.choices.every((choice) => choice.wording.includes(deciding))
+          old.length === 1 &&
+          old[0]?.chars === figure.reading.chars &&
+          corrected.correction.choices.every((choice) => {
+            const replacement = readFigures(choice.wording, { language: deps.language() });
+            return replacement.length === 1 && replacement[0]?.chars === deciding;
+          })
         );
       });
       const first = (checked.figures ?? []).find(

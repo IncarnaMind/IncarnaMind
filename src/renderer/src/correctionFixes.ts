@@ -8,17 +8,20 @@ import {
   type ClaimCheckAttributes,
   type ClaimCheckBasis,
   type ClaimCorrectionChoice,
+  type FigureCheckAttributes,
   GENERATED_MARK,
   type RecordAiUseInput,
 } from "../../core/api";
 import { overlapsCitation } from "../../shared/citationOverlap";
+import { readFigures } from "../../shared/figures";
+import { targetHash } from "../../shared/proposals";
 import { INLINE_NODE } from "../../shared/sentences";
 import { citationClosingLength, citationNeedsSpace } from "./checks";
 import { core } from "./core";
 import { citationsOf } from "./editor/alreadyCited";
 import { paragraphPlaces, type ShownClaim, shownClaims } from "./editor/claimChecks";
 import { asOneStep, offerEditorUndo } from "./editor/editorUndo";
-import { translateNow } from "./i18n";
+import { languageNow, translateNow } from "./i18n";
 import { useNotices } from "./notices";
 
 interface CorrectionPlan {
@@ -126,9 +129,14 @@ function blockIdAt(doc: ProseMirrorNode, from: number): string | null {
   return typeof id === "string" ? id : null;
 }
 
+function ownsCorrection(plan: CorrectionPlan, check: ClaimCheckBasis): boolean {
+  return (
+    check.state === "contradicted" && check.correction?.from === plan.claim.check.correction?.from
+  );
+}
+
 function afterCorrection(plan: CorrectionPlan, check: ClaimCheckBasis): ClaimCheckBasis {
-  const owns =
-    check.state === "contradicted" && check.correction?.from === plan.claim.check.correction?.from;
+  const owns = ownsCorrection(plan, check);
   return {
     ...check,
     text: plan.text,
@@ -141,6 +149,101 @@ function afterCorrection(plan: CorrectionPlan, check: ClaimCheckBasis): ClaimChe
       unsupported: null,
       calculation: null,
     }),
+  };
+}
+
+function contextAfter(plan: CorrectionPlan, figure: FigureCheckAttributes): string | undefined {
+  const previous = plan.claim.sentence.text;
+  if (figure.context === previous) return plan.text;
+  return figure.context?.endsWith(`\n${previous}`)
+    ? `${figure.context.slice(0, -previous.length)}${plan.text}`
+    : figure.context;
+}
+
+function sentenceStart(plan: CorrectionPlan, plans: readonly CorrectionPlan[]): number | null {
+  const place = plan.claim.place;
+  if (!place) return null;
+  let start = place.from;
+  for (const earlier of plans) {
+    const other = earlier.claim.place;
+    if (!other || other.blockId !== place.blockId || other.to > place.from) continue;
+    start +=
+      earlier.choice.wording.length -
+      (earlier.claim.check.correction?.from.length ?? 0) +
+      (earlier.citation ? (earlier.space ? 2 : 1) : 0);
+  }
+  return start;
+}
+
+function remappedFigure(
+  plan: CorrectionPlan,
+  figure: FigureCheckAttributes,
+  start: number,
+): FigureCheckAttributes | null {
+  const correction = plan.claim.check.correction;
+  const place = plan.claim.place;
+  if (!correction || !place || figure.calculated || figure.locator.kind !== "text") return null;
+  const previous = plan.claim.sentence.text;
+  const oldAt = previous.indexOf(correction.from);
+  const owns = ownsCorrection(plan, figure);
+  const replacements = owns ? readFigures(plan.choice.wording, { language: languageNow() }) : [];
+  if (owns && replacements.length !== 1) return null;
+  const replacement = replacements[0];
+  if (owns && !replacement) return null;
+  const citationAt = previous.length - citationClosingLength(previous);
+  const move = (offset: number) =>
+    offset +
+    (offset >= oldAt + correction.from.length
+      ? plan.choice.wording.length - correction.from.length
+      : 0) +
+    (plan.citation && offset >= citationAt ? (plan.space ? 2 : 1) : 0);
+  const from =
+    owns && replacement ? oldAt + replacement.start : move(figure.locator.from.offset - place.from);
+  const to =
+    owns && replacement ? oldAt + replacement.end : move(figure.locator.to.offset - place.from);
+  if (from < 0 || to <= from) return null;
+  const reading = owns && replacement ? replacement : figure.reading;
+  return {
+    ...figure,
+    ...afterCorrection(plan, figure),
+    id: JSON.stringify(["text", place.blockId, targetHash(plan.text), from, to, reading.chars]),
+    locator: {
+      kind: "text",
+      from: { blockId: place.blockId, offset: start + from },
+      to: { blockId: place.blockId, offset: start + to },
+    },
+    reading: { ...reading, start: start + from, end: start + to },
+    context: contextAfter(plan, figure),
+    ...(owns && { difference: 0, roundedFrom: null }),
+  };
+}
+
+function checkedAfter(
+  plan: CorrectionPlan,
+  plans: readonly CorrectionPlan[],
+): ClaimCheckAttributes {
+  const base: ClaimCheckAttributes = {
+    ...afterCorrection(plan, plan.claim.check),
+    ...(plan.claim.check.remainder !== undefined && {
+      remainder:
+        plan.claim.check.remainder === null
+          ? null
+          : afterCorrection(plan, plan.claim.check.remainder),
+    }),
+  };
+  const figures = plan.claim.check.figures;
+  if (!figures) return base;
+  const start = sentenceStart(plan, plans);
+  return {
+    ...base,
+    figures: figures.map((figure) =>
+      start === null
+        ? { ...figure, ...afterCorrection(plan, figure) }
+        : (remappedFigure(plan, figure, start) ?? {
+            ...figure,
+            ...afterCorrection(plan, figure),
+          }),
+    ),
   };
 }
 
@@ -175,22 +278,7 @@ function apply(editor: Editor, mindId: string, plans: CorrectionPlan[]): number 
   for (const plan of ordered) {
     const from = mapped(plan.from);
     tr.addMark(from, from + plan.choice.wording.length, generated.create());
-    const checked: ClaimCheckAttributes = {
-      ...afterCorrection(plan, plan.claim.check),
-      ...(plan.claim.check.figures && {
-        figures: plan.claim.check.figures.map((figure) => ({
-          ...figure,
-          ...afterCorrection(plan, figure),
-        })),
-      }),
-      ...(plan.claim.check.remainder !== undefined && {
-        remainder:
-          plan.claim.check.remainder === null
-            ? null
-            : afterCorrection(plan, plan.claim.check.remainder),
-      }),
-    };
-    markText(tr, mapped(plan.claim.from), mapped(plan.claim.to), checked);
+    markText(tr, mapped(plan.claim.from), mapped(plan.claim.to), checkedAfter(plan, ordered));
   }
   asOneStep(editor, () => editor.view.dispatch(tr));
   offerEditorUndo(editor, (t) =>

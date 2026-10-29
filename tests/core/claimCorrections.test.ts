@@ -147,6 +147,21 @@ describe("A correction from the public core", () => {
     expect(marked).toMatchObject({ state: "contradicted", correction: null });
   });
 
+  test("stays null when a replacement merely contains the deciding digits", async () => {
+    const quote = "Revenue was 36.8%, previously 136.8%.";
+    const marked = await markWith(
+      {
+        ...contradicted("The report gives another rate.\nChange 1: 20%\nTo 1: 136.8%"),
+        quote,
+        number: "36.8%",
+      },
+      "Revenue was 20%.",
+      [{ name: "Revenue.md", contents: quote }],
+    );
+
+    expect(marked).toMatchObject({ state: "contradicted", correction: null });
+  });
+
   test("stays null rather than attaching a later figure's correction to the first", async () => {
     const claim = "Revenue was £20 and profit was £30.";
     const quote = "Revenue was £21 and profit was £31.";

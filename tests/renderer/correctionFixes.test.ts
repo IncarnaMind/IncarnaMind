@@ -4,6 +4,8 @@ import { prosemirrorToYXmlFragment, yUndoPluginKey } from "@tiptap/y-tiptap";
 import { DOMParser } from "linkedom";
 import { beforeEach, describe, expect, onTestFinished, test, vi } from "vitest";
 import * as Y from "yjs";
+import { figuresInMind } from "../../src/core/answers/checks/figureOccurrences";
+import { markedSentences } from "../../src/core/answers/checks/sentences";
 import {
   CITATION_NODE,
   type CitationAttributes,
@@ -24,10 +26,12 @@ import { CitationNumbers } from "../../src/renderer/src/editor/citationNumbers";
 import {
   ClaimChecks,
   paragraphPlaces,
+  setClaimContext,
   shownClaims,
 } from "../../src/renderer/src/editor/claimChecks";
 import { noteExtensions } from "../../src/renderer/src/editor/noteSchema";
 import { useNotices } from "../../src/renderer/src/notices";
+import { claimCheckShown } from "../../src/shared/claimChecks";
 import { readFigures } from "../../src/shared/figures";
 import { INLINE_NODE } from "../../src/shared/sentences";
 
@@ -38,7 +42,10 @@ vi.mock("../../src/renderer/src/editWithAi", () => ({
   useEdits: { getState: () => ({ pending: {} }) },
 }));
 vi.mock("../../src/renderer/src/modelInUse", () => ({ modelInUseOf: vi.fn() }));
-vi.mock("../../src/renderer/src/i18n", () => ({ translateNow: (key: string) => key }));
+vi.mock("../../src/renderer/src/i18n", () => ({
+  languageNow: () => "en",
+  translateNow: (key: string) => key,
+}));
 
 const dom = new DOMParser().parseFromString(
   "<!doctype html><html><head></head><body></body></html>",
@@ -230,7 +237,7 @@ describe("Correct a contradiction from the Documents", () => {
       footing: [],
     };
     const attrs = { ...check("one", text), figures: [figure], remainder: null };
-    const { editor } = editorWith([
+    const { editor, doc } = editorWith([
       {
         type: "paragraph",
         attrs: { id: "block-one" },
@@ -250,6 +257,37 @@ describe("Correct a contradiction from the Documents", () => {
       correction: null,
     });
     expect(corrected.check.remainder).toBeNull();
+
+    const occurrences = figuresInMind(doc.getXmlFragment(MIND_CONTENT_FIELD));
+    expect(occurrences).toHaveLength(1);
+    expect(corrected.check.figures?.[0]?.id).toBe(occurrences[0]?.id);
+    expect(corrected.check.figures?.[0]?.reading.chars).toBe("38.6%");
+    const figureContexts = new Map(
+      occurrences.map((occurrence) => [occurrence.id, occurrence.context]),
+    );
+    setClaimContext(editor.view, {
+      versions: null,
+      folderId: null,
+      scope: null,
+      figureContexts,
+      figurePlaces: null,
+    });
+    expect(claim(editor, "one").shown.state).toBe("supported");
+
+    const reopened = new Y.Doc();
+    Y.applyUpdate(reopened, Y.encodeStateAsUpdate(doc));
+    const [stored] = markedSentences(reopened.getXmlFragment(MIND_CONTENT_FIELD));
+    if (!stored) throw new Error("The reopened Note has no checked sentence.");
+    expect(
+      claimCheckShown(stored.check, {
+        text: corrected.sentence.text,
+        versions: null,
+        folderId: null,
+        scope: null,
+        figureContexts,
+      }),
+    ).toEqual({ state: "supported" });
+    reopened.destroy();
   });
 
   test("puts a new Citation at the sentence's end, not between the corrected value and its context", () => {
