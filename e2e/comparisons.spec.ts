@@ -2700,7 +2700,7 @@ test("a cell opens its Citation, checks hand edits, protects reviewed cells in b
   await pointAndClick(window, window.getByRole("menuitemcheckbox", { name: "Checked by me" }));
   await expect(window.getByRole("menu")).toHaveCount(0);
   await pointAndClick(window, cellAt(table, 2, 1), { modifiers: ["ControlOrMeta"] });
-  await pointAndClick(window, first.locator(".comparison-cell-menu"));
+  await first.locator(".comparison-cell-menu").click();
   await pointAndClick(window, window.getByRole("menuitemcheckbox", { name: "Checked by me" }));
   await expect(window.getByRole("menu")).toHaveCount(0);
   await expect(first.locator(".comparison-cell-flags")).toHaveCount(0);
