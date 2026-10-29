@@ -655,7 +655,7 @@ export interface ComparisonQuestion {
   text: string;
   /** Its heading, which starts as its Question shortened; absent: the Question shortened. */
   label?: string;
-  /** Its width in the table; absent: the table's own. */
+  /** Its width in the table, in pixels; absent: the table's own. */
   width?: number;
   /** Whether the table draws it; absent: it does. */
   hidden?: boolean;
@@ -4520,6 +4520,138 @@ export interface ComparisonFillRequest extends ComparisonTableRef {
   questionIds?: readonly string[];
 }
 
+/** A comparison table's column to move, and where it lands. */
+export interface ComparisonColumnMove extends ComparisonTableRef {
+  /** The window that made it, so only that window's Undo can take it back. */
+  clientId: string;
+  /** The column's Question. */
+  questionId: string;
+  /** Where it lands among all the columns, hidden ones counted: the second column is 1. */
+  to: number;
+}
+
+/** Where a moved column now is, and whether it moved at all. */
+export interface ComparisonColumnMoveResult {
+  /** Among all the columns, hidden ones counted: the second column is 1. */
+  index: number;
+  moved: boolean;
+  /** The core's record of this change, for its Undo and Redo. */
+  step: string;
+}
+
+/** A column's label and Question, edited on the Mind's own content by the core. */
+export interface ComparisonColumnEditRequest extends ComparisonTableRef {
+  clientId: string;
+  questionId: string;
+  text: string;
+  label: string;
+}
+
+/** What editing a column did: a new Question gives it new cells, to fill. */
+export interface ComparisonColumnEdited {
+  changed: boolean;
+  refilled: boolean;
+  questionId: string;
+  label: string;
+  step: string;
+}
+
+/** A column put beside another. */
+export interface ComparisonColumnInsertRequest extends ComparisonTableRef {
+  clientId: string;
+  /** The column it goes beside. */
+  questionId: string;
+  side: "left" | "right";
+  text: string;
+  label?: string;
+}
+
+/** A column copied beside itself. */
+export interface ComparisonColumnDuplicateRequest extends ComparisonTableRef {
+  clientId: string;
+  questionId: string;
+}
+
+/** What a new or copied column left for the window: whether to fill it. */
+export interface ComparisonColumnAdded {
+  questionId: string;
+  label: string;
+  /** Its cells wait for an Answer, so the window fills it. */
+  fill: boolean;
+  step: string;
+}
+
+/** A column taken out whole. */
+export interface ComparisonColumnRemoveRequest extends ComparisonTableRef {
+  clientId: string;
+  questionId: string;
+}
+
+/** What removing a column left: the column to focus. */
+export interface ComparisonColumnRemoved {
+  label: string;
+  focusId: string | null;
+  step: string;
+}
+
+/** A column's width in pixels, within the table's bounds. */
+export interface ComparisonColumnWidthRequest extends ComparisonTableRef {
+  clientId: string;
+  questionId: string;
+  width: number;
+}
+
+export interface ComparisonColumnWidthSet {
+  label: string;
+  width: number;
+  step: string;
+}
+
+/** A column hidden from the table, or shown again. */
+export interface ComparisonColumnHiddenRequest extends ComparisonTableRef {
+  clientId: string;
+  questionId: string;
+  hidden: boolean;
+}
+
+export interface ComparisonColumnHiddenSet {
+  label: string;
+  questionId: string;
+  hidden: boolean;
+  focusId: string | null;
+  step: string;
+}
+
+/** A structure change of a table, by the core's record of it and the window that made it. */
+export interface ComparisonStructureRef extends ComparisonTableRef {
+  clientId: string;
+  step: string;
+}
+
+/** Taking back, or doing again, a structure change of a table, by the core's record of it. */
+export interface ComparisonStructureUndoResult {
+  moved: boolean;
+  /** It isn't the table's latest structure change, or another window made it. */
+  reason?: "changed";
+}
+
+/** A window watching a Mind's comparison tables, for the flush and lock around a structure change. */
+export interface ComparisonWatch {
+  mindId: string;
+  clientId: string;
+}
+
+/** A window saying its changes for the Mind have reached the core. */
+export interface ComparisonStructureAck {
+  requestId: string;
+  clientId: string;
+}
+
+/** A window that is gone, or no longer answers: the core stops waiting for it. */
+export interface ComparisonWindow {
+  clientId: string;
+}
+
 /**
  * What asking for a comparison table, or for its cells to be filled, did: it
  * is in the Mind (a change to accept, the first time) and its cells are being
@@ -4534,12 +4666,24 @@ export type ComparisonResult =
 /** What saving a comparison table as an Excel workbook did (`CoreApi.saveComparisonExport`). */
 export type SavedComparisonExport =
   /** Saved, with how many of the workbook's Citations aren't "Quote found", which the result line says. */
-  | { status: "saved"; file: SavedFile; unverifiedCitations: number }
+  | {
+      status: "saved";
+      file: SavedFile;
+      unverifiedCitations: number;
+      /** The columns the file leaves out, for the app to say so. */
+      hiddenColumns: number;
+    }
   | Exclude<SavedExport, { status: "saved" }>;
 
 /** A comparison table whose cells are being filled ("comparison.filling"). */
 export interface ComparisonFilling extends ComparisonTableRef {
   filling: boolean;
+}
+
+/** A comparison table whose structure the core is writing ("comparison.structure"). */
+export interface ComparisonStructureWriting extends ComparisonTableRef {
+  requestId: string;
+  writing: boolean;
 }
 
 /**
@@ -8146,6 +8290,8 @@ export interface MindExportPreview {
   unverifiedCitations: number;
   /** The Question Blocks in the Mind, whether the export includes them or not. */
   questions: number;
+  /** The comparison-table columns a file leaves out, for the app to say so. */
+  hiddenColumns: number;
   /** The Mind was imported from a Word file, which a Word export writes back into (#105). */
   fromWord: boolean;
   /** Someone's changes from that Word file still waiting (#734), shown or accepted as `theirChanges` says. */
@@ -9853,6 +9999,49 @@ export interface CoreApi {
    * already going takes them up once its cells are done.
    */
   fillComparisonTable(input: ComparisonFillRequest): Promise<ComparisonResult>;
+  /**
+   * Moves a comparison table's column: its Question's place and every row's
+   * cell with it, as one change of the Mind, so no reader ever sees a half
+   * moved table. Its Answers, Citations and marks go with it, and a fill
+   * going on keeps writing into its cells.
+   */
+  moveComparisonColumn(input: ComparisonColumnMove): Promise<ComparisonColumnMoveResult>;
+  /** A column's label and Question: a new Question gives it new cells, which the window fills. */
+  editComparisonColumn(input: ComparisonColumnEditRequest): Promise<ComparisonColumnEdited>;
+  /** A column added beside another, with a waiting cell in every row. */
+  insertComparisonColumn(input: ComparisonColumnInsertRequest): Promise<ComparisonColumnAdded>;
+  /** A column copied beside itself, its Answers included. */
+  duplicateComparisonColumn(
+    input: ComparisonColumnDuplicateRequest,
+  ): Promise<ComparisonColumnAdded>;
+  /** A column and its cells taken out whole. */
+  removeComparisonColumn(input: ComparisonColumnRemoveRequest): Promise<ComparisonColumnRemoved>;
+  /** A column's width, within the table's bounds; nothing changes when it is the same. */
+  resizeComparisonColumn(
+    input: ComparisonColumnWidthRequest,
+  ): Promise<ComparisonColumnWidthSet | null>;
+  /** A column hidden from the table, or shown again; hiding deletes nothing. */
+  setComparisonColumnHidden(
+    input: ComparisonColumnHiddenRequest,
+  ): Promise<ComparisonColumnHiddenSet | null>;
+  /**
+   * Takes back the structure change the window names, if it is still the
+   * table's latest and that window made it.
+   */
+  undoComparisonStructure(input: ComparisonStructureRef): Promise<ComparisonStructureUndoResult>;
+  /** Does again the structure change its Undo took back. */
+  redoComparisonStructure(input: ComparisonStructureRef): Promise<ComparisonStructureUndoResult>;
+  /** A window with the Mind open: it flushes and locks for that Mind's column changes. */
+  watchComparisonMind(input: ComparisonWatch): Promise<void>;
+  /** That window closed the Mind. */
+  unwatchComparisonMind(input: ComparisonWatch): Promise<void>;
+  /** Its changes for the Mind have reached the core; a waiting structure change may go on. */
+  acknowledgeComparisonStructure(input: ComparisonStructureAck): Promise<void>;
+  /**
+   * Its window is gone (closed or crashed): stop waiting for it on every Mind.
+   * The core also drops a window that misses one wait, after that wait.
+   */
+  forgetComparisonWindow(input: ComparisonWindow): Promise<void>;
   /** Stops filling a comparison table: cells being written stay as they were. */
   stopComparisonTable(input: ComparisonTableRef): Promise<void>;
   /** The comparison tables whose cells are being filled now. */
@@ -10901,6 +11090,8 @@ export interface CoreEvents {
   "answer.failed": AnswerFailed;
   /** A comparison table's cells started or stopped being filled. */
   "comparison.filling": ComparisonFilling;
+  /** A column of a comparison table is being written: every window holds its edits until it lands. */
+  "comparison.structure": ComparisonStructureWriting;
   /** A Task started, moved on, waits for the User, paused, resumed or finished. */
   "task.changed": Task;
   /** A Task's notification was clicked: the window opens its Mind, with its row in the tray. */
@@ -11067,6 +11258,19 @@ const methods: Record<CoreApiMethod, true> = {
   estimateRun: true,
   compareDocuments: true,
   fillComparisonTable: true,
+  moveComparisonColumn: true,
+  editComparisonColumn: true,
+  insertComparisonColumn: true,
+  duplicateComparisonColumn: true,
+  removeComparisonColumn: true,
+  resizeComparisonColumn: true,
+  setComparisonColumnHidden: true,
+  undoComparisonStructure: true,
+  redoComparisonStructure: true,
+  watchComparisonMind: true,
+  unwatchComparisonMind: true,
+  acknowledgeComparisonStructure: true,
+  forgetComparisonWindow: true,
   stopComparisonTable: true,
   listFillingComparisons: true,
   listTasks: true,

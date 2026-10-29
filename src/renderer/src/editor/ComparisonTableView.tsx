@@ -1,15 +1,18 @@
 import { NodeViewContent, NodeViewWrapper, type ReactNodeViewProps } from "@tiptap/react";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
-import type { RunStop } from "../../../core/api";
+import type { ComparisonQuestion, RunStop } from "../../../core/api";
 import {
   cellStop,
   cellToFill,
   comparisonCellOf,
   comparisonQuestionsOf,
   MAX_COMPARISON_QUESTIONS,
+  visibleComparisonQuestions,
 } from "../../../shared/comparisons";
 import { mindName } from "../../../shared/naming";
 import { readProposalAttribute } from "../../../shared/proposals";
+import { addColumn, moveColumn, resizeColumn, showColumn } from "../comparisonColumns";
+import { fittedColumnWidth } from "../comparisonColumnWidth";
 import {
   expandComparisonTable,
   fillComparisonTable,
@@ -28,8 +31,12 @@ import { useLanguage, useT } from "../i18n";
 import { useAppStore } from "../store";
 import { tableTask, useTasks } from "../tasks";
 import { typesText } from "../undo";
-import { ColumnQuestionField, ComparisonColumnHeading } from "./ComparisonColumnHeading";
-import { addComparisonColumn } from "./comparisonCommands";
+import {
+  type ColumnDrop,
+  ColumnQuestionField,
+  ComparisonColumnHeading,
+} from "./ComparisonColumnHeading";
+import { ComparisonHiddenColumnsMenu } from "./ComparisonHiddenColumnsMenu";
 import { CollapseIcon, ExpandIcon, TableIcon } from "./icons";
 import { useMindId } from "./mindContext";
 
@@ -37,13 +44,15 @@ import { useMindId } from "./mindContext";
  * The table's cells: how many, how many have their outcome, how many filling
  * again would write, and the monthly cap or plan's limit that stopped a fill.
  */
-function cellCounts(node: ReactNodeViewProps["node"]) {
+function cellCounts(node: ReactNodeViewProps["node"], hidden: ReadonlySet<string>) {
   let total = 0;
   let settled = 0;
   let toFill = 0;
   let stop: RunStop | null = null;
   node.forEach((row) => {
     row.forEach((cell) => {
+      // A hidden column is out of the work, as the core's fill leaves it: not counted or stopped on.
+      if (hidden.has(String(cell.attrs.questionId ?? ""))) return;
       const state = comparisonCellOf(cell.attrs);
       total++;
       if (state.status === "done" || state.status === "failed") settled++;
@@ -130,7 +139,9 @@ export function ComparisonTableView({ node, editor }: ReactNodeViewProps) {
   const t = useT();
   const mindId = useMindId();
   const tableId = String(node.attrs.id ?? "");
-  const questions = comparisonQuestionsOf(node.attrs);
+  const columns = comparisonQuestionsOf(node.attrs);
+  const questions = visibleComparisonQuestions(columns);
+  const hidden = columns.filter((column) => column.hidden === true);
   const proposal = readProposalAttribute(node.attrs.proposal);
   const filling = useComparisons((state) => state.filling.has(tableId));
   // Paused, its Task still holds its cells: they wait rather than stopped.
@@ -143,11 +154,46 @@ export function ComparisonTableView({ node, editor }: ReactNodeViewProps) {
   });
   const wrapper = useRef<HTMLDivElement>(null);
   const [adding, setAdding] = useState(false);
-  const { total, settled, toFill, stop } = cellCounts(node);
+  const [resizing, setResizing] = useState<{ questionId: string; width: number } | null>(null);
+  const [drag, setDrag] = useState<{ questionId: string; slot: number | null } | null>(null);
+  const hiddenIds = new Set(hidden.map((column) => column.id));
+  const { total, settled, toFill, stop } = cellCounts(node, hiddenIds);
+  const hiddenKey = hidden.map((column) => column.id).join("\n");
+  const lastShown = questions.at(-1)?.id ?? null;
+  // The cells are drawn in the document's order, which is the Questions': a hidden column's
+  // cells are hidden, and the last column shown keeps the grid's outer edge. Read by
+  // `questionId`, so a move, a hide or a show keeps this right however the rows arrive.
+  useLayoutEffect(() => {
+    const element = wrapper.current;
+    if (!element) return;
+    const hiddenNow = new Set(hiddenKey === "" ? [] : hiddenKey.split("\n"));
+    let applied = "";
+    const apply = () => {
+      const cells = element.querySelectorAll<HTMLElement>(
+        ".comparison-row-cells > .comparison-cell[data-question-id]",
+      );
+      // A keystroke elsewhere in the note changes no cell's column: one signature keeps this off it.
+      const signature = `${hiddenKey}\n${lastShown ?? ""}\n${cells.length}`;
+      if (signature === applied) return;
+      applied = signature;
+      for (const cell of cells) {
+        const questionId = cell.dataset.questionId ?? "";
+        cell.hidden = hiddenNow.has(questionId);
+        if (questionId === lastShown) cell.dataset.lastShown = "true";
+        else delete cell.dataset.lastShown;
+      }
+    };
+    apply();
+    editor.on("transaction", apply);
+    return () => {
+      editor.off("transaction", apply);
+    };
+  }, [editor, hiddenKey, lastShown]);
   const language = useLanguage();
   const openSettings = useAppStore((state) => state.openSettings);
   const editable = editor.isEditable;
   const ref = { mindId, tableId };
+  const handle = { editor, mindId, tableId };
 
   useExpandInPlace(wrapper, expanded, () => expandComparisonTable(null));
   useEffect(loadFillingComparisons, []);
@@ -163,11 +209,41 @@ export function ComparisonTableView({ node, editor }: ReactNodeViewProps) {
 
   const addQuestion = (text: string) => {
     setAdding(false);
-    const id = addComparisonColumn(editor, tableId, text);
-    if (id) void fillComparisonTable({ ...ref, questionIds: [id] });
+    void addColumn(handle, text);
   };
 
-  const canAdd = editable && questions.length < MAX_COMPARISON_QUESTIONS;
+  const moveTo = (questionId: string, slot: number) => {
+    const landing = questions[slot];
+    const to = landing
+      ? columns.findIndex((column) => column.id === landing.id)
+      : columns.length - 1;
+    if (to >= 0) void moveColumn(handle, questionId, to);
+  };
+
+  const fit = (questionId: string) => {
+    const table = wrapper.current;
+    const width = table ? fittedColumnWidth(table, questionId) : null;
+    if (width !== null) void resizeColumn(handle, questionId, width);
+  };
+
+  const dropOf = (index: number): ColumnDrop => {
+    if (!drag || drag.slot === null) return null;
+    if (drag.slot === index) return "before";
+    return drag.slot === questions.length && index === questions.length - 1 ? "after" : null;
+  };
+
+  const widthOf = (question: ComparisonQuestion) =>
+    resizing?.questionId === question.id ? resizing.width : question.width;
+  const gridTemplateColumns = [
+    "minmax(132px, 168px)",
+    ...questions.map((question) => {
+      const width = widthOf(question);
+      return width ? `${Math.round(width)}px` : "minmax(156px, 1fr)";
+    }),
+    ...(adding ? ["minmax(156px, 1fr)"] : []),
+  ].join(" ");
+
+  const canAdd = editable && columns.length < MAX_COMPARISON_QUESTIONS;
   /** "+ Question", in the title line or beside the heading row: styles.css shows the one that fits. */
   const addButton = (place: "head" | "side") =>
     canAdd &&
@@ -193,6 +269,7 @@ export function ComparisonTableView({ node, editor }: ReactNodeViewProps) {
       data-waiting={(!filling && waiting) || undefined}
       data-expanded={expanded || undefined}
       data-pending={proposal ? "true" : undefined}
+      data-no-columns={questions.length === 0 ? "true" : undefined}
       className="comparison-table"
     >
       <div contentEditable={false} data-comparison-ui className="comparison-head">
@@ -255,6 +332,12 @@ export function ComparisonTableView({ node, editor }: ReactNodeViewProps) {
           </span>
         )}
         <span className="comparison-head-end">
+          {editable && hidden.length > 0 && (
+            <ComparisonHiddenColumnsMenu
+              hidden={hidden}
+              onShow={(questionId) => void showColumn(handle, questionId)}
+            />
+          )}
           {addButton("head")}
           {expanded && (
             <button
@@ -328,9 +411,7 @@ export function ComparisonTableView({ node, editor }: ReactNodeViewProps) {
           className="comparison-scroll"
           role="table"
           aria-label={title}
-          style={
-            { "--comparison-columns": questions.length + (adding ? 1 : 0) } as React.CSSProperties
-          }
+          style={{ gridTemplateColumns } as React.CSSProperties}
         >
           {/* biome-ignore lint/a11y/useSemanticElements lint/a11y/useFocusableInteractive: the table's heading row, as its grid needs it; nothing in it takes the focus but "+ Question"'s field. */}
           <div
@@ -343,15 +424,28 @@ export function ComparisonTableView({ node, editor }: ReactNodeViewProps) {
             <div className="comparison-corner" role="columnheader">
               {t("comparison.document")}
             </div>
-            {questions.map((question) => (
+            {questions.map((question, index) => (
               <ComparisonColumnHeading
                 key={question.id}
                 editor={editor}
                 mindId={mindId}
                 tableId={tableId}
                 question={question}
-                count={questions.length}
+                count={columns.length}
                 editable={editable}
+                width={widthOf(question)}
+                lastShown={question.id === lastShown}
+                dragging={drag?.questionId === question.id}
+                drop={dropOf(index)}
+                onWidthPreview={(questionId, width) =>
+                  setResizing(width === null ? null : { questionId, width })
+                }
+                onWidthCommit={(questionId, width) => void resizeColumn(handle, questionId, width)}
+                onFit={fit}
+                onDragStart={(questionId) => setDrag({ questionId, slot: null })}
+                onDragOver={(slot) => setDrag((state) => (state ? { ...state, slot } : state))}
+                onDragEnd={() => setDrag(null)}
+                onMoveTo={moveTo}
               />
             ))}
             {adding && (
