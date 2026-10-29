@@ -210,6 +210,17 @@ export function ExportLineIcon(props: IconProps) {
   );
 }
 
+/** Open beside: an arrow up and out of a page. */
+export function OpenBesideLineIcon(props: IconProps) {
+  return (
+    <LineIcon {...props}>
+      <path d="M20 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V5a1 1 0 0 1 1-1h5" />
+      <path d="M14 4h6v6" />
+      <path d="m20 4-8 8" />
+    </LineIcon>
+  );
+}
+
 export function CloseLineIcon(props: IconProps) {
   return (
     <LineIcon strokeWidth={2} {...props}>

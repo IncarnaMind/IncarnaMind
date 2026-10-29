@@ -137,6 +137,13 @@ A comparison table's column has a short **label**, its heading, beside its Quest
 - **Content schema version 30** adds `label` to each column of a table's `questions`, with room for its `width` and whether it is `hidden`. An older version's editor writes the columns back as `{ id, text }` when it changes one, which would lose all three, so it opens these Minds read-only. Older content is version 30 content as it is.
 - **A heading shortens; a file doesn't.** The table's headings and the commands that name a column in the app read `label ?? shortened(text)`, because a heading has room for about 40 characters. The Excel and Word exports read `label ?? text`, so a Question longer than a heading, or one a label hasn't replaced, reaches a file whole. Either way a column has one name, its label when it has one.
 
+## Amendment: a comparison table has a title (2026-10-29, #1837)
+
+A comparison table has a **title** of its own, its name in the title line and the name its Excel file and sheet are given. A table with none is called "Comparison table", so tables written before this need no migration.
+
+- **Content schema version 33** adds `title` on the table node: at most 120 characters on one line, the User's name for it, kept with the Note and copied with it. An older version's editor writes the table back without it when it changes the table, so it opens these Notes read-only. Older content is version 33 content as it is.
+- **No SQL table, no migration.** Nothing outside the Mind's Yjs document changes.
+
 ## Amendment: one sentence check keeps its parts (2026-10-28, #2002)
 
 A sentence still has one `claimCheck` mark. Its ordered `parts` keep each part's UTF-16 character range, whether it is a fact or the writer's opinion, its result and its ordinary Citations. A part's optional `decidingEvidence` indexes its deciding Citation in that array, or is null when none decides it; other checked quotes remain provenance without becoming deciding evidence. An omitted opinion has no verdict; a failed check remains Not checked. The sentence's result and singular evidence are projections of the parts, written together. Every factual part must be supported before the sentence is supported. A quantifier's coverage keeps its complete domain and checked member evidence separately; a domain list is never evidence that each member satisfies the claim.

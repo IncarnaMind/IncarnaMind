@@ -4245,6 +4245,9 @@ export function createCore(adapters: CoreAdapters): Core {
       inFlow("comparison", async () => comparisons.resizeColumn(input)),
     setComparisonColumnHidden: (input) =>
       inFlow("comparison", async () => comparisons.hideColumn(input)),
+    addComparisonRows: (input) => inFlow("comparison", async () => comparisons.addRows(input)),
+    removeComparisonRow: (input) => inFlow("comparison", async () => comparisons.removeRow(input)),
+    moveComparisonRow: (input) => inFlow("comparison", async () => comparisons.moveRow(input)),
     undoComparisonStructure: (input) =>
       inFlow("comparison", () => comparisons.undoStructure(input)),
     redoComparisonStructure: (input) =>

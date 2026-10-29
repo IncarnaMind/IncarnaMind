@@ -50,6 +50,7 @@ export const ComparisonTable = Node.create<ComparisonViews>({
 
   addAttributes() {
     return {
+      title: dataAttribute("title"),
       questions: dataAttribute("questions", true),
       providerId: dataAttribute("provider-id"),
       modelId: dataAttribute("model-id"),

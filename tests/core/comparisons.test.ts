@@ -791,6 +791,66 @@ describe("Compare Documents", () => {
     expect(asked.filter((question) => question === "Liability cap")).toHaveLength(3);
   });
 
+  test("a column asked for while a new row fills writes that column's other rows, not the cells the two don't share", async () => {
+    let release = () => {};
+    const held = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    /** Each cell asked, once: its row's Document and its Question. */
+    const asked: string[] = [];
+    const model = cellModel(
+      (call, asking) => {
+        if (call.results.length === 0) asked.push(`${asking.document}: ${asking.question}`);
+        return null;
+      },
+      held,
+      (asking) => asking.document === "Lumeric",
+    );
+    const { core, client, mind, documents } = await setUpWithDocuments(model, SUPPLIERS);
+    const questions = [
+      { id: "q-notice", text: "Termination notice" },
+      { id: "q-liability", text: "Liability cap" },
+    ];
+    client.doc.transact(() =>
+      client.doc
+        .getXmlFragment(MIND_CONTENT_FIELD)
+        .push([createElement(waitingTable(documents, questions))]),
+    );
+    await client.settled();
+    const tableId = "held-table";
+
+    // The added Document's row fills alone, held mid-answer, and the notice column is asked
+    // for meanwhile, as a column the User adds later is.
+    const third = documents[2];
+    if (!third) throw new Error("No third Document.");
+    expect(
+      await core.fillComparisonTable({ mindId: mind.id, tableId, documentIds: [third.id] }),
+    ).toEqual({ started: true, tableId });
+    await vi.waitFor(() => expect(asked.length).toBeGreaterThan(0));
+    expect(
+      await core.fillComparisonTable({ mindId: mind.id, tableId, questionIds: ["q-notice"] }),
+    ).toEqual({ started: true, tableId });
+    release();
+    await fillEnded(core, tableId);
+    await client.settled();
+
+    // The two requests' cells together: the new row by both Questions, and the notice
+    // column of the other rows. Their other liability cells were never asked for.
+    expect(new Set(asked)).toEqual(
+      new Set([
+        "Corvane: Termination notice",
+        "Halvard: Termination notice",
+        "Lumeric: Termination notice",
+        "Lumeric: Liability cap",
+      ]),
+    );
+    expect(tableIn(client).rows.map((row) => row.cells.map((cell) => cell.status))).toEqual([
+      ["done", "waiting"],
+      ["done", "waiting"],
+      ["done", "failed"],
+    ]);
+  });
+
   test("a column queued while another fills is still filled after a quit", async () => {
     let release = () => {};
     const held = new Promise<void>((resolve) => {

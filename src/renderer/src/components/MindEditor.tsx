@@ -43,6 +43,7 @@ import { CheckBadge } from "../editor/CheckBadge";
 import { CitationStylePrompt } from "../editor/CitationStylePrompt";
 import { CitationView } from "../editor/CitationView";
 import { CodeBlockView } from "../editor/CodeBlockView";
+import { ComparisonRowView } from "../editor/ComparisonRowView";
 import { ComparisonTableView } from "../editor/ComparisonTableView";
 import { checklistLabel } from "../editor/checklistLabel";
 import { useCardPlace } from "../editor/checkPlace";
@@ -50,7 +51,7 @@ import { CitationClusters } from "../editor/citationClusters";
 import { CitationNumbers, redrawFootnotes, setCitationForm } from "../editor/citationNumbers";
 import { ClaimChecks, figurePlacesOf, setClaimContext } from "../editor/claimChecks";
 import { useClickBelowNote } from "../editor/clickBelowNote";
-import { comparisonCellView, comparisonRowView } from "../editor/comparisonViews";
+import { comparisonCellView } from "../editor/comparisonViews";
 import { CopyCitations } from "../editor/copyCitations";
 import { DocumentChipView } from "../editor/DocumentChipView";
 import { useDefaultStyleNotice } from "../editor/defaultStyleNotice";
@@ -266,21 +267,22 @@ const chartView = ReactNodeViewRenderer(ChartView, {
  * their own pointer and keys, so the editor doesn't select or type over them;
  * its cells are content the editor draws, never typed in.
  */
+const comparisonStopEvent = ({ event }: { event: Event }) => {
+  const target = event.target;
+  if (!(target instanceof Element) || !target.closest("[data-comparison-ui]")) return false;
+  if (event.type.startsWith("drag") || event.type === "drop") return false;
+  const undo =
+    event instanceof KeyboardEvent &&
+    (event.metaKey || event.ctrlKey) &&
+    /^[zy]$/i.test(event.key) &&
+    !(target instanceof HTMLInputElement);
+  return !undo;
+};
+
 const comparisonViews = {
-  table: ReactNodeViewRenderer(ComparisonTableView, {
-    stopEvent: ({ event }) => {
-      const target = event.target;
-      if (!(target instanceof Element) || !target.closest("[data-comparison-ui]")) return false;
-      if (event.type.startsWith("drag") || event.type === "drop") return false;
-      const undo =
-        event instanceof KeyboardEvent &&
-        (event.metaKey || event.ctrlKey) &&
-        /^[zy]$/i.test(event.key) &&
-        !(target instanceof HTMLInputElement);
-      return !undo;
-    },
-  }),
-  row: comparisonRowView,
+  table: ReactNodeViewRenderer(ComparisonTableView, { stopEvent: comparisonStopEvent }),
+  // A row's head takes its own pointer and keys: its menu, Open, Delete and its drag.
+  row: ReactNodeViewRenderer(ComparisonRowView, { stopEvent: comparisonStopEvent }),
   cell: comparisonCellView,
 };
 
