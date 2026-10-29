@@ -1,4 +1,6 @@
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { createServer } from "node:http";
+import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { type ElectronApplication, expect, type Locator, type Page, test } from "@playwright/test";
@@ -1756,12 +1758,30 @@ test("with no key, the ChatGPT plan comes first, the Claude account second, and 
 
 for (const language of ["en", "zh-CN"] as const) {
   test(`the setup card says it is looking for the model app until the probe answers, and never that it is missing (${language})`, async () => {
-    // A server that answers slowly, as a busy computer's does.
-    const server = await ollamaListing(["qwen3.5:4b"], { delayMs: 1500 });
+    // A server that holds its answer, as a busy computer's is slow to give one: the card is
+    // read while the probe is still out, however long the runner takes to get there.
+    const waiting: (() => void)[] = [];
+    let holding = true;
+    const server = createServer((request, response) => {
+      request.resume();
+      if (request.url !== "/api/tags") {
+        response.writeHead(404);
+        response.end();
+        return;
+      }
+      const answer = () => {
+        response.writeHead(200, { "content-type": "application/json" });
+        response.end(JSON.stringify({ models: [{ name: "qwen3.5:4b", model: "qwen3.5:4b" }] }));
+      };
+      if (holding) waiting.push(answer);
+      else answer();
+    });
+    await new Promise<void>((done) => server.listen(0, "127.0.0.1", done));
+    const { port } = server.address() as AddressInfo;
     const { app, window } = await launchApp(dataDir, {
       fakeChat: true,
       examples: true,
-      ollama: server.url,
+      ollama: `http://127.0.0.1:${port}`,
     });
     try {
       await setWindowSize(app, window, 1100, 900);
@@ -1778,11 +1798,13 @@ for (const language of ["en", "zh-CN"] as const) {
       await expect(card.getByTestId("ollama-get")).toHaveCount(0);
 
       // Then the running state once the probe answers, with no action from the User.
+      holding = false;
+      for (const answer of waiting.splice(0)) answer();
       await expect(status).not.toHaveAttribute("data-looking", "true", { timeout: 15_000 });
       await expect(way).toContainText(translate(language, "setup.way.local.running"));
     } finally {
       await app.close();
-      server.server.close();
+      server.close();
     }
   });
 }

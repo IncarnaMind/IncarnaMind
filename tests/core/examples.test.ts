@@ -135,17 +135,17 @@ describe("the example Mind", { timeout: 30_000 }, () => {
     expect(doc.child(6).textContent).toBe("Is Northwind inside its leverage covenant?");
 
     // Its draft's verdict is written in advance, so its mark is on the page from the first
-    // frame, before its Documents are read (#2196).
+    // frame, before its Documents are read (#2196); what the check cites is added once they are.
     expect(checksOf(doc)).toEqual([
       expect.objectContaining({
         text: "Gross margin fell to 36.8% in Q3, mostly in online.",
         check: expect.objectContaining({
           state: "contradicted",
+          says: "The Q3 results say gross margin was 38.6%, not 36.8%.",
           evidence: expect.objectContaining({
             documentName: "Northwind Retail · Q3 2026 results",
             quote:
               "Group gross margin was 38.6%, down from 40.3% a year earlier, with online the main drag.",
-            check: "checking",
           }),
         }),
       }),

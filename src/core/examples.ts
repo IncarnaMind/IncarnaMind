@@ -522,6 +522,7 @@ export function createExamples(options: ExamplesOptions) {
     mindId: string,
     set: ExampleSet,
     folderId: string,
+    linkedFolderId: string,
     questionId: string,
     answerId: string,
   ) =>
@@ -555,8 +556,11 @@ export function createExamples(options: ExamplesOptions) {
       // Unedited: regenerating it with a model of one's own replaces it in place.
       answer.setAttribute("generatedHash", contentHash(answer));
       // The draft's verdict is written in advance, so its mark is on the page from the first
-      // frame: the Passage that decides it is added once the Documents are read (#2196).
-      const documents = options.documentsIn(folderId);
+      // frame: the Passage that decides it is added once the Documents are read (#2196). Its
+      // scope is the Mind's own Folder, as the check made later has, so the mark reads as the
+      // verdict it is rather than as one whose search scope changed.
+      const documents = options.documentsIn(linkedFolderId);
+      const scope = options.mindFolder(mindId);
       for (const check of set.checks ?? []) {
         const document = documents.find((each) => each.name === check.evidence.document);
         markCheck(
@@ -564,7 +568,7 @@ export function createExamples(options: ExamplesOptions) {
           check,
           citationAttributes(check.evidence, document, null),
           documents,
-          folderId,
+          scope,
         );
       }
     });
@@ -585,7 +589,7 @@ export function createExamples(options: ExamplesOptions) {
     const mind = options.createMind(set.title);
     const questionId = randomUUID();
     const answerId = randomUUID();
-    populate(mind.id, set, linked.folderId, questionId, answerId);
+    populate(mind.id, set, linked.folderId, linked.id, questionId, answerId);
     options.writeValue(valueKey(group), {
       mindId: mind.id,
       linkedFolderId: linked.id,
@@ -648,7 +652,7 @@ export function createExamples(options: ExamplesOptions) {
     // The old Documents go before the example names the new folder, so nothing reads them as the
     // User's own in between (#2084); nothing waits between the link and "changed" (#914).
     if (!sameFolder) options.unlinkFolder(examples.linkedFolderId);
-    populate(examples.mindId, set, linked.folderId, questionId, answerId);
+    populate(examples.mindId, set, linked.folderId, linked.id, questionId, answerId);
     options.renameMind(examples.mindId, set.title);
     options.writeValue(valueKey(group), {
       mindId: examples.mindId,
