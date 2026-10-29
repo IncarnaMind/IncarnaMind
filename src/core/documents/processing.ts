@@ -97,9 +97,10 @@ export const CURRENT_SINCE: Readonly<Record<DocumentKind, number>> = {
  * version would build: since version 6, the index reads traditional
  * characters as simplified ones (see ./keywords). Such a Document processed
  * by an older version, and current for its kind, is processed again at
- * startup. One without Han characters has nothing to fold: its version is
- * set to this one without its file being read, so its text is looked
- * through only once.
+ * startup. One without Han characters has nothing to fold and is never
+ * queued by this rule: its version stays where its last read put it (see
+ * `record` in ./index), and each start looks through its name and text once
+ * to find out.
  */
 export const HAN_CURRENT_SINCE = 6;
 
