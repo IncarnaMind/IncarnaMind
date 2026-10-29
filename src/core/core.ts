@@ -3209,10 +3209,6 @@ export function createCore(adapters: CoreAdapters): Core {
     },
     linkedFolderExists: (linkedFolderId) =>
       documents.linkedFolders.list().some((folder) => folder.id === linkedFolderId),
-    linkedFolderScanning: (linkedFolderId) =>
-      documents.linkedFolders
-        .list()
-        .some((folder) => folder.id === linkedFolderId && folder.status === "scanning"),
     documentsIn: (linkedFolderId) => documents.list({ linkedFolderId }),
     mindFolder: (mindId) => minds.get(mindId).folderId,
     now,

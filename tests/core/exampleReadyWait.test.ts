@@ -67,17 +67,28 @@ async function startWith(
 }
 
 test("the ready Question names the Document it waits for, and asking answers once it is read", async () => {
-  const core = await startWith();
-  // Asked at the first frame, before its Documents have been read: it says what it waits for.
-  const ready = await core.readyQuestion();
+  const { recognizer, release } = heldRecognizer();
+  const examples = await examplesFolder(() => buildPdf([{ scan: picture("en-clean") }]));
+  const core = await startWith(
+    { textRecognizer: recognizer, textRecognitionModelSource: NO_MODEL_FILES },
+    examples,
+  );
+  // Listed and still being read: the Question says what it waits for.
+  const ready = await vi.waitFor(async () => {
+    const now = await core.readyQuestion();
+    expect(now).not.toBeNull();
+    expect(now?.waitingFor).not.toBeNull();
+    return now;
+  });
   expect(ready?.question).toBe(CREDIT.ready?.question);
-  expect(ready?.waitingFor).not.toBeNull();
   expect(NAMES).toContain(ready?.waitingFor);
 
-  // The click is not swallowed: the Answer comes once the Documents are read.
-  const asked = await core.askExampleReadyQuestion();
-  expect(asked.stopped).toBe(false);
-  const { messages } = await core.getConversation(asked.conversationId);
+  // The click is not swallowed: it waits, writing nothing, and the Answer comes once read.
+  const asked = core.askExampleReadyQuestion();
+  expect(await core.listConversations()).toEqual([]);
+  release();
+  expect((await asked).stopped).toBe(false);
+  const { messages } = await core.getConversation((await asked).conversationId);
   const answer = messages.find((each) => each.kind === "answer");
   expect(answer).toMatchObject({ status: "done", text: CREDIT.ready?.answer });
   expect(answer?.kind === "answer" ? answer.citations : []).toHaveLength(2);
@@ -104,9 +115,13 @@ test("Stop while it waits keeps the Question and a stopped Answer, with no text"
     { textRecognizer: recognizer, textRecognitionModelSource: NO_MODEL_FILES },
     examples,
   );
+  // Listed and still being read: the press waits, and this is the wait Stop ends.
+  await vi.waitFor(async () => {
+    const now = await core.readyQuestion();
+    expect(now).not.toBeNull();
+    expect(now?.waitingFor).not.toBeNull();
+  });
   const waiting = core.askExampleReadyQuestion();
-  // Its first look at the Documents is done: the wait it is in is the one Stop ends.
-  await vi.waitFor(async () => expect((await core.readyQuestion())?.waitingFor).not.toBeNull());
   await core.stopExampleReadyQuestion();
   const asked = await waiting;
   expect(asked.stopped).toBe(true);
@@ -133,6 +148,11 @@ test("a read that never ends says so, rather than waiting for ever", async () =>
     },
     examples,
   );
+  await vi.waitFor(async () => {
+    const now = await core.readyQuestion();
+    expect(now).not.toBeNull();
+    expect(now?.waitingFor).not.toBeNull();
+  });
   await expect(core.askExampleReadyQuestion()).rejects.toMatchObject({
     wording: { key: "error.examples.reading" },
   });
@@ -169,13 +189,17 @@ test("a Document deleted while it waits says why, rather than still reading", as
     },
     examples,
   );
-  const waiting = core.askExampleReadyQuestion();
   const [document] = await vi.waitFor(async () => {
     const listed = await exampleDocumentsOf(core);
     expect(listed.length).toBeGreaterThan(0);
     return listed;
   });
-  await vi.waitFor(async () => expect((await core.readyQuestion())?.waitingFor).not.toBeNull());
+  await vi.waitFor(async () => {
+    const now = await core.readyQuestion();
+    expect(now).not.toBeNull();
+    expect(now?.waitingFor).not.toBeNull();
+  });
+  const waiting = core.askExampleReadyQuestion();
   await core.deleteDocument(document?.id as string);
   await expect(waiting).rejects.toMatchObject({
     wording: { key: "error.examples.unreadable" },
