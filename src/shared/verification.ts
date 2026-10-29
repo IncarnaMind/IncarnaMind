@@ -1,9 +1,12 @@
 /**
  * What a Mind made to verify a document someone else wrote keeps (#97): the
  * Document it reads, the page each of its Blocks came from, and the
- * sentences found to make claims, once they are found. Like the Mind's model
- * (`mindModel.ts`) it lives in the Mind's Yjs settings, not in its Blocks, so
- * an older version keeps it as it is and the content schema stays as it is.
+ * sentences found to make claims, once they are found, each with its
+ * `occurrence` and `parts`, and the `sortedText` they were sorted from
+ * (#2002). It lives in the Mind's Yjs settings, not in its Blocks. An older
+ * version's writer drops the fields it doesn't know when it writes this
+ * record: only the content schema bump in ADR-0003's claim-parts amendment
+ * keeps those Notes from it.
  */
 import type * as Y from "yjs";
 import { type ClaimPartPlan, MIND_SETTINGS_FIELD } from "../core/api";
