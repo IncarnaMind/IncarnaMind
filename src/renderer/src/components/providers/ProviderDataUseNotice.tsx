@@ -34,7 +34,7 @@ export function ProviderDataUseLine({
 }
 
 export function ProviderDataUseNotice({ service }: { service: ExternalService }) {
-  const dataUse = dataUseForService(service.id);
+  const dataUse = dataUseForService(service);
   if (!dataUse || dataUse.training === "no") return null;
   return <ProviderDataUseLine dataUse={dataUse} testId="provider-training-data-use" />;
 }

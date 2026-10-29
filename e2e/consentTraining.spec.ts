@@ -78,6 +78,18 @@ const PROVIDERS = [
     zh: "隐私政策允许用于训练，数据存储在中国；API 条款对此未作说明。",
     href: "https://cdn.deepseek.com/policies/en-US/deepseek-privacy-policy.html",
   },
+  {
+    id: "glm",
+    serviceId: "https://open.bigmodel.cn",
+    input: {
+      kind: "glm",
+      apiKey: "not-a-real-key",
+      modelId: "glm-5.3-flash",
+    },
+    en: "Z.ai says it doesn't store your content; BigModel (China) may train on anonymised data.",
+    zh: "Z.ai 称不存储你的内容；智谱开放平台可能用匿名化数据训练。",
+    href: "https://docs.z.ai/legal-agreement/privacy-policy",
+  },
 ] as const;
 
 for (const language of ["en", "zh-CN"] as const) {
@@ -109,12 +121,25 @@ for (const language of ["en", "zh-CN"] as const) {
       const summary = language === "en" ? provider.en : provider.zh;
       const notice = dialog.getByTestId("provider-training-data-use");
       const link = notice.locator("a");
-      await expect(notice).toContainText(summary);
-      await expect(link).toHaveText(language === "en" ? "Data use ↗" : "条款 ↗");
+      await expect(notice).toHaveText(
+        `${summary}${language === "en" ? " " : ""}${language === "en" ? "Data use ↗" : "数据使用 ↗"}`,
+      );
+      await expect(link).toHaveText(language === "en" ? "Data use ↗" : "数据使用 ↗");
       await expect(link).toHaveAttribute("href", provider.href);
       await expect(link).toHaveCSS("white-space", "nowrap");
+      const noticeBox = await notice.boundingBox();
+      const declineBox = await decline.boundingBox();
+      if (!noticeBox || !declineBox)
+        throw new Error("The consent notice or buttons aren't laid out.");
+      expect(noticeBox.y).toBeLessThan(declineBox.y);
 
       if (provider.id === "cohere") {
+        await link.focus();
+        await window.keyboard.press("Tab");
+        await expect(decline).toBeFocused();
+        await window.keyboard.press("Tab");
+        await expect(window.getByTestId("consent-allow")).toBeFocused();
+        await decline.focus();
         await window.keyboard.press("Enter");
       } else {
         await pointAndClick(window, decline);
@@ -141,6 +166,11 @@ for (const language of ["en", "zh-CN"] as const) {
           "href",
           provider.href,
         );
+        await window.evaluate(async () => {
+          const bridge = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
+          await bridge.removeRerankSettings();
+        });
+        await expect(rerank.getByTestId("provider-training-data-use")).toContainText(summary);
       }
       await app.close();
     });
