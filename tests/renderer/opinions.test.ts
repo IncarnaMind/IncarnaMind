@@ -307,3 +307,26 @@ describe("left-out opinions in the Note", () => {
     expect(health.toCheck).toHaveLength(0);
   });
 });
+
+describe("reading a Note's opinions as it is typed in", () => {
+  // protects=each edit reads the page's opinions once for every card, line and badge that asks, and the Blocks it didn't touch are read again from where they were, so typing in a long Note stays light (#2002); fails_when=every asker walks the whole Note again on each keystroke, or a moved opinion keeps its old place; no_claim=the time a real machine takes.
+  test.each(["We think this is good.", "我们认为这很好。"])(
+    "an unchanged page is read once, and an edit before an opinion moves it: %s",
+    (text) => {
+      const stored = inventory(text);
+      const page = note(paragraph("intro", "A statement."), paragraph("p", text));
+      const first = opinionsIn(page, stored);
+      expect(opinionsIn(page, stored)).toBe(first);
+      const editor = editorWith(page);
+      editor.view.dispatch(editor.state.tr.insertText("Another sentence. ", 1));
+      const moved = opinionsIn(editor.state.doc, stored);
+      expect(moved).not.toBe(first);
+      expect(moved.map((each) => each.range.from - (first[0]?.range.from ?? 0))).toEqual([
+        "Another sentence. ".length,
+      ]);
+      expect(
+        moved.map((each) => editor.state.doc.textBetween(each.range.from, each.range.to)),
+      ).toEqual([text]);
+    },
+  );
+});

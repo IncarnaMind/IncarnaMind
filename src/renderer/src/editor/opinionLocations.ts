@@ -4,35 +4,56 @@ import { BLOCK_ID_ATTRIBUTE } from "../../../core/api";
 import { omittedOpinions, readOpinionSentences } from "../../../shared/opinions";
 import { claimPlaces, claimSpans } from "./claimChecks";
 
+type BlockSentence = {
+  text: string;
+  occurrence: number;
+  from: number;
+  to: number;
+  starts: (number | null)[];
+  ends: (number | null)[];
+};
+
+/** Each Block's sentences, at its start 0: a Block that didn't change keeps them across edits. */
+const blockSentences = new WeakMap<ProseMirrorNode, BlockSentence[]>();
+
+function sentencesOf(block: ProseMirrorNode): BlockSentence[] {
+  const known = blockSentences.get(block);
+  if (known) return known;
+  const places = claimPlaces(block, 0);
+  const occurrences = new Map<string, number>();
+  const found = places.sentences.map((span) => {
+    const occurrence = occurrences.get(span.text) ?? 0;
+    occurrences.set(span.text, occurrence + 1);
+    return {
+      text: span.text,
+      occurrence,
+      from: span.from,
+      to: span.to,
+      starts: places.starts.slice(span.start, span.end),
+      ends: places.ends.slice(span.start, span.end),
+    };
+  });
+  blockSentences.set(block, found);
+  return found;
+}
+
+const shifted = (places: readonly (number | null)[], by: number) =>
+  places.map((place) => (place === null ? null : place + by));
+
 export function opinionLocations(doc: ProseMirrorNode) {
-  const sentences: {
-    blockId: string;
-    text: string;
-    occurrence: number;
-    from: number;
-    to: number;
-    starts: (number | null)[];
-    ends: (number | null)[];
-  }[] = [];
+  const sentences: (BlockSentence & { blockId: string })[] = [];
   doc.descendants((block, pos) => {
     if (!block.isTextblock) return true;
     const blockId: unknown = block.attrs[BLOCK_ID_ATTRIBUTE];
     if (typeof blockId !== "string") return false;
-    const places = claimPlaces(block, pos);
-    const occurrences = new Map<string, number>();
-    for (const span of places.sentences) {
-      const text = span.text;
-      const occurrence = occurrences.get(text) ?? 0;
-      occurrences.set(text, occurrence + 1);
-      const { from, to } = span;
+    for (const each of sentencesOf(block)) {
       sentences.push({
+        ...each,
         blockId,
-        text,
-        occurrence,
-        from,
-        to,
-        starts: places.starts.slice(span.start, span.end),
-        ends: places.ends.slice(span.start, span.end),
+        from: each.from + pos,
+        to: each.to + pos,
+        starts: shifted(each.starts, pos),
+        ends: shifted(each.ends, pos),
       });
     }
     return false;
@@ -40,7 +61,22 @@ export function opinionLocations(doc: ProseMirrorNode) {
   return sentences;
 }
 
+/** The opinions left out, by the page they were read from: each edit reads the page once, whoever asks. */
+const computed = new WeakMap<
+  ProseMirrorNode,
+  { stored: string; opinions: ReturnType<typeof readOpinions> }
+>();
+
 export function opinionsIn(note: ProseMirrorNode, doc: Y.Doc) {
+  const stored = JSON.stringify(readOpinionSentences(doc));
+  const known = computed.get(note);
+  if (known?.stored === stored) return known.opinions;
+  const opinions = readOpinions(note, doc);
+  computed.set(note, { stored, opinions });
+  return opinions;
+}
+
+function readOpinions(note: ProseMirrorNode, doc: Y.Doc) {
   const current = opinionLocations(note);
   const marks = claimSpans(note).flatMap((claim) => {
     const sentence = current.find((each) => each.from === claim.sentence.from);
