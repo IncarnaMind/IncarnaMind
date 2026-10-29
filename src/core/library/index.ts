@@ -904,7 +904,7 @@ export function createLibrary(options: {
     if (countsOwnFiles !== undefined && typeof countsOwnFiles !== "boolean")
       throw new InvalidInputError("countsOwnFiles must be true or false.");
     if (keepInside !== undefined && typeof keepInside !== "boolean")
-      throw new InvalidInputError("keepInside must be true or false.");
+      throw new InvalidInputError({ key: "error.folder.keepInside" });
     return { name, description, countsOwnFiles, keepInside };
   }
 
