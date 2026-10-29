@@ -53,13 +53,13 @@ function whyNot(problem: MindProblem | undefined): string {
         ? "your own waiting changes sit beside the User's text there"
         : `${counted(problem.count, "change")} the assistant can't revise waited there for the User`;
     case "no-mind":
-      return "no Mind was open and none was named";
+      return "no Note was open and none was named";
     case "not-found":
-      return `no Mind is called ${quoted(problem.name)}`;
+      return `no Note is called ${quoted(problem.name)}`;
     case "several":
-      return `several Minds are called ${quoted(problem.name)}`;
+      return `several Notes are called ${quoted(problem.name)}`;
     case "not-picked":
-      return `other Minds have titles close to ${quoted(problem.name)}, and the User didn't pick which one was meant`;
+      return `other Notes have titles close to ${quoted(problem.name)}, and the User didn't pick which one was meant`;
     case "no-heading":
       return `it has no heading ${quoted(problem.heading)}`;
     case "no-place":
@@ -83,7 +83,7 @@ function whyNot(problem: MindProblem | undefined): string {
     case "no-table":
       return "its table couldn't be made";
     case "new-mind":
-      return "the User asked for a new Mind: make it with create_mind";
+      return "the User asked for a new Note: make it with create_mind";
     case "uncited":
       return "its sources were written as text, as markers with no Citation recorded, or not cited at all";
     case "local-mode":
@@ -112,7 +112,7 @@ function mindOf(call: AnswerToolCall, names: MindNames): string {
   const problem = call.mindProblem;
   const id = call.mindChange?.mindId ?? (problem && "mindId" in problem ? problem.mindId : null);
   const name = (id && names(id)) || field(call, "mind") || field(call, "title");
-  return name ? quoted(name) : "the Mind the User was in";
+  return name ? quoted(name) : "the Note the User was in";
 }
 
 /** What the User did with `total` Proposals, in words; "" when nothing says they did anything. */
@@ -137,7 +137,7 @@ function decisions(total: number, accepted: number, rejected: number): string {
 function fateOf(proposals: number, state: ChangeState | null): string {
   if (!state) return "waiting for the User";
   if (state.gone) return GONE;
-  if (state.applied) return "applied in the Mind at once, with Undo";
+  if (state.applied) return "applied in the Note at once, with Undo";
   const { waiting, accepted, rejected } = state;
   if (waiting >= proposals) return "waiting for the User";
   const did =
@@ -166,8 +166,8 @@ function mindLine(call: AnswerToolCall, names: MindNames, states?: ChangeStates)
       return `read_mind ${mind}: read it`;
     case "create_mind":
       return change && change.proposals > 0
-        ? `create_mind: made the Mind ${mind} and ${proposed}`
-        : `create_mind: made the Mind ${mind}, empty`;
+        ? `create_mind: made the Note ${mind} and ${proposed}`
+        : `create_mind: made the Note ${mind}, empty`;
     case "add_to_mind":
       return `add_to_mind ${mind}: proposed ${counted(change?.proposals ?? 0, "new Block")}, ${fate}${change ? detailsOf(change) : ""}`;
     default:
@@ -293,7 +293,7 @@ export function toolRecordLines(
   });
 }
 
-const GONE = "but the Mind is no longer there";
+const GONE = "but the Note is no longer there";
 const WITH_ITS_ANSWER =
   "What the Tools of your Answer above really did, as IncarnaMind recorded it:";
 const WITHOUT_ITS_ANSWER =
