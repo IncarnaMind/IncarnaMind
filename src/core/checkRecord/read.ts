@@ -233,11 +233,12 @@ export function readRecord(sources: RecordSources): {
     review: reviewReading(fragment),
   };
   const marks = fragment.doc ? signOffsOf(fragment.doc) : [];
-  const signedOff = marks.length > 0 ? citationSentences(fragment) : new Map<string, string>();
-  const signOffOf = (note: Footnote): SignOffNow | null => {
-    const id = idOf.get(note);
-    const attributes = attributesOf.get(note);
-    const sentence = id === undefined ? undefined : signedOff.get(id);
+  const signedOff = citationSentences(fragment);
+  const signOffOfCitation = (
+    id: string | undefined,
+    attributes: Partial<CitationAttributes> | undefined,
+  ): SignOffNow | null => {
+    const sentence = id === undefined ? undefined : signedOff.get(id)?.sentence;
     const mark =
       id === undefined ? null : signOffOn(marks, { kind: "citation", id }, sources.personId);
     if (!mark || !attributes || sentence === undefined) return null;
@@ -251,6 +252,7 @@ export function readRecord(sources: RecordSources): {
       sources.personId,
     );
   };
+  const signOffOf = (note: Footnote) => signOffOfCitation(idOf.get(note), attributesOf.get(note));
   const citations: CitationItem[] = [];
   for (const child of fragment.toArray()) {
     if (!(child instanceof Y.XmlElement) || child.nodeName === QUESTION_BLOCK) continue;
@@ -259,6 +261,19 @@ export function readRecord(sources: RecordSources): {
     for (const group of groupsOf(readBlock(child, readOptions))) {
       citations.push(...citationsIn(group, { attributesOf, origin, sources, signOffOf }));
     }
+  }
+  const inlineIds = new Set(idOf.values());
+  for (const [id, { sentence, citation, element }] of signedOff) {
+    if (inlineIds.has(id)) continue;
+    citations.push({
+      kind: "citation",
+      text: comparableSentence(sentence),
+      result: citationState(citation, sources.documents, sources.kept).check,
+      origin: blockOrigin(fragment, element) ?? "user",
+      says: citation.verdict ?? null,
+      evidence: documentOf(citation, sources),
+      signOff: signOffOfCitation(id, citation),
+    });
   }
   for (const mark of marks) {
     if (mark.target.kind !== "citation" || signedOff.has(mark.target.id)) continue;

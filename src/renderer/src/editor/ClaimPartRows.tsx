@@ -1,5 +1,6 @@
+import type { Editor } from "@tiptap/core";
 import type { ReactNode } from "react";
-import { useLayoutEffect, useRef, useState } from "react";
+import { useContext, useLayoutEffect, useRef, useState } from "react";
 import type {
   CitationAttributes,
   ClaimCalculation,
@@ -12,6 +13,7 @@ import { citationState, shownDocumentName } from "../../../shared/citations";
 import { checkedScope } from "../../../shared/claimChecks";
 import { coverageCount } from "../../../shared/claimParts";
 import { citationLocation, formatLocation } from "../../../shared/locations";
+import { checkedByMe } from "../../../shared/signOffs";
 import { ObjectMenu, useObjectMenu } from "../components/ObjectMenu";
 import { rowActionButtonClass } from "../components/sidebarRows";
 import { useLanguage, useT } from "../i18n";
@@ -21,6 +23,17 @@ import { useAppStore } from "../store";
 import { focusFirstAction } from "./cardFocus";
 import { useReadableQuote } from "./citationScan";
 import { ClaimMarkIcon } from "./icons";
+import { SignOffsContext } from "./mindContext";
+import { SignOffLine, SignOffToggle } from "./SignOff";
+import {
+  citationSignOff,
+  currentSigner,
+  noteDocOf,
+  partCitationOwner,
+  toggleCitationSignOff,
+  useDocumentVersions,
+  usePersonId,
+} from "./signOffActions";
 
 function hasKnownDomain(coverage: ClaimPartCoverage): boolean {
   return (
@@ -32,7 +45,15 @@ function hasKnownDomain(coverage: ClaimPartCoverage): boolean {
   );
 }
 
-function PartCitation({ citation, onOpen }: { citation: CitationAttributes; onOpen(): void }) {
+function PartCitation({
+  editor,
+  citation,
+  onOpen,
+}: {
+  editor: Editor;
+  citation: CitationAttributes;
+  onOpen(): void;
+}) {
   const t = useT();
   const documents = useAppStore((store) =>
     store.status.kind === "ready" ? store.documents : null,
@@ -43,6 +64,32 @@ function PartCitation({ citation, onOpen }: { citation: CitationAttributes; onOp
   const location = citationLocation(citation);
   const where = location ? formatLocation(location, t) : null;
   const source = [shownDocumentName(citation, documents), where].filter(Boolean).join(" · ");
+  const { records } = useContext(SignOffsContext);
+  const personId = usePersonId();
+  const versions = useDocumentVersions();
+  const id = typeof citation.id === "string" ? citation.id : null;
+  const target = id ? { kind: "citation" as const, id } : null;
+  const menu = useObjectMenu(target);
+  const canSignOff =
+    id !== null &&
+    editor.isEditable &&
+    noteDocOf(editor) !== null &&
+    partCitationOwner(editor.state.doc, id) !== null;
+  const signOff = id
+    ? citationSignOff(records, editor.state.doc, id, citation, versions, personId)
+    : null;
+  const toggle = () => {
+    const signer = currentSigner();
+    if (id && signer) toggleCitationSignOff(editor, id, signer);
+  };
+  const open = () => {
+    if (!citation.documentId) return;
+    void openCitedFollowing(
+      { ...citation, documentId: state.documentId ?? citation.documentId },
+      { check: state.check, withQuote: quoteSaysSo(state.check), label: where },
+    );
+    onOpen();
+  };
   const contents = (
     <>
       <span className="claim-part-source" title={source}>
@@ -51,28 +98,46 @@ function PartCitation({ citation, onOpen }: { citation: CitationAttributes; onOp
       {citation.quote && <span className="claim-part-quote citation-card-wash">{quote}</span>}
     </>
   );
-  return citation.documentId ? (
-    <button
-      type="button"
-      className="claim-part-citation"
-      data-testid="claim-part-citation"
-      onClick={() => {
-        if (!citation.documentId) return;
-        void openCitedFollowing(
-          { ...citation, documentId: state.documentId ?? citation.documentId },
-          { check: state.check, withQuote: quoteSaysSo(state.check), label: where },
-        );
-        onOpen();
-      }}
-    >
-      {contents}
-    </button>
-  ) : (
-    <div className="claim-part-citation">{contents}</div>
+  return (
+    <div data-testid="claim-part-receipt" data-citation-id={id ?? undefined} {...menu.rowProps}>
+      {citation.documentId ? (
+        <button
+          type="button"
+          className="claim-part-citation"
+          data-testid="claim-part-citation"
+          onClick={open}
+        >
+          {contents}
+        </button>
+      ) : (
+        <div className="claim-part-citation">{contents}</div>
+      )}
+      <SignOffLine now={signOff} />
+      {canSignOff && (
+        <SignOffToggle now={signOff} onToggle={toggle} className="citation-card-action" />
+      )}
+      {target && (
+        <ObjectMenu
+          target={target}
+          label={t("claim.more")}
+          className={rowActionButtonClass}
+          align="end"
+          without={["citation.update", "citation.keepOld", "citation.remove"]}
+          here={{
+            ...(citation.documentId && { "citation.open": open }),
+            ...(canSignOff &&
+              (checkedByMe(signOff)
+                ? { "citation.signOffRemove": toggle }
+                : { "citation.signOff": toggle })),
+          }}
+        />
+      )}
+    </div>
   );
 }
 
 function PartRow({
+  editor,
   id,
   text,
   words,
@@ -85,6 +150,7 @@ function PartRow({
   checking,
   stale,
 }: {
+  editor: Editor;
   id: string;
   text: string;
   words?: string;
@@ -151,14 +217,18 @@ function PartRow({
       )}
       {part.evidence.map((citation) => (
         <PartCitation
-          key={JSON.stringify([
-            citation.documentId,
-            citation.contentHash,
-            citation.pageFrom,
-            citation.pageTo,
-            citation.location,
-            citation.quote,
-          ])}
+          editor={editor}
+          key={
+            citation.id ??
+            JSON.stringify([
+              citation.documentId,
+              citation.contentHash,
+              citation.pageFrom,
+              citation.pageTo,
+              citation.location,
+              citation.quote,
+            ])
+          }
           citation={citation}
           onOpen={onOpen}
         />
@@ -202,6 +272,7 @@ function PartRow({
 }
 
 export function ClaimPartRows({
+  editor,
   id,
   text,
   parts,
@@ -213,6 +284,7 @@ export function ClaimPartRows({
   checking = false,
   stale = false,
 }: {
+  editor: Editor;
   id: string;
   text: string;
   parts: readonly ClaimCheckPart[];
@@ -265,7 +337,11 @@ export function ClaimPartRows({
             </p>
             {part.coverage.domainEvidence.map((citation) => (
               <PartCitation
-                key={JSON.stringify([citation.documentId, citation.contentHash, citation.quote])}
+                editor={editor}
+                key={
+                  citation.id ??
+                  JSON.stringify([citation.documentId, citation.contentHash, citation.quote])
+                }
                 citation={citation}
                 onOpen={onOpen}
               />
@@ -276,6 +352,7 @@ export function ClaimPartRows({
       <ol ref={list} className="claim-parts" data-testid="claim-parts">
         {visible.map(({ part, label }) => (
           <PartRow
+            editor={editor}
             key={`${part.span.start}:${part.span.end}:${label ?? ""}`}
             id={id}
             text={text}

@@ -948,7 +948,8 @@ function checkedLines(
   const versions = new Map(documents.map((document) => [document.id, document.contentHash]));
   const t: Translate = (key, params) => translate(language, key, params);
   return (attributes) => {
-    const sentence = typeof attributes.id === "string" ? sentences.get(attributes.id) : undefined;
+    const sentence =
+      typeof attributes.id === "string" ? sentences.get(attributes.id)?.sentence : undefined;
     if (typeof attributes.id !== "string" || sentence === undefined) return [];
     const cited = {
       documentId: attributes.documentId ?? null,

@@ -9,6 +9,7 @@ import type {
   ClaimCheckPart,
   CoreBridge,
 } from "../src/core/api";
+import { translate } from "../src/shared/i18n";
 import { writeMindCheck } from "../src/shared/mindCheck";
 import { writeOpinionSentences } from "../src/shared/opinions";
 import { writeVerification } from "../src/shared/verification";
@@ -239,9 +240,10 @@ for (const language of ["en", "zh-CN"] as const) {
               words.fact.trim(),
               checked("multisource-check", words.fact.trim(), [
                 part(0, words.fact.trim().length, "fact", [
-                  citation,
+                  { ...citation, id: "receipt-first" },
                   {
                     ...citation,
+                    id: "receipt-second",
                     passageId: "second-source",
                     documentId: verified.id,
                     documentName: verified.name,
@@ -253,6 +255,42 @@ for (const language of ["en", "zh-CN"] as const) {
             ),
           ]);
           await expect(window.getByTestId("claim-mark")).not.toContainText("+");
+          const sourceParts = await partsOfCheck(window, "multisource-check");
+          await pointAndClick(window, window.getByTestId("claim-mark"));
+          const sourceCard = window.getByTestId("claim-card");
+          const receipts = sourceCard.getByTestId("claim-part-receipt");
+          const firstToggle = receipts.nth(0).getByTestId("sign-off-toggle");
+          const secondToggle = receipts.nth(1).getByTestId("sign-off-toggle");
+          await expect(firstToggle).toHaveText(translate(language, "signOff.action"));
+          await pointAndClick(window, firstToggle);
+          await expect(firstToggle).toHaveAttribute("aria-pressed", "true");
+          await expect(secondToggle).toHaveAttribute("aria-pressed", "false");
+          await expect(receipts.nth(0).getByTestId("sign-off-line")).toHaveAttribute(
+            "data-state",
+            "checked",
+          );
+          await screenshot(window, `opinions-part-signoff-${language}-${width}`);
+          await pointAndClick(window, window.getByTestId("undo-action"));
+          await expect(sourceCard).toHaveCount(0);
+          await pointAndClick(window, window.getByTestId("claim-mark"));
+          await expect(firstToggle).toHaveAttribute("aria-pressed", "false");
+          await pointAndClick(window, receipts.nth(0), { button: "right" });
+          const humanMark = window.getByRole("menuitemcheckbox", {
+            name: translate(language, "signOff.action"),
+          });
+          await expect(humanMark).toHaveAttribute("aria-checked", "false");
+          await pointAndClick(window, humanMark);
+          await expect(firstToggle).toHaveAttribute("aria-pressed", "true");
+          await firstToggle.focus();
+          await runCommand(window, "citation.signOffRemove", translate(language, "signOff.action"));
+          await window.keyboard.press("Escape");
+          await expect(sourceCard).toHaveCount(0);
+          await pointAndClick(window, window.getByTestId("claim-mark"));
+          await expect(firstToggle).toHaveAttribute("aria-pressed", "false");
+          await expect(secondToggle).toHaveAttribute("aria-pressed", "false");
+          expect(await partsOfCheck(window, "multisource-check")).toEqual(sourceParts);
+          await expect(sourceCard).toHaveAttribute("data-check", "supported");
+          await window.keyboard.press("Escape");
           const pending = checked("pending-check", mixed, [
             { ...part(0, words.fact.length, "fact"), verdict: "checking" },
             part(words.fact.length, mixed.length, "opinion"),

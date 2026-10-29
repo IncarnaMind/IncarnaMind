@@ -661,6 +661,7 @@ function ClaimCard({
           {figureSources}
           <ChangedCitations cited={cited} />
           <ClaimPartRows
+            editor={editor}
             id={check.id}
             text={check.text}
             parts={partRows}

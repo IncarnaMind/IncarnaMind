@@ -80,6 +80,7 @@ export function OpinionCard({
           {t("claim.sentence", { sentence: opinion.text })}
         </p>
         <ClaimPartRows
+          editor={editor}
           id={opinion.id}
           text={opinion.text}
           parts={entry.parts}

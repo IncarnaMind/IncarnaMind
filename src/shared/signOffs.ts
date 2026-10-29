@@ -11,6 +11,7 @@ import {
   CITATION_NODE,
   type Citation,
   type CitationAttributes,
+  type ClaimCheckPart,
   type FigureFinding,
   type FigureInput,
   MIND_SIGN_OFFS_FIELD,
@@ -19,6 +20,7 @@ import {
   type SignOffTarget,
 } from "../core/api";
 import { isRecord } from "../core/errors";
+import { parseLocation } from "./locations";
 import { readProposalAttribute, targetHash } from "./proposals";
 import { comparableSentence } from "./sentences";
 
@@ -114,6 +116,91 @@ export const citationElementId = (element: Y.XmlElement): string | null => {
   const id = element._item?.id;
   return id ? `${id.client}-${id.clock}` : null;
 };
+
+const receiptKey = (citation: CitationAttributes) =>
+  JSON.stringify([
+    citation.documentId,
+    citation.passageId,
+    citation.contentHash,
+    citation.pageFrom,
+    citation.pageTo,
+    parseLocation(citation.location),
+    citation.quote,
+  ]);
+
+/** Gives receipts their Note-owned ids at result write, preserving unambiguous ownership through wording edits. */
+export function namePartCitations(
+  parts: readonly ClaimCheckPart[],
+  previous: readonly ClaimCheckPart[] = [],
+): ClaimCheckPart[] {
+  const receipts = (rows: readonly ClaimCheckPart[]) =>
+    rows.flatMap((part) => [
+      ...part.evidence,
+      ...(part.coverage?.domainEvidence ?? []),
+      ...(part.coverage?.members.flatMap((member) => member.evidence) ?? []),
+    ]);
+  const held = receipts(previous);
+  const incoming = receipts(parts);
+  const claimed = new Set(
+    incoming.flatMap((citation) =>
+      typeof citation.id === "string" &&
+      incoming.filter((each) => each.id === citation.id).length === 1 &&
+      held.filter((each) => each.id === citation.id).length === 1
+        ? [citation.id]
+        : [],
+    ),
+  );
+  const used = new Set<string>();
+  const name = (citations: readonly CitationAttributes[], older: readonly CitationAttributes[]) =>
+    citations.map((citation) => {
+      const available = (each: CitationAttributes) =>
+        typeof each.id === "string" &&
+        !used.has(each.id) &&
+        (!claimed.has(each.id) || each.id === citation.id);
+      const identified = claimed.has(citation.id ?? "")
+        ? held.find((each) => available(each) && each.id === citation.id)
+        : undefined;
+      const unchanged = (each: CitationAttributes) =>
+        available(each) && receiptKey(each) === receiptKey(citation);
+      const candidates = held.filter(unchanged);
+      const unambiguous =
+        candidates.length === 1 &&
+        incoming.filter(
+          (each) => !claimed.has(each.id ?? "") && receiptKey(each) === receiptKey(citation),
+        ).length === 1
+          ? candidates[0]
+          : undefined;
+      const own = identified ?? older.find(unchanged) ?? unambiguous;
+      const id = own?.id ?? crypto.randomUUID();
+      used.add(id);
+      return { ...citation, id };
+    });
+  return parts.map((part) => {
+    const old = previous.find(
+      (each) =>
+        each.kind === part.kind &&
+        each.span.start === part.span.start &&
+        each.span.end === part.span.end,
+    );
+    return {
+      ...part,
+      evidence: name(part.evidence, old?.evidence ?? []),
+      ...(part.coverage && {
+        coverage: {
+          ...part.coverage,
+          domainEvidence: name(part.coverage.domainEvidence, old?.coverage?.domainEvidence ?? []),
+          members: part.coverage.members.map((member) => ({
+            ...member,
+            evidence: name(
+              member.evidence,
+              old?.coverage?.members.find((each) => each.label === member.label)?.evidence ?? [],
+            ),
+          })),
+        },
+      }),
+    };
+  });
+}
 
 const CITATION_ID = "id" satisfies keyof CitationAttributes;
 
