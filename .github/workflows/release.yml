@@ -303,13 +303,6 @@ jobs:
       - if: runner.os != 'macOS'
         uses: ./.github/actions/packaged-engines
 
-      - name: Say that the Intel macOS app isn't checked
-        if: runner.os == 'macOS'
-        run: |
-          if [ -d dist/mac/IncarnaMind.app ]; then
-            echo "::warning title=Intel macOS app not checked::dist/mac/IncarnaMind.app, the Intel app, uploads without the engine check, and it can't start its embedding, reranking or text recognition engine (#2199)."
-          fi
-
       # The packaged arm64 app loads every engine module, reads scans with real OCR (#1819) and
       # transcribes a meeting with its real speech engine and model (#1239).
       - if: runner.os == 'macOS'
