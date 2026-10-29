@@ -1,13 +1,7 @@
 import type { Editor } from "@tiptap/core";
 import { verificationOf } from "../../../shared/verification";
 import { documentsAdded, useAddedDocuments } from "../addedDocuments";
-import {
-  checkSentences,
-  setCheckCardOpen,
-  setClaimFocus,
-  setOpenClaim,
-  useChecks,
-} from "../checks";
+import { checkSentences, openClaimCard, useChecks } from "../checks";
 import { type ShownClaim, shownClaims } from "../editor/claimChecks";
 import { selectionForEdit } from "../editor/editSelection";
 import { useFindSources } from "../findSources";
@@ -55,9 +49,7 @@ function withClaimAtCaret() {
 }
 
 function showClaimCard(at: NonNullable<ReturnType<typeof withClaimAtCaret>>): void {
-  setCheckCardOpen(at.place, false);
-  setOpenClaim(at.place, at.claim.check.id);
-  setClaimFocus(at.place, at.claim.check.id);
+  openClaimCard(at.place, at.claim.check.id, { focus: true });
 }
 
 /** Check against Documents (#96), on the selected sentences, from ⌘K; "find support" finds it too. */

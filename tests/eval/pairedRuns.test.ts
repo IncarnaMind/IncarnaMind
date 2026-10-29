@@ -5,14 +5,24 @@
 import { generateText } from "ai";
 import { MockLanguageModelV4 } from "ai/test";
 import { describe, expect, test } from "vitest";
+import type { Library } from "../../eval/lib/library";
+import { createTimingRecorder } from "../../eval/lib/timing";
 import { type Arm, armNamed, armSwitch } from "../../eval/speed/arms";
-import type { ArmRun } from "../../eval/speed/paired";
-import { guards, newFalseSupported, type PairedRow } from "../../eval/speed/pairedReport";
+import { type ArmRun, runOnArm, writesSet } from "../../eval/speed/paired";
+import {
+  byFlowTable,
+  guards,
+  newFalseSupported,
+  type PairedRow,
+} from "../../eval/speed/pairedReport";
 import {
   type AnswerPathsOverride,
   retrievesFirst,
   writesThenCites,
 } from "../../src/core/providers/catalog/answerPaths";
+import { checkReply, isCheckRun } from "../helpers/checks";
+import { setUpWithDocuments, shownPassages } from "../helpers/citations";
+import { type ScriptedReply, scriptedModel, scriptedModels } from "../helpers/models";
 
 const RUN: ArmRun = {
   status: "done",
@@ -227,4 +237,118 @@ describe("the arms' Answer paths", () => {
       });
     },
   );
+});
+
+describe("the writes set, end to end on a scripted model (#1635)", { timeout: 60_000 }, () => {
+  const ESG = "The bank will cut its financed emissions by 45% by 2032";
+  const MODEL = "scripted/local-model";
+
+  // protects=the paired run's writes set runs the eight-paragraph flow on both arms in one core, write-replies sending no done and today ending at the write, and its by-flow table reads both; fails_when=an arm, the flow, a column or the table is wired wrong, which a $40 real-model run would find first; no_claim=any real model's times or choices.
+  test("eight paragraphs into the page: write-replies replies, today ends at the write", async () => {
+    const model = scriptedModel((call): ScriptedReply => {
+      if (isCheckRun(call)) return checkReply(call, {});
+      const made = (name: string) => call.results.some((each) => each.tool === name);
+      if (!made("search_documents")) {
+        return { calls: [{ tool: "search_documents", input: { query: "emissions targets" } }] };
+      }
+      if (!made("cite")) {
+        const [shown] = call.results
+          .filter((each) => each.tool === "search_documents")
+          .flatMap((each) => shownPassages(each.text));
+        const record = { marker: 1, passage: shown?.id ?? "", quote: ESG };
+        return { calls: [{ tool: "cite", input: { citations: [record] } }] };
+      }
+      if (!made("add_to_mind")) {
+        // As a real model, it can give done only when the Tool offers it.
+        const offered = call.options.tools?.find(
+          (each) => each.type === "function" && each.name === "add_to_mind",
+        );
+        const done =
+          offered?.type === "function" && "done" in (offered.inputSchema.properties ?? {});
+        const content = Array.from(
+          { length: 8 },
+          (_, index) => `Target ${index + 1}: ${ESG} [^1].`,
+        ).join("\n\n");
+        return {
+          calls: [{ tool: "add_to_mind", input: { content, ...(done && { done: true }) } }],
+        };
+      }
+      return { text: "Wrote the summary into your notes." };
+    });
+    const switcher = armSwitch();
+    const { core, dataDir, documents } = await setUpWithDocuments(
+      model,
+      [{ name: "ESG report.md", contents: `# ESG report\n\n${ESG}.\n` }],
+      { createChatModel: switcher.chatModels(scriptedModels(model).createChatModel) },
+    );
+    const recorder = createTimingRecorder();
+    const library: Library = {
+      core,
+      timings: recorder,
+      dataDir,
+      documents: new Map(documents.map((document) => [document.name, document])),
+      processingSeconds: 0,
+      passageCount: 0,
+      pageTexts: () => [],
+      passagePages: () => null,
+      passages: () => [],
+      close: async () => {},
+    };
+    const [group] = writesSet();
+    expect(group?.items.map((item) => `${item.id} ${item.language}`)).toEqual([
+      "assistant-write en",
+      "assistant-write zh-CN",
+      "assistant-write-long en",
+      "assistant-write-long zh-CN",
+      "assistant-longer en",
+      "assistant-longer zh-CN",
+    ]);
+    const item = group?.items.find(
+      (each) => each.id === "assistant-write-long" && each.language === "en",
+    );
+    if (!item) throw new Error("No eight-paragraph item.");
+
+    const runs: ArmRun[] = [];
+    for (const arm of ["write-replies", "today"]) {
+      switcher.use(armNamed(arm));
+      runs.push(
+        await runOnArm(item, {
+          library,
+          recorder,
+          choice: { providerId: "", modelId: "local-model" },
+          model: MODEL,
+          arm,
+          grade: async () => "right",
+          claimsJudge: model,
+        }),
+      );
+    }
+
+    const [before, after] = runs;
+    expect(before).toMatchObject({ status: "done", endedAtWrite: false, claimChecks: 1 });
+    expect(after).toMatchObject({ status: "done", endedAtWrite: true, claimChecks: 0 });
+    expect(after?.answerCalls).toBe((before?.answerCalls ?? 0) - 1);
+    for (const run of runs) {
+      expect(run.firstChangeMs).not.toBeNull();
+      expect(run.toolInputMs).not.toBeNull();
+      expect(run.checkCalls).toBeGreaterThan(0);
+    }
+    const table = byFlowTable(
+      [
+        {
+          set: "writes",
+          id: item.id,
+          kind: item.kind,
+          language: "en",
+          model: MODEL,
+          run: 1,
+          baseline: before ?? RUN,
+          candidate: after ?? RUN,
+        },
+      ],
+      ["write-replies", "today"],
+    );
+    expect(table).toContain("| assistant-write-long | en | 1 |");
+    expect(table).toContain("| 0 / 1 |");
+  });
 });

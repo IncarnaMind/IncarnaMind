@@ -960,8 +960,12 @@ function writtenNotes({ notFound, unrecorded, searchTalk, pointersBack }: Writte
   ];
 }
 
-// The check's marks and a table's count show in the page and on the change's line; these notes ask the reply to tell.
-const saysAll = (written: Written & { change: MindChange }) =>
+// A check's flags show in the page and on the change's line; sentences it couldn't check, or
+// didn't, and these notes, only the reply can tell. A cited write whose check didn't run is unchecked.
+const saysAll = (written: Written & { change: MindChange }, checked: WrittenCheck | null) =>
+  (checked === null
+    ? !written.change.cited
+    : checked.failed === 0 && checked.sent >= checked.cited) &&
   writtenNotes(written).length === 0 &&
   !written.change.unlinkedSources &&
   !written.change.droppedSources &&
@@ -1924,11 +1928,12 @@ export function mindTools(options: MindToolsOptions): { tools: Tool[]; settle():
     { endsTurn }: ToolCallContext,
     mind: ChangeableMind,
     written: Written & { change: MindChange },
+    checked: WrittenCheck | null,
   ) => {
     if (
       input.done === true &&
       outcomeOf(mind, written.change.request) === APPLIES &&
-      saysAll(written)
+      saysAll(written, checked)
     )
       endsTurn?.();
   };
@@ -2150,7 +2155,10 @@ export function mindTools(options: MindToolsOptions): { tools: Tool[]; settle():
           description:
             "Only for your own text, still waiting or in the Mind as you wrote it: its whole new text, in Markdown, from the section's heading on (it replaces the heading too), with markers like [^1] for Citations recorded with cite. Give it instead of instruction.",
         },
-        ...doneProperty,
+        done: {
+          ...doneProperty.done,
+          description: `Only with content: ${doneProperty.done.description}`,
+        },
       },
       additionalProperties: false,
     },
@@ -2219,7 +2227,8 @@ export function mindTools(options: MindToolsOptions): { tools: Tool[]; settle():
           action,
         });
         const checked = await checkWritten(toolCallId, written, signal);
-        if (written.dropped === 0 && !stretch.hint) endIfDone(input, context, mind, written);
+        if (written.dropped === 0 && !stretch.hint)
+          endIfDone(input, context, mind, written, checked);
         const went = ` (${lengths(before, newText)})`;
         return [
           over.kind === "own"
@@ -2385,7 +2394,7 @@ export function mindTools(options: MindToolsOptions): { tools: Tool[]; settle():
       );
       if (!written) throw noTable(mind);
       const checked = await checkWritten(toolCallId, written, signal);
-      endIfDone(input, context, mind, written);
+      endIfDone(input, context, mind, written, checked);
       return added(
         mind,
         written,
@@ -2554,7 +2563,7 @@ export function mindTools(options: MindToolsOptions): { tools: Tool[]; settle():
         return `${made}. It is empty. ${noTable(mind).message}`;
       }
       const checked = await checkWritten(toolCallId, written, signal);
-      endIfDone(input, context, mind, written);
+      endIfDone(input, context, mind, written, checked);
       return `${made}. ${added(mind, written, "in it", checked)}`;
     },
   };

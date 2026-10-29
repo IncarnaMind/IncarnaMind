@@ -126,6 +126,11 @@ for (const language of ["en", "zh-CN"] as const) {
     );
     expect(order.indexOf("applied-look")).toBeLessThan(order.indexOf("applied-undo"));
     await screenshot(window, `write-ends-flagged-${language}`);
+    // At a narrow window the panel's line wraps with the count beside its dot.
+    await setWindowSize(app, window, 900, 720);
+    await expect(flagged.getByTestId("mind-changes-look")).toBeVisible();
+    await screenshot(window, `write-ends-flagged-${language}-narrow`);
+    await setWindowSize(app, window, 1440, 900);
 
     // The count shows the flagged sentence, its card open, from the panel and from the page.
     await pointAndClick(window, flagged.getByTestId("mind-changes-look"));
@@ -144,5 +149,29 @@ for (const language of ["en", "zh-CN"] as const) {
     await pointAndClick(window, line.getByTestId("applied-look"));
     await expect(card).toBeVisible();
     await expect.poll(caretIn).toContain("no reason");
+    await window.keyboard.press("Escape");
+    await expect(card).toHaveCount(0);
+
+    // By keyboard: Tab reaches the panel's count, and Enter opens the card with the focus in it.
+    const count = flagged.getByTestId("mind-changes-look");
+    await window.keyboard.press("ControlOrMeta+j");
+    await expect(window.getByTestId("composer-input")).toBeFocused();
+    const focused = () => count.evaluate((element) => element === document.activeElement);
+    for (let presses = 0; presses < 20 && !(await focused()); presses++) {
+      await window.keyboard.press("Shift+Tab");
+    }
+    await expect(count).toBeFocused();
+    await window.keyboard.press("Enter");
+    await expect(card).toBeVisible();
+    await expect
+      .poll(() => card.evaluate((element) => element.contains(document.activeElement)))
+      .toBe(true);
+    await window.keyboard.press("Escape");
+
+    // Once the flagged sentence is gone, the count goes: it never stays to lead nowhere.
+    await editor.getByText("no reason", { exact: false }).click({ clickCount: 3 });
+    await window.keyboard.press("Backspace");
+    await expect(editor).not.toContainText("no reason");
+    await expect(count).toHaveCount(0, { timeout: 15_000 });
   });
 }

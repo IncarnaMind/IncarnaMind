@@ -2,6 +2,7 @@ import type { MockLanguageModelV4 } from "ai/test";
 import { describe, expect, test } from "vitest";
 import type { ConversationAnswer, Core } from "../../src/core";
 import { CLAIM_CHECK_INSTRUCTIONS } from "../../src/core/answers/claimedChanges";
+import { EDIT_INSTRUCTIONS } from "../../src/core/edits/prompt";
 import { changedMinds } from "../../src/renderer/src/changedMinds";
 import { askedFor } from "../../src/shared/askedChanges";
 import { INLINE_NODE } from "../../src/shared/sentences";
@@ -22,6 +23,7 @@ import { type ModelCall, type ScriptedReply, scriptedModel } from "../helpers/mo
 
 const MOON = "Spring tides come at new and full moon";
 const UNBACKED = "Neap tides are twice as strong";
+const FAILING = "The harbour floods at every spring tide";
 const TIDES = [{ name: "Tides.md", contents: `# Tides\n\n${MOON}.\n` }];
 const PLANS: Record<string, Plan> = {
   [`${MOON} ${INLINE_NODE}.`]: { verdict: "supported", quote: MOON, says: MOON },
@@ -29,6 +31,9 @@ const PLANS: Record<string, Plan> = {
     verdict: "supported",
     quote: MOON,
     says: MOON,
+  },
+  [`${FAILING} ${INLINE_NODE}.`]: {
+    reply: { error: { status: 500, message: "The service broke." } },
   },
 };
 const REPLY = "I added the tides line to your notes.";
@@ -59,10 +64,18 @@ const citeMoon = (call: ModelCall, marker = 1) => {
  * A model that searches, cites the moon line, then makes each step of `writes` in turn (by how
  * many write calls it has made in this Answer), then replies; it checks a sentence as `PLANS` say.
  */
-function writing(writes: (question: string) => readonly ScriptedReply[]) {
+function writing(
+  writes: (question: string) => readonly ScriptedReply[],
+  /** Edit with AI's rewrite of the passage an instruction edit names. */
+  rewrite: (passage: string) => string = (passage) => passage,
+) {
   const answerCalls: ModelCall[] = [];
   const model = scriptedModel((call): ScriptedReply => {
     if (isCheckRun(call)) return checkReply(call, PLANS);
+    if (call.system === EDIT_INSTRUCTIONS) {
+      const passage = /<passage>\n([\s\S]*?)\n<\/passage>/.exec(call.prompt)?.[1] ?? "";
+      return { text: `${rewrite(passage)}\n<why>As asked.</why>` };
+    }
     answerCalls.push(call);
     if (!called(call, "search_documents")) {
       return { calls: [{ tool: "search_documents", input: { query: "spring tides" } }] };
@@ -154,7 +167,56 @@ describe("A write that does all the User asked ends the Answer (#1635)", {
     expect(answer.text).toContain("I added the tides line");
   });
 
-  // protects=a write the check found unsupported still ends the Answer: the marks in the page and the count on the change's line say it, and the count is final when the Answer ends; fails_when=a flagged write waits for a reply, or ends on a bare "Wrote 1 paragraph" with no count; no_claim=none beyond protects.
+  // protects=what the check couldn't check, or didn't, only the reply can tell: a sentence whose check failed, and sentences past the most one write checks, keep the reply; fails_when=either ends the Answer on a line that says nothing of it; no_claim=none beyond protects.
+  test.each([
+    ["a sentence its check couldn't check", `${FAILING} [^1].`, { failed: 1 }],
+    [
+      "sentences past the most a write checks",
+      Array.from(
+        { length: 14 },
+        (_, index) => `Spring tide ${index + 1} comes at full moon [^1].`,
+      ).join("\n\n"),
+      { cited: 14, sent: 12 },
+    ],
+  ])("%s: the model is told and replies", async (_, content, check) => {
+    const { model, answerCalls } = writing(() => [add({ content, done: true })]);
+    const { core, mindId } = await notes(model);
+
+    const answer = await ask(core, mindId);
+
+    expect(changesIn(answer)[0]?.selfCheck).toMatchObject(check);
+    expect(answerCalls).toHaveLength(4);
+    expect(answer.text).toBe(REPLY);
+  });
+
+  // protects=done is read only with edit_mind's content: an instruction edit, applied or held for the User, replies whatever done says; fails_when=an instruction edit ends the Answer, or a held change ends on a line; no_claim=none beyond protects.
+  test.each([
+    ["applied", (passage: string) => `${passage} It also covers neap tides.`],
+    ["held for the User", () => "Revenue fell in every region."],
+  ])("an instruction edit %s replies", async (_, rewrite) => {
+    const { model, answerCalls } = writing(
+      () => [
+        {
+          calls: [
+            {
+              tool: "edit_mind",
+              input: { part: "Notes on the tides", instruction: "Rewrite it", done: true },
+            },
+          ],
+        },
+      ],
+      rewrite,
+    );
+    const { core, mindId } = await notes(model);
+
+    const answer = await ask(core, mindId);
+
+    expect(mindCalls(answer).map((call) => call.tool)).toEqual(["edit_mind"]);
+    expect(answerCalls).toHaveLength(4);
+    expect(answer.text).toBe(REPLY);
+  });
+
+  // protects=a write the check flags still ends the Answer: the marks in the page and the count on the change's line say it, and the count is final when the Answer ends; fails_when=a flagged write waits for a reply, or ends on a bare "Wrote 1 paragraph" with no count; no_claim=none beyond protects.
   test("a write the check flags still ends, its line counting what needs a look", async () => {
     const { model, answerCalls } = writing(() => [
       add({ content: `${MOON} [^1]. ${UNBACKED} [^1].`, done: true }),

@@ -40,7 +40,9 @@ import {
   toggled,
   wasLine,
 } from "./changeOriginals";
+import { healthNow } from "./healthNow";
 import { fromDocument, proposalsIn } from "./proposalReview";
+import { lookPlaces } from "./writeLook";
 import { blockAt } from "./writingPlace";
 
 export const APPLIED_ACTIONS = [
@@ -106,6 +108,8 @@ export type AppliedLine = (
       blocks: ChangedBlocks;
       /** What the assistant was asked for, as its Answer counts it (#880): "Wrote 3 paragraphs". */
       facts?: ChangeCounts;
+      /** How many of its claims need a look now (`facts.lookIn`), as the page holds them (#1635). */
+      look?: number;
       reason: string | null;
       changes: readonly AppliedChange[];
       kept: KeptLine | null;
@@ -570,7 +574,12 @@ function actionButton(label: string, testId: string, run: () => void): HTMLButto
   return each;
 }
 
-function mainLine(line: AppliedLine, options: Options, blocks: ChangedBlocks): HTMLElement {
+function mainLine(
+  line: AppliedLine,
+  options: Options,
+  blocks: ChangedBlocks,
+  look: number,
+): HTMLElement {
   const t = options.translate;
   if (line.kind === "running") {
     const pulse = document.createElement("span");
@@ -604,7 +613,6 @@ function mainLine(line: AppliedLine, options: Options, blocks: ChangedBlocks): H
       line.facts ? changeFact(t, line.facts, null) : appliedText(t, line.blocks),
       "applied-count",
     );
-    const look = line.facts?.look ?? 0;
     const parts: (Node | string)[] = [
       sparkle(),
       what,
@@ -908,11 +916,12 @@ function decorations(state: EditorState, line: AppliedLine, options: Options): D
     const words = line.kind === "failed" ? line.text : "";
     const count = `${blocks.paragraphs}/${blocks.tables}`;
     const canUndo = line.kind !== "review" || !line.undo || line.undo.available();
+    const look = line.kind === "applied" ? (line.look ?? 0) : 0;
     marks.push(
-      Decoration.widget(at, () => mainLine(line, options, blocks), {
+      Decoration.widget(at, () => mainLine(line, options, blocks, look), {
         ...shared,
         // Drawn again in the interface language once it changes.
-        key: `applied:${line.kind}:${count}:${line.blockId}:${canUndo}:${words}:${options.translate("edit.applied.undo")}`,
+        key: `applied:${line.kind}:${count}:${look}:${line.blockId}:${canUndo}:${words}:${options.translate("edit.applied.undo")}`,
       }),
     );
   }
@@ -993,6 +1002,22 @@ export const AppliedEditLine = Extension.create<Options>({
             },
           },
         },
+        // The count of what needs a look follows the checks' marks, which change apart from the
+        // text (#1635), and is read from the whole state: `apply` sees no checks of the new one.
+        view: () => ({
+          update(view) {
+            const line = appliedLineKey.getState(view.state)?.line;
+            const lookIn = line?.kind === "applied" ? (line.facts?.lookIn ?? []) : [];
+            if (line?.kind !== "applied" || lookIn.length === 0) return;
+            const look = lookPlaces(view.state.doc, healthNow(view.state), lookIn).length;
+            if (look === (line.look ?? 0)) return;
+            queueMicrotask(() => {
+              if (appliedLineKey.getState(view.state)?.line === line) {
+                view.dispatch(view.state.tr.setMeta(appliedLineKey, { ...line, look }));
+              }
+            });
+          },
+        }),
       }),
     ];
   },

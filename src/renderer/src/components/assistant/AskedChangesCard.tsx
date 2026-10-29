@@ -21,7 +21,7 @@ import {
 import { shortcutLabel } from "../../commands/keymap";
 import { useT } from "../../i18n";
 import { showChanges, showNoteWaiting, useWaitingIn, type WaitingRow } from "../../mindChanges";
-import { showLook } from "../../needsLook";
+import { showLook, useWriteLook } from "../../needsLook";
 import { PencilLineIcon } from "../lineIcons";
 import { useReadMindId } from "./readMind";
 
@@ -278,21 +278,26 @@ function AppliedActions({
   );
 }
 
-/** What the write's check flagged, before its actions: it shows the first in the page. */
+/**
+ * What the write's check flagged and still needs a look, before its actions: it shows the first
+ * in the page. It goes once none remain; on a narrow card it wraps with its dot.
+ */
 export function LookCount({ row }: { row: ChangedMind }) {
   const t = useT();
+  const look = useWriteLook(row);
+  if (look === 0) return null;
   return (
-    <>
+    <span className="whitespace-nowrap">
       <Dot />
       <button
         type="button"
         data-testid="mind-changes-look"
-        onClick={() => showLook(row)}
+        onClick={() => void showLook(row)}
         className="mind-changes-review"
       >
-        {lookText(t, row.look)}
+        {lookText(t, look)}
       </button>
-    </>
+    </span>
   );
 }
 

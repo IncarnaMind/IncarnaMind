@@ -1,5 +1,4 @@
 import type { Editor } from "@tiptap/core";
-import { TextSelection } from "@tiptap/pm/state";
 import { useEditorState } from "@tiptap/react";
 import { useEffect, useId, useState } from "react";
 import type * as Y from "yjs";
@@ -11,7 +10,6 @@ import {
   checkSentences,
   dismissCheckProblem,
   setCheckCardOpen,
-  setOpenClaim,
   useChecks,
 } from "../checks";
 import { MetaLine } from "../components/MetaLine";
@@ -36,6 +34,7 @@ import { AddedDocumentsLine } from "./AddedDocumentsLine";
 import { AnswerError } from "./AnswerView";
 import { useCardPlace } from "./checkPlace";
 import { coverageOf, keptSpans, sameCoverage, shownClaims } from "./claimChecks";
+import { goToClaim } from "./goToClaim";
 import {
   type NoteHealth as Health,
   type HealthPart,
@@ -276,12 +275,7 @@ export function HealthCard({
 
   const label = (part: HealthPart, count: number) => partLabel(t, part, count, format(count));
 
-  /**
-   * Puts the cursor at the next such sentence after it, round to the first; for a Citation, just
-   * after its marker, where its state shows, so a key can't take the Citation away. It is
-   * centred by its own position, not its paragraph's, which can be taller than the page, and clear
-   * of the fade and the badge at the page's foot.
-   */
+  /** Puts the cursor at the next such sentence or Citation after it, round to the first (`goToClaim`). */
   const goToNext = (part: HealthPart | "checking") => {
     if (editor.isDestroyed) return;
     const cited = part === "found" || part === "notFound";
@@ -289,26 +283,7 @@ export function HealthCard({
     const head = editor.state.selection.head;
     const next = targets.find((pos) => pos > head) ?? targets[0];
     if (next === undefined) return;
-    const { doc } = editor.state;
-    const at = Math.min(next, doc.content.size);
-    editor.view.dispatch(editor.state.tr.setSelection(TextSelection.near(doc.resolve(at))));
-    editor.view.focus();
-    const scroller = editor.view.dom.closest(".mind-scroller");
-    if (scroller) {
-      const caret = editor.view.coordsAtPos(cited ? at - 1 : at);
-      const area = scroller.getBoundingClientRect();
-      scroller.scrollTop += (caret.top + caret.bottom) / 2 - (area.top + area.bottom) / 2;
-    }
-    const claim = cited
-      ? undefined
-      : shownClaims(editor.state).find((each) => each.sentence.from <= at && at < each.sentence.to);
-    if (!claim) return;
-    setCheckCardOpen(place, false);
-    if (claim.kind === "chart") {
-      void openFigureSchedule(mindId).catch(useAppStore.getState().reportError);
-      return;
-    }
-    setOpenClaim(place, claim.check.id);
+    goToClaim(editor, { mindId, place, at: next, cited });
   };
 
   const rows = ROWS.filter((part) => health[part].length > 0);

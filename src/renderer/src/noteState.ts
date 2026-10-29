@@ -7,6 +7,7 @@
  * and is named in the card.
  */
 import { getSchema } from "@tiptap/core";
+import type { Node as ProseMirrorNode } from "@tiptap/pm/model";
 import { yXmlFragmentToProseMirrorRootNode } from "@tiptap/y-tiptap";
 import type * as Y from "yjs";
 import {
@@ -193,7 +194,13 @@ export function readNoteState({
   documents: readonly LiveDocument[] | null;
   keptCitationTexts: readonly KeptCitationText[];
   folderId: string | null;
-}): { health: NoteHealth; state: NoteState | null; filedAnswers: ReadonlySet<string> } {
+}): {
+  health: NoteHealth;
+  state: NoteState | null;
+  filedAnswers: ReadonlySet<string>;
+  /** The Mind as it was read: where `health`'s positions are. */
+  root: ProseMirrorNode;
+} {
   schema ??= getSchema(noteExtensions());
   const root = yXmlFragmentToProseMirrorRootNode(doc.getXmlFragment(MIND_CONTENT_FIELD), schema);
   const { claims, kept } = claimsOf(root, {
@@ -229,5 +236,6 @@ export function readNoteState({
     health,
     state: noteStateOf(health, unread, narrowUnread),
     filedAnswers,
+    root,
   };
 }

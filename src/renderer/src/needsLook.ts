@@ -1,59 +1,82 @@
 /**
- * Where the count of what a write's check flagged takes the User (#1635), from the change's line
- * ("2 need a look", `lookText`): the first such sentence of the write, its check card open.
+ * The count of what a write's check flagged, on the assistant's card (#1635): counted now in the
+ * Mind as saved, by the badge's rule (./editor/writeLook), so it goes once none remain, and where
+ * it takes the User: the first of them, its card open with the keyboard in it.
  */
 import type { Editor } from "@tiptap/core";
 import { TextSelection } from "@tiptap/pm/state";
-import { BLOCK_ID_ATTRIBUTE } from "../../core/api";
+import { useMemo } from "react";
 import type { ChangedMind } from "./changedMinds";
-import { setCheckCardOpen, setOpenClaim } from "./checks";
-import { noteHandle, readMindHandle } from "./commands/handles";
-import { shownClaims } from "./editor/claimChecks";
+import { noteHandle } from "./commands/handles";
+import { goToClaim } from "./editor/goToClaim";
+import { healthNow } from "./editor/healthNow";
+import { whenMindEditor } from "./editor/openEditors";
+import { firstBlockOf, lookPlaces } from "./editor/writeLook";
+import { useMindNoteStates } from "./home";
 import { useAppStore } from "./store";
 
-const FLAGGED: ReadonlySet<string> = new Set(["unsupported", "contradicted"]);
+type Look = Pick<ChangedMind, "mindId" | "look" | "lookIn">;
 
-/** Puts the cursor in the first sentence of `blocks` a check flagged, with its card open; false when there is none. */
+/** How many of a write's claims need a look in its Mind now; its record's count until that is read. */
+export function useWriteLook(row: Look): number {
+  const folderId = useAppStore(
+    (state) => state.minds.find((mind) => mind.id === row.mindId)?.folderId ?? null,
+  );
+  const minds = useMemo(
+    () => (row.look > 0 ? [{ id: row.mindId, folderId }] : []),
+    [row.mindId, row.look, folderId],
+  );
+  const reading = useMindNoteStates(minds).get(row.mindId);
+  return reading ? lookPlaces(reading.root, reading.health, row.lookIn).length : row.look;
+}
+
+/**
+ * In an open Mind: the cursor at the first of a write's claims that need a look, its card open
+ * with the keyboard in it. With none left, at the write's first Block instead, and false.
+ */
 export function showFirstLook(editor: Editor, blocks: readonly string[]): boolean {
   if (editor.isDestroyed) return false;
-  const { doc } = editor.state;
-  const ids = new Set(blocks);
-  const spans: { from: number; to: number }[] = [];
-  doc.forEach((node, offset) => {
-    if (ids.has(String(node.attrs[BLOCK_ID_ATTRIBUTE]))) {
-      spans.push({ from: offset, to: offset + node.nodeSize });
-    }
-  });
-  const claim = shownClaims(editor.state).find(
-    (each) =>
-      FLAGGED.has(each.shown.state) &&
-      spans.some((span) => span.from <= each.sentence.from && each.sentence.from < span.to),
-  );
-  if (!claim) return false;
+  const [at] = lookPlaces(editor.state.doc, healthNow(editor.state), blocks);
+  // Focused, the editor lends itself to the commands, with its Mind and the place its cards open in.
   editor.view.focus();
-  editor.view.dispatch(
-    editor.state.tr
-      .setSelection(TextSelection.near(doc.resolve(claim.sentence.from)))
-      .scrollIntoView(),
-  );
-  // Focused, the editor lends itself to the commands with the place its cards open in.
-  const note = noteHandle.current;
-  if (note?.editor === editor) {
-    setCheckCardOpen(note.place, false);
-    setOpenClaim(note.place, claim.check.id);
+  if (at === undefined) {
+    const start = firstBlockOf(editor.state.doc, blocks);
+    if (start !== null) {
+      const { tr, doc } = editor.state;
+      editor.view.dispatch(
+        tr.setSelection(TextSelection.near(doc.resolve(start))).scrollIntoView(),
+      );
+    }
+    return false;
   }
+  const note = noteHandle.current?.editor === editor ? noteHandle.current : null;
+  if (!note) return false;
+  goToClaim(editor, { mindId: note.mindId, place: note.place, at, focusCard: true });
   return true;
 }
 
-const SHOW_FRAMES = 60;
+/** How long the Mind may take to open in an editor, and its text to arrive there. */
+const OPEN_MS = 3000;
 
-/** From the assistant's card: the Mind, at the first sentence its write's check flagged, once it shows. */
-export function showLook(row: Pick<ChangedMind, "mindId" | "lookIn">): void {
+const nextChange = (editor: Editor, ms: number) =>
+  new Promise<void>((resolve) => {
+    const done = () => {
+      clearTimeout(timer);
+      editor.off("update", done);
+      resolve();
+    };
+    const timer = setTimeout(done, ms);
+    editor.on("update", done);
+  });
+
+/** From the assistant's card: the Mind, at the first of its write's claims that need a look. */
+export async function showLook(row: Look): Promise<void> {
   useAppStore.getState().openMind(row.mindId);
-  const reveal = (frames: number) => {
-    const read = readMindHandle.current;
-    if (read?.mindId === row.mindId && showFirstLook(read.editor, row.lookIn)) return;
-    if (frames > 0) requestAnimationFrame(() => reveal(frames - 1));
-  };
-  reveal(SHOW_FRAMES);
+  const editor = await whenMindEditor(row.mindId, OPEN_MS);
+  if (!editor || showFirstLook(editor, row.lookIn)) return;
+  // A Mind just opened may not hold its text yet.
+  if (firstBlockOf(editor.state.doc, row.lookIn) === null) {
+    await nextChange(editor, OPEN_MS);
+    showFirstLook(editor, row.lookIn);
+  }
 }

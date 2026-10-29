@@ -118,6 +118,13 @@ export const setOpenClaim = (place: string, id: string | null) => setFor("openCl
 
 export const setClaimFocus = (place: string, id: string | null) => setFor("focusClaim", place, id);
 
+/** Opens a claim's own card in place of the badge's; `focus`: the keyboard goes into it. */
+export function openClaimCard(place: string, id: string, { focus }: { focus: boolean }): void {
+  setCheckCardOpen(place, false);
+  setOpenClaim(place, id);
+  if (focus) setClaimFocus(place, id);
+}
+
 /** Only if `id` is still the open one: a card that closes late must not close its successor. */
 export function closeOpenClaim(place: string, id: string): void {
   if (useChecks.getState().openClaim[place] === id) setOpenClaim(place, null);

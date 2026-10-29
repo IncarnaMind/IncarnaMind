@@ -954,7 +954,7 @@
        },
        "done": {
         "type": "boolean",
-        "description": "true when this call does all the User asked, so your reply would only say it was done: the page's own line then says what was written, and you write no reply. Leave it out when the request has another part, or the User needs to hear something more (a choice to make, what the Documents don't cover)."
+        "description": "Only with content: true when this call does all the User asked, so your reply would only say it was done: the page's own line then says what was written, and you write no reply. Leave it out when the request has another part, or the User needs to hear something more (a choice to make, what the Documents don't cover)."
        }
       },
       "additionalProperties": false
@@ -1396,7 +1396,7 @@
        },
        "done": {
         "type": "boolean",
-        "description": "true when this call does all the User asked, so your reply would only say it was done: the page's own line then says what was written, and you write no reply. Leave it out when the request has another part, or the User needs to hear something more (a choice to make, what the Documents don't cover)."
+        "description": "Only with content: true when this call does all the User asked, so your reply would only say it was done: the page's own line then says what was written, and you write no reply. Leave it out when the request has another part, or the User needs to hear something more (a choice to make, what the Documents don't cover)."
        }
       },
       "additionalProperties": false
@@ -1871,7 +1871,7 @@
        },
        "done": {
         "type": "boolean",
-        "description": "true when this call does all the User asked, so your reply would only say it was done: the page's own line then says what was written, and you write no reply. Leave it out when the request has another part, or the User needs to hear something more (a choice to make, what the Documents don't cover)."
+        "description": "Only with content: true when this call does all the User asked, so your reply would only say it was done: the page's own line then says what was written, and you write no reply. Leave it out when the request has another part, or the User needs to hear something more (a choice to make, what the Documents don't cover)."
        }
       },
       "additionalProperties": false
@@ -2306,7 +2306,7 @@
        },
        "done": {
         "type": "boolean",
-        "description": "true when this call does all the User asked, so your reply would only say it was done: the page's own line then says what was written, and you write no reply. Leave it out when the request has another part, or the User needs to hear something more (a choice to make, what the Documents don't cover)."
+        "description": "Only with content: true when this call does all the User asked, so your reply would only say it was done: the page's own line then says what was written, and you write no reply. Leave it out when the request has another part, or the User needs to hear something more (a choice to make, what the Documents don't cover)."
        }
       },
       "additionalProperties": false
@@ -2772,7 +2772,7 @@
        },
        "done": {
         "type": "boolean",
-        "description": "true when this call does all the User asked, so your reply would only say it was done: the page's own line then says what was written, and you write no reply. Leave it out when the request has another part, or the User needs to hear something more (a choice to make, what the Documents don't cover)."
+        "description": "Only with content: true when this call does all the User asked, so your reply would only say it was done: the page's own line then says what was written, and you write no reply. Leave it out when the request has another part, or the User needs to hear something more (a choice to make, what the Documents don't cover)."
        }
       },
       "additionalProperties": false
@@ -3271,7 +3271,7 @@
        },
        "done": {
         "type": "boolean",
-        "description": "true when this call does all the User asked, so your reply would only say it was done: the page's own line then says what was written, and you write no reply. Leave it out when the request has another part, or the User needs to hear something more (a choice to make, what the Documents don't cover)."
+        "description": "Only with content: true when this call does all the User asked, so your reply would only say it was done: the page's own line then says what was written, and you write no reply. Leave it out when the request has another part, or the User needs to hear something more (a choice to make, what the Documents don't cover)."
        }
       },
       "additionalProperties": false
