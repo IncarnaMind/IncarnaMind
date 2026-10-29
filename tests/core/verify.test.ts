@@ -16,9 +16,11 @@ import { verificationOf } from "../../src/shared/verification";
 import {
   checkGenerate,
   checkingModel,
+  checkReply,
   isCheckRun,
   listedSentences,
   type Plan,
+  requestedFigures,
   sentenceOf,
   unsupportedReply,
 } from "../helpers/checks";
@@ -396,16 +398,56 @@ describe("Verify a document", () => {
     const FIXED_ASSETS = "固定资产 — 期末余额: 9,470; 期初余额: 8,860";
     const NET_PROFIT = "净利润 — 本年金额: 1,620; 上年金额: 1,215";
     const LEDGER = "Fleet ledger.md";
+    const fixedQuote = "固定资产期末余额 9,470 万元，期初余额 8,860 万元";
+    const profitQuote = "净利润本年金额 1,580 万元，上年金额 1,215 万元";
+    const rowPlan = (
+      claim: string,
+      quote: string,
+      verdict: "supported" | "contradicted",
+      bindings: Record<string, { number: string; verdict: "supported" | "contradicted" }>,
+    ): Plan => {
+      const base: Plan = { verdict, quote };
+      return {
+        ...base,
+        reply(call) {
+          const reply = checkReply(call, { [claim]: base });
+          if ("calls" in reply) return reply;
+          return {
+            text: `Verdict: ${verdict}\nFigures: ${JSON.stringify({
+              items: requestedFigures(call).map(({ id, shown, reading }) => {
+                const binding = bindings[shown];
+                if (!binding) throw new Error(`No checked row fixture for ${shown}`);
+                return {
+                  id,
+                  verdict: binding.verdict,
+                  scope: "same",
+                  topic: "found",
+                  roles: "same",
+                  says: null,
+                  reading,
+                  relation: "equals",
+                  source: { citation: 1, number: binding.number },
+                  calculation: null,
+                };
+              }),
+              remainder: null,
+            })}`,
+          };
+        },
+      };
+    };
     const calls: ModelCall[] = [];
     const { core, sources } = await setUp(
       checkingModel(
         {
-          [FIXED_ASSETS]: {
-            verdict: "supported",
-            quote: "固定资产期末余额 9,470 万元",
-            says: "The fleet ledger gives 9,470 at the year's end.",
-          },
-          [NET_PROFIT]: { verdict: "contradicted", quote: "净利润 1,580 万元" },
+          [FIXED_ASSETS]: rowPlan(FIXED_ASSETS, fixedQuote, "supported", {
+            "9,470": { number: "9,470", verdict: "supported" },
+            "8,860": { number: "8,860", verdict: "supported" },
+          }),
+          [NET_PROFIT]: rowPlan(NET_PROFIT, profitQuote, "contradicted", {
+            "1,620": { number: "1,580", verdict: "contradicted" },
+            "1,215": { number: "1,215", verdict: "supported" },
+          }),
         },
         calls,
       ),
@@ -414,7 +456,7 @@ describe("Verify a document", () => {
       await writeSourceFile(
         sources,
         LEDGER,
-        "# 车队台账\n\n2025 年固定资产期末余额 9,470 万元。净利润 1,580 万元。\n",
+        `# 车队台账\n\n2025 年${fixedQuote}。${profitQuote}。\n`,
       ),
     ]);
     const statement = join(sources, "2025年度财务报表.pdf");

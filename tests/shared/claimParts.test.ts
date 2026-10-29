@@ -942,6 +942,12 @@ describe.each(["Revenue 10. Profit 10. We should wait.", "收入10。利润10。
         checkedAt: "2026-10-29T00:00:00.000Z",
         providerId: "next-provider",
         modelId: "next-model",
+        action: "find-support" as const,
+        scope: {
+          folderId: "next-folder",
+          widened: false,
+          chosen: { folderIds: ["next-folder"], tagIds: [], documentIds: [] },
+        },
         state: "checking" as const,
         parts: kept.parts?.map((part) => ({
           ...part,
@@ -979,6 +985,9 @@ describe.each(["Revenue 10. Profit 10. We should wait.", "收入10。利润10。
         reason: "stopped",
       });
       expect(stopped.parts?.[2]?.verdict).toBeNull();
+      expect(stopped.figures?.find(({ id }) => id === "first")).toEqual(
+        kept.figures?.find(({ id }) => id === "first"),
+      );
       expect(readClaimCheck(JSON.parse(JSON.stringify(stopped)))).toEqual(stopped);
     });
   },

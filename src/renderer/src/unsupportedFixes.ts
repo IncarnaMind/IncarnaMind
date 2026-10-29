@@ -20,6 +20,7 @@ import {
 } from "../../core/api";
 import { detectLanguage } from "../../core/documents/textLanguage";
 import { checkedScope, saysNotFound } from "../../shared/claimChecks";
+import { keepCheckAsView } from "../../shared/claimParts";
 import {
   type FigureContext,
   figureContextOf,
@@ -277,7 +278,7 @@ export function keepAsView(editor: Editor, claim: ShownClaim): void {
   writeSentenceCheck(
     tr,
     { ...claim, ...(claim.kind === "chart" && { node: true as const }) },
-    { ...claim.check, kept: true },
+    keepCheckAsView(claim.check),
   );
   makeMine(state, tr, claim.sentence.from, claim.sentence.to);
   asOneStep(editor, () => editor.view.dispatch(tr));

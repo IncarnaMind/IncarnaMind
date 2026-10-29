@@ -21,17 +21,19 @@ import {
 import {
   CLAIM_CHECK_FAILURES,
   checkWithParts,
+  keepCheckAsView,
   partCitations,
   readCheckedVersions,
   readClaimCalculation,
   readClaimParts,
+  readClaimScope,
   readExcludedDocuments,
   readUnsupportedReason,
   resultFromParts,
 } from "./claimParts";
 import { aggregateFigureStates, figureProblem, readFigureFinding } from "./figureChecks";
 import type { MessageKey } from "./i18n";
-import { folderScope, hasSearchScope, sameScope, storedSearchScope } from "./searchScope";
+import { folderScope, hasSearchScope, sameScope } from "./searchScope";
 import { comparableSentence, isClaim } from "./sentences";
 
 /** The most sentences with Citations one write of the assistant's has checked as it lands (#1111): past it, a long draft would wait minutes and cost dozens of requests. */
@@ -49,16 +51,6 @@ const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === "object" && value !== null && !Array.isArray(value);
 
 const text = (value: unknown): string | null => (typeof value === "string" ? value : null);
-
-function scopeOf(value: unknown): ClaimCheckScope {
-  if (!isRecord(value)) return { folderId: null, widened: false };
-  const chosen = storedSearchScope(value.chosen);
-  return {
-    folderId: text(value.folderId),
-    widened: value.widened === true,
-    ...(chosen && hasSearchScope(chosen) && { chosen }),
-  };
-}
 
 /** Where a check looked: the Mind's chosen scope, else its Folder; null for every Document. */
 export function checkedScope(scope: ClaimCheckScope): SearchScope | null {
@@ -94,7 +86,7 @@ function readCheckBasis(value: unknown): ClaimCheckBasis | null {
     calculation: readClaimCalculation(value.calculation),
     citedCaseUnchecked: value.citedCaseUnchecked === true,
     citedCaseFound: value.citedCaseFound === true,
-    scope: scopeOf(value.scope),
+    scope: readClaimScope(value.scope),
     versions: readCheckedVersions(value.versions),
     excluded: readExcludedDocuments(value.excluded),
     checkedAt: text(value.checkedAt) ?? "",
@@ -142,7 +134,7 @@ function readCheckBasis(value: unknown): ClaimCheckBasis | null {
 export function readClaimCheck(value: unknown): ClaimCheckAttributes | null {
   const basis = readCheckBasis(value);
   if (!basis || !isRecord(value)) return null;
-  if (basis.parts) return checkWithParts(basis, basis.parts);
+  if (basis.parts) return basis.kept ? keepCheckAsView(basis) : checkWithParts(basis, basis.parts);
   const figures: FigureCheckAttributes[] = [];
   if (value.figures != null) {
     if (!Array.isArray(value.figures)) return null;

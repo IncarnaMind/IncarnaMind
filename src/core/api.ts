@@ -5506,7 +5506,12 @@ export type ClaimPartJudgment = (
       kept?: true;
     }
 ) &
-  Partial<Pick<ClaimCheckBasis, "request" | "checkedAt" | "providerId" | "modelId">>;
+  Partial<
+    Pick<
+      ClaimCheckBasis,
+      "id" | "request" | "action" | "text" | "scope" | "checkedAt" | "providerId" | "modelId"
+    >
+  >;
 
 export type ClaimPartFigure = FigureFinding & { result: ClaimPartJudgment };
 

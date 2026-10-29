@@ -33,12 +33,21 @@
  */
 import { randomUUID } from "node:crypto";
 import * as Y from "yjs";
+import { readCalculatedFigureEvidence } from "../../../shared/calculatedFigures";
 import { SENTENCES_CHECKED_AT_MOST } from "../../../shared/claimChecks";
 import { beginFigureCheck } from "../../../shared/figureChecks";
+import {
+  type InlineTextPiece,
+  type InlineTextProjection,
+  inlineSpan,
+  projectInlineText,
+  sliceInlineText,
+} from "../../../shared/inlineText";
 import { INLINE_NODE, isClaim, sentenceSpans } from "../../../shared/sentences";
 import { judgesUnreliably } from "../../../shared/smallModel";
 import {
   BLOCK_ID_ATTRIBUTE,
+  CALCULATED_FIGURE_NODE,
   CITATION_NODE,
   type CitedQuote,
   CLAIM_CHECK_MARK,
@@ -143,9 +152,11 @@ interface Sentence {
   path: number[];
   from: number;
   to: number;
-  /** As checks read it: an inline node as U+FFFC, a line break as "\n". */
   text: string;
   context: string;
+  rawText: string;
+  rawContext: string;
+  projection: InlineTextProjection;
   cited: CitedQuote[];
   /** In a table's cell, whose words are a figure, not a clause a cut could take out. */
   inCell: boolean;
@@ -168,6 +179,22 @@ function inlineLayout(content: readonly NodeJSON[]): { node: NodeJSON; start: nu
   });
 }
 
+function projectedContent(content: readonly NodeJSON[]) {
+  const pieces = inlineLayout(content).map(({ node, start }): InlineTextPiece => {
+    const place = {
+      from: start,
+      to: start + (node.type === "text" ? (node.text ?? "").length : 1),
+    };
+    if (node.type === "text") return { kind: "text", text: node.text ?? "", ...place };
+    if (node.type === CITATION_NODE) return { kind: "citation", ...place };
+    if (node.type === "hardBreak") return { kind: "break", ...place };
+    const figure =
+      node.type === CALCULATED_FIGURE_NODE ? readCalculatedFigureEvidence(node.attrs ?? {}) : null;
+    return { kind: "atom", ...place, ...(figure && { shown: figure.figure.shown }) };
+  });
+  return { pieces, projection: projectInlineText(pieces) };
+}
+
 /** The sentences a check reads that the write holds (#1909): every sentence with a Citation, and every claim with none. */
 function checkableSentences(blocks: readonly NodeJSON[]): Sentence[] {
   const found: Sentence[] = [];
@@ -180,16 +207,35 @@ function checkableSentences(blocks: readonly NodeJSON[]): Sentence[] {
         visit(content, here, inCell || node.type === "tableCell" || node.type === "tableHeader");
         return;
       }
-      const context = paragraphText(content);
+      const rawContext = paragraphText(content);
       const layout = inlineLayout(content);
-      for (const span of sentenceSpans(context)) {
-        const text = context.slice(span.from, span.to);
+      const { pieces, projection: whole } = projectedContent(content);
+      for (const span of sentenceSpans(rawContext)) {
+        let from = span.from;
+        let to = span.to;
+        while (pieces.some((piece) => piece.kind === "citation" && piece.from === from)) from++;
+        while (pieces.some((piece) => piece.kind === "citation" && piece.to === to)) to--;
+        const mapped = inlineSpan(whole, from, to);
+        const projection = mapped && sliceInlineText(whole, mapped.start, mapped.end);
+        if (!projection) continue;
+        const text = projection.text;
         const cited = layout.flatMap(({ node: inline, start }) => {
           if (inline.type !== CITATION_NODE || start < span.from || start >= span.to) return [];
           return citedQuoteOf(inline.attrs ?? {}) ?? [];
         });
         if (cited.length === 0 && !isClaim(text)) continue;
-        found.push({ path: here, from: span.from, to: span.to, text, context, cited, inCell });
+        found.push({
+          path: here,
+          from: span.from,
+          to: span.to,
+          text,
+          context: whole.text,
+          rawText: rawContext.slice(span.from, span.to),
+          rawContext,
+          projection,
+          cited,
+          inCell,
+        });
       }
     });
   };
@@ -511,10 +557,10 @@ function placeOf(
   const text = paragraphText(inlineOf(element));
   const spans = sentenceSpans(text);
   const same = spans
-    .filter((span) => text.slice(span.from, span.to) === sentence.text)
+    .filter((span) => text.slice(span.from, span.to) === sentence.rawText)
     .sort((a, b) => Math.abs(a.from - sentence.from) - Math.abs(b.from - sentence.from))[0];
   if (same) return { ...same, same: true };
-  const written = sentenceSpans(sentence.context);
+  const written = sentenceSpans(sentence.rawContext);
   const index = written.findIndex((span) => span.from === sentence.from);
   const now = spans.length === written.length ? spans[index] : undefined;
   return now ? { ...now, same: false } : null;
@@ -548,7 +594,7 @@ function readAsChecked(
   const blockId = element?.getAttribute(BLOCK_ID_ATTRIBUTE);
   const place = element ? placeOf(element, sentence) : null;
   if (!element || typeof blockId !== "string" || !place?.same)
-    return { claim: sentence.text, context: sentence.context };
+    return { claim: sentence.text, context: sentence.context, projection: sentence.projection };
   return checkText(sentenceOf(element, blockId, place, figures));
 }
 
@@ -596,10 +642,11 @@ export function createWrittenCheck(options: WrittenCheckOptions) {
       const quote = node ? citedQuoteOf(node.attrs ?? {}) : null;
       return quote ? [quote] : [];
     });
-    const claim = kept.replace(MARKER, INLINE_NODE);
+    const { projection } = projectedContent(nodes);
+    const claim = projection.text;
     const checked = await checkWithin(
-      { ...sentence, text: claim, cited },
-      { claim, context: sentence.context },
+      { ...sentence, text: claim, cited, projection },
+      { claim, context: sentence.context, projection },
       mindId,
       scope,
       prepared,

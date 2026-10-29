@@ -11,6 +11,7 @@ import type {
   ClaimCheckFailure,
   ClaimCheckPart,
   ClaimCheckResult,
+  ClaimCheckScope,
   ClaimJudgment,
   ClaimPartCoverage,
   ClaimPartFigure,
@@ -22,10 +23,12 @@ import type {
   LeftOutDocument,
   UnsupportedReason,
 } from "../core/api";
+import { claimCheckActions } from "../core/api";
 import { citationAttributesOf, parseQuotedWords } from "./citations";
 import { aggregateFigureResults, readFigureFinding } from "./figureChecks";
 import { type InlineTextProjection, inlineRange, inlineSpan } from "./inlineText";
 import { parseLocation } from "./locations";
+import { hasSearchScope, storedSearchScope } from "./searchScope";
 
 export const CLAIM_CHECK_FAILURES: readonly ClaimCheckFailure[] = [
   "refused",
@@ -57,6 +60,16 @@ const VERDICTS: readonly ClaimVerdict[] = ["supported", "unsupported", "contradi
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === "object" && value !== null && !Array.isArray(value);
 const text = (value: unknown): string | null => (typeof value === "string" ? value : null);
+
+export function readClaimScope(value: unknown): ClaimCheckScope {
+  if (!isRecord(value)) return { folderId: null, widened: false };
+  const chosen = storedSearchScope(value.chosen);
+  return {
+    folderId: text(value.folderId),
+    widened: value.widened === true,
+    ...(chosen && hasSearchScope(chosen) && { chosen }),
+  };
+}
 
 export function readCheckedVersions(value: unknown): CheckedVersion[] {
   if (!Array.isArray(value)) return [];
@@ -284,6 +297,7 @@ function coverageOf(value: unknown): ClaimPartCoverage | null {
 
 function judgmentOf(value: unknown): ClaimPartJudgment | null {
   if (!isRecord(value)) return null;
+  const action = claimCheckActions.find((action) => action === value.action);
   const versions = readCheckedVersions(value.versions);
   const excluded = readExcludedDocuments(value.excluded);
   if (
@@ -292,9 +306,15 @@ function judgmentOf(value: unknown): ClaimPartJudgment | null {
     !Array.isArray(value.excluded) ||
     excluded.length !== value.excluded.length ||
     (value.kept !== undefined && value.kept !== true) ||
-    ["request", "checkedAt"].some(
+    ["id", "request", "text", "checkedAt"].some(
       (key) => value[key] !== undefined && typeof value[key] !== "string",
     ) ||
+    (value.action !== undefined && !action) ||
+    (value.scope !== undefined &&
+      (!isRecord(value.scope) ||
+        (value.scope.folderId !== null && typeof value.scope.folderId !== "string") ||
+        typeof value.scope.widened !== "boolean" ||
+        (value.scope.chosen !== undefined && !storedSearchScope(value.scope.chosen)))) ||
     ["providerId", "modelId"].some(
       (key) => value[key] !== undefined && value[key] !== null && typeof value[key] !== "string",
     )
@@ -304,6 +324,10 @@ function judgmentOf(value: unknown): ClaimPartJudgment | null {
     versions,
     excluded,
     ...(value.kept === true && { kept: true as const }),
+    ...(typeof value.id === "string" && { id: value.id }),
+    ...(typeof value.text === "string" && { text: value.text }),
+    ...(action && { action }),
+    ...(value.scope !== undefined && { scope: readClaimScope(value.scope) }),
     ...(typeof value.request === "string" && { request: value.request }),
     ...(typeof value.checkedAt === "string" && { checkedAt: value.checkedAt }),
     ...((value.providerId === null || typeof value.providerId === "string") && {
@@ -430,7 +454,13 @@ export function readClaimParts(
       for (const raw of each.figures) {
         const finding = readFigureFinding(raw);
         const result = isRecord(raw) ? judgmentOf(raw.result) : null;
-        if (!finding || !result || figureIds.has(finding.id)) return null;
+        if (
+          !finding ||
+          !result ||
+          figureIds.has(finding.id) ||
+          (result.id !== undefined && result.id !== finding.id)
+        )
+          return null;
         figureIds.add(finding.id);
         figures.push({ ...finding, result });
       }
@@ -930,10 +960,28 @@ function terminalJudgment(result: ClaimPartJudgment): ClaimJudgment {
 
 function judgmentMetadata(result: ClaimPartJudgment) {
   return {
+    ...(result.id !== undefined && { id: result.id }),
     ...(result.request !== undefined && { request: result.request }),
+    ...(result.action !== undefined && { action: result.action }),
+    ...(result.text !== undefined && { text: result.text }),
+    ...(result.scope !== undefined && { scope: result.scope }),
     ...(result.checkedAt !== undefined && { checkedAt: result.checkedAt }),
     ...(result.providerId !== undefined && { providerId: result.providerId }),
     ...(result.modelId !== undefined && { modelId: result.modelId }),
+  };
+}
+
+function judgmentOn(result: ClaimPartJudgment, basis: ClaimCheckBasis): ClaimPartJudgment {
+  return {
+    ...result,
+    id: result.id === undefined ? basis.id : result.id,
+    request: result.request === undefined ? basis.request : result.request,
+    action: result.action === undefined ? basis.action : result.action,
+    text: result.text === undefined ? basis.text : result.text,
+    scope: result.scope === undefined ? basis.scope : result.scope,
+    checkedAt: result.checkedAt === undefined ? basis.checkedAt : result.checkedAt,
+    providerId: result.providerId === undefined ? basis.providerId : result.providerId,
+    modelId: result.modelId === undefined ? basis.modelId : result.modelId,
   };
 }
 
@@ -989,27 +1037,11 @@ export function checkWithParts(
     ...(part.figures && {
       figures: part.figures.map((figure) => ({
         ...figure,
-        result: {
-          ...figure.result,
-          request: figure.result.request === undefined ? check.request : figure.result.request,
-          checkedAt:
-            figure.result.checkedAt === undefined ? check.checkedAt : figure.result.checkedAt,
-          providerId:
-            figure.result.providerId === undefined ? check.providerId : figure.result.providerId,
-          modelId: figure.result.modelId === undefined ? check.modelId : figure.result.modelId,
-        },
+        result: judgmentOn(figure.result, { ...check, id: figure.id }),
       })),
     }),
     ...(part.remainder && {
-      remainder: {
-        ...part.remainder,
-        request: part.remainder.request === undefined ? check.request : part.remainder.request,
-        checkedAt:
-          part.remainder.checkedAt === undefined ? check.checkedAt : part.remainder.checkedAt,
-        providerId:
-          part.remainder.providerId === undefined ? check.providerId : part.remainder.providerId,
-        modelId: part.remainder.modelId === undefined ? check.modelId : part.remainder.modelId,
-      },
+      remainder: judgmentOn(part.remainder, { ...check, id: `${check.id}:remainder` }),
     }),
   }));
   const { figures: _figures, remainder: _remainder, ...basis } = check;
@@ -1030,6 +1062,17 @@ export function checkWithParts(
       part.kind === "fact" &&
       (part.figures?.length ? part.remainder?.verdict === "checking" : part.verdict === "checking"),
   );
+  const remainderOwners = stored.flatMap((part): (ClaimPartJudgment | null)[] =>
+    part.kind !== "fact"
+      ? []
+      : part.figures?.length
+        ? part.remainder
+          ? [part.remainder]
+          : []
+        : [null],
+  );
+  const remainderMetadata =
+    remainderOwners.length === 1 && remainderOwners[0] ? judgmentMetadata(remainderOwners[0]) : {};
   return {
     ...parent,
     parts: stored,
@@ -1042,7 +1085,41 @@ export function checkWithParts(
           )
         : projected.remainder === null
           ? null
-          : storedJudgment({ ...basis, id: `${basis.id}:remainder` }, projected.remainder),
+          : storedJudgment(
+              { ...basis, id: `${basis.id}:remainder` },
+              { ...projected.remainder, ...remainderMetadata },
+            ),
     }),
   };
+}
+
+export function keepCheckAsView(
+  check: ClaimCheckAttributes,
+  ids?: ReadonlySet<string>,
+): ClaimCheckAttributes {
+  if (!check.parts)
+    return ids
+      ? {
+          ...check,
+          ...(check.figures && {
+            figures: check.figures.map((figure) =>
+              ids.has(figure.id) ? { ...figure, kept: true } : figure,
+            ),
+          }),
+        }
+      : { ...check, kept: true };
+  const whole = ids === undefined || check.kept === true;
+  const parts = check.parts.map((part) => ({
+    ...part,
+    ...(whole && part.verdict !== null && { kept: true as const }),
+    ...(part.figures && {
+      figures: part.figures.map((figure) =>
+        whole || ids?.has(figure.id)
+          ? { ...figure, result: { ...figure.result, kept: true as const } }
+          : figure,
+      ),
+    }),
+    ...(whole && part.remainder && { remainder: { ...part.remainder, kept: true as const } }),
+  }));
+  return checkWithParts(check, parts);
 }

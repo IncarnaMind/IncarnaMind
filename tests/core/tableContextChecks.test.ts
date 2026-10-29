@@ -82,10 +82,10 @@ const BUDGETS: Budget[] = [
       { label: "Profit", quote: EN_PROFIT, values: ["30", "42"] },
     ],
     plans: {
-      [`100${INLINE_NODE}`]: plan("supported", EN_REVENUE, "100"),
-      [`210${INLINE_NODE}`]: plan("contradicted", EN_REVENUE, "120"),
-      [`30${INLINE_NODE}`]: plan("supported", EN_PROFIT, "30"),
-      [`42${INLINE_NODE}`]: plan("supported", EN_PROFIT, "42"),
+      "100": plan("supported", EN_REVENUE, "100"),
+      "210": plan("contradicted", EN_REVENUE, "120"),
+      "30": plan("supported", EN_PROFIT, "30"),
+      "42": plan("supported", EN_PROFIT, "42"),
     },
   },
   {
@@ -102,10 +102,10 @@ const BUDGETS: Budget[] = [
     ],
     plans: {
       // The row's unit cell states its numbers' unit, which the model gives as unitQuote.
-      [`100${INLINE_NODE}`]: plan("supported", ZH_REVENUE, "100", "万元"),
-      [`210${INLINE_NODE}`]: plan("contradicted", ZH_REVENUE, "120", "万元"),
-      [`30${INLINE_NODE}`]: plan("supported", ZH_PROFIT, "30", "万元"),
-      [`42${INLINE_NODE}`]: plan("supported", ZH_PROFIT, "42", "万元"),
+      "100": plan("supported", ZH_REVENUE, "100", "万元"),
+      "210": plan("contradicted", ZH_REVENUE, "120", "万元"),
+      "30": plan("supported", ZH_PROFIT, "30", "万元"),
+      "42": plan("supported", ZH_PROFIT, "42", "万元"),
     },
   },
 ];
@@ -316,7 +316,7 @@ describe("A table the assistant writes is checked cell by cell, each with its ro
       await client.settled();
 
       const sent = checks.filter((call) => call.results.length === 0);
-      expect(sent.map(sentenceOf)).toEqual(Object.keys(budget.plans));
+      expect(sent.map(sentenceOf)).toEqual(budget.rows.flatMap((row) => row.values));
       const [first] = budget.rows;
       const cell = sent.find((call) => sentenceOf(call).startsWith("100"));
       const prompt = promptOf(cell);
@@ -347,7 +347,7 @@ describe("A table the assistant writes is checked cell by cell, each with its ro
     const budget = BUDGETS[0] as Budget;
     const plans: Record<string, Plan> = {
       ...budget.plans,
-      [`42${INLINE_NODE}`]: {
+      "42": {
         reply: {
           text: [
             "Verdict: unsupported",

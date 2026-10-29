@@ -16,7 +16,7 @@ import {
   MIND_FIGURE_RUNS_FIELD,
 } from "../../../core/api";
 import { chartCheckText, readChart } from "../../../shared/charts";
-import { checkWithParts } from "../../../shared/claimParts";
+import { keepCheckAsView } from "../../../shared/claimParts";
 import { emptyFigureFinding } from "../../../shared/figureChecks";
 import { pruneFigureRuns } from "../../../shared/figureRuns";
 import { FORMULA_VERSION, showResult } from "../../../shared/formula";
@@ -177,23 +177,10 @@ export function keepFigureViews(
     seen.add(span.check.id);
     const previous = span.check;
     if (previous.parts) {
-      const parts = previous.parts.map((part) => ({
-        ...part,
-        ...(previous.kept && part.verdict !== null && { kept: true as const }),
-        ...(part.figures && {
-          figures: part.figures.map((figure) =>
-            chosen.has(figure.id) || previous.kept
-              ? { ...figure, result: { ...figure.result, kept: true as const } }
-              : figure,
-          ),
-        }),
-        ...(previous.kept &&
-          part.remainder && { remainder: { ...part.remainder, kept: true as const } }),
-      }));
       writeSentenceCheck(
         tr,
         { ...span, ...(span.kind === "chart" && { node: true as const }) },
-        checkWithParts(previous, parts),
+        keepCheckAsView(previous, chosen),
       );
       continue;
     }

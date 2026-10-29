@@ -16,6 +16,7 @@ import {
 } from "../../src/core/api";
 import { claimSpans } from "../../src/renderer/src/editor/claimChecks";
 import { claimCheckShown } from "../../src/shared/claimChecks";
+import { keepCheckAsView } from "../../src/shared/claimParts";
 import { readFigures } from "../../src/shared/figures";
 import { mindCheckOf, writeMindCheck } from "../../src/shared/mindCheck";
 import { setMindModel } from "../../src/shared/mindModel";
@@ -1032,14 +1033,7 @@ describe("Checking selected figures in one sentence", () => {
       const check = owner();
       client.doc.transact(() => {
         updateCheck(client.blocks, check.id, (current) =>
-          id === undefined
-            ? { ...current, kept: true }
-            : {
-                ...current,
-                figures: current.figures?.map((figure) =>
-                  figure.id === id ? { ...figure, kept: true } : figure,
-                ),
-              },
+          keepCheckAsView(current, id === undefined ? undefined : new Set([id])),
         );
       }, "editor");
       await client.settled();

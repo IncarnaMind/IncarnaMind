@@ -379,6 +379,7 @@ export function beginFigureCheck(
   projection?: InlineTextProjection,
 ): ClaimCheckAttributes {
   if (basis.parts) {
+    const { kept: _kept, ...activeBasis } = basis;
     const plans = basis.parts;
     const owned = figuresByPart(basis.text, plans, figures, projection);
     if (!owned)
@@ -426,7 +427,7 @@ export function beginFigureCheck(
           : { remainder: { verdict: "checking", versions: [], excluded: [] } }),
       };
     });
-    return checkWithParts(basis, parts);
+    return checkWithParts(activeBasis, parts);
   }
   const initial: ClaimCheckAttributes = previous ?? basis;
   const { figures: _figures, remainder: _remainder, ...old } = initial;

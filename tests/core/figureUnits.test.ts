@@ -9,7 +9,6 @@
 import { describe, expect, test } from "vitest";
 import { type CheckedText, unitNotStated } from "../../src/core/answers/checks/units";
 import { documentInstructions } from "../../src/core/answers/prompt";
-import { INLINE_NODE } from "../../src/shared/sentences";
 import { askAssistant, changesIn } from "../helpers/assistant";
 import {
   checkGenerate,
@@ -520,13 +519,13 @@ describe("What the assistant writes", { timeout: 30_000 }, () => {
   test("a currency it adds to a figure is cut before it lands", async () => {
     const calls: ModelCall[] = [];
     const plans = {
-      [`${WRITTEN} ${INLINE_NODE}.`]: {
+      [`${WRITTEN} .`]: {
         verdict: "supported" as const,
         quote: STATED,
         says: STATED,
       },
       // The cut, checked once as it would land.
-      [`The annual salary is 54,000 ${INLINE_NODE}.`]: {
+      "The annual salary is 54,000 .": {
         verdict: "supported" as const,
         quote: STATED,
         says: STATED,
@@ -556,13 +555,6 @@ describe("What the assistant writes", { timeout: 30_000 }, () => {
     const page = await connectToMind(core, change?.mindId ?? "");
     await page.settled();
 
-    process.stdout.write(
-      `SHOWN ${JSON.stringify(shownWithChanges(page))} SELF ${JSON.stringify(changesIn(answer)[0]?.selfCheck)}\n`,
-    );
-    for (const call of calls.filter(isCheckRun))
-      process.stdout.write(
-        `CHK ${JSON.stringify(call.results.map((r) => [r.tool, r.text.slice(0, 200)]))}\n`,
-      );
     expect(shownWithChanges(page)).toContain("+ The annual salary is 54,000 ⟨found⟩.");
     const cuts = calls.filter((call) => CUT.test(call.prompt));
     expect(cuts).toHaveLength(1);
