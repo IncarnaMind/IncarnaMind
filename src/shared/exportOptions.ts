@@ -31,7 +31,7 @@ export function citedCountText(t: Translate, { citations, documents }: CitedCoun
 export interface ChosenPlaces {
   /** The Citations in a list at the end: one entry for each. */
   citations: number;
-  /** The footnotes they make, as the export's writer wrote them: one for a source and place (#1381). */
+  /** The footnotes in the file, the User's own included: a source and place once (#1381). */
   footnotes: number;
   place: CitationPlace;
 }

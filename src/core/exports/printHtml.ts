@@ -23,8 +23,8 @@ export type PrintLabels = ExportLabels;
 export interface PrintHtml {
   body: string;
   notes: string[];
-  /** The footnotes written for Citations, each a note of its own here: what the Saved line says (#2193). */
-  citationFootnotes: number;
+  /** The notes printed with the page, the User's own and changes' included: what the Saved line says (#2193). */
+  footnotes: number;
 }
 
 export interface CitationWriter {
@@ -72,7 +72,8 @@ export function renderPrintHtml(
     citations,
     isLink,
   );
-  return { body: writer.blocks(blocks), notes, citationFootnotes: writer.citationFootnotes };
+  const body = writer.blocks(blocks);
+  return { body, notes, footnotes: notes.length };
 }
 
 /** A style's formatted runs: italics, bold, small capitals, underlining, raised text and links. */
@@ -163,8 +164,6 @@ function wrap(text: string, marks: Marks, isLink: LinkTest): string {
 }
 
 class PrintWriter {
-  private citationNoteCount = 0;
-
   constructor(
     private readonly labels: PrintLabels,
     /** Numbers a footnote, given as HTML: 1, 2, 3… in the order they are written. */
@@ -174,11 +173,6 @@ class PrintWriter {
     private readonly citations: CitationWriter | null,
     private readonly isLink: LinkTest,
   ) {}
-
-  /** The footnotes written for Citations: what the Saved line says (#2193). */
-  get citationFootnotes(): number {
-    return this.citationNoteCount;
-  }
 
   blocks(blocks: readonly Block[]): string {
     return blocks.map((block) => this.block(block)).join("");
@@ -346,7 +340,6 @@ class PrintWriter {
             const number = this.number(this.citations.note(item.footnote));
             html += this.citations.marker(item.footnote, number);
           } else {
-            this.citationNoteCount++;
             html += this.marker(
               sourceHtml(item.footnote, this.labels, this.isLink) +
                 checkedHtml(item.footnote.checked),
@@ -362,7 +355,6 @@ class PrintWriter {
         case "cite": {
           const marker = item.unverified ? unverifiedHtml(this.labels) : "";
           if (item.note && !inNote) {
-            this.citationNoteCount++;
             html += this.marker(
               runsHtml(item.runs, this.isLink) + marker + checkedHtml(item.checked),
               state.lastWasNote,

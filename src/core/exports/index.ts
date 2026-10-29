@@ -691,7 +691,7 @@ export function createExports(deps: ExportsDependencies) {
       } else {
         // Charts as Word has them: the picture, drawn at twice its size, else the table of values.
         const drawn = await withPictures(blocks, language, deps);
-        const { body, notes, citationFootnotes } = renderPrintHtml(drawn, labels);
+        const { body, notes, footnotes: printedFootnotes } = renderPrintHtml(drawn, labels);
         const printed = await (deps.printer as Printer).print({
           language,
           paper: deps.paper(),
@@ -701,7 +701,7 @@ export function createExports(deps: ExportsDependencies) {
           notes,
         });
         data = unifyIdeographs(printed);
-        footnotes = citationFootnotes;
+        footnotes = printedFootnotes;
       }
       return {
         ...preview,

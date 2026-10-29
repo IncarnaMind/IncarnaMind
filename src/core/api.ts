@@ -8612,10 +8612,12 @@ export interface MindExport extends MindExportPreview {
    */
   needsDetails: string[];
   /**
-   * The footnotes the file writes for its Citations, for the Saved line (#1945): the first Citation
-   * of a source and place writes one and later ones repeat its number (#1381), so five Citations
-   * across two pages are 2 footnotes. 0 where the Saved line doesn't say: Citations in a list at
-   * the end, and the formats whose line names no place.
+   * The footnotes in the file, for the Saved line (#1945): the User's own and the Citations', a
+   * Citation of a source and place already footnoted repeating that footnote (#1381), so five
+   * Citations across two pages are 2 footnotes and one beside a footnote the User wrote is 3.
+   * A Word file counts the notes its document refers to, an imported file's own included; a PDF
+   * counts the notes printed with it. 0 for a format whose line counts none: Markdown, HTML, a
+   * share page, a source pack.
    */
   footnotes: number;
 }

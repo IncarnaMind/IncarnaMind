@@ -202,7 +202,7 @@ export function renderDocx(
   return {
     data,
     commented: review?.commentedSentences() ?? [],
-    footnotes: writer.citationFootnotes,
+    footnotes: writer.footnoteCount,
   };
 }
 
@@ -366,11 +366,14 @@ export class DocxWriter {
   readonly footnotes: string[] = [];
   private readonly styles: DocxStyles;
   private readonly notes = new Map<string, { id: number; text: string; reused: boolean }>();
-  private citationNoteCount = 0;
+  private footnoteTotal = 0;
 
-  /** The footnotes the file writes for Citations, a reused one counted once: what the Saved line says (#1381). */
-  get citationFootnotes(): number {
-    return this.citationNoteCount;
+  /**
+   * The footnotes the finished document refers to, the User's own included: what the Saved line
+   * says (#2193). A note kept from the file an imported Mind was written in counts too.
+   */
+  get footnoteCount(): number {
+    return this.footnoteTotal;
   }
 
   constructor(
@@ -601,7 +604,6 @@ export class DocxWriter {
         this.styles.footnote,
       ),
     );
-    this.citationNoteCount++;
     if (key !== null && !first) this.notes.set(key, { id, text, reused: false });
     return footnoteReference(id, this.styles.footnote.reference);
   }
@@ -910,7 +912,6 @@ export class DocxWriter {
         this.styles.footnote,
       ),
     );
-    this.citationNoteCount++;
     if (key !== null) this.notes.set(key, { id, text: "", reused: false });
     return footnoteReference(id, this.styles.footnote.reference);
   }
@@ -932,17 +933,23 @@ export class DocxWriter {
   finish(document: string): string {
     const reused = new Set<number>();
     for (const note of this.notes.values()) if (note.reused) reused.add(note.id);
-    if (reused.size === 0) return document;
-    const bookmarkedNotes = new Set<number>();
-    const out = document.replace(NOTE_MARK, (found, id: string) => {
-      const note = Number(id);
-      if (!reused.has(note) || bookmarkedNotes.has(note)) return found;
-      bookmarkedNotes.add(note);
-      return bookmarked(this.target.ids.take("annotation"), this.target.noteBookmark(note), found);
-    });
-    for (const id of reused) {
-      if (!bookmarkedNotes.has(id)) {
-        throw new Error(`The footnote ${id} isn't in the document it is cited from.`);
+    let out = document;
+    if (reused.size > 0) {
+      const bookmarkedNotes = new Set<number>();
+      out = document.replace(NOTE_MARK, (found, id: string) => {
+        const note = Number(id);
+        if (!reused.has(note) || bookmarkedNotes.has(note)) return found;
+        bookmarkedNotes.add(note);
+        return bookmarked(
+          this.target.ids.take("annotation"),
+          this.target.noteBookmark(note),
+          found,
+        );
+      });
+      for (const id of reused) {
+        if (!bookmarkedNotes.has(id)) {
+          throw new Error(`The footnote ${id} isn't in the document it is cited from.`);
+        }
       }
     }
     const numbers = new Map<number, number>();
@@ -950,6 +957,7 @@ export class DocxWriter {
       const id = Number(found[1]);
       if (!numbers.has(id)) numbers.set(id, numbers.size + 1);
     }
+    this.footnoteTotal = numbers.size;
     return out.replaceAll(NUMBER_MARK, (_, id: string) => String(numbers.get(Number(id)) ?? id));
   }
 

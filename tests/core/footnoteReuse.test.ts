@@ -63,7 +63,8 @@ describe("a Word export of a Mind that cites a source again", () => {
     {
       citationPlace,
       format = "docx",
-    }: { citationPlace?: CitationPlace; format?: "docx" | "pdf" } = {},
+      ownFootnote = false,
+    }: { citationPlace?: CitationPlace; format?: "docx" | "pdf"; ownFootnote?: boolean } = {},
   ) {
     const { printed, printer } = fakePrinter();
     const core = startCore(await createTempDataFolder(), { now: manualClock().now, printer });
@@ -79,6 +80,9 @@ describe("a Word export of a Mind that cites a source again", () => {
         content: [
           text(`第 ${index + 1} 句`),
           citation(resume?.id ?? "", resume?.contentHash ?? null, page),
+          ...(ownFootnote && index === 0
+            ? [{ type: "footnote", attrs: { id: "own-1" }, content: [text("我的注。")] }]
+            : []),
           text("。"),
         ],
       })),
@@ -177,6 +181,19 @@ describe("a Word export of a Mind that cites a source again", () => {
     expect(exported.footnotes).toBe(5);
     expect(printed[0]?.notes).toHaveLength(5);
   });
+
+  test("a footnote the User wrote is counted too: three Citations beside it are 3 footnotes (#2193)", async () => {
+    const { footnotes, exported } = await exportWith([1, 1, 2], { ownFootnote: true });
+    expect(exported.citations).toBe(3);
+    expect(exported.footnotes).toBe(3);
+    expect(Object.keys(footnotes)).toHaveLength(3);
+  });
+
+  test("a PDF counts the same note's footnotes, the User's own included: 4 (#2193)", async () => {
+    const { exported, printed } = await exportWith([1, 1, 2], { ownFootnote: true, format: "pdf" });
+    expect(exported.footnotes).toBe(4);
+    expect(printed[0]?.notes).toHaveLength(4);
+  });
 });
 
 describe("the writer's notes", () => {
@@ -218,7 +235,7 @@ describe("the writer's notes", () => {
   const paragraph = (...content: Inline[]): Block => ({ kind: "paragraph", content });
 
   function render(blocks: Block[]) {
-    const { data, footnotes: written } = renderDocx(blocks, {
+    const { data, footnotes: count } = renderDocx(blocks, {
       title: "",
       labels: exportLabels("en"),
       language: "en-US",
@@ -235,12 +252,12 @@ describe("the writer's notes", () => {
     return {
       document: part(files, "word/document.xml"),
       footnotes: footnotesOf(part(files, "word/footnotes.xml")),
-      written,
+      count,
     };
   }
 
   test("a source and place cited again, in any kind of block, is cited by the first note's number", () => {
-    const { document, footnotes, written } = render([
+    const { document, footnotes, count } = render([
       paragraph(words("a"), cited("Tides, p. 2")),
       {
         kind: "list",
@@ -264,7 +281,7 @@ describe("the writer's notes", () => {
       },
     ]);
     expect(footnotes).toEqual({ "1": "Tides, p. 2" });
-    expect(written).toBe(1);
+    expect(count).toBe(1);
     const found = crossReferences(document);
     expect(found.marks).toEqual([1]);
     expect(found.results.map((each) => each.shows)).toEqual([1, 1]);
@@ -272,12 +289,12 @@ describe("the writer's notes", () => {
 
   test("a footnote of the User's counts in the numbers the cross-references show", () => {
     const own: Inline = { kind: "footnote", content: [words("Mine")] };
-    const { document, footnotes, written } = render([
+    const { document, footnotes, count } = render([
       paragraph(cited("Tides, p. 2"), own, cited("Tides, p. 2"), cited("Waves, p. 1")),
       paragraph(cited("Waves, p. 1"), cited("Tides, p. 2")),
     ]);
     expect(Object.values(footnotes)).toEqual(["Tides, p. 2", "Mine", "Waves, p. 1"]);
-    expect(written).toBe(2);
+    expect(count).toBe(3);
     expect(crossReferences(document).results.map((each) => each.shows)).toEqual([1, 3, 1]);
   });
 
@@ -398,7 +415,7 @@ describe("the writer's notes", () => {
   });
 
   test("a citation style's own form for a repeat is a note of its own; the same form again is a reference", () => {
-    const { document, footnotes, written } = render([
+    const { document, footnotes, count } = render([
       paragraph(
         styled("Smith, Tides, 5.", "a"),
         styled("Id.", "a"),
@@ -418,7 +435,7 @@ describe("the writer's notes", () => {
       "No key.",
       "No key.",
     ]);
-    expect(written).toBe(6);
+    expect(count).toBe(6);
     expect(crossReferences(document).results.map((each) => each.shows)).toEqual([1, 4]);
   });
 });

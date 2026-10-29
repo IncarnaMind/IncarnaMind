@@ -112,7 +112,7 @@ export type ExportResult = { tableId?: string } & (
       /** The Citations in the file, and the Documents they cite. */
       citations: number;
       citedDocuments: number;
-      /** The footnotes the file writes for those Citations, as its writer wrote them (#2193). */
+      /** The footnotes in the file, the User's own included, as its writer counted them (#2193). */
       footnotes: number;
       /** Whether the note's style is Numbered, the one whose Citations the User places. */
       numbered: boolean;

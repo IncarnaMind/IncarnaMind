@@ -93,7 +93,7 @@ export interface WordPatchResult {
   data: Uint8Array;
   report: WordExportReport;
   commented: FailedSentence[];
-  /** The footnotes written for Citations, a reused one counted once: what the Saved line says (#1381). */
+  /** The footnotes the finished document refers to, the ones the file already had included (#2193). */
   footnotes: number;
 }
 
@@ -332,7 +332,7 @@ export async function exportWordPatch(input: WordPatchInput): Promise<WordPatchR
     data,
     report,
     commented: review.commentedSentences(),
-    footnotes: docxWriter.citationFootnotes,
+    footnotes: docxWriter.footnoteCount,
   };
 }
 
