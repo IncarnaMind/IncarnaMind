@@ -125,10 +125,24 @@ the tokens with no cache, as the largest measured Answer did. Prices are the app
 ## The pipeline check
 
 `pipeline-check/` holds the whole pipeline run at no cost, to show it works end to end: every
-Question asked of the scripted chat model, and 10 Questions asked of qwen3.5:4b on Ollama, both
-judged by the scripted stand-ins, then scored and scanned. Its `RESULTS.md` says at its top that
-these are not published numbers: the scripted model searches and cites the first line that shares a
-word with the Question, so its scores say only that each step runs.
+Question asked of the scripted chat model, and 10 Questions (one of each kind in each language)
+asked of qwen3.5:4b on Ollama at `num_ctx` 8192, all judged by the scripted stand-ins, then scored
+and scanned. Its `RESULTS.md` says at its top that these are not published numbers.
+
+- **The scripted model** (150 Answers, 6 minutes): it searches and cites the first line that shares
+  a word with the Question, so all 147 of its quotes are at their Locations, none of the 119
+  Questions with reference figures gets them ("Your Documents answer this"), and the two stand-ins
+  disagree on every Citation, which lists all 147 for a person to settle. Every step ran on every
+  Question: the Answer, its Citations, the check of its Note, the run file after each one.
+- **qwen3.5:4b** (10 Questions, 4 minutes): the app refused 5 before sending them, since at a
+  window of 8,192 tokens the request didn't leave the 2,048 an Answer is kept; the other 5 gave 12
+  Citations, 11 of them with the quote at its Location. Of the 7 misses the scorers found, the
+  check caught 2 (both on the one Citation whose quote wasn't at its Location, which showed
+  "Quote not found"), let 4 through, and had nothing to flag for a figure the Answer left out.
+  The published run on Ollama needs the app's own window, not 8,192.
+- Stopped after 3 of 6 Questions and run again, a run asked only the other 3; run a third time, it
+  asked none. A run on a model with a price and no cap, or a cap below its estimate, refused to
+  start before anything was sent.
 
 ## Publishing
 

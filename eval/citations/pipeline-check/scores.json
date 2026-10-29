@@ -1,0 +1,1463 @@
+{
+  "set": {
+    "version": 1,
+    "questions": "ab17b69ea42ce560fa1981061932059d84e124b70e08b98fdd34c9ea121d1923",
+    "documents": "8942e783979679ca06babaf476867b4aefac6865ab81e7b944d0e29093c9b79e"
+  },
+  "problems": [],
+  "scores": [
+    {
+      "file": "ollama-qwen3.5-4b.en.json",
+      "model": "ollama/qwen3.5:4b",
+      "language": "en",
+      "questions": 75,
+      "answers": 5,
+      "failed": 2,
+      "citations": 9,
+      "quoteFound": 8,
+      "supported": {
+        "supported": 4,
+        "judged": 6,
+        "unsettled": 3,
+        "unjudged": 0
+      },
+      "figureRight": {
+        "right": 1,
+        "scored": 2
+      },
+      "withTheCheck": {
+        "misses": 4,
+        "caught": 2,
+        "leftOut": 1,
+        "falseQuoteNotFound": 0,
+        "flaggedWithoutMiss": 0,
+        "notChecked": 0
+      },
+      "absent": {
+        "questions": 1,
+        "declined": 1,
+        "citedAnyway": 1
+      },
+      "tokens": {
+        "input": 32429,
+        "cachedInput": 0,
+        "output": 2136
+      },
+      "usd": null,
+      "seconds": 120.843153291,
+      "misses": [
+        {
+          "questionId": "en-001",
+          "questionKind": "table-figure",
+          "kind": "quote",
+          "sentence": "The table provides the month and day (May 10) but does not specify the year of collection for that specific entry, although the dataset covers the period from 1995 to 2011 .",
+          "citation": {
+            "key": "en-001#2",
+            "quote": "1995-2011年CERN土壤环境元素含量数据集摘要：土壤环境是地球环境的重要组成部分。目前土壤环境问题的关注重点在于土壤污染。",
+            "document": "cern-soil-elements",
+            "pages": "pp. 9–10"
+          },
+          "detail": "the quote isn't at pp. 9–10 of 1995-2011年CERN土壤环境元素含量数据集",
+          "caughtBy": "citation check",
+          "inAnswer": true
+        },
+        {
+          "questionId": "en-001",
+          "questionKind": "table-figure",
+          "kind": "support",
+          "sentence": "The table provides the month and day (May 10) but does not specify the year of collection for that specific entry, although the dataset covers the period from 1995 to 2011 .",
+          "citation": {
+            "key": "en-001#2",
+            "quote": "1995-2011年CERN土壤环境元素含量数据集摘要：土壤环境是地球环境的重要组成部分。目前土壤环境问题的关注重点在于土壤污染。",
+            "document": "cern-soil-elements",
+            "pages": "pp. 9–10"
+          },
+          "detail": "the judges find the Passage doesn't support the sentence",
+          "caughtBy": "citation check",
+          "inAnswer": true
+        },
+        {
+          "questionId": "en-019",
+          "questionKind": "calculated",
+          "kind": "figure",
+          "sentence": null,
+          "citation": null,
+          "detail": "it leaves out 7,122.2 billions of dollars and 7,882.8 billions of dollars",
+          "caughtBy": null,
+          "inAnswer": false
+        },
+        {
+          "questionId": "en-025",
+          "questionKind": "absent",
+          "kind": "support",
+          "sentence": "The Chinese National Statistical Bulletin for 2023 mentions the number of people participating in social insurance schemes (such as basic endowment insurance), but does not provide a total federal payroll figure.",
+          "citation": {
+            "key": "en-025#2",
+            "quote": "年末全国参加城镇职工基本养老保险人数52121万人",
+            "document": "nbs-communique-2023",
+            "pages": "p. 14"
+          },
+          "detail": "the judges find the Passage doesn't support the sentence",
+          "caughtBy": null,
+          "inAnswer": true
+        }
+      ]
+    },
+    {
+      "file": "ollama-qwen3.5-4b.zh.json",
+      "model": "ollama/qwen3.5:4b",
+      "language": "zh",
+      "questions": 75,
+      "answers": 5,
+      "failed": 3,
+      "citations": 3,
+      "quoteFound": 3,
+      "supported": {
+        "supported": 1,
+        "judged": 3,
+        "unsettled": 0,
+        "unjudged": 0
+      },
+      "figureRight": {
+        "right": 1,
+        "scored": 2
+      },
+      "withTheCheck": {
+        "misses": 3,
+        "caught": 0,
+        "leftOut": 0,
+        "falseQuoteNotFound": 0,
+        "flaggedWithoutMiss": 0,
+        "notChecked": 0
+      },
+      "absent": {
+        "questions": 0,
+        "declined": 0,
+        "citedAnyway": 0
+      },
+      "tokens": {
+        "input": 32243,
+        "cachedInput": 0,
+        "output": 1619
+      },
+      "usd": null,
+      "seconds": 96.19731187499998,
+      "misses": [
+        {
+          "questionId": "zh-012",
+          "questionKind": "table-figure",
+          "kind": "support",
+          "sentence": "根据《1995-2011年CERN土壤环境元素含量数据集》中的表1，禹城站2010年表层土壤（0～10 cm）的汞含量为 0.047 mg/kg。",
+          "citation": {
+            "key": "zh-012#1",
+            "quote": "0–10 0.047",
+            "document": "cern-soil-elements",
+            "pages": "p. 10"
+          },
+          "detail": "the judges find the Passage doesn't support the sentence",
+          "caughtBy": null,
+          "inAnswer": true
+        },
+        {
+          "questionId": "zh-052",
+          "questionKind": "conflict",
+          "kind": "support",
+          "sentence": "根据您提供的文档，2024年12月的修订公告给出了2023年国内生产总值的最终数据，而2024年的统计公报中并未包含2023年的具体数值（仅提及对历史数据的修订背景）。",
+          "citation": {
+            "key": "zh-052#1",
+            "quote": "根据第五次全国经济普查结果，并同步实施城镇居民自有住房服务核算方法改革，对国内生产总值、三次产业及相关行业增加值、全员劳动生产率等历史数据（包括图1、图2、图3、图9、图10、图11）进行了修订。",
+            "document": "nbs-communique-2024",
+            "pages": "pp. 26–27"
+          },
+          "detail": "the judges find the Passage doesn't support the sentence",
+          "caughtBy": null,
+          "inAnswer": true
+        },
+        {
+          "questionId": "zh-052",
+          "questionKind": "conflict",
+          "kind": "figure",
+          "sentence": "修订后，2023年国内生产总值为1294272亿元。",
+          "citation": null,
+          "detail": "it doesn't give 1,260,582 亿元",
+          "caughtBy": null,
+          "inAnswer": true
+        }
+      ]
+    },
+    {
+      "file": "scripted.en.json",
+      "model": "scripted",
+      "language": "en",
+      "questions": 75,
+      "answers": 75,
+      "failed": 0,
+      "citations": 72,
+      "quoteFound": 72,
+      "supported": {
+        "supported": 0,
+        "judged": 0,
+        "unsettled": 72,
+        "unjudged": 0
+      },
+      "figureRight": {
+        "right": 0,
+        "scored": 58
+      },
+      "withTheCheck": {
+        "misses": 58,
+        "caught": 0,
+        "leftOut": 58,
+        "falseQuoteNotFound": 0,
+        "flaggedWithoutMiss": 0,
+        "notChecked": 0
+      },
+      "absent": {
+        "questions": 5,
+        "declined": 0,
+        "citedAnyway": 5
+      },
+      "tokens": {
+        "input": 0,
+        "cachedInput": 0,
+        "output": 0
+      },
+      "usd": null,
+      "seconds": 211.30716587800003,
+      "misses": [
+        {
+          "questionId": "en-001",
+          "questionKind": "table-figure",
+          "kind": "figure",
+          "sentence": null,
+          "citation": null,
+          "detail": "it leaves out 5 day of October 2010",
+          "caughtBy": null,
+          "inAnswer": false
+        },
+        {
+          "questionId": "en-002",
+          "questionKind": "conflict",
+          "kind": "figure",
+          "sentence": null,
+          "citation": null,
+          "detail": "it leaves out 1,260,582 亿元 and 1,294,272 亿元",
+          "caughtBy": null,
+          "inAnswer": false
+        },
+        {
+          "questionId": "en-003",
+          "questionKind": "conflict",
+          "kind": "figure",
+          "sentence": null,
+          "citation": null,
+          "detail": "it leaves out 688,238 亿元 and 729,167 亿元",
+          "caughtBy": null,
+          "inAnswer": false
+        },
+        {
+          "questionId": "en-004",
+          "questionKind": "conflict",
+          "kind": "figure",
+          "sentence": null,
+          "citation": null,
+          "detail": "it leaves out 471,495 亿元 and 483,345 亿元",
+          "caughtBy": null,
+          "inAnswer": false
+        },
+        {
+          "questionId": "en-005",
+          "questionKind": "superseded",
+          "kind": "figure",
+          "sentence": null,
+          "citation": null,
+          "detail": "it leaves out 1,294,272 亿元",
+          "caughtBy": null,
+          "inAnswer": false
+        },
+        {
+          "questionId": "en-006",
+          "questionKind": "superseded",
+          "kind": "figure",
+          "sentence": null,
+          "citation": null,
+          "detail": "it leaves out 729,167 亿元",
+          "caughtBy": null,
+          "inAnswer": false
+        },
+        {
+          "questionId": "en-007",
+          "questionKind": "superseded",
+          "kind": "figure",
+          "sentence": null,
+          "citation": null,
+          "detail": "it leaves out 56.3 %",
+          "caughtBy": null,
+          "inAnswer": false
+        },
+        {
+          "questionId": "en-008",
+          "questionKind": "superseded",
+          "kind": "figure",
+          "sentence": null,
+          "citation": null,
+          "detail": "it leaves out 36.8 %",
+          "caughtBy": null,
+          "inAnswer": false
+        },
+        {
+          "questionId": "en-009",
+          "questionKind": "superseded",
+          "kind": "figure",
+          "sentence": null,
+          "citation": null,
+          "detail": "it leaves out 6.9 %",
+          "caughtBy": null,
+          "inAnswer": false
+        },
+        {
+          "questionId": "en-010",
+          "questionKind": "single-fact",
+          "kind": "figure",
+          "sentence": null,
+          "citation": null,
+          "detail": "it leaves out 1,714.1 billions of dollars",
+          "caughtBy": null,
+          "inAnswer": false
+        },
+        {
+          "questionId": "en-012",
+          "questionKind": "single-fact",
+          "kind": "figure",
+          "sentence": null,
+          "citation": null,
+          "detail": "it leaves out -37,479.2 billions of dollars",
+          "caughtBy": null,
+          "inAnswer": false
+        },
+        {
+          "questionId": "en-014",
+          "questionKind": "table-figure",
+          "kind": "figure",
+          "sentence": null,
+          "citation": null,
+          "detail": "it leaves out 1,875.6 billions of dollars",
+          "caughtBy": null,
+          "inAnswer": false
+        },
+        {
+          "questionId": "en-015",
+          "questionKind": "table-figure",
+          "kind": "figure",
+          "sentence": null,
+          "citation": null,
+          "detail": "it leaves out 7,661.7 billions of dollars",
+          "caughtBy": null,
+          "inAnswer": false
+        },
+        {
+          "questionId": "en-016",
+          "questionKind": "table-figure",
+          "kind": "figure",
+          "sentence": null,
+          "citation": null,
+          "detail": "it leaves out 5,419.1 billions of dollars",
+          "caughtBy": null,
+          "inAnswer": false
+        },
+        {
+          "questionId": "en-017",
+          "questionKind": "table-figure",
+          "kind": "figure",
+          "sentence": null,
+          "citation": null,
+          "detail": "it leaves out 26,347.7 billions of dollars",
+          "caughtBy": null,
+          "inAnswer": false
+        },
+        {
+          "questionId": "en-018",
+          "questionKind": "table-figure",
+          "kind": "figure",
+          "sentence": null,
+          "citation": null,
+          "detail": "it leaves out 4,465.6 billions of dollars",
+          "caughtBy": null,
+          "inAnswer": false
+        },
+        {
+          "questionId": "en-019",
+          "questionKind": "calculated",
+          "kind": "figure",
+          "sentence": null,
+          "citation": null,
+          "detail": "it leaves out 7,122.2 billions of dollars and 7,882.8 billions of dollars",
+          "caughtBy": null,
+          "inAnswer": false
+        },
+        {
+          "questionId": "en-020",
+          "questionKind": "calculated",
+          "kind": "figure",
+          "sentence": null,
+          "citation": null,
+          "detail": "it leaves out 37,479.2 billions of dollars (negative)",
+          "caughtBy": null,
+          "inAnswer": false
+        },
+        {
+          "questionId": "en-021",
+          "questionKind": "calculated",
+          "kind": "figure",
+          "sentence": null,
+          "citation": null,
+          "detail": "it leaves out 3,417.2 billions of dollars (negative)",
+          "caughtBy": null,
+          "inAnswer": false
+        },
+        {
+          "questionId": "en-022",
+          "questionKind": "multi-passage",
+          "kind": "figure",
+          "sentence": null,
+          "citation": null,
+          "detail": "it leaves out 5,419.1 billions of dollars and 7,882.8 billions of dollars",
+          "caughtBy": null,
+          "inAnswer": false
+        },
+        {
+          "questionId": "en-023",
+          "questionKind": "multi-passage",
+          "kind": "figure",
+          "sentence": null,
+          "citation": null,
+          "detail": "it leaves out 1,714.1 billions of dollars and 4,465.6 billions of dollars",
+          "caughtBy": null,
+          "inAnswer": false
+        },
+        {
+          "questionId": "en-024",
+          "questionKind": "multi-passage",
+          "kind": "figure",
+          "sentence": null,
+          "citation": null,
+          "detail": "it leaves out 42,898.3 billions of dollars and 7,882.8 billions of dollars",
+          "caughtBy": null,
+          "inAnswer": false
+        },
+        {
+          "questionId": "en-029",
+          "questionKind": "single-fact",
+          "kind": "figure",
+          "sentence": null,
+          "citation": null,
+          "detail": "it leaves out 4.5 billion tokens",
+          "caughtBy": null,
+          "inAnswer": false
+        },
+        {
+          "questionId": "en-030",
+          "questionKind": "table-figure",
+          "kind": "figure",
+          "sentence": null,
+          "citation": null,
+          "detail": "it leaves out 99.8 accuracy",
+          "caughtBy": null,
+          "inAnswer": false
+        },
+        {
+          "questionId": "en-031",
+          "questionKind": "table-figure",
+          "kind": "figure",
+          "sentence": null,
+          "citation": null,
+          "detail": "it leaves out 63.3 average",
+          "caughtBy": null,
+          "inAnswer": false
+        },
+        {
+          "questionId": "en-032",
+          "questionKind": "table-figure",
+          "kind": "figure",
+          "sentence": null,
+          "citation": null,
+          "detail": "it leaves out 57.1 average",
+          "caughtBy": null,
+          "inAnswer": false
+        },
+        {
+          "questionId": "en-033",
+          "questionKind": "table-figure",
+          "kind": "figure",
+          "sentence": null,
+          "citation": null,
+          "detail": "it leaves out 0.94 FID",
+          "caughtBy": null,
+          "inAnswer": false
+        },
+        {
+          "questionId": "en-034",
+          "questionKind": "table-figure",
+          "kind": "figure",
+          "sentence": null,
+          "citation": null,
+          "detail": "it leaves out 144.9 mIS",
+          "caughtBy": null,
+          "inAnswer": false
+        },
+        {
+          "questionId": "en-035",
+          "questionKind": "calculated",
+          "kind": "figure",
+          "sentence": null,
+          "citation": null,
+          "detail": "it leaves out 4.2 points",
+          "caughtBy": null,
+          "inAnswer": false
+        },
+        {
+          "questionId": "en-036",
+          "questionKind": "calculated",
+          "kind": "figure",
+          "sentence": null,
+          "citation": null,
+          "detail": "it leaves out 1.05 FID",
+          "caughtBy": null,
+          "inAnswer": false
+        },
+        {
+          "questionId": "en-037",
+          "questionKind": "calculated",
+          "kind": "figure",
+          "sentence": null,
+          "citation": null,
+          "detail": "it leaves out 43.4 points",
+          "caughtBy": null,
+          "inAnswer": false
+        },
+        {
+          "questionId": "en-038",
+          "questionKind": "multi-passage",
+          "kind": "figure",
+          "sentence": null,
+          "citation": null,
+          "detail": "it leaves out 99.8 accuracy and 63.3 average",
+          "caughtBy": null,
+          "inAnswer": false
+        },
+        {
+          "questionId": "en-039",
+          "questionKind": "multi-passage",
+          "kind": "figure",
+          "sentence": null,
+          "citation": null,
+          "detail": "it leaves out 59.7 average and 0.94 FID",
+          "caughtBy": null,
+          "inAnswer": false
+        },
+        {
+          "questionId": "en-040",
+          "questionKind": "multi-passage",
+          "kind": "figure",
+          "sentence": null,
+          "citation": null,
+          "detail": "it leaves out 4.5 billion tokens",
+          "caughtBy": null,
+          "inAnswer": false
+        },
+        {
+          "questionId": "en-042",
+          "questionKind": "single-fact",
+          "kind": "figure",
+          "sentence": null,
+          "citation": null,
+          "detail": "it leaves out 84 %",
+          "caughtBy": null,
+          "inAnswer": false
+        },
+        {
+          "questionId": "en-043",
+          "questionKind": "single-fact",
+          "kind": "figure",
+          "sentence": null,
+          "citation": null,
+          "detail": "it leaves out 40 % and 3.5 billion people",
+          "caughtBy": null,
+          "inAnswer": false
+        },
+        {
+          "questionId": "en-045",
+          "questionKind": "table-figure",
+          "kind": "figure",
+          "sentence": null,
+          "citation": null,
+          "detail": "it leaves out 184 million migrants and 2.3 %",
+          "caughtBy": null,
+          "inAnswer": false
+        },
+        {
+          "questionId": "en-046",
+          "questionKind": "table-figure",
+          "kind": "figure",
+          "sentence": null,
+          "citation": null,
+          "detail": "it leaves out 37 million refugees",
+          "caughtBy": null,
+          "inAnswer": false
+        },
+        {
+          "questionId": "en-047",
+          "questionKind": "table-figure",
+          "kind": "figure",
+          "sentence": null,
+          "citation": null,
+          "detail": "it leaves out 64 million economic migrants and 10 million refugees and 40 %",
+          "caughtBy": null,
+          "inAnswer": false
+        },
+        {
+          "questionId": "en-048",
+          "questionKind": "table-figure",
+          "kind": "figure",
+          "sentence": null,
+          "citation": null,
+          "detail": "it leaves out 52 million economic migrants and 27 million refugees and 43 %",
+          "caughtBy": null,
+          "inAnswer": false
+        },
+        {
+          "questionId": "en-049",
+          "questionKind": "table-figure",
+          "kind": "figure",
+          "sentence": null,
+          "citation": null,
+          "detail": "it leaves out 32 million people",
+          "caughtBy": null,
+          "inAnswer": false
+        },
+        {
+          "questionId": "en-050",
+          "questionKind": "calculated",
+          "kind": "figure",
+          "sentence": null,
+          "citation": null,
+          "detail": "it leaves out 147 million economic migrants",
+          "caughtBy": null,
+          "inAnswer": false
+        },
+        {
+          "questionId": "en-051",
+          "questionKind": "calculated",
+          "kind": "figure",
+          "sentence": null,
+          "citation": null,
+          "detail": "it leaves out 578 million people",
+          "caughtBy": null,
+          "inAnswer": false
+        },
+        {
+          "questionId": "en-052",
+          "questionKind": "multi-passage",
+          "kind": "figure",
+          "sentence": null,
+          "citation": null,
+          "detail": "it leaves out 184 million migrants and 43 %",
+          "caughtBy": null,
+          "inAnswer": false
+        },
+        {
+          "questionId": "en-053",
+          "questionKind": "multi-passage",
+          "kind": "figure",
+          "sentence": null,
+          "citation": null,
+          "detail": "it leaves out 37 million refugees and 31 million economic migrants",
+          "caughtBy": null,
+          "inAnswer": false
+        },
+        {
+          "questionId": "en-054",
+          "questionKind": "single-fact",
+          "kind": "figure",
+          "sentence": null,
+          "citation": null,
+          "detail": "it leaves out 89 risks and 9 risk themes",
+          "caughtBy": null,
+          "inAnswer": false
+        },
+        {
+          "questionId": "en-055",
+          "questionKind": "single-fact",
+          "kind": "figure",
+          "sentence": null,
+          "citation": null,
+          "detail": "it leaves out 5 years and 2 years",
+          "caughtBy": null,
+          "inAnswer": false
+        },
+        {
+          "questionId": "en-056",
+          "questionKind": "single-fact",
+          "kind": "figure",
+          "sentence": null,
+          "citation": null,
+          "detail": "it leaves out 7 dimensions",
+          "caughtBy": null,
+          "inAnswer": false
+        },
+        {
+          "questionId": "en-058",
+          "questionKind": "table-figure",
+          "kind": "figure",
+          "sentence": null,
+          "citation": null,
+          "detail": "it leaves out 1 % (lower bound of the range)",
+          "caughtBy": null,
+          "inAnswer": false
+        },
+        {
+          "questionId": "en-059",
+          "questionKind": "table-figure",
+          "kind": "figure",
+          "sentence": null,
+          "citation": null,
+          "detail": "it leaves out 25 % (threshold)",
+          "caughtBy": null,
+          "inAnswer": false
+        },
+        {
+          "questionId": "en-060",
+          "questionKind": "table-figure",
+          "kind": "figure",
+          "sentence": null,
+          "citation": null,
+          "detail": "it leaves out 80 % (lower bound of the range)",
+          "caughtBy": null,
+          "inAnswer": false
+        },
+        {
+          "questionId": "en-061",
+          "questionKind": "table-figure",
+          "kind": "figure",
+          "sentence": null,
+          "citation": null,
+          "detail": "it leaves out 201 fatalities (lower bound of the range)",
+          "caughtBy": null,
+          "inAnswer": false
+        },
+        {
+          "questionId": "en-062",
+          "questionKind": "calculated",
+          "kind": "figure",
+          "sentence": null,
+          "citation": null,
+          "detail": "it leaves out 5 percentage points",
+          "caughtBy": null,
+          "inAnswer": false
+        },
+        {
+          "questionId": "en-063",
+          "questionKind": "multi-passage",
+          "kind": "figure",
+          "sentence": null,
+          "citation": null,
+          "detail": "it leaves out 89 risks and 25 %",
+          "caughtBy": null,
+          "inAnswer": false
+        },
+        {
+          "questionId": "en-068",
+          "questionKind": "multi-passage",
+          "kind": "figure",
+          "sentence": null,
+          "citation": null,
+          "detail": "it leaves out 3 billion dollars",
+          "caughtBy": null,
+          "inAnswer": false
+        },
+        {
+          "questionId": "en-071",
+          "questionKind": "single-fact",
+          "kind": "figure",
+          "sentence": null,
+          "citation": null,
+          "detail": "it leaves out 430 billion dollars",
+          "caughtBy": null,
+          "inAnswer": false
+        },
+        {
+          "questionId": "en-072",
+          "questionKind": "single-fact",
+          "kind": "figure",
+          "sentence": null,
+          "citation": null,
+          "detail": "it leaves out 1.6 trillion dollars and 43 million borrowers",
+          "caughtBy": null,
+          "inAnswer": false
+        },
+        {
+          "questionId": "en-074",
+          "questionKind": "calculated",
+          "kind": "figure",
+          "sentence": null,
+          "citation": null,
+          "detail": "it leaves out 37,209 dollars per borrower",
+          "caughtBy": null,
+          "inAnswer": false
+        }
+      ]
+    },
+    {
+      "file": "scripted.zh.json",
+      "model": "scripted",
+      "language": "zh",
+      "questions": 75,
+      "answers": 75,
+      "failed": 0,
+      "citations": 75,
+      "quoteFound": 75,
+      "supported": {
+        "supported": 0,
+        "judged": 0,
+        "unsettled": 75,
+        "unjudged": 0
+      },
+      "figureRight": {
+        "right": 0,
+        "scored": 61
+      },
+      "withTheCheck": {
+        "misses": 61,
+        "caught": 0,
+        "leftOut": 61,
+        "falseQuoteNotFound": 0,
+        "flaggedWithoutMiss": 0,
+        "notChecked": 0
+      },
+      "absent": {
+        "questions": 5,
+        "declined": 0,
+        "citedAnyway": 5
+      },
+      "tokens": {
+        "input": 0,
+        "cachedInput": 0,
+        "output": 0
+      },
+      "usd": null,
+      "seconds": 131.4867166280001,
+      "misses": [
+        {
+          "questionId": "zh-001",
+          "questionKind": "single-fact",
+          "kind": "figure",
+          "sentence": null,
+          "citation": null,
+          "detail": "it leaves out 1,970,000 元",
+          "caughtBy": null,
+          "inAnswer": false
+        },
+        {
+          "questionId": "zh-003",
+          "questionKind": "calculated",
+          "kind": "figure",
+          "sentence": null,
+          "citation": null,
+          "detail": "it leaves out 251.8 万元",
+          "caughtBy": null,
+          "inAnswer": false
+        },
+        {
+          "questionId": "zh-008",
+          "questionKind": "multi-passage",
+          "kind": "figure",
+          "sentence": null,
+          "citation": null,
+          "detail": "it leaves out 251.8 万元",
+          "caughtBy": null,
+          "inAnswer": false
+        },
+        {
+          "questionId": "zh-012",
+          "questionKind": "table-figure",
+          "kind": "figure",
+          "sentence": null,
+          "citation": null,
+          "detail": "it leaves out 0.047 mg/kg",
+          "caughtBy": null,
+          "inAnswer": false
+        },
+        {
+          "questionId": "zh-013",
+          "questionKind": "table-figure",
+          "kind": "figure",
+          "sentence": null,
+          "citation": null,
+          "detail": "it leaves out 0.042 mg/kg",
+          "caughtBy": null,
+          "inAnswer": false
+        },
+        {
+          "questionId": "zh-014",
+          "questionKind": "calculated",
+          "kind": "figure",
+          "sentence": null,
+          "citation": null,
+          "detail": "it leaves out 0.005 mg/kg",
+          "caughtBy": null,
+          "inAnswer": false
+        },
+        {
+          "questionId": "zh-015",
+          "questionKind": "table-figure",
+          "kind": "figure",
+          "sentence": null,
+          "citation": null,
+          "detail": "it leaves out 1,992 年",
+          "caughtBy": null,
+          "inAnswer": false
+        },
+        {
+          "questionId": "zh-016",
+          "questionKind": "table-figure",
+          "kind": "figure",
+          "sentence": null,
+          "citation": null,
+          "detail": "it leaves out 20 m",
+          "caughtBy": null,
+          "inAnswer": false
+        },
+        {
+          "questionId": "zh-017",
+          "questionKind": "calculated",
+          "kind": "figure",
+          "sentence": null,
+          "citation": null,
+          "detail": "it leaves out 9.51 个百分点",
+          "caughtBy": null,
+          "inAnswer": false
+        },
+        {
+          "questionId": "zh-018",
+          "questionKind": "multi-passage",
+          "kind": "figure",
+          "sentence": null,
+          "citation": null,
+          "detail": "it leaves out 6.55 % and 7.7 %",
+          "caughtBy": null,
+          "inAnswer": false
+        },
+        {
+          "questionId": "zh-020",
+          "questionKind": "single-fact",
+          "kind": "figure",
+          "sentence": null,
+          "citation": null,
+          "detail": "it leaves out 1,349,084 亿元 and 5 %",
+          "caughtBy": null,
+          "inAnswer": false
+        },
+        {
+          "questionId": "zh-021",
+          "questionKind": "single-fact",
+          "kind": "figure",
+          "sentence": null,
+          "citation": null,
+          "detail": "it leaves out 140,828 万人 and 139 万人",
+          "caughtBy": null,
+          "inAnswer": false
+        },
+        {
+          "questionId": "zh-022",
+          "questionKind": "single-fact",
+          "kind": "figure",
+          "sentence": null,
+          "citation": null,
+          "detail": "it leaves out 1,256 万人 and 12 万人",
+          "caughtBy": null,
+          "inAnswer": false
+        },
+        {
+          "questionId": "zh-023",
+          "questionKind": "single-fact",
+          "kind": "figure",
+          "sentence": null,
+          "citation": null,
+          "detail": "it leaves out 1,751 亿件 and 14,034 亿元",
+          "caughtBy": null,
+          "inAnswer": false
+        },
+        {
+          "questionId": "zh-024",
+          "questionKind": "table-figure",
+          "kind": "figure",
+          "sentence": null,
+          "citation": null,
+          "detail": "it leaves out 94,350 万人 and 67 %",
+          "caughtBy": null,
+          "inAnswer": false
+        },
+        {
+          "questionId": "zh-025",
+          "questionKind": "table-figure",
+          "kind": "figure",
+          "sentence": null,
+          "citation": null,
+          "detail": "it leaves out 578.3 亿吨 and 3.8 %",
+          "caughtBy": null,
+          "inAnswer": false
+        },
+        {
+          "questionId": "zh-026",
+          "questionKind": "table-figure",
+          "kind": "figure",
+          "sentence": null,
+          "citation": null,
+          "detail": "it leaves out 254,545 亿元 and 7.1 %",
+          "caughtBy": null,
+          "inAnswer": false
+        },
+        {
+          "questionId": "zh-027",
+          "questionKind": "calculated",
+          "kind": "figure",
+          "sentence": null,
+          "citation": null,
+          "detail": "it leaves out 1,349,084 亿元",
+          "caughtBy": null,
+          "inAnswer": false
+        },
+        {
+          "questionId": "zh-028",
+          "questionKind": "calculated",
+          "kind": "figure",
+          "sentence": null,
+          "citation": null,
+          "detail": "it leaves out 438,468 亿元",
+          "caughtBy": null,
+          "inAnswer": false
+        },
+        {
+          "questionId": "zh-029",
+          "questionKind": "calculated",
+          "kind": "figure",
+          "sentence": null,
+          "citation": null,
+          "detail": "it leaves out 56.7 %",
+          "caughtBy": null,
+          "inAnswer": false
+        },
+        {
+          "questionId": "zh-030",
+          "questionKind": "multi-passage",
+          "kind": "figure",
+          "sentence": null,
+          "citation": null,
+          "detail": "it leaves out 1,349,084 亿元 and 140,828 万人",
+          "caughtBy": null,
+          "inAnswer": false
+        },
+        {
+          "questionId": "zh-031",
+          "questionKind": "multi-passage",
+          "kind": "figure",
+          "sentence": null,
+          "citation": null,
+          "detail": "it leaves out 0.2 % and 70,650 万吨",
+          "caughtBy": null,
+          "inAnswer": false
+        },
+        {
+          "questionId": "zh-032",
+          "questionKind": "multi-passage",
+          "kind": "figure",
+          "sentence": null,
+          "citation": null,
+          "detail": "it leaves out 1,751 亿件 and 75,238 亿元",
+          "caughtBy": null,
+          "inAnswer": false
+        },
+        {
+          "questionId": "zh-033",
+          "questionKind": "multi-passage",
+          "kind": "figure",
+          "sentence": null,
+          "citation": null,
+          "detail": "it leaves out 41,314 元 and 32,024 亿美元",
+          "caughtBy": null,
+          "inAnswer": false
+        },
+        {
+          "questionId": "zh-036",
+          "questionKind": "single-fact",
+          "kind": "figure",
+          "sentence": null,
+          "citation": null,
+          "detail": "it leaves out 1,260,582 亿元 and 5.2 %",
+          "caughtBy": null,
+          "inAnswer": false
+        },
+        {
+          "questionId": "zh-037",
+          "questionKind": "single-fact",
+          "kind": "figure",
+          "sentence": null,
+          "citation": null,
+          "detail": "it leaves out 69,541 万吨 and 888 万吨",
+          "caughtBy": null,
+          "inAnswer": false
+        },
+        {
+          "questionId": "zh-038",
+          "questionKind": "single-fact",
+          "kind": "figure",
+          "sentence": null,
+          "citation": null,
+          "detail": "it leaves out 1,244 万人 and 38 万人",
+          "caughtBy": null,
+          "inAnswer": false
+        },
+        {
+          "questionId": "zh-039",
+          "questionKind": "single-fact",
+          "kind": "figure",
+          "sentence": null,
+          "citation": null,
+          "detail": "it leaves out 39,218 元 and 6.3 %",
+          "caughtBy": null,
+          "inAnswer": false
+        },
+        {
+          "questionId": "zh-040",
+          "questionKind": "table-figure",
+          "kind": "figure",
+          "sentence": null,
+          "citation": null,
+          "detail": "it leaves out 47,700 万人 and 33.8 %",
+          "caughtBy": null,
+          "inAnswer": false
+        },
+        {
+          "questionId": "zh-041",
+          "questionKind": "table-figure",
+          "kind": "figure",
+          "sentence": null,
+          "citation": null,
+          "detail": "it leaves out 556.8 亿吨 and 8.1 %",
+          "caughtBy": null,
+          "inAnswer": false
+        },
+        {
+          "questionId": "zh-042",
+          "questionKind": "table-figure",
+          "kind": "figure",
+          "sentence": null,
+          "citation": null,
+          "detail": "it leaves out 50.1 亿吨 and 1.5 %",
+          "caughtBy": null,
+          "inAnswer": false
+        },
+        {
+          "questionId": "zh-043",
+          "questionKind": "table-figure",
+          "kind": "figure",
+          "sentence": null,
+          "citation": null,
+          "detail": "it leaves out 6.5 %",
+          "caughtBy": null,
+          "inAnswer": false
+        },
+        {
+          "questionId": "zh-044",
+          "questionKind": "calculated",
+          "kind": "figure",
+          "sentence": null,
+          "citation": null,
+          "detail": "it leaves out 1,260,582 亿元",
+          "caughtBy": null,
+          "inAnswer": false
+        },
+        {
+          "questionId": "zh-045",
+          "questionKind": "calculated",
+          "kind": "figure",
+          "sentence": null,
+          "citation": null,
+          "detail": "it leaves out 69,541 万吨",
+          "caughtBy": null,
+          "inAnswer": false
+        },
+        {
+          "questionId": "zh-046",
+          "questionKind": "calculated",
+          "kind": "figure",
+          "sentence": null,
+          "citation": null,
+          "detail": "it leaves out 54.6 %",
+          "caughtBy": null,
+          "inAnswer": false
+        },
+        {
+          "questionId": "zh-047",
+          "questionKind": "multi-passage",
+          "kind": "figure",
+          "sentence": null,
+          "citation": null,
+          "detail": "it leaves out 1,260,582 亿元 and 69,541 万吨",
+          "caughtBy": null,
+          "inAnswer": false
+        },
+        {
+          "questionId": "zh-048",
+          "questionKind": "multi-passage",
+          "kind": "figure",
+          "sentence": null,
+          "citation": null,
+          "detail": "it leaves out 39,218 元 and 0.2 %",
+          "caughtBy": null,
+          "inAnswer": false
+        },
+        {
+          "questionId": "zh-049",
+          "questionKind": "multi-passage",
+          "kind": "figure",
+          "sentence": null,
+          "citation": null,
+          "detail": "it leaves out 471,495 亿元 and 503,036 亿元",
+          "caughtBy": null,
+          "inAnswer": false
+        },
+        {
+          "questionId": "zh-052",
+          "questionKind": "conflict",
+          "kind": "figure",
+          "sentence": null,
+          "citation": null,
+          "detail": "it leaves out 1,260,582 亿元 and 1,294,272 亿元",
+          "caughtBy": null,
+          "inAnswer": false
+        },
+        {
+          "questionId": "zh-053",
+          "questionKind": "conflict",
+          "kind": "figure",
+          "sentence": null,
+          "citation": null,
+          "detail": "it leaves out 89,755 亿元 and 89,169 亿元",
+          "caughtBy": null,
+          "inAnswer": false
+        },
+        {
+          "questionId": "zh-054",
+          "questionKind": "conflict",
+          "kind": "figure",
+          "sentence": null,
+          "citation": null,
+          "detail": "it leaves out 482,589 亿元 and 475,936 亿元",
+          "caughtBy": null,
+          "inAnswer": false
+        },
+        {
+          "questionId": "zh-055",
+          "questionKind": "superseded",
+          "kind": "figure",
+          "sentence": null,
+          "citation": null,
+          "detail": "it leaves out 1,294,272 亿元",
+          "caughtBy": null,
+          "inAnswer": false
+        },
+        {
+          "questionId": "zh-056",
+          "questionKind": "superseded",
+          "kind": "figure",
+          "sentence": null,
+          "citation": null,
+          "detail": "it leaves out 729,167 亿元",
+          "caughtBy": null,
+          "inAnswer": false
+        },
+        {
+          "questionId": "zh-057",
+          "questionKind": "superseded",
+          "kind": "figure",
+          "sentence": null,
+          "citation": null,
+          "detail": "it leaves out 56.3 %",
+          "caughtBy": null,
+          "inAnswer": false
+        },
+        {
+          "questionId": "zh-058",
+          "questionKind": "superseded",
+          "kind": "figure",
+          "sentence": null,
+          "citation": null,
+          "detail": "it leaves out 36.8 %",
+          "caughtBy": null,
+          "inAnswer": false
+        },
+        {
+          "questionId": "zh-059",
+          "questionKind": "superseded",
+          "kind": "figure",
+          "sentence": null,
+          "citation": null,
+          "detail": "it leaves out 6.9 %",
+          "caughtBy": null,
+          "inAnswer": false
+        },
+        {
+          "questionId": "zh-060",
+          "questionKind": "conflict",
+          "kind": "figure",
+          "sentence": null,
+          "citation": null,
+          "detail": "it leaves out 1,260,582 亿元 and 1,349,084 亿元",
+          "caughtBy": null,
+          "inAnswer": false
+        },
+        {
+          "questionId": "zh-061",
+          "questionKind": "conflict",
+          "kind": "figure",
+          "sentence": null,
+          "citation": null,
+          "detail": "it leaves out 89,358 元 and 95,749 元",
+          "caughtBy": null,
+          "inAnswer": false
+        },
+        {
+          "questionId": "zh-062",
+          "questionKind": "conflict",
+          "kind": "figure",
+          "sentence": null,
+          "citation": null,
+          "detail": "it leaves out 471,495 亿元 and 483,345 亿元",
+          "caughtBy": null,
+          "inAnswer": false
+        },
+        {
+          "questionId": "zh-063",
+          "questionKind": "conflict",
+          "kind": "figure",
+          "sentence": null,
+          "citation": null,
+          "detail": "it leaves out 503,036 亿元 and 514,374 亿元",
+          "caughtBy": null,
+          "inAnswer": false
+        },
+        {
+          "questionId": "zh-064",
+          "questionKind": "conflict",
+          "kind": "figure",
+          "sentence": null,
+          "citation": null,
+          "detail": "it leaves out 1,244 万人 and 1,256 万人",
+          "caughtBy": null,
+          "inAnswer": false
+        },
+        {
+          "questionId": "zh-065",
+          "questionKind": "conflict",
+          "kind": "figure",
+          "sentence": null,
+          "citation": null,
+          "detail": "it leaves out 69,541 万吨 and 70,650 万吨",
+          "caughtBy": null,
+          "inAnswer": false
+        },
+        {
+          "questionId": "zh-066",
+          "questionKind": "conflict",
+          "kind": "figure",
+          "sentence": null,
+          "citation": null,
+          "detail": "it leaves out 39,218 元 and 41,314 元",
+          "caughtBy": null,
+          "inAnswer": false
+        },
+        {
+          "questionId": "zh-067",
+          "questionKind": "conflict",
+          "kind": "figure",
+          "sentence": null,
+          "citation": null,
+          "detail": "it leaves out 1,320.7 亿件 and 1,751 亿件",
+          "caughtBy": null,
+          "inAnswer": false
+        },
+        {
+          "questionId": "zh-072",
+          "questionKind": "table-figure",
+          "kind": "figure",
+          "sentence": null,
+          "citation": null,
+          "detail": "it leaves out 63.3 平均分",
+          "caughtBy": null,
+          "inAnswer": false
+        },
+        {
+          "questionId": "zh-075",
+          "questionKind": "multi-passage",
+          "kind": "figure",
+          "sentence": null,
+          "citation": null,
+          "detail": "it leaves out 184 百万 and 43 %",
+          "caughtBy": null,
+          "inAnswer": false
+        },
+        {
+          "questionId": "zh-073",
+          "questionKind": "table-figure",
+          "kind": "figure",
+          "sentence": null,
+          "citation": null,
+          "detail": "it leaves out 201 人死亡（区间下限）",
+          "caughtBy": null,
+          "inAnswer": false
+        },
+        {
+          "questionId": "zh-068",
+          "questionKind": "conflict",
+          "kind": "figure",
+          "sentence": null,
+          "citation": null,
+          "detail": "it leaves out 557 亿吨 and 578 亿吨",
+          "caughtBy": null,
+          "inAnswer": false
+        },
+        {
+          "questionId": "zh-069",
+          "questionKind": "table-figure",
+          "kind": "figure",
+          "sentence": null,
+          "citation": null,
+          "detail": "it leaves out 688,238 亿元",
+          "caughtBy": null,
+          "inAnswer": false
+        },
+        {
+          "questionId": "zh-070",
+          "questionKind": "table-figure",
+          "kind": "figure",
+          "sentence": null,
+          "citation": null,
+          "detail": "it leaves out 1,714.1 十亿美元",
+          "caughtBy": null,
+          "inAnswer": false
+        },
+        {
+          "questionId": "zh-071",
+          "questionKind": "calculated",
+          "kind": "figure",
+          "sentence": null,
+          "citation": null,
+          "detail": "it leaves out 37,479.2 十亿美元（负）",
+          "caughtBy": null,
+          "inAnswer": false
+        }
+      ]
+    }
+  ]
+}
