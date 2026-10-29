@@ -1012,6 +1012,7 @@ export const en = {
   "edit.pending.explain": "Explaining…",
   "edit.pending.instruction": "Making the changes…",
   "edit.pending.cut-unsupported": "Cutting the unsupported part…",
+  "edit.pending.follow-citation": "Updating the sentence…",
   "edit.stop": "Stop",
   "edit.close": "Close",
   "edit.problem.unchanged": "Nothing to change: the model gave the text back as it was.",
@@ -3289,6 +3290,8 @@ export const en = {
   "command.citation.open": "Open cited page",
   "citation.regenerate": "Regenerate the Answer",
   "citation.changedAfterCited": "The Document changed after this was cited.",
+  "citation.changedAfterCited.web":
+    "This page was fetched again on {date}, after you cited it. What’s shown is the new copy; the one you cited is kept.",
   "citation.changed.on": "This Document changed on {date}.",
   "citation.changed.still": "The quote is still here.",
   "citation.changed.gone": "Its quote is no longer in the new version.",

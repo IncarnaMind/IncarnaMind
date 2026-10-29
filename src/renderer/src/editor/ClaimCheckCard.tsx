@@ -46,7 +46,7 @@ import { useFindSources } from "../findSources";
 import { translateNow, useLanguage, useT } from "../i18n";
 import { groupsMerged } from "../layoutSlice";
 import { citationStepOpen } from "../nudges";
-import { openCited } from "../openCited";
+import { openCitedFollowing } from "../openCited";
 import { useScopeName } from "../scopeDocuments";
 import { useAppStore } from "../store";
 import {
@@ -65,6 +65,7 @@ import {
   uncoveredOf,
 } from "../unsupportedFixes";
 import { type CitationDecision, citationDecision, citationsOf } from "./alreadyCited";
+import { ChangedCitations } from "./ChangedSourceNotice";
 import { ClaimOutline } from "./ClaimOutline";
 import { focusFirstAction, keepFocusInside } from "./cardFocus";
 import { useCardPlace } from "./checkPlace";
@@ -418,7 +419,11 @@ function Working({ calculation, onOpen }: { calculation: ClaimCalculation; onOpe
                 className="claim-card-input"
                 title={input.citation.quote}
                 onClick={() => {
-                  openCited(input.citation, { check: "found", withQuote: true, label: where });
+                  void openCitedFollowing(input.citation, {
+                    check: "found",
+                    withQuote: true,
+                    label: where,
+                  });
                   onOpen();
                 }}
               >
@@ -651,6 +656,7 @@ function ClaimCard({
           </blockquote>
         </figure>
       )}
+      <ChangedCitations cited={cited} />
       {already && (
         <OpenCitation
           citation={already}
@@ -858,7 +864,7 @@ function ClaimCard({
             }`}
             onClick={() => {
               if (!evidence.documentId) return;
-              openCited(
+              void openCitedFollowing(
                 { ...evidence, documentId: evidence.documentId },
                 { check: "found", withQuote: true, label: where },
               );
