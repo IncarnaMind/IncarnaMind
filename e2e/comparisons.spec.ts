@@ -158,6 +158,22 @@ const cellTexts = (table: Locator) =>
  * Waits until every one of `cells` cells has its outcome. A fill starts a moment after
  * the table is made or rows are added, so an absent progress line does not mean it ended.
  */
+/** Fill Tasks that have ended, as the assistant's progress cards show them. */
+const fillsDone = (window: Page) =>
+  window.locator('[data-testid="task-progress"][data-status="done"]').count();
+
+/**
+ * Chooses a refill with `choose` and waits for that fill to end: one more fill Task done and the
+ * table no longer filling. The table's own progress line isn't there yet when the refill is
+ * chosen, so its absence can't say the fill ended.
+ */
+async function refillEnded(window: Page, table: Locator, choose: () => Promise<void>) {
+  const before = await fillsDone(window);
+  await choose();
+  await expect.poll(() => fillsDone(window), { timeout: 30_000 }).toBe(before + 1);
+  await expect(table).not.toHaveAttribute("data-filling", "true");
+}
+
 const fillSettled = async (table: Locator, cells: number) => {
   await expect
     .poll(
@@ -2730,9 +2746,10 @@ test("a cell opens its Citation, checks hand edits, protects reviewed cells in b
   const row = table.getByTestId("comparison-row").first();
   await pointAndClick(window, row.locator(".comparison-row-menu"));
   await expect(window.getByTestId("comparison-refill-estimate")).toContainText("Fill 1 cell again");
-  await pointAndClick(window, window.getByRole("menuitem", { name: "Fill row again" }));
-  await expect(window.getByTestId("undo-message")).toContainText("Fill 1 cell again");
-  await expect(table.getByTestId("comparison-progress")).toHaveCount(0, { timeout: 30_000 });
+  await refillEnded(window, table, async () => {
+    await pointAndClick(window, window.getByRole("menuitem", { name: "Fill row again" }));
+    await expect(window.getByTestId("undo-message")).toContainText("Fill 1 cell again");
+  });
   await expect(first.locator(".comparison-cell-flags")).toContainText("✓");
 
   await pointAndClick(window, table.getByTestId("comparison-table-menu"));
@@ -2740,9 +2757,10 @@ test("a cell opens its Citation, checks hand edits, protects reviewed cells in b
   await expect(estimates).toHaveCount(2);
   await expect(estimates.nth(0)).toContainText("Fill all: 6 cells");
   await expect(estimates.nth(1)).toContainText("Problems: 1 cell");
-  await pointAndClick(window, window.getByRole("menuitem", { name: "Fill all again" }));
-  await expect(window.getByTestId("undo-message")).toContainText("Fill 6 cells again");
-  await expect(table.getByTestId("comparison-progress")).toHaveCount(0, { timeout: 30_000 });
+  await refillEnded(window, table, async () => {
+    await pointAndClick(window, window.getByRole("menuitem", { name: "Fill all again" }));
+    await expect(window.getByTestId("undo-message")).toContainText("Fill 6 cells again");
+  });
   // Written again in the same words from the same version, the cell is still as its mark checked it.
   await expect(first.locator(".comparison-cell-flags")).toContainText("✓");
   await expect(table.locator('.citation-marker[data-check="found"]')).toHaveCount(5);
@@ -2771,9 +2789,10 @@ test("a cell opens its Citation, checks hand edits, protects reviewed cells in b
   await expect(window.getByTestId("comparison-refill-estimate")).toContainText(
     "Fill 3 cells again",
   );
-  await pointAndClick(window, window.getByRole("menuitem", { name: "Fill again", exact: true }));
-  await expect(window.getByTestId("undo-message")).toContainText("Fill 3 cells again");
-  await expect(table.getByTestId("comparison-progress")).toHaveCount(0, { timeout: 30_000 });
+  await refillEnded(window, table, async () => {
+    await pointAndClick(window, window.getByRole("menuitem", { name: "Fill again", exact: true }));
+    await expect(window.getByTestId("undo-message")).toContainText("Fill 3 cells again");
+  });
   await last.focus();
   await window.keyboard.press("ControlOrMeta+c");
   await expect
@@ -2892,9 +2911,10 @@ for (const { language, refill, count, one, checkedByMe } of [
     expect(clipboard).not.toContain("12 months of fees");
 
     await pointAndClick(window, last.locator(".comparison-cell-menu"));
-    await pointAndClick(window, window.getByRole("menuitem", { name: refill, exact: true }));
-    await expect(window.getByTestId("undo-message")).toContainText(count);
-    await expect(table.getByTestId("comparison-progress")).toHaveCount(0, { timeout: 30_000 });
+    await refillEnded(window, table, async () => {
+      await pointAndClick(window, window.getByRole("menuitem", { name: refill, exact: true }));
+      await expect(window.getByTestId("undo-message")).toContainText(count);
+    });
 
     // From ⌘K, "Checked by me" marks the visible selection too, not the cell just deselected.
     await deselected.focus();

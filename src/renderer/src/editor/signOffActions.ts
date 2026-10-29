@@ -64,7 +64,6 @@ export function currentSigner(): Signer | null {
   return { name: settings.author, personId };
 }
 
-/** The User's person id now, or null before their first mark. */
 export const personIdNow = (): string | null =>
   useAppStore.getState().settings?.user.personId ?? madePersonId;
 

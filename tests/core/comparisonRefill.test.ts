@@ -994,4 +994,85 @@ describe("A targeted comparison refill", () => {
     );
     for (const note of [checked, changed]) expect(note).not.toMatch(/by you/i);
   });
+
+  // protects=a cell's mark rests on where each Citation sits as well as on the words: a refill that moves a Citation to another claim in the same words shows the mark as checked before it changed, and one that writes the same Answer again leaves it checked (#1933); fails_when=the moved Citation leaves the mark checked, or the same Answer turns it changed; no_claim=how the editor shows the mark.
+  test("a refill that moves a Citation to another claim changes the mark; the same Answer again leaves it checked", async () => {
+    let answer = "";
+    let asked = 0;
+    const model = cellModel((call) => {
+      if (!answer || !cited(call)) return null;
+      asked++;
+      return { text: answer };
+    });
+    const { core, client, mind, documents, tableId, questionId } = await setup(model);
+    const [first] = documents;
+    if (!first) throw new Error("The Document is missing.");
+    const refill = async (pass: string, text: string) => {
+      answer = text;
+      client.doc.transact(() => {
+        cellElement(client, tableId, first.id).setAttribute("fillId", pass);
+      });
+      const ended = fillEnded(core, tableId);
+      const result = await core.fillComparisonTable({
+        mindId: mind.id,
+        tableId,
+        cells: [{ documentId: first.id, questionId }],
+        mode: "refill",
+        pass,
+      });
+      if (!result.started) throw new Error(`The refill ${pass} did not start.`);
+      await ended;
+      await client.settled();
+    };
+    const content = () => comparisonCellContent(nodeOf(cellElement(client, tableId, first.id)));
+
+    await refill("pass-first", "Notice is 90 days[^1]. The cap is 12 months.");
+    const before = content();
+    expect(before.citations).toHaveLength(1);
+    client.doc.transact(() => reviewCell(client, tableId, first.id, questionId));
+
+    await refill("pass-same", "Notice is 90 days[^1]. The cap is 12 months.");
+    expect(asked).toBe(2);
+    expect(markOn(client, tableId, first.id, questionId)).toBe("checked");
+
+    await refill("pass-moved", "Notice is 90 days. The cap is 12 months[^1].");
+    expect(asked).toBe(3);
+    expect(content().text).toBe(before.text);
+    expect(content().places).not.toEqual(before.places);
+    expect(markOn(client, tableId, first.id, questionId)).toBe("changed");
+  });
+
+  // protects="Fill all again" rewrites a checked cell, and when it writes the same words from the same version the mark stays checked (#1933); fails_when=the rewrite deletes the mark or shows it changed, or the cell isn't asked; no_claim=the editor's ✓.
+  test("Fill all again rewrites a checked cell in the same words and leaves its mark checked", async () => {
+    const asked: ReturnType<typeof cellAsked>[] = [];
+    const model = cellModel((_call, cell) => {
+      asked.push(cell);
+      return null;
+    });
+    const { core, client, mind, documents, tableId, questionId } = await setup(model);
+    const [first] = documents;
+    if (!first) throw new Error("The Document is missing.");
+    client.doc.transact(() => {
+      for (const document of documents) {
+        cellElement(client, tableId, document.id).setAttribute("fillId", "pass-all");
+      }
+      reviewCell(client, tableId, first.id, questionId);
+    });
+    asked.length = 0;
+    const ended = fillEnded(core, tableId);
+    const result = await core.fillComparisonTable({
+      mindId: mind.id,
+      tableId,
+      cells: documents.map((document) => ({ documentId: document.id, questionId })),
+      mode: "refill-all",
+      pass: "pass-all",
+    });
+    if (!result.started) throw new Error("Fill all did not start.");
+    await ended;
+    await client.settled();
+
+    expect(asked.some((cell) => cell.document === "Acme")).toBe(true);
+    expect(cellElement(client, tableId, first.id).getAttribute("status")).toBe("done");
+    expect(markOn(client, tableId, first.id, questionId)).toBe("checked");
+  });
 });

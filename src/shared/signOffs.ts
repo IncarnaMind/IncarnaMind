@@ -195,6 +195,8 @@ type CitedSource = Pick<CitationAttributes, "documentId" | "contentHash" | "quot
 export interface ComparisonCellContent {
   text: string;
   citations: readonly CitedSource[];
+  /** Where each Citation sits in `text`, so one moved to another claim in the same words changes the mark. */
+  places: readonly number[];
 }
 
 const attribute = (attrs: NodeJSON["attrs"], name: keyof CitedSource): string | null => {
@@ -208,24 +210,31 @@ const attribute = (attrs: NodeJSON["attrs"], name: keyof CitedSource): string | 
  */
 export function comparisonCellContent(cell: NodeJSON): ComparisonCellContent {
   const citations: CitedSource[] = [];
-  const words = (node: NodeJSON): string => {
-    if (node.type === "text") return node.text ?? "";
-    if (node.type === CITATION_NODE) {
+  const places: number[] = [];
+  let text = "";
+  const visit = (node: NodeJSON) => {
+    if (node.type === "text") {
+      text += node.text ?? "";
+    } else if (node.type === CITATION_NODE) {
+      places.push(text.length);
       citations.push({
         documentId: attribute(node.attrs, "documentId"),
         contentHash: attribute(node.attrs, "contentHash"),
         quote: attribute(node.attrs, "quote"),
       });
-      return "";
+    } else {
+      for (const child of node.content ?? []) visit(child);
     }
-    return (node.content ?? []).map(words).join("");
   };
-  const text = (cell.content ?? []).map(words).join("\n");
-  return { text, citations };
+  (cell.content ?? []).forEach((block, index) => {
+    if (index > 0) text += "\n";
+    visit(block);
+  });
+  return { text, citations, places };
 }
 
-export const comparisonCellBasis = ({ text, citations }: ComparisonCellContent): string =>
-  signOffBasis({ sentence: text, item: "", sources: citations.map(sourceOf) });
+export const comparisonCellBasis = ({ text, citations, places }: ComparisonCellContent): string =>
+  signOffBasis({ sentence: text, item: JSON.stringify(places), sources: citations.map(sourceOf) });
 
 const sourceOf = (citation: CitedSource) => ({
   documentId: citation.documentId ?? null,

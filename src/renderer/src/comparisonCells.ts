@@ -95,7 +95,6 @@ export function comparisonCellText(cell: ProseMirrorNode): string {
   return blocks.join("\n");
 }
 
-/** The mark a cell shows now: the User's own, else the newest of another person's. */
 function cellSignOff(
   handle: ComparisonHandle,
   location: ComparisonCellLocation,

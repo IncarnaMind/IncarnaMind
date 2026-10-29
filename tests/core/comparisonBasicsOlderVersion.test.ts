@@ -14,16 +14,17 @@ import { createElement, type NodeJSON } from "../../src/core/answers/blocks";
 import { createTempDataFolder, startCore } from "../helpers/core";
 
 /*
- * The version before a comparison cell recorded a hand edit and the refill pass allowed to write
- * it (#1836): a build that reads one content schema older than this one, whose editor would write
- * the cell back without `edited` and `fillId`.
+ * The last version before a comparison cell recorded a hand edit and the refill pass allowed to
+ * write it (#1836): a build that reads content schema 33, whose editor would write the cell back
+ * without `edited` and `fillId`. It is pinned there, not at this version minus one, so the test
+ * fails if these fields ever share a schema version with that build.
  */
-const real = vi.hoisted(() => ({ version: 0 }));
+const schema = vi.hoisted(() => ({ beforeCellFields: 33, real: 0 }));
 
 vi.mock("../../src/core/api", async (importOriginal) => {
   const actual = await importOriginal<{ CONTENT_SCHEMA_VERSION: number }>();
-  real.version = actual.CONTENT_SCHEMA_VERSION;
-  return { ...actual, CONTENT_SCHEMA_VERSION: actual.CONTENT_SCHEMA_VERSION - 1 };
+  schema.real = actual.CONTENT_SCHEMA_VERSION;
+  return { ...actual, CONTENT_SCHEMA_VERSION: schema.beforeCellFields };
 });
 
 const table: NodeJSON = {
@@ -65,12 +66,13 @@ function firstCell(fragment: Y.XmlFragment): Y.XmlElement {
 }
 
 describe("a version from before a comparison cell recorded a hand edit and its refill pass", () => {
-  // protects=a build one content schema older opens a Note whose cell has `edited` and `fillId` read-only, so its editor can't write the cell back without them; fails_when=the cell fields' version is not above the reader's, it opens writable, or its write reaches the stored cell; no_claim=how the newer version shows them.
+  // protects=the last build without `edited` and `fillId` opens a Note whose cell has them read-only, so its editor can't write the cell back without them; fails_when=the content schema wasn't raised for them, it opens writable, or its write reaches the stored cell; no_claim=how the newer version shows them.
   test("opens a Note with an edited, refilled cell read-only, and the cell keeps both", async () => {
-    expect(CONTENT_SCHEMA_VERSION).toBe(real.version - 1);
+    expect(CONTENT_SCHEMA_VERSION).toBe(schema.beforeCellFields);
+    expect(schema.real).toBeGreaterThan(schema.beforeCellFields);
     const doc = new Y.Doc();
     doc.getXmlFragment(MIND_CONTENT_FIELD).push([createElement(table)]);
-    doc.getMap(MIND_SETTINGS_FIELD).set(CONTENT_SCHEMA_VERSION_KEY, real.version);
+    doc.getMap(MIND_SETTINGS_FIELD).set(CONTENT_SCHEMA_VERSION_KEY, schema.real);
 
     const core = startCore(await createTempDataFolder());
     const mind = await core.createMind({ title: "Suppliers" });
