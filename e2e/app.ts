@@ -851,6 +851,24 @@ export async function continueSetup(window: Page): Promise<void> {
 }
 
 /**
+ * Asks a Question in a new Mind with no model set, which brings the setup card in the composer's
+ * place (#1922). It waits for the card and gives it back.
+ */
+export async function askFirstQuestion(window: Page): Promise<Locator> {
+  await newMind(window);
+  await window.getByTestId("mind-editor").focus();
+  await window.keyboard.press("ControlOrMeta+j");
+  await window.keyboard.type("What is in my Documents?");
+  await window.keyboard.press("Enter");
+  const card = window.getByTestId("model-setup");
+  await expect(card).toBeVisible();
+  return card;
+}
+
+/** A key as a real one is shaped, for a stand-in provider: never a real key. */
+export const ANTHROPIC_KEY = "sk-ant-api03-a-test-key-for-first-run";
+
+/**
  * Opens the key form where a key's own form names no service we list (#1922): the field says so,
  * and its way on picks the service.
  */
