@@ -410,7 +410,7 @@ export interface AnswerConversations {
     answerModel: ChatModelChoice | null,
     read: AnswerRead | null,
     emit?: boolean,
-    wallFor?: (folderId: string | null) => string | null,
+    askedIn?: (conversationFolderId: string | null) => string,
   ): AddedTurn;
   /** Emits a turn added with `emit: false`, once its Question can be asked. */
   publish(turn: Turn): void;
@@ -590,8 +590,17 @@ export interface AnswersOptions {
   /** What a Question from a Mind searches, by the one rule (`mindSearchScope`); null: every Document. */
   searchedScope(scope: SearchScope | null, mindId: string | null): SearchScope | null;
   mindFolder(mindId: string): string | null;
+  /** The walled Folder a Mind is in; null when it is in none. */
   walledFolder(mindId: string | null): string | null;
+  /** The Folder itself when it is walled now; null for any other, or none. */
   walledFolderId(folderId: string | null): string | null;
+  /** The Documents filed in a walled Folder, by any filing. */
+  walledDocuments(): string[];
+  /**
+   * Where something an Answer makes is filed, behind the wall `wallId` or outside every wall
+   * (null), when `asked` is the Folder it would go in; null: it can't be filed, so isn't made.
+   */
+  filedWithin(wallId: string | null, asked: string | null): { folderId: string | null } | null;
   /** The Document a Mind imported from Word was also added as (#720); null for none. */
   workingCopyOf?(mindId: string): string | null;
   /** An example Mind's own Documents, by id; null for a Mind that isn't an example's. */
@@ -675,8 +684,16 @@ export interface AnswerWeb {
   service(model: ChatModelChoice): Promise<ExternalService | null>;
   /** Searches with the model's provider, asking the User to allow it first. */
   search(model: ChatModelChoice, query: string, signal: AbortSignal): Promise<WebResult[]>;
-  /** Saves a page into the Folder of the place the Question was asked in; resolves once it can be searched. */
-  save(address: string, place: AnswerPlace, signal: AbortSignal): Promise<SavedPage>;
+  /**
+   * Saves a page into the Folder `filing` gives for the place the Question was asked in, or not at
+   * all when it gives none; resolves once it can be searched.
+   */
+  save(
+    address: string,
+    place: AnswerPlace,
+    signal: AbortSignal,
+    filing: (asked: string | null) => { folderId: string | null } | null,
+  ): Promise<SavedPage>;
 }
 
 /** What Answers need to run Skill scripts (see ../skills/scripts). */
@@ -934,13 +951,26 @@ export function createAnswers(options: AnswersOptions) {
   const modelKey = (model: ChatModelChoice, prepared: PreparedChatModel) =>
     `${model.providerId}\n${model.modelId}\n${prepared.revision ?? ""}`;
 
+  // A turn whose Folder wasn't recorded may be on either side of a wall: it reads nothing (#1934).
+  const UNKNOWN_WALL = "unknown";
+  const wallOfTurn = (question: { folderAskedIn?: string }): string | null =>
+    question.folderAskedIn === undefined
+      ? UNKNOWN_WALL
+      : options.walledFolderId(question.folderAskedIn);
+
+  /**
+   * The Documents work on one side of the Folder walls may read: the wall's own, else every one
+   * outside a wall, whatever its Search scope (#1934). Null: every Document, with no wall at all.
+   */
+  const readableAcrossWalls = (mindId: string | null, wallId?: string | null): string[] | null =>
+    wallId === UNKNOWN_WALL
+      ? []
+      : wallId
+        ? options.resolveScope(folderScope(wallId))
+        : options.resolveScope(NO_SCOPE, mindId);
+
   const contextCitationsFor = (mindId: string | null, wallId?: string | null): ContextCitations => {
-    const allowed =
-      wallId === UNKNOWN_WALL
-        ? []
-        : wallId
-          ? options.resolveScope(folderScope(wallId))
-          : options.resolveScope(NO_SCOPE, mindId);
+    const allowed = readableAcrossWalls(mindId, wallId);
     return createContextCitations((documentId) => allowed === null || allowed.includes(documentId));
   };
 
@@ -1244,6 +1274,10 @@ export function createAnswers(options: AnswersOptions) {
     const searched = inScope(options.documents, documentIds);
     const inAssistant = !outside && input.assistant !== undefined;
     const mindIn = input.assistant?.focused?.mindId ?? null;
+    const turnWall = input.assistant?.wallId ?? options.walledFolder(mindIn ?? place.mindId);
+    const filing = (asked: string | null) => options.filedWithin(turnWall, asked);
+    /** Why a Tool refused across the Folder wall, said after the model's reply. */
+    const wallRefusals = new Set<"folder.wall.refusal" | "folder.wall.notFiled">();
     const originalId =
       inAssistant && mindIn !== null ? (options.workingCopyOf?.(mindIn) ?? null) : null;
     const [original = null] =
@@ -2113,11 +2147,18 @@ export function createAnswers(options: AnswersOptions) {
         return skill;
       };
       if (forced) followed(forced);
+      let readable: { ids: string[] | null } | undefined;
+      const turn = {
+        readable: (documentId: string) => {
+          readable ??= { ids: readableAcrossWalls(mindIn ?? place.mindId, turnWall) };
+          return readable.ids === null || readable.ids.includes(documentId);
+        },
+      };
       for (const provider of outside ? [] : options.toolProviders) {
         // Find sources' Tool only for a Question that asks for papers or other sources.
         if (provider.kind === "sources" && !asksForSources(context.question)) continue;
         try {
-          provided.push(...(await provider.tools(controller.signal)));
+          provided.push(...(await provider.tools(controller.signal, turn)));
         } catch (error) {
           if (finished) return;
           options.reportError(error);
@@ -2161,7 +2202,7 @@ export function createAnswers(options: AnswersOptions) {
               service: webService,
               question: context.question,
               search: (query, signal) => web.search(model, query, signal),
-              save: (address, signal) => web.save(address, place, signal),
+              save: (address, signal) => web.save(address, place, signal, filing),
               passages: (documentId, query, signal) =>
                 session.searchDocument(documentId, query, signal),
               read: (toolCallId, call) => webPages.set(toolCallId, call),
@@ -2213,7 +2254,7 @@ export function createAnswers(options: AnswersOptions) {
         ...(input.assistant?.lastAnswer ? [input.assistant.lastAnswer.answer] : []),
       ];
       const focusedId = input.assistant?.focused?.mindId ?? null;
-      const wallId = input.assistant?.wallId ?? options.walledFolder(focusedId);
+      const wallId = turnWall;
       const allMinds = given;
       const minds: MindsForTools | undefined = given && {
         ...given,
@@ -2239,7 +2280,6 @@ export function createAnswers(options: AnswersOptions) {
         minds !== undefined && focusedId !== null && minds.read(focusedId, holdsNothing);
       let documentNames: string[] | undefined;
       let rewriting: Promise<PreparedChatModel> | undefined;
-      let wallRefused = false;
       const mindsTools =
         minds && input.assistant
           ? mindTools({
@@ -2260,10 +2300,14 @@ export function createAnswers(options: AnswersOptions) {
               ...input.assistant,
               ...(askInTray && { ask: askInTray }),
               language: answerLanguage(context.question),
+              filing,
+              notFiled: () => {
+                wallRefusals.add("folder.wall.notFiled");
+              },
               ...(wallId && {
                 wallMessage: translate(options.interfaceLanguage(), "folder.wall.refusal"),
                 wallRefused: () => {
-                  wallRefused = true;
+                  wallRefusals.add("folder.wall.refusal");
                 },
                 outsideMind: (name) =>
                   (allMinds?.list() ?? []).some(
@@ -2368,6 +2412,7 @@ export function createAnswers(options: AnswersOptions) {
               findable: (mindId, wall) => commands.findable(mindId, wall),
               focusedMindId: focusedId,
               wallId,
+              filing,
               namesWebPage: options.documents.searchableNames(documentIds, LISTED_DOCUMENTS)
                 .webPage,
               renames: input.assistant.renames,
@@ -2804,9 +2849,11 @@ export function createAnswers(options: AnswersOptions) {
                 });
               },
               refusalSuffix: () =>
-                wallRefused
-                  ? translate(answerLanguage(context.question), "folder.wall.refusal")
-                  : null,
+                wallRefusals.size === 0
+                  ? null
+                  : [...wallRefusals]
+                      .map((key) => translate(answerLanguage(context.question), key))
+                      .join(" "),
             }
           : input.checkScales
             ? {
@@ -3169,10 +3216,6 @@ export function createAnswers(options: AnswersOptions) {
    * Writes the Answer of a Question in a conversation, added or emptied in `turn`, from
    * the messages before it, the Mind it reads and its Search scope as it is now.
    */
-  const UNKNOWN_WALL = "unknown";
-  const wallOfTurn = (question: { wallId?: string | null }): string | null =>
-    question.wallId === undefined ? UNKNOWN_WALL : options.walledFolderId(question.wallId);
-
   function startInConversation(
     turn: Turn,
     ready: { model: ChatModelChoice; consentNeeded: boolean },
@@ -3188,22 +3231,30 @@ export function createAnswers(options: AnswersOptions) {
     const callOnly = help !== null && HELP_DOCUMENTS[help] === null;
     // Each press of a help button stands alone: an earlier suggestion would only steer this one.
     const wallId = mind ? options.walledFolder(mind.mindId) : wallOfTurn(turn.question);
+    // Earlier turns are judged by the wall alone: one outside this turn's Search scope still counts.
+    const readable = readableAcrossWalls(mind?.mindId ?? null, wallId);
+    const permitted = readable === null ? null : new Set(readable);
+    let walled: Set<string> | undefined;
+    const otherSide = (documentId: string) => {
+      if (wallId !== null) return permitted?.has(documentId) === false;
+      walled ??= new Set(options.walledDocuments());
+      return walled.has(documentId);
+    };
+    const otherFolder = (folderId: string) =>
+      wallId === null ? options.walledFolderId(folderId) !== null : folderId !== wallId;
     let turnWall: string | null = null;
-    const permitted = documentIds === null ? null : new Set(documentIds);
     const outsideTurns = new Set<string>();
     const withWalls = turn.earlier.map((message) => {
       if (message.kind === "question") {
         turnWall = wallOfTurn(message);
         if (
-          (wallId !== null && message.scope?.folderIds.some((id) => id !== wallId)) ||
-          message.scope?.documentIds.some((id) => permitted?.has(id) === false) ||
-          message.quotes.some((quote) => permitted?.has(quote.documentId) === false)
+          message.scope?.folderIds.some(otherFolder) ||
+          message.scope?.documentIds.some(otherSide) ||
+          message.quotes.some((quote) => otherSide(quote.documentId))
         ) {
           outsideTurns.add(message.id);
         }
-      } else if (
-        message.citations.some((citation) => permitted?.has(citation.documentId) === false)
-      ) {
+      } else if (message.citations.some((citation) => otherSide(citation.documentId))) {
         outsideTurns.add(message.questionId);
       }
       return { message, wall: turnWall };
@@ -3230,10 +3281,7 @@ export function createAnswers(options: AnswersOptions) {
         ? mind.reading.section(MIND_TOKEN_LIMIT, asking)
         : mind?.section;
     const documents = options.documents.names();
-    const contextDocuments =
-      documentIds === null
-        ? documents
-        : documents.filter((document) => documentIds.includes(document.id));
+    const contextDocuments = documents.filter((document) => !otherSide(document.id));
     const shown = callOnly ? [] : namesOnScreen(onScreen, documentIds);
     const ids = (callOnly ? null : mind?.ids) ?? contextCitationsFor(mind?.mindId ?? null, wallId);
     const named = help ? [] : namedMinds(mind?.mindId ?? null, wallId);
@@ -3336,12 +3384,7 @@ export function createAnswers(options: AnswersOptions) {
   ): { quoted: Quoted[]; leftOut: AskedQuote[] } {
     const quoted: Quoted[] = [];
     const leftOut: AskedQuote[] = [];
-    const allowed =
-      wallId === UNKNOWN_WALL
-        ? []
-        : wallId
-          ? options.resolveScope(folderScope(wallId))
-          : options.resolveScope(NO_SCOPE, mindId);
+    const allowed = readableAcrossWalls(mindId, wallId);
     const documents = options.documents.names();
     for (const asked of quotes) {
       if (allowed !== null && !allowed.includes(asked.documentId)) {

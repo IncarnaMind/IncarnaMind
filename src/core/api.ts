@@ -3229,6 +3229,8 @@ export type WebPageLookFailure =
  * - "local-mode": "Keep everything on this computer" is on, so nothing was
  *   fetched: the site would have seen the request, and the address can name
  *   a matter. The User can let this one page go (`localModeOnce`).
+ * - "kept-inside": the Answer's work stays inside a walled Folder that can't
+ *   be found now, so the page wasn't saved anywhere (#1934).
  */
 export type WebPageFailureReason =
   | "invalid-address"
@@ -3244,7 +3246,8 @@ export type WebPageFailureReason =
   | "not-public"
   | "too-many-redirects"
   | "not-from-search"
-  | "local-mode";
+  | "local-mode"
+  | "kept-inside";
 
 export interface WebPageFailure {
   reason: WebPageFailureReason;
@@ -6444,8 +6447,11 @@ export interface ConversationQuestion {
   focus: MindFocus | null;
   /** Its Search scope; null: none, every Document. */
   scope: SearchScope | null;
-  /** The Folder it was scoped to when asked; null: not recorded (older Questions). */
-  wallId?: string | null;
+  /**
+   * The Folder it was asked in, which its Folder wall is judged by now (#1934): its Note's, else
+   * its Search scope's one Folder, else its conversation's; "" for none. Left out: not recorded.
+   */
+  folderAskedIn?: string;
   /** The model picked for it; null: the default. */
   model: ChatModelChoice | null;
   /** The Skill forced on it, by name; null: none. */

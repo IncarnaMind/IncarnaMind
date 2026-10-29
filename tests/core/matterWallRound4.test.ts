@@ -158,7 +158,7 @@ const checkOne = async (s: Awaited<ReturnType<typeof setUp>>, sentence: string) 
 };
 
 describe("probe #2167 round 4", { timeout: 60_000 }, () => {
-  test("R5 old row (wall_id NULL) asked in A with explicit scope, wall on later: must not reach N", async () => {
+  test("R5 old row (folder_asked_in NULL) asked in A with explicit scope, wall on later: must not reach N", async () => {
     const s = await setUp({ wall: false });
     s.setScript(() => ({ text: "Client A will settle for 2.5 million, privileged." }));
     const first = await askAssistant(s.core, {
@@ -166,10 +166,10 @@ describe("probe #2167 round 4", { timeout: 60_000 }, () => {
       mindId: s.noteA.id,
       scope: { folderIds: [], tagIds: [], documentIds: [s.docA.id] },
     });
-    queryDatabase(s.dataDir, "UPDATE conversation_messages SET wall_id = NULL");
+    queryDatabase(s.dataDir, "UPDATE conversation_messages SET folder_asked_in = NULL");
     const rows = queryDatabase<{ n: number }>(
       s.dataDir,
-      "SELECT count(*) AS n FROM conversation_messages WHERE wall_id IS NOT NULL",
+      "SELECT count(*) AS n FROM conversation_messages WHERE folder_asked_in IS NOT NULL",
     );
     await s.walls();
     s.setScript(() => ({ text: "OK." }));
@@ -192,9 +192,9 @@ describe("probe #2167 round 4", { timeout: 60_000 }, () => {
       mindId: s.noteA.id,
       scope: { folderIds: [], tagIds: [], documentIds: [s.docA.id] },
     });
-    const recorded = queryDatabase<{ wall_id: string | null }>(
+    const recorded = queryDatabase<{ folder_asked_in: string | null }>(
       s.dataDir,
-      "SELECT wall_id FROM conversation_messages WHERE kind = 'question'",
+      "SELECT folder_asked_in FROM conversation_messages WHERE kind = 'question'",
     );
     await s.walls();
     s.setScript(() => ({ text: "OK." }));
@@ -207,7 +207,7 @@ describe("probe #2167 round 4", { timeout: 60_000 }, () => {
     const carried = sentSince(s.calls, from).includes("2.5 million");
     console.log(
       "R5c recorded:",
-      recorded.map((r) => (r.wall_id === s.folderA.id ? "A" : r.wall_id)),
+      recorded.map((r) => (r.folder_asked_in === s.folderA.id ? "A" : r.folder_asked_in)),
       "carried:",
       carried,
     );

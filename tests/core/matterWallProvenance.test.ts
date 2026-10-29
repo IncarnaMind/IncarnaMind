@@ -1,5 +1,6 @@
 import { describe, expect, test } from "vitest";
-import type { SearchScope } from "../../src/core";
+import type { ConversationAnswer, SearchScope } from "../../src/core";
+import { migrations } from "../../src/core/storage/migrations";
 import { folderScope } from "../../src/shared/searchScope";
 import { askAssistant } from "../helpers/assistant";
 import { recordSearches, setUpWithDocuments } from "../helpers/citations";
@@ -42,6 +43,10 @@ async function setUp({ wall = true } = {}) {
 }
 
 type Setup = Awaited<ReturnType<typeof setUp>>;
+
+/** What the migration that records each Question's Folder writes into an older row. */
+const recording = migrations.find((each) => each.sql.includes("ADD COLUMN folder_asked_in"));
+const BACKFILL = recording?.sql.slice(recording.sql.indexOf("UPDATE conversation_messages")) ?? "";
 type Turn = { mindId: string | null; scope?: SearchScope | null };
 
 describe("A Question's recorded Folder decides its wall", () => {
@@ -50,7 +55,7 @@ describe("A Question's recorded Folder decides its wall", () => {
     first: Turn;
     second: Turn;
     expected: boolean;
-    change?: (setup: Setup, id: string) => Promise<void>;
+    change?: (setup: Setup, first: ConversationAnswer) => Promise<void>;
   }[] = [
     { name: "asked in walled A", first: { mindId: "a" }, second: { mindId: "a" }, expected: true },
     {
@@ -118,11 +123,21 @@ describe("A Question's recorded Folder decides its wall", () => {
       first: { mindId: "a" },
       second: { mindId: "a" },
       expected: true,
-      change: async (s, id) => {
-        queryDatabase(s.dataDir, "UPDATE conversation_messages SET wall_id = ? WHERE id = ?", [
-          s.folderA.id,
-          id,
-        ]);
+      change: async (s, first) => {
+        const asked = [first.questionId];
+        queryDatabase(
+          s.dataDir,
+          "UPDATE conversation_messages SET folder_asked_in = NULL WHERE id = ?",
+          asked,
+        );
+        queryDatabase(s.dataDir, BACKFILL);
+        expect(
+          queryDatabase(
+            s.dataDir,
+            "SELECT folder_asked_in FROM conversation_messages WHERE id = ?",
+            asked,
+          ),
+        ).toEqual([{ folder_asked_in: s.folderA.id }]);
       },
     },
   ];
@@ -141,7 +156,7 @@ describe("A Question's recorded Folder decides its wall", () => {
         mindId: firstId,
         ...(firstScope && { scope: firstScope }),
       });
-      if (row.change) await row.change(s, firstAnswer.conversationId);
+      if (row.change) await row.change(s, firstAnswer);
       const from = s.calls.length;
       await askAssistant(s.core, {
         text: "Follow up",

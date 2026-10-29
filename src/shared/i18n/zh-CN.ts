@@ -339,7 +339,11 @@ export const zhCN = {
   "folder.keepInside": "只在本文件夹内工作",
   "folder.keepInside.hint": "其中的笔记只使用本文件夹的文档，其他笔记也不会搜索这些文档",
   "folder.wall.refusal": "只在本文件夹内工作。",
+  "folder.wall.notFiled":
+    "未新建任何内容：这项工作只在所在文件夹内进行，但现在找不到该文件夹。笔记没有变化。",
   "error.folder.wall": "只在本文件夹内工作。",
+  "error.folder.notFiled":
+    "未新建任何内容：这项工作只在所在文件夹内进行，但现在找不到该文件夹。笔记没有变化。",
   "error.folder.keepInside": "keepInside 必须是 true 或 false。",
   "undo.folderWallOn": "已开启“{name}”只在本文件夹内工作",
   "undo.folderWallOff": "已关闭“{name}”只在本文件夹内工作",
@@ -1770,6 +1774,7 @@ export const zhCN = {
   "webPages.reason.not-public": "它在这台电脑或局域网上",
   "webPages.reason.too-many-redirects": "跳转次数太多",
   "webPages.reason.local-mode": "已开启“所有内容都留在这台电脑上”",
+  "webPages.reason.kept-inside": "这项工作只在所在文件夹内进行，但现在找不到该文件夹",
   "webPages.localMode": "未抓取：已开启“所有内容都留在这台电脑上”。抓取会连接 {site}。",
   "webPages.localMode.once": "只抓取这一次",
   "webPages.localMode.keep": "不抓取",

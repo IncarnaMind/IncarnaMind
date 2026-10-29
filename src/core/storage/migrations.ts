@@ -1992,9 +1992,13 @@ export const migrations: readonly Migration[] = [
       -- 1: a Folder's Notes, Answers and checks may read only its own Documents.
       -- 0 by default. Kept with the Folder so it follows the User to other devices.
       ALTER TABLE library_groups ADD COLUMN keep_inside INTEGER NOT NULL DEFAULT 0;
-      ALTER TABLE conversation_messages ADD COLUMN wall_id TEXT;
+      -- A Question's Folder when it was asked, judged against today's walls: '' is asked in no
+      -- Folder, which outside Notes may read; NULL is not recorded, and is read by no Note.
+      -- No Folder was walled before this, so each older Question's Note, or else its
+      -- conversation, still holds the Folder it was asked in.
+      ALTER TABLE conversation_messages ADD COLUMN folder_asked_in TEXT;
       UPDATE conversation_messages
-      SET wall_id = CASE
+      SET folder_asked_in = CASE
         WHEN asked_from_mind_id IS NULL THEN COALESCE(
           (SELECT conversations.folder_id FROM conversations WHERE conversations.id = conversation_messages.conversation_id),
           ''
@@ -2004,7 +2008,7 @@ export const migrations: readonly Migration[] = [
           ''
         )
       END
-      WHERE kind = 'question' AND wall_id IS NULL;
+      WHERE kind = 'question' AND folder_asked_in IS NULL;
     `,
   },
 ];

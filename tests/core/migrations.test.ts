@@ -290,14 +290,14 @@ describe("Migrations", () => {
     migrate(db);
 
     expect(
-      db.all<{ id: string; wall_id: string | null }>(
-        "SELECT id, wall_id FROM conversation_messages ORDER BY seq",
+      db.all<{ id: string; folder_asked_in: string | null }>(
+        "SELECT id, folder_asked_in FROM conversation_messages ORDER BY seq",
       ),
     ).toEqual([
-      { id: "q1", wall_id: "folder-a" },
-      { id: "q2", wall_id: "folder-b" },
-      { id: "q3", wall_id: "" },
-      { id: "q4", wall_id: "" },
+      { id: "q1", folder_asked_in: "folder-a" },
+      { id: "q2", folder_asked_in: "folder-b" },
+      { id: "q3", folder_asked_in: "" },
+      { id: "q4", folder_asked_in: "" },
     ]);
     db.close();
   });

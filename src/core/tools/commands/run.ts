@@ -280,7 +280,17 @@ const mindItem = (mind: Mind, renamed?: Mind): CommandItem => ({
   ...(renamed && { renamed: mindName(renamed) }),
 });
 
-type Checker = (input: CommandInput, host: CommandsHost) => Promise<CheckedCommand>;
+/**
+ * Where what a command adds is filed, by the Folder wall the Answer was asked behind (#1934);
+ * null: it can't be filed, so nothing is added.
+ */
+export type CommandFiling = (asked: string | null) => { folderId: string | null } | null;
+
+type Checker = (
+  input: CommandInput,
+  host: CommandsHost,
+  filing: CommandFiling,
+) => Promise<CheckedCommand>;
 
 const inApp = (
   command: AssistantCommandId,
@@ -611,7 +621,9 @@ const CHECKERS: Readonly<Record<AssistantCommandId, Checker>> = {
     };
   },
 
-  "documents.addFromFolder": async (input, { core }) => {
+  "documents.addFromFolder": async (input, { core }, filing) => {
+    const filed = filing(null);
+    if (filed === null) throw new InvalidInputError({ key: "error.folder.notFiled" });
     const folder = await folderOnDisk(needs(input.folder, "error.commands.noFolderPath"));
     const files = await filesIn(folder, input.kinds);
     if (files.length === 0) {
@@ -628,6 +640,13 @@ const CHECKERS: Readonly<Record<AssistantCommandId, Checker>> = {
         const result = await core.addDocuments(files.map((name) => join(folder, name)));
         const added = result.documents.filter((each) => !known.has(each.id));
         const refs = added.map((each) => ({ kind: "document" as const, id: each.id }));
+        if (filed.folderId !== null && added.length > 0) {
+          await core.moveToFolder({
+            documentIds: refs.map((ref) => ref.id),
+            mindIds: [],
+            folderId: filed.folderId,
+          });
+        }
         const already = result.documents.length - added.length;
         return {
           done: { items: added.map((each) => documentItem(each)) },
@@ -652,9 +671,10 @@ const CHECKERS: Readonly<Record<AssistantCommandId, Checker>> = {
 export const checkCommand = async (
   input: CommandInput,
   host: CommandsHost,
+  filing: CommandFiling,
   mindId: string | null = null,
   wallId?: string | null,
 ): Promise<CheckedCommand> => {
   await host.allows?.(input, mindId, wallId);
-  return CHECKERS[input.command](input, host);
+  return CHECKERS[input.command](input, host, filing);
 };

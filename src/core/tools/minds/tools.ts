@@ -122,6 +122,10 @@ import {
 
 const PROVIDER: ToolProviderInfo = { kind: "minds", id: "minds", name: "Notes" };
 
+/** What the model is told when a new Note can't be filed behind its Folder wall (#1934). */
+const NOT_FILED =
+  "No Note was made: this work stays inside its Folder, and that Folder can't be found now. Tell the User nothing new was made and their notes are unchanged.";
+
 /** About how much of a named Mind `read_mind` gives, in tokens; a window cuts it further. */
 const READ_TOKENS = 12_000;
 
@@ -217,6 +221,13 @@ export interface MindToolsOptions {
   paragraph: ParagraphAsked;
   /** Where a new Mind goes: the Folder of the Question's Search scope when that is one Folder. */
   folderId: string | null;
+  /**
+   * Where a new Mind asked for in the Folder `asked` is filed, by the Folder wall the Question
+   * was asked behind (#1934); null: it can't be filed, so none is made.
+   */
+  filing(asked: string | null): { folderId: string | null } | null;
+  /** Called when a new Mind isn't made because it can't be filed. */
+  notFiled(): void;
   /** The Answer, and its Question, that Blocks it adds link back to. */
   origin: BlockOrigin;
   /**
@@ -2378,7 +2389,7 @@ export function mindTools(options: MindToolsOptions): { tools: Tool[]; settle():
   const make = (
     title: string,
     startsWithHeading: boolean,
-    folderId = options.folderId,
+    folderId: string | null,
   ): ChangeableMind => {
     const made = minds.create(title, folderId, !startsWithHeading);
     if (!startsWithHeading) minds.edit(made.id, (note) => ownTitleOf(note, options.origin));
@@ -2466,8 +2477,14 @@ export function mindTools(options: MindToolsOptions): { tools: Tool[]; settle():
       streamContent(toolCallId, input, (fields) => {
         const title = fields.get("title");
         if (remake !== null || !title?.done || title.value.trim() === "") return null;
+        const filed = options.filing(options.folderId);
+        if (filed === null) return null;
         // Its first paragraph is whole by now, so whether the model began with a heading is known.
-        const mind = make(title.value.trim(), headed(fields.get("content")?.value ?? ""));
+        const mind = make(
+          title.value.trim(),
+          headed(fields.get("content")?.value ?? ""),
+          filed.folderId,
+        );
         return { writer: writerFor(mind, null, true), created: true };
       });
     },
@@ -2492,8 +2509,14 @@ export function mindTools(options: MindToolsOptions): { tools: Tool[]; settle():
       // Made already, as its content came in.
       const streamed = streams.get(toolCallId)?.writer?.mind;
       // A Mind made of the last Answer goes where that Answer searched, not where this Question does.
-      const folderId =
-        given !== null && typeof given !== "string" ? given.folderId : options.folderId;
+      const filed = options.filing(
+        given !== null && typeof given !== "string" ? given.folderId : options.folderId,
+      );
+      if (filed === null) {
+        options.notFiled();
+        return NOT_FILED;
+      }
+      const { folderId } = filed;
       const mind =
         streamed ??
         make(

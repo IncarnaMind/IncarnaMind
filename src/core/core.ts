@@ -1414,7 +1414,7 @@ export function createCore(adapters: CoreAdapters): Core {
       documentIds: (filter) => documents.ids(filter),
     });
     if (ownWall || walled.length === 0) return resolved;
-    const excluded = new Set(walled.flatMap((folder) => library.allDocumentIds(folder.id)));
+    const excluded = new Set(walledDocuments());
     return (resolved ?? documents.ids({})).filter((id) => !excluded.has(id));
   };
   const folderIdsInScope = (folderIds: readonly string[]) =>
@@ -1432,6 +1432,11 @@ export function createCore(adapters: CoreAdapters): Core {
       .folders()
       .find((folder) => folder.keepInside && library.allDocumentIds(folder.id).includes(documentId))
       ?.id ?? null;
+  const walledDocuments = (): string[] =>
+    library
+      .folders()
+      .filter((folder) => folder.keepInside)
+      .flatMap((folder) => library.allDocumentIds(folder.id));
   const walledFolderName = (documentId: string): string | null =>
     library
       .folders()
@@ -1440,6 +1445,19 @@ export function createCore(adapters: CoreAdapters): Core {
   const walledFolder = (mindId: string | null): string | null => {
     const folderId = mindId !== null && mindExists(mindId) ? minds.get(mindId).folderId : null;
     return walledFolderId(folderId);
+  };
+  /**
+   * The one place deciding where the assistant files what it makes (#1934): work behind the wall
+   * `wallId` files it in that Folder, whatever Folder was `asked`; work outside every wall never
+   * files it in a walled Folder. Null: it can't be filed, so nothing may be made, as when the
+   * wall's Folder is gone or the turn's wall isn't known.
+   */
+  const filedWithin = (
+    wallId: string | null,
+    asked: string | null,
+  ): { folderId: string | null } | null => {
+    if (wallId === null) return { folderId: walledFolderId(asked) === null ? asked : null };
+    return library.folders().some((folder) => folder.id === wallId) ? { folderId: wallId } : null;
   };
   const unscopedDocuments = (mindId: string | null): string[] | null => {
     const made = examples.made();
@@ -1471,7 +1489,8 @@ export function createCore(adapters: CoreAdapters): Core {
   };
   const searchedScope = (scope: SearchScope | null, mindId: string | null) => {
     const folderId = mindId !== null && mindExists(mindId) ? minds.get(mindId).folderId : null;
-    if (folderId !== null && library.folder(folderId).keepInside) return folderScope(folderId);
+    const wall = walledFolderId(folderId);
+    if (wall !== null) return folderScope(wall);
     const holds =
       folderId !== null &&
       documents
@@ -1727,7 +1746,7 @@ export function createCore(adapters: CoreAdapters): Core {
               }),
           ),
       },
-      { kind: "sources", tools: async () => sources.tools() },
+      { kind: "sources", tools: async (_signal, turn) => sources.tools(turn) },
     ],
     connectorsNeedingSignIn: () => connectors.needingSignIn(),
     web: webSearch,
@@ -1835,8 +1854,8 @@ export function createCore(adapters: CoreAdapters): Core {
     },
     // Every window hears of each message as it is added or written.
     conversations: {
-      add: (input, answerModel, read, emit = true, wallFor) => {
-        const added = conversations.add(input, answerModel, read, wallFor);
+      add: (input, answerModel, read, emit = true, askedIn) => {
+        const added = conversations.add(input, answerModel, read, askedIn);
         if (emit) publishConversation(added.turn);
         return added;
       },
@@ -1870,6 +1889,8 @@ export function createCore(adapters: CoreAdapters): Core {
     mindFolder: (mindId) => (mindExists(mindId) ? minds.get(mindId).folderId : null),
     walledFolder,
     walledFolderId,
+    walledDocuments,
+    filedWithin,
     exampleDocuments: (mindId) => examples.documentsOf(mindId),
     unscopedDocuments,
     interfaceLanguage: () => settings.get().language,
@@ -1980,6 +2001,8 @@ export function createCore(adapters: CoreAdapters): Core {
     mindExists,
     mindName: (mindId) => (mindExists(mindId) ? mindName(minds.get(mindId)) || null : null),
     walledFolder,
+    walledFolderId,
+    filedWithin,
     folderOfMind: (mindId) => (mindExists(mindId) ? minds.get(mindId).folderId : null),
     createMind: (title, folderId) => makeMind({ title, kind: DEFAULT_MIND_KIND, folderId }).id,
     moveMind: (mindId, folderId) => {

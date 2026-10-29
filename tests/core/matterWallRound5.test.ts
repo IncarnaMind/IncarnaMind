@@ -127,11 +127,13 @@ describe("probe #2167 round 5", { timeout: 60_000 }, () => {
       [1, "qn", "conv-a", 1, "question", "From N", "mind-n", at, at],
     );
     migrate(db);
-    const rows = db.all<{ wall_id: string | null }>("SELECT wall_id FROM conversation_messages");
+    const rows = db.all<{ folder_asked_in: string | null }>(
+      "SELECT folder_asked_in FROM conversation_messages",
+    );
     migrate(db);
-    console.log("R10 backfilled wall_id for N's Question:", rows[0]?.wall_id);
+    console.log("R10 backfilled folder_asked_in for N's Question:", rows[0]?.folder_asked_in);
     db.close();
-    expect(rows[0]?.wall_id).not.toBe("folder-a");
+    expect(rows[0]?.folder_asked_in).not.toBe("folder-a");
   });
 
   test("R11 a Question's recorded Folder decides after the Note moves out or is deleted", async () => {
@@ -159,7 +161,7 @@ describe("probe #2167 round 5", { timeout: 60_000 }, () => {
     const conv = await s.core.getConversation(first.conversationId);
     queryDatabase(
       s.dataDir,
-      "UPDATE conversation_messages SET wall_id = ? WHERE kind = 'question' AND asked_from_mind_id = ?",
+      "UPDATE conversation_messages SET folder_asked_in = ? WHERE kind = 'question' AND asked_from_mind_id = ?",
       [conv.conversation.folderId, s.noteN.id],
     );
     await s.walls();

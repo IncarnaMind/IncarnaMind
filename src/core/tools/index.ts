@@ -104,10 +104,16 @@ export interface Tool {
 }
 
 /** Hands out Tools to a Run: the User's Connectors now; later Files, a Browser, a Shell. */
+/** What a provider's Tools may know of the Answer they are offered to. */
+export interface ToolTurn {
+  /** Whether the Answer may read a Document across the Folder walls (#1934). */
+  readable(documentId: string): boolean;
+}
+
 export interface ToolProvider {
   kind: ToolProviderKind;
   /** The Tools it offers now: none from a Connector that isn't ready. */
-  tools(signal: AbortSignal): Promise<Tool[]>;
+  tools(signal: AbortSignal, turn: ToolTurn): Promise<Tool[]>;
 }
 
 /** The names of the Documents' Tools. */

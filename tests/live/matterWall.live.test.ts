@@ -2,6 +2,7 @@ import { describe, expect, onTestFinished, test } from "vitest";
 import type { Core, Language } from "../../src/core";
 import { createAiSdkChatModel } from "../../src/core/providers/models";
 import { claimSpans } from "../../src/renderer/src/editor/claimChecks";
+import { translate } from "../../src/shared/i18n";
 import { askAssistant } from "../helpers/assistant";
 import { answerEnded, recordSearches } from "../helpers/citations";
 import { compare } from "../helpers/comparisons";
@@ -33,6 +34,9 @@ const WORDS = {
     ask: "What is the termination notice in my lease?",
     compare: "What is the termination notice?",
     assistant: "Read Client B note and tell me its termination notice.",
+    followUp: "What notice did you just tell me about, in days?",
+    quoted: "What does this quote say about the notice?",
+    command: "Rename the Document Client B lease.txt to Renamed lease.txt.",
   },
   "zh-CN": {
     ownFile: "客户甲租约.txt",
@@ -51,6 +55,9 @@ const WORDS = {
     ask: "我的租约终止通知期限是多久？",
     compare: "终止通知期限是多久？",
     assistant: "读取客户乙笔记，告诉我终止通知期限。",
+    followUp: "你刚才说的通知期限是多少天？",
+    quoted: "这段引文说通知期限是多久？",
+    command: "把文档“客户乙租约.txt”重命名为“改名租约.txt”。",
   },
 } as const;
 
@@ -154,8 +161,7 @@ async function runMatterWall(language: Language, run: number) {
   for (const found of searches) expect(found).not.toContain(other.name);
 
   const answer = await askAssistant(core, { text: words.assistant, mindId: mind.id });
-  const refusal =
-    language === "zh-CN" ? "此文件夹只在本文件夹内工作。" : "This Folder keeps its work inside it.";
+  const refusal = translate(language, "folder.wall.refusal");
   const assistantEvidence = JSON.stringify({ calls: answer.toolCalls, text: answer.text });
   expect(assistantEvidence).toContain(refusal);
   expect(assistantEvidence).not.toContain(words.otherText);
@@ -198,6 +204,43 @@ async function runMatterWall(language: Language, run: number) {
     expect(found).not.toContain(own.name);
     expect(found).not.toContain(other.name);
   }
+
+  // A follow-up from the other side of the wall gets none of the turn before.
+  const inside = await askAssistant(core, { text: words.ask, mindId: mind.id });
+  const followUp = await askAssistant(core, {
+    text: words.followUp,
+    mindId: outsideMind.id,
+    conversationId: inside.conversationId,
+  });
+  expect(followUp.text).not.toMatch(/90/);
+  expect(JSON.stringify(followUp.toolCalls)).not.toContain(words.ownText);
+
+  // A quote from a walled Document is left out of a Question asked outside.
+  const quotedAsk = await core.askInConversation({
+    text: words.quoted,
+    mindId: outsideMind.id,
+    quotes: [
+      {
+        documentId: own.id,
+        documentName: own.name,
+        quote: words.ownText,
+        pageFrom: null,
+        pageTo: null,
+        location: null,
+      },
+    ],
+  });
+  if (!quotedAsk.asked) throw new Error(`The quote wasn't asked: ${JSON.stringify(quotedAsk)}`);
+  expect(quotedAsk.leftOut).toHaveLength(1);
+  expect((await answerEnded(core, quotedAsk.answerId)).event).toBe("finished");
+  const { messages } = await core.getConversation(quotedAsk.conversation.id);
+  const quotedAnswer = messages.find((message) => message.id === quotedAsk.answerId);
+  expect(quotedAnswer?.text).not.toMatch(/90/);
+
+  // A command from inside one wall can't reach a Document behind another.
+  await askAssistant(core, { text: words.command, mindId: mind.id });
+  const renamed = (await core.listDocuments()).find((each) => each.id === other.id);
+  expect(renamed?.name).toBe(other.name);
 }
 
 describe("Matter wall on Claude Haiku 5.5", () => {

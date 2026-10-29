@@ -348,7 +348,11 @@ export const en = {
   "folder.keepInside": "Keep this Folder’s work inside it",
   "folder.keepInside.hint": "Its notes use only its Documents, and other notes don’t search them",
   "folder.wall.refusal": "This Folder keeps its work inside it.",
+  "folder.wall.notFiled":
+    "Nothing new was made: this work stays inside its Folder, which can’t be found now. Your notes are unchanged.",
   "error.folder.wall": "This Folder keeps its work inside it.",
+  "error.folder.notFiled":
+    "Nothing new was made: this work stays inside its Folder, which can’t be found now. Your notes are unchanged.",
   "error.folder.keepInside": "keepInside must be true or false.",
   "undo.folderWallOn": "Turned on inside-only work for {name}",
   "undo.folderWallOff": "Turned off inside-only work for {name}",
@@ -1841,6 +1845,7 @@ export const en = {
   "webPages.reason.too-many-redirects": "it redirects too many times",
   "webPages.reason.not-from-search": "the web search didn’t return it",
   "webPages.reason.local-mode": "“Keep everything on this computer” is on",
+  "webPages.reason.kept-inside": "this work stays inside its Folder, which can’t be found now",
   "webPages.localMode":
     "Not fetched: “Keep everything on this computer” is on. It would contact {site}.",
   "webPages.localMode.once": "Fetch this page once",

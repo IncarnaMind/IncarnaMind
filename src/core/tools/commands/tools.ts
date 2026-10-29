@@ -28,6 +28,7 @@ import { askOf, type CommandRename, renamesOf } from "./policy";
 import {
   type CheckedCommand,
   COMMAND_EXPORT_FORMATS,
+  type CommandFiling,
   type CommandsHost,
   checkCommand,
   commandEffects,
@@ -74,6 +75,8 @@ export interface CommandToolsOptions {
   findable(mindId: string | null, wallId?: string | null): Promise<Findable>;
   /** The wall of the Conversation, when no Note is open. */
   wallId?: string | null;
+  /** Where what a command adds is filed (#1934). */
+  filing: CommandFiling;
   /** The Mind the User is in, which `list_commands` points out. */
   focusedMindId: string | null;
   /** The Run's instructions name a saved web page, whose title someone else wrote. */
@@ -234,6 +237,7 @@ export function commandTools(options: CommandToolsOptions): {
         const command = await checkCommand(
           parseCommandInput(input),
           options.host,
+          options.filing,
           options.focusedMindId,
           options.wallId,
         );
