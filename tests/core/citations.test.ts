@@ -1289,6 +1289,40 @@ describe("Consecutive Passages in a check Run (#1634)", () => {
     expect(session.shownPassages().find((each) => each.id === "P2")?.text).toContain(shared);
   });
 
+  test("a Passage leaves out only lines the one before it still shows", async () => {
+    const line = (name: string) => `Line ${name}: the harbour logged its calls for the year.`;
+    const found = [
+      ["A", "B", "C"],
+      ["B", "C", "D"],
+      ["C", "D", "E"],
+    ].map(
+      (names, position): WindowedPassage => ({
+        passageId: `q${position}`,
+        documentId: "port",
+        documentName: "Port report",
+        contentHash: "v1",
+        pageFrom: 1,
+        pageTo: 1,
+        position,
+        text: names.map(line).join("\n"),
+        seq: position,
+        documentKind: "pdf",
+        windowFrom: 0,
+        windowTo: position,
+      }),
+    );
+    const { session } = searching(found);
+    const shown = shownPassages((await session.tools.searchDocuments("harbour")).text);
+
+    // P2 shows only D, so the C that P3 shares is at the end of P1: P3 is shown whole.
+    expect(shown.map((passage) => passage.continues)).toEqual([null, "P1", null]);
+    expect(shown.map((passage) => passage.text)).toEqual([
+      found[0]?.text,
+      line("D"),
+      found[2]?.text,
+    ]);
+  });
+
   test("an Answer's Passages are shown whole", async () => {
     const found = windowed([0, 1, 2]);
     const { session } = searching(found, false);

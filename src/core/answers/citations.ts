@@ -1563,6 +1563,8 @@ export function createCitationSession(
       return dates.get(documentId) ?? null;
     };
     const shownIds: string[] = [];
+    /** Each Passage's own text as far as it is shown: what the next one may leave out the end of. */
+    const shownEnds: string[] = [];
     const formatted = found.map((passage, index): ShownPassage => {
       const range = { pageFrom: passage.pageFrom, pageTo: passage.pageTo };
       const units =
@@ -1590,11 +1592,11 @@ export function createCitationSession(
       // Consecutive Passages share up to 200 tokens (../documents/passages): a quarter of what a
       // search hands the model. The quote check reads each Passage's own pages, so a quote from
       // the lines shown only in the Passage before still checks under either id.
-      const before = found[index - 1];
       const repeated =
-        events.showsSharedLinesOnce && follows(before, passage)
-          ? repeatedLines(before?.text ?? "", passage.text)
+        events.showsSharedLinesOnce && follows(found[index - 1], passage)
+          ? repeatedLines(shownEnds[index - 1] ?? "", passage.text)
           : 0;
+      shownEnds.push(passage.text.split("\n").slice(repeated).join("\n"));
       return {
         id,
         documentName: passage.documentName,
