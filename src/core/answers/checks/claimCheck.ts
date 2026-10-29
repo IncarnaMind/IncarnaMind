@@ -860,7 +860,7 @@ export function createClaimCheck(deps: ClaimCheckDependencies) {
       (withVerdict === undefined ? null : readVerdict(`${withVerdict}\n\n${reply}`));
     if (!verdict) return notChecked(refused ? "refused" : "malformed");
     if (!looked()) return notChecked("unread");
-    const absence = await absenceFor(verdict.absence, verdict.verdict);
+    const absence = await absenceFor(verdict.absence ?? null, verdict.verdict);
     if (absence) return absence;
     if (await requiresCalculation(verdict))
       return confirmationFailure ? failedCheck(confirmationFailure) : notChecked("no-evidence");

@@ -413,7 +413,7 @@ export interface ReadVerdict {
    * the field gives yes but not as its one plain answer ("No. Wait, yes"); null when it gives
    * no yes at all and no plain no (missing, or prose).
    */
-  absence: AbsenceAnswer;
+  absence?: Exclude<AbsenceAnswer, null>;
   says: string | null;
   covered: string | null;
   uncovered: string | null;
@@ -472,12 +472,14 @@ function jsonVerdict(reply: string): ReadVerdict | null {
     if (!known) return null;
     return {
       verdict: known,
-      absence: absenceOf(
-        typeof asserted === "boolean"
-          ? [asserted ? "yes" : "no"]
-          : typeof asserted === "string"
-            ? [asserted]
-            : [],
+      ...answered(
+        absenceOf(
+          typeof asserted === "boolean"
+            ? [asserted ? "yes" : "no"]
+            : typeof asserted === "string"
+              ? [asserted]
+              : [],
+        ),
       ),
       says: typeof says === "string" ? cleanSays(says) : null,
       covered: typeof covered === "string" ? phraseOf(covered) : null,
@@ -553,6 +555,8 @@ function absenceOf(values: readonly string[]): AbsenceAnswer {
   return plain.some((value) => NAMES_YES.test(value)) ? "unclear" : null;
 }
 
+const answered = (absence: AbsenceAnswer) => (absence === null ? {} : { absence });
+
 /** An unsupported verdict's reason is one sentence: a longer one isn't kept. */
 const withShortReason = (read: ReadVerdict | null): ReadVerdict | null =>
   read?.verdict === "unsupported" && (read.says?.length ?? 0) > MAX_REASON
@@ -594,7 +598,7 @@ export function readVerdict(reply: string): ReadVerdict | null {
     const next = after.find((each) => !FIELDS.some((field) => field.test(each)));
     return withShortReason({
       verdict,
-      absence: absenceOf(fields.flatMap((each) => ABSENCE.exec(each)?.[1] ?? [])),
+      ...answered(absenceOf(fields.flatMap((each) => ABSENCE.exec(each)?.[1] ?? []))),
       says: cleanSays(rest || (next ?? "")),
       covered: phrase(COVERED),
       uncovered: phrase(NOT_COVERED),
