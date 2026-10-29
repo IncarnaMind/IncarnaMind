@@ -16,26 +16,40 @@ const dictionaries: { readonly [L in Language]: Dictionary } = {
   "zh-CN": zhCN,
 };
 
-/** Names that can be Chinese or Latin, so a space beside one depends on the name (docs/agents/zh-CN.md). */
-const NAMES = ["agent", "provider", "format", "names", "person", "label"] as const;
+/**
+ * Values that can be Chinese or Latin, so a space beside one depends on the value
+ * (docs/agents/zh-CN.md): "文档写的是 2万美元，不是人民币两万元。"
+ */
+const NAMES: ReadonlySet<string> = new Set([
+  "agent",
+  "provider",
+  "format",
+  "names",
+  "person",
+  "label",
+  "amount",
+  "figure",
+]);
+
+// A space only where the template's own Chinese meets a value: "约 ¥{amount}" stays "约 ¥0.12".
+const HAN_END = /\p{Script=Han}$/u;
+const HAN_START = /^\p{Script=Han}/u;
 
 export function translate(language: Language, key: MessageKey, params?: MessageParams): string {
   const template = dictionaries[language][key];
   if (!params) return template;
-  const fill = (text: string) =>
-    text.replace(/\{(\w+)\}/g, (placeholder, name: string) =>
-      Object.hasOwn(params, name) ? String(params[name]) : placeholder,
-    );
-  const name =
-    language === "zh-CN"
-      ? NAMES.find((each) => Object.hasOwn(params, each) && template.includes(`{${each}}`))
-      : undefined;
-  if (!name) return fill(template);
-  const value = String(params[name]);
-  return template
-    .split(`{${name}}`)
-    .map(fill)
-    .reduce(
-      (text, part) => text + gap(language, text, value) + value + gap(language, value, part) + part,
-    );
+  let text = "";
+  let literal = "";
+  let spaced = false;
+  for (const [at, part] of template.split(/(\{\w+\})/).entries()) {
+    const name = at % 2 === 1 ? part.slice(1, -1) : null;
+    const filled = name !== null && Object.hasOwn(params, name);
+    const piece = filled ? String(params[name]) : part;
+    const named = filled && language === "zh-CN" && NAMES.has(name);
+    const beside = named ? HAN_END.test(literal) : spaced && HAN_START.test(piece);
+    text += (beside ? gap(language, text, piece) : "") + piece;
+    literal = named ? "" : piece;
+    spaced = named;
+  }
+  return text;
 }
