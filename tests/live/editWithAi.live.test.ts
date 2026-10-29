@@ -837,3 +837,111 @@ describe.each(LIVE)("Ordinary tasks add no bold or italic, live: $name", (live) 
     },
   );
 });
+
+/** Spaces around the characters are the writer's to change; the characters are not. */
+const spaced = (text: string) => text.replace(/\s+/g, "");
+
+const TYPED = [
+  {
+    language: "English",
+    items: [
+      {
+        text: "Total = price*volume*margin, as the later report explains in detail.",
+        keep: "price*volume*margin",
+      },
+      {
+        text: "Multiply 2*3*4 and add the fee to the total, as the later report shows.",
+        keep: "2*3*4",
+      },
+      {
+        text: "Save the export as file_a_b in the data folder, and note the date in the report.",
+        keep: "file_a_b",
+      },
+    ],
+  },
+  {
+    language: "Chinese",
+    items: [
+      { text: "第3*4项是总额，另见后面的说明文件，其中有详细的计算过程。", keep: "第3*4项" },
+      { text: "导出文件保存为 file_a_b，放在数据文件夹里，并在报告中注明日期。", keep: "file_a_b" },
+    ],
+  },
+] as const;
+
+describe.each(LIVE)("Typed stars, underscores and tildes stay, live: $name", (live) => {
+  test.skipIf(live.apiKey === undefined)(
+    `${live.name}: improve and shorten keep a * or _ the User typed exactly, and make nothing italic`,
+    { timeout: 1_800_000 },
+    async () => {
+      const runs = Number(process.env.INCARNAMIND_LIVE_RUNS ?? 5);
+      const report: string[] = [`## ${live.name} · ${live.model} (#1897, typed * _ ~ stay)`];
+      const checks: (() => void)[] = [];
+      for (const each of TYPED) {
+        let exact = 0;
+        let total = 0;
+        for (const item of each.items) {
+          for (const action of ["improve", "shorten"] as const) {
+            let kept = 0;
+            for (let run = 1; run <= runs; run++) {
+              const core = startCore(await createTempDataFolder(), {
+                createChatModel: createAiSdkChatModel,
+              });
+              core.on(
+                "consent.requested",
+                (asked) => void core.respondToConsent(asked.requestId, true),
+              );
+              await core.saveChatProvider({
+                kind: live.kind,
+                ...(live.apiKey && { apiKey: live.apiKey }),
+                modelId: live.model,
+              });
+              if (live.local) await core.setLocalOnly(true);
+              const mind = await core.createMind({ title: each.language });
+              const client = await connectToMind(core, mind.id);
+              writeMind(client, [
+                {
+                  type: "paragraph",
+                  attrs: { id: "p" },
+                  content: [{ type: "text", text: item.text }],
+                },
+              ]);
+              await client.settled();
+              const { result } = await edit(core, client, mind.id, "p", action);
+              if (result.kind === "proposed") {
+                client.doc.transact(() => {
+                  resolveProposals(client.blocks as Y.XmlFragment, () => true, "accept");
+                }, "editor");
+                await client.settled();
+              }
+              const nodes = (readMind(client).child(0).toJSON().content ?? []) as {
+                text?: string;
+                marks?: { type: string }[];
+              }[];
+              const text = nodes.map((node) => node.text ?? "").join("");
+              const emphasised = nodes.some((node) =>
+                node.marks?.some((mark) => mark.type === "bold" || mark.type === "italic"),
+              );
+              total++;
+              if (spaced(text).includes(spaced(item.keep)) && !emphasised && !text.includes("\\")) {
+                exact++;
+                kept++;
+              } else {
+                report.push(
+                  `- MISS ${each.language} ${action} "${item.keep}": ${result.kind} · ${text}`,
+                );
+              }
+              core.close();
+            }
+            report.push(`  ${each.language} ${item.keep} ${action}: exact ${kept}/${runs}`);
+          }
+        }
+        report.push(`  ${each.language}: exact ${exact}/${total}`);
+        checks.push(() => expect(exact).toBe(total));
+      }
+      if (process.env.INCARNAMIND_LIVE_REPORT) {
+        await appendFile(process.env.INCARNAMIND_LIVE_REPORT, `${report.join("\n")}\n\n`);
+      }
+      for (const check of checks) check();
+    },
+  );
+});
