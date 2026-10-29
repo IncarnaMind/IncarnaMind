@@ -412,7 +412,7 @@ async function deleteAll(
       done.push(ref);
     }
   } catch (error) {
-    if (done.length > 0) await restore(done);
+    if (done.length > 0) await restore(done, { reopen: true });
     throw error;
   }
 }
@@ -544,7 +544,7 @@ const CHECKERS: Readonly<Record<AssistantCommandId, Checker>> = {
         done: { items },
         step: {
           undo: async () => {
-            await core.restore(refs);
+            await core.restore(refs, { reopen: true });
             return null;
           },
           redo: remove,
