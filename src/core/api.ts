@@ -5973,6 +5973,11 @@ export interface MindCheckRun {
   stop: RunStop | null;
   /** The sentences it found make no claim, by `sentenceKey`, so a later run doesn't send them again. */
   skipped: string[];
+  /**
+   * The sentences the model decided nothing about, even asked twice (#1682), by `sentenceKey`:
+   * not examined, so they stay to check and a later run asks about them again.
+   */
+  unexamined: string[];
 }
 
 /** A document someone else wrote, to verify claim by claim (#97): the window offers PDFs. */

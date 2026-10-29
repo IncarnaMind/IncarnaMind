@@ -56,7 +56,8 @@ export function createPartCheck(deps: ClaimCheckDependencies) {
         const failure = failureOf(sorted.error);
         return failed(failure.reason, failure.detail);
       }
-      plans = sorted.parts.get(0) ?? [];
+      plans = sorted.parts.get(0);
+      if (sorted.undecided.has(0) || plans === undefined) return failed("malformed");
       if (plans.length === 0) plans = [{ ...full, kind: "opinion" }];
     }
     const forcedOpinion =

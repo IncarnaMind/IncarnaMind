@@ -9,8 +9,11 @@ const FIND_CLAIMS =
 export const findsClaims = (options: GenerateOptions): boolean =>
   FIND_CLAIMS.test(systemOf(options.prompt));
 
-/** Literal inventories used by keyless UI tests. */
-export function fakeClaims(options: GenerateOptions): string | null {
+/** Literal inventories used by keyless UI tests; undecidedLast omits the last listed sentence. */
+export function fakeClaims(
+  options: GenerateOptions,
+  { undecidedLast = false }: { undecidedLast?: boolean } = {},
+): string | null {
   if (!findsClaims(options)) return null;
   let input: unknown;
   try {
@@ -44,7 +47,7 @@ export function fakeClaims(options: GenerateOptions): string | null {
     const kind = /\b(?:we|I) (?:think|believe)\b|我们认为|我认为/i.test(text) ? "opinion" : "fact";
     sentences.push({ number, parts: [{ kind, text }] });
   }
-  return JSON.stringify({ sentences });
+  return JSON.stringify({ sentences: undecidedLast ? sentences.slice(0, -1) : sentences });
 }
 
 export const checksChangeClaims = (options: GenerateOptions): boolean =>

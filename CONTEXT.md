@@ -263,6 +263,10 @@ _Avoid_: nothing says this, missing, not in your Documents
 The result for a sentence when Verify or contradiction watch finds a Passage that says the opposite. It is not the same as unsupported, where nothing is found either way.
 _Avoid_: wrong, conflict, false
 
+**Not examined**:
+A sentence the last whole-Note check couldn't tell makes a claim: the model said nothing of it, even asked once more about the sentences its reply left out. It isn't taken for a sentence that makes no claim: it stays to check, and the next Check asks about it again. The line under the check says how many: "1 sentence not examined" (1 句未能判断是否为说法).
+_Avoid_: skipped, left out (an opinion is left out), not checked (a claim whose check failed)
+
 **Needs re-check**:
 A check result whose sentence, evidence or scope has changed since it was made, so it is no longer known to hold.
 _Avoid_: stale, outdated, expired

@@ -172,7 +172,7 @@ export function createMindCheck(options: MindCheckOptions) {
     prepared: PreparedChatModel,
     signal: AbortSignal,
   ): Promise<
-    | { kind: "found"; claims: SortedSentence[]; left: SortedSentence[] }
+    | { kind: "found"; claims: SortedSentence[]; left: SortedSentence[]; undecided: SelectedSentence[] }
     | Exclude<ClaimsFound, { kind: "found" }>
   > {
     const known = sorted.get(mindId) ?? new Map<string, readonly ClaimPartPlan[]>();
@@ -191,19 +191,18 @@ export function createMindCheck(options: MindCheckOptions) {
       );
       if (found.kind !== "found") return found;
       for (const [index, sentence] of unsorted.entries()) {
+        if (found.undecided.has(index)) continue;
         const parts = found.parts.get(index);
-        if (!parts)
-          return {
-            kind: "failed",
-            error: { kind: "no-answer", message: "The model's reply named no sentences." },
-          };
-        known.set(sentence.text, parts);
+        if (parts === undefined) continue;
+        const earlier = known.get(sentence.text);
+        if (parts.some((part) => part.kind === "fact") || earlier === undefined || !earlier.some((part) => part.kind === "fact"))
+          known.set(sentence.text, parts);
       }
     }
-    const sentences = fresh.map((sentence) => ({
-      ...sentence,
-      parts: known.get(sentence.text) ?? [],
-    }));
+    const sentences = fresh.flatMap((sentence): SortedSentence[] => {
+      const parts = known.get(sentence.text);
+      return parts === undefined ? [] : [{ ...sentence, parts }];
+    });
     content.edit(mindId, (blocks) => recordOpinions(blocks, sentences));
     options.retainEvidence(mindId);
     const named = (sentence: SortedSentence) => sentence.parts.some((part) => part.kind === "fact");
@@ -211,6 +210,7 @@ export function createMindCheck(options: MindCheckOptions) {
       kind: "found",
       claims: sentences.filter(named),
       left: sentences.filter((sentence) => !named(sentence)),
+      undecided: fresh.filter((sentence) => !known.has(sentence.text)),
     };
   }
 
@@ -523,10 +523,15 @@ export function createMindCheck(options: MindCheckOptions) {
     if (signal.aborted) return { kind: "cancelled" };
 
     let claims = again;
+    const unexamined = new Set(content.readSettings(mindId, readMindCheck)?.unexamined ?? []);
     if (fresh.length > 0) {
       const found = await sort(mindId, fresh, ready.prepared, signal);
       if (found.kind !== "found") return found;
       for (const sentence of found.left) skipped.add(sentenceKey(sentence.text));
+      for (const sentence of [...found.claims, ...found.left]) {
+        unexamined.delete(sentenceKey(sentence.text));
+      }
+      for (const sentence of found.undecided) unexamined.add(sentenceKey(sentence.text));
       claims = [...found.claims, ...again];
     }
 
@@ -645,6 +650,7 @@ export function createMindCheck(options: MindCheckOptions) {
           sentences,
           stop,
           skipped: [...skipped].filter((key) => keys.has(key)),
+          unexamined: [...unexamined].filter((key) => keys.has(key)),
         }),
       );
     return {

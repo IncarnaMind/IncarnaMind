@@ -101,7 +101,12 @@ function MindBadge({
   const checkedAll = useMindCheckRun(doc);
   const skippedKeys = checkedAll?.skipped.join(" ") ?? "";
   const skipped = useMemo(() => new Set(skippedKeys.split(" ").filter(Boolean)), [skippedKeys]);
-  const health = useHealth(editor, skipped, doc);
+  const unexaminedKeys = checkedAll?.unexamined.join(" ") ?? "";
+  const unexamined = useMemo(
+    () => new Set(unexaminedKeys.split(" ").filter(Boolean)),
+    [unexaminedKeys],
+  );
+  const health = useHealth(editor, skipped, unexamined, doc);
   const unread = useCheckUnread(editor, doc);
   const narrowUnread = useCheckUnread(editor, doc, { narrowerThanAll: true });
   useWatchAddedDocuments(editor, mindId);

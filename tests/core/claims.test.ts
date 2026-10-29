@@ -6,7 +6,7 @@ import { describe, expect, test } from "vitest";
 import {
   findClaimsPrompt,
   paragraphsOf,
-  readClaimNumbers,
+  readClaimDecisions,
   readClaimParts,
 } from "../../src/core/answers/checks/claims";
 
@@ -88,18 +88,33 @@ describe("A PDF's lines become paragraphs", () => {
 
 describe("The claims the model names", () => {
   test.each([
-    ['{"claims": [1, 3, 4]}', [1, 3, 4]],
-    ['Here they are:\n```json\n{"claims": ["2", 5]}\n```', [2, 5]],
-    ['{"claims": []}', []],
-    ['{"claims": [1.5, "x", 2]}', [2]],
-  ])("reads %j", (reply, numbers) => {
-    expect(readClaimNumbers(reply)).toEqual(numbers);
+    [
+      '{"1": "claim", "2": "no", "3": "claim"}',
+      [1, 2, 3],
+      [
+        [1, true],
+        [2, false],
+        [3, true],
+      ],
+    ],
+    [
+      'Here they are:\n```json\n{"2": "Claim", "5": " no "}\n```',
+      [2, 5],
+      [
+        [2, true],
+        [5, false],
+      ],
+    ],
+    ['{"1": "claim", "2": "maybe", "9": "claim"}', [1, 2, 3], [[1, true]]],
+    ['{"1": "claim", "2": true}', [1, 2], [[1, true]]],
+  ])("reads %j", (reply, numbers, decisions) => {
+    expect(readClaimDecisions(reply, numbers)).toEqual(new Map(decisions as [number, boolean][]));
   });
 
-  test.each(["No claims.", '{"sentences": [1]}', '{"claims": 3}', "{not json}"])(
+  test.each(["No claims.", '{"claims": [1, 2]}', '{"7": "claim"}', "[1, 2]", "{not json}"])(
     "reads nothing from %j",
     (reply) => {
-      expect(readClaimNumbers(reply)).toBeNull();
+      expect(readClaimDecisions(reply, [1, 2])).toBeNull();
     },
   );
 });
@@ -136,8 +151,46 @@ describe("The literal parts of numbered JSON input", () => {
     "The input is JSON, not the numbered draft I expected.",
     '{"sentences":[{"number":1,"parts":[{"kind":"fact","text":"North opened."}]}]}',
     '{"sentences":[{"number":37,"parts":[{"kind":"fact","text":"The North store opened."}]}]}',
-    '{"sentences":[]}',
   ])("keeps an unreadable or rewritten response unresolved: %s", (reply) => {
     expect(readClaimParts(reply, [{ number: 37, text: "North opened." }])).toBeNull();
   });
+
+  test.each([
+    ["North opened.", "South followed."],
+    ["北店开业。", "南店随后开业。"],
+  ])("keeps decided parts when another sentence is missing: %s", (first, second) => {
+    const sentences = [
+      { number: 37, text: first },
+      { number: 38, text: second },
+    ];
+    expect(
+      readClaimParts(
+        JSON.stringify({ sentences: [{ number: 37, parts: [{ kind: "fact", text: first }] }] }),
+        sentences,
+      ),
+    ).toEqual(new Map([[37, [{ kind: "fact", span: { start: 0, end: first.length } }]]]));
+    expect(readClaimParts('{"sentences":[]}', sentences)).toEqual(new Map());
+    expect(
+      readClaimParts(JSON.stringify({ sentences: [{ number: 37, parts: [] }] }), sentences),
+    ).toEqual(new Map([[37, []]]));
+  });
+
+  test.each(["North opened.", "北店开业。"])(
+    "a duplicate or rewritten owner cannot overwrite another sentence's inventory: %s",
+    (text) => {
+      const valid = { number: 37, parts: [{ kind: "fact", text }] };
+      const duplicate = { number: 38, parts: [{ kind: "fact", text }] };
+      for (const invalid of [
+        [duplicate, duplicate],
+        [{ number: 38, parts: [{ kind: "fact", text: "not the original words" }] }],
+      ]) {
+        expect(
+          readClaimParts(JSON.stringify({ sentences: [valid, ...invalid] }), [
+            { number: 37, text },
+            { number: 38, text },
+          ]),
+        ).toEqual(new Map([[37, [{ kind: "fact", span: { start: 0, end: text.length } }]]]));
+      }
+    },
+  );
 });

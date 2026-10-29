@@ -8,9 +8,9 @@
  * A short numbered heading is a paragraph of its own, unless the line
  * before it stops mid-sentence.
  *
- * The model is shown the sentences numbered, in batches, and names those
- * that make claims; the sentences stay exactly as the document has them, so
- * each claim is a sentence of the Mind.
+ * The model is shown the sentences numbered, in batches, and decides of
+ * each whether it makes a claim; the sentences stay exactly as the document
+ * has them, so each claim is a sentence of the Mind.
  */
 
 import { readPartPlans } from "../../../shared/claimParts";
@@ -101,7 +101,7 @@ export const CLAIM_BATCH = 12;
 const SORT_PARTS = [
   'The input is one JSON object: {"sentences":[{"number":13,"text":"the original sentence"}]}. These records are the sentences to sort, not a proposed answer. Read each text field as the original sentence, including literal line breaks.',
   "Each number is an identifier from the whole document. A batch can contain one sentence or many, and its numbers can start above 1. Copy the supplied numbers unchanged; do not restart numbering or ask for the document in another format.",
-  "Return every supplied sentence once, using its number. Split it into ordered literal parts that a reader can check separately, without rewriting any words.",
+  "Decide every sentence, in order. Return every supplied sentence once, using its number. Split it into ordered literal parts that a reader can check separately, without rewriting any words.",
   "A fact is an assertion Documents could support or contradict. A statement attributed to another person, including their opinion or forecast, is a fact about who said what. The writer's own or unattributed opinions, advice and interpretations are opinion parts, even in a document someone else wrote.",
   "A mixed sentence keeps its factual parts even when an opinion comes before or after them. Each separate opinion prefix or suffix is one opinion part. Do not label a whole mixed sentence opinion and lose the fact between its opinions.",
   "Keep each fact's subject, negation, scope, comparison, certainty and qualification. Keep a causal assertion together with the events and causal link; two separate true events do not establish the cause. Keep conditions with their outcomes, and all/every/always/most, consecutive periods and superlative comparison domains with the assertion they qualify. Do not split these into simpler statements that lose their relationship.",
@@ -124,8 +124,14 @@ export const FIND_OWN_CLAIMS_INSTRUCTIONS = [
 export const findClaimsPrompt = (sentences: readonly { number: number; text: string }[]): string =>
   JSON.stringify({ sentences });
 
-/** The sentence numbers in the model's reply; null when it holds none that can be read. */
-export function readClaimNumbers(reply: string): number[] | null {
+/**
+ * Each sentence's decision in the model's reply, by its number among `numbers`: true for a claim.
+ * A sentence the reply doesn't decide has none. Null when the reply decides none of them.
+ */
+export function readClaimDecisions(
+  reply: string,
+  numbers: readonly number[],
+): Map<number, boolean> | null {
   const start = reply.indexOf("{");
   const end = reply.lastIndexOf("}");
   if (start < 0 || end <= start) return null;
@@ -135,13 +141,17 @@ export function readClaimNumbers(reply: string): number[] | null {
   } catch {
     return null;
   }
-  if (typeof value !== "object" || value === null || !("claims" in value)) return null;
-  const { claims } = value;
-  if (!Array.isArray(claims)) return null;
-  return claims.flatMap((each: unknown) => {
-    const number = typeof each === "string" ? Number(each) : each;
-    return typeof number === "number" && Number.isInteger(number) ? [number] : [];
-  });
+  if (typeof value !== "object" || value === null || Array.isArray(value)) return null;
+  const asked = new Set(numbers);
+  const decisions = new Map<number, boolean>();
+  for (const [key, decision] of Object.entries(value)) {
+    const number = Number(key);
+    if (!asked.has(number) || typeof decision !== "string") continue;
+    const word = decision.trim().toLowerCase();
+    if (word === "claim") decisions.set(number, true);
+    else if (word === "no") decisions.set(number, false);
+  }
+  return decisions.size > 0 ? decisions : null;
 }
 
 export function readClaimParts(
@@ -158,28 +168,38 @@ export function readClaimParts(
     return null;
   }
   if (typeof parsed !== "object" || parsed === null || !("sentences" in parsed)) return null;
-  if (!Array.isArray(parsed.sentences) || parsed.sentences.length !== sentences.length) return null;
+  if (!Array.isArray(parsed.sentences)) return null;
   const found = new Map<number, readonly ClaimPartPlan[]>();
+  const seen = new Set<number>();
   for (const value of parsed.sentences) {
-    if (typeof value !== "object" || value === null) return null;
+    if (typeof value !== "object" || value === null) continue;
     const { number, parts } = value as Record<string, unknown>;
     const sentence = sentences.find((each) => each.number === number);
-    if (!sentence || found.has(sentence.number) || !Array.isArray(parts)) return null;
-    const plans: ClaimPartPlan[] = [];
-    let from = 0;
-    for (const part of parts) {
-      if (typeof part !== "object" || part === null) return null;
-      const { kind, text } = part as Record<string, unknown>;
-      if ((kind !== "fact" && kind !== "opinion") || typeof text !== "string" || text.trim() === "")
-        return null;
-      const at = sentence.text.indexOf(text, from);
-      if (at < 0) return null;
-      plans.push({ kind, span: { start: at, end: at + text.length } });
-      from = at + text.length;
+    if (!sentence) continue;
+    if (seen.has(sentence.number)) {
+      found.delete(sentence.number);
+      continue;
     }
-    const valid = readPartPlans(plans, sentence.text);
-    if (valid === null) return null;
-    found.set(sentence.number, valid);
+    seen.add(sentence.number);
+    const plans = literalParts(parts, sentence.text);
+    if (plans !== null) found.set(sentence.number, plans);
   }
-  return found;
+  return found.size > 0 || parsed.sentences.length === 0 ? found : null;
+}
+
+function literalParts(value: unknown, sentence: string): readonly ClaimPartPlan[] | null {
+  if (!Array.isArray(value)) return null;
+  const plans: ClaimPartPlan[] = [];
+  let from = 0;
+  for (const part of value) {
+    if (typeof part !== "object" || part === null) return null;
+    const { kind, text } = part as Record<string, unknown>;
+    if ((kind !== "fact" && kind !== "opinion") || typeof text !== "string" || text.trim() === "")
+      return null;
+    const at = sentence.indexOf(text, from);
+    if (at < 0) return null;
+    plans.push({ kind, span: { start: at, end: at + text.length } });
+    from = at + text.length;
+  }
+  return readPartPlans(plans, sentence);
 }

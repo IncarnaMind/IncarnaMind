@@ -330,6 +330,7 @@ for (const language of ["en", "zh-CN"] as const) {
           sentences: 1,
           stop: null,
           skipped: [],
+          unexamined: [],
         });
         await applySettings(window, Array.from(Y.encodeStateAsUpdate(settings)));
         const health = await checkCard(window);
@@ -884,6 +885,7 @@ test("opinion Show opens one card and a real selection still opens the ordinary 
       sentences: 0,
       stop: null,
       skipped: [],
+      unexamined: [],
     });
     await applySettings(window, Array.from(Y.encodeStateAsUpdate(settings)));
     const health = await checkCard(window);

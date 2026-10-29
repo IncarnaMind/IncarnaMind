@@ -500,7 +500,7 @@ export function createCore(adapters: CoreAdapters): Core {
   const { dataDir } = adapters.paths;
   mkdirSync(dataDir, { recursive: true });
 
-  const db = openDatabase(join(dataDir, DATABASE_FILE));
+  const db = openDatabase(join(dataDir, DATABASE_FILE), adapters.log);
   try {
     adapters.log?.info("core.startup.databaseOpened");
     migrate(db);

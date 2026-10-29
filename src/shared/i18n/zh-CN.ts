@@ -982,6 +982,8 @@ export const zhCN = {
   "badge.command.keywords": "核对 引用 矛盾 无依据 说法 句子",
   "health.checkedAll.one": "已核对 1 条说法，{when}",
   "health.checkedAll": "已核对 {count} 条说法，{when}",
+  "health.unexamined.one": "1 句未能判断是否为说法",
+  "health.unexamined": "{count} 句未能判断是否为说法",
   "health.next": "{part}：转到下一处",
   "checks.smallModel": "模型较小，结论可能不准，换更大的模型更可靠。",
   "checks.running.check-against-documents": "正在对照文档核对…",

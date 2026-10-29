@@ -119,7 +119,6 @@ export const sentenceOf = (call: ModelCall) => {
   return SENTENCE.exec(text)?.[1] ?? "";
 };
 
-/** The numbers of the listed sentences ("[3] …") that have a plan. */
 function plannedParts(prompt: string, plans: Record<string, Plan>) {
   return listedSentences(prompt).map(({ number, text }) => ({
     number,

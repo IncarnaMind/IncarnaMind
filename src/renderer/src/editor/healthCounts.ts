@@ -55,7 +55,9 @@ export type HealthPart = (typeof HEALTH_PARTS)[number];
  * `checkable`: every claim a check reads, to check, checking or covered;
  * `supported`: the covered claims a check found supported, the ones with no
  * Citation among them; `checkedAt`: the newest check among the claims one
- * covers, for "Checked {time}" (D266).
+ * covers, for "Checked {time}"; `unexamined`: the parts of `toCheck`
+ * the last whole-Mind check didn't examine, since no reply said whether they
+ * make a claim (#1682).
  */
 export interface NoteHealth {
   found: number[];
@@ -76,6 +78,7 @@ export interface NoteHealth {
   checkable: number;
   supported: number;
   checkedAt: string | null;
+  unexamined: number[];
 }
 
 /** A digit or a Chinese numeral: a sentence with neither holds no figure, and isn't read for one. */
@@ -94,6 +97,8 @@ export interface SentenceInput {
   claims: readonly ShownClaim[];
   /** The last whole-Mind check found these sentences make no claim, by `sentenceKey`. */
   skipped?: ReadonlySet<string>;
+  /** The last whole-Mind check couldn't tell whether these make a claim, by `sentenceKey`. */
+  unexamined?: ReadonlySet<string>;
   /** The marks the User keeps as their own view, at their places. */
   kept?: readonly KeptMark[];
   omitted?: readonly KeptMark[];
@@ -222,7 +227,9 @@ export function noteHealth(doc: ProseMirrorNode, input: NoteHealthInput): NoteHe
     checkable: 0,
     supported: 0,
     checkedAt: null,
+    unexamined: [],
   };
+  const unexamined = input.unexamined ?? new Set<string>();
   eachSentence(doc, input, ({ from, text, claim, citations, inTable: table, state, kind }) => {
     const missing: number[] = [];
     for (const citation of citations) {
@@ -238,6 +245,7 @@ export function noteHealth(doc: ProseMirrorNode, input: NoteHealthInput): NoteHe
       health.toCheck.push(from);
       if (state.why === "failed") health.failed.push(from);
       else if (state.why === "recheck") health.recheck.push(from);
+      if (state.fresh && unexamined.has(sentenceKey(text))) health.unexamined.push(from);
       if (table) health.tableCells.push(from);
       return;
     }

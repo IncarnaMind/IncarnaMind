@@ -249,32 +249,30 @@ export function createVerify(options: VerifyOptions) {
       signal,
     );
     if (found.kind !== "found") return found;
-    const claims = sentences.flatMap((sentence, index) =>
-      found.claims.has(index)
-        ? [
-            {
-              blockId: sentence.blockId,
-              text: sentence.text,
-              occurrence: sentence.occurrence,
-              parts:
-                sentence.said === sentence.text
-                  ? [...(found.parts.get(index) ?? [])]
-                  : [{ kind: "fact" as const, span: { start: 0, end: sentence.text.length } }],
-            },
-          ]
-        : [],
-    );
+    const claims = sentences.flatMap((sentence, index) => {
+      if (!found.claims.has(index) && !found.undecided.has(index)) return [];
+      const plans = found.parts.get(index);
+      const parts = sentence.said !== sentence.text
+        ? [{ kind: "fact" as const, span: { start: 0, end: sentence.text.length } }]
+        : plans === undefined ? undefined : [...plans];
+      return [{
+        blockId: sentence.blockId,
+        text: sentence.text,
+        occurrence: sentence.occurrence,
+        ...(parts && { parts }),
+      }];
+    });
     content.edit(mindId, (blocks) => {
       const settings = blocks.doc?.getMap<unknown>(MIND_SETTINGS_FIELD);
       const now = settings && readVerification(settings);
       if (settings && now) writeVerification(settings, { ...now, claims, sortedText: snapshot });
       recordOpinions(
         blocks,
-        sentences.flatMap((sentence, index) =>
-          sentence.said === sentence.text
-            ? [{ ...sentence, parts: found.parts.get(index) ?? [] }]
-            : [],
-        ),
+        sentences.flatMap((sentence, index) => {
+          const parts = found.parts.get(index);
+          return sentence.said === sentence.text && parts !== undefined && !found.undecided.has(index)
+            ? [{ ...sentence, parts }] : [];
+        }),
       );
     });
     options.retainEvidence(mindId);

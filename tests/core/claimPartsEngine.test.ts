@@ -28,7 +28,7 @@ const INCREASES = "SUM(MAX(SIGN(r2023-r2022),0),MAX(SIGN(r2024-r2023),0),MAX(SIG
 
 async function check(
   claim: string,
-  parts: Part[],
+  parts: Part[] | null,
   outcomes: Record<string, Outcome>,
   language: "en" | "zh-CN" = "en",
   context?: string,
@@ -36,6 +36,7 @@ async function check(
   const calls: ModelCall[] = [];
   const judgements: string[] = [];
   const recoveries: GenerateCall[] = [];
+  const sorts: GenerateCall[] = [];
   const quotes = [
     ...new Set(
       Object.values(outcomes).flatMap(
@@ -107,12 +108,14 @@ async function check(
     },
     {
       generate: (call) => {
-        if (call.system.startsWith("You sort the sentences"))
+        if (call.system.startsWith("You sort the sentences")) {
+          sorts.push(call);
           return {
             text: JSON.stringify({
-              sentences: listedSentences(call.prompt).map(({ number }) => ({ number, parts })),
+              sentences: parts === null ? [] : listedSentences(call.prompt).map(({ number }) => ({ number, parts })),
             }),
           };
+        }
         if (call.system.startsWith("Compare a sentence")) {
           judgements.push(call.system);
           const target = /<sentence>\n([\s\S]*?)\n<\/sentence>/.exec(call.prompt)?.[1] ?? "";
@@ -156,7 +159,7 @@ async function check(
     modelId: "claude-haiku-5-5",
   });
   await core.updateSettings({ user: { language } });
-  return { result: await core.checkClaim({ claim, context }), calls, judgements, recoveries };
+  return { result: await core.checkClaim({ claim, context }), calls, judgements, recoveries, sorts };
 }
 
 describe("literal sentence parts", () => {
@@ -797,7 +800,6 @@ describe("structural part and declared-count readers", () => {
 
   test.each([
     { claims: [1] },
-    { sentences: [] },
     { sentences: [{ number: 2, parts: [] }] },
     { sentences: [{ number: 1, parts: [{ kind: "fact", text: "rewritten" }] }] },
     {
@@ -1193,4 +1195,36 @@ describe("literal stated quantity repair", () => {
       }
     },
   );
+});
+
+describe.each([
+  { language: "en", fact: "Revenue rose.", opinion: "We find the proposal risky.", source: "The proposal will be discussed." },
+  { language: "zh-CN", fact: "收入增长。", opinion: "我们觉得这项提议有风险。", source: "这项提议将会进行讨论。" },
+] as const)("standalone sorting distinctions: $language", ({ language, fact, opinion, source }) => {
+  test("an empty-all reply asked twice remains Not checked and never becomes an opinion", async () => {
+    const { result, calls, sorts } = await check(fact, null, { [fact]: { quotes: [fact] } }, language);
+    expect(sorts.map((call) => listedSentences(call.prompt))).toEqual([
+      [{ number: 1, text: fact }],
+      [{ number: 1, text: fact }],
+    ]);
+    expect(result).toMatchObject({ verdict: "not-checked", reason: "malformed" });
+    expect(result.parts?.map((part) => [part.kind, part.verdict])).toEqual([["fact", "not-checked"]]);
+    expect(calls).toHaveLength(0);
+  });
+
+  test("an explicit empty inventory retains the User's standalone check", async () => {
+    const { result, calls, sorts } = await check(fact, [], { [fact]: { quotes: [fact] } }, language);
+    expect(sorts).toHaveLength(1);
+    expect(calls.map(sentenceOf)).toContain(fact);
+    expect(result).toMatchObject({ verdict: "supported", parts: [{ kind: "opinion", verdict: "supported", span: { start: 0, end: fact.length } }] });
+  });
+
+  test("a genuine opinion retains its declared span and explicit check", async () => {
+    const { result, calls, sorts } = await check(opinion, [{ kind: "opinion", text: opinion }], {
+      [opinion]: { quotes: [], sourceQuotes: [source], reply: "Verdict: unsupported\nTopic: not found\nEvidence: []\nCalculation: none" },
+    }, language);
+    expect(sorts).toHaveLength(1);
+    expect(calls.map(sentenceOf)).toContain(opinion);
+    expect(result).toMatchObject({ verdict: "unsupported", parts: [{ kind: "opinion", verdict: "unsupported", span: { start: 0, end: opinion.length } }] });
+  });
 });

@@ -70,6 +70,7 @@ const NO_HEALTH: Health = {
   checkable: 0,
   supported: 0,
   checkedAt: null,
+  unexamined: [],
 };
 
 /** A count's words with the number in bold, as the badge shows it: "**3** claims not checked yet". */
@@ -179,7 +180,12 @@ export function PartMark({ part }: { part: HealthPart | "notChecked" }) {
 }
 
 /** The Mind's health, worked out a moment after it last changed, as the word count is. */
-export function useHealth(editor: Editor, skipped: ReadonlySet<string>, doc: Y.Doc): Health {
+export function useHealth(
+  editor: Editor,
+  skipped: ReadonlySet<string>,
+  unexamined: ReadonlySet<string>,
+  doc: Y.Doc,
+): Health {
   const documents = useAppStore((state) =>
     state.status.kind === "ready" ? state.documents : null,
   );
@@ -196,6 +202,7 @@ export function useHealth(editor: Editor, skipped: ReadonlySet<string>, doc: Y.D
           citationCheck: (attributes: CitationAttributes) =>
             citationState(attributes, documents, kept).check,
           skipped,
+          unexamined,
           omitted: opinionSentenceRanges(editor.state.doc, doc),
           kept: keptSpans(editor.state),
         }),
@@ -213,7 +220,7 @@ export function useHealth(editor: Editor, skipped: ReadonlySet<string>, doc: Y.D
       editor.off("transaction", later);
       doc.off("afterTransaction", later);
     };
-  }, [editor, doc, documents, kept, skipped]);
+  }, [editor, doc, documents, kept, skipped, unexamined]);
   return health;
 }
 
@@ -441,7 +448,15 @@ export function HealthCard({
           {running ? (
             <RunningText editor={editor} mindId={mindId} testId="card-progress" />
           ) : (
-            checkedAll && <CheckedWhen run={checkedAll} editor={editor} doc={doc} mindId={mindId} />
+            checkedAll && (
+              <CheckedWhen
+                run={checkedAll}
+                editor={editor}
+                doc={doc}
+                mindId={mindId}
+                unexamined={health.unexamined.length}
+              />
+            )
           )}
         </div>
       )}

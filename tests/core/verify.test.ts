@@ -168,6 +168,38 @@ describe("Verify a document", () => {
     });
   });
 
+  test("a sentence no reply decides, even asked again, is checked as a claim (#1682)", async () => {
+    const sorts: string[] = [];
+    const model = scriptedModel((call) => checkReply(call, PLANS), {
+      generate: (call) => {
+        const reply = checkGenerate(PLANS)(call);
+        if (!call.system.startsWith("You sort the sentences") || !("text" in reply)) return reply;
+        sorts.push(call.prompt);
+        const decisions = JSON.parse(reply.text) as { sentences: { number: number }[] };
+        const missing = new Set(
+          listedSentences(call.prompt)
+            .filter(({ text }) => text === UNSUPPORTED)
+            .map(({ number }) => number),
+        );
+        return { text: JSON.stringify({
+          ...decisions,
+          sentences: decisions.sentences.filter(({ number }) => !missing.has(number)),
+        }) };
+      },
+    });
+    const { core, report } = await setUp(model);
+    const { mind, client } = await verified(core, report);
+
+    expect(await core.findClaims(request(mind.id))).toEqual({ kind: "found", claims: 3 });
+    expect(sorts).toHaveLength(2);
+    await client.settled();
+    expect(verificationOf(client.doc)?.claims?.map((claim) => claim.text)).toEqual([
+      SUPPORTED,
+      CONTRADICTED,
+      UNSUPPORTED,
+    ]);
+  });
+
   test("the PDF, and a copy of it at another path, never appear as evidence", async () => {
     const calls: ModelCall[] = [];
     const { core, sources, report } = await setUp(checkingModel(PLANS, calls));

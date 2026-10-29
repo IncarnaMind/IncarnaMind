@@ -154,25 +154,30 @@ export function RunningText({
   );
 }
 
-/** When the whole Mind was last checked: "Checked 48 sentences, 2 Oct, 15:20", and what stopped it. */
+/**
+ * When the whole Mind was last checked: "Checked 48 sentences, 2 Oct, 15:20", what stopped it,
+ * and how many of its sentences it didn't examine and are still to check (#1682).
+ */
 export function CheckedWhen({
   run,
   editor,
   doc,
   mindId,
+  unexamined,
 }: {
   run: MindCheckRun;
   editor: Editor;
   doc: Y.Doc;
   mindId: string;
+  unexamined: number;
 }) {
   const t = useT();
   const language = useLanguage();
   const opinions = useOpinionChecks(editor, doc);
+  const format = (value: number) => new Intl.NumberFormat(language).format(value);
   const when = formatDateTime(run.at, language);
-  const count = new Intl.NumberFormat(language).format(run.sentences);
   const said = t(run.sentences === 1 ? "health.checkedAll.one" : "health.checkedAll", {
-    count,
+    count: format(run.sentences),
     when,
   });
   return (
@@ -180,6 +185,13 @@ export function CheckedWhen({
       data-testid="health-checked-all"
       parts={[
         said,
+        ...(unexamined > 0
+          ? [
+              t(unexamined === 1 ? "health.unexamined.one" : "health.unexamined", {
+                count: format(unexamined),
+              }),
+            ]
+          : []),
         opinions.length > 0 && (
           <OpinionsLine key="opinions" editor={editor} doc={doc} mindId={mindId} className="" />
         ),
