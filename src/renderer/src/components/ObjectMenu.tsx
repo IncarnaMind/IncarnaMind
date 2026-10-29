@@ -30,6 +30,7 @@ const TEST_ID_PREFIX: Record<ObjectKind, string> = {
   citation: "citation",
   chart: "chart",
   comparisonColumn: "comparison-column",
+  comparisonCell: "comparison-cell",
   comparisonTable: "comparison-table",
   comparisonRow: "comparison-row",
   answer: "answer",
@@ -183,7 +184,7 @@ export function ObjectMenu({
   /** Beside the menu while it is open, outside it: the submenus of items in `more`. */
   aside?: (close: () => void) => ReactNode;
   /** Below everything, after a rule, and kept in view while the menu scrolls. */
-  foot?: ReactNode;
+  foot?: ReactNode | ((close: () => void) => ReactNode);
 }) {
   const t = useT();
   const { kind, id } = target;
@@ -303,7 +304,7 @@ export function ObjectMenu({
           // A long menu scrolls; its foot stays in view, covering the menu's bottom padding.
           <div className="sticky -bottom-1 -mb-1 bg-sheet pb-1">
             <div className={menuRuleClass} />
-            {foot}
+            {typeof foot === "function" ? foot(menu.close) : foot}
           </div>
         )}
       </div>

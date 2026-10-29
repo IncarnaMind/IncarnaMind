@@ -268,6 +268,35 @@ export function removeSignOff(
   }
 }
 
+/** The cell a person's mark belongs to, stable through row and column moves. */
+export const comparisonCellTarget = (
+  tableId: string,
+  documentId: string,
+  questionId: string,
+): SignOffTarget => ({ kind: "cell", id: JSON.stringify([tableId, documentId, questionId]) });
+
+/** Whether a cell has a standing mark; with `personId`, whether that person has one. */
+export const comparisonCellReviewed = (
+  records: readonly SignOffRecord[],
+  target: SignOffTarget,
+  personId?: string | null,
+): boolean =>
+  records.some(
+    (record) =>
+      keyOf(record.target) === keyOf(target) &&
+      (personId === undefined || isMine(record, personId)),
+  );
+
+/** A replaced cell invalidates every person's mark on its former Answer. */
+export function removeComparisonCellSignOffs(doc: Y.Doc, target: SignOffTarget, at: string): void {
+  const map = doc.getMap<unknown>(MIND_SIGN_OFFS_FIELD);
+  for (const record of signOffsOf(doc)) {
+    if (keyOf(record.target) === keyOf(target)) {
+      map.set(record.id, { ...record, deletedAt: at });
+    }
+  }
+}
+
 /** The mark on `target` to show: the User's own, else the newest of another person's. */
 export const signOffOn = (
   records: readonly SignOffRecord[],

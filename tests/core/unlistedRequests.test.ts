@@ -11,6 +11,7 @@
 import type { MockLanguageModelV4 } from "ai/test";
 import { describe, expect, test, vi } from "vitest";
 import type { Core } from "../../src/core";
+import { DRAFT_INSTRUCTIONS } from "../../src/core/skills/draft";
 import { askAssistant } from "../helpers/assistant";
 import {
   answerEnded,
@@ -233,5 +234,16 @@ describe("A model no list names, or one in a flow no list admits it to", {
         haikuMeetingNotes: await notesFilled(),
       }),
     ).toMatchFileSnapshot("../fixtures/answers/unlisted-requests.json.snap");
+  });
+
+  test("one assistant turn and its offered Tools never call a Note a Mind", async () => {
+    const model = tidesModel();
+    const panel = await setUpWithDocuments(model, [TIDES]);
+    const first = await panel.core.askInConversation({ text: FIRST, mindId: panel.mind.id });
+    if (!first.asked) throw new Error("The Question wasn't asked.");
+    await answerEnded(panel.core, first.answerId);
+
+    expect(JSON.stringify(requests(model))).not.toMatch(/\bMinds?\b/);
+    expect(DRAFT_INSTRUCTIONS).not.toMatch(/\bMinds?\b/);
   });
 });

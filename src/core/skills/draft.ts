@@ -45,7 +45,7 @@ export const DRAFT_INSTRUCTIONS = [
   "1. the first step, in the language the notes are written in",
   "2. the next, and so on, three to eight steps in all, in the same language as the notes",
   "",
-  "Each step is one short instruction that starts with a verb and could be followed on a different Mind. If the work cited their Documents, one step says to cite each finding. Don't copy names, numbers or quotes from the notes unless the task is about them. No preamble, no Markdown headings, no code fence.",
+  "Each step is one short instruction that starts with a verb and could be followed on a different Note. If the work cited their Documents, one step says to cite each finding. Don't copy names, numbers or quotes from the notes unless the task is about them. No preamble, no Markdown headings, no code fence.",
 ].join("\n");
 
 const prompt = (mind: string) => ["<mind>", mind, "</mind>"].join("\n");

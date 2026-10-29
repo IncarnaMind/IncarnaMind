@@ -37,11 +37,11 @@
 
 | 系统 | [Releases 页面](https://github.com/IncarnaMind/IncarnaMind/releases)上的文件 |
 |---|---|
-| macOS（Apple 芯片或 Intel） | `.dmg` |
+| macOS，Apple 芯片（M1 及更新机型） | `.dmg` |
 | Windows | `.exe` |
 | Linux | Ubuntu 和 Debian 用 `.deb`，或 `.AppImage` |
 
-测试版更新频繁，暂未签名，第一次打开时系统会提示风险。0.1.0-alpha.4 及更早的测试版里，笔记还用旧名字。Windows 版将通过 SignPath Foundation 签名（[代码签名政策](docs/code-signing-policy.md)）。
+不支持 Intel 处理器的 Mac。测试版更新频繁，暂未签名，第一次打开时系统会提示风险。0.1.0-alpha.4 及更早的测试版里，笔记还用旧名字。Windows 版将通过 SignPath Foundation 签名（[代码签名政策](docs/code-signing-policy.md)）。
 
 <details>
 <summary>系统不让打开时</summary>
