@@ -1,8 +1,8 @@
-import type { Editor } from "@tiptap/core";
 import { useEffect, useId, useMemo, useRef, useState } from "react";
-import type { ChatModelChoice, ComparisonTableRef } from "../../../core/api";
+import type { ChatModelChoice } from "../../../core/api";
 import { MAX_COMPARISON_DOCUMENTS } from "../../../shared/comparisons";
 import { addDocuments } from "../comparisonRows";
+import type { ComparisonTableHandle } from "../comparisonStructure";
 import { sheetDocuments } from "../comparisons";
 import { core } from "../core";
 import { type EstimateLine, estimateLine, joinMeta } from "../cost";
@@ -25,7 +25,7 @@ export function ComparisonAddDocuments({
   model,
   onClose,
 }: {
-  handle: ComparisonTableRef & { editor: Editor };
+  handle: ComparisonTableHandle;
   anchor: Element;
   /** The Documents the table holds now, which can't be added again. */
   documentIds: readonly string[];

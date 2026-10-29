@@ -9,19 +9,14 @@ import { useComparisonTables } from "./comparisonTableState";
 import { comparisonTableAt } from "./editor/comparisonCommands";
 import { asOneStep, offerEditorUndo } from "./editor/editorUndo";
 
-/** The name as one line, its space trimmed; empty takes the name off, back to "Comparison table". */
-export function comparisonTitleTyped(value: string): string {
-  return value.replace(/\s+/g, " ").trim().slice(0, MAX_COMPARISON_TITLE);
-}
-
-/** Saves the table's name as the User typed it, as one step of the note's Undo. */
+/** Saves the table's name as one line, its space trimmed, as one step of the note's Undo. */
 export function changeComparisonTitle(editor: Editor, tableId: string, value: string): void {
   if (!editor.isEditable) return;
   const pos = comparisonTableAt(editor, tableId);
   if (pos === null) return;
   const node = editor.state.doc.nodeAt(pos);
   if (!node) return;
-  const title = comparisonTitleTyped(value);
+  const title = value.replace(/\s+/g, " ").trim().slice(0, MAX_COMPARISON_TITLE);
   if (title === comparisonTitleOf(node.attrs)) return;
   const changed = asOneStep(editor, () => {
     editor.view.dispatch(
