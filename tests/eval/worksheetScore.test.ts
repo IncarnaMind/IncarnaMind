@@ -63,6 +63,26 @@ describe("revision worksheet row/role/revision scoring", () => {
     expect(score.missing).toEqual(["total"]);
   });
 
+  test.each(["修订版B重新计算的总载荷（千克）", "重新计算总计"])(
+    "accepts a Chinese computed total labelled %s",
+    (label) => {
+      const score = scoreWorksheet(
+        run("Total [=3]", current, [figure(label, 3, [BEADS, WEIGHTS])]),
+      );
+      expect(score.currentRows.total).toBe(true);
+      expect(score.missing).toEqual([]);
+      expect(score.weak).toEqual([]);
+    },
+  );
+
+  test("rejects a Chinese computed total with only the bead input", () => {
+    const score = scoreWorksheet(
+      run("Total [=3]", current, [figure("修订版B重新计算的总载荷（千克）", 3, [BEADS])]),
+    );
+    expect(score.currentRows.total).toBe(false);
+    expect(score.missing).toEqual(["total"]);
+  });
+
   test("rejects the superseded weight subtotal as the current bead subtotal", () => {
     const score = scoreWorksheet(
       run(
@@ -132,8 +152,34 @@ describe("revision worksheet row/role/revision scoring", () => {
   test.each([
     "Only the policy code and the load limit changed.",
     "只有政策代码和最大载荷发生变化。",
+    "仅政策代码和最大载荷发生变化。",
+    "只是政策代码和最大载荷变了。",
+    "唯一的变化是政策代码和最大载荷。",
+    "政策代码和最大载荷是唯一的变化。",
+    "The only changes are the policy code and the maximum load.",
   ])("flags the false only-policy/limit conclusion: %s", (text) => {
     const score = scoreWorksheet(run(text, []));
     expect(score.falseOnly).toBe(true);
+  });
+
+  test.each([
+    "并非只有政策代码和最大载荷发生变化，玻璃珠单位质量也变了。",
+    "不仅政策代码和最大载荷发生变化，玻璃珠单位质量也变了。",
+    "Not only the policy code changed: the bead unit mass did too.",
+  ])("does not flag a correct contrast: %s", (text) => {
+    expect(scoreWorksheet(run(text, [])).falseOnly).toBe(false);
+  });
+
+  test("still flags a false conclusion after a negated clause", () => {
+    expect(
+      scoreWorksheet(run("并非只有政策代码变化。\n只有政策代码和最大载荷发生变化。", [])).falseOnly,
+    ).toBe(true);
+  });
+
+  test.each([
+    "The Document states the load limit in kilograms only.",
+    "该行仅供对照，政策代码和最大载荷均为当前值。",
+  ])("does not flag an only that restricts something else: %s", (text) => {
+    expect(scoreWorksheet(run(text, [])).falseOnly).toBe(false);
   });
 });

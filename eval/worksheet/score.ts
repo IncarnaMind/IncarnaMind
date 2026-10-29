@@ -40,6 +40,26 @@ const metadata = (quote: string) =>
 const fullRow = (citation: Citation, quote: string) =>
   citation.pageFrom === 2 && compact(citation.quote).includes(quote);
 
+const restriction = /\bonly\b|只有|仅|只是|唯一/i;
+const policyTerm = /policy code|policy|政策代码|政策/i;
+const loadTerm = /maximum load|max(?:imum)? load|load limit|最大载荷|载荷限制|最大负载/i;
+const changeTerm =
+  /(?<!un)chang(?:e|es|ed|ing)|differ(?:s|ed|ent|ence)?|affect(?:s|ed)?|变化|改变|变更|变动|变了|更改|不同|差异|受影响/i;
+const negatedOnly =
+  /not\s+only|n't\s+only|并非(?:只是|仅|只有|只)|不是(?:只是|仅|只有|只)|不只是|不仅仅|不仅|不止|不单/i;
+
+const falseOnlyClaim = (text: string) =>
+  text.split(/[.!?。！？\n;；]+/).some((clause) => {
+    if (negatedOnly.test(clause)) return false;
+    const [restricted, policy, load] = [restriction, policyTerm, loadTerm].map((term) =>
+      term.exec(clause),
+    );
+    if (!restricted || !policy || !load || !changeTerm.test(clause)) return false;
+    const indexes = [restricted.index, policy.index, load.index];
+    // The claim is the three written together, not a distant "only" that restricts something else.
+    return Math.max(...indexes) - Math.min(...indexes) <= 100;
+  });
+
 export function scoreWorksheet(run: WorksheetRun): WorksheetScore {
   const citations = run.answer.citations;
   const figures = run.answer.figures;
@@ -58,7 +78,7 @@ export function scoreWorksheet(run: WorksheetRun): WorksheetScore {
         ? evidence.some((citation) => fullRow(citation, quote)) ||
           figures.some(
             (figure) =>
-              /total|合计/i.test(figure.label) &&
+              /total|合计|总/i.test(figure.label) &&
               figure.inputs.length > 0 &&
               figure.inputs.every((input) =>
                 Object.values(EXPECTED).some((row) => fullRow(input.citation, row)),
@@ -112,9 +132,7 @@ export function scoreWorksheet(run: WorksheetRun): WorksheetScore {
       present ? [] : [role as Role],
     ),
     weak,
-    falseOnly:
-      /only (?:the )?(?:policy code|policy|load limit|maximum load)/i.test(run.answer.text) ||
-      /只有\s*(?:政策代码|政策|最大载荷|载荷限制)/.test(run.answer.text),
+    falseOnly: falseOnlyClaim(run.answer.text),
   };
 }
 
