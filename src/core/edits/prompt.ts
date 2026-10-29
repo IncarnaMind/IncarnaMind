@@ -11,8 +11,7 @@
 
 import type { EditAction } from "../api";
 
-/** For every task but "explain": rewrite the passage, keeping its markers. */
-export const EDIT_INSTRUCTIONS = [
+const EDIT_RULES = [
   "You edit a passage of the User's own notes, as they ask. The passage is between <passage> and </passage>.",
   "The paragraphs it sits in are between <context> and </context>: they are there for meaning only.",
   "When the passage is part of a sentence, the words just before it are between <before> and </before>, and the words just after it between <after> and </after>. They stay as they are.",
@@ -30,6 +29,21 @@ export const EDIT_INSTRUCTIONS = [
   "- A source is only ever one of the passage's markers. Never write a Document's name as a source, such as [Report, p. 2] or (Report, p. 2).",
   "- Write in the passage's language, unless the task is to translate it.",
   "- Change only what the task asks for. Keep names, numbers and facts as they are.",
+] as const;
+
+/** For every task but "explain": rewrite the passage, keeping its markers, and say what is taken out with <removed/> (#2180). */
+export const EDIT_INSTRUCTIONS = [
+  ...EDIT_RULES,
+  "- Say a paragraph is taken out by writing <removed/> on a paragraph of its own where it stood, and none of its text; write one for each paragraph taken out, a list item and a table each count. To take out a whole section, write <removed>the heading's words</removed> once on a paragraph of its own where the heading stood: that takes out the heading and all under it, up to the next heading of the same or a higher level. When the task takes out the whole passage, write only one <removed/>, then the <why> line. A paragraph you leave out without a mark stays as it is. A backslash before <removed makes it words of the passage, not the mark: keep the backslash. Never explain a removal outside <why>.",
+].join("\n");
+
+/**
+ * The same for a model on this computer, which does not write <removed/> reliably: the whole
+ * passage taken out is the <why> line alone, and what a rewrite leaves out is read from the
+ * request's words (./applies).
+ */
+export const LOCAL_EDIT_INSTRUCTIONS = [
+  ...EDIT_RULES,
   "- When the task takes out the whole passage, give none of its text and no explanation: only the <why> line, saying it is removed.",
 ].join("\n");
 

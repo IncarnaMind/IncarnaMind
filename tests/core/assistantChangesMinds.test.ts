@@ -651,7 +651,7 @@ describe("The Minds' Tools find what the model names", { timeout: 30_000 }, () =
     expect(told).not.toContain("“Pay is monthly.”");
   });
 
-  // protects=the result names what the Mind really lost, not what the rewrite left out: a paragraph the reply drops stays unless the request asks to remove it, and the model isn't told it went; fails_when=the result lists a paragraph that is still there, or leaves out one that went; no_claim=how the model words its reply.
+  // protects=the result names what the Mind really lost, not what the rewrite left out: a paragraph the reply drops stays unless the reply marks it <removed/>, and the model isn't told it went; fails_when=the result lists a paragraph that is still there, or leaves out one that went; no_claim=how the model words its reply.
   test.each([
     {
       asked: "Make it shorter",
@@ -669,7 +669,9 @@ describe("The Minds' Tools find what the model names", { timeout: 30_000 }, () =
       const model = scriptedModel((call: ModelCall): ScriptedReply => {
         const passage = /<passage>\n([\s\S]*?)\n<\/passage>/.exec(call.prompt)?.[1];
         if (passage !== undefined) {
-          return { text: `${passage.split("\n\n")[0]} Noted.\n<why>Done.</why>` };
+          return {
+            text: `${passage.split("\n\n")[0]} Noted.${stays ? "" : "\n\n<removed/>"}\n<why>Done.</why>`,
+          };
         }
         return call.results.length === 0
           ? { calls: [{ tool: "edit_mind", input: { instruction: asked } }] }

@@ -21,7 +21,12 @@ const AS_TABLE =
 const ORDINAL_AND =
   /\b(?:and|or)\s+(?=(?:the\s+)?(?:first|second|third|fourth|fifth|sixth|last|next|\d+(?:st|nd|rd|th)?)\b)/giu;
 
-/** Unless asked for, what an edit's new text leaves out is kept, as a model may return only what it changed (#880). */
+/**
+ * Whether the request asks to take a part out, by its words. Only for a reply that has no
+ * <removed/> (a small local model doesn't write it, #2180): what the new text leaves out is
+ * then taken out when this says so, and otherwise kept, as a model may return only what it
+ * changed (#880).
+ */
 export function asksToRemove(action: EditAction, instruction: string): boolean {
   if (action === "cut-unsupported" || action === "follow-citation") return true;
   if (action !== "instruction") return false;

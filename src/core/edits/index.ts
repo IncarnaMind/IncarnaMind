@@ -96,6 +96,7 @@ import {
   EDIT_INSTRUCTIONS,
   EXPLAIN_INSTRUCTIONS,
   editPrompt,
+  LOCAL_EDIT_INSTRUCTIONS,
   passageSoFar,
   readEditReply,
   reasonOf,
@@ -362,7 +363,11 @@ function editCall(
   },
 ): EditCall | null {
   const explain = ask.action === "explain";
-  const instructions = explain ? EXPLAIN_INSTRUCTIONS : EDIT_INSTRUCTIONS;
+  const instructions = explain
+    ? EXPLAIN_INSTRUCTIONS
+    : prepared.provider.kind === "ollama"
+      ? LOCAL_EDIT_INSTRUCTIONS
+      : EDIT_INSTRUCTIONS;
   const prompt = editPrompt({
     action: ask.action,
     instruction: ask.instruction,
@@ -536,6 +541,7 @@ export function createEdits(options: EditsOptions) {
     const request = randomUUID();
     const blocks = fork.getXmlFragment(MIND_CONTENT_FIELD);
     const { requestId } = hooks;
+    // Only for a reply with no <removed/>, which a small local model doesn't write (#2180).
     const removing =
       asksToRemove(ask.action, ask.instruction) ||
       (ask.action === "instruction" && REMOVAL.test(ask.instruction.trim()));
@@ -550,11 +556,10 @@ export function createEdits(options: EditsOptions) {
           {
             // An edit the User asked for applies at once, here or from the assistant (#880).
             leftOut:
-              (requestId !== undefined || ask.requested === "edit") &&
-              ask.action === "instruction" &&
-              !removing
+              (requestId !== undefined || ask.requested === "edit") && ask.action === "instruction"
                 ? "keep"
                 : "remove",
+            removesUnmarked: removing,
           },
         );
     let held = false;
@@ -600,7 +605,7 @@ export function createEdits(options: EditsOptions) {
     const holdsBack = (written: RewriteStream) =>
       waitsForUser({
         action: ask.action,
-        removing,
+        removing: removing && !written.marked(),
         ...written.extent(),
         selected: selection.characters,
       });
