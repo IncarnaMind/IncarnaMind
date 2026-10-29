@@ -9805,17 +9805,36 @@
   }
   .comparison-head {
     display: flex;
+    flex-wrap: wrap;
     align-items: center;
     gap: 10px;
+    row-gap: 2px;
     min-height: 28px;
     margin-bottom: 6px;
     font-size: 13px;
     line-height: 18px;
     color: var(--color-ink-meta);
     user-select: none;
+
+    &:focus-visible {
+      outline: 2px solid var(--color-accent);
+      outline-offset: 2px;
+      border-radius: 4px;
+    }
+  }
+  .comparison-status {
+    display: inline-flex;
+    flex: none;
+    align-items: center;
+    gap: 6px;
+    white-space: nowrap;
   }
   .comparison-title {
-    min-width: 0;
+    display: inline-flex;
+    flex: 0 1 auto;
+    min-width: 160px;
+    align-items: baseline;
+    gap: 0;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
@@ -9823,6 +9842,56 @@
     strong {
       font-weight: 600;
       color: var(--color-ink);
+    }
+  }
+  .comparison-name {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    color: var(--color-ink);
+    cursor: text;
+  }
+  .comparison-table[data-expanded] .comparison-name {
+    font-weight: 600;
+  }
+  .comparison-name-field {
+    min-width: 120px;
+    max-width: 340px;
+    padding: 1px 6px;
+    border: 1px solid var(--color-accent);
+    border-radius: 4px;
+    background: var(--color-sheet);
+    font: inherit;
+    color: var(--color-ink);
+    outline: none;
+  }
+  .comparison-sep {
+    flex: none;
+    color: var(--color-ink-meta);
+  }
+  .comparison-count,
+  .comparison-showing {
+    flex: none;
+    white-space: nowrap;
+    color: var(--color-ink-meta);
+  }
+  .comparison-count {
+    padding: 0 2px;
+    border-radius: 4px;
+    font: inherit;
+    color: var(--color-ink-secondary);
+    text-decoration: underline;
+    text-decoration-color: var(--color-rule-strong);
+    text-underline-offset: 3px;
+
+    &:hover {
+      background: var(--color-hover);
+      color: var(--color-ink);
+    }
+    &[aria-pressed="true"] {
+      background: var(--color-accent-wash);
+      color: var(--color-accent-strong);
+      text-decoration: none;
     }
   }
   .comparison-progress,
@@ -9925,8 +9994,10 @@
   .comparison-head-row,
   .comparison-rows,
   .comparison-rows > [data-node-view-content-react],
+  .comparison-rows .react-renderer.node-comparisonRow,
   .comparison-row,
-  .comparison-row-cells {
+  .comparison-row-cells,
+  .comparison-row-cells > [data-node-view-content-react] {
     display: contents;
   }
   .comparison-corner,
@@ -10062,7 +10133,8 @@
   }
   .comparison-document {
     display: flex;
-    flex-direction: column;
+    align-items: center;
+    gap: 4px;
     background: var(--color-sheet);
     font-size: 13px;
     line-height: 20px;
@@ -10070,9 +10142,70 @@
     color: var(--color-ink);
     user-select: none;
   }
+  .comparison-document[tabindex] {
+    cursor: grab;
+  }
+  .comparison-document:focus-visible {
+    outline: 2px solid var(--color-accent);
+    outline-offset: -2px;
+  }
   .comparison-document-name {
+    min-width: 0;
     overflow: hidden;
     text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .comparison-document-name + .comparison-document-removed {
+    flex: none;
+  }
+  .comparison-row-actions {
+    display: inline-flex;
+    flex: none;
+    align-items: center;
+    gap: 1px;
+    margin-left: auto;
+  }
+  .comparison-row-open,
+  .comparison-row-menu {
+    display: inline-flex;
+    flex: none;
+    align-items: center;
+    justify-content: center;
+    width: 20px;
+    height: 20px;
+    border-radius: 4px;
+    color: var(--color-ink-meta);
+    opacity: 0;
+
+    &:hover {
+      background: var(--color-hover);
+      color: var(--color-ink);
+    }
+  }
+  .comparison-document:hover .comparison-row-open,
+  .comparison-document:hover .comparison-row-menu,
+  .comparison-document:focus-within .comparison-row-open,
+  .comparison-document:focus-within .comparison-row-menu,
+  .comparison-row-open:focus-visible,
+  .comparison-row-menu:focus-visible {
+    opacity: 1;
+  }
+  .comparison-row[hidden] {
+    display: none;
+  }
+  .comparison-row[data-dragging="true"] > .comparison-document {
+    opacity: 0.55;
+  }
+  .comparison-row[data-drop="before"] > .comparison-document,
+  .comparison-row[data-drop="before"] > .comparison-row-cells > .comparison-cell {
+    box-shadow: inset 0 2px 0 var(--color-accent);
+  }
+  .comparison-row[data-drop="after"] > .comparison-document,
+  .comparison-row[data-drop="after"] > .comparison-row-cells > .comparison-cell {
+    box-shadow: inset 0 -2px 0 var(--color-accent);
+  }
+  html[data-comparison-row-drag] {
+    cursor: grabbing;
   }
   .comparison-document-removed {
     font-weight: 400;
@@ -10495,6 +10628,63 @@
     .compare-sheet-list {
       grid-template-columns: minmax(0, 1fr);
     }
+  }
+  /* "Add Documents…" (#1837): the sheet's Document list, in a picker beside the table. */
+  .comparison-add-documents {
+    display: flex;
+    flex-direction: column;
+    width: 360px;
+    max-width: calc(100vw - 16px);
+    padding: 10px 12px 8px;
+    border: 1px solid var(--color-rule);
+    border-radius: 10px;
+    background: var(--color-sheet);
+    box-shadow: var(--shadow-popover);
+
+    .compare-sheet-list {
+      grid-template-columns: minmax(0, 1fr);
+      max-height: 248px;
+      margin: 4px 0 6px;
+    }
+    .compare-sheet-document input:disabled + span {
+      color: var(--color-ink-meta);
+    }
+  }
+  .comparison-add-heading {
+    padding: 0 2px 4px;
+    font-size: 13px;
+    line-height: 18px;
+    font-weight: 600;
+    color: var(--color-ink);
+    outline: none;
+  }
+  .comparison-add-empty {
+    padding: 6px 2px;
+    font-size: 13px;
+    line-height: 18px;
+    color: var(--color-ink-meta);
+  }
+  .comparison-add-hint {
+    padding: 2px 2px 4px;
+    font-size: 12px;
+    line-height: 16px;
+    color: var(--color-warning);
+  }
+  .comparison-add-estimate {
+    padding: 0 2px 6px;
+    font-size: 13px;
+    line-height: 18px;
+    color: var(--color-ink);
+    text-align: end;
+
+    &[hidden] {
+      display: none;
+    }
+  }
+  .comparison-add-foot {
+    display: flex;
+    justify-content: flex-end;
+    gap: 8px;
   }
 }
 

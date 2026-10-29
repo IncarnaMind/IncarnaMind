@@ -38,6 +38,7 @@ import { CheckBadge } from "../editor/CheckBadge";
 import { CitationStylePrompt } from "../editor/CitationStylePrompt";
 import { CitationView } from "../editor/CitationView";
 import { CodeBlockView } from "../editor/CodeBlockView";
+import { ComparisonRowView } from "../editor/ComparisonRowView";
 import { ComparisonTableView } from "../editor/ComparisonTableView";
 import { checklistLabel } from "../editor/checklistLabel";
 import { useCardPlace } from "../editor/checkPlace";
@@ -45,7 +46,7 @@ import { CitationClusters } from "../editor/citationClusters";
 import { CitationNumbers, redrawFootnotes, setCitationForm } from "../editor/citationNumbers";
 import { ClaimChecks, setClaimContext } from "../editor/claimChecks";
 import { useClickBelowNote } from "../editor/clickBelowNote";
-import { comparisonCellView, comparisonRowView } from "../editor/comparisonViews";
+import { comparisonCellView } from "../editor/comparisonViews";
 import { CopyCitations } from "../editor/copyCitations";
 import { DocumentChipView } from "../editor/DocumentChipView";
 import { useDefaultStyleNotice } from "../editor/defaultStyleNotice";
@@ -271,7 +272,20 @@ const comparisonViews = {
       return !undo;
     },
   }),
-  row: comparisonRowView,
+  // A row's head takes its own pointer and keys: its menu, Open, Delete and its drag.
+  row: ReactNodeViewRenderer(ComparisonRowView, {
+    stopEvent: ({ event }) => {
+      const target = event.target;
+      if (!(target instanceof Element) || !target.closest("[data-comparison-ui]")) return false;
+      if (event.type.startsWith("drag") || event.type === "drop") return false;
+      const undo =
+        event instanceof KeyboardEvent &&
+        (event.metaKey || event.ctrlKey) &&
+        /^[zy]$/i.test(event.key) &&
+        !(target instanceof HTMLInputElement);
+      return !undo;
+    },
+  }),
   cell: comparisonCellView,
 };
 

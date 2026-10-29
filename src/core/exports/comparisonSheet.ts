@@ -24,6 +24,8 @@ export interface CitationFacts {
 
 export interface ComparisonSheetInput {
   reading: ComparisonReading;
+  /** The table's own name, which its sheet is called. */
+  title: string;
   /** The language the Mind is written in, which settles how its Answers write numbers. */
   textLanguage: Language;
   t(key: MessageKey, params?: MessageParams): string;
@@ -186,7 +188,7 @@ export function comparisonBook(input: ComparisonSheetInput): {
       sheets: [
         {
           id: TABLE,
-          name: t("comparison.title"),
+          name: input.title,
           columns: [
             { id: DOCUMENT_COLUMN, width: 32 },
             ...reading.questions.map((question) => ({
