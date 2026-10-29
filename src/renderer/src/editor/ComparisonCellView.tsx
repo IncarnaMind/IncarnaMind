@@ -259,6 +259,7 @@ function ComparisonCell({ node, editor, getPos }: ReactNodeViewProps) {
       return;
     }
     if (event.key === "Escape") {
+      window.clearTimeout(openCardTimer);
       if (isCard || selected) {
         done();
         if (isCard) useComparisonCells.getState().closeCard();

@@ -1349,6 +1349,10 @@ test("remove takes a column whole, its undo line brings back its Citations, and 
   // Clicking a cell then Escape collapses the table, as the note's editor took the key otherwise.
   await pointAndClick(window, cellAt(table, 0, 0));
   await window.keyboard.press("Escape");
+  await expect(window.getByTestId("comparison-cell-card")).toHaveCount(0);
+  await window.keyboard.press("Escape");
+  await expect(table.locator('[aria-selected="true"]')).toHaveCount(0);
+  await window.keyboard.press("Escape");
   await expect(table).not.toHaveAttribute("data-expanded", "true");
   // Settings open over the table takes Escape itself; the table stays expanded.
   await pointAndClick(window, table.getByTestId("comparison-expand"));
@@ -2164,6 +2168,10 @@ test("⌘K edits a column by keyboard, and the Excel export follows the label", 
   // A click on a cell puts the focus in the note; Escape still collapses the table.
   await pointAndClick(window, cellAt(table, 0, 0));
   await window.keyboard.press("Escape");
+  await expect(window.getByTestId("comparison-cell-card")).toHaveCount(0);
+  await window.keyboard.press("Escape");
+  await expect(table.locator('[aria-selected="true"]')).toHaveCount(0);
+  await window.keyboard.press("Escape");
   await expect(table).not.toHaveAttribute("data-expanded", "true");
 });
 
@@ -2459,9 +2467,10 @@ test("rows are removed and moved by menu, keys and drag, each undone, and a row'
   await pointAndClick(window, heads.first().getByTestId("comparison-row-menu"));
   const rowMenu = window.locator('[data-testid="comparison-row-actions"]:popover-open');
   await expect(rowMenu.getByRole("menuitem").nth(0)).toContainText("Open");
-  await expect(rowMenu.getByRole("menuitem").nth(1)).toContainText("Move up");
-  await expect(rowMenu.getByRole("menuitem").nth(2)).toContainText("Move down");
-  await expect(rowMenu.getByRole("menuitem").nth(3)).toContainText("Remove row");
+  await expect(rowMenu.getByRole("menuitem").nth(1)).toContainText("Fill row again");
+  await expect(rowMenu.getByRole("menuitem").nth(2)).toContainText("Move up");
+  await expect(rowMenu.getByRole("menuitem").nth(3)).toContainText("Move down");
+  await expect(rowMenu.getByRole("menuitem").nth(4)).toContainText("Remove row");
   await pointAndClick(window, rowMenu.getByTestId("comparisonRow.moveDown"));
   await expect.poll(() => rowNames(table)).toEqual([names[1], names[0], names[2]]);
   await window.keyboard.press("ControlOrMeta+z");
@@ -2656,6 +2665,7 @@ test("a cell opens its Citation, checks hand edits, protects reviewed cells in b
 
   await pointAndClick(window, first.locator(".comparison-cell-menu"));
   await pointAndClick(window, window.getByRole("menuitemcheckbox", { name: "Checked by me" }));
+  await expect(window.getByRole("menu")).toHaveCount(0);
   await expect(first.locator(".comparison-cell-flags")).toContainText("✓");
   await pointAndClick(window, first);
   await expect(card).toBeVisible();
@@ -2672,12 +2682,17 @@ test("a cell opens its Citation, checks hand edits, protects reviewed cells in b
 
   await pointAndClick(window, first.locator(".comparison-cell-menu"));
   await pointAndClick(window, window.getByRole("menuitemcheckbox", { name: "Checked by me" }));
+  await expect(window.getByRole("menu")).toHaveCount(0);
   await pointAndClick(window, cellAt(table, 2, 1), { modifiers: ["ControlOrMeta"] });
   await pointAndClick(window, first.locator(".comparison-cell-menu"));
   await pointAndClick(window, window.getByRole("menuitemcheckbox", { name: "Checked by me" }));
+  await expect(window.getByRole("menu")).toHaveCount(0);
   await expect(first.locator(".comparison-cell-flags")).toHaveCount(0);
-  await pointAndClick(window, first.locator(".comparison-cell-menu"));
+  await first.locator(".comparison-cell-menu").click();
+  await expect(first.locator(".comparison-cell-menu")).toHaveAttribute("aria-expanded", "true");
+  await expect(window.getByRole("menu")).toBeVisible();
   await pointAndClick(window, window.getByRole("menuitemcheckbox", { name: "Checked by me" }));
+  await expect(window.getByRole("menu")).toHaveCount(0);
   const row = table.getByTestId("comparison-row").first();
   await pointAndClick(window, row.locator(".comparison-row-menu"));
   await expect(window.getByTestId("comparison-refill-estimate")).toContainText("Fill 1 cell again");

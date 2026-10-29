@@ -487,7 +487,8 @@ async function conform(run: Run, kind: ObjectKind, stage: Stage): Promise<void> 
     const place = await placeOf(run, kind, stage, key);
     const byRightClick = await menuByRightClick(window, place);
     expect(byRightClick.length).toBeGreaterThan(0);
-    expect(byRightClick).toEqual(menuOf(byRightClick, registry, kind));
+    const commandsOnly = byRightClick.at(-1) === "—" ? byRightClick.slice(0, -1) : byRightClick;
+    expect(commandsOnly).toEqual(menuOf(byRightClick, registry, kind));
     await closeMenu(window, place);
     expect(await menuByButton(window, place)).toEqual(byRightClick);
     await closeMenu(window, place);

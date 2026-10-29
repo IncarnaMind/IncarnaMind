@@ -399,6 +399,27 @@ export const comparisonCommands: readonly Command[] = [
     },
   },
   {
+    id: "comparison.row.refill",
+    label: "comparison.row.refill",
+    group: "main",
+    appliesTo: ["comparisonRow"],
+    reversible: true,
+    enabled: (ctx) => (rowHere(ctx) ? true : rowUnavailable),
+    run: (ctx) => {
+      const found = rowHere(ctx);
+      if (found) {
+        refillComparison(
+          found.handle,
+          "refill",
+          comparisonCellsInTable(found.handle, true).filter(
+            (cell) => cell.documentId === found.here.documentId,
+          ),
+          "row",
+        );
+      }
+    },
+  },
+  {
     id: "comparisonRow.remove",
     label: "comparison.row.remove",
     rowKeys: "Delete",
@@ -444,6 +465,58 @@ export const comparisonCommands: readonly Command[] = [
         refillComparison(here, "refill-problems", comparisonCellsInTable(here, true));
       }
     },
+  },
+  {
+    id: "comparison.column.refill",
+    label: "comparison.column.refill",
+    group: "main",
+    appliesTo: ["comparisonColumn"],
+    reversible: true,
+    enabled: editEnabled,
+    run: (ctx) =>
+      actColumn(ctx, ({ handle, question }) =>
+        refillComparison(
+          handle,
+          "refill",
+          comparisonCellsInTable(handle, true).filter((cell) => cell.questionId === question.id),
+          "column",
+        ),
+      ),
+  },
+  {
+    id: "comparison.column.reviewed",
+    label: "comparison.column.reviewed",
+    checked: (ctx) => {
+      const here = columnHere(ctx);
+      const cells = here
+        ? comparisonCellsInTable(here.handle, true).filter(
+            (cell) => cell.questionId === here.question.id,
+          )
+        : [];
+      return here ? comparisonCellsAllReviewed(here.handle, cells) : false;
+    },
+    group: "main",
+    appliesTo: ["comparisonColumn"],
+    reversible: true,
+    enabled: (ctx) => {
+      const here = columnHere(ctx);
+      if (!here) return unavailable;
+      return comparisonCellsInTable(here.handle, true).some(
+        (cell) =>
+          cell.questionId === here.question.id &&
+          comparisonCellOf(comparisonCellLocation({ ...here.handle, ...cell })?.cell.attrs ?? {})
+            .status === "done",
+      )
+        ? true
+        : unavailable;
+    },
+    run: (ctx) =>
+      actColumn(ctx, ({ handle, question }) =>
+        toggleComparisonCellsReviewed(
+          handle,
+          comparisonCellsInTable(handle, true).filter((cell) => cell.questionId === question.id),
+        ),
+      ),
   },
   {
     id: "comparison.cell.open",
