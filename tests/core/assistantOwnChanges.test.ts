@@ -10,7 +10,14 @@ import { askAssistant, changesIn, lastResult, mindCalls } from "../helpers/assis
 import { answerEnded } from "../helpers/citations";
 import { createTempDataFolder, startCore } from "../helpers/core";
 import { connectToMind, type MindClient } from "../helpers/mindClient";
-import { heading, note, resolveChanges, shownWithChanges, writeMind } from "../helpers/minds";
+import {
+  heading,
+  note,
+  readMind,
+  resolveChanges,
+  shownWithChanges,
+  writeMind,
+} from "../helpers/minds";
 import {
   claimCheckReply,
   type ModelCall,
@@ -151,6 +158,78 @@ describe("The assistant revises its own changes still waiting", { timeout: 30_00
     );
     expect(second.steps?.unbackedClaims).toBeUndefined();
   });
+
+  // protects=bold and italic of the assistant's waiting text survive "make it longer", and a * _ or ~ it holds as a character comes back as itself; fails_when=the label's asterisks land in the words, or price*volume*margin loses its stars; no_claim=how well a real model lengthens it.
+  test.each([
+    {
+      name: "a bold label stays bold, and its new words are read as written",
+      page: "## Summary\n\n**Role.** The post is senior.",
+      seen: "**Role.** The post is senior.",
+      reply: "## Summary\n\n**Role.** The post is senior and well paid.",
+      shown: "+ Summary / + Role. The post is senior and well paid.",
+      bold: ["Role."],
+    },
+    {
+      name: "a star the User's words hold as a character is shown escaped and kept",
+      page: "## Summary\n\nTotal = price\\*volume\\*margin, see note.",
+      seen: "Total = price\\*volume\\*margin, see note.",
+      reply: "## Summary\n\nTotal = price\\*volume\\*margin, see the note.",
+      shown: "+ Summary / + Total = price*volume*margin, see the note.",
+      bold: [],
+    },
+  ])(
+    "“make it longer” over waiting text: $name",
+    async ({ page: content, seen, reply, shown, bold }) => {
+      const passages: string[] = [];
+      const model = scriptedModel((call): ScriptedReply => {
+        const passage = editPassage(call);
+        if (passage !== null) {
+          passages.push(passage);
+          return { text: `${reply}\n<why>Longer.</why>` };
+        }
+        if (asked(call).endsWith("write a summary page")) {
+          return called(call, "create_mind")
+            ? { text: "Made “Tide notes”." }
+            : { calls: [{ tool: "create_mind", input: { title: "Tide notes", content } }] };
+        }
+        return called(call, "edit_mind")
+          ? { text: "Lengthened the summary." }
+          : {
+              calls: [
+                {
+                  tool: "edit_mind",
+                  input: { mind: "Tide notes", part: "Summary", instruction: "Make it longer" },
+                },
+              ],
+            };
+      });
+      const { core, mind } = await setUp(model);
+
+      const first = await askAssistant(core, { text: "write a summary page", mindId: mind.id });
+      const made = await madeBy(core, first);
+      await askAssistant(core, {
+        text: "make the summary longer",
+        mindId: mind.id,
+        conversationId: first.conversationId,
+      });
+
+      await made.settled();
+      expect(passages).toHaveLength(1);
+      expect(passages[0]).toContain(seen);
+      expect(shownWithChanges(made).join(" / ")).toBe(shown);
+      const runs: { text: string; bold: boolean }[] = [];
+      readMind(made).descendants((node) => {
+        if (node.isText) {
+          runs.push({
+            text: node.text ?? "",
+            bold: node.marks.some((mark) => mark.type.name === "bold"),
+          });
+        }
+      });
+      expect(runs.filter((run) => run.bold).map((run) => run.text)).toEqual(bold);
+      expect(runs.map((run) => run.text).join("")).not.toMatch(/\*\*|\\/);
+    },
+  );
 
   // protects=removing part of the assistant's waiting text removes it there and leaves one version, the rest still the first Answer's, so each card's count is its own; fails_when=the part stays, the rest is lost or moves to the new Answer, or the counts differ; no_claim=none beyond protects.
   test("“remove the part about…” removes it from the waiting text, and the counts agree", async () => {

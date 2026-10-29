@@ -715,6 +715,54 @@ function tokenize(source: string, open: boolean): Token[] {
   return tokens;
 }
 
+/** Which of bold, italic and strikethrough a character is in. */
+export interface Look {
+  bold?: true;
+  italic?: true;
+  strike?: true;
+}
+
+const withoutDelimiters = (text: string) => text.replace(/[*_~]/g, "");
+
+/** `\*`, `\_`, `\~` and `\\` as the characters they stand for. */
+export const withoutEmphasisEscapes = (text: string) => text.replace(/\\([\\*_~])/g, "$1");
+
+/** The characters that would read as emphasis or an escape in `text`, each escaped, so they stay as typed. */
+export const escapeEmphasis = (text: string) => text.replace(/[\\*_~]/g, "\\$&");
+
+/**
+ * A line as its plain words with the look each character has from the
+ * Markdown around it (#1897): `**Role.** The post` is "Role. The post" with
+ * "Role." bold, and `price\\*volume` is "price*volume". Null when the line
+ * holds anything else Markdown reads (code, a link), so it stays as it was
+ * written. A formula is kept as
+ * `$…$`.
+ */
+export function emphasisOf(source: string): { plain: string; looks: Look[] } | null {
+  let plain = "";
+  const looks: Look[] = [];
+  const add = (text: string, look: Look) => {
+    plain += text;
+    for (let i = 0; i < text.length; i++) looks.push(look);
+  };
+  for (const token of parseInlineTokens(source)) {
+    if (token.kind === "break") {
+      add("\n", {});
+    } else if (token.kind === "math") {
+      add(`$${token.latex}$`, {});
+    } else {
+      const look: Look = {};
+      for (const mark of token.marks) {
+        if (mark.type !== "bold" && mark.type !== "italic" && mark.type !== "strike") return null;
+        look[mark.type] = true;
+      }
+      add(token.kind === "text" ? token.text : token.char.repeat(token.count), look);
+    }
+  }
+  const unescaped = source.replace(/\\([!-/:-@[-`{-~])/g, "$1");
+  return withoutDelimiters(plain) === withoutDelimiters(unescaped) ? { plain, looks } : null;
+}
+
 /** A closed piece of inline Markdown (e.g. a link's label), with its emphasis matched. */
 function parseInlineTokens(source: string): Token[] {
   const tokens = tokenize(source, false);

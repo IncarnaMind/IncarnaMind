@@ -1068,7 +1068,7 @@ describe("An Answer in a conversation", { timeout: 30_000 }, () => {
         answerId: first.answerId,
         model: { modelId: "no-provider" } as never,
       }),
-    ).rejects.toThrow(/model must be/);
+    ).rejects.toMatchObject({ wording: { key: "error.question.model" } });
   });
 
   test("one left being written when IncarnaMind quit is stopped at the next start, not asked again, and found by search", async () => {
