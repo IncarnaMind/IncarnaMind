@@ -233,7 +233,7 @@ function source(content: JSONContent[]): Y.Doc {
 }
 
 const read = (doc: Y.Doc) =>
-  readNoteState({ doc, documents: [], keptCitationTexts: [], folderId: null });
+  readNoteState({ cellFigures: [], doc, documents: [], keptCitationTexts: [], folderId: null });
 
 const unreadFile = (name: string): UnreadFile => ({
   id: name,
@@ -322,6 +322,7 @@ describe("Reading a note's state from its Yjs document (Home and Export)", () =>
       new Set(["r1"]),
     );
     const { state } = readNoteState({
+      cellFigures: [],
       doc,
       documents: [],
       keptCitationTexts: [],
@@ -363,6 +364,7 @@ describe("Reading a note's state from its Yjs document (Home and Export)", () =>
       new Set(["r1"]),
     );
     const { state } = readNoteState({
+      cellFigures: [],
       doc,
       documents: [],
       keptCitationTexts: [],
@@ -408,6 +410,7 @@ describe("Reading a note's state from its Yjs document (Home and Export)", () =>
       new Set(["r1"]),
     );
     const { state } = readNoteState({
+      cellFigures: [],
       doc,
       documents: [],
       keptCitationTexts: [],
@@ -445,7 +448,13 @@ describe("Reading a note's state from its Yjs document (Home and Export)", () =>
     ]);
     const requests = ["r1", "r2"];
     const readFolder = () =>
-      readNoteState({ doc, documents: [], keptCitationTexts: [], folderId: "tides" }).state;
+      readNoteState({
+        cellFigures: [],
+        doc,
+        documents: [],
+        keptCitationTexts: [],
+        folderId: "tides",
+      }).state;
     recordCheckUnread(
       doc,
       "r2",
@@ -498,7 +507,8 @@ describe("Reading a note's state from its Yjs document (Home and Export)", () =>
     setMindScope(doc, tagScope);
     const requests = ["r1", "r2"];
     const readTag = () =>
-      readNoteState({ doc, documents: [], keptCitationTexts: [], folderId: null }).state;
+      readNoteState({ cellFigures: [], doc, documents: [], keptCitationTexts: [], folderId: null })
+        .state;
     recordCheckUnread(
       doc,
       "r2",

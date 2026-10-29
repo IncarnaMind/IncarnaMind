@@ -20,6 +20,7 @@
  */
 import { randomUUID } from "node:crypto";
 import * as Y from "yjs";
+import { beginFigureCheck } from "../../../shared/figureChecks";
 import { isClaim } from "../../../shared/sentences";
 import { setTextOrigin } from "../../../shared/textOrigins";
 import {
@@ -95,6 +96,9 @@ export interface VerifyOptions {
     check: ClaimCheckAttributes,
     result: ClaimCheckResult,
     at: string,
+    blocks: Y.XmlFragment,
+    mindId: string,
+    sourceText?: string,
   ): ClaimCheckAttributes;
   /** Keeps the text of the evidence the Mind's checks show (#79). */
   retainEvidence(mindId: string): void;
@@ -330,7 +334,14 @@ export function createVerify(options: VerifyOptions) {
           checkedAt: startedAt,
           ...(claim.parts && { parts: pendingParts(claim.parts, previous) }),
         };
-        markSentence(sentence.element, sentence.from, sentence.to, marked);
+        // Each figure gets its own result, as the one Check gives it.
+        const figures = sentence.figures?.length ? sentence.figures : undefined;
+        markSentence(
+          sentence.element,
+          sentence.from,
+          sentence.to,
+          figures ? beginFigureCheck(null, marked, figures, null) : marked,
+        );
         const said = claimOf(sentence) ?? { claim: sentence.text, context: sentence.context };
         return [
           {
@@ -338,6 +349,7 @@ export function createVerify(options: VerifyOptions) {
             ...said,
             ...(claim.parts && { parts: claim.parts }),
             ...(previous && { previous }),
+            ...(figures && { figures }),
           },
         ];
       });

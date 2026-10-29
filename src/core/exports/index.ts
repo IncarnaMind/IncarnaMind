@@ -13,6 +13,7 @@ import type { ResolvedCitationStyle } from "../../shared/citationStyles";
 import { citationState, citedLocation, shownDocumentName } from "../../shared/citations";
 import type { DrawnPage } from "../../shared/citedPage";
 import { comparisonQuestionsOf } from "../../shared/comparisons";
+import { formatDate } from "../../shared/dates";
 import { titleWithoutSite } from "../../shared/documentNames";
 import { type MessageKey, type MessageParams, translate } from "../../shared/i18n";
 import type { Translate } from "../../shared/locations";
@@ -22,6 +23,7 @@ import type { PrintPaper } from "../../shared/printDocument";
 import { pendingProposals } from "../../shared/proposals";
 import { readableQuoteText } from "../../shared/readableQuote";
 import type { ScopeKind } from "../../shared/searchScope";
+import { citationMarksNow, signOffsOf } from "../../shared/signOffs";
 import { type SourceDocument, sourcesOf } from "../../shared/sources";
 import type { UnitText } from "../../shared/units";
 import {
@@ -32,7 +34,7 @@ import {
 } from "../../shared/unreadFiles";
 import { wordFileOf, wordImportProgressOf } from "../../shared/wordFiles";
 import type { Logger, Pictures, Printer } from "../adapters";
-import { checkRequests } from "../answers/checks/sentences";
+import { checkRequests, citationSentences } from "../answers/checks/sentences";
 import {
   CITATION_PLACES,
   type CitationAttributes,
@@ -75,7 +77,7 @@ import {
 } from "../mindText";
 import { withChangesAccepted } from "../shownChanges";
 import { type CitationCard, citationCard } from "./citationCards";
-import { addSources, listCitations, styleCitations } from "./citations";
+import { addSources, listCitations, styleCitations, withFigureNotes } from "./citations";
 import { piecesOf, renderDocx } from "./docx";
 import { bodyFamily, renderHtml } from "./html";
 import { exportLabels } from "./labels";
@@ -246,15 +248,13 @@ export function createExports(deps: ExportsDependencies) {
     const documents = deps.liveDocuments();
     const kept = deps.keptCitationTexts();
     const attributesOf = new Map<Footnote, Partial<CitationAttributes>>();
+    let checkedOf: (attributes: Partial<CitationAttributes>) => string[] = () => [];
     const footnote = (attributes: Record<string, unknown>): Footnote => {
-      const note = footnoteOf(
-        attributes as Partial<CitationAttributes>,
-        documents,
-        kept,
-        language,
-        deps,
-      );
-      attributesOf.set(note, attributes as Partial<CitationAttributes>);
+      const cited = attributes as Partial<CitationAttributes>;
+      const found = footnoteOf(cited, documents, kept, language, deps);
+      const checked = checkedOf(cited);
+      const note = checked.length > 0 ? { ...found, checked } : found;
+      attributesOf.set(note, cited);
       return note;
     };
     const listed =
@@ -303,6 +303,7 @@ export function createExports(deps: ExportsDependencies) {
         scopeItemName: deps.scopeItemName,
         sourceOf: (passage) => footnoteOf(passage, documents, kept, language, deps).source,
       });
+      checkedOf = checkedLines(fragment, documents, language);
       const { review } = readOptions;
       const waiting = pendingProposals(fragment);
       return {
@@ -420,10 +421,13 @@ export function createExports(deps: ExportsDependencies) {
     };
   };
 
-  const shareBlocks = ({ bibliography, blocks, language, documents }: Prepared) =>
-    bibliography
-      ? addSources(blocks, { language, documents }, translate(language, "bibliography.title"))
-      : blocks;
+  const shareBlocks = ({ bibliography, blocks, language, documents, readOptions }: Prepared) =>
+    withFigureNotes(
+      bibliography
+        ? addSources(blocks, { language, documents }, translate(language, "bibliography.title"))
+        : blocks,
+      { footnote: readOptions.footnote, labels: exportLabels(language) },
+    );
 
   const unitsOf = (attributes: Partial<CitationAttributes>) =>
     deps.citedUnits({
@@ -635,22 +639,27 @@ export function createExports(deps: ExportsDependencies) {
         };
       }
       const labels = exportLabels(language);
-      const blocks = prepared.listed
-        ? listCitations(
-            prepared.blocks,
-            { language, documents },
-            translate(language, "bibliography.title"),
-            labels.unverified,
-          )
-        : style.form !== "numbered"
-          ? await styleCitations(prepared.blocks, style, thin.format)
-          : prepared.bibliography
-            ? addSources(
-                prepared.blocks,
-                { language, documents },
-                translate(language, "bibliography.title"),
-              )
-            : prepared.blocks;
+      const figures = { footnote: prepared.readOptions.footnote, labels };
+      const blocks =
+        style.form !== "numbered"
+          ? await styleCitations(prepared.blocks, style, thin.format, figures)
+          : withFigureNotes(
+              prepared.listed
+                ? listCitations(
+                    prepared.blocks,
+                    { language, documents },
+                    translate(language, "bibliography.title"),
+                    labels.unverified,
+                  )
+                : prepared.bibliography
+                  ? addSources(
+                      prepared.blocks,
+                      { language, documents },
+                      translate(language, "bibliography.title"),
+                    )
+                  : prepared.blocks,
+              figures,
+            );
       let data: Uint8Array;
       let commented: readonly FailedSentence[] = [];
       if (format === "markdown") {
@@ -920,6 +929,38 @@ function parseExportOptions(input: unknown): Required<ExportMindOptions> {
     checkedLine: choice("checkedLine"),
     theirChanges: theirChanges ?? "shown",
     citationPlace: place ?? "footnotes",
+  };
+}
+
+/**
+ * People's own checks of each Citation, as its source says them (#1933): "Checked by Ada · 28 Oct
+ * 2026", and for a mark made before its text, quote or version changed, "Checked by Ada
+ * before it changed · …", never as checked. There is no line for the whole document.
+ */
+function checkedLines(
+  fragment: Y.XmlFragment,
+  documents: readonly LiveDocument[],
+  language: Language,
+): (attributes: Partial<CitationAttributes>) => string[] {
+  const marks = fragment.doc ? signOffsOf(fragment.doc) : [];
+  if (!marks.some(({ target }) => target.kind === "citation")) return () => [];
+  const sentences = citationSentences(fragment);
+  const versions = new Map(documents.map((document) => [document.id, document.contentHash]));
+  const t: Translate = (key, params) => translate(language, key, params);
+  return (attributes) => {
+    const sentence = typeof attributes.id === "string" ? sentences.get(attributes.id) : undefined;
+    if (typeof attributes.id !== "string" || sentence === undefined) return [];
+    const cited = {
+      documentId: attributes.documentId ?? null,
+      contentHash: attributes.contentHash ?? null,
+      quote: attributes.quote ?? null,
+    };
+    return citationMarksNow(marks, attributes.id, sentence, cited, versions, null).map((now) =>
+      t(now.state === "checked" ? "export.checkedBy" : "export.checkedBy.changed", {
+        name: now.name ?? t("checkRecord.notRecorded"),
+        date: formatDate(now.at, language),
+      }),
+    );
   };
 }
 

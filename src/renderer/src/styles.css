@@ -1773,6 +1773,17 @@
     font-weight: 600;
     color: var(--color-ink);
   }
+  /* "18 figures · Open schedule": the Figure schedule's door from the badge (#1932). */
+  .mind-health-link {
+    color: var(--color-accent-strong);
+
+    &:hover {
+      text-decoration: underline;
+    }
+  }
+  .mind-health-sep {
+    color: var(--color-ink-placeholder);
+  }
   .check-rows {
     display: flex;
     flex-direction: column;
@@ -5554,6 +5565,36 @@
       background: #2e3238;
     }
   }
+  /*
+   * The User's own "Checked by me" (#1933): a person's check, never the app's result, so it is
+   * drawn in ink, not in a check's colours. Changed since, it is quieter.
+   */
+  .sign-off-line {
+    margin: 0;
+    padding-left: 22px;
+    font-size: var(--text-meta);
+    line-height: 18px;
+    color: var(--color-ink-secondary);
+
+    &[data-state="changed"] {
+      color: var(--color-ink-meta);
+    }
+  }
+  .sign-off-toggle {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+
+    &[aria-pressed="true"] {
+      background: var(--color-chip);
+      box-shadow: none;
+    }
+  }
+  .sign-off-toggle-tick {
+    width: 14px;
+    height: 14px;
+    margin-left: -2px;
+  }
   /* In a note style, the note the Citation is written as: what the export's footnote says. */
   .citation-card-styled {
     margin: 0;
@@ -9103,6 +9144,52 @@
       height: 16px;
     }
   }
+  /* The chosen version's name (#1933), typed where it is shown; quiet until it has one. */
+  .history-name {
+    display: inline-flex;
+    flex: 0 1 auto;
+    min-width: 0;
+    max-width: 360px;
+    height: 28px;
+    align-items: center;
+    padding: 0 6px;
+    border-radius: 6px;
+    font-size: 13px;
+    color: var(--color-ink-meta);
+    white-space: nowrap;
+
+    &[data-named] {
+      color: var(--color-ink);
+      font-weight: 600;
+    }
+    &:hover {
+      background: var(--color-hover);
+    }
+  }
+  .history-version-line {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 4px 16px;
+    min-height: 36px;
+    /* Its words start where the notes under it do; the button's own padding is 6px. */
+    margin: 8px 24px 0 50px;
+  }
+  .history-undo {
+    min-width: 0;
+    font-size: 13px;
+  }
+  .history-name-input {
+    width: 280px;
+    min-width: 0;
+    height: 28px;
+    padding: 0 6px;
+    border: 1px solid var(--color-accent);
+    border-radius: 6px;
+    background: var(--color-sheet);
+    font-size: 13px;
+    color: var(--color-ink);
+  }
   .history-picker {
     display: inline-flex;
     flex: 0 1 auto;
@@ -9317,6 +9404,9 @@
     .history-note {
       margin-right: 24px;
       margin-left: 24px;
+    }
+    .history-version-line {
+      margin-left: 18px;
     }
   }
 

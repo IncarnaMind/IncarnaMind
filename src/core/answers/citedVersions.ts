@@ -10,7 +10,19 @@
  */
 import * as Y from "yjs";
 import { readChartData } from "../../shared/charts";
-import { CHART_NODE, CITATION_NODE } from "../api";
+import { readClaimCheck, restsOn } from "../../shared/claimChecks";
+import { calculatedFiguresIn, figureRunsFor } from "../../shared/figureRuns";
+import {
+  CHART_NODE,
+  CITATION_NODE,
+  CLAIM_CHECK_MARK,
+  CONTENT_SCHEMA_VERSION,
+  CONTENT_SCHEMA_VERSION_KEY,
+  MIND_SETTINGS_FIELD,
+} from "../api";
+import { isRecord } from "../errors";
+import { readContentVersion } from "../mindAccess";
+import { nodeOf, topLevelBlocks } from "./blocks";
 
 /**
  * What a Citation's check reads: the stored text of one version of a
@@ -58,19 +70,64 @@ function chartCitations(chart: Y.XmlElement): CitationFields[] {
   );
 }
 
+function figureCheckCitations(fragment: Y.XmlFragment | Y.XmlElement): CitationFields[] {
+  const cited: CitationFields[] = [];
+  const add = (raw: unknown) => {
+    if (!isRecord(raw) || raw.figures == null) return;
+    const check = readClaimCheck(raw);
+    if (!check) throw new Error("The figure Check's record is invalid.");
+    cited.push(...restsOn(check).map((citation) => ({ ...citation })));
+  };
+  const visit = (parent: Y.XmlFragment | Y.XmlElement) => {
+    if (parent instanceof Y.XmlElement) add(parent.getAttribute(CLAIM_CHECK_MARK));
+    for (const child of parent.toArray()) {
+      if (child instanceof Y.XmlElement) visit(child);
+      else if (child instanceof Y.XmlText)
+        for (const run of child.toDelta() as { attributes?: Record<string, unknown> }[])
+          add(run.attributes?.[CLAIM_CHECK_MARK]);
+    }
+  };
+  visit(fragment);
+  return cited;
+}
+
+export function figureCitations(fragment: Y.XmlFragment | Y.XmlElement): CitationFields[] {
+  if (
+    fragment.doc &&
+    readContentVersion(fragment.doc.getMap(MIND_SETTINGS_FIELD).get(CONTENT_SCHEMA_VERSION_KEY)) >
+      CONTENT_SCHEMA_VERSION
+  )
+    return [];
+  const blocks =
+    fragment instanceof Y.XmlElement ? [nodeOf(fragment)] : topLevelBlocks(fragment).map(nodeOf);
+  const figures = calculatedFiguresIn(blocks);
+  const inputs = figures.flatMap(({ figure }) => figure.inputs);
+  const cited: CitationFields[] = [];
+  if (fragment.doc) {
+    for (const run of figureRunsFor(fragment.doc, blocks)) {
+      for (const input of run.inputs) {
+        if (input.kind === "figure") inputs.push(input.input);
+        else cited.push({ ...input.citation });
+      }
+    }
+  }
+  for (const input of inputs) {
+    cited.push({ ...input.citation });
+    if (input.unitStatement) cited.push({ ...input.unitStatement.citation });
+  }
+  return [...cited, ...figureCheckCitations(fragment)];
+}
+
 /** Adds the Units that the Citations under `fragment` point to in these Documents to `cited`. */
 export function addCitedUnits(
   fragment: Y.XmlFragment | Y.XmlElement,
   documentIds: ReadonlySet<string>,
   cited: CitedUnits[],
 ): void {
-  for (const child of fragment.toArray()) {
-    if (!(child instanceof Y.XmlElement)) continue;
-    if (child.nodeName === CITATION_NODE) addCitedUnit(child.getAttributes(), documentIds, cited);
-    else if (child.nodeName === CHART_NODE) {
-      for (const citation of chartCitations(child)) addCitedUnit(citation, documentIds, cited);
-    } else addCitedUnits(child, documentIds, cited);
-  }
+  eachCitation(fragment, (citation) => addCitedUnit(citation, documentIds, cited), {
+    charts: true,
+  });
+  for (const citation of figureCitations(fragment)) addCitedUnit(citation, documentIds, cited);
 }
 
 /** The versions Citations quote: each Document's cited content hashes, or "any" for every version. */
@@ -89,13 +146,8 @@ export function addCitedVersion(citation: CitationFields, cited: CitedVersions):
 
 /** Adds the versions the Citations under `fragment` quote to `cited`. */
 export function addCitedVersions(fragment: Y.XmlFragment | Y.XmlElement, cited: CitedVersions) {
-  for (const child of fragment.toArray()) {
-    if (!(child instanceof Y.XmlElement)) continue;
-    if (child.nodeName === CITATION_NODE) addCitedVersion(child.getAttributes(), cited);
-    else if (child.nodeName === CHART_NODE) {
-      for (const citation of chartCitations(child)) addCitedVersion(citation, cited);
-    } else addCitedVersions(child, cited);
-  }
+  eachCitation(fragment, (citation) => addCitedVersion(citation, cited), { charts: true });
+  for (const citation of figureCitations(fragment)) addCitedVersion(citation, cited);
 }
 
 /** Calls `visit` with each Citation's attributes under `fragment`, at any depth, in order; `charts`: a chart's values' too. */

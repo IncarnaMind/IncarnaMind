@@ -20,6 +20,7 @@ import {
   listedSentences,
   type Plan,
   sentenceOf,
+  unsupportedReply,
 } from "../helpers/checks";
 import { shownPassages } from "../helpers/citations";
 import { createTempDataFolder, manualClock, startCore } from "../helpers/core";
@@ -202,7 +203,7 @@ describe("Verify a document", () => {
         const seen = shownPassages(searches.at(-1)?.text ?? "").find((each) =>
           each.text.includes(quote),
         );
-        if (!seen) return { text: "Verdict: unsupported" };
+        if (!seen) return { text: unsupportedReply(call) };
         if (!call.results.some((result) => result.tool === "cite")) {
           return {
             calls: [
@@ -235,10 +236,13 @@ describe("Verify a document", () => {
 
     await core.findClaims(request(mind.id));
     await core.verifyClaims(request(mind.id));
-    expect((await shownChecks(core, client)).map((each) => each.shown)).toEqual([
+    const first = await shownChecks(core, client);
+    expect(first.map((each) => each.shown)).toEqual([
       { state: "unsupported" },
       { state: "unsupported" },
     ]);
+    // A figure keeps its own result, as the one Check gives it.
+    expect(first[1]?.check.figures?.map((figure) => figure.reading.chars)).toEqual(["4.2 million"]);
 
     expect(await core.checkClaim({ claim: DREDGING })).toMatchObject({
       verdict: "unsupported",

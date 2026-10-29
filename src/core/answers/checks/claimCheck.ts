@@ -29,11 +29,13 @@ import { type MessageKey, type MessageParams, translate } from "../../../shared/
 import { sentenceSpans } from "../../../shared/sentences";
 import type {
   CheckedVersion,
+  CheckFigure,
   Citation,
   ClaimCalculation,
   ClaimCheckFailure,
   ClaimCheckPart,
   ClaimCheckResult,
+  ClaimJudgment,
   ClaimPartCoverage,
   ClaimPartPlan,
   ClaimPartSpan,
@@ -45,6 +47,7 @@ import type {
   ThirdPartyReason,
   UnsupportedReason,
 } from "../../api";
+import type { CitationSource } from "../../documents";
 import type { Evidence, EvidenceScope } from "../../documents/evidence";
 import { isRecord } from "../../errors";
 import type { Language } from "../../language";
@@ -59,7 +62,7 @@ import {
   givenList,
   whole,
 } from "../calculations";
-import { type AnswerDocuments, createCitationSession } from "../citations";
+import { type AnswerDocuments, createCitationSession, documentNamedAmong } from "../citations";
 import {
   type AnswerEngine,
   type AnswerTools,
@@ -68,8 +71,18 @@ import {
   type CiteOptions,
   type DocumentLanguage,
 } from "../engine";
+import type { TurnCheck } from "../turnChecks";
 import { agreesWith, statedFigure } from "./calculated";
 import { needsCalculation } from "./calculationGate";
+import {
+  checkFigureReply,
+  figureJudgment,
+  figureReplyText,
+  givesItsOwnNumber,
+  readFigureReply,
+  readFigureSource,
+  uncheckedFigureResults,
+} from "./figureChecks";
 import { figuresMatch, nearestLine } from "./nearest";
 import {
   CONFIRM_INSTRUCTIONS,
@@ -90,7 +103,7 @@ import {
   STRICT_INSTRUCTIONS,
 } from "./prompt";
 import { searchAgain } from "./searchAgain";
-import { unitNotStated } from "./units";
+import { type BoundNumber, unitNotStated } from "./units";
 
 export interface ClaimCheckDependencies {
   /** The interface language: what a check's sentence is written in. */
@@ -100,16 +113,26 @@ export interface ClaimCheckDependencies {
   documents: Pick<AnswerDocuments, "citationSource" | "pageTexts" | "documentDate"> & {
     searchableCount(documentIds: readonly string[] | null): number;
     searchableLanguages(documentIds: readonly string[] | null): DocumentLanguage[];
+    /** The Documents with Passages to search, with their names: what a search names one by. */
+    searchableBySize(documentIds: readonly string[] | null): { id: string; name: string }[];
     savedBySearch(documentId: string): boolean;
   };
+}
+
+/** A Citation the sentence has, as its check reads it: `passageId` when it quotes the Document as it is now. */
+export interface CheckedCitation {
+  documentName: string;
+  quote: string;
+  passageId?: string;
 }
 
 export interface ClaimCheckRequest {
   claim: string;
   // A legal prefix can govern later literal parts without being repeated in them (#2002).
   originalClaim?: string;
+  figures?: readonly CheckFigure[];
   context?: string;
-  cited?: readonly { documentName: string; quote: string }[];
+  cited?: readonly CheckedCitation[];
   scope: EvidenceScope;
   model: PreparedChatModel;
   /** The Run reads the document being checked (#97): it is third-party from its start. */
@@ -183,6 +206,121 @@ export type AtomicClaimCheckResult = ClaimCheckResult & {
   checkedEvidence?: readonly Citation[];
   coverage?: ClaimPartCoverage;
 };
+const FIGURES_LINE =
+  "Your reply has no Figures line that can be read. Write your whole reply again, ending with the one Figures: line, its JSON object on that line.";
+
+const REMAINDER_LINE =
+  'Your Figures line gives no remainder. Give "remainder": null when the sentence asserts nothing beyond its figures, or its other assertion as the instructions say, then write your whole reply again.';
+
+const figureSourcesNote = (problems: readonly string[], unrecorded: readonly number[]) =>
+  [
+    ...(unrecorded.length > 0
+      ? [
+          `Your Figures line names ${unrecorded.map((marker) => `[^${marker}]`).join(", ")}, never recorded: call cite now with each quote it uses, under the marker you gave it.`,
+        ]
+      : []),
+    "Some sources in your Figures line can't be read:",
+    ...problems.map((problem) => `- ${problem}`),
+    "Fix each one, then write your whole reply again, its Figures line included.",
+  ].join("\n");
+
+/**
+ * A verdict whose requested figures aren't bound is asked for once more, as `calculate` answers
+ * an input it can't read: Claude Haiku 5.5 wrote its verdict and stopped, skipped the cite
+ * call, or left out the heading that states a sheet's unit, for about a third of sentences
+ * with figures.
+ */
+function figuresReplied(
+  request: ClaimCheckRequest,
+  calculations: Pick<CalculationSession, "number" | "figure">,
+  searched: () => boolean,
+  recorded: (marker: number) => boolean,
+): TurnCheck[] {
+  const figures = request.figures ?? [];
+  const asked = (text: string) =>
+    figures.length > 0 && searched() && !readsAsRefusal(text) && readVerdict(text) !== null;
+  return [
+    {
+      name: "figures-line",
+      check(text) {
+        if (!asked(text)) return null;
+        const read = readFigureReply(text, figures, request.claim);
+        if (!read) return { claims: [], note: FIGURES_LINE };
+        // Without its remainder the reply can't be settled, so it is asked for as the line is.
+        return read.remainder === undefined ? { claims: [], note: REMAINDER_LINE } : null;
+      },
+    },
+    {
+      name: "figures-sources",
+      check(text) {
+        const read = asked(text) ? readFigureReply(text, figures, request.claim) : null;
+        if (!read) return null;
+        const problems = read.items.flatMap((item) => {
+          const target = figures.find((figure) => figure.id === item.id);
+          if (!target) return [];
+          if (!item.source && item.calculation !== null && !calculations.figure(item.calculation))
+            return [
+              `${target.reading.chars}: calculation [=${item.calculation}] wasn't worked out in this check; call calculate for it, or give its source.`,
+            ];
+          if (!item.source)
+            return item.calculation === null && item.verdict !== "unsupported" && !target.calculated
+              ? [
+                  `${target.reading.chars}: a ${item.verdict} figure needs its source (a quote recorded with cite, and the number as it writes it) or its calculation.`,
+                ]
+              : [];
+          const source = readFigureSource(calculations, target, item.source);
+          if ("problem" in source) return [`${target.reading.chars}: ${source.problem}`];
+          return item.verdict === "contradicted" && givesItsOwnNumber(target, source.input)
+            ? [
+                `${target.reading.chars}: you call it contradicted, but its source gives the same number, ${source.input.number.chars}; give as source the number the Document gives for its own subject, period, column and unit, or the verdict that number gives.`,
+              ]
+            : [];
+        });
+        const remainder = read.remainder?.citation;
+        if (remainder && !recorded(remainder))
+          problems.push(`remainder: [^${remainder}] isn't recorded; record it with cite first.`);
+        const unrecorded = [
+          ...new Set(
+            [
+              ...read.items.flatMap((item) =>
+                item.source?.citation ? [item.source.citation] : [],
+              ),
+              ...(remainder ? [remainder] : []),
+            ].filter((marker) => !recorded(marker)),
+          ),
+        ];
+        return problems.length > 0
+          ? {
+              claims: [],
+              note: figureSourcesNote(problems, unrecorded),
+              ...(unrecorded.length > 0 && { requires: "cite" }),
+            }
+          : null;
+      },
+    },
+  ];
+}
+
+function citedSources(
+  cited: readonly CheckedCitation[],
+  scope: EvidenceScope,
+  documents: ClaimCheckDependencies["documents"],
+): CitationSource[] {
+  const found = new Map<string, CitationSource>();
+  for (const { passageId } of cited) {
+    const source = passageId ? documents.citationSource(passageId) : null;
+    if (
+      !source ||
+      source.documentDeleted ||
+      source.notCited ||
+      scope.excluded.has(source.documentId) ||
+      (scope.documentIds !== null && !scope.documentIds.includes(source.documentId))
+    )
+      continue;
+    found.set(source.passageId, source);
+  }
+  return [...found.values()];
+}
 
 export function createClaimCheck(deps: ClaimCheckDependencies) {
   return async function checkClaim(request: ClaimCheckRequest): Promise<AtomicClaimCheckResult> {
@@ -194,8 +332,20 @@ export function createClaimCheck(deps: ClaimCheckDependencies) {
     const workings = new Map<string, PassageSearchResult[]>();
     const scoped: AnswerDocuments = {
       searchableCount: () => deps.documents.searchableCount(scope.documentIds),
-      async search(query, searchSignal) {
-        const found = await deps.evidence.search(query, scope, searchSignal);
+      // A search may name one Document, as an Answer's may: the one a Citation quotes, often.
+      documentNamed: (name) =>
+        documentNamedAmong(
+          deps.documents
+            .searchableBySize(scope.documentIds)
+            .filter((each) => !scope.excluded.has(each.id)),
+          name,
+        ),
+      async search(query, searchSignal, within) {
+        const found = await deps.evidence.search(
+          query,
+          within ? { ...scope, documentIds: [...within] } : scope,
+          searchSignal,
+        );
         // A web search's result never settles a citation of a court decision.
         const passages =
           decisions.length === 0
@@ -224,6 +374,24 @@ export function createClaimCheck(deps: ClaimCheckDependencies) {
       documentDate: (documentId) => deps.documents.documentDate(documentId),
     };
     const session = createCitationSession(scoped, { onRecord: () => undefined });
+    // The words a Citation quotes don't say where they stand: a sheet row's year is in its
+    // sheet's name and heading row, which the check reads only in the Passage itself (#1459).
+    const citedPassages = citedSources(request.cited ?? [], scope, deps.documents);
+    for (const passage of citedPassages) read.set(passage.documentId, passage.contentHash);
+    const citedShown =
+      citedPassages.length > 0
+        ? session.show(
+            citedPassages.map((source) => ({
+              ...source,
+              seq: 0,
+              position: 0,
+              windowFrom: 0,
+              windowTo: 0,
+            })),
+          )
+        : null;
+    // The Passages a Citation quotes are shown from the scope, so a verdict on them has looked.
+    const looked = () => searches > 0 || citedShown !== null;
     const { model } = request;
     const calculating = model.support === "tools" && calculates(model.capabilities);
     const recorded = new Set<number>();
@@ -330,6 +498,8 @@ export function createClaimCheck(deps: ClaimCheckDependencies) {
 
     const unstatedUnit = (
       citations: readonly Citation[],
+      claim = request.claim,
+      bound?: readonly BoundNumber[],
     ): { why: UnsupportedReason; quote: Citation | null } | null => {
       const checked = citations.map((citation) => {
         const text = (from: number | null, to: number | null) =>
@@ -344,7 +514,7 @@ export function createClaimCheck(deps: ClaimCheckDependencies) {
           document: () => text(null, null),
         };
       });
-      const found = unitNotStated(request.claim, checked);
+      const found = unitNotStated(claim, checked, bound);
       if (!found) return null;
       const t = (key: MessageKey, params?: MessageParams) =>
         translate(deps.language(), key, params);
@@ -422,15 +592,19 @@ export function createClaimCheck(deps: ClaimCheckDependencies) {
         );
         return left && speaks ? [left] : [];
       });
-    const notChecked = (
-      reason: ClaimCheckFailure,
-      detail: string | null = null,
-    ): ClaimCheckResult => ({
+    const unchecked = (reason: ClaimCheckFailure, detail: string | null = null): ClaimJudgment => ({
       verdict: "not-checked",
       reason,
       detail,
       ...facts(),
     });
+    const notChecked = (
+      reason: ClaimCheckFailure,
+      detail: string | null = null,
+    ): ClaimCheckResult => {
+      const result = unchecked(reason, detail);
+      return request.figures?.length ? uncheckedFigureResults(request.figures, result) : result;
+    };
     const failedCheck = (error: ProviderError): ClaimCheckResult => {
       const { reason, detail } = failureOf(error);
       return notChecked(reason, detail);
@@ -516,8 +690,19 @@ export function createClaimCheck(deps: ClaimCheckDependencies) {
     let finished = false;
     for await (const event of deps.engine.generate({
       instructions: (mode, options) =>
-        checkInstructions(mode, deps.language(), options?.passages, calculating),
-      messages: [{ role: "user", content: claimPrompt({ ...request, language: deps.language() }) }],
+        checkInstructions(
+          mode,
+          deps.language(),
+          options?.passages,
+          calculating,
+          (request.figures?.length ?? 0) > 0,
+        ),
+      messages: [
+        {
+          role: "user",
+          content: claimPrompt({ ...request, citedShown, language: deps.language() }),
+        },
+      ],
       question: request.claim,
       model: model.model,
       documents: tools,
@@ -530,18 +715,28 @@ export function createClaimCheck(deps: ClaimCheckDependencies) {
       window: model.window,
       retryQuotes: model.retryQuotes,
       cacheKey: request.cacheKey,
+      isReply: (text) => readVerdict(text) !== null,
       // A model may give its verdict before it has looked: Claude Haiku 5.5 did, about one check
       // in six of a whole Mind.
       turnChecks: [
         {
           name: "search-first",
           check: (text) =>
-            searches === 0 && readVerdict(text) ? { claims: [], note: SEARCH_FIRST } : null,
+            !looked() && readVerdict(text) ? { claims: [], note: SEARCH_FIRST } : null,
         },
         searchAgain(() => searches),
+        ...figuresReplied(
+          request,
+          figures,
+          looked,
+          (marker) => session.tools.hasRecord?.(marker) ?? false,
+        ),
         {
           name: "calculate-first",
+          // A sentence checked figure by figure gives each figure's calculation on its Figures
+          // line (`figuresReplied`), never a Calculation line.
           check: async (text) =>
+            !request.figures?.length &&
             attempts === 0 &&
             (await requiresCalculation(readsAsRefusal(text) ? null : readVerdict(text)))
               ? {
@@ -561,6 +756,78 @@ export function createClaimCheck(deps: ClaimCheckDependencies) {
     }
     if (signal.aborted) return notChecked("stopped");
     if (failed) return failedCheck(failed);
+    if (request.figures?.length) {
+      if (!finished || reply.trim() === "") return notChecked("empty");
+      if (readsAsRefusal(reply)) return notChecked("refused");
+      if (!looked()) return notChecked("unread");
+      // A saved figure is worked out again from its own inputs, wherever the model searched.
+      const saved = new Map(
+        request.figures
+          .flatMap((figure) =>
+            figure.calculated && !figure.calculated.figure.analysis
+              ? figure.calculated.figure.inputs
+              : [],
+          )
+          .flatMap((input) => [
+            input.citation,
+            ...(input.unitStatement ? [input.unitStatement.citation] : []),
+          ])
+          .flatMap((citation) => {
+            const source = deps.documents.citationSource(citation.passageId);
+            return source ? [[source.passageId, source] as const] : [];
+          }),
+      );
+      session.show(
+        [...saved.values()].map((source) => ({
+          ...source,
+          seq: 0,
+          position: 0,
+          windowFrom: 0,
+          windowTo: 0,
+        })),
+      );
+      session.check();
+      if (invalidInput || pending.size > 0) return notChecked("no-evidence");
+      return checkFigureReply({
+        requested: request.figures,
+        claim: request.claim,
+        reply: figureReplyText(reply, setAside),
+        calculations: figures,
+        citation: (marker) => session.finalCitation(marker),
+        facts,
+        caseFlags: citedCase,
+        costs: (marker) => stated.get(marker)?.costs ?? new Set(),
+        unitReason: (figure, citations, bound) =>
+          unstatedUnit(citations, figure, bound)?.why ?? null,
+        signal,
+        async remainder(remainder) {
+          const evidence =
+            remainder.citation === null ? null : session.finalCitation(remainder.citation);
+          const result = figureJudgment(remainder, evidence, facts(), citedCase(evidence));
+          if (result.verdict !== "contradicted" || !evidence) return result;
+          const confirmation = await confirmContradiction(
+            { ...request, claim: remainder.text, figures: undefined },
+            evidence,
+            session,
+            signal,
+          );
+          if ("failed" in confirmation) {
+            const failure = failureOf(confirmation.failed);
+            return unchecked(failure.reason, failure.detail);
+          }
+          if (confirmation.kind === "stopped") return unchecked("stopped");
+          if (confirmation.kind === "malformed") return unchecked("malformed");
+          if (confirmation.kind !== "confirmed")
+            return figureJudgment(
+              { ...remainder, verdict: "unsupported" },
+              evidence,
+              facts(),
+              citedCase(evidence),
+            );
+          return result;
+        },
+      });
+    }
     if (confirmationFailure) return failedCheck(confirmationFailure);
     if (invalidInput || pending.size > 0) return notChecked("no-evidence");
     const checked = calculated(request.claim, figures, stated, figureContext);
@@ -599,7 +866,7 @@ export function createClaimCheck(deps: ClaimCheckDependencies) {
       readVerdict(reply) ??
       (withVerdict === undefined ? null : readVerdict(`${withVerdict}\n\n${reply}`));
     if (!verdict) return notChecked(refused ? "refused" : "malformed");
-    if (searches === 0) return notChecked("unread");
+    if (!looked()) return notChecked("unread");
     session.check();
     if (verdict.evidence === null || verdict.coverage === null) return notChecked("malformed");
     const namedMarkers = [
@@ -849,28 +1116,22 @@ export function createClaimCheck(deps: ClaimCheckDependencies) {
         // A judgement has just compared this very quote with the sentence: no nearest line.
         return unsupported({ reason: verdict.says, ...part, found: true }, evidence, null);
       };
-      const first = await compare(request, deciding, session, signal, CONFIRM_INSTRUCTIONS);
-      if (signal.aborted) return notChecked("stopped");
-      if ("failed" in first) return failedCheck(first.failed);
-      const judged = readJudgement(first.reply);
+      const confirmation = await confirmContradiction(request, deciding, session, signal);
+      if ("failed" in confirmation) return failedCheck(confirmation.failed);
+      if (confirmation.kind === "stopped") return notChecked("stopped");
       // The Passage is about something else: what is nearest may still say something different.
-      if (judged === "neither") {
+      if (confirmation.kind === "unrelated") {
         return unit
           ? unsupported(unit, unitProblem?.quote ?? null, null)
           : (byCalculation ?? unsupported(verdict.topic === "not found" ? undefined : UNBACKED));
       }
       // Never Supported: in one word it called the parties the other way round the same (#1668).
-      if (judged === "same") return inDoubt();
+      if (confirmation.kind === "doubt") return inDoubt();
       // A false contradiction is the worst verdict a check gives, and one judgement upheld near
       // misses (#1647): the strict one finds the quote doesn't state the sentence's detail, and
       // then the card shows the part the quote states (DESIGN.md › Checks). Its "same" doesn't
       // count: writing a Chinese sentence in English, it read a reversed reporting line backwards.
-      const strict = await compare(request, deciding, session, signal, STRICT_INSTRUCTIONS);
-      if (signal.aborted) return notChecked("stopped");
-      if ("failed" in strict) return failedCheck(strict.failed);
-      const strictly = readJudgement(strict.reply);
-      if (strictly === null) return notChecked("malformed");
-      if (strictly === "neither") return inDoubt();
+      if (confirmation.kind === "malformed") return notChecked("malformed");
     }
     if (byCalculation && verdict.verdict !== "contradicted") return byCalculation;
     return {
@@ -1048,6 +1309,28 @@ const isFailed = (value: unknown): value is Failed =>
   typeof value === "object" && value !== null && "failed" in value;
 
 const notFailed = <T>(value: T | Failed): T | null => (isFailed(value) ? null : value);
+
+async function confirmContradiction(
+  request: ClaimCheckRequest,
+  quoted: Citation | readonly Citation[],
+  session: ReturnType<typeof createCitationSession>,
+  signal: AbortSignal,
+): Promise<
+  | { kind: "unrelated" | "doubt" | "confirmed" | "malformed" | "stopped" }
+  | { failed: ProviderError }
+> {
+  const first = await compare(request, quoted, session, signal, CONFIRM_INSTRUCTIONS);
+  if (signal.aborted) return { kind: "stopped" };
+  if ("failed" in first) return first;
+  const judged = readJudgement(first.reply);
+  if (judged === "neither") return { kind: "unrelated" };
+  if (judged === "same") return { kind: "doubt" };
+  const strict = await compare(request, quoted, session, signal, STRICT_INSTRUCTIONS);
+  if (signal.aborted) return { kind: "stopped" };
+  if ("failed" in strict) return strict;
+  const strictly = readJudgement(strict.reply);
+  return { kind: strictly === null ? "malformed" : strictly === "neither" ? "doubt" : "confirmed" };
+}
 
 async function partOf(
   request: ClaimCheckRequest,

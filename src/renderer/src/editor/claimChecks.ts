@@ -9,14 +9,20 @@ import type { Node as ProseMirrorNode } from "@tiptap/pm/model";
 import { type EditorState, Plugin, PluginKey } from "@tiptap/pm/state";
 import { Decoration, DecorationSet, type EditorView } from "@tiptap/pm/view";
 import {
+  BLOCK_ID_ATTRIBUTE,
+  CALCULATED_FIGURE_NODE,
+  type CellFigurePlace,
+  CHART_NODE,
   CITATION_NODE,
   CLAIM_CHECK_MARK,
   type ClaimCheckAttributes,
   type SearchScope,
 } from "../../../core/api";
+import { chartCheckText, chartPoints, readChart } from "../../../shared/charts";
 import {
   type ClaimCheckShown,
   claimCheckShown,
+  figureCheckShown,
   type KeptMark,
   readClaimCheck,
 } from "../../../shared/claimChecks";
@@ -46,6 +52,8 @@ const ATTRIBUTES: readonly (keyof ClaimCheckAttributes)[] = [
   "excluded",
   "checkedAt",
   "kept",
+  "figures",
+  "remainder",
 ];
 
 /**
@@ -59,7 +67,11 @@ export const ClaimCheck = Mark.create({
     Object.fromEntries(
       ATTRIBUTES.map((name) => [
         name,
-        { default: null, parseHTML: () => null, renderHTML: () => ({}) },
+        {
+          default: name === "remainder" ? undefined : null,
+          parseHTML: () => null,
+          renderHTML: () => ({}),
+        },
       ]),
     ),
   parseHTML: () => [],
@@ -111,7 +123,12 @@ export function claimPlaces(block: ProseMirrorNode, pos: number) {
     citations.push({ from: start, to: start + child.nodeSize });
     return true;
   });
-  const sentences = sentenceSpans(places.text).map((span, index, all) => {
+  const sentences = sentenceSpans(
+    places.text,
+    places.inline
+      .filter(({ node }) => node.type.name === CALCULATED_FIGURE_NODE)
+      .map(({ at }) => at),
+  ).map((span, index, all) => {
     const from = places.starts[span.from] ?? pos + 1;
     const end = places.ends[span.to - 1] ?? from;
     const next = places.starts[all[index + 1]?.from ?? places.text.length] ?? Infinity;
@@ -131,18 +148,37 @@ export function claimPlaces(block: ProseMirrorNode, pos: number) {
 
 /** A check where it is in the editor now. */
 export interface ClaimSpan {
+  kind?: "chart";
   check: ClaimCheckAttributes;
   /** The first marked character, and after the last. */
   from: number;
   to: number;
   /** The whole sentences the marked text is in, as they read now. */
   sentence: { from: number; to: number; text: string };
+  /** A paragraph's sentences: its Block and where they are in its text, as the core places figures. */
+  place?: { blockId: string; from: number; to: number };
 }
 
 /** Every check in the document, top to bottom. */
 export function claimSpans(doc: ProseMirrorNode): ClaimSpan[] {
   const spans: ClaimSpan[] = [];
   doc.descendants((block, pos) => {
+    if (block.type.name === CHART_NODE) {
+      const check = readClaimCheck(block.attrs[CLAIM_CHECK_MARK]);
+      if (check)
+        spans.push({
+          kind: "chart",
+          check,
+          from: pos,
+          to: pos + block.nodeSize,
+          sentence: {
+            from: pos,
+            to: pos + block.nodeSize,
+            text: chartCheckText(readChart(block.attrs)),
+          },
+        });
+      return false;
+    }
     if (!block.isTextblock) return true;
     const found = new Map<string, { check: ClaimCheckAttributes; from: number; to: number }>();
     let at = 0;
@@ -150,7 +186,11 @@ export function claimSpans(doc: ProseMirrorNode): ClaimSpan[] {
       if (child.type.name === CITATION_NODE) return;
       const length = child.isText ? (child.text ?? "").length : 1;
       const mark = child.marks.find((each) => each.type.name === CLAIM_CHECK_MARK);
-      const check = mark ? readClaimCheck(mark.attrs) : null;
+      const check = mark
+        ? readClaimCheck(mark.attrs)
+        : child.type.name === CALCULATED_FIGURE_NODE
+          ? readClaimCheck(child.attrs[CLAIM_CHECK_MARK])
+          : null;
       if (check) {
         const known = found.get(check.id);
         if (known) known.to = at + length;
@@ -160,12 +200,16 @@ export function claimSpans(doc: ProseMirrorNode): ClaimSpan[] {
     });
     if (found.size === 0) return false;
     const { text, starts, ends, sentences } = claimPlaces(block, pos);
+    const raw = paragraphPlaces(block, pos);
     const startOf = (index: number) => starts[index] ?? pos + 1;
     const endOf = (index: number) => ends[index - 1] ?? startOf(index);
     for (const { check, from, to } of found.values()) {
       const touched = sentences.filter((span) => span.start < to && span.end > from);
       const start = Math.min(from, touched[0]?.start ?? from);
       const end = Math.max(to, touched.at(-1)?.end ?? to);
+      const blockId = block.attrs[BLOCK_ID_ATTRIBUTE];
+      const placeFrom = raw.starts.indexOf(startOf(start));
+      const placeTo = raw.ends.indexOf(endOf(end)) + 1;
       spans.push({
         check,
         from: startOf(from),
@@ -175,6 +219,9 @@ export function claimSpans(doc: ProseMirrorNode): ClaimSpan[] {
           to: Math.max(endOf(end), touched.at(-1)?.to ?? 0),
           text: text.slice(start, end),
         },
+        ...(typeof blockId === "string" &&
+          placeFrom >= 0 &&
+          placeTo > 0 && { place: { blockId, from: placeFrom, to: placeTo } }),
       });
     }
     return false;
@@ -184,6 +231,9 @@ export function claimSpans(doc: ProseMirrorNode): ClaimSpan[] {
 
 /** What a check is compared with besides its sentence: the Documents' versions and the Mind's Folder. */
 export interface ClaimContext {
+  figureContexts?: ReadonlyMap<string, string> | null;
+  /** Where each figure the one Check reads in a table's cells is, by Block: its start and end in the Block's text. */
+  figurePlaces?: ReadonlyMap<string, readonly (readonly [number, number])[]> | null;
   /** Each live Document's current version, by id; null while they aren't known. */
   versions: ReadonlyMap<string, string> | null;
   folderId: string | null;
@@ -202,6 +252,16 @@ export function claimPartRows(check: ClaimCheckAttributes): ClaimCheckAttributes
       ))
     ? check.parts
     : undefined;
+}
+
+/** `ClaimContext.figurePlaces` from where the core reads figures in table cells. */
+export function figurePlacesOf(
+  cells: readonly CellFigurePlace[],
+): Map<string, (readonly [number, number])[]> {
+  const places = new Map<string, (readonly [number, number])[]>();
+  for (const { blockId, from, to } of cells)
+    places.set(blockId, [...(places.get(blockId) ?? []), [from, to]]);
+  return places;
 }
 
 /** A check where it is, and how it shows: never one the User keeps as their own view, which shows nothing. */
@@ -232,7 +292,31 @@ export function claimsOf(
   const claims: ShownClaim[] = [];
   const kept: KeptMark[] = [];
   for (const span of claimSpans(doc)) {
-    const shown = claimCheckShown(span.check, { ...context, text: span.sentence.text });
+    const { place } = span;
+    const figured =
+      context.figurePlaces && place
+        ? (context.figurePlaces.get(place.blockId) ?? []).some(
+            ([from, to]) => from >= place.from && to <= place.to,
+          )
+        : undefined;
+    let shown = claimCheckShown(span.check, {
+      ...context,
+      text: span.sentence.text,
+      ...(figured !== undefined && { figured }),
+    });
+    if (span.kind === "chart") {
+      const node = doc.nodeAt(span.from);
+      const chart = readChart(node?.attrs ?? {});
+      const expected = chartPoints(chart).length * (chart.kind === "scatter" ? 2 : 1);
+      if (
+        (!span.check.figures?.length || span.check.figures.length !== expected) &&
+        shown.state !== "kept" &&
+        shown.state !== "checking" &&
+        shown.state !== "needs-recheck" &&
+        (!span.check.figures?.length || shown.state === "supported")
+      )
+        shown = { state: "not-checked", reason: "unread" };
+    }
     if (shown.state === "kept") {
       kept.push({ from: span.from, to: span.to, text: span.sentence.text });
     } else claims.push({ ...span, shown });
@@ -242,9 +326,13 @@ export function claimsOf(
 
 function stateOf(doc: ProseMirrorNode, context: ClaimContext): ClaimState {
   const { claims, kept } = claimsOf(doc, context);
-  const washes = claims.flatMap(({ shown, from, to }) =>
+  const washes = claims.flatMap(({ shown, from, to, kind }) =>
     shown.state === "unsupported" || shown.state === "contradicted"
-      ? [Decoration.inline(from, to, { class: `claim-wash claim-wash--${shown.state}` })]
+      ? [
+          kind === "chart"
+            ? Decoration.node(from, to, { class: `claim-wash claim-wash--${shown.state}` })
+            : Decoration.inline(from, to, { class: `claim-wash claim-wash--${shown.state}` }),
+        ]
       : [],
   );
   return { context, claims, kept, decorations: DecorationSet.create(doc, washes) };
@@ -308,6 +396,28 @@ export function shownClaims(state: EditorState): readonly ShownClaim[] {
   return claimsKey.getState(state)?.claims ?? [];
 }
 
+/**
+ * How a figure's check shows, and whether that check worked it out again from its kept
+ * inputs (a calculated figure's "Inputs found · recalculated").
+ */
+export function figureShownIn(
+  state: EditorState,
+  id: string,
+): ClaimCheckShown & { recalculated?: true } {
+  const context = claimsKey.getState(state)?.context ?? NO_CONTEXT;
+  for (const span of claimSpans(state.doc)) {
+    const child = span.check.figures?.find((figure) => figure.id === id);
+    if (!child) continue;
+    const now = { ...context, text: span.sentence.text };
+    if (span.check.kept) return claimCheckShown(span.check, now);
+    const shown = figureCheckShown(child, now);
+    return shown.state === "supported" && child.calculation
+      ? { ...shown, recalculated: true }
+      : shown;
+  }
+  return { state: "not-checked", reason: "unread" };
+}
+
 const NONE_KEPT: readonly KeptMark[] = [];
 
 /** The marks the User keeps as their own view, at their places: not counted. */
@@ -321,7 +431,14 @@ export function setClaimContext(view: EditorView, context: ClaimContext): void {
   const sameScopes =
     now?.scope === context.scope ||
     (now?.scope && context.scope && sameScope(now.scope, context.scope));
-  if (now?.versions === context.versions && now.folderId === context.folderId && sameScopes) return;
+  if (
+    now?.versions === context.versions &&
+    now.folderId === context.folderId &&
+    sameScopes &&
+    now.figureContexts === context.figureContexts &&
+    now.figurePlaces === context.figurePlaces
+  )
+    return;
   view.dispatch(view.state.tr.setMeta(CONTEXT, context).setMeta("addToHistory", false));
 }
 
@@ -338,7 +455,9 @@ export const ClaimChecks = Extension.create({
           apply: (tr, claims) => {
             const context = tr.getMeta(CONTEXT) as ClaimContext | undefined;
             if (context) return stateOf(tr.doc, context);
-            return tr.docChanged ? stateOf(tr.doc, claims.context) : claims;
+            return tr.docChanged
+              ? stateOf(tr.doc, { ...claims.context, figureContexts: null })
+              : claims;
           },
         },
         props: {

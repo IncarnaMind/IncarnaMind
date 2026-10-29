@@ -18,6 +18,7 @@ import {
   SENTENCES_CHECKED_AT_MOST,
   saysNotFound,
 } from "../../../shared/claimChecks";
+import { quotedSourceText } from "../../../shared/figureSchedule";
 import { formulaText } from "../../../shared/formula";
 import { citationLocation, formatLocation, openKind } from "../../../shared/locations";
 import { comparableSentence } from "../../../shared/sentences";
@@ -42,6 +43,7 @@ import { ObjectMenu, useObjectMenu } from "../components/ObjectMenu";
 import { LineAction } from "../components/ProblemLine";
 import { rowActionButtonClass } from "../components/sidebarRows";
 import { askInAssistant } from "../conversations";
+import { openFigureSchedule } from "../figures";
 import { useFindSources } from "../findSources";
 import { translateNow, useLanguage, useT } from "../i18n";
 import { groupsMerged } from "../layoutSlice";
@@ -153,8 +155,11 @@ export function ClaimMark({
   const card = useRef<HTMLDivElement>(null);
   /** Whether the card was opened with the keyboard, whose Esc gives the caret back (#1762). */
   const openedByKeyboard = useRef(false);
-  const open = pinned || peeking;
-  const decision = state === "supported" ? citationDecision(editor.state, claim) : NO_DECISION;
+  const open = claim.kind !== "chart" && (pinned || peeking);
+  const decision =
+    state === "supported" && claim.kind !== "chart"
+      ? citationDecision(editor.state, claim)
+      : NO_DECISION;
   const plus = decision.kind === "add" && !claimPartRows(claim.check);
   const added = useAddedDocuments((store) => store.byMind[mindId]?.[claim.check.id]?.length ?? 0);
   const heading = t(checkStateKey(editor, claim));
@@ -255,6 +260,10 @@ export function ClaimMark({
         }}
         onBlur={() => hold("focus", false)}
         onClick={(event) => {
+          if (claim.kind === "chart") {
+            void openFigureSchedule(mindId).catch(useAppStore.getState().reportError);
+            return;
+          }
           if (event.detail === 0) setClaimFocus(place, id);
           setOpenClaim(place, id);
           // In the example's red ≠: opening it records that the check was seen.
@@ -563,6 +572,14 @@ function ClaimCard({
       ? coveredPart(check.unsupported)
       : null;
   const evidence = (decided && fromPassage) || differs ? check.evidence : (covers?.quoted ?? null);
+  // A figure's Contradicted is a comparison with the number it is bound to, not a reading of
+  // what a passage says: the card shows that number and where it is, to check at a glance.
+  const mismatched =
+    state === "contradicted"
+      ? (check.figures ?? []).filter(
+          (figure) => figure.state === "contradicted" && figure.sourceInput !== null,
+        )
+      : [];
   const location = evidence ? citationLocation(evidence) : null;
   const already = decision.kind === "already" ? decision.citation : null;
   const citedQuote = already?.attributes.quote ? already.attributes : evidence;
@@ -603,6 +620,26 @@ function ClaimCard({
         ? t(`claim.recheck.${shown.why}`)
         : null;
 
+  const figureSources = mismatched.map((figure) => {
+    const cited = figure.sourceInput?.citation;
+    const at = cited ? citationLocation(cited) : null;
+    const source = [
+      cited ? shownDocumentName(cited, documents) : null,
+      at ? formatLocation(at, t) : null,
+    ]
+      .filter(Boolean)
+      .join(" · ");
+    return (
+      <p key={figure.id} data-testid="claim-figure-source" className="claim-card-says">
+        {t("figures.card.source", {
+          figure: figure.reading.chars,
+          value: quotedSourceText(figure) ?? "",
+          source,
+        })}
+      </p>
+    );
+  });
+
   return (
     <div
       ref={rootRef}
@@ -621,6 +658,7 @@ function ClaimCard({
               {t("claim.sentence", { sentence })}
             </p>
           </div>
+          {figureSources}
           <ChangedCitations cited={cited} />
           <ClaimPartRows
             id={check.id}
@@ -652,6 +690,7 @@ function ClaimCard({
                 {check.says}
               </p>
             )}
+            {figureSources}
             {differs && (
               <p data-testid="claim-differs" className="claim-card-says">
                 {t("claim.unsupported.differs")}

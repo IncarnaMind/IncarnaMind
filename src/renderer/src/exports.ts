@@ -56,8 +56,13 @@ export const exportPreferences = (): ExportPreferences =>
   useAppStore.getState().settings?.user.exportOptions ?? DEFAULT_PREFERENCES;
 
 export const COMPARISON_EXCEL = "comparison-xlsx";
+export const FIGURE_SCHEDULE_EXCEL = "figure-schedule-xlsx";
 
-export type ExportKind = ExportFormat | "check-record" | typeof COMPARISON_EXCEL;
+export type ExportKind =
+  | ExportFormat
+  | "check-record"
+  | typeof COMPARISON_EXCEL
+  | typeof FIGURE_SCHEDULE_EXCEL;
 
 export const isCheckRecord = (kind: ExportKind): kind is "check-record" => kind === "check-record";
 
@@ -100,6 +105,8 @@ export type ExportResult = { tableId?: string } & (
       kept: ("header" | "footer")[];
       /** The Documents whose entries are too thin to cite, marked so in the file. */
       needsDetails: string[];
+      /** Whether History kept the Note as it was sent (#1933): false says it couldn't. */
+      sentKept: boolean;
       /** The first save, which took Documents › IncarnaMind: the line says where. */
       defaulted: boolean;
       /** The Citations in the file, and the Documents they cite. */
@@ -291,6 +298,7 @@ function savedResult(
       tracked: "trackedChanges" in saved ? saved.trackedChanges : 0,
       kept: "word" in saved ? (saved.word?.keptFurniture ?? []) : [],
       needsDetails: "needsDetails" in saved ? saved.needsDetails : [],
+      sentKept: "sentKept" in saved ? saved.sentKept : true,
       defaulted: saved.file.defaulted,
       citations: "citations" in saved ? saved.citations : 0,
       citedDocuments: "citedDocuments" in saved ? saved.citedDocuments : 0,
@@ -426,12 +434,35 @@ export async function exportComparison(
   }
 }
 
+export async function exportFigureSchedule(
+  mindId: string,
+  first?: () => Promise<boolean>,
+): Promise<void> {
+  const settle = begin(mindId, FIGURE_SCHEDULE_EXCEL);
+  if (!settle) return;
+  try {
+    if (first && !(await first())) {
+      settle(null);
+      return;
+    }
+    settle(savedResult(mindId, FIGURE_SCHEDULE_EXCEL, await core.saveFigureScheduleExport(mindId)));
+  } catch (error) {
+    settle({
+      mindId,
+      format: FIGURE_SCHEDULE_EXCEL,
+      state: "failed",
+      message: errorMessage(error, translateNow),
+    });
+  }
+}
+
 export function exportAgain(
   result: Pick<ExportResult, "mindId" | "format" | "tableId">,
   first: () => Promise<boolean>,
 ): Promise<void> {
   const { mindId, format: kind } = result;
   if (kind === COMPARISON_EXCEL) return exportComparison(mindId, result.tableId ?? "", first);
+  if (kind === FIGURE_SCHEDULE_EXCEL) return exportFigureSchedule(mindId, first);
   if (!isCheckRecord(kind)) return exportMind(mindId, kind, first);
   return exportCheckRecord(mindId, first);
 }

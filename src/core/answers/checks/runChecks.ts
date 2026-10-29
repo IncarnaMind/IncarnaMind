@@ -1,3 +1,5 @@
+import type * as Y from "yjs";
+import { settleFigureCheck } from "../../../shared/figureChecks";
 /**
  * Checks claims already marked "checking", for Verify (#97) and Check this
  * Mind (#737): a cloud model six at a time, one on this computer one at a
@@ -54,6 +56,7 @@ export interface QueuedClaim {
   claim: string;
   context: string;
   cited?: ClaimCheckRequest["cited"];
+  figures?: ClaimCheckRequest["figures"];
   /** Where it is checked, when not where the run's other claims are. */
   scope?: ClaimCheckRequest["scope"];
   parts?: readonly ClaimPartPlan[];
@@ -68,6 +71,8 @@ export interface RunChecksOptions {
     check: ClaimCheckAttributes,
     result: ClaimCheckResult,
     at: string,
+    blocks: Y.XmlFragment,
+    mindId: string,
     sourceText?: string,
   ): ClaimCheckAttributes;
   /** Keeps the text of the evidence the Mind's checks show (#79). */
@@ -88,25 +93,33 @@ export async function runChecks(
   },
 ): Promise<{ checked: number; stop: RunStop | null }> {
   const { mindId, prepared, signal } = run;
-  const write = (id: string, change: (check: ClaimCheckAttributes) => ClaimCheckAttributes) => {
+  const write = (
+    id: string,
+    change: (check: ClaimCheckAttributes, blocks: Y.XmlFragment) => ClaimCheckAttributes,
+  ) => {
     if (signal.aborted) return;
-    const kept = options.content.edit(mindId, (blocks) => updateCheck(blocks, id, change));
+    const kept = options.content.edit(mindId, (blocks) =>
+      updateCheck(blocks, id, (check) => change(check, blocks)),
+    );
     if (kept) options.retainEvidence(mindId);
   };
   const notChecked =
     (reason: ClaimCheckAttributes["reason"], detail: string | null = null) =>
-    (check: ClaimCheckAttributes): ClaimCheckAttributes => {
+    (check: ClaimCheckAttributes, blocks: Y.XmlFragment): ClaimCheckAttributes => {
       const at = options.now().toISOString();
-      if (check.parts) {
-        const parts = check.parts.map(
-          (part): ClaimCheckPart =>
-            part.verdict === "checking"
-              ? { ...part, verdict: "not-checked", reason, detail }
-              : part,
-        );
-        return options.withResult(check, resultFromParts(parts), at);
-      }
-      return { ...check, state: "not-checked", reason, detail, checkedAt: at };
+      const settled = settleFigureCheck(check, (basis) => ({
+        ...basis,
+        state: "not-checked",
+        reason,
+        detail,
+        checkedAt: at,
+      }));
+      if (!check.parts) return settled;
+      const parts = check.parts.map(
+        (part): ClaimCheckPart =>
+          part.verdict === "checking" ? { ...part, verdict: "not-checked", reason, detail } : part,
+      );
+      return options.withResult({ ...settled, parts }, resultFromParts(parts), at, blocks, mindId);
     };
 
   let checked = 0;
@@ -120,6 +133,7 @@ export async function runChecks(
         ...(claim.parts && { parts: claim.parts }),
         ...(claim.only && { only: claim.only }),
         ...(claim.previous && { previous: claim.previous }),
+        ...(claim.figures && { figures: claim.figures }),
         scope: claim.scope ?? run.scope,
         model: prepared,
         ...(run.thirdParty && { thirdParty: run.thirdParty }),
@@ -138,7 +152,9 @@ export async function runChecks(
           const at = options.now().toISOString();
           if (outcome.value.verdict !== "not-checked") checked++;
           recordJudged(options.recordAiUse, mindId, prepared, outcome.value, at);
-          write(claim.id, (each) => options.withResult(each, outcome.value, at, claim.claim));
+          write(claim.id, (each, blocks) =>
+            options.withResult(each, outcome.value, at, blocks, mindId, claim.claim),
+          );
         } else if (outcome.status === "not-checked") {
           write(claim.id, notChecked(outcome.stop.reason));
         } else if (outcome.status === "failed") {

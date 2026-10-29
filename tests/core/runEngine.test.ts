@@ -282,6 +282,29 @@ describe.each(ENGINES)("A Run engine: $name", ({ create }) => {
     ]);
   });
 
+  test("a call that copies raw tabs into a string is read with them escaped; input broken otherwise is refused (#1827)", async () => {
+    const cite = testTool("cite", {
+      schema: { type: "object", properties: { quote: { type: "string" } }, required: ["quote"] },
+    });
+    const model = scriptedModel((call) =>
+      call.index === 0
+        ? {
+            calls: [
+              { tool: "cite", input: null, raw: '{"quote":"Revenue\t4979.6\t4860"}' },
+              { tool: "cite", input: null, raw: '{"quote":"Revenue' },
+            ],
+          }
+        : { text: "Recorded." },
+    );
+
+    await collect(create(), request(model, { tools: [cite] }));
+
+    expect(cite.calls.map((call) => call.input)).toEqual([{ quote: "Revenue\t4979.6\t4860" }]);
+    const results = resultsSent(model, 1);
+    expect(results).toHaveLength(2);
+    expect(results[1]?.type).toBe("error-text");
+  });
+
   // protects=a Tool hears a call's input as the model writes it only when the request says the Tool may (#202), so nothing acts before a gate that could ask; fails_when=a Tool's streamInput runs for a request that didn't allow it, or doesn't when it did; no_claim=what a Tool does with the input.
   test("a Tool hears its calls' input as it comes only when the request lets it", async () => {
     const heard: string[] = [];

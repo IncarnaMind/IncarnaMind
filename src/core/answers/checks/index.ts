@@ -29,6 +29,11 @@ import { caseCitations } from "../../../shared/caseCitations";
 import { type LiveDocument, withShownName } from "../../../shared/citations";
 import { restsOn } from "../../../shared/claimChecks";
 import { partWithResult, pendingPart, resultFromParts } from "../../../shared/claimParts";
+import {
+  beginFigureCheck,
+  readFigureFinding,
+  settleFigureCheck,
+} from "../../../shared/figureChecks";
 import { mindScopeIn } from "../../../shared/mindScope";
 import { folderScope, oneFolderOf } from "../../../shared/searchScope";
 import { judgesUnreliably } from "../../../shared/smallModel";
@@ -43,9 +48,11 @@ import {
   type CitedQuote,
   type ClaimCheckAction,
   type ClaimCheckAttributes,
+  type ClaimCheckBasis,
   type ClaimCheckPart,
   type ClaimCheckResult,
   type ClaimCheckScope,
+  type ClaimJudgment,
   type ClaimPartSpan,
   type ContradictionCheckPlan,
   claimCheckActions,
@@ -69,18 +76,22 @@ import {
   isRecord,
   LocalModeError,
 } from "../../errors";
+import { augmentFigureFooting } from "../../figureSchedule";
 import type { Language } from "../../language";
 import type { MindContent } from "../../mindContent";
 import { parseMindId } from "../../minds";
 import type { PreparedChatModel } from "../../providers/chat";
 import { parseSearchScope } from "../../scope";
 import type { AnswerEngine } from "../engine";
-import { type ClaimCheckDependencies, recordJudged } from "./claimCheck";
+import { type CheckedCitation, type ClaimCheckDependencies, recordJudged } from "./claimCheck";
 import { createMindCheck, type MindCheckOptions } from "./mindCheck";
 import { recordOpinions, removeOpinion, unmarkedOpinion } from "./opinions";
 import { createPartCheck } from "./partCheck";
 import { pendingParts } from "./runChecks";
 import {
+  markedSentences as allMarks,
+  checkText,
+  citedQuoteOf,
   everySentence,
   markedSentences,
   markSentence,
@@ -238,10 +249,9 @@ function parseClaim(input: unknown) {
         isRecord(each) && typeof each.quote === "string"
           ? [
               {
+                ...citedQuoteOf(each),
                 documentName: String(each.documentName ?? ""),
                 quote: each.quote,
-                ...(typeof each.documentId === "string" && { documentId: each.documentId }),
-                ...(typeof each.contentHash === "string" && { contentHash: each.contentHash }),
               },
             ]
           : [],
@@ -278,24 +288,7 @@ const withQuoted = ({ quoted, ...why }: UnsupportedReason): UnsupportedReason =>
 };
 
 /** A result written onto its mark. */
-function withResult(
-  check: ClaimCheckAttributes,
-  result: ClaimCheckResult,
-  at: string,
-  sourceText = check.text,
-): ClaimCheckAttributes {
-  // Verify anchors a whole row to its first cell (#1368); its contextual claim has different offsets.
-  if (result.parts && sourceText !== check.text) {
-    const evidence = result.parts.flatMap((part) => part.evidence);
-    result = resultFromParts([
-      partWithResult(
-        { span: { start: 0, end: check.text.length }, kind: "fact" },
-        result,
-        evidence,
-      ),
-    ]);
-  }
-  if (result.parts) result = resultFromParts(result.parts);
+function withJudgment(check: ClaimCheckBasis, result: ClaimJudgment, at: string): ClaimCheckBasis {
   const common = { versions: result.versions, excluded: result.excluded, checkedAt: at };
   return result.verdict === "not-checked"
     ? {
@@ -328,20 +321,141 @@ function withResult(
       };
 }
 
+function withResult(
+  check: ClaimCheckAttributes,
+  result: ClaimCheckResult,
+  at: string,
+  sourceText = check.text,
+): ClaimCheckAttributes {
+  // Verify anchors a whole row to its first cell (#1368); its contextual claim has different offsets.
+  if (result.parts && sourceText !== check.text) {
+    const evidence = result.parts.flatMap((part) => part.evidence);
+    result = {
+      ...result,
+      ...resultFromParts([
+        partWithResult(
+          { span: { start: 0, end: check.text.length }, kind: "fact" },
+          result,
+          evidence,
+        ),
+      ]),
+    };
+  }
+  if (result.parts) result = { ...result, ...resultFromParts(result.parts) };
+  const { figures: _figures, remainder: _remainder, ...basis } = check;
+  const next = withJudgment(basis, result, at);
+  const { parts: _parts, ...childBasis } = basis;
+  if (!result.figures) {
+    if (!check.figures) return next;
+    const settled = settleFigureCheck(check, (child) =>
+      result.verdict === "not-checked"
+        ? withJudgment(child, result, at)
+        : { ...child, state: "not-checked", reason: "malformed", detail: null, checkedAt: at },
+    );
+    return next.parts ? { ...settled, parts: next.parts } : settled;
+  }
+  const figures = result.figures.flatMap((figure) => {
+    const finding = readFigureFinding(figure);
+    return finding
+      ? [{ ...withJudgment({ ...childBasis, id: finding.id }, figure.result, at), ...finding }]
+      : [];
+  });
+  if (figures.length !== result.figures.length)
+    return settleFigureCheck(check, (child) => ({
+      ...child,
+      state: "not-checked",
+      reason: "malformed",
+      detail: null,
+      checkedAt: at,
+    }));
+  if (!check.figures)
+    return {
+      ...next,
+      figures,
+      ...(result.remainder !== undefined && {
+        remainder:
+          result.remainder === null
+            ? null
+            : withJudgment({ ...childBasis, id: `${basis.id}:remainder` }, result.remainder, at),
+      }),
+    };
+  const pending = check.figures.filter(
+    (child) => child.request === check.request && child.state === "checking",
+  );
+  const received = new Map(figures.map((child) => [child.id, child]));
+  if (
+    received.size !== figures.length ||
+    received.size !== pending.length ||
+    pending.some((child) => !received.has(child.id))
+  )
+    return settleFigureCheck(check, (child) => ({
+      ...child,
+      state: "not-checked",
+      reason: "malformed",
+      detail: null,
+      checkedAt: at,
+    }));
+  const remainderPending =
+    check.remainder?.request === check.request && check.remainder.state === "checking";
+  return {
+    ...next,
+    figures: check.figures.map((child) => received.get(child.id) ?? child),
+    ...(remainderPending
+      ? result.remainder === undefined
+        ? {}
+        : {
+            remainder:
+              result.remainder === null
+                ? null
+                : withJudgment(check.remainder ?? childBasis, result.remainder, at),
+          }
+      : check.remainder === undefined
+        ? {}
+        : { remainder: check.remainder }),
+  };
+}
+
 const stopped = (check: ClaimCheckAttributes): ClaimCheckAttributes => {
-  if (check.state !== "checking") return check;
-  if (!check.parts) return { ...check, state: "not-checked", reason: "stopped" };
+  const settled = settleFigureCheck(check, (basis) => ({
+    ...basis,
+    state: "not-checked",
+    reason: "stopped",
+  }));
+  if (!check.parts) return settled;
   const parts = check.parts.map(
     (part): ClaimCheckPart =>
       part.verdict === "checking"
         ? { ...part, verdict: "not-checked", reason: "stopped", detail: null }
         : part,
   );
-  return withResult(check, resultFromParts(parts), check.checkedAt);
+  return withResult({ ...settled, parts }, resultFromParts(parts), check.checkedAt);
 };
 
 export function createChecks(options: ChecksOptions) {
   const { content, chat } = options;
+
+  function noteResult(
+    check: ClaimCheckAttributes,
+    result: ClaimCheckResult,
+    at: string,
+    blocks: Y.XmlFragment,
+    mindId: string,
+    sourceText = check.text,
+  ): ClaimCheckAttributes {
+    return withResult(
+      check,
+      {
+        ...result,
+        ...augmentFigureFooting(blocks, result, options.documents, {
+          versions: options.watch.documentVersions(),
+          folderId: options.mindFolder(mindId),
+          scope: content.readSettings(mindId, mindScopeIn),
+        }),
+      },
+      at,
+      sourceText,
+    );
+  }
   /** The requests running, by id: how to stop each, and its Mind. */
   const running = new Map<string, { controller: AbortController; mindId: string }>();
   const claimCheck = createPartCheck(options);
@@ -420,12 +534,18 @@ export function createChecks(options: ChecksOptions) {
   }
 
   /** What a sentence cites, each Document named as it is now. */
-  function citedNow(cited: readonly CitedQuote[]): { documentName: string; quote: string }[] {
+  function citedNow(cited: readonly CitedQuote[]): CheckedCitation[] {
     const live = options.documents.names();
-    return cited.map((each) => ({
-      documentName: withShownName(each, live).documentName,
-      quote: each.quote,
-    }));
+    return cited.map((each) => {
+      const current = live.find((document) => document.id === each.documentId);
+      return {
+        documentName: withShownName(each, live).documentName,
+        quote: each.quote,
+        // A Passage of an older version isn't what the Document says now.
+        ...(each.passageId &&
+          current?.contentHash === each.contentHash && { passageId: each.passageId }),
+      };
+    });
   }
 
   /** Marks a request's sentences not checked yet "stopped". */
@@ -612,13 +732,22 @@ export function createChecks(options: ChecksOptions) {
           checkedAt: startedAt,
           ...(parts && { parts }),
         };
-        markSentence(sentence.element, sentence.from, sentence.to, check);
+        const priorFigures =
+          allMarks(blocks).find(
+            (mark) =>
+              mark.element === sentence.element &&
+              mark.from < sentence.to &&
+              mark.to > sentence.from,
+          )?.check ?? null;
+        const pending = sentence.figures?.length
+          ? beginFigureCheck(priorFigures, check, sentence.figures, null)
+          : check;
+        markSentence(sentence.element, sentence.from, sentence.to, pending);
         if (input.part) removeOpinion(blocks, input.part.id);
         return [
           {
             id: check.id,
-            claim: sentence.text,
-            context: sentence.context,
+            ...checkText(sentence),
             cited: sentence.cited,
             ...(plans && { parts: plans }),
             ...(input.part && { only: input.part.span }),
@@ -640,6 +769,7 @@ export function createChecks(options: ChecksOptions) {
       const result = await claimCheck({
         claim: sentence.claim,
         context: sentence.context,
+        ...(sentence.figures && { figures: sentence.figures }),
         cited: citedNow(sentence.cited),
         ...("parts" in sentence && sentence.parts && { parts: sentence.parts }),
         ...("only" in sentence && sentence.only && { only: sentence.only }),
@@ -654,7 +784,9 @@ export function createChecks(options: ChecksOptions) {
       const at = options.now().toISOString();
       recordJudged(options.recordAiUse, mindId, ready.prepared, result, at);
       const kept = content.edit(mindId, (blocks) =>
-        updateCheck(blocks, sentence.id, (check) => withResult(check, result, at)),
+        updateCheck(blocks, sentence.id, (check) =>
+          noteResult(check, result, at, blocks, mindId, sentence.claim),
+        ),
       );
       if (kept) retainEvidence(mindId);
     }
@@ -718,7 +850,7 @@ export function createChecks(options: ChecksOptions) {
     evidenceScope: (mindId, allDocuments, verification) =>
       scopeOf(mindId, allDocuments, { documentIds: [verification.documentId] }),
     claimCheck,
-    withResult,
+    withResult: noteResult,
     retainEvidence,
     recordUnread,
     settleStopped,
@@ -734,7 +866,7 @@ export function createChecks(options: ChecksOptions) {
     recordUnread,
     isRunning: (requestId) => running.has(requestId),
     claimCheck,
-    withResult,
+    withResult: noteResult,
     retainEvidence,
     settleStopped,
     track,
@@ -747,7 +879,8 @@ export function createChecks(options: ChecksOptions) {
     claimCheck,
     scopeOf: (mindId) => scopeOf(mindId, false),
     citedNow,
-    withResult,
+    withResult: noteResult,
+    read: (mindId, look) => content.read(mindId, look),
     retainEvidence,
     claimTimeLimitMs: options.watch.claimTimeLimitMs,
   });
