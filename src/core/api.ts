@@ -8611,6 +8611,15 @@ export interface MindExport extends MindExportPreview {
    * for the result line's count. None in Numbered, which lists Documents by name.
    */
   needsDetails: string[];
+  /**
+   * The footnotes in the file, for the Saved line (#1945): the User's own and the Citations', a
+   * Citation of a source and place already footnoted repeating that footnote (#1381), so five
+   * Citations across two pages are 2 footnotes and one beside a footnote the User wrote is 3.
+   * A Word file counts the notes its document refers to, an imported file's own included; a PDF
+   * counts the notes printed with it. 0 for a format whose line counts none: Markdown, HTML, a
+   * share page, a source pack.
+   */
+  footnotes: number;
 }
 
 /** What `saveMindExport` did. */
@@ -8635,6 +8644,7 @@ export type SavedMindExport =
         | "citedDocuments"
         | "citationPlace"
         | "markAiText"
+        | "footnotes"
       >)
   /**
    * Not saved: a Mind imported from Word can't keep something in its file

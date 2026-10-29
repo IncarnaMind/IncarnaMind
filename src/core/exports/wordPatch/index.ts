@@ -93,6 +93,8 @@ export interface WordPatchResult {
   data: Uint8Array;
   report: WordExportReport;
   commented: FailedSentence[];
+  /** The footnotes the finished document refers to, the ones the file already had included (#2193). */
+  footnotes: number;
 }
 
 /** The text width a section leaves, in twips, for new tables and pictures: US Letter's with 1 inch margins if it doesn't say. */
@@ -326,7 +328,12 @@ export async function exportWordPatch(input: WordPatchInput): Promise<WordPatchR
   ) {
     report.notKept.push(signatureLoss);
   }
-  return { data, report, commented: review.commentedSentences() };
+  return {
+    data,
+    report,
+    commented: review.commentedSentences(),
+    footnotes: docxWriter.footnoteCount,
+  };
 }
 
 const signatureLoss: WordExportLoss = {

@@ -390,7 +390,11 @@ function SavedSentence({ result, withFile }: { result: SavedResult; withFile: Sa
     places:
       result.citationPlace === null
         ? null
-        : { citations: result.citations, place: result.citationPlace },
+        : {
+            citations: result.citations,
+            footnotes: result.footnotes,
+            place: result.citationPlace,
+          },
     markAiText: result.markAiText,
   });
   const unchecked =
