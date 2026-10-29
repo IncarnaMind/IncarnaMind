@@ -35,7 +35,7 @@ const WORDS = {
 for (const language of ["en", "zh-CN"] as const) {
   test(`a training provider says so in consent and Privacy (${language})`, async () => {
     const { app, window } = await launchApp(dataDir, { fakeChat: true });
-    await setWindowSize(app, window, 1440, 900);
+    await setWindowSize(app, window, language === "en" ? 1440 : 900, 900);
     await dismissChatSetup(window);
     await acceptPlainTextKeys(window);
     await saveProviderUnasked(window, {
@@ -76,7 +76,7 @@ for (const language of ["en", "zh-CN"] as const) {
 
   test(`a non-training provider has no training warning (${language})`, async () => {
     const { app, window } = await launchApp(dataDir, { fakeChat: true });
-    await setWindowSize(app, window, 1440, 900);
+    await setWindowSize(app, window, language === "en" ? 1440 : 900, 900);
     await dismissChatSetup(window);
     await acceptPlainTextKeys(window);
     await saveProviderUnasked(window, {
