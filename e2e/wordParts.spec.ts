@@ -247,6 +247,14 @@ test("page and section breaks show as a line; a page break deletes like a Block 
   await expect(sectionBreak).toHaveAttribute("aria-label", "分节符");
   await motionSettled(window);
   await screenshot(window, "word-page-break-zh");
+
+  // At the narrowest window the line still spans the text, its name whole.
+  await setWindowSize(app, window, 900, 700);
+  const narrowLine = await pageBreaks.first().boundingBox();
+  const narrowText = await editor.locator("p", { hasText: "Part two." }).boundingBox();
+  expect(narrowLine && narrowText && Math.abs(narrowLine.width - narrowText.width) < 2).toBe(true);
+  await motionSettled(window);
+  await screenshot(window, "word-page-break-zh-narrow");
   await app.close();
 });
 

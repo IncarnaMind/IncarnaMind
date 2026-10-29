@@ -202,6 +202,20 @@ describe("a Word file's notes are the Note's own footnotes", () => {
     expect(part("word/document.xml")).toContain('<w:endnoteReference w:id="1"/>');
   });
 
+  test("a Chinese note is edited and written back as any is", async () => {
+    const { core, bytes, mindId, client } = await setUp({
+      body: paragraph(`${run("合同自签署之日起生效。")}${noteMark("footnote", 1)}`),
+      footnotes: note("footnote", 1, ["见《民法典》第五百零二条。"]),
+    });
+    editFootnote(client, "见《民法典》第五百零二条。", (text) => text.replace("。", "第一款。"));
+    await client.settled();
+    const { files, part } = await exported(core, mindId);
+    expect(changed(unzip(bytes), files)).toEqual(["word/footnotes.xml"]);
+    expect(noteXml(part("word/footnotes.xml"), "footnote", 1)).toContain(
+      "见《民法典》第五百零二条第一款。",
+    );
+  });
+
   test("a note of two paragraphs keeps both, the edit in the second", async () => {
     const { core, mindId, client } = await setUp(brief());
     editFootnote(client, "Clause 4.2.\nRead with clause 9.", (text) =>
