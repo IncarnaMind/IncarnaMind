@@ -7,8 +7,10 @@
  * downloaded. e2e/packaged/engines.packaged.ts runs it, and the release runs that before it
  * uploads anything.
  */
-import { constants } from "node:fs";
+import { constants, mkdirSync, rmSync } from "node:fs";
 import { access, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { app } from "electron";
 import {
   checkEngineModules,
@@ -142,6 +144,18 @@ export async function checkEngines(log: FileLogger): Promise<EngineCheck[]> {
     ...main.map((each) => ({ process: "main process", ...each })),
     python,
   ];
+}
+
+/**
+ * The data folder of a check started without INCARNAMIND_DATA_DIR, never the User's: one in the
+ * temp folder, emptied as each check starts. It can't go on the way out, since Chromium and the
+ * quitting app write into it until the process has gone.
+ */
+export function engineCheckDataFolder(): string {
+  const folder = join(tmpdir(), "incarnamind-engine-check");
+  rmSync(folder, { recursive: true, force: true, maxRetries: 3 });
+  mkdirSync(folder);
+  return folder;
 }
 
 /** Writes the report and exits; any error on the way is printed and exits with 1. */

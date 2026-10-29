@@ -1,5 +1,4 @@
-import { mkdtempSync, writeSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { writeSync } from "node:fs";
 import { join, resolve } from "node:path";
 import {
   app,
@@ -29,7 +28,7 @@ import { translate } from "../shared/i18n";
 import { ANALYSIS_SCHEME_PRIVILEGES } from "./analysis";
 import { showDevelopmentDockIcon, windowIcon } from "./appIcon";
 import { DOCUMENT_SCHEME_PRIVILEGES, serveDocumentFiles } from "./documentProtocol";
-import { CHECK_ENGINES_SWITCH, runEngineCheck } from "./engineCheck";
+import { CHECK_ENGINES_SWITCH, engineCheckDataFolder, runEngineCheck } from "./engineCheck";
 import { serveFileActions } from "./files";
 import {
   failUpdate,
@@ -83,8 +82,7 @@ const engineCheckReport = app.commandLine.getSwitchValue(CHECK_ENGINES_SWITCH);
 // Points the app at another data folder: the smoke test uses a temporary one, and the engine check
 // one of its own. Set before anything reads `userData`, so Chromium's own data moves there too.
 const dataDirOverride =
-  process.env.INCARNAMIND_DATA_DIR ??
-  (engineCheckReport ? mkdtempSync(join(tmpdir(), "incarnamind-engine-check-")) : undefined);
+  process.env.INCARNAMIND_DATA_DIR ?? (engineCheckReport ? engineCheckDataFolder() : undefined);
 if (dataDirOverride) app.setPath("userData", resolve(dataDirOverride));
 
 // The log in the data folder's `logs/`, from the start, so it has what goes wrong at startup too.
