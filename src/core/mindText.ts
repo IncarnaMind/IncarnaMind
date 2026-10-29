@@ -245,6 +245,8 @@ export type Inline = (
       of?: string;
       /** The footnotes of its Citations whose check failed. */
       failed?: Footnote[];
+      /** As a note: its Citations' people's checks (`Footnote.checked`). */
+      checked?: readonly string[];
     }
 ) &
   Pendings;

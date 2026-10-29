@@ -4,8 +4,7 @@ import type { NodeType, Node as ProseMirrorNode } from "@tiptap/pm/model";
 import { type EditorState, Plugin, PluginKey } from "@tiptap/pm/state";
 import { ySyncPluginKey } from "@tiptap/y-tiptap";
 import * as Y from "yjs";
-import { citationElementId } from "../../../shared/signOffs";
-import { proposalKindOf } from "./arrivedChanges";
+import { nameOlderCitations } from "../../../shared/signOffs";
 
 export const citationIdsKey = new PluginKey("citationIds");
 
@@ -30,12 +29,12 @@ function elementsOf(state: EditorState): Map<ProseMirrorNode, Y.XmlElement> | nu
  *
  * A Citation written before Citations had ids goes by its element's (`citationElementId`), which
  * the versions kept before share, and two devices give the same one. The Note's older ones get
- * theirs on its first edit here, all at once and never on opening it; the assistant's waiting text
- * is left as it wrote it. One an edit changes is given it from the node it was, and one an edit
- * deletes gets it on its element before the edit reaches Yjs, so Undo brings it back with it.
+ * theirs on its first edit here, all at once and never on opening it, and so does one a later edit
+ * touches: named in Yjs before the edit reaches it and outside Undo, so however the sync drops its
+ * element (deleted, changed in place, its Block turned into another kind), Undo brings it back
+ * with the id. The assistant's waiting text is left as it wrote it.
  */
 export function citationIds(type: NodeType): Plugin {
-  /** Whether the Note's older Citations still wait for their ids. */
   let olderWaiting = true;
   return new Plugin({
     key: citationIdsKey,
@@ -43,26 +42,34 @@ export function citationIds(type: NodeType): Plugin {
       const local = transactions.filter((tr) => tr.docChanged && !isChangeOrigin(tr));
       if (local.length === 0 || oldState.doc.eq(newState.doc)) return null;
       const tr = newState.tr;
-      let elements: Map<ProseMirrorNode, Y.XmlElement> | null | undefined;
       const given = new Set<number>();
       const give = (node: ProseMirrorNode, pos: number, id: string) => {
         tr.setNodeMarkup(pos, undefined, { ...node.attrs, id });
         given.add(pos);
       };
-      /** An older Citation's element, as the Note's last sync left it. */
-      const elementOf = (node: ProseMirrorNode | null | undefined) => {
-        if (!node || node.type !== type || hasId(node)) return null;
-        if (elements === undefined) elements = elementsOf(oldState);
-        return elements?.get(node) ?? null;
-      };
-      const olderId = (node: ProseMirrorNode | null | undefined) => {
-        const element = elementOf(node);
-        return element ? citationElementId(element) : null;
-      };
-
       const transform = combineTransactionSteps(oldState.doc, [...transactions]);
       const back = transform.mapping.invert();
       const changed = getChangedRanges(transform);
+
+      const binding = ySyncPluginKey.getState(oldState)?.binding;
+      const olderTouched = changed.some(
+        ({ oldRange }) =>
+          findChildrenInRange(oldState.doc, oldRange, (each) => each.type === type && !hasId(each))
+            .length > 0,
+      );
+      let elements: Map<ProseMirrorNode, Y.XmlElement> | null = null;
+      if (binding && (olderWaiting || olderTouched)) {
+        olderWaiting = false;
+        binding.mux(() => nameOlderCitations(binding.type));
+        elements = elementsOf(oldState);
+      }
+      const named = (node: ProseMirrorNode | null | undefined) => {
+        const id = node && elements?.get(node)?.getAttribute("id");
+        return typeof id === "string" ? id : null;
+      };
+      const older = (node: ProseMirrorNode | null | undefined) =>
+        node !== null && node !== undefined && elements?.has(node) === true;
+
       const added: { node: ProseMirrorNode; pos: number }[] = [];
       for (const { newRange } of changed) {
         for (const { node, pos } of findChildrenInRange(
@@ -75,10 +82,11 @@ export function citationIds(type: NodeType): Plugin {
             if (back.mapResult(pos).deleted) added.push({ node, pos });
             continue;
           }
-          // Left as it was, or changed in place (Keep citing the old version): the Citation it was.
-          const own = olderId(node) ?? olderId(oldState.doc.nodeAt(back.map(pos)));
-          if (own === null) give(node, pos, crypto.randomUUID());
-          else if (!proposalKindOf(node)) give(node, pos, own);
+          // Changed in place (Keep citing the old version): the Citation it was.
+          const was = older(node) ? node : oldState.doc.nodeAt(back.map(pos));
+          const own = named(was);
+          if (own) give(node, pos, own);
+          else if (!older(was)) give(node, pos, crypto.randomUUID());
         }
       }
       // Written with an id another Citation of the Note holds: a copy, which is a Citation of its own.
@@ -94,44 +102,16 @@ export function citationIds(type: NodeType): Plugin {
             give(node, pos, crypto.randomUUID());
           }
       }
-
-      const gone: Y.XmlElement[] = [];
-      for (const { oldRange } of changed) {
-        for (const { node, pos } of findChildrenInRange(
-          oldState.doc,
-          oldRange,
-          (each) => each.type === type,
-        )) {
-          const element = elementOf(node);
-          if (element && transform.mapping.mapResult(pos).deleted) gone.push(element);
-        }
-      }
-      const binding = ySyncPluginKey.getState(oldState)?.binding;
-      if (gone.length > 0 && binding)
-        // Kept out of Undo and of this editor: the edit deletes the element right after.
-        binding.mux(() =>
-          binding.doc.transact(() => {
-            for (const element of gone) {
-              const id = citationElementId(element);
-              if (id) element.setAttribute("id", id);
-            }
-          }, citationIdsKey),
-        );
-
-      if (olderWaiting) {
-        if (elements === undefined) elements = elementsOf(oldState);
-        if (elements) {
-          olderWaiting = false;
-          newState.doc.descendants((node, pos) => {
-            if (node.type !== type || hasId(node) || given.has(pos) || proposalKindOf(node)) return;
-            const id = olderId(node);
-            if (id) give(node, pos, id);
-          });
-        }
-      }
+      // The editor's nodes say what Yjs now holds, or the sync would take the ids out again.
+      if (elements)
+        newState.doc.descendants((node, pos) => {
+          if (node.type !== type || hasId(node) || given.has(pos)) return;
+          const id = named(node);
+          if (id) give(node, pos, id);
+        });
 
       if (!tr.docChanged) return null;
-      // As the edit it rides on: kept out of Undo where that edit is.
+      // Kept out of Undo where the edit it rides on is.
       if (local.at(-1)?.getMeta("addToHistory") === false) tr.setMeta("addToHistory", false);
       return tr;
     },

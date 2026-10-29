@@ -208,7 +208,6 @@ export interface Selection {
   segments: Segment[];
   /** The Citations in it, in order: marker n is `citations[n - 1]`. */
   citations: Attributes[];
-  /** Their elements, in the same order. */
   citedElements: Y.XmlElement[];
   /** The User's footnotes in it, in order: marker "[^n]" is `footnotes[n - 1]`. */
   footnotes: Y.XmlElement[];

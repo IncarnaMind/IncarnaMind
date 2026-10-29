@@ -250,14 +250,20 @@ describe("Checked by me on a Citation", () => {
     expect(citationAt(editor).id).toBe(written);
   });
 
-  // protects=an older Citation, written before Citations had ids, keeps the identity the versions kept before give it when the Note's very first edit here deletes it, changes it in place (Keep citing the old version) or only edits beside it: brought back with ⌘Z or changed, then marked, it is found by a version from before (#1933), in English and Chinese; fails_when=the Citation the mark names isn't the one the restore brings back; no_claim=a Note opened and never edited, which gets no ids.
+  // protects=an older Citation, written before Citations had ids, keeps the identity the versions kept before give it when the Note's very first edit here deletes it, changes it in place (Keep citing the old version), edits beside it, or turns its paragraph into a heading, a bullet list or a quote: brought back with ⌘Z or changed, then marked, it is found by a version from before (#1933), in English and Chinese; fails_when=the Citation the mark names isn't the one the restore brings back; no_claim=a Note opened and never edited, which gets no ids.
   test.each([
     ["deleted", "en", "Spring tides come at new moon"],
     ["changed in place", "en", "Spring tides come at new moon"],
     ["edited beside", "en", "Spring tides come at new moon"],
+    ["made a heading", "en", "Spring tides come at new moon"],
+    ["made a bullet list", "en", "Spring tides come at new moon"],
+    ["made a quote", "en", "Spring tides come at new moon"],
     ["deleted", "zh-CN", "大潮出现在新月时"],
     ["changed in place", "zh-CN", "大潮出现在新月时"],
     ["edited beside", "zh-CN", "大潮出现在新月时"],
+    ["made a heading", "zh-CN", "大潮出现在新月时"],
+    ["made a bullet list", "zh-CN", "大潮出现在新月时"],
+    ["made a quote", "zh-CN", "大潮出现在新月时"],
   ] as const)(
     "an older Citation keeps its identity when the Note's first edit is: %s (%s)",
     async (first, _, words) => {
@@ -279,7 +285,16 @@ describe("Checked by me on a Citation", () => {
             keptOver: "v1",
           }),
         );
-      } else editor.view.dispatch(editor.state.tr.insertText("So: ", 1));
+      } else if (first === "edited beside") {
+        editor.view.dispatch(editor.state.tr.insertText("So: ", 1));
+      } else {
+        editor.commands.setTextSelection(2);
+        if (first === "made a heading") editor.commands.setNode("heading", { level: 2 });
+        else if (first === "made a bullet list") editor.commands.toggleBulletList();
+        else editor.commands.toggleBlockquote();
+        undoStackOf(editor)?.stopCapturing();
+        editor.commands.undo();
+      }
       await client.settled();
 
       toggleCitationSignOff(editor, citationAt(editor).pos, signer);

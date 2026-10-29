@@ -575,7 +575,8 @@ export class DocxWriter {
     if (!item.note || context.note) return this.styled(item.runs, context.note) + marker;
     const shared = item.of !== undefined && !item.inserted && !item.deleted && !context.pending;
     const key = shared ? `style\n${item.of}` : null;
-    const text = item.runs.map((each) => each.text).join("") + marker;
+    const text =
+      item.runs.map((each) => each.text).join("") + marker + (item.checked?.join("\n") ?? "");
     const first = key === null ? undefined : this.notes.get(key);
     // A style's own form for a repeat ("Id.", a short note) differs from the first note's: it wins.
     if (first?.text === text) {
@@ -584,7 +585,11 @@ export class DocxWriter {
     }
     const id = this.target.ids.take("footnote");
     this.footnotes.push(
-      footnote(id, run(" ") + this.styled(item.runs, true) + marker, this.styles.footnote),
+      footnote(
+        id,
+        run(" ") + this.styled(item.runs, true) + marker + checkedRuns(item.checked),
+        this.styles.footnote,
+      ),
     );
     if (key !== null && !first) this.notes.set(key, { id, text, reused: false });
     return footnoteReference(id, this.styles.footnote.reference);
@@ -1395,6 +1400,5 @@ function styles(
   );
 }
 
-/** People's own checks of a source, a line each under it (#1933). */
 const checkedRuns = (lines: readonly string[] | undefined): string =>
   (lines ?? []).map((line) => `<w:r><w:br/></w:r>${run(line)}`).join("");

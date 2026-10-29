@@ -94,7 +94,6 @@ function runsHtml(runs: readonly StyledRun[], isLink: LinkTest): string {
 const unverifiedHtml = (labels: PrintLabels) =>
   ` <span class="unverified">${escapeHtml(labels.unverified)}</span>`;
 
-/** People's own checks of a source, a line each under it (#1933). */
 export const checkedHtml = (lines: readonly string[] | undefined): string =>
   (lines ?? []).map((line) => `<br><span class="checked-by">${escapeHtml(line)}</span>`).join("");
 
@@ -353,7 +352,10 @@ class PrintWriter {
         case "cite": {
           const marker = item.unverified ? unverifiedHtml(this.labels) : "";
           if (item.note && !inNote) {
-            html += this.marker(runsHtml(item.runs, this.isLink) + marker, state.lastWasNote);
+            html += this.marker(
+              runsHtml(item.runs, this.isLink) + marker + checkedHtml(item.checked),
+              state.lastWasNote,
+            );
             lastWasNote = true;
           } else html += runsHtml(item.runs, this.isLink) + marker;
           break;

@@ -3,7 +3,7 @@ import { join } from "node:path";
 import { expect, test } from "vitest";
 import * as Y from "yjs";
 import { citationSentences } from "../../src/core/answers/checks/sentences";
-import { type CalculatedFigure, CITATION_NODE } from "../../src/core/api";
+import { type CalculatedFigure, CITATION_NODE, type Document } from "../../src/core/api";
 import { calculatedFigureNode } from "../../src/shared/calculatedFigures";
 import { formatDate } from "../../src/shared/dates";
 import { FORMULA_VERSION } from "../../src/shared/formula";
@@ -17,7 +17,8 @@ import {
 } from "../../src/shared/signOffs";
 import { createTempDataFolder, queryDatabase, startCore } from "../helpers/core";
 import { parseCsv } from "../helpers/csv";
-import { footnotesOf, part, unzip } from "../helpers/docx";
+import { addAndProcess, writeSourceFile } from "../helpers/documents";
+import { footnotesOf, part, textOf as textOfDocx, unzip } from "../helpers/docx";
 import { connectToMind } from "../helpers/mindClient";
 import { note, readMind, writeMind } from "../helpers/minds";
 import { fakePrinter } from "../helpers/printer";
@@ -413,24 +414,30 @@ function citationIn(client: { blocks: Y.XmlFragment }): Y.XmlElement {
   throw new Error("No Citation in the Note");
 }
 
-// protects=an export says each person's check under the source it is on, in the Word file's and the PDF's footnotes, the shared page's notes and a Numbered list, and a mark made before its Citation changed reads "before it changed", never as checked; no line speaks for the whole document (#1933), in English and Chinese; fails_when=a source lacks its line, the changed one reads as checked, or the text has a "Checked by" line of its own; no_claim=citation styles other than Numbered, which format their own notes.
+// protects=an export says each person's check under the source it is on, never for the whole document: Numbered in the Word file's and the PDF's footnotes, a Numbered list and a shared page's notes; a note style (Chicago notes) in each note; APA, IEEE and GB/T 7714 under each Document's reference. A mark made before its Citation changed reads "before it changed", never as checked, and the check record names the person on each row (#1933), in English and Chinese; fails_when=a source lacks its line, the changed one reads as checked, or a line speaks for the document; no_claim=how each style words its own entries.
 test.each(["en", "zh-CN"] as const)(
   "an export says each check under its own source (%s)",
   async (language) => {
     const { printed, printer } = fakePrinter();
     const core = startCore(await createTempDataFolder(), { printer });
     await core.updateSettings({ user: { language, personId: "person-1" } });
+    const sources = await createTempDataFolder();
+    const [tides, harbours] = await addAndProcess(core, [
+      await writeSourceFile(sources, "Tides.txt", "Tides rise twice a day."),
+      await writeSourceFile(sources, "Harbours.txt", "Harbours fill at high water."),
+    ]);
+    if (!tides || !harbours) throw new Error("The Documents weren't added.");
     const mind = await core.createMind({ title: "Checked sources" });
     const client = await connectToMind(core, mind.id);
-    const cited = (id: string, quote: string) => ({
+    const cited = (id: string, document: Document, quote: string) => ({
       type: "citation",
       attrs: {
         passageId: `passage-${id}`,
-        documentId: `document-${id}`,
-        documentName: id === "c1" ? "Tides" : "Harbours",
-        contentHash: "v1",
-        pageFrom: 1,
-        pageTo: 1,
+        documentId: document.id,
+        documentName: document.name,
+        contentHash: document.contentHash,
+        pageFrom: null,
+        pageTo: null,
         quote,
         check: "found",
         id,
@@ -442,9 +449,9 @@ test.each(["en", "zh-CN"] as const)(
         attrs: { id: "p1" },
         content: [
           { type: "text", text: language === "en" ? "The sea rises" : "海平面上升" },
-          cited("c1", "Tides rise."),
+          cited("c1", tides, "Tides rise twice a day."),
           { type: "text", text: language === "en" ? ". Harbours fill" : "。港口满了" },
-          cited("c2", "Harbours fill."),
+          cited("c2", harbours, "Harbours fill at high water."),
           { type: "text", text: "." },
         ],
       },
@@ -452,9 +459,9 @@ test.each(["en", "zh-CN"] as const)(
     await client.settled();
     const sentences = citationSentences(client.blocks);
     const at = "2026-10-28T09:00:00.000Z";
-    for (const [id, quote, changed] of [
-      ["c1", "Tides rise.", false],
-      ["c2", "Harbours fill.", true],
+    for (const [id, document, quote, changed] of [
+      ["c1", tides, "Tides rise twice a day.", false],
+      ["c2", harbours, "Harbours fill at high water.", true],
     ] as const) {
       addSignOff(client.doc, {
         id: `mark-${id}`,
@@ -463,8 +470,8 @@ test.each(["en", "zh-CN"] as const)(
         contentHash: changed
           ? "checked-before-it-changed"
           : citationSignOffBasis(sentences.get(id) ?? "", {
-              documentId: `document-${id}`,
-              contentHash: "v1",
+              documentId: document.id,
+              contentHash: document.contentHash,
               quote,
             }),
         deletedAt: null,
@@ -478,26 +485,30 @@ test.each(["en", "zh-CN"] as const)(
     const changed = translate(language, "export.checkedBy.changed", { name: "Ada", date });
     const count = (text: string, part: string) => text.split(part).length - 1;
     // Each source's own line, and the person named nowhere else: no line for the whole document.
-    const says = (text: string) => {
-      expect(count(text, checked)).toBe(1);
-      expect(count(text, changed)).toBe(1);
-      expect(count(text, "Ada")).toBe(2);
+    const says = (text: string, style: string) => {
+      expect(count(text, checked), style).toBe(1);
+      expect(count(text, changed), style).toBe(1);
+      expect(count(text, "Ada"), style).toBe(2);
     };
+    const pdf = () => `${printed.at(-1)?.body ?? ""}${printed.at(-1)?.notes.join("") ?? ""}`;
 
-    const word = unzip((await core.exportMind(mind.id, { format: "docx" })).data);
-    says(Object.values(footnotesOf(part(word, "word/footnotes.xml"))).join("\n"));
-    expect(part(word, "word/document.xml")).not.toContain("Ada");
-
-    const pdf = () => `${printed.at(-1)?.body ?? ""}${printed.at(-1)?.notes ?? ""}`;
-    await core.exportMind(mind.id, { format: "pdf" });
-    says(pdf());
+    for (const style of ["numbered", "apa", "chicago-notes", "ieee", "gb-t-7714-2015-numeric"]) {
+      await core.setMindCitationStyle(mind.id, style);
+      const word = unzip((await core.exportMind(mind.id, { format: "docx" })).data);
+      says(
+        `${textOfDocx(part(word, "word/document.xml"))}${Object.values(footnotesOf(part(word, "word/footnotes.xml"))).join("")}`,
+        `${style} docx`,
+      );
+      await core.exportMind(mind.id, { format: "pdf" });
+      says(pdf(), `${style} pdf`);
+    }
+    await core.setMindCitationStyle(mind.id, null);
     await core.exportMind(mind.id, { format: "pdf", citationPlace: "list" });
-    says(pdf());
-
+    says(pdf(), "numbered list");
     const page = new TextDecoder().decode(
       (await core.exportMind(mind.id, { format: "share-page", citationCards: false })).data,
     );
-    says(page);
+    says(page, "share page");
 
     // The check record names the person on each row, the changed one as changed since.
     const out = await createTempDataFolder();

@@ -115,13 +115,13 @@ export const citationElementId = (element: Y.XmlElement): string | null => {
   return id ? `${id.client}-${id.clock}` : null;
 };
 
+const CITATION_ID = "id" satisfies keyof CitationAttributes;
+
 /**
  * Gives each Citation written before Citations had ids the one it goes by (`citationElementId`),
  * in a transaction no Undo tracks, before a change made on the Note's Yjs document can take it
  * out, so Undo brings it back with it (#1933). The assistant's waiting text is left as it wrote it.
  */
-const CITATION_ID = "id" satisfies keyof CitationAttributes;
-
 export function nameOlderCitations(blocks: Y.XmlFragment): void {
   const older: Y.XmlElement[] = [];
   const waiting = (element: Y.XmlElement) => {
