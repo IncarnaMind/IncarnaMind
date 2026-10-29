@@ -97,7 +97,7 @@ import {
   STRICT_INSTRUCTIONS,
 } from "./prompt";
 import { searchAgain } from "./searchAgain";
-import { type BoundNumber, unitNotStated } from "./units";
+import { type BoundNumber, unitNotStated, withoutFigures } from "./units";
 
 export interface ClaimCheckDependencies {
   /** The interface language: what a check's sentence is written in. */
@@ -902,13 +902,20 @@ export function createClaimCheck(deps: ClaimCheckDependencies) {
     if (signal.aborted) return notChecked("stopped");
     if (isFailed(evidence)) return failedCheck(evidence.failed);
     if (!evidence) return notChecked("no-evidence");
-    const unitProblem = unstatedUnit([
-      evidence,
-      ...foundCitations(session.finalCitation, evidence),
-      ...checked.flatMap(({ calculation }) =>
-        calculation.figure.inputs.map((input) => input.citation),
-      ),
-    ]);
+    const unworked = withoutFigures(
+      request.claim,
+      checked.map(({ number }) => number),
+    );
+    const unitProblem = unstatedUnit(
+      [
+        evidence,
+        ...foundCitations(session.finalCitation, evidence),
+        ...checked.flatMap(({ calculation }) =>
+          calculation.figure.inputs.map((input) => input.citation),
+        ),
+      ],
+      unworked,
+    );
     const unit = unitProblem?.why ?? null;
     if (unit && (verdict.verdict !== "contradicted" || onlyCalculation))
       return unsupported(unit, unitProblem?.quote ?? null, null);

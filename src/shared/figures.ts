@@ -918,7 +918,7 @@ const CN_MEASURE_AFTER = new RegExp(CN_MEASURES.join("|"), "y");
 // "所" counts schools ("3所学校"), but "表3所示" is "as table 3 shows".
 const CN_COUNT_AFTER = new RegExp(CN_COUNTS.join("|").replace("所", "所(?![示述列载有以在])"), "y");
 const EN_UNIT_AFTER =
-  /[ \n]?(?:users?|customers?|clients?|subscribers?|members?|employees?|staff|people|persons?|patients?|students?|visitors?|households?|homes?|stores?|outlets?|branches|branch|restaurants?|vehicles?|cars?|units?|shares?|tonnes?|tons?|kt|Mt|kg|mg|lbs?|ounces?|oz|barrels?|bbl|boe|bcf|tcf|km\/h|km2|km|m2|m3|sq ft|square (?:feet|foot|metres?|meters?)|(?:kilo|centi|milli)?(?:metres?|meters?)|miles?|feet|foot|inches|mph|acres?|hectares?|(?:mega|kilo|giga)watt[- ]hours?|(?:mega|kilo|giga)watts?|MWh|GWh|kWh|TWh|MW|GW|kW|mAh|litres?|liters?|MtCO2e|ktCO2e|tCO2e|tCO2|°C|°F)(?![A-Za-z0-9])/y;
+  /[ \n]?(?:users?|customers?|clients?|subscribers?|members?|employees?|staff|people|persons?|patients?|students?|visitors?|households?|homes?|stores?|outlets?|branches|branch|restaurants?|vehicles?|cars?|units?|shares?|tonnes?|tons?|kt|Mt|kg|mg|lbs?|ounces?|oz|barrels?|bbl|boe|bcf|tcf|km\/h|km2|km|m2|m3|sq ft|square (?:feet|foot|metres?|meters?)|(?:kilo|centi|milli)?(?:metres?|meters?)|miles?|feet|foot|inches|mph|acres?|hectares?|(?:mega|kilo|giga)watt[- ]hours?|(?:mega|kilo|giga)watts?|MWh|GWh|kWh|TWh|MW|GW|kW|mAh|litres?|liters?|MtCO2e|ktCO2e|tCO2e|tCO2|°C|°F| t)(?![A-Za-z0-9])/y;
 
 /** Written before a figure that is approximate or a bound; outside its characters. */
 const APPROXIMATE_BEFORE =
@@ -2328,6 +2328,21 @@ function besideNumber(text: string, from: number, to: number): boolean {
     .at(-1);
   const after = text.slice(to, to + 2).replace(/^[ \u00a0]/, "")[0];
   return [before, after].some((char) => char !== undefined && NUMBER_CHAR.test(char));
+}
+
+const WRITES_PERCENT = new RegExp(`${PERCENT_AFTER.source}|百分之`, "i");
+const WRITES_POINTS = new RegExp(`${POINTS_AFTER.source}|${LOOSE_POINTS_AFTER.source}`, "i");
+
+/**
+ * Whether `text` writes `unit` anywhere, as a column heading ("Volume (tonnes)"), a unit line
+ * ("单位：%") or a row's label ("Employees") does: a percent's or points' sign or word, or another
+ * unit's word in the singular or the plural. Never for a plain number or a currency.
+ */
+export function writesUnit(text: string, unit: FigureUnit): boolean {
+  if (unit.kind === "percent") return WRITES_PERCENT.test(text);
+  if (unit.kind === "points") return WRITES_POINTS.test(text);
+  if (unit.kind !== "other") return false;
+  return text.toLowerCase().includes(unit.word.toLowerCase().replace(/(?<=[a-z]{2})e?s$/, ""));
 }
 
 /**
