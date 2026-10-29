@@ -2289,6 +2289,14 @@ test("a table gains Documents later: the picker ticks its own, its line counts o
   await expect(table.getByTestId("comparison-progress")).toHaveCount(0, { timeout: 30_000 });
   await pointAndClick(window, table.getByTestId("comparison-accept-all"));
   await expect(table).not.toHaveAttribute("data-pending", "true");
+  // ⌘K reaches Add Documents from the table's title line.
+  await table.getByTestId("comparison-head").focus();
+  await window.keyboard.press("ControlOrMeta+k");
+  await window.keyboard.type("Add Documents");
+  await expect(
+    window.getByTestId("palette").locator('[data-key="command:comparison.table.addDocuments"]'),
+  ).toBeVisible();
+  await window.keyboard.press("Escape");
   // Every cell answered: nothing to look at, so no counts.
   await expect
     .poll(async () => (await cellTexts(table)).flat().some((text) => text.includes("Reading…")))
@@ -2374,6 +2382,15 @@ test("rows are removed and moved by menu, keys and drag, each undone, and a row'
   const table = await filledSuppliersTable(window);
   const heads = table.locator(".comparison-document");
   const names = await rowNames(table);
+
+  // ⌘K reaches the row's actions from its head.
+  await heads.first().focus();
+  await window.keyboard.press("ControlOrMeta+k");
+  await window.keyboard.type("Remove row");
+  await expect(
+    window.getByTestId("palette").locator('[data-key="command:comparisonRow.remove"]'),
+  ).toBeVisible();
+  await window.keyboard.press("Escape");
 
   // Delete on the focused row's head takes it out; the undo line names it.
   await heads.first().focus();

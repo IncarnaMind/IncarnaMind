@@ -2917,7 +2917,7 @@ export const zhCN = {
   "comparison.column.shown": "已显示“{label}”列",
   "comparison.column.resized": "已调整“{label}”列宽",
   "comparison.table.more": "表格选项",
-  "comparison.table.unavailable": "这张对比表已不在此笔记中。",
+  "comparison.table.unavailable": "这个对比表已不在此笔记中。",
   "comparison.table.lastRow": "至少保留一行。",
   "comparison.table.addDocuments": "添加文档…",
   "comparison.table.rename": "重命名",
