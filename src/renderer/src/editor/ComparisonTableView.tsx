@@ -223,6 +223,7 @@ export function ComparisonTableView({ node, editor }: ReactNodeViewProps) {
   const hiddenIds = new Set(hidden.map((column) => column.id));
   const { total, settled, toFill, stop } = cellCounts(node, hiddenIds);
   const counts = problemCounts(node, hiddenIds);
+  const hasProblems = counts.nothing > 0 || counts.failed > 0;
   const shown = shownRowCount(node, hiddenIds, filters);
   const name = comparisonTitleOf(node.attrs) || t("comparison.title");
   const meta = `${t(node.childCount === 1 ? "comparison.documents.one" : "comparison.documents.other", { count: node.childCount })} × ${t(questions.length === 1 ? "comparison.questions.one" : "comparison.questions.other", { count: questions.length })}`;
@@ -264,6 +265,12 @@ export function ComparisonTableView({ node, editor }: ReactNodeViewProps) {
       .getState()
       .setHiddenColumns(tableId, hiddenKey === "" ? [] : hiddenKey.split("\n"));
   }, [tableId, hiddenKey]);
+  // A filter left on with nothing to show would hide every row and leave no count to
+  // press to bring them back, so it clears once no problem cell is left and no fill runs.
+  useEffect(() => {
+    if (filling || hasProblems || filters.size === 0) return;
+    useComparisonTables.getState().clearFilter(tableId);
+  }, [tableId, filling, hasProblems, filters.size]);
   const language = useLanguage();
   const openSettings = useAppStore((state) => state.openSettings);
   const editable = editor.isEditable;
@@ -393,7 +400,7 @@ export function ComparisonTableView({ node, editor }: ReactNodeViewProps) {
           {` · ${meta}`}
         </span>
         <span className="comparison-status">
-          {(counts.nothing > 0 || counts.failed > 0 || filters.size > 0) && (
+          {(hasProblems || filters.size > 0) && (
             <span aria-hidden="true" className="comparison-sep">
               ·
             </span>
@@ -427,7 +434,7 @@ export function ComparisonTableView({ node, editor }: ReactNodeViewProps) {
               {t("comparison.status.failed", { count: counts.failed })}
             </button>
           )}
-          {filters.size > 0 && (
+          {hasProblems && filters.size > 0 && (
             <>
               <span aria-hidden="true" className="comparison-sep">
                 ·
