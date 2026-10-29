@@ -234,9 +234,12 @@ describe("IncarnaMind's comments", () => {
 
     const commented = await word(core, id, { commentFailedChecks: true });
     const plain = await word(core, id, { commentFailedChecks: false });
+    const counted = await core.exportMind(id, { format: "docx", commentFailedChecks: true });
 
     const comments = commented.part("word/comments.xml");
     expect([...comments.matchAll(/<w:comment /g)]).toHaveLength(1);
+    // The Saved line's count of check comments counts it, though no sentence has one.
+    expect(counted.sentenceChecks).toMatchObject({ commented: true, comments: 1 });
     expect(comments).toContain("Quote not found in Tides, p. 1: “Neap tides are the highest.”");
     const [, second] = commented.document.match(/<w:p>[\s\S]*?<\/w:p>/g) ?? [];
     expect(second).toMatch(
@@ -423,9 +426,9 @@ describe("sentences whose check isn't good", () => {
     const markdown = await core.exportMind(id, { format: "markdown" });
 
     const counts = { contradicted: 1, notFound: 1, unsupported: 0, needsRecheck: 1 };
-    expect(commented.sentenceChecks).toEqual({ ...counts, commented: true });
-    expect(plain.sentenceChecks).toEqual({ ...counts, commented: false });
-    expect(markdown.sentenceChecks).toEqual({ ...counts, commented: false });
+    expect(commented.sentenceChecks).toEqual({ ...counts, commented: true, comments: 3 });
+    expect(plain.sentenceChecks).toEqual({ ...counts, commented: false, comments: 0 });
+    expect(markdown.sentenceChecks).toEqual({ ...counts, commented: false, comments: 0 });
   });
 
   test("with the option off no comment is written", async () => {
@@ -456,6 +459,7 @@ describe("sentences whose check isn't good", () => {
       unsupported: 0,
       needsRecheck: 0,
       commented: true,
+      comments: 0,
     });
     expect(unzip(exported.data).has("word/comments.xml")).toBe(false);
   });

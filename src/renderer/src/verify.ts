@@ -1,5 +1,5 @@
 /**
- * Verify (#97), the window's side. "Check someone else’s PDF or Word file…"
+ * Verify (#97), the window's side. "Check someone else’s file…"
  * (the + menu, ⌘K) takes a PDF or a Word file (#110), whose Mind opens with
  * the file beside it and has its claims found. The check badge's card then
  * checks them (editor/VerifyLine).
@@ -113,7 +113,7 @@ export function openDocumentBeside(documentId: string, place: DocumentPlace = {}
 }
 
 /**
- * "Check someone else’s PDF or Word file…": the file the User picks becomes a
+ * "Check someone else’s file…": the file the User picks becomes a
  * Mind in the Folder of the Mind in front, once its text is read; the Mind
  * opens with the file beside it, and its claims are found. While a run goes,
  * its Mind is shown instead.

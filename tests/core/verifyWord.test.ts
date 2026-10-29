@@ -270,6 +270,7 @@ describe("the export back into the file", () => {
       unsupported: 1,
       needsRecheck: 0,
       commented: true,
+      comments: 3,
     });
   });
 

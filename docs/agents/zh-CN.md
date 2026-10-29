@@ -112,7 +112,7 @@ A Note is what the User writes in; your text is a Block the User writes. The cod
 | Find support | 查找出处 | No longer a command: only a ⌘K keyword for Check against Documents, which offers Add as Citation. 出处 is the word for a source a writer cites (注明出处); not 依据, which reads as a check. |
 | Check record | 核对记录 | "将核对记录导出为 PDF". The PDF or CSV of what a Note's checks left. |
 | Check against Documents | 对照文档核对 | Gives a verdict: 有依据, 无依据 or 与文档矛盾. |
-| Check someone else's PDF or Word file | 核对别人的 PDF 或 Word 文件 | The + menu and ⌘K command (#1941, #110). The verb is 核对, as for a Citation; the card it opens still says 核对这个文档. |
+| Check someone else's file | 核对别人的文件 | The + menu and ⌘K command (#1941, #110), for a PDF or a Word file; its ⌘K keywords keep PDF and Word. The verb is 核对, as for a Citation; the card it opens still says 核对这个文档. |
 | Need a look | 需要留意 | The claims that are unsupported or contradicted: "3 条需要留意" in Verify. The Note's health counts its unsupported sentences with 处: "2 处需要留意". |
 | Mark | 标记 | |
 | Run | 运行 | |

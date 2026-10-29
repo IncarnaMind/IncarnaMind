@@ -150,6 +150,7 @@ describe("The Output location", () => {
         unsupported: 0,
         needsRecheck: 0,
         commented: false,
+        comments: 0,
       },
       trackedChanges: 0,
       unreadFiles: 0,

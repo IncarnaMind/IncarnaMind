@@ -8579,6 +8579,8 @@ export interface SentenceChecksExported {
   needsRecheck: number;
   /** They went into the file as comments: a Word file, with `commentFailedChecks` on. Otherwise they went out unmarked. */
   commented: boolean;
+  /** The comments on what needs a look the file holds, on these sentences and on Citations; 0 unless `commented`. */
+  comments: number;
 }
 
 /** What a Mind's web page to share would hold, for the sheet to show before it is made. */

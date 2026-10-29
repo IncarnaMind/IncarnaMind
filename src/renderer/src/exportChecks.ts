@@ -31,11 +31,12 @@ function listed(
   };
 }
 
-/** What a Word file holds as comments, for the line after saving; null when it holds none. */
-export function commentedChecks(checks: SentenceChecksExported, t: Translate): string | null {
-  if (!checks.commented) return null;
-  const list = listed(checks, (result, count) => t(`export.commented.${result}`, { count }), t);
-  return list && t("export.commented", { list: list.text });
+/** How many comments on what needs a look a Word file holds, for the line after saving; null for none. */
+export function checkComments(checks: SentenceChecksExported, t: Translate): string | null {
+  if (!checks.commented || checks.comments === 0) return null;
+  return checks.comments === 1
+    ? t("export.checkComments.one")
+    : t("export.checkComments", { count: checks.comments });
 }
 
 /** What went out with no comment, for the line's warning; null when every one is in a comment. */

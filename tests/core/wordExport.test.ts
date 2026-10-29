@@ -793,6 +793,7 @@ describe("sentences whose check isn't good, in an imported file (#900)", () => {
       unsupported: 0,
       needsRecheck: 0,
       commented: true,
+      comments: 2,
     });
     expect([...comments.matchAll(/<w:comment /g)]).toHaveLength(2);
     expect(textOf(comments)).toContain("Contradicted: The report says £182.9m.");

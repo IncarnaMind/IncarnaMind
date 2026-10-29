@@ -97,7 +97,7 @@ export type ExportResult = { tableId?: string } & (
       unverified: number;
       /** The comparison-table columns the file leaves out, for the line to say. */
       hiddenColumns: number;
-      /** The sentences whose check isn't good: how many, and whether they went in as comments. */
+      /** The sentences whose check isn’t good, whether they went in as comments, and the check comments in the file. */
       checks: SentenceChecksExported;
       /** The changes waiting that went into a Word file as tracked changes. */
       tracked: number;
@@ -265,6 +265,7 @@ const NO_CHECKS: SentenceChecksExported = {
   unsupported: 0,
   needsRecheck: 0,
   commented: false,
+  comments: 0,
 };
 
 function savedResult(

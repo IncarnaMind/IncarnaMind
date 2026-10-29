@@ -1,10 +1,6 @@
 import { describe, expect, test } from "vitest";
 import type { SentenceChecksExported } from "../../src/core/api";
-import {
-  commentedChecks,
-  trackedChanges,
-  unmarkedChecks,
-} from "../../src/renderer/src/exportChecks";
+import { checkComments, trackedChanges, unmarkedChecks } from "../../src/renderer/src/exportChecks";
 import { type MessageKey, type MessageParams, translate } from "../../src/shared/i18n";
 
 const t =
@@ -20,32 +16,28 @@ const checks = (
   notFound: 0,
   unsupported: 0,
   needsRecheck: 0,
+  comments: 0,
   ...counts,
   commented,
 });
 
 describe("The line after saving, for what a file says of its checked sentences", () => {
-  test("a Word file counts what went in as comments, leaving out what is zero", () => {
-    const both = checks({ contradicted: 2, unsupported: 1 }, true);
-    expect(commentedChecks(both, t("en"))).toBe("2 Contradicted and 1 Unsupported, as comments");
-    expect(commentedChecks(both, t("zh-CN"))).toBe("2 处与文档矛盾、1 处无依据，已作为批注");
-    expect(commentedChecks(checks({ unsupported: 3 }, true), t("en"))).toBe(
-      "3 Unsupported, as comments",
-    );
-    expect(commentedChecks(checks({ contradicted: 1, needsRecheck: 4 }, true), t("zh-CN"))).toBe(
-      "1 处与文档矛盾、4 处需重新核对，已作为批注",
-    );
-    expect(commentedChecks(checks({}, true), t("en"))).toBeNull();
+  test("a Word file says how many check comments it holds, one or more, in English and Chinese", () => {
+    const two = checks({ contradicted: 1, notFound: 1, comments: 2 }, true);
+    expect(checkComments(two, t("en"))).toBe("2 check comments");
+    expect(checkComments(two, t("zh-CN"))).toBe("2 条核对批注");
+    const one = checks({ unsupported: 1, comments: 1 }, true);
+    expect(checkComments(one, t("en"))).toBe("1 check comment");
+    expect(checkComments(one, t("zh-CN"))).toBe("1 条核对批注");
   });
 
-  test("say Not found for the comments that say so, apart from Unsupported", () => {
-    const both = checks({ contradicted: 1, notFound: 2, unsupported: 1 }, true);
-    expect(commentedChecks(both, t("en"))).toBe(
-      "1 Contradicted, 2 Not found and 1 Unsupported, as comments",
-    );
-    expect(commentedChecks(both, t("zh-CN"))).toBe(
-      "1 处与文档矛盾、2 处未找到、1 处无依据，已作为批注",
-    );
+  test("the part is absent when no comment was written", () => {
+    expect(checkComments(checks({}, true), t("en"))).toBeNull();
+    expect(checkComments(checks({}, true), t("zh-CN"))).toBeNull();
+    expect(checkComments(checks({ contradicted: 2 }, false), t("en"))).toBeNull();
+  });
+
+  test("say Not found for the sentences that went out unmarked, apart from Unsupported", () => {
     expect(unmarkedChecks(checks({ notFound: 1 }, false), t("en"))).toBe(
       "1 Not found sentence went out unmarked",
     );
@@ -54,19 +46,9 @@ describe("The line after saving, for what a file says of its checked sentences",
     );
   });
 
-  test("all three results make one list", () => {
-    const all = checks({ contradicted: 2, unsupported: 1, needsRecheck: 1 }, true);
-    expect(commentedChecks(all, t("en"))).toBe(
-      "2 Contradicted, 1 Unsupported and 1 Needs re-check, as comments",
-    );
-    expect(commentedChecks(all, t("zh-CN"))).toBe(
-      "2 处与文档矛盾、1 处无依据、1 处需重新核对，已作为批注",
-    );
-  });
-
   test("sentences that went out with no comment are a warning, not a count", () => {
     const two = checks({ contradicted: 2 }, false);
-    expect(commentedChecks(two, t("en"))).toBeNull();
+    expect(checkComments(two, t("en"))).toBeNull();
     expect(unmarkedChecks(two, t("en"))).toBe("2 Contradicted sentences went out unmarked");
     expect(unmarkedChecks(two, t("zh-CN"))).toBe("有 2 句与文档矛盾，导出时没有标记");
     expect(unmarkedChecks(checks({ contradicted: 1 }, false), t("en"))).toBe(
