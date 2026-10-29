@@ -5,11 +5,7 @@ import { DATABASE_FILE, type Document } from "../../src/core";
 import { keywordText } from "../../src/core/documents/keywords";
 import { joinCjkLineWraps } from "../../src/core/documents/lineWrap";
 import { buildPassages } from "../../src/core/documents/passages";
-import {
-  CURRENT_SINCE,
-  NAME_INDEX_CURRENT_SINCE,
-  PROCESSING_VERSION,
-} from "../../src/core/documents/processing";
+import { PROCESSING_VERSION } from "../../src/core/documents/processing";
 import { openDatabase } from "../../src/core/storage";
 import { createTempDataFolder, queryDatabase, startCore } from "../helpers/core";
 import {
@@ -373,18 +369,24 @@ describe("CJK line-wrap re-reading", { timeout: 30_000 }, () => {
     await waitForProcessing(second, [document.id]);
     second.upgradeKeywordIndex();
     // The keyword job must not call the text current: the wider pipeline hasn't read it yet.
-    expect(NAME_INDEX_CURRENT_SINCE).toBeLessThan(CURRENT_SINCE.pdf);
     await vi.waitFor(
       () =>
         expect(
-          queryDatabase<{ processing_version: number }>(
+          queryDatabase<{ keywords_version: number }>(
             dataDir,
-            "SELECT processing_version FROM documents WHERE id = ?",
+            "SELECT keywords_version FROM documents WHERE id = ?",
             [document.id],
           ),
-        ).toEqual([{ processing_version: NAME_INDEX_CURRENT_SINCE }]),
+        ).toEqual([{ keywords_version: PROCESSING_VERSION }]),
       { timeout: 30_000 },
     );
+    expect(
+      queryDatabase<{ processing_version: number }>(
+        dataDir,
+        "SELECT processing_version FROM documents WHERE id = ?",
+        [document.id],
+      ),
+    ).toEqual([{ processing_version: 14 }]);
     second.close();
 
     await rename(`${path}.away`, path);
