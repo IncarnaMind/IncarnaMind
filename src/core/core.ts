@@ -3933,6 +3933,7 @@ export function createCore(adapters: CoreAdapters): Core {
         },
         null,
         null,
+        () => minds.get(ready.mindId).folderId ?? "",
       );
       const answer = conversations.writeAnswer(turn.answer.id, {
         text: ready.answer,
