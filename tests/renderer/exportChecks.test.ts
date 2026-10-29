@@ -75,17 +75,20 @@ describe("The line after saving, for what a file says of its checked sentences",
     );
   });
 
-  test("a file written beside one the User changed says so, in English and Chinese (#110)", () => {
-    const params = {
-      name: "Harbour report 2.docx",
-      folder: "Exports",
-      changed: "Harbour report.docx",
-    };
-    expect(t("en")("export.doneIn.changed", params)).toBe(
-      "Saved as “Harbour report 2.docx” in Exports because “Harbour report.docx” was changed",
+  test("comments added to a copy, as the file changed after it was saved, say so with the count, one or more, in English and Chinese (#110)", () => {
+    const copy = "Harbour report 2.docx";
+    const changed = "Harbour report.docx";
+    expect(rewrittenLine(t("en"), true, 2, copy, changed)).toBe(
+      "Added 2 check comments to a copy, “Harbour report 2.docx”, because “Harbour report.docx” changed after it was saved",
     );
-    expect(t("zh-CN")("export.doneIn.changed", params)).toBe(
-      "“Harbour report.docx”已被修改，因此另存为“Harbour report 2.docx”，保存到“Exports”",
+    expect(rewrittenLine(t("en"), true, 1, copy, changed)).toBe(
+      "Added 1 check comment to a copy, “Harbour report 2.docx”, because “Harbour report.docx” changed after it was saved",
+    );
+    expect(rewrittenLine(t("zh-CN"), true, 2, copy, changed)).toBe(
+      "已在副本“Harbour report 2.docx”中添加 2 条核对批注，因为“Harbour report.docx”保存后有改动",
+    );
+    expect(rewrittenLine(t("zh-CN"), true, 1, copy, changed)).toBe(
+      "已在副本“Harbour report 2.docx”中添加 1 条核对批注，因为“Harbour report.docx”保存后有改动",
     );
   });
 

@@ -14,7 +14,7 @@
  * "fileWrite.requested" and waits; saves waiting for the same answer share it.
  * The Output location asks only when the default can't take files.
  */
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { constants } from "node:fs";
 import { access, mkdir, readFile, realpath, rm, stat } from "node:fs/promises";
 import { basename, extname, isAbsolute, join } from "node:path";
@@ -143,17 +143,32 @@ async function usableDefault(
 }
 
 /** A problem with a file IncarnaMind saved, said with its name, never its path (#110). */
-function fileProblem(file: SavedFile, error: unknown): Error {
+export function fileProblem(name: string, error: unknown): Error {
   if (error instanceof TranslatableError) return error;
-  const code = (error as NodeJS.ErrnoException).code;
-  const values = { name: file.name };
-  if (code === "ENOENT" || code === "ENOTDIR") {
+  const values = { name };
+  if (isGone(error) || codeOf(error) === "ENOTDIR") {
     return new TranslatableError({ key: "error.export.rewrite.gone", values }, { cause: error });
   }
-  if (code === "EACCES" || code === "EPERM" || code === "EROFS" || code === "EBUSY") {
+  if (isRefused(error) || codeOf(error) === "EBUSY") {
     return new TranslatableError({ key: "error.export.rewrite.locked", values }, { cause: error });
   }
   return error instanceof Error ? error : new Error(String(error));
+}
+
+export const fingerprintOf = (data: Uint8Array): string =>
+  createHash("sha256").update(data).digest("hex");
+
+/** A read-only file counts as changed, so it is never written over (#110). */
+async function unchanged(path: string, wrote: string): Promise<Uint8Array | null> {
+  const now = new Uint8Array(await readFile(path));
+  if (fingerprintOf(now) !== wrote) return null;
+  try {
+    await access(path, constants.W_OK);
+  } catch (error) {
+    if (isRefused(error)) return null;
+    throw error;
+  }
+  return now;
 }
 
 export function createOutputFiles(options: OutputFilesOptions) {
@@ -162,7 +177,6 @@ export function createOutputFiles(options: OutputFilesOptions) {
   /** Files saved since the core started: the only ones the window may ask to show. */
   const saved = new Map<string, SavedFile>();
 
-  /** A file this session saved, or a problem naming it. */
   const savedFile = (path: unknown): SavedFile => {
     const file = typeof path === "string" ? saved.get(path) : undefined;
     if (!file) {
@@ -440,46 +454,46 @@ export function createOutputFiles(options: OutputFilesOptions) {
       }
     },
 
-    /** What a file this session saved holds now (#110). Throws a plain-words problem naming it. */
-    async current(path: unknown): Promise<Uint8Array> {
-      const file = savedFile(path);
-      try {
-        return new Uint8Array(await readFile(file.path));
-      } catch (error) {
-        throw fileProblem(file, error);
-      }
-    },
-
     /**
-     * Writes a file this session saved again, in place (#110), its fingerprint recorded first as
-     * a new file's is. Returns the file and the bytes it held. Throws a plain-words problem
-     * naming the file when it is gone or can't be changed.
+     * Writes a file this session saved again, in place (#110), only while it still holds the bytes
+     * of `wrote`, checked again right before the rename; otherwise "changed". Throws a plain-words
+     * problem naming the file when it is gone or locked.
      */
     async rewrite(
       path: unknown,
       data: Uint8Array,
       ownFile: OwnFileKind | null,
-    ): Promise<{ file: SavedFile; before: Uint8Array }> {
+      wrote: string,
+    ): Promise<{ kind: "written"; file: SavedFile; before: Uint8Array } | { kind: "changed" }> {
       const file = savedFile(path);
       try {
-        const before = new Uint8Array(await readFile(file.path));
+        const before = await unchanged(file.path, wrote);
+        if (!before) return { kind: "changed" };
         if (ownFile) options.recordOwnFile(data, ownFile);
-        await replaceFile(file.path, data);
-        return { file: { ...file, defaulted: false }, before };
+        const replaced = await replaceFile(
+          file.path,
+          data,
+          async () => (await unchanged(file.path, wrote)) !== null,
+        );
+        return replaced
+          ? { kind: "written", file: { ...file, defaulted: false }, before }
+          : { kind: "changed" };
       } catch (error) {
-        throw fileProblem(file, error);
+        throw fileProblem(file.name, error);
       }
     },
 
-    /** Deletes a file this session saved, which nothing else wrote since (#110): an Undo of it. */
-    async remove(path: unknown): Promise<void> {
+    /** Deletes a file this session saved, only while it still holds the bytes of `wrote` (#110). */
+    async remove(path: unknown, wrote: string): Promise<boolean> {
       const file = savedFile(path);
       try {
+        if (!(await unchanged(file.path, wrote))) return false;
         await rm(file.path);
       } catch (error) {
-        throw fileProblem(file, error);
+        throw fileProblem(file.name, error);
       }
       saved.delete(file.path);
+      return true;
     },
 
     /** Whether IncarnaMind saved this file since it started. */

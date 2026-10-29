@@ -53,9 +53,20 @@ export function checkComments(
     : t("export.checkComments", { count: checks.comments });
 }
 
-/** The undo line of a file written again with its check comments added or taken out (#110). */
-export function rewrittenLine(t: Translate, added: boolean, count: number, name: string): string {
+/** `changed`: the file written beside, which had changed after it was saved (#110). */
+export function rewrittenLine(
+  t: Translate,
+  added: boolean,
+  count: number,
+  name: string,
+  changed: string | null = null,
+): string {
   if (!added) return t("export.rewritten.removed", { name });
+  if (changed) {
+    return count === 1
+      ? t("export.rewritten.copy.one", { name, changed })
+      : t("export.rewritten.copy", { count, name, changed });
+  }
   return count === 1
     ? t("export.rewritten.added.one", { name })
     : t("export.rewritten.added", { count, name });

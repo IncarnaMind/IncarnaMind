@@ -135,9 +135,14 @@ export async function writeNewFile(
 
 /**
  * Replaces the file at `path` with `data`, written beside it first and then renamed over it, so a
- * reader sees the old file or the new one, never part of either.
+ * reader sees the old file or the new one, never part of either. `stillSo` is asked right before
+ * the rename; when it answers false, the file is left as it is and this returns false.
  */
-export async function replaceFile(path: string, data: Uint8Array): Promise<void> {
+export async function replaceFile(
+  path: string,
+  data: Uint8Array,
+  stillSo: () => Promise<boolean>,
+): Promise<boolean> {
   const temporary = join(dirname(path), `.${randomUUID()}.partial`);
   try {
     const file = await open(temporary, "wx");
@@ -147,7 +152,9 @@ export async function replaceFile(path: string, data: Uint8Array): Promise<void>
     } finally {
       await file.close();
     }
+    if (!(await stillSo())) return false;
     await rename(temporary, path);
+    return true;
   } finally {
     await rm(temporary, { force: true });
   }

@@ -20,7 +20,7 @@ import {
   withMarking,
 } from "../../shared/exportOptions";
 import type { MessageKey } from "../../shared/i18n";
-import { core } from "./core";
+import { core, files } from "./core";
 import { errorMessage } from "./errors";
 import { rewrittenLine } from "./exportChecks";
 import { ownMindsOf } from "./home";
@@ -280,8 +280,20 @@ export async function answerCheckComments(mindId: string, answer: boolean): Prom
     const saved = await write();
     if (!saved) return;
     const count = saved.sentenceChecks.comments;
+    const changed = saved.changedFile ?? null;
+    const copy = saved.file.path;
     useUndo.getState().push({
-      said: (t) => rewrittenLine(t, answer, count, saved.file.name),
+      said: (t) => rewrittenLine(t, answer, count, saved.file.name, changed),
+      ...(changed && {
+        also: {
+          label: (t) => t("export.open"),
+          testId: "undo-open-copy",
+          run: () =>
+            void files.openSavedFile(copy).catch((error: unknown) => {
+              useAppStore.getState().reportError(error);
+            }),
+        },
+      }),
       undo: async () => {
         await core.restoreMindExport(written);
         await core.setCheckComments(mindId, !answer);

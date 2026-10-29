@@ -3965,7 +3965,6 @@ export const en = {
   "export.changeLocation": "Change output location…",
   "export.allow": "Allow",
   "export.doneIn": "Saved “{name}” in {folder}",
-  "export.doneIn.changed": "Saved as “{name}” in {folder} because “{changed}” was changed",
   "export.saved.footnotes.one": "1 footnote",
   "export.saved.footnotes.other": "{count} footnotes",
   "export.saved.list.one": "1 Citation in a list at the end",
@@ -3982,6 +3981,10 @@ export const en = {
   "export.rewritten.added.one": "Added 1 check comment to “{name}”",
   "export.rewritten.added": "Added {count} check comments to “{name}”",
   "export.rewritten.removed": "Removed the check comments from “{name}”",
+  "export.rewritten.copy.one":
+    "Added 1 check comment to a copy, “{name}”, because “{changed}” changed after it was saved",
+  "export.rewritten.copy":
+    "Added {count} check comments to a copy, “{name}”, because “{changed}” changed after it was saved",
   "export.record.doneIn": "Saved “{name}” and its CSV in {folder}",
   "export.changeFolder": "Change folder…",
   "export.parts.separator": ", ",
