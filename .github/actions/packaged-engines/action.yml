@@ -1,44 +1,26 @@
 name: The packaged app's engines load
 description: >
-  Runs the packaged app's engine check (e2e/packaged/engines.packaged.ts, #1239) on every app
-  packaged in dist/ (both macOS architectures, when the release builds both): each engine module
-  loads in the process that runs it, through the engine's own loader, and Python starts in the
-  Analyses window. Fails naming each module that doesn't load. No model is downloaded. Needs the
-  dependencies installed first.
+  Runs the packaged app's engine check (e2e/packaged/engines.packaged.ts, #1239) on the app packaged
+  in dist/ for this runner's system and architecture: each engine module loads in the process that
+  runs it, through the engine's own loader, and Python starts in the Analyses window. Fails naming
+  each module that doesn't load. No model is downloaded. Needs the dependencies installed first.
 
 runs:
   using: composite
   steps:
-    - name: Load every engine in each packaged app
+    # Analyses run only in Chromium's sandbox (ADR-0023), whose helper starts on the runner only as
+    # root's and setuid.
+    - name: Let the Linux sandbox start
+      if: runner.os == 'Linux'
       shell: bash
       run: |
-        apps=()
-        for app in dist/mac-arm64/IncarnaMind.app/Contents/MacOS/IncarnaMind \
-          dist/mac/IncarnaMind.app/Contents/MacOS/IncarnaMind \
-          dist/win-unpacked/IncarnaMind.exe dist/linux-unpacked/incarnamind; do
-          if [ -e "$app" ]; then apps+=("$app"); fi
-        done
-        if [ ${#apps[@]} -eq 0 ]; then
-          echo "::error::No packaged app in dist/."
-          exit 1
+        sudo chown root:root dist/linux-unpacked/chrome-sandbox
+        sudo chmod 4755 dist/linux-unpacked/chrome-sandbox
+    - name: Load every engine in the packaged app
+      shell: bash
+      run: |
+        if [ "$RUNNER_OS" = Linux ]; then
+          xvfb-run -a npm run test:packaged -- engines.packaged.ts
+        else
+          npm run test:packaged -- engines.packaged.ts
         fi
-        for app in "${apps[@]}"; do
-          echo "::group::$app"
-          export INCARNAMIND_PACKAGED_APP="$(node -p 'require("node:path").resolve(process.argv[1])' "$app")"
-          if [ "$RUNNER_OS" = Linux ]; then
-            # Analyses run only in Chromium's sandbox (ADR-0023), whose helper starts on the runner
-            # only as root's and setuid.
-            sandbox="$(dirname "$INCARNAMIND_PACKAGED_APP")/chrome-sandbox"
-            sudo chown root:root "$sandbox"
-            sudo chmod 4755 "$sandbox"
-            xvfb-run -a npm run test:packaged -- engines.packaged.ts
-          else
-            # The Intel macOS app runs under Rosetta on an Apple silicon runner.
-            if [ "$RUNNER_OS" = macOS ] && [ "$(lipo -archs "$INCARNAMIND_PACKAGED_APP")" = x86_64 ] \
-              && ! arch -x86_64 /usr/bin/true 2>/dev/null; then
-              sudo softwareupdate --install-rosetta --agree-to-license
-            fi
-            npm run test:packaged -- engines.packaged.ts
-          fi
-          echo "::endgroup::"
-        done

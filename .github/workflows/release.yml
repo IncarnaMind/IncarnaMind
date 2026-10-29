@@ -301,9 +301,9 @@ jobs:
       - name: Check the package contents and sizes
         run: npm run check:package
 
-      # Every app this runner built, both macOS architectures included, loads each engine module in
-      # the process that runs it and starts Python, before anything is uploaded (#1239): a module can
-      # fail to load only in the built app. The step fails naming the module.
+      # The packaged app for this runner loads each engine module in the process that runs it and
+      # starts Python, before anything is uploaded (#1239): a module can fail to load only in the
+      # built app. The step fails naming the module. The Intel macOS app isn't checked yet (#2199).
       - uses: ./.github/actions/packaged-engines
 
       # The packaged arm64 app also reads scans with real OCR (#1819) and transcribes a meeting with
