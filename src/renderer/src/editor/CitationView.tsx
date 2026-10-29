@@ -32,7 +32,7 @@ import {
 } from "../../../shared/locations";
 import { useAnswers } from "../answers";
 import { type MindFormatting, useMindFormatting } from "../citationFormatting";
-import { updateSentenceToNewWords } from "../citationUpdate";
+import { followNewVersion } from "../citationUpdate";
 import { useCitationRecheck } from "../citationVersion";
 import { citationHandle } from "../commands/handles";
 import { type CommandContext, commands } from "../commands/registry";
@@ -283,27 +283,32 @@ export function CitationView({
   const updateSentence = () => {
     const documentId = state.documentId ?? attributes.documentId;
     if (!newVersion || !documentId) return;
-    dismiss();
-    asOneStep(editor, () => updateAttributes(newVersion));
-    offerEditorUndo(editor, (t) => t("citation.updated"));
     const moved = { ...attributes, ...newVersion, documentId };
-    const label = moved.location ? formatLocation(moved.location, t) : null;
-    // The Note stays in front, in a window of one group too: the new words are one tab away.
-    openCitedPlace(moved, {
-      check: moved.check,
-      withQuote: true,
-      number,
-      label,
-      from: place?.groupId,
-      keep: true,
-      stay: true,
-    });
     const at = getPos();
     const sentence = at === undefined ? null : sentenceAround(editor.state.doc, at);
-    const chain = editor.chain().focus();
-    (sentence ? chain.setTextSelection(sentence) : chain).run();
-    // Words that only moved need no rewrite: the Citation switches and nothing is asked of a model.
-    if (sentence && mindId && wordsChanged) updateSentenceToNewWords(editor, mindId, sentence);
+    followNewVersion({
+      editor,
+      mindId,
+      range: sentence,
+      wordsChanged,
+      switchCitation: () => {
+        dismiss();
+        asOneStep(editor, () => updateAttributes(newVersion));
+        offerEditorUndo(editor, (t) => t("citation.updated"));
+        // The Note stays in front, in a window of one group too: the new words are one tab away.
+        openCitedPlace(moved, {
+          check: moved.check,
+          withQuote: true,
+          number,
+          label: moved.location ? formatLocation(moved.location, t) : null,
+          from: place?.groupId,
+          keep: true,
+          stay: true,
+        });
+        const chain = editor.chain().focus();
+        (sentence ? chain.setTextSelection(sentence) : chain).run();
+      },
+    });
   };
   const openFromCardRef = useRef(openFromCard);
   openFromCardRef.current = openFromCard;
