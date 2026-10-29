@@ -192,12 +192,14 @@ export function ClaimMark({
   useEffect(() => {
     if (!open) openedByKeyboard.current = false;
   }, [open]);
-  // A new verdict can take the focused action away: the focus would fall to the page, not the Mind.
-  // biome-ignore lint/correctness/useExhaustiveDependencies: the verdict is when the action can go.
+  // While checking, no enabled action can leave keyboard focus on the anchor instead (#2002).
+  // biome-ignore lint/correctness/useExhaustiveDependencies: a verdict or finished run can replace the available actions.
   useEffect(() => {
-    if (!open || !openedByKeyboard.current || document.activeElement !== document.body) return;
+    const active = document.activeElement;
+    if (!open || !openedByKeyboard.current || (active !== document.body && active !== button))
+      return;
     focusFirstAction(card.current, button);
-  }, [open, state, button]);
+  }, [open, state, running, button]);
   // A card already open under the mouse: the popover only takes the focus as it first shows.
   useEffect(() => {
     if (!requestedFocus || !open) return;

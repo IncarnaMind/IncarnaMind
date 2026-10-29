@@ -427,9 +427,14 @@ for (const language of ["en", "zh-CN"] as const) {
           expect(await selectedWords(window)).toBe(words.pure);
           await expect
             .poll(() =>
-              card.evaluate((element) => element.contains(element.ownerDocument.activeElement)),
+              card.evaluate((element) => {
+                const active = element.ownerDocument.activeElement;
+                return element.contains(active)
+                  ? "inside"
+                  : `${active?.tagName}:${active?.getAttribute("data-testid")}`;
+              }),
             )
-            .toBe(true);
+            .toBe("inside");
           expect((await partsOfCheck(window, "mixed-check"))?.[0]).toEqual(factBefore);
           await expect(window.getByTestId("claim-mark")).toHaveCount(2);
           const remaining = await checkCard(window);
