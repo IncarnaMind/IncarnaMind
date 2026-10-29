@@ -7,13 +7,16 @@ import {
   MIND_CONTENT_FIELD,
   MIND_SIGN_OFFS_FIELD,
 } from "../../src/core";
-import { createElement } from "../../src/core/answers/blocks";
+import { createElement, nodeOf } from "../../src/core/answers/blocks";
 import { cellIndex } from "../../src/core/documents/formats/sheetLayout";
 import { readWorkbook } from "../../src/core/documents/formats/xlsx";
 import { comparisonQuestionsOf } from "../../src/shared/comparisons";
+import { formatDate } from "../../src/shared/dates";
 import {
   addSignOff,
-  comparisonCellReviewed,
+  comparisonCellBasis,
+  comparisonCellContent,
+  comparisonCellSignOff,
   comparisonCellTarget,
   readSignOff,
   signOffsOf,
@@ -22,7 +25,7 @@ import { setUpWithDocuments } from "../helpers/citations";
 import { type cellAsked, cellModel, compare, fillEnded } from "../helpers/comparisons";
 import { startCore } from "../helpers/core";
 import { connectToMind, type MindClient } from "../helpers/mindClient";
-import { scriptedModels } from "../helpers/models";
+import { type ModelCall, scriptedModels } from "../helpers/models";
 
 const FILES = [
   { name: "Acme.txt", contents: "Acme.\nTermination notice: 90 days." },
@@ -55,27 +58,50 @@ function cellElement(client: MindClient, tableId: string, documentId: string): Y
   return cell;
 }
 
-function reviewCell(client: MindClient, tableId: string, documentId: string, questionId: string) {
-  addSignOff(client.doc, {
-    id: `sign-off-${documentId}`,
-    target: comparisonCellTarget(tableId, documentId, questionId),
-    at: "2026-10-28T10:00:00.000Z",
-    contentHash: "before-fill",
-    deletedAt: null,
-  });
-}
+const ADA = { name: "Ada Lovelace", personId: "person-ada" };
 
-function reviewed(
+/** "Checked by me" on a cell's Answer as it is now, as the editor records it. */
+function reviewCell(
   client: MindClient,
   tableId: string,
   documentId: string,
   questionId: string,
-): boolean {
-  return comparisonCellReviewed(
-    signOffsOf(client.doc),
-    comparisonCellTarget(tableId, documentId, questionId),
+  by = ADA,
+  at = "2026-10-28T10:00:00.000Z",
+) {
+  addSignOff(client.doc, {
+    id: `sign-off-${documentId}`,
+    target: comparisonCellTarget(tableId, documentId, questionId),
+    at,
+    contentHash: comparisonCellBasis(
+      comparisonCellContent(nodeOf(cellElement(client, tableId, documentId))),
+    ),
+    deletedAt: null,
+    name: by.name,
+    personId: by.personId,
+  });
+}
+
+/** How the cell's mark shows against its Answer now: checked, changed since, or none. */
+function markOn(
+  client: MindClient,
+  tableId: string,
+  documentId: string,
+  questionId: string,
+): "checked" | "changed" | null {
+  return (
+    comparisonCellSignOff(
+      signOffsOf(client.doc),
+      comparisonCellTarget(tableId, documentId, questionId),
+      comparisonCellContent(nodeOf(cellElement(client, tableId, documentId))),
+      null,
+      null,
+    )?.state ?? null
   );
 }
+
+/** Whether the model has cited a Passage for the cell: its next reply is the Answer's words. */
+const cited = (call: ModelCall) => call.results.some((result) => result.tool === "cite");
 
 function removedAt(client: MindClient, documentId: string): string | null | undefined {
   return readSignOff(client.doc.getMap(MIND_SIGN_OFFS_FIELD).get(`sign-off-${documentId}`))
@@ -96,7 +122,7 @@ async function setup(model = cellModel()) {
 }
 
 describe("A targeted comparison refill", () => {
-  test("an explicit edited and reviewed cell alone is replaced, clears its marks, and asks no neighbour", async () => {
+  test("an explicit edited and reviewed cell alone is replaced, its mark kept as checked before it changed, and asks no neighbour", async () => {
     const asked: ReturnType<typeof cellAsked>[] = [];
     const model = cellModel((_call, cell) => {
       asked.push(cell);
@@ -109,12 +135,12 @@ describe("A targeted comparison refill", () => {
     client.doc.transact(() => {
       const cell = cellElement(client, tableId, first.id);
       cell.setAttribute("edited", "true");
-      reviewCell(client, tableId, first.id, questionId);
       cell.setAttribute("fillId", "pass-1");
       cell.delete(0, cell.length);
       cell.insert(0, [
         createElement({ type: "paragraph", content: [{ type: "text", text: "My answer" }] }),
       ]);
+      reviewCell(client, tableId, first.id, questionId);
     });
     const otherBefore = cellElement(client, tableId, second.id).toString();
     const ended = fillEnded(core, tableId);
@@ -133,7 +159,8 @@ describe("A targeted comparison refill", () => {
     const cell = cellElement(client, tableId, first.id);
     expect(cell.getAttribute("status")).toBe("done");
     expect(cell.getAttribute("edited")).toBeUndefined();
-    expect(reviewed(client, tableId, first.id, questionId)).toBe(false);
+    expect(markOn(client, tableId, first.id, questionId)).toBe("changed");
+    expect(removedAt(client, first.id)).toBeNull();
     expect(cell.toString()).toContain("90 days");
     expect(cell.toString()).not.toContain("My answer");
     expect(cellElement(client, tableId, second.id).toString()).toBe(otherBefore);
@@ -169,7 +196,7 @@ describe("A targeted comparison refill", () => {
     expect(cell.getAttribute("problem")).toBe("not-found");
     expect(cell.getAttribute("edited")).toBe("true");
     expect(cell.toString()).toContain("90 days");
-    expect(reviewed(client, tableId, first.id, questionId)).toBe(true);
+    expect(markOn(client, tableId, first.id, questionId)).toBe("checked");
     expect(removedAt(client, first.id)).toBeNull();
 
     const saved = await core.saveComparisonExport({ mindId: mind.id, tableId });
@@ -225,12 +252,12 @@ describe("A targeted comparison refill", () => {
     client.doc.transact(() => {
       const cell = cellElement(client, tableId, first.id);
       cell.setAttribute("edited", "true");
-      reviewCell(client, tableId, first.id, questionId);
       cell.setAttribute("fillId", "pass-stop");
       cell.delete(0, cell.length);
       cell.insert(0, [
         createElement({ type: "paragraph", content: [{ type: "text", text: "My answer" }] }),
       ]);
+      reviewCell(client, tableId, first.id, questionId);
     });
     paused = true;
     const ended = fillEnded(core, tableId);
@@ -255,7 +282,7 @@ describe("A targeted comparison refill", () => {
     const cell = cellElement(client, tableId, first.id);
     expect(cell.getAttribute("status")).toBe("done");
     expect(cell.getAttribute("edited")).toBe("true");
-    expect(reviewed(client, tableId, first.id, questionId)).toBe(true);
+    expect(markOn(client, tableId, first.id, questionId)).toBe("checked");
     expect(cell.toString()).toContain("My answer");
     expect(cell.toString()).not.toContain("90 days");
     expect((await core.listTasks()).find((task) => task.blockId === tableId)?.status).toBe(
@@ -274,12 +301,12 @@ describe("A targeted comparison refill", () => {
     client.doc.transact(() => {
       const cell = cellElement(client, tableId, first.id);
       cell.setAttribute("edited", "true");
-      reviewCell(client, tableId, first.id, questionId);
       cell.setAttribute("fillId", "pass-failure");
       cell.delete(0, cell.length);
       cell.insert(0, [
         createElement({ type: "paragraph", content: [{ type: "text", text: "My answer" }] }),
       ]);
+      reviewCell(client, tableId, first.id, questionId);
     });
     failing = true;
     const ended = fillEnded(core, tableId);
@@ -297,7 +324,7 @@ describe("A targeted comparison refill", () => {
     const cell = cellElement(client, tableId, first.id);
     expect(cell.getAttribute("status")).toBe("failed");
     expect(cell.getAttribute("edited")).toBe("true");
-    expect(reviewed(client, tableId, first.id, questionId)).toBe(true);
+    expect(markOn(client, tableId, first.id, questionId)).toBe("checked");
     expect(cell.toString()).toContain("My answer");
   });
 
@@ -624,9 +651,8 @@ describe("A targeted comparison refill", () => {
       const cell = cellElement(client, tableId, document.id);
       expect(cell.getAttribute("status")).toBe("done");
       expect(cell.getAttribute("edited")).toBeUndefined();
-      expect(reviewed(client, tableId, document.id, questionId)).toBe(false);
     }
-    expect(removedAt(client, second.id)).toEqual(expect.any(String));
+    expect(removedAt(client, second.id)).toBeNull();
   });
 
   test("a passless failed-only refill counts only its eligible cells in progress", async () => {
@@ -756,5 +782,216 @@ describe("A targeted comparison refill", () => {
     } finally {
       await reopened.close();
     }
+  });
+
+  // protects=a refill that writes a new Answer keeps every person's mark, shown as checked before it changed, and the old Answer back as Undo puts it shows the mark checked again (#1933); fails_when=the refill deletes the mark; no_claim=the editor's Undo, which tests/renderer/comparisonColumns.test.ts covers.
+  test("a refill keeps the cell's mark, and the old Answer put back shows it checked again", async () => {
+    let replacing = false;
+    const model = cellModel((call) =>
+      replacing && cited(call) ? { text: "Ninety days' notice [^1]" } : null,
+    );
+    const { core, client, mind, documents, tableId, questionId } = await setup(model);
+    const [first] = documents;
+    if (!first) throw new Error("The Document is missing.");
+    client.doc.transact(() => {
+      cellElement(client, tableId, first.id).setAttribute("fillId", "pass-undo");
+      reviewCell(client, tableId, first.id, questionId);
+    });
+    const before = nodeOf(cellElement(client, tableId, first.id));
+    expect(markOn(client, tableId, first.id, questionId)).toBe("checked");
+    replacing = true;
+    const ended = fillEnded(core, tableId);
+    const result = await core.fillComparisonTable({
+      mindId: mind.id,
+      tableId,
+      cells: [{ documentId: first.id, questionId }],
+      mode: "refill",
+      pass: "pass-undo",
+    });
+    if (!result.started) throw new Error("The refill did not start.");
+    await ended;
+    await client.settled();
+    expect(cellElement(client, tableId, first.id).toString()).toContain("Ninety days");
+    expect(markOn(client, tableId, first.id, questionId)).toBe("changed");
+    expect(removedAt(client, first.id)).toBeNull();
+
+    client.doc.transact(() => {
+      const cell = cellElement(client, tableId, first.id);
+      for (const name of Object.keys(cell.getAttributes())) cell.removeAttribute(name);
+      for (const [name, value] of Object.entries(before.attrs ?? {})) {
+        cell.setAttribute(name, String(value));
+      }
+      cell.delete(0, cell.length);
+      cell.insert(
+        0,
+        (before.content ?? []).map((node) => createElement(node)),
+      );
+    });
+    expect(markOn(client, tableId, first.id, questionId)).toBe("checked");
+  });
+
+  // protects=taking back one refill (its Undo) stops that pass alone: another refill of the table still running is written and the Task ends done (#1836); fails_when=the whole Task stops and the other refill's cell keeps its old Answer; no_claim=the editor restoring the undone cells, which the renderer does.
+  test("taking back one refill leaves another refill of the table running", async () => {
+    let releaseFirst = () => {};
+    const heldFirst = new Promise<void>((resolve) => {
+      releaseFirst = resolve;
+    });
+    let releaseSecond = () => {};
+    const heldSecond = new Promise<void>((resolve) => {
+      releaseSecond = resolve;
+    });
+    let replacing = false;
+    const asked: ReturnType<typeof cellAsked>[] = [];
+    const model = cellModel((call, cell) => {
+      if (!replacing) return null;
+      asked.push(cell);
+      if (!cited(call)) return null;
+      return cell.document === "Acme"
+        ? { text: "Ninety days' notice [^1]", pause: { after: 0, until: heldFirst } }
+        : { text: "Thirty days' notice [^1]", pause: { after: 0, until: heldSecond } };
+    });
+    const { core, client, mind, documents, tableId, questionId } = await setup(model);
+    const [first, second] = documents;
+    if (!first || !second) throw new Error("Two Documents are needed.");
+    const firstBefore = nodeOf(cellElement(client, tableId, first.id));
+    client.doc.transact(() => {
+      cellElement(client, tableId, first.id).setAttribute("fillId", "pass-taken-back");
+      cellElement(client, tableId, second.id).setAttribute("fillId", "pass-kept");
+    });
+    replacing = true;
+    const ended = fillEnded(core, tableId);
+    for (const [document, pass] of [
+      [first, "pass-taken-back"],
+      [second, "pass-kept"],
+    ] as const) {
+      const started = await core.fillComparisonTable({
+        mindId: mind.id,
+        tableId,
+        cells: [{ documentId: document.id, questionId }],
+        mode: "refill",
+        pass,
+      });
+      if (!started.started) throw new Error(`The refill of ${document.name} did not start.`);
+    }
+    await vi.waitFor(() => {
+      expect(cellElement(client, tableId, first.id).getAttribute("status")).toBe("writing");
+    });
+
+    client.doc.transact(() => {
+      const cell = cellElement(client, tableId, first.id);
+      cell.removeAttribute("fillId");
+      cell.setAttribute("status", "done");
+      cell.delete(0, cell.length);
+      cell.insert(
+        0,
+        (firstBefore.content ?? []).map((node) => createElement(node)),
+      );
+    });
+    await core.stopComparisonTable({ mindId: mind.id, tableId, pass: "pass-taken-back" });
+    const acmeAsked = asked.filter((cell) => cell.document === "Acme").length;
+    await vi.waitFor(() => {
+      expect(cellElement(client, tableId, second.id).getAttribute("status")).toBe("writing");
+    });
+    releaseSecond();
+    releaseFirst();
+    await ended;
+    await client.settled();
+
+    expect(cellElement(client, tableId, second.id).toString()).toContain("Thirty days");
+    expect(cellElement(client, tableId, second.id).getAttribute("status")).toBe("done");
+    expect(cellElement(client, tableId, first.id).toString()).not.toContain("Ninety days");
+    expect(asked.filter((cell) => cell.document === "Acme")).toHaveLength(acmeAsked);
+    expect((await core.listTasks()).find((task) => task.blockId === tableId)?.status).toBe("done");
+  });
+
+  // protects=a refill resumed after a quit asks the model only for the cells its pass hadn't written (#1836); fails_when=a cell the pass already wrote is asked and written again on reopen; no_claim=how long the resume takes.
+  test("a refill resumed after a quit doesn't ask again for a cell it already wrote", async () => {
+    let release = () => {};
+    const held = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let paused = false;
+    const asked: ReturnType<typeof cellAsked>[] = [];
+    const model = cellModel((_call, cell) => {
+      asked.push(cell);
+      return paused && cell.document === "Brandt"
+        ? { text: "30 days [^1]", pause: { after: 0, until: held } }
+        : null;
+    });
+    const { core, client, mind, documents, tableId, questionId, dataDir } = await setup(model);
+    const [first, second] = documents;
+    if (!first || !second) throw new Error("Two Documents are needed.");
+    client.doc.transact(() => {
+      for (const document of documents) {
+        cellElement(client, tableId, document.id).setAttribute("fillId", "pass-quit");
+      }
+    });
+    paused = true;
+    asked.length = 0;
+    const started = await core.fillComparisonTable({
+      mindId: mind.id,
+      tableId,
+      cells: documents.map((document) => ({ documentId: document.id, questionId })),
+      mode: "refill",
+      pass: "pass-quit",
+    });
+    if (!started.started) throw new Error("The refill did not start.");
+    await vi.waitFor(() => {
+      expect(cellElement(client, tableId, first.id).getAttribute("status")).toBe("done");
+      expect(cellElement(client, tableId, second.id).getAttribute("status")).toBe("writing");
+    });
+    const acmeAsked = asked.filter((cell) => cell.document === "Acme").length;
+    expect(acmeAsked).toBeGreaterThan(0);
+    await core.close();
+    paused = false;
+    release();
+    const reopened = startCore(dataDir, { createChatModel: scriptedModels(model).createChatModel });
+    try {
+      const reopenedClient = await connectToMind(reopened, mind.id);
+      await vi.waitFor(() => {
+        expect(cellElement(reopenedClient, tableId, second.id).getAttribute("status")).toBe("done");
+      });
+      expect(asked.filter((cell) => cell.document === "Acme")).toHaveLength(acmeAsked);
+    } finally {
+      await reopened.close();
+    }
+  });
+
+  // protects=the Excel file names who checked each cell and when, a mark made before its Answer changed never as checked, and a hand edit without saying "you" to whoever opens the file (#1933); fails_when=a note says "by you" or leaves out the name or day; no_claim=Excel's rendering of notes.
+  test("the Excel notes name who checked each cell and the day, and a hand edit as by hand", async () => {
+    const { core, client, mind, documents, tableId, questionId } = await setup();
+    const [first, second] = documents;
+    if (!first || !second) throw new Error("Two Documents are needed.");
+    const bob = { name: "Bob Marley", personId: "person-bob" };
+    client.doc.transact(() => {
+      reviewCell(client, tableId, first.id, questionId, ADA, "2026-10-28T10:00:00.000Z");
+      reviewCell(client, tableId, second.id, questionId, bob, "2026-10-27T09:00:00.000Z");
+      const cell = cellElement(client, tableId, second.id);
+      cell.setAttribute("edited", "true");
+      cell.delete(0, cell.length);
+      cell.insert(0, [
+        createElement({ type: "paragraph", content: [{ type: "text", text: "Thirty days" }] }),
+      ]);
+    });
+    await client.settled();
+
+    const saved = await core.saveComparisonExport({ mindId: mind.id, tableId });
+    if (saved.status !== "saved") throw new Error(`Export failed: ${saved.status}`);
+    const { sheets } = await readWorkbook(
+      new Uint8Array(await readFile(saved.file.path)),
+      undefined,
+      {},
+    );
+    const notes = sheets[0]?.layout?.notes;
+    const checked = notes?.get(cellIndex(2, 1)) ?? "";
+    const changed = notes?.get(cellIndex(3, 1)) ?? "";
+    expect(checked).toContain(
+      `Checked by Ada Lovelace · ${formatDate("2026-10-28T10:00:00.000Z", "en")}`,
+    );
+    expect(changed).toContain("Edited by hand");
+    expect(changed).toContain(
+      `Checked by Bob Marley before it changed · ${formatDate("2026-10-27T09:00:00.000Z", "en")}`,
+    );
+    for (const note of [checked, changed]) expect(note).not.toMatch(/by you/i);
   });
 });

@@ -1,26 +1,26 @@
 import type { Node as ProseMirrorNode } from "@tiptap/pm/model";
 import { Fragment, Slice } from "@tiptap/pm/model";
-import { ySyncPluginKey, yUndoPluginKey } from "@tiptap/y-tiptap";
 import { withMissingMarkers } from "../../core/answers/markerPlacement";
 import type {
   Citation,
   CitationAttributes,
   ComparisonCellRef,
   ComparisonFillMode,
+  SignOffNow,
 } from "../../core/api";
-import { MIND_SIGN_OFFS_FIELD } from "../../core/api";
 import { citationNode, type NodeJSON, withCitations } from "../../shared/blockJson";
 import {
   comparisonCellOf,
   comparisonLabelOf,
   comparisonQuestionsOf,
 } from "../../shared/comparisons";
-import { targetHash } from "../../shared/proposals";
 import {
   addSignOff,
-  comparisonCellReviewed,
+  checkedByMe,
+  comparisonCellBasis,
+  comparisonCellContent,
+  comparisonCellSignOff,
   comparisonCellTarget,
-  removeComparisonCellSignOffs,
   removeSignOff,
   signOffsOf,
 } from "../../shared/signOffs";
@@ -36,6 +36,15 @@ import { comparisonCellInRow, comparisonTableIn } from "./editor/comparisonComma
 import { sourceContext } from "./editor/copyCitations";
 import { citationsIn, wordFootnoteHtml } from "./editor/copyNotes";
 import { asOneStep, offerEditorUndo, undoStackOf } from "./editor/editorUndo";
+import {
+  currentSigner,
+  inEditor,
+  liveVersions,
+  markBy,
+  noteDocOf,
+  personIdNow,
+  type Signer,
+} from "./editor/signOffActions";
 import { translateNow } from "./i18n";
 import { useNotices } from "./notices";
 import { useAppStore } from "./store";
@@ -86,68 +95,22 @@ export function comparisonCellText(cell: ProseMirrorNode): string {
   return blocks.join("\n");
 }
 
-function comparisonCellBasis(location: ComparisonCellLocation): string {
-  const citations = citationsIn(location.cell.content).map((citation) => ({
-    documentId: citation.documentId,
-    contentHash: citation.contentHash,
-    passageId: citation.passageId,
-    quote: citation.quote,
-    pageFrom: citation.pageFrom,
-    pageTo: citation.pageTo,
-    location: citation.location,
-  }));
-  return targetHash(JSON.stringify({ text: comparisonCellText(location.cell), citations }));
-}
-
-function cellReviewed(
+/** The mark a cell shows now: the User's own, else the newest of another person's. */
+function cellSignOff(
   handle: ComparisonHandle,
   location: ComparisonCellLocation,
-  personId?: string | null,
-): boolean {
-  const doc = ySyncPluginKey.getState(handle.editor.state)?.type.doc;
+  personId: string | null,
+): SignOffNow | null {
+  const doc = noteDocOf(handle.editor);
   return doc
-    ? comparisonCellReviewed(
+    ? comparisonCellSignOff(
         signOffsOf(doc),
         comparisonCellTarget(handle.tableId, location.documentId, location.questionId),
+        comparisonCellContent(location.cell.toJSON()),
+        liveVersions(),
         personId,
       )
-    : false;
-}
-
-function withCellSignOffs(
-  handle: ComparisonHandle,
-  locations: readonly ComparisonCellLocation[],
-  checked: boolean,
-  change: () => void,
-  everyone = false,
-): boolean {
-  const doc = ySyncPluginKey.getState(handle.editor.state)?.type.doc;
-  if (!doc) return false;
-  yUndoPluginKey
-    .getState(handle.editor.state)
-    ?.undoManager.addToScope(doc.getMap(MIND_SIGN_OFFS_FIELD));
-  doc.transact(() => {
-    asOneStep(handle.editor, change);
-    for (const location of locations) {
-      const target = comparisonCellTarget(handle.tableId, location.documentId, location.questionId);
-      const at = new Date().toISOString();
-      if (everyone) {
-        removeComparisonCellSignOffs(doc, target, at);
-      } else {
-        removeSignOff(doc, target, at, null);
-        if (checked) {
-          addSignOff(doc, {
-            id: crypto.randomUUID(),
-            target,
-            at,
-            contentHash: comparisonCellBasis(location),
-            deletedAt: null,
-          });
-        }
-      }
-    }
-  }, ySyncPluginKey);
-  return true;
+    : null;
 }
 
 export function startComparisonCellEdit(handle: ComparisonCellHandle, first?: string): boolean {
@@ -179,34 +142,61 @@ function doneComparisonCells(
   });
 }
 
+/** Whether the User's own mark stands on every one of the cells with an Answer. */
 export function comparisonCellsAllReviewed(
   handle: ComparisonHandle,
   selected: readonly ComparisonCellRef[],
 ): boolean {
   const targets = doneComparisonCells(handle, selected);
-  return targets.length > 0 && targets.every((location) => cellReviewed(handle, location, null));
+  const personId = personIdNow();
+  return (
+    targets.length > 0 &&
+    targets.every((location) => checkedByMe(cellSignOff(handle, location, personId)))
+  );
 }
 
+/**
+ * "Checked by me" on cells with an Answer: marks each as checked by the User now, or, when their
+ * own mark stands on every one, takes it off. Other people's marks stay as they are.
+ */
 export function toggleComparisonCellsReviewed(
   handle: ComparisonHandle,
   selected: readonly ComparisonCellRef[],
+  signer: Signer | null = currentSigner(),
 ): boolean {
-  if (!handle.editor.isEditable) return false;
+  if (!handle.editor.isEditable || !signer || !noteDocOf(handle.editor)) return false;
   const targets = doneComparisonCells(handle, selected);
   if (targets.length === 0) return false;
-  const reviewed = targets.some((location) => !cellReviewed(handle, location, null));
-  if (!withCellSignOffs(handle, targets, reviewed, () => undefined)) return false;
-  offerEditorUndo(handle.editor, (t) =>
-    t(
-      reviewed
-        ? targets.length === 1
-          ? "comparison.cell.reviewed.one"
-          : "comparison.cell.reviewed.other"
-        : targets.length === 1
-          ? "comparison.cell.unreviewed.one"
-          : "comparison.cell.unreviewed.other",
-      { count: targets.length },
-    ),
+  const on = targets.some(
+    (location) => !checkedByMe(cellSignOff(handle, location, signer.personId)),
+  );
+  inEditor(
+    handle.editor,
+    (doc) => {
+      const at = new Date().toISOString();
+      for (const location of targets) {
+        const target = comparisonCellTarget(
+          handle.tableId,
+          location.documentId,
+          location.questionId,
+        );
+        const content = comparisonCellContent(location.cell.toJSON());
+        removeSignOff(doc, target, at, signer.personId);
+        if (on)
+          addSignOff(doc, markBy(target, comparisonCellBasis(content), content.citations, signer));
+      }
+    },
+    (t) =>
+      t(
+        on
+          ? targets.length === 1
+            ? "comparison.cell.reviewed.one"
+            : "comparison.cell.reviewed.other"
+          : targets.length === 1
+            ? "comparison.cell.unreviewed.one"
+            : "comparison.cell.unreviewed.other",
+        { count: targets.length },
+      ),
   );
   return true;
 }
@@ -275,9 +265,7 @@ function commitEdit(
   for (const [name, value] of Object.entries(attributes)) {
     tr.setNodeAttribute(current.pos, name, value);
   }
-  if (!withCellSignOffs(handle, [current], false, () => handle.editor.view.dispatch(tr), true)) {
-    asOneStep(handle.editor, () => handle.editor.view.dispatch(tr));
-  }
+  asOneStep(handle.editor, () => handle.editor.view.dispatch(tr));
   offerEditorUndo(handle.editor, (t) => t("comparison.cell.editedCell"));
   return true;
 }

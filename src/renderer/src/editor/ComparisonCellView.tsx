@@ -34,11 +34,12 @@ import {
 import { useComparisons } from "../comparisons";
 import { type RowProblem, useComparisonTables } from "../comparisonTableState";
 import { ObjectMenu, useObjectMenu } from "../components/ObjectMenu";
-import { useT } from "../i18n";
+import { useLanguage, useT } from "../i18n";
 import { ComparisonCellCard } from "./ComparisonCellCard";
 import { ComparisonRefillEstimate } from "./ComparisonRefillEstimate";
 import { useMindId } from "./mindContext";
-import { useComparisonCellReviewed } from "./signOffActions";
+import { signOffWords } from "./SignOff";
+import { useComparisonCellSignOff } from "./signOffActions";
 
 let openCardTimer: number | undefined;
 const EMPTY_PROBLEMS: ReadonlySet<RowProblem> = new Set();
@@ -75,8 +76,9 @@ function CellEditor({ handle, first }: { handle: ComparisonCellHandle; first?: s
       value={value}
       onChange={(event) => setValue(event.target.value)}
       onBlur={(event) => {
-        if (event.relatedTarget === event.currentTarget.parentElement) {
-          requestAnimationFrame(() => event.currentTarget.focus());
+        const field = event.currentTarget;
+        if (event.relatedTarget === field.parentElement) {
+          requestAnimationFrame(() => field.focus());
         } else {
           finish(true);
         }
@@ -97,6 +99,7 @@ function CellEditor({ handle, first }: { handle: ComparisonCellHandle; first?: s
 
 function ComparisonCell({ node, editor, getPos }: ReactNodeViewProps) {
   const t = useT();
+  const language = useLanguage();
   const mindId = useMindId();
   const anchor = useRef<HTMLDivElement>(null);
   const pos = getPos();
@@ -118,8 +121,8 @@ function ComparisonCell({ node, editor, getPos }: ReactNodeViewProps) {
   const key = comparisonCellKey(tableId, documentId, questionId);
   const target = { kind: "comparisonCell", id: key } as const;
   const menu = useObjectMenu(target);
-  const reviewed = useComparisonCellReviewed(tableId, documentId, questionId);
-  const cell = { ...comparisonCellOf(node.attrs), reviewed };
+  const signOff = useComparisonCellSignOff(tableId, documentId, questionId, node);
+  const cell = { ...comparisonCellOf(node.attrs), reviewed: signOff?.state === "checked" };
   const filling = useComparisons((state) => state.filling.has(tableId));
   const problemFilters = useComparisonTables(
     (state) => state.filters.get(tableId) ?? EMPTY_PROBLEMS,
@@ -201,7 +204,7 @@ function ComparisonCell({ node, editor, getPos }: ReactNodeViewProps) {
     if (element) useComparisonCells.getState().select(element, range ? "range" : "single");
   };
   const onClick = (event: MouseEvent<HTMLDivElement>) => {
-    if ((event.target as Element).closest("button, a, input, textarea")) return;
+    if (isEditing || (event.target as Element).closest("button, a, input, textarea")) return;
     if (event.shiftKey) return;
     const mode = event.metaKey || event.ctrlKey ? "toggle" : "single";
     window.clearTimeout(openCardTimer);
@@ -329,6 +332,7 @@ function ComparisonCell({ node, editor, getPos }: ReactNodeViewProps) {
       ref={anchor}
       className="comparison-cell"
       role="cell"
+      contentEditable={false}
       tabIndex={current || isEntry ? 0 : -1}
       data-testid="comparison-cell"
       data-comparison-ui=""
@@ -344,7 +348,7 @@ function ComparisonCell({ node, editor, getPos }: ReactNodeViewProps) {
       onMouseDownCapture={onMouseDown}
       onClick={onClick}
       onDoubleClick={(event: MouseEvent<HTMLDivElement>) => {
-        if ((event.target as Element).closest("button, input, textarea")) return;
+        if (isEditing || (event.target as Element).closest("button, input, textarea")) return;
         window.clearTimeout(openCardTimer);
         withHandle((here) => startComparisonCellEdit(here));
       }}
@@ -413,11 +417,11 @@ function ComparisonCell({ node, editor, getPos }: ReactNodeViewProps) {
               ✎
             </span>
           )}
-          {cell.reviewed && (
+          {cell.reviewed && signOff && (
             <span
               role="img"
-              title={t("comparison.cell.reviewed")}
-              aria-label={t("comparison.cell.reviewed")}
+              title={signOffWords(signOff, t, language)}
+              aria-label={signOffWords(signOff, t, language)}
             >
               ✓
             </span>

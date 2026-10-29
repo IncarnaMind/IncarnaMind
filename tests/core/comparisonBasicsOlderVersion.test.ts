@@ -14,21 +14,22 @@ import { createElement, type NodeJSON } from "../../src/core/answers/blocks";
 import { createTempDataFolder, startCore } from "../helpers/core";
 
 /*
- * The version before comparison tables had a title and cells had edited/reviewed marks: a build
- * that reads content schema 30, whose editor would drop those attributes when it writes the table.
+ * The version before a comparison cell recorded a hand edit and the refill pass allowed to write
+ * it (#1836): a build that reads one content schema older than this one, whose editor would write
+ * the cell back without `edited` and `fillId`.
  */
-vi.mock("../../src/core/api", async (importOriginal) => ({
-  ...(await importOriginal<object>()),
-  CONTENT_SCHEMA_VERSION: 30,
-}));
+const real = vi.hoisted(() => ({ version: 0 }));
 
-const BASICS = 31;
+vi.mock("../../src/core/api", async (importOriginal) => {
+  const actual = await importOriginal<{ CONTENT_SCHEMA_VERSION: number }>();
+  real.version = actual.CONTENT_SCHEMA_VERSION;
+  return { ...actual, CONTENT_SCHEMA_VERSION: actual.CONTENT_SCHEMA_VERSION - 1 };
+});
 
 const table: NodeJSON = {
   type: COMPARISON_TABLE_NODE,
   attrs: {
     id: "table-1",
-    title: "Supplier terms",
     questions: [{ id: "q1", text: "Termination notice" }],
   },
   content: [
@@ -38,7 +39,7 @@ const table: NodeJSON = {
       content: [
         {
           type: COMPARISON_CELL_NODE,
-          attrs: { questionId: "q1", status: "done", edited: true, reviewed: "true" },
+          attrs: { questionId: "q1", status: "done", edited: "true", fillId: "pass-1" },
           content: [{ type: "paragraph", attrs: { id: "block-1" } }],
         },
       ],
@@ -46,7 +47,13 @@ const table: NodeJSON = {
   ],
 };
 
-function firstCell(table: Y.XmlElement | undefined): Y.XmlElement {
+function firstCell(fragment: Y.XmlFragment): Y.XmlElement {
+  const table = fragment
+    .toArray()
+    .find(
+      (element): element is Y.XmlElement =>
+        element instanceof Y.XmlElement && element.nodeName === COMPARISON_TABLE_NODE,
+    );
   const row = table
     ?.toArray()
     .find((element): element is Y.XmlElement => element instanceof Y.XmlElement);
@@ -57,13 +64,13 @@ function firstCell(table: Y.XmlElement | undefined): Y.XmlElement {
   return cell;
 }
 
-describe("a version from before a comparison table had a title and cell marks", () => {
-  // protects=an older editor opens newer title/edited/reviewed content read-only and cannot strip those attributes; fails_when=it opens writable or its write reaches them; no_claim=how the newer version shows it.
-  test("opens a titled, edited and reviewed table read-only, preserving its attributes", async () => {
-    expect(CONTENT_SCHEMA_VERSION).toBe(30);
+describe("a version from before a comparison cell recorded a hand edit and its refill pass", () => {
+  // protects=a build one content schema older opens a Note whose cell has `edited` and `fillId` read-only, so its editor can't write the cell back without them; fails_when=the cell fields' version is not above the reader's, it opens writable, or its write reaches the stored cell; no_claim=how the newer version shows them.
+  test("opens a Note with an edited, refilled cell read-only, and the cell keeps both", async () => {
+    expect(CONTENT_SCHEMA_VERSION).toBe(real.version - 1);
     const doc = new Y.Doc();
     doc.getXmlFragment(MIND_CONTENT_FIELD).push([createElement(table)]);
-    doc.getMap(MIND_SETTINGS_FIELD).set(CONTENT_SCHEMA_VERSION_KEY, BASICS);
+    doc.getMap(MIND_SETTINGS_FIELD).set(CONTENT_SCHEMA_VERSION_KEY, real.version);
 
     const core = startCore(await createTempDataFolder());
     const mind = await core.createMind({ title: "Suppliers" });
@@ -72,23 +79,15 @@ describe("a version from before a comparison table had a title and cell marks", 
     const opened = await core.openMind(mind.id);
     expect(opened.access).toBe("read-only");
 
+    // Its editor, which doesn't know the cell's fields, writes the cell back without them: refused.
     const theirs = new Y.Doc();
     Y.applyUpdate(theirs, opened.state);
     const sent: Uint8Array[] = [];
     theirs.on("update", (update: Uint8Array) => sent.push(update));
     theirs.transact(() => {
-      const own = theirs
-        .getXmlFragment(MIND_CONTENT_FIELD)
-        .toArray()
-        .find(
-          (element): element is Y.XmlElement =>
-            element instanceof Y.XmlElement && element.nodeName === COMPARISON_TABLE_NODE,
-        );
-      if (!own) throw new Error("The Mind has no comparison table.");
-      own.setAttribute("title", "");
-      const cell = firstCell(own);
-      cell.setAttribute("edited", "false");
-      cell.setAttribute("reviewed", "false");
+      const cell = firstCell(theirs.getXmlFragment(MIND_CONTENT_FIELD));
+      cell.removeAttribute("edited");
+      cell.removeAttribute("fillId");
     });
     await expect(core.applyMindUpdate(mind.id, sent[0] as Uint8Array)).rejects.toThrow(
       MindReadOnlyError,
@@ -96,16 +95,8 @@ describe("a version from before a comparison table had a title and cell marks", 
 
     const stored = new Y.Doc();
     Y.applyUpdate(stored, (await core.openMind(mind.id)).state);
-    const kept = stored
-      .getXmlFragment(MIND_CONTENT_FIELD)
-      .toArray()
-      .find(
-        (element): element is Y.XmlElement =>
-          element instanceof Y.XmlElement && element.nodeName === COMPARISON_TABLE_NODE,
-      );
-    expect(kept?.getAttribute("title")).toBe("Supplier terms");
-    const cell = firstCell(kept);
-    expect(cell.getAttribute("edited")).toBe(true);
-    expect(cell.getAttribute("reviewed")).toBe("true");
+    const cell = firstCell(stored.getXmlFragment(MIND_CONTENT_FIELD));
+    expect(cell.getAttribute("edited")).toBe("true");
+    expect(cell.getAttribute("fillId")).toBe("pass-1");
   });
 });

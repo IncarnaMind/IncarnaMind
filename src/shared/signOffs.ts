@@ -19,6 +19,7 @@ import {
   type SignOffTarget,
 } from "../core/api";
 import { isRecord } from "../core/errors";
+import type { NodeJSON } from "./blockJson";
 import { readProposalAttribute, targetHash } from "./proposals";
 import { comparableSentence } from "./sentences";
 
@@ -188,27 +189,99 @@ export const comparisonCellTarget = (
   questionId: string,
 ): SignOffTarget => ({ kind: "cell", id: JSON.stringify([tableId, documentId, questionId]) });
 
-/** Whether a cell has a standing mark; with `personId`, whether that person has one. */
-export const comparisonCellReviewed = (
+type CitedSource = Pick<CitationAttributes, "documentId" | "contentHash" | "quote">;
+
+/** What a mark on a comparison cell rests on: its Answer's words, a line a Block, and its Citations. */
+export interface ComparisonCellContent {
+  text: string;
+  citations: readonly CitedSource[];
+}
+
+const attribute = (attrs: NodeJSON["attrs"], name: keyof CitedSource): string | null => {
+  const value = attrs?.[name];
+  return typeof value === "string" && value !== "" ? value : null;
+};
+
+/**
+ * A cell's content as its mark reads it, from the cell as JSON: the core's (`nodeOf`) and the
+ * editor's (`toJSON`) read the same, so a mark made in either shows the same in both.
+ */
+export function comparisonCellContent(cell: NodeJSON): ComparisonCellContent {
+  const citations: CitedSource[] = [];
+  const words = (node: NodeJSON): string => {
+    if (node.type === "text") return node.text ?? "";
+    if (node.type === CITATION_NODE) {
+      citations.push({
+        documentId: attribute(node.attrs, "documentId"),
+        contentHash: attribute(node.attrs, "contentHash"),
+        quote: attribute(node.attrs, "quote"),
+      });
+      return "";
+    }
+    return (node.content ?? []).map(words).join("");
+  };
+  const text = (cell.content ?? []).map(words).join("\n");
+  return { text, citations };
+}
+
+export const comparisonCellBasis = ({ text, citations }: ComparisonCellContent): string =>
+  signOffBasis({ sentence: text, item: "", sources: citations.map(sourceOf) });
+
+const sourceOf = (citation: CitedSource) => ({
+  documentId: citation.documentId ?? null,
+  contentHash: citation.contentHash ?? null,
+  quote: citation.quote ?? null,
+});
+
+/** Whether anyone marked the cell, before its content is worth reading. */
+export const comparisonCellMarked = (
   records: readonly SignOffRecord[],
   target: SignOffTarget,
-  personId?: string | null,
-): boolean =>
-  records.some(
-    (record) =>
-      keyOf(record.target) === keyOf(target) &&
-      (personId === undefined || isMine(record, personId)),
-  );
+): boolean => records.some((record) => keyOf(record.target) === keyOf(target));
 
-/** A replaced cell invalidates every person's mark on its former Answer. */
-export function removeComparisonCellSignOffs(doc: Y.Doc, target: SignOffTarget, at: string): void {
-  const map = doc.getMap<unknown>(MIND_SIGN_OFFS_FIELD);
-  for (const record of signOffsOf(doc)) {
-    if (keyOf(record.target) === keyOf(target)) {
-      map.set(record.id, { ...record, deletedAt: at });
-    }
-  }
+/** Every person's mark on a cell, as each shows now: changed once its Answer or a source's version did. */
+export function comparisonCellMarksNow(
+  records: readonly SignOffRecord[],
+  target: SignOffTarget,
+  content: ComparisonCellContent,
+  versions: ReadonlyMap<string, string> | null,
+  personId: string | null,
+): SignOffNow[] {
+  const basis = comparisonCellBasis(content);
+  return records
+    .filter((record) => keyOf(record.target) === keyOf(target))
+    .map((record) =>
+      signOffNow(signOffShown(record, basis, content.citations, versions), personId),
+    );
 }
+
+/** The mark a cell shows: the User's own, else the newest of another person's. */
+export function comparisonCellSignOff(
+  records: readonly SignOffRecord[],
+  target: SignOffTarget,
+  content: ComparisonCellContent,
+  versions: ReadonlyMap<string, string> | null,
+  personId: string | null,
+): SignOffNow | null {
+  const record = signOffOn(records, target, personId);
+  return record
+    ? signOffNow(
+        signOffShown(record, comparisonCellBasis(content), content.citations, versions),
+        personId,
+      )
+    : null;
+}
+
+/** Whether a refill leaves a cell alone: someone's mark on it stands on its Answer as it is now. */
+export const comparisonCellChecked = (
+  records: readonly SignOffRecord[],
+  target: SignOffTarget,
+  content: ComparisonCellContent,
+  versions: ReadonlyMap<string, string> | null,
+): boolean =>
+  comparisonCellMarksNow(records, target, content, versions, null).some(
+    (now) => now.state === "checked",
+  );
 
 /** The mark on `target` to show: the User's own, else the newest of another person's. */
 export const signOffOn = (
