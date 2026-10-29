@@ -25,6 +25,7 @@ import { stepsShownOf } from "../nudges";
 import { revealAssistant } from "../quietAssistant";
 import { allExamples, isOwnDocument, useAppStore } from "../store";
 import { useUnreadFiles } from "../unreadFiles";
+import { FirstOpenLinkedFolder } from "./FirstOpenLinkedFolder";
 import { ExampleBanner } from "./GettingStarted";
 import { ChatLineIcon, CheckLineIcon, CloseLineIcon, PlusLineIcon } from "./lineIcons";
 import { ProblemLine } from "./ProblemLine";
@@ -237,6 +238,7 @@ export function FirstOpenSteps({ mindId }: { mindId: string }) {
                 {t("startGuide.documents.linkFolder")}
               </button>
             </div>
+            {live && <FirstOpenLinkedFolder />}
             {live && skipped.length > 0 && (
               <ProblemLine testId="first-open-skipped">
                 {t("documents.skipped", { names: skipped.join(", ") })}

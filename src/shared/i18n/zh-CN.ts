@@ -4723,6 +4723,8 @@ export const zhCN = {
   "firstOpen.step.files.title": "添加你的文档",
   "firstOpen.step.files.done": "已添加你的文档",
   "firstOpen.step.files.body": "在这台电脑上读取你的文件，文件留在原处。",
+  "firstOpen.step.files.linked":
+    "已添加关联文件夹“{name}”。里面还没有可读取的文件；添加第一个文档后，它就会出现在“{section}”里。",
   "firstOpen.done.title": "准备好了。",
   "firstOpen.model.body": "选择 AI 模型，就能就你自己的文件提问。",
   "firstOpen.model.choose": "选择模型",

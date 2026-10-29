@@ -4964,6 +4964,8 @@ export const en = {
   "firstOpen.step.files.title": "Add your Documents",
   "firstOpen.step.files.done": "Added your Documents",
   "firstOpen.step.files.body": "Reading your files on this computer. They stay where they are.",
+  "firstOpen.step.files.linked":
+    "Linked “{name}”. Nothing in it to read yet; it will appear under {section} once you add your first Document.",
   "firstOpen.done.title": "You’re set up.",
   "firstOpen.model.body": "Choose an AI model to ask about your own files.",
   "firstOpen.model.choose": "Choose a model",
