@@ -134,10 +134,10 @@ describe("a Word file's notes are the Note's own footnotes", () => {
     });
   });
 
-  test("a note a footnote can't hold (a table, someone's move) or with a mark of its own is kept as is", async () => {
+  test("a note a footnote can't hold (a table), with someone's change (a move, a paragraph's properties) or with a mark of its own is kept as is", async () => {
     const { client } = await setUp({
       body: paragraph(
-        `${run("Odd")}${noteMark("footnote", 1)}${run(" and starred")}<w:r><w:footnoteReference w:customMarkFollows="1" w:id="2"/><w:t>*</w:t></w:r>${run(" and moved")}${noteMark("footnote", 3)}`,
+        `${run("Odd")}${noteMark("footnote", 1)}${run(" and starred")}<w:r><w:footnoteReference w:customMarkFollows="1" w:id="2"/><w:t>*</w:t></w:r>${run(" and moved")}${noteMark("footnote", 3)}${run(" and restyled")}${noteMark("footnote", 4)}`,
       ),
       footnotes: [
         `<w:footnote w:id="1">${table([["A", "B"]])}</w:footnote>`,
@@ -145,6 +145,7 @@ describe("a Word file's notes are the Note's own footnotes", () => {
         note("footnote", 3, [
           `<w:moveTo w:id="9" w:author="Priya Nair" w:date="2026-10-02T09:00:00Z">${run("Moved here.")}</w:moveTo>`,
         ]),
+        `<w:footnote w:id="4"><w:p><w:pPr><w:pStyle w:val="FootnoteText"/><w:pPrChange w:id="10" w:author="Priya Nair" w:date="2026-10-02T09:00:00Z"><w:pPr/></w:pPrChange></w:pPr><w:r><w:footnoteRef/></w:r>${run(" Restyled.")}</w:p></w:footnote>`,
       ].join(""),
     });
     const atoms: JSONContent[] = [];
@@ -155,6 +156,7 @@ describe("a Word file's notes are the Note's own footnotes", () => {
       ["footnote", "A\tB"],
       ["footnote", "Starred note."],
       ["footnote", "Moved here."],
+      ["footnote", "Restyled."],
     ]);
     expect(footnotesOf(client)).toEqual([]);
   });

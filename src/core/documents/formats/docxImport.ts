@@ -1849,9 +1849,14 @@ class Reader {
 
   /**
    * A note's paragraphs as the Note's footnote holds its text, each read as a
-   * paragraph of the document is; null when a footnote can't hold it.
+   * paragraph of the document is; null when a footnote can't hold it, or
+   * someone's tracked change is in it (their words, a paragraph's mark or
+   * properties, a format), which the note keeps as is.
    */
   noteParagraphs(note: XmlElement): NoteParagraph[] | null {
+    for (const element of walk(note)) {
+      if (CHANGES.has(element.name) || element.name in KEPT_CHANGES) return null;
+    }
     const paragraphs: NoteParagraph[] = [];
     let waiting: NodeJSON[] = [];
     for (const element of elements(note)) {
