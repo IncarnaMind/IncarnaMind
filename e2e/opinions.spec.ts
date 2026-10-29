@@ -1,4 +1,4 @@
-import { writeFile } from "node:fs/promises";
+import { mkdir, utimes, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { expect, type Page, test } from "@playwright/test";
 import type { Editor, JSONContent } from "@tiptap/core";
@@ -17,7 +17,9 @@ import {
   checkCard,
   createDataFolder,
   dismissChatSetup,
+  expectReadyDocuments,
   launchApp,
+  linkFolderFromSidebar,
   motionSettled,
   newMind,
   pointAndClick,
@@ -615,6 +617,143 @@ for (const language of ["en", "zh-CN"] as const) {
           await screenshot(window, `opinions-pure-verify-${language}-${width}`);
           await window.keyboard.press("Escape");
         }
+      }
+
+      await setWindowSize(app, window, 900, 900);
+      const changedFolder = join(sources, "Changes");
+      const changedFile = join(changedFolder, "Moved source.md");
+      const changedQuote = words.fact.trim();
+      const oldText = `# Context\n\nA separate statement.\n\n# Results\n\n${changedQuote}\n`;
+      await mkdir(changedFolder);
+      await writeFile(changedFile, oldText);
+      await linkFolderFromSidebar(app, window, changedFolder);
+      await expectReadyDocuments(window, 3);
+      const changedDocument = (
+        await window.evaluate(() =>
+          (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind.listDocuments(),
+        )
+      ).find((each) => each.name === "Moved source");
+      if (!changedDocument) throw new Error("The changed Source was not added.");
+      const original = await window.evaluate(
+        ({ documentId, quote, contentHash }) =>
+          (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind.recheckCitation({
+            documentId,
+            quote,
+            contentHash,
+            pageFrom: 2,
+            pageTo: 2,
+          }),
+        {
+          documentId: changedDocument.id,
+          quote: changedQuote,
+          contentHash: changedDocument.contentHash,
+        },
+      );
+      expect(original).toMatchObject({ check: "found", pageFrom: 2, pageTo: 2 });
+      const oldCitation: CitationAttributes = {
+        ...citation,
+        passageId: original.passageId,
+        documentId: changedDocument.id,
+        documentName: changedDocument.name,
+        contentHash: changedDocument.contentHash,
+        pageFrom: original.pageFrom,
+        pageTo: original.pageTo,
+        location: original.location ?? null,
+        quote: changedQuote,
+      };
+      const changedBlock = (multiple: boolean): JSONContent => {
+        const text = multiple ? words.fact + words.opinion : changedQuote;
+        const parts = [part(0, multiple ? words.fact.length : text.length, "fact", [oldCitation])];
+        if (multiple) parts.push(part(words.fact.length, text.length, "opinion"));
+        return {
+          type: "paragraph",
+          attrs: { id: "changed-cited" },
+          content: [
+            {
+              type: "text",
+              text,
+              marks: [{ type: "claimCheck", attrs: checked("changed-check", text, parts) }],
+            },
+            { type: "citation", attrs: oldCitation },
+          ],
+        };
+      };
+      await newMind(window);
+      await setContent(window, [changedBlock(true)]);
+      await expect(window.getByTestId("mind-editor").getByTestId("citation-chip")).toHaveCount(1);
+      await writeFile(changedFile, `# Archive\n\nAnother statement.\n\n${oldText}`);
+      const changedAt = new Date("2026-10-21T12:00:00Z");
+      await utimes(changedFile, changedAt, changedAt);
+      await expect
+        .poll(() =>
+          window.evaluate(
+            async ({ id, oldHash }) => {
+              const bridge = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
+              const document = (await bridge.listDocuments()).find((each) => each.id === id);
+              if (document?.status !== "ready" || document.contentHash === oldHash) return false;
+              return (await bridge.readDocumentText(id)).contentHash === document.contentHash;
+            },
+            { id: changedDocument.id, oldHash: changedDocument.contentHash },
+          ),
+        )
+        .toBe(true);
+      for (const multiple of [false, true]) {
+        await setContent(window, [changedBlock(multiple)]);
+        await window.getByTestId("claim-mark").click();
+        const changedCard = window.getByTestId("claim-card");
+        const notice = changedCard.getByTestId("citation-changed-notice");
+        await expect(notice).toHaveCount(1);
+        await expect(notice).toContainText(
+          language === "en"
+            ? "The Document changed after this was cited."
+            : "此文档在被引用后有改动。",
+        );
+        await expect(changedCard.getByTestId("claim-part")).toHaveCount(multiple ? 2 : 0);
+        await screenshot(
+          window,
+          `opinions-changed-${multiple ? "parts" : "legacy"}-${language}-900`,
+        );
+        if (!multiple) {
+          await window.keyboard.press("Escape");
+          continue;
+        }
+        const beforeOpen = await window
+          .getByTestId("mind-editor")
+          .evaluate((dom) => (dom as unknown as { editor: Editor }).editor.getJSON());
+        await pointAndClick(window, changedCard.getByTestId("claim-part-citation"));
+        const viewer = window.getByTestId("viewer");
+        await expect(viewer).toBeVisible();
+        await expect
+          .poll(async () =>
+            (await viewer.locator("[data-quote-highlight]").allTextContents()).join(""),
+          )
+          .toBe(changedQuote);
+        await expect(viewer.locator("[data-quote-highlight]").first()).toBeInViewport();
+        await expect
+          .poll(() =>
+            window.evaluate(
+              async (id) =>
+                (
+                  await (
+                    globalThis as unknown as { incarnamind: CoreBridge }
+                  ).incarnamind.getLayout("main")
+                ).groups
+                  .flatMap((group) => group.tabs)
+                  .find((tab) => tab.item.kind === "document" && tab.item.documentId === id)?.place,
+              changedDocument.id,
+            ),
+          )
+          .toMatchObject({
+            pageFrom: 3,
+            pageTo: 3,
+            citation: { contentHash: oldCitation.contentHash, pageFrom: 2, pageTo: 2 },
+          });
+        expect(
+          await window
+            .getByTestId("mind-editor")
+            .evaluate((dom) => (dom as unknown as { editor: Editor }).editor.getJSON()),
+        ).toEqual(beforeOpen);
+        await screenshot(window, `opinions-moved-source-${language}-900`);
       }
     } finally {
       await app.close();
