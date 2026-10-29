@@ -7,8 +7,10 @@ import { translate } from "../src/shared/i18n";
 import { createFakeAnthropic } from "../tests/helpers/fakeAnthropic";
 import { createFakeOpenAI, signInAt } from "../tests/helpers/fakeOpenAI";
 import {
+  ANTHROPIC_KEY,
   acceptPlainTextKeys,
   addDocuments,
+  askFirstQuestion,
   assistantAnswers,
   createDataFolder,
   dismissChatSetup,
@@ -53,20 +55,6 @@ const bridge = (window: Page) => ({
       return (await core.getLibrary()).settings;
     }),
 });
-
-async function askFirstQuestion(window: Page): Promise<Locator> {
-  await newMind(window);
-  await window.getByTestId("mind-editor").focus();
-  await window.keyboard.press("ControlOrMeta+j");
-  await window.keyboard.type("What is in my Documents?");
-  await window.keyboard.press("Enter");
-  const card = window.getByTestId("model-setup");
-  await expect(card).toBeVisible();
-  return card;
-}
-
-/** A key as a real one is shaped, for a stand-in provider: never a real key. */
-const ANTHROPIC_KEY = "sk-ant-api03-a-test-key-for-first-run";
 
 test("a pasted key is named by its form and works at once: the waiting Question runs, and steps 2 and 3 take one click each", async () => {
   const { app, window } = await launchApp(dataDir, {

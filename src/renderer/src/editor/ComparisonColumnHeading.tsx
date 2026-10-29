@@ -218,7 +218,8 @@ export function ComparisonColumnHeading({
       startColumnEdit(handle, question.id);
       return;
     }
-    if (event.key === "Delete" && count > 1) {
+    // Backspace as well: a MacBook has no Delete except under fn.
+    if ((event.key === "Delete" || event.key === "Backspace") && count > 1) {
       event.preventDefault();
       void removeColumn(handle, question.id);
       return;
