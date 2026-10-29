@@ -1,14 +1,11 @@
-import { type Editor, isMacOS } from "@tiptap/core";
+import type { Editor } from "@tiptap/core";
 import { TextSelection } from "@tiptap/pm/state";
-import { type ReactNode, useEffect, useState } from "react";
+import { type ReactNode, useState } from "react";
 import { flushSync } from "react-dom";
 import type * as Y from "yjs";
 import { setCheckCardOpen, setClaimFocus, setOpenClaim, useChecks } from "../checks";
-import { pressed } from "../commands/keys";
-import { commands } from "../commands/registry";
 import { ObjectMenu, useObjectMenu } from "../components/ObjectMenu";
 import { useT } from "../i18n";
-import { useAppStore } from "../store";
 import { useCardPlace } from "./checkPlace";
 import { checkOpinion, type OpinionCheck, opinionAt, opinionChecks } from "./opinionChecks";
 import { keepMenuClosed } from "./selectionDismissal";
@@ -53,31 +50,6 @@ export function OpinionMenu({
     return row.querySelector<HTMLButtonElement>('[data-testid="opinion-context-menu"]');
   });
   const { onKeyDown, ...rowProps } = menu.rowProps;
-
-  useEffect(() => {
-    const element = editor.view.dom;
-    const openPalette = (event: KeyboardEvent) => {
-      if (
-        event.defaultPrevented ||
-        event.isComposing ||
-        event.target !== element ||
-        editor.isDestroyed ||
-        !editor.view.hasFocus() ||
-        !editor.isEditable ||
-        editor.state.selection.empty ||
-        !pressed("CmdOrCtrl+K", event, isMacOS()) ||
-        !opinionAt(editor, doc)
-      )
-        return;
-      event.preventDefault();
-      event.stopPropagation();
-      void commands.run("palette.open").catch(useAppStore.getState().reportError);
-    };
-    element.addEventListener("keydown", openPalette, true);
-    return () => {
-      element.removeEventListener("keydown", openPalette, true);
-    };
-  }, [editor, doc]);
 
   return (
     <div

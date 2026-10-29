@@ -262,6 +262,8 @@ export function HealthCard({
   });
   const runModel = useRunModel(doc);
   const running = useChecks((state) => state.running[mindId]);
+  // The opinions left out show once in the card: on the last check's line when it shows.
+  const opinionsHere = opinions.length > 0 && (Boolean(running) || !checkedAll);
   const [ranHere, setRanHere] = useState(false);
   useEffect(() => {
     if (running !== undefined) setRanHere(true);
@@ -379,14 +381,14 @@ export function HealthCard({
             it, so nothing under it moves when the run ends (#1312). */}
         {health.checking.length > 0 && row("checking")}
       </div>
-      {(health.kept.length > 0 || opinions.length > 0) && (
+      {(health.kept.length > 0 || opinionsHere) && (
         <p data-testid="health-kept" className="mind-health-line">
           {health.kept.length > 0 &&
             t(health.kept.length === 1 ? "health.kept.one" : "health.kept", {
               count: format(health.kept.length),
             })}
-          {health.kept.length > 0 && opinions.length > 0 && " · "}
-          <OpinionsLine editor={editor} doc={doc} mindId={mindId} className="" />
+          {health.kept.length > 0 && opinionsHere && " · "}
+          {opinionsHere && <OpinionsLine editor={editor} doc={doc} mindId={mindId} className="" />}
         </p>
       )}
       {health.tableCells.length > 0 && (

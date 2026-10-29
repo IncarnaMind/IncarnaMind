@@ -661,11 +661,21 @@ function ClaimCard({
           <div className="citation-card-head">
             <p data-testid="claim-badge" data-check={state} className="citation-badge">
               <ClaimMarkIcon state={state} className="citation-badge-icon" />
-              {heading}
+              <span>{decisionMissing ? t("claim.courtDecision.title") : heading}</span>
             </p>
             <p data-testid="claim-sentence" className="claim-card-sentence">
               {t("claim.sentence", { sentence })}
             </p>
+            {decisionMissing && (
+              <p data-testid="claim-court-decision" className="citation-card-note">
+                {t("claim.courtDecision.body")}
+              </p>
+            )}
+            {decisionUnchecked && (
+              <p data-testid="claim-cited-case-unchecked" className="citation-card-note">
+                {t("claim.citedCaseUnchecked")}
+              </p>
+            )}
           </div>
           {figureSources}
           <ChangedCitations cited={cited} />

@@ -5386,7 +5386,7 @@
   }
   /* Which sentence the card is about: its words, two lines at most, under the verdict's title. */
   .citation-card--parts {
-    max-height: calc(100vh - 16px);
+    max-height: min(calc(100vh - 16px), var(--card-room, 100vh));
     overflow-y: auto;
   }
   .claim-parts {
@@ -5552,8 +5552,13 @@
     font-weight: 600;
     color: #2e3238;
 
-    &:hover {
+    &:hover:not(:disabled) {
       background: var(--color-frame);
+    }
+    &:disabled {
+      box-shadow: inset 0 0 0 1px var(--color-rule);
+      color: var(--color-ink-placeholder);
+      cursor: default;
     }
   }
   .citation-card-action--primary {

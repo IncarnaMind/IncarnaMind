@@ -212,6 +212,17 @@ function PartRow({
           {reason}
         </p>
       )}
+      {part.citedCaseUnchecked && part.verdict === "unsupported" && (
+        <p className="citation-card-note" data-testid="claim-part-court-decision">
+          {t("claim.courtDecision.body")}
+        </p>
+      )}
+      {part.citedCaseUnchecked &&
+        (part.verdict === "supported" || part.verdict === "contradicted") && (
+          <p className="citation-card-note" data-testid="claim-part-cited-case-unchecked">
+            {t("claim.citedCaseUnchecked")}
+          </p>
+        )}
       {part.says && part.verdict === "contradicted" && (
         <p className="claim-card-says">{part.says}</p>
       )}

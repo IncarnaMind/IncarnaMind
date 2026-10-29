@@ -20,6 +20,7 @@ import {
   createDataFolder,
   dismissChatSetup,
   expectReadyDocuments,
+  focusSettled,
   launchApp,
   linkFolderFromSidebar,
   motionSettled,
@@ -396,6 +397,13 @@ for (const language of ["en", "zh-CN"] as const) {
           await expect(window.getByTestId("mind-editor")).toBeFocused();
           expect(await selectedWords(window)).toBe(words.pure);
         }
+        // ⌘K on selected words adds a link, as everywhere in a Note; with the caret in the
+        // opinion it opens the palette, which reaches the opinion's card.
+        await window.keyboard.press("ControlOrMeta+k");
+        await expect(window.getByTestId("link-field")).toBeVisible();
+        await expect(window.getByTestId("palette")).toHaveCount(0);
+        await window.keyboard.press("Escape");
+        await expect(window.getByTestId("link-field")).toHaveCount(0);
         if (language === "en" && width === 900) {
           const gutter = await window.getByTestId("mind-editor").evaluate((dom) => {
             const editor = (dom as unknown as { editor: Editor }).editor;
@@ -412,6 +420,9 @@ for (const language of ["en", "zh-CN"] as const) {
           await expect(window.getByTestId("opinion-context-actions")).toBeHidden();
           await window.keyboard.press("Escape");
         }
+        await focusSettled(window, window.getByTestId("mind-editor"));
+        await window.keyboard.press("ArrowLeft");
+        await expect.poll(() => selectedWords(window)).toBe("");
         await runCommand(
           window,
           "check.showCard",
@@ -444,6 +455,9 @@ for (const language of ["en", "zh-CN"] as const) {
           await pointAndClick(window, remaining.getByTestId("opinions-show").first());
           expect(await selectedWords(window)).toBe(words.opinion);
           await window.keyboard.press("Escape");
+          await focusSettled(window, window.getByTestId("mind-editor"));
+          await window.keyboard.press("ArrowLeft");
+          await expect.poll(() => selectedWords(window)).toBe("");
           await runCommand(window, "check.anyway", words.anyway);
           await terminalPart(window, "mixed-check", 1);
           await expect(card).toBeVisible();
@@ -548,7 +562,7 @@ for (const language of ["en", "zh-CN"] as const) {
         ]);
         await window.getByTestId("claim-mark").click();
         await expect(card.getByTestId("claim-parts-coverage")).toContainText(
-          language === "en" ? "Covers 3 of the 4 quarters" : "覆盖了 4 个季度中的 3 个",
+          language === "en" ? "Covers 3 of 4 (quarters)" : "覆盖 4 项中的 3 项（季度）",
         );
         await allRowsVisible(window, 4);
         await expect(
@@ -556,6 +570,66 @@ for (const language of ["en", "zh-CN"] as const) {
         ).toBeVisible();
         await screenshot(window, `opinions-coverage-${language}-${width}`);
         await window.keyboard.press("Escape");
+
+        if (width === 900) {
+          // A card of many rows is no taller than the room it opens into: it scrolls there, and
+          // its last row stays reachable.
+          const months = Array.from({ length: 12 }, (_, month) => `M${month + 1}`);
+          const long: ClaimCheckPart = {
+            ...coveragePart,
+            coverage: coveragePart.coverage && {
+              ...coveragePart.coverage,
+              members: months.map((label, month) => ({
+                label,
+                verdict: month === 11 ? "unsupported" : "supported",
+                evidence:
+                  month === 11 ? [] : [{ ...citation, quote: `${label}: ${words.fact.trim()}` }],
+              })),
+            },
+          };
+          await setContent(window, [
+            paragraph("long", quantifier, checked("long-check", quantifier, [long])),
+          ]);
+          await window.getByTestId("claim-mark").click();
+          await pointAndClick(window, card.getByTestId("claim-parts-more"));
+          await expect(card.getByTestId("claim-part")).toHaveCount(12);
+          const fits = async () => {
+            const box = await card.boundingBox();
+            const height = await window.evaluate(() => globalThis.innerHeight);
+            if (!box) throw new Error("The card has no size.");
+            return box.y >= 0 && box.y + box.height <= height;
+          };
+          expect(await fits()).toBe(true);
+          const last = card.getByTestId("claim-part").last();
+          await card.hover();
+          await expect(async () => {
+            await window.mouse.wheel(0, 400);
+            await expect(last).toBeInViewport({ ratio: 1, timeout: 500 });
+          }).toPass();
+          expect(await fits()).toBe(true);
+          await window.keyboard.press("Escape");
+
+          // A part citing a case no Document holds keeps the warning, on its row and the sentence.
+          const both = `${words.fact.trim()} ${words.fact.trim()}`;
+          const first = {
+            ...part(0, words.fact.trim().length, "fact", [citation]),
+            citedCaseUnchecked: true,
+          };
+          const second = part(words.fact.trim().length + 1, both.length, "fact", [citation]);
+          const cases = {
+            ...checked("case-check", both, [first, second]),
+            citedCaseUnchecked: true,
+          };
+          await setContent(window, [paragraph("case", both, cases)]);
+          await window.getByTestId("claim-mark").click();
+          await expect(card.getByTestId("claim-cited-case-unchecked")).toHaveText(
+            translate(language, "claim.citedCaseUnchecked"),
+          );
+          const rows = card.getByTestId("claim-part");
+          await expect(rows.first().getByTestId("claim-part-cited-case-unchecked")).toBeVisible();
+          await expect(rows.last().getByTestId("claim-part-cited-case-unchecked")).toHaveCount(0);
+          await window.keyboard.press("Escape");
+        }
 
         const unknownCoverage: ClaimCheckPart = {
           ...coveragePart,

@@ -1,16 +1,28 @@
-import { flip, type Middleware, offset, shift, type VirtualElement } from "@floating-ui/dom";
+import { flip, type Middleware, offset, shift, size, type VirtualElement } from "@floating-ui/dom";
 
 /** The room a card keeps from the window's edge and from the check badge. */
 const GAP = 8;
 
 /**
  * Where a sentence's check card goes: under its mark, flipped above when the
- * window leaves no room below, and moved clear of the page's check badge
- * (#1686), which sits at the page's bottom right, where a card opened near
- * the foot would cover it.
+ * window leaves no room below, no taller than the room on that side (a card of
+ * many rows scrolls within it, so its actions stay in the window), and moved
+ * clear of the page's check badge (#1686), which sits at the page's bottom
+ * right, where a card opened near the foot would cover it.
  */
 export function claimCardPlace(anchor: Element | VirtualElement): Middleware[] {
-  return [offset(4), flip(), shift({ padding: GAP }), clearOfBadge(anchor)];
+  return [
+    offset(4),
+    flip(),
+    size({
+      padding: GAP,
+      apply({ availableHeight, elements }) {
+        elements.floating.style.setProperty("--card-room", `${Math.max(0, availableHeight)}px`);
+      },
+    }),
+    shift({ padding: GAP }),
+    clearOfBadge(anchor),
+  ];
 }
 
 /**
