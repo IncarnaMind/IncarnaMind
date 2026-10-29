@@ -1459,7 +1459,11 @@ function lexChinese(s: string, start: number): Core | null {
   const digit = CN_DIGITS[run[0] ?? ""];
   const place = run[1] ?? "";
   // "两万半" is 25,000, but "两千半导体" is 2,000 semiconductors.
-  if (s[end] === "半" && run.length === 2 && digit && !/\p{Script=Han}/u.test(s[end + 1] ?? "")) {
+  const halfEnds =
+    !/\p{Script=Han}/u.test(s[end + 1] ?? "") ||
+    matchAt(CN_CURRENCY_AFTER, s, end + 1) !== null ||
+    matchAt(APPROXIMATE_AFTER, s, end + 1) !== null;
+  if (s[end] === "半" && run.length === 2 && digit && halfEnds) {
     const halfSpan = { from: start, to: end + 1 };
     const exponent = place === "万" || place === "亿" ? CN_SCALES[place] : undefined;
     if (exponent !== undefined) {
