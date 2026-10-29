@@ -108,7 +108,7 @@ import {
   waitingIn,
   writtenByAnswer,
 } from "../../proposals/ownWaiting";
-import { layout, textBlocks } from "../../proposals/write";
+import { layout, textAround, textBlocks } from "../../proposals/write";
 import type { PreparedChatModel } from "../../providers/chat";
 import { MIND_TOOLS, type Tool, type ToolProviderInfo } from "..";
 import { partialFields } from "../partialInput";
@@ -684,9 +684,11 @@ function takenOut(before: string, after: string): string | null {
   const sentencesOf = (text: string) =>
     text
       .split(/\n+/)
-      .flatMap((line) =>
-        sentenceSpans(line).map((span) => plainSentence(line.slice(span.from, span.to))),
-      )
+      .flatMap((line) => {
+        // A marker right after a full stop would start a sentence of its own.
+        const bare = line.replace(/\[\^?\d+\]/g, "");
+        return sentenceSpans(bare).map((span) => plainSentence(bare.slice(span.from, span.to)));
+      })
       .filter((sentence) => sentence !== "");
   const kept = new Set(sentencesOf(after));
   const gone = [...new Set(sentencesOf(before))].filter((sentence) => !kept.has(sentence));
@@ -2228,7 +2230,12 @@ export function mindTools(options: MindToolsOptions): { tools: Tool[]; settle():
         });
       }
       options.changed(toolCallId, change);
-      const gone = length ? takenOut(length.before, length.after) : null;
+      // What the Mind holds once the changes are accepted, not the rewrite's words: it keeps what the
+      // reply left out unless the request asked to take it out. A revision replaces its text whole.
+      const around = revised
+        ? length
+        : minds.read(mind.id, (note) => textAround(note, stretch.from, stretch.to, result.request));
+      const gone = around ? takenOut(around.before, around.after) : null;
       const went = length ? ` (${lengths(length.before, length.after)})` : "";
       return [
         revised

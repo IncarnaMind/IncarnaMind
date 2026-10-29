@@ -10,7 +10,7 @@
  * Set INCARNAMIND_LIVE_REPORT to a file to keep what each run gave back.
  */
 import { appendFile } from "node:fs/promises";
-import { generateText } from "ai";
+import { generateText, wrapLanguageModel } from "ai";
 import { describe, expect, test } from "vitest";
 import type { ChatProviderKind, Core } from "../../src/core";
 import { isRecord } from "../../src/core/errors";
@@ -105,6 +105,24 @@ async function judgeRemoval(
   };
 }
 
+/** What the Tool calls of the last request told the model, as the model read it. */
+function toolResultsIn(prompt: unknown): string {
+  if (!Array.isArray(prompt)) return "";
+  return (
+    prompt
+      .flatMap((message) =>
+        isRecord(message) && message.role === "tool" && Array.isArray(message.content)
+          ? message.content.flatMap((part) =>
+              isRecord(part) && part.type === "tool-result" && isRecord(part.output)
+                ? [String(part.output.value ?? "")]
+                : [],
+            )
+          : [],
+      )
+      .at(-1) ?? ""
+  );
+}
+
 async function ask(
   core: Core,
   text: string,
@@ -145,6 +163,11 @@ describe.each(LIVE)("The assistant sees its own waiting changes, live: $name", (
       for (const each of CASES) {
         for (const accepting of [false, true]) {
           const label = `${each.language}, ${accepting ? "accepting after each" : "changes left waiting"}`;
+          if (
+            process.env.INCARNAMIND_LIVE_ONLY &&
+            !label.includes(process.env.INCARNAMIND_LIVE_ONLY)
+          )
+            continue;
           let grew = 0;
           let removed = 0;
           let gone = 0;
@@ -153,8 +176,19 @@ describe.each(LIVE)("The assistant sees its own waiting changes, live: $name", (
           let counted = 0;
           let one = 0;
           for (let run = 1; run <= runs; run++) {
+            const prompts: unknown[] = [];
             const core = startCore(await createTempDataFolder(), {
-              createChatModel: createAiSdkChatModel,
+              createChatModel: (spec) =>
+                wrapLanguageModel({
+                  model: createAiSdkChatModel(spec),
+                  middleware: {
+                    specificationVersion: "v4",
+                    wrapStream: async ({ doStream, params }) => {
+                      prompts.push(params.prompt);
+                      return doStream();
+                    },
+                  },
+                }),
             });
             core.on(
               "consent.requested",
@@ -187,6 +221,7 @@ describe.each(LIVE)("The assistant sees its own waiting changes, live: $name", (
             const failures: string[] = [];
             const judgments: string[] = [];
             const replies: string[] = [];
+            const toldAll: string[] = [];
             for (const request of each.requests) {
               const turn = await ask(core, request, mind.id, folder.id, conversationId);
               conversationId = turn.conversationId;
@@ -218,6 +253,7 @@ describe.each(LIVE)("The assistant sees its own waiting changes, live: $name", (
               const text = readMind(client).textContent;
               texts.push(text);
               replies.push(turn.answer.text);
+              toldAll.push(toolResultsIn(prompts.at(-1)));
               sizes.push(text.length);
             }
             const [first = 0, second = 0] = sizes;
@@ -244,6 +280,8 @@ describe.each(LIVE)("The assistant sees its own waiting changes, live: $name", (
               `- ${label} run ${run}: ${calls.join(" | ")}; characters ${sizes.join(" → ")}; ${counts.join(" | ")}`,
               ...failures.map((each) => `  refused: ${each}`),
               `  ${judgments.join("")}`,
+              `  turn 3, what the model was told: ${(toldAll[2] ?? "").slice(0, 900)}`,
+              `  turn 3, the text before: ${(texts[1] ?? "").replace(/\n/g, " ⏎ ").slice(0, 900)}`,
               `  third: ${(texts[2] ?? "").replace(/\n/g, " ⏎ ").slice(0, 700)}`,
             );
             core.close();

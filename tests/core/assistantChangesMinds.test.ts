@@ -651,6 +651,43 @@ describe("The Minds' Tools find what the model names", { timeout: 30_000 }, () =
     expect(told).not.toContain("“Pay is monthly.”");
   });
 
+  // protects=the result names what the Mind really lost, not what the rewrite left out: a paragraph the reply drops stays unless the request asks to remove it, and the model isn't told it went; fails_when=the result lists a paragraph that is still there, or leaves out one that went; no_claim=how the model words its reply.
+  test.each([
+    {
+      asked: "Make it shorter",
+      stays: true,
+      notes: ["Pay is monthly.", "Work is full time, Monday to Friday."],
+    },
+    {
+      asked: "删去整个“工作安排”部分，其他部分保持不变。",
+      stays: false,
+      notes: ["薪酬按月发放。", "全职，周一至周五上班。"],
+    },
+  ])(
+    "a paragraph the reply leaves out is told as gone only when it went: $asked",
+    async ({ asked, stays, notes }) => {
+      const model = scriptedModel((call: ModelCall): ScriptedReply => {
+        const passage = /<passage>\n([\s\S]*?)\n<\/passage>/.exec(call.prompt)?.[1];
+        if (passage !== undefined) {
+          return { text: `${passage.split("\n\n")[0]} Noted.\n<why>Done.</why>` };
+        }
+        return call.results.length === 0
+          ? { calls: [{ tool: "edit_mind", input: { instruction: asked } }] }
+          : { text: "Done." };
+      });
+      const { core, mind, client } = await setUp(model);
+      writeMind(client, [note(notes[0] as string), note(notes[1] as string)]);
+      await client.settled();
+
+      await ask(core, { text: asked, mindId: mind.id });
+
+      await client.settled();
+      const told = lastResult(model);
+      expect(told.includes(`“${notes[1]}”`)).toBe(!stays);
+      expect(shownWithChanges(client).join(" ").includes(`- ${notes[1]}`)).toBe(!stays);
+    },
+  );
+
   // protects=a section the Mind doesn't have is refused with the Mind's headings, so the model can name one on its next call; fails_when=the refusal gives no headings, or something is changed; no_claim=that a real model then names one.
   test("a section the Mind doesn't have is refused with the Mind's own headings", async () => {
     const model = toolModel(
