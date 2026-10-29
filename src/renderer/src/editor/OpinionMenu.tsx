@@ -23,6 +23,7 @@ export function OpinionMenu({
 }) {
   const t = useT();
   const place = useCardPlace(mindId);
+  const running = useChecks((state) => Boolean(state.running[mindId]));
   const [opinion, setOpinion] = useState<OpinionCheck | null>(null);
   const menu = useObjectMenu(null, (row, point) => {
     if (editor.isDestroyed || !editor.isEditable || useChecks.getState().running[mindId])
@@ -72,9 +73,9 @@ export function OpinionMenu({
           testId="opinion-context"
           without={["check.findSources", "check.useDocumentWording"]}
           here={{
-            "check.anyway": () => {
-              checkOpinion(editor, mindId, doc, opinion, place);
-            },
+            ...(!running && {
+              "check.anyway": () => checkOpinion(editor, mindId, doc, opinion, place),
+            }),
           }}
         />
       )}
